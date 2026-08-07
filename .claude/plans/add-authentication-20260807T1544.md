@@ -1,3 +1,36 @@
+# ⛔️ SUPERSEDED — DO NOT EXECUTE
+
+**Voided 2026-08-07 11:29 CDT by Josh's decision:** *"lets skip building anything that
+isnt the 'real' thing and the way that normies will connect easily."*
+
+This plan's core proposal was an **interim** local password login, explicitly designed to
+be thrown away or demoted once passkeys landed. That is exactly the scaffolding the
+decision rules out. **No code from this plan was written.** The branch carries only this
+file.
+
+**What survives and is worth re-reading when the real build is planned:**
+
+- **§1** the RP-ID finding: a passkey is permanently bound to the hostname it was created
+  on, so the domain must exist and be final *before* anyone registers. This is why the
+  product name is now the blocking decision, not a cosmetic one.
+- **§2** the default-deny enforcement design and the allowlist-exhaustiveness test. This is
+  mechanism-agnostic and is still the right shape for the real auth layer.
+- **§5** the CSRF and brute-force surface, unchanged by which credential wins.
+- **§9's** warning about `tailscale serve` on this host — **still live and still dangerous**,
+  see the note in that section.
+
+**What the real build is instead:** the relay, per `docs/remote-access-research.md`, with
+passkeys as the primary login and email reserved for account recovery only. Blocked on the
+product name, because the name is the domain and passkeys, the wildcard certificate and the
+private-IP hostname trick all bind to it.
+
+**Tiering settled with Josh the same morning:** at-the-machine free; same-network free (the
+IP-encoded hostname plus wildcard cert, no relay); genuinely-remote is the paid relay, or
+self-host it. The DNS zone sits in the free path, so "works without us" is only true for
+self-hosters. Say that plainly rather than let someone find it.
+
+---
+
 # Plan: add-authentication
 
 **Issue:** joshualeestone/agent-workforce#10, remote access + authentication
@@ -189,6 +222,9 @@ Named so the branch does not sprawl, and so the next agent does not think they w
 - Binding to anything other than `127.0.0.1`. **This branch adds auth and no reachability.**
   That direction is always safe; the reverse never is.
 - Issue #1's restart button, which now has a gate to sit behind.
+
+⚠️ **Do not add a `tailscale serve` route in this branch, even "just to test".** See §11.2 —
+on this host that is a publishing action, not a local one.
 
 ---
 
