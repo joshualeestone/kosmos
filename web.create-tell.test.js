@@ -52,10 +52,22 @@ test('the box is not checked in the markup, because nothing has been read yet', 
      painter. The painter could be perfect and this attribute would still show
      a tick for the whole first frame, before any read has happened, on the
      screen where the claim is made. */
-  const row = PAGE.slice(PAGE.indexOf('id="create-tell-wrap"'), PAGE.indexOf('id="create-reports-wrap"'));
-  assert.ok(row.includes('id="create-tell"'), 'the row moved, so this test is reading the wrong markup');
-  assert.ok(!/id="create-tell"[^>]*\schecked/.test(row),
+  /* ⚠️ ANCHORED ON THE INPUT ITSELF, NOT ON WHAT SITS AFTER IT. This used to
+     slice from `create-tell-wrap` to `create-reports-wrap`, which was a claim
+     about the ORDER of two unrelated fields -- and on 2026-08-22 Reports to moved
+     above the checkbox, so the slice ran backwards and came back empty. An empty
+     slice fails the "row moved" guard, which is the good outcome; the bad one was
+     always available, because a `checked` attribute would also have been outside
+     an empty slice and reported absent. */
+  const at = PAGE.search(/id="create-tell"/);
+  assert.ok(at > -1, 'the checkbox lost its id, so this test is reading nothing');
+  const tag = PAGE.slice(PAGE.lastIndexOf('<', at), PAGE.indexOf('>', at) + 1);
+  assert.match(tag, /^<input\b/, 'that id is no longer on an input');
+  assert.ok(!/\schecked\b/.test(tag),
     'the box is hard-coded checked again, which claims consent before anything has been read');
+  // The positive control: the same read finds an attribute that IS there, so a
+  // slice that had silently gone empty could not pass the line above.
+  assert.match(tag, /type="checkbox"/, 'CONTROL: the tag this test read is not the checkbox');
 });
 
 test('the standing answer being ON leaves the box checked and usable', () => {

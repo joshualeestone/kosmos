@@ -84,7 +84,7 @@ one invented by somebody who did not write them.
 | `render-full-width.js` | The board, settings and create form at 1760px: one row lining up with another (#286, #287) |
 | `render-list-row.js` | The not-running row in the list layout, measured cell by cell against a running one (#278) |
 | `render-memory-words.js` | Measure the two unknown-memory captions on all three surfaces that draw them, |
-| `render-model-more.js` | The create form's model hint and "More models" disclosure (#202) |
+| `render-create-form.js` | Step two of Create an agent: no rules, half widths, Josh's order, the stepped model group |
 | `render-survival.js` | The panel naming the agents that will not come back after a restart (#277) |
 | `render-not-running.js` | The card and the tile for an agent Kosmos knows about that is not running (#278) |
 | `render-offline-note.js` | What the page says when the server it was loaded from is killed under it (#269) |
@@ -489,3 +489,16 @@ form worked perfectly, and Kosmos opens Safari.
 ⚠️ **On macOS a click does not move keyboard focus to a radio** unless Full
 Keyboard Access is on, so the script focuses before it arrows. Its first version
 clicked, and read the missing focus as "native grouping does not work in Safari".
+
+**`render-create-form.js`** replaced the script that pinned the create form's
+closed "More models" disclosure, deleted on 2026-08-22. The disclosure is gone:
+the providers are a menu now, with everything but Anthropic disabled. That
+script was also already half-broken on main, because a SECOND `.smore` lives in
+the first-run pane and its locator resolved to two elements. Deleted rather than
+left passing its first four assertions on a control that no longer exists.
+
+⚠️ The deleted script is deliberately not named here: this README is checked
+against the directory, and a filename in prose reads to that check as a script
+that should exist.
+
+It needs first run complete (same seeding as above) and runs both engines.

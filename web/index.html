@@ -2265,6 +2265,71 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
 .genav.empty { box-shadow: inset 0 0 0 1.5px var(--separator); }
 .sav-btn { display: inline-block; }
 #cstep-name .field { max-width: 36rem; }
+
+/* ---- step two, after Josh's pass on 2026-08-22 -------------------------- */
+
+/* 🛑 NO RULES BETWEEN THE FIELDS. `.field` carries a top border app-wide, and
+   on a six-field form that is five horizontal lines: Josh called the result
+   heavy and he is right, a rule between every pair of fields divides a form
+   into six things rather than joining them into one.
+   ⚠️ SCOPED TO THIS STEP, NOT CHANGED AT SOURCE. The same `.field` rule dresses
+   Settings, the agent page and the project screens, where the separators are
+   doing real work between unrelated blocks. This is a form; those are lists.
+   📌 The space the border occupied is KEPT (the margin is unchanged) rather
+   than collapsed with it: taking the line and the gap together would push the
+   labels onto the control above them, which is the opposite of the breathing
+   room asked for in the same message. */
+#cstep-name .field { border-top: 0; padding-top: 0; margin-top: var(--space-7); }
+#cstep-name .sform-sec { margin-bottom: var(--space-7); }
+
+/* "Right now it feels like the text is right up on the forms." The app-wide
+   gap is 2px, which is a caption sitting on its input. */
+#cstep-name .flabel { margin-bottom: var(--space-3); }
+
+/* 🔑 HALF WIDTH, AND THAT IS A CEILING RATHER THAN A SIZE. These controls sat
+   in a `.frow` on `flex: 1`, so each one filled the form's full 36rem -- "we
+   don't need to fill that giant for the name". `flex: 0 1 auto` lets them
+   shrink on a narrow window instead of forcing the row to scroll, which is
+   what a fixed width would do.
+   ⚠️ THE INSTRUCTIONS BOX IS DELIBERATELY NOT IN THIS LIST. It is prose, and
+   prose at half width on a form this wide reads as a mistake. */
+#cstep-name .frow input[type=text],
+#cstep-name #create-reports,
+#cstep-name #create-provider,
+#cstep-name #create-account,
+#cstep-name #create-model { flex: 0 1 18rem; width: 18rem; min-width: 0; max-width: 100%; }
+
+/* 🔑 THE THREE MODEL MENUS, STEPPED, WITH AN ELBOW DRAWN INTO THE INDENT.
+   Each `.mstep` is nested INSIDE the one above it rather than being a sibling
+   with a bigger margin, so the indent accumulates from the structure and a
+   fourth rung would need no new number. The elbow is one box with two borders
+   -- down the gutter, then right into its own control -- which is why it needs
+   no second element and no background image.
+   ⚠️ `top` IS NEGATIVE BY THE ROW GAP, so the line starts at the bottom edge of
+   the control above rather than at the top of its own row. Change the gap and
+   this number moves with it; they are the same distance. */
+.msteps { display: grid; gap: var(--space-4); }
+.mstep { position: relative; padding-left: 28px; }
+.mstep::before {
+  content: ''; position: absolute; left: 10px; top: calc(var(--space-4) * -1);
+  height: calc(var(--space-4) + 18px); width: 12px;
+  /* 🛑 `--label-3`, NOT A SEPARATOR TOKEN, AND THAT IS A CONTRAST DECISION.
+     Measured against the page in both themes: `--separator` is 1.45:1 in dark
+     and `--border-strong` 2.26:1, both under the 3:1 that WCAG asks of a
+     non-text element carrying meaning -- and this line carries the only
+     statement that these three menus are one narrowing rather than three
+     unrelated fields. At 4.8:1 in both themes it is visible without being
+     louder than the controls it joins. */
+  border-left: 1px solid var(--label-3); border-bottom: 1px solid var(--label-3);
+  border-bottom-left-radius: 6px; pointer-events: none;
+}
+
+/* 🔑 THE CHECKBOX AND THE BUTTON ON ONE LINE (Josh). `.sfoot` is shared with
+   step one, which has a single button in it -- and `space-between` on one child
+   pins it LEFT, so this cannot be a change to the shared rule. */
+#cstep-name .sfoot { justify-content: space-between; align-items: flex-start; gap: var(--space-6); }
+#cstep-name .sfoot .field { margin-top: 0; }
+#cstep-name .sfoot #create-go { flex: 0 0 auto; }
 /* ⚠️ JOINED THE UNIFICATION LATE. This hardcoded `--bg-elevated` and a
    `1px solid var(--separator)` border while its three neighbours on the same
    step carry `--field-fill` and `0.5px solid var(--border-strong)`. It LOOKED
@@ -4249,6 +4314,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <h2 id="create-meet">Set up your agent</h2>
     <p id="create-blurb"></p>
 
+
     <!-- ⚠️ NO BOX around this form (pack): each step is its own pane now,
          and a box would be a container drawn around the only thing on
          screen. The avatar sits ABOVE the fields, not beside them: beside,
@@ -4297,12 +4363,106 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       </div>
     </div>
 
+      <!-- "Role", not "Role label" (Josh, 2026-08-22): the word `label` was
+           describing the FIELD to the person filling it in, on a form where
+           every other label names the thing itself. -->
     <div class="field">
-      <label class="flabel" for="create-label">Role label</label>
+      <label class="flabel" for="create-label">Role</label>
       <div class="frow">
         <input type="text" id="create-label" autocomplete="off" maxlength="80"
                placeholder="Executive Assistant, Bookkeeper, Researcher&hellip;">
       </div>
+    </div>
+
+    <!-- 🛑 NOT OPTIONAL, AND ALWAYS HERE (Josh, 2026-08-22): "it either reports
+         to you as the user or it's going to report to some other agent". It used
+         to be absent entirely on the first agent, on the reasoning that there was
+         nobody to name -- which was only true because the menu did not name YOU.
+         🔑 REPORTING TO YOU IS THE EMPTY VALUE, deliberately, rather than a new
+         kind of record. The org chart already draws every agent with no manager
+         to the hub that is you, so "reports to you" and "has nobody above it"
+         were always the same arrangement; this is the screen finally saying so,
+         and nothing in the engine changed.
+         ⚠️ THE FIRST OPTION IS NAMED FROM YOUR OWN RECORD, and falls back to
+         "You" when that is blank. It is not a placeholder: the whole point is
+         that the default answer is a real answer. -->
+    <div class="field" id="create-reports-wrap">
+      <label class="flabel" for="create-reports">Reports to</label>
+      <div class="frow">
+        <select id="create-reports"></select>
+      </div>
+    </div>
+
+    <!-- 🛑 THE PROJECTS PICKER IS GONE FROM THIS FORM (Josh, 2026-08-22):
+         "eventually this is going to turn into a ton of projects here". It was a
+         wrapping row of chips, one per live project, on the one screen a person
+         walks once per agent, and it grew without bound. Membership is still
+         addable from the project screen, which is the path that already existed
+         and does not have this problem.
+         ⚠️ `CREATE_PROJECT_NAMES` AND THE PER-PROJECT TICK LINES ARE KEPT ON
+         PURPOSE. The create route still accepts projects, so a caller that sends
+         them still gets an honest per-project outcome on the last step; what left
+         is the way this form offered them. -->
+    <!-- 🔑 THREE MENUS, EACH NARROWING THE ONE ABOVE IT, drawn stepped with an
+         elbow (Josh, 2026-08-22, with a mock). Provider, then the account on that
+         provider, then the model: each answer is only meaningful once the one
+         above it is chosen, and the indent says so without a sentence explaining
+         it.
+
+         🛑 THE GREYED PROVIDERS ARE A REVERSAL, KNOWINGLY. This screen carried a
+         CLOSED disclosure instead, and its comment argued the case in these
+         words: "Greyed options invite a click and then refuse, which is the
+         treatment this product does not give anything a person might reach for."
+         Josh asked for the greyed list, and he is right that a provider menu
+         offering one provider reads as a menu that is broken. A `disabled`
+         option is the platform's own way of saying not yet: it cannot be taken
+         by mouse, keyboard or screen reader, so nothing here refuses after the
+         fact. The old reasoning is kept because it is the argument anyone would
+         make again.
+
+         ⚠️ THE LIST HAS A TIMER ON IT, unchanged from the disclosure it replaces:
+         it describes what an agent can be CREATED on, which is not the same as
+         what the engine can read. Whoever wires a second provider into the create
+         path enables its option in the same change, because the failure direction
+         is understating the product on the screen where somebody is choosing. -->
+    <div class="field" id="create-model-field">
+      <span class="flabel" id="create-model-lab">Model</span>
+      <div class="msteps" role="group" aria-labelledby="create-model-lab">
+        <div class="frow">
+          <select id="create-provider" aria-label="Provider">
+            <option value="anthropic" selected>Anthropic / Claude</option>
+            <option value="openai" disabled>OpenAI</option>
+            <option value="google" disabled>Google Gemini</option>
+            <option value="meta" disabled>Meta / Llama</option>
+            <option value="xai" disabled>xAI Grok</option>
+            <option value="alibaba" disabled>Alibaba / Qwen</option>
+            <option value="moonshot" disabled>Moonshot / Kimi</option>
+            <option value="mistral" disabled>Mistral</option>
+          </select>
+        </div>
+        <!-- ⚠️ SHOWN EVEN AT ONE ACCOUNT, reversing the rule this field used to
+             carry ("a field whose menu has a single entry is a decision presented
+             to somebody who has none to make"). That was written for a field
+             standing on its own; this is the middle rung of a three-step
+             narrowing, and a missing rung reads as a broken diagram. Josh: "if
+             this user only has one account then that would be the only thing in
+             the box." -->
+        <div class="mstep">
+          <div class="frow">
+            <select id="create-account" aria-label="Account"></select>
+          </div>
+          <div class="mstep">
+            <div class="frow">
+              <select id="create-model" aria-label="Model"></select>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- ⚠️ THIS SENTENCE WAS BLOCKED AND THE BLOCK WENT STALE. It was held back
+           because the agent's own page had no model control, so a promise made
+           here was one the next screen contradicted. That page now carries a model
+           picker with a Change button and the route behind it. -->
+      <p class="shint">You can change this later.</p>
     </div>
 
     <div class="field">
@@ -4316,124 +4476,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <div class="fhint">Describe what this agent does and how it should work. You can edit this later.</div>
       <textarea id="create-instr" rows="10" spellcheck="false"></textarea>
       <div class="fmsg" id="create-instr-note" role="status" aria-live="polite"></div>
-    </div>
-
-    <!-- ⚠️ ABSENT ENTIRELY when there are no projects (pack's own rule for
-         the archived list): a brand-new person should not meet an empty
-         section explaining a thing they have none of. -->
-    <div class="field" id="create-projects-wrap" hidden>
-      <span class="flabel" id="create-projects-lab">Add this agent to any projects <span class="flabel-soft">(optional)</span></span>
-      <!-- ⚠️ ONE LINE, AND IT IS LOAD-BEARING AT COUNT ONE. Plurality and pill
-           shape are what make a multi-select obvious, and somebody with a
-           single project has neither: one chip on its own reads as a label.
-           The pack uses this sentence on the members surface for the same
-           reason. It is true at any count. -->
-      <div class="fhint">Pick as many as you like.</div>
-      <div class="projpick" id="create-projects" role="group" aria-labelledby="create-projects-lab"></div>
-    </div>
-
-    <div class="field">
-      <label class="flabel" for="create-model">Model</label>
-      <div class="frow">
-        <select id="create-model"></select>
-      </div>
-      <!-- ⚠️ THIS SENTENCE WAS BLOCKED AND THE BLOCK WENT STALE. It was held
-           back because the agent's own page had no model control, so a promise
-           made here was one the next screen contradicted. That page now carries
-           a model picker with a Change button and the route behind it, so the
-           sentence is simply true. -->
-      <p class="shint">You can change this later.</p>
-      <!-- 🔑 CLOSED DISCLOSURE RATHER THAN GREYED ROWS, and the difference is
-           the point. Greyed options invite a click and then refuse, which is
-           the treatment this product does not give anything a person might
-           reach for. A closed disclosure says there is more here without
-           offering anything that cannot be taken.
-
-           ⚠️ ONE OF THESE LINES HAS A TIMER ON IT. The list describes what an
-           agent can be CREATED on, which is not the same as what the engine can
-           read: a session reader for another provider can land well before
-           creation does. Whoever wires a second provider into the create path
-           updates this list in the same change, because the failure direction
-           here is understating the product on the screen where somebody is
-           choosing. -->
-      <details class="smore">
-        <summary>More models</summary>
-        <ul>
-          <li>Gemini, Google &middot; coming soon</li>
-          <li>GPT, OpenAI &middot; coming soon</li>
-        </ul>
-        <p class="smore-t">Runs on this computer</p>
-        <ul>
-          <li>Llama, Meta &middot; coming soon</li>
-          <li>Qwen, Alibaba &middot; coming soon</li>
-          <li>Mistral &middot; coming soon</li>
-        </ul>
-      </details>
-    </div>
-
-    <!-- ⚠️ HIDDEN WHEN THERE IS ONLY ONE ACCOUNT, which is most machines. A
-         field whose menu has a single entry is a decision presented to somebody
-         who has none to make, and it lands in the middle of the one flow a
-         first-time person walks. It appears the moment a second account is
-         signed in.
-         🔑 IT SITS WITH MODEL, AFTER IT, and that is deliberate rather than
-         where it landed. An earlier version of this comment claimed it was the
-         last field BEFORE model, and it was not: measuring the rendered page
-         put it 85px below. The measurement is the better arrangement, so the
-         comment moved rather than the field. The pack's rule is that the form
-         reads as a sentence ending in the technical choices, and which account
-         an agent runs on IS one of those -- the agent's own page groups model
-         and account in a single "Runs on" box for the same reason. Two screens
-         that group the same pair the same way cannot teach a person two
-         different mental models. -->
-    <div class="field" id="create-account-wrap" hidden>
-      <label class="flabel" for="create-account">Claude account</label>
-      <div class="frow">
-        <select id="create-account"></select>
-      </div>
-      <div class="fhint">Everything this agent does is kept with the rest of your agents' history, whichever account it runs on.</div>
-    </div>
-
-    <!-- ⚠️ ONE LINE AND ONE DROPDOWN, with no explanatory paragraph of its own,
-         because this is a screen Josh CUT DOWN on Wednesday (six deletions,
-         mostly explanations). A new optional field arriving with a paragraph
-         would undo the thing that edit was for.
-         🔑 ABSENT ON THE FIRST AGENT: there is nobody to name but the agent
-         being made, so the menu would carry no choice. Same rule as the
-         projects picker, and the same resolution as the removed-agents list at
-         zero. -->
-    <!-- #238. Josh: "They will see a checkbox that says 'Let Kosmos know you
-         created an agent' and they can uncheck it if they want."
-         ⚠️ THE LABEL IS ONE STRING IN ONE PLACE, because it is still being
-         worded: "Kosmos" is also the app on their own Mac, so "Let Kosmos know"
-         can be read as telling the local app, which it obviously already
-         knows. Mona Lisa and I raised that separately and it is Josh's to rule;
-         until he does, his exact words ship and the change is one edit. -->
-    <!-- ⚠️ NOT `checked` IN THE MARKUP, WHICH IT WAS UNTIL 2026-08-22 (#258).
-         Sending is TWO gates: this box for one agent, and the standing answer
-         in Settings. A box hard-coded to checked showed a person consenting to
-         something the second gate was about to refuse, so the screen offered an
-         action that would silently not happen. That is the state this form
-         already refuses three fields up, where Reports to disappears rather
-         than offering a choice nobody can make.
-         🔑 The difference is that reports-to is a choice that is IMPOSSIBLE and
-         this one is already ANSWERED, so the row stays and says so rather than
-         vanishing: a row that disappears teaches nothing, and somebody who
-         turned this off in Settings is exactly the person who benefits from
-         seeing that it took. (Mona Lisa's lean, and mine.) -->
-    <div class="field" id="create-tell-wrap">
-      <label class="tellrow" for="create-tell">
-        <input type="checkbox" id="create-tell">
-        <span>Let Kosmos know you created an agent</span>
-      </label>
-      <div class="fhint" id="create-tell-note"></div>
-    </div>
-
-    <div class="field" id="create-reports-wrap" hidden>
-      <label class="flabel" for="create-reports">Reports to <span class="flabel-soft">(optional)</span></label>
-      <div class="frow">
-        <select id="create-reports"></select>
-      </div>
     </div>
 
     <!-- ⚠️ NO BACK BUTTON (Josh, 2026-08-19), and the pack has none here either:
@@ -4464,7 +4506,51 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          decided, and a sentence they read after pressing is a sentence they read
          about something that has happened. -->
     <p class="rolelimit" id="create-limit" hidden></p>
+    <!-- 🔑 ONE ROW: the box on the left, the button on the right (Josh,
+         2026-08-22). They were two stacked blocks with the notice between them.
+         ⚠️ THE BOX KEEPS ITS OWN NOTE. Unchecking it can produce a sentence
+         saying the standing answer in Settings already refuses, and that sentence
+         renders under the box, inside the left half of this row, rather than
+         being squeezed into a button row. -->
     <div class="sfoot">
+      <!-- ⚠️ ONE LINE AND ONE DROPDOWN, with no explanatory paragraph of its own,
+           because this is a screen Josh CUT DOWN on Wednesday (six deletions,
+           mostly explanations). A new optional field arriving with a paragraph
+           would undo the thing that edit was for.
+           🔑 ABSENT ON THE FIRST AGENT: there is nobody to name but the agent
+           being made, so the menu would carry no choice. Same rule as the
+           projects picker, and the same resolution as the removed-agents list at
+           zero. -->
+      <!-- #238. Josh: "They will see a checkbox that says 'Let Kosmos know you
+           created an agent' and they can uncheck it if they want."
+           ⚠️ THE LABEL IS ONE STRING IN ONE PLACE, because it is still being
+           worded: "Kosmos" is also the app on their own Mac, so "Let Kosmos know"
+           can be read as telling the local app, which it obviously already
+           knows. Mona Lisa and I raised that separately and it is Josh's to rule;
+           until he does, his exact words ship and the change is one edit. -->
+      <!-- ⚠️ NOT `checked` IN THE MARKUP, WHICH IT WAS UNTIL 2026-08-22 (#258).
+           Sending is TWO gates: this box for one agent, and the standing answer
+           in Settings. A box hard-coded to checked showed a person consenting to
+           something the second gate was about to refuse, so the screen offered an
+           action that would silently not happen. That is the state this form
+           already refuses elsewhere by not offering an impossible choice at all.
+           🛑 IT USED TO NAME REPORTS-TO AS THAT ELSEWHERE, and that example died
+           on 2026-08-22 without a word of this comment changing: Reports to no
+           longer disappears on the first agent, because the menu now names YOU
+           and you are always a legal answer. The distinction the comment draws
+           is still the right one -- a choice that is IMPOSSIBLE can vanish, a
+           choice that is already ANSWERED must stay and say so -- so the rule is
+           kept and the dead example is not.
+           🔑 This box is the answered kind: somebody who turned this off in
+           Settings is exactly the person who benefits from seeing that it took.
+           (Mona Lisa's lean, and mine.) -->
+      <div class="field" id="create-tell-wrap">
+        <label class="tellrow" for="create-tell">
+          <input type="checkbox" id="create-tell">
+          <span>Let Kosmos know you created an agent</span>
+        </label>
+        <div class="fhint" id="create-tell-note"></div>
+      </div>
       <button class="btn uprime big" id="create-go" type="button">Create agent</button>
     </div>
     <div class="fmsg" id="create-msg" role="status" aria-live="polite"></div>
@@ -11398,6 +11484,26 @@ function histSay(sum) {
    and reacting to a 404 -- makes the hub and Settings disagree for as long as
    one of them has not looked, and a broken-image icon is what that disagreement
    renders as. */
+/**
+ * Your own name, from your own record, for the one place a menu has to NAME
+ * you rather than draw you: "Reports to".
+ *
+ * ⚠️ EMPTY IS A REAL STATE, not a loading state. The record is optional and
+ * plenty of machines never fill it in, so every reader falls back to "You" --
+ * which is the word the org chart already puts on the hub, so the two surfaces
+ * agree by default rather than by coincidence.
+ */
+let YOU_NAME = '';
+async function refreshYouName() {
+  try {
+    const r = await fetch('/api/you', { cache: 'no-store' });
+    const j = r.ok ? await r.json().catch(() => null) : null;
+    YOU_NAME = (j && j.you && typeof j.you.name === 'string') ? j.you.name.trim() : '';
+  } catch {
+    /* Left as it was. A network failure here costs the menu your name and
+       nothing else, and "You" is a true answer rather than a placeholder. */
+  }
+}
 let YOU_PIC = false;
 let YOU_PIC_V = 0;      // busted on save, so the browser cannot serve the old one
 function youPicUrl() { return '/api/you/avatar?v=' + YOU_PIC_V; }
@@ -13542,6 +13648,12 @@ document.getElementById('create-avatar').addEventListener('change', (e) => {
 let EXTRAS_GEN = 0;
 async function loadCreateExtras() {
   const gen = ++EXTRAS_GEN;
+  /* ⚠️ AWAITED BEFORE THE MENUS ARE BUILT, not fired alongside them. The
+     reports menu names you in its first option, so a late answer would fill
+     the menu with "You" and then have to go back and edit an option a person
+     may already be looking at. It is one small local read. */
+  await refreshYouName();
+  if (gen !== EXTRAS_GEN) return;
   // Models, from the same payload as the roles (the engine's own list).
   const sel = document.getElementById('create-model');
   const models = CREATE_MODELS;
@@ -13553,26 +13665,26 @@ async function loadCreateExtras() {
      refused by the engine with a sentence saying so; offering it here would be
      an option that always fails, which is worse than an option that is not
      there. */
-  /* Reports to: the agents already on the board. Hidden when there are none,
-     which is exactly the first-agent case. */
+  /* Reports to: you first, then the agents already on the board.
+     🔑 ALWAYS RENDERED, WITH A REAL DEFAULT. This used to hide itself when the
+     board was empty, which was the first agent every person ever makes -- the
+     one case where the answer matters most and the field was not there. The
+     reason it could hide was that its only options were other agents; now the
+     first option is you (Josh, 2026-08-22).
+     ⚠️ STILL NOTHING GUESSED AMONG THE AGENTS, and that rule is unchanged: a
+     role catalogue exists, a manager role is in it, and a regex that spots one
+     is already written. Prefilling from it would put a GUESSED reporting line
+     into the diagram the org chart draws, where it stops looking like a guess.
+     You as the default is not a guess about the fleet, it is what the empty
+     value has always meant. */
   const rwrap = document.getElementById('create-reports-wrap');
   const rsel = document.getElementById('create-reports');
+  rwrap.hidden = false;
   const existing = (LAST || []).filter((x) => x && x.sessionName);
-  rwrap.hidden = existing.length === 0;
-  if (!rwrap.hidden) {
-    /* ⚠️ NOTHING PRESELECTED, and this is the one place it would be tempting:
-       a role catalogue exists, a manager role is in it, and a regex that
-       spots one is already written. Prefilling from it would put a guessed
-       reporting line into the diagram #137 draws, where it stops looking like
-       a guess. */
-    rsel.innerHTML = ['<option value="">Nobody</option>'].concat(
-      existing.map((x) => '<option value="' + esc(x.sessionName) + '">' + esc(x.name || x.sessionName) + '</option>'),
-    ).join('');
-  } else {
-    rsel.innerHTML = '';
-  }
+  rsel.innerHTML = ['<option value="" selected>' + esc(YOU_NAME || 'You') + '</option>'].concat(
+    existing.map((x) => '<option value="' + esc(x.sessionName) + '">' + esc(x.name || x.sessionName) + '</option>'),
+  ).join('');
 
-  const awrap = document.getElementById('create-account-wrap');
   const asel = document.getElementById('create-account');
   (async () => {
     let list = [];
@@ -13582,48 +13694,33 @@ async function loadCreateExtras() {
     } catch { /* the field stays hidden, which is the one-account shape */ }
     if (gen !== EXTRAS_GEN) return;
     const movable = list.filter((x) => x.memoryShared);
-    /* ⚠️ Hidden at one, not disabled at one: a greyed field still asks somebody
-       to read it and decide it does not apply to them. */
-    awrap.hidden = movable.length < 2;
-    if (awrap.hidden) { asel.innerHTML = ''; return; }
-    asel.innerHTML = movable.map((x) =>
-      `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${esc(x.email || x.label || x.dir)}${x.isDefault ? ' (your first account)' : ''}</option>`).join('');
+    /* 🔑 ALWAYS FILLED, NEVER HIDDEN. This rung used to disappear below two
+       accounts, on the argument that a one-entry menu asks somebody to make a
+       decision they do not have. As the middle step of a narrowing it reads
+       differently: the rung missing is what looks broken, not the rung with one
+       answer in it.
+       ⚠️ AND IT HAS TO SAY SOMETHING WHEN THE ROUTE ANSWERS NOTHING, which it
+       does on a machine that is not signed in and whenever the fetch above
+       fails. An empty menu under a filled one is the same broken diagram by a
+       different route, so it names the account the agent will actually use
+       rather than rendering a blank. */
+    const usable = movable.length ? movable : list;
+    asel.innerHTML = usable.length
+      ? usable.map((x) =>
+        `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${esc(x.email || x.label || x.dir)}${x.isDefault ? ' (your first account)' : ''}</option>`).join('')
+      : '<option value="">Your Claude account</option>';
   })();
-  // Projects: absent entirely when there are none.
-  const wrap = document.getElementById('create-projects-wrap');
-  const box = document.getElementById('create-projects');
-  CREATE_PROJECTS = [];
-  try {
-    const res = await fetch('/api/projects', { cache: 'no-store' });
-    const data = res.ok ? await res.json() : null;
-    if (gen !== EXTRAS_GEN) return;   // a newer load owns the panel now
-    const list = (data && data.projects) || [];
-    // Archived projects are resting, not options for new work.
-    const live = list.filter((p) => !p.archived);
-    CREATE_PROJECT_NAMES = {};
-    for (const p of live) CREATE_PROJECT_NAMES[p.id] = p.name;
-    if (!live.length) { wrap.hidden = true; box.innerHTML = ''; return; }
-    box.innerHTML = live.map((p) =>
-      `<button class="ppick" type="button" role="checkbox" aria-checked="false" data-pj="${esc(p.id)}">
-        <span class="pickmark" aria-hidden="true">&#10003;</span>${esc(p.name)}
-      </button>`).join('');
-    wrap.hidden = false;
-  } catch {
-    // No projects section beats a broken one; membership is addable later
-    // from the project screen, which is the path that already exists.
-    wrap.hidden = true; box.innerHTML = '';
-  }
+  /* 🛑 THE PROJECTS PICKER IS GONE (Josh, 2026-08-22). What was here fetched
+     /api/projects, filled a row of chips, and kept `CREATE_PROJECTS` in step
+     with the clicks. All three left together: a fill with no markup throws on
+     the first `innerHTML`, and a click listener bound to a missing element
+     throws at parse time, so half a removal here is not a smaller removal.
+     ⚠️ `CREATE_PROJECTS` ITSELF STAYS, AND STAYS EMPTY. The create call still
+     reads it (`if (CREATE_PROJECTS.length) b.projects = ...`), which is now
+     always false rather than deleted -- so the route keeps its project support
+     and this form simply never asks for it. */
+
 }
-document.getElementById('create-projects').addEventListener('click', (e) => {
-  const b = e.target.closest('.ppick');
-  if (!b) return;
-  const on = b.getAttribute('aria-checked') !== 'true';
-  b.setAttribute('aria-checked', String(on));
-  const id = b.dataset.pj;
-  CREATE_PROJECTS = on
-    ? [...new Set([...CREATE_PROJECTS, id])]
-    : CREATE_PROJECTS.filter((x) => x !== id);
-});
 
 document.getElementById('create-go').addEventListener('click', async () => {
   if (CREATING) return;
@@ -13686,15 +13783,23 @@ document.getElementById('create-go').addEventListener('click', async () => {
         if (INSTR_DIRTY && instr.trim() && instr !== instrTemplate()) b.instructions = instr;
         const model = document.getElementById('create-model').value;
         if (model) b.model = model;
-        /* Only when the field is showing: on a one-account machine it is hidden
-           and empty, and sending an empty account would be the caller asserting
-           a choice nobody was offered. */
-        const awrap2 = document.getElementById('create-account-wrap');
+        /* 🛑 THE VALUE, NOT THE VISIBILITY. This read the `hidden` flag on the
+           account field's old wrapper element, which was deleted when the
+           account became a rung of the model group -- so this line threw a
+           TypeError on the Create button and nothing else on the page would have
+           told anybody: the form is fine right up to the press.
+           ⚠️ THE INTENT IT ENCODED SURVIVES IN THE VALUE ALONE. The rule was
+           "never assert a choice nobody was offered", and the fallback option
+           this menu draws when the route answers nothing carries an EMPTY value
+           for exactly that reason. So an unanswerable account is empty and is not
+           sent, which is what the hidden flag used to stand for. */
         const acct = document.getElementById('create-account').value;
-        if (!awrap2.hidden && acct) b.account = acct;
-        const rwrap2 = document.getElementById('create-reports-wrap');
+        if (acct) b.account = acct;
+        /* Empty means you, which is the default and is not a reporting line the
+           engine needs to record: the org chart draws an agent with no manager to
+           the hub already. */
         const to = document.getElementById('create-reports').value;
-        if (!rwrap2.hidden && to) b.reportsTo = to;
+        if (to) b.reportsTo = to;
         /* Sent only when it is FALSE. The server defaults it to true, so a
            caller that has never heard of this field behaves the way the box
            does, and an older client cannot silently opt somebody out. */
