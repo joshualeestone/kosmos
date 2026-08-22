@@ -85,6 +85,7 @@ one invented by somebody who did not write them.
 | `render-list-row.js` | The not-running row in the list layout, measured cell by cell against a running one (#278) |
 | `render-memory-words.js` | Measure the two unknown-memory captions on all three surfaces that draw them, |
 | `render-create-form.js` | Step two of Create an agent: no rules, half widths, Josh's order, the stepped model group |
+| `render-create-made.js` | The last step: the mark, the paced rows, and the greeting you are handed at the end |
 | `render-survival.js` | The panel naming the agents that will not come back after a restart (#277) |
 | `render-not-running.js` | The card and the tile for an agent Kosmos knows about that is not running (#278) |
 | `render-offline-note.js` | What the page says when the server it was loaded from is killed under it (#269) |
@@ -502,3 +503,21 @@ against the directory, and a filename in prose reads to that check as a script
 that should exist.
 
 It needs first run complete (same seeding as above) and runs both engines.
+
+**`render-create-made.js`** is the only script here that PRESSES CREATE. Start
+the server with `AGENT_WORKFORCE_DRY_RUN=1` on top of the sandboxed roots, and
+pass `--yes-dry-run` as the second argument or it refuses to run:
+
+```sh
+PORT=4561 AGENT_WORKFORCE_DRY_RUN=1 \
+  AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_WORKERS="$SB/workers" \
+  AGENT_WORKFORCE_LAUNCH="$SB/launch" AGENT_WORKFORCE_PROJECTS="$SB/projects" \
+  node server.js &
+NODE_PATH="$PW/node_modules" node docs/browser-checks/render-create-made.js \
+  http://127.0.0.1:4561 --yes-dry-run
+```
+
+⚠️ **The flag is not proof and cannot be.** The server does not report whether
+it is in dry run, so nothing in the script can check. Against an ordinary board
+this would spawn a session and install a launch job for an agent nobody asked
+for. It also needs first run complete, same seeding as above.

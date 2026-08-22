@@ -2206,8 +2206,17 @@ test('the creation screen reports a failed step as failed', () => {
   assert.match(out, /class="tick fail".*started it/,
     'a step the engine reported as FAILED was drawn as a success, which is the '
     + 'whole failure mode the step list exists to prevent');
-  assert.match(out, /class="tick waiting".*Waiting for the board/,
-    'the one line that is about the agent rather than about us went missing');
+  /* 🛑 THE WATCH ROW IS NO LONGER DRAWN, and this assertion used to require it.
+     Josh removed it on 2026-08-22: "I don't want to have the other steps that
+     were put in there, which were about putting it on a project or the board so
+     they can see it running."
+     ⚠️ THE WATCH ITSELF STILL RUNS -- it is what decides whether the invitation
+     at the end of the screen appears at all -- so what left is a row narrating
+     the wait, not the distinction between a claim about US and a claim about the
+     AGENT. That distinction now shows up as the heading and the invitation
+     rather than as a sixth tick. */
+  assert.doesNotMatch(out, /Waiting for the board/,
+    'the watch row is back on a screen Josh asked to have it off');
 
   // ⚠️ And in WORDS. The tick and the cross are aria-hidden and both states use
   // the same colour, so without these a screen reader hears "made its folder"
@@ -9261,4 +9270,48 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
     });
   }
   return undefined;
+});
+
+test('the rows arrive one at a time, and an unrevealed row says it is working', () => {
+  /* 🔑 THE PACING IS A REVEAL, NOT A SIMULATION. Every step has already
+     happened by the time this screen exists -- the engine does the whole
+     creation and answers with the outcome of each -- so the only thing being
+     staged is how many rows are showing their answer yet.
+     🛑 AND A FAILED STEP STILL RESOLVES TO ITS FAILURE when its turn comes. A
+     row that ticked on a timer regardless of what came back would be a check
+     that cannot fail, which is the one thing this screen must not become. */
+  const realTickLine = pageFunction('tickLine', 'function esc(s) { return String(s); }');
+  const paintMade = pageFunction('paintMade', `
+    const el = { innerHTML: '', textContent: '' };
+    const document = { getElementById: () => el };
+    function esc(s) { return String(s); }
+    const tickLine = ${realTickLine.toString()};
+    globalThis.__el2 = el;
+  `);
+  const steps = [
+    { label: 'made its folder', ok: true },
+    { label: 'wrote its instructions', ok: true },
+    { label: 'started it', ok: false },
+  ];
+
+  paintMade(steps, null, null, 1);
+  const early = globalThis.__el2.innerHTML;
+  assert.match(early, /class="tick done".*made its folder/, 'the revealed row lost its answer');
+  assert.match(early, /class="tick working".*wrote its instructions/,
+    'a row whose turn has not come was drawn with an answer it has not shown yet');
+  assert.match(early, /class="tick working".*started it/);
+  // In words too: the glyph is aria-hidden, so "working" has to be spoken.
+  assert.match(early, /still waiting: <\/span>wrote its instructions/);
+
+  paintMade(steps, null, null, 3);
+  const late = globalThis.__el2.innerHTML;
+  assert.match(late, /class="tick fail".*started it/,
+    'the step that FAILED resolved to a success once its turn came, which is the '
+    + 'exact defect a paced reveal invites');
+  assert.doesNotMatch(late, /class="tick working"/, 'a row never resolved');
+
+  /* The default: called with no count at all, everything shows its answer. Every
+     other caller on this page relies on that. */
+  paintMade(steps, null, null);
+  assert.doesNotMatch(globalThis.__el2.innerHTML, /class="tick working"/);
 });

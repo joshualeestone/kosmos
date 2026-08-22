@@ -2266,6 +2266,31 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
 .sav-btn { display: inline-block; }
 #cstep-name .field { max-width: 36rem; }
 
+/* ---- step three ---------------------------------------------------------
+   Centred like the two before it, and on the page ground rather than on a card:
+   see the note on the element. */
+#cstep-made { max-width: 34rem; margin: 0 auto; }
+.made-mark { display: block; margin: 0 auto var(--space-5); width: 66px; height: 77px; }
+/* 🔑 THE ROWS ARRIVE, ONE AT A TIME. Josh asked for each to animate in and to
+   look like it is working before it resolves. The motion is on the ROW; what
+   the row SAYS is the engine's answer and is never animated into existence.
+   ⚠️ Reduced motion gets the same sequence with no movement. The pacing is the
+   information here -- one thing at a time -- and only the sliding is decoration. */
+.tick { animation: tickin .28s ease both; }
+@keyframes tickin { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .tick { animation: none; }
+}
+/* The working state: the same row, with its mark pulsing, so the resolve is a
+   change of glyph in place rather than a new line appearing. */
+.tick.working .mark { animation: tickwork 1.1s ease-in-out infinite; }
+@keyframes tickwork { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .tick.working .mark { animation: none; opacity: .6; }
+}
+.made-hello { margin-top: var(--space-7); display: grid; gap: var(--space-4); justify-items: center; }
+.made-hello p { margin: 0; font: var(--text-body) var(--font-ui); color: var(--label); }
+
 /* ---- step two, after Josh's pass on 2026-08-22 -------------------------- */
 
 /* 🛑 NO RULES BETWEEN THE FIELDS. `.field` carries a top border app-wide, and
@@ -4584,7 +4609,21 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        class. Found by Mona Lisa; recorded in CURRENT-FREEZE against the class
        rather than the file, because a warning that names a file protects that
        file and not the defect. -->
-  <div class="dbox" id="cstep-made" hidden>
+  <!-- 🛑 NO CARD ON THIS STEP ANY MORE (Josh, 2026-08-22): "step 1 and step 2
+       are not inside of a white bounding box". The comment above explains at
+       length why `dbox` was kept here when the other two lost it -- the pack
+       draws this screen as a card and the justification for stripping the
+       others did not cover it. That was a good argument and Josh has overruled
+       it, for a reason the argument did not consider: three steps of one flow
+       that change shape between them read as three different screens. -->
+  <div id="cstep-made" hidden>
+    <!-- 🔑 THE MARK IS WORKING WHILE THE WORK IS. The same 155 dots the update
+         overlay uses, gathering into the K and opening back out, which is the
+         honest shape of "still going" -- it says nothing about how far along it
+         is, because nothing here knows. It is decorative and carries no
+         information a person needs, so it is hidden from assistive tech; the
+         rows below say everything it says, in words. -->
+    <canvas class="made-mark" id="made-mark" width="132" height="154" aria-hidden="true"></canvas>
     <h2 id="made-head">Making it</h2>
     <!-- ⚠️ Every line here is either something the engine reported or something
          this page watched happen. Nothing is asserted on a timer. -->
@@ -4595,16 +4634,35 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <div class="ticks" id="made-ticks"></div>
     <p class="vh" id="made-say" role="status" aria-live="polite"></p>
     <div class="stale-note" id="made-warn" hidden></div>
-    <!-- ⚠️ SAID BEFORE macOS SAYS IT. The agent is kept alive by a launchd job,
-         so the operating system posts its own "background item added" notice
-         and lists it under Login Items. Meeting that unexplained, minutes after
-         installing something, reads as a security warning about software you
-         did not know was running — and a person who then turns it off has
-         switched their own agent off without knowing that is what they did.
-         Shown only on a creation that actually happened; see `made-bg` in the
-         script. -->
-    <div class="stale-note" id="made-bg" hidden></div>
+    <!-- 🛑 THE BACKGROUND-ITEM EXPLANATION IS GONE (Josh, 2026-08-22): "let's
+         just ignore all that for now and if people encounter it then we'll deal
+         with it later."
+         ⚠️ WHAT GOES WITH IT, so the next reader is not surprised by it: macOS
+         still posts its own "background item added" notice, because the agent is
+         still kept alive by a launchd job. Nothing about the machine changed.
+         What changed is that we no longer meet it first. The risk the old box
+         was written against is real and unaddressed: somebody who finds an
+         unexplained login item minutes after installing something may switch it
+         off, and switching it off switches their agent off. It was five lines of
+         apparatus on a screen Josh wants to be a moment of arrival, and that
+         trade is his to make. -->
     <div class="first-action" id="made-first" hidden></div>
+    <!-- 🔑 THE INVITATION, AND IT IS NOT AN INSTRUCTION. Josh asked for a box
+         saying to say hello to "activate them on Kosmos", and the word does not
+         ship: an agent is running from the moment it is created and will answer
+         anything: it has simply never been given anything to do, the same as a
+         terminal you opened and have not typed in. Saying hello DOES change one
+         real thing -- an agent that has never spoken has no transcript, so the
+         board cannot read its model until it does -- but that is a fact about
+         Kosmos, not about the agent, and describing our limitation as its state
+         is the one thing this product's copy does not do. Somebody told they
+         must activate their agent reasonably concludes it is inert until they
+         do (Mona Lisa's ruling, verified against real transcripts).
+         ⚠️ SENTENCE CASE ON THE BUTTON, matching Create agent. -->
+    <div class="made-hello" id="made-hello" hidden>
+      <p id="made-hello-say"></p>
+      <button class="btn uprime big" id="made-hello-go" type="button">Say hello</button>
+    </div>
     <div class="frow" style="margin-top: var(--space-7);">
       <button class="btn" id="made-done" type="button" hidden>See it under Agents</button>
       <button class="btn" id="made-retry" type="button" hidden>Start over</button>
@@ -12810,11 +12868,83 @@ let ROLES = null;          // the menu, fetched once
       }
     }
 
-    if (slow) { frame(1, 0); return; }
+    /* ---- the finish ------------------------------------------------------
+       🔑 THE SAME 155 DOTS BECOME A TICK. Not a new drawing that replaces the
+       mark: every dot travels from where it sits in the K to where it sits in
+       the check, so nothing appears and nothing vanishes. That only works
+       because the two arrays are the same length AND SORTED THE SAME WAY.
+
+       🛑 THE ORDER IS THE WHOLE THING, and the first version of the check array
+       was wrong about it. It was ordered along the stroke path; `K_LOAD` is
+       raster order, rows of increasing y and left to right within a row. Paired
+       index for index those two are a SHUFFLE: every dot crosses the frame to
+       reach a partner chosen by nothing. Measured, after Mona Lisa re-sorted it:
+
+         path order,   paired by index          69.8px mean travel
+         raster order, paired by index          41.8px
+         greedy nearest-neighbour (a floor)     40.7px
+
+       Raster lands within 3% of the floor, so no matching algorithm is worth
+       running. Sort both the same way and pair by index.
+
+       ⚠️ AND IT IS ONLY EVER CALLED ON A CLEAN FINISH. A completed mark is a
+       claim that the thing finished; a partial creation resolves to the failed
+       heading with the mark still breathing, which is true and is the point. */
+    var CHECK_LOAD = [99.1,27.2,2.4,103.1,27.9,2.2,94.1,35.8,2.4,99.7,34.2,2.8,99.9,32.3,3.6,101.4,34.8,3.6,101.5,36,2.8,106.1,31,3.5,108.8,35.4,3.4,92.4,39.9,3.5,95.5,38.6,3.3,97,40.8,2.2,98.9,37.2,3.1,104.1,43.7,3.4,105.2,43.2,3.5,109.9,36.5,3.1,84.5,51,3.6,86.4,50.8,3.6,90.1,46.8,3.4,93.5,46.9,2.3,95.4,50.3,3.4,95.6,46.4,3.6,97.3,45.5,3.6,99.1,48.6,2.7,100.5,49.2,3.2,101.5,48.3,3,101.8,47.8,2.9,102.5,46.8,2.6,78.4,59.8,2.9,82.1,59.8,3.5,82.7,58,2.1,83.2,55.3,3.5,87.4,57.8,3.3,87.5,55.6,2.5,88.5,53.5,2.7,91.6,52.5,2.9,93.1,52.9,3.2,96.3,58.6,3.1,97.8,55.8,2.3,74.7,67.1,3.6,77,66,3.4,81.4,63.4,2.7,81.8,63.7,2.3,85.6,64.7,3.6,85.6,62.2,3.6,88.5,63.6,2.5,88.6,63.9,3.1,93.2,63.7,3.3,24.1,75.5,2.1,73.1,71,3.6,77,75.8,2.6,78.8,74.3,3.5,78.8,73.4,2.6,79.7,69.5,2.3,84.2,70.8,3.2,85.8,74.3,2.9,85.8,69.4,3.5,88.8,69.9,3.2,26.4,78.4,3.5,27.1,83.3,3.6,27.4,82.7,3.1,30.2,83.4,2.7,65.8,83.8,2.4,67.6,77.8,3.1,67.9,82.2,3.1,67.9,80.4,3.6,73.4,77,3.5,73.7,77.2,3.4,77.9,81,2.4,79.8,81.1,2.2,80,77.2,3,82.4,79.6,3.3,15.7,87.4,3.3,20.3,88.2,2.5,22,89.8,3.2,27.8,85.8,2.9,28.2,88.4,3.4,29.4,91.4,2.3,30,84.9,3.6,33.5,89.6,3.6,33.7,89.7,2.9,60.3,89.7,2.3,62.6,84.3,2.6,62.7,86,3,65.2,85.6,3.3,65.9,88.7,3.5,69.5,88,2.2,70.9,85.9,3.5,72.5,85.9,3.4,74.4,85.3,2.8,77.7,85.4,3.6,79.5,84.2,2.8,20.7,93,2.3,28.2,92.1,3.4,29.8,98.7,3.6,30.4,98.3,3.5,31.7,97.1,3,32.1,92.2,3.2,32.4,93.7,2.6,34.1,99.6,3.5,34.2,93.7,2.6,35.8,94.2,3.3,37.2,93.1,2.2,41.3,94.2,3.4,41.6,97.5,2.8,44.4,95.8,3.1,54.3,96.7,3.1,57.2,95.4,3.6,58.2,95.6,3.4,58.4,95.6,3.2,59.1,97.3,2.7,61.5,92.4,3.4,62.5,98.8,2.9,65.3,93.7,3.2,65.4,97.7,2.3,66.5,93.6,2.9,67.5,92.5,3.6,70.4,93.6,2.7,71,94.1,3.6,36.5,103.8,2.4,37.3,107,3.6,38.4,102.1,3.6,39.4,101.2,2.8,40.4,106.8,2.4,41.5,106.5,3.1,43.4,105.2,2.2,45.6,106.8,3.3,47,100.5,3.5,47.2,104.7,3.4,51.6,106.4,3.6,52.8,106.5,2.6,57.1,103.4,2.5,58.1,107,2.1,58.2,107.5,3.5,58.9,107.6,3.3,59.3,105,3.3,60,102.7,3.5,60.9,101.4,3.6,42.6,111,3,42.9,109.9,3.5,43.3,113.5,2.6,43.8,115.7,3.6,46.5,115.9,3.6,46.6,113.4,2.9,46.9,109.6,2.3,47.5,109,3.5,48.2,110.2,3.2,51.2,109.1,2.9,52.3,111,2.7,53.7,112.9,3.6,55.6,112.5,3.4,56,110.4,2.3,60,108.2,2.5,61.9,110.7,3.1,47.4,117.8,3.2];
+    for (var ci = 0; ci < CHECK_LOAD.length; ci += 3) {
+      var cp = pts[ci / 3];
+      if (!cp) break;
+      cp.cx = CHECK_LOAD[ci] * (W / 128.28);
+      cp.cy = CHECK_LOAD[ci+1] * (H / 150.28);
+      cp.cr = Math.max(0.9, CHECK_LOAD[ci+2] * (W / 128.28) * 0.8);
+    }
+    /* The app's own success green, in five bands like the gold, so the dots
+       keep the depth they had rather than flattening into one flat colour. */
+    var GREEN = ['47,125,90', '58,143,104', '38,110,78', '70,158,118', '32,96,68'];
+
+    var finishing = 0;       // 0 while working, then 0 -> 1 as it becomes a tick
+    var finishFrom = null;   // the moment the finish started, in frame time
+
+    function checkFrame(m) {
+      g.clearRect(0, 0, W, H);
+      var e = ease(Math.max(0, Math.min(1, m)));
+      for (var b = 0; b < 5; b++) {
+        var col = e < 0.5 ? GOLD[b] : GREEN[b];
+        g.fillStyle = 'rgba(' + col + ',' + (0.87 + 0.13 * e).toFixed(2) + ')';
+        g.beginPath();
+        var any = false;
+        for (var k = 0; k < pts.length; k++) {
+          var d = pts[k];
+          if (d.g !== b || d.cx === undefined) continue;
+          any = true;
+          var x = d.hx + (d.cx - d.hx) * e;
+          var y = d.hy + (d.cy - d.hy) * e;
+          var rr = d.r + (d.cr - d.r) * e;
+          g.moveTo(x + rr, y);
+          g.arc(x, y, rr, 0, Math.PI * 2);
+        }
+        if (any) g.fill();
+      }
+    }
+
+    if (slow) {
+      /* Reduced motion still gets both STATES, because they are information:
+         the mark, and the mark completed. It just does not travel between them. */
+      frame(1, 0);
+      return { finish: function () { checkFrame(1); } };
+    }
+
     var t0 = null;
     function tick(ts) {
       if (t0 === null) t0 = ts;
       var el = ts - t0;
+      if (finishing) {
+        if (finishFrom === null) finishFrom = el;
+        var m = (el - finishFrom) / 900;
+        checkFrame(m);
+        if (m < 1) requestAnimationFrame(tick);
+        return;
+      }
       var cycle = (el % 4400) / 4400;
       /* Gather, hold, open back out. The old timing gave the collapse a third
          of the time the build got, so the mark fell apart three times faster
@@ -12827,7 +12957,26 @@ let ROLES = null;          // the menu, fetched once
       requestAnimationFrame(tick);
     }
     requestAnimationFrame(tick);
+    /* ⚠️ THE HANDLE IS RETURNED RATHER THAN THE LOOP BEING RESTARTED. The
+       update overlay's caller ignores it, which is why this stayed a bare
+       function for so long; the create screen needs to say "it worked" to a
+       loop that is already running. */
+    return {
+      finish: function () {
+        if (finishing) return;
+        finishing = 1;
+        /* ⚠️ IT DOES NOT WAIT FOR THE BREATH TO REACH THE TOP. Waiting would
+           put up to four seconds between the last row resolving and the mark
+           completing, and the mark would be describing something that finished
+           a while ago. It travels from wherever the dots are to the tick. */
+        requestAnimationFrame(tick);
+      },
+    };
   }
+
+/* The running mark on the creation screen, so the one branch that may complete
+   it can reach the loop that is already drawing. Null on every other screen. */
+let MADE_MARK = null;
 
 let CREATE_MODELS = [];    // the engine's model list, from the same payload
 
@@ -13339,6 +13488,15 @@ document.getElementById('create-back').addEventListener('click', () => { WATCH +
    (Josh, 2026-08-19), and leaving this behind threw "Cannot read properties of
    null" at page load, which killed every listener registered after it. A
    removal is two changes and the second one is never where you made it. */
+/* 🔑 STRAIGHT TO THE AGENT, not back to the list (Josh): "this way they can go
+   directly there". `openDetail` is the same call the board's own cards make, so
+   there is one way into an agent's page rather than two. */
+document.getElementById('made-hello-go').addEventListener('click', (e) => {
+  const who = e.currentTarget.dataset.agent;
+  if (!who) return;
+  WATCH += 1;      // the creation watch is over; nothing may repaint behind us
+  openDetail(who);
+});
 document.getElementById('made-done').addEventListener('click', () => { showTab('agents'); tick(); });
 document.getElementById('made-retry').addEventListener('click', openCreate);
 
@@ -13407,25 +13565,69 @@ function tickLine(state, text) {
  * that means the person actually has one, so it is drawn separately and only
  * ever from something observed on the board.
  */
-function paintMade(steps, watching, projectOutcomes) {
-  const lines = (steps || []).map((s) => (s.undone
-    ? tickLine('undone', s.label + ' (undone)')
-    : tickLine(s.ok ? 'done' : 'fail', s.label)));
-  // The attach outcomes the route reports (its own comment calls a failed
-  // membership write "a real, reportable state"; a screen that swallows it
-  // reports nothing). Names come from the list the person picked from; the
-  // failure sentence is the engine's own. Membership only here: the told
-  // verdict also travels in the response but is not rendered yet -- at this
-  // moment the agent is still coming up, so its honest value is "could not
-  // see", which would read as a failure while the watch above it is still
-  // green. Flagged in the PR rather than silently interpreted.
-  for (const p of (projectOutcomes || [])) {
-    const nm = CREATE_PROJECT_NAMES[p.id] || 'that project';
-    lines.push(p.added
-      ? tickLine('done', 'On the ' + nm + ' project')
-      : tickLine('fail', 'Not on the ' + nm + ' project: ' + (p.because || 'we could not put it there')));
-  }
-  if (watching) lines.push(tickLine(watching.state, watching.text));
+/**
+ * Show the rows one at a time.
+ *
+ * ⚠️ TIED TO `WATCH`, the same token every other part of this flow uses to know
+ * whether it still owns the panel. Leaving the panel mid-sequence bumps it, and
+ * a timer that fired afterwards would paint a creation's rows over whatever the
+ * person opened instead.
+ *
+ * 📌 THE RESULT IS NOT WAITED FOR. It is already in hand: this is a reveal, not
+ * a poll. The one thing it must not do is finish EARLY on a failure -- a row
+ * that failed still gets its turn, in order, so the person sees which of the
+ * five it was rather than watching four appear and the sequence stop.
+ */
+const MADE_STEP_MS = 420;
+function revealMade(result, onDone) {
+  const mine = WATCH;
+  const steps = result.steps || [];
+  let shown = 0;
+  paintMade(steps, null, result.projects, shown);
+  const next = () => {
+    if (mine !== WATCH) return;
+    shown += 1;
+    paintMade(steps, null, result.projects, shown);
+    if (shown < steps.length) { setTimeout(next, MADE_STEP_MS); return; }
+    if (onDone) onDone();
+  };
+  if (!steps.length) { if (onDone) onDone(); return; }
+  setTimeout(next, MADE_STEP_MS);
+}
+
+function paintMade(steps, watching, projectOutcomes, revealed) {
+  /* 🔑 THE REVEAL IS PACED, THE TRUTH IS NOT. Josh asked for the rows to arrive
+     one at a time and to look like they are working before they resolve. Every
+     step here has ALREADY happened -- the engine does the whole creation and
+     answers with the outcome of each -- so `revealed` decides how many rows are
+     showing their answer yet, and nothing else about them is invented.
+     🛑 A ROW THAT HAS NOT BEEN REVEALED SHOWS "working", WHICH IS A CLAIM. It is
+     a true one and only for as long as the sequence takes: the alternative,
+     resolving rows on a timer regardless of what came back, is a check that
+     cannot fail. If a step FAILED, its row still resolves to the failure when
+     its turn comes; nothing is smoothed over on the way past. */
+  const show = typeof revealed === 'number' ? revealed : (steps || []).length;
+  const lines = (steps || []).map((s, i) => {
+    if (i >= show) return tickLine('working', s.label);
+    return s.undone
+      ? tickLine('undone', s.label + ' (undone)')
+      : tickLine(s.ok ? 'done' : 'fail', s.label);
+  });
+  /* 🛑 THE PROJECT ROWS AND THE BOARD-WATCH ROW ARE NOT DRAWN (Josh,
+     2026-08-22): "I don't want to have the other steps that were put in there,
+     which were about putting it on a project or the board so they can see it
+     running. I don't care about that."
+     ⚠️ THE WATCH STILL RUNS, and that is the part worth knowing. It is what
+     decides whether the invitation at the end appears at all: the five rows are
+     claims about US -- we made a folder, we ran a command -- and "it is running"
+     is a claim about the AGENT, which only the board can make. What Josh removed
+     is a row narrating the wait, not the wait. A creation the board never sees
+     still says so, in the heading, rather than inviting somebody to greet an
+     agent that is not there.
+     📌 `projectOutcomes` is still a parameter and still ignored here rather than
+     dropped from the signature: the route continues to attach projects for any
+     caller that sends them, and the day this screen offers projects again the
+     honest per-project outcome is still arriving. */
   document.getElementById('made-ticks').innerHTML = lines.join('');
   // Only what changed, and only in words -- the glyphs say nothing aloud.
   if (watching) document.getElementById('made-say').textContent = watching.text;
@@ -13935,10 +14137,14 @@ document.getElementById('create-go').addEventListener('click', async () => {
   document.getElementById('made-head').textContent = 'Making ' + name;
   document.getElementById('made-first').hidden = true;
   document.getElementById('made-warn').hidden = true;
-  document.getElementById('made-bg').hidden = true;
+  document.getElementById('made-hello').hidden = true;
   document.getElementById('made-done').hidden = true;
   document.getElementById('made-retry').hidden = true;
-  paintMade(result.steps, { state: 'waiting', text: 'Waiting for the board to see it running' }, result.projects);
+  /* The mark works while the work does. Started here rather than on the page's
+     boot: it draws on every frame, and a canvas nobody is looking at should not
+     be doing that. */
+  MADE_MARK = startKLoader(document.getElementById('made-mark'));
+  revealMade(result);
 
   /**
    * ⚠️ A PARTIAL IS NOT WATCHED, because nothing can arrive.
@@ -13978,31 +14184,19 @@ document.getElementById('create-go').addEventListener('click', async () => {
     return;
   }
 
-  /**
-   * ⚠️ SHOWN ON A CREATION THAT HAPPENED, AND ONLY THEN. A `partial` rolls
-   * everything back — no job, nothing to appear in Login Items — so warning
-   * about a background item there would describe something that does not exist,
-   * on the screen whose stated rule is that every line is reported or watched.
-   * That is why this sits below the partial branch rather than beside the
-   * heading.
-   */
-  // ⚠️ "a new background item", NOT "Kosmos" (round 23): macOS names the
-  // notice from the registered bundle, which install/setup.sh sets up --
-  // on a from-source `node server.js` run (a documented way to run) there
-  // is no bundle under our id and macOS names the executable instead.
-  // This screen has not observed which of those worlds it is in, so the
-  // sentence claims only what the creation itself did.
-  // "may", not "will" (round 27): macOS posts that notice the FIRST time
-  // an item appears under our identifier -- create.js records this at the
-  // plist -- so for the second and later agents the screen was predicting
-  // a notice that may not arrive. The Login Items half is true either way.
-  document.getElementById('made-bg').innerHTML =
-    '<b>macOS may mention a new background item.</b> That is your agent '
-    + 'staying alive between logins (named Kosmos when the app is installed, '
-    + 'or after the program that runs it on a from-source setup). It appears '
-    + 'under Login Items in System Settings, and turning it off there stops '
-    + 'the agent from starting.';
-  document.getElementById('made-bg').hidden = false;
+  /* 🛑 THE BACKGROUND-ITEM EXPLANATION WAS HERE AND JOSH REMOVED IT on
+     2026-08-22. It said macOS may mention a new background item, that the item
+     is the agent staying alive between logins, and that turning it off under
+     Login Items stops the agent from starting. Twenty-seven review rounds of
+     wording sit behind those three sentences: "may" not "will", because the
+     notice only appears the first time an item registers under our identifier;
+     "a new background item" not "Kosmos", because on a from-source run macOS
+     names the executable instead.
+     ⚠️ THE RISK IT ADDRESSED IS STILL LIVE. The launchd job is unchanged, macOS
+     still posts its notice, and somebody who meets it unexplained may switch
+     their own agent off without knowing that is what they did. If that starts
+     happening, this is the paragraph to bring back, and the reasoning above is
+     why it was worded the way it was. */
 
   /**
    * ⚠️ WATCHED BY THE MACHINE NAME, SPOKEN BY THE TYPED ONE. The board files an
@@ -14139,6 +14333,29 @@ async function watchForAgent(name, result, attempt) {
         box.innerHTML = '<b>Something to give it first</b><q>' + esc(result.firstAction) + '</q>';
         box.hidden = false;
       }
+      /* 🔑 THE INVITATION, ONLY HERE. This is the one branch where the BOARD has
+         seen the agent running, which is the only evidence anybody has that
+         there is something to say hello to. The partial and the timed-out
+         branches below deliberately do not show it: inviting somebody to greet
+         an agent that never came up is the failure this whole screen is written
+         against, wearing a friendly sentence. */
+      const hello = document.getElementById('made-hello');
+      /* 📌 "waiting for its first message", not "waiting for you". Mona Lisa's
+         wording, and the longer one is doing work: it says what the state
+         actually IS rather than implying somebody is expected, and it quietly
+         explains the unknown model on the agent's card without mentioning that
+         Kosmos cannot read one until the agent has spoken. */
+      document.getElementById('made-hello-say').textContent =
+        shown + ' is running and waiting for its first message.';
+      const go = document.getElementById('made-hello-go');
+      go.textContent = 'Say hello to ' + shown;
+      go.dataset.agent = name;
+      hello.hidden = false;
+      /* 🔑 THE MARK COMPLETES HERE AND NOWHERE ELSE. This is the only branch
+         where the board has SEEN the agent running, so it is the only place a
+         finished tick is a true statement. The partial and timed-out branches
+         leave it breathing, which reads as unfinished because it is. */
+      if (MADE_MARK && MADE_MARK.finish) MADE_MARK.finish();
       document.getElementById('made-done').hidden = false;
       tick();
       return;
