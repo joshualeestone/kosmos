@@ -11059,7 +11059,21 @@ function setLive(el, html) {
 function renderStale(s) {
   const el = document.getElementById('d-instr-stale');
   if (!s || s.state === 'current') {
-    if (!el.hidden) { el.hidden = true; el.textContent = ''; }
+    /* 🛑 CLEARED THROUGH `setLive`, NOT AROUND IT, AND THAT ONE WORD WAS THE
+       BUG. This wiped the node with `textContent` while `setLive` keeps its own
+       record of the last string it WROTE -- so the record still held the
+       banner's html after the node was emptied, and the next time the same
+       banner was needed `setLive` compared, matched, and wrote nothing. The
+       element was then un-hidden with no content in it: an empty amber bar with
+       no sentence and no Restart button, which is what Josh photographed on
+       2026-08-22 after leaving an agent's page and coming back to it.
+       ⚠️ THE FAILURE NEEDED THREE STATES, which is why nothing caught it: stale,
+       then current, then stale AGAIN with the identical wording. Two states
+       never reveal it, and the second stale is the ordinary case, because the
+       sentence is built from timestamps that do not change while you look away.
+       🔑 EVERY OTHER CLEARER ON THIS PAGE ALREADY WENT THROUGH `setLive`. This
+       was the one that did not, and being the odd one out is the whole story. */
+    if (!el.hidden) { el.hidden = true; setLive(el, ''); }
     return;
   }
 
@@ -12542,6 +12556,35 @@ document.addEventListener('click', (e) => {
   openRestartModal(btn, name);
 });
 
+/**
+ * Did the restart TAKE, and if not, what is there to say about it.
+ *
+ * 🔑 NAMED FUNCTIONS RATHER THAN TWO EXPRESSIONS INSIDE THE HANDLER, because
+ * the handler is an inline listener and nothing in the suite can reach inside
+ * one. The defect these encode was live on this page for weeks and no test
+ * could have been written against it in place.
+ */
+function restartTook(ok, out) {
+  /* 🛑 THREE OUTCOMES AND ONLY ONE OF THEM IS A RESTART. The route answers 400
+     for REFUSED and 200 for everything else, so `ok` alone reads PARTIAL -- "we
+     could not close its window ... Nothing was changed" -- as success. */
+  return Boolean(ok && out && out.outcome === 'restarted');
+}
+
+function restartFailureLine(out) {
+  const said = (out && (out.because || out.error)) || 'We could not restart it.';
+  const steps = (out && Array.isArray(out.steps)) ? out.steps : [];
+  const failed = steps.filter((x) => x && !x.ok).map((x) => x.label);
+  const done = steps.filter((x) => x && x.ok).map((x) => x.label);
+  /* ⚠️ BOTH LISTS, not just the failures. "closed its window" having WORKED
+     while the restart did not take is a different machine problem from its
+     having failed, and the person reporting it cannot tell us which unless the
+     screen says. */
+  return said
+    + (failed.length ? ' What failed: ' + failed.join(', ') + '.' : '')
+    + (done.length ? ' What worked: ' + done.join(', ') + '.' : '');
+}
+
 document.getElementById('rst-go').addEventListener('click', async () => {
   const btn = RST_FOR;
   const name = btn && btn.dataset.restartAgent;
@@ -12553,7 +12596,21 @@ document.getElementById('rst-go').addEventListener('click', async () => {
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', { method: 'POST' });
     const out = await res.json().catch(() => null);
-    if (!res.ok) {
+    /* 🛑 THE OUTCOME, NOT THE STATUS CODE. This asked only whether the response
+       was `ok`, and the route answers 400 for a REFUSED restart and 200 for
+       everything else -- including PARTIAL, which is the engine's word for "we
+       could not close its window, so it is still running the older
+       instructions. Nothing was changed." A partial restart therefore took the
+       success path: the modal closed, the notice stayed exactly as it was, and
+       the person got no sentence at all. Josh, 2026-08-22, three times: "The
+       modal goes away. Literally nothing happens at all."
+       ⚠️ AND THE STEPS ARE SHOWN WHEN IT DID NOT TAKE. The engine already
+       returns a labelled step list and nothing here had ever read it. Which
+       step failed is the one reading that separates "the window would not
+       close" from "launchd would not start it again", and it can only be taken
+       on the machine where it happens. */
+    const took = restartTook(res.ok, out);
+    if (!took) {
       /* The engine's own sentence, which distinguishes "we could not close its
          window" from "launchd refused" -- different facts a person acts on
          differently. */
@@ -12569,8 +12626,7 @@ document.getElementById('rst-go').addEventListener('click', async () => {
          `.frow`. A failure that lands nowhere is worse here than on the notice,
          because that box disappears on success and this one does not, so
          silence is the same picture as either outcome. */
-      document.getElementById('rst-msg').textContent =
-        (out && (out.because || out.error)) || 'We could not restart it.';
+      document.getElementById('rst-msg').textContent = restartFailureLine(out);
       return;
     }
     /* ⚠️ NO SUCCESS SENTENCE ON THE NOTICE, AND ONE ON THE PANEL, which is the
@@ -12580,9 +12636,13 @@ document.getElementById('rst-go').addEventListener('click', async () => {
        worked. The detail-page control has no such disappearance, so without a
        sentence its success and its silent failure look identical. A receipt is
        owed wherever the screen does not provide one by changing. */
-    const done = noteFor(btn);
-    if (done) done.textContent = 'Restarted. It starts fresh, so it will look idle until you say something to it.';
+    const note = noteFor(btn);
+    if (note) note.textContent = 'Restarted. It starts fresh, so it will look idle until you say something to it.';
     go.textContent = wasGo;
+    /* ⚠️ RE-ENABLED. Every other exit from this handler puts the button back and
+       this one did not, so a modal reopened after a successful restart came up
+       with a dead primary. */
+    go.disabled = false;
     closeRestartModal();
     await tick();
   } catch {
