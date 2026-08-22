@@ -1442,6 +1442,34 @@ function sessionIdsFor(sessionName, exactSession) {
   return found;
 }
 
+/**
+ * The transcript belonging to THIS session, with no folder fallback.
+ *
+ * 🛑 SPLIT OUT BECAUSE ONE CALLER MUST NOT TAKE THE FALLBACK. Reading a
+ * transcript to show what an agent has been doing is happy with the newest file
+ * in its folder. Reading one to establish when the CURRENT session started is
+ * not: after a restart the new session has no file yet, so the fallback hands
+ * back the previous session's, and its birth time is older than the edit that
+ * prompted the restart. The verdict then stays "running on older instructions"
+ * forever, with a button that cannot clear it -- only speaking to the agent
+ * could, because that is what creates the new file. Josh pressed it three times
+ * on 2026-08-22; the restart had worked every time (found by Splinter).
+ */
+function transcriptForSession(agentName, exactSession) {
+  for (const sessionId of sessionIdsFor(agentName, exactSession)) {
+    for (const root of configRoots()) {
+      const projects = path.join(root, 'projects');
+      let dirs;
+      try { dirs = fs.readdirSync(projects); } catch { continue; }
+      for (const d of dirs) {
+        const candidate = path.join(projects, d, `${sessionId}.jsonl`);
+        if (fs.existsSync(candidate)) return candidate;
+      }
+    }
+  }
+  return null;
+}
+
 function transcriptFor(agentName, exactSession) {
   const sessionIds = sessionIdsFor(agentName, exactSession);
   /* 🛑 NO EARLY RETURN HERE ANY MORE, and the early return was the whole bug on
@@ -2396,8 +2424,92 @@ function countAgents(agents, unreadableLines) {
 // guess finds *a* transcript every time, so it looks like it worked while
 // reporting from the wrong session. One derivation, shared, rather than a
 // second copy that can drift.
+/**
+ * When tmux says this session started, in milliseconds, or null.
+ *
+ * 🛑 THIS IS A READING, NOT AN INFERENCE, and that is the whole point of it.
+ * The staleness verdict used to date an agent's start from the birth time of
+ * its transcript, which does not exist until the agent has been spoken to --
+ * so a restarted agent kept reporting the PREVIOUS session's start and stayed
+ * "running on older instructions" no matter how many times it was restarted.
+ * tmux has always known when the session began.
+ *
+ * ⚠️ NULL IS "WE COULD NOT LOOK", and callers must treat it as not-knowing
+ * rather than as not-started. A board that cannot reach tmux at all is a state
+ * this codebase already renders honestly everywhere else.
+ */
+/**
+ * ⚠️ A SEPARATE TMUX QUESTION, NOT A NEW PANE COLUMN, and the reason is worth
+ * stating. `PANE_COLUMNS` is positional: every field is found by its index in a
+ * tab-separated line, so inserting one shifts every field after it, and the
+ * suite hand-writes sixty-odd of those lines. Sessions are a different list
+ * from panes anyway -- `#{session_created}` is a property of the session, and
+ * asking `list-sessions` for it is one small read rather than a change to the
+ * shape every other reading in this file depends on.
+ */
+const SESSION_FORMAT = '#{session_name}\t#{session_created}';
+
+let sessionSource = null;
+
+/** The test seam, same contract as `setPaneSource`: replaces WHERE the text
+ *  comes from, never what is done with it. */
+function setSessionSource(fn) { sessionSource = typeof fn === 'function' ? fn : null; }
+
+function tmuxSessions() {
+  /* jargon-ok:tmux — a detail path; see the rule above `tmuxPanes`. */
+  const got = shDetail('tmux', ['list-sessions', '-F', SESSION_FORMAT]);
+  if (got.ran && got.status === 0) return got.out;
+  // No server is no sessions, which is a real and ordinary answer.
+  if (tmuxSaidNoServer(got)) return '';
+  return null;
+}
+
+/**
+ * ⚠️ CACHED FOR A MOMENT, because staleness is computed once per agent and the
+ * board polls every five seconds: without this, a fourteen-agent fleet would
+ * ask the same question fourteen times a tick. Two seconds is shorter than the
+ * poll, so no reading is ever carried across one.
+ */
+let SESSION_CACHE = { at: 0, text: null };
+const SESSION_CACHE_MS = 2000;
+
+function sessionText(now) {
+  /* 🛑 THE SEAM IS NEVER CACHED. A test that swaps the source and asks again
+     within the window would be answered from the previous swap -- so the cache
+     would be supplying the fixture, and a test could pass while measuring the
+     wrong world. The cache exists for the poll, and the poll never uses the
+     seam. */
+  if (sessionSource) return sessionSource();
+  if (SESSION_CACHE.text !== null && now - SESSION_CACHE.at < SESSION_CACHE_MS) return SESSION_CACHE.text;
+  const text = tmuxSessions();
+  SESSION_CACHE = { at: now, text: text === undefined ? null : text };
+  return SESSION_CACHE.text;
+}
+
+function sessionStartedAtFromTmux(sessionName, now = Date.now()) {
+  const want = String(sessionName == null ? '' : sessionName);
+  if (!want) return null;
+  let text;
+  try { text = sessionText(now); } catch { return null; }
+  if (text === null || text === undefined) return null;
+  for (const line of String(text).split('\n')) {
+    if (!line) continue;
+    const tab = line.indexOf('\t');
+    if (tab < 0) continue;
+    if (line.slice(0, tab) !== want) continue;
+    const secs = Number(line.slice(tab + 1).trim());
+    /* ⚠️ A NUMBER OR NULL, never 0. tmux answers seconds since the epoch, and a
+       zero would be 1970 -- which every edit is newer than, so an unreadable
+       field would make every agent look like it had never restarted. That is
+       the exact direction of error this whole change exists to remove. */
+    return Number.isFinite(secs) && secs > 0 ? secs * 1000 : null;
+  }
+  return null;
+}
+
 module.exports = {
   NO_READING,
+  sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   countAgents, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   rank, paneOrder, modelDisplayName, readIdentity, transcriptFor,
   /* ⚠️ Exported so the ROUTE can say what tmux said. The alternative is a

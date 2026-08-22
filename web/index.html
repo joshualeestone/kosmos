@@ -4430,14 +4430,20 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <div class="msteps" role="group" aria-labelledby="create-model-lab">
         <div class="frow">
           <select id="create-provider" aria-label="Provider">
+            <!-- ⚠️ EVERY DISABLED OPTION SAYS WHY. A bare greyed row cannot be
+                 told apart from one that is greyed FOR YOU -- an account
+                 problem, a setting somewhere, something you did. "Coming soon"
+                 is the difference between a menu that is unfinished and a menu
+                 that is broken, and it is the phrase this file already uses
+                 five times elsewhere (Mona Lisa, #301). -->
             <option value="anthropic" selected>Anthropic / Claude</option>
-            <option value="openai" disabled>OpenAI</option>
-            <option value="google" disabled>Google Gemini</option>
-            <option value="meta" disabled>Meta / Llama</option>
-            <option value="xai" disabled>xAI Grok</option>
-            <option value="alibaba" disabled>Alibaba / Qwen</option>
-            <option value="moonshot" disabled>Moonshot / Kimi</option>
-            <option value="mistral" disabled>Mistral</option>
+            <option value="openai" disabled>OpenAI &middot; coming soon</option>
+            <option value="google" disabled>Google Gemini &middot; coming soon</option>
+            <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
+            <option value="xai" disabled>xAI Grok &middot; coming soon</option>
+            <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
+            <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
+            <option value="mistral" disabled>Mistral &middot; coming soon</option>
           </select>
         </div>
         <!-- ⚠️ SHOWN EVEN AT ONE ACCOUNT, reversing the rule this field used to

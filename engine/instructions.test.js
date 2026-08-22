@@ -1393,3 +1393,124 @@ test('an agent with no instruction file reads as unknown, not current', () => {
   assert.equal(got.staleness.state, instructions.STALENESS.UNKNOWN);
   assert.match(got.staleness.because, /no instruction file/);
 });
+
+// ---------------------------------------------------------------------------
+// When the session started, and the three places that answer can come from
+// ---------------------------------------------------------------------------
+
+/**
+ * 🛑 THE DEFECT THESE PIN, IN ONE SENTENCE: an agent that had just been
+ * restarted kept being told it was running older instructions, and the Restart
+ * button could never clear it.
+ *
+ * The verdict compares the instruction file's edit time against when the
+ * session started, and "when the session started" was read from the birth time
+ * of the agent's TRANSCRIPT. A live Claude session has no transcript until
+ * somebody speaks to it, and the lookup fell back to the newest file in the
+ * agent's folder -- the PREVIOUS session's. So the start time never moved, the
+ * edit stayed newer, and only saying hello could clear the notice, because that
+ * is what creates the new file. Josh pressed Restart three times on 2026-08-22
+ * and reported nothing happening; every restart had worked.
+ */
+const SESSION_SECS = (ms) => Math.floor(ms / 1000);
+
+function withSessions(text, fn) {
+  const status = require('./status');
+  status.setSessionSource(() => text);
+  try { return fn(); } finally { status.setSessionSource(null); }
+}
+
+test('an agent nobody has spoken to yet is not accused of running old instructions', () => {
+  /* ⚠️ THE CASE THAT MAKES THE OBVIOUS FIX WRONG. Refusing the folder fallback
+     alone would leave a freshly created agent with no transcript at all, no
+     start time, and therefore "we cannot tell what this agent is running" on
+     the success path of every creation (Mona Lisa). tmux knows when the session
+     began whether or not a word has been said. */
+  const file = makeAgent('startfresh');
+  const edited = Date.now() - 60000;
+  fs.utimesSync(file, new Date(edited), new Date(edited));
+  // No makeSession: no registry entry, no transcript. Nothing has been said.
+  const got = withSessions(`startfresh-discord\t${SESSION_SECS(Date.now())}`,
+    () => instructions.staleness('startfresh'));
+  assert.equal(got.state, instructions.STALENESS.CURRENT,
+    'a brand-new agent was told it might not be running what you can see');
+});
+
+test('and it IS accused when the session really did start first', () => {
+  /* The positive control. Without it the test above passes for a function that
+     answers `current` unconditionally. */
+  const file = makeAgent('startolder');
+  const edited = Date.now();
+  fs.utimesSync(file, new Date(edited), new Date(edited));
+  const got = withSessions(`startolder-discord\t${SESSION_SECS(edited - 600000)}`,
+    () => instructions.staleness('startolder'));
+  assert.equal(got.state, instructions.STALENESS.STALE,
+    'an edit made after the agent started is exactly what this notice is for');
+});
+
+test('a restarted agent that has not spoken is UNKNOWN, not stale', () => {
+  /* 🔑 THE ORIGINAL BUG, WITH TMUX UNREACHABLE so the transcript path is the
+     one under test. The agent has an old transcript in its folder from the
+     session before the restart, and its registry entry names the NEW session,
+     which has no file yet. Reading the folder's newest file would date the
+     agent from before the edit and report stale forever. */
+  const file = makeAgent('startrestarted');
+  makeSession('startrestarted', 'sess-before-the-restart');
+  const edited = Date.now();
+  fs.utimesSync(file, new Date(edited), new Date(edited));
+  // The restart: the registry now names a session whose transcript does not exist.
+  fs.writeFileSync(path.join(REGISTRY, 'startrestarted-discord_0.0.json'),
+    JSON.stringify({ session_id: 'sess-after-the-restart' }));
+
+  /* 🛑 AND THE OLD TRANSCRIPT HAS TO SIT WHERE THE FALLBACK LOOKS, or this test
+     passes for the wrong reason. `makeSession` writes into one shared projects
+     folder; the fallback keys on the agent's OWN working directory, flattened.
+     Without this the fallback finds nothing, the verdict is UNKNOWN anyway, and
+     the assertion below is true of the defect as well as of the fix -- measured,
+     not assumed: it passed against the old code until this block was added. */
+  const flat = path.join(ROOT, 'startrestarted').replace(/[^A-Za-z0-9]/g, '-');
+  const own = path.join(HOME, '.claude', 'projects', flat);
+  fs.mkdirSync(own, { recursive: true });
+  const before = path.join(own, 'sess-before-the-restart.jsonl');
+  /* ⚠️ IT HAS TO CARRY ITS `cwd`, because the fallback verifies that the file
+     claims the same folder before using it. A transcript without one is refused
+     -- which is a THIRD way this test could pass while measuring nothing. */
+  fs.writeFileSync(before,
+    `{"type":"user"}\n{"cwd":${JSON.stringify(path.join(ROOT, 'startrestarted'))}}\n`);
+  const old = new Date(edited - 900000);
+  fs.utimesSync(before, old, old);
+
+  const got = withSessions('', () => instructions.staleness('startrestarted'));
+  assert.equal(got.state, instructions.STALENESS.UNKNOWN,
+    'the previous session\'s transcript was used to date the current one, '
+    + 'which is what made the Restart button unable to clear its own notice');
+  assert.match(String(got.because || ''), /cannot tell when this agent last started/);
+});
+
+test('CONTROL: the same agent, spoken to, is dated from its own transcript', () => {
+  /* Proves the test above is measuring the fallback and not simply an agent
+     this suite cannot read at all. Same shape, with the current session's file
+     present, and tmux still unreachable. */
+  const file = makeAgent('startspoken');
+  const edited = Date.now() - 600000;
+  fs.utimesSync(file, new Date(edited), new Date(edited));
+  makeSession('startspoken', 'sess-the-current-one');
+  const got = withSessions('', () => instructions.staleness('startspoken'));
+  assert.equal(got.state, instructions.STALENESS.CURRENT,
+    'an agent whose own transcript is right there could not be dated');
+});
+
+test('tmux is preferred over the transcript, because it sees every restart', () => {
+  /* Both sources available and disagreeing. The transcript is the older session
+     the agent was restarted out of; tmux has the current one. Kosmos does not
+     see launchd's own restarts at login, and neither does a transcript. */
+  const file = makeAgent('startboth');
+  const edited = Date.now() - 300000;
+  fs.utimesSync(file, new Date(edited), new Date(edited));
+  makeSession('startboth', 'sess-older');
+  const old = new Date(edited - 900000);
+  fs.utimesSync(path.join(PROJECTS, 'sess-older.jsonl'), old, old);
+  const got = withSessions(`startboth-discord\t${SESSION_SECS(Date.now())}`,
+    () => instructions.staleness('startboth'));
+  assert.equal(got.state, instructions.STALENESS.CURRENT);
+});
