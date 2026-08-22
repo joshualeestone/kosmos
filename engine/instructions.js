@@ -29,7 +29,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const store = require('./store');
-const { transcriptFor } = require('./status');
+const { transcriptForSession, sessionStartedAtFromTmux } = require('./status');
 const workerfile = require('./workerfile');
 
 /**
@@ -127,21 +127,52 @@ function registryKey(agent) {
 /**
  * When this agent's current session started.
  *
- * Taken from the transcript file's birth time, which was checked against the
- * first entry's own timestamp and matches it exactly. Resolved through the
- * status engine's `transcriptFor`, which keys on session id rather than
- * guessing a directory from the agent's name.
+ * 🛑 TMUX FIRST, AND THE NAME OF THIS FUNCTION USED TO BE A LIE. It read the
+ * birth time of the agent's transcript, and a live Claude session HAS NO
+ * TRANSCRIPT until somebody speaks to it. Worse, the lookup it used falls back
+ * to the newest file in the agent's folder when the current session has none --
+ * so a restarted, unspoken agent reported the PREVIOUS session's start, every
+ * edit stayed newer than it, and the notice said "running on older
+ * instructions" with a Restart button that could not clear it. Only saying
+ * hello could, because that is what creates the new file. Josh pressed it three
+ * times on 2026-08-22 and reported that nothing happened. The restarts had all
+ * worked (found by Splinter, confirmed in the code, ruled with Mona Lisa).
  *
- * Returns null when it cannot be determined, and callers must treat null as
- * "cannot tell" rather than "not stale".
+ * 🔑 THE THREE SOURCES, IN THIS ORDER, AND THE ORDER IS THE FIX:
+ *
+ *   1. tmux's own `session_created`. A reading of when this session began,
+ *      true for an agent that has never said a word, which is every agent
+ *      somebody just made.
+ *   2. the transcript for THIS session id, when tmux cannot be reached. Its
+ *      birth time was checked against the first entry's timestamp and matches.
+ *      The folder fallback is deliberately not used here: see
+ *      `transcriptForSession`.
+ *   3. nothing, which is `unknown` -- "we cannot tell when this agent last
+ *      started" -- and never "not stale".
+ *
+ * ⚠️ WHY NOT A RECORD OF OUR OWN. Kosmos knows when IT restarted an agent, and
+ * that was the obvious third source. It is wrong in the dangerous direction:
+ * launchd also restarts agents, at every login, and Kosmos never sees those --
+ * so the record would be older than the truth and would produce exactly the
+ * false "running on older instructions" this change removes. tmux sees every
+ * start, whoever caused it.
  */
 function sessionStartedAt(agent, exactSession) {
   const name = registryKey(agent);
   if (!name) return null;
 
+  /* The session name, in the same order of preference `sessionIdsFor` uses when
+     the caller has only an agent name: the suffixed spelling first. */
+  const sessions = exactSession ? [exactSession] : [`${name}-discord`, name];
+  for (const session of sessions) {
+    let at = null;
+    try { at = sessionStartedAtFromTmux(session); } catch { at = null; }
+    if (at) return at;
+  }
+
   let file;
   try {
-    file = transcriptFor(name, exactSession);
+    file = transcriptForSession(name, exactSession);
   } catch {
     return null;
   }
