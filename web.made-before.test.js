@@ -63,7 +63,10 @@ test('the memory panel says never recorded, for a running context and for a stop
     'the screen-reader sentence keeps the fault framing');
   assert.equal(run({}).lead, 'memory could not be read.',
     'the fault state lost its own sentence, which hides a breakage');
-  const mb = SCRIPT.slice(SCRIPT.indexOf('function memoryBox('), SCRIPT.indexOf('function memoryBox(') + 2200);
+  const mbAt = SCRIPT.indexOf('function memoryBox(');
+  const mbEnd = SCRIPT.indexOf('const band = memBand(', mbAt);
+  assert.ok(mbAt > 0 && mbEnd > mbAt, 'memoryBox or its band successor moved; re-anchor this pin');
+  const mb = SCRIPT.slice(mbAt, mbEnd);
   assert.ok(/a\.context \|\| \(a\.neverRecorded/.test(mb),
     'memoryBox no longer reaches the treatment for a stopped row, whose context is absent');
   /* The stopped row's synthesized because is a PAGE-OWNED copy of the
@@ -71,8 +74,6 @@ test('the memory panel says never recorded, for a running context and for a stop
      changing the engine fails only the engine test. Compare the strings to
      each other, both read from source, so either side moving alone is loud. */
   const engineSrc = fs.readFileSync(path.join(__dirname, 'engine', 'status.js'), 'utf8');
-  /* Scoped to readContext so a future second occurrence elsewhere in
-     status.js cannot silently re-aim this pin. */
   /* File-wide count-of-one, NOT a scope: a left-bounded slice would
      silently re-aim to a later occurrence; refusing on any count but one
      forces the re-anchor to be deliberate. Zero and many get their own
@@ -131,18 +132,26 @@ test('the picker and the explainer both name the way in, and only for the never-
      this pin exists to keep out CARRIED a semicolon inside its string, so
      a first-; cut would truncate before the leak and fail open on the
      canonical regression (proven by mutation before this anchor change). */
-  for (const [label, anchor, until] of [
-    ['explainer', 'drunWhy.textContent = a.neverRecorded', 'drunWhy.hidden'],
-    ['picker refusal', 'msg.textContent = ours', 'so it cannot change what it runs on'],
+  for (const [label, anchor, until, inclusive] of [
+    ['explainer', 'drunWhy.textContent = a.neverRecorded', 'drunWhy.hidden', false],
+    /* Inclusive end ON the statement's own terminator: an exclusive anchor
+       chosen from inside the stranger string cut the region mid-sentence,
+       and a tracker number appended to that string's tail escaped the
+       sweep (proven by mutation). */
+    ['picker refusal', 'msg.textContent = ours', "cannot change what it runs on.';", true],
   ]) {
     const at = PAGE.indexOf(anchor);
     assert.ok(at > 0, 'the ' + label + ' assignment moved; re-anchor this pin');
     const stop = PAGE.indexOf(until, at);
     assert.ok(stop > at, 'the ' + label + ' successor anchor moved; re-anchor this pin');
-    const region = PAGE.slice(at, stop);
+    const region = PAGE.slice(at, stop + (inclusive ? until.length : 0));
     assert.ok(region.length > 200, 'the ' + label + ' region collapsed; the sweep below checks almost nothing');
     assert.doesNotMatch(region, /#\d{2,}/,
       'a tracker number leaked into the ' + label + ' user copy');
+    /* Surface-aware: the count-of-two above cannot tell WHICH surfaces
+       hold the copies; each region must hold its own. */
+    assert.match(region, /There is no control here that re-records one yet\./,
+      'the ' + label + ' lost its stated reason while the global count stayed at two');
   }
 
   /* And the model-message slot is cleared at the switch moment, so one
