@@ -7973,22 +7973,26 @@ test('a card names a planned model plainly, while the detail panel keeps its ten
  * column count is exactly the kind of change that should have to come here and
  * say so.
  */
-test('the agent detail boxes stay in the order Josh asked for', () => {
+test('the agent detail page is seven sections behind a nav, in the ruled order', () => {
+  /* ⚠️ THIS TEST USED TO PIN SOURCE ORDER OF A TWO-COLUMN GRID (Runs on | Memory,
+     then Conversation | Instructions). The grid is gone: since agent-page-nav
+     (2026-08-23, Mona Lisa's mock, Josh's ask) the page is one section at a
+     time behind a left nav, so "reading order in pairs" is no longer a property
+     the page has. What replaces it is the thing that can now drift: the nav's
+     order, and which box sits in which section. web.agent-nav.test.js pins the
+     membership box by box; this pins the order a person sees. */
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  const panel = raw.slice(raw.indexOf('<section class="detail" id="panel-detail"'));
-  const grid = panel.slice(panel.indexOf('<div class="dgrid">'));
-  const labels = [...grid.matchAll(/<section class="dbox"[^>]*>[\s\S]*?<(?:h3 class="dlab"[^>]*|label class="flabel"[^>]*)>([^<]+)</g)]
-    .map((m) => m[1].trim());
-  assert.deepEqual(labels.slice(0, 4), ['Runs on', 'Memory', 'Conversation', 'Instructions'],
-    'the detail boxes moved. Two columns means these four render as '
-    + 'Runs on | Memory then Conversation | Instructions, which is what Josh '
-    + 'asked for and what the pack draws');
-  // ⚠️ The control: if the extraction silently matched nothing, slice(0,4) would
-  // be [] and deepEqual against a 4-element array would fail — but if it matched
-  // the WRONG four (a different grid on the page) it would not. Anchor it.
-  assert.ok(labels.length >= 5,
-    'the box extraction found fewer sections than the panel has, so it is '
-    + 'reading the wrong markup and the assertion above is meaningless');
+  const panel = raw.slice(raw.indexOf('<section class="detail" id="panel-detail"'),
+                          raw.indexOf('<section class="panel" id="panel-settings"'));
+  const nav = panel.slice(panel.indexOf('<nav class="snav" id="d-nav"'), panel.indexOf('</nav>'));
+  const gos = [...nav.matchAll(/<button type="button" data-go="([a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(gos, ['talk', 'model', 'memory', 'instr', 'profile', 'term', 'remove'],
+    'the nav order moved; the mock reads Talk, Model, Memory, Instructions, Profile, Terminal, then Remove after a rule');
+  const secs = [...panel.matchAll(/<section class="dsec" data-sec="([a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(secs, gos, 'the sections are not in the order the nav lists them');
+  // ⚠️ The control: the old grid no longer exists in this panel, so a revival
+  // of it here would be a second layout under the nav.
+  assert.ok(!panel.includes('class="dgrid"'), 'the detail panel grew a grid back under the nav');
 });
 
 /**

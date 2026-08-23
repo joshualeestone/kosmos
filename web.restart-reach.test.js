@@ -125,8 +125,12 @@ test('a refusal stays in the dialog and a success reports on the control that op
 test('the consequence is named before the click, not after it', () => {
   /* Josh has twice read a restarted agent's empty memory as the product being
      broken. The sentence exists for that, and it belongs above the button. */
-  const block = PAGE.slice(PAGE.indexOf('id="d-restart-agent"'), PAGE.indexOf('id="d-remove-agent"'));
-  assert.ok(block.length > 0 && block.length < 4000, 'the two blocks are no longer adjacent');
+  /* Anchored on the block's own last element rather than on the Remove block
+     that used to follow it: since the agent page grew sections (agent-page-nav,
+     2026-08-23) Restart lives under Memory as "Fresh start" and Remove has a
+     section of its own, so "adjacent" stopped being a property of the page. */
+  const block = PAGE.slice(PAGE.indexOf('id="d-restart-agent"'), PAGE.indexOf('id="d-restart-msg"'));
+  assert.ok(block.length > 0 && block.length < 4000, 'the restart block lost its own message element');
   /* ⚠️ AND IT DOES NOT RESTATE THE VERB. "It stops and starts, so" is what the
      word restart already means, and a hint that spends its opening clause on
      the heading's own meaning buys nothing (Mona Lisa, #259). Asserted as an

@@ -1266,6 +1266,40 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 .dhint { font-size: .9375rem; color: var(--k-ink-2); margin-bottom: 14px; line-height: 1.55; }
 .dstack { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 14px; }
 .dstack > .dbox { align-self: stretch; }
+/* The agent page's left nav (Mona Lisa's agent-page mock, 2026-08-22). A
+   column of pills beside one section at a time; below 56rem the column becomes
+   a wrapping row above the content, because a 176px gutter on a phone is the
+   whole screen. The pill that is on wears the gold the tab bar uses, so "which
+   one am I in" reads the same way on both levels of the page. */
+.dbody { display: grid; grid-template-columns: 176px minmax(0, 1fr); gap: 26px; align-items: start; }
+.snav { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 16px; }
+.snav button { position: relative; display: block; width: 100%; text-align: center; padding: 8px 28px;
+               border-radius: 100px; border: 1px solid var(--k-rule); background: var(--k-surface);
+               cursor: pointer; color: var(--k-ink-2); font: 500 .8125rem var(--font-ui); }
+.snav button:hover { color: var(--k-ink); }
+.snav button.on { background: var(--gold); border-color: var(--gold); color: #14161a; font-weight: 600; }
+.snav button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.snav .sep { height: 1px; background: var(--k-rule); margin: 8px 14px; }
+.snav button.danger { color: var(--warn-ink); }
+.snav button.danger.on { color: #14161a; }
+/* 🔑 A DOT IS A SHAPE, which is why it is allowed to carry a signal: a pill
+   with a dot differs from one without whether or not the red is seen. It only
+   exists while the button says data-dot, and the "(needs you)" beside it is
+   read out and never drawn. */
+.snav .dot { display: none; position: absolute; right: 11px; top: 50%; transform: translateY(-50%);
+             width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); }
+.snav button[data-dot] .dot { display: block; }
+.snav button.on .dot { background: #7a1b12; }
+.snav button:not([data-dot]) .vh { display: none; }
+.dsecs { min-width: 0; }
+.dsec { display: flex; flex-direction: column; gap: 18px; outline: none; }
+.dsec[hidden] { display: none; }
+@media (max-width: 56rem) {
+  .dbody { grid-template-columns: minmax(0, 1fr); }
+  .snav { position: static; flex-direction: row; flex-wrap: wrap; }
+  .snav button { width: auto; }
+  .snav .sep { display: none; }
+}
 .chk { display: flex; gap: 14px; align-items: flex-start; padding: 14px 0; }
 .chk + .chk { border-top: 1px solid var(--k-rule); }
 .chk-m { width: 26px; height: 26px; border-radius: 8px; flex: 0 0 26px; display: grid; place-items: center;
@@ -2109,6 +2143,13 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
 .pj-question { margin: var(--space-5) 0; padding-left: var(--space-4);
   border-left: 2px solid var(--warn-ink); }
 .pj-question .pj-screen { max-height: 240px; }
+/* 🔑 THE AGENT PAGE'S WINDOW IS TALLER, AND THE NUMBER IS SCOPED TO IT. The
+   box is fed 60 lines (`chat.viewport`); at this line height that is ~796px.
+   Josh saw 800 and took it down 30% on sight, 2026-08-22: 560px shows about
+   42 of the 60 and the rest scrolls. It lives on the id, not `.pj-screen`,
+   because four surfaces share that rule and only this one was ruled taller.
+   A cap, not a height: a quiet agent still draws a short box. */
+#d-window { max-height: 560px; }
 .pj-viewport { margin-top: var(--space-6); }
 .pj-msgs { display: flex; flex-direction: column; gap: var(--space-3); margin: var(--space-5) 0; }
 .pj-msg { padding: var(--space-4) var(--space-5); border: 0.5px solid var(--separator);
@@ -3512,50 +3553,36 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   </div>
   <p id="d-untied" hidden></p>
 
-  <div class="dgrid">
-  <section class="dbox">
-    <h3 class="dlab">Runs on</h3>
-    <!-- 🔑 "RIGHT NOW" KEEPS ITS OWN LINE ABOVE THE PICKER (Mona Lisa's runs-on
-         spec). A dropdown reading "Opus 5" means "running Opus 5" until somebody
-         touches it and "about to be Opus 5" after; the line above only ever
-         means the first. Two tenses, two elements. -->
-    <p class="runnow" id="d-runson"></p>
-    <div class="frow" style="margin-top:10px;">
-      <select id="d-model" aria-label="Model this agent runs on"></select>
-      <button class="btn" type="button" id="d-model-go" disabled>Change</button>
-    </div>
-    <p class="dhint" id="d-model-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
-    <!-- 🛑 THE SENTENCE THAT WAS HERE SAID "Changing this is not built yet",
-         which is a screen naming a thing it will not do. It is built now, so it
-         goes. What replaces it is the one consequence a person cannot see:
-         changing the model restarts the agent, and a restart is how an agent
-         reads its instructions again. -->
-    <p class="dhint" style="margin:8px 0 0;">Changing this starts the agent again, so it picks up the new one. It will read its instructions again too.</p>
-
-    <!-- ⚠️ THE ACCOUNT LIVES IN THE SAME BOX AS THE MODEL, and it belongs
-         there: "Runs on" is the box's subject, and which Claude account an
-         agent runs on is the other half of that sentence. A second box would
-         have made two homes for one question.
-         🔑 THE HISTORY LINE IS THE POINT OF THIS CONTROL. Transcripts live
-         inside a Claude account's own directory, so the obvious build of this
-         feature moves an agent and silently empties everything it has ever
-         done -- it comes up looking fine and behaving like a new hire. Josh's
-         rule is the opposite: her memory should follow her everywhere she
-         goes. Accounts that cannot keep that promise are refused by the engine
-         rather than warned about here. -->
-    <div class="fdiv" style="margin-top:16px;"></div>
-    <p class="runnow" id="d-account-now"></p>
-    <div class="frow" style="margin-top:10px;">
-      <select id="d-account" aria-label="Claude account this agent runs on"></select>
-      <button class="btn" type="button" id="d-account-go" disabled>Move</button>
-    </div>
-    <p class="dhint" id="d-account-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
-    <p class="dhint" style="margin:8px 0 0;">Everything this agent has done comes with it. Moving is how you take an agent off an account that is running out.</p>
-  </section>
-  <section class="dbox">
-    <h3 class="dlab">Memory</h3>
-    <div id="d-memory"><p class="dhint" style="margin:0;">Opening&hellip;</p></div>
-  </section>
+  <!-- ⚠️ THE LEFT NAV (Mona Lisa's agent-page mock, 2026-08-22; Josh 08-23:
+       "the agent subpage design ... implemented"). Seven sections, one on
+       screen at a time, and the nav says which. The boxes inside each section
+       are the SAME elements that shipped in the single column, ids intact, so
+       every painter and every test that reaches in by id keeps working; only
+       their grouping moved. A hidden section is still painted by the poll,
+       because the painters write by id and never ask whether they are on
+       screen, which is what lets a switch be instant.
+       🔑 TWO LABELS CARRY THE AGENT'S NAME ("Talk to April", "Remove April")
+       and are painted by `detailNavNames` from `a.name`, on open and after a
+       rename. The markup ships the nameless form so a painter that returns
+       early never leaves the previous agent's name on a button.
+       🔑 THE DOT IS A SHAPE, so it survives greyscale; colour reinforces. It is
+       set by `detailDots` from the same two facts the sections render (an open
+       question in the talk box; the running copy older than the file), called
+       from those painters rather than from the poll, so the nav cannot say
+       "needs you" about a section that does not. -->
+  <div class="dbody">
+  <nav class="snav" id="d-nav" aria-label="Sections of this page">
+    <button type="button" data-go="talk" class="on" aria-current="page"><span id="d-nav-talk">Talk to this agent</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
+    <button type="button" data-go="model">Model</button>
+    <button type="button" data-go="memory">Memory</button>
+    <button type="button" data-go="instr"><span>Instructions</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
+    <button type="button" data-go="profile">Profile</button>
+    <button type="button" data-go="term">Terminal</button>
+    <div class="sep" role="separator"></div>
+    <button type="button" data-go="remove" class="danger"><span id="d-nav-remove">Remove this agent</span></button>
+  </nav>
+  <div class="dsecs">
+  <section class="dsec" data-sec="talk" tabindex="-1" aria-label="Talk">
 
   <!-- ⚠️ THE CONVERSATION (Mona Lisa's messaging-screens spec, 2026-08-18):
        everything said to this agent, in order, whoever said it -- the
@@ -3681,6 +3708,107 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          window normally conflates the two. The pack's sentence, verbatim. -->
     <p class="dhint" id="d-persist" style="margin:12px 0 0;"></p>
   </section>
+  </section>
+  <section class="dsec" data-sec="model" tabindex="-1" aria-label="Model" hidden>
+  <section class="dbox">
+    <h3 class="dlab">Runs on</h3>
+    <!-- 🔑 "RIGHT NOW" KEEPS ITS OWN LINE ABOVE THE PICKER (Mona Lisa's runs-on
+         spec). A dropdown reading "Opus 5" means "running Opus 5" until somebody
+         touches it and "about to be Opus 5" after; the line above only ever
+         means the first. Two tenses, two elements. -->
+    <p class="runnow" id="d-runson"></p>
+    <div class="frow" style="margin-top:10px;">
+      <select id="d-model" aria-label="Model this agent runs on"></select>
+      <button class="btn" type="button" id="d-model-go" disabled>Change &amp; Restart</button>
+    </div>
+    <p class="dhint" id="d-model-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+    <!-- 🛑 THE SENTENCE THAT WAS HERE SAID "Changing this is not built yet",
+         which is a screen naming a thing it will not do. It is built now, so it
+         goes. What replaces it is the one consequence a person cannot see:
+         changing the model restarts the agent, and a restart is how an agent
+         reads its instructions again. -->
+    <!-- 🛑 THE SENTENCE NAMES THE COST (Mona Lisa, agent-page mock 2026-08-22).
+         It used to say the restart "picks up the new one", which describes a
+         destructive act as a benefit, beside a button that now says "& Restart".
+         The restart drops what the agent agreed to and has not done, which a
+         person does not read into "memory". The button label is Josh's wording
+         verbatim, the one ampersand among the build's button labels, recorded
+         as a decision so it spreads on purpose if it spreads. -->
+    <p class="dhint" style="margin:8px 0 0;">Changing this restarts the agent. It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.</p>
+
+    <!-- ⚠️ THE ACCOUNT LIVES IN THE SAME BOX AS THE MODEL, and it belongs
+         there: "Runs on" is the box's subject, and which Claude account an
+         agent runs on is the other half of that sentence. A second box would
+         have made two homes for one question.
+         🔑 THE HISTORY LINE IS THE POINT OF THIS CONTROL. Transcripts live
+         inside a Claude account's own directory, so the obvious build of this
+         feature moves an agent and silently empties everything it has ever
+         done -- it comes up looking fine and behaving like a new hire. Josh's
+         rule is the opposite: her memory should follow her everywhere she
+         goes. Accounts that cannot keep that promise are refused by the engine
+         rather than warned about here. -->
+    <div class="fdiv" style="margin-top:16px;"></div>
+    <p class="runnow" id="d-account-now"></p>
+    <div class="frow" style="margin-top:10px;">
+      <select id="d-account" aria-label="Claude account this agent runs on"></select>
+      <button class="btn" type="button" id="d-account-go" disabled>Move</button>
+    </div>
+    <p class="dhint" id="d-account-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+    <p class="dhint" style="margin:8px 0 0;">Everything this agent has done comes with it. Moving is how you take an agent off an account that is running out.</p>
+  </section>
+  </section>
+  <section class="dsec" data-sec="memory" tabindex="-1" aria-label="Memory" hidden>
+  <section class="dbox">
+    <h3 class="dlab">Memory</h3>
+    <div id="d-memory"><p class="dhint" style="margin:0;">Opening&hellip;</p></div>
+  </section>
+  <!-- 🔑 "FRESH START" IS THE MOCK'S BLOCK UNDER MEMORY, and Restart is the
+       only one of its three drawn here. Compact and Clear have no route and no
+       engine (#214 stays open for them); a control drawn without one is a
+       promise, so they are not drawn. The restart control is the SAME element
+       it was at the foot of the page, with its data attributes and its note. -->
+  <section class="dbox">
+    <h3 class="dlab">Fresh start</h3>
+
+  <!-- 🛑 RESTART WAS UNREACHABLE UNLESS THE INSTRUCTIONS HAD DRIFTED. The
+       engine has had `removal.restart` and the route `/api/agent/<name>/restart`
+       for as long as this screen has existed, and the only button that called
+       either lived inside the stale-instructions notice, which `renderStale`
+       hides whenever the state is `current`. So a person could restart an agent
+       whose instructions had changed and could NOT restart one that was simply
+       wedged, which is the case anybody would actually reach for. Complete on
+       the server and unreachable on the screen (the shape Mona Lisa re-keyed
+       #204 on, found the same night).
+
+       ⚠️ ABOVE Remove, NOT beside it, and outside the danger block. A restart
+       takes nothing away: the files and the instructions are untouched, and the
+       one real consequence is that the agent comes back with an empty memory
+       ring. Putting it in a red box would teach that those two acts are the
+       same weight, and they are not. -->
+  <div class="field" id="d-restart-agent" hidden>
+    <div>
+    <label class="flabel"><b>Restart this agent</b></label>
+    <!-- The consequence, named before the click rather than discovered after
+         it. Josh has twice read a restarted agent's empty memory as the
+         product being broken, which is why this sentence exists at all and why
+         it says what it says. -->
+    <!-- 🔑 IT DOES NOT OPEN WITH "it stops and starts", WHICH IS WHAT THE WORD
+         RESTART MEANS. Mona Lisa's ruling on #259, and the general form is
+         worth keeping: a button names the act and does not explain it, and a
+         hint spends itself on the clause the person did not already know. The
+         heading says restart and so does the button, so the only sentence left
+         to write is the consequence, which is the reason this line exists. -->
+    <div class="fhint">It comes back with nothing in its memory, and anything it was part way through ends. Its instructions and its files are untouched.</div>
+    </div>
+    <div class="frow">
+      <button class="btn" id="d-restart-start" type="button"
+              data-restart-agent="" data-restart-note="d-restart-msg">Restart it</button>
+    </div>
+    <div class="fmsg" id="d-restart-msg" role="status" aria-live="polite"></div>
+  </div>
+  </section>
+  </section>
+  <section class="dsec" data-sec="instr" tabindex="-1" aria-label="Instructions" hidden>
   <section class="dbox">
   <div class="field">
     <!-- ⚠️ "SPECIAL PURPOSE", AND THE FILENAME IS NEVER THE LABEL. Josh,
@@ -3765,21 +3893,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <div class="fmsg" id="d-instr-msg" role="status" aria-live="polite"></div>
   </div>
   </section>
-
-  <!-- Engineering mode's surface on this page (eng-mode): the raw
-       session, shown only when the person turned the switch on. Same
-       viewport-not-transcript honesty as the project page's block. -->
-  <section class="dbox" id="d-window-box" hidden>
-    <h3 class="dlab" id="d-window-label">The window it is running in</h3>
-    <!-- The hint ships EMPTY: the affirmative "as it looks right now"
-         sentence is the runtime paint's to make, only over a capture
-         that succeeded (the project viewport recorded this exact
-         reversal at its own block). -->
-    <p class="dhint" id="d-window-hint" style="margin:0 0 10px;"></p>
-    <pre class="pj-screen" id="d-window" tabindex="0" hidden
-         role="region" aria-labelledby="d-window-label"></pre>
-    <p class="dhint" id="d-window-msg" hidden></p>
   </section>
+  <section class="dsec" data-sec="profile" tabindex="-1" aria-label="Profile" hidden>
 
   <section class="dbox">
   <div class="field">
@@ -3887,44 +4002,25 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   </div>
   <div class="fmsg" id="d-role-msg"></div>
   </section>
-  </div>
+  </section>
+  <section class="dsec" data-sec="term" tabindex="-1" aria-label="Terminal" hidden>
 
-  <!-- 🛑 RESTART WAS UNREACHABLE UNLESS THE INSTRUCTIONS HAD DRIFTED. The
-       engine has had `removal.restart` and the route `/api/agent/<name>/restart`
-       for as long as this screen has existed, and the only button that called
-       either lived inside the stale-instructions notice, which `renderStale`
-       hides whenever the state is `current`. So a person could restart an agent
-       whose instructions had changed and could NOT restart one that was simply
-       wedged, which is the case anybody would actually reach for. Complete on
-       the server and unreachable on the screen (the shape Mona Lisa re-keyed
-       #204 on, found the same night).
-
-       ⚠️ ABOVE Remove, NOT beside it, and outside the danger block. A restart
-       takes nothing away: the files and the instructions are untouched, and the
-       one real consequence is that the agent comes back with an empty memory
-       ring. Putting it in a red box would teach that those two acts are the
-       same weight, and they are not. -->
-  <div class="field" id="d-restart-agent" hidden>
-    <div>
-    <label class="flabel"><b>Restart this agent</b></label>
-    <!-- The consequence, named before the click rather than discovered after
-         it. Josh has twice read a restarted agent's empty memory as the
-         product being broken, which is why this sentence exists at all and why
-         it says what it says. -->
-    <!-- 🔑 IT DOES NOT OPEN WITH "it stops and starts", WHICH IS WHAT THE WORD
-         RESTART MEANS. Mona Lisa's ruling on #259, and the general form is
-         worth keeping: a button names the act and does not explain it, and a
-         hint spends itself on the clause the person did not already know. The
-         heading says restart and so does the button, so the only sentence left
-         to write is the consequence, which is the reason this line exists. -->
-    <div class="fhint">It comes back with nothing in its memory, and anything it was part way through ends. Its instructions and its files are untouched.</div>
-    </div>
-    <div class="frow">
-      <button class="btn" id="d-restart-start" type="button"
-              data-restart-agent="" data-restart-note="d-restart-msg">Restart it</button>
-    </div>
-    <div class="fmsg" id="d-restart-msg" role="status" aria-live="polite"></div>
-  </div>
+  <!-- Engineering mode's surface on this page (eng-mode): the raw
+       session, shown only when the person turned the switch on. Same
+       viewport-not-transcript honesty as the project page's block. -->
+  <section class="dbox" id="d-window-box" hidden>
+    <h3 class="dlab" id="d-window-label">The window it is running in</h3>
+    <!-- The hint ships EMPTY: the affirmative "as it looks right now"
+         sentence is the runtime paint's to make, only over a capture
+         that succeeded (the project viewport recorded this exact
+         reversal at its own block). -->
+    <p class="dhint" id="d-window-hint" style="margin:0 0 10px;"></p>
+    <pre class="pj-screen" id="d-window" tabindex="0" hidden
+         role="region" aria-labelledby="d-window-label"></pre>
+    <p class="dhint" id="d-window-msg" hidden></p>
+  </section>
+  </section>
+  <section class="dsec" data-sec="remove" tabindex="-1" aria-label="Remove" hidden>
 
   <!-- ⚠️ THE ONE CONTROL THAT TAKES SOMETHING AWAY, and it is here rather than
        on the card deliberately: at the bottom of the one screen you have to
@@ -3945,6 +4041,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <!-- `alert`, not `status`: a removal that only half worked is the one
          message here a person must not walk away without hearing. -->
     <div class="fmsg" id="d-remove-msg" role="alert" aria-live="assertive"></div>
+  </div>
+  </section>
+  </div>
   </div>
 </section>
 
@@ -5617,7 +5716,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            not chrome, and ignores this switch. -->
       <h3 class="dlab">Engineering mode</h3>
       <div class="setrow" id="eng-row">
-        <div><b>Show the window each agent is running in</b>
+        <div><b>Show agents' windows on project pages</b>
           <!-- 🛑 "Your chat shows what an agent says to you" WAS HERE AND IT IS
                FALSE OF THE DIRECT BOX. An agent cannot write into that thread
                at all (#175), so a person read this row, believed the chat would
@@ -5635,8 +5734,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                that work at the point of use, and a limitation stated far from
                where it applies is decoration. So the row goes back to its own
                job: what the toggle does, and why it is off. -->
-          <p class="dhint" style="margin:2px 0 0;">Off by default. It shows the raw session an agent is running in, which most people never need to see.</p></div>
-        <button class="toggle" id="eng-toggle" role="switch" aria-label="Show the window each agent is running in" hidden><i></i></button>
+          <p class="dhint" style="margin:2px 0 0;">Off by default. A project page can show several agents at once, and their raw sessions crowd it. Each agent's own page always shows its window.</p></div>
+        <button class="toggle" id="eng-toggle" role="switch" aria-label="Show agents' windows on project pages" hidden><i></i></button>
       </div>
       <p class="dhint" id="eng-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
@@ -9570,7 +9669,14 @@ async function paintAgentWindow(sessionName, opts) {
   }
   if (mine !== WINDOW_LOAD) return;
   if (!CURRENT || CURRENT.sessionName !== sessionName) return;
-  if (!on) { box.hidden = true; return; }
+  /* 🛑 THE SWITCH NO LONGER GATES THIS BOX (Josh, 2026-08-22, on the agent-page
+     mock: always available here, the switch was for the PROJECT screen). With
+     the page split into sections, a gated box would have left the Terminal
+     pill opening an empty section, which is a control that does nothing. The
+     flag is still learned above because `pjApplyEngMode` reads it for the
+     project room, which the switch still governs. `on` is deliberately unused
+     past this line. */
+  void on;
   /* The box reveals with CONTENT (a capture or a refusal in words), not
      before it: a bare heading over an empty pre for a round-trip is the
      quiet end of the affirmative-claim family. A tick repaint finds the
@@ -10746,10 +10852,18 @@ async function sendTalk(text, chose) {
   }
 }
 
-function openDetail(sessionName) {
+function openDetail(sessionName, section) {
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
   CURRENT = a;
+  /* ⚠️ THE SECTION IS CHOSEN ON OPEN AND NEVER BY THE POLL. A caller that
+     knows where the person is going (the card's answer button, the stale
+     mark) names it; everyone else lands on Talk, which is the mock's landing
+     and the thing most people open an agent for. The poll repaints the
+     sections by id and never calls detailGo, so a person reading Instructions
+     is not flipped back to Talk five seconds later. */
+  detailNavNames(a.name);
+  detailGo(section || 'talk', { focus: false });
   /* The name for the Reports-to menu's first option. Fire and forget: the poll
      repaints this panel every five seconds, and until it lands the menu says
      "You", which is true rather than a placeholder. */
@@ -10980,6 +11094,75 @@ function openDetail(sessionName) {
   loadRemoval(a.sessionName);
   showTab('detail');
 }
+
+/* The agent page's sections. One on screen at a time; the nav says which.
+   `detailGo` is the ONLY writer of `.dsec[hidden]`, and it is called from a
+   nav click and from `openDetail`, never from the poll. */
+const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'profile', 'term', 'remove'];
+function detailGo(section, opts) {
+  if (!DETAIL_SECTIONS.includes(section)) section = 'talk';
+  const nav = document.getElementById('d-nav');
+  nav.querySelectorAll('button[data-go]').forEach((b) => {
+    const on = b.dataset.go === section;
+    b.classList.toggle('on', on);
+    if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+  let target = null;
+  document.querySelectorAll('#panel-detail .dsec').forEach((sec) => {
+    const on = sec.dataset.sec === section;
+    sec.hidden = !on;
+    if (on) target = sec;
+  });
+  /* 🔑 FOCUS MOVES INTO THE SECTION ON A CLICK, so a keyboard user's next Tab
+     is the first control of what they asked for rather than the next pill. On
+     open it stays where it was: opening an agent already manages focus (the
+     answer button's intent, the back button), and yanking it here would fight
+     that. */
+  if (target && !(opts && opts.focus === false)) target.focus({ preventScroll: false });
+}
+document.getElementById('d-nav').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-go]');
+  if (!b) return;
+  detailGo(b.dataset.go);
+});
+/* Two pills carry the agent's name. Painted from the same `a.name` the header
+   paints, on open and after a rename, and never left holding the last agent's. */
+function detailNavNames(name) {
+  const n = (name || '').trim();
+  document.getElementById('d-nav-talk').textContent = n ? 'Talk to ' + n : 'Talk to this agent';
+  document.getElementById('d-nav-remove').textContent = n ? 'Remove ' + n : 'Remove this agent';
+  /* The model button names the agent for the same reason the Remove pill
+     does: a page that always shows one agent makes a bare label unambiguous
+     only while you remember which page you are on. */
+  document.getElementById('d-model-go').textContent = n ? 'Change & Restart ' + n : 'Change & Restart';
+}
+/* 🔑 THE DOTS ARE READ OFF THE SECTIONS, NOT COMPUTED AGAIN. A nav that derived
+   "needs you" from the agent record would be a second rendering of a state the
+   talk box and the instructions box already render, free to disagree the day
+   either painter changes its mind. So the nav watches the three elements that
+   carry the fact (`hidden` flips) and mirrors them. A MutationObserver rather
+   than a call from each painter, because a painter added later would not know
+   to call it, and this cannot be forgotten. */
+function detailDots() {
+  const shown = (id) => { const el = document.getElementById(id); return !!el && !el.hidden; };
+  const set = (go, on) => {
+    const b = document.querySelector('#d-nav button[data-go="' + go + '"]');
+    if (!b) return;
+    if (on) b.setAttribute('data-dot', '1'); else b.removeAttribute('data-dot');
+  };
+  set('talk', shown('d-qask'));
+  set('instr', shown('d-instr-outdated') || shown('d-instr-stale'));
+}
+(function watchDots() {
+  /* The text tests evaluate this script in a scope with no DOM globals. */
+  if (typeof MutationObserver === 'undefined') return;
+  const mo = new MutationObserver(detailDots);
+  ['d-qask', 'd-instr-outdated', 'd-instr-stale'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) mo.observe(el, { attributes: true, attributeFilter: ['hidden'] });
+  });
+  detailDots();
+})();
 
 /* 📌 `paintAgentProjects` WENT WITH THE ROW IT PAINTED (Josh, 2026-08-22). It
    fetched /api/projects rather than trusting `PROJECTS`, because that global is
@@ -13032,6 +13215,7 @@ document.getElementById('d-save').addEventListener('click', async () => {
     if (renameTo) {
       const h = document.getElementById('d-name');
       if (h) h.textContent = renameTo;
+      detailNavNames(renameTo);
     }
     await tick();
   } catch (err) {
