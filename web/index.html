@@ -1244,7 +1244,7 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
             font-variant-numeric: tabular-nums;
             color: #fff; background: #b3261e; border-radius: 100px;
             padding: .12rem .42rem; border: 2px solid var(--k-surface); }
-.ansgo { margin-left: auto; font-size: .8125rem; font-weight: 600; color: var(--k-ink-2);
+.ansgo { margin-left: auto; padding: 0 0 1px; font-size: .8125rem; font-weight: 600; color: var(--k-ink-2);
          border: 0; background: none;
          padding: 0; font-family: inherit; cursor: pointer;
          /* ⚠️ 24px minimum (WCAG 2.2 SC 2.5.8), the floor the retired
@@ -1276,7 +1276,9 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 .dbox { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 16px;
         padding: 22px 24px; color: var(--k-ink); }
 .dlab { font-size: .75rem; letter-spacing: .14em; text-transform: uppercase;
-        color: var(--k-ink-2); margin: 0 0 10px; font-weight: 700; }
+        /* 600, the pack's weight (#179, ruled there): a box label at 700
+           competes with the headings above it. */
+        color: var(--k-ink-2); margin: 0 0 10px; font-weight: 600; }
 .dhint { font-size: .9375rem; color: var(--k-ink-2); margin-bottom: 14px; line-height: 1.55; }
 .dstack { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 14px; }
 .dstack > .dbox { align-self: stretch; }
