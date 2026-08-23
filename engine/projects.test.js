@@ -2037,3 +2037,60 @@ test('openFile: an unreadable project folder refuses before it names a file', ()
   assert.equal(ran, false);
   projects.setRevealRunner(null);
 });
+
+/* ── the pane line on a membership change (#141, #143, #304, #305) ──────── */
+
+test('membershipLine carries the name, the folder and the room command, and each kind says its own thing', () => {
+  const p = { id: 'winter-launch', name: 'Winter launch', folder: '/Users/x/kosmos-projects/winter-launch' };
+  const joined = projects.membershipLine(p, 'joined');
+  assert.match(joined, /put you on the project "Winter launch"/);
+  assert.match(joined, /\/Users\/x\/kosmos-projects\/winter-launch/, 'the folder is not in the line, so acting on it needs a file read');
+  assert.match(joined, /post winter-launch "your message"/, 'the room command is not in the line');
+  assert.match(joined, /"Your projects" section/, 'the line does not say where the durable copy lives');
+  const left = projects.membershipLine(p, 'left');
+  assert.match(left, /took you off the project "Winter launch"/);
+  assert.match(left, /Do not post to its room any more/);
+  assert.doesNotMatch(left, /post winter-launch/, 'the leave line teaches the room command it is telling the agent to stop using');
+  const removed = projects.membershipLine(p, 'removed');
+  assert.match(removed, /The project "Winter launch" was removed from Kosmos/);
+  // A name that would break the one-line contract is flattened, not passed through.
+  assert.doesNotMatch(projects.membershipLine({ id: 'x', name: 'two\nlines', folder: '/y' }, 'joined'), /\n.*two/s);
+});
+
+test('speakOfMembership types the line into a running agent with no envelope, and a stopped agent answers could_not', () => {
+  const chat = require('./chat');
+  const calls = [];
+  const probe = { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+  chat.setRunner((args) => { calls.push(args); return args[0] === 'display-message' ? probe : { ran: true, spawnFailed: false, status: 0, out: '', err: '' }; });
+  chat.setDryRun(false);
+  try {
+    const p = { id: 'winter-launch', name: 'Winter launch', folder: '/tmp/w' };
+    const d = projects.speakOfMembership('mara', p, 'joined', ROSTER);
+    assert.equal(d.state, 'placed', d.because);
+    const typed = calls.filter((a) => a[0] === 'send-keys' && a.includes('-l'));
+    assert.equal(typed.length, 1, 'the line was not typed exactly once');
+    const line = typed[0][typed[0].length - 1];
+    assert.match(line, /put you on the project "Winter launch"/);
+    // ⚠️ No envelope and no trailer: an operator marker on a line no operator
+    // wrote would lie about who is speaking (Angel's seam note, 2026-08-23).
+    assert.doesNotMatch(line, /OPERATOR|===/, 'the line carries an envelope');
+    // A name the roster does not carry as ours is refused by deliver itself.
+    const off = projects.speakOfMembership('nobody-here', p, 'joined', ROSTER);
+    assert.equal(off.state, 'could_not');
+  } finally {
+    chat.setRunner(null);
+  }
+});
+
+test('tellAgent reports whether the projects half changed, so a colleagues heal is not spoken about', () => {
+  const name = 'mara';
+  fleet.install([fleet.agent(name, { state: 'idle' })]);
+  const p = projects.create({ name: 'Told Once', folder: null, agents: [], roster: ROSTER });
+  projects.addAgent(p.id, name, ROSTER);
+  const first = projects.syncAgent(name, ROSTER);
+  assert.equal(first.state, projects.TOLD.TOLD, first.because);
+  assert.equal(first.changed, true, 'the first write did not report the block changing');
+  const again = projects.syncAgent(name, ROSTER);
+  assert.equal(again.state, projects.TOLD.TOLD);
+  assert.equal(again.changed, false, 'an identical re-sync claims the block changed, so the pane line would repeat');
+});

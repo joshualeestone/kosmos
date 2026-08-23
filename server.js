@@ -3492,7 +3492,13 @@ const server = http.createServer((req, res) => {
         // happened") and create had the same shape.
         let told = [];
         try {
-          told = made.agents.map((a) => ({ agent: a, ...projects.syncAgent(a, roster) }));
+          told = made.agents.map((a) => {
+            const verdict = projects.syncAgent(a, roster);
+            // Agents put on a project at its creation are usually already
+            // running; the pane line is what tells them now (#141).
+            const said = projects.speakOfMembership(a, made, 'joined', roster);
+            return { agent: a, ...verdict, said };
+          });
         } catch (err) {
           told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach the agents you put on it') }];
         }
@@ -3641,7 +3647,11 @@ const server = http.createServer((req, res) => {
       // we cannot resolve is still the only name we have.
       told = gone.agents.map((a) => {
         const card = Array.isArray(roster) ? roster.find((c) => c && c.sessionName === a) : null;
-        return { agent: a, shownAs: (card && card.name) || a, ...projects.syncAgent(a, roster) };
+        const verdict = projects.syncAgent(a, roster);
+        // A running member hears that the project is gone (#304); a stopped
+        // one reads it at its next start, and could_not here is that fact.
+        const said = projects.speakOfMembership(a, gone, 'removed', roster);
+        return { agent: a, shownAs: (card && card.name) || a, ...verdict, said };
       });
     } catch (err) {
       told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach the agents that were on it') }];
@@ -4003,6 +4013,15 @@ const server = http.createServer((req, res) => {
     // telling the agent or reading the project back must not come back as "we
     // could not change that project".
     const roster = safeRoster();
+    // Whether this request MOVES membership, read before the write: add and
+    // remove both no-op on a repeat, and the pane line below must not be
+    // typed twice for one fact (#304).
+    let moved = false;
+    try {
+      const before = projects.readAll().find((p) => p && p.id === id);
+      const on = !!(before && (before.agents || []).includes(name));
+      moved = req.method === 'POST' ? !on : on;
+    } catch { moved = false; }
     try {
       if (req.method === 'POST') projects.addAgent(id, name, roster);
       else projects.removeAgent(id, name);
@@ -4026,7 +4045,15 @@ const server = http.createServer((req, res) => {
     }
     let project = null;
     try { project = projects.get(id, roster); } catch { project = null; }
-    sendJson(res, 200, { project, told: verdict, agentsUnreadable: roster === null });
+    // The pane line, the only thing that reaches a RUNNING agent (#141/#143/
+    // #304/#305). Only when membership moved; the verdict rides the response
+    // so the screen can say whether the agent was told now or reads it at
+    // its next start.
+    let said = null;
+    if (moved && project) {
+      said = projects.speakOfMembership(name, project, req.method === 'POST' ? 'joined' : 'left', roster);
+    }
+    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null });
     return;
   }
 
