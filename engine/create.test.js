@@ -2687,3 +2687,26 @@ test('an agent cannot report to itself', () => {
      the only one a person can create by picking a name out of a list. */
   assert.equal(fs.existsSync(create.plistPath(name)), false, 'the refusal made the agent anyway');
 });
+
+/* ── the birth record (#157) ─────────────────────────────────────────────── */
+
+test('every creation attempt leaves one line in the birth record, refusals included, and a torn line does not poison the read', () => {
+  const before = create.createdLog().length;
+  // A refusal at the door: no folder, no plist, but a line.
+  const refused = create.createAgent({ name: '###', role: 'researcher' });
+  assert.equal(refused.outcome, 'refused');
+  let log = create.createdLog();
+  assert.equal(log.length, before + 1, 'a refused creation left no record, so a rolled-back agent is unprovable again');
+  const last = log[log.length - 1];
+  assert.equal(last.outcome, 'refused');
+  assert.equal(last.name, '###', 'the record does not carry the name as typed, which is what a spelling refusal is about');
+  assert.equal(last.because, refused.because, 'the record and the answer disagree about why');
+  assert.ok(!Number.isNaN(Date.parse(last.at)), 'the record has no readable time');
+  // A torn write (the crash case): the good lines still read.
+  fs.appendFileSync(create.createdLogFile(), '{"at":"2026-08-23T', 'utf8');
+  fs.appendFileSync(create.createdLogFile(), '\n', 'utf8');
+  const again = create.createAgent({ name: '###', role: 'researcher' });
+  assert.equal(again.outcome, 'refused');
+  log = create.createdLog();
+  assert.equal(log.length, before + 2, 'a torn line took the readable records with it');
+});
