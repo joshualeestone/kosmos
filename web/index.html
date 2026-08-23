@@ -7641,6 +7641,10 @@ function paintOfflineNote(down) {
   if (v) detail.push('Version ' + esc(v) + ' is loaded.');
   try { if (location && location.host) detail.push('Nothing answered at ' + esc(location.host) + '.'); }
   catch { /* a document with no location still gets the primary sentence */ }
+  /* The one thing to do, which helps whatever the cause: opening Kosmos
+     from the Applications folder starts it if it is not going and simply
+     opens it if it is. Names no cause (the test above holds that line). */
+  detail.push('Open Kosmos from your Applications folder and it will start again if it needs to.');
   slot.innerHTML = '<div class="utoast stale" role="status">'
     + '<span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt"><b>Kosmos is not answering on this computer</b>'
@@ -7650,6 +7654,7 @@ function paintOfflineNote(down) {
 
 async function tick() {
   const checked = document.getElementById('checked');
+  let answered = false;   // set when the server replied, even with a refusal (#268)
   try {
     // Captured BEFORE the request goes out, so a slow poll can be recognised as
     // predating a save or a reload.
@@ -7667,6 +7672,13 @@ async function tick() {
       /* The status code stays, at the end: it is the one part that is true even
          when the body is missing or is not ours. */
       parts.push('status ' + res.status);
+      /* 🔑 KOSMOS ANSWERED. It said no, in words, but it answered, and that is
+         the one fact that tells a total failure from a subsystem one (#268):
+         a board that cannot read tmux is not a board that is absent. The
+         catch reads the flag to keep the "not answering" note off a screen
+         where something did answer. (A flag rather than a property on the
+         error, because three tests slice this block by its throw line.) */
+      answered = true;
       throw new Error(parts.join(' · '));
     }
     const data = await res.json();
@@ -8128,7 +8140,13 @@ async function tick() {
        machine the in-flight state and the failed state look identical to
        whoever is writing the code, which is why the test that matters holds a
        fetch open and asserts the note is ABSENT (Mona Lisa, #269). */
-    paintOfflineNote(true);
+    /* Two failures, two screens (#268). A fetch that never got an answer is
+       the whole of Kosmos not answering, and that is said ONCE at the top; the
+       panels underneath cannot know more. A fetch that got a refusal is a
+       subsystem that could not be read, and the board's own box carries the
+       engine's sentence; painting "not answering" over it would be the screen
+       contradicting itself, and the person would believe the louder half. */
+    paintOfflineNote(!answered);
     const addViewOnFail = document.getElementById('pj-add-view');
     if (addViewOnFail && !addViewOnFail.hidden) paintAddAgents();
     checked.className = 'checked stamp stale';
@@ -9424,6 +9442,11 @@ function boardEmpty() {
       + 'This is not the same as having none. Something on this computer did '
       + 'not answer, so we are not telling you the board is empty. ('
       + esc(BOARD_LOOK_FAILED) + ')</p>'
+      /* #274: the moment a person most needs to look for themselves is the
+         moment `tmux ls` says "command not found", because Kosmos ships its
+         own tmux off PATH (deliberately). The CLI knows the path, so the
+         command named here is the CLI's own, not the path. */
+      + '<p class="fhint">To look directly, open Terminal and run <code>kosmos agents</code>.</p>'
       + '<button class="btn" type="button" data-board-retry>Try again</button>'
       + '</div>';
   }
