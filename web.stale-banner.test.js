@@ -48,6 +48,7 @@ function panel() {
   };
   const fn = new Function('document', 'esc', 'CURRENT', `
     ${page.lift(SCRIPT, 'setLive')}
+    ${page.lift(SCRIPT, 'staleWords')}
     ${page.lift(SCRIPT, 'renderStale')}
     return renderStale;`)(
     { getElementById: (id) => (id === 'd-instr-stale' ? el : null) },
@@ -74,6 +75,34 @@ test('the banner paints its sentence and its button the first time', () => {
   assert.equal(el.hidden, false);
   assert.match(el.innerHTML, /older instructions/i);
   assert.match(el.innerHTML, /data-restart-agent/, 'the Restart button is what the person needs to reach');
+});
+
+test('when Kosmos made the edit, the banner says so in Kosmos\'s words; when nobody said, it keeps the standing ones (#323)', () => {
+  /**
+   * "Running on older instructions" in the person's ear means THEY edited
+   * something. When the writer was Kosmos putting the agent on a project, that
+   * is a change Kosmos made reported as one the person made. The engine now
+   * says who in `wroteBy`, written by the code that wrote the block, and the
+   * banner reads it and never infers: absent, or a person, and the wording is
+   * what it was, because for a hand edit nobody knows who.
+   */
+  const { el, render } = panel();
+  render({ ...STALE, wroteBy: { who: 'kosmos', because: 'Kosmos put it on Winter launch' } });
+  assert.match(el.innerHTML, /<b>Kosmos put it on Winter launch\.<\/b>/, 'the banner does not name what Kosmos did');
+  assert.match(el.innerHTML, /Restart it so it knows\./, 'the remedy lost its sentence');
+  assert.doesNotMatch(el.innerHTML, /older instructions/i, 'a change Kosmos made is still reported as the person\'s');
+  assert.match(el.innerHTML, /data-restart-agent/, 'the Restart button is gone from the Kosmos wording');
+
+  for (const by of [undefined, null, { who: 'person', because: null }, { who: 'kosmos', because: null }]) {
+    render({ state: 'current' });
+    render({ ...STALE, wroteBy: by });
+    assert.match(el.innerHTML, /<b>Running on older instructions\.<\/b>/, `wroteBy ${JSON.stringify(by)} changed the standing wording`);
+    assert.doesNotMatch(el.innerHTML, /Kosmos put it on/, `wroteBy ${JSON.stringify(by)} was attributed to Kosmos`);
+  }
+  // A sentence from the engine is text, never markup.
+  render({ state: 'current' });
+  render({ ...STALE, wroteBy: { who: 'kosmos', because: 'Kosmos put it on <b>x</b>' } });
+  assert.doesNotMatch(el.innerHTML, /<b>x<\/b>/, 'the why-sentence reached the page as markup');
 });
 
 test('leaving the page and coming back paints it again, not an empty bar', () => {

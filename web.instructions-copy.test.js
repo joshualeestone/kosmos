@@ -61,7 +61,9 @@ test('the path line is gone from the instructions box (#198)', () => {
 });
 
 test('the stale sentence names the edits rather than pointing at nothing (#212)', () => {
-  const stale = page.lift(SCRIPT, 'renderStale');
+  // The sentences moved into `staleWords`, one function the card and the page
+  // share (#323); the renderer and its words are read together.
+  const stale = page.lift(SCRIPT, 'renderStale') + '\n' + page.lift(SCRIPT, 'staleWords');
   /* 🛑 "RESTARTING THE AGENT IS WHAT APPLIES THEM" had no antecedent. The
      nearest plural noun in that block is "older instructions", and applying
      THOSE is the opposite of what a restart does. */

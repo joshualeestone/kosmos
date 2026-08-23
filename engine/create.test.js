@@ -1838,6 +1838,79 @@ test('describe-it-yourself carries the operating defaults in its own body, once,
     'the custom path appended defaults to words the person wrote without them; the standing rule moved and this test did not know');
 });
 
+test('an agent made onto a project is born with the block, so the later sync writes nothing (#323)', () => {
+  /**
+   * 🛑 WHY. The projects block used to arrive by `projects.syncAgent` once the
+   * board could see the session, which is at least one poll AFTER the session
+   * started. So every agent made onto a project greeted its owner with
+   * "Running on older instructions" and a Restart button at sixty seconds old
+   * (Josh, 2026-08-22: "I literally just created this agent a minute ago").
+   * The trigger then vanished by accident when projects came off the create
+   * form; this makes the fix deliberate: compose before the first write, and
+   * prove the post-start path is a no-op at the FILE, not just at the verdict.
+   */
+  const projects = require('./projects');
+  const instructions = require('./instructions');
+  recorder();
+  create.setDryRun(false);
+  const winter = projects.create({ name: 'Winter launch' });
+  // Real cards from the real route, as the house rule requires: the roster
+  // `tellAgent` reads is the status engine's output, never a literal.
+  const roster = (() => {
+    const board = fleet.install([fleet.agent('born-on', { state: 'working' }), fleet.agent('born-off', { state: 'working' })]);
+    try { return board.agents; } finally { board.restore(); }
+  })();
+
+  const made = create.createAgent({ ...BINS, name: 'born-on', role: 'writer', projects: [winter.id] });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  const file = create.instructionFile('born-on');
+  const atBirth = fs.readFileSync(file, 'utf8');
+  assert.ok(atBirth.includes(projects.BLOCK_START), 'the projects block is not in the file at birth');
+  assert.match(atBirth, /\*\*Winter launch\*\*/, 'the block does not name the project');
+  // The block is LAST, after the operating defaults: that is where a later
+  // splice would put it, and the bytes must agree or the sync writes after all.
+  assert.ok(atBirth.indexOf(projects.BLOCK_START) > atBirth.indexOf('How you work, whatever the job'),
+    'the block is not where spliceBlock would put it, so the later sync will write');
+
+  // Exactly what the route does next, in order.
+  projects.addAgent(winter.id, 'born-on', roster);
+  const mtimeBefore = fs.statSync(file).mtimeMs;
+  const verdict = projects.syncAgent('born-on', roster);
+  assert.equal(verdict.state, projects.TOLD.TOLD, verdict.because);
+  assert.equal(fs.readFileSync(file, 'utf8'), atBirth, 'the sync rewrote a file that already said this');
+  assert.equal(fs.statSync(file).mtimeMs, mtimeBefore, 'the sync touched the file, so the agent is born stale again');
+  assert.equal(store.readProfile('born-on').instructionsWrite, undefined,
+    'a no-op sync recorded a write, so the marker would blame Kosmos for nothing');
+
+  // POSITIVE CONTROL: the old way still writes, and now says why.
+  const ctrl = create.createAgent({ ...BINS, name: 'born-off', role: 'writer' });
+  assert.equal(ctrl.outcome, create.OUTCOME.CREATED, ctrl.because);
+  const file2 = create.instructionFile('born-off');
+  assert.ok(!fs.readFileSync(file2, 'utf8').includes(projects.BLOCK_START), 'an agent made onto no project got a block');
+  projects.addAgent(winter.id, 'born-off', roster);
+  const v2 = projects.syncAgent('born-off', roster);
+  assert.equal(v2.state, projects.TOLD.TOLD, v2.because);
+  assert.ok(fs.readFileSync(file2, 'utf8').includes(projects.BLOCK_START), 'the control did not get the block, so the first half proved nothing');
+  const rec = store.readProfile('born-off').instructionsWrite;
+  assert.ok(rec && rec.who === 'kosmos', 'Kosmos wrote the file and did not say so');
+  assert.equal(rec.because, 'Kosmos put it on Winter launch');
+  assert.deepEqual(instructions.wroteBy('born-off', fs.statSync(file2).mtimeMs), { who: 'kosmos', because: 'Kosmos put it on Winter launch' },
+    'the record does not match the file it describes');
+
+  // ⚠️ AND THE RECORD FALLS AWAY WHEN THE FILE MOVES ON WITHOUT IT. A hand
+  // edit five seconds later leaves the file newer than the record, and the
+  // honest answer is "nobody said", never "Kosmos did".
+  const later = new Date(fs.statSync(file2).mtimeMs + 5000);
+  fs.utimesSync(file2, later, later);
+  assert.equal(instructions.wroteBy('born-off', fs.statSync(file2).mtimeMs), null,
+    'a hand edit is being attributed to Kosmos');
+
+  // A person's save through the editor records the person, with no sentence.
+  const seen = instructions.read('born-off');
+  instructions.write('born-off', seen.text + '\nOne more line from the person.\n', seen.version, undefined, { who: 'person', because: null });
+  assert.deepEqual(instructions.wroteBy('born-off', fs.statSync(file2).mtimeMs), { who: 'person', because: null });
+});
+
 test('a saved About-you record rides the boot file from birth, and its absence costs nothing', () => {
   const you = require('./you');
   recorder();
