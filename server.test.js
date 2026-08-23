@@ -9385,3 +9385,39 @@ test('somebody who already has agents is never told they have none', () => {
     'CONTROL: this arm is expected to fall through to the empty state today; '
     + 'if that changes, this assertion is the record of what it used to do');
 });
+
+test('a found row shows its folder only when the name alone cannot tell it apart', () => {
+  /**
+   * 🛑 JOSH ASKED FOR THE PATH GONE (2026-08-22) and he is right about the
+   * machine he was looking at: every agent has its own name there, so the folder
+   * under each one is a line of noise.
+   *
+   * ⚠️ IT CANNOT GO UNCONDITIONALLY. Two folders can hold agents with the same
+   * name, and with the path removed those rows are identical -- a person
+   * choosing between two things that look the same, on the screen whose whole
+   * job is telling them what is on their Mac. Same rule the project room's
+   * receipt already follows: drop it when it is not the story, keep it when it
+   * is.
+   */
+  const one = firstRunHarness('frPaintFound', {
+    FR: { path: 'create', fleetCount: 0 },
+    FR_FOUND: { ok: true, agents: [
+      { dir: '/w/mike', name: 'Mike', role: 'copywriter' },
+      { dir: '/w/rosie', name: 'Rosie', role: 'analyst' },
+    ] },
+  });
+  const plain = one.els['fr-fleet'].innerHTML;
+  assert.doesNotMatch(plain, /fr-founddir/, 'the folder is still drawn under every row');
+  assert.match(plain, /Mike/);
+
+  const two = firstRunHarness('frPaintFound', {
+    FR: { path: 'create', fleetCount: 0 },
+    FR_FOUND: { ok: true, agents: [
+      { dir: '/work/a/mike', name: 'Mike', role: 'copywriter' },
+      { dir: '/work/b/mike', name: 'Mike', role: 'copywriter' },
+    ] },
+  });
+  const clash = two.els['fr-fleet'].innerHTML;
+  assert.match(clash, /\/work\/a\/mike/, 'two agents called Mike are drawn identically');
+  assert.match(clash, /\/work\/b\/mike/);
+});

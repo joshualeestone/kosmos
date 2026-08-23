@@ -1264,6 +1264,37 @@ function restartInner(name) {
 
 function restart(name) { return markDryRun(restartInner(name)); }
 
+/**
+ * Drops an agent's removal record, and nothing else.
+ *
+ * 🔑 IT EXISTS FOR UNDO. `restore` is the button a person presses in the removed
+ * list, and it does two things: puts the launch job back AND takes the record
+ * off. Undoing a connect needs only the second half -- the job has just been
+ * booted out on purpose, and restoring it would put back the very thing the
+ * person asked to take away.
+ *
+ * 🛑 WITHOUT THIS, AN UNDONE ADD COULD NOT BE RE-ADDED. The record is what the
+ * board filters on, so the name would stay hidden: they press Undo, press Add
+ * again, get a success, and no agent appears. Nothing on screen could explain
+ * that, because everything that ran succeeded.
+ *
+ * ⚠️ It never touches launchd, so it cannot hide a running agent -- the danger
+ * the record exists to prevent runs the other way (a record with no agent is
+ * inert; an agent with no record is simply on the board).
+ */
+function forget(name) {
+  const clean = create.cleanName(name);
+  const unsafe = unsafeToActOn(clean);
+  if (unsafe) return false;
+  if (DRY_RUN && !runner) return true;
+  // Same hazard as `recordRemoval`: rewriting from a read that failed would drop
+  // every OTHER removed agent's record while claiming to have cleared this one.
+  const existing = readRemovedForWrite();
+  if (existing === UNREADABLE) return false;
+  writeRemoved(existing.filter((r) => r.name !== clean));
+  return !isRemoved(clean);
+}
+
 module.exports = {
   plan,
   restart,
@@ -1271,6 +1302,7 @@ module.exports = {
   isHidden,
   remove,
   restore,
+  forget,
   isRemoved,
   removedNames,
   removedAgents,

@@ -2882,14 +2882,24 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    "is that MY Mike or another one" and it is the only unambiguous thing on the
    row. Quiet, because it is a disambiguator rather than a label. */
 .fr-found { display: grid; gap: var(--space-3); margin: var(--space-5) 0; max-width: 36rem; }
-.fr-foundrow { display: grid; gap: 2px; padding: 10px 12px;
+/* 🔑 TWO COLUMNS, TEXT LEFT AND CONTROLS HARD RIGHT (Josh, 2026-08-22: "we could
+   make the rows shorter too if we put the buttons on the far right"). Stacked,
+   the button was a third line under every agent and the list grew by a whole
+   button-height per row; beside the text it costs nothing, because the name and
+   the title were already two lines tall. `min-width: 0` on the text column is
+   what stops a long folder path from pushing the controls off the right edge --
+   a grid child's default minimum is its content, not zero. */
+.fr-foundrow { display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center; column-gap: var(--space-4); padding: 10px 12px;
   border: 1px solid var(--separator); border-radius: var(--radius-control); }
-.fr-foundrow .fr-foundgo { margin-top: var(--space-3); justify-self: start; }
+.fr-foundtext { display: grid; gap: 2px; min-width: 0; }
+.fr-foundact { display: flex; align-items: center; gap: var(--space-2); }
 /* An empty status line takes no room, so a row that has not been pressed is the
-   same height as it was before the control existed. */
+   same height as it was before the control existed. It spans both columns: a
+   failure sentence is about the row, not about the button. */
 .fr-foundrow .fr-foundsaid:empty { display: none; }
-.fr-foundrow .fr-foundsaid { margin: var(--space-3) 0 0; font: var(--text-callout) var(--font-ui);
-  color: var(--label-2); }
+.fr-foundrow .fr-foundsaid { grid-column: 1 / -1; margin: var(--space-3) 0 0;
+  font: var(--text-callout) var(--font-ui); color: var(--label-2); }
 .fr-foundrow.done { border-color: var(--label-3); }
 .fr-foundname { font: 600 var(--text-body) var(--font-ui); color: var(--label); }
 .fr-foundrole { font: var(--text-callout) var(--font-ui); color: var(--label-2); }
@@ -19904,6 +19914,10 @@ function frPaintFound() {
   title.textContent = n === 1 ? 'We found an agent on this Mac.' : 'We found ' + n + ' agents on this Mac.';
   /* ⚠️ TRUE TONIGHT WITH NO ADD BUTTON, AND STILL TRUE THE DAY THERE IS ONE.
      Copy is Mona Lisa's, verbatim. */
+  /* Names that appear more than once, so the row can say which is which. */
+  const seen = new Map();
+  for (const a of FR_FOUND.agents) seen.set(a.name, (seen.get(a.name) || 0) + 1);
+  const dupes = new Set([...seen.entries()].filter(([, n]) => n > 1).map(([k]) => k));
   box.innerHTML = '<p>They are not in Kosmos yet. You will be able to add them here, and '
     + 'adding one leaves it exactly where it is, in its own folder with its own instructions.</p>'
     + '<div class="fr-found">' + FR_FOUND.agents.map((a) =>
@@ -19918,15 +19932,31 @@ function frPaintFound() {
          ticked box which does nothing is worse than no box, because ticked says
          a decision has been made while inert says it has not, on the same pixel.
          The rule has not changed -- the route arrived. */
-      '<div class="fr-foundrow" data-found-dir="' + esc(a.dir) + '">'
+      '<div class="fr-foundrow" data-found-dir="' + esc(a.dir) + '" data-found-name="' + esc(a.name) + '">'
+      + '<span class="fr-foundtext">'
       + '<span class="fr-foundname">' + esc(a.name) + '</span>'
       /* Role is optional by ruling ("even if it's just title unknown"): an agent
          whose file never says what it does is still an agent. */
       + '<span class="fr-foundrole">' + esc(a.role || 'No title in its instructions') + '</span>'
-      /* The folder answers "is that MY Mike or another one", which is the only
-         unambiguous thing on the row. */
-      + '<span class="fr-founddir">' + esc(a.dir) + '</span>'
+      /* 🛑 THE FOLDER IS SHOWN ONLY WHEN IT IS THE THING TELLING TWO ROWS APART.
+         Josh asked for it gone (2026-08-22) and he is right about his own
+         machine, where every agent has its own name and the path is a line of
+         noise under each one. It cannot go unconditionally: two folders can hold
+         agents with the SAME name, and without the path those rows are
+         identical, so a person would be choosing between two things that look
+         the same. Same rule the room's receipt already follows -- drop it when it
+         is not the story, keep it when it is. */
+      + (dupes.has(a.name) ? '<span class="fr-founddir">' + esc(a.dir) + '</span>' : '')
+      + '</span>'
+      + '<span class="fr-foundact">'
       + '<button class="btn fr-foundgo" type="button">Add ' + esc(a.name) + ' to Kosmos</button>'
+      /* 🛑 THE UNDO IS BUILT HIDDEN, NOT BUILT ON SUCCESS. This list is the one
+         screen where somebody presses four buttons in a row, so the success arm
+         must not rebuild markup -- and an element that already exists cannot be
+         the element a later edit forgets to create. It carries no name in its
+         label because it sits against a button that just said "Added". */
+      + '<button class="btn fr-foundundo" type="button" hidden>Undo</button>'
+      + '</span>'
       + '<p class="fr-foundsaid" role="status" aria-live="polite"></p>'
       + '</div>').join('')
     + '</div>';
@@ -19976,16 +20006,77 @@ document.addEventListener('click', async (e) => {
        on a screen where they are about to press three more. */
     go.textContent = 'Added';
     row.classList.add('done');
-    /* Said plainly, because it is the thing people will not believe: their agent
-       is still where they left it. */
-    said.textContent = out.started
-      ? 'Added, and started. It stays in its own folder.'
-      : 'Added. It stays in its own folder, and will start at the next login.';
+    /* 🔑 UNDO APPEARS ONLY ONCE THERE IS SOMETHING TO UNDO (Josh, 2026-08-22:
+       "probably need an undo next to added incase I accidentally hit it").
+       The label the button carried is stashed on the row rather than recomputed,
+       because the undo arm has to put back the exact words the row was built
+       with -- and those words contain the agent's name. */
+    row.dataset.foundLabel = was;
+    const undo = row.querySelector('.fr-foundundo');
+    if (undo) { undo.hidden = false; undo.disabled = false; undo.textContent = 'Undo'; }
+    /* 🛑 NO SENTENCE ON SUCCESS (Josh, 2026-08-22). It read "Added, and started.
+       It stays in its own folder." -- true, and one more line to read on a screen
+       where somebody is about to press three more buttons. The button saying
+       "Added" is the receipt.
+       ⚠️ THE ELEMENT STAYS FOR THE FAILURE ARM, which is the one that has
+       something a person must act on. It is empty on success and takes no room. */
+    said.textContent = '';
     return;
   }
   go.disabled = false;
   go.textContent = was;
   said.textContent = (out && out.because) || 'We could not bring that one in.';
+});
+
+/**
+ * Taking one back out.
+ *
+ * 🛑 THIS IS AN UNDO, NOT A DELETE, and the engine is what enforces the
+ * difference: `discover.disconnect` refuses any agent whose folder Kosmos itself
+ * created, so a mis-press here can never dismantle something somebody built. The
+ * screen does not get to decide that, because the screen cannot tell the two
+ * apart -- both are just a name on a row.
+ *
+ * ⚠️ THE ROW GOES BACK TO WHAT IT WAS rather than saying "removed". Their agent
+ * is still on the Mac, still in its folder, and still findable -- undoing the add
+ * puts the list back in the state it was in before the press, which is the only
+ * state that matches what is now true.
+ */
+document.addEventListener('click', async (e) => {
+  const undo = e.target.closest && e.target.closest('.fr-foundundo');
+  if (!undo || undo.disabled || undo.hidden) return;
+  const row = undo.closest('.fr-foundrow');
+  const said = row && row.querySelector('.fr-foundsaid');
+  const go = row && row.querySelector('.fr-foundgo');
+  const name = row && row.dataset.foundName;
+  if (!name || !said || !go) return;
+  undo.disabled = true;
+  undo.textContent = 'Undoing\u2026';
+  said.textContent = '';
+  let out = null;
+  try {
+    const res = await fetch('/api/disconnect-agent', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    out = await res.json().catch(() => null);
+  } catch { out = null; }
+  if (out && out.ok) {
+    undo.hidden = true;
+    undo.textContent = 'Undo';
+    row.classList.remove('done');
+    go.disabled = false;
+    go.textContent = row.dataset.foundLabel || ('Add ' + name + ' to Kosmos');
+    /* A partial undo is not a failure and not a silence: the launch job is gone,
+       something it could not prove was ours is still running, and the person is
+       the only one who can decide about that. */
+    said.textContent = out.partial ? (out.because || '') : '';
+    return;
+  }
+  undo.disabled = false;
+  undo.textContent = 'Undo';
+  said.textContent = (out && out.because) || 'We could not undo that.';
 });
 
 function frPaintFleet() {
