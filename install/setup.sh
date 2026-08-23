@@ -402,13 +402,31 @@ reachable() {
 # Merging an update over an old tree keeps files the new version deleted, and
 # a half-failed copy leaves a tree that LOOKS installed. The swap means the
 # destination is only ever a complete old version or a complete new one.
+# ⚠️ Sweep only the DEAD runs' stages (#236). The wildcard swept every
+# sibling stage, including one a concurrently RUNNING install was mid-download
+# into -- two overlapping installs (the install suite, or two accounts on one
+# Mac) destroyed each other's staging. Each stage ends in the pid that made
+# it; a stage whose pid is alive belongs to someone and is left alone. A pid
+# that is not a number is old junk and goes. PID reuse can spare a leftover
+# until the next sweep, which costs disk for a day, not a download.
+sweep_dead_stages() {
+  for _stg in "$@"; do
+    [ -e "$_stg" ] || continue
+    _spid="${_stg##*.}"
+    case "$_spid" in
+      *[!0-9]*|'') rm -rf "$_stg" 2>/dev/null || true ;;
+      *) kill -0 "$_spid" 2>/dev/null || rm -rf "$_stg" 2>/dev/null || true ;;
+    esac
+  done
+}
+
 fetch_tmux() {
   local dest="$1"
   local stage="$dest.stage.$$"
   # Sweep leftovers from interrupted PREVIOUS attempts (each run stages
   # under a fresh $$, so an interrupt -- not a failure path -- accumulates
-  # ~130MB per Ctrl-C otherwise, invisibly, forever).
-  rm -rf "$dest".stage.* 2>/dev/null || true
+  # ~130MB per Ctrl-C otherwise, invisibly, forever). Dead runs only (#236).
+  sweep_dead_stages "$dest".stage.*
   # ⚠️ EVERY failure path removes the stage. Returning without cleanup left a
   # partial stage directory behind per attempt (a new $$ each run), so a
   # flaky connection accumulated half-downloads in the user's install.
@@ -466,7 +484,7 @@ fetch_tmux() {
 install_kosmos() {
   local dest="$1"
   local stage="$dest/.kosmos.stage.$$"
-  rm -rf "$dest"/.kosmos.stage.* 2>/dev/null || true
+  sweep_dead_stages "$dest"/.kosmos.stage.*
   rm -rf "$stage"
   mkdir -p "$stage" || { rm -rf "$stage"; return 1; }
   if [ -n "${KOSMOS_SRC:-}" ]; then
