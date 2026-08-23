@@ -3844,7 +3844,7 @@ test('the confirmation asks by name, defaults to keeping, and never writes its o
   assert.match(raw, /const shown = ask\.label \|\| name/,
     'the buttons name the agent from something other than the engine, so they can disagree with the heading');
   assert.match(raw, /'Remove ' \+ shown/, 'the destructive button does not name the agent');
-  assert.match(raw, /'Keep ' \+ shown/, 'the safe button does not name the agent');
+  assert.match(raw, /'Leave ' \+ shown \+ ' running'/, 'the safe button does not name the agent');
   // ⚠️ And the removal is still SENT as the session name. Speaking the display
   // name is only safe while nothing acts on it.
   assert.match(raw, /RM_FOR = name;/,

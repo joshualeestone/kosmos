@@ -2089,6 +2089,11 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
   padding: 8px 0 8px 12px; border-left: 2px solid var(--k-rule); }
 .rst-list li + li { margin-top: 6px; }
 .rst-list:empty { display: none; }
+.rm-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0 8px; text-align: left; }
+.rm-cols .rst-list li { border: 0; padding: 0; margin: 0; }
+.rm-cols .rst-list li + li { margin-top: 4px; }
+.rm-colhead { font: var(--text-caption) var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--label-2); margin: 0; }
+@media (max-width: 480px) { .rm-cols { grid-template-columns: 1fr; } }
 .pj-folder-state { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: 2px; }
 .pj-folder-state.bad { color: var(--label); padding-left: var(--space-4); border-left: 2px solid var(--warn-ink); }
 .pj-members { display: flex; flex-direction: column; gap: var(--space-3); }
@@ -4308,6 +4313,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        aria-labelledby="rm-title" aria-describedby="rm-small">
     <h2 class="rm-title" id="rm-title"></h2>
     <p class="rm-small" id="rm-small"></p>
+    <!-- Loses and Keeps, side by side (#407): what the person is deciding,
+         from the engine's own lists, so the jobless arm cannot promise a
+         "put it back" the engine does not offer. -->
+    <div class="rm-cols" id="rm-cols" hidden>
+      <div><h3 class="rm-colhead">Loses</h3><ul class="rst-list" id="rm-loses"></ul></div>
+      <div><h3 class="rm-colhead">Keeps</h3><ul class="rst-list" id="rm-keeps"></ul></div>
+    </div>
     <div class="rm-acts">
       <button class="btn" id="rm-keep" type="button"></button>
       <button class="btn danger-btn" id="rm-go" type="button"></button>
@@ -12778,7 +12790,17 @@ function openRemoveModal(name, ask) {
   const shown = ask.label || name;
   document.getElementById('rm-go').textContent = 'Remove ' + shown;
   const keep = document.getElementById('rm-keep');
-  keep.textContent = 'Keep ' + shown;
+  /* "Leave <name> running" (the design's cancel), still naming the agent, which
+     is the rule above. It says the state the agent stays in, which "Keep" did
+     not: keep what, from what? */
+  keep.textContent = 'Leave ' + shown + ' running';
+  const cols = document.getElementById('rm-cols');
+  const fill = (id, items) => {
+    const ul = document.getElementById(id); ul.innerHTML = '';
+    for (const t of (items || [])) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }
+  };
+  fill('rm-loses', ask.loses); fill('rm-keeps', ask.keeps);
+  cols.hidden = !((ask.loses || []).length && (ask.keeps || []).length);
   document.getElementById('rm-msg').textContent = '';
   document.getElementById('rm-go').disabled = false;
   document.getElementById('rm-modal').hidden = false;
