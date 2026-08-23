@@ -1732,7 +1732,9 @@ test('own is the last entry and no role is hidden but it', () => {
   // catalogue silently; the menu is expressed as a RELATIONSHIP to it, so a
   // new role touches one number and `own` leaking into the picker still fails
   // on its own line no matter how large the catalogue grows.
-  assert.equal(roles.ROLES.length, 28, 'the catalogue grew or shrank; say so here on purpose');
+  // 29 since Product Director (2026-08-23, Josh's word in #chaoskosmos-design,
+  // Mona Lisa's text: Josh-Brain/Projects/kosmos-role-character-sheets-2026-08-23.md).
+  assert.equal(roles.ROLES.length, 29, 'the catalogue grew or shrank; say so here on purpose');
   const menu = roles.ROLES.filter((r) => r.menu !== false);
   assert.equal(menu.length, roles.ROLES.length - 1,
     'exactly one entry is meant to be hidden; own leaked into the picker, or a menu role got hidden');
@@ -1745,6 +1747,31 @@ test('own is the last entry and no role is hidden but it', () => {
   // No label on purpose: it prints under the agent's name, and "Custom" is
   // nobody's job. The gate lives in create and is tested below.
   assert.ok(!roles.byKey('own').label, 'own grew a default label');
+});
+
+test('every role says who it is, between what it is and how it works', () => {
+  // Josh, 2026-08-23: every role gets character, "positive traits", dialled
+  // rather than extreme, so a dry analyst and a lively social manager are
+  // different people and not one assistant wearing 29 labels. It rides INSIDE
+  // the role text, not the #122 block, because the block is what every agent
+  // shares and character is the part that differs. Position is the claim:
+  // after the one-sentence description, before the bullets, so the agent reads
+  // who it is before how it works and the person editing the file finds it
+  // where a person would look. Text: kosmos-role-character-sheets-2026-08-23.md.
+  for (const r of roles.ROLES) {
+    const text = roles.instructionsFor(r.key, 'Fixture');
+    const who = text.indexOf('## Who you are');
+    const how = text.indexOf('## How you work');
+    assert.ok(who > 0, `role '${r.key}' has no "Who you are" section`);
+    assert.ok(how > who, `role '${r.key}' puts "Who you are" after "How you work"`);
+    const body = text.slice(who, how).replace('## Who you are', '').trim();
+    const sentences = body.split(/[.!?](\s|$)/).filter((s) => s.trim()).length;
+    assert.ok(sentences >= 3 && sentences <= 6, `role '${r.key}' character runs ${sentences} sentences; three to six is the rule, a page gets skimmed`);
+    assert.ok(!text.includes('\u2014'), `role '${r.key}' teaches "never use an em dash" with one in its own file`);
+  }
+  // POSITIVE CONTROL: the check reads the composed text, not a constant.
+  const stripped = roles.byKey('pm').instructions.replace('## Who you are', '## Nothing');
+  assert.ok(!stripped.includes('## Who you are'), 'the control did not strip the section');
 });
 
 test('creating own without a label is a gating refusal, never a default', () => {
