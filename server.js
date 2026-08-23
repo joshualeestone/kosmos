@@ -1999,7 +1999,34 @@ const server = http.createServer((req, res) => {
           if (to && to === name) { sendJson(res, 400, { error: 'an agent cannot report to itself' }); return; }
           clean.reportsTo = to || null;
         }
-        sendJson(res, 200, store.writeProfile(name, clean));
+        /* 🛑 THE AGENT'S OWN INSTRUCTIONS FOLLOW THE RENAME, and this is the
+           half that was missing. Josh renamed an agent Bob to Scarlet
+           (2026-08-22) and it still thought it was Bob: the name lives in the
+           record, which every SCREEN reads, and in the sentence at the top of
+           the instruction file, which is the only one the AGENT ever reads. The
+           record moved and the file did not, so every screen agreed on Scarlet
+           while Scarlet introduced herself as Bob.
+           ⚠️ READ BEFORE THE WRITE, so "did this actually change the name" is
+           answered against what the record said a moment ago rather than
+           against what we are about to put in it. */
+        let had = null;
+        try { had = store.readProfile(name); } catch { had = null; }
+        const written = store.writeProfile(name, clean);
+        /* ⚠️ BEST-EFFORT, AND NEVER A FAILED RENAME. The record is already
+           saved; a stale sentence in a file is a thing to tell somebody about,
+           not a reason to report that the rename did not work -- which would
+           have them do it again. Same posture as the instructions route's own
+           follow in the other direction. */
+        let renamed = null;
+        if (clean.displayName && (!had || had.displayName !== clean.displayName)) {
+          try { renamed = instructions.renameIn(name, clean.displayName); }
+          catch { renamed = { ok: false, changed: false, because: 'we could not update its instructions' }; }
+        }
+        /* 🔑 AND IT SAYS THE AGENT HAS NOT HEARD YET. A running agent read its
+           instructions when it started; changing the file does not reach the
+           one that is already going. The screen needs to be able to offer a
+           restart, and it cannot invent this. */
+        sendJson(res, 200, renamed ? { ...written, renamed } : written);
       })
       .catch((err) => sendJson(res, 400, { error: String(err.message) }));
     return;

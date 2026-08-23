@@ -3797,7 +3797,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        gets to be just words. The detail page already IS that door. -->
   <div class="field" style="margin-top:18px;">
     <label class="flabel" for="d-rename">Name</label>
-    <div class="fhint">What you call them here. It does not change where they live on this computer, or the name other agents use to reach them.</div>
+    <!-- ⚠️ THE SECOND SENTENCE WENT TRUE-BUT-INCOMPLETE the day a rename started
+         reaching the instruction file. It read only what a rename does NOT
+         touch, written when the record was the only thing that moved; a person
+         reading it now would not know the agent itself is told. The
+         disclaimers stay, because both are still true and both are things
+         people worry about. -->
+    <div class="fhint">What you call them here, and what their own instructions will say. It does not change where they live on this computer, or the name other agents use to reach them.</div>
     <div class="frow">
       <input type="text" id="d-rename" maxlength="80" placeholder="What you call them">
     </div>
@@ -12864,7 +12870,21 @@ document.getElementById('d-save').addEventListener('click', async () => {
                                  ? {} : { reportsTo: document.getElementById('d-reports').value }) }) });
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     if (!res.ok) throw new Error('that did not save');
-    msg.textContent = 'Saved.';
+    const saved = await res.json().catch(() => null);
+    /* 🔑 A RENAME IS TWO ACTS AND THE SENTENCE SAYS WHICH ONES HAPPENED. The
+       record is what every screen reads; the sentence at the top of the agent's
+       instructions is the only one the AGENT reads, and a running agent read
+       that when it started. So "Saved." alone left somebody looking at a board
+       that says Scarlet and an agent that answers to Bob, which is exactly what
+       Josh hit on 2026-08-22.
+       ⚠️ THE RESTART CLAUSE IS ONLY ON THE ARM THAT CHANGED THE FILE. Telling
+       somebody to restart an agent whose instructions we could not update is
+       sending them to do something that will not help. */
+    const ren = saved && saved.renamed;
+    msg.textContent = !ren ? 'Saved.'
+      : ren.changed ? 'Saved. Its instructions say the new name too, so restart it when you are ready and it will know.'
+      : ren.ok ? 'Saved.'
+      : 'Saved here, but ' + ren.because + '.';
     /* ⚠️ THE HEADING IS UPDATED HERE RATHER THAN LEFT TO THE POLL. Measured:
        after a successful save the heading still read the OLD name ~1.8s later,
        and only came right on the next full paint. The whole reason this field
