@@ -627,6 +627,11 @@ async function main() {
       await page.click('#klink');
       await page.waitForTimeout(400);
       await page.click('.acard[data-agent=' + JSON.stringify(tiedName) + ']');
+      await page.waitForTimeout(400);
+      // Since agent-page-nav the page lands on Talk and captures the window
+      // only on arrival at the Terminal section; without this click the box
+      // is hidden for every agent and the leg below reads a wrong cause.
+      await page.click('#d-nav button[data-go="term"]');
       await page.waitForTimeout(800);
       const win = await page.evaluate(() => {
         const box = document.getElementById('d-window-box');
@@ -640,7 +645,7 @@ async function main() {
           hintText: hint.textContent,
         };
       });
-      if (win.boxHidden) throw new Error('the switch is On and the agent page grew no window box');
+      if (win.boxHidden) throw new Error('the agent page\'s Terminal section drew no window box for a tied agent');
       if (!win.preShown && !win.msgShown) throw new Error('the window box is an empty terminal: neither a capture nor a refusal in words');
       if (!win.preShown && win.hintText) throw new Error('an affirmative hint stands over a refused capture');
       if (win.preShown && !win.hintText) throw new Error('a visible capture lost its as-it-looks-right-now framing');

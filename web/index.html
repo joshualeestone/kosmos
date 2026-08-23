@@ -1295,7 +1295,9 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 .dsec { display: flex; flex-direction: column; gap: 18px; border-radius: 16px; }
 .dsec:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; }
 /* One of three sentences while the box is hidden, chosen by `data-tied`;
-   none while the box is showing. */
+   none while the box is showing. ⚠️ ORDER-DEPENDENT: the sibling rule last
+   has the same specificity as the three above it and wins by position; move
+   it above them and "Reading its window" draws under a painted capture. */
 .dterm-note { display: none; }
 .dsec[data-tied="1"] #d-term-reading { display: block; }
 .dsec[data-tied="0"] #d-term-empty { display: block; }
@@ -4053,7 +4055,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        show. One sentence for both would assert a cause the page has not
        established, for a round trip, on every open. -->
   <p class="dhint dterm-note" id="d-term-reading">Reading its window&hellip;</p>
-  <p class="dhint dterm-note" id="d-term-gone">No window to show.</p>
+  <p class="dhint dterm-note" id="d-term-gone">No window to show. Kosmos no longer finds an agent by this name.</p>
   <p class="dhint dterm-note" id="d-term-empty">No window to show for this agent. Kosmos shows the window of an agent it can tie to its name; if this one was started some other way, it cannot.</p>
   </section>
   <section class="dsec" id="d-sec-remove" data-sec="remove" tabindex="-1" aria-label="Remove" hidden>
@@ -7777,7 +7779,11 @@ async function tick() {
        status region announces changes to content already in the tree, and a
        node that goes hidden-with-text to visible is often not read out. */
     const head = document.getElementById('d-withdrawn');
-    if (head) { head.hidden = false; head.textContent = withdrawn; }
+    /* Written ONCE per absence, not every tick: this is a live region, and
+       replacing a text node with identical text is a mutation a screen
+       reader announces, every five seconds, for as long as the agent is
+       gone (the rebuilt-every-poll failure renderStale's note records). */
+    if (head && head.hidden) { head.hidden = false; head.textContent = withdrawn; }
     const gone = document.getElementById('d-remove-hint');
     if (gone) gone.textContent = 'There is nothing to remove until it is back.';
     PANEL_WITHDRAWN = true;
@@ -9789,6 +9795,7 @@ async function paintAgentWindow(sessionName, opts) {
     msg.textContent = 'We could not read its window just now.';
     msg.hidden = false;
     box.hidden = false;
+    box.dataset.gone = '';   // an answer of sorts: not the 404 the marker records
   }
 }
 
