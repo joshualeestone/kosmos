@@ -2711,6 +2711,32 @@ test('every creation attempt leaves one line in the birth record, refusals inclu
   assert.equal(log.length, before + 2, 'a torn line took the readable records with it');
 });
 
+test('jobMissing counts only a proven absence: EACCES answers false, never "never recorded" (#149/#150)', () => {
+  /* The function's whole reason to exist over !hasJob(): existsSync swallows
+     EACCES into false, so the negation would stamp a provenance claim on
+     every agent the moment LaunchAgents cannot be read. Forced here with a
+     chmod-000 directory; a "simplification" back to !hasJob goes red on the
+     EACCES leg while every fixture-state test stays green. */
+  const dir = process.env.AGENT_WORKFORCE_LAUNCH;
+  assert.ok(dir && dir !== require('node:os').homedir() + '/Library/LaunchAgents',
+    'this test chmods the launch dir and must never aim at the real one');
+  fs.mkdirSync(dir, { recursive: true });
+  // control 1: a present plist answers false
+  fs.writeFileSync(create.plistPath('jmhere'), '<plist/>', 'utf8');
+  assert.equal(create.jobMissing('jmhere'), false, 'a present launch file read as missing');
+  // control 2: a clean absence answers true (the one honest "never recorded")
+  assert.equal(create.jobMissing('jmgone'), true, 'a proven absence was not counted');
+  // the load-bearing leg: an unreadable directory is "could not check", false
+  fs.chmodSync(dir, 0o000);
+  try {
+    assert.equal(create.jobMissing('jmgone'), false,
+      'an unreadable LaunchAgents dir was reported as "never recorded", the provenance claim the ENOENT rule exists to prevent');
+  } finally {
+    fs.chmodSync(dir, 0o700);
+    fs.rmSync(create.plistPath('jmhere'), { force: true });
+  }
+});
+
 test('an agent born without the messaging block is SAID, not silent (#182)', () => {
   const messagesMod = require('./messages');
   const orig = messagesMod.blockBody;

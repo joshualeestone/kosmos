@@ -77,6 +77,7 @@ one invented by somebody who did not write them.
 | `named-controls.js` | Every control a person can reach has a name a screen reader can say |
 | `regress-a-night.js` | Everything the night of 2026-08-21 added, drawn together on one build |
 | `render-agent-nav.js` | The agent page's left nav, on a screen (agent-page-nav, 2026-08-23). |
+| `render-made-before.js` | The never-recorded state, on a screen (#149/#150, 2026-08-23). |
 | `render-busy-line.js` | The "<name> is working…" line, rendered |
 | `render-mention-picker.js` | The @ picker in the project room (#312): opens on @, narrows, inserts the exact key, stays shut inside an email address. |
 | `render-connect.js` | **no header sentence.** Read it before running it, and give it one. |
