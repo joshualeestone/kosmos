@@ -459,11 +459,13 @@ test('the colleagues block says a reply in your own session reaches nobody, and 
   /* #145's second half: quoting the bracket line is refused as impersonation
      (messages.js's own guard), and the block must warn BEFORE the agent hits
      it, because the refusal lands in a shell nobody may be reading. The
-     wording must not itself carry a well-formed marker, or splicing the
-     block into an instruction file would trip the same guard's shape. */
-  assert.match(body, /Do not quote the bracket line/i,
+     wording must not itself carry a well-formed marker: not because any
+     splice path runs the guard (none does), but because the warning is the
+     sentence a hurried agent copies into an outgoing message, where the
+     guard DOES run. */
+  assert.match(body, /Do not\s+quote\s+the\s+bracket\s+line/i,
     'the block never warns that echoing the delivery marker is refused, so the guard reads as a silent failure');
-  assert.match(body, /own words, or name\s+the id/i,
+  assert.match(body, /own\s+words,\s+or\s+name\s+the\s+id/i,
     'the warning does not say what to do instead');
   /* CONTROL: the WARNING paragraph must DESCRIBE the marker, never carry
      one. (The block elsewhere quotes the prefix on purpose, to teach

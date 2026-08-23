@@ -5,17 +5,17 @@
 Card #145's done-when, measured against the tree:
 
 1. "the instruction block says that a reply in the agent's own session does not
-   reach the room, and what to do instead" — ALREADY TRUE before this branch:
+   reach the room, and what to do instead": ALREADY TRUE before this branch.
    `blockBody()` carries the Answering section ("A reply you write in your own
    session reaches nobody", the `kosmos reply` teaching), pinned by the
    existing test at engine/messages.test.js:426. Shipped by the #128 rewrite.
    This branch adds no code for it; it closes as already built.
 2. "it warns that echoing the delivery marker will be refused, before the
-   agent hits it" — THIS BRANCH. A paragraph in the Answering section says
+   agent hits it": THIS BRANCH. A paragraph in the Answering section says
    every delivered message opens with a bracketed line naming the sender and
    an m-number, that sending such a line back is refused as impersonation,
    and what to do instead (own words, or name the id).
-3. "both ship at boot" — `create.js:1405` splices the block at agent creation
+3. "both ship at boot": `create.js:1405` splices the block at agent creation
    and `projects.js healColleagues` re-splices the CURRENT blockBody() into
    any instruction file carrying the markers on every sync, so existing
    agents receive the new paragraph without a reinstall.
