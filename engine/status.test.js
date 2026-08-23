@@ -1258,8 +1258,17 @@ test('a Fable session mid-turn is working, not idle: the spinner line is keyed o
   /* A narrow pane can wrap the spinner line between gerund and timer. The
      state still reads working, and the evidence contract holds: something
      is shown, not null, exactly when panes are narrow. */
+  for (const [label, text] of [
+    ['gerund-to-paren', '· Improvising…\n(35s · ↓ 1.5k tokens)'],
+    ['inside the timer', '· Canoodling… (4h\n39m 45s · ↓ 673.5k tokens)'],
+    ['after the seconds', '· Improvising… (35s ·\n↓ 1.5k tokens)'],
+  ]) {
+    const w = classify(pane, text + footer);
+    assert.equal(w.state, 'working', 'a spinner line wrapped ' + label + ' fell to the footer idle rule');
+    assert.ok(w.evidence && !/[·(]\s*$/.test(w.evidence),
+      'the ' + label + ' wrap produced evidence ending in a dangling cut: ' + w.evidence);
+  }
   const wrapped = classify(pane, '· Improvising…\n(35s · ↓ 1.5k tokens)' + footer);
-  assert.equal(wrapped.state, 'working');
   assert.equal(wrapped.evidence, '· Improvising… (35s · ↓ 1.5k tokens)',
     'the wrapped-line evidence is not the whole joined region, so the card shows a dangling fragment');
 

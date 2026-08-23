@@ -1076,6 +1076,17 @@ const RATE_LIMIT_MARKERS = [
   /\/usage-credits\b/,            // observed 2026-08-21
 ];
 
+/* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
+   comment at its use site in classify(). Module-level like its sibling
+   marker sets. Whitespace INSIDE the timer group is \s+ too, so a
+   narrow pane wrapping anywhere in the line (gerund-to-paren, or between
+   timer units) still classifies; probed at all three wrap points.
+   🛑 THE FRAME CLASS IS MEASURED, NOT GUESSED, and it excludes ⏺ on
+   purpose: that is the bullet Claude prefixes on every line the AGENT
+   writes, so including it (an earlier draft did) turned any echoed
+   "⏺ Waiting… (10s)" into a working verdict on a finished pane. */
+const WORKING_LINE = /^\s*[·✢✳✶✻✽*] \S+…\s+\((?:\d+h\s+)?(?:\d+m\s+)?\d+s(?:\s*·|\))/mu;
+
 /**
  * The first line of `text` that any of `markers` matches, or null.
  *
@@ -1084,15 +1095,6 @@ const RATE_LIMIT_MARKERS = [
  * prefixes its own notices with, and capped: pane text is arbitrary and this is
  * on its way to a person's screen.
  */
-/* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
-   comment at its use site in classify(). Module-level like its sibling
-   marker sets.
-   🛑 THE FRAME CLASS IS MEASURED, NOT GUESSED, and it excludes ⏺ on
-   purpose: that is the bullet Claude prefixes on every line the AGENT
-   writes, so including it (an earlier draft did) turned any echoed
-   "⏺ Waiting… (10s)" into a working verdict on a finished pane. */
-const WORKING_LINE = /^\s*[·✢✳✶✻✽*] \S+…\s+\((?:\d+h )?(?:\d+m )?\d+s(?: ·|\))/mu;
-
 function matchedLine(text, markers) {
   const lines = String(text == null ? '' : text).split('\n');
   for (const raw of lines) {
@@ -1247,7 +1249,14 @@ function classify(pane, paneText) {
                   cut the whole-line contract forbids. Same cap convention
                   as matchedLine, truncation marked. */
                const from = tail.lastIndexOf('\n', m.index) + 1;
-               const at = tail.indexOf('\n', m.index + m[0].length);
+               /* Through the timer group's CLOSING paren, not merely to the
+                  end of the line the match stops on: a wrap right after the
+                  separator matches with the paren still open, and an
+                  end-of-line cut there is the dangling fragment again. */
+               const paren = tail.indexOf(')', m.index);
+               const at = paren === -1
+                 ? tail.indexOf('\n', m.index + m[0].length)
+                 : paren + 1;
                const line = tail.slice(from, at === -1 ? tail.length : at)
                  .replace(/\s+/g, ' ').trim();
                return line.length > 240 ? line.slice(0, 240) + '…' : line;
