@@ -56,6 +56,19 @@ let restartBecause = null;
 let backoffMs = 1000;
 let localPort = null;
 
+/** Ensure the state dir exists and is owner-only. It holds the identity key
+    and the TLS key; the binary writes those 0600, but the directory around
+    them must be 0700 or a group/other could enumerate them. The binary
+    creates the dir, so this states and enforces the assumption on our side
+    rather than relying on it unsaid. Best-effort: a perms failure must not
+    block the switch. */
+function secureStateDir() {
+  try {
+    fs.mkdirSync(STATE_DIR(), { recursive: true, mode: 0o700 });
+    fs.chmodSync(STATE_DIR(), 0o700);
+  } catch { /* best-effort; the binary still writes its files 0600 */ }
+}
+
 /** Off until somebody turns it on. `relay` may be stored here so a
     self-hoster can point at their own relay without an env var. */
 function read() {
@@ -114,7 +127,13 @@ function setOn(on) {
 
 function setRelay(relay) {
   if (typeof relay !== 'string') return { ok: false, because: 'the relay has to be host:port' };
-  const wrote = write({ relay: relay.trim() });
+  const v = relay.trim();
+  /* Refuse garbage at set time rather than letting it become a spawn-crash
+     loop later: empty clears it, otherwise require host:port. */
+  if (v !== '' && !/^[^\s:]+:\d{1,5}$/.test(v)) {
+    return { ok: false, because: 'the relay has to be host:port' };
+  }
+  const wrote = write({ relay: v });
   if (!wrote.ok) return wrote;
   ensure(localPort);
   return { ok: true };
@@ -146,6 +165,7 @@ function startChild() {
   if (process.env.AGENT_WORKFORCE_TUNNEL_CA) {
     args.push('--tunnel-ca', process.env.AGENT_WORKFORCE_TUNNEL_CA);
   }
+  secureStateDir();
   try { fs.rmSync(STATUS_FILE(), { force: true }); } catch { /* stale is worse than absent */ }
   let spawned;
   try {
@@ -161,9 +181,17 @@ function startChild() {
   child = spawned;
   restartBecause = null;
   child.on('error', (err) => {
-    /* ENOENT lands here, not in the try above. The child never ran. */
+    /* spawn() does not throw on ENOENT (a missing or non-executable binary):
+       the error event fires and exit NEVER does, so the child never runs and
+       never exits. If we only set the reason here, child stays non-null,
+       ensure() early-returns on the dead handle forever, and status() renders
+       a permanent false "connecting" -- exactly the shrug the plan forbids.
+       Null the child and schedule the restart here, as the exit handler would;
+       scheduleRestart's guard keeps it safe if an exit somehow also fires. */
     restartBecause = 'the tunnel program could not be started: ' + (err && err.message);
     process.stderr.write('remote: ' + restartBecause + '\n');
+    child = null;
+    if (read().on) scheduleRestart();
   });
   child.on('exit', (code, signal) => {
     child = null;
@@ -211,13 +239,34 @@ function stopChild() {
    (newest wins at the relay), so the orphan idles until reaped. */
 function reap() { try { if (child) child.kill(); } catch { /* going down anyway */ } }
 process.on('exit', reap);
-process.on('SIGTERM', () => { reap(); process.exit(0); });
-process.on('SIGINT', () => { reap(); process.exit(0); });
+/* On a termination signal, reap the child then RE-RAISE rather than
+   process.exit(0): a library module must not seize the exit code or cut off
+   the board's own async graceful shutdown. Removing our handler and
+   re-sending the signal lets the real owner (or the default action) proceed,
+   and yields the conventional signal exit status instead of a forged 0. */
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  const handler = () => {
+    reap();
+    process.removeListener(sig, handler);
+    process.kill(process.pid, sig);
+  };
+  process.on(sig, handler);
+}
 
 /** What the board paints. Every not-up state carries its because. */
 function status() {
   try {
     const settings = read();
+    /* A corrupt settings file reads as off, but saying "the switch is off"
+       would be untrue. Fail toward off AND say the file is unreadable, so a
+       person is not told they turned something off that they did not. */
+    if (!settings.ok) {
+      return {
+        state: 'off',
+        address: null,
+        because: 'your remote-access settings could not be read',
+      };
+    }
     if (!settings.on) return { state: 'off', address: null, because: 'the switch is off' };
     if (!enrolled()) {
       return {
@@ -242,6 +291,10 @@ function status() {
       return { state: 'connecting', address: null, because: 'starting the connection' };
     }
     if (raw.state === 'up') {
+      /* A healthy run earns a fresh backoff: without this the window only
+         ever grows (stopChild is the sole other reset), so a board that has
+         been up for days would reconnect on a 60s delay after one blip. */
+      backoffMs = 1000;
       return { state: 'up', address: raw.address || address(), because: null };
     }
     return {
@@ -301,6 +354,7 @@ async function setupComplete(code, name) {
   if (typeof name !== 'string' || !/^[a-z0-9-]{3,32}$/.test(name)) {
     return { ok: false, because: 'the name is 3 to 32 lowercase letters, digits or hyphens' };
   }
+  secureStateDir();
   const result = await setupRun([
     'setup', 'complete',
     '--coordinator', COORDINATOR(),
@@ -327,4 +381,8 @@ module.exports = {
   /* test seam: stops the supervised child between cases (the name is the
      one the reachability sweep excuses for exactly this job) */
   resetForTests: stopChild,
+  /* test seam: the live child's pid, or null. spawn() sets the handle
+     synchronously, so a test can assert "nothing spawned" deterministically
+     right after ensure() instead of waiting a fixed interval and hoping. */
+  currentChildPid: () => (child ? child.pid : null),
 };

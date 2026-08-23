@@ -89,16 +89,22 @@ test('off by default, refusals in words, and nothing spawns while off', async ()
   assert.equal(remote.status().state, 'off');
   assert.match(remote.setOn('yes').because, /on or off/);
   remote.ensure(3000);
-  await new Promise((r) => setTimeout(r, 50));
+  /* Deterministic: spawn() sets the child handle synchronously inside
+     ensure(), so a null handle right now proves nothing spawned, with no
+     timing wait that could false-green if a real spawn were merely slow. */
+  assert.equal(remote.currentChildPid(), null, 'a child exists while the switch is off');
+  await new Promise((r) => setTimeout(r, 30));
   assert.deepEqual(recorded(), [], 'something spawned while the switch was off');
 });
 
 test('on but not signed in says so, in words, and still spawns nothing', async () => {
   remote.setOn(true);
+  remote.ensure(3000);
+  assert.equal(remote.currentChildPid(), null, 'spawned without enrolment');
   const s = remote.status();
   assert.equal(s.state, 'connecting');
   assert.match(s.because, /sign-in/);
-  await new Promise((r) => setTimeout(r, 50));
+  await new Promise((r) => setTimeout(r, 30));
   assert.deepEqual(recorded(), [], 'spawned without enrolment');
 });
 
@@ -140,14 +146,23 @@ test('the code step validates in words, enrolls through the binary, and brings t
   assert.ok(run.includes('--status-file'), 'no status file seam');
 });
 
-test('turning the switch off stops the child and says off', async () => {
+test('turning the switch off actually kills the running child, and says off', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   remote.setOn(true);
   await remote.setupStart('her@example.com');
   await remote.setupComplete('123456', 'hers');
   remote.ensure(4200);
   await until(() => remote.status().state === 'up', 'the tunnel to come up');
+  const pid = remote.currentChildPid();
+  assert.ok(pid, 'no running child to kill');
   remote.setOn(false);
+  /* The switch off must actually kill the child, not merely make status()
+     derive off from settings. Assert the recorded pid is dead; this fails if
+     the child.kill() in stopChild() is removed, which status-only assertions
+     could not catch. */
+  await until(() => {
+    try { process.kill(pid, 0); return false; } catch { return true; }
+  }, 'the child to actually die after the switch off');
   const s = remote.status();
   assert.equal(s.state, 'off');
   assert.match(s.because, /switch is off/);
@@ -175,9 +190,44 @@ test('enrolled with no relay address set is off with the reason, not a spawn int
   await remote.setupComplete('123456', 'hers');
   fs.rmSync(RECORD, { force: true });
   remote.ensure(4400);
-  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(remote.currentChildPid(), null, 'spawned with no relay configured');
+  await new Promise((r) => setTimeout(r, 30));
   const s = remote.status();
   assert.equal(s.state, 'off');
   assert.match(s.because, /relay address/);
   assert.deepEqual(recorded(), [], 'spawned with no relay configured');
+});
+
+test('a missing binary renders restarting and retries, not a permanent false connecting', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  await remote.setupComplete('123456', 'hers');
+  remote.resetForTests();
+  // Point the binary at nothing and force a start. spawn() does not throw on
+  // ENOENT; without the error-handler fix the dead handle wedges status() on
+  // "connecting" forever, so reaching "restarting" is the whole test.
+  const goodBin = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = nodePath.join(SANDBOX, 'no-such-binary');
+  remote.ensure(4500);
+  await until(() => remote.status().state === 'restarting',
+    'a missing binary to render restarting, not a wedged connecting');
+  assert.notEqual(remote.status().state, 'up');
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = goodBin;
+  remote.resetForTests();
+});
+
+test('a corrupt settings file says it is unreadable, not that the switch is off', () => {
+  fs.writeFileSync(remote.FILE, '{ this is not valid json');
+  const s = remote.status();
+  assert.equal(s.state, 'off');
+  assert.match(s.because, /could not be read|unreadable/i,
+    'a corrupt settings file must not claim the switch is off');
+});
+
+test('setRelay refuses anything that is not host:port', () => {
+  assert.match(remote.setRelay('garbage').because, /host:port/);
+  assert.match(remote.setRelay('host-with-no-port:').because, /host:port/);
+  assert.equal(remote.setRelay('relay.example.com:8443').ok, true);
+  assert.equal(remote.setRelay('').ok, true, 'empty must clear, not error');
 });
