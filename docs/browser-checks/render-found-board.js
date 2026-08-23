@@ -22,6 +22,13 @@
  *     echo '{"completedAt":"2026-01-01T00:00:00.000Z"}' \
  *       > "$SB/data/AgentWorkforce/first-run.json"
  *
+ * 🔑 AND SEED ONE REMOVED AGENT, or the above-the-removed-ones assertion reports
+ * itself SKIPPED: that panel is absent on a machine that has removed nothing,
+ * and a hidden element measures a top of 0, which is above everything.
+ *
+ *     printf '%s' '[{"name":"oldbob","shownAs":"Old Bob","removedAt":"2026-01-01T00:00:00.000Z","stopped":true}]' \\
+ *       > "$SB/data/AgentWorkforce/removed.json"
+ *
  * Run: see the README in this directory.
  */
 'use strict';
@@ -78,25 +85,52 @@ const FOUND = {
   });
 
   await page.goto(BASE + '/?tab=agents', { waitUntil: 'networkidle' });
-  await page.waitForSelector('#found-wrap .fr-foundrow', { timeout: 10000 });
+  /* 🔑 THE FOLD IS SHUT ON ARRIVAL (Josh, 2026-08-23), so this opens it the way
+     a person does -- through the control, not by setting `hidden` from script.
+     A check that reached past the toggle would pass with the toggle broken. */
+  await page.waitForSelector('#found-toggle', { timeout: 10000 });
+  const shut = await page.evaluate(() => ({
+    listHidden: document.getElementById('found-list').hidden,
+    label: document.getElementById('found-toggle').textContent,
+  }));
+  check('it arrives shut, and says what it holds', shut.listHidden && /^Show /.test(shut.label),
+    `hidden=${shut.listHidden} "${shut.label}"`);
+  await page.click('#found-toggle');
+  await page.waitForSelector('#found-list .fr-foundrow', { timeout: 8000 });
   await page.waitForTimeout(400);
 
   const seen = await page.evaluate(() => {
     const wrap = document.getElementById('found-wrap');
     const rows = [...wrap.querySelectorAll('.fr-foundrow')];
     const grid = document.getElementById('grid');
+    const removed = document.getElementById('removed-wrap');
     const w = wrap.getBoundingClientRect();
     const g = grid ? grid.getBoundingClientRect() : null;
+    const rm = removed ? removed.getBoundingClientRect() : null;
     const first = rows[0] && rows[0].querySelector('.fr-foundgo');
+    /* 🛑 SCROLLED INTO VIEW FIRST. `elementFromPoint` is VIEWPORT-relative, and
+       this panel now sits under the cards -- so on any board with more than a
+       screenful of agents the hit test lands outside the window and answers
+       null, which reads as "the button cannot be pressed" for a button that is
+       perfectly fine. Cost one red run to find, on the very move that put it
+       down here. */
+    if (first) first.scrollIntoView({ block: 'center' });
     const fr = first ? first.getBoundingClientRect() : null;
     const at = fr ? document.elementFromPoint(fr.left + fr.width / 2, fr.top + fr.height / 2) : null;
     return {
       hidden: wrap.hidden,
       names: rows.map((r) => (r.querySelector('.fr-foundname') || {}).textContent),
-      heading: (wrap.querySelector('b') || {}).textContent || '',
-      /* Above the grid: this is a thing to act on, and a person scanning cards
-         would never look under them for it. */
-      aboveGrid: Boolean(g && w.bottom <= g.top + 1),
+      heading: (document.getElementById('found-toggle') || {}).textContent || '',
+      /* 🔑 UNDER THE CARDS AND OVER THE REMOVED ONES (Josh, 2026-08-23). Read
+         off the laid-out boxes rather than off the markup order, because that
+         is the fact he asked for: a person looks at where things are.
+         ⚠️ THE REMOVED PANEL IS HIDDEN ON A MACHINE THAT HAS REMOVED NOTHING,
+         and a hidden element measures a top of 0 -- which is above everything,
+         so the assertion would be vacuously false rather than skipped. Its
+         presence is asked for separately. */
+      belowGrid: Boolean(g && g.height > 0 && w.top >= g.bottom - 1),
+      removedShown: Boolean(rm && rm.height > 0),
+      aboveRemoved: Boolean(rm && rm.height > 0 && w.bottom <= rm.top + 1),
       painted: w.width > 100 && w.height > 40,
       pressable: Boolean(at && at.closest && at.closest('.fr-foundgo') === first),
     };
@@ -104,7 +138,10 @@ const FOUND = {
 
   check('the panel is on the board', !seen.hidden && seen.painted,
     `hidden=${seen.hidden} ${JSON.stringify(seen.names)}`);
-  check('it sits above the cards', seen.aboveGrid);
+  check('it sits below the cards', seen.belowGrid);
+  check(seen.removedShown ? 'it sits above the removed ones' : 'it sits above the removed ones (SKIPPED: nothing removed on this machine)',
+    seen.removedShown ? seen.aboveRemoved : true,
+    seen.removedShown ? '' : 'remove an agent in this sandbox to exercise it');
   check('it offers the agents Kosmos does not have', seen.names.includes('Splinter') && seen.names.includes('Anna'),
     JSON.stringify(seen.names));
   check('it does NOT offer the one Kosmos already has', !seen.names.includes('Kept'),
@@ -114,10 +151,10 @@ const FOUND = {
   check('its buttons can be touched', seen.pressable);
 
   // ---- press Add, then hold through a poll --------------------------------
-  await page.click('#found-wrap .fr-foundrow .fr-foundgo');
+  await page.click('#found-list .fr-foundrow .fr-foundgo');
   await page.waitForTimeout(400);
   const pressed = await page.evaluate(() => {
-    const row = document.querySelector('#found-wrap .fr-foundrow');
+    const row = document.querySelector('#found-list .fr-foundrow');
     return {
       label: row.querySelector('.fr-foundgo').textContent.trim(),
       undoShown: !row.querySelector('.fr-foundundo').hidden,
@@ -132,7 +169,7 @@ const FOUND = {
      poll. */
   await page.waitForTimeout(6500);
   const survived = await page.evaluate(() => {
-    const row = document.querySelector('#found-wrap .fr-foundrow');
+    const row = document.querySelector('#found-list .fr-foundrow');
     if (!row) return { label: '(the panel went away)', undo: false };
     return {
       label: row.querySelector('.fr-foundgo').textContent.trim(),
