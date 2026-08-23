@@ -1272,6 +1272,28 @@ test('a Fable session mid-turn is working, not idle: the spinner line is keyed o
   assert.equal(wrapped.evidence, '· Improvising… (35s · ↓ 1.5k tokens)',
     'the wrapped-line evidence is not the whole joined region, so the card shows a dangling fragment');
 
+  /* A capture clipped mid-redraw has NO close paren; the region must not
+     scan onward until some unrelated line's paren (the footer carries one)
+     is pasted into a product surface. The cut wears the truncation marker
+     so it is visibly a cut. */
+  const clipped = classify(pane, '· Improvising… (35s ·' + footer);
+  assert.equal(clipped.state, 'working');
+  assert.ok(/…$/.test(clipped.evidence), 'a clipped capture is not marked as cut: ' + clipped.evidence);
+  assert.ok(!/bypass permissions/.test(clipped.evidence),
+    'the footer leaked into evidence through an unbounded close-paren scan');
+
+  /* A gerund may legally contain parens; the close is searched from the
+     TIMER'S opening paren, so the evidence is the whole line, not a cut
+     at the gerund's own close. */
+  const parenGerund = classify(pane, '· (Re)connecting… (35s · x)' + footer);
+  assert.equal(parenGerund.state, 'working');
+  assert.equal(parenGerund.evidence, '· (Re)connecting… (35s · x)');
+
+  /* The * frame keeps its glyph in evidence: the one frame whose rendering
+     the single-path change altered is the one that gets pinned. */
+  const starEv = classify(pane, '* Baking… (3s · ↓ 0.2k tokens)' + footer);
+  assert.equal(starEv.evidence, '* Baking… (3s · ↓ 0.2k tokens)');
+
   /* The evidence is the WHOLE line, not the regex fragment: a fragment cut
      at the first separator drops the tail and dangles mid-parens. */
   const ev = classify(pane, '· Canoodling… (4h 39m 45s · ↓ 673.5k tokens)' + footer);

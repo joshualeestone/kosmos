@@ -1243,25 +1243,35 @@ function classify(pane, paneText) {
                 takes the leading glyph off a *-frame line; cosmetic, and the
                 fallback path keeps its glyph.) */
              evidence: (() => {
-               /* ONE evidence path, the region builder, never matchedLine:
-                  a wrapped line's FIRST physical fragment can satisfy the
-                  regex alone (a trailing separator doubles as the close),
-                  so the per-line reader returns exactly the dangling cut
-                  the whole-line contract forbids. Start of the match's
-                  line through the timer group's closing paren, joined,
-                  matchedLine's cap convention, truncation marked. */
+               /* ONE evidence path, this builder, on every match (wrapped
+                  or not): start of the match's own line through the end of
+                  the line the TIMER'S close paren sits on. The close is
+                  searched from the timer's OWN opening paren (a gerund may
+                  legally contain parens), and only inside a two-extra-line
+                  window, because a capture clipped mid-redraw has no close
+                  at all and an unbounded scan pastes whatever later line
+                  happens to carry one (the prompt footer does) into a
+                  product surface. A close that is absent or out of window
+                  yields the match's own line with the truncation marker,
+                  so a cut is visibly a cut. matchedLine is not used here:
+                  a wrapped line's first fragment satisfies the regex alone
+                  (a trailing separator doubles as the close), so the
+                  per-line reader would return exactly the dangling cut
+                  this contract forbids. Glyphs are kept as captured. */
                const from = tail.lastIndexOf('\n', m.index) + 1;
-               /* Through the timer group's CLOSING paren, not merely to the
-                  end of the line the match stops on: a wrap right after the
-                  separator matches with the paren still open, and an
-                  end-of-line cut there is the dangling fragment again. */
-               const paren = tail.indexOf(')', m.index);
-               const at = paren === -1
-                 ? tail.indexOf('\n', m.index + m[0].length)
-                 : paren + 1;
+               const open = m.index + m[0].lastIndexOf('(');
+               let win = tail.indexOf('\n', m.index + m[0].length);
+               if (win !== -1) win = tail.indexOf('\n', win + 1);
+               const bound = win === -1 ? tail.length : win;
+               const paren = tail.indexOf(')', open);
+               const closed = paren !== -1 && paren < bound;
+               const at = closed
+                 ? tail.indexOf('\n', paren)
+                 : tail.indexOf('\n', m.index + m[0].length);
                const line = tail.slice(from, at === -1 ? tail.length : at)
                  .replace(/\s+/g, ' ').trim();
-               return line.length > 240 ? line.slice(0, 240) + '…' : line;
+               if (line.length > 240) return line.slice(0, 240) + '…';
+               return closed ? line : line + '…';
              })() };
   }
   if (/✱|Worked for|Brewed for|Baked for|to save .* tokens/i.test(tail)) {
