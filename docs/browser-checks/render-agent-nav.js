@@ -50,6 +50,7 @@ function chk(ok, label, extra) {
   fleet.install([
     fleet.agent('april', { state: 'needs_you', displayName: 'April', role: 'a researcher' }),
     fleet.agent('mikey', { state: 'idle', displayName: 'Mikey', role: 'a bookkeeper' }),
+    fleet.stranger('casey', { state: 'idle' }),
   ]);
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -138,6 +139,25 @@ function chk(ok, label, extra) {
       chk(narrow.navBottom <= narrow.secTop + 1, `[${theme}] at 420px the nav sits above the section`, JSON.stringify(narrow));
       chk(!narrow.overflow, `[${theme}] at 420px the page does not scroll sideways`);
       await page.screenshot({ path: path.join(OUT, `${theme}-narrow.png`), fullPage: false });
+
+      // An agent Kosmos cannot tie to its name has no window box; the Terminal
+      // pill must still open onto a sentence, never onto nothing.
+      await page.setViewportSize({ width: 1400, height: 950 });
+      await page.click('#detail-back');
+      await page.waitForSelector('[data-agent="casey"]', { timeout: 8000 });
+      await page.click('[data-agent="casey"]');
+      await page.waitForSelector('#panel-detail:not([hidden])');
+      await page.waitForTimeout(600);
+      await page.click('#d-nav button[data-go="term"]');
+      await page.waitForTimeout(200);
+      const untied = await page.evaluate(() => ({
+        box: document.getElementById('d-window-box').hidden,
+        empty: document.getElementById('d-term-empty').getBoundingClientRect().height,
+        sec: document.querySelector('#panel-detail .dsec[data-sec="term"]').getBoundingClientRect().height,
+      }));
+      chk(untied.box === true, `[${theme}] control: the untied agent has no window box`, JSON.stringify(untied));
+      chk(untied.empty > 0 && untied.sec > 0, `[${theme}] the untied agent's Terminal section says why it is empty`, JSON.stringify(untied));
+      await page.screenshot({ path: path.join(OUT, `${theme}-term-untied.png`), fullPage: false });
 
       chk(errs.length === 0, `[${theme}] no page errors`, errs.join(' | '));
       await page.close();

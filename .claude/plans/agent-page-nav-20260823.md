@@ -19,13 +19,16 @@ ship here, which wait, and why.
 - Every control that works today still works from inside its section: model
   change, account move, instructions save, picture, name/role/reports-to,
   restart, remove, the talk box, answering a question.
-- The five-second poll keeps painting into whichever section is open, and does
-  not flip the section back.
+- The five-second poll keeps painting into every section, open or hidden
+  (painters write by id), and never flips the section back. The one painter
+  that measures layout (the thread's scroll-to-newest) is re-run when Talk is
+  arrived at, because a hidden section measures zero.
 - `openDetail(name, section)` lands on a section, so a caller (the card's
   needs-you mark, the stale-instructions mark) can deep-link. Default is Talk.
-- Switching sections moves keyboard focus to the section's heading, so a
-  keyboard user is in the content rather than stranded on the nav. The nav
-  buttons keep focus when arrowed between; Tab leaves the nav.
+- Switching sections moves keyboard focus to the section itself (visible
+  focus ring), so a keyboard user's next Tab is the first control of what
+  they asked for rather than the next pill. The pills are ordinary buttons:
+  seven tab stops, no arrow-key roving.
 - Talk and Instructions carry the mock's dot when they need the person: Talk
   when there is an open question, Instructions when the running copy is older
   than the file. The dot is a shape with a visually-hidden "(needs you)".
@@ -51,9 +54,12 @@ Ship (markup or a one-line behaviour, all ruled by Josh or Mona Lisa on 08-22):
    its memory and ends anything it was part way through, including anything it
    agreed to. The button reads `Change & Restart <name>` (Josh's wording
    verbatim, the one ampersand in the build, recorded as a decision).
-4. **Remove section copy**: "<name> stops running and leaves the board. Their
-   folder, instructions and everything they have written stay on this computer.
-   Removing is not deleting." Painted by `loadRemoval` as today.
+4. **Remove section copy: KEPT AS SHIPPED, not the mock's.** The mock's
+   sentence is a generic "stops running and leaves the board, nothing is
+   deleted". The engine already paints a state-specific one
+   (`engine/remove.js:636`, tested): it says whether this agent is set to
+   start on its own, which the generic wording loses. The section holds the
+   existing block unchanged.
 
 Wait (each is its own card, none is a restyle):
 
@@ -84,8 +90,9 @@ All in `web/index.html`, which is the whole front end.
   (`Talk to`, `Remove`) are painted from `a.name` on open and on rename.
 - Dots: `detailDots()` reads the same two facts the page already renders
   (`#d-qask` visible, `#d-instr-outdated` or `#d-instr-stale` visible) and sets
-  a `data-dot` attribute on the two buttons. Called from the painters that set
-  those, so the nav cannot disagree with the section.
+  a `data-dot` attribute on the two buttons. Driven by a MutationObserver on
+  those three elements' `hidden` attribute rather than a call from each
+  painter, so a painter added later cannot forget to call it.
 - CSS: `.dbody`, `.snav`, `.dsec`, `.snav .dot`, the media query, with the
   app's tokens (`--k-surface`, `--k-rule`, `--gold`, `--k-ink-2`).
 

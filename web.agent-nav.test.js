@@ -72,8 +72,10 @@ test('the poll never chooses the section', () => {
      poll or a painter, and either one flips a reader off the section they
      chose five seconds after they chose it. */
   assert.equal(calls, 3, 'detailGo has ' + calls + ' call sites; the design allows the definition, the nav click and openDetail');
-  const tick = script.slice(script.indexOf('function tick('), script.indexOf('function tick(') + 6000);
-  assert.ok(tick.length > 100, 'tick() moved');
+  const at = script.indexOf('function tick(');
+  const end = script.indexOf('\nfunction ', at + 1);
+  const tick = script.slice(at, end > at ? end : undefined);
+  assert.ok(tick.length > 5000, 'tick() moved or shrank; the slice below covers ' + tick.length + ' characters');
   assert.doesNotMatch(tick, /detailGo\(/, 'the poll picks a section');
 });
 

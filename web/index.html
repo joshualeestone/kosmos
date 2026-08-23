@@ -1292,7 +1292,9 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 .snav button.on .dot { background: #7a1b12; }
 .snav button:not([data-dot]) .vh { display: none; }
 .dsecs { min-width: 0; }
-.dsec { display: flex; flex-direction: column; gap: 18px; outline: none; }
+.dsec { display: flex; flex-direction: column; gap: 18px; border-radius: 16px; }
+.dsec:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; }
+#d-window-box:not([hidden]) ~ #d-term-empty { display: none; }
 .dsec[hidden] { display: none; }
 /* Inside Fresh start the restart control keeps its own label, but the box
    already has a shouting heading; two uppercase labels stacked read as two
@@ -2555,7 +2557,9 @@ svg { display: block; }
    one sentence the design leans on to say why every write vanished rendered as
    unstyled body text. An explanation nobody's eye lands on is not one. */
 #d-untied {
-  margin: 0 0 var(--space-3);
+  /* Sits between the header and the nav since agent-page-nav; the nav's
+     first pill needs room under it or the note reads as part of the nav. */
+  margin: 0 0 18px;
   padding: var(--space-2) var(--space-3);
   /* ⚠️ `--warn` does not exist either; the fallback kept it valid, so the token
      check (which exempts anything with a fallback, correctly) could not see it.
@@ -4012,9 +4016,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   </section>
   <section class="dsec" data-sec="term" tabindex="-1" aria-label="Terminal" hidden>
 
-  <!-- Engineering mode's surface on this page (eng-mode): the raw
-       session, shown only when the person turned the switch on. Same
-       viewport-not-transcript honesty as the project page's block. -->
+  <!-- The raw session, always offered on this page since agent-page-nav
+       (the Engineering-mode switch governs project pages only). Same
+       viewport-not-transcript honesty as the project page's block. The box
+       still hides for an agent whose pane cannot be tied to its name and
+       while the first read is in flight; the paragraph after it is what the
+       section says then, so the Terminal pill never opens onto nothing. -->
   <section class="dbox" id="d-window-box" hidden>
     <h3 class="dlab" id="d-window-label">The window it is running in</h3>
     <!-- The hint ships EMPTY: the affirmative "as it looks right now"
@@ -4026,6 +4033,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          role="region" aria-labelledby="d-window-label"></pre>
     <p class="dhint" id="d-window-msg" hidden></p>
   </section>
+  <p class="dhint" id="d-term-empty">No window to show for this agent right now. Kosmos shows the window of an agent it can tie to its name; if this one was started some other way, it cannot.</p>
   </section>
   <section class="dsec" data-sec="remove" tabindex="-1" aria-label="Remove" hidden>
 
@@ -7683,10 +7691,14 @@ async function tick() {
          this file keeps paying for. */
       paintBusy(fresh, CURRENT.name);
       /* The same tab gate as the poll above, for the same reason: this is a
-         capture-pane every five seconds. Engineering mode is off by default so
-         the exposure is narrower, but the rule the comment above states does
-         not get to apply selectively inside one tick. */
-      if (ENG_ON && !WINDOW_OPENING && !document.hidden
+         capture-pane every five seconds. 🛑 NOT GATED ON THE SWITCH ANY MORE
+         (agent-page-nav): the route stopped reading it, the box stopped
+         hiding on it, and a tick that still did would paint the window once
+         on open under "as it looks right now" and then never again, which
+         is the affirmative-hint-over-a-stale-screen defect this function's
+         own comments name. The Terminal section is the one surface this
+         tick captures for, and it captures whether the switch is on or off. */
+      if (!WINDOW_OPENING && !document.hidden
           && !document.getElementById('panel-detail').hidden) {
         if (fresh && fresh.isNamedOurs === true) {
           paintAgentWindow(CURRENT.sessionName, { cachedFlag: true });
@@ -9651,7 +9663,8 @@ function convoRow(r, agentName) {
 }
 
 let CONVO_LOAD = 0;
-/* The raw window, only when Engineering mode is on; a refusal is said
+/* The raw window, whatever the Engineering-mode switch says (it governs
+   project pages only since agent-page-nav); a refusal is said
    in the engine's own sentence, never rendered as an empty terminal. */
 let WINDOW_LOAD = 0;
 let WINDOW_OPENING = 0; // a COUNTER: two rapid opens overlap their refreshes
@@ -11126,6 +11139,16 @@ function detailGo(section, opts) {
      answer button's intent, the back button), and yanking it here would fight
      that. */
   if (target && !(opts && opts.focus === false)) target.focus({ preventScroll: false });
+  /* ⚠️ A PAINT THAT MEASURES LAYOUT CANNOT DO IT INTO A HIDDEN SECTION.
+     `setThread` scrolls the thread to its newest row when the count changes;
+     with Talk at display:none the scrollHeight is 0, the assignment is a
+     no-op and the count is already recorded, so nothing would scroll when
+     the person came back. Re-done here, on arrival, for the one painter
+     that measures. */
+  if (section === 'talk') {
+    const th = document.getElementById('d-dmthread');
+    if (th && th.__lastCount !== null && th.__lastCount !== undefined) th.scrollTop = th.scrollHeight;
+  }
 }
 document.getElementById('d-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
@@ -13699,10 +13722,11 @@ document.getElementById('d-model-go').addEventListener('click', async () => {
      * 📌 Guarded: the box only exists for an agent whose page is open, and a
      * failed focus must never take down the verdict that has just been shown.
      */
-    try {
-      const say = document.getElementById('d-say');
-      if (say && !say.disabled) say.focus();
-    } catch { /* the sentence stands on its own */ }
+    /* The nudge-to-caret that lived here focused the talk box, which since
+       agent-page-nav is in another section: focus() on a display:none
+       element does nothing, silently. Focus stays on this box's own button,
+       where the person is. Moving them to Talk is their click, not ours. */
+    try { go.focus(); } catch { /* the sentence stands on its own */ }
   } catch (err) {
     msg.textContent = err.message;
   } finally {
