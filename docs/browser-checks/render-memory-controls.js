@@ -32,10 +32,13 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
   await page.click('#d-nav [data-go="memory"]'); await page.waitForTimeout(600);
   const vis = await page.evaluate(() => {
     const v = (id) => { const e = document.getElementById(id); return !!e && !e.hidden && e.offsetParent !== null; };
-    return { compact: v('d-compact-go'), clear: v('d-clear-go'), restart: v('d-restart-start'), chooser: /Three ways to reset, and they differ/.test(document.getElementById('d-sec-memory').textContent) };
+    return { compact: v('d-compact-go'), clear: v('d-clear-go'), restart: v('d-restart-start'), chooser: /Three ways to get it going again/.test(document.getElementById('d-sec-memory').textContent), names: ['d-compact-go', 'd-clear-go', 'd-restart-start'].map((id) => document.getElementById(id).textContent) };
   });
   chk(vis.compact && vis.clear && vis.restart, 'Compact, Clear and Restart are all on the Memory tab', JSON.stringify(vis));
   chk(vis.chooser, 'the sentence saying how the three differ is there');
+  /* #404: long form on all three, the agent's name on every button. The seeded
+     agent is named in the fixture, so a bare "Compact" here is a regression. */
+  chk(vis.names.every((t) => /^(Compact|Clear) \S.*\u2019s memory$|^Restart \S/.test(t)), 'all three buttons name the agent', JSON.stringify(vis.names));
   await page.screenshot({ path: process.env.SHOT || path.join(os.tmpdir(), 'memory-controls.png') });
   await page.click('#d-compact-go'); await page.waitForTimeout(300);
   chk(!(await page.$eval('#chg-modal', (m) => m.hidden)), 'Compact opens a dialog rather than acting');
