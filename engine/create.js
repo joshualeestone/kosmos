@@ -1365,6 +1365,23 @@ function createAgent(opts) {
         if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;
       }
     } catch { /* the boot file simply ships without the block */ }
+    // Who it reports to rides from birth too, BOTH paths, keyed on the agent
+    // and never on its role (#336): the self-described agent is the one most
+    // likely to be placed under a manager later and the one every role-keyed
+    // mechanism skipped for as long as the product existed (#333). Always
+    // present: an agent nobody assigned reports to the person, and the block
+    // says so by name. Composed from the same fields the profile will hold,
+    // so the profile-save sync later composes the same bytes and writes
+    // nothing. Non-gating, like every block here.
+    try {
+      const reportsMod = require('./reports');
+      const spliced = require('./projects').spliceBlock(text, reportsMod.blockBody({
+        role: typeof wantLabel === 'string' ? wantLabel : null,
+        reportsTo: typeof wantReportsTo === 'string' ? wantReportsTo : null,
+      }), reportsMod.START, reportsMod.END);
+      const { MAX_BYTES } = require('./instructions');
+      if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;
+    } catch { /* the profile-save sync still does it, after the fact */ }
     // The colleagues block rides from birth too, same machinery and the
     // same non-gating posture: agent-to-agent messaging only works if the
     // agents know the command exists, and the file is where agents learn

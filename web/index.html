@@ -4013,7 +4013,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        An empty reporting line is honest; an inferred one is a claim. -->
   <div class="field" id="d-reports-wrap" hidden>
     <label class="flabel" for="d-reports">Reports to</label>
-    <div class="fhint">Only used to draw your org chart. Leave it blank if it does not apply.</div>
+    <!-- 🔑 REPLACED WHOLE (#336, Mona Lisa and Splinter). The old hint was
+         "Only used to draw your org chart. Leave it blank if it does not
+         apply." Both sentences wrong: blank is not "does not apply", it is
+         "reports to you" (Josh, 2026-08-23 09:55); and "only used to draw"
+         expired the day the line started being written into the agent's
+         file. A hint that says "only used for X" is a capability claim with
+         an expiry date and nothing announces the day it expires. -->
+    <div class="fhint">Who they report their work to. Until you pick somebody, that is you.</div>
     <div class="frow">
       <select id="d-reports"></select>
     </div>
@@ -13436,6 +13443,25 @@ document.getElementById('d-save').addEventListener('click', async () => {
       : ren.changed ? 'Saved. Its instructions say the new name too, so restart it when you are ready and it will know.'
       : ren.ok ? 'Saved.'
       : 'Saved here, but ' + ren.because + '.';
+    /* The role and reports-to half (#336). The route answers `reports`, the
+       verdict of writing the file, only on a save that moved either field,
+       and the screen READS it: told + running means a restart is what makes
+       it true for the agent that is going; told + stopped means nothing,
+       because it reads the file when it starts, so no line (a notice that
+       appears when it is not true is how people learn to stop reading
+       notices); could_not names why in the engine's words. A rename that
+       changed the file already says restart, and one sentence is enough. */
+    const rep = saved && saved.reports;
+    if (rep && !(ren && ren.changed)) {
+      const running = !!(CURRENT && CURRENT.running !== false);
+      if (rep.state === 'told') {
+        msg.textContent = running
+          ? 'Saved. Takes effect when it next starts. It is running now on what it read at boot.'
+          : 'Saved.';
+      } else if (rep.state === 'could_not') {
+        msg.textContent = 'Saved here, but ' + rep.because + '.';
+      }
+    }
     /* ⚠️ THE HEADING IS UPDATED HERE RATHER THAN LEFT TO THE POLL. Measured:
        after a successful save the heading still read the OLD name ~1.8s later,
        and only came right on the next full paint. The whole reason this field

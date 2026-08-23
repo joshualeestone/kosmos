@@ -179,6 +179,10 @@ const BLOCK_END = '<!-- kosmos:projects:end -->';
 // never inside" violated by injection). engine/you.js imports these.
 const YOU_START = '<!-- kosmos:you:start -->';
 const YOU_END = '<!-- kosmos:you:end -->';
+// The reports-to pair (#336), defined beside the others for the same reason:
+// the neutralisers derive from the list and the registry test reads it.
+const REPORTS_START = '<!-- kosmos:reports:start -->';
+const REPORTS_END = '<!-- kosmos:reports:end -->';
 
 /**
  * Every managed-block marker in the product, in one list.
@@ -205,7 +209,7 @@ const YOU_END = '<!-- kosmos:you:end -->';
  */
 function ALL_MARKERS() {
   const mm = require('./messages');
-  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, mm.START, mm.END];
+  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, mm.START, mm.END];
 }
 
 /**
@@ -1905,7 +1909,7 @@ function syncAgent(sessionName, roster) {
 }
 
 module.exports = {
-  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, ALL_MARKERS, neutralise,
+  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe,
   list, get, projectsFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues,

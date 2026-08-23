@@ -97,6 +97,7 @@ function safeAvatarFor(name) {
 const roles = require('./engine/roles');
 const commitments = require('./engine/commitments');
 const you = require('./engine/you');
+const reports = require('./engine/reports');
 const limits = require('./engine/limits');
 const engmode = require('./engine/engmode');
 const accounts = require('./engine/accounts');
@@ -2044,6 +2045,31 @@ const server = http.createServer((req, res) => {
              problem in its smallest form, and it is the one a person can
              actually create by picking their own name out of a list. */
           if (to && to === name) { sendJson(res, 400, { error: 'an agent cannot report to itself' }); return; }
+          /* 🛑 AND NOT TO SOMEBODY WHO REPORTS TO IT, at any distance (Angel's
+             note on #336): A under B under A draws a ring the org chart cannot
+             root and writes two files each telling the other to take its
+             questions to the other. Walked on the records, bounded, refused in
+             a sentence that names the loop. */
+          if (to) {
+            const seen = new Set([name]);
+            let cur = to;
+            for (let hops = 0; cur && hops < 64; hops += 1) {
+              if (seen.has(cur)) {
+                sendJson(res, 400, { error: `that would make a loop: ${cur} already reports up to this agent` });
+                return;
+              }
+              seen.add(cur);
+              let p = null;
+              try { p = store.readProfile(cur); } catch { p = null; }
+              cur = p && typeof p.reportsTo === 'string' ? p.reportsTo : null;
+            }
+          }
+          /* `null` in the record means REPORTING TO THE PERSON (Josh, 2026-08-23
+             09:55: "a default state for any agent, if they haven't been
+             assigned, is that they report directly to me as the user"). Not
+             "nobody": there is no nobody, and the org chart has always drawn
+             an unassigned agent to the hub that is the person. The file says
+             the same, by name, via the reports block below. */
           clean.reportsTo = to || null;
         }
         /* 🛑 THE AGENT'S OWN INSTRUCTIONS FOLLOW THE RENAME, and this is the
@@ -2073,7 +2099,23 @@ const server = http.createServer((req, res) => {
            instructions when it started; changing the file does not reach the
            one that is already going. The screen needs to be able to offer a
            restart, and it cannot invent this. */
-        sendJson(res, 200, renamed ? { ...written, renamed } : written);
+        /* The file half of role and reports-to (#336): the record moved, now
+           the agent's own file does, through the managed block. Rewritten on
+           every save that touched either field; a save that changed neither
+           writes nothing (the splice composes the same bytes). And a rename
+           reaches the files of agents that report to THIS one, because they
+           name it. Non-gating, verdict carried: the screen reads `reports` to
+           decide whether to say a restart is needed, never infers it. */
+        let told = null;
+        const roster = safeRoster();
+        if ('role' in clean || 'reportsTo' in clean) {
+          try { told = reports.tellAgent(name, roster, { trusted: true }); }
+          catch (e2) { told = { state: projects.TOLD.COULD_NOT, because: String((e2 && e2.message) || 'we could not update its instructions') }; }
+        }
+        if (renamed && renamed.changed) {
+          try { reports.syncReportsTo(name, roster); } catch { /* their markers carry it */ }
+        }
+        sendJson(res, 200, { ...written, ...(renamed ? { renamed } : {}), ...(told ? { reports: told } : {}) });
       })
       .catch((err) => sendJson(res, 400, { error: String(err.message) }));
     return;
@@ -3071,7 +3113,13 @@ const server = http.createServer((req, res) => {
         // Non-gating, same as every tell: answers that could not be announced
         // are still saved, and each agent's verdict is carried, never invented.
         let told;
-        try { told = you.syncEveryone(safeRoster()); }
+        try {
+          const roster = safeRoster();
+          told = you.syncEveryone(roster);
+          // The reports-to block names the person in its default form (#336),
+          // so a new name here has to reach it too. Same roster, same posture.
+          try { reports.syncEveryone(roster); } catch { /* carried by the marker, not here */ }
+        }
         catch (err2) { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not tell the agents') }]; }
         sendJson(res, 200, { you: saved, told });
       })
