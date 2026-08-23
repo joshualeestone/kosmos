@@ -41,21 +41,31 @@ fail() { say "FAIL  $*"; FAILS=$((FAILS+1)); }
 
 # Real-machine witnesses, taken before anything runs.
 prof_sum() {
-  for f in "$HOME/.zprofile" "$HOME/.zshrc" "$HOME/.bash_profile"; do
+  for f in "$HOME/.zprofile" "$HOME/.zshrc" "$HOME/.zshenv" "$HOME/.profile" "$HOME/.bash_profile"; do
     [ -f "$f" ] && shasum -a 256 "$f"
   done
 }
 BEFORE_PROFILES="$(prof_sum)"
 BEFORE_AGENTS="$(ls "$HOME/Library/LaunchAgents" 2>/dev/null | sort)"
+BEFORE_LABELS="$(launchctl list 2>/dev/null | grep -o 'com\.kosmos[^"[:space:]]*' | sort)"
 
-cleanup() {
+kill_sandbox() {
   # Kill by state path, never by name: a name is a guess, the path is ours.
   for pid in $(pgrep -f "$SB" 2>/dev/null); do kill "$pid" 2>/dev/null; done
   sleep 1
   for pid in $(pgrep -f "$SB" 2>/dev/null); do kill -9 "$pid" 2>/dev/null; done
-  rm -rf "$SB"
 }
-trap cleanup EXIT INT TERM
+cleanup() {
+  # KEEP preserves the DIRECTORY for inspection, never the processes: a
+  # kept failed run must not leave a sandbox board listening forever.
+  kill_sandbox
+  if [ -n "${KEEP:-}" ]; then say "sandbox kept at $SB"; else rm -rf "$SB"; fi
+}
+trap cleanup EXIT
+# INT/TERM must EXIT after cleaning, or a Ctrl+C mid-walk deletes the
+# sandbox and the script then runs the remaining legs against nothing,
+# printing a cascade of misleading FAILs before cleaning up again.
+trap 'trap - EXIT; cleanup; exit 130' INT TERM
 
 # A free port WITHOUT binding it first: bind-and-close parks the port in
 # TIME_WAIT (the macos-time-wait bulletin), the installer then finds its
@@ -65,7 +75,7 @@ trap cleanup EXIT INT TERM
 # walk leg reads that announcement rather than trusting the request.
 PORT=""
 for _try in 1 2 3 4 5; do
-  _cand=$(( (RANDOM % 15000) + 40000 ))
+  _cand=$(( (${RANDOM:-$$} % 15000) + 40000 ))
   if ! lsof -iTCP:"$_cand" -sTCP:LISTEN >/dev/null 2>&1; then PORT="$_cand"; break; fi
 done
 [ -n "$PORT" ] || { fail "could not pick a port"; exit 1; }
@@ -156,7 +166,7 @@ esac
 # which is the fact about the bundle that does not depend on the bundle's
 # API; a source checkout leaves the placeholder, an installed bundle bakes
 # the real number, and this run installed a bundle.
-INSTALLED_VERSION="$(curl -fsS "http://127.0.0.1:$PORT/" 2>/dev/null | sed -n 's/.*name="kosmos-version" content="\([^"_][^"]*\)".*/\1/p' | head -1)"
+INSTALLED_VERSION="$(curl -fsS "http://127.0.0.1:$GOT_PORT/" 2>/dev/null | sed -n 's/.*name="kosmos-version" content="\([^"_][^"]*\)".*/\1/p' | head -1)"
 if [ -n "$SERVED_VERSION" ] && [ "$INSTALLED_VERSION" = "$SERVED_VERSION" ]; then
   pass "installed version $INSTALLED_VERSION matches the site's latest.json"
 else
@@ -210,12 +220,20 @@ case "$AFTER_LABEL" in
   ''|"$HOME"/Library/LaunchAgents/*) pass "the real board label points nowhere near the sandbox" ;;
   *) fail "the real com.kosmos.board label now points at $AFTER_LABEL" ;;
 esac
+# And EVERY com.kosmos label, not only the board: the uninstall path also
+# manages com.kosmos.agent.* jobs, and a sandbox-registered agent label
+# would slip every file witness for the same reason the board's did.
+AFTER_LABELS="$(launchctl list 2>/dev/null | grep -o 'com\.kosmos[^"[:space:]]*' | sort)"
+if [ "$BEFORE_LABELS" = "$AFTER_LABELS" ]; then
+  pass "the launchd domain holds the same com.kosmos labels it started with"
+else
+  fail "launchd's com.kosmos labels changed: $(printf '%s\n%s' "$BEFORE_LABELS" "$AFTER_LABELS" | sort | uniq -u | tr '\n' ' ')"
+fi
 
 say ""
 if [ "$FAILS" -eq 0 ]; then
   say "CLEAN MACHINE OK: refusal, walk and removal all behave on the script a stranger receives"
 else
-  say "CLEAN MACHINE: $FAILS failures; logs in $SB (kept only until this shell's trap runs; re-run with KEEP=1 to keep them)"
-  [ -n "${KEEP:-}" ] && trap - EXIT && say "sandbox kept at $SB"
+  say "CLEAN MACHINE: $FAILS failures; logs in $SB are removed unless KEEP=1 was set"
 fi
 exit "$FAILS"

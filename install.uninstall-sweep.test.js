@@ -53,15 +53,52 @@ test('the sweep survives a tmux with nothing to list, which is every clean Mac (
   const ls = SH.indexOf("list-sessions -F '#{session_name}'");
   const at = SH.lastIndexOf('if [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then', ls);
   assert.ok(ls > -1 && at > -1, 'the sweep block moved; re-anchor this test');
-  const end = SH.indexOf('fi', SH.indexOf('done || true', at));
-  assert.ok(end > at, 'the sweep block lost its pipeline guard, which is the abort defect itself');
+  /* The guard is capture-then-loop: ONLY list-sessions is forgiven, so a
+     future unguarded command in the loop body still fails loudly instead
+     of silently truncating the sweep before the uninstall deletes the
+     agents' tmux out from under them. */
+  const capture = SH.indexOf('|| true)"', at);
+  const heredocClose = SH.indexOf('\nKOSMOS_SWEEP_LIST', SH.indexOf('done <<KOSMOS_SWEEP_LIST', at));
+  assert.ok(capture > at && capture < ls + 200, 'list-sessions lost its own || true, the abort defect itself');
+  assert.ok(heredocClose > at, 'the loop is a pipeline again, which both aborts on serverless and drops the flag in a subshell');
+  const end = SH.indexOf('fi', heredocClose);
   const region = SH.slice(at, end + 2);
 
   const script = 'set -euo pipefail\nKOSMOS_HOME=' + JSON.stringify(sb) + '\n'
-    + 'info() { :; }\n_agents_stopped=no\n' + region + '\necho SURVIVED';
+    + 'info() { :; }\n_agents_stopped=no\n' + region + '\necho SURVIVED=$_agents_stopped';
   const out = execFileSync('/bin/bash', ['-c', script], { encoding: 'utf8' });
-  assert.match(out, /SURVIVED/,
-    'a serverless tmux aborted the uninstall mid-flight again: the pipeline guard is gone');
+  assert.match(out, /SURVIVED=no/,
+    'a serverless tmux aborted the uninstall mid-flight again: the guard is gone');
+});
+
+test('the sweep flag reaches the shell that reads it, proven with a session to stop', () => {
+  /* The pipeline form assigned _agents_stopped in a subshell, so the
+     closing message that branches on it was wrong for every machine whose
+     only agents ran without background jobs. The heredoc loop runs in the
+     parent shell; a stub tmux offering one self-owned session must flip
+     the flag HERE, where the message can see it. */
+  const os = require('node:os');
+  const { execFileSync } = require('node:child_process');
+  const sb = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sweep2-')));
+  fs.mkdirSync(path.join(sb, 'tmux', 'bin'), { recursive: true });
+  const stub = path.join(sb, 'tmux', 'bin', 'tmux');
+  fs.writeFileSync(stub, ['#!/bin/sh',
+    'case "$1" in',
+    '  list-sessions) echo aa ;;',
+    '  show-options) echo aa ;;',
+    '  kill-session) : ;;',
+    'esac', ''].join('\n'));
+  fs.chmodSync(stub, 0o755);
+
+  const ls = SH.indexOf("list-sessions -F '#{session_name}'");
+  const at = SH.lastIndexOf('if [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then', ls);
+  const end = SH.indexOf('fi', SH.indexOf('\nKOSMOS_SWEEP_LIST', SH.indexOf('done <<KOSMOS_SWEEP_LIST', at)));
+  const region = SH.slice(at, end + 2);
+  const script = 'set -euo pipefail\nKOSMOS_HOME=' + JSON.stringify(sb) + '\n'
+    + 'info() { :; }\n_agents_stopped=no\n' + region + '\necho FLAG=$_agents_stopped';
+  const out = execFileSync('/bin/bash', ['-c', script], { encoding: 'utf8' });
+  assert.match(out, /FLAG=yes/,
+    'the stopped-agents flag died in a subshell again, so the closing message lies about the sweep');
 });
 
 test('no launchctl call escapes a sandboxed run into the real gui domain', () => {

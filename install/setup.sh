@@ -815,7 +815,16 @@ uninstall() {
     # An unreadable server (a NEWER system tmux owns the socket) takes the
     # same path: nothing listable means nothing sweepable, and the rest of
     # the uninstall must still run.
-    "$KOSMOS_HOME/tmux/bin/tmux" list-sessions -F '#{session_name}' 2>/dev/null | while IFS= read -r _sname; do
+    # Capture-then-loop, not a guarded pipeline: forgiving the WHOLE
+    # pipeline would also silence a future unguarded command in the loop
+    # body, truncating the sweep while the uninstall then deletes the
+    # agents' tmux out from under them. Only list-sessions is forgiven,
+    # and the heredoc keeps the loop in THIS shell, so _agents_stopped
+    # actually reaches the closing message that reads it (the pipeline
+    # form assigned it in a subshell and the message was wrong for every
+    # machine whose only agents ran without background jobs).
+    _slist="$("$KOSMOS_HOME/tmux/bin/tmux" list-sessions -F '#{session_name}' 2>/dev/null || true)"
+    while IFS= read -r _sname; do
       [ -n "$_sname" ] || continue
       _owner="$("$KOSMOS_HOME/tmux/bin/tmux" show-options -t "=$_sname" -v @kosmos_agent 2>/dev/null)" || _owner=""
       if [ "$_owner" = "$_sname" ]; then
@@ -823,7 +832,9 @@ uninstall() {
         info "stopping $_sname (a Kosmos agent still running with no background job)"
         "$KOSMOS_HOME/tmux/bin/tmux" kill-session -t "=$_sname" 2>/dev/null || true
       fi
-    done || true
+    done <<KOSMOS_SWEEP_LIST
+$_slist
+KOSMOS_SWEEP_LIST
   fi
   if [ -d "$KOSMOS_HOME" ]; then
     # ⚠️ REFUSE TO DELETE A FOLDER THAT IS NOT A KOSMOS INSTALL. KOSMOS_HOME

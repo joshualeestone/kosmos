@@ -1216,6 +1216,16 @@ test('the bundled tmux\'s serverless voice reads as a clean machine, and ONLY wi
     fs.writeFileSync(nodePath.join(sockDir, 'tmux-' + process.getuid(), 'default'), '');
     assert.equal(status.tmuxSaidNoServer(said), false,
       'a live server our tmux cannot read was reported as an empty machine, which hides every agent on an adopt machine');
+    /* And an UNREADABLE socket dir is could-not-check, never absence: the
+       existsSync form returned false on EACCES and stamped clean-machine
+       over a hidden live server. ENOENT-only, like jobMissing. */
+    fs.chmodSync(nodePath.join(sockDir, 'tmux-' + process.getuid()), 0o000);
+    try {
+      assert.equal(status.tmuxSaidNoServer(said), false,
+        'an unreadable socket directory was read as evidence of absence, the EACCES-stamps-history failure again');
+    } finally {
+      fs.chmodSync(nodePath.join(sockDir, 'tmux-' + process.getuid()), 0o700);
+    }
   } finally {
     if (prev === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = prev;
   }

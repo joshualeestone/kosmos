@@ -217,10 +217,18 @@ function tmuxSaidNoServer(got) {
      existsSync failure direction is the refusal too: an unreadable socket
      directory is not evidence of absence. */
   if (/server exited unexpectedly/i.test(err)) {
+    /* statSync with ENOENT-only as absence, NOT !existsSync: existsSync
+       returns false on EACCES too, so an unreadable socket directory
+       hiding a real live server would have read as a clean machine, the
+       exact conversion this function forbids. Only a proven no-such-file
+       is evidence of absence; every other failure answers "could not
+       check", and the refusal stands. Same rule as create.jobMissing. */
     try {
-      const sock = path.join(process.env.TMUX_TMPDIR || '/tmp', 'tmux-' + process.getuid(), 'default');
-      return !fs.existsSync(sock);
-    } catch { return false; }
+      fs.statSync(path.join(process.env.TMUX_TMPDIR || '/tmp', 'tmux-' + process.getuid(), 'default'));
+      return false;
+    } catch (e) {
+      return Boolean(e && e.code === 'ENOENT');
+    }
   }
   return false;
 }
