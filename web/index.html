@@ -1837,6 +1837,15 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
 .attachbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
 .attachbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .attachbtn:disabled { opacity: .5; cursor: default; }
+/* The attached-but-unsent files, beside the composer: a chip each, with an x. */
+.attach-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
+.attach-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 10px;
+               border: 1px solid var(--k-rule); border-radius: 100px; background: var(--k-surface);
+               font-size: .8125rem; color: var(--k-ink-2); max-width: 100%; }
+.attach-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 18rem; }
+.attach-chip-x { border: 0; background: none; color: var(--k-ink-2); font-size: 1rem; line-height: 1; cursor: pointer; padding: 2px 6px; border-radius: 100px; }
+.attach-chip-x:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
+.attach-chip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .thread.dragging, #d-dmthread.dragging { outline: 2px dashed var(--gold-deep); outline-offset: -2px; background: rgba(214,166,46,.06); }
 .dm-b { max-width: 92%; padding: 9px 13px; border-radius: 12px; font-size: .9375rem;
   line-height: 1.45; background: var(--k-sunk, rgba(20,22,26,.05));
@@ -3757,9 +3766,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <input type="text" id="d-say" maxlength="2000"
              aria-label="Type a message for this agent" placeholder="Message this agent…">
       <button class="attachbtn" id="d-attach" type="button" aria-label="Add a file to this conversation" title="Add a file"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
-      <input id="d-attach-file" type="file" hidden>
+      <input id="d-attach-file" type="file" multiple hidden>
       <button class="btn" id="d-send" type="button">Send</button>
     </div>
+    <!-- The attached-but-unsent files (#358, Josh 1:59 PM: "it just instantly
+         uploads it... I don't get to write a caption", then "multiple pictures
+         or files... and then add copy in with it"). Picking or dropping files
+         attaches them here as chips; the message goes with the words when
+         Send is pressed, all of them on one row. An x lets go of one. -->
+    <div class="attach-chips" id="d-attach-chips" hidden></div>
     <p class="fmsg" id="d-say-msg" role="alert" aria-live="assertive"></p>
     <!-- 🛑 A DEAD ELEMENT AND A COMMENT THAT OUTLIVED ITS OWN SUBJECT SAT HERE
          FOR A DAY, and the comment is why this note is longer than the deletion.
@@ -5307,7 +5322,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                counter-argument herself; ruled here and recorded in the pack
                against `btn-gold` so the two files stop disagreeing. -->
           <button class="attachbtn" id="pj-attach" type="button" aria-label="Add a file to this conversation" title="Add a file"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
-          <input id="pj-attach-file" type="file" hidden>
+          <input id="pj-attach-file" type="file" multiple hidden>
           <button class="btn cpost" id="pj-post-go" type="button">Post</button>
         </div>
         <!-- 🔑 THE @ PICKER (#312). Josh: "if I hit the @ symbol, it would pop
@@ -5325,6 +5340,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              that read as a zero. The key is named, the bold is off the glyph. -->
         <p class="composerhint" id="pj-composerhint">Drop a file anywhere in the conversation to add it. Type @ and a name to ask one agent directly.</p>
       </div>
+      <div class="attach-chips" id="pj-attach-chips" hidden></div>
       <p class="fmsg" id="pj-room-msg"></p>
       <p class="vh" id="pj-room-say" role="status" aria-live="polite"></p>
 
@@ -11256,6 +11272,7 @@ async function paintTalk(sessionName, agentName) {
   document.getElementById('d-send').disabled = body.presence === 'off' || flying;
   // The parked draft comes back, and never over words already in the box.
   if (!say.disabled && !say.value && TALK_DRAFTS[sessionName]) say.value = TALK_DRAFTS[sessionName];
+  attachPaint(ATTACH_AGENT);   // this agent's pending files, not the last one's
 }
 
 /**
@@ -11273,6 +11290,9 @@ async function paintTalk(sessionName, agentName) {
  * this path was the hole.
  */
 async function sendTalk(text, chose, attachment) {
+  /* The pending files ride with the words, and clear only once the send is
+     answered, so a failed send keeps them attached for a retry. */
+  const pendingIds = attachment ? [attachment] : attachList(ATTACH_AGENT).map((r) => r.id);
   // ⚠️ ONE SEND AT A TIME IS THE RULE, and it is the page's rule rather than
   // the agent's: the message line and the composer are single elements. What
   // must not happen is a silent refusal — pressing Enter and having nothing at
@@ -11390,7 +11410,7 @@ async function sendTalk(text, chose, attachment) {
          particular screen turned the guard off. */
       body: JSON.stringify(chose
         ? { text, chose, asked: askedAbout == null ? '' : askedAbout.split('\u0000').slice(1).join('\u0000') }
-        : (attachment ? { text, attachment } : { text })),
+        : (pendingIds.length ? { text, attachments: pendingIds } : { text })),
     });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not send that');
@@ -11420,6 +11440,10 @@ async function sendTalk(text, chose, attachment) {
       // it: anything typed on top belongs to the next message.
       if (!flightMoved() && say.value.trim() === text) say.value = '';
       if ((TALK_DRAFTS[sentName] || '').trim() === text) delete TALK_DRAFTS[sentName];
+      /* The files follow the words' rule exactly: cleared for the agent they
+         were sent to, on the same verdicts, so an unconfirmed-and-unrecorded
+         send keeps them for the retry the sentence invites. */
+      if (pendingIds.length) attachClear(ATTACH_AGENT, sentName);
     };
     let line;
     if (d.state === 'placed') {
@@ -17809,6 +17833,7 @@ function openProject(id) {
     /* The room, same switching rules: this project's draft back, the
        previous project's thread never painted under the new name. */
     document.getElementById('pj-post').value = PJ_ROOM_DRAFTS[id] || '';
+    attachPaint(ATTACH_ROOM);   // this project's pending files, not the last one's
     /* A parked draft comes back at the height it was written at: the grow
        runs on `input`, and setting `.value` in code fires no such event. */
     pjGrowComposer(document.getElementById('pj-post'));
@@ -18326,11 +18351,16 @@ async function loadRoom() {
 }
 
 async function pjPostSend(attachment) {
+  const pendingIds = attachment ? [attachment] : attachList(ATTACH_ROOM).map((r) => r.id);
   if (PJ_POSTING) return;
   const p = pjById(PJ_CURRENT);
   if (!p) return;
   const input = document.getElementById('pj-post');
   const msg = document.getElementById('pj-room-msg');
+  /* Files with no words go as their names (the card hides the duplicate).
+     The text is read AFTER that, or an empty body goes out under a box that
+     visibly holds the names. */
+  if (!input.value.trim() && pendingIds.length) input.value = attachList(ATTACH_ROOM).map((r) => r.name).join(', ');
   const text = input.value;
   if (!text.trim()) { msg.textContent = 'Say something first.'; pjRoomAnnounce('Say something first.'); return; }
   /* The flight can outlive the page state (a fan-out is seconds of tmux
@@ -18353,7 +18383,7 @@ async function pjPostSend(attachment) {
     const res = await fetch('/api/project/' + encodeURIComponent(sentProject) + '/room', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(attachment ? { text, attachment } : { text }),
+      body: JSON.stringify(pendingIds.length ? { text, attachments: pendingIds } : { text }),
     });
     const body = await res.json().catch(() => ({}));
     const d = (body && body.delivery) || {};
@@ -18368,6 +18398,7 @@ async function pjPostSend(attachment) {
     }
     if (PJ_CURRENT === sentProject && input.value.trim() === sentText) input.value = '';
     if ((PJ_ROOM_DRAFTS[sentProject] || '').trim() === sentText) delete PJ_ROOM_DRAFTS[sentProject];
+    if (pendingIds.length) attachClear(ATTACH_ROOM, sentProject);   // the files went with it; the composer repaints if it is this project
     if (PJ_CURRENT === sentProject) msg.textContent = '';
     /* The headline carries the aggregate: "Posted." over a partial
        delivery would say more on the audio channel than the engine did. */
@@ -18498,18 +18529,20 @@ document.getElementById('pj-mention').addEventListener('mousedown', (e) => {
 });
 
 /* ---- adding a document (#358) -----------------------------------------------
-   The + on each composer opens the file picker; dropping a file on the thread
-   does the same. One file, sent with whatever is in the composer as the
-   message text, to the upload route for the room or the agent. The reply
-   row arrives on the next poll like any other message, so nothing here
-   invents a row. Every sentence the person sees comes from the route's
-   answer or names what we did, never what we hope. */
+   The + on each composer opens the file picker; dropping files on the thread
+   does the same. Each file is uploaded at once and waits as a chip beside the
+   composer; Send or Post carries the words and every pending file as one
+   message through the surface's own sender. The row arrives on the next poll
+   like any other message, so nothing here invents a row. Every sentence the
+   person sees comes from the route's answer or names what we did, never what
+   we hope. */
 async function attachUpload(file, where) {
   const msg = document.getElementById(where.msgId);
   const input = document.getElementById(where.textId);
   if (!file) return;
   if (file.size > 25 * 1024 * 1024) { msg.textContent = 'That file is over 25 MB, which is the most a message can carry.'; return; }
-  const text = input ? input.value : '';
+  if (!attachTarget(where)) { msg.textContent = 'Open a conversation first.'; return; }
+  if (attachList(where).length >= ATTACH_MAX) { msg.textContent = 'A message can carry ' + ATTACH_MAX + ' files; send these first.'; return; }
   const btn = document.getElementById(where.btnId);
   if (btn) btn.disabled = true;
   msg.textContent = 'Adding ' + file.name + '\u2026';
@@ -18524,11 +18557,14 @@ async function attachUpload(file, where) {
       msg.textContent = (body && body.error) ? body.error : 'We could not add that file (status ' + res.status + ').';
       return;
     }
-    /* The message that carries it. An empty composer sends the file's name
-       as the words, so the row is never a blank bubble over a card. */
-    if (input && !text.trim()) input.value = file.name;
+    /* ATTACHED, NOT SENT (Josh, 2026-08-23 1:59 PM). The file waits on a chip
+       beside the composer until Send or Post, so the words and every file go
+       as one message. The first version sent on pick, which left no room for
+       a caption, and an agent answered "I got the screenshot but no note came
+       with it. What is it for?" */
+    attachAdd(where, { id: body.attachment.id, name: body.attachment.name });
     msg.textContent = '';
-    await where.send(input ? input.value.trim() : file.name, body.attachment.id);
+    if (input) input.focus();
     if (where.after) where.after();
   } catch {
     msg.textContent = 'We could not reach Kosmos to add that file.';
@@ -18542,27 +18578,79 @@ async function attachUpload(file, where) {
    time, the receipt, the draft). A failed upload is a sentence before
    anything is said. */
 const ATTACH_ROOM = {
-  btnId: 'pj-attach', fileId: 'pj-attach-file', textId: 'pj-post', msgId: 'pj-room-msg', dropId: 'pj-room',
+  key: 'room', btnId: 'pj-attach', fileId: 'pj-attach-file', textId: 'pj-post', msgId: 'pj-room-msg', dropId: 'pj-room', chipsId: 'pj-attach-chips',
   url: () => '/api/project/' + encodeURIComponent(PJ_CURRENT) + '/attachment',
-  send: (text, id) => pjPostSend(id),
   after: () => { const t = document.getElementById('pj-post'); if (t) pjGrowComposer(t); },
 };
 const ATTACH_AGENT = {
-  btnId: 'd-attach', fileId: 'd-attach-file', textId: 'd-say', msgId: 'd-say-msg', dropId: 'd-dmthread',
+  key: 'agent', btnId: 'd-attach', fileId: 'd-attach-file', textId: 'd-say', msgId: 'd-say-msg', dropId: 'd-dmthread', chipsId: 'd-attach-chips',
   url: () => '/api/agent/' + encodeURIComponent(CURRENT ? CURRENT.sessionName : '') + '/attachment',
-  send: (text, id) => sendTalk(text, null, id),
   after: null,
 };
+/* The pending files, KEYED BY AGENT OR PROJECT the way TALK_DRAFTS and
+   PJ_ROOM_DRAFTS key the words: a file attached for April must never sit
+   under Mikey's composer (the server would refuse it by owner, and the
+   person would see a refusal that names nothing). `attachTarget` is the
+   current key for a composer; `attachPaint` draws that key's list, so a
+   switch repaints the right chips and a send clears only its own. At most
+   ten per message (the route's cap), checked before the upload. */
+const ATTACH_PENDING = { room: {}, agent: {} };
+const ATTACH_MAX = 10;
+function attachTarget(where) {
+  return where.key === 'room' ? (PJ_CURRENT || null) : (CURRENT ? CURRENT.sessionName : null);
+}
+function attachList(where, target) {
+  const key = target === undefined ? attachTarget(where) : target;
+  if (!key) return [];
+  if (!ATTACH_PENDING[where.key][key]) ATTACH_PENDING[where.key][key] = [];
+  return ATTACH_PENDING[where.key][key];
+}
+function attachPaint(where) {
+  const box = document.getElementById(where.chipsId);
+  if (!box) return;
+  const list = attachList(where);
+  box.hidden = list.length === 0;
+  box.innerHTML = list.map((r, i) => '<span class="attach-chip"><span class="attach-chip-name">' + esc(r.name) + '</span>'
+    + '<button type="button" class="attach-chip-x" data-i="' + i + '" aria-label="Remove ' + esc(r.name) + '">&times;</button></span>').join('');
+}
+function attachAdd(where, rec) {
+  attachList(where).push(rec);
+  attachPaint(where);
+}
+/** Let go of one target's files (the one just sent, or the current one). */
+function attachClear(where, target) {
+  const key = target === undefined ? attachTarget(where) : target;
+  if (key) delete ATTACH_PENDING[where.key][key];
+  attachPaint(where);
+}
+/** Several files at once (a multi-pick or a multi-drop), in order, one upload
+    each, stopping at the first refusal so the sentence is about that file. */
+async function attachUploadAll(files, where) {
+  for (const f of files) {
+    if (attachList(where).length >= ATTACH_MAX) { document.getElementById(where.msgId).textContent = 'A message can carry ' + ATTACH_MAX + ' files; send these first.'; return; }
+    await attachUpload(f, where);
+  }
+}
+for (const where of [ATTACH_ROOM, ATTACH_AGENT]) {
+  const box = document.getElementById(where.chipsId);
+  if (box) box.addEventListener('click', (e) => {
+    const x = e.target.closest('button[data-i]');
+    if (!x) return;
+    attachList(where).splice(Number(x.dataset.i), 1);
+    attachPaint(where);
+    const t = document.getElementById(where.textId); if (t) t.focus();
+  });
+}
 /* The two pickers, written out rather than looped, because the file-picker
    rule (web.file-pickers.test.js) reads the wiring by name: a hidden input
    driven by a real button, no bare file control on the page. */
 document.getElementById('pj-attach').addEventListener('click', () => document.getElementById('pj-attach-file').click());
 document.getElementById('pj-attach-file').addEventListener('change', (e) => {
-  const f = e.target.files && e.target.files[0]; e.target.value = ''; attachUpload(f, ATTACH_ROOM);
+  const files = Array.from(e.target.files || []); e.target.value = ''; attachUploadAll(files, ATTACH_ROOM);
 });
 document.getElementById('d-attach').addEventListener('click', () => document.getElementById('d-attach-file').click());
 document.getElementById('d-attach-file').addEventListener('change', (e) => {
-  const f = e.target.files && e.target.files[0]; e.target.value = ''; attachUpload(f, ATTACH_AGENT);
+  const files = Array.from(e.target.files || []); e.target.value = ''; attachUploadAll(files, ATTACH_AGENT);
 });
 for (const where of [ATTACH_ROOM, ATTACH_AGENT]) {
   const drop = document.getElementById(where.dropId);
@@ -18572,10 +18660,10 @@ for (const where of [ATTACH_ROOM, ATTACH_AGENT]) {
     drop.addEventListener('dragover', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
     drop.addEventListener('dragleave', () => { depth = Math.max(0, depth - 1); if (!depth) drop.classList.remove('dragging'); });
     drop.addEventListener('drop', (e) => {
-      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-      if (!f) return;
+      const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+      if (!files.length) return;
       e.preventDefault(); depth = 0; drop.classList.remove('dragging');
-      attachUpload(f, where);
+      attachUploadAll(files, where);
     });
   }
 }
@@ -19576,6 +19664,7 @@ document.getElementById('d-send').addEventListener('click', () => {
      send the same line into a live pane twice. */
   const text = say.value.trim();
   if (text) sendTalk(text);
+  else if (attachList(ATTACH_AGENT).length) sendTalk(attachList(ATTACH_AGENT).map((r) => r.name).join(', '));
 });
 /* The park itself: every keystroke files the draft under the open agent, so no
    navigation order can lose it. */
@@ -19604,6 +19693,7 @@ document.getElementById('d-say').addEventListener('keydown', (e) => {
      send the same line into a live pane twice. */
   const text = say.value.trim();
   if (text) sendTalk(text);
+  else if (attachList(ATTACH_AGENT).length) sendTalk(attachList(ATTACH_AGENT).map((r) => r.name).join(', '));
 });
 /**
  * An option button.

@@ -9770,3 +9770,65 @@ test('notify: an agent posting or replying sends one outbound call when on, neve
     board.restore();
   }
 });
+
+/** Several files on one message (#358, Josh 1:59 PM): both ride the row, both
+ *  paths reach the pane, the cap holds, and one bad id refuses the whole send. */
+test('attachments: a message carries several files, in order, with every path in the pane line', async (t) => {
+  const chatEngine = require('./engine/chat');
+  const attachmentsEngine = require('./engine/attachments');
+  const name = await anyAgent(t);
+  if (!name) return;
+  const typed = [];
+  chatEngine.setRunner((args) => {
+    if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+    typed.push(args);
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  });
+  t.after(() => chatEngine.resetForTests());
+  const up = async (n, body) => JSON.parse(await (await fetch(base + '/api/agent/' + name + '/attachment', {
+    method: 'PUT', headers: { 'content-type': 'text/plain', 'x-attachment-name': n }, body,
+  })).text()).attachment;
+  const a = await up('one.txt', 'first'); const b = await up('two.txt', 'second');
+  const post = await req('/api/agent/' + name + '/thread', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'both of these', attachments: [a.id, b.id] }),
+  });
+  assert.equal(post.status, 200, post.body);
+  const row = JSON.parse((await req('/api/agent/' + name + '/thread')).body).messages.find((m) => m.text === 'both of these');
+  assert.ok(row && Array.isArray(row.attachments) && row.attachments.length === 2, 'the row does not carry both: ' + JSON.stringify(row));
+  assert.equal(row.attachments[0].id, a.id); assert.equal(row.attachments[1].id, b.id);
+  assert.equal(row.attachment.id, a.id, 'the first file is not also `attachment`, which the card drawn against one file reads');
+  const wire = typed.map((x) => x[5]).find((x) => typeof x === 'string' && x.includes('both of these')) || '';
+  assert.match(wire, /both of these \[attached file: \/.+\/one\.txt\] \[attached file: \/.+\/two\.txt\]$/, wire);
+  // A bad id anywhere in the list refuses the whole send; nothing is recorded.
+  const bad = await req('/api/agent/' + name + '/thread', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'one bad', attachments: [a.id, 'zzzzzzzzzzzzzzzzzzzzzzzz'] }),
+  });
+  assert.equal(bad.status, 400);
+  assert.ok(!JSON.parse((await req('/api/agent/' + name + '/thread')).body).messages.some((m) => m.text === 'one bad'), 'a refused send was recorded');
+  // The cap.
+  const many = await req('/api/agent/' + name + '/thread', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'too many', attachments: Array.from({ length: attachmentsEngine.MAX_PER_MESSAGE + 1 }, () => a.id) }),
+  });
+  assert.equal(many.status, 400);
+  assert.match(JSON.parse(many.body).error, /can carry 10 files/);
+
+  // The ROOM route with the list, which is the route the blocker lived on.
+  const projectsEngine = require('./engine/projects');
+  const messagesEngine = require('./engine/messages');
+  const pr = projectsEngine.create({ name: 'Two Files Room' });
+  projectsEngine.writeAll(projectsEngine.readAll().map((x) => (x.id === pr.id ? { ...x, agents: [decodeURIComponent(name)] } : x)));
+  t.after(() => { try { projectsEngine.writeAll(projectsEngine.readAll().filter((x) => x.id !== pr.id)); } catch { /* sandboxed */ } try { fs.rmSync(messagesEngine.LOG, { force: true }); } catch { /* sandboxed */ } });
+  const pup = async (n, body) => JSON.parse(await (await fetch(base + '/api/project/' + pr.id + '/attachment', { method: 'PUT', headers: { 'content-type': 'text/plain', 'x-attachment-name': n }, body })).text()).attachment;
+  const pa = await pup('plan.txt', 'plan'); const pb = await pup('budget.txt', 'budget');
+  const roomPost = await req('/api/project/' + pr.id + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'plan.txt, budget.txt', attachments: [pa.id, pb.id] }) });
+  assert.equal(roomPost.status, 200, roomPost.body);
+  const roomRows = JSON.parse((await req('/api/project/' + pr.id + '/room')).body).rows;
+  const roomRow = roomRows.find((r) => r.kind === 'post' && r.text === 'plan.txt, budget.txt');
+  assert.ok(roomRow && roomRow.attachments && roomRow.attachments.length === 2, 'the room row does not carry both: ' + JSON.stringify(roomRow));
+  assert.equal(roomRow.attachment.id, pa.id);
+  const roomWire = typed.map((x) => x[5]).find((x) => typeof x === 'string' && x.includes('plan.txt, budget.txt')) || '';
+  assert.match(roomWire, /\[attached file: \/.+\/plan\.txt\] \[attached file: \/.+\/budget\.txt\]$/, roomWire);
+});
