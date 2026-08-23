@@ -1,0 +1,175 @@
+'use strict';
+
+/**
+ * The installer refuses a Mac with no Claude Code, in a named sentence
+ * (#133), instead of finishing and leaving an agent that never starts.
+ *
+ * Runs the SHIPPED gate, lifted from setup.sh the way install.tmux-pick
+ * lifts the picker: a restatement here would pass while the installer
+ * drifted. The three states each get a case, and the two that look
+ * identical from a Terminal (absent vs installed-elsewhere) are proven to
+ * produce DIFFERENT sentences, which is the card's whole point.
+ */
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+const { execFileSync } = require('node:child_process');
+
+const SETUP = fs.readFileSync(nodePath.join(__dirname, 'install', 'setup.sh'), 'utf8');
+
+function gate() {
+  const at = SETUP.indexOf('check_claude_code() {');
+  assert.notEqual(at, -1, 'the gate moved or was renamed; re-point this test');
+  const end = SETUP.indexOf('\ncheck_claude_code\n', at);
+  assert.notEqual(end, -1, 'the gate is defined and never called');
+  return SETUP.slice(at, end + '\ncheck_claude_code\n'.length);
+}
+
+/* die/info from setup.sh are not lifted (they carry the whole logging
+   apparatus); stubs with the same contract, refusal text on stderr and a
+   non-zero exit, which is what a person and this test each observe. */
+/* The shipped gate runs under set -euo pipefail (setup.sh:102); the
+   harness matches, so an edit that only breaks under -u or -e dies here
+   too rather than only in the real installer. */
+const HARNESS = 'set -euo pipefail\ndie() { printf "%s\\n" "$*" >&2; exit 1; }\ninfo() { printf "%s\\n" "$*"; }\n';
+
+function run({ homeHasClaude, pathClaude }) {
+  const sb = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
+  const home = nodePath.join(sb, 'home');
+  fs.mkdirSync(nodePath.join(home, '.local', 'bin'), { recursive: true });
+  if (homeHasClaude) {
+    const c = nodePath.join(home, '.local', 'bin', 'claude');
+    fs.writeFileSync(c, '#!/bin/sh\nexit 0\n'); fs.chmodSync(c, 0o755);
+  }
+  const bin = nodePath.join(sb, 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  if (pathClaude) {
+    const c = nodePath.join(bin, 'claude');
+    fs.writeFileSync(c, '#!/bin/sh\nexit 0\n'); fs.chmodSync(c, 0o755);
+  }
+  const script = HARNESS + gate();
+  try {
+    const out = execFileSync('/bin/sh', ['-c', script], {
+      encoding: 'utf8',
+      env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+    });
+    return { code: 0, out, err: '' };
+  } catch (e) {
+    return { code: e.status, out: String(e.stdout || ''), err: String(e.stderr || '') };
+  }
+}
+
+test('present at the path Kosmos uses: proceeds, and says where it looked', () => {
+  const r = run({ homeHasClaude: true, pathClaude: false });
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /Claude Code found at .*\.local\/bin\/claude/);
+});
+
+test('genuinely absent: refuses with the install step, never a bare failure', () => {
+  const r = run({ homeHasClaude: false, pathClaude: false });
+  assert.notEqual(r.code, 0, 'a Mac with no Claude Code completed the gate');
+  assert.match(r.err, /needs Claude Code and this Mac does not have it/);
+  assert.match(r.err, /claude\.com\/claude-code/, 'the refusal does not say what to do');
+});
+
+test('installed elsewhere: names where it is and the one-line link, a DIFFERENT sentence than absent', () => {
+  const r = run({ homeHasClaude: false, pathClaude: true });
+  assert.notEqual(r.code, 0, 'an agent started from a path with nothing at it would never run');
+  assert.match(r.err, /is installed at .*\/bin\/claude, but Kosmos starts agents from/);
+  /* Both remedies CREATE a symlink, so the accept arm must accept one, or
+     every remedy would produce a state the gate then refuses, an infinite
+     remedy loop the suite would never see. */
+  const home2 = nodePath.join(fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-'))), 'home');
+  fs.mkdirSync(nodePath.join(home2, '.local', 'bin'), { recursive: true });
+  const target = nodePath.join(home2, 'real-claude');
+  fs.writeFileSync(target, '#!/bin/sh\nexit 0\n'); fs.chmodSync(target, 0o755);
+  fs.symlinkSync(target, nodePath.join(home2, '.local', 'bin', 'claude'));
+  const linked = execFileSync('/bin/sh', ['-c', HARNESS + gate()], {
+    encoding: 'utf8', env: { HOME: home2, PATH: '/usr/bin:/bin' },
+  });
+  assert.match(linked, /Claude Code found at /,
+    'the remedy-created symlink state is refused, so every remedy loops');
+  assert.match(r.err, /ln -s/, 'the fix is not named');
+  assert.doesNotMatch(r.err, /does not have it/,
+    'the two states that look identical from a Terminal got the same sentence');
+});
+
+test('something present that cannot run gets its own sentence, never the false "nothing there"', () => {
+  /* A broken symlink (npm prefix moved) or a chmod-000 file at the path:
+     the elsewhere-remedy's pasted ln would fail on File exists, so this
+     state needs a different sentence and a remedy that works. */
+  const sb = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
+  const home = nodePath.join(sb, 'home');
+  fs.mkdirSync(nodePath.join(home, '.local', 'bin'), { recursive: true });
+  fs.symlinkSync(nodePath.join(sb, 'moved-away'), nodePath.join(home, '.local', 'bin', 'claude'));
+  const bin = nodePath.join(sb, 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const c = nodePath.join(bin, 'claude');
+  fs.writeFileSync(c, '#!/bin/sh\nexit 0\n'); fs.chmodSync(c, 0o755);
+  const script = HARNESS + gate();
+  let code = 0; let out = '';
+  try {
+    execFileSync('/bin/sh', ['-c', script], { encoding: 'utf8', env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` } });
+  } catch (e) {
+    code = e.status; out = String(e.stderr || '');
+  }
+  assert.notEqual(code, 0, 'a path with an unrunnable claude completed the gate');
+  assert.match(out, /cannot run \(a broken link, a folder, or a file without execute permission\)/);
+  assert.match(out, /rm -rf /, 'the remedy is not named, cannot handle every shape, or prompts on a mode-000 file');
+  assert.doesNotMatch(out, /nothing there/, 'the false claim survived');
+  /* A working claude IS on PATH in this fixture, so the one-shot replace
+     remedy is the right sentence: rm then ln in one line. */
+  assert.match(out, /&& ln -s/, 'the one-shot replacement is not offered although a working claude is on PATH');
+});
+
+test('a DIRECTORY at the path is refused as unrunnable, never accepted', () => {
+  /* mode-755 directories pass a bare -x, and the first draft of this gate
+     accepted one: the install completed and every agent spawned from the
+     path failed to start, the exact #133 failure. No claude on PATH here,
+     so the plain remove remedy is the sentence, and rm -r is the form
+     that works on a folder. */
+  const sb = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
+  const home = nodePath.join(sb, 'home');
+  fs.mkdirSync(nodePath.join(home, '.local', 'bin', 'claude'), { recursive: true });
+  const script = HARNESS + gate();
+  let code = 0; let out = '';
+  try {
+    execFileSync('/bin/sh', ['-c', script], { encoding: 'utf8', env: { HOME: home, PATH: '/usr/bin:/bin' } });
+  } catch (e) {
+    code = e.status; out = String(e.stderr || '');
+  }
+  assert.notEqual(code, 0, 'a directory at the path completed the gate');
+  assert.match(out, /a folder, or a file without execute permission/);
+  assert.match(out, /rm -rf /, 'the remedy would fail verbatim on a folder, or prompt on a mode-000 file');
+  assert.doesNotMatch(out, /&& ln -s/, 'the replace remedy was offered with nothing to link');
+
+  /* And a symlink TO a directory is refused the same way, with rm -rf
+     removing only the link (the -f follows the link for the accept test,
+     so this is the second half of that comment, pinned). */
+  const sb2 = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
+  const home3 = nodePath.join(sb2, 'home');
+  fs.mkdirSync(nodePath.join(home3, '.local', 'bin'), { recursive: true });
+  const dirTarget = nodePath.join(sb2, 'a-directory');
+  fs.mkdirSync(dirTarget);
+  fs.symlinkSync(dirTarget, nodePath.join(home3, '.local', 'bin', 'claude'));
+  let code3 = 0;
+  try {
+    execFileSync('/bin/sh', ['-c', HARNESS + gate()], { encoding: 'utf8', env: { HOME: home3, PATH: '/usr/bin:/bin' } });
+  } catch (e) { code3 = e.status; }
+  assert.notEqual(code3, 0, 'a symlink to a directory was accepted as runnable');
+});
+
+test('the env override is honored, so sandboxed installs can point at a fixture', () => {
+  const sb = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
+  const fake = nodePath.join(sb, 'claude');
+  fs.writeFileSync(fake, '#!/bin/sh\nexit 0\n'); fs.chmodSync(fake, 0o755);
+  const script = HARNESS + gate();
+  const out = execFileSync('/bin/sh', ['-c', script], {
+    encoding: 'utf8',
+    env: { HOME: nodePath.join(sb, 'nohome'), PATH: '/usr/bin:/bin', AGENT_WORKFORCE_CLAUDE_BIN: fake },
+  });
+  assert.match(out, /Claude Code found at /);
+});
