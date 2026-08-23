@@ -3641,10 +3641,11 @@ const server = http.createServer((req, res) => {
         .filter((m) => m && (m.kind === 'post' || m.kind === 'valve') && m.project === id)
         .map((m) => (m.kind === 'post'
           ? { kind: 'post', id: m.id, from: m.from, to: m.to, operator: m.operator === true,
-              text: m.text, at: m.at, outcomes: m.outcomes || {} }
+              text: m.text, at: m.at, outcomes: m.outcomes || {},
+              ...(m.attachment && typeof m.attachment === 'object' ? { attachment: m.attachment } : {}) }
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
-      sendJson(res, 200, { ok: rec.ok, rows });
+      sendJson(res, 200, { ok: rec.ok, rows: withPreviews(rows) });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the room') });
     }
@@ -3684,7 +3685,18 @@ const server = http.createServer((req, res) => {
           return;
         }
         const members = (found.agents || []).map((a) => a.sessionName);
-        const delivery = messages.sendPost({ operator: true, project: found.id, projectName: found.name, text: body.text }, roster, members);
+        /* An attached file (#358), owned by this project. */
+        let attached = null;
+        if (body.attachment) {
+          attached = attachments.read(body.attachment);
+          if (!attached || attached.scope !== 'project' || attached.owner !== found.id) {
+            sendJson(res, 400, { error: 'that attachment is not one this project can send' }); return;
+          }
+        }
+        const delivery = messages.sendPost({
+          operator: true, project: found.id, projectName: found.name, text: body.text,
+          attachment: attached ? attachments.rowField(attached) : null, trailer: attachments.wireNote(attached),
+        }, roster, members);
         sendJson(res, 200, { delivery });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
