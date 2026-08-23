@@ -2,16 +2,16 @@
 pre_challenge: true
 method: challenge-loop
 branch: made-before
-diff_hash: 27e0651f914e9fbdd2b7ab810d73ff35ef8c210edcf5a41e922ca724bad89fad
+diff_hash: bbb0fb7c6618d27cd71172148485620e366db8487c93f9f2ed06b8f2aae24b1b
 subdir_audit: passed
-timestamp: 2026-08-23T21:11:37Z
+timestamp: 2026-08-23T21:15:04Z
 iterations: 8
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8
+**Iterations:** 8 (proof regenerated after the post-review merge of main and a merge-seam fix in engine/create.test.js; full suite 1618/1618, exit 0, verified unpiped)
 **Converged:** Yes (iterations 6-8 found only test-instrumentation defects, each inside the previous round's fix; product code stable since iteration 5; the loop was closed when round 8's findings were pin anchors of pin anchors, every fix mutation-verified)
 **Total findings:** 21 (3 BLOCKERs, 9 WARNINGs, 2 CONVENTIONs, 7 NITs)
 **Fixed:** 19 | **Deferred:** 2
