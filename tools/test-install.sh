@@ -63,6 +63,23 @@ printf 'their own words\n' > "$SB/data/agents/harness-agent/CLAUDE.md"
 printf '[{"id":"p1","name":"A project"}]' > "$SB/data/projects/projects.json"
 printf 'x' > "$SB/data/.hidden-record"
 DATA_FINGERPRINT="$(cd "$SB/data" && find . -type f -exec shasum {} \; | sort)"
+# 🔑 THE PERSON'S FILES AND THE APP'S OWN PLUMBING ARE DIFFERENT QUESTIONS, and
+# one whole-tree comparison could not tell them apart. It went red the day the
+# board began installing its agent supervisor at boot -- `create.installSupervisor`
+# writes `AgentWorkforce/bin/agent-supervisor.sh`, which has to be current for an
+# agent to survive a restart at all. Nothing of the person's was touched: one file
+# APPEARED, and an equality check called the upgrade promise broken while it was
+# being kept.
+#
+# ⚠️ SPLIT RATHER THAN LOOSENED, and the split is STRICTER than what it replaces.
+# Three claims, each able to fail alone: every seeded file is byte for byte what
+# it was, nothing the person had has vanished, and the additions are EXACTLY the
+# one we expect. A surprise write into the data directory still fails, and now it
+# fails by naming itself.
+data_paths() { (cd "$SB/data" && find . -type f | sort); }
+data_hashes() { (cd "$SB/data" && find . -type f -exec shasum {} \; | sort); }
+DATA_PATHS_BEFORE="$(data_paths)"
+EXPECTED_ADDS="./AgentWorkforce/bin/agent-supervisor.sh"
 
 # ⚠️ THE PRODUCT'S DEFAULT PORT, RECORDED BEFORE ANYTHING RUNS, and checked
 # again at the end. Found by Splinter, 2026-08-21: a test run left a board
@@ -167,8 +184,22 @@ chk "install exits 0" "[ $RC -eq 0 ]"
 # build on already has data and you would notice. Checked at both ends so a
 # failure names the right actor: the post-uninstall comparison alone would
 # report an install that ate the data as an uninstall bug.
-chk "installing over an existing home leaves user data byte for byte" \
-  "[ \"\$(cd \"$SB/data\" && find . -type f -exec shasum {} \\; | sort)\" = \"\$DATA_FINGERPRINT\" ]"
+SURVIVED="$(printf '%s\n' "$DATA_FINGERPRINT" | while read -r _h _f; do
+  [ -n "${_f:-}" ] || continue
+  printf '%s  %s\n' "$(shasum "$SB/data/$_f" 2>/dev/null | cut -d' ' -f1)" "$_f"
+done)"
+EXPECTED_SURVIVORS="$(printf '%s\n' "$DATA_FINGERPRINT" | while read -r _h _f; do
+  [ -n "${_f:-}" ] || continue
+  printf '%s  %s\n' "$_h" "$_f"
+done)"
+ADDED="$(printf '%s\n' "$DATA_PATHS_BEFORE" > "$SB/.before.txt"; data_paths > "$SB/.after.txt"; comm -13 "$SB/.before.txt" "$SB/.after.txt")"
+GONE="$(comm -23 "$SB/.before.txt" "$SB/.after.txt")"
+
+chk "installing over an existing home leaves the person's own files byte for byte" \
+  "[ \"\$SURVIVED\" = \"\$EXPECTED_SURVIVORS\" ]"
+chk "and nothing the person had is gone" "[ -z \"\$GONE\" ]"
+chk "and the only thing it added is the supervisor the agents point at" \
+  "[ \"\$ADDED\" = \"\$EXPECTED_ADDS\" ]"
 chk "board answers" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 chk "command works through the symlink" "\"$SB/bin/kosmos\" status | grep -q running"
 chk "app bundle created" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ]"
