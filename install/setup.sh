@@ -1720,7 +1720,12 @@ if [ "$APP_MADE" = "yes" ]; then
     # below would still fire on a link to the bundle just written,
     # narrating a stale icon that does not exist. A link is not a stale
     # bundle; it is left exactly as found, silently.
-    if [ -z "${KOSMOS_APP_DIR:-}" ] && [ -d "$HOME/Applications/Kosmos.app" ] && [ ! -L "$HOME/Applications/Kosmos.app" ]; then
+    # ⚠️ COMBINED sandbox gate, not the single var (#226): every other
+    # sandbox-aware line in this file treats EITHER app-dir override as "this
+    # is a harness run", including the two lsregister brackets inside this very
+    # block. A run sandboxed only by KOSMOS_SYS_APP_DIR would otherwise walk in
+    # here and rm the REAL ~/Applications copy during a normal install step.
+    if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}" ] && [ -d "$HOME/Applications/Kosmos.app" ] && [ ! -L "$HOME/Applications/Kosmos.app" ]; then
       _home_apps_phys="$(cd "$HOME/Applications" 2>/dev/null && pwd -P)" || _home_apps_phys=""
       _app_dir_phys="$(cd "$APP_DIR" 2>/dev/null && pwd -P)" || _app_dir_phys=""
       if [ -n "$_home_apps_phys" ] && [ -n "$_app_dir_phys" ] && [ "$_home_apps_phys" != "$_app_dir_phys" ]; then
