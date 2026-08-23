@@ -153,6 +153,32 @@ const FOUND = {
          several buttons on, and a repaint would throw away the others. */
       otherLabel: document.querySelectorAll('.fr-foundgo')[1].textContent.trim(),
       otherUndoHidden: document.querySelectorAll('.fr-foundundo')[1].hidden,
+      /* 🛑 THE RECEIPT HAS TO BE READABLE. `.btn:disabled` is half opacity, and
+         "Added" is the one word telling somebody what happened to their agent.
+         It measured 3.43:1 that way, under this project's AA floor. Composited
+         here rather than read off the rule, because opacity is what made it
+         fail and a colour value alone cannot show that. */
+      addedContrast: (() => {
+        const cs = getComputedStyle(go);
+        const num = (c) => c.match(/[\d.]+/g).map(Number);
+        let bg = 'rgba(0, 0, 0, 0)';
+        for (let n = go; n && (bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent'); n = n.parentElement) {
+          bg = getComputedStyle(n).backgroundColor;
+        }
+        const b = num(bg).slice(0, 3);
+        const f = num(cs.color);
+        const op = Number(cs.opacity) * (f.length > 3 ? f[3] : 1);
+        const eff = f.slice(0, 3).map((v, i) => v * op + b[i] * (1 - op));
+        const lum = (c) => {
+          const [r, g2, bl] = c.map((v) => {
+            const x = v / 255;
+            return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+          });
+          return 0.2126 * r + 0.7152 * g2 + 0.0722 * bl;
+        };
+        const l1 = lum(eff); const l2 = lum(b);
+        return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+      })(),
     };
   });
   check('Add: the button becomes the receipt', added.label === 'Added' && added.disabled,
@@ -160,6 +186,8 @@ const FOUND = {
   check('Add: no sentence is added under the row', added.said === '', `"${added.said}"`);
   check('Add: undo is shown and can be pressed', added.undoShown && added.undoPressable,
     `shown=${added.undoShown} pressable=${added.undoPressable}`);
+  check('Add: the receipt clears the AA floor', added.addedContrast >= 4.5,
+    `${added.addedContrast.toFixed(2)}:1`);
   check('Add: the other row is untouched', added.otherLabel !== 'Added' && added.otherUndoHidden === true,
     `other="${added.otherLabel}" undoHidden=${added.otherUndoHidden}`);
 

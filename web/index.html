@@ -2894,6 +2894,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   border: 1px solid var(--separator); border-radius: var(--radius-control); }
 .fr-foundtext { display: grid; gap: 2px; min-width: 0; }
 .fr-foundact { display: flex; align-items: center; gap: var(--space-2); }
+/* 🛑 THE RECEIPT IS READ, SO IT HAS TO BE READABLE. `.btn:disabled` drops to
+   half opacity, which measured 3.43:1 on this card -- under the AA floor this
+   project holds itself to, on the single word telling somebody what just
+   happened to their agent. Disabled is the right BEHAVIOUR (it must not be
+   pressable twice); half-visible is not the right appearance for a statement of
+   fact. Full opacity in a settled colour, so it reads as done rather than as
+   waiting to be pressed. Guarded by `render-found-undo.js`, which composites the
+   opacity rather than reading the colour off the rule. */
+.fr-foundrow .fr-foundgo.added { opacity: 1; color: var(--label-2); border-color: var(--separator); }
 /* An empty status line takes no room, so a row that has not been pressed is the
    same height as it was before the control existed. It spans both columns: a
    failure sentence is about the row, not about the button. */
@@ -19918,8 +19927,12 @@ function frPaintFound() {
   const seen = new Map();
   for (const a of FR_FOUND.agents) seen.set(a.name, (seen.get(a.name) || 0) + 1);
   const dupes = new Set([...seen.entries()].filter(([, n]) => n > 1).map(([k]) => k));
-  box.innerHTML = '<p>They are not in Kosmos yet. You will be able to add them here, and '
-    + 'adding one leaves it exactly where it is, in its own folder with its own instructions.</p>'
+  /* ⚠️ PRESENT TENSE NOW THE BUTTONS ACT. This read "you will be able to add
+     them here", written when the rows were a list with nothing behind them --
+     a sentence that went quietly false the day the route landed, on the screen
+     it describes. */
+  box.innerHTML = '<p>They are not in Kosmos yet. Adding one leaves it exactly '
+    + 'where it is, in its own folder with its own instructions.</p>'
     + '<div class="fr-found">' + FR_FOUND.agents.map((a) =>
       /* 🔑 ONE BUTTON PER AGENT, AND NO "ADD ALL" (Josh, 2026-08-22: "Add buttons
          are fine for beta, no add all, yes long form btns"). Each press starts a
@@ -20005,6 +20018,7 @@ document.addEventListener('click', async (e) => {
        disappears on success leaves somebody wondering whether they pressed it,
        on a screen where they are about to press three more. */
     go.textContent = 'Added';
+    go.classList.add('added');
     row.classList.add('done');
     /* 🔑 UNDO APPEARS ONLY ONCE THERE IS SOMETHING TO UNDO (Josh, 2026-08-22:
        "probably need an undo next to added incase I accidentally hit it").
@@ -20024,6 +20038,7 @@ document.addEventListener('click', async (e) => {
     return;
   }
   go.disabled = false;
+  go.classList.remove('added');
   go.textContent = was;
   said.textContent = (out && out.because) || 'We could not bring that one in.';
 });
@@ -20066,6 +20081,7 @@ document.addEventListener('click', async (e) => {
     undo.hidden = true;
     undo.textContent = 'Undo';
     row.classList.remove('done');
+    go.classList.remove('added');
     go.disabled = false;
     go.textContent = row.dataset.foundLabel || ('Add ' + name + ' to Kosmos');
     /* A partial undo is not a failure and not a silence: the launch job is gone,
