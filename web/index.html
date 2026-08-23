@@ -7495,7 +7495,23 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   if (!res || !res.ok) {
     // The route's own sentence: a from-source run, nothing newer published,
     // or a spawn failure. All are states, not scoldings.
-    err.textContent = (body && body.error) || 'we could not start the update';
+    const said = (body && body.error) || 'we could not start the update';
+    /* 🛑 "THERE IS NO UPDATE TO INSTALL RIGHT NOW" UNDER A BUTTON THAT SAYS
+       UPDATE (Josh, 2026-08-23 13:03, screenshot). The offer came from a
+       poll; by the press the board had already been restarted on the newer
+       version, so the route was right and the dialog was stranded: an error
+       line, the same button, nothing to do. Say where you are and offer the
+       one act that helps. The page-stale toast would say the same a moment
+       later; this says it here, where the person is looking. */
+    if (res && res.status === 409 && /no update to install/.test(said)) {
+      err.textContent = 'Kosmos is already on ' + (SERVED_VERSION || 'the latest version') + '. Reload to see it.';
+      err.hidden = false;
+      go.textContent = 'Reload';
+      go.disabled = false;
+      go.onclick = () => window.location.reload();
+      return;
+    }
+    err.textContent = said;
     err.hidden = false;
     go.disabled = false;
     return;
