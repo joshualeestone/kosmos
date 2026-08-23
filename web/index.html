@@ -8357,11 +8357,19 @@ async function tick() {
        and Idle are cut from the same parsed list, so they are floors on the
        same poll and carry the same mark. */
     const floor = (c.unreadableLines || 0) > 0;
+    /* ⚠️ AN UNKNOWN AGENT FLOORS THE STATE TILES TOO (#369). Measured on the
+       live board: a Fable session mid-turn read unknown, and the row said
+       "0 Working" while somebody was working. The engine is honest per agent;
+       the tile SUMS states, so any unknown makes Working and Idle floors, the
+       same mark the unreadable-lines poll already wears. The Agents total is
+       not floored by this: an unknown agent is still counted as an agent. */
+    const unknowns = data.agents.filter((a) => a.state === 'unknown').length;
+    const stateFloor = floor || unknowns > 0;
     document.getElementById('st-agents').textContent = tileCount(c.total, floor);
     document.getElementById('st-working').textContent =
-      tileCount(data.agents.filter((a) => a.state === 'working').length, floor);
+      tileCount(data.agents.filter((a) => a.state === 'working').length, stateFloor);
     document.getElementById('st-idle').textContent =
-      tileCount(data.agents.filter((a) => a.state === 'idle').length, floor);
+      tileCount(data.agents.filter((a) => a.state === 'idle').length, stateFloor);
     /* ⚠️ FROM THE COUNT, not from filtering the roster on `running`. The two
        agree today and the tile is a claim about the FLEET, which is what the
        engine counted; a second derivation here is how a headline starts

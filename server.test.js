@@ -2752,8 +2752,20 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
      produce. It was omitted here, and the tile read `undefined` as zero. */
   const live = drive(fleet, { total: 7, needsYou: 1, notRunning: 0 });
   assert.equal(live['st-agents'].textContent, '7', 'the agents tile stopped carrying the full-fleet total');
-  assert.equal(live['st-working'].textContent, '3', 'the working tile does not count exactly the working agents');
-  assert.equal(live['st-idle'].textContent, '2', 'the idle tile does not count exactly the idle agents');
+  /* #369: the fixture holds one unknown agent, so Working and Idle are FLOORS
+     and wear the mark. Measured on the live board: a Fable session mid-turn
+     read unknown and the row said "0 Working" while somebody was working. */
+  assert.equal(live['st-working'].textContent, '3+', 'an unknown agent in the fleet must floor the working tile');
+  assert.equal(live['st-idle'].textContent, '2+', 'an unknown agent in the fleet must floor the idle tile');
+  /* Control: with every agent's state known, the numbers are bare. A mark
+     that cannot come off is furniture, not a mark. */
+  const knownFleet = [
+    { state: 'working' }, { state: 'working' },
+    { state: 'idle' }, { state: 'needs_you' },
+  ];
+  const known = drive(knownFleet, { total: 4, needsYou: 1, notRunning: 0 });
+  assert.equal(known['st-working'].textContent, '2', 'a fully-known fleet must not wear the floor mark');
+  assert.equal(known['st-idle'].textContent, '1', 'a fully-known fleet must not wear the floor mark');
   assert.equal(live['st-attn'].textContent, '1', 'the needs-you tile lost its count');
   assert.equal(live['st-attn-tile'].hidden, false, 'a nonzero needs-you must show the alert tile');
   /* 🔑 THE FOURTH TILE, and it is what makes the row add up: working plus idle
