@@ -61,7 +61,7 @@ function chk(ok, label, extra) {
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));
       await page.goto(URL, { waitUntil: 'networkidle' });
-      if (!(await page.$('#firstrun[hidden]'))) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+      if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
       await page.waitForSelector('[data-agent="april"]', { timeout: 8000 });
       await page.click('[data-agent="april"]');
       await page.waitForSelector('#panel-detail:not([hidden])');

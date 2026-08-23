@@ -1303,7 +1303,6 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 .dsec[data-tied="0"] #d-term-empty { display: block; }
 .dsec[data-tied="gone"] #d-term-gone { display: block; }
 #d-window-box:not([hidden]) ~ .dterm-note { display: none; }
-.dsec[hidden] { display: none; }
 /* Inside Fresh start the restart control keeps its own label, but the box
    already has a shouting heading; two uppercase labels stacked read as two
    boxes. The inner one speaks at sentence size. */
@@ -4055,7 +4054,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        show. One sentence for both would assert a cause the page has not
        established, for a round trip, on every open. -->
   <p class="dhint dterm-note" id="d-term-reading">Reading its window&hellip;</p>
-  <p class="dhint dterm-note" id="d-term-gone">No window to show. Kosmos no longer finds an agent by this name.</p>
+  <!-- Deliberately bare. This state is "the route refused, or the agent left
+       the board", and the page does not know which 404 body or which cause;
+       when the cause IS known (the agent is off the board) the header's
+       withdrawn line says so, once, above every section. -->
+  <p class="dhint dterm-note" id="d-term-gone">No window to show.</p>
   <p class="dhint dterm-note" id="d-term-empty">No window to show for this agent. Kosmos shows the window of an agent it can tie to its name; if this one was started some other way, it cannot.</p>
   </section>
   <section class="dsec" id="d-sec-remove" data-sec="remove" tabindex="-1" aria-label="Remove" hidden>
@@ -9760,11 +9763,12 @@ async function paintAgentWindow(sessionName, opts) {
        body would put "no agent by that name" inside the open panel of
        an agent the person is looking at. */
     if (res.status === 404) {
-      /* The route does not know this agent even though the card said tied
-         (roster skew). Its body is "no agent by that name", which is the GONE
-         case, not the untied one: "started some other way" would assert a
-         cause the route did not give. "Reading" would stand until a tick
-         flipped the tie, so the section says gone now. */
+      /* The route refused even though the card said tied (roster skew, or
+         a name the route will not read; two bodies, and the page does not
+         pick between them). Not the untied sentence: "started some other
+         way" would assert a cause the route did not give. "Reading" would
+         stand until a tick flipped the tie, so the section says the bare
+         thing now: no window to show. */
       detailSection('term').dataset.tied = 'gone';
       box.hidden = true; return;
     }
@@ -10214,7 +10218,7 @@ async function paintTalk(sessionName, agentName) {
        time phrase, because there it is true. */
     /* ⚠️ THE SERVER'S OWN SENTENCE IS NOT PAINTED HERE, and the window box
        (paintAgentWindow, in the Terminal section) refuses the identical 404
-       for the identical reason, and says only that the window cannot be shown: its
+       for the identical reason, and says only "No window to show.", no cause: its
        body is "no agent by that name", and putting that inside the open panel
        of an agent the person is looking at, beside a card carrying that name,
        is the screen contradicting itself. The standing arm is reached only for
@@ -11255,7 +11259,10 @@ function detailGo(section, opts) {
     if (on) target = sec;
   });
   /* 🔑 FOCUS MOVES INTO THE SECTION ON A CLICK, so a keyboard user's next Tab
-     is the first control of what they asked for rather than the next pill. On
+     is the first control of what they asked for rather than the next pill.
+     (Shift+Tab from there lands on the last pill, Remove, because that is DOM
+     order; the pill they came from is a few more presses back. Known, not a
+     trap.) On
      open it stays where it was: opening an agent already manages focus (the
      answer button's intent, the back button), and yanking it here would fight
      that. */
