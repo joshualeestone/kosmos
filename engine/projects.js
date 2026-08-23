@@ -1,5 +1,14 @@
 'use strict';
 
+/* Why this module writes an agent's file, in the reader's words, for the
+   stale marker (#323). Kept up here, away from the verdict sentences the
+   group-map pin scans for: these are not verdicts. */
+const WROTE_WHY = {
+  on: (names) => `Kosmos put it on ${names}`,
+  off: 'Kosmos took it off its last project',
+  colleagues: 'Kosmos updated the list of agents it can message',
+};
+
 /**
  * Projects — the work, and which agents are on it.
  *
@@ -1814,7 +1823,7 @@ function tellAgent(sessionName, projects, roster) {
     // note saying it is on none. Removing a project must not leave residue in
     // somebody's instruction file, and "Kosmos has not put this agent on a
     // project yet" sitting in a boot file forever is residue.
-    let next = projects.length
+    const withProjects = projects.length
       ? spliceBlock(current.text || '', blockBody(projects, sessionName))
       : removeBlock(current.text || '');
     // The colleagues block heals on EVERY event that writes this file
@@ -1823,9 +1832,16 @@ function tellAgent(sessionName, projects, roster) {
     // writers). It is spliced at birth and nothing else refreshed it, so
     // a corrected command (the PATH fix) would otherwise reach only
     // newborn agents. The heal itself is in healColleagues below.
-    next = healColleagues(next);
+    const next = healColleagues(withProjects);
     if (next === current.text) return { state: TOLD.TOLD, because: null };
-    instructions.write(sessionName, next, current.version);
+    /* Why, in the reader's words, for the stale marker (#323): the projects
+       changed, or only the colleagues list was healed. Never the two fused. */
+    const why = withProjects !== (current.text || '')
+      ? (projects.length
+        ? WROTE_WHY.on(projects.map((p) => oneLine(p.name)).join(', '))
+        : WROTE_WHY.off)
+      : WROTE_WHY.colleagues;
+    instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: why });
     return { state: TOLD.TOLD, because: null };
   } catch (err) {
     // ⚠️ A length refusal is OUR doing here, not the person's. Taking our block

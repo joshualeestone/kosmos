@@ -300,6 +300,7 @@ function staleness(agent, seen, exactSession) {
     // been written, which is the one case the create path exists for.
     return {
       state: STALENESS.UNKNOWN,
+      wroteBy: null,
       because: file.because,
       editable: file.missing === true,
       // ⚠️ `absent` here too, matching `read`. It was omitted, so a panel open
@@ -338,6 +339,7 @@ function staleness(agent, seen, exactSession) {
   if (!Number.isFinite(editedAt) || editedAt <= 0) {
     return {
       state: STALENESS.UNKNOWN,
+      wroteBy: null,
       editable,
       version,
       because: 'we cannot tell when its instruction file was last edited',
@@ -348,6 +350,7 @@ function staleness(agent, seen, exactSession) {
   if (!startedAt) {
     return {
       state: STALENESS.UNKNOWN,
+      wroteBy: null,
       editedAt: iso(editedAt),
       version,
       editable,
@@ -361,6 +364,8 @@ function staleness(agent, seen, exactSession) {
     startedAt: iso(startedAt),
     version,
     editable,
+    // Who made the edit the marker is about, or null when nobody said (#323).
+    wroteBy: wroteBy(agent, editedAt),
   };
 }
 
@@ -543,7 +548,17 @@ function read(agent, exactSession) {
 // verdict from a different transcript than the poll does, so the panel and the
 // card can disagree about the same agent the moment you press Save. Fifth
 // reader of one fact; they were fixed one at a time and this was the last.
-function write(agent, text, expectedVersion, exactSession) {
+/**
+ * WHO WROTE IT, recorded beside the write (#323). `by` is `{ who, because }`,
+ * `who` one of 'kosmos' | 'person', `because` one sentence in the reader's
+ * world, written by the code that knows why ("Kosmos put it on Winter
+ * launch"). Stored on the agent's profile as `instructionsWrite` with the
+ * moment of the write, so `staleness` can say who made the edit the marker is
+ * about, instead of reporting a change Kosmos made in the words of a change the
+ * person made. Optional, and a no-op save records nothing: the file did not
+ * move, so there is nothing to attribute.
+ */
+function write(agent, text, expectedVersion, exactSession, by) {
   const file = fileFor(agent);
   if (!file) throw new Error('that is not a name we can look up');
 
@@ -798,7 +813,38 @@ function write(agent, text, expectedVersion, exactSession) {
      no second read to disagree: null means the file was POSITIVELY absent,
      because an existing-but-unreadable file makes this function throw
      before reaching either return. */
+  recordWrite(agent, by);
   return { ...read(agent, exactSession), keptPrevious, hadIdentityText: shown && shown.exists ? String(shown.text).slice(0, 4000) : null };
+}
+
+/* The record itself. Never throws: attribution failing must not fail the write
+   it describes. `at` is the file's own mtime after the rename, not Date.now(),
+   so `staleness` can match record to file without a tolerance window of its
+   own invention. */
+function recordWrite(agent, by) {
+  if (!by || (by.who !== 'kosmos' && by.who !== 'person')) return;
+  try {
+    const file = fileFor(agent);
+    const at = fs.statSync(file).mtime.toISOString();
+    store.writeProfile(registryKey(agent), {
+      instructionsWrite: { who: by.who, at, because: by.because ? String(by.because).slice(0, 200) : null },
+    });
+  } catch { /* the write stands; the attribution is a courtesy */ }
+}
+
+/* The matching half: the record, if it describes the file as it is now. A
+   person editing by hand, or any writer that did not say who it was, leaves
+   the file newer than the record, and then the honest answer is "we do not
+   know who", which is what the marker's standing wording already says. Whole
+   seconds, for the same reason `compare` floors: one clock has no fraction. */
+function wroteBy(agent, editedAtMs) {
+  try {
+    const rec = store.readProfile(registryKey(agent)).instructionsWrite;
+    if (!rec || !rec.at) return null;
+    const at = Date.parse(rec.at);
+    if (!Number.isFinite(at) || Math.floor(at / 1000) !== Math.floor(editedAtMs / 1000)) return null;
+    return { who: rec.who, because: rec.because || null };
+  } catch { return null; }
 }
 
 /**
@@ -861,7 +907,7 @@ function renameIn(agent, displayName) {
   const next = text.slice(0, at) + 'You are **' + want + '**' + text.slice(at + m[0].length);
 
   try {
-    write(agent, next, seen.version);
+    write(agent, next, seen.version, undefined, { who: 'kosmos', because: `Kosmos renamed it to ${want}` });
   } catch (err) {
     return { ok: false, changed: false,
       /* Says which thing did not happen. The rename itself is already recorded,
@@ -875,5 +921,5 @@ function renameIn(agent, displayName) {
 
 module.exports = {
   ROOT, FILENAME, MAX_BYTES, MIN_CHARS, STALENESS, ABSENT, UNREADABLE,
-  fileFor, registryKey, sessionStartedAt, staleness, compare, versionOf, read, write, renameIn,
+  fileFor, registryKey, sessionStartedAt, staleness, compare, versionOf, read, write, renameIn, wroteBy,
 };

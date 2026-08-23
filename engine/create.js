@@ -993,6 +993,10 @@ function createAgent(opts) {
    */
   const wantLabel = opts && opts.label !== undefined ? opts.label : undefined;
   const wantInstructions = opts && opts.instructions !== undefined ? opts.instructions : undefined;
+  // Project ids the route already validated; used once, to compose the
+  // projects block into the first write (#323). Never read from here again.
+  const wantProjects = opts && Array.isArray(opts.projects)
+    ? opts.projects.map((p) => String(p || '').trim()).filter(Boolean) : [];
   const wantModelKey = opts && opts.model !== undefined ? opts.model : undefined;
   /**
    * ⚠️ `own` has no label of its own ON PURPOSE (the catalogue's rule): the
@@ -1410,6 +1414,31 @@ function createAgent(opts) {
         const { MAX_BYTES } = require('./instructions');
         if (Buffer.byteLength(withDefaults, 'utf8') <= MAX_BYTES) text = withDefaults;
       } catch { /* ships without the defaults */ }
+    }
+    // The projects block rides from birth too (#323). It used to arrive by
+    // `projects.syncAgent` once the board could see the session, which is at
+    // least one poll AFTER the session started, so every agent made onto a
+    // project was born reading "Running on older instructions" with a Restart
+    // button, sixty seconds old. Composed here, before the first write, the
+    // later sync finds the file already saying this and `instructions.write`
+    // declines a byte-identical save, so nothing is newer than the session.
+    // ⚠️ LAST, AFTER THE DEFAULTS, because that is where `spliceBlock` puts a
+    // block a file does not yet have, and the later sync has to compose the
+    // SAME bytes or it writes after all. Both paths, unlike the two blocks
+    // above: this block is written into a person's own words on every
+    // membership change already, so at birth it is the same invitation.
+    // Non-gating, same reason as the rest: an unreadable projects file must
+    // not cost the person their agent.
+    if (Array.isArray(wantProjects) && wantProjects.length) {
+      try {
+        const projectsMod = require('./projects');
+        const recs = projectsMod.readAll().filter((p) => wantProjects.includes(p.id));
+        if (recs.length) {
+          const spliced = projectsMod.spliceBlock(text, projectsMod.blockBody(recs, name));
+          const { MAX_BYTES } = require('./instructions');
+          if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;
+        }
+      } catch { /* the sync after the session is up still does it, the old way */ }
     }
     fs.writeFileSync(instructionFile(name), text, 'utf8');
   });

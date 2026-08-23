@@ -1258,6 +1258,9 @@ const server = http.createServer((req, res) => {
           // which is what every agent already made on this machine has.
           account: body.account,
           reportsTo: body.reportsTo,
+          // Validated above; composed into the file BEFORE the session starts
+          // (#323), so the addAgent below finds the block already there.
+          projects: wantProjects,
         });
         /* #238. Only on a real creation, and never in a way that can affect
            one: `agentCreated` returns nothing, so this cannot be awaited, and
@@ -3092,7 +3095,7 @@ const server = http.createServer((req, res) => {
            with the write, but the same person racing their own two saves
            lands on whichever save carried the line change, which is the
            behaviour either order promises. */
-        const wrote = instructions.write(name, patch.text, patch.version, sessionOf(name));
+        const wrote = instructions.write(name, patch.text, patch.version, sessionOf(name), { who: 'person', because: null });
         /* The pre-save line comes from the WRITE's own read (round 39), not
            a second read here: the round-37 version read the file twice, and
            in the window between them a transient read failure came back as

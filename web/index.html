@@ -6606,14 +6606,32 @@ function esc(s) {
  * "we cannot tell" would be read as "something is wrong". The detail page,
  * which has the room, says which it is.
  */
+/* The sentence both stale surfaces share (#323). When Kosmos itself made the
+   edit the marker is about, the engine says so in `wroteBy` and the sentence
+   names the change in Kosmos's words ("Kosmos put it on Winter launch"),
+   because "edited after it started" in the person's ear means THEY did
+   something. When nobody said, or a person did, it is the standing wording:
+   for a hand edit nobody knows who, and the marker must never guess. One
+   function, two callers, so the card and the page cannot disagree. */
+function staleWords(s) {
+  const by = s && s.wroteBy;
+  if (by && by.who === 'kosmos' && by.because) {
+    return { title: `${by.because}. It is still running on what it read at boot.`,
+      lead: `${esc(by.because)}.`, tail: 'Restart it so it knows.', pageTail: 'Restart it so it knows.' };
+  }
+  return { title: 'Its instructions were edited after it started. Only a restart re-reads them.',
+    lead: 'Running on older instructions.', tail: 'Only a restart re-reads them.',
+    pageTail: 'A restart is what picks up the edits.' };
+}
 function staleBadge(a) {
   const s = a.instructions;
   if (!s || s.state !== 'stale') return '';
   // The glyph is decorative and the `title` only appears on hover, so the text
   // is carried in a visually-hidden span. Without it the whole finding is
   // invisible to a screen reader and unreachable without a mouse.
-  return `<span class="card-stale" title="Its instructions were edited after it started. Only a restart re-reads them."`
-    + `><span class="vh">Running on older instructions. Only a restart re-reads them.</span>${icon('alert')}</span>`;
+  const w = staleWords(s);
+  return `<span class="card-stale" title="${esc(w.title)}"`
+    + `><span class="vh">${w.lead} ${w.tail}</span>${icon('alert')}</span>`;
 }
 
 function card(a) {
@@ -11276,7 +11294,8 @@ function renderStale(s) {
   if (s.state === 'stale') {
     const edited = when(s.editedAt);
     const started = when(s.startedAt);
-    setLive(el, '<b>Running on older instructions.</b> '
+    const w = staleWords(s);
+    setLive(el, '<b>' + w.lead + '</b> '
       + (edited && started
         ? `Edited ${esc(edited)}, running since ${esc(started)}. `
         : '')
@@ -11311,7 +11330,7 @@ function renderStale(s) {
          📌 "A restart" rather than "restarting it" avoids echoing the button
          underneath, which matters more here than on the page because this is a
          live region and both are read aloud. */
-      + 'A restart is what picks up the edits.'
+      + w.pageTail
       + '<button class="btn-quiet instr-restart" type="button" data-restart-agent="'
       /* ⚠️ `CURRENT`, NOT AN ARGUMENT. `renderStale` is handed only the
          staleness object, and it is only ever called for the agent whose

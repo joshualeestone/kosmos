@@ -1,5 +1,8 @@
 'use strict';
 
+/* Why this module writes an agent's file, for the stale marker (#323). */
+const WROTE_WHY = 'Kosmos updated who it works for';
+
 /**
  * The person the agents work for, answered once.
  *
@@ -203,7 +206,7 @@ function tellAgent(sessionName, roster) {
     // one-deep .previous undo on a no-drift file.
     next = projects.healColleagues(next);
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null };
-    instructions.write(sessionName, next, current.version);
+    instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: WROTE_WHY });
     return { state: projects.TOLD.TOLD, because: null };
   } catch (err) {
     const raw = (err && err.message) || '';
