@@ -914,11 +914,16 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
    behind it. The callout only exists on hover, over the node it belongs to. */
 .onode .callout { pointer-events: auto; }
 .onode .oname { top: 52px; font: 600 12px var(--font-ui); color: var(--k-ink-2); }
+.onode .co-txt { display: flex; flex-direction: column; gap: 1px; }
+.onode .co-name { font: 600 14px var(--font-ui); }
+.onode .co-role { font: 500 11px var(--font-ui); color: rgba(20,22,26,.72); }
+.onode .co-go { font-size: 20px; line-height: 1; color: #14161a; opacity: .8; }
 /* On brand and legibly pressable: the same gold this app uses for a primary
    action, with the dark ink that stays readable on it in both themes. */
 .onode .callout {
-  bottom: 56px; background: var(--gold-bright); border: 2px solid var(--gold-bright);
-  border-radius: 9px; padding: 5px 14px; font: 600 14px var(--font-ui);
+  bottom: 50px; background: var(--gold-bright); border: 2px solid var(--gold-bright);
+  border-radius: 9px; padding: 6px 10px 6px 12px; font: 600 14px var(--font-ui);
+  display: inline-flex; align-items: center; gap: 10px; text-align: left; line-height: 1.15;
   color: #14161a; opacity: 0; transition: opacity .12s ease;
 }
 .onode:hover .callout, .onode:focus-visible .callout { opacity: 1; }
@@ -9486,7 +9491,13 @@ function paintOrg() {
          (#284: "say what it does"). The gold is the app's action treatment, so
          the words say the action too; the accessible name matches. The name at
          rest stays a plain label, because it is one. */
-      + '<span class="callout">Open ' + esc(shown) + '</span></button>');
+      /* #392, Josh: the name on top, the title small underneath, a chevron on
+         the right, and no "Open", closer to the avatar. The verb stays in the
+         accessible name above, because a chevron is invisible to a screen
+         reader and the button is the only focusable way into an agent here. */
+      + '<span class="callout"><span class="co-txt"><span class="co-name">' + esc(shown) + '</span>'
+      + (roleLine(a, ROLE_TITLES) ? '<span class="co-role">' + esc(roleLine(a, ROLE_TITLES)) + '</span>' : '')
+      + '</span><span class="co-go" aria-hidden="true">&rsaquo;</span></span></button>');
   }
 
   const html = '<svg class="wires" id="orgwires" viewBox="0 0 ' + size + ' ' + size
