@@ -25,6 +25,11 @@ process.env.HOME = path.join(SB, 'home');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SB, 'workers');
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'launch');
+/* 🛑 THE FOURTH ROOT. Creating an agent registers it with Claude Code, and a
+   suite that leaves this unset writes into the operator's real config -- the
+   sandbox-everything rule this repo enforces in `fixture-discipline`, which
+   caught exactly this file. */
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SB, 'claude.json');
 fs.mkdirSync(process.env.HOME, { recursive: true });
 fs.mkdirSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true });
 /* Real files, because `installJob` refuses a Claude it cannot find -- and that
