@@ -110,6 +110,7 @@ const tasks = require('./engine/tasks');
 const chat = require('./engine/chat');
 const messages = require('./engine/messages');
 const unfurl = require('./engine/unfurl');
+const attachments = require('./engine/attachments');
 /* ⚠️ THE SAME MODULE UNDER A SECOND NAME, and it is not a convenience. The
    thread handler builds a local `messages` array for its payload, which shadows
    this binding for the whole of that scope, so `messages.owesReply` in there
@@ -181,13 +182,14 @@ function safeRoster() {
 // Reads the body of an upload. Capped, because an unbounded read on a local
 // server is still a way to fill someone's memory by accident.
 const MAX_UPLOAD = 6 * 1024 * 1024;
-function readBody(req) {
+function readBody(req, limit) {
+  const max = Number.isFinite(limit) ? limit : MAX_UPLOAD;
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
     req.on('data', (c) => {
       size += c.length;
-      if (size > MAX_UPLOAD) { reject(new Error('file is too large')); req.destroy(); return; }
+      if (size > max) { reject(new Error('file is too large')); req.destroy(); return; }
       chunks.push(c);
     });
     req.on('end', () => resolve(Buffer.concat(chunks)));
@@ -2840,8 +2842,16 @@ const server = http.createServer((req, res) => {
         }
         // Deliver first, then record the verdict with it — and record even a
         // failure, exactly as the project thread does.
-        const delivery = chat.deliver(name, body.text, roster, messages.OPERATOR_DIRECT);
+        /* An attached file (#358): the record rides the row, and the pane is
+           told the file's path in the bracketed line so the agent can open it. */
+        let attached = null;
+        if (body.attachment) {
+          attached = attachments.read(body.attachment);
+          if (!attached || attached.scope !== 'agent' || attached.owner !== name) throw new Error('that attachment is not one this conversation can send');
+        }
+        const delivery = chat.deliver(name, body.text + attachments.wireNote(attached), roster, messages.OPERATOR_DIRECT);
         const kept = chat.appendMessage(chat.DIRECT, name, {
+          ...(attached ? { attachment: attachments.rowField(attached) } : {}),
           text: chose || body.text,
           /**
            * The PERSON'S words as they reached the pane, when they are not the
@@ -2951,6 +2961,53 @@ const server = http.createServer((req, res) => {
      for the image one, proxy the answer back to them. `crossSiteRead` refuses
      a request the browser marks as coming from another site; the engine's
      own gate (no private addresses, caps, redirects) stands behind it. */
+  /* Attachments (#358). Upload is a raw body (the avatar route's shape, no
+     multipart): PUT the bytes with the file's type as content-type and its
+     name in x-attachment-name, get the record back, then post the message
+     with `attachment: <id>`. Two steps so a failed upload is a sentence
+     before anything is said, and so the 25 MB limit applies to the bytes
+     alone. The file is served back as a download, never inline, and the
+     preview is a PNG this Mac drew (or the image itself). */
+  const attachUp = pathname.match(/^\/api\/(agent|project)\/([^/]+)\/attachment$/);
+  if (attachUp && req.method === 'PUT') {
+    const scope = attachUp[1];
+    const owner = decodeSegment(attachUp[2]);
+    if (owner === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    if (scope === 'agent' && !knownAgent(owner)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    if (scope === 'project' && !projects.readAll().some((p) => p.id === owner)) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+    readBody(req, attachments.MAX_BYTES + 1)
+      .then((bytes) => {
+        let name = '';
+        try { name = decodeURIComponent(String(req.headers['x-attachment-name'] || '')); } catch { name = String(req.headers['x-attachment-name'] || ''); }
+        const rec = attachments.save(scope, owner, { name, type: req.headers['content-type'], bytes });
+        sendJson(res, 200, { attachment: attachments.rowField(rec) });
+      })
+      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not keep that file') }));
+    return;
+  }
+  const attachGet = pathname.match(/^\/api\/attachment\/([0-9a-f]{24})(\/preview)?$/);
+  if (attachGet && (req.method === 'GET' || req.method === 'HEAD')) {
+    const rec = attachments.read(attachGet[1]);
+    if (!rec) { sendJson(res, 404, { error: 'no such attachment' }); return; }
+    if (attachGet[2]) {
+      const pv = attachments.preview(rec);
+      if (!pv.ok) { sendJson(res, 404, { error: pv.because }); return; }
+      res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
+      res.end(req.method === 'HEAD' ? undefined : pv.bytes);
+      return;
+    }
+    let bytes;
+    try { bytes = fs.readFileSync(rec.file); } catch { sendJson(res, 404, { error: 'that file could not be read' }); return; }
+    /* A download, whatever the type: a person's file is handed back as a
+       file, and an HTML one never renders on the board's origin. */
+    res.writeHead(200, {
+      'content-type': rec.type, 'content-length': bytes.length, 'x-content-type-options': 'nosniff',
+      'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(rec.name),
+      'content-security-policy': "default-src 'none'; sandbox",
+    });
+    res.end(req.method === 'HEAD' ? undefined : bytes);
+    return;
+  }
   if (pathname === '/api/unfurl' && req.method === 'GET') {
     const refusedRead = crossSiteRead(req);
     if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
@@ -4155,8 +4212,13 @@ const server = http.createServer((req, res) => {
          * composer, so a screen that folded it into `could_not` would invite
          * the re-send that duplicates it. See `DELIVERY` in engine/chat.js.
          */
-        const delivery = chat.deliver(name, body.text, roster);
-        const kept = chat.appendMessage(id, name, { text: body.text, at: delivery.at, delivery }, project.createdAt);
+        let attached = null;
+        if (body.attachment) {
+          attached = attachments.read(body.attachment);
+          if (!attached || attached.scope !== 'project' || attached.owner !== id) throw new Error('that attachment is not one this project can send');
+        }
+        const delivery = chat.deliver(name, body.text + attachments.wireNote(attached), roster);
+        const kept = chat.appendMessage(id, name, { text: body.text, at: delivery.at, delivery, ...(attached ? { attachment: attachments.rowField(attached) } : {}) }, project.createdAt);
         sendJson(res, 200, {
           delivery,
           recorded: kept.recorded === true,
