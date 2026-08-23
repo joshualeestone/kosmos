@@ -1189,10 +1189,10 @@ check_claude_code() {
     _claude_elsewhere="$(command -v claude 2>/dev/null || true)"
     if [ -n "$_claude_elsewhere" ]; then
       die "There is something at $_claude_bin but it cannot run (a broken link, a folder, or a file without execute permission), and Claude Code is installed at $_claude_elsewhere. Replace it and run this again:
-  rm -r \"$_claude_bin\" && ln -s \"$_claude_elsewhere\" \"$_claude_bin\""
+  rm -rf \"$_claude_bin\" && ln -s \"$_claude_elsewhere\" \"$_claude_bin\""
     fi
     die "There is something at $_claude_bin but it cannot run (a broken link, a folder, or a file without execute permission). Remove it and run this again:
-  rm -r \"$_claude_bin\""
+  rm -rf \"$_claude_bin\""
   fi
   _claude_elsewhere="$(command -v claude 2>/dev/null || true)"
   if [ -n "$_claude_elsewhere" ]; then

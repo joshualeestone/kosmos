@@ -31,7 +31,10 @@ function gate() {
 /* die/info from setup.sh are not lifted (they carry the whole logging
    apparatus); stubs with the same contract, refusal text on stderr and a
    non-zero exit, which is what a person and this test each observe. */
-const HARNESS = 'die() { printf "%s\\n" "$*" >&2; exit 1; }\ninfo() { printf "%s\\n" "$*"; }\n';
+/* The shipped gate runs under set -euo pipefail (setup.sh:102); the
+   harness matches, so an edit that only breaks under -u or -e dies here
+   too rather than only in the real installer. */
+const HARNESS = 'set -euo pipefail\ndie() { printf "%s\\n" "$*" >&2; exit 1; }\ninfo() { printf "%s\\n" "$*"; }\n';
 
 function run({ homeHasClaude, pathClaude }) {
   const sb = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
@@ -76,6 +79,19 @@ test('installed elsewhere: names where it is and the one-line link, a DIFFERENT 
   const r = run({ homeHasClaude: false, pathClaude: true });
   assert.notEqual(r.code, 0, 'an agent started from a path with nothing at it would never run');
   assert.match(r.err, /is installed at .*\/bin\/claude, but Kosmos starts agents from/);
+  /* Both remedies CREATE a symlink, so the accept arm must accept one, or
+     every remedy would produce a state the gate then refuses, an infinite
+     remedy loop the suite would never see. */
+  const home2 = nodePath.join(fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-'))), 'home');
+  fs.mkdirSync(nodePath.join(home2, '.local', 'bin'), { recursive: true });
+  const target = nodePath.join(home2, 'real-claude');
+  fs.writeFileSync(target, '#!/bin/sh\nexit 0\n'); fs.chmodSync(target, 0o755);
+  fs.symlinkSync(target, nodePath.join(home2, '.local', 'bin', 'claude'));
+  const linked = execFileSync('/bin/sh', ['-c', HARNESS + gate()], {
+    encoding: 'utf8', env: { HOME: home2, PATH: '/usr/bin:/bin' },
+  });
+  assert.match(linked, /Claude Code found at /,
+    'the remedy-created symlink state is refused, so every remedy loops');
   assert.match(r.err, /ln -s/, 'the fix is not named');
   assert.doesNotMatch(r.err, /does not have it/,
     'the two states that look identical from a Terminal got the same sentence');
@@ -102,7 +118,7 @@ test('something present that cannot run gets its own sentence, never the false "
   }
   assert.notEqual(code, 0, 'a path with an unrunnable claude completed the gate');
   assert.match(out, /cannot run \(a broken link, a folder, or a file without execute permission\)/);
-  assert.match(out, /rm -r /, 'the remedy is not named, or cannot handle every shape');
+  assert.match(out, /rm -rf /, 'the remedy is not named, cannot handle every shape, or prompts on a mode-000 file');
   assert.doesNotMatch(out, /nothing there/, 'the false claim survived');
   /* A working claude IS on PATH in this fixture, so the one-shot replace
      remedy is the right sentence: rm then ln in one line. */
@@ -127,8 +143,23 @@ test('a DIRECTORY at the path is refused as unrunnable, never accepted', () => {
   }
   assert.notEqual(code, 0, 'a directory at the path completed the gate');
   assert.match(out, /a folder, or a file without execute permission/);
-  assert.match(out, /rm -r /, 'the remedy would fail verbatim on a folder');
+  assert.match(out, /rm -rf /, 'the remedy would fail verbatim on a folder, or prompt on a mode-000 file');
   assert.doesNotMatch(out, /&& ln -s/, 'the replace remedy was offered with nothing to link');
+
+  /* And a symlink TO a directory is refused the same way, with rm -rf
+     removing only the link (the -f follows the link for the accept test,
+     so this is the second half of that comment, pinned). */
+  const sb2 = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
+  const home3 = nodePath.join(sb2, 'home');
+  fs.mkdirSync(nodePath.join(home3, '.local', 'bin'), { recursive: true });
+  const dirTarget = nodePath.join(sb2, 'a-directory');
+  fs.mkdirSync(dirTarget);
+  fs.symlinkSync(dirTarget, nodePath.join(home3, '.local', 'bin', 'claude'));
+  let code3 = 0;
+  try {
+    execFileSync('/bin/sh', ['-c', HARNESS + gate()], { encoding: 'utf8', env: { HOME: home3, PATH: '/usr/bin:/bin' } });
+  } catch (e) { code3 = e.status; }
+  assert.notEqual(code3, 0, 'a symlink to a directory was accepted as runnable');
 });
 
 test('the env override is honored, so sandboxed installs can point at a fixture', () => {
