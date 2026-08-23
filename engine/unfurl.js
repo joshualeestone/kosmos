@@ -217,7 +217,7 @@ async function preview(raw) {
       try { image = new URL(tags.image, got.url).toString(); } catch { image = ''; }
       if (image && !/^https?:/.test(image)) image = '';
     }
-    return remember(key, { ok: true, url: got.url, title: tags.title, description: tags.description, image, site: tags.site });
+    return remember(key, { ok: true, url: got.url, title: tags.title, description: tags.description, image, site: tags.site, fetchedAt: new Date().toISOString() });
   } catch {
     return remember(key, { ok: false, because: 'we could not read that page' });
   } finally {
@@ -250,4 +250,31 @@ async function image(raw) {
   }
 }
 
-module.exports = { preview, image, allowed, privateAddress, parseTags, setFetcher, setResolver, resetForTests, PAGE_MAX, IMAGE_MAX, REDIRECTS };
+/** The first http(s) link in a message's text, or null. Exported for the
+    payload helper and its test. */
+const LINK_RE = /https?:\/\/[^\s<>"')\]]+/i;
+function firstLink(text) {
+  const m = String(text || '').match(LINK_RE);
+  if (!m) return null;
+  return m[0].replace(/[.,;:!?]+$/, '');
+}
+
+/** What the cache holds for a URL right now, without fetching: the preview
+    ({ ok: true, ... }), a refusal ({ ok: false }), or null for never asked.
+    The payload helper reads this synchronously while serving a poll. */
+function peek(raw) {
+  return cached('p:' + String(raw));
+}
+
+/* In flight, so a poll every five seconds does not start a second fetch for
+   a link whose first is still running. */
+const inflight = new Set();
+/** Start a fetch for a URL if nothing is cached or running; never awaited. */
+function warm(raw) {
+  const key = String(raw);
+  if (cached('p:' + key) || inflight.has(key)) return;
+  inflight.add(key);
+  preview(key).catch(() => {}).finally(() => inflight.delete(key));
+}
+
+module.exports = { firstLink, peek, warm, preview, image, allowed, privateAddress, parseTags, setFetcher, setResolver, resetForTests, PAGE_MAX, IMAGE_MAX, REDIRECTS };

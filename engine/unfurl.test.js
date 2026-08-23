@@ -196,3 +196,19 @@ test('CONTROL: the fake fetcher is what answers, so a green above is about this 
   assert.equal(got.title, 'ctl');
   assert.deepEqual(calls, ['https://ctl.example/']);
 });
+
+test('firstLink finds the first http(s) link and drops trailing punctuation; peek and warm read and fill the cache without blocking', async () => {
+  assert.equal(unfurl.firstLink('see https://a.example/x, then https://b.example'), 'https://a.example/x');
+  assert.equal(unfurl.firstLink('no link here'), null);
+  assert.equal(unfurl.firstLink('(https://c.example/p).'), 'https://c.example/p');
+  assert.equal(unfurl.firstLink('ftp://not.example'), null);
+  const calls = world({ pages: { 'https://warm.example/': { body: '<title>Warm</title>' } } });
+  assert.equal(unfurl.peek('https://warm.example/'), null, 'a never-asked link reads as cached');
+  unfurl.warm('https://warm.example/');
+  unfurl.warm('https://warm.example/');
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(calls.length, 1, 'two warms in flight fetched twice');
+  const hit = unfurl.peek('https://warm.example/');
+  assert.equal(hit && hit.title, 'Warm');
+  assert.ok(hit.fetchedAt && !Number.isNaN(Date.parse(hit.fetchedAt)), 'no fetchedAt on the preview');
+});

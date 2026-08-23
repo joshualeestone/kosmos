@@ -598,6 +598,29 @@ const FORM_TYPES = new Set([
    from a host this board does not answer for means the same. Either is
    refused. A request with neither header (curl, an old browser) passes: the
    guard is against the drive-by, not against the person. */
+/* Attach a link preview to every row that carries text with a link (#357).
+   Read from the engine's cache while serving; a link never asked for starts
+   its fetch now and is carried on the next poll, so a payload is never held
+   for the internet. A refusal or "nothing to show" attaches nothing: absence
+   is how the page draws a link that stays a link. The image is this board's
+   own path, never the site's. */
+function withPreviews(rows) {
+  if (!Array.isArray(rows)) return rows;
+  for (const r of rows) {
+    if (!r || typeof r !== 'object' || typeof r.text !== 'string') continue;
+    const link = unfurl.firstLink(r.text);
+    if (!link) continue;
+    const hit = unfurl.peek(link);
+    if (hit === null) { unfurl.warm(link); continue; }
+    if (!hit.ok) continue;
+    r.preview = {
+      url: hit.url, title: hit.title, description: hit.description, site: hit.site, fetchedAt: hit.fetchedAt,
+      image: hit.image ? '/api/unfurl/image?url=' + encodeURIComponent(hit.image) : '',
+    };
+  }
+  return rows;
+}
+
 function crossSiteRead(req) {
   const site = req && req.headers && req.headers['sec-fetch-site'];
   if (site && site !== 'same-origin' && site !== 'none') {
@@ -2519,7 +2542,7 @@ const server = http.createServer((req, res) => {
       const TAIL = 200;
       sendJson(res, 200, {
         total: unreadable.length + rows.length,
-        rows: unreadable.concat(rows.slice(-TAIL)),
+        rows: withPreviews(unreadable.concat(rows.slice(-TAIL))),
       });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the conversation') });
@@ -2726,7 +2749,7 @@ const server = http.createServer((req, res) => {
      */
     const owes = messageLog.owesReply(name);
     sendJson(res, 200, {
-      messages,
+      messages: withPreviews(messages),
       olderCount,
       historyBecause,
       historyUnfilable,
@@ -2986,7 +3009,7 @@ const server = http.createServer((req, res) => {
     try {
       let who = null;
       try { who = new URL(req.url, ROUTING_BASE).searchParams.get('agent') || null; } catch { who = null; }
-      sendJson(res, 200, { messages: messages.list(who) });
+      sendJson(res, 200, { messages: withPreviews(messages.list(who)) });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the record') });
     }
@@ -4167,7 +4190,7 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, {
       project: { id: project.id, name: project.name },
       agent: member,
-      messages,
+      messages: withPreviews(messages),
       olderCount,
       historyBecause,
       // See the block above: withheld is not unreadable, and the page says a
