@@ -2106,6 +2106,13 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
 .pj-msg .pj-msg-said { display: block; font: var(--text-caption) var(--font-ui);
   color: var(--label-2); margin-top: 2px; overflow-wrap: anywhere; }
 /* A message that did not get there does not draw like one that did. */
+/* ⚠️ AN EMPTY RECEIPT TAKES NO ROOM, the same rule `.delivery:empty` already
+   carries for the room: a block with nothing in it still occupies its margin
+   and its line box, which is a stray gap under every message that worked --
+   the exact noise the silence was for. */
+.pj-msg .pj-msg-said:empty { display: none; }
+.pj-msg .pj-msg-when { display: block; font: var(--text-caption) var(--font-ui);
+  color: var(--label-3); }
 .pj-msg.failed { border-style: dashed; }
 .pj-msg.failed .pj-msg-said { color: var(--label); }
 /* ⚠️ AND ONE WE COULD NOT CONFIRM DRAWS AS NEITHER. It is not a failure — the
@@ -9687,8 +9694,12 @@ function dmRow(m, name) {
      is a design question about how a long verdict should look, which is Mona
      Lisa's, and the alignment check cannot see it -- it reads `text-align`.
      Flagged rather than quietly left. */
+  /* ⚠️ THE TIME SITS ON THE ROW, exactly where the `theirs` row above already
+     puts it, and no longer inside the verdict. The verdict is silent on an
+     ordinary success now, and a timestamp that lived inside it would have gone
+     silent with it -- on every message that worked. */
   return '<div class="dm mine"><div class="dm-b">' + esc(m.text) + '</div>'
-    + '<span class="dm-w">You' + wire + ' '
+    + '<span class="dm-w">You' + v.when + wire + ' '
     + '<span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span></span></div>';
 }
 
@@ -16913,22 +16924,65 @@ function pjWhen(at) {
  * one-fact-two-derivations failure this codebase keeps paying for. The markup
  * differs; the sentence does not.
  */
+/**
+ * What a direct message's receipt says, and when it says nothing at all.
+ *
+ * 🔑 THE RULE, AND IT IS NOT A LIST OF STATES (Mona Lisa, 2026-08-22): the
+ * receipt SPEAKS WHEN IT HAS SOMETHING TO SAY ABOUT WHAT HAPPENS NEXT, and is
+ * silent when it does not. A sixth pane state arriving tomorrow is decided by
+ * that sentence rather than by whoever remembers to edit a condition.
+ *
+ * 🛑 WHY IT USED TO SPEAK ON EVERY SUCCESS. It said "Placed into April's session
+ * at 4:20 PM (it was sitting at its prompt)." under every message anybody ever
+ * sent. Josh, 2026-08-22: "let's also kill the little thing that says where the
+ * message was placed. We don't want any of that in there." He had already ruled
+ * the same thing for the project room in August, and `pjReceiptSentence` has
+ * dropped it there ever since -- so this surface was not a second design
+ * decision, it was the one that missed the first.
+ *
+ * ⚠️ AND THE SENTENCE CARRIED TWO THINGS, WHICH IS WHY THIS IS NOT A DELETION.
+ * The parenthetical is `chat.waitingNote`, and four of its five values are about
+ * what happens next: mid-task so it will not read this until it finishes,
+ * waiting on an answer, paused on a usage limit, or we could not tell. Only
+ * `idle` -- "it was sitting at its prompt" -- has no consequence attached. "It
+ * will not read this until it finishes" is the answer to "why has nothing
+ * happened", asked an hour later, and a server test pins it surviving a later
+ * read for exactly that reason. Going silent on every success would have
+ * deleted all four along with the clause he named.
+ *
+ * 📌 KEYED ON `paneState`, NEVER ON THE WORDS OF THE NOTE. The note is copy and
+ * the state is the fact; matching "sitting at its prompt" would be a string
+ * standing in for a meaning, and it would break the day the copy is reworded.
+ * An absent state is not idle, so an old row with a note still speaks: the safe
+ * direction is saying a consequence we might not need, never swallowing one.
+ *
+ * ⚠️ THE TIME IS RETURNED SEPARATELY, and that is a correction rather than a
+ * cost. It used to live inside a sentence that is now conditional, so it was
+ * only ever there by accident of composition -- a silent success would have
+ * taken the timestamp with it. The room's row has always carried its own time
+ * in its own element; the direct rows now do the same.
+ */
 function pjVerdict(m, name) {
   const d = (m && m.delivery) || {};
-  // The pane's state when we typed. "Placed into casey's session" is exactly
-  // true and invites the wrong inference — that casey is reading it — so a
-  // message sent to a busy agent says where it is sitting.
-  const note = d.paneNote ? ' (' + esc(d.paneNote) + ')' : '';
+  // The pane's state when we typed, and what it means for what happens next.
+  const note = d.paneNote ? esc(d.paneNote) : '';
+  const consequential = Boolean(note) && d.paneState !== 'idle';
   let said;
   let mark;
+  const when = pjWhenPart(m.at);
   if (d.state === 'placed') {
     mark = '';
-    said = 'Placed into ' + esc(name) + '’s session' + esc(pjWhenPart(m.at)) + note + '.';
+    /* The note ALONE when it speaks: no "Placed into April's session" in front
+       of it. That clause is the one Josh named, and on the agent's own page a
+       note about what it was doing needs no antecedent -- the row sits under
+       the message it is about. */
+    said = consequential ? note.charAt(0).toUpperCase() + note.slice(1) + '.' : '';
   } else if (d.state === 'unconfirmed') {
     mark = ' unsure';
     // A row is history, so it states what happened and stops. The instruction
     // about what to do lives in the live message line, once.
-    said = 'Could not confirm this reached ' + esc(name) + '’s session' + esc(pjWhenPart(m.at)) + note + '. '
+    said = 'Could not confirm this reached ' + esc(name) + '’s session'
+      + (note ? ' (' + note + ')' : '') + '. '
       + esc(pjSentence(d.because || 'we typed it and could not tell whether it arrived'));
   } else {
     mark = ' failed';
@@ -16954,16 +17008,21 @@ function pjVerdict(m, name) {
     // Through pjSentence like the unconfirmed arm above (round 40): this
     // was the one arm gluing a raw clause to its own full stop, so a
     // because that already ends in punctuation doubled the stop.
-    said = 'Could not deliver' + esc(pjWhenPart(m.at)) + ': '
+    said = 'Could not deliver: '
       + esc(pjSentence(d.because || 'we could not put it into its session'));
   }
-  return { mark, said };
+  return { mark, said, when };
 }
 
 function pjMsg(m, name) {
-  const { mark, said } = pjVerdict(m, name);
+  const { mark, said, when } = pjVerdict(m, name);
+  /* 🔑 THE SAME ROW FURNITURE AS THE ROOM'S: the time in its own element, the
+     receipt in its own, and the receipt free to say nothing. This panel and the
+     agent page's thread are the same conversation kind and share one verdict,
+     so they go silent together. */
   return '<div class="pj-msg' + mark + '">'
     + '<span class="pj-msg-text">' + esc(m.text) + '</span>'
+    + '<span class="pj-msg-when">You' + when + '</span>'
     + '<span class="pj-msg-said">' + said + '</span>'
     + '</div>';
 }
