@@ -42,7 +42,38 @@ const status = require('./status');
  * `true` hides an agent from the one screen that exists to surface it, silently,
  * which is the defect this whole module was written after.
  */
-function alreadyIn(dir) {
+/**
+ * Whether a pane is running under this name right now, whatever started it.
+ *
+ * 🛑 THE THIRD WAY OF BEING KNOWN (#362). An agent launched by hand, under a
+ * session named for it, is on the board (the status engine names it) and yet
+ * had no Kosmos job and no recorded folder, so this file offered it as "not
+ * in Kosmos" while the board counted it, and pressing Add would have written
+ * a job for a folder that already had a running Claude: two in one worker
+ * folder, fighting over the hand-written plist. Measured on the dev fleet
+ * (every <name>-discord session); reachable on any machine where a session is
+ * named for a folder Kosmos did not make.
+ *
+ * Returns the roster entry, null when nothing runs under the name, and
+ * `undefined` when the roster could not be read at all, which callers must
+ * treat as "do not know", never as "not running".
+ */
+function runningUnderName(name, roster) {
+  let list = roster;
+  if (!Array.isArray(list)) {
+    try { list = status.paneRoster(); } catch { return undefined; }
+  }
+  return list.find((a) => a && a.sessionName === name) || null;
+}
+
+/**
+ * ONE DEFINITION OF "IN KOSMOS", for the found list and for connect alike
+ * (#362): a Kosmos job under the name, a folder recorded against the name, or
+ * a pane already running under the name. The list and the Add button used to
+ * answer with two of the three and disagree with the board, which used the
+ * third.
+ */
+function alreadyIn(dir, roster) {
   const create = require('./create');
   const store = require('./store');
   const name = path.basename(String(dir || ''));
@@ -52,6 +83,7 @@ function alreadyIn(dir) {
     const p = store.readProfile(name);
     if (p && p.dir && p.dir === dir) return true;
   } catch { /* no record is not a reason to hide it */ }
+  if (runningUnderName(name, roster)) return true;
   return false;
 }
 
@@ -86,6 +118,11 @@ function found() {
 
   const byDir = new Map();
   let looked = 0;
+  /* One look at what is running, for every folder below (#362). An unreadable
+     roster reads as undefined, and alreadyIn then treats "running" as unknown
+     rather than as no. */
+  let roster;
+  try { roster = status.paneRoster(); } catch { roster = undefined; }
 
   for (const root of roots) {
     const projects = path.join(root, 'projects');
@@ -130,7 +167,7 @@ function found() {
            its name) or somebody connected it (a folder recorded against its
            name). Asking only the first would re-offer every connected agent the
            moment its job was ever removed by hand. */
-        already: alreadyIn(cwd),
+        already: alreadyIn(cwd, roster),
       });
     }
   }
@@ -197,6 +234,19 @@ function connect(dir) {
 
   if (create.hasJob(name)) {
     return { ok: false, because: 'Kosmos already looks after an agent by that name' };
+  }
+  /* 🛑 AND NOT WHEN SOMETHING IS ALREADY RUNNING UNDER THAT NAME (#362). The
+     add installs a job and starts it; on a folder whose agent is already up,
+     started some other way, that is a second Claude in the same worker folder.
+     Same test the found list uses, so the two cannot disagree. A roster we
+     could not read refuses too: starting blind is the failure, not the
+     refusal. */
+  const running = runningUnderName(name);
+  if (running === undefined) {
+    return { ok: false, because: 'we could not check what is running on this computer, so we did not start it' };
+  }
+  if (running) {
+    return { ok: false, because: 'an agent is already running under that name, started some other way. Kosmos will not start a second one' };
   }
 
   /* ⚠️ THE RECORD GOES FIRST, because `installJob` resolves the folder through
@@ -323,4 +373,5 @@ function disconnect(name) {
   };
 }
 
-module.exports = { found, connect, disconnect };
+module.exports = { alreadyIn,
+  runningUnderName, found, connect, disconnect };

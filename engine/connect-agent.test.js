@@ -126,3 +126,82 @@ test('CONTROL: discovery and connect agree about what an agent is', () => {
   assert.equal(list.ok, false, 'the fixture has no Claude records, so this must say so rather than empty');
   delete process.env.AGENT_WORKFORCE_CONFIG_ROOT;
 });
+
+/* ---- one definition of "in Kosmos" (#362) -------------------------------- */
+const status = require('./status');
+const fleet = require('../test-support/fleet');
+
+test('an agent already running under the folder\'s name is in Kosmos for the list and refused by the add, on one test', () => {
+  /**
+   * 🛑 The dev fleet's shape, and reachable anywhere a session is named for a
+   * folder Kosmos did not make: the board showed the agent (the status engine
+   * names the pane), the found list offered it as "not in Kosmos" (no job, no
+   * recorded folder), and Add would have installed a job and started a second
+   * Claude in the same worker folder. One definition now: a job, a recorded
+   * folder, OR a pane running under the name.
+   */
+  const dir = theirAgent('rosie', 'You are **Rosie**, a researcher.\n');
+  status.setPaneSource(() => fleet.line({ session: 'rosie', title: 'idle' }));
+  try {
+    assert.equal(discover.alreadyIn(dir), true, 'a running agent was offered as not in Kosmos');
+    const out = discover.connect(dir);
+    assert.equal(out.ok, false, 'the add went ahead on a folder whose agent is already running');
+    assert.match(out.because, /already running under that name/, 'the refusal does not say why');
+    assert.match(out.because, /started some other way/, 'the refusal does not say it was not Kosmos that started it');
+    assert.equal(store.readProfile('rosie').dir, undefined, 'a refused add recorded a folder anyway');
+    assert.equal(create.hasJob('rosie'), false, 'a refused add installed a job anyway');
+  } finally {
+    status.setPaneSource(null);
+  }
+  // CONTROL: the same folder with nothing running under the name connects.
+  status.setPaneSource(() => '');
+  try {
+    assert.equal(discover.alreadyIn(dir), false);
+    const ok = discover.connect(dir);
+    assert.equal(ok.ok, true, ok.because);
+  } finally {
+    status.setPaneSource(null);
+  }
+});
+
+test('a roster that cannot be read refuses the add rather than starting blind', () => {
+  const dir = theirAgent('blind', 'You are **Blind**, a writer.\n');
+  status.setPaneSource(() => null);
+  try {
+    const out = discover.connect(dir);
+    assert.equal(out.ok, false, 'connect started an agent without knowing what was running');
+    assert.match(out.because, /could not check what is running/);
+    assert.equal(create.hasJob('blind'), false);
+  } finally {
+    status.setPaneSource(null);
+  }
+});
+
+test('the found list consults the roster and marks a running agent as already in', () => {
+  /* The finder reads a transcript under a config root's `projects/` to learn
+     a folder's cwd; seeded the way discover.test.js seeds it, with the root
+     handed in through the same override that test uses. */
+  const dir = theirAgent('seen', 'You are **Seen**, a bookkeeper.\n');
+  const root = path.join(SB, 'cfg-seen');
+  const proj = path.join(root, 'projects', 'seen-key');
+  fs.mkdirSync(proj, { recursive: true });
+  fs.writeFileSync(path.join(proj, 'seen-key-sess.jsonl'), `{"type":"user"}\n{"cwd":${JSON.stringify(dir)}}\n`);
+  const hadRoots = status.configRoots;
+  status.configRoots = () => [root];
+  status.setPaneSource(() => fleet.line({ session: 'seen', title: 'idle' }));
+  try {
+    const out = discover.found();
+    assert.equal(out.ok, true, out.because);
+    const row = out.agents.find((a) => a.dir === dir);
+    assert.ok(row, 'the finder did not find the seeded folder; the fixture is wrong, not the claim');
+    assert.equal(row.already, true, 'the list offered a running agent as not in Kosmos');
+    // CONTROL: nothing running under the name, and the same row is offered.
+    status.setPaneSource(() => '');
+    const again = discover.found().agents.find((a) => a.dir === dir);
+    assert.ok(again, 'control row missing');
+    assert.equal(again.already, false, 'the control did not flip, so the first half proved nothing');
+  } finally {
+    status.setPaneSource(null);
+    status.configRoots = hadRoots;
+  }
+});
