@@ -359,6 +359,17 @@ async function main() {
     const url = m.location().url || '';
     if (exempt400(m.text(), url)) return;
     if (expectUntiedRefusals && /Failed to load resource.*404/.test(m.text()) && /\/thread$/.test(url)) return;
+    /* 🔑 THE OPERATOR'S OWN PICTURE, WHICH A FRESH MACHINE DOES NOT HAVE. The
+       route answers 404 for "no picture is set" and the page reads exactly that
+       (`YOU_PIC = r.ok`), so this is the fixture's normal state rather than a
+       failure -- every sandbox this file runs against is a machine nobody has
+       uploaded a photo to.
+       ⚠️ IT IS EXEMPTED RATHER THAN SILENCED WHOLESALE: the URL is pinned, so a
+       404 on anything else still fails this. And it is worth writing down that
+       the route SHAPE is arguable -- a 404 as "not set" puts a red line in
+       everybody's console on a clean install -- but the client handles it and
+       changing a status code reaches further than this check. */
+    if (/Failed to load resource.*404/.test(m.text()) && /\/api\/you\/avatar(\?|$)/.test(url)) return;
     pageErrors.push(m.text());
   });
 
@@ -389,9 +400,37 @@ async function main() {
     // The mode-independence half, IN Off where it matters: the question
     // panel and the number-answer teaching line are safety, not chrome,
     // and must render with the raw screen away.
+    /* 🛑 THIS BLOCK WAS WAITING FOR A DESTINATION THE BUTTON STOPPED GOING TO,
+       and it took the rest of this file with it. The answer button on a card
+       used to open a PROJECT ROOM; on 2026-08-21 it was re-pointed at the
+       agent's own page, because Josh clicked it and was thrown into a project
+       the agent was not even on. Nothing re-pointed the check, so it sat in a
+       ten-second `waitForFunction` for `#pj-question` and then THREW -- and a
+       throw here is not one red line, it is the end of the run. 85 of this
+       file's 87 assertions are below this point and none of them had run since.
+       ⚠️ THE LESSON IS ABOUT THE FAILURE MODE, NOT THE POINTER. A check that
+       dies partway reports nothing about everything after it, and reports it as
+       a crash rather than as a failure, which reads like a broken harness
+       rather than a broken claim. Its own comment further down says a
+       wrongly-ordered listener "would be the only thing that noticed" -- it did
+       notice, a day ago, and nobody was listening. */
     await page.goto(BASE, { waitUntil: 'networkidle' });
     await page.waitForSelector('.acard[data-agent="mara"] .ansgo', { timeout: 10000 });
     await page.click('.acard[data-agent="mara"] .ansgo');
+    await page.waitForFunction(() => {
+      const q = document.getElementById('d-qask');
+      return q && !q.hidden;
+    }, null, { timeout: 10000 });
+    check(await page.evaluate(() => !document.getElementById('panel-detail').hidden),
+      'the answer button lands on the agent’s own page, which is where its question is');
+
+    /* And the room's own question panel, reached the way a person reaches it,
+       because the facts below are about the ROOM in Engineering-mode Off. */
+    await page.goto(BASE + '?tab=projects', { waitUntil: 'networkidle' });
+    await page.waitForSelector('[data-project]', { timeout: 10000 });
+    await page.click('[data-project]');
+    await page.waitForSelector('#pj-one-view:not([hidden])', { timeout: 10000 });
+    await page.selectOption('#pj-thread-who', 'mara');
     await page.waitForFunction(() => {
       const q = document.getElementById('pj-question');
       return q && !q.hidden && (document.getElementById('pj-question-text').textContent || '').length > 0;
@@ -528,8 +567,40 @@ async function main() {
     // own handler opens the detail panel — so a wrongly-ordered listener would
     // land somewhere plausible and this would be the only thing that noticed.
     await answerBtn.click();
-    await page.waitForSelector('#panel-projects:not([hidden])', { timeout: 10000 });
+    /* ⚠️ THE AGENT'S PAGE, NOT A PROJECT (re-pointed 2026-08-21, see the note in
+       the Off arm above). The click is still the whole point -- the button sits
+       inside the card, whose own handler ALSO opens the detail panel, so a
+       wrongly-ordered listener would land somewhere plausible. What changed is
+       that both now land on the same screen, so the assertion is that the
+       QUESTION is there rather than merely that a panel opened. */
+    await page.waitForSelector('#panel-detail:not([hidden])', { timeout: 10000 });
+    await page.waitForFunction(() => {
+      const q = document.getElementById('d-qask');
+      return q && !q.hidden && (document.getElementById('d-qask-text').textContent || '').length > 0;
+    }, null, { timeout: 10000 });
+    check(await page.evaluate(() => (document.getElementById('d-qask-text').textContent || '')).then((t) => /Do you want to proceed\?/.test(t)),
+      'the agent’s own page shows the question the button was pressed for');
+    /* ⚠️ AND FOCUS FOLLOWS, ON THE SCREEN THE BUTTON NOW OPENS. This assertion
+       used to live against the project room and it was RIGHT: the card carrying
+       the button is torn down on the tab switch, so activation leaves
+       activeElement on <body> and a keyboard user has to re-traverse the whole
+       document to reach the question they pressed for. Re-pointing the button at
+       the agent's page on 2026-08-21 carried the navigation and left the focus
+       move behind -- and this check, waiting on the old destination, threw before
+       it could say so. The regression and the thing that would have caught it
+       were the same change. */
+    const answerFocus = await page.evaluate(() => document.activeElement && document.activeElement.id);
+    check(answerFocus === 'd-qask-text',
+      'keyboard focus moves to the question, not back to the top of the document',
+      `activeElement is ${answerFocus || '(body)'}`);
+
+    /* The room's panel, reached as a person reaches it, for the assertions below
+       that are about the room. */
+    await page.goto(BASE + '?tab=projects', { waitUntil: 'networkidle' });
+    await page.waitForSelector('[data-project]', { timeout: 10000 });
+    await page.click('[data-project]');
     await page.waitForSelector('#pj-one-view:not([hidden])', { timeout: 10000 });
+    await page.selectOption('#pj-thread-who', 'mara');
     await page.waitForFunction(() => {
       const q = document.getElementById('pj-question');
       return q && !q.hidden && (document.getElementById('pj-question-text').textContent || '').length > 0;
@@ -546,10 +617,11 @@ async function main() {
     // re-traverse the whole page to reach the question they clicked for,
     // and this file only ever asserted the box was REACHABLE, never that
     // focus moved.
-    const focusedId = await page.evaluate(() => document.activeElement && document.activeElement.id);
-    check(focusedId === 'pj-question-text',
-      'and keyboard focus moves to the question, not back to the top of the document',
-      `activeElement is ${focusedId || '(body)'}`);
+    /* 📌 NO FOCUS ASSERTION HERE ANY MORE, and its absence is the decision. It
+       belonged to the answer BUTTON, which no longer lands in this room; the
+       room is reached above by an ordinary navigation, where focus staying with
+       the document is correct rather than a defect. The assertion moved to the
+       screen the button actually opens. */
     check(/replace the old summary file/.test(question), 'and on the run-up that says what it is asking about');
 
     const qBox = await reallyVisible(page, '#pj-question-text');
@@ -609,7 +681,12 @@ async function main() {
     check(keys[1] && keys[1][keys[1].length - 1] === 'Enter', 'and Enter was a separate call');
 
     const said = await page.locator('.pj-msg .pj-msg-said').first().textContent();
-    check(/Placed into Mara’s session/.test(said), `the verdict is about the keystroke: "${said}"`);
+    /* 🔑 THE RECEIPT WENT QUIET ON AN ORDINARY SUCCESS IN 0.3.0 and this used to
+       require "Placed into Mara's session" on every message. Josh asked for that
+       clause gone; what survives is the part that says what happens NEXT, which
+       is the assertion below and is the one worth having. Mara is waiting on an
+       answer here, so the row speaks. */
+    check(!/Placed into/.test(said), `the clause Josh removed is back: "${said}"`);
     // ⚠️ AND WHAT IT WAS DOING. "Placed into Mara's session" is exactly true and
     // invites the wrong inference — that Mara is reading it. Mara is showing a
     // question, so the clause has to say what was observed rather than what the
