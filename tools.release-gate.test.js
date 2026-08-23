@@ -105,6 +105,28 @@ test('standing at 0.2.99, 0.3.0 gets through', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('standing at 0.2.99, the string Josh actually said is refused too', () => {
+  /**
+   * 🛑 "0.3.00" IS THE LIKELIEST THING TO BE TYPED, because it is the string in
+   * his instruction: "when we get to 0.2.99 then lets roll to 0.3.00". The gate
+   * wants "0.3.0" and the test above only proves it refuses 0.2.100, which
+   * nobody was ever going to type at this point.
+   *
+   * 🔑 AND REFUSING IT IS CORRECT RATHER THAN PEDANTIC. `engine/update.js`
+   * parses a version into three NUMBERS, so "0.3.00" and "0.3.0" are the same
+   * version to every install: neither is newer than the other. Publishing one
+   * and then the other would be an update that no machine ever sees, which is
+   * the silent-no-update failure this project has already shipped once. One
+   * spelling per version is what keeps `newer` a total order.
+   */
+  const dir = sandbox('0.2.99');
+  const r = run(dir, '0.3.00');
+  assert.equal(r.status, 1, 'a second spelling of 0.3.0 was allowed to publish');
+  assert.match(r.said, /0\.3\.0/, 'the refusal does not name the version it wants');
+  assert.equal(r.touched, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('an ordinary next version is not refused', () => {
   const dir = sandbox('0.2.78');
   const r = run(dir, '0.2.79');
