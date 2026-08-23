@@ -972,11 +972,18 @@ async function withThread(spec, answers, fn) {
   try { fs.rmSync(path.join(require('./engine/store').ROOT, 'chats'), { recursive: true, force: true }); }
   catch { /* nothing kept yet */ }
   const board = fleet.install([spec]);
-  const calls = armChat(answers);
+  let calls;
   try {
+    /* ⚠️ The script is armed AFTER the create, not before (#430): creating a
+       project with a running member now types a pane line into that member,
+       and armed first, that send SHIFTED the script -- ten tests measured a
+       screen whose answer the setup had eaten. The create runs on the un-armed
+       chat (dry-run in tests), which also keeps `calls.sends()` about the test
+       body's own sends, the thing every zero-send assertion here counts. */
     const made = json(await post('/api/projects', {
       name: 'Thread ' + spec.name, folder: folder('thread-' + spec.name), agents: [spec.name],
     })).project;
+    calls = armChat(answers);
     return await fn({ board, calls, project: made });
   } finally {
     chat.resetForTests();
