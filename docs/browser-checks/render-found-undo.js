@@ -106,11 +106,15 @@ const FOUND = {
   });
 
   await page.goto(`${BASE}/?first-run=1&fr-step=6`, { waitUntil: 'networkidle' });
-  await page.waitForSelector('.fr-foundrow', { timeout: 8000 });
+  /* 🛑 SCOPED TO THE SETUP PANE. The board grew a found list of its own, and
+     these selectors were global -- so this check started measuring four rows,
+     two of them inside a collapsed fold with a geometry of zero, and reported
+     the setup screen as broken. The board's copy has its own check. */
+  await page.waitForSelector('#fr-fleet .fr-foundrow', { timeout: 8000 });
   await page.waitForTimeout(300);
 
   const geom = await page.evaluate(() => {
-    const rows = [...document.querySelectorAll('.fr-foundrow')];
+    const rows = [...document.querySelectorAll('#fr-fleet .fr-foundrow')];
     return rows.map((row) => {
       const r = row.getBoundingClientRect();
       const go = row.querySelector('.fr-foundgo');
@@ -153,11 +157,11 @@ const FOUND = {
   }
 
   // ---- press Add ----------------------------------------------------------
-  const label = await page.evaluate(() => document.querySelector('.fr-foundgo').textContent);
-  await page.click('.fr-foundrow .fr-foundgo');
+  const label = await page.evaluate(() => document.querySelector('#fr-fleet .fr-foundgo').textContent);
+  await page.click('#fr-fleet .fr-foundrow .fr-foundgo');
   await page.waitForTimeout(400);
   const added = await page.evaluate(() => {
-    const row = document.querySelector('.fr-foundrow');
+    const row = document.querySelector('#fr-fleet .fr-foundrow');
     const go = row.querySelector('.fr-foundgo');
     const undo = row.querySelector('.fr-foundundo');
     const u = undo.getBoundingClientRect();
@@ -171,8 +175,8 @@ const FOUND = {
       undoPressable: Boolean(at && at.closest && at.closest('.fr-foundundo') === undo),
       /* The second row must be untouched: this screen is one somebody presses
          several buttons on, and a repaint would throw away the others. */
-      otherLabel: document.querySelectorAll('.fr-foundgo')[1].textContent.trim(),
-      otherUndoHidden: document.querySelectorAll('.fr-foundundo')[1].hidden,
+      otherLabel: document.querySelectorAll('#fr-fleet .fr-foundgo')[1].textContent.trim(),
+      otherUndoHidden: document.querySelectorAll('#fr-fleet .fr-foundundo')[1].hidden,
       /* 🛑 THE RECEIPT HAS TO BE READABLE. `.btn:disabled` is half opacity, and
          "Added" is the one word telling somebody what happened to their agent.
          It measured 3.43:1 that way, under this project's AA floor. Composited
@@ -212,10 +216,10 @@ const FOUND = {
     `other="${added.otherLabel}" undoHidden=${added.otherUndoHidden}`);
 
   // ---- press Undo ---------------------------------------------------------
-  await page.click('.fr-foundrow .fr-foundundo');
+  await page.click('#fr-fleet .fr-foundrow .fr-foundundo');
   await page.waitForTimeout(400);
   const undone = await page.evaluate(() => {
-    const row = document.querySelector('.fr-foundrow');
+    const row = document.querySelector('#fr-fleet .fr-foundrow');
     const go = row.querySelector('.fr-foundgo');
     const undo = row.querySelector('.fr-foundundo');
     return {
@@ -237,10 +241,10 @@ const FOUND = {
 
   // ---- the failure arm ----------------------------------------------------
   connectOk = false;
-  await page.click('.fr-foundrow .fr-foundgo');
+  await page.click('#fr-fleet .fr-foundrow .fr-foundgo');
   await page.waitForTimeout(400);
   const failed = await page.evaluate(() => {
-    const row = document.querySelector('.fr-foundrow');
+    const row = document.querySelector('#fr-fleet .fr-foundrow');
     const said = row.querySelector('.fr-foundsaid');
     const s = said.getBoundingClientRect();
     return {
@@ -258,6 +262,39 @@ const FOUND = {
     `"${failed.label}" disabled=${failed.disabled}`);
   check('failed Add: no undo is offered for something that did not happen',
     failed.undoHidden === true);
+
+  // ---- two rows added at once ---------------------------------------------
+  /**
+   * 🛑 THE DUPLICATE THE DIRECTORY'S OWN NAME CHECK CANNOT REACH. `named-
+   * controls.js` asserts no two visible controls answer to the same name, and it
+   * passes on this screen because the undos are HIDDEN until somebody presses
+   * Add. Two added rows put two buttons reading "Undo" on screen at once, which
+   * to anybody moving through the page by control is two identical choices with
+   * no way to tell them apart. Only a check that presses can see it.
+   */
+  connectOk = true;
+  await page.click('#fr-fleet .fr-foundrow .fr-foundgo');
+  await page.waitForTimeout(300);
+  await page.click('#fr-fleet .fr-foundrow:nth-child(2) .fr-foundgo');
+  await page.waitForTimeout(400);
+  const names = await page.evaluate(() => {
+    const out = [];
+    for (const b of document.querySelectorAll('#fr-fleet .fr-foundundo')) {
+      if (b.hidden) continue;
+      const r = b.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      out.push((b.getAttribute('aria-label') || b.textContent || '').trim());
+    }
+    return out;
+  });
+  check('two undos are on screen at once', names.length === 2, JSON.stringify(names));
+  check('and they do not answer to the same name', new Set(names).size === names.length,
+    JSON.stringify(names));
+  /* ⚠️ WCAG's label-in-name: somebody speaking "undo" at a voice control must
+     reach the button that reads Undo, so the accessible name has to contain the
+     visible word rather than replace it. */
+  check('each still answers to the word it shows', names.every((n) => /\bundo\b/i.test(n)),
+    JSON.stringify(names));
 
   check('no page errors', errors.length === 0, errors.join(' | '));
 
