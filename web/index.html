@@ -6603,7 +6603,7 @@ function modelLine(a) {
      to look, no restart will fill it in, and the wording (ruled on card #150)
      says history rather than failure. The server decides `neverRecorded`
      (tied pane, no plist), so every surface splits the same way. */
-  if (!name) return a.neverRecorded ? 'Made before Kosmos recorded this' : 'Unknown Model';
+  if (!name) return a.neverRecorded === true ? 'Made before Kosmos recorded this' : 'Unknown Model';
   return /^claude/i.test(name) ? name : 'Claude ' + name;
 }
 /**
@@ -10367,7 +10367,7 @@ function memoryBox(a) {
        this, a stopped never-recorded agent's memory box kept the fault
        sentence while the model line beside it said history: one panel, one
        state, two vocabularies. */
-    const u = memUnknown(a.context || (a.neverRecorded
+    const u = memUnknown(a.context || (a.neverRecorded === true
       ? { neverRecorded: true,
           /* The page owns these words for the stopped row the way modelLine
              owns its sentence: there is no engine context here to quote, and
@@ -11922,11 +11922,12 @@ function openDetail(sessionName, section) {
        for Found agents to list either; the page cannot see that, and the
        birth record (#157) is where that story lives.) */
     const recordedDir = !!(a.profile && a.profile.dir);
-    drunWhy.textContent = a.neverRecorded
+    drunWhy.textContent = a.neverRecorded === true
       ? 'Kosmos has no record of how this agent starts, and waiting will not add one. '
         + (recordedDir
           ? 'Kosmos records where this agent lives but has no launch file for it'
             + (a.running === false ? ', so it will not start on its own.' : '. Kosmos will not write one while it runs some other way.')
+            + ' There is no control here that re-records one yet; that repair is coming with the launch-file backfill (#275).'
           : (a.running === false
             ? 'To bring it in: add it from Found agents in Settings.'
             : 'To bring it in: stop it, then add it from Found agents in Settings. '
@@ -14633,14 +14634,14 @@ async function paintModelPicker(a) {
   /* #149/#150: an agent with no launch file has nothing for setModel to
      rewrite, and the engine would refuse the click. The control says so
      before the click, in the state's own words, not the stranger's. */
-  const usable = ours && !(a && a.neverRecorded);
+  const usable = ours && !(a && a.neverRecorded === true);
   sel.disabled = !usable;
   go.disabled = !usable || !sel.value;
   if (msg && !usable && !msg.textContent) {
     msg.textContent = ours
       ? 'Made before Kosmos recorded how it starts, so there is no launch file to change. '
         + (a && a.profile && a.profile.dir
-          ? ''
+          ? 'There is no control here that re-records one yet.'
           : (a && a.running === false
             ? 'Add it from Found agents in Settings to bring it in.'
             : 'Stop it, then add it from Found agents in Settings to bring it in.'))

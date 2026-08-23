@@ -71,7 +71,10 @@ test('the memory panel says never recorded, for a running context and for a stop
      changing the engine fails only the engine test. Compare the strings to
      each other, both read from source, so either side moving alone is loud. */
   const engineSrc = fs.readFileSync(path.join(__dirname, 'engine', 'status.js'), 'utf8');
-  const engineSentence = engineSrc.match(/because: '(made before Kosmos recorded this[^']*)'/);
+  /* Scoped to readContext so a future second occurrence elsewhere in
+     status.js cannot silently re-aim this pin. */
+  const rc = engineSrc.slice(engineSrc.indexOf('function readContext('));
+  const engineSentence = rc.match(/because: '(made before Kosmos recorded this[^']*)'/);
   const pageSentence = mb.match(/because: '(made before Kosmos recorded this[^']*)'/);
   assert.ok(engineSentence && pageSentence, 'one side lost the sentence entirely; re-anchor this pin');
   assert.equal(pageSentence[1], engineSentence[1],
