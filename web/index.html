@@ -5555,6 +5555,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       </div>
       <button class="linkish" id="docs-finder" type="button">Open this folder in Finder</button>
     </div>
+    <!-- Two sources, said apart (#131, Josh's 08-20 ruling): files from the
+         CONVERSATION live in the attachment store, not the folder, so a
+         folder read alone misses exactly the files a person dropped into the
+         room. Neither list pretends to be the other. -->
+    <h3 class="dlab" id="docs-convo-head" hidden>From the conversation</h3>
+    <div id="docs-convo" class="pj-docs"></div>
+    <h3 class="dlab" id="docs-folder-head" hidden>In the project folder</h3>
     <p class="dhint" id="docs-count" style="margin:0 0 8px;" hidden></p>
     <div id="docs-list" class="pj-docs"></div>
     <p class="fmsg" id="docs-msg" aria-live="polite"></p>
@@ -17845,8 +17852,41 @@ async function openDocsView() {
   const msg = document.getElementById('docs-msg');
   const count = document.getElementById('docs-count');
   box.textContent = ''; count.hidden = true; msg.textContent = 'Looking\u2026';
+  const convo = document.getElementById('docs-convo');
+  const convoHead = document.getElementById('docs-convo-head');
+  convo.textContent = ''; convoHead.hidden = true;
+  document.getElementById('docs-folder-head').hidden = true;
   pjView('docs');
   const forProject = PJ_CURRENT;
+  /* The conversation's files, from the room record (#131): every attachment
+     any post carried, newest first, deduped by id. Opened through their own
+     served URLs; a conversation file is not in the folder and must not
+     pretend to be. Best-effort: a room we cannot read leaves the folder half
+     standing. */
+  (async () => {
+    try {
+      const r = await fetch('/api/project/' + encodeURIComponent(forProject) + '/room', { cache: 'no-store' });
+      const rows = ((await r.json()) || {}).rows || [];
+      if (PJ_CURRENT !== forProject || PJ_VIEW !== 'docs') return;
+      const seen = new Set(); const atts = [];
+      for (let i = rows.length - 1; i >= 0; i -= 1) {
+        for (const a of (Array.isArray(rows[i].attachments) ? rows[i].attachments : (rows[i].attachment ? [rows[i].attachment] : []))) {
+          if (!a || !a.id || seen.has(a.id) || typeof a.url !== 'string' || !/^\/api\//.test(a.url)) continue;
+          seen.add(a.id); atts.push(a);
+        }
+      }
+      if (!atts.length) return;
+      for (const a of atts) {
+        const b = document.createElement('a');
+        b.className = 'pj-doc'; b.href = a.url; b.target = '_blank'; b.rel = 'noopener';
+        const n = document.createElement('span'); n.className = 'pj-doc-n'; n.textContent = a.name || 'a file';
+        const w = document.createElement('span'); w.className = 'pj-doc-w'; w.textContent = pjSize(a.size);
+        b.append(n, w); convo.append(b);
+      }
+      convoHead.hidden = false;
+      document.getElementById('docs-folder-head').hidden = false;
+    } catch { /* the folder half stands alone */ }
+  })();
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(forProject) + '/documents?limit=500', { cache: 'no-store' });
     const body = await res.json();
