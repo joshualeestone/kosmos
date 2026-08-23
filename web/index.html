@@ -1792,7 +1792,15 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
    words and different weight. Do not prune .unsure because a fixture
    stops exercising it. */
 .delivery { display: inline-block; margin-top: 8px; font-size: .75rem; font-weight: 600;
-            padding: .18rem .6rem; border-radius: 100px; border: 1px solid var(--k-rule);
+            /* #116: a receipt, never an alert. Uncapped, a long verdict grew
+               as wide as the box and read as a panel-level alarm. 36ch keeps
+               it message-sized; the text inside reads as a sentence (left),
+               while the box itself stays right-placed under its bubble. The
+               radius is em-based ON PURPOSE: one line renders the familiar
+               stadium, a wrapped verdict renders a small card instead of a
+               blob with semicircular ends. */
+            max-width: 36ch; text-align: left; line-height: 1.45;
+            padding: .18rem .6rem; border-radius: 1.1em; border: 1px solid var(--k-rule);
             color: var(--k-ink-2); }
 .delivery.placed { border-color: rgba(47,125,90,.5); }
 .delivery.failed { border-color: rgba(179,38,30,.5); }
