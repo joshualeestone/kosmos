@@ -2710,3 +2710,31 @@ test('every creation attempt leaves one line in the birth record, refusals inclu
   log = create.createdLog();
   assert.equal(log.length, before + 2, 'a torn line took the readable records with it');
 });
+
+test('an agent born without the messaging block is SAID, not silent (#182)', () => {
+  const messagesMod = require('./messages');
+  const orig = messagesMod.blockBody;
+  messagesMod.blockBody = () => { throw new Error('forced for the test'); };
+  /* Real mode: the splice region sits inside the wrote-its-instructions step,
+     whose DRY_RUN arm returns before any block is composed. */
+  create.setRunner(() => ({ ran: true, spawnFailed: false, status: 0, out: '', err: '' }));
+  create.setDryRun(false);
+  try {
+    const r = create.createAgent({ ...BINS, name: 'blockless-said', role: 'pm' });
+    assert.equal(r.outcome, 'created', r.because);
+    const said = (r.steps || []).find((s) => /could not add the messaging section/.test(s.label));
+    assert.ok(said, 'the blockless birth left no step, so the person is told it worked and the agent cannot answer them');
+    assert.equal(said.ok, false);
+  } finally {
+    messagesMod.blockBody = orig;
+  }
+  /* Control: a birth where the block lands carries no such step. */
+  try {
+    const fine = create.createAgent({ ...BINS, name: 'blockful-quiet', role: 'pm' });
+    assert.equal(fine.outcome, 'created', fine.because);
+    assert.ok(!(fine.steps || []).some((s) => /could not add the messaging section/.test(s.label)),
+      'a healthy birth wears the failure step, so the warning is furniture');
+  } finally {
+    create.setRunner(null);
+  }
+});
