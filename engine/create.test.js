@@ -1766,7 +1766,12 @@ test('every role says who it is, between what it is and how it works', () => {
     assert.ok(how > who, `role '${r.key}' puts "Who you are" after "How you work"`);
     const body = text.slice(who, how).replace('## Who you are', '').trim();
     const sentences = body.split(/[.!?](\s|$)/).filter((s) => s.trim()).length;
-    assert.ok(sentences >= 3 && sentences <= 6, `role '${r.key}' character runs ${sentences} sentences; three to six is the rule, a page gets skimmed`);
+    // MENU roles are three to six sentences: the person picked a job and a
+    // page of character gets skimmed. `own` is the one exception, on Josh's
+    // word (2026-08-23 09:45): it is the prefill a person writes over, and he
+    // asked for it "pretty hefty", so it only has a floor.
+    if (r.key === 'own') assert.ok(sentences >= 6, `own's character runs ${sentences} sentences; it is meant to be the hefty one`);
+    else assert.ok(sentences >= 3 && sentences <= 6, `role '${r.key}' character runs ${sentences} sentences; three to six is the rule, a page gets skimmed`);
     assert.ok(!text.includes('\u2014'), `role '${r.key}' teaches "never use an em dash" with one in its own file`);
   }
   // POSITIVE CONTROL: the check reads the composed text, not a constant.
@@ -1791,6 +1796,46 @@ test('creating own without a label is a gating refusal, never a default', () => 
     'the example did not substitute the name in the identity shape the board parses');
   assert.match(text, /stuck rather than filling the gap/,
     "the example's posture bullet is missing");
+});
+
+test('describe-it-yourself carries the operating defaults in its own body, once, edited or not', () => {
+  // Josh, 2026-08-23 09:45: a hefty default for the third radio that has
+  // "the instructions for not stopping work" IN it, a jumping-off point the
+  // person keeps, edits, or replaces. The mechanism this pins: the block sits
+  // inside the template (before authorship) rather than being appended after
+  // it, so (a) an untouched editor is not double-appended, (b) an edited one
+  // still boots with the defaults because they were in the words edited, and
+  // (c) the template's copy cannot drift from defaults.js because it IS
+  // defaults.js, read at load.
+  const defaults = require('./defaults');
+  const HEADING = 'How you work, whatever the job';
+  const count = (t) => t.split(HEADING).length - 1;
+  // (c) one source
+  assert.ok(roles.byKey('own').instructions.includes(defaults.block()),
+    "the own template's copy of the block has drifted from defaults.js");
+  recorder();
+  create.setDryRun(false);
+  // (a) untouched: the role path appends defaults and must find them present
+  const kept = create.createAgent({ ...BINS, name: 'own-kept', role: 'own', label: 'Napkin Wrangler' });
+  assert.equal(kept.outcome, create.OUTCOME.CREATED, kept.because);
+  assert.equal(count(fs.readFileSync(create.instructionFile('own-kept'), 'utf8')), 1,
+    'an untouched own editor booted with the block appended a second time, or not at all');
+  // (b) edited: the person's words travel verbatim and still carry the block
+  const edited = roles.instructionsFor('own', 'own-edited').replace('an assistant', 'a napkin wrangler');
+  const made = create.createAgent({ ...BINS, name: 'own-edited', role: 'own', label: 'Napkin Wrangler', instructions: edited });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  const text = fs.readFileSync(create.instructionFile('own-edited'), 'utf8');
+  assert.match(text, /a napkin wrangler/, 'the edit did not travel');
+  assert.equal(count(text), 1, 'an edited own file lost the block, or gained a second copy');
+  // POSITIVE CONTROL for (b): strip the block from the edit and the custom
+  // path must NOT put it back. That is the standing rule at the create.js
+  // defaults splice (nothing appended to a person's own words uninvited), and
+  // it is what makes carrying the block in the template necessary at all.
+  const stripped = edited.slice(0, edited.indexOf('## ' + HEADING)).trimEnd() + '\n';
+  const bare = create.createAgent({ ...BINS, name: 'own-bare', role: 'own', label: 'Napkin Wrangler', instructions: stripped });
+  assert.equal(bare.outcome, create.OUTCOME.CREATED, bare.because);
+  assert.equal(count(fs.readFileSync(create.instructionFile('own-bare'), 'utf8')), 0,
+    'the custom path appended defaults to words the person wrote without them; the standing rule moved and this test did not know');
 });
 
 test('a saved About-you record rides the boot file from birth, and its absence costs nothing', () => {
