@@ -841,7 +841,12 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
    so a line hugging the left edge reads as belonging to the page rather than
    to the drawing it is about. */
 #orgnote { text-align: center; margin: 6px 0 0; }
-.orgmap { position: relative; margin: 0 auto; }
+.orgmap { position: relative; margin: 0 auto; touch-action: none; user-select: none; -webkit-user-select: none; }
+/* Grabbable (#285): the cursor says so, and a node being dragged rides above
+   its neighbours with no transition fighting the pointer. */
+.orgmap .onode, .orgmap .hub { cursor: grab; }
+.orgmap .onode.dragging, .orgmap .hub.dragging { cursor: grabbing; z-index: 3; }
+.orgmap .hub { z-index: 1; }
 .wires { position: absolute; inset: 0; width: 100%; height: 100%; }
 .hub {
   position: absolute; transform: translate(-50%, -50%);
@@ -9119,6 +9124,97 @@ document.getElementById('klink').addEventListener('click', () => {
 const ORG_R0 = 120;          // the first ring
 const ORG_STEP = 74;         // how much further out each generation sits
 const ORG_MIN_ARC = 62;      // the arc a 44px node needs to not touch its neighbour
+
+/* ---- the organic layer (#285) ----------------------------------------------
+   Josh: "grab a hold of one of the nodes and move it and it moves the whole
+   kind of thing... much more kind of the Obsidian style". `orgPlace` still
+   decides where everything STARTS (and what its tests pin: rings by depth,
+   children near their parent); this moves the nodes from there by simulation
+   and lets a person grab any of them, the hub included.
+
+   🔑 THE PICTURE KEEPS ITS MEANING. A force layout that only repels and
+   springs forgets depth, and depth is what this chart says: distance from
+   the hub is the reporting line. So every node also feels a gentle pull to
+   the ring it was born on (`ring`), and a spring to its parent at the ring
+   step. Dragging bends that, letting go settles it back toward it; a node
+   cannot be left looking like it reports to somebody it does not.
+
+   📌 NOTHING PERSISTS. A dragged position is a gesture, not a record: the
+   card's own first decision, made the cheap way on purpose. Positions
+   survive a repaint (five-second poll) by key, so a state change on one
+   card does not snap the whole chart back, but a reload starts fresh.
+
+   `orgStep` is pure and DOM-free so it can be tested: `nodes` are plain
+   objects {x, y, vx, vy, ring, parent, fixed}, `hub` is {x, y, vx, vy, fixed},
+   `alpha` is the simulation's heat (1 hot, 0 still). It mutates in place and
+   returns the motion it produced, so a caller can stop when nothing moves. */
+const ORG_SIM = {
+  repel: 2600,     // inverse-square push between nodes, capped below
+  spring: 0.045,   // pull along a parent edge toward the ring step
+  ring: 0.018,     // pull toward the depth ring a node was born on
+  centre: 0.012,   // the hub's pull back to where it started
+  damping: 0.82,
+  maxForce: 6,
+  minGap: 52,      // two 44px discs plus breathing room
+  rest: 0,         // set from ORG_STEP at use
+};
+function orgStep(nodes, hub, alpha, box) {
+  const rest = ORG_SIM.rest || ORG_STEP;
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const cap = (f) => clamp(f, -ORG_SIM.maxForce, ORG_SIM.maxForce);
+  let moved = 0;
+  const all = [hub].concat(nodes);
+  // Repulsion, every pair, capped so a coincident pair does not explode.
+  for (let i = 0; i < all.length; i += 1) {
+    for (let j = i + 1; j < all.length; j += 1) {
+      const a = all[i]; const b = all[j];
+      let dx = b.x - a.x; let dy = b.y - a.y;
+      let d2 = dx * dx + dy * dy;
+      if (d2 < 1) { dx = 0.7; dy = 0.7; d2 = 1; }
+      const d = Math.sqrt(d2);
+      let f = ORG_SIM.repel / d2;
+      // Bodies have size: a 104px hub and a 44px node need more room than two
+      // nodes do, or the first ring sits touching the hub.
+      const gap = (a.size || 22) + (b.size || 22) + 8;
+      if (d < gap) f += (gap - d) * 0.35;
+      f = cap(f) * alpha;
+      const fx = (dx / d) * f; const fy = (dy / d) * f;
+      if (!a.fixed) { a.vx -= fx; a.vy -= fy; }
+      if (!b.fixed) { b.vx += fx; b.vy += fy; }
+    }
+  }
+  for (const n of nodes) {
+    if (n.fixed) continue;
+    // The edge to the parent (or the hub) wants the ring step.
+    const p = n.parent || hub;
+    const dx = p.x - n.x; const dy = p.y - n.y;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const stretch = d - rest;
+    n.vx += cap(stretch * ORG_SIM.spring) * alpha * (dx / d);
+    n.vy += cap(stretch * ORG_SIM.spring) * alpha * (dy / d);
+    // The ring it was born on: depth keeps meaning.
+    const hx = n.x - hub.x; const hy = n.y - hub.y;
+    const hd = Math.sqrt(hx * hx + hy * hy) || 1;
+    const off = n.ring - hd;
+    n.vx += cap(off * ORG_SIM.ring) * alpha * (hx / hd);
+    n.vy += cap(off * ORG_SIM.ring) * alpha * (hy / hd);
+  }
+  if (!hub.fixed) {
+    hub.vx += cap((hub.home.x - hub.x) * ORG_SIM.centre) * alpha;
+    hub.vy += cap((hub.home.y - hub.y) * ORG_SIM.centre) * alpha;
+  }
+  for (const n of all) {
+    if (n.fixed) { n.vx = 0; n.vy = 0; continue; }
+    n.vx *= ORG_SIM.damping; n.vy *= ORG_SIM.damping;
+    const nx = box ? clamp(n.x + n.vx, box.lo, box.hi) : n.x + n.vx;
+    const ny = box ? clamp(n.y + n.vy, box.lo, box.hi) : n.y + n.vy;
+    moved += Math.abs(nx - n.x) + Math.abs(ny - n.y);
+    n.x = nx; n.y = ny;
+  }
+  return moved;
+}
+let ORG_LIVE = null;   // { nodes: Map key -> node, hub, size, raf, alpha }
+let ORG_POS = new Map(); // last positions by key, so a repaint does not snap back
 let ORG_HTML = null;         // the repaint guard's memory
 
 function orgTreeOf(agents) {
@@ -9187,12 +9283,26 @@ function orgPlace(nodes) {
        needs more than that is split across two distances. */
     const fit = Math.max(4, Math.floor((2 * Math.PI * base) / ORG_MIN_ARC));
     const lanes = Math.ceil(ring.length / fit);
+    /* 🔑 CHILDREN ARE ANGLED AMONG THEIR SIBLINGS (#352). The first version
+       took a child's index among every node at this depth, so its place in
+       its parent's arc was decided by how many COUSINS came before it: a lone
+       child sat at the edge of the arc rather than straight out, and two
+       managers' pairs were each shoved to one side. The no-parent ring keeps
+       the depth-wide index, because that ring is one circle around the hub
+       and the index is exactly what spaces it. */
+    const siblings = new Map();
+    for (const n of ring) {
+      const key = n.parent || '';
+      if (!siblings.has(key)) siblings.set(key, []);
+      siblings.get(key).push(n);
+    }
     ring.forEach((n, i) => {
       const lane = Math.floor(i / fit);
       const r = base + lane * 58;
-      const inLane = ring.filter((x, j) => Math.floor(j / fit) === lane).length;
-      const idx = i % fit;
       const parent = n.parent ? placed.get(n.parent) : null;
+      const kin = parent ? siblings.get(n.parent) : ring.filter((x, j) => Math.floor(j / fit) === lane);
+      const inLane = kin.length;
+      const idx = parent ? kin.indexOf(n) : i % fit;
       /* Around the parent's own angle when there is one; evenly round the
          circle when there is not. The half-lane offset stops two lanes lining
          up spoke-for-spoke, which reads as one ring with gaps. */
@@ -9282,7 +9392,7 @@ function paintOrg() {
     const parent = spot.node.parent ? placed.get(spot.node.parent) : null;
     const px = parent ? cx + Math.cos(parent.ang) * parent.r : cx;
     const py = parent ? cy + Math.sin(parent.ang) * parent.r : cy;
-    wires.push('<line x1="' + px.toFixed(1) + '" y1="' + py.toFixed(1) + '" x2="'
+    wires.push('<line data-for="' + esc(name) + '" x1="' + px.toFixed(1) + '" y1="' + py.toFixed(1) + '" x2="'
       + x.toFixed(1) + '" y2="' + y.toFixed(1) + '" class="edge"/>');
     const a = spot.node.agent;
     /* The state vocabulary is the CARD's, read through the same table the grid
@@ -9344,6 +9454,7 @@ function paintOrg() {
     const again = map.querySelector('.onode[data-agent="' + CSS.escape(hadName) + '"]');
     if (again) again.focus();
   }
+  orgLiveStart(map, placed, cx, cy, size);
   const unplaced = agents.length - placed.size;
   /**
    * The flat-fleet line (Mona Lisa, after #137 shipped). Everybody's first org
@@ -9382,6 +9493,113 @@ function paintOrg() {
       : '');
 }
 
+/* Build the live state from what was just painted, seeded from the last
+   known positions by key so a repaint does not snap the chart back, then run
+   the simulation until it is still. Reduced motion: the chart stays where
+   `orgPlace` put it, and a drag still works, one node at a time. */
+function orgLiveStart(map, placed, cx, cy, size) {
+  if (ORG_LIVE && ORG_LIVE.raf) cancelAnimationFrame(ORG_LIVE.raf);
+  const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const hubEl = map.querySelector('.hub');
+  const hubWas = ORG_POS.get('\u0000hub');
+  const hub = { key: '\u0000hub', el: hubEl, x: hubWas ? hubWas.x : cx, y: hubWas ? hubWas.y : cy, vx: 0, vy: 0, fixed: false, size: 52, home: { x: cx, y: cy } };
+  const nodes = new Map();
+  for (const [key, spot] of placed) {
+    const el = map.querySelector('.onode[data-agent="' + CSS.escape(key) + '"]');
+    if (!el) continue;
+    const was = ORG_POS.get(key);
+    nodes.set(key, {
+      key, el,
+      x: was ? was.x : cx + Math.cos(spot.ang) * spot.r,
+      y: was ? was.y : cy + Math.sin(spot.ang) * spot.r,
+      vx: 0, vy: 0, ring: spot.r, parentKey: spot.node.parent || null, parent: null, fixed: false,
+      wire: map.querySelector('line[data-for="' + CSS.escape(key) + '"]'),
+    });
+  }
+  for (const n of nodes.values()) n.parent = n.parentKey ? (nodes.get(n.parentKey) || null) : null;
+  ORG_LIVE = { nodes, hub, size, raf: 0, alpha: still ? 0 : 1, box: { lo: 30, hi: size - 30 } };
+  orgLiveSync();
+  if (!still) orgLiveRun();
+}
+function orgLiveSync() {
+  if (!ORG_LIVE) return;
+  const { nodes, hub } = ORG_LIVE;
+  hub.el.style.left = hub.x.toFixed(1) + 'px'; hub.el.style.top = hub.y.toFixed(1) + 'px';
+  ORG_POS.set(hub.key, { x: hub.x, y: hub.y });
+  for (const n of nodes.values()) {
+    n.el.style.left = n.x.toFixed(1) + 'px'; n.el.style.top = n.y.toFixed(1) + 'px';
+    const p = n.parent || hub;
+    if (n.wire) {
+      n.wire.setAttribute('x1', p.x.toFixed(1)); n.wire.setAttribute('y1', p.y.toFixed(1));
+      n.wire.setAttribute('x2', n.x.toFixed(1)); n.wire.setAttribute('y2', n.y.toFixed(1));
+    }
+    ORG_POS.set(n.key, { x: n.x, y: n.y });
+  }
+}
+function orgLiveRun() {
+  if (!ORG_LIVE) return;
+  const tickOnce = () => {
+    if (!ORG_LIVE) return;
+    const L = ORG_LIVE;
+    const moved = orgStep([...L.nodes.values()], L.hub, L.alpha, L.box);
+    orgLiveSync();
+    L.alpha *= 0.985;
+    if (L.alpha > 0.02 && (moved > 0.05 || L.dragging)) L.raf = requestAnimationFrame(tickOnce);
+    else { L.raf = 0; L.alpha = Math.max(L.alpha, 0.02); }
+  };
+  if (!ORG_LIVE.raf) ORG_LIVE.raf = requestAnimationFrame(tickOnce);
+}
+/* Grab any node, the hub included. The grabbed one is pinned to the pointer
+   and everything else springs after it; letting go unpins it and lets the
+   layout settle. A drag that moved more than a few pixels swallows the click
+   that would otherwise open the agent, so moving April does not also
+   navigate to April. */
+(() => {
+  const map = document.getElementById('orgmap');
+  if (!map) return;
+  let drag = null;
+  map.addEventListener('pointerdown', (e) => {
+    if (!ORG_LIVE || e.button !== 0) return;
+    const el = e.target.closest && e.target.closest('.onode, .hub');
+    if (!el) return;
+    const body = el.classList.contains('hub') ? ORG_LIVE.hub : ORG_LIVE.nodes.get(el.dataset.agent);
+    if (!body) return;
+    const rect = map.getBoundingClientRect();
+    drag = { body, el, x0: e.clientX, y0: e.clientY, moved: false, rect };
+    body.fixed = true;
+    ORG_LIVE.dragging = true;
+    try { el.setPointerCapture(e.pointerId); } catch { /* fine without */ }
+  });
+  map.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x0; const dy = e.clientY - drag.y0;
+    if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 4) { drag.moved = true; drag.el.classList.add('dragging'); }
+    if (!drag.moved) return;
+    const box = ORG_LIVE.box;
+    drag.body.x = Math.min(box.hi, Math.max(box.lo, e.clientX - drag.rect.left));
+    drag.body.y = Math.min(box.hi, Math.max(box.lo, e.clientY - drag.rect.top));
+    ORG_LIVE.alpha = Math.max(ORG_LIVE.alpha, 0.6);
+    orgLiveSync();
+    orgLiveRun();
+  });
+  const release = (e) => {
+    if (!drag) return;
+    const was = drag;
+    drag = null;
+    was.body.fixed = false;
+    if (ORG_LIVE) { ORG_LIVE.dragging = false; ORG_LIVE.alpha = Math.max(ORG_LIVE.alpha, 0.5); orgLiveRun(); }
+    was.el.classList.remove('dragging');
+    if (was.moved) {
+      // Swallow the click this pointer sequence is about to deliver.
+      const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+      map.addEventListener('click', swallow, { capture: true, once: true });
+      setTimeout(() => map.removeEventListener('click', swallow, { capture: true }), 0);
+    }
+    try { was.el.releasePointerCapture(e.pointerId); } catch { /* fine */ }
+  };
+  map.addEventListener('pointerup', release);
+  map.addEventListener('pointercancel', release);
+})();
 document.getElementById('orgmap').addEventListener('click', (e) => {
   const n = e.target.closest && e.target.closest('.onode');
   if (n && n.dataset.agent) openDetail(n.dataset.agent);
