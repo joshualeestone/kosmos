@@ -107,22 +107,26 @@ const say = (ok, label, extra) => {
       /* ⚠️ SCOPED TO THE PANEL ON SCREEN. A bare `.dgrid` matched the one in
          the hidden detail panel first: a zero box, reported as the settings
          grid being 1712px out of place. Second selector trap in this file. */
-      const g = document.querySelector('#panel-settings .dgrid');
-       if (!g) return null;
+      /* Since settings-nav there is no grid of boxes: the panel is a nav
+         column beside one section (.dbody). What full width means here is
+         that the body shares the page edges and the section takes the rest
+         of the row beside a fixed nav column. */
+      const g = document.querySelector('#panel-settings .dbody');
+      if (!g) return null;
       const r = g.getBoundingClientRect();
       const cols = getComputedStyle(g).gridTemplateColumns.split(' ').length;
-      const box = g.querySelector('.dbox');
+      const sec = g.querySelector('.dsec:not([hidden])');
       return { left: Math.round(r.left), right: Math.round(r.right), cols,
-        boxWidth: box ? Math.round(box.getBoundingClientRect().width) : null };
+        secWidth: sec ? Math.round(sec.getBoundingClientRect().width) : null };
     });
-    say(Boolean(dg), theme + ': the settings grid is on screen');
+    say(Boolean(dg), theme + ': the settings body is on screen');
     if (dg) {
       say(dg.left === edges.header.left && dg.right === edges.header.right,
-        theme + ': the settings grid shares the page edges', JSON.stringify(dg));
-      say(dg.cols >= 3, theme + ': it gained a column rather than widening its boxes', String(dg.cols));
-      /* ⚠️ A LOWER BOUND TOO: `< 700` passed on a zero-width hidden element,
-         which is an assertion that cannot fail for the reason it was written. */
-      say(dg.boxWidth > 200 && dg.boxWidth < 700, theme + ': and the boxes did not inflate', String(dg.boxWidth));
+        theme + ': the settings body shares the page edges', JSON.stringify(dg));
+      say(dg.cols === 2, theme + ': nav column plus one section column', String(dg.cols));
+      /* ⚠️ A LOWER BOUND TOO: an assertion that passes on a zero-width hidden
+         element cannot fail for the reason it was written. */
+      say(dg.secWidth > 600 && dg.secWidth < (dg.right - dg.left), theme + ': the open section fills the row beside the nav', String(dg.secWidth));
     }
 
     await pg.click('.tab[data-tab="agents"]');

@@ -98,6 +98,7 @@ one invented by somebody who did not write them.
 | `render-role-limit.js` | Where a role's limit on what it reaches is read, now that it is off the create card |
 | `render-role-order.js` | The three role options in Josh's order, natively grouped, with the menu between two of them |
 | `render-pjsettings.js` | **no header sentence.** Read it before running it, and give it one. |
+| `render-settings-nav.js` | The Settings page's left nav, on a screen (settings-nav, 2026-08-23). |
 | `render-projects.js` | Render every state of the Projects screens in a real browser, light and dark |
 | `render-rename-say.js` | What the agent page says after you rename an agent |
 | `render-reload-toast.js` | The reload toast in both tones, beside the shipped offer toast it must not look like (#270) |

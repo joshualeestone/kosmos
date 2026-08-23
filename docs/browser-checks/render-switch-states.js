@@ -25,11 +25,20 @@ const { chromium } = require('playwright');
   await pg.waitForTimeout(1200);
   const fails = [];
   const say = (ok, l, x) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + l + (x ? '  ' + x : '')); if (!ok) fails.push(l); };
-  const seen = await pg.evaluate(() => ['lim-toggle', 'tell-toggle', 'auto-toggle', 'eng-toggle'].map((id) => {
-    const e = document.getElementById(id);
-    const r = e.getBoundingClientRect();
-    return { id, hidden: e.hidden, checked: e.getAttribute('aria-checked'), w: Math.round(r.width), h: Math.round(r.height) };
-  }));
+  /* Since settings-nav the four switches are in three sections (talking,
+     updates, advanced) and only one is on screen at a time, so each is
+     measured from inside its own section or its rect reads zero. */
+  const WHERE = { 'lim-toggle': 'talking', 'tell-toggle': 'updates', 'auto-toggle': 'updates', 'eng-toggle': 'advanced' };
+  const seen = [];
+  for (const id of Object.keys(WHERE)) {
+    await pg.click('#s-nav button[data-go="' + WHERE[id] + '"]');
+    await pg.waitForTimeout(150);
+    seen.push(await pg.evaluate((id) => {
+      const e = document.getElementById(id);
+      const r = e.getBoundingClientRect();
+      return { id, hidden: e.hidden, checked: e.getAttribute('aria-checked'), w: Math.round(r.width), h: Math.round(r.height) };
+    }, id));
+  }
   for (const s of seen) {
     say(s.hidden === false, s.id + ': is on screen once its setting is read', JSON.stringify(s));
     say(s.checked === 'true' || s.checked === 'false', s.id + ': carries a real position', String(s.checked));

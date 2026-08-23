@@ -42,11 +42,15 @@ test('uncapping a panel needs `none`, because something underneath re-caps it', 
   assert.match(PAGE, /\.panel \{ max-width: 720px;/, 'the rule that re-caps them has moved');
 });
 
-test('the settings grid gains a column rather than widening its boxes', () => {
-  /* 🛑 IT WAS A FIXED PAIR, so uncapping alone doubled the column width instead
-     of adding a third: two 850px boxes at 1760. The one rule in the sweep where
-     removing the cap by itself gives the wrong answer. */
-  assert.match(PAGE, /\.dgrid \{ display: grid; gap: 18px;\s*\n\s*grid-template-columns: repeat\(auto-fill, minmax\(min\(28rem, 100%\), 1fr\)\); \}/);
+test('the settings page is a nav column beside one section, not a grid of boxes', () => {
+  /* 🛑 THIS PINNED A FIXED-PAIR GRID (uncapping alone doubled the column width
+     instead of adding a third). Since settings-nav (2026-08-23) there is no
+     grid: the page is sections behind a nav, like the agent page, and the
+     `.dbody` rule is what takes the full width. A `.dgrid` rule coming back
+     would be a second layout under the nav. */
+  assert.ok(!/\.dgrid \{/.test(PAGE), 'the grid rule is back');
+  assert.match(PAGE, /\.dbody \{ display: grid; grid-template-columns: 176px minmax\(0, 1fr\);/);
+  assert.match(PAGE, /<section class="panel" id="panel-settings"[\s\S]{0,4000}<nav class="snav" id="s-nav"/, 'Settings has no nav');
 });
 
 test('the create form keeps a measure and no longer fakes a centred column', () => {

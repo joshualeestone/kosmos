@@ -89,8 +89,15 @@ function seed() {
        mixed after a good load means its fetch never landed. */
     chk(sw.every((x) => x === 'true' || x === 'false'),
       theme + ': all four switches resolved', JSON.stringify(sw));
+    /* Settings is sections since settings-nav; the reads below are by id and
+       do not need a rect, but the section is opened anyway so a later rect
+       assertion added here does not inherit a hidden element. */
+    await pg.click('#s-nav button[data-go="accounts"]');
+    await pg.waitForTimeout(200);
     chk((await pg.evaluate(() => document.querySelectorAll('#set-accounts .acct-row').length)) > 0,
       theme + ': the accounts list is read, not asserted');
+    await pg.click('#s-nav button[data-go="advanced"]');
+    await pg.waitForTimeout(200);
     const hist = await pg.evaluate(() => document.getElementById('hist-count').textContent);
     chk(/nothing here to delete|Right now/.test(hist), theme + ': delete-history says what is there', hist);
 

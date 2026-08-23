@@ -57,7 +57,12 @@ const SURFACES = [
       await pg.click('#d-nav button[data-go="' + sec + '"]');
     }]),
   ['projects', async (pg) => { await pg.evaluate(() => showTab('projects')); }],
-  ['settings', async (pg) => { await pg.evaluate(() => showTab('settings')); }],
+  ...['you', 'accounts', 'connect', 'talking', 'mac', 'updates', 'advanced'].map((sec) => [
+    'settings: ' + sec, async (pg) => {
+      await pg.evaluate(() => showTab('settings'));
+      await pg.waitForTimeout(400);
+      await pg.click('#s-nav button[data-go="' + sec + '"]');
+    }]),
   ['create form', async (pg) => {
     await pg.click('#new-agent');
     await pg.click('#pick-pm');

@@ -595,6 +595,7 @@ async function main() {
       // The person's own switch, through the real card.
       await page.click('.tab[data-tab="settings"]');
       await page.waitForTimeout(300);
+      await page.click('#s-nav button[data-go="advanced"]');   // the switch lives in Advanced since settings-nav
       await page.click('#eng-toggle');
       await page.waitForTimeout(400);
       const tog = await page.evaluate(() => document.getElementById('eng-toggle').getAttribute('aria-checked'));
@@ -656,6 +657,7 @@ async function main() {
       // Back Off through the same switch, so later states see the default.
       await page.click('.tab[data-tab="settings"]');
       await page.waitForTimeout(300);
+      await page.click('#s-nav button[data-go="advanced"]');   // the switch lives in Advanced since settings-nav
       await page.click('#eng-toggle');
       await page.waitForTimeout(400);
       const back = await page.evaluate(() => document.getElementById('eng-toggle').getAttribute('aria-checked'));
