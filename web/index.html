@@ -10026,6 +10026,16 @@ async function paintTalk(sessionName, agentName) {
   // waiting on you, and the answer takes its place in the thread below as an
   // ordinary message. The whole block goes, not just its buttons.
   qask.hidden = nowHidden;
+  /* 🛑 FOCUS ARRIVES HERE, in the same turn the question appears. The rescue
+     above handles focus LEAVING; nothing handled it arriving, so pressing
+     "answer" on a card left a keyboard user on <body> with the question they
+     asked for somewhere below them. It was handled once, for the project room,
+     and re-pointing that button at the agent's own page on 2026-08-21 carried
+     the navigation and not the focus. */
+  if (ANSWER_WANTS_FOCUS && CURRENT && ANSWER_WANTS_FOCUS === CURRENT.sessionName) {
+    ANSWER_WANTS_FOCUS = null;
+    if (!qask.hidden && !qtext.hidden) qtext.focus();
+  }
   /* The persistence line's other half (its text is written before the fetch):
      shown once an answer is in hand, so a panel that recovers from a refusal
      -- or an agent opened after one that failed -- has it back.
@@ -17829,6 +17839,11 @@ document.getElementById('pj-say').addEventListener('keydown', (e) => {
  * lands somewhere that says what to do next — including the two that cannot
  * open a thread at all.
  */
+/* Set by the answer button, consumed by the paint that unhides the question.
+   Null everywhere else, which is every arrival at an agent's page that was not
+   somebody pressing "answer". */
+let ANSWER_WANTS_FOCUS = null;
+
 async function pjAnswerFrom(sessionName, displayName) {
   // Act on the machine name, SPEAK the display name -- the same split the
   // capitalised-names change made everywhere else. The card carries both;
@@ -17859,6 +17874,32 @@ async function pjAnswerFrom(sessionName, displayName) {
    * be the stranded state this whole path exists to make impossible.
    */
   openDetail(sessionName);
+  /**
+   * 🛑 AND FOCUS FOLLOWS THE PERSON TO IT. A keyboard user pressing this button
+   * was being left on `<body>`: the card that carried the button is torn down
+   * on the tab switch, so activation moves focus nowhere and they have to
+   * re-traverse the whole document to reach the question they just asked for.
+   *
+   * ⚠️ THIS EXACT FIX ALREADY EXISTED FOR THE OLD DESTINATION AND DID NOT COME
+   * WITH THE RE-POINT. When this button opened a project room it moved focus to
+   * the room's question; re-pointing it at the agent's own page on 2026-08-21
+   * carried the navigation and left the focus move behind. The browser check
+   * that asserts it (`render-thread.js`) was waiting on the OLD destination, so
+   * it threw before reaching the assertion -- the regression and the thing that
+   * would have caught it were the same change.
+   *
+   * 🔑 AN INTENT, NOT A TIMER. The question is painted by an async read inside
+   * `openDetail`, so there is nothing to focus when this line runs -- and the
+   * first version of this fix polled for it, which made "did focus move" a race
+   * that a check could read either way depending on when it looked. This records
+   * that a person PRESSED ANSWER, and the paint consumes it in the same turn it
+   * unhides the question. Deterministic, and it cannot focus a hidden element.
+   *
+   * ⚠️ CONSUMED ON THE FIRST PAINT OF THIS AGENT'S PANEL WHETHER OR NOT IT
+   * FIRES, so a question that never arrives cannot leave the intent lying in
+   * wait to yank focus on some later visit.
+   */
+  ANSWER_WANTS_FOCUS = sessionName;
   /**
    * ⚠️ `openDetail` RETURNS SILENTLY when the name is not on the board it
    * reads (`LAST.find` then a bare return), which from the outside is a click
