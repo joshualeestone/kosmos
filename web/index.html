@@ -1294,9 +1294,13 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 .dsecs { min-width: 0; }
 .dsec { display: flex; flex-direction: column; gap: 18px; border-radius: 16px; }
 .dsec:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; }
+/* One of three sentences while the box is hidden, chosen by `data-tied`;
+   none while the box is showing. */
+.dterm-note { display: none; }
+.dsec[data-tied="1"] #d-term-reading { display: block; }
+.dsec[data-tied="0"] #d-term-empty { display: block; }
+.dsec[data-tied="gone"] #d-term-gone { display: block; }
 #d-window-box:not([hidden]) ~ .dterm-note { display: none; }
-.dsec[data-tied="1"] #d-term-empty { display: none; }
-.dsec[data-tied="0"] #d-term-reading { display: none; }
 .dsec[hidden] { display: none; }
 /* Inside Fresh start the restart control keeps its own label, but the box
    already has a shouting heading; two uppercase labels stacked read as two
@@ -2558,7 +2562,7 @@ svg { display: block; }
 /* ⚠️ `.danger` was used on the untied explanation and defined NOWHERE, so the
    one sentence the design leans on to say why every write vanished rendered as
    unstyled body text. An explanation nobody's eye lands on is not one. */
-#d-untied {
+#d-untied, #d-withdrawn {
   /* Sits between the header and the nav since agent-page-nav; the nav's
      first pill needs room under it or the note reads as part of the nav. */
   margin: 0 0 18px;
@@ -3563,6 +3567,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     </div>
   </div>
   <p id="d-untied" hidden></p>
+  <!-- The removed-agent sentence, visible from every section since the page
+       grew them (it used to sit at the foot of the one column; now it would
+       be only in Remove, and a person on Talk would see controls go grey with
+       nothing saying why). Same painter as the Remove block's copy. -->
+  <p id="d-withdrawn" role="status" aria-live="polite" hidden></p>
 
   <!-- ⚠️ THE LEFT NAV (Mona Lisa's agent-page mock, 2026-08-22; Josh 08-23:
        "the agent subpage design ... implemented"). Seven sections, one on
@@ -4044,6 +4053,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        show. One sentence for both would assert a cause the page has not
        established, for a round trip, on every open. -->
   <p class="dhint dterm-note" id="d-term-reading">Reading its window&hellip;</p>
+  <p class="dhint dterm-note" id="d-term-gone">This agent is no longer under Agents, so there is no window to show.</p>
   <p class="dhint dterm-note" id="d-term-empty">No window to show for this agent. Kosmos shows the window of an agent it can tie to its name; if this one was started some other way, it cannot.</p>
   </section>
   <section class="dsec" id="d-sec-remove" data-sec="remove" tabindex="-1" aria-label="Remove" hidden>
@@ -7757,11 +7767,15 @@ async function tick() {
     REMOVE_ASK = null;
     const start = document.getElementById('d-remove-start');
     if (start) start.hidden = true;
+    const withdrawn = 'This agent is no longer under Agents. It may have been removed somewhere else, '
+      + 'or it may have stopped. Nothing here can change it until it is back.';
     const gone = document.getElementById('d-remove-hint');
-    if (gone) {
-      gone.textContent = 'This agent is no longer under Agents. It may have been removed somewhere else, '
-        + 'or it may have stopped. Nothing here can change it until it is back.';
-    }
+    if (gone) gone.textContent = withdrawn;
+    /* And in the header, visible from every section: the Remove block is
+       one section of seven now, and a person on Talk would otherwise watch
+       the controls go grey with nothing on screen saying why. */
+    const head = document.getElementById('d-withdrawn');
+    if (head) { head.textContent = withdrawn; head.hidden = false; }
     PANEL_WITHDRAWN = true;
     // ⚠️ And the removal OFFER is re-asked too, not only the write controls.
     // `setWritesOffered` runs every tick by explicit rule, but `d-remove-start`
@@ -7787,6 +7801,7 @@ async function tick() {
      * the half it is missing is the one that leaves a false sentence on screen.
      */
     PANEL_WITHDRAWN = false;
+    document.getElementById('d-withdrawn').hidden = true;
     loadRemoval(fresh.sessionName);
   }
   if (fresh) {
@@ -9707,10 +9722,11 @@ async function paintAgentWindow(sessionName, opts) {
      the page split into sections, a gated box would have left the Terminal
      pill opening an empty section, which is a control that does nothing.
      Every caller now passes `cachedFlag`, so the refresh branch above is not
-     reached from here (the flag is learned where the switch is painted); it
-     is kept rather than deleted because `ENG_ON` is read by the project
-     room, which the switch still governs. `on` is deliberately unused past
-     this line. */
+     reached from here (the flag is learned where the switch is painted). The
+     dormant branch and its counter are left in place rather than deleted in
+     the same change that moved the page, so this diff stays a move and a
+     gate removal; deleting them is a separate, smaller change. `on` is
+     deliberately unused past this line. */
   void on;
   /* The box reveals with CONTENT (a capture or a refusal in words), not
      before it: a bare heading over an empty pre for a round-trip is the
@@ -9748,6 +9764,7 @@ async function paintAgentWindow(sessionName, opts) {
       msg.textContent = r.because || r.error || 'We could not read its window just now.';
       msg.hidden = false;
       box.hidden = false;
+      delete box.dataset.gone;   // an answer, so not the 404 the marker records
     }
   } catch {
     if (mine !== WINDOW_LOAD) return;
@@ -9762,6 +9779,7 @@ async function paintAgentWindow(sessionName, opts) {
     msg.textContent = 'We could not read its window just now.';
     msg.hidden = false;
     box.hidden = false;
+    delete box.dataset.gone;
   }
 }
 
@@ -10179,7 +10197,8 @@ async function paintTalk(sessionName, agentName) {
        something that will not change. A transient read failure keeps the
        time phrase, because there it is true. */
     /* ⚠️ THE SERVER'S OWN SENTENCE IS NOT PAINTED HERE, and the window box
-       twenty lines up refuses the identical 404 for the identical reason: its
+       (paintAgentWindow, in the Terminal section) refuses the identical 404
+       for the identical reason, and says only that the window cannot be shown: its
        body is "no agent by that name", and putting that inside the open panel
        of an agent the person is looking at, beside a card carrying that name,
        is the screen contradicting itself. The standing arm is reached only for
@@ -10904,8 +10923,8 @@ function openDetail(sessionName, section) {
   if (!a) return;
   CURRENT = a;
   /* ⚠️ THE SECTION IS CHOSEN ON OPEN AND NEVER BY THE POLL. A caller that
-     knows where the person is going (the card's answer button, the stale
-     mark) names it; everyone else lands on Talk, which is the mock's landing
+     knows where the person is going (the stale mark on the card would be the
+     first) would name it; today every caller lands on Talk, the mock's landing
      and the thing most people open an agent for. The poll repaints the
      sections by id and never calls detailGo, so a person reading Instructions
      is not flipped back to Talk five seconds later. */
@@ -11096,6 +11115,7 @@ function openDetail(sessionName, section) {
     const wpre = document.getElementById('d-window');
     wpre.textContent = ''; wpre.hidden = true;
     delete document.getElementById('d-window-box').dataset.gone;   // the last agent's 404, not this one's
+    document.getElementById('d-withdrawn').hidden = true;           // and the last agent's absence
     document.getElementById('d-window-hint').textContent = '';
     document.getElementById('d-window-msg').hidden = true;
     // The box itself too: a bare heading standing over nothing for two
@@ -11163,9 +11183,11 @@ function detailPaintWindow(a) {
   if (!a) {
     /* Hide and RETIRE any in-flight paint, as the tick's arm always did: a
        capture that painted before the agent left the board would otherwise
-       stand under "right now" beside the removed-agent sentence. */
+       stand under "right now". The section says the agent is gone, its own
+       state: "reading" would wait forever and "cannot tie" asserts a cause. */
     WINDOW_LOAD += 1;
     box.hidden = true;
+    detailSection('term').dataset.tied = 'gone';
     return;
   }
   const tied = a.isNamedOurs === true;
@@ -11207,6 +11229,10 @@ function detailGo(section, opts) {
     if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
   });
   let target = null;
+  /* A re-click of the pill already on is not an arrival (no re-scroll, no
+     re-capture); an open is always one, even onto the section already
+     showing, because openDetail has just reset what the section holds. */
+  const arriving = detailSection(section).hidden || !!(opts && opts.focus === false);
   document.querySelectorAll('#panel-detail .dsec').forEach((sec) => {
     const on = sec.dataset.sec === section;
     sec.hidden = !on;
@@ -11224,7 +11250,7 @@ function detailGo(section, opts) {
      no-op and the count is already recorded, so nothing would scroll when
      the person came back. Re-done here, on arrival, for the one painter
      that measures. */
-  if (section === 'talk') {
+  if (section === 'talk' && arriving) {
     const th = document.getElementById('d-dmthread');
     /* Back where they were if they had left, consumed on use so a second
        click on the Talk pill does not drag them back to an older offset;
@@ -11237,9 +11263,11 @@ function detailGo(section, opts) {
   }
   /* The FRESH record, not the one captured at open: the poll never rewrites
      CURRENT, and a tie that changed while the person sat on Talk would
-     otherwise paint the wrong sentence for a round of the tick. */
-  if (section === 'term' && CURRENT) {
-    detailPaintWindow(LAST.find((x) => x.sessionName === CURRENT.sessionName) || CURRENT);
+     otherwise paint the wrong sentence for a round of the tick. No fallback
+     to the open-time record: a missing one means the agent left the board,
+     which is the case the helper's first arm exists for. */
+  if (section === 'term' && CURRENT && arriving) {
+    detailPaintWindow(LAST.find((x) => x.sessionName === CURRENT.sessionName));
   }
 }
 document.getElementById('d-nav').addEventListener('click', (e) => {

@@ -84,7 +84,8 @@ test('the poll never chooses the section', () => {
   // And from the FRESH record, not the one captured at open: the poll never
   // rewrites CURRENT, so a tie that changed while the person was elsewhere
   // would paint the wrong sentence for a round of the tick.
-  assert.match(go, /LAST\.find\([\s\S]{0,80}CURRENT\.sessionName\) \|\| CURRENT/, 'the arrival paint reads the record captured at open');
+  assert.match(go, /detailPaintWindow\(LAST\.find\([\s\S]{0,80}CURRENT\.sessionName\)\)/, 'the arrival paint reads the record captured at open');
+  assert.doesNotMatch(go, /\|\| CURRENT\)/, 'a missing record falls back to the open-time one, so a removed agent is painted as still here');
 });
 
 test('the agent window no longer answers to the Engineering mode switch on this page', () => {

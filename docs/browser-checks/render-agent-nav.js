@@ -153,9 +153,14 @@ function chk(ok, label, extra) {
       await page.waitForTimeout(300);
       const term = await page.evaluate(() => ({
         box: document.getElementById('d-window-box').hidden,
+        pre: document.getElementById('d-window').hidden,
+        msg: document.getElementById('d-window-msg').hidden,
         cap: getComputedStyle(document.getElementById('d-window')).maxHeight,
       }));
-      chk(term.box === false, `[${theme}] the window box shows with Engineering mode off`, JSON.stringify(term));
+      // A capture, not a sentence: the refusal-in-words arm also shows the
+      // box, so `box.hidden === false` alone would pass a revived gate.
+      chk(term.box === false && term.pre === false && term.msg === true,
+        `[${theme}] the window box shows a capture with Engineering mode off`, JSON.stringify(term));
       chk(term.cap === '560px', `[${theme}] the window cap is 560px on this box`, term.cap);
 
       // Narrow: the nav becomes a row above the content, and nothing overflows.
