@@ -540,7 +540,7 @@ function send({ fromPane, to, text, inReplyTo }, roster) {
  * (the route reads it off the project record): this module stays the
  * mechanism and owns no membership model.
  */
-function sendPost({ fromPane, project, projectName, text, operator }, roster, members) {
+function sendPost({ fromPane, project, projectName, text, operator, attachment, trailer }, roster, members) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -825,7 +825,9 @@ function sendPost({ fromPane, project, projectName, text, operator }, roster, me
            and inviting a reply is the unaddressed-steering the room prevents. */
         : '[background from your colleague ' + from + ' \u00b7 ' + id + ' \u00b7 project ' + shownProject + ' \u00b7 not addressed to you]'))
       + ' ' + body;
-    const sent = chat.deliver(name, envelope, roster);
+    /* `trailer` (#358) is the attached file's path, typed after the envelope
+       and body and outside the checks, the same way the direct thread does it. */
+    const sent = chat.deliver(name, envelope, roster, undefined, typeof trailer === 'string' ? trailer : undefined);
     outcomes[name] = sent.state;
     if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
   }
@@ -850,7 +852,8 @@ function sendPost({ fromPane, project, projectName, text, operator }, roster, me
   }
 
   appendLog({ kind: 'post', id, project: projectId, from, to: recipients, text: cleaned, at, outcomes,
-    ...(operator === true ? { operator: true } : {}) });
+    ...(operator === true ? { operator: true } : {}),
+    ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}) });
   /* The aggregate state is a SUMMARY, not the receipt: the receipt
      sentence must be built from `outcomes` per recipient (a post to
      three that reaches two must never render as sent). */
