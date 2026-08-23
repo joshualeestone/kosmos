@@ -4008,6 +4008,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   </div>
   <div class="field" style="margin-top:18px;">
     <label class="flabel" for="d-role">What they do</label>
+    <div class="fhint">Shown under their name, and written into their own instructions.</div>
     <!-- ⚠️ FOUR WORDS DOING THE JOB OF A SENTENCE. This read "Your words.
          Nothing on this computer records it, so it is blank until you say."
          Mona Lisa's three objections, all right: it is a MECHANISM sentence
@@ -11586,7 +11587,13 @@ function openDetail(sessionName, section) {
     // round-trips is the same misattribution family, one notch quieter.
     document.getElementById('d-window-box').hidden = true;
   }
-  document.getElementById('d-role').value = (a.profile && a.profile.role) || '';
+  /* 🔑 THE FIELD SHOWS WHAT THE HEADER SHOWS (#363). With no role on the
+     record the header still names one, read from the instruction file, and
+     this field sat empty beside it: two answers to one question, and the
+     empty one was the editable one, so Save looked like it would clear a
+     role that was merely unrecorded. Prefilled from the same derivation the
+     header uses, so Save writes exactly what the person was looking at. */
+  document.getElementById('d-role').value = roleLine(a, ROLE_TITLES) || '';
   /* `a.name` is the DISPLAY name readIdentity already resolved (record wins
      over the instruction file); `a.sessionName` is where it lives, and is not
      what this field edits. */

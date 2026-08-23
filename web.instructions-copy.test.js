@@ -97,3 +97,21 @@ test('the reports-to control says what the line does, and the save line is read 
   assert.match(handler, /rep\.state === 'told'[\s\S]{0,200}running\s*\?/, 'told is not gated on running, so a stopped agent is told to restart');
   assert.match(handler, /rep\.state === 'could_not'[\s\S]{0,120}rep\.because/, 'could_not no longer carries the engine sentence');
 });
+
+test('the What-they-do field shows what the header shows, never an empty box beside a named role (#363)', () => {
+  /* With no role on the record the header still names one (roleLine reads
+     the instruction file), and the field used to sit empty beside it: Save
+     looked like it would clear a role that was merely unrecorded. */
+  const roleLine = page.lift(SCRIPT, 'roleLine');
+  const at = SCRIPT.indexOf("document.getElementById('d-role').value = ");
+  assert.ok(at > -1, 'the role prefill moved');
+  const line = SCRIPT.slice(at, SCRIPT.indexOf('\n', at));
+  assert.match(line, /roleLine\(a, ROLE_TITLES\)/, 'the field is not prefilled from the same derivation as the header');
+  // And roleLine itself prefers the record, then the parsed identity line.
+  const fn = new Function(roleLine + '\nreturn roleLine;')();
+  assert.equal(fn({ profile: { role: 'Copywriter' }, role: 'a data analyst' }, null), 'Copywriter');
+  assert.equal(fn({ profile: {}, role: 'design worker' }, null), 'Design worker', 'the parsed role is shown with its first letter capitalised, as the header does');
+  assert.equal(fn({ profile: {}, role: '' }, null), '');
+  const words = PAGE.replace(/<!--[\s\S]*?-->/g, '');
+  assert.match(words, /Shown under their name, and written into their own instructions\./, 'the field lost its hint');
+});
