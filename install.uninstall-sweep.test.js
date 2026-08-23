@@ -27,3 +27,25 @@ test('the uninstall sweeps live sessions by @kosmos_agent, after the plist loop'
   assert.match(tail, /kill-session -t "=\$_sname"/, 'the sweep kill is not exact-match anchored');
   assert.doesNotMatch(tail, /kill-server/, 'the sweep must never kill the server; it is not ours on a shared machine');
 });
+
+test('no launchctl call escapes a sandboxed run into the real gui domain', () => {
+  /* launchd has no sandbox: AGENT_WORKFORCE_LAUNCH redirects plist FILES, but
+     "gui/$uid" is always the real domain. Found live 2026-08-23: a suite run
+     bootstrapped its temp-pathed board plist over the product's own label,
+     and when the sandbox was deleted the real board ran unsupervised. Every
+     launchctl invocation must sit inside a sandbox gate. Sliced per site so
+     a new ungated call fails by line, not by vibe. */
+  const lines = SH.split('\n');
+  const offenders = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!/launchctl (enable|bootout|bootstrap|kickstart)/.test(lines[i])) continue;
+    if (/^\s*#/.test(lines[i])) continue;
+    /* The gate must appear in the enclosing 12 lines: either arm of it. */
+    const above = lines.slice(Math.max(0, i - 12), i).join('\n');
+    const gated = /-z "\$\{AGENT_WORKFORCE_LAUNCH:-\}"/.test(above)
+      || /-n "\$\{AGENT_WORKFORCE_LAUNCH:-\}"/.test(above);
+    if (!gated) offenders.push((i + 1) + ': ' + lines[i].trim());
+  }
+  assert.deepEqual(offenders, [],
+    'launchctl calls with no sandbox gate in reach; a suite run can act on the real launchd domain');
+});

@@ -763,8 +763,14 @@ uninstall() {
     # deleting the plist while that override stands leaves a machine where
     # a reinstalled Kosmos creates an agent with the same name and launchd
     # silently refuses to start it, with nothing on disk to explain why.
-    /bin/launchctl enable "gui/$(/usr/bin/id -u)/$_label" 2>/dev/null || true
-    /bin/launchctl bootout "gui/$(/usr/bin/id -u)/$_label" 2>/dev/null || true
+    # ⚠️ AND ONLY OUTSIDE A SANDBOX (same escape as the board's block below):
+    # the label came from a sandbox plist, but "gui/$uid" is the real domain,
+    # so a sandboxed uninstall would boot out any REAL agent sharing a name.
+    # The file removal after this is the sandboxed half and stays.
+    if [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ]; then
+      /bin/launchctl enable "gui/$(/usr/bin/id -u)/$_label" 2>/dev/null || true
+      /bin/launchctl bootout "gui/$(/usr/bin/id -u)/$_label" 2>/dev/null || true
+    fi
     # The agent itself runs in a detached tmux session that outlives its
     # launchd job; with Kosmos gone it would keep running against a tmux
     # binary deleted out from under it. Killed BY NAME, one session per
@@ -2108,7 +2114,17 @@ if [ "$_board_ok" = yes ]; then
     # ⚠️ `print` IS THE PROBE, not `list`: it is the one `engine/create.js`
     # already uses to ask whether a label is loaded, and it fails for every free
     # name by design.
-    if /bin/launchctl print "gui/$_uid/$_board_label" >/dev/null 2>&1; then
+    # 🛑 NEVER FROM A SANDBOX. This bootstraps $_board_plist into the REAL
+    # gui domain, and under AGENT_WORKFORCE_LAUNCH that file lives in a temp
+    # dir -- so a suite run landing here while the real label happened to be
+    # absent registered a TEMP-PATHED job over the product's own, and when
+    # the sandbox was deleted the real board was left unsupervised. Found
+    # live on the fleet Mac, 2026-08-23: com.kosmos.board pointing into
+    # T/kosmos-clean-*/. The plist WRITE above stays sandboxed and asserted
+    # by the suite; the launchd registration is real-machine-only.
+    if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ]; then
+      : # sandboxed run: the file is the deliverable, the domain is not ours
+    elif /bin/launchctl print "gui/$_uid/$_board_label" >/dev/null 2>&1; then
       : # already registered; the rewritten file is picked up at the next login
     else
       # enable BEFORE bootstrap, the order the uninstall path above documents: a
