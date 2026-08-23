@@ -20104,8 +20104,17 @@ function foundRowsHtml(agents) {
          screen where somebody presses four buttons in a row, so the success arm
          must not rebuild markup -- and an element that already exists cannot be
          the element a later edit forgets to create. It carries no name in its
-         label because it sits against a button that just said "Added". */
-      + '<button class="btn fr-foundundo" type="button" hidden>Undo</button>'
+         label because it sits against a button that just said "Added".
+         🔑 BUT ITS ACCESSIBLE NAME DOES CARRY ONE. Add two agents and there are
+         two visible buttons reading "Undo", which to somebody moving through the
+         page by control is two identical choices with no way to tell them apart.
+         The directory's own duplicate-name check cannot catch this: these are
+         hidden until pressed, and no check had ever pressed one.
+         ⚠️ THE LABEL BEGINS WITH THE VISIBLE WORD, which is what WCAG's
+         label-in-name asks for -- a person saying "undo" to a voice control must
+         reach the control that reads Undo. */
+      + '<button class="btn fr-foundundo" type="button" hidden'
+      + ' aria-label="Undo adding ' + esc(a.name) + ' to Kosmos">Undo</button>'
       + '</span>'
       + '<p class="fr-foundsaid" role="status" aria-live="polite"></p>'
       + '</div>').join('')
