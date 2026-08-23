@@ -1076,6 +1076,17 @@ const RATE_LIMIT_MARKERS = [
   /\/usage-credits\b/,            // observed 2026-08-21
 ];
 
+/* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
+   comment at its use site in classify(). Module-level like its sibling
+   marker sets. Whitespace INSIDE the timer group is \s+ too, so a
+   narrow pane wrapping anywhere in the line (gerund-to-paren, or between
+   timer units) still classifies; probed at all three wrap points.
+   🛑 THE FRAME CLASS IS MEASURED, NOT GUESSED, and it excludes ⏺ on
+   purpose: that is the bullet Claude prefixes on every line the AGENT
+   writes, so including it (an earlier draft did) turned any echoed
+   "⏺ Waiting… (10s)" into a working verdict on a finished pane. */
+const WORKING_LINE = /^\s*[·✢✳✶✻✽*] \S+…\s+\((?:\d+h\s+)?(?:\d+m\s+)?\d+s(?:\s*·|\))/mu;
+
 /**
  * The first line of `text` that any of `markers` matches, or null.
  *
@@ -1176,6 +1187,92 @@ function classify(pane, paneText) {
   }
   if (/esc to interrupt/i.test(tail)) {
     return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task' };
+  }
+  /**
+   * The CURRENT spinner line, keyed on structure rather than vocabulary
+   * (#369). Newer Claude Code draws its mid-turn line as a bullet, one
+   * gerund ending in an ellipsis, and a LIVE elapsed timer opening the
+   * parens:
+   *
+   *   · Improvising… (35s · ↓ 1.5k tokens · thought for 8s)
+   *   · Canoodling… (4h 39m 45s · ↓ 673.5k tokens)
+   *
+   * MEASURED 2026-08-23 on two live Fable sessions mid-turn. Neither line
+   * contains "esc to interrupt" (the old UI's phrase, which the rule above
+   * keys on), and the gerund is drawn from a large rotating vocabulary, so
+   * a word list would be stale on arrival: the finished-line list below
+   * already misses "Cooked for" and "Crunched for" for exactly that
+   * reason. The stable parts are the ellipsis and the timer, so that is
+   * the key. The finished line ("✳ Cooked for 1m 33s", U+2733 as measured,
+   * not the U+2731 the enumerated idle list keys on, so those lines reach
+   * idle only via the footer rule below) has no parens and cannot match; a
+   * person's own text could echo the shape, which is true of every scraped
+   * marker in this function and no worse here. The glyph class excludes
+   * word and numeral prefixes, so an agent NARRATING its own progress
+   * ("1. Deploying… (30s)") does not read as the UI's spinner.
+   * ⚠️ ASSUMED: the timer always renders a seconds field. Every observed
+   * variant does; if the UI ever drops seconds at large elapsed values
+   * this goes false negative and the tile undercounts again.
+   *
+   * ⚠️ This sits ABOVE the prompt-footer idle rule by necessity, not
+   * taste: the ⏵⏵ footer stays on screen DURING a Fable turn, so footer
+   * evidence cannot separate working from waiting, and before this rule
+   * a fleet mid-turn read "0 Working" on the headline tile.
+   */
+  /* The glyph class is the OBSERVED spinner frames, enumerated, not "any
+     punctuation": a bare punctuation class let markdown bullets and
+     box-drawing wrap ("- Deploying… (30s)", "> Fetching… (12s)",
+     "│ Improvising… (35s)") read as the UI's spinner, and Claude panes are
+     full of exactly those shapes. `*` IS a real frame and also a markdown
+     bullet; it stays in because an echoed line would need the ellipsis AND
+     a live timer to slip through, and dropping it would misread every poll
+     that samples that frame. Word and numeral prefixes stay excluded.
+     ⚠️ Further assumed false-negative shapes, beside the seconds field
+     noted above: a days unit ("(2d 4h…") and a multi-word verb
+     ("· Reticulating splines…") do not match; neither has been observed. */
+  const m = tail.match(WORKING_LINE);
+  if (m) {
+    return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task',
+             /* The whole line via the module's own convention (glyph-strip,
+                240 cap), not the regex fragment. A narrow pane can hard-wrap
+                the spinner line between gerund and timer: the classification
+                still fires (\s+ crosses the wrap) but no single raw line
+                matches, so the per-line reader comes back empty and the
+                match itself, whitespace-normalised, keeps the contract that
+                evidence shows what the board saw. (matchedLine's strip class
+                takes the leading glyph off a *-frame line; cosmetic, and the
+                fallback path keeps its glyph.) */
+             evidence: (() => {
+               /* ONE evidence path, this builder, on every match (wrapped
+                  or not): start of the match's own line through the end of
+                  the line the TIMER'S close paren sits on. The close is
+                  searched from the timer's OWN opening paren (a gerund may
+                  legally contain parens), and only inside a two-extra-line
+                  window, because a capture clipped mid-redraw has no close
+                  at all and an unbounded scan pastes whatever later line
+                  happens to carry one (the prompt footer does) into a
+                  product surface. A close that is absent or out of window
+                  yields the match's own line with the truncation marker,
+                  so a cut is visibly a cut. matchedLine is not used here:
+                  a wrapped line's first fragment satisfies the regex alone
+                  (a trailing separator doubles as the close), so the
+                  per-line reader would return exactly the dangling cut
+                  this contract forbids. Glyphs are kept as captured. */
+               const from = tail.lastIndexOf('\n', m.index) + 1;
+               const open = m.index + m[0].lastIndexOf('(');
+               let win = tail.indexOf('\n', m.index + m[0].length);
+               if (win !== -1) win = tail.indexOf('\n', win + 1);
+               const bound = win === -1 ? tail.length : win;
+               const paren = tail.indexOf(')', open);
+               const closed = paren !== -1 && paren < bound;
+               const at = closed
+                 ? tail.indexOf('\n', paren)
+                 : tail.indexOf('\n', m.index + m[0].length);
+               const line = tail.slice(from, at === -1 ? tail.length : at)
+                 .replace(/\s+/g, ' ').trim();
+               if (line.length > 240) return line.slice(0, 240) + '…';
+               return closed ? line : line + '…';
+             })() };
   }
   if (/✱|Worked for|Brewed for|Baked for|to save .* tokens/i.test(tail)) {
     return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it finished and is waiting for you' };

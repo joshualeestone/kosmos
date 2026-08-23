@@ -1192,6 +1192,114 @@ test('a registry entry naming a different agent is not read for this one', () =>
   }
 });
 
+test('a Fable session mid-turn is working, not idle: the spinner line is keyed on structure (#369)', () => {
+  /* 🛑 MEASURED 2026-08-23 on the live fleet, which read "0 Working, 14
+     Idle" while two agents were mid-turn. The current Claude Code spinner
+     line carries no "esc to interrupt" (the old phrase the rule above this
+     one keys on), and its gerund rotates through a large vocabulary, so the
+     ⏵⏵ footer below it won the classification and busy agents read idle.
+     The lines here are VERBATIM captures, not paraphrases. */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.227', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+
+  for (const line of [
+    '· Improvising… (35s · ↓ 1.5k tokens · thought for 8s)',
+    '· Canoodling… (4h 39m 45s · ↓ 673.5k tokens)',
+  ]) {
+    const got = classify(pane, line + footer);
+    assert.equal(got.state, 'working', 'a mid-turn spinner line was outranked by the footer: ' + line);
+    assert.match(got.because, /mid-task/);
+  }
+
+  /* The finished line is PAST tense with no timer parens, and two of the
+     verbs are absent from the enumerated finished-list above this rule,
+     which is the vocabulary trap the structural key avoids: these must NOT
+     read as working, and the footer then honestly says idle. */
+  for (const line of ['✳ Cooked for 1m 33s', '✳ Crunched for 1m 4s']) {
+    const got = classify(pane, line + footer);
+    assert.notEqual(got.state, 'working', 'a finished line read as working: ' + line);
+    assert.equal(got.state, 'idle');
+  }
+
+  /* CONTROL: the footer alone still reads idle, so the working assertions
+     above are the spinner line being recognised, not the fixture leaking. */
+  assert.equal(classify(pane, footer).state, 'idle');
+
+  /* Blocked beats busy, pinned rather than left to source position: a pane
+     mid-turn that draws a permission prompt (the spinner line still in the
+     tail) is an agent that CANNOT proceed, and a reorder grouping the
+     working rules above needs_you would pass everything else here. */
+  const asking = classify(pane,
+    '· Improvising… (35s · ↓ 1.5k tokens)\n\nDo you want to proceed?\n❯ 1. Yes\n  2. No' + footer);
+  assert.equal(asking.state, 'needs_you',
+    'a mid-turn permission prompt was outranked by the spinner line, so a blocked agent reads busy');
+
+  /* An agent NARRATING progress in its own output must not read as the
+     UI's spinner: word prefixes, numerals, markdown bullets and box-drawing
+     wrap are all outside the enumerated frame class. */
+  for (const echo of ['1. Deploying… (30s · staging)', 'npm Loading… (5s · warm)',
+    '- Deploying… (30s · staging)', '> Fetching… (12s · retry)', '│ Improvising… (35s · x)']) {
+    assert.equal(classify(pane, echo + footer).state, 'idle',
+      'an agent narrating its own progress read as working: ' + echo);
+  }
+
+  /* The * frame is a REAL spinner frame as well as a markdown bullet, and
+     it stays in the class: a poll sampling that frame must not read idle. */
+  assert.equal(classify(pane, '* Baking… (3s · ↓ 0.2k tokens)' + footer).state, 'working');
+
+  /* ⏺ is NOT a frame: it is the bullet on every line the agent itself
+     writes, so an echoed progress line under it is narration, and a
+     finished pane whose last reply carries the shape must stay idle. An
+     earlier draft had ⏺ in the class and nothing caught it. */
+  assert.equal(classify(pane, '⏺ Waiting… (10s · retry)' + footer).state, 'idle',
+    'the agent-reply bullet read as the UI spinner, the narration hole reopened');
+
+  /* A narrow pane can wrap the spinner line between gerund and timer. The
+     state still reads working, and the evidence contract holds: something
+     is shown, not null, exactly when panes are narrow. */
+  for (const [label, text] of [
+    ['gerund-to-paren', '· Improvising…\n(35s · ↓ 1.5k tokens)'],
+    ['inside the timer', '· Canoodling… (4h\n39m 45s · ↓ 673.5k tokens)'],
+    ['after the seconds', '· Improvising… (35s ·\n↓ 1.5k tokens)'],
+  ]) {
+    const w = classify(pane, text + footer);
+    assert.equal(w.state, 'working', 'a spinner line wrapped ' + label + ' fell to the footer idle rule');
+    assert.ok(w.evidence && !/[·(]\s*$/.test(w.evidence),
+      'the ' + label + ' wrap produced evidence ending in a dangling cut: ' + w.evidence);
+  }
+  const wrapped = classify(pane, '· Improvising…\n(35s · ↓ 1.5k tokens)' + footer);
+  assert.equal(wrapped.evidence, '· Improvising… (35s · ↓ 1.5k tokens)',
+    'the wrapped-line evidence is not the whole joined region, so the card shows a dangling fragment');
+
+  /* A capture clipped mid-redraw has NO close paren; the region must not
+     scan onward until some unrelated line's paren (the footer carries one)
+     is pasted into a product surface. The cut wears the truncation marker
+     so it is visibly a cut. */
+  const clipped = classify(pane, '· Improvising… (35s ·' + footer);
+  assert.equal(clipped.state, 'working');
+  assert.ok(/…$/.test(clipped.evidence), 'a clipped capture is not marked as cut: ' + clipped.evidence);
+  assert.ok(!/bypass permissions/.test(clipped.evidence),
+    'the footer leaked into evidence through an unbounded close-paren scan');
+
+  /* A gerund may legally contain parens; the close is searched from the
+     TIMER'S opening paren, so the evidence is the whole line, not a cut
+     at the gerund's own close. */
+  const parenGerund = classify(pane, '· (Re)connecting… (35s · x)' + footer);
+  assert.equal(parenGerund.state, 'working');
+  assert.equal(parenGerund.evidence, '· (Re)connecting… (35s · x)');
+
+  /* The * frame keeps its glyph in evidence: the one frame whose rendering
+     the single-path change altered is the one that gets pinned. */
+  const starEv = classify(pane, '* Baking… (3s · ↓ 0.2k tokens)' + footer);
+  assert.equal(starEv.evidence, '* Baking… (3s · ↓ 0.2k tokens)');
+
+  /* The evidence is the WHOLE line, not the regex fragment: a fragment cut
+     at the first separator drops the tail and dangles mid-parens. */
+  const ev = classify(pane, '· Canoodling… (4h 39m 45s · ↓ 673.5k tokens)' + footer);
+  assert.equal(ev.evidence, '· Canoodling… (4h 39m 45s · ↓ 673.5k tokens)');
+});
+
 test('an agent sitting at its prompt is idle, not unreadable', () => {
   // ⚠️ Every other idle marker is a TRACE of something the agent did, and traces
   // scroll away. An agent left at its prompt long enough fell through to
