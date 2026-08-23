@@ -1957,6 +1957,15 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
    dashed border is the shape of a slot waiting to be filled; "we could not
    read this" is not an empty slot, it is an unanswered question. */
 .pj-empty.boardfail { border-style: solid; border-color: var(--border-strong); }
+/* 🛑 THE FOUND PANEL IS LEFT-ALIGNED AND FULL WIDTH, and both are overrides
+   rather than the shared shape. `.pj-empty` is centred because it is normally a
+   sentence and a button; this one is a sentence and a LIST, and a centred
+   heading over left-aligned rows reads as a layout that did not finish. The
+   36rem cap on `.fr-found` is right inside setup's card and leaves the rows
+   stopping halfway across a board-width panel. Measured on the board at 1200px:
+   the rows ended at 620 inside a 1150 panel. */
+#found-wrap .pj-empty { text-align: left; }
+#found-wrap .fr-found { max-width: none; margin: var(--space-5) 0 0; }
 /* The commitments a restart would end. Not a bullet list: these are sentences
    an agent wrote about its own work, and bullets make them read as options. */
 .rst-list { list-style: none; margin: 10px 0 0; padding: 0; }
@@ -5640,6 +5649,19 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      discover by looking at it. Absent entirely when every agent has a job,
      which is the ordinary case and must not carry a banner. -->
 <div id="restart-wrap" hidden></div>
+<!-- 🛑 THE AGENTS ON THIS MAC THAT KOSMOS IS NOT LOOKING AFTER. Setup offers
+     these on the way in, which covers nobody who installed Kosmos before that
+     screen existed -- and the person this feature was written for, the one with
+     agents Kosmos could not see, is by definition already installed. Without
+     this, their only route to it is to uninstall and set up again.
+
+     Below the restart panel, deliberately. That one is about agents they have
+     here that will vanish; this one is about agents that were never brought in.
+     The first is a loss, the second is an offer.
+
+     Absent entirely when there is nothing to add, which is the ordinary state
+     and must not carry a banner. -->
+<div id="found-wrap" hidden></div>
 <div class="cards" id="grid"></div>
 <div class="alist" id="alist" hidden></div>
 <!-- ⚠️ THE ORG VIEW (#137), built from kosmos-org-view-2026-08-19.html. That
@@ -7722,7 +7744,7 @@ async function tick() {
     // grid is legitimately hidden on the agents tab whenever the list layout
     // is active, so `grid.hidden` stopped meaning "not on the agents tab".
     // `onAgentsTab()` reads boardbar, which tracks the tab and nothing else.
-    if (onAgentsTab()) { paintRemoved(); paintSurvival(); }
+    if (onAgentsTab()) { paintRemoved(); paintSurvival(); paintFoundBoard(); }
   } catch (err) {
     // ⚠️ Recorded and REPAINTED, not just written into `#grid`. The picker in
     // the add-a-project flow reads these globals, that flow hides `#grid`, and
@@ -7869,7 +7891,7 @@ function showTab(tab) {
     if (rw) rw.hidden = true;
     /* Leaving the screen is what finishes a repair report; see SURVIVAL_HELD. */
     SURVIVAL_HELD = false;
-  } else { paintRemoved(); paintSurvival(); }
+  } else { paintRemoved(); paintSurvival(); paintFoundBoard(); }
   PANELS.forEach((p) => { document.getElementById('panel-' + p).hidden = (p !== tab); });
   // ⚠️ Re-read on every arrival rather than once at boot. A project's folder can
   // be moved or deleted while this page sits open, and its members' states
@@ -12061,6 +12083,78 @@ function removedUnreadable() {
  * it, before pressing anything.
  */
 let SURVIVAL_BUSY = false;
+/* --------------------------------------------------------------------------
+   Agents on this Mac that Kosmos is not looking after
+   -------------------------------------------------------------------------- */
+
+/**
+ * The board's own found list.
+ *
+ * 🛑 IT EXISTS BECAUSE SETUP IS A ONE-TIME SCREEN. The find-your-agents list
+ * shipped inside first run, and everybody it was written for had already
+ * finished first run -- Josh's own words about the defect were that a person
+ * with agents Kosmos could not see is "the most catastrophic flaw in the entire
+ * system", and until this panel their only route to the fix was to uninstall
+ * and set up again.
+ *
+ * 🔑 IT DRAWS THE SAME ROWS, from `foundRowsHtml`, so the Add and Undo handlers
+ * below reach it without knowing it exists. They are document-level and key on
+ * the row's classes, which is why no second pair was needed.
+ *
+ * ⚠️ IT NEVER REPAINTS OVER SOMEBODY'S WORK. The five-second poll would
+ * otherwise rebuild rows mid-press and throw away every "Added" on the screen,
+ * on the one panel where a person presses several buttons in a row. So it paints
+ * only when the SET has changed, and never once a row has been touched.
+ */
+let FOUND_SIG = null;
+async function paintFoundBoard() {
+  const wrap = document.getElementById('found-wrap');
+  if (!wrap) return;
+  if (!onAgentsTab()) { wrap.hidden = true; return; }
+  /* ⚠️ A row somebody has pressed is a row that must survive the next poll. */
+  if (wrap.querySelector('.fr-foundrow.done, .fr-foundgo:disabled')) return;
+
+  let body = null;
+  try {
+    const res = await fetch('/api/found-agents', { cache: 'no-store' });
+    /* A look that failed leaves the panel exactly as it was rather than saying
+       there is nothing to add. This whole feature exists because a silence was
+       read as an all-clear. */
+    if (!res.ok) return;
+    body = await res.json().catch(() => null);
+  } catch { return; }
+  if (!body || body.ok !== true || !Array.isArray(body.agents)) return;
+
+  const missing = body.agents.filter((a) => a && a.already !== true);
+  const sig = missing.map((a) => a.dir).sort().join('\u0000');
+  if (!missing.length) {
+    FOUND_SIG = sig;
+    wrap.hidden = true;
+    wrap.innerHTML = '';
+    return;
+  }
+  if (sig === FOUND_SIG && wrap.innerHTML) { wrap.hidden = false; return; }
+  FOUND_SIG = sig;
+
+  const n = missing.length;
+  wrap.hidden = false;
+  wrap.innerHTML = '<div class="pj-empty">'
+    /* Singular and plural written out rather than assembled: "1 agents" is the
+       seam this product keeps being caught on. */
+    + '<p><b>' + (n === 1
+      ? 'There is an agent on this Mac that Kosmos is not looking after.'
+      : 'There are ' + n + ' agents on this Mac that Kosmos is not looking after.')
+    + '</b><br>'
+    /* ⚠️ WHAT ADDING DOES, IN THE SAME WORDS SETUP USES. Somebody who saw that
+       screen and somebody meeting this one for the first time have to be told
+       the same thing, and the fear both of them have is that their agent moves. */
+    + 'Adding one leaves it exactly where it is, in its own folder with its own '
+    + 'instructions. Kosmos starts looking after it, so it comes back when you '
+    + 'log in and restarts in one click.</p>'
+    + foundRowsHtml(missing)
+    + '</div>';
+}
+
 /**
  * 🛑 THE RESULT WAS ERASED BY THE NEXT POLL, and only rendering it showed that.
  * A repair that works empties the missing list, so five seconds later
@@ -19910,30 +20004,21 @@ async function frFindAgents() {
   if (FR_STEP > FR_STEP_YOU) frPaintFleet();
 }
 
-function frPaintFound() {
-  const title = document.getElementById('fr-title');
-  const box = document.getElementById('fr-fleet');
-  const n = FR_FOUND.agents.length;
-  /* 🛑 "ON THIS MAC", NOT "ALREADY HERE", and the difference is the whole defect
-     restated (Mona Lisa, overruling my first wording). HERE reads as IN KOSMOS.
-     They are on the Mac. Kosmos can SEE them -- it reads every tmux pane
-     unfiltered -- and it has ADDED none of them: no record, nothing that
-     survives a logout, no one-click restart. A screen that blurs seen and held
-     is the same conflation that told somebody with two agents she had none. */
-  title.textContent = n === 1 ? 'We found an agent on this Mac.' : 'We found ' + n + ' agents on this Mac.';
-  /* ⚠️ TRUE TONIGHT WITH NO ADD BUTTON, AND STILL TRUE THE DAY THERE IS ONE.
-     Copy is Mona Lisa's, verbatim. */
+/**
+ * One found agent, as a row.
+ *
+ * 🛑 ONE PAINTER, TWO SCREENS. Setup draws this list, and so does the board, for
+ * everybody who finished setup before the list existed -- which is every person
+ * who already had Kosmos when this shipped. A second copy of the row is a second
+ * place for the class names, the dataset keys and the undo control to be right,
+ * and the handlers below key on all three.
+ */
+function foundRowsHtml(agents) {
   /* Names that appear more than once, so the row can say which is which. */
   const seen = new Map();
-  for (const a of FR_FOUND.agents) seen.set(a.name, (seen.get(a.name) || 0) + 1);
+  for (const a of agents) seen.set(a.name, (seen.get(a.name) || 0) + 1);
   const dupes = new Set([...seen.entries()].filter(([, n]) => n > 1).map(([k]) => k));
-  /* ⚠️ PRESENT TENSE NOW THE BUTTONS ACT. This read "you will be able to add
-     them here", written when the rows were a list with nothing behind them --
-     a sentence that went quietly false the day the route landed, on the screen
-     it describes. */
-  box.innerHTML = '<p>They are not in Kosmos yet. Adding one leaves it exactly '
-    + 'where it is, in its own folder with its own instructions.</p>'
-    + '<div class="fr-found">' + FR_FOUND.agents.map((a) =>
+  return '<div class="fr-found">' + agents.map((a) =>
       /* 🔑 ONE BUTTON PER AGENT, AND NO "ADD ALL" (Josh, 2026-08-22: "Add buttons
          are fine for beta, no add all, yes long form btns"). Each press starts a
          real session on this machine, and a single control that starts four
@@ -19972,7 +20057,27 @@ function frPaintFound() {
       + '</span>'
       + '<p class="fr-foundsaid" role="status" aria-live="polite"></p>'
       + '</div>').join('')
-    + '</div>';
+  + '</div>';
+}
+
+function frPaintFound() {
+  const title = document.getElementById('fr-title');
+  const box = document.getElementById('fr-fleet');
+  const n = FR_FOUND.agents.length;
+  /* 🛑 "ON THIS MAC", NOT "ALREADY HERE", and the difference is the whole defect
+     restated (Mona Lisa, overruling my first wording). HERE reads as IN KOSMOS.
+     They are on the Mac. Kosmos can SEE them -- it reads every tmux pane
+     unfiltered -- and it has ADDED none of them: no record, nothing that
+     survives a logout, no one-click restart. A screen that blurs seen and held
+     is the same conflation that told somebody with two agents she had none. */
+  title.textContent = n === 1 ? 'We found an agent on this Mac.' : 'We found ' + n + ' agents on this Mac.';
+  /* ⚠️ PRESENT TENSE NOW THE BUTTONS ACT. This read "you will be able to add
+     them here", written when the rows were a list with nothing behind them --
+     a sentence that went quietly false the day the route landed, on the screen
+     it describes. */
+  box.innerHTML = '<p>They are not in Kosmos yet. Adding one leaves it exactly '
+    + 'where it is, in its own folder with its own instructions.</p>'
+    + foundRowsHtml(FR_FOUND.agents);
   /* 🛑 `Continue`, NOT "Take me to my agents". Nothing has been added, so the
      board still shows what tmux shows -- and somebody whose agent has not run
      since Tuesday would press that button and land on a board without them,
@@ -20038,6 +20143,13 @@ document.addEventListener('click', async (e) => {
     const undo = row.querySelector('.fr-foundundo');
     if (out.name) row.dataset.foundKey = out.name;
     if (undo && out.name) { undo.hidden = false; undo.disabled = false; undo.textContent = 'Undo'; }
+    /* 🔑 THE BOARD IS ASKED AGAIN, but only for a row on the board. Setup's copy
+       of this list is in front of a board the person has not reached yet, and
+       the fleet screen deliberately does not repaint on an add. Here the card
+       IS the outcome: without this, somebody adds an agent and the grid behind
+       the panel does not change for another five seconds, which reads as the
+       press having done nothing. */
+    if (row.closest('#found-wrap')) { try { tick(); } catch { /* the poll will */ } }
     /* 🛑 NO SENTENCE ON SUCCESS (Josh, 2026-08-22). It read "Added, and started.
        It stays in its own folder." -- true, and one more line to read on a screen
        where somebody is about to press three more buttons. The button saying
@@ -20095,6 +20207,9 @@ document.addEventListener('click', async (e) => {
     undo.textContent = 'Undo';
     delete row.dataset.foundKey;
     row.classList.remove('done');
+    /* Same reason as the add: the card going away is what the person is looking
+       at when they press this. */
+    if (row.closest('#found-wrap')) { try { tick(); } catch { /* the poll will */ } }
     go.classList.remove('added');
     go.disabled = false;
     /* ⚠️ THE DISPLAYED NAME REBUILDS THE LABEL, not the registered one: this is

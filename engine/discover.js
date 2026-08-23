@@ -34,6 +34,27 @@ const fs = require('node:fs');
 const path = require('node:path');
 const status = require('./status');
 
+/**
+ * Is this folder's agent already one Kosmos looks after?
+ *
+ * ⚠️ NEVER THROWS AND FAILS TOWARDS "NO". A wrong `false` re-offers an agent
+ * somebody already has, and the add refuses with a sentence saying so. A wrong
+ * `true` hides an agent from the one screen that exists to surface it, silently,
+ * which is the defect this whole module was written after.
+ */
+function alreadyIn(dir) {
+  const create = require('./create');
+  const store = require('./store');
+  const name = path.basename(String(dir || ''));
+  if (!name || !create.nameUsable(name)) return false;
+  try { if (create.hasJob(name)) return true; } catch { /* ask the other one */ }
+  try {
+    const p = store.readProfile(name);
+    if (p && p.dir && p.dir === dir) return true;
+  } catch { /* no record is not a reason to hide it */ }
+  return false;
+}
+
 /** The newest transcript in a project folder, or null. */
 function newestTranscript(dir) {
   let names;
@@ -101,6 +122,15 @@ function found() {
         name: id.displayName,
         role: id.role,
         instructions: file,
+        /* 🔑 WHETHER KOSMOS ALREADY HAS THIS ONE, so a screen outside setup can
+           offer only what is missing. Answered here rather than by the page,
+           which would need the fleet list and the folder record and would get a
+           different answer from whichever it happened to have.
+           ⚠️ TWO WAYS TO BE IN, and either counts: Kosmos made it (a job under
+           its name) or somebody connected it (a folder recorded against its
+           name). Asking only the first would re-offer every connected agent the
+           moment its job was ever removed by hand. */
+        already: alreadyIn(cwd),
       });
     }
   }

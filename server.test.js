@@ -4848,12 +4848,17 @@ function firstRunHarness(name, state, opts = {}) {
     let FR_FOUND_GEN = 0;
     let FR_STEP = 6;   // the fleet screen is the LAST step, not the machine check
     function frFindAgents() {}
+    /* The REAL row painter, shared with the board's own found list. Stubbing it
+       would put every assertion below about a row against markup written here
+       instead of the markup that ships. */
+    const foundRowsHtml = ${pageFunction('foundRowsHtml', 'const esc = ' + realEsc.toString() + ';').toString()};
     /* The REAL found-agents painter, not a stub: its copy is the thing under
        test, and a stub here would let the wording drift while the test stayed
        green -- which is how "already here" would have survived being ruled out. */
     ${name === 'frPaintFound' ? '' : 'const frPaintFound = ' + pageFunction('frPaintFound',
       'const esc = ' + realEsc.toString() + ';\nlet FR_FOUND = null; function frActions() {} '
-      + 'function frFinish() {} function showTab() {} const document = { getElementById: () => ({}) };').toString() + ';'}
+      + 'function frFinish() {} function showTab() {} const document = { getElementById: () => ({}) };\n'
+      + 'const foundRowsHtml = ' + pageFunction('foundRowsHtml', 'const esc = ' + realEsc.toString() + ';').toString() + ';').toString() + ';'}
     
     let __actions = null;
     function frActions(primary, alt) { __actions = primary ? { primary: primary.label, alt: alt && alt.label } : null; }
