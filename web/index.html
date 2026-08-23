@@ -3708,6 +3708,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <p class="qout" id="d-qask-fail" hidden></p>
       </div>
     </div>
+    <!-- Search above the thread (#403), the room's control on the agent's own
+         page: same shape, same no-match sentence, same rule that a filtered
+         paint never scrolls. It filters what a row SHOWS (who, and the text). -->
+    <div class="tsearch" id="d-talk-search-wrap">
+      <span class="tsearch-i" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      </span>
+      <input type="search" id="d-talk-search" placeholder="Search this conversation" aria-label="Search this conversation">
+    </div>
     <div class="dmthread" id="d-dmthread"></div>
     <!-- 🔑 "WORKING", NEVER "TYPING". We can see that Claude is producing
          output or is mid-task. We CANNOT see WHAT it is working on, and
@@ -10626,6 +10635,88 @@ function dmRow(m, name) {
     + '<span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span></span></div>';
 }
 
+
+/* The thread rows, and only them, so the search box can repaint between
+   polls without re-fetching (#403). The filter matches what a row SHOWS:
+   who said it (as dmWho names them) and the text. */
+function talkFilterRows(rows, name, q) {
+  const needle = String(q == null ? '' : q).trim().toLowerCase();
+  if (!needle) return rows;
+  return rows.filter((m) => String(dmWho(m.from, name)).toLowerCase().includes(needle)
+    || String(m.text || '').toLowerCase().includes(needle));
+}
+let TALK_QUERY = '';
+function paintTalkThread(body, name) {
+  const allRows = Array.isArray(body.messages) ? body.messages : [];
+  const rows = talkFilterRows(allRows, name, TALK_QUERY);
+  const filtering = TALK_QUERY.trim() !== '';
+  const thread = document.getElementById('d-dmthread');
+  if (body.historyUnfilable && !allRows.length) {
+    /**
+     * ⚠️ A THIRD FACT, not a flavour of unreadable. This agent's name cannot be
+     * filed under at all, so there is no file to read and there never will be
+     * one. Sending still WORKS — the words reach the session — and nothing is
+     * kept. Collapsing this into "we cannot read it" produced two false
+     * sentences at once in the room ("we cannot read what you have sent" over
+     * no file, and "this is not saying you have sent nothing" over a store that
+     * will never hold anything), which is why the route sends the two apart.
+     */
+    setThread(thread, '<p class="dmnone"><b>Nothing said here is kept for ' + esc(name) + '.</b> '
+      + esc(pjSentence(body.historyBecause || 'we cannot keep a conversation under this agent’s name'))
+      + ' You can still send, and it still arrives.</p>', null);
+  } else if (body.historyBecause && !allRows.length) {
+    // We could not read a store that does exist. ⚠️ The room's load-bearing
+    // second sentence rides along: an unreadable file is not evidence that
+    // nothing was said, and silence here would render "we could not look" as
+    // "there is nothing".
+    /* ⚠️ AND THIS ARM DELIBERATELY KEEPS THE PERSISTENCE LINE, where the
+       unfilable arm and the refusal arm, both above, hide it. The three
+       are not the same fact and answering them alike would be the error:
+         unfilable      nothing IS kept under this name -> the promise is false
+         borrowed name  this box is not this agent's    -> the promise is false
+         unreadable     things ARE kept, we cannot READ them right now -> the
+                        promise is still true, and hiding it would say the
+                        opposite of what we know.
+       `talk-10-history-unreadable` shows the line standing under "we cannot
+       read what you have sent this agent", and that pairing is correct. */
+    setThread(thread, '<p class="dmnone">' + esc(pjSentence(body.historyBecause))
+      + ' This is not saying you have sent nothing: it is saying we cannot see it.</p>', null);
+  } else if (!allRows.length) {
+    setThread(thread, '<p class="dmnone">Nothing here yet.</p>', null);
+  } else if (filtering && !rows.length) {
+    // null count: a no-match paint never scrolls, the room's rule.
+    setThread(thread, '<p class="dmnone">' + esc(pjNoMatchSentence(TALK_QUERY)) + '</p>', null);
+  } else {
+    /**
+     * ⚠️ NOT REWRITTEN, AND NOT SCROLLED, WHEN NOTHING CHANGED. This box is
+     * `max-height: 15rem; overflow-y: auto` -- built to be scrolled -- and the
+     * first version rebuilt it and yanked it to the bottom on every 5s tick.
+     * Measured: a reader sitting at the top of a 30-message thread with a
+     * sentence selected was thrown 2343px down and lost the selection, every
+     * five seconds, for reading their own history.
+     *
+     * The room states the rule at its POSTS box, not at its project thread
+     * (which has no scroll management at all): "yanking a person who scrolled
+     * up to read history to the bottom on a poll tick is the poll fighting the
+     * reader." ⚠️ And its second key is built from post IDS, not a count --
+     * which is the stronger shape, because a count cannot tell two different
+     * lists of the same length apart. Recorded rather than copied, and the
+     * blind spot is narrower than it first reads:
+     *
+     *   - SWITCHING AGENTS is closed, and not by this key. `openDetail`'s
+     *     clear calls `setThread(..., null)`, so `__lastCount` is null on the
+     *     first paint of any agent and the next count always differs. Two
+     *     agents whose threads are the same length cannot collide through any
+     *     path that changes `CURRENT`.
+     *   - WHAT IT CANNOT SEE is a thread whose LENGTH is unchanged while its
+     *     contents are not, within one agent. The route's TAIL of 200 is the
+     *     producer that exists: at the bound, every new message drops the
+     *     oldest, so the count holds at 200 and a new arrival does not bring
+     *     itself into view.
+     */
+    setThread(thread, rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows)), filtering ? null : rows.length);
+  }
+}
 async function paintTalk(sessionName, agentName) {
   const box = document.getElementById('d-talk-box');
   if (!box) return;
@@ -11038,68 +11129,8 @@ async function paintTalk(sessionName, agentName) {
   /* --- the thread --- */
   const rows = Array.isArray(body.messages) ? body.messages : [];
   const thread = document.getElementById('d-dmthread');
-  if (body.historyUnfilable && !rows.length) {
-    /**
-     * ⚠️ A THIRD FACT, not a flavour of unreadable. This agent's name cannot be
-     * filed under at all, so there is no file to read and there never will be
-     * one. Sending still WORKS — the words reach the session — and nothing is
-     * kept. Collapsing this into "we cannot read it" produced two false
-     * sentences at once in the room ("we cannot read what you have sent" over
-     * no file, and "this is not saying you have sent nothing" over a store that
-     * will never hold anything), which is why the route sends the two apart.
-     */
-    setThread(thread, '<p class="dmnone"><b>Nothing said here is kept for ' + esc(name) + '.</b> '
-      + esc(pjSentence(body.historyBecause || 'we cannot keep a conversation under this agent’s name'))
-      + ' You can still send, and it still arrives.</p>', null);
-  } else if (body.historyBecause && !rows.length) {
-    // We could not read a store that does exist. ⚠️ The room's load-bearing
-    // second sentence rides along: an unreadable file is not evidence that
-    // nothing was said, and silence here would render "we could not look" as
-    // "there is nothing".
-    /* ⚠️ AND THIS ARM DELIBERATELY KEEPS THE PERSISTENCE LINE, where the
-       unfilable arm and the refusal arm, both above, hide it. The three
-       are not the same fact and answering them alike would be the error:
-         unfilable      nothing IS kept under this name -> the promise is false
-         borrowed name  this box is not this agent's    -> the promise is false
-         unreadable     things ARE kept, we cannot READ them right now -> the
-                        promise is still true, and hiding it would say the
-                        opposite of what we know.
-       `talk-10-history-unreadable` shows the line standing under "we cannot
-       read what you have sent this agent", and that pairing is correct. */
-    setThread(thread, '<p class="dmnone">' + esc(pjSentence(body.historyBecause))
-      + ' This is not saying you have sent nothing: it is saying we cannot see it.</p>', null);
-  } else if (!rows.length) {
-    setThread(thread, '<p class="dmnone">Nothing here yet.</p>', null);
-  } else {
-    /**
-     * ⚠️ NOT REWRITTEN, AND NOT SCROLLED, WHEN NOTHING CHANGED. This box is
-     * `max-height: 15rem; overflow-y: auto` -- built to be scrolled -- and the
-     * first version rebuilt it and yanked it to the bottom on every 5s tick.
-     * Measured: a reader sitting at the top of a 30-message thread with a
-     * sentence selected was thrown 2343px down and lost the selection, every
-     * five seconds, for reading their own history.
-     *
-     * The room states the rule at its POSTS box, not at its project thread
-     * (which has no scroll management at all): "yanking a person who scrolled
-     * up to read history to the bottom on a poll tick is the poll fighting the
-     * reader." ⚠️ And its second key is built from post IDS, not a count --
-     * which is the stronger shape, because a count cannot tell two different
-     * lists of the same length apart. Recorded rather than copied, and the
-     * blind spot is narrower than it first reads:
-     *
-     *   - SWITCHING AGENTS is closed, and not by this key. `openDetail`'s
-     *     clear calls `setThread(..., null)`, so `__lastCount` is null on the
-     *     first paint of any agent and the next count always differs. Two
-     *     agents whose threads are the same length cannot collide through any
-     *     path that changes `CURRENT`.
-     *   - WHAT IT CANNOT SEE is a thread whose LENGTH is unchanged while its
-     *     contents are not, within one agent. The route's TAIL of 200 is the
-     *     producer that exists: at the bound, every new message drops the
-     *     oldest, so the count holds at 200 and a new arrival does not bring
-     *     itself into view.
-     */
-    setThread(thread, rows.map((m) => dmRow(m, name)).join('') + dmOwesLine(body.owes, rows), rows.length);
-  }
+  thread.__lastBody = body; thread.__lastName = name;
+  paintTalkThread(body, name);
   /**
    * ⚠️ NOTHING WAS ANSWERED, SO NOTHING MAY LOOK ANSWERED (drawing, state 4).
    * After a send that failed, the question stays and the buttons stay live --
@@ -11640,6 +11671,10 @@ function openDetail(sessionName, section) {
     document.getElementById('d-qask-fail').textContent = '';
     document.getElementById('d-qask-fail').hidden = true;
     setThread(document.getElementById('d-dmthread'), '<p class="dmnone">Opening&hellip;</p>', null);
+    // A reading posture, not agent state: carried across agents it would hide
+    // the next thread silently.
+    TALK_QUERY = '';
+    document.getElementById('d-talk-search').value = '';
     document.getElementById('d-talk-older').hidden = true;
     document.getElementById('d-dmoff').hidden = true;
     document.getElementById('d-say-msg').textContent = '';
@@ -18215,6 +18250,12 @@ function paintRoom(body) {
    the box) so typing filters instantly between polls; the query resets
    on project switch (a reading posture, not project state -- carried
    across projects it would hide another room's posts silently). */
+document.getElementById('d-talk-search').addEventListener('input', () => {
+  TALK_QUERY = document.getElementById('d-talk-search').value;
+  const th = document.getElementById('d-dmthread');
+  if (!th.__lastBody) return;
+  paintTalkThread(th.__lastBody, th.__lastName);
+});
 let PJ_SEARCH_WAS_EMPTY = false;
 document.getElementById('pj-room-search').addEventListener('input', () => {
   PJ_ROOM_QUERY = document.getElementById('pj-room-search').value;
