@@ -109,6 +109,7 @@ const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
 const chat = require('./engine/chat');
 const messages = require('./engine/messages');
+const unfurl = require('./engine/unfurl');
 /* ⚠️ THE SAME MODULE UNDER A SECOND NAME, and it is not a convenience. The
    thread handler builds a local `messages` array for its payload, which shadows
    this binding for the whole of that scope, so `messages.owesReply` in there
@@ -589,6 +590,52 @@ const FORM_TYPES = new Set([
   'multipart/form-data',
   'text/plain',
 ]);
+
+/* The read-side sibling of `crossSiteWrite`, for the two GETs that fetch
+   from the internet on the page's behalf (#357). Browsers mark a request's
+   provenance in Sec-Fetch-Site; a value other than same-origin or none (a
+   direct address-bar load) means another website caused it, and a Referer
+   from a host this board does not answer for means the same. Either is
+   refused. A request with neither header (curl, an old browser) passes: the
+   guard is against the drive-by, not against the person. */
+/* Attach a link preview to every row that carries text with a link (#357).
+   Read from the engine's cache while serving; a link never asked for starts
+   its fetch now and is carried on the next poll, so a payload is never held
+   for the internet. A refusal or "nothing to show" attaches nothing: absence
+   is how the page draws a link that stays a link. The image is this board's
+   own path, never the site's. */
+function withPreviews(rows) {
+  if (!Array.isArray(rows)) return rows;
+  for (const r of rows) {
+    if (!r || typeof r !== 'object' || typeof r.text !== 'string') continue;
+    const link = unfurl.firstLink(r.text);
+    if (!link) continue;
+    const hit = unfurl.peek(link);
+    if (hit === null) { unfurl.warm(link); continue; }
+    if (!hit.ok) continue;
+    r.preview = {
+      url: hit.url, title: hit.title, description: hit.description, site: hit.site, fetchedAt: hit.fetchedAt,
+      image: hit.image ? '/api/unfurl/image?url=' + encodeURIComponent(hit.image) : '',
+    };
+  }
+  return rows;
+}
+
+function crossSiteRead(req) {
+  const site = req && req.headers && req.headers['sec-fetch-site'];
+  if (site && site !== 'same-origin' && site !== 'none') {
+    return 'that request came from another website, so we will not fetch for it';
+  }
+  const referer = req && req.headers && req.headers.referer;
+  if (referer) {
+    let host = '';
+    try { host = new URL(referer).hostname.replace(/\.$/, '').toLowerCase(); } catch { host = ''; }
+    if (!LOOPBACK_HOSTS.has(host) && !ALLOWED_HOSTS.has(host)) {
+      return 'that request came from another website, so we will not fetch for it';
+    }
+  }
+  return null;
+}
 
 function crossSiteWrite(req) {
   if (!req || !WRITE_METHODS.has(req.method)) return null;
@@ -2495,7 +2542,7 @@ const server = http.createServer((req, res) => {
       const TAIL = 200;
       sendJson(res, 200, {
         total: unreadable.length + rows.length,
-        rows: unreadable.concat(rows.slice(-TAIL)),
+        rows: withPreviews(unreadable.concat(rows.slice(-TAIL))),
       });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the conversation') });
@@ -2702,7 +2749,7 @@ const server = http.createServer((req, res) => {
      */
     const owes = messageLog.owesReply(name);
     sendJson(res, 200, {
-      messages,
+      messages: withPreviews(messages),
       olderCount,
       historyBecause,
       historyUnfilable,
@@ -2962,7 +3009,7 @@ const server = http.createServer((req, res) => {
     try {
       let who = null;
       try { who = new URL(req.url, ROUTING_BASE).searchParams.get('agent') || null; } catch { who = null; }
-      sendJson(res, 200, { messages: messages.list(who) });
+      sendJson(res, 200, { messages: withPreviews(messages.list(who)) });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the record') });
     }
@@ -3019,6 +3066,50 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, autoupdate.read());
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  /* Link previews (#357). Two GETs that make this Mac fetch from the wider
+     internet on the page's behalf, which is why they carry a guard the other
+     GETs do not need: a GET is reachable from ANY website the person has open
+     (an <img src="http://127.0.0.1:16180/api/unfurl/image?url=..."> on a page
+     they visit), and these two would then fetch on a stranger's command and,
+     for the image one, proxy the answer back to them. `crossSiteRead` refuses
+     a request the browser marks as coming from another site; the engine's
+     own gate (no private addresses, caps, redirects) stands behind it. */
+  if (pathname === '/api/unfurl' && req.method === 'GET') {
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    let target = '';
+    try { target = new URL(req.url, ROUTING_BASE).searchParams.get('url') || ''; } catch { target = ''; }
+    if (!target) { sendJson(res, 400, { error: 'say which link' }); return; }
+    unfurl.preview(target).then((got) => {
+      if (!got.ok) { sendJson(res, 200, { ok: false, because: got.because }); return; }
+      sendJson(res, 200, {
+        ok: true, url: got.url, title: got.title, description: got.description, site: got.site, fetchedAt: got.fetchedAt,
+        /* The image is served back through this process, never as the site's
+           own address: the browser never talks to the site. */
+        image: got.image ? '/api/unfurl/image?url=' + encodeURIComponent(got.image) : '',
+      });
+    }).catch(() => sendJson(res, 200, { ok: false, because: 'we could not read that page' }));
+    return;
+  }
+  if (pathname === '/api/unfurl/image' && req.method === 'GET') {
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    let target = '';
+    try { target = new URL(req.url, ROUTING_BASE).searchParams.get('url') || ''; } catch { target = ''; }
+    if (!target) { sendJson(res, 400, { error: 'say which image' }); return; }
+    unfurl.image(target).then((got) => {
+      if (!got.ok) { sendJson(res, 404, { error: got.because }); return; }
+      /* Raster only (the engine refuses SVG), and sandboxed anyway: this is
+         a third party's bytes on the board's own origin, so nothing in them
+         may run or load. */
+      res.writeHead(200, {
+        'content-type': got.type, 'cache-control': 'private, max-age=600', 'x-content-type-options': 'nosniff',
+        'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': 'inline',
+      });
+      res.end(got.bytes);
+    }).catch(() => sendJson(res, 404, { error: 'we could not read that image' }));
     return;
   }
   if (pathname === '/api/engmode' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -4105,7 +4196,7 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, {
       project: { id: project.id, name: project.name },
       agent: member,
-      messages,
+      messages: withPreviews(messages),
       olderCount,
       historyBecause,
       // See the block above: withheld is not unreadable, and the page says a

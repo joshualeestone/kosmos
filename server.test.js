@@ -9657,3 +9657,74 @@ test('a name that could escape its folder is refused by the undo route', async (
     assert.equal(out.status, 400, `${bad} was accepted`);
   }
 });
+
+/**
+ * Link previews (#357): the two routes and the payload.
+ *
+ * ⚠️ THE ROUTES MAKE THIS MAC FETCH FROM THE INTERNET ON THE PAGE'S BEHALF,
+ * and a GET is reachable from any website the person has open. So the first
+ * thing pinned is that a request the browser marks as cross-site is refused
+ * before the engine is asked. The engine's own gate has its own tests; here
+ * the fetcher is a fake and the control is that it was called exactly when
+ * expected.
+ */
+test('link previews: cross-site GETs are refused, the payload carries the preview on the next poll, the image is served as this board\'s path', async (t) => {
+  const unfurlEngine = require('./engine/unfurl');
+  const calls = [];
+  unfurlEngine.setResolver(async () => [{ address: '93.184.216.34', family: 4 }]);
+  unfurlEngine.setFetcher(async (url) => {
+    calls.push(url);
+    const bytes = url.endsWith('/card.png') ? Buffer.from([0x89, 0x50, 0x4e, 0x47]) : Buffer.from('<head><meta property="og:title" content="A Page"><meta property="og:image" content="/card.png"></head>');
+    return {
+      status: 200, ok: true,
+      headers: { get: (k) => (k.toLowerCase() === 'content-type' ? (url.endsWith('/card.png') ? 'image/png' : 'text/html') : null) },
+      body: null, arrayBuffer: async () => bytes,
+    };
+  });
+  t.after(() => unfurlEngine.resetForTests());
+
+  // Refused from another site, before any fetch.
+  const foreign = await req('/api/unfurl?url=' + encodeURIComponent('https://site.example/p'), { headers: { 'sec-fetch-site': 'cross-site' } });
+  assert.equal(foreign.status, 403);
+  const referred = await req('/api/unfurl/image?url=' + encodeURIComponent('https://site.example/card.png'), { headers: { referer: 'https://evil.example/page' } });
+  assert.equal(referred.status, 403);
+  assert.deepEqual(calls, [], 'a cross-site request reached the fetcher');
+
+  // The direct route answers, with the image as THIS board's path.
+  const direct = JSON.parse((await req('/api/unfurl?url=' + encodeURIComponent('https://site.example/p'), { headers: { 'sec-fetch-site': 'same-origin' } })).body);
+  assert.equal(direct.ok, true);
+  assert.equal(direct.title, 'A Page');
+  assert.match(direct.image, /^\/api\/unfurl\/image\?url=https%3A%2F%2Fsite\.example%2Fcard\.png$/, direct.image);
+
+  // The image proxy serves bytes with the image's type and no sniffing.
+  const img = await fetch(base + direct.image);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  assert.equal(img.headers.get('x-content-type-options'), 'nosniff');
+  assert.match(img.headers.get('content-security-policy') || '', /default-src 'none'; sandbox/, 'a third party\'s bytes are served on the board\'s origin without a sandbox');
+  assert.equal((await img.arrayBuffer()).byteLength, 4);
+
+  // A message carrying a never-seen link: first poll attaches nothing and
+  // starts the fetch; the next carries the preview.
+  const name = await anyAgent(t);
+  if (!name) return;
+  const seedWorkerDir = seedWorker(decodeURIComponent(name), 'You are **April**, a tester.\n');
+  assert.ok(seedWorkerDir);
+  const send = await req('/api/agent/' + name + '/thread', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'read this https://site.example/new-post please' }),
+  });
+  assert.ok([200, 202].includes(send.status), 'the say route answered ' + send.status + ': ' + send.body);
+  const first = JSON.parse((await req('/api/agent/' + name + '/thread')).body);
+  const row1 = (first.messages || []).find((m) => /new-post/.test(m.text || ''));
+  assert.ok(row1, 'the message is not in the thread: ' + JSON.stringify(first).slice(0, 300));
+  assert.equal(row1.preview, undefined, 'a preview was attached before the fetch could have finished');
+  await new Promise((r) => setTimeout(r, 50));
+  const second = JSON.parse((await req('/api/agent/' + name + '/thread')).body);
+  const row2 = (second.messages || []).find((m) => /new-post/.test(m.text || ''));
+  assert.ok(row2 && row2.preview, 'the second poll carries no preview: ' + JSON.stringify(row2));
+  assert.equal(row2.preview.title, 'A Page');
+  assert.match(row2.preview.image, /^\/api\/unfurl\/image\?url=/, 'the preview carries the site\'s own image address');
+  assert.ok(row2.preview.fetchedAt, 'no fetchedAt');
+  assert.ok(calls.includes('https://site.example/new-post'), 'the link was never fetched');
+});
