@@ -74,4 +74,6 @@ test('a name-only save carries the other two fields whole', () => {
   assert.match(handler, /body: JSON\.stringify\(\{ name, does: YOU_REC\.does, know: YOU_REC\.know \}\)/,
     '`you.save` replaces the record; a save that sends the name alone blanks what the person does');
   assert.match(handler, /if \(!YOU_REC\)/, 'a save with no record read is sent and refused by the engine instead of on screen');
+  assert.match(handler, /t\.shownAs \|\| t\.agent/, 'a miss is read out by machine name');
+  assert.doesNotMatch(handler, /Your agents have been told/, 'the sentence claims every agent was told when only running ones were reached');
 });

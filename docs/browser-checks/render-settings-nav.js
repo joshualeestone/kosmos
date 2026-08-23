@@ -75,11 +75,15 @@ function chk(ok, label, extra) {
       await page.click('#you-name-save');
       await page.waitForFunction(() => /Saved|could not|did not/.test(document.getElementById('you-name-msg').textContent), null, { timeout: 8000 });
       const saved = await page.evaluate(() => document.getElementById('you-name-msg').textContent);
-      chk(saved === 'Saved. Your agents have been told.', `[${theme}] the name saves and the fixture agent is told`, saved);
+      chk(saved === 'Saved. Told 1 running agent.', `[${theme}] the name saves and the one running fixture agent is counted`, saved);
+      // The control that can fail: the agent's own file carries the new name.
+      const told = fs.readFileSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'april', 'CLAUDE.md'), 'utf8');
+      chk(/Joshua/.test(told), `[${theme}] the fixture agent's instructions were rewritten with the new name`, told.slice(0, 80).replace(/\n/g, ' '));
       const rec = await (await page.request.get(URL + '/api/you')).json();
       chk(rec.you && rec.you.name === 'Joshua' && rec.you.does === 'runs the company',
         `[${theme}] the record carries the other field whole after a name-only save`, JSON.stringify(rec.you));
-      await page.fill('#you-name', 'Josh'); await page.click('#you-name-save'); await page.waitForTimeout(600);
+      await page.fill('#you-name', 'Josh'); await page.click('#you-name-save');
+      await page.waitForFunction(() => /^Saved\. Told/.test(document.getElementById('you-name-msg').textContent), null, { timeout: 8000 });
       chk(SECTIONS.filter((k) => k !== 'you').every((k) => r[k] === 0),
         `[${theme}] control: the other six sections measure zero before any click`, JSON.stringify(r));
 

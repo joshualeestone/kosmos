@@ -3522,8 +3522,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   <!-- ⚠️ THE PACK'S AGENT PAGE (view B, pack-pass, scrappy): dhead carries
        who the agent IS (big gauge avatar, name beside its state, role,
        the machine-name disclosure, the because sentence, and the projects
-       it is assigned to); the dgrid boxes below carry the readings and the
-       controls that exist. Every control id predates this restyle; the
+       it is assigned to); the sections below (agent-page-nav) carry the
+       readings and the controls that exist. Every control id predates this restyle; the
        pack's model/account selects and fresh-start actions have no engine
        yet and are drawn as the honest not-built line instead (recorded
        gaps in the plan). -->
@@ -5648,7 +5648,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            fields are carried from the last read, never blanked. -->
       <div class="field" style="margin-top:18px;">
         <label class="flabel" for="you-name">Your name</label>
-        <div class="fhint">What your agents call you, and the top of the org chart.</div>
+        <div class="fhint">What your agents call you.</div>
         <div class="frow">
           <input type="text" id="you-name" maxlength="80" placeholder="Your name" disabled>
           <button class="btn" type="button" id="you-name-save" aria-label="Save your name" disabled>Save</button>
@@ -8426,9 +8426,10 @@ async function paintYouName() {
       if (document.activeElement !== inp) inp.value = r.you.name;
       inp.disabled = false;
       btn.disabled = false;
-      /* A read that worked clears a could-not-read or not-yet sentence left
-         by an earlier one; a "Saved." is gone by the time a repaint lands. */
-      if (/could not read|not been told|Nothing to change/.test(msg.textContent)) msg.textContent = '';
+      /* A read that worked clears whatever an earlier read or save left:
+         the repaint runs on arriving at the tab, and a "Saved." from before
+         the person left is a receipt for a save they are no longer making. */
+      msg.textContent = '';
       return;
     }
     YOU_REC = null;
@@ -8466,12 +8467,19 @@ document.getElementById('you-name-save').addEventListener('click', async () => {
        re-tells an agent at restart, so an untold agent stays untold until the
        next save. A roster that could not be read comes back as one entry
        with no agent; that is said as what it is. */
-    const each = missed.map((t) => (t.agent ? t.agent + ': ' : '') + (t.because || 'we could not tell it'));
+    const each = missed.map((t) => (t.agent ? (t.shownAs || t.agent) + ': ' : '') + (t.because || 'we could not tell it'));
+    /* COUNTED, never "your agents": the sync reaches only agents running
+       under a name Kosmos can tie, so "all told" would be a claim about
+       agents it never looked at. An agent not running learns the name from
+       its file when it starts, if its file was written; one it could not
+       reach is named above. */
+    const toldN = told.filter((t) => t && t.state === 'told').length;
+    const toldWord = toldN === 1 ? '1 running agent' : toldN + ' running agents';
     msg.textContent = !missed.length
-      ? 'Saved. Your agents have been told.'
+      ? (toldN ? 'Saved. Told ' + toldWord + '.' : 'Saved. No agent was running to tell.')
       : missed.some((t) => !t.agent)
         ? 'Saved, but we could not tell your agents: ' + each.join('; ') + '. Save again once Kosmos can see them.'
-        : 'Saved. Told everyone except ' + each.join('; ') + '. Save again to retry.';
+        : 'Saved. Told ' + toldWord + '; could not tell ' + each.join('; ') + '. Save again to retry.';
   } catch {
     msg.textContent = 'We could not reach Kosmos to save that.';
   } finally {
