@@ -1630,7 +1630,8 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
    ink because at callout size it rendered byte-identical to the machine
    path below it; at the pack's .9375rem the size split carries that
    distinction, so the pack's ink-2 stands. */
-p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
+p.pj-desc-empty { color: var(--label-3); font-style: italic; }
+.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
   line-height: 1.45; color: var(--label-2); max-width: 62ch;
   /* --label-2, not k-ink-2: the detail sits on the legacy-token panel,
      and its ink stays in the same token system as that surface (the
@@ -17775,8 +17776,15 @@ function paintOneProject() {
   document.getElementById('pj-one-name').textContent = p.name;
   paintProjectTasks(p);
   const desc = document.getElementById('pj-one-desc');
-  desc.textContent = p.description || '';
-  desc.hidden = !p.description;
+  /* The empty slot SHOWS, by Josh's own ruling (2026-08-20: "leave a slot
+     that is open... default text would say project description is blank,
+     edit this in settings"), which supersedes the earlier hide-when-empty
+     pin this line used to carry. Muted and unmistakably not content, so a
+     colleague reading the page cannot take the placeholder for the
+     project's actual description. */
+  desc.textContent = p.description || 'This project has no description yet. Add one in Project settings.';
+  desc.classList.toggle('pj-desc-empty', !p.description);
+  desc.hidden = false;
   /* Agent-made projects say so (#327). `by` is the pane's agent when one was
      offered and resolved; otherwise the honest generic. Screen-made shows
      nothing: "made by you" under everything is furniture. */
