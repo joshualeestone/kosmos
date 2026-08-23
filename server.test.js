@@ -4293,10 +4293,14 @@ test('the browser-layer fixes on this branch cannot be undone silently', () => {
     // detail page.)
     [/p\.description \? '<span class="pc-t">' \+ esc\(p\.description\)/,
      'the card row lost its escaped description arm'],
-    [/desc\.textContent = p\.description \|\| '';/,
+    [/desc\.textContent = p\.description \|\| 'This project has no description yet/,
      'the detail description must be written through textContent -- innerHTML here is the injection the card arm escapes against, and no node test can see the swap'],
-    [/desc\.hidden = !p\.description;/,
-     'the detail description lost its hidden-when-absent toggle (an empty grey line under every undescribed project)'],
+    /* The hidden-when-absent toggle retired on Josh's 08-20 ruling (#132):
+       the empty slot now SHOWS, muted, saying where to fill it. What must
+       survive instead is that the placeholder can never be mistaken for
+       content: the empty class rides exactly the absence. */
+    [/desc\.classList\.toggle\('pj-desc-empty', !p\.description\);/,
+     'the empty description lost its distinct dress, so the placeholder reads as the project\u2019s own words'],
     // The pick toggle must keep setLive's memory in step with its in-place
     // aria-checked flip, or the next poll rebuilds the list under the
     // focused button (round 39).
