@@ -1837,7 +1837,7 @@ function tellAgent(sessionName, projects, roster) {
     // a corrected command (the PATH fix) would otherwise reach only
     // newborn agents. The heal itself is in healColleagues below.
     const next = healColleagues(withProjects);
-    if (next === current.text) return { state: TOLD.TOLD, because: null };
+    if (next === current.text) return { state: TOLD.TOLD, because: null, changed: false };
     /* Why, in the reader's words, for the stale marker (#323): the projects
        changed, or only the colleagues list was healed. Never the two fused. */
     const why = withProjects !== (current.text || '')
@@ -1846,7 +1846,10 @@ function tellAgent(sessionName, projects, roster) {
         : WROTE_WHY.off)
       : WROTE_WHY.colleagues;
     instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: why });
-    return { state: TOLD.TOLD, because: null };
+    /* `changed` is about the PROJECTS half only: a colleagues heal rewrites the
+       file without the agent's project world moving, and speaking to a running
+       agent about that would be noise (#304). */
+    return { state: TOLD.TOLD, because: null, changed: withProjects !== (current.text || '') };
   } catch (err) {
     // ⚠️ A length refusal is OUR doing here, not the person's. Taking our block
     // back out can push a file under the editor's minimum, and forwarding that
@@ -1895,6 +1898,38 @@ function healColleagues(text) {
  * re-writing an instruction file to find out whether we could — the read is
  * cheap, the write is the most dangerous one here.
  */
+/* One line typed into a RUNNING agent's pane when its project world changes
+   (#141, #143, #304, #305). The file write above is the record; this is the
+   only thing that reaches an agent that has already read its file. The line
+   carries the name, the folder and the room command (Angel's requirement:
+   the agent acts on the line, it does not re-read the file), so acting on it
+   needs nothing else. No envelope and no trailer, like the compact command:
+   an operator marker on a line no operator wrote would be a lie about who is
+   speaking. Delivery states come back as chat.deliver's own; a stopped agent
+   answers could_not, which is fine, because the file is its mechanism. */
+function membershipLine(project, kind) {
+  const name = oneLine((project && project.name) || 'a project');
+  if (kind === 'left') {
+    return 'Kosmos took you off the project "' + name + '". Do not post to its room any more; your instructions no longer list it.';
+  }
+  if (kind === 'removed') {
+    return 'The project "' + name + '" was removed from Kosmos. Your instructions no longer list it; do not post to its room.';
+  }
+  const folder = project && project.folder ? ' Its folder is `' + oneLine(project.folder) + '`.' : '';
+  const room = project && project.id
+    ? ' Post to everyone on it with: ' + kosmosCliShown() + ' post ' + oneLine(String(project.id)) + ' "your message".'
+    : '';
+  return 'Kosmos put you on the project "' + name + '".' + folder + room
+    + ' The "Your projects" section of your instructions has the details, including any tasks.';
+}
+function speakOfMembership(sessionName, project, kind, roster) {
+  try {
+    return chat.deliver(sessionName, membershipLine(project, kind), roster, undefined, undefined);
+  } catch (err) {
+    return { state: 'could_not', because: String((err && err.message) || 'we could not reach its window') };
+  }
+}
+
 function syncAgent(sessionName, roster) {
   const key = String(sessionName || '');
   const mine = readAll().filter((p) => (p.agents || []).includes(key));
@@ -1912,7 +1947,7 @@ module.exports = {
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe,
   list, get, projectsFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
-  findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues,
+  findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, setRevealRunner, listFiles, openFile,
 };

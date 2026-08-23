@@ -9832,3 +9832,53 @@ test('attachments: a message carries several files, in order, with every path in
   const roomWire = typed.map((x) => x[5]).find((x) => typeof x === 'string' && x.includes('plan.txt, budget.txt')) || '';
   assert.match(roomWire, /\[attached file: \/.+\/plan\.txt\] \[attached file: \/.+\/budget\.txt\]$/, roomWire);
 });
+
+test('putting a running agent on a project types one line into its pane, once, and only when membership moves (#141/#143/#304/#305)', async () => {
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  const projectsEngine = require('./engine/projects');
+  // The worker folder, explicitly: a prior test can leave the workers root
+  // pointed elsewhere, and this test is about the pane line, not the folder.
+  const createEngine = require('./engine/create');
+  fs.mkdirSync(createEngine.workerDir('mara'), { recursive: true });
+  const maraFile = nodePath.join(createEngine.workerDir('mara'), 'CLAUDE.md');
+  if (!fs.existsSync(maraFile)) fs.writeFileSync(maraFile, 'You are **Mara**.\n', 'utf8');
+  const pdir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'pane-line-'));
+  const made = projectsEngine.create({ name: 'Pane Line', folder: pdir, agents: [], roster: board.agents });
+  const sends = [];
+  chatEngine.setRunner((args) => {
+    sends.push(args);
+    if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  });
+  chatEngine.setDryRun(false);
+  try {
+    // Join: the line is typed, and the response says so.
+    let r = await req('/api/project/' + made.id + '/agent/mara', { method: 'POST' });
+    assert.equal(r.status, 200, r.body);
+    let out = JSON.parse(r.body);
+    assert.equal(out.told.state, 'told', out.told.because);
+    assert.ok(out.said, 'membership moved and nothing was spoken');
+    assert.equal(out.said.state, 'placed', out.said.because);
+    let typed = sends.filter((a) => a[0] === 'send-keys' && a.includes('-l'));
+    assert.equal(typed.length, 1, 'the join line was not typed exactly once');
+    assert.match(String(typed[0][typed[0].length - 1]), /put you on the project "Pane Line"/);
+    // Re-adding the same member moves nothing and types nothing.
+    sends.length = 0;
+    r = await req('/api/project/' + made.id + '/agent/mara', { method: 'POST' });
+    out = JSON.parse(r.body);
+    assert.equal(out.said, null, 'a repeat add spoke to the agent about a fact that did not move');
+    assert.equal(sends.filter((a) => a[0] === 'send-keys').length, 0);
+    // Leave: its own line, naming the project, not teaching the room command.
+    sends.length = 0;
+    r = await req('/api/project/' + made.id + '/agent/mara', { method: 'DELETE' });
+    out = JSON.parse(r.body);
+    assert.equal(out.said && out.said.state, 'placed', r.body);
+    typed = sends.filter((a) => a[0] === 'send-keys' && a.includes('-l'));
+    assert.equal(typed.length, 1);
+    assert.match(String(typed[0][typed[0].length - 1]), /took you off the project "Pane Line"/);
+    assert.doesNotMatch(String(typed[0][typed[0].length - 1]), /post pane-line/);
+  } finally {
+    chatEngine.setRunner(null);
+  }
+});
