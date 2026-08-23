@@ -1714,6 +1714,16 @@ function appendLocked(projectId, agent, entry, bornAt) {
          produced today (the digit), which is exactly when to move a guarantee
          back inside the thing that promises it. */
       wire: (entry && typeof entry.wire === 'string' && cleanMessage(entry.wire)) || null,
+      /* An attached document (#358): the record the page draws against,
+         kept by its known fields for the same reason `wire` is re-checked:
+         what is CHECKED is what gets KEPT. `preview` is null, never absent. */
+      ...(entry && entry.attachment && typeof entry.attachment === 'object' && typeof entry.attachment.id === 'string'
+        ? { attachment: {
+          id: entry.attachment.id, name: String(entry.attachment.name || ''), type: String(entry.attachment.type || ''),
+          size: Number(entry.attachment.size) || 0, kind: String(entry.attachment.kind || 'other'),
+          url: String(entry.attachment.url || ''), preview: entry.attachment.preview == null ? null : String(entry.attachment.preview),
+        } }
+        : {}),
       /**
        * 🛑 A ROW WITH A SENDER HAS NO DELIVERY, and the default here was
        * claiming one. `state` falls back to COULD_NOT — which is right for the
