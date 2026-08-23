@@ -1705,6 +1705,19 @@ function createAgentInner(opts) {
     return r && r.ok !== false;
   });
 
+  /* #169: what the failed-start rollback below knows in memory, persisted
+     for the ordinary removal that happens weeks later. Only a line WE wrote
+     (already false), best-effort and non-gating: a creation whose record
+     write failed leaves a line removal will not touch, which was the
+     behavior for every agent before this record existed. */
+  if (started && trusted && trusted.ok === true && trusted.already === false && trusted.key) {
+    try {
+      require('./trust').recordWrite(name, {
+        key: trusted.key, displaced: trusted.displaced, madeEntry: trusted.madeEntry,
+      });
+    } catch { /* the record is a courtesy to a future removal, never a gate */ }
+  }
+
   if (!started) {
     // ⚠️ AND THE TRUST ENTRY GOES WITH IT — only when we CREATED it (`already`
     // false), never when it was somebody's own decision that happened to be

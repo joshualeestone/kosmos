@@ -1706,3 +1706,76 @@ test('restart refuses on a window it cannot tie to the agent, and on one that is
     status.setPaneSource(null);
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #169: removal takes back exactly the trust line creation recorded as ours
+// ─────────────────────────────────────────────────────────────────────────────
+
+const trust = require('./trust');
+const CLAUDE_CONFIG = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+/* trustFolder refuses on an absent config by design (a machine that never
+   ran Claude Code must not have one fabricated), so each fixture seeds the
+   minimal real shape first. */
+const seedClaudeConfig = () => fs.writeFileSync(CLAUDE_CONFIG, JSON.stringify({ projects: {} }));
+const readTrustValue = (name) => {
+  const data = JSON.parse(fs.readFileSync(CLAUDE_CONFIG, 'utf8'));
+  const key = Object.keys(data.projects || {}).find((k) => k.endsWith('/' + name));
+  return key === undefined ? undefined
+    : (data.projects[key] && data.projects[key][trust.KEY]);
+};
+
+test('removal restores the trust line creation wrote, and drops the record (#169)', () => {
+  seedClaudeConfig();
+  const name = madeAgent('trusted-gone');
+  assert.equal(readTrustValue(name), true, 'the fixture creation did not write the trust line at all');
+  assert.ok(trust.recordedWrite(name), 'creation did not record its write, so removal has nothing to act on');
+
+  boardShows(name, name);
+  world();
+  remove.setDryRun(false);
+  const r = remove.remove(name);
+  assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
+  assert.ok(r.steps.some((s) => s.label === 'took back the folder trust' && s.ok === true),
+    'the take-back is not in the steps, so nobody can see it happened');
+  /* The folder had no prior entry, so the restore is a delete: no key, and
+     the whole entry gone with it. */
+  assert.equal(readTrustValue(name), undefined,
+    'the line we wrote survived its own removal, the exact stale line #169 documents');
+  assert.equal(trust.recordedWrite(name), null, 'the record outlived the line it described');
+});
+
+test('no record means the line is left alone, which is the person-owned direction (#169)', () => {
+  seedClaudeConfig();
+  const name = madeAgent('trusted-stays');
+  trust.dropRecord(name);   // an agent from before the record existed
+  boardShows(name, name);
+  world();
+  remove.setDryRun(false);
+  const r = remove.remove(name);
+  assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
+  assert.ok(!r.steps.some((s) => s.label === 'took back the folder trust'),
+    'a removal with no record still touched another tool’s config');
+  assert.equal(readTrustValue(name), true,
+    'a line nothing recorded as ours was deleted; that is somebody’s answer');
+});
+
+test('a value the person changed in the gap is left, and the record retires (#169)', () => {
+  seedClaudeConfig();
+  const name = madeAgent('trusted-changed');
+  /* The person answered the prompt themselves after us: the line is no
+     longer purely ours, and forgetFolder’s only-if-it-still-says-yes
+     guard is what this pins at the removal distance. */
+  const data = JSON.parse(fs.readFileSync(CLAUDE_CONFIG, 'utf8'));
+  const key = Object.keys(data.projects).find((k) => k.endsWith('/' + name));
+  data.projects[key][trust.KEY] = false;
+  fs.writeFileSync(CLAUDE_CONFIG, JSON.stringify(data));
+
+  boardShows(name, name);
+  world();
+  remove.setDryRun(false);
+  const r = remove.remove(name);
+  assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
+  assert.equal(readTrustValue(name), false, 'the person’s own later answer was overwritten');
+  assert.equal(trust.recordedWrite(name), null,
+    'the record survived although nothing ours remains, so a future removal would act again');
+});

@@ -631,3 +631,34 @@ test('two processes never choose the same temp path', () => {
   // work — it does not, because the pids differ too. Claiming only the
   // collision.
 });
+
+test('the trust-writes record round-trips, keeps displaced-absent distinct, and fails unreadable toward null (#169)', () => {
+  /* null is the caller's leave-the-line signal, the inert direction: a
+     record we cannot read must never authorize touching another tool's
+     config. ENOENT is the one absence that answers an empty record. */
+  const trust = require('./trust');
+  const store = require('./store');
+  fs.rmSync(nodePath.join(store.ROOT, 'trust-writes.json'), { force: true });
+
+  assert.equal(trust.recordedWrite('nobody'), null, 'an empty record invented an entry');
+  assert.equal(trust.recordWrite('ada', { key: '/w/ada', displaced: false, madeEntry: false }), true);
+  assert.equal(trust.recordWrite('bob', { key: '/w/bob', madeEntry: true }), true);
+  const ada = trust.recordedWrite('ada');
+  assert.equal(ada.key, '/w/ada');
+  assert.equal(ada.displaced, false, 'a displaced false was lost, so the restore would delete instead of putting false back');
+  const bob = trust.recordedWrite('bob');
+  assert.equal('displaced' in bob, false, 'an absent displaced grew a value, so the restore would write instead of deleting');
+  assert.equal(bob.madeEntry, true);
+
+  trust.dropRecord('ada');
+  assert.equal(trust.recordedWrite('ada'), null, 'a dropped record still answers');
+  assert.ok(trust.recordedWrite('bob'), 'dropping one name took another with it');
+
+  /* Unreadable: every reader answers the leave-the-line signal, and a
+     write refuses rather than clobbering what it could not read. */
+  fs.writeFileSync(nodePath.join(store.ROOT, 'trust-writes.json'), '{corrupt');
+  assert.equal(trust.recordedWrite('bob'), null, 'a corrupt record was read as an answer');
+  assert.equal(trust.recordWrite('cid', { key: '/w/cid', madeEntry: true }), false,
+    'a write over a corrupt record would destroy entries it could not read');
+  fs.rmSync(nodePath.join(store.ROOT, 'trust-writes.json'), { force: true });
+});

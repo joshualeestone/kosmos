@@ -363,4 +363,68 @@ function forgetFolder(dir, displaced, madeEntry) {
   return { ok: true, already: false };
 }
 
-module.exports = { trustFolder, forgetFolder, KEY };
+/**
+ * The side record of trust lines KOSMOS wrote (#169): which folder key a
+ * creation trusted, what it displaced, and whether it made the entry.
+ *
+ * This exists because an ordinary removal cannot otherwise tell our line
+ * from one the person wrote by answering the prompt themselves, and the
+ * two failure directions are not equal: a stale line is inert, deleting a
+ * person's own answer reaches into another tool's config and destroys a
+ * decision. With the record, removal restores exactly what the failed-
+ * start rollback already restores, using the same forgetFolder guards
+ * (including only-if-it-still-says-yes, so a value the person changed in
+ * the gap is left alone). Same shape as the birth record (#157): what we
+ * DID, kept beside the artifact that goes missing.
+ *
+ * Failure directions, stated: an unreadable record answers null, and the
+ * caller then leaves the line, the inert direction. Recording best-effort
+ * never fails a creation; a creation whose record write failed simply
+ * leaves a line removal will not touch, which is yesterday's behavior.
+ */
+/* store.ROOT, lazily (no cycle: store never requires trust), so the record
+   lives beside profiles and the birth record under the ONE data root and a
+   sandboxed suite cannot split the two derivations. */
+const RECORD = () => path.join(require('./store').ROOT, 'trust-writes.json');
+function readRecord() {
+  try {
+    const data = JSON.parse(fs.readFileSync(RECORD(), 'utf8'));
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+  } catch (err) {
+    return err && err.code === 'ENOENT' ? {} : null;
+  }
+}
+function recordWrite(name, wrote) {
+  const data = readRecord();
+  if (data === null) return false;
+  /* displaced is stored only when it existed: JSON has no undefined, and
+     forgetFolder reads its absence as "we made the key". */
+  const entry = { key: wrote.key, madeEntry: wrote.madeEntry === true, at: new Date().toISOString() };
+  if (wrote.displaced !== undefined) entry.displaced = wrote.displaced;
+  data[String(name)] = entry;
+  try {
+    fs.mkdirSync(path.dirname(RECORD()), { recursive: true });
+    const tmp = RECORD() + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    fs.renameSync(tmp, RECORD());
+    return true;
+  } catch { return false; }
+}
+function recordedWrite(name) {
+  const data = readRecord();
+  if (data === null) return null;
+  const e = data[String(name)];
+  return e && typeof e === 'object' && typeof e.key === 'string' ? e : null;
+}
+function dropRecord(name) {
+  const data = readRecord();
+  if (data === null || !(String(name) in data)) return;
+  delete data[String(name)];
+  try {
+    const tmp = RECORD() + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    fs.renameSync(tmp, RECORD());
+  } catch { /* the record stays; a later removal retries */ }
+}
+
+module.exports = { trustFolder, forgetFolder, KEY, recordWrite, recordedWrite, dropRecord };
