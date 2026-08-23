@@ -472,6 +472,8 @@ test('the colleagues block says a reply in your own session reaches nobody, and 
      an answer, so it must survive the guard it describes.) Sweep it with
      the same list the guard uses, parsed from source so it cannot drift
      into a copy. */
+  /* The sweep ends at the first blank line: keep the warning ONE paragraph,
+     or a second paragraph would sit outside the guarded region. */
   const para = body.slice(body.indexOf('Do not quote the bracket line'));
   const warning = para.slice(0, para.indexOf('\n\n') === -1 ? para.length : para.indexOf('\n\n'));
   assert.ok(warning.length > 100, 'the warning paragraph extraction came back empty; re-anchor');
