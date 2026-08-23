@@ -31,6 +31,9 @@ process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-mb-config-'));
 process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-mb-launch-'));
+/* The projects root too, or /api/projects reads the operator's real
+   ~/Kosmos/Projects into the fixture board and the screenshots. */
+process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-mb-projects-'));
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
 const { chromium } = require('playwright');
@@ -53,6 +56,13 @@ function chk(ok, label, extra) {
   /* The control: Bob has a launch file in the SANDBOXED launch dir. */
   fs.writeFileSync(create.plistPath('bob'),
     create.plistFor('bob', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5'), 'utf8');
+  /* And the STOPPED half: a profile with no pane and no plist makes a
+     stopped known row, the state the review found dead behind a pctOf
+     throw. Everything it writes is under the sandboxed data root. */
+  require('../../engine/store').writeProfile('gone', { displayName: 'Gone' });
+  // The offline rows require the worker FOLDER to exist (survey's k.folder
+  // gate); a profile alone is not an agent the board will show.
+  fs.mkdirSync(create.workerDir('gone'), { recursive: true });
 
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -113,6 +123,31 @@ function chk(ok, label, extra) {
     chk(bob.msg === '', 'CONTROL: Rick’s refusal did not linger on Bob’s panel', bob.msg);
     chk(bob.disabled === false, 'CONTROL: the with-plist picker is usable');
     await page.screenshot({ path: path.join(OUT, 'made-before-bob-control.png'), fullPage: false });
+
+    // The stopped never-recorded agent: the panel OPENS (this used to throw
+    // in pctOf before anything painted), the explainer wears the stopped
+    // wording (no instruction to stop an agent that is not running), and the
+    // memory box says never recorded.
+    await page.click('.tab[data-tab="agents"]');
+    await page.waitForTimeout(300);
+    await page.waitForSelector('[data-agent="gone"]', { timeout: 8000 });
+    await page.click('[data-agent="gone"]');
+    await page.waitForSelector('#panel-detail:not([hidden])');
+    await page.click('#d-nav button[data-go="model"]');
+    await page.waitForTimeout(400);
+    const gone = await page.evaluate(() => ({
+      why: document.getElementById('d-runson-why').textContent,
+      msg: document.getElementById('d-model-msg').textContent,
+    }));
+    chk(/To bring it in: add it from Found agents/.test(gone.why) && !/stop it/.test(gone.why),
+      'the stopped explainer names the way in without telling anyone to stop a stopped agent', gone.why);
+    chk(/Add it from Found agents/.test(gone.msg) && !/Stop it/.test(gone.msg),
+      'the stopped picker refusal matches', gone.msg);
+    await page.click('#d-nav button[data-go="memory"]');
+    await page.waitForTimeout(300);
+    const mem = await page.evaluate(() => document.getElementById('d-memory').textContent);
+    chk(/memory was never recorded/.test(mem), 'the stopped memory box says never recorded', mem.slice(0, 120));
+    await page.screenshot({ path: path.join(OUT, 'made-before-gone-stopped.png'), fullPage: false });
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();

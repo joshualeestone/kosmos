@@ -1642,6 +1642,8 @@ function notYetStarted(agentName) {
  * to the name (`isNamedOurs`); this function knows files, not panes.
  */
 function neverRecorded(agentName) {
+  // require at CALL time: create.js requires status.js at load, so a
+  // top-level require here would be a cycle landing half-initialized.
   try { return require('./create').jobMissing(agentName) === true; } catch { return false; }
 }
 

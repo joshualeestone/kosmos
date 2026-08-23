@@ -6826,7 +6826,12 @@ function assumedCeilingNote(ctx) {
 }
 
 function pctOf(ctx) {
-  return Number.isFinite(ctx.percent) ? ctx.percent : null;
+  /* Null-tolerant (#149/#150 review): a STOPPED row deliberately carries no
+     context at all, and this dereference threw before the stopped half of
+     the never-recorded treatment (the explainer, the memory sentence) could
+     ever paint. Absent context and unreadable context land in the same
+     place: no percent. */
+  return ctx && Number.isFinite(ctx.percent) ? ctx.percent : null;
 }
 function boardMods(a, m) {
   return [
@@ -10203,7 +10208,15 @@ function memoryBox(a) {
        this, a stopped never-recorded agent's memory box kept the fault
        sentence while the model line beside it said history: one panel, one
        state, two vocabularies. */
-    const u = memUnknown(a.context || (a.neverRecorded ? { neverRecorded: true } : null));
+    const u = memUnknown(a.context || (a.neverRecorded
+      ? { neverRecorded: true,
+          /* The page owns these words for the stopped row the way modelLine
+             owns its sentence: there is no engine context here to quote, and
+             a bare flag left the stopped note one sentence short of the
+             running one. Same words as the engine's running-row because, on
+             purpose; drift shows up in the pin below. */
+          because: 'made before Kosmos recorded this, so there is no record to read' }
+      : null));
     return '<div class="memrow"><span class="bar unknown"></span><span class="pct">' + u.word + '</span></div>'
       + '<p class="dhint" style="margin:12px 0 0;"><b>' + esc(a.name) + '\u2019s ' + u.lead + '</b> '
       + u.note + '</p>';
@@ -14425,11 +14438,18 @@ async function paintModelPicker(a) {
   const go = document.getElementById('d-model-go');
   const msg = document.getElementById('d-model-msg');
   if (!sel || !go) return;
+  /* Flight guard (#149/#150 review): on the first-ever open this awaits the
+     roles fetch, and a switch during that await would land agent A's
+     continuation, refusal sentence included, on agent B's panel after
+     openDetail's clear. Same class as TALK_FLIGHT: bail when the panel has
+     moved on. */
+  const forWhom = a && a.sessionName;
   if (!CREATE_MODELS.length) {
     try {
       const res = await fetch('/api/roles', { cache: 'no-store' });
       if (res.ok) CREATE_MODELS = ((await res.json()) || {}).models || [];
     } catch { /* the control stays empty and disabled, which is honest */ }
+    if (!CURRENT || CURRENT.sessionName !== forWhom) return;
   }
   const html = ['<option value="">Change to&hellip;</option>'].concat(
     CREATE_MODELS.map((m) => '<option value="' + esc(m.key) + '">' + esc(m.label) + '</option>'),
