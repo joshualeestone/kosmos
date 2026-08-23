@@ -80,6 +80,39 @@ test('it is absent while the first poll is merely in flight', () => {
   assert.equal(slot.innerHTML, '');
 });
 
+test('a server that ANSWERED with a refusal is not "not answering": the note paints only when nothing answered (#268)', async () => {
+  /**
+   * The two failures a person could not tell apart: the whole of Kosmos absent
+   * (the fetch never got an answer) and one subsystem unreadable (Kosmos
+   * answered 500 with tmux's words). The first is said once at the top; the
+   * second belongs to the board's own box with the engine's sentence, and
+   * painting "not answering" over it is the screen contradicting itself.
+   * Driven through the real `tick`, both ways, with the rest of the paint
+   * swallowed by a document that answers every id with a stub.
+   */
+  const drive = async (fetchImpl) => {
+    const painted = [];
+    const stub = () => ({ dataset: {}, innerHTML: '', className: '', textContent: '', hidden: true, closest: () => null, querySelector: () => null, querySelectorAll: () => [] });
+    // The catch branch repaints the board's failure state; everything it
+    // touches beyond the note is a stub, so the only thing measured here is
+    // the one call this test is about.
+    await new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED',
+      `${page.lift(SCRIPT, 'tick')}\nreturn tick();`)(
+      (down) => painted.push(down),
+      fetchImpl,
+      { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] },
+      0, () => '', () => {}, null, null,
+    );
+    return painted;
+  };
+  // Nothing answered: the fetch itself failed.
+  const absent = await drive(() => Promise.reject(new TypeError('Failed to fetch')));
+  assert.deepEqual(absent, [true], 'a failed fetch did not paint the note');
+  // Kosmos answered, in words, with a refusal.
+  const refused = await drive(() => Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: 'we could not make sense of what came back', detail: 'tmux said no' }) }));
+  assert.deepEqual(refused, [false], 'a server that answered was reported as not answering');
+});
+
 test('a poll that works clears it in the same paint', () => {
   /* ⚠️ A STALE FAILURE NOTICE OVER A WORKING BOARD is this note inverted: the
      board says everything is fine and the chrome says nothing is answering, and

@@ -296,6 +296,22 @@ cmd_open() {
   exec /usr/bin/open "$URL"
 }
 
+# The direct look the board names when it cannot read the agents (#274).
+# Kosmos ships its own tmux off PATH, so `tmux ls` in a Terminal says
+# "command not found" at the exact moment somebody wants it; this runs the
+# tmux the board itself uses (resolved above), and says so.
+cmd_agents() {
+  if [ ! -x "$AGENT_WORKFORCE_TMUX_BIN" ]; then
+    say "Kosmos cannot find its tmux at $AGENT_WORKFORCE_TMUX_BIN"
+    exit 1
+  fi
+  say "Sessions on this computer, as Kosmos's own tmux sees them ($AGENT_WORKFORCE_TMUX_BIN):"
+  if ! "$AGENT_WORKFORCE_TMUX_BIN" list-sessions 2>/dev/null; then
+    say "None. No tmux server is running for Kosmos's tmux, so no agent started by Kosmos is running."
+    exit 1
+  fi
+}
+
 cmd_version() {
   if [ -x "$NODE" ] && [ -f "$KOSMOS_HOME/app/package.json" ]; then
     # The path travels as an environment variable, never interpolated into
@@ -512,12 +528,13 @@ case "${1:-}" in
   restart) cmd_restart ;;
   status)  cmd_status ;;
   open)    cmd_open ;;
+  agents)  cmd_agents ;;
   version) cmd_version ;;
   msg)     shift; cmd_msg "$@" ;;
   reply)   shift; cmd_reply "$@" ;;
   post)    shift; cmd_post "$@" ;;
   *)
-    printf '\n  kosmos start | stop | restart | status | open | version | msg | post | reply\n\n'
+    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply\n\n'
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2
     ;;
