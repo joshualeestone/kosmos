@@ -23,8 +23,12 @@ const SCRIPT = scriptOf(PAGE);
 /** A stub element whose markup and text stay in step, as a real one's do. */
 function el() {
   let html = '';
+  const attrs = {};
   return {
     hidden: false,
+    textContent: '',
+    attrs,
+    setAttribute(k, v) { attrs[k] = v; },
     get innerHTML() { return html; },
     set innerHTML(v) { html = String(v); },
     /* The panel asks whether any row has been pressed. The rows it would find
@@ -41,64 +45,84 @@ function el() {
 
 async function paint(agents, opts = {}) {
   const wrap = opts.wrap || el();
+  const list = opts.list || el();
+  const toggle = opts.toggle || el();
   const calls = [];
   const src = liftAll(SCRIPT, ['esc', 'foundRowsHtml', 'paintFoundBoard']);
   const run = new Function('document', 'fetch', 'onAgentsTab', 'calls', `
     ${src}
-    /* 🛑 DECLARED, NOT ASSIGNED. The page keeps this beside the function; a lift
-       takes the function alone, so assigning it here would silently create a
-       GLOBAL -- which leaks between tests and makes the signature assertions
-       depend on the order they run in. Reading it first is what caught that:
-       an undeclared read throws, an undeclared write does not. */
+    /* 🛑 DECLARED, NOT ASSIGNED. The page keeps these beside the function; a
+       lift takes the function alone, so assigning them here would silently
+       create GLOBALS -- which leak between tests and make the signature
+       assertions depend on the order they run in. Reading one first is what
+       caught that: an undeclared read throws, an undeclared write does not. */
     let FOUND_SIG = ${JSON.stringify(opts.sig === undefined ? null : opts.sig)};
+    let FOUND_OPEN = ${opts.open === undefined ? 'true' : JSON.stringify(opts.open)};
     return paintFoundBoard();
   `);
   await run(
-    { getElementById: (id) => (id === 'found-wrap' ? wrap : null) },
+    {
+      getElementById: (id) => (
+        id === 'found-wrap' ? wrap : id === 'found-list' ? list : id === 'found-toggle' ? toggle : null),
+    },
     async (url) => { calls.push(url); return opts.res || { ok: true, json: async () => ({ ok: true, agents }) }; },
     () => opts.onTab !== false,
     calls,
   );
-  return { wrap, calls };
+  return { wrap, list, toggle, calls };
 }
 
 const LOOSE = { dir: '/w/anna', name: 'Anna', role: 'Copywriter', already: false };
 const KEPT = { dir: '/w/bob', name: 'Bob', role: 'Editor', already: true };
 
 test('it offers only the agents Kosmos does not already have', async () => {
-  const { wrap } = await paint([LOOSE, KEPT]);
+  const { wrap, list, toggle } = await paint([LOOSE, KEPT]);
   assert.equal(wrap.hidden, false);
-  assert.match(wrap.innerHTML, /Anna/);
-  assert.doesNotMatch(wrap.innerHTML, /Bob/,
+  assert.match(list.innerHTML, /Anna/);
+  assert.doesNotMatch(list.innerHTML, /Bob/,
     'an agent Kosmos already looks after is offered back to the person who added it');
-  assert.match(wrap.innerHTML, /There is an agent on this Mac/,
+  assert.match(toggle.textContent, /the agent on this Mac that is not in Kosmos/,
     'the count is not the number of rows drawn');
 });
 
+test('it is a fold, shut until somebody opens it', async () => {
+  /* Josh, 2026-08-23: its own expandable area. A list that opens itself every
+     time the board loads is a list that has to be dismissed. */
+  const { wrap, list, toggle } = await paint([LOOSE], { open: false });
+  assert.equal(wrap.hidden, false, 'the fold itself is hidden, so there is nothing to open');
+  assert.equal(list.hidden, true, 'the list is open before anybody asked for it');
+  assert.match(toggle.textContent, /^Show /);
+  assert.equal(toggle.attrs['aria-expanded'], 'false');
+
+  const open = await paint([LOOSE], { open: true });
+  assert.equal(open.list.hidden, false);
+  assert.match(open.toggle.textContent, /^Hide /);
+  assert.equal(open.toggle.attrs['aria-expanded'], 'true');
+});
+
 test('nothing to add means no panel at all', async () => {
-  const { wrap } = await paint([KEPT]);
+  const { wrap, list } = await paint([KEPT]);
   assert.equal(wrap.hidden, true);
-  assert.equal(wrap.innerHTML, '', 'the panel is hidden but still holds a list');
+  assert.equal(list.innerHTML, '', 'the panel is hidden but still holds a list');
 });
 
 test('a look that failed leaves the panel alone rather than emptying it', async () => {
   /* 🛑 THE DIRECTION THAT MATTERS. This whole feature exists because a silence
      was read as an all-clear. A 500 that clears the panel tells somebody with
      agents that they have none, which is the original defect with a new cause. */
-  const wrap = el();
-  wrap.innerHTML = '<div class="pj-empty">a list that is already on screen</div>';
-  await paint([], { wrap, res: { ok: false, json: async () => ({}) } });
-  assert.match(wrap.innerHTML, /already on screen/, 'a failed look wiped the panel');
-  assert.equal(wrap.hidden, false);
+  const list = el();
+  list.innerHTML = '<div>a list that is already on screen</div>';
+  await paint([], { list, res: { ok: false, json: async () => ({}) } });
+  assert.match(list.innerHTML, /already on screen/, 'a failed look wiped the panel');
 });
 
 test('it does not repaint over a row somebody has pressed', async () => {
   /* The five-second poll would otherwise rebuild the list mid-press and throw
      away every "Added" on the screen. */
-  const wrap = el();
-  wrap.innerHTML = '<div class="fr-foundrow done">pressed</div>';
-  const { calls } = await paint([LOOSE], { wrap });
-  assert.match(wrap.innerHTML, /pressed/, 'a pressed row was repainted away');
+  const list = el();
+  list.innerHTML = '<div class="fr-foundrow done">pressed</div>';
+  const { calls } = await paint([LOOSE], { list });
+  assert.match(list.innerHTML, /pressed/, 'a pressed row was repainted away');
   assert.equal(calls.length, 0, 'it asked the machine before checking whether it may paint');
 });
 
@@ -111,19 +135,19 @@ test('it is not drawn on another tab', async () => {
 test('an unchanged list is not rebuilt', async () => {
   /* Rebuilding identical markup every five seconds is what steals focus from a
      button somebody is tabbing to. */
-  const wrap = el();
-  wrap.innerHTML = '<div class="pj-empty">first paint</div>';
-  await paint([LOOSE], { wrap, sig: '/w/anna' });
-  assert.match(wrap.innerHTML, /first paint/, 'the same list was painted again');
+  const list = el();
+  list.innerHTML = '<div>first paint</div>';
+  const { wrap } = await paint([LOOSE], { list, sig: '/w/anna' });
+  assert.match(list.innerHTML, /first paint/, 'the same list was painted again');
   assert.equal(wrap.hidden, false);
 });
 
 test('a changed list IS rebuilt', async () => {
   /* CONTROL for the test above: a signature check that never lets anything
      through is indistinguishable from a panel that never paints. */
-  const wrap = el();
-  wrap.innerHTML = '<div class="pj-empty">first paint</div>';
-  await paint([LOOSE], { wrap, sig: '/w/somebody-else' });
-  assert.doesNotMatch(wrap.innerHTML, /first paint/, 'a different list did not repaint');
-  assert.match(wrap.innerHTML, /Anna/);
+  const list = el();
+  list.innerHTML = '<div>first paint</div>';
+  await paint([LOOSE], { list, sig: '/w/somebody-else' });
+  assert.doesNotMatch(list.innerHTML, /first paint/, 'a different list did not repaint');
+  assert.match(list.innerHTML, /Anna/);
 });

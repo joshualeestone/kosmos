@@ -1964,8 +1964,13 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
    36rem cap on `.fr-found` is right inside setup's card and leaves the rows
    stopping halfway across a board-width panel. Measured on the board at 1200px:
    the rows ended at 620 inside a 1150 panel. */
-#found-wrap .pj-empty { text-align: left; }
-#found-wrap .fr-found { max-width: none; margin: var(--space-5) 0 0; }
+/* The fold's list is as wide as the board rather than the 34rem its neighbour
+   uses: these rows carry a name, a title and a button, where a removed row
+   carries a name and a date. */
+#found-list.found-list { max-width: none; }
+#found-list .fr-found { max-width: none; margin: 0; }
+#found-list .fr-foundnote { margin: 0 0 var(--space-5); font: var(--text-callout) var(--font-ui);
+  color: var(--label-2); line-height: 1.5; max-width: 46rem; }
 /* The commitments a restart would end. Not a bullet list: these are sentences
    an agent wrote about its own work, and bullets make them read as options. */
 .rst-list { list-style: none; margin: 10px 0 0; padding: 0; }
@@ -5649,19 +5654,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      discover by looking at it. Absent entirely when every agent has a job,
      which is the ordinary case and must not carry a banner. -->
 <div id="restart-wrap" hidden></div>
-<!-- 🛑 THE AGENTS ON THIS MAC THAT KOSMOS IS NOT LOOKING AFTER. Setup offers
-     these on the way in, which covers nobody who installed Kosmos before that
-     screen existed -- and the person this feature was written for, the one with
-     agents Kosmos could not see, is by definition already installed. Without
-     this, their only route to it is to uninstall and set up again.
-
-     Below the restart panel, deliberately. That one is about agents they have
-     here that will vanish; this one is about agents that were never brought in.
-     The first is a loss, the second is an offer.
-
-     Absent entirely when there is nothing to add, which is the ordinary state
-     and must not carry a banner. -->
-<div id="found-wrap" hidden></div>
 <div class="cards" id="grid"></div>
 <div class="alist" id="alist" hidden></div>
 <!-- ⚠️ THE ORG VIEW (#137), built from kosmos-org-view-2026-08-19.html. That
@@ -5679,6 +5671,27 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        guard down with it, since that guard cleared it by id. -->
   <div class="orgmap" id="orgmap"></div>
   <p class="dhint" id="orgnote" role="status"></p>
+</div>
+
+<!-- 🛑 THE AGENTS ON THIS MAC THAT KOSMOS IS NOT LOOKING AFTER. Setup offers
+     these on the way in, which covers nobody who installed Kosmos before that
+     screen existed -- and the person this feature was written for, the one with
+     agents Kosmos could not see, is by definition already installed. Without
+     this, their only route to it is to uninstall and set up again.
+
+     🔑 BELOW THE AGENTS, ABOVE THE REMOVED ONES, IN A FOLD OF ITS OWN (Josh,
+     2026-08-23, on the first version, which sat above the cards). The order that
+     puts it here is the order of how much each thing is yours: your agents, then
+     agents on this Mac that could be, then the ones you took out. Above the
+     cards it was a banner over the thing a person came to look at.
+
+     ⚠️ COLLAPSED, LIKE ITS NEIGHBOUR. A list that opens itself every time the
+     board loads is a list that has to be dismissed, and this one can be long.
+     Absent entirely when there is nothing to add. -->
+<div class="removed-wrap" id="found-wrap" hidden>
+  <button class="linkish" id="found-toggle" type="button"
+          aria-expanded="false" aria-controls="found-list"></button>
+  <div class="removed-list found-list" id="found-list" hidden></div>
 </div>
 
 <!-- ⚠️ REMOVED AGENTS ARE NOT LOST, and this is where that becomes true for the
@@ -12107,12 +12120,18 @@ let SURVIVAL_BUSY = false;
  * only when the SET has changed, and never once a row has been touched.
  */
 let FOUND_SIG = null;
+let FOUND_OPEN = false;
 async function paintFoundBoard() {
   const wrap = document.getElementById('found-wrap');
-  if (!wrap) return;
+  const list = document.getElementById('found-list');
+  const toggle = document.getElementById('found-toggle');
+  if (!wrap || !list || !toggle) return;
   if (!onAgentsTab()) { wrap.hidden = true; return; }
-  /* ⚠️ A row somebody has pressed is a row that must survive the next poll. */
-  if (wrap.querySelector('.fr-foundrow.done, .fr-foundgo:disabled')) return;
+  /* ⚠️ A row somebody has pressed is a row that must survive the next poll. The
+     board repaints every five seconds and an add makes the set change, so
+     without this the panel rebuilds under somebody's hand and takes away the
+     Undo at the moment they are reaching for it. */
+  if (list.querySelector('.fr-foundrow.done, .fr-foundgo:disabled')) return;
 
   let body = null;
   try {
@@ -12130,29 +12149,34 @@ async function paintFoundBoard() {
   if (!missing.length) {
     FOUND_SIG = sig;
     wrap.hidden = true;
-    wrap.innerHTML = '';
+    list.innerHTML = '';
     return;
   }
-  if (sig === FOUND_SIG && wrap.innerHTML) { wrap.hidden = false; return; }
-  FOUND_SIG = sig;
 
   const n = missing.length;
   wrap.hidden = false;
-  wrap.innerHTML = '<div class="pj-empty">'
-    /* Singular and plural written out rather than assembled: "1 agents" is the
-       seam this product keeps being caught on. */
-    + '<p><b>' + (n === 1
-      ? 'There is an agent on this Mac that Kosmos is not looking after.'
-      : 'There are ' + n + ' agents on this Mac that Kosmos is not looking after.')
-    + '</b><br>'
+  /* Singular and plural written out rather than assembled: "1 agents" is the
+     seam this product keeps being caught on. */
+  toggle.textContent = (FOUND_OPEN ? 'Hide' : 'Show') + ' '
+    + (n === 1 ? 'the agent on this Mac that is not in Kosmos'
+      : 'the ' + n + ' agents on this Mac that are not in Kosmos');
+  toggle.setAttribute('aria-expanded', FOUND_OPEN ? 'true' : 'false');
+  list.hidden = !FOUND_OPEN;
+
+  /* ⚠️ THE ROWS ARE NOT REBUILT FOR AN UNCHANGED SET. Rewriting identical
+     markup every five seconds steals focus from a control somebody is tabbing
+     to, and it is the repaint the guard above cannot see coming. */
+  if (sig === FOUND_SIG && list.innerHTML) return;
+  FOUND_SIG = sig;
+
+  list.innerHTML = '<p class="fr-foundnote">'
     /* ⚠️ WHAT ADDING DOES, IN THE SAME WORDS SETUP USES. Somebody who saw that
        screen and somebody meeting this one for the first time have to be told
        the same thing, and the fear both of them have is that their agent moves. */
     + 'Adding one leaves it exactly where it is, in its own folder with its own '
     + 'instructions. Kosmos starts looking after it, so it comes back when you '
     + 'log in and restarts in one click.</p>'
-    + foundRowsHtml(missing)
-    + '</div>';
+    + foundRowsHtml(missing);
 }
 
 /**
@@ -12452,6 +12476,14 @@ function whenRemoved(a) {
 document.getElementById('removed-toggle').addEventListener('click', () => {
   REMOVED_OPEN = !REMOVED_OPEN;
   paintRemoved();
+});
+
+document.getElementById('found-toggle').addEventListener('click', () => {
+  FOUND_OPEN = !FOUND_OPEN;
+  /* 🔑 REPAINTS RATHER THAN TOGGLING `hidden` HERE, so the label and the
+     aria-expanded state cannot be set in two places and disagree. Its neighbour
+     is written the same way for the same reason. */
+  paintFoundBoard();
 });
 
 document.getElementById('removed-list').addEventListener('click', async (e) => {
