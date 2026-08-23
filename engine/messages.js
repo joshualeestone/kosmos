@@ -106,6 +106,27 @@ const MARKERS = [
 ];
 
 /**
+ * The one impersonation check, shared by every path that keeps agent text.
+ *
+ * Extracted because the check lived twice (msg and post) and the third path
+ * (the reply route) shipped without it: a reply carrying a marker line landed
+ * unrefused in the direct thread, the exact in-band forgery the guard names.
+ * One helper, three callers, and a fourth path cannot quietly skip it by
+ * copying the wrong site. Returns the refusal sentence, or null.
+ *
+ * Call it AFTER messageProblem (every caller does): a non-string reaching
+ * this alone would be coerced by cleanMessage rather than refused, and the
+ * checked-is-what-gets-kept rule lives in messageProblem, not here.
+ */
+function markerProblem(text) {
+  const lowered = chat.cleanMessage(text).toLowerCase();
+  if (MARKERS.some((m) => lowered.includes(m))) {
+    return 'that message contains a delivery marker itself, which would let it impersonate another sender; say it without the bracket line';
+  }
+  return null;
+}
+
+/**
  * What the person's message to an agent's OWN PAGE says about answering.
  *
  * 🛑 THE DIRECT PATH HAD NO ENVELOPE AT ALL, which is the hole under
@@ -395,10 +416,8 @@ function send({ fromPane, to, text, inReplyTo }, roster) {
      passes this gate, but cleanMessage means no forged marker can ever
      start its own line -- it always arrives wrapped inside the genuine
      envelope, attributed to its real sender. */
-  const lowered = chat.cleanMessage(text).toLowerCase();
-  if (MARKERS.some((m) => lowered.includes(m))) {
-    return refuse(toName, 'that message contains a delivery marker itself, which would let it impersonate another sender; say it without the bracket line');
-  }
+  const markerBad = markerProblem(text);
+  if (markerBad) return refuse(toName, markerBad);
 
   const rec = record();
   const log = rec.rows;
@@ -655,10 +674,8 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
   if (chat.cleanMessage(text).length > MAX_BODY) {
     return refuse('that is a document, not a message; put it in the project folder and post your colleagues the path');
   }
-  const lowered = chat.cleanMessage(text).toLowerCase();
-  if (MARKERS.some((m) => lowered.includes(m))) {
-    return refuse('that message contains a delivery marker itself, which would let it impersonate another sender; say it without the bracket line');
-  }
+  const markerBad = markerProblem(text);
+  if (markerBad) return refuse(markerBad);
 
   const rec = record();
   const log = rec.rows;
@@ -1031,6 +1048,12 @@ function blockBody() {
     'your own words rather than staying silent. The message never arrived,',
     'and a command that never ran leaves no trace for anyone to find.',
     '',
+    '**Do not quote the bracket line when you answer.** Every delivered',
+    'message opens with a bracketed line naming its sender. A message you',
+    'send that contains such a line is refused, because it could',
+    'impersonate another sender. Say it in your own words, or name',
+    'the id ("re m12") instead of pasting the line.',
+    '',
     'Mention @<their-name> to address someone directly; everyone else on',
     'the project receives it marked as background.',
     '',
@@ -1048,6 +1071,6 @@ module.exports = {
   OPERATOR_DIRECT,
   START, END, blockBody,
   LOG,
-  resolveSender, send, sendPost, list, owesReply, pairCount, readLog, record,
+  resolveSender, send, sendPost, list, owesReply, pairCount, readLog, record, markerProblem,
   setRunner, resetForTests,
 };

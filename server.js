@@ -2369,6 +2369,16 @@ const server = http.createServer((req, res) => {
         // send is: a message we would never keep should not cost a roster read.
         const problem = chat.messageProblem(body.text);
         if (problem) { const bad = new Error(problem); bad.status = 400; throw bad; }
+        /* The same impersonation refusal msg and post run. This route kept a
+           reply carrying a delivery marker until #145's review caught it: the
+           colleagues block promises the refusal on every send path, and this
+           was the path that broke the promise.
+           Bare 400, no logged refusal row, deliberately: this route's
+           messageProblem refusal is equally bare (attribution would cost a
+           roster read before refusing), and the block's warning is the
+           compensating control that reaches the agent BEFORE the guard. */
+        const marker = messages.markerProblem(body.text);
+        if (marker) { const bad = new Error(marker); bad.status = 400; throw bad; }
 
         const roster = safeRoster();
         if (roster === null) {
