@@ -7343,6 +7343,13 @@ function updatedNoteOnce(nowVersion) {
  * somebody is deciding whether their board has died is exactly the band where
  * an hour of slack is worth more than a tidy word.
  */
+/* The text in a headline tile: the number, or the number marked as a floor
+   ("11+": at least eleven) when this poll could not read every line (#291). A
+   non-number renders as the tile-sized unknown rather than "NaN". */
+function tileCount(n, floor) {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return '?';
+  return String(n) + (floor ? '+' : '');
+}
 function freshWords(seconds) {
   /* ⚠️ A NUMBER OR NOTHING, never `Number(x)`. `Number(null)` is 0, which is
      finite, which is under the floor, so a null age rendered as 'just now': a
@@ -7755,11 +7762,20 @@ async function tick() {
     // fleet (data.agents). Under the ?limit= debug parameter the grid shows a
     // slice while the tiles keep counting everything -- deliberate: the
     // tiles answer "how is the fleet", not "how many cards are drawn".
-    document.getElementById('st-agents').textContent = String(c.total);
+    /* 🔑 A FLOOR IS LABELLED AS A FLOOR (#291). `c.total` is what PARSED, and
+       on a poll where some pane lines could not be read it is at least the
+       count, not the count. The summary under the row already says lines were
+       unreadable; a tile printing `11` beside it is the number a person
+       believes. Not `?`: unlike Not running, this is knowable in part, and
+       replacing a true floor with nothing would hide a fact we hold. Working
+       and Idle are cut from the same parsed list, so they are floors on the
+       same poll and carry the same mark. */
+    const floor = (c.unreadableLines || 0) > 0;
+    document.getElementById('st-agents').textContent = tileCount(c.total, floor);
     document.getElementById('st-working').textContent =
-      String(data.agents.filter((a) => a.state === 'working').length);
+      tileCount(data.agents.filter((a) => a.state === 'working').length, floor);
     document.getElementById('st-idle').textContent =
-      String(data.agents.filter((a) => a.state === 'idle').length);
+      tileCount(data.agents.filter((a) => a.state === 'idle').length, floor);
     /* ⚠️ FROM THE COUNT, not from filtering the roster on `running`. The two
        agree today and the tile is a claim about the FLEET, which is what the
        engine counted; a second derivation here is how a headline starts

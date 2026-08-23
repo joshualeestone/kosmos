@@ -253,3 +253,27 @@ test('a partial pane read withholds the offline roster entirely', () => {
   /* And zero would be the same claim in another form. */
   assert.equal(murky.counts.notRunning, null);
 });
+
+test('on a partial read the headline tiles are marked as floors, never printed as counts (#291)', () => {
+  /**
+   * `c.total` is what parsed. With an unreadable line in the poll it is at
+   * least the count, and the tile printed it exactly as on a clean poll,
+   * beside a summary saying agents may be missing; a person believes the
+   * number. Ruled on the card: `11+`, not `?`, because this is knowable in
+   * part and a `?` would hide a fact we hold. Working and Idle are cut from
+   * the same parsed list and carry the same mark.
+   */
+  const tileCount = new Function(page.lift(SCRIPT, 'tileCount') + '\nreturn tileCount;')();
+  assert.equal(tileCount(11, true), '11+');
+  assert.equal(tileCount(11, false), '11');
+  assert.equal(tileCount(0, true), '0+', 'zero parsed on a partial read is still a floor, not a claim of none');
+  for (const bad of [null, undefined, NaN, '11']) assert.equal(tileCount(bad, false), '?', `${String(bad)} rendered as a number`);
+  // The three tiles use it, gated on the same fact the summary reads.
+  const paint = SCRIPT.slice(SCRIPT.indexOf("const c = data.counts;"), SCRIPT.indexOf("const c = data.counts;") + 1800);
+  assert.match(paint, /const floor = \(c\.unreadableLines \|\| 0\) > 0;/, 'the floor is not derived from unreadableLines');
+  for (const id of ['st-agents', 'st-working', 'st-idle']) {
+    assert.match(paint, new RegExp("getElementById\\('" + id + "'\\)\\.textContent =\\s*tileCount\\([^;]*, floor\\)"), id + ' is not marked as a floor');
+  }
+  // And the engine really produces the gate on the mangled fixture (control).
+  assert.ok(board({ mangle: true }).counts.unreadableLines > 0, 'the mangled fixture no longer yields an unreadable line, so the gate is untestable');
+});

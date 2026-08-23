@@ -2686,8 +2686,11 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
     const end = script.indexOf('\n', write) + 1;
     assert.ok(from > -1 && write > from && write < end,
       'the tile writes fell outside the extracted slice');
+    // The slice calls `tileCount` (#291: floors are marked on a partial
+    // read), so the real helper rides in front of it rather than a copy.
+    const helper = require('./test-support/page').lift(script, 'tileCount');
     // eslint-disable-next-line no-new-func
-    new Function('document', 'data', script.slice(from, end))(
+    new Function('document', 'data', helper + '\n' + script.slice(from, end))(
       { getElementById: (id) => els[id] }, { agents, counts });
     return els;
   };
