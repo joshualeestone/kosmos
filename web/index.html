@@ -2337,11 +2337,22 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
    ⚠️ `top` IS NEGATIVE BY THE ROW GAP, so the line starts at the bottom edge of
    the control above rather than at the top of its own row. Change the gap and
    this number moves with it; they are the same distance. */
-.msteps { display: grid; gap: var(--space-4); }
+/* ⚠️ THE GAP IS `--space-5`, NOT `--space-4`, AND THE ELBOW MOVED WITH IT. Josh,
+   2026-08-22: "It looks like the little line is overlapping between the account
+   and the model. They're crammed too close together." At the smaller gap the
+   elbow's vertical leg started level with the bottom edge of the control above
+   and ended level with the middle of the one below, so on the second and third
+   rungs there was no clear air between the line and either menu and it read as
+   crossing them.
+   🔑 THE TWO NUMBERS ARE ONE FACT, which is why the comment below says so: the
+   elbow's `top` is the row gap negated, because the line has to start exactly
+   where the control above ends. Change one without the other and the line either
+   floats free of the menu above it or overlaps it. */
+.msteps { display: grid; gap: var(--space-5); }
 .mstep { position: relative; padding-left: 28px; }
 .mstep::before {
-  content: ''; position: absolute; left: 10px; top: calc(var(--space-4) * -1);
-  height: calc(var(--space-4) + 18px); width: 12px;
+  content: ''; position: absolute; left: 10px; top: calc(var(--space-5) * -1);
+  height: calc(var(--space-5) + 18px); width: 12px;
   /* 🛑 `--label-3`, NOT A SEPARATOR TOKEN, AND THAT IS A CONTRAST DECISION.
      Measured against the page in both themes: `--separator` is 1.45:1 in dark
      and `--border-strong` 2.26:1, both under the 3:1 that WCAG asks of a
@@ -2418,11 +2429,6 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
 .tick.waiting .mark { color: var(--label-3); }
 .tick.undone { color: var(--label-3); }
 .tick.undone .mark { color: var(--label-3); }
-.first-action { margin-top: var(--space-6); padding: var(--space-5);
-                background: var(--bg-sunken); border-radius: var(--radius-control);
-                border-left: 2px solid var(--border-strong); font: var(--text-body) var(--font-ui); }
-.first-action b { display: block; font-weight: 600; margin-bottom: var(--space-3); }
-.first-action q { color: var(--label-2); font-style: italic; }
 /* ⚠️ RETIRED with the stage 3/4 pack rebuild (2026-08-17): the old agent
    card family (.grid sizing, .card, .ringwrap, the .ring-* gauge, the
    .body/.name/.meta/.state/.task/.why column, .card-answer, the .edit
@@ -2871,6 +2877,18 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
               font-weight: 600; }
 .fr-primary:hover { background: var(--label); opacity: 0.88; }
 .fr-spacer { margin-left: auto; }
+/* The found-agents list: one row per agent, name first, then what it says it
+   does, then where it lives. The folder is shown because it is the answer to
+   "is that MY Mike or another one" and it is the only unambiguous thing on the
+   row. Quiet, because it is a disambiguator rather than a label. */
+.fr-found { display: grid; gap: var(--space-3); margin: var(--space-5) 0; max-width: 36rem; }
+.fr-foundrow { display: grid; gap: 2px; padding: 10px 12px;
+  border: 1px solid var(--separator); border-radius: var(--radius-control); }
+.fr-foundname { font: 600 var(--text-body) var(--font-ui); color: var(--label); }
+.fr-foundrole { font: var(--text-callout) var(--font-ui); color: var(--label-2); }
+.fr-founddir { font: var(--text-caption) var(--font-mono, var(--font-ui)); color: var(--label-3);
+  overflow-wrap: anywhere; }
+
 .fr-note { font: var(--text-callout) var(--font-ui); color: var(--label-2);
            line-height: 1.5; margin-top: var(--space-6);
            padding: var(--space-5) var(--space-6); border-radius: 10px;
@@ -4655,7 +4673,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          off, and switching it off switches their agent off. It was five lines of
          apparatus on a screen Josh wants to be a moment of arrival, and that
          trade is his to make. -->
-    <div class="first-action" id="made-first" hidden></div>
+    <!-- 📌 THE "Something to give it first" BOX WAS HERE and went with its
+         painter (Josh, 2026-08-22). It quoted the chosen role's own opening
+         line -- `firstAction` in engine/roles.js, which is still served and now
+         has no reader. The element is removed rather than left hidden: a node
+         nothing fills is where a stale comment goes to live, and this file spent
+         an hour tonight removing exactly that. -->
     <!-- 🔑 THE INVITATION, AND IT IS NOT AN INSTRUCTION. Josh asked for a box
          saying to say hello to "activate them on Kosmos", and the word does not
          ship: an agent is running from the moment it is created and will answer
@@ -14107,7 +14130,6 @@ document.getElementById('create-go').addEventListener('click', async () => {
   msg.textContent = '';
   cstep('made');
   document.getElementById('made-head').textContent = 'Making ' + name;
-  document.getElementById('made-first').hidden = true;
   document.getElementById('made-warn').hidden = true;
   document.getElementById('made-hello').hidden = true;
   document.getElementById('made-done').hidden = true;
@@ -14300,11 +14322,13 @@ async function watchForAgent(name, result, attempt) {
       }
       paintMade(result.steps, { state: 'done', text: 'The board can see it running' }, result.projects);
       document.getElementById('made-head').textContent = shown + ' is running';
-      if (result.firstAction) {
-        const box = document.getElementById('made-first');
-        box.innerHTML = '<b>Something to give it first</b><q>' + esc(result.firstAction) + '</q>';
-        box.hidden = false;
-      }
+      /* 🛑 THE "SOMETHING TO GIVE IT FIRST" BOX IS GONE (Josh, 2026-08-22):
+         "I don't want any of that crap on there." It quoted the role's own
+         `firstAction` -- a suggested opening line -- and on a screen whose job
+         is now one clear next step it was a second thing to read that competed
+         with the button. The engine still serves `firstAction`; nothing else
+         renders it today, and that is a loose end worth knowing about rather
+         than a field to delete in the same breath. */
       /* 🔑 THE INVITATION, ONLY HERE. This is the one branch where the BOARD has
          seen the agent running, which is the only evidence anybody has that
          there is something to say hello to. The partial and the timed-out
@@ -14312,15 +14336,24 @@ async function watchForAgent(name, result, attempt) {
          an agent that never came up is the failure this whole screen is written
          against, wearing a friendly sentence. */
       const hello = document.getElementById('made-hello');
-      /* 📌 "waiting for its first message", not "waiting for you". Mona Lisa's
-         wording, and the longer one is doing work: it says what the state
-         actually IS rather than implying somebody is expected, and it quietly
-         explains the unknown model on the agent's card without mentioning that
-         Kosmos cannot read one until the agent has spoken. */
+      /* 🛑 "ACTIVATE" SHIPS, AT JOSH'S INSTRUCTION AND OVER MY OBJECTION, TWICE
+         MADE. Mine was that an agent is running from the moment it is created
+         and has simply never been given anything to do, so "activate" describes
+         a switch that is not there; Mona Lisa ruled the same way and I built it
+         her way in 0.2.98.
+         🔑 HE HAS THE EVIDENCE AND I DO NOT. Josh, 2026-08-22: "I don't care if
+         you think that we should or shouldn't say that, because I've had
+         multiple agents now. Unless I go say hello to them, they don't start."
+         That is ten observations against my reading of the code, and the person
+         making them is the one who uses this. Recorded rather than argued: if
+         the mechanism is ever pinned down and he is describing something else,
+         this comment is where to start. */
       document.getElementById('made-hello-say').textContent =
-        shown + ' is running and waiting for its first message.';
+        'Say hello to your agent to activate it on Kosmos.';
       const go = document.getElementById('made-hello-go');
-      go.textContent = 'Say hello to ' + shown;
+      /* Capital H, at his word: "it looks weird to have a hello and lowercase in
+         this button instance." */
+      go.textContent = 'Say Hello to ' + shown;
       go.dataset.agent = name;
       hello.hidden = false;
       /* 🔑 THE MARK COMPLETES HERE AND NOWHERE ELSE. This is the only branch
@@ -14328,7 +14361,13 @@ async function watchForAgent(name, result, attempt) {
          finished tick is a true statement. The partial and timed-out branches
          leave it breathing, which reads as unfinished because it is. */
       if (MADE_MARK && MADE_MARK.finish) MADE_MARK.finish();
-      document.getElementById('made-done').hidden = false;
+      /* 🛑 NO "See it under Agents" ON THE SUCCESS PATH (Josh, 2026-08-22): "we're
+         not trying to create an agent and then send them back to the agents page
+         so they have to go find the agent, then click on the agent, and then go
+         to the page." One button, and it goes straight to the agent.
+         ⚠️ THE BUTTON STILL EXISTS for the endings that have nowhere better to
+         send somebody -- a partial creation, and a creation the board never saw
+         coming up. There, "see it under Agents" is the only true offer. */
       tick();
       return;
     }
@@ -18699,6 +18738,18 @@ let FR_CHECKING = 0;      // which machine-check request is the current one
 function frActions(primary, alt) {
   const next = document.getElementById('fr-next');
   const other = document.getElementById('fr-alt');
+  /* 🔑 NO PRIMARY MEANS NO ACTION YET, which the flow needs now that one screen
+     is WORKING rather than waiting on a person: the search for agents already on
+     this computer paints before it has an answer, and every button it could
+     offer at that moment would be a guess about what the answer will be. Before
+     this, calling with nothing threw on `primary.label` -- so "show no buttons"
+     was not expressible and the screen that needs it would have crashed. */
+  if (!primary) {
+    next.hidden = true;
+    other.hidden = true;
+    return;
+  }
+  next.hidden = false;
   next.textContent = primary.label;
   next.onclick = primary.go;
   next.disabled = false;
@@ -19798,6 +19849,77 @@ function frPaintSubscription() {
    Step 6 — the agents already here
    -------------------------------------------------------------------------- */
 
+/**
+ * The agents already on this computer, and the screen that offers them.
+ *
+ * 🔑 THIS IS THE SETUP FLOW'S ANSWER TO "I ALREADY HAVE AGENTS". It replaces the
+ * empty state rather than adding a step: somebody who has agents never sees
+ * "create your first agent" at all, because for them it was never true.
+ *
+ * ⚠️ `null` MEANS NOT LOOKED YET AND IS NOT THE SAME AS AN EMPTY ANSWER. The
+ * whole defect this fixes was a screen that could not tell those apart.
+ */
+let FR_FOUND = null;
+let FR_FOUND_GEN = 0;
+
+async function frFindAgents() {
+  const mine = ++FR_FOUND_GEN;
+  let out = null;
+  try {
+    const res = await fetch('/api/found-agents', { cache: 'no-store' });
+    out = res.ok ? await res.json() : null;
+  } catch { out = null; }
+  if (mine !== FR_FOUND_GEN) return;
+  /* A search that could not run is recorded as a search that could not run, so
+     the screen below can say so instead of claiming an empty machine. */
+  FR_FOUND = out && Array.isArray(out.agents)
+    ? out
+    : { ok: false, agents: [], because: 'we could not look for the agents on this computer' };
+  /* 🛑 THE SAME CONDITION THE DISPATCHER USES, NOT A NUMBER I REMEMBERED. The
+     fleet screen is the ELSE arm of `frGo` -- steps 1 to 5 are named and this is
+     what is left -- so keying on `4` (the machine check) meant the answer never
+     repainted and the screen sat on "Looking for agents already here" forever.
+     Found by opening it. Nothing that reads source could have: the test harness
+     sets the step itself, so it agreed with whatever number I wrote. */
+  if (FR_STEP > FR_STEP_YOU) frPaintFleet();
+}
+
+function frPaintFound() {
+  const title = document.getElementById('fr-title');
+  const box = document.getElementById('fr-fleet');
+  const n = FR_FOUND.agents.length;
+  /* 🛑 "ON THIS MAC", NOT "ALREADY HERE", and the difference is the whole defect
+     restated (Mona Lisa, overruling my first wording). HERE reads as IN KOSMOS.
+     They are on the Mac. Kosmos can SEE them -- it reads every tmux pane
+     unfiltered -- and it has ADDED none of them: no record, nothing that
+     survives a logout, no one-click restart. A screen that blurs seen and held
+     is the same conflation that told somebody with two agents she had none. */
+  title.textContent = n === 1 ? 'We found an agent on this Mac.' : 'We found ' + n + ' agents on this Mac.';
+  /* ⚠️ TRUE TONIGHT WITH NO ADD BUTTON, AND STILL TRUE THE DAY THERE IS ONE.
+     Copy is Mona Lisa's, verbatim. */
+  box.innerHTML = '<p>They are not in Kosmos yet. You will be able to add them here, and '
+    + 'adding one leaves it exactly where it is, in its own folder with its own instructions.</p>'
+    + '<div class="fr-found">' + FR_FOUND.agents.map((a) =>
+      /* 🔑 NO CONTROLS ON THE ROW. A ticked box that does nothing is worse than
+         no box: ticked says a decision has been made and inert says it has not,
+         on the same pixel. The list without controls is a complete, honest
+         thing; a control that cannot act is not. */
+      '<div class="fr-foundrow"><span class="fr-foundname">' + esc(a.name) + '</span>'
+      /* Role is optional by ruling ("even if it's just title unknown"): an agent
+         whose file never says what it does is still an agent. */
+      + '<span class="fr-foundrole">' + esc(a.role || 'No title in its instructions') + '</span>'
+      /* The folder answers "is that MY Mike or another one", which is the only
+         unambiguous thing on the row. */
+      + '<span class="fr-founddir">' + esc(a.dir) + '</span></div>').join('')
+    + '</div>';
+  /* 🛑 `Continue`, NOT "Take me to my agents". Nothing has been added, so the
+     board still shows what tmux shows -- and somebody whose agent has not run
+     since Tuesday would press that button and land on a board without them,
+     which is the original defect reached through a button we wrote. Continue
+     costs nothing and cannot be wrong (Mona Lisa). */
+  frActions({ label: 'Continue', go: () => frFinish(() => showTab('agents')) });
+}
+
 function frPaintFleet() {
   const box = document.getElementById('fr-fleet');
   const path = (FR && FR.path) || 'unknown';
@@ -19845,6 +19967,28 @@ function frPaintFleet() {
   }
 
   if (path === 'create') {
+    /* 🛑 BEFORE SAYING SOMEBODY HAS NONE, LOOK ON THE DISK. `path` is decided by
+       `status.paneRoster()`, which is tmux, which is processes running RIGHT
+       NOW -- and a person means the agents they have made. Josh, 2026-08-22,
+       after the first install by somebody outside this team found neither of
+       her two agents: "the most catastrophic flaw in the entire system."
+
+       ⚠️ IT PAINTS "looking" RATHER THAN THE EMPTY STATE FIRST. The obvious
+       shape is to draw "there are none on this computer yet" and repaint if the
+       search finds some, and that puts the most damaging sentence in the product
+       on screen for as long as a disk read takes, in front of the exact person
+       it is wrong about. One transition, and neither state is a false claim.
+
+       📌 Guarded by a generation like every other late paint in this flow: a
+       search that lands after somebody has moved on must not repaint. */
+    if (FR_FOUND === null) {
+      title.textContent = 'Looking for agents already here\u2026';
+      box.innerHTML = '<p>Reading what is on this computer. This takes a moment.</p>';
+      frActions();
+      frFindAgents();
+      return;
+    }
+    if (FR_FOUND.ok && FR_FOUND.agents.length) { frPaintFound(); return; }
     title.textContent = 'Create your first agent.';
     /**
      * ⚠️ IT DOES NOT PROMISE OVER THE TOP OF STEP 2. The first version said "It
