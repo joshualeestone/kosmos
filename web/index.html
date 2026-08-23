@@ -845,6 +845,11 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 /* Grabbable (#285): the cursor says so, and a node being dragged rides above
    its neighbours with no transition fighting the pointer. */
 .orgmap .onode, .orgmap .hub { cursor: grab; }
+/* 🛑 THE BROWSER'S OWN IMAGE DRAG (#381). `user-select: none` above stops text
+   selection and nothing else; a plain <img> still starts a native drag with a
+   ghost of the avatar you can drop on the desktop, and the chart's drag never
+   begins. Both halves: the attribute on the image and the property on it. */
+.orgmap .face img, .orgmap .hub img { -webkit-user-drag: none; user-drag: none; pointer-events: none; }
 .orgmap .onode.dragging, .orgmap .hub.dragging { cursor: grabbing; z-index: 3; }
 .orgmap .hub { z-index: 1; }
 .wires { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -9269,6 +9274,7 @@ function orgStep(nodes, hub, alpha, box) {
   return moved;
 }
 let ORG_LIVE = null;   // { nodes: Map key -> node, hub, size, raf, alpha }
+let ORG_DRAG_MOVED = false;   // the last pointer sequence on the map was a drag, not a click (#381)
 let ORG_POS = new Map(); // last positions by key, so a repaint does not snap back
 let ORG_HTML = null;         // the repaint guard's memory
 
@@ -9457,7 +9463,7 @@ function paintOrg() {
     const ring = st === 'attn' ? ' attn' : st === 'working' ? ' work' : st === 'unknown' ? ' unk' : '';
     const shown = a.name || a.sessionName;
     const face = a.hasAvatar
-      ? '<img src="/api/agent/' + encodeURIComponent(a.sessionName) + '/avatar" alt="">'
+      ? '<img src="/api/agent/' + encodeURIComponent(a.sessionName) + '/avatar" alt="" draggable="false">'
       /* ⚠️ WRAPPED, so the rule above has an element to reach. Bare text in the
          disc cannot be dimmed without dimming the disc itself, which is the
          transparency Josh asked us to remove. */
@@ -9614,6 +9620,7 @@ function orgLiveRun() {
   if (!map) return;
   let drag = null;
   map.addEventListener('pointerdown', (e) => {
+    ORG_DRAG_MOVED = false;
     if (!ORG_LIVE || e.button !== 0) return;
     const el = e.target.closest && e.target.closest('.onode, .hub');
     if (!el) return;
@@ -9644,18 +9651,20 @@ function orgLiveRun() {
     was.body.fixed = false;
     if (ORG_LIVE) { ORG_LIVE.dragging = false; ORG_LIVE.alpha = Math.max(ORG_LIVE.alpha, 0.5); orgLiveRun(); }
     was.el.classList.remove('dragging');
-    if (was.moved) {
-      // Swallow the click this pointer sequence is about to deliver.
-      const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
-      map.addEventListener('click', swallow, { capture: true, once: true });
-      setTimeout(() => map.removeEventListener('click', swallow, { capture: true }), 0);
-    }
+    /* 🛑 THE CLICK THAT ENDS A DRAG MUST NOT OPEN THE AGENT (#381). The first
+       version swallowed it with a one-shot capture listener removed on a
+       timeout, and the click arrived after the timeout: every drag of a node
+       finished by navigating to that agent. Now the fact is kept, and the
+       click handler below asks for it. Cleared on the next pointerdown, so a
+       real click after a drag still opens the page. */
+    ORG_DRAG_MOVED = was.moved;
     try { was.el.releasePointerCapture(e.pointerId); } catch { /* fine */ }
   };
   map.addEventListener('pointerup', release);
   map.addEventListener('pointercancel', release);
 })();
 document.getElementById('orgmap').addEventListener('click', (e) => {
+  if (ORG_DRAG_MOVED) { ORG_DRAG_MOVED = false; return; }   // a drag just ended here (#381)
   const n = e.target.closest && e.target.closest('.onode');
   if (n && n.dataset.agent) openDetail(n.dataset.agent);
 });
