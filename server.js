@@ -1046,7 +1046,17 @@ const server = http.createServer((req, res) => {
       updates.poke();
       body = JSON.stringify({
         ...snap, agents: agents.concat(offline), counts, connection, version,
-        update: updates.available(), updateLook: updates.lastLook(),
+        /* 🛑 NO OFFER FROM A BOARD THAT CANNOT TAKE ONE. A Kosmos running from
+           its source (this Mac's, under the hand plist) cannot install: the
+           install route answers "it updates from git, not from here". But the
+           status payload offered anyway, so the moment a release was
+           published the toast said Install, the dialog said "closes for a few
+           seconds while it updates", and pressing it met a refusal (Josh,
+           2026-08-23 13:03: "it says there's no update to install... when I hit
+           Update nothing happens"). An offer is a promise the route must be
+           able to keep; a source-run board says what it is instead (the
+           engine-stale line from #338 covers "newer code is on disk"). */
+        update: updates.installedRoot() ? updates.available() : null, updateLook: updates.lastLook(),
         engine: engineFreshness(),
       });
     } catch (err) {
@@ -1932,7 +1942,7 @@ const server = http.createServer((req, res) => {
     updates.checkNow()
       // offer is the newer()-gated verdict (same gate the toast rides), so
       // the card never has to re-derive version ordering client-side.
-      .then((out) => sendJson(res, 200, { ...out, offer: updates.available() }))
+      .then((out) => sendJson(res, 200, { ...out, offer: updates.installedRoot() ? updates.available() : null, source: !updates.installedRoot() }))
       .catch(() => sendJson(res, 200, { running: updates.RUNNING, latest: null, reached: false, readable: false, offer: null }));
     return;
   }
