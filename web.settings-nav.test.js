@@ -60,6 +60,7 @@ test('the poll and the painter never choose the section', () => {
   const end = script.indexOf('\nfunction ', at + 1);
   const paint = script.slice(at, end > at ? end : undefined);
   assert.ok(paint.length > 500, 'paintSettings moved');
+  assert.match(script, /function settingsGo\(/, 'control: settingsGo is gone, so the absences below prove nothing');
   assert.doesNotMatch(paint, /\bsettingsGo\b/, 'the painter picks a section');
   const tAt = script.indexOf('function tick(');
   const tick = script.slice(tAt, script.indexOf('\nfunction ', tAt + 1));

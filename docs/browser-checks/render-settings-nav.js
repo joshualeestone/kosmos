@@ -75,7 +75,7 @@ function chk(ok, label, extra) {
       await page.click('#you-name-save');
       await page.waitForFunction(() => /Saved|could not|did not/.test(document.getElementById('you-name-msg').textContent), null, { timeout: 8000 });
       const saved = await page.evaluate(() => document.getElementById('you-name-msg').textContent);
-      chk(/^Saved\./.test(saved), `[${theme}] the name saves`, saved);
+      chk(saved === 'Saved. Your agents have been told.', `[${theme}] the name saves and the fixture agent is told`, saved);
       const rec = await (await page.request.get(URL + '/api/you')).json();
       chk(rec.you && rec.you.name === 'Joshua' && rec.you.does === 'runs the company',
         `[${theme}] the record carries the other field whole after a name-only save`, JSON.stringify(rec.you));

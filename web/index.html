@@ -307,8 +307,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    agents grid does nothing at all. */
 [hidden] { display: none !important; }
 /* ---- the agent page: the pack's view B shell (pack-pass, scrappy).
-   The elevated 720px card retired; the page is pack ground with dhead +
-   dgrid, and each field lives inside a k-surface .dbox. Field internals
+   The elevated 720px card retired; the page is pack ground with dhead and
+   (since agent-page-nav) a nav beside one section, each field inside a
+   k-surface .dbox. Field internals
    ride k-ink, the SAME token system as their surface (the hold-the-line
    lesson, restated for flipping tokens: mixing --label furniture into a
    k-surface box pairs values from two systems that flip separately). */
@@ -401,9 +402,13 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    the gold mark, the product doing its job. */
 .cvrow.valve p { color: var(--k-ink-2); font-style: normal; }
 .cv-none { font-size: .9375rem; color: var(--k-ink-2); margin: 0; }
-.detail .field { border-top: 0; padding-top: 0; margin-top: 0; }
-.detail .dbox .flabel, .detail .dbox .fhint, .detail .dbox .fmsg, .detail .dbox .fpath { color: var(--k-ink-2); }
-.detail .dbox .flabel { font-size: .75rem; letter-spacing: .14em; text-transform: uppercase;
+/* `#panel-settings` alongside `.detail` since settings-nav: the Your name
+   field is the one form field Settings shares with the agent page, and it
+   sits in the same k-surface box, so it wears the same dress. */
+.detail .field, #panel-settings .field { border-top: 0; padding-top: 0; margin-top: 0; }
+.detail .dbox .flabel, .detail .dbox .fhint, .detail .dbox .fmsg, .detail .dbox .fpath,
+#panel-settings .dbox .flabel, #panel-settings .dbox .fhint, #panel-settings .dbox .fmsg { color: var(--k-ink-2); }
+.detail .dbox .flabel, #panel-settings .dbox .flabel { font-size: .75rem; letter-spacing: .14em; text-transform: uppercase;
   font-weight: 700; margin-bottom: 8px; }
 /* ⚠️ `--border-strong`, not `--k-rule`. MEASURED with the alpha composited:
    --k-rule gives 1.31:1 light / 1.27:1 dark against this box; --border-strong
@@ -5597,9 +5602,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        this Mac, so they share a section; Engineering mode and Delete history
        are both things most people never touch, so they are Advanced. The
        boxes are the SAME elements, ids intact; every painter keeps working.
-       Same primitives as the agent page (.dbody, .snav, .dsec, sectionGo), so
-       the two pages are one structure rather than two that resemble each
-       other. -->
+       Same CSS primitives as the agent page (.dbody, .snav, .dsec) and the
+       same switch shape (`settingsGo` beside `detailGo`, two copies of one
+       twenty-line function rather than a shared one with two sets of
+       extras), so the two pages are one structure rather than two that
+       resemble each other. -->
   <div class="dbody">
   <nav class="snav" id="s-nav" aria-label="Sections of Settings">
     <button type="button" data-go="you" aria-controls="s-sec-you" class="on" aria-current="true">You</button>
@@ -5745,7 +5752,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <p class="dhint" id="set-machine-msg" role="status" hidden></p>
       <!-- 🔑 MOVED OUT OF THE UPDATES BOX (Mona Lisa, 2026-08-21). When the
            version line came back to Settings this sentence came with it, and
-           landed directly beneath `#build` — so a fact about how Kosmos RUNS
+           landed directly beneath `#build`, so a fact about how Kosmos RUNS
            read as a subtitle explaining what "0.2.24" means. The two are
            unrelated and the layout said otherwise.
            ⚠️ MOVED RATHER THAN DROPPED: it is the only place in the app that
@@ -8419,6 +8426,9 @@ async function paintYouName() {
       if (document.activeElement !== inp) inp.value = r.you.name;
       inp.disabled = false;
       btn.disabled = false;
+      /* A read that worked clears a could-not-read or not-yet sentence left
+         by an earlier one; a "Saved." is gone by the time a repaint lands. */
+      if (/could not read|not been told|Nothing to change/.test(msg.textContent)) msg.textContent = '';
       return;
     }
     YOU_REC = null;
@@ -8451,9 +8461,17 @@ document.getElementById('you-name-save').addEventListener('click', async () => {
        name they were not told is a name they go on not using. */
     const told = Array.isArray(out.told) ? out.told : [];
     const missed = told.filter((t) => t && t.state !== 'told');
-    msg.textContent = missed.length
-      ? 'Saved. ' + missed.length + ' of your agents could not be told; they will learn it when they next start.'
-      : 'Saved. Your agents have been told.';
+    /* Each miss by name and reason, the engine's own sentence, the way the
+       project-removal line does it. No promise about a later start: nothing
+       re-tells an agent at restart, so an untold agent stays untold until the
+       next save. A roster that could not be read comes back as one entry
+       with no agent; that is said as what it is. */
+    const each = missed.map((t) => (t.agent ? t.agent + ': ' : '') + (t.because || 'we could not tell it'));
+    msg.textContent = !missed.length
+      ? 'Saved. Your agents have been told.'
+      : missed.some((t) => !t.agent)
+        ? 'Saved, but we could not tell your agents: ' + each.join('; ') + '. Save again once Kosmos can see them.'
+        : 'Saved. Told everyone except ' + each.join('; ') + '. Save again to retry.';
   } catch {
     msg.textContent = 'We could not reach Kosmos to save that.';
   } finally {
@@ -11415,8 +11433,9 @@ function detailPaintWindow(a) {
   }
 }
 /* The agent page's sections. One on screen at a time; the nav says which.
-   `detailGo` is the ONLY writer of `.dsec[hidden]`, and it is called from a
-   nav click and from `openDetail`, never from the poll. */
+   `detailGo` is the only writer of `.dsec[hidden]` ON THIS PANEL (Settings
+   has `settingsGo` for its own), and it is called from a nav click and from
+   `openDetail`, never from the poll. */
 const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'profile', 'term', 'remove'];
 /* The thread's scroll offset while Talk is hidden. A display:none container
    drops its scrollTop, so "came back to where I was reading" has to be kept
@@ -11494,6 +11513,10 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
    captures a pane), so this is the agent page's switch with the extras
    left out rather than a second design. `paintSettings` paints by id into
    every section, open or hidden, and never calls this. */
+/* The section persists across leaving and returning to the tab (the agent
+   page resets to Talk because it opens a different agent each time; Settings
+   is one page, and a person who left Updates to look at the board comes back
+   to Updates). "Landing is You" is the first arrival. */
 const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'talking', 'mac', 'updates', 'advanced'];
 function settingsGo(section, opts) {
   if (!SETTINGS_SECTIONS.includes(section)) section = 'you';
