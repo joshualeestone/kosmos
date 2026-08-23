@@ -20026,8 +20026,18 @@ document.addEventListener('click', async (e) => {
        because the undo arm has to put back the exact words the row was built
        with -- and those words contain the agent's name. */
     row.dataset.foundLabel = was;
+    /* 🛑 THE NAME THE SERVER REGISTERED IT UNDER, TAKEN FROM THE ANSWER. The row
+       displays the name out of the agent's own instructions ("Splinter"); the
+       thing Kosmos files it as is its FOLDER ("claude-bot"). Those differ for
+       most real agents, and an undo addressed to the displayed one refuses --
+       with "that agent was made in Kosmos", which is not even true. Shipped that
+       way in 0.3.8: the row name and the registered name were equal in every
+       fixture, so nothing could see it.
+       ⚠️ NO NAME, NO UNDO. An undo that cannot say which agent it means is worse
+       than no undo, because the button is a promise. */
     const undo = row.querySelector('.fr-foundundo');
-    if (undo) { undo.hidden = false; undo.disabled = false; undo.textContent = 'Undo'; }
+    if (out.name) row.dataset.foundKey = out.name;
+    if (undo && out.name) { undo.hidden = false; undo.disabled = false; undo.textContent = 'Undo'; }
     /* 🛑 NO SENTENCE ON SUCCESS (Josh, 2026-08-22). It read "Added, and started.
        It stays in its own folder." -- true, and one more line to read on a screen
        where somebody is about to press three more buttons. The button saying
@@ -20040,6 +20050,8 @@ document.addEventListener('click', async (e) => {
   go.disabled = false;
   go.classList.remove('added');
   go.textContent = was;
+  /* Nothing was added, so nothing is addressable. */
+  delete row.dataset.foundKey;
   said.textContent = (out && out.because) || 'We could not bring that one in.';
 });
 
@@ -20063,7 +20075,8 @@ document.addEventListener('click', async (e) => {
   const row = undo.closest('.fr-foundrow');
   const said = row && row.querySelector('.fr-foundsaid');
   const go = row && row.querySelector('.fr-foundgo');
-  const name = row && row.dataset.foundName;
+  /* The registered name, not the displayed one. See the note where it is set. */
+  const name = row && row.dataset.foundKey;
   if (!name || !said || !go) return;
   undo.disabled = true;
   undo.textContent = 'Undoing\u2026';
@@ -20080,10 +20093,14 @@ document.addEventListener('click', async (e) => {
   if (out && out.ok) {
     undo.hidden = true;
     undo.textContent = 'Undo';
+    delete row.dataset.foundKey;
     row.classList.remove('done');
     go.classList.remove('added');
     go.disabled = false;
-    go.textContent = row.dataset.foundLabel || ('Add ' + name + ' to Kosmos');
+    /* ⚠️ THE DISPLAYED NAME REBUILDS THE LABEL, not the registered one: this is
+       the row going back to the words it was built with, and it was built with
+       what the agent calls itself. */
+    go.textContent = row.dataset.foundLabel || ('Add ' + (row.dataset.foundName || name) + ' to Kosmos');
     /* A partial undo is not a failure and not a silence: the launch job is gone,
        something it could not prove was ours is still running, and the person is
        the only one who can decide about that. */

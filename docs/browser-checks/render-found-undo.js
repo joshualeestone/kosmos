@@ -33,12 +33,20 @@ function check(name, pass, detail) {
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? '  ' + detail : ''}`);
 }
 
-/* Two agents, one of them with a long name, because a long name is what pushes a
-   control off the right edge of a two-column row. */
+/**
+ * Two agents. One has a long name, because a long name is what pushes a control
+ * off the right edge of a two-column row.
+ *
+ * 🛑 AND THE FIRST ONE'S FOLDER IS NOT CALLED WHAT THE AGENT IS CALLED, which is
+ * the ordinary case for a real agent and was the one shape every fixture missed:
+ * the row draws "Splinter", Kosmos files it under "claude-bot", and 0.3.8's undo
+ * addressed the drawn one and refused every agent it was offered on. The connect
+ * answer below names the folder, exactly as the engine does.
+ */
 const FOUND = {
   ok: true,
   agents: [
-    { dir: '/Users/x/work/workers/mike', name: 'mike', role: 'Copywriter' },
+    { dir: '/Users/x/work/workers/claude-bot', name: 'Splinter', role: 'Project manager' },
     { dir: '/Users/x/work/agents/rosalind-the-research-assistant',
       name: 'rosalind-the-research-assistant', role: 'Research assistant' },
   ],
@@ -77,13 +85,25 @@ const FOUND = {
   }));
   await page.route('**/api/connect-agent', (r) => r.fulfill({
     json: connectOk
-      ? { ok: true, name: 'mike', displayName: 'Mike', dir: '/Users/x/work/workers/mike', started: true }
+      ? { ok: true, name: 'claude-bot', displayName: 'Splinter',
+          dir: '/Users/x/work/workers/claude-bot', started: true }
       : { ok: false, because: 'that folder is not there any more' },
     status: connectOk ? 200 : 400,
   }));
-  await page.route('**/api/disconnect-agent', (r) => r.fulfill({
-    json: { ok: true, name: 'mike', partial: false, because: '' },
-  }));
+  /* 🔑 IT ANSWERS OK ONLY FOR THE REGISTERED NAME. Fulfilling every request the
+     same way would make this check pass with the undo addressed to anything at
+     all, which is precisely the defect it exists for. */
+  let undoAskedFor = null;
+  await page.route('**/api/disconnect-agent', (r) => {
+    let body = {};
+    try { body = JSON.parse(r.request().postData() || '{}'); } catch { body = {}; }
+    undoAskedFor = body.name;
+    if (body.name !== 'claude-bot') {
+      r.fulfill({ status: 400, json: { ok: false, because: 'we have no record of adding that agent' } });
+      return;
+    }
+    r.fulfill({ json: { ok: true, name: 'claude-bot', partial: false, because: '' } });
+  });
 
   await page.goto(`${BASE}/?first-run=1&fr-step=6`, { waitUntil: 'networkidle' });
   await page.waitForSelector('.fr-foundrow', { timeout: 8000 });
@@ -212,6 +232,8 @@ const FOUND = {
   check('Undo: the undo control goes away again', undone.undoHidden === true);
   check('Undo: the row is no longer marked done', undone.done === false);
   check('Undo: nothing is left on the status line', undone.said === '', `"${undone.said}"`);
+  check('Undo: it asked for the name the server registered, not the one drawn',
+    undoAskedFor === 'claude-bot', `asked for "${undoAskedFor}"`);
 
   // ---- the failure arm ----------------------------------------------------
   connectOk = false;
