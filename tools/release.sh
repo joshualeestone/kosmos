@@ -172,10 +172,20 @@ echo "== 8. deploy =="
 echo "== 9. verify what is SERVED, from the code that fetches it =="
 # ⚠️ Retried, because a deploy is live before every edge has it, and a single
 # read cannot tell "not published" from "not yet".
+SERVED_OK=0
 for i in 1 2 3 4 5 6; do
-  if bash "$REPO/tools/verify-served.sh"; then exit 0; fi
+  if bash "$REPO/tools/verify-served.sh"; then SERVED_OK=1; break; fi
   echo "   (attempt $i did not match; waiting)"
   sleep 10
 done
-echo "SOMETHING A USER RECEIVES IS STILL WRONG AFTER SIX READS"
-exit 1
+if [ "$SERVED_OK" != 1 ]; then
+  echo "SOMETHING A USER RECEIVES IS STILL WRONG AFTER SIX READS"
+  exit 1
+fi
+
+echo "== 10. the board on THIS Mac, if it runs from this repo =="
+# 🛑 Installs update themselves from what step 9 verified; the developer's own
+# board runs the repo under launchd and never did, so every release left it
+# serving the previous code until somebody noticed (#360). Gated on the job
+# existing AND running from this repo; it says which case it found.
+bash "$REPO/tools/restart-local-board.sh"

@@ -33,6 +33,17 @@ improvement it gained would have died with the session that wrote it.
 9. **Verify what is SERVED** — `tools/verify-served.sh`, retried, because a
    deploy is live before every edge has it and one read cannot tell "not
    published" from "not yet".
+10. **Restart the board on THIS Mac, if it runs from this repo.**
+   `tools/restart-local-board.sh`. Installs update themselves from what step
+   9 verified; the developer's own board runs the repo under a hand-written
+   launchd job and never did, so every release (and every merge that touched
+   `engine/` or `server.js`) left it serving the previous code until somebody
+   noticed: three stale-board incidents in one day (#360). It restarts only
+   when `com.kosmos.board` exists AND its working directory is this repo, and
+   says which case it found; from a worktree it declines, because the job
+   runs main's code, not the worktree's. Between releases, `bash
+   tools/restart-local-board.sh` from the main checkout is the one command.
+
 
 ## Why the verification is a separate script
 
