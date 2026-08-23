@@ -1177,6 +1177,34 @@ function classify(pane, paneText) {
   if (/esc to interrupt/i.test(tail)) {
     return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task' };
   }
+  /**
+   * The CURRENT spinner line, keyed on structure rather than vocabulary
+   * (#369). Newer Claude Code draws its mid-turn line as a bullet, one
+   * gerund ending in an ellipsis, and a LIVE elapsed timer opening the
+   * parens:
+   *
+   *   · Improvising… (35s · ↓ 1.5k tokens · thought for 8s)
+   *   · Canoodling… (4h 39m 45s · ↓ 673.5k tokens)
+   *
+   * MEASURED 2026-08-23 on two live Fable sessions mid-turn. Neither line
+   * contains "esc to interrupt" (the old UI's phrase, which the rule above
+   * keys on), and the gerund is drawn from a large rotating vocabulary, so
+   * a word list would be stale on arrival: the finished-line list below
+   * already misses "Cooked for" and "Crunched for" for exactly that
+   * reason. The stable parts are the ellipsis and the timer, so that is
+   * the key. The finished line ("✱ Cooked for 1m 33s") has no parens and
+   * cannot match; a person's own text could echo the shape, which is true
+   * of every scraped marker in this function and no worse here.
+   *
+   * ⚠️ This sits ABOVE the prompt-footer idle rule by necessity, not
+   * taste: the ⏵⏵ footer stays on screen DURING a Fable turn, so footer
+   * evidence cannot separate working from waiting, and before this rule
+   * a fleet mid-turn read "0 Working" on the headline tile.
+   */
+  const workingLine = tail.match(/^\s*\S{1,3} \S+…\s+\((?:\d+h )?(?:\d+m )?\d+s(?: ·|\))/mu);
+  if (workingLine) {
+    return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task', evidence: workingLine[0].trim().slice(0, 120) };
+  }
   if (/✱|Worked for|Brewed for|Baked for|to save .* tokens/i.test(tail)) {
     return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it finished and is waiting for you' };
   }

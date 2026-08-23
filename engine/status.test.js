@@ -1192,6 +1192,41 @@ test('a registry entry naming a different agent is not read for this one', () =>
   }
 });
 
+test('a Fable session mid-turn is working, not idle: the spinner line is keyed on structure (#369)', () => {
+  /* 🛑 MEASURED 2026-08-23 on the live fleet, which read "0 Working, 14
+     Idle" while two agents were mid-turn. The current Claude Code spinner
+     line carries no "esc to interrupt" (the old phrase the rule above this
+     one keys on), and its gerund rotates through a large vocabulary, so the
+     ⏵⏵ footer below it won the classification and busy agents read idle.
+     The lines here are VERBATIM captures, not paraphrases. */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.227', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+
+  for (const line of [
+    '· Improvising… (35s · ↓ 1.5k tokens · thought for 8s)',
+    '· Canoodling… (4h 39m 45s · ↓ 673.5k tokens)',
+  ]) {
+    const got = classify(pane, line + footer);
+    assert.equal(got.state, 'working', 'a mid-turn spinner line was outranked by the footer: ' + line);
+    assert.match(got.because, /mid-task/);
+  }
+
+  /* The finished line is PAST tense with no timer parens, and two of the
+     verbs are absent from the enumerated finished-list above this rule,
+     which is the vocabulary trap the structural key avoids: these must NOT
+     read as working, and the footer then honestly says idle. */
+  for (const line of ['✳ Cooked for 1m 33s', '✳ Crunched for 1m 4s']) {
+    const got = classify(pane, line + footer);
+    assert.notEqual(got.state, 'working', 'a finished line read as working: ' + line);
+    assert.equal(got.state, 'idle');
+  }
+
+  /* CONTROL: the footer alone still reads idle, so the working assertions
+     above are the spinner line being recognised, not the fixture leaking. */
+  assert.equal(classify(pane, footer).state, 'idle');
+});
+
 test('an agent sitting at its prompt is idle, not unreadable', () => {
   // ⚠️ Every other idle marker is a TRACE of something the agent did, and traces
   // scroll away. An agent left at its prompt long enough fell through to
