@@ -3724,6 +3724,27 @@ const server = http.createServer((req, res) => {
               ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}) }
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
+      /* Plain text on ?as=text, for `kosmos room <id>` (#314): the CLI runs on
+         stock bash 3.2 with no JSON parser, so the server does the shaping.
+         The tail only (last 40), oldest first, one line per row, and the
+         unreadable case says so rather than printing an empty room. */
+      let asText = false;
+      try { asText = new URL(req.url, ROUTING_BASE).searchParams.get('as') === 'text'; } catch { asText = false; }
+      if (asText) {
+        const tail = rows.slice(-40);
+        const lines = tail.map((m) => {
+          const when = m.at ? String(m.at).slice(11, 16) : '--:--';
+          if (m.kind === 'valve') return when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.');
+          const who = m.operator ? 'operator' : m.from;
+          return when + '  ' + who + ' -> ' + (Array.isArray(m.to) ? m.to.join(', ') : 'the room') + ': ' + String(m.text || '');
+        });
+        const head = rec.ok === false
+          ? 'We could not read some of this room; what follows may be missing recent posts.\n'
+          : (lines.length ? '' : 'Nothing has been said in this room yet.\n');
+        res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end(head + lines.join('\n') + (lines.length ? '\n' : ''));
+        return;
+      }
       sendJson(res, 200, { ok: rec.ok, rows: withPreviews(rows) });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the room') });

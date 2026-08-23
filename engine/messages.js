@@ -844,7 +844,25 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
       + ' ' + body;
     /* `trailer` (#358) is the attached file's path, typed after the envelope
        and body and outside the checks, the same way the direct thread does it. */
-    const sent = chat.deliver(name, envelope, roster, undefined, typeof trailer === 'string' ? trailer : undefined);
+    /* 🔑 THE AGENT BROUGHT IN BLIND IS TOLD WHAT IT MISSED (#314, second
+       defect). Josh's live test: the valve asked for the operator, he
+       @-mentioned Scarlett, and she answered "I only got that one message"
+       about a room she could not see. So a MENTIONED recipient who missed
+       posts in the current window is told how many and how to read them
+       ("kosmos room", the sibling of the answer line's "kosmos post").
+       Mentioned only: stamping every background delivery with a missed count
+       would be noise on the arm that is explicitly not addressed to them.
+       Counted from the log this send already read; posts they sent or
+       received do not count as missed. */
+    const missed = log.filter((m) => m && m.kind === 'post' && m.project === projectId
+      && Date.parse(m.at) >= windowFrom && m.from !== name
+      && Array.isArray(m.to) && !m.to.includes(name)).length;
+    const catchUp = mentioned.has(name) && missed > 0
+      ? ' [This room has been talking without you: ' + missed + ' earlier post'
+        + (missed === 1 ? '' : 's') + ' this hour did not reach you.'
+        + ' Read the room with: kosmos room ' + projectId + ']'
+      : '';
+    const sent = chat.deliver(name, envelope + catchUp, roster, undefined, typeof trailer === 'string' ? trailer : undefined);
     outcomes[name] = sent.state;
     if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
   }
