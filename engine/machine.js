@@ -751,6 +751,66 @@ function openSleepSettings(runner, lister) {
    production and wrong in a test that wants to exercise both worlds. */
 function resetSleepPaneCache() { SLEEP_PANE_CACHE = undefined; }
 
+/* ── the label-truth check (#224's trap, found live 2026-08-23) ──────────
+   launchd has no sandbox: a harness (or anything) can register a plist from
+   a temp directory over a real Kosmos label, and every liveness probe stays
+   green while nothing will survive a crash. The predicate that can always
+   go red, per Splinter's framing: not "does the job exist" (true forever
+   once installed) but "does any registered Kosmos label point at a file
+   OTHER than the one in the real LaunchAgents folder". Reads only; fails
+   soft to unknown, never to a false alarm. */
+function labelTruthCheck(runner) {
+  /* The product's own launch-dir seam, the same one the installer honours:
+     a sandboxed suite sets AGENT_WORKFORCE_LAUNCH and this check then reads
+     ITS dir, never the operator's real LaunchAgents (#332's law: a test must
+     not be green or red by what the operator's machine happens to hold). */
+  const launchDir = process.env.AGENT_WORKFORCE_LAUNCH
+    || path.join(process.env.HOME || '', 'Library', 'LaunchAgents');
+  let labels = [];
+  try {
+    labels = fs.readdirSync(launchDir)
+      .filter((f) => /^com\.kosmos\..*\.plist$/.test(f) || f === 'com.kosmos.board.plist')
+      .map((f) => f.replace(/\.plist$/, ''));
+  } catch {
+    return { key: 'labels', state: STATE.UNKNOWN,
+      title: 'We could not check the background jobs',
+      detail: 'We could not read the folder this Mac keeps them in. That tells us about the folder, not the jobs.' };
+  }
+  if (!labels.length) {
+    return { key: 'labels', state: STATE.OK,
+      title: 'Background jobs are as installed',
+      detail: 'No Kosmos background jobs are registered on this Mac yet.' };
+  }
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+  if (uid === null) {
+    return { key: 'labels', state: STATE.UNKNOWN,
+      title: 'We could not check the background jobs',
+      detail: 'We could not tell which user this Mac is running Kosmos as.' };
+  }
+  const impostors = [];
+  for (const label of labels) {
+    const out = runner('/bin/launchctl', ['print', `gui/${uid}/${label}`]);
+    if (!out.ok || typeof out.stdout !== 'string') continue; // unregistered is not a hijack
+    const m = out.stdout.match(/^\s*path = (.+)$/m);
+    if (!m) continue;
+    const registered = m[1].trim();
+    const real = path.join(launchDir, `${label}.plist`);
+    if (registered !== real) impostors.push({ label, registered });
+  }
+  if (!impostors.length) {
+    return { key: 'labels', state: STATE.OK,
+      title: 'Background jobs are as installed',
+      detail: 'Every Kosmos background job on this Mac points at its own real file.' };
+  }
+  const one = impostors[0];
+  return { key: 'labels', state: STATE.ATTENTION,
+    title: (impostors.length === 1 ? 'A background job' : impostors.length + ' background jobs')
+      + ' got replaced by something else',
+    detail: `${one.label} is registered from ${one.registered} instead of its file in Library/LaunchAgents. `
+      + 'Whatever registered it will not survive a restart, and the real one is not running. '
+      + 'Restarting this Mac puts the real one back; if this keeps happening, tell us.' };
+}
+
 function check(opts) {
   const runner = (opts && opts.runner) || run;
 
@@ -775,6 +835,7 @@ function check(opts) {
     installedCheck(opts),
     sleepRow,
     restartCheck(runner),
+    labelTruthCheck(runner),
   ];
 
   return {
@@ -796,4 +857,4 @@ function check(opts) {
   };
 }
 
-module.exports = { check, parsePmset, sleepCheck, installedCheck, appLocationCheck, appLocationUnknown, restartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, installedCheck, appLocationCheck, appLocationUnknown, restartCheck, labelTruthCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, revealApp, setAppRevealRunner, STATE };

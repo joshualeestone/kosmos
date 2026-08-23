@@ -462,7 +462,7 @@ test('the restart check asks launchctl about THIS login session', () => {
    The whole screen
 --------------------------------------------------------------------------- */
 
-test('three checks come back, and the two kinds of not-ok are counted apart', () => {
+test('four checks come back, and the two kinds of not-ok are counted apart', () => {
   // app-location gets DETERMINISTIC dirs: without appDirs this test would
   // read this machine's real /Applications and pass or fail by whether the
   // machine running the suite happens to have Kosmos installed.
@@ -471,6 +471,10 @@ test('three checks come back, and the two kinds of not-ok are counted apart', ()
   const fs = require('node:fs');
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-check-'));
   fs.mkdirSync(nodePath.join(sb, 'Kosmos.app'));
+  // The label check reads the launch-dir seam; point it at an empty sandbox
+  // so this test cannot go red or green by the operator's real jobs.
+  const origLaunch = process.env.AGENT_WORKFORCE_LAUNCH;
+  process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-launch-'));
   const got = machine.check({
     pmset: DESKTOP_SLEEPS,             // one real problem
     claudeBin: REAL_BIN,
@@ -479,8 +483,10 @@ test('three checks come back, and the two kinds of not-ok are counted apart', ()
     appDirs: [sb, sb],
   });
   fs.rmSync(sb, { recursive: true, force: true });
-  assert.equal(got.checks.length, 3);
-  assert.deepEqual(got.checks.map((c) => c.key), ['installed', 'sleep', 'restart']);
+  if (origLaunch === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = origLaunch;
+  // Four since the label-truth row joined (the sandbox-hijack detector).
+  assert.equal(got.checks.length, 4);
+  assert.deepEqual(got.checks.map((c) => c.key), ['installed', 'sleep', 'restart', 'labels']);
   assert.equal(got.attention, 1);
   assert.equal(got.unknown, 0);
   // Beside the rows, never among them: where the app sits has no bearing on
@@ -871,5 +877,41 @@ test('revealApp opens Finder at the icon it re-derives, and refuses honestly whe
     // server suite's after-hook says why; this test holds the same line.
     fs.rmSync(dir, { recursive: true, force: true });
     if (empty) fs.rmSync(empty, { recursive: true, force: true });
+  }
+});
+
+test('labelTruthCheck: a registered Kosmos label pointing anywhere but its real file goes red, and unregistered is not a hijack', () => {
+  const os = require('node:os');
+  const fs = require('node:fs');
+  const nodePath = require('node:path');
+  const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'lt-home-'));
+  const launch = nodePath.join(home, 'Library', 'LaunchAgents');
+  fs.mkdirSync(launch, { recursive: true });
+  fs.writeFileSync(nodePath.join(launch, 'com.kosmos.board.plist'), 'x');
+  fs.writeFileSync(nodePath.join(launch, 'com.kosmos.agent.anna.plist'), 'x');
+  const origLaunch2 = process.env.AGENT_WORKFORCE_LAUNCH;
+  process.env.AGENT_WORKFORCE_LAUNCH = launch;
+  try {
+    const answers = {
+      'com.kosmos.board': `gui/501/com.kosmos.board = {\n\tpath = ${nodePath.join(launch, 'com.kosmos.board.plist')}\n\tstate = running\n}`,
+      'com.kosmos.agent.anna': `gui/501/com.kosmos.agent.anna = {\n\tpath = /private/tmp/kosmos-clean-XYZ/home/Library/LaunchAgents/com.kosmos.agent.anna.plist\n\tstate = not running\n}`,
+    };
+    const runner = (cmd, args) => {
+      const label = String(args[1] || '').split('/').pop();
+      return answers[label] ? { ok: true, stdout: answers[label] } : { ok: false, stdout: '' };
+    };
+    const row = machine.labelTruthCheck(runner);
+    assert.equal(row.state, machine.STATE.ATTENTION, JSON.stringify(row));
+    assert.match(row.detail, /com\.kosmos\.agent\.anna is registered from \/private\/tmp\/kosmos-clean-XYZ/);
+    /* Control the healthy way round: both labels honest -> OK, so the alarm
+       can come off. */
+    answers['com.kosmos.agent.anna'] = `gui/501/com.kosmos.agent.anna = {\n\tpath = ${nodePath.join(launch, 'com.kosmos.agent.anna.plist')}\n\tstate = running\n}`;
+    assert.equal(machine.labelTruthCheck(runner).state, machine.STATE.OK);
+    /* Unregistered (launchctl print fails) is not a hijack: a stopped agent
+       with no job is #150's story, not this row's. */
+    const offRunner = () => ({ ok: false, stdout: '' });
+    assert.equal(machine.labelTruthCheck(offRunner).state, machine.STATE.OK);
+  } finally {
+    if (origLaunch2 === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = origLaunch2;
   }
 });
