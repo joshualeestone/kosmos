@@ -34,7 +34,7 @@ function paint(agents) {
     frFinish() {},
     showTab() {},
   };
-  const src = liftAll(SCRIPT, ['esc', 'frPaintFound']);
+  const src = liftAll(SCRIPT, ['esc', 'foundRowsHtml', 'frPaintFound']);
   const run = new Function('document', 'FR_FOUND', 'frActions', 'frFinish', 'showTab',
     `${src}\nfrPaintFound();`);
   run(sandbox.document, sandbox.FR_FOUND, sandbox.frActions, sandbox.frFinish, sandbox.showTab);

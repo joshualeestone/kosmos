@@ -103,3 +103,40 @@ test('CONTROL: the fixture is really being read', () => {
   const r = discover.found();
   assert.ok(r.agents.length >= 3, `only ${r.agents.length} agents; the fixture stopped seeding`);
 });
+
+test('an agent Kosmos already looks after is marked as already in', () => {
+  /**
+   * 🛑 THE FIELD THE BOARD'S PANEL FILTERS ON. Without it that panel offers
+   * every agent on the Mac including the ones already added, so a person's own
+   * fleet is listed back to them under "Kosmos is not looking after these".
+   *
+   * 🔑 BOTH HALVES ASSERTED IN ONE TEST, deliberately: the interesting claim is
+   * that the flag DISCRIMINATES. "Every agent says false" and "every agent says
+   * true" both pass a test that only ever looks at one of them, and this field's
+   * failure mode is a stuck value.
+   */
+  const create = require('./create');
+  const store = require('./store');
+
+  const mine = seed('kept', 'kept', 'You are **Kept**, a writer.\n');
+  const theirs = seed('loose', 'loose', 'You are **Loose**, a writer.\n');
+
+  /* Recorded the way `connect` records it: the folder against the folder's own
+     name, which is the name Kosmos files an agent under. */
+  store.writeProfile(path.basename(mine), { dir: mine, displayName: 'Kept' });
+
+  const r = discover.found();
+  const kept = r.agents.find((a) => a.dir === mine);
+  const loose = r.agents.find((a) => a.dir === theirs);
+  assert.ok(kept && loose, 'the fixture agents were not both found');
+  assert.equal(kept.already, true, 'an agent with a folder recorded against it is offered again');
+  assert.equal(loose.already, false, 'an agent nothing knows about is treated as already in');
+
+  /* And a recorded folder that points somewhere ELSE does not count: same name,
+     different agent, and hiding this one would be the silence this module
+     exists to end. */
+  store.writeProfile(path.basename(theirs), { dir: mine, displayName: 'Loose' });
+  const again = discover.found().agents.find((a) => a.dir === theirs);
+  assert.equal(again.already, false, 'a record pointing at a different folder counted as this one');
+  void create;
+});
