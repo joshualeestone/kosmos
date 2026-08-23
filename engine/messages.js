@@ -115,7 +115,7 @@ const MARKERS = [
  * copying the wrong site. Returns the refusal sentence, or null.
  */
 function markerProblem(text) {
-  const lowered = require('./chat').cleanMessage(text).toLowerCase();
+  const lowered = chat.cleanMessage(text).toLowerCase();
   if (MARKERS.some((m) => lowered.includes(m))) {
     return 'that message contains a delivery marker itself, which would let it impersonate another sender; say it without the bracket line';
   }

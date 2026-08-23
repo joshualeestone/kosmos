@@ -38,8 +38,19 @@ Extends the existing #128 pin test:
   parsed from messages.js source (cannot drift into a copy), with a positive
   control proving the sweep can see a marker at all (the teaching quote).
 
+## The guard hole the review found (scope grew, stated here)
+
+Iteration 1 proved the warning overclaimed: the reply route (/api/reply)
+never ran the MARKERS refusal, so a reply carrying a marker landed
+unrefused in the direct thread. The fix extracts ONE markerProblem helper
+(messages.js), keeps the two existing call sites on it, and wires the
+reply route as the third caller, pinned with a refusal-plus-control pair
+in server.test.js. This is the riskiest change on the branch: a shared
+helper touching two proven paths. The pre-existing tests for msg and post
+refusals pin those paths unchanged.
+
 ## Review bound
 
-One round, one reviewer. The diff is 6 lines of prose plus a test; the risk
-surface is the wording (quote vs describe) and the test's anchors, both of
-which the control and positive control exercise.
+Declared up front as one round, one reviewer, for a prose-only diff. The
+guard hole grew the scope, so the loop ran on: iteration 2 reviews the
+extraction and the route change. Convergence per the challenge loop.
