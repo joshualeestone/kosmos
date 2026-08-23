@@ -80,7 +80,11 @@ test('the poll never chooses the section', () => {
   // capture-pane every five seconds for nothing anybody can see.
   assert.match(tick, /!detailSection\('term'\)\.hidden/, 'the poll captures the window while the Terminal section is hidden');
   const go = script.slice(script.indexOf('function detailGo('), script.indexOf('\nfunction ', script.indexOf('function detailGo(') + 1));
-  assert.match(go, /detailPaintWindow\(CURRENT\)/, 'arriving at Terminal does not capture, so the section shows a stale window until the next tick');
+  assert.match(go, /section === 'term'[\s\S]{0,400}detailPaintWindow\(/, 'arriving at Terminal does not capture, so the section shows a stale window until the next tick');
+  // And from the FRESH record, not the one captured at open: the poll never
+  // rewrites CURRENT, so a tie that changed while the person was elsewhere
+  // would paint the wrong sentence for a round of the tick.
+  assert.match(go, /LAST\.find\([^)]*CURRENT\.sessionName\)[^;]*\|\| CURRENT/, 'the arrival paint reads the record captured at open');
 });
 
 test('the agent window no longer answers to the Engineering mode switch on this page', () => {

@@ -9678,7 +9678,7 @@ let CONVO_LOAD = 0;
    project pages only since agent-page-nav); a refusal is said
    in the engine's own sentence, never rendered as an empty terminal. */
 let WINDOW_LOAD = 0;
-let WINDOW_OPENING = 0; // a COUNTER: two rapid opens overlap their refreshes
+let WINDOW_OPENING = 0; // a COUNTER: two rapid opens overlap their refreshes. DORMANT since agent-page-nav (every caller passes the cached flag); kept with the uncached branch it guards.
 async function paintAgentWindow(sessionName, opts) {
   const box = document.getElementById('d-window-box');
   const pre = document.getElementById('d-window');
@@ -11095,6 +11095,7 @@ function openDetail(sessionName, section) {
   {
     const wpre = document.getElementById('d-window');
     wpre.textContent = ''; wpre.hidden = true;
+    delete document.getElementById('d-window-box').dataset.gone;   // the last agent's 404, not this one's
     document.getElementById('d-window-hint').textContent = '';
     document.getElementById('d-window-msg').hidden = true;
     // The box itself too: a bare heading standing over nothing for two
@@ -11158,9 +11159,16 @@ function detailPaintWindow(a) {
   /* No record at all (the agent left the board mid-open): say nothing here.
      The untied sentence asserts a cause, and "removed" is a different one;
      the tick's no-longer-on-the-board arm speaks for that case. */
-  if (!a) return;
-  const tied = a.isNamedOurs === true;
   const box = document.getElementById('d-window-box');
+  if (!a) {
+    /* Hide and RETIRE any in-flight paint, as the tick's arm always did: a
+       capture that painted before the agent left the board would otherwise
+       stand under "right now" beside the removed-agent sentence. */
+    WINDOW_LOAD += 1;
+    box.hidden = true;
+    return;
+  }
+  const tied = a.isNamedOurs === true;
   /* A box the route 404'd stays "cannot show" across the tick's re-ask
      rather than flickering to "reading" for a round-trip every five seconds;
      a capture that lands flips it back (the success arm owns that). */
@@ -11227,7 +11235,12 @@ function detailGo(section, opts) {
     if (th && TALK_SCROLL !== null) { th.scrollTop = TALK_SCROLL; TALK_SCROLL = null; }
     else if (th && th.__lastCount !== null && th.__lastCount !== undefined) th.scrollTop = th.scrollHeight;
   }
-  if (section === 'term' && CURRENT) detailPaintWindow(CURRENT);
+  /* The FRESH record, not the one captured at open: the poll never rewrites
+     CURRENT, and a tie that changed while the person sat on Talk would
+     otherwise paint the wrong sentence for a round of the tick. */
+  if (section === 'term' && CURRENT) {
+    detailPaintWindow(LAST.find((x) => x.sessionName === CURRENT.sessionName) || CURRENT);
+  }
 }
 document.getElementById('d-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
@@ -11240,6 +11253,8 @@ function detailNavNames(name) {
   const n = (name || '').trim();
   document.getElementById('d-nav-talk').textContent = n ? 'Talk to ' + n : 'Talk to this agent';
   document.getElementById('d-nav-remove').textContent = n ? 'Remove ' + n : 'Remove this agent';
+  detailSection('talk').setAttribute('aria-label', n ? 'Talk to ' + n : 'Talk');
+  detailSection('remove').setAttribute('aria-label', n ? 'Remove ' + n : 'Remove');
   /* The model button names the agent for the same reason the Remove pill
      does: a page that always shows one agent makes a bare label unambiguous
      only while you remember which page you are on. */
