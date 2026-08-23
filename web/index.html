@@ -18441,8 +18441,14 @@ function pjRoomRow(m, p, silent) {
   /* The person's own chip is NEUTRAL, never drawn from the agent face set
      (the pack's rule: "You" is not an agent). Agents get the shared disc,
      or their photo when the tied card carries one. */
+  /* The person's chip wears THEIR picture once they set one (#181: "I come
+     up as just a black circle"). Still never drawn from the agent face set;
+     a photo they chose for themselves is not an agent's face. The neutral
+     disc stays the no-picture state. */
   const av = isOp
-    ? '<div class="msg-av mine" aria-hidden="true"></div>'
+    ? (YOU_PIC
+      ? '<div class="msg-av" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
+      : '<div class="msg-av mine" aria-hidden="true"></div>')
     : (card && card.hasAvatar
       ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar" alt=""></div>'
       : '<div class="msg-av" aria-hidden="true" style="background:' + discTint(m.from) + ';color:' + discInk(m.from) + '">' + esc(initials(m.from)) + '</div>');
