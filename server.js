@@ -1409,6 +1409,36 @@ const server = http.createServer((req, res) => {
             if (p.added) p.told = { state: projects.TOLD.NOT_TRIED, because: null };
           }
         }
+        /* 🔑 THE FIRST AGENT BRINGS ITS OWN HOME (#166, Josh's idea with the
+           card's two constraints): a person's first screen after making their
+           first agent is otherwise a blank projects page. Created WITH the
+           first agent, never at install (a memberless default is the same
+           empty state in a different shape); its description says it is
+           Kosmos's and removable. Best-effort and non-gating; told rides the
+           same not-tried -> member-route re-fire path via result.projects.
+           Once EVER, held by a flag rather than store-emptiness: remove()
+           deletes the record outright, so an empty store cannot tell "never
+           had one" from "the person removed it", and a removed seed must
+           never regrow. */
+        if (result.outcome === create.OUTCOME.CREATED) {
+          try {
+            const seededFlag = path.join(require('./engine/store').ROOT, 'seeded-project.json');
+            if (!fs.existsSync(seededFlag) && projects.readAll().length === 0) {
+              const home = projects.create({
+                name: 'Getting started',
+                agents: [result.name],
+                roster: safeRoster(),
+                description: 'Kosmos made this so your first agent has somewhere to work with you. '
+                  + 'Post below and everyone on it answers here. It is only an example: remove it whenever you like.',
+                made: { via: 'kosmos' },
+              });
+              result.projects = (result.projects || []).concat([
+                { id: home.id, added: true, seeded: true, told: { state: projects.TOLD.NOT_TRIED, because: null } },
+              ]);
+              fs.writeFileSync(seededFlag, JSON.stringify({ at: new Date().toISOString(), project: home.id }) + '\n', 'utf8');
+            }
+          } catch { /* a first screen a person fills themselves is the fallback, not a failure */ }
+        }
         sendJson(res, code, result);
       })
       // ⚠️ OUR sentence, never the raw message. The first version called
