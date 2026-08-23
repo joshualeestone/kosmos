@@ -6046,6 +6046,24 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            Drawing it with a tick would claim we had verified something. -->
       <p class="dhint" style="margin:12px 0 0;">Kosmos runs in the background. Closing this window does not stop your agents.</p>
     <section class="dbox">
+      <!-- The tmux permission box, explained where a worried person looks
+           (#219). macOS attributes an agent's reach outside its folder to the
+           responsible process, which is tmux, a word no Kosmos user has met.
+           The dialog cannot be pre-granted or suppressed (TCC), and the reach
+           originates with the person's own instruction, so the fix that is
+           left is words: agents pre-warn (the boot block), and this box is
+           the standing answer for someone who met it cold. -->
+      <h3 class="dlab">If your Mac asks about &ldquo;tmux&rdquo;</h3>
+      <p class="dhint" style="margin:0;">
+        Sometimes macOS shows a box like <i>&ldquo;tmux&rdquo; would like to access
+        files in your Desktop folder</i>. tmux is the window Kosmos runs your
+        agents in, so that is an agent asking to reach a folder you gave it
+        work in. Allow it and the agent can do what you asked; Don&rsquo;t Allow
+        quietly stops that one job. Kosmos never reaches outside its own
+        folders unless you ask an agent to.
+      </p>
+    </section>
+    <section class="dbox">
       <h3 class="dlab">Agents already on this computer</h3>
       <!-- #330's ask, answered by pointing at where it was built: discovery's
            permanent home is the Agents page (found-wrap, below the board),
