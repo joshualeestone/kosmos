@@ -1282,3 +1282,37 @@ test('a member brought in later is told what the room said without them, and onl
     assert.doesNotMatch(toMara3, /talking without you/, 'a member who missed nothing was told she missed something');
   });
 });
+
+test('a valve-blocked agent leaves a refused row the room can serve, stamped with its project, once (#315)', () => {
+  withFleet(room3(), (board) => {
+    assert.equal(limits.write({ on: true, perHour: 10 }).ok, true);
+    try {
+      const now = Date.now();
+      fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+      // 40 arrivals already in the window (10 posts x 4 recipients... 2 members
+      // each = 20 x 2). Enough that the next agent post crosses 10 * 4 = 40.
+      for (let i = 0; i < 20; i += 1) {
+        fs.appendFileSync(messages.LOG, JSON.stringify({
+          kind: 'post', id: 'p' + (i + 1), from: 'leo', project: 'saturday-plans', to: ['mara', 'april'],
+          text: 'round ' + i, at: new Date(now - 60000).toISOString(), outcomes: { mara: 'placed', april: 'placed' },
+        }) + '\n');
+      }
+      armSender('mara-discord');
+      arm([]);
+      const sent = messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: 'here, what do you need?' }, board.agents, ['leo', 'mara', 'april']);
+      assert.equal(sent.state, chat.DELIVERY.COULD_NOT, 'the control failed: the valve did not fire');
+      const refused = messages.record().rows.filter((m) => m.kind === 'refused' && m.from === 'mara');
+      assert.equal(refused.length, 1, 'the refusal left no row, so the blocked agent reads as unresponsive');
+      assert.equal(refused[0].project, 'saturday-plans', 'the row is not stamped with its project, so the room cannot claim it');
+      assert.ok(refused[0].because, 'the row carries no reason');
+      // A second blocked try inside the window stays ONE row (the contract's
+      // own dedup), so a five-agent room produces five lines, not fifty.
+      arm([]);
+      messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: 'still here' }, board.agents, ['leo', 'mara', 'april']);
+      assert.equal(messages.record().rows.filter((m) => m.kind === 'refused' && m.from === 'mara').length, 1,
+        'a second refusal duplicated the row');
+    } finally {
+      limits.write({ on: true, perHour: 20 });
+    }
+  });
+});
