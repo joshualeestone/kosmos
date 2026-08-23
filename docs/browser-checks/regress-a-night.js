@@ -125,7 +125,10 @@ function seed() {
        they work, which their own tests already say. */
 
     /* The restart control (#259) and its confirmation (#144's remedy path).
-       On the panel, above Remove, outside the danger block.
+       Since agent-page-nav it lives in the Memory section as "Fresh start",
+       and Remove has a section of its own, so the page is opened and then the
+       Memory pill is clicked before anything is read; the membership test
+       (web.agent-nav.test.js) pins where it lives, this pins that it draws.
        ⚠️ BACK TO THE AGENTS TAB AND THE GRID FIRST, in that order. The checks
        above leave the page on a task, and the layout loop leaves the agents
        view on `org`, which draws no `.acard` at all. Each of those made a click
@@ -138,12 +141,14 @@ function seed() {
     await pg.waitForTimeout(600);
     await pg.locator('.acard .namego').first().click();
     await pg.waitForTimeout(1600);
+    await pg.click('#d-nav button[data-go="memory"]');
+    await pg.waitForTimeout(300);
     const rst = await pg.evaluate(() => {
       const box = document.getElementById('d-restart-agent');
       const rm = document.getElementById('d-remove-agent');
       return {
-        shown: box && !box.hidden,
-        aboveRemove: box && rm && box.getBoundingClientRect().top < rm.getBoundingClientRect().top,
+        shown: box && !box.hidden && box.getBoundingClientRect().height > 0,
+        removeOffscreen: rm && rm.getBoundingClientRect().height === 0,
         hint: box && box.querySelector('.fhint').textContent,
         /* The lede is painted per agent now (#198), so it must not be the
            generic once a panel is open. */
@@ -151,7 +156,7 @@ function seed() {
         saves: [...document.querySelectorAll('#d-instr-save, #d-save')].map((b) => b.getAttribute('aria-label')),
       };
     });
-    chk(rst.shown && rst.aboveRemove, theme + ': restart is on the panel, above Remove');
+    chk(rst.shown && rst.removeOffscreen, theme + ': restart draws in the Memory section, and Remove is not on that screen');
     chk(/anything it was part way through ends/.test(rst.hint),
       theme + ': the restart hint names the work, not only the memory');
     chk(/the only thing that survives a restart/.test(rst.lede),

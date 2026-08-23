@@ -71,6 +71,8 @@ const CASES = [
   await page.goto(BASE + '/?tab=agents', { waitUntil: 'networkidle' });
   await page.waitForSelector('.acard', { timeout: 10000 });
   await page.click('.acard');
+  await page.waitForSelector('#panel-detail:not([hidden])', { timeout: 8000 });
+  await page.click('#d-nav button[data-go="profile"]');   // the Name field lives in Profile since agent-page-nav
   await page.waitForSelector('#d-rename', { timeout: 8000 });
   await page.waitForTimeout(400);
 

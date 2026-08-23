@@ -2548,8 +2548,9 @@ const server = http.createServer((req, res) => {
      * tick, for an idle agent, to feed nothing.
      *
      * ⚠️ AND THE RAW WINDOW IS NOT SERVED FROM HERE AT ALL. This page already
-     * has `/api/agent/:name/window` for that, behind Engineering mode, with its
-     * own box. A second copy on this payload was an unread surface on a poll —
+     * has `/api/agent/:name/window` for that (no longer behind Engineering
+     * mode since agent-page-nav; the switch governs this page's viewport
+     * only), with its own box. A second copy on this payload was an unread surface on a poll,
      * the thing rounds 19, 22 and 38 deleted three times.
      */
     const view = asking ? chat.viewport(name, roster) : null;
@@ -2962,14 +2963,18 @@ const server = http.createServer((req, res) => {
     if (name === null) { sendJson(res, 404, { error: 'that is not a name we can read' }); return; }
     if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
     try {
-      if (!engmode.read().on) {
-        // The same gate as the thread's viewport, hoisted above the
-        // roster snapshot it would never use: Off stops the capture, and
-        // a stale client that asks anyway gets the truth in words rather
-        // than a window the person turned off.
-        sendJson(res, 200, { text: null, because: 'engineering mode is off, so the window is not read' });
-        return;
-      }
+      // 🛑 NO LONGER BEHIND THE ENGINEERING-MODE SWITCH (Josh, 2026-08-22, on
+      // the agent-page mock: the agent's own page always shows its window;
+      // the switch was for the project screen). The thread's viewport below
+      // keeps its gate. A client that ungated its box while this route still
+      // refused was the first thing the browser check photographed: a heading
+      // over "engineering mode is off, so the window is not read", a screen
+      // contradicting the switch's own new copy. One surface is governed by
+      // the switch now, and this route is not it.
+      // ⚠️ The cost is bounded by the CLIENT (Terminal section on screen,
+      // tab visible, one in flight), not here: every request is a roster
+      // read plus a capture-pane. Fine for a local single-person server;
+      // a second client polling this route pays that every call.
       const roster = safeRoster();
       // Resolved to the card's OWN sessionName (the sessionOf lesson: a
       // spelling that passes the gate via the safeKey fallback would

@@ -39,6 +39,10 @@ function check(name, pass, detail) {
   // The deep link this file supports, so the panel can be seen without a live agent.
   await page.goto(BASE + '/?tab=detail', { waitUntil: 'load' });
   await page.waitForTimeout(800);
+  // The Instructions section is one of seven since agent-page-nav; the page
+  // lands on Talk, so the section this check exists for is opened by hand.
+  await page.evaluate(() => detailGo('instr'));
+  await page.waitForTimeout(200);
 
   const seen = await page.evaluate(() => {
     const label = document.querySelector('label[for="d-instr"]');

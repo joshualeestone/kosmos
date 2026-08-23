@@ -107,7 +107,10 @@ const SCAN = () => {
 
 const SURFACES = [
   ['agents', null],
-  ['agent panel', '.acard .namego'],
+  /* Seven surfaces since agent-page-nav: the scan measures what is on screen,
+     and one section is, so each pill is visited (the gold `.on` pill, the
+     `.danger` pill and the dot on gold are measured on the way). */
+  ...['talk', 'model', 'memory', 'instr', 'profile', 'term', 'remove'].map((sec) => ['agent panel: ' + sec, 'SECTION:' + sec]),
   ['projects', 'PROJECTS'],
   ['settings', 'SETTINGS'],
 ];
@@ -124,7 +127,11 @@ const SURFACES = [
       try {
         if (go === 'SETTINGS') await pg.evaluate(() => showTab('settings'));
         else if (go === 'PROJECTS') await pg.evaluate(() => showTab('projects'));
-        else if (go) await pg.locator(go).first().click();
+        else if (go && go.startsWith('SECTION:')) {
+          await pg.locator('.acard .namego').first().click();
+          await pg.waitForTimeout(900);
+          await pg.click('#d-nav button[data-go="' + go.slice(8) + '"]');
+        } else if (go) await pg.locator(go).first().click();
       } catch (e) { reached = false; chk(false, theme + ' ' + name + ': could not be reached, so it was not checked', e.message.slice(0, 60)); }
       if (reached) {
         await pg.waitForTimeout(1400);

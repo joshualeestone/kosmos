@@ -6108,7 +6108,7 @@ test('the limit card shows each caution only when it matters (her always-on-scre
     'the tier handler hardcoded On instead of reading the toggle');
 });
 
-test('engineering mode round-trips, and the agent window route sits behind the knownAgent gate', async () => {
+test('engineering mode round-trips; the agent window route sits behind the knownAgent gate and NOT behind the switch', async () => {
   const engmodeEngine = require('./engine/engmode');
   const chatEngine = require('./engine/chat');
   const board = fleet.install([fleet.agent('leo', { state: 'idle' })]);
@@ -6116,13 +6116,21 @@ test('engineering mode round-trips, and the agent window route sits behind the k
     const got = JSON.parse((await req('/api/engmode')).body);
     assert.equal(got.on, false, 'engineering mode does not default Off');
 
-    // The Off serving, pinned BEFORE the mode is turned on below: a
-    // known agent's window answers the truth in words and never the
-    // capture -- the stale-client path, deletable-green without this.
+    // ⚠️ THE OFF SERVING IS GONE FROM THIS ROUTE (agent-page-nav, 2026-08-23):
+    // an agent's own page always shows its window, so the route answers the
+    // capture whether the switch is on or off. Pinned BEFORE the mode is
+    // turned on below, so a revival of the gate fails here rather than
+    // passing on the On leg alone. The thread's viewport keeps its gate.
+    chatEngine.setRunner((args) => {
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: 'seen with the switch off\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
     const offWin = await req('/api/agent/leo/window');
     assert.equal(offWin.status, 200);
-    assert.equal(JSON.parse(offWin.body).text, null);
-    assert.match(JSON.parse(offWin.body).because, /engineering mode is off/);
+    assert.equal(JSON.parse(offWin.body).text, 'seen with the switch off',
+      'the agent window is still gated by engineering mode; the switch governs project pages only');
+    chatEngine.resetForTests();
 
     const bad = await req('/api/engmode', {
       method: 'PUT',
@@ -7966,29 +7974,32 @@ test('a card names a planned model plainly, while the detail panel keeps its ten
  * next person to insert a `.dbox` shifts every pair below it silently, and this
  * exact order is the thing Josh reported as wrong.
  *
- * ⚠️ SOURCE ORDER IS THE RIGHT THING TO PIN HERE even though it is NOT the
- * reading order. `.dgrid` is two columns, so the rendered sequence is the source
- * sequence read in pairs — a stable function of it. Pinning source order pins
- * reading order for as long as the grid stays two-wide, and a change to the
- * column count is exactly the kind of change that should have to come here and
- * say so.
+ * ⚠️ THE GRID THIS COMMENT USED TO DESCRIBE IS GONE (agent-page-nav,
+ * 2026-08-23): the page is one section at a time behind a left nav, so
+ * "source order read in pairs" is no longer a property it has. What can drift
+ * now is the nav's order and the sections' order against it, which is what the
+ * test pins; membership box by box is in web.agent-nav.test.js.
  */
-test('the agent detail boxes stay in the order Josh asked for', () => {
+test('the agent detail page is seven sections behind a nav, in the ruled order', () => {
+  /* ⚠️ THIS TEST USED TO PIN SOURCE ORDER OF A TWO-COLUMN GRID (Runs on | Memory,
+     then Conversation | Instructions). The grid is gone: since agent-page-nav
+     (2026-08-23, Mona Lisa's mock, Josh's ask) the page is one section at a
+     time behind a left nav, so "reading order in pairs" is no longer a property
+     the page has. What replaces it is the thing that can now drift: the nav's
+     order, and which box sits in which section. web.agent-nav.test.js pins the
+     membership box by box; this pins the order a person sees. */
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  const panel = raw.slice(raw.indexOf('<section class="detail" id="panel-detail"'));
-  const grid = panel.slice(panel.indexOf('<div class="dgrid">'));
-  const labels = [...grid.matchAll(/<section class="dbox"[^>]*>[\s\S]*?<(?:h3 class="dlab"[^>]*|label class="flabel"[^>]*)>([^<]+)</g)]
-    .map((m) => m[1].trim());
-  assert.deepEqual(labels.slice(0, 4), ['Runs on', 'Memory', 'Conversation', 'Instructions'],
-    'the detail boxes moved. Two columns means these four render as '
-    + 'Runs on | Memory then Conversation | Instructions, which is what Josh '
-    + 'asked for and what the pack draws');
-  // ⚠️ The control: if the extraction silently matched nothing, slice(0,4) would
-  // be [] and deepEqual against a 4-element array would fail — but if it matched
-  // the WRONG four (a different grid on the page) it would not. Anchor it.
-  assert.ok(labels.length >= 5,
-    'the box extraction found fewer sections than the panel has, so it is '
-    + 'reading the wrong markup and the assertion above is meaningless');
+  const panel = raw.slice(raw.indexOf('<section class="detail" id="panel-detail"'),
+                          raw.indexOf('<section class="panel" id="panel-settings"'));
+  const nav = panel.slice(panel.indexOf('<nav class="snav" id="d-nav"'), panel.indexOf('</nav>'));
+  const gos = [...nav.matchAll(/<button type="button" data-go="([a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(gos, ['talk', 'model', 'memory', 'instr', 'profile', 'term', 'remove'],
+    'the nav order moved; the mock reads Talk, Model, Memory, Instructions, Profile, Terminal, then Remove after a rule');
+  const secs = [...panel.matchAll(/<section class="dsec" id="d-sec-[a-z]+" data-sec="([a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(secs, gos, 'the sections are not in the order the nav lists them');
+  // ⚠️ The control: the old grid no longer exists in this panel, so a revival
+  // of it here would be a second layout under the nav.
+  assert.ok(!panel.includes('class="dgrid"'), 'the detail panel grew a grid back under the nav');
 });
 
 /**

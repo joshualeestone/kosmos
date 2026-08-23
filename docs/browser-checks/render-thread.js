@@ -521,13 +521,24 @@ async function main() {
     expectUntiedRefusals = true;
     await rookCard.click();
     await page.waitForSelector('#panel-detail:not([hidden])', { timeout: 10000 });
+    await page.waitForTimeout(400);
+    /* Since agent-page-nav the box is hidden for EVERY agent until the
+       Terminal section is arrived at, so the assertion has to be made from
+       inside that section or it proves "not captured yet", not "untied". */
+    await page.click('#d-nav button[data-go="term"]');
     await page.waitForTimeout(700);
     const rookWindow = await page.evaluate(() => ({
       boxHidden: document.getElementById('d-window-box').hidden,
       msgText: document.getElementById('d-window-msg').textContent,
+      emptyNote: document.getElementById('d-term-empty').getBoundingClientRect().height,
     }));
-    check(rookWindow.boxHidden === true,
-      'an untied agent\u2019s panel hides the window box (nothing here is its window to show)', JSON.stringify(rookWindow));
+    check(rookWindow.boxHidden === true && rookWindow.emptyNote > 0,
+      'an untied agent\u2019s Terminal section hides the window box and says why (nothing here is its window to show)', JSON.stringify(rookWindow));
+    /* Back to Talk before reading the talk box: `innerText` on an unrendered
+       element falls back to textContent, hidden lines included, so a read
+       from the Terminal section would report the persist line as shown. */
+    await page.click('#d-nav button[data-go="talk"]');
+    await page.waitForTimeout(200);
     /* ⚠️ THE SAME RULE, ONE BOX LOWER, and it is the whole reason the 404
        above is tolerated rather than merely silenced. The agent's own thread
        404s for a borrowed name, and the arm that draws that refusal had no
