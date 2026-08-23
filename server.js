@@ -103,6 +103,7 @@ const engmode = require('./engine/engmode');
 const accounts = require('./engine/accounts');
 const forget = require('./engine/forget');
 const ping = require('./engine/ping');
+const notify = require('./engine/notify');
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
@@ -1639,6 +1640,28 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* The outbound "something happened" setting (engine/notify.js): the seam a
+     phone notification rides on, off by default. Same two routes as the
+     created ping, same shape. */
+  if (pathname === '/api/notify-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { const r = notify.read(); sendJson(res, 200, { on: r.on, ok: r.ok }); }
+    catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/notify-setting' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const saved = notify.setOn(body.on);
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        const r = notify.read();
+        sendJson(res, 200, { on: r.on, ok: r.ok });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
   if (pathname === '/api/history' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, forget.summary()); }
     catch { sendJson(res, 500, { error: 'we could not look at your history' }); }
@@ -2356,6 +2379,7 @@ const server = http.createServer((req, res) => {
         if (!sender.ok) { sendJson(res, 200, { kept: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
+        notify.happened({ kind: 'replied', agent: sender.card.name || who, project: null });
         const kept = chat.appendMessage(chat.DIRECT, who, {
           text: body.text,
           at: new Date().toISOString(),
@@ -2448,6 +2472,14 @@ const server = http.createServer((req, res) => {
           projectName: found.name,
           text: body.text,
         }, roster, members);
+        /* An agent posted in a room: the phone seam (engine/notify.js). Only
+           a post that reached the room is something that happened; a refusal
+           is not. The sender's shown name and the project's name, never the
+           words. */
+        if (delivery && delivery.state !== 'could_not') {
+          const card = roster.find((c) => c && c.sessionName === delivery.from) || null;
+          notify.happened({ kind: 'posted', agent: (card && card.name) || delivery.from || 'an agent', project: found.name });
+        }
         sendJson(res, 200, { delivery });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,

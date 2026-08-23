@@ -83,12 +83,12 @@ function seed() {
 
     await pg.click('.tab:has-text("Settings")');
     await pg.waitForTimeout(1800);
-    const sw = await pg.evaluate(() => ['lim-toggle', 'tell-toggle', 'auto-toggle', 'eng-toggle']
+    const sw = await pg.evaluate(() => ['lim-toggle', 'tell-toggle', 'notify-toggle', 'auto-toggle', 'eng-toggle']
       .map((id) => document.getElementById(id).getAttribute('aria-checked')));
     /* Every switch is born `mixed` and must resolve. A switch still reading
        mixed after a good load means its fetch never landed. */
     chk(sw.every((x) => x === 'true' || x === 'false'),
-      theme + ': all four switches resolved', JSON.stringify(sw));
+      theme + ': all five switches resolved', JSON.stringify(sw));
     /* Settings is sections since settings-nav; the reads below are by id and
        do not need a rect, but the section is opened anyway so a later rect
        assertion added here does not inherit a hidden element. */

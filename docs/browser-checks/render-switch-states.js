@@ -28,7 +28,7 @@ const { chromium } = require('playwright');
   /* Since settings-nav the four switches are in three sections (talking,
      updates, advanced) and only one is on screen at a time, so each is
      measured from inside its own section or its rect reads zero. */
-  const WHERE = { 'lim-toggle': 'talking', 'tell-toggle': 'updates', 'auto-toggle': 'updates', 'eng-toggle': 'advanced' };
+  const WHERE = { 'lim-toggle': 'talking', 'tell-toggle': 'updates', 'notify-toggle': 'updates', 'auto-toggle': 'updates', 'eng-toggle': 'advanced' };
   const seen = [];
   for (const id of Object.keys(WHERE)) {
     await pg.click('#s-nav button[data-go="' + WHERE[id] + '"]');

@@ -860,7 +860,7 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
   const states = Object.values(outcomes);
   const state = states.every((v) => v === chat.DELIVERY.PLACED)
     ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
-  return { state, because: null, id, at, outcomes };
+  return { state, because: null, id, at, outcomes, from };
 }
 
 /** Messages involving one agent (or all, unfiltered), oldest first. */
