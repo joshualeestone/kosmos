@@ -1971,6 +1971,18 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
 .composer { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap;
             background: var(--k-bg); padding: 14px 22px; border-radius: 10px; }
 .composer input { flex: 1; min-width: 10rem; }
+/* The @ picker: a small list anchored to the composer, one button per member,
+   the current one marked. Surface tokens only; it is a menu, not a dialog. */
+.composer { position: relative; }
+.mention { position: absolute; left: 22px; bottom: calc(100% - 6px); z-index: 5; min-width: 14rem; max-width: 24rem;
+  background: var(--k-surface); border: 0.5px solid var(--separator); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.10); padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.mention[hidden] { display: none; }
+.mention button { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left;
+  border: 0; background: none; padding: 7px 10px; border-radius: 7px; font: inherit; color: var(--k-ink); cursor: pointer; }
+.mention button .key { font: var(--text-caption) var(--font-mono, ui-monospace, monospace); color: var(--k-ink-2); }
+.mention button.on, .mention button:hover { background: var(--k-bg); }
+.mention .none { padding: 7px 10px; color: var(--k-ink-2); font: var(--text-callout) var(--font-ui); }
 /* ⚠️ THE PACK'S COMPOSER (FROZEN-2026-08-19:494-556), ported onto this file's
    tokens. The shape is the point: the controls live INSIDE a bordered box with
    the field, rather than sitting beside it as siblings. Josh, 2026-08-19:
@@ -5177,7 +5189,20 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                against `btn-gold` so the two files stop disagreeing. -->
           <button class="btn cpost" id="pj-post-go" type="button">Post</button>
         </div>
-        <p class="composerhint"><b>@</b> an agent to ask them directly.</p>
+        <!-- 🔑 THE @ PICKER (#312). Josh: "if I hit the @ symbol, it would pop
+             up a list as I type to give me a clickable choice". The stronger
+             reason is correctness: @ changes what a message IS (a request to
+             the named agent, background to everyone else) and the match is
+             EXACT, so "@Scarlett" for Scarlet silently becomes background
+             with no error. A picker cannot produce a name that does not
+             exist. It lists the project's members, which is the exact set
+             the matcher checks, inserts the session key in the form the
+             matcher expects, and opens only on the matcher's own left
+             boundary, so it never opens inside an email address. -->
+        <div class="mention" id="pj-mention" role="listbox" aria-label="Agents on this project" hidden></div>
+        <!-- #142: a symbol is not a verb, and the bold @ rendered as a smudge
+             that read as a zero. The key is named, the bold is off the glyph. -->
+        <p class="composerhint" id="pj-composerhint">Type @ and a name to ask one agent directly.</p>
       </div>
       <p class="fmsg" id="pj-room-msg"></p>
       <p class="vh" id="pj-room-say" role="status" aria-live="polite"></p>
@@ -17583,7 +17608,110 @@ document.getElementById('pj-post-go').addEventListener('click', pjPostSend);
    second line in. Enter still posts — that behaviour is unchanged and is what
    people already have in their fingers — and Shift+Enter now does what it does
    in every other composer. */
+/* ---- the @ picker (#312) ---------------------------------------------------
+   One source of truth for what counts as a mention: the matcher's own rule
+   (engine/messages.js), repeated here as data rather than reinvented. The
+   left boundary is absolute, so `admin@mara` never opens a menu mid-address;
+   the token charset is the matcher's; what is inserted is the session KEY,
+   which is what `recipients` holds, followed by a space so the token closes. */
+const MENTION_TOKEN = /(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]*)$/;
+let MENTION = null; // { start, end, items, on } while open
+
+/* The members the matcher would accept: the project's own list, by key. */
+function mentionCandidates(project) {
+  return ((project && project.agents) || []).map((a) => {
+    const key = typeof a === 'string' ? a : (a && typeof a.sessionName === 'string' ? a.sessionName : '');
+    return { key, shown: (a && typeof a.name === 'string' && a.name) || key };
+  }).filter((c) => c.key);
+}
+
+/* The token under the caret, or null: `@` plus what follows it, when the @
+   sits on the matcher's boundary. */
+function mentionAt(text, caret) {
+  const head = String(text || '').slice(0, caret);
+  const m = head.match(MENTION_TOKEN);
+  if (!m) return null;
+  const start = head.length - m[2].length - 1;
+  return { start, end: caret, typed: m[2] };
+}
+
+function mentionMatches(candidates, typed) {
+  const q = String(typed || '').toLowerCase();
+  return candidates.filter((c) => !q || c.key.toLowerCase().startsWith(q) || c.shown.toLowerCase().startsWith(q));
+}
+
+function mentionClose() {
+  MENTION = null;
+  const box = document.getElementById('pj-mention');
+  if (box) { box.hidden = true; box.innerHTML = ''; }
+  const input = document.getElementById('pj-post');
+  if (input) input.removeAttribute('aria-activedescendant');
+}
+
+function mentionPaint() {
+  const box = document.getElementById('pj-mention');
+  if (!box || !MENTION) return;
+  box.innerHTML = MENTION.items.length
+    ? MENTION.items.map((c, i) => '<button type="button" role="option" id="pj-mention-' + i + '"'
+      + ' aria-selected="' + (i === MENTION.on ? 'true' : 'false') + '"'
+      + ' class="' + (i === MENTION.on ? 'on' : '') + '" data-key="' + esc(c.key) + '">'
+      + esc(c.shown) + (c.shown !== c.key ? '<span class="key">@' + esc(c.key) + '</span>' : '') + '</button>').join('')
+    : '<div class="none">Nobody on this project matches that.</div>';
+  box.hidden = false;
+  const input = document.getElementById('pj-post');
+  if (input && MENTION.items.length) input.setAttribute('aria-activedescendant', 'pj-mention-' + MENTION.on);
+}
+
+function mentionRefresh() {
+  const input = document.getElementById('pj-post');
+  const p = pjById(PJ_CURRENT);
+  if (!input || !p) { mentionClose(); return; }
+  const at = mentionAt(input.value, input.selectionStart);
+  if (!at) { mentionClose(); return; }
+  const items = mentionMatches(mentionCandidates(p), at.typed);
+  MENTION = { start: at.start, end: at.end, items, on: 0 };
+  mentionPaint();
+}
+
+/* Insert the exact key in the matcher's form, replacing the typed token. */
+function mentionPick(i) {
+  const input = document.getElementById('pj-post');
+  if (!input || !MENTION || !MENTION.items[i]) return;
+  const c = MENTION.items[i];
+  const before = input.value.slice(0, MENTION.start);
+  const after = input.value.slice(MENTION.end);
+  const ins = '@' + c.key + ' ';
+  input.value = before + ins + after;
+  const caret = before.length + ins.length;
+  input.setSelectionRange(caret, caret);
+  mentionClose();
+  pjGrowComposer(input);
+  input.focus();
+}
+
+document.getElementById('pj-post').addEventListener('input', mentionRefresh);
+document.getElementById('pj-post').addEventListener('click', mentionRefresh);
+document.getElementById('pj-post').addEventListener('blur', () => { setTimeout(mentionClose, 150); });
+document.getElementById('pj-mention').addEventListener('mousedown', (e) => {
+  const b = e.target.closest('button[data-key]');
+  if (!b) return;
+  e.preventDefault();
+  const i = [...b.parentNode.querySelectorAll('button[data-key]')].indexOf(b);
+  mentionPick(i);
+});
+
 document.getElementById('pj-post').addEventListener('keydown', (e) => {
+  if (MENTION) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const n = MENTION.items.length;
+      if (n) MENTION.on = (MENTION.on + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
+      mentionPaint();
+      return;
+    }
+    if ((e.key === 'Enter' || e.key === 'Tab') && MENTION.items.length) { e.preventDefault(); mentionPick(MENTION.on); return; }
+    if (e.key === 'Escape') { e.preventDefault(); mentionClose(); return; }
+  }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); pjPostSend(); }
 });
 /* Parked as TYPED (the round-34 rule): a switch or repaint must not eat
