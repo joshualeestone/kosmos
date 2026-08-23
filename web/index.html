@@ -5874,7 +5874,25 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            screen cannot disagree with what is actually there. -->
       <div id="set-accounts"></div>
       <p class="dhint" id="set-accounts-msg" role="status" style="margin:10px 0 0;"></p>
-      <p class="dhint" style="margin:12px 0 0;"><b>Signing in to another account is done in a terminal</b>, not here: run <code>CLAUDE_CONFIG_DIR=~/.claude-work claude</code> and log in. It shows up on this list once you have.</p>
+      <!-- #248: the browser sign-in the first run already has, coming to this
+           button. DISABLED until the engine takes a per-account target
+           (connect.start({configDir}), Angel's contract 2026-08-23): wired
+           live tonight it would sign into the DEFAULT config and could log
+           the person's main account out, which is worse than a wait. The
+           sentence under it says which state this is; the terminal fallback
+           survives in small print because it is the one way that works
+           TODAY, and hiding the only working path behind a dead button is
+           the exact dishonesty the Connections page refuses. -->
+      <div class="frow" style="margin:12px 0 0;">
+        <button class="btn" id="acct-add" type="button" disabled>Add another account&hellip;</button>
+      </div>
+      <p class="dhint" id="acct-add-note" style="margin:8px 0 0;">
+        Signing in here, in your browser, is almost ready; this button opens
+        the same sign-in the first run uses. Until it does, a second account
+        still takes the terminal: run
+        <code>CLAUDE_CONFIG_DIR=~/.claude-work claude</code> and log in, and
+        it shows up on this list.
+      </p>
       <p class="dhint" style="margin:8px 0 0;">
         Kosmos never sees your password and holds no account of its own.
       </p>
