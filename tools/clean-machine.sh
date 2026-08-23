@@ -99,6 +99,7 @@ run_setup() {
   env -u TMUX -u TMUX_PANE \
   PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
   HOME="$SBHOME" TMUX_TMPDIR="$SB/tmux-sock" \
+  AGENT_WORKFORCE_LAUNCH="$SBHOME/Library/LaunchAgents" \
   KOSMOS_APP_DIR="$SB/app" KOSMOS_SYS_APP_DIR="$SB/Applications" \
   KOSMOS_PORT="$PORT" KOSMOS_NO_OPEN=1 \
   sh "$SB/setup" "$@" > "$SB/out.$_label.log" 2>&1
@@ -199,6 +200,16 @@ if [ "$BEFORE_AGENTS" = "$AFTER_AGENTS" ]; then
 else
   fail "real LaunchAgents changed: $(printf '%s\n%s' "$BEFORE_AGENTS" "$AFTER_AGENTS" | sort | uniq -u | tr '\n' ' ')"
 fi
+# The DOMAIN, not only the files: launchd has no sandbox, and a run of this
+# very harness once bootstrapped its temp-pathed plist over the product's
+# real label while the file check above stayed green. Serving and
+# supervised are different properties, and the label's registered path is
+# the one a file listing cannot see.
+AFTER_LABEL="$(launchctl print "gui/$(id -u)/com.kosmos.board" 2>/dev/null | sed -n 's/.*path = //p' | head -1)"
+case "$AFTER_LABEL" in
+  ''|"$HOME"/Library/LaunchAgents/*) pass "the real board label points nowhere near the sandbox" ;;
+  *) fail "the real com.kosmos.board label now points at $AFTER_LABEL" ;;
+esac
 
 say ""
 if [ "$FAILS" -eq 0 ]; then

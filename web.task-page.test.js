@@ -255,7 +255,7 @@ test('the poll repaints the task page, not only the project under it', () => {
 });
 
 test('the view is one of the project views, so opening it puts the others away', () => {
-  assert.match(SCRIPT, /for \(const v of \['list', 'one', 'add', 'settings', 'task', 'newtask'\]\)/);
+  assert.match(SCRIPT, /for \(const v of \['list', 'one', 'add', 'settings', 'task', 'newtask', 'docs'\]\)/);
 });
 
 test('the new-task page keeps typed words across Back, and never across projects (#383)', () => {

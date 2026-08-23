@@ -2448,6 +2448,27 @@ test('the first agent brings its own home, once, and never regrows a removed one
   const row = (out.projects || []).find((p) => p.seeded);
   assert.ok(row && row.added && row.told && row.told.state === 'not_tried',
     'the seed does not ride the not-tried -> re-fire path the creation screen already drives');
+  /* #167: the seed's content, under its own rule. One note from KOSMOS in
+     the room (the product's voice, never an agent's), three genuinely-undone
+     tasks, members already real (the first agent), documents empty. */
+  const room = json(await req('/api/project/' + home.id + '/room')).rows;
+  const notes = room.filter((m) => m.kind === 'note');
+  assert.equal(notes.length, 1, 'the room does not carry the Kosmos note');
+  assert.match(notes[0].text, /only here to show you around/);
+  assert.ok(!room.some((m) => m.kind === 'post'), 'the seed fabricated an agent-attributed message, the one thing the rule forbids');
+  const seededTasks = projectsEngine.readAll()[0].tasks || [];
+  assert.equal(seededTasks.length, 3, 'the three undone tasks are missing');
+  assert.ok(seededTasks.every((t) => !t.closedAt), 'a seeded task claims to be done');
+  assert.ok(!seededTasks.some((t) => /add an agent/i.test(t.sentence)), 'a task tells them to do what birth already did');
+  const tail = (await req('/api/project/' + home.id + '/room?as=text')).body;
+  assert.match(tail, /\[kosmos\] This is where you talk to everyone/);
+  /* The fabrication guard is structural: a note by any other author fails the
+     record's shape and never comes back out. */
+  const fsx2 = require('node:fs');
+  fsx2.appendFileSync(require('./engine/messages').LOG, JSON.stringify({ kind: 'note', from: 'mara', to: home.id, project: home.id, text: 'not my words', at: new Date().toISOString() }) + '\n');
+  const rows2 = json(await req('/api/project/' + home.id + '/room')).rows;
+  assert.ok(!rows2.some((m) => m.kind === 'note' && /not my words/.test(m.text || '')), 'an agent-authored note survived the shape guard');
+
   await post('/api/agents', { name: 'second-ever', role: 'pm' });
   assert.equal(projectsEngine.readAll().length, 1, 'a second agent grew a second seed');
   projectsEngine.remove(home.id);

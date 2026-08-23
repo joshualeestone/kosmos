@@ -1454,6 +1454,23 @@ const server = http.createServer((req, res) => {
               result.projects = (result.projects || []).concat([
                 { id: home.id, added: true, seeded: true, told: { state: projects.TOLD.NOT_TRIED, because: null } },
               ]);
+              /* #167's rule, and it is the whole design: the room may carry a
+                 message from KOSMOS, in its own voice and band; it may never
+                 carry words attributed to an agent the agent did not write.
+                 Forward-looking content only: the three tasks are genuinely
+                 undone at this moment (the first agent is already a member,
+                 so none of them is 'add an agent', which birth just did). */
+              messages.roomNote(home.id,
+                'This is where you talk to everyone on a project at once. Whatever you write here, every agent on the project gets. Delete this project whenever you like, it is only here to show you around.');
+              try {
+                const tasksEngine = require('./engine/tasks');
+                // Unassigned on purpose: a task claimed FOR an agent is a
+                // record of an assignment nobody made. `null` roster is fine;
+                // nothing here keys on who.
+                tasksEngine.create(home.id, { sentence: 'Say hello to everyone in the conversation' }, null);
+                tasksEngine.create(home.id, { sentence: 'Give ' + (result.shown || result.name) + ' something small to do' }, null);
+                tasksEngine.create(home.id, { sentence: 'Put your next agent on this project too' }, null);
+              } catch { /* tasks are furniture the person can also make; the project stands without them */ }
               fs.writeFileSync(seededFlag, JSON.stringify({ at: new Date().toISOString(), project: home.id }) + '\n', 'utf8');
             }
           } catch { /* a first screen a person fills themselves is the fallback, not a failure */ }
@@ -3806,10 +3823,12 @@ const server = http.createServer((req, res) => {
            without these every agent blocked after the first vanishes silently
            and reads as unresponsive. The refusal contract already records
            who and why, once per sender-reason-window; the room just shows it. */
-        .filter((m) => m && ((m.kind === 'post' || m.kind === 'valve') ? m.project === id
+        .filter((m) => m && ((m.kind === 'post' || m.kind === 'valve' || m.kind === 'note') ? m.project === id
           : (m.kind === 'refused' && m.project === id)))
         .map((m) => (m.kind === 'refused'
           ? { kind: 'refused', from: m.from, because: m.because || null, at: m.at }
+          : m.kind === 'note'
+          ? { kind: 'note', text: m.text || null, at: m.at }
           : m.kind === 'post'
           ? { kind: 'post', id: m.id, from: m.from, to: m.to, operator: m.operator === true,
               text: m.text, at: m.at, outcomes: m.outcomes || {},
@@ -3829,6 +3848,7 @@ const server = http.createServer((req, res) => {
           const when = m.at ? String(m.at).slice(11, 16) : '--:--';
           if (m.kind === 'valve') return when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.');
           if (m.kind === 'refused') return when + '  [kosmos] ' + m.from + ' tried to post here and Kosmos stopped it: ' + (m.because || 'no reason recorded');
+          if (m.kind === 'note') return when + '  [kosmos] ' + String(m.text || '');
           const who = m.operator ? 'operator' : m.from;
           return when + '  ' + who + ' -> ' + (Array.isArray(m.to) ? m.to.join(', ') : 'the room') + ': ' + String(m.text || '');
         });
@@ -3920,7 +3940,11 @@ const server = http.createServer((req, res) => {
     // ⚠️ 200 WITH A REASON, not an error status: a project whose folder has
     // gone is a state this screen must DRAW, and a 4xx would make the list
     // render as a failed request rather than as "we could not look".
-    sendJson(res, 200, projects.listFiles(record.folder, 10));
+    /* ?limit= for the Documents view (#134), bounded: the tile keeps its 10,
+       the view asks for up to 500, and an unbounded ask cannot be minted. */
+    let fileCap = 10;
+    try { const l = Number(new URL(req.url, ROUTING_BASE).searchParams.get('limit')); if (Number.isFinite(l) && l > 0) fileCap = Math.min(Math.floor(l), 500); } catch { fileCap = 10; }
+    sendJson(res, 200, projects.listFiles(record.folder, fileCap));
     return;
   }
 
