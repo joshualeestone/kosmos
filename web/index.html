@@ -1987,17 +1987,20 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
    sibling, eating layout width the box never reserved before. The cut this
    fix was written for was horizontal; the rule reaches an axis nobody had
    looked at. */
-#d-qask-text::-webkit-scrollbar { height: 6px; width: 6px; -webkit-appearance: none; }
+/* #113 part three: the same always-visible scrollbar on every raw screen
+   (.pj-screen), not only the question pane -- macOS hides overlay scrollbars
+   until a scroll, so a cut line in a window capture read as the whole line. */
+#d-qask-text::-webkit-scrollbar, .pj-screen::-webkit-scrollbar { height: 6px; width: 6px; -webkit-appearance: none; }
 /* No fallback on the thumb either, and this one was worse than the track's:
    `--k-ink-2` is defined at `:root` and in the dark block, so it could never
    render -- and `rgba(20,22,26,.4)` matches NEITHER theme's value, where the
    pack-verbatim fallbacks elsewhere in this file at least equal their token. */
-#d-qask-text::-webkit-scrollbar-thumb { background: var(--k-ink-2); border-radius: 3px; }
+#d-qask-text::-webkit-scrollbar-thumb, .pj-screen::-webkit-scrollbar-thumb { background: var(--k-ink-2); border-radius: 3px; }
 /* No fallback on the track: `--k-sunk` is defined unconditionally at `:root`
    and per theme, so a fallback here can never render -- and the one written
    first was `.08`, a deliberately stronger wash than the token's `.05`, which
    made it a value nobody would ever see rather than a defence. */
-#d-qask-text::-webkit-scrollbar-track { background: var(--k-sunk); border-radius: 3px; }
+#d-qask-text::-webkit-scrollbar-track, .pj-screen::-webkit-scrollbar-track { background: var(--k-sunk); border-radius: 3px; }
 .qopts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 /* An option. Deliberately NOT the page's commit styling: a question with two
    equal answers has no primary, and emphasising one would recommend it.
