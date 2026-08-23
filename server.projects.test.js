@@ -40,7 +40,12 @@ process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 // rule is every root the code writes to, and the code grew one.
 process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'kosmos-projects');
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
-process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
+/* ⚠️ A FAKE TMUX, NOT /bin/echo (#332). echo stubbed the writes and printed
+   its arguments to the reads, which the parser refused, so every read fell
+   through to the real tmux on the PATH and these tests measured the
+   operator's live fleet. The fake answers reads from fixtures (none set here:
+   an empty board) and echoes everything else, so write-side receipts hold. */
+process.env.AGENT_WORKFORCE_TMUX_BIN = require('node:path').join(__dirname, 'test-support', 'fake-tmux.sh');
 // ⚠️ Belt AND braces, same as chat.test.js (round 24): the echo stub above
 // is justified in-file for create.js and remove.js, so without this line
 // the only thing keeping a test process from typing into live agents was a
