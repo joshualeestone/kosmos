@@ -8698,7 +8698,7 @@ function topLevelReset(tab) {
    button is a separate decision (what should Back mean inside a single-page
    board?) and is left as it was rather than half-made here. */
 let URL_TAB = 'agents';
-let PJ_VIEW = 'list';   // the projects sub-view showing: list, one, add, settings, task
+let PJ_VIEW = 'list';   // the projects sub-view showing: list, one, add, settings, task, newtask
 function syncUrl() {
   try {
     const q = new URLSearchParams();
@@ -17007,7 +17007,7 @@ let TK_SHOW_ALL = false;   // the door's reveal; resets when the project changes
    list left standing would dress another project's words as citations of files
    this one does not have. */
 let PJ_DOC_NAMES = null;
-let TK_OPEN = null;        // the task number the view dialog is showing
+let TK_OPEN = null;        // the task number the task page is showing
 
 /** Re-read the store; loadProjects itself repaints the open project on
     success, so this is a named alias for the intent, not a second paint. */
@@ -17429,17 +17429,32 @@ function openNewTask() {
   if (!p) return;
   document.getElementById('nt-project').textContent = p.name;
   document.getElementById('nt-back').textContent = '\u2190 ' + p.name;
-  if (NT_FOR !== p.id) {
+  /* Decided BEFORE the key moves: keepWho below must answer "was there a
+     kept draft when we arrived", and reading NT_FOR after this block sets
+     it would resurrect the PREVIOUS task's assignee on a clean open
+     (measured: the check's second, unassigned task filed itself to the
+     first task's member). */
+  const sameDraft = NT_FOR === p.id;
+  if (!sameDraft) {
     NT_FOR = p.id;
     document.getElementById('nt-what').value = '';
     document.getElementById('nt-detail').value = '';
   }
   const sel = document.getElementById('nt-who');
+  /* The chosen assignee is part of the draft too: the rebuild below resets
+     a select, so without carrying the value a person who picked somebody,
+     backed out to check a thing and returned would file the task to
+     "Nobody yet" without noticing. Carried only for the same project's
+     draft, and only if the member is still on the project after the
+     rebuild (a departed member's option is gone, and the select then
+     honestly rests on Nobody). */
+  const keepWho = sameDraft ? sel.value : '';
   // Project members only, "Name · role" like the pack; the task belongs to
   // the project, so its people are the choices.
   sel.innerHTML = '<option value="">Nobody yet</option>' + (p.agents || []).map((m) =>
     '<option value="' + esc(m.sessionName) + '">' + esc(m.name || m.sessionName)
     + (m.role ? ' · ' + esc(m.role) : '') + '</option>').join('');
+  if (keepWho) sel.value = keepWho;
   document.getElementById('nt-msg').textContent = '';
   document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
   pjView('newtask');
@@ -17487,9 +17502,11 @@ document.getElementById('nt-go').addEventListener('click', async () => {
   }
 });
 
-/* Escape + focus trap for BOTH task dialogs, the full machinery from the
-   start (tonight's own lesson: a new sibling does not inherit a guard).
-   The trap intercepts at the LAST stop in the traversal direction. */
+/* Escape + focus-trap machinery for dialogs. Both task surfaces left it
+   (#206, then #383): they are pages now, and neither Escape nor a trap may
+   apply to a page. The machinery stays so the next dialog inherits working
+   guards rather than a deleted one; the trap intercepts at the LAST stop
+   in the traversal direction. */
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!document.getElementById('hist-modal').hidden) closeHistModal();

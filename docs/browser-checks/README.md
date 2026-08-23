@@ -107,7 +107,7 @@ one invented by somebody who did not write them.
 | `render-special-purpose.js` | **no header sentence.** Read it before running it, and give it one. |
 | `render-talk-search.js` | The search box above the agent thread: filter by text and by who, the no-match sentence, reset on switching agent |
 | `render-talk.js` | A REAL agent card, from the real producer |
-| `render-tasks.js` | **no header sentence.** Read it before running it, and give it one. |
+| `render-tasks.js` | Drive-through of the tasks column: creating and viewing are both PAGES (#206, then #383) with no trap and Escape inert, the typed draft survives Back, the who chip is the status, the door reveals what the column hides. Fixture tmux only. |
 | `render-memory-controls.js` | The Memory tab's three controls (#214): Compact, Clear, Restart together, the chooser sentence, Compact's dialog and verdict. |
 | `render-model-change.js` | The Model section (#386): three chained menus, a change confirmed with its cost, the outcome reported in the dialog. |
 | `render-org-drag.js` | The org chart's organic layer (#285): grab the hub, the rings follow, wires stay attached, a drag does not open an agent and a click does. |

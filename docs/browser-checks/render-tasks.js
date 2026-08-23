@@ -1,14 +1,17 @@
-/* Drive-through of the tasks column: the pack's New-task modal creates
- * through the real route, the who chip is the status (Mona Lisa's v1
- * ruling), the door reveals what the column deliberately hides, and the
- * view dialog's close-note names the agent with the blessed wording.
+/* Drive-through of the tasks column: creating and viewing are both PAGES
+ * (#206, then #383) with no trap and Escape inert, the typed draft survives
+ * Back, the who chip is the status (Mona Lisa's v1 ruling), the door
+ * reveals what the column deliberately hides, and the page's close-note
+ * names the agent with the blessed wording.
  *
  * Run with the durable playwright runtime:
  *   NODE_PATH=$HOME/work/pw-runtime/node_modules node \
  *     docs/browser-checks/render-tasks.js
- * Sandboxes every root the server writes to; kills only what it started.
- * The roster read is the machine's real tmux (read-only), which is why the
- * member added below is one of this fleet's own session names. */
+ * Sandboxes every root the server writes to AND the tmux it reads: the
+ * spawned server gets fake-tmux with the fixture roster below, so nothing
+ * in this check can reach a live pane. It once could: a real session was
+ * named as the member and every run typed the membership tell into that
+ * agent, because sandboxing the store is not sandboxing delivery. */
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -29,8 +32,11 @@ const MEMBER = 'taskmate';
   for (const k of ['DATA', 'WORKERS', 'LAUNCH', 'PROJECTS']) {
     roots[k] = fs.mkdtempSync(path.join(os.tmpdir(), 'tk-drive-' + k.toLowerCase() + '-'));
   }
+  /* The shared builder, not hand-typed tabs: fleet.line() fills every
+     column PANE_COLUMNS declares and throws when the engine grows one,
+     which is the discipline the hand-typed form silently loses. */
   fs.writeFileSync(roots.DATA + '/fake-panes',
-    'taskmate-discord\t0.0\t2.1.212\t0\ttaskmate\t\u2733 idle\n');
+    require('../../test-support/fleet').line({ session: 'taskmate-discord', claim: 'taskmate', title: '\u2733 idle' }) + '\n');
   fs.writeFileSync(roots.DATA + '/fake-sessions', 'taskmate-discord\n');
   fs.writeFileSync(roots.DATA + '/fake-screen',
     '\u276f \n  \u23f5\u23f5 bypass permissions on (shift+tab to cycle)\n');
@@ -118,6 +124,11 @@ const MEMBER = 'taskmate';
     await p.click('#nt-go');
     await p.waitForSelector('.tkcard', { timeout: 10000 });
     await p.click('#pj-newtask');
+    // A clean open (the last create cleared the draft) must NOT resurrect
+    // the previous task's assignee: this second task is the unassigned one,
+    // and the door assertion below only exists if it stays unassigned.
+    const who2 = await p.inputValue('#nt-who');
+    if (who2 !== '') die('a clean open resurrected the previous assignee: "' + who2 + '"');
     await p.fill('#nt-what', 'Check it against the live flow');
     await p.click('#nt-go');
     await p.waitForSelector('#pj-alltasks:not([hidden])', { timeout: 10000 });

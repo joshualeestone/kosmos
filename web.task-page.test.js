@@ -264,10 +264,19 @@ test('the new-task page keeps typed words across Back, and never across projects
      reopening for the SAME project keeps it, and a DIFFERENT project
      starts clean, so a half-written task cannot be filed under the wrong
      project. Source pins, because the property is a pair of branches. */
-  assert.match(SCRIPT, /if \(NT_FOR !== p\.id\)/,
+  assert.match(SCRIPT, /if \(!sameDraft\)/,
     'the draft is no longer keyed to its project, so it leaks across projects or dies on Back');
   assert.match(SCRIPT, /NT_FOR = null;\s*\n\s*document\.getElementById\('nt-what'\)\.value = '';/,
     'a created task does not clear the draft, so the next open shows the last task again');
+  /* The assignee is part of the draft: the select rebuild resets it, so it
+     is carried for the same project's draft and restored only when the
+     option survived the rebuild. */
+  assert.match(SCRIPT, /const sameDraft = NT_FOR === p\.id;/,
+    'the kept-draft decision is not taken before the key moves, so a clean open resurrects the previous assignee');
+  assert.match(SCRIPT, /const keepWho = sameDraft \? sel\.value : '';/,
+    'the chosen assignee dies on Back, so a checked-something-and-returned person files to Nobody');
+  assert.match(SCRIPT, /if \(keepWho\) sel\.value = keepWho;/,
+    'the carried assignee is never restored after the rebuild');
 });
 
 test('there is no due date field, and that is a decision rather than an omission', () => {
