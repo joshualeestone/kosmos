@@ -5916,13 +5916,8 @@ test('the post route resolves the project, derives the member list, and fans out
 
     // Ripple 5 at the wire: the post reaches each member's conversation
     // feed AS a post, carrying its project and THAT member's outcome.
-    const feed = await req('/api/agent/mara/conversation');
-    assert.equal(feed.status, 200);
-    const post = JSON.parse(feed.body).rows.find((m) => m.kind === 'post');
-    assert.ok(post, 'the room post vanished from the member\u2019s feed');
-    assert.equal(post.project, 'routeroom');
-    assert.equal(post.state, 'placed');
-    assert.equal(post.operator, false);
+    /* The member's feed (the agent page's conversation box) is gone; the
+       record above is what the post leaves behind. */
   } finally {
     messagesEngine.resetForTests();
     chatEngine.resetForTests();
@@ -6045,35 +6040,8 @@ test('the limits routes round-trip the person\u2019s control, and the valve rows
   // The rows: a told-only valve names the reason on both arms (did not
   // step in, because the limit is turned off), and rows that PREDATE the
   // field render as the stops they were.
-  const escSrc = (() => {
-    const raw2 = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-    const sc = raw2.match(/<script>([\s\S]*?)<\/script>/)[1];
-    const at = sc.indexOf('function esc(');
-    return sc.slice(at, sc.indexOf('\n}', at) + 2);
-  })();
-  const convoRow = pageFunction('convoRow', escSrc + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjPreviewCard'));
-  const toldPair = convoRow({ kind: 'valve', from: 'leo', to: 'mara', stopped: false, at: 'x' }, 'mara');
-  assert.match(toldPair, /did not step in, because you have the limit turned off/);
-  assert.doesNotMatch(toldPair, /stopped them/, 'a told-only pair row claims Kosmos stopped them');
-  const toldRoom = convoRow({ kind: 'valve', from: 'leo', to: 'p1', project: 'p1', stopped: false, at: 'x' }, 'mara');
-  assert.match(toldRoom, /did not step in, because you have the limit turned off/);
-  const legacyPair = convoRow({ kind: 'valve', from: 'leo', to: 'mara', at: 'x' }, 'mara');
-  assert.match(legacyPair, /stopped them and asked leo/, 'a pre-field row lost its refusal history');
-  // The ROUTE's own pre-field default, not only the renderer's: a
-  // stopped-less row in the record must reach the feed as the stop it
-  // was. The renderer and the mapping happen to default the same
-  // direction, and only asserting one lets the other regress silently.
-  const messagesEngine2 = require('./engine/messages');
-  fs.mkdirSync(nodePath.dirname(messagesEngine2.LOG), { recursive: true });
-  fs.appendFileSync(messagesEngine2.LOG, JSON.stringify({
-    kind: 'valve', from: 'routeleo', to: 'routemara', because: 'old stop', at: new Date().toISOString(),
-  }) + '\n');
-  const feed = await req('/api/agent/routemara/conversation');
-  const row = JSON.parse(feed.body).rows.find((m) => m.kind === 'valve' && m.from === 'routeleo');
-  assert.ok(row, 'the legacy valve row vanished from the feed');
-  assert.equal(row.stopped, true, 'the route mapped a pre-field refusal as told-only (history rewritten)');
-  const stoppedRoom = convoRow({ kind: 'valve', from: 'leo', to: 'p1', project: 'p1', stopped: true, at: 'x' }, 'mara');
-  assert.match(stoppedRoom, /stopped it and asked everyone/);
+  /* The valve rows used to be drawn on the agent page; that box is gone, and
+     the route that fed it with them. The limits round-trip above is the test. */
 });
 
 test('the limit card shows each caution only when it matters (her always-on-screen rule, driven)', () => {
@@ -6218,47 +6186,10 @@ test('engineering mode round-trips; the agent window route sits behind the known
   }
 });
 
-test('a room post renders as a room post everywhere: the agent page names the project, the room draws the receipt', () => {
-  /* View D ripple 5 on the agent page, and the receipt grammar on the
-     room itself, extracted from the page so a rename cannot leave these
-     asserting a copy. */
-  const escSrc = (() => {
-    const raw2 = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-    const sc = raw2.match(/<script>([\s\S]*?)<\/script>/)[1];
-    const at = sc.indexOf('function esc(');
-    return sc.slice(at, sc.indexOf('\n}', at) + 2);
-  })();
-  const convoRow = pageFunction('convoRow', escSrc + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjPreviewCard'));
-
-  const agentPost = convoRow({ kind: 'post', from: 'mara', to: ['leo', 'april'], project: 'hendersonlease',
-    operator: false, text: 'the draft is up', at: new Date().toISOString(), state: 'placed' }, 'leo');
-  assert.match(agentPost, /mara · to everyone on hendersonlease/,
-    'a remark to a group reads as a message to one (ripple 5)');
-  assert.match(agentPost, /class="cvrow peer"/);
-
-  const opPost = convoRow({ kind: 'post', from: 'you', to: ['leo'], project: 'hendersonlease',
-    operator: true, text: 'status?', at: new Date().toISOString(), state: 'could_not' }, 'leo');
-  assert.match(opPost, /You · to everyone on hendersonlease/);
-  assert.match(opPost, /class="cvrow you"/, 'the person\u2019s room post did not get their own treatment');
-  assert.match(opPost, /Not delivered to leo/, 'a failed delivery to this agent rendered as silence');
-
-  // An agent literally named "you" must NOT be promoted to the person:
-  // the flag is the distinction, never the name.
-  const trickPost = convoRow({ kind: 'post', from: 'you', to: ['leo'], project: 'p',
-    operator: false, text: 'hi', at: new Date().toISOString(), state: 'placed' }, 'leo');
-  assert.match(trickPost, /class="cvrow peer"/,
-    'an agent named "you" was promoted to operator by a name match');
-
-  const roomValve = convoRow({ kind: 'valve', from: 'leo', to: 'hendersonlease', project: 'hendersonlease',
-    at: new Date().toISOString() }, 'leo');
-  assert.match(roomValve, /conversation on hendersonlease/,
-    'the room valve rendered with the pair sentence');
-  assert.match(roomValve, /asked everyone to bring you in/);
-  // The control: the PAIR valve keeps its named-sender sentence.
-  const pairValve = convoRow({ kind: 'valve', from: 'leo', to: 'mara', at: new Date().toISOString() }, 'mara');
-  assert.match(pairValve, /asked leo to bring you in/);
-
-  // The receipt grammar, one clause per real state.
+test('a room post draws its receipt in the room (the agent page no longer shows room posts)', () => {
+  /* The agent-page half of this test drew room posts through convoRow; that
+     box is gone (Josh, 2026-08-23 12:38), so only the room's receipt is
+     pinned here. */
   const pjJoinNames = pageFunction('pjJoinNames');
   const receipt = pageFunction('pjReceiptSentence',
     'const pjNameOf = (p, n) => n;\nconst pjJoinNames = ' + pjJoinNames.toString() + ';');
@@ -6276,163 +6207,9 @@ test('a room post renders as a room post everywhere: the agent page names the pr
   assert.match(receipt({ leo: 'something-new' }, {}), /leo may have it; not confirmed/);
 });
 
-test('the conversation rows hold the spec grammar: attributed peers, verbatim refusals, the valve as reassurance', () => {
-  /* Mona Lisa's messaging-screens spec, driven: a colleague's row reads
-     differently from yours, no delivery state renders as silence, the
-     because sentence ships verbatim, replies indent one level, and the
-     valve row is the product doing its job rather than an error. */
-  const convoRow = pageFunction('convoRow',
-    (() => {
-      const raw2 = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-      const sc = raw2.match(/<script>([\s\S]*?)<\/script>/)[1];
-      const at = sc.indexOf('function esc(');
-      return sc.slice(at, sc.indexOf('\n}', at) + 2) + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjPreviewCard');
-    })());
 
-  const you = convoRow({ kind: 'operator', text: 'have a look at the lease', project: 'Vendor Review', state: 'placed' }, 'leo');
-  assert.match(you, /class="cvrow you"/, 'the operator row lost its own treatment');
-  assert.match(you, /You · on Vendor Review/);
-  assert.doesNotMatch(you, /cv-state/, 'a placed message grew a state line it does not need');
 
-  const peer = convoRow({ kind: 'colleague', from: 'mara', to: 'leo', text: 'the numbers are in', state: 'placed', in_reply_to: null }, 'leo');
-  assert.match(peer, /class="cvrow peer"/, 'a colleague reads like the operator, the distinction the spec exists for');
-  assert.match(peer, /mara · to leo/);
 
-  const reply = convoRow({ kind: 'colleague', from: 'leo', to: 'mara', text: 'thanks', state: 'placed', in_reply_to: 'm1' }, 'leo');
-  assert.match(reply, /peer indent/, 'a reply does not indent under what it answers');
-
-  const maybe = convoRow({ kind: 'colleague', from: 'leo', to: 'mara', text: 'ping', state: 'unconfirmed', in_reply_to: null }, 'leo');
-  assert.match(maybe, /Sent to mara\. We could not confirm it arrived\./, 'unconfirmed rendered as silence or as failure');
-
-  const no = convoRow({ kind: 'operator', text: 'x', project: 'P', state: 'could_not', because: 'the pane was in copy-mode' }, 'leo');
-  assert.match(no, /<b>Not sent\.<\/b> the pane was in copy-mode/, "the engine's own sentence did not ship verbatim");
-
-  const valve = convoRow({ kind: 'valve', from: 'leo', to: 'mara' }, 'leo');
-  assert.match(valve, /leo and mara were going back and forth, so Kosmos stopped them and asked leo to bring you in\./,
-    'the valve row lost the sentence that makes it reassurance rather than error');
-  assert.doesNotMatch(valve, /err|Not sent/, 'the valve row dressed as an error');
-
-  const hostile = convoRow({ kind: 'colleague', from: 'mara', to: 'leo', text: '<img src=x onerror=1>', state: 'placed', in_reply_to: null }, 'leo');
-  assert.doesNotMatch(hostile, /<img src=x/, 'a message body reached the conversation as a live tag');
-  assert.match(hostile, /&lt;img/, 'CONTROL: the escaped body is absent, so the tag assertion proves nothing');
-});
-
-test('the conversation route merges the project threads and the a2a record into one honest, ordered tail', async () => {
-  const messagesEngine = require('./engine/messages');
-  const chatEngine = require('./engine/chat');
-  const projectsEngine = require('./engine/projects');
-  const board = fleet.install([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
-  const pdir = nodePath.join(SANDBOX, 'convo-proj');
-  fs.mkdirSync(pdir, { recursive: true });
-  try {
-    // A real project with leo on it, one operator message in its thread.
-    projectsEngine.create({ name: 'Convo Proof', folder: pdir, agents: ['leo'], roster: board.agents });
-    const proj = projectsEngine.list(board.agents).find((x) => x.name === 'Convo Proof');
-    assert.ok(proj, 'the fixture project was not created');
-    chatEngine.appendMessage(proj.id, 'leo',
-      { text: 'from your operator', at: '2026-08-18T13:00:01Z', delivery: { state: 'placed', because: null, at: '2026-08-18T13:00:01Z' } },
-      proj.createdAt);
-    // The a2a record: a colleague message BEFORE it and a valve entry after.
-    fs.mkdirSync(nodePath.dirname(messagesEngine.LOG), { recursive: true });
-    fs.appendFileSync(messagesEngine.LOG, JSON.stringify({ kind: 'message', id: 'm900', from: 'mara', to: 'leo', text: 'from a colleague', in_reply_to: null, at: '2026-08-18T13:00:00Z', state: 'placed' }) + '\n');
-    fs.appendFileSync(messagesEngine.LOG, JSON.stringify({ kind: 'valve', from: 'leo', to: 'mara', at: '2026-08-18T13:00:02Z', because: 'x' }) + '\n');
-
-    const r = await req('/api/agent/leo/conversation');
-    assert.equal(r.status, 200);
-    const data = JSON.parse(r.body);
-    const kinds = data.rows.map((x) => x.kind + ':' + (x.at || ''));
-    const colleagueAt = kinds.findIndex((k) => k.startsWith('colleague'));
-    const operatorAt = kinds.findIndex((k) => k.startsWith('operator'));
-    const valveAt = kinds.findIndex((k) => k.startsWith('valve'));
-    assert.ok(colleagueAt > -1 && operatorAt > -1 && valveAt > -1,
-      'a source is missing from the merge: ' + kinds.join(' '));
-    assert.ok(colleagueAt < operatorAt && operatorAt < valveAt,
-      'the merge is not in time order: ' + kinds.join(' '));
-    const op = data.rows[operatorAt];
-    /* ⚠️ BOTH FIELDS, AND THE SPLIT IS THE POINT. `project` used to hold the
-       NAME on this row shape and the SLUG on post and valve rows, in one
-       payload. Nothing rendered wrong; it is the shape that produces a
-       wrong-room sentence the day somebody reads one row's `project` and
-       assumes the other's meaning, on the screen whose whole job is telling
-       you which room a message came from. */
-    assert.equal(op.projectName, 'Convo Proof', 'the operator row lost the project NAME a person reads');
-    assert.ok(op.project && op.project !== 'Convo Proof',
-      'the operator row still carries the name in the id field: ' + op.project);
-    /* And the sibling rows agree, so the pair means one thing everywhere. */
-    const postRow = data.rows.find((r) => r.kind === 'post');
-    if (postRow) {
-      assert.ok(!postRow.project || postRow.project !== postRow.projectName,
-        'a post row carries the name in its id field too, so the split is not real');
-    }
-    assert.ok(data.total >= 3, 'the total does not carry what the tail may have dropped');
-  } finally {
-    try { fs.rmSync(messagesEngine.LOG, { force: true }); } catch { /* clean */ }
-    board.restore();
-  }
-});
-
-test('the gap sentence never speaks about a file nobody could read', () => {
-  /* The §5 gate, driven on the route's own answer shapes: an
-     unreadable-but-existing file (200, exists:false, editable:false)
-     must keep the sentence HIDDEN -- asserting what an agent does not
-     know off a file we could not look at is the claim the whole screen
-     refuses -- while a genuinely absent boot file (exists:false,
-     editable:true) truly lacks the block and shows it. */
-  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
-  const drive = (data) => {
-    const el = { hidden: 'untouched' };
-    const from = script.indexOf("const gapEl = document.getElementById('d-convo-gap');");
-    const write = script.indexOf(': !data.editable;');
-    const end = script.indexOf('\n', script.indexOf('}', write)) + 1;
-    assert.ok(from > -1 && write > from && write < end, 'the gap gate fell outside the extracted slice');
-    // eslint-disable-next-line no-new-func
-    new Function('document', 'data', script.slice(from, end))({ getElementById: () => el }, data);
-    return el.hidden;
-  };
-  assert.equal(drive({ exists: true, editable: true, text: 'x <!-- kosmos:colleagues:start --> y' }), true,
-    'an agent that HOLDS the block is told it cannot message');
-  assert.equal(drive({ exists: true, editable: true, text: 'their own words, no block' }), false,
-    'an agent without the block gets no sentence, the gap invisible again');
-  assert.equal(drive({ exists: false, editable: false, text: '' }), true,
-    'the sentence spoke about a file nobody could read');
-  assert.equal(drive({ exists: false, editable: true, text: '' }), false,
-    'a genuinely absent boot file truly lacks the block and must say so');
-});
-
-test('the conversation tail cap is said, and an unreadable record rides ahead of it, never dropped', async () => {
-  const messagesEngine = require('./engine/messages');
-  // ⚠️ An agent name NOTHING ELSE in this suite uses: the sandbox's project
-  // threads persist across tests, and a shared name (leo) merged another
-  // test's operator rows into this one's carefully counted tail.
-  const board = fleet.install([fleet.agent('convocap', { state: 'idle' })]);
-  try {
-    // (a) past the cap: the tail serves, the total says what was dropped.
-    fs.mkdirSync(nodePath.dirname(messagesEngine.LOG), { recursive: true });
-    fs.rmSync(messagesEngine.LOG, { force: true });
-    const many = [];
-    for (let i = 0; i < 205; i += 1) {
-      many.push(JSON.stringify({ kind: 'message', id: 'm' + (i + 1), from: 'mara', to: 'convocap', text: 'row ' + i, in_reply_to: null, at: new Date(1755500000000 + i * 1000).toISOString(), state: 'placed' }));
-    }
-    fs.writeFileSync(messagesEngine.LOG, many.join('\n') + '\n');
-    const capped = JSON.parse((await req('/api/agent/convocap/conversation')).body);
-    assert.equal(capped.rows.length, 200, 'the tail cap moved');
-    assert.equal(capped.total, 205, 'the total stopped saying what the tail dropped');
-    assert.equal(capped.rows[199].text, 'row 204', 'the tail is not the LATEST rows');
-
-    // (b) the record unreadable (a directory where the log should be):
-    // could-not-look is a ROW, first in the served slice, never silence.
-    fs.rmSync(messagesEngine.LOG, { force: true });
-    fs.mkdirSync(messagesEngine.LOG);
-    const blind = JSON.parse((await req('/api/agent/convocap/conversation')).body);
-    assert.ok(blind.rows.length >= 1 && blind.rows[0].kind === 'unreadable',
-      'an unreadable message record rendered as an agent no colleague ever wrote to');
-    assert.match(blind.rows[0].what, /messages/, 'the could-not-look row does not say what it could not read');
-  } finally {
-    try { fs.rmSync(messagesEngine.LOG, { recursive: true, force: true }); } catch { /* clean */ }
-    board.restore();
-  }
-});
 
 test('an attributed refusal is an event: logged once per window with its because, drawn with her copy, and the anonymous knock still is not', () => {
   const messagesEngine = require('./engine/messages');
@@ -6463,13 +6240,8 @@ test('an attributed refusal is an event: logged once per window with its because
       'an anonymous knock appended to the record');
 
     // The row draws with her copy, because verbatim.
-    const raw2 = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-    const sc = raw2.match(/<script>([\s\S]*?)<\/script>/)[1];
-    const escAt = sc.indexOf('function esc(');
-    const convoRow = pageFunction('convoRow', sc.slice(escAt, sc.indexOf('\n}', escAt) + 2) + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjPreviewCard'));
-    const drawn = convoRow({ kind: 'refused', from: 'leo', to: 'april', because: 'that agent’s pane is a shell' }, 'leo');
-    assert.match(drawn, /leo tried to message april\./, 'the refusal row lost her sentence');
-    assert.match(drawn, /<b>Not sent:<\/b> that agent’s pane is a shell/, 'the because did not ship verbatim');
+    /* The drawn refusal row lived on the agent page's conversation box, gone
+       2026-08-23; the log entry above is what remains to pin. */
   } finally {
     try { fs.rmSync(messagesEngine.LOG, { force: true }); } catch { /* clean */ }
     messagesEngine.resetForTests();
@@ -9043,73 +8815,6 @@ test('the operator envelope does not spend the person’s character budget', asy
   }
 });
 
-test('a room row on an agent’s page names the project the way a person named it', async () => {
-  /**
-   * 🛑 THE SLUG IN A SENTENCE, THIRD SURFACE IN ONE DAY. Josh, 2026-08-21: a
-   * project he named "Aug 21 4:04 PM" rendered on Marilyn's page as
-   * "to everyone on AUG21404PM". The same defect made his `test project` agent
-   * insist `testproject` was not one of its projects; the agent envelope in
-   * engine/messages.js was fixed that morning and this surface was not checked.
-   *
-   * ⚠️ BOTH HALVES, because either alone lets it regress silently: the ROUTE
-   * has to send the name, and the RENDERER has to prefer it.
-   */
-  const escSrc = (() => {
-    const raw2 = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-    const sc = raw2.match(/<script>([\s\S]*?)<\/script>/)[1];
-    const at = sc.indexOf('function esc(');
-    return sc.slice(at, sc.indexOf('\n}', at) + 2);
-  })();
-  const convoRow = pageFunction('convoRow', escSrc + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjPreviewCard'));
-
-  const named = convoRow({ kind: 'post', from: 'heather', to: ['marilyn'], project: 'aug21404pm',
-    projectName: 'Aug 21 4:04 PM', text: 'hello', at: 'x' }, 'marilyn');
-  assert.match(named, /to everyone on Aug 21 4:04 PM/,
-    'the row showed the project’s slug in a sentence a person reads');
-  assert.doesNotMatch(named, /aug21404pm/,
-    'the slug reached the sentence beside the name');
-
-  /* The valve row is the same sentence class on the same screen. */
-  const valve = convoRow({ kind: 'valve', from: 'heather', to: 'aug21404pm', project: 'aug21404pm',
-    projectName: 'Aug 21 4:04 PM', stopped: true, at: 'x' }, 'marilyn');
-  assert.match(valve, /The conversation on Aug 21 4:04 PM/,
-    'the valve row showed the project’s slug in a sentence');
-  assert.doesNotMatch(valve, /aug21404pm/, 'the slug reached the valve sentence');
-
-  /* 📌 THE FALLBACK IS THE ID, never a hole: a post whose project the agent has
-     since left carries no name, and an empty "to everyone on" would be worse
-     than an ugly one. */
-  const unnamed = convoRow({ kind: 'post', from: 'heather', to: ['marilyn'], project: 'oldroom',
-    projectName: null, text: 'hello', at: 'x' }, 'marilyn');
-  assert.match(unnamed, /to everyone on oldroom/,
-    'a row with no resolvable name lost the project entirely');
-
-  // ---- and the route actually sends it ------------------------------------
-  const messagesEngine = require('./engine/messages');
-  const projectsEngine = require('./engine/projects');
-  const board = fleet.install([fleet.agent('marilyn', { state: 'idle' }), fleet.agent('heather', { state: 'idle' })]);
-  try {
-    const made = projectsEngine.create({ name: 'Aug 21 4:04 PM', agents: ['marilyn', 'heather'] }, board.agents);
-    const pid = (made && (made.id || (made.project && made.project.id))) || null;
-    assert.ok(pid, 'the fixture could not make the project: ' + JSON.stringify(made));
-    assert.notEqual(pid, 'Aug 21 4:04 PM', 'the fixture needs an id that differs from the name');
-    fs.mkdirSync(nodePath.dirname(messagesEngine.LOG), { recursive: true });
-    fs.appendFileSync(messagesEngine.LOG, JSON.stringify({
-      kind: 'post', id: 'm1', project: pid, from: 'heather', to: ['marilyn'],
-      text: 'hello', at: new Date().toISOString(), outcomes: { marilyn: 'placed' },
-    }) + '\n');
-
-    const res = await req('/api/agent/marilyn/conversation');
-    assert.equal(res.status, 200, res.body);
-    const row = JSON.parse(res.body).rows.find((r) => r.kind === 'post');
-    assert.ok(row, 'the room post never reached the conversation feed');
-    assert.equal(row.project, pid, 'the row must keep the id for everything mechanical');
-    assert.equal(row.projectName, 'Aug 21 4:04 PM',
-      'the route sent no name, so the screen has only the slug to print');
-  } finally {
-    fleet.restore();
-  }
-});
 
 test('the footer answers only a question that was asked, and never sits on news', () => {
   /**

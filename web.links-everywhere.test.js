@@ -48,12 +48,6 @@ test('pjInline links a URL and escapes everything else', () => {
   assert.equal(fn('no links here <i>x</i>'), 'no links here &lt;i&gt;x&lt;/i&gt;', 'a message with no URL changed');
 });
 
-test('the agent page conversation links a URL (convoRow)', () => {
-  const fn = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'convoRow']) + '\nreturn convoRow;')(DANA);
-  // Both arms of convoRow: the agent's own words, and the person's.
-  expectLinked(fn({ from: 'dana', text: TEXT, at: new Date().toISOString() }, 'Dana'), 'convoRow theirs');
-  expectLinked(fn({ from: 'you', you: true, text: TEXT, at: new Date().toISOString() }, 'Dana'), 'convoRow mine');
-});
 
 test('direct messages link a URL (dmRow), both directions', () => {
   const fn = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'dmWho', 'dmRow']) + '\nreturn dmRow;')(DANA);
@@ -71,7 +65,7 @@ test('no render site escapes a message text directly any more', () => {
   // The regression this card is about: a fifth row added with esc(text) would
   // be dead text again. Every row that draws a person's or agent's message
   // text goes through pjInline.
-  for (const fn of ['convoRow', 'dmRow', 'pjMsg', 'pjRoomRow']) {
+  for (const fn of ['dmRow', 'pjMsg', 'pjRoomRow']) {
     const body = page.lift(SCRIPT, fn);
     assert.doesNotMatch(body, /esc\((r|m)\.text\)/, fn + ' draws message text with esc() instead of pjInline()');
   }
@@ -103,7 +97,7 @@ test('a preview card renders from the engine shape, escaped, and refuses what it
 });
 
 test('every message row draws the preview card under its text', () => {
-  for (const fn of ['convoRow', 'dmRow', 'pjMsg', 'pjRoomRow']) {
+  for (const fn of ['dmRow', 'pjMsg', 'pjRoomRow']) {
     const body = page.lift(SCRIPT, fn);
     assert.match(body, /pjPreviewCard\((r|m)\.preview\)/, fn + ' does not draw the preview card');
   }

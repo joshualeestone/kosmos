@@ -36,7 +36,7 @@ function sectionOf(id) {
 
 test('each shipped box lives in the section the mock puts it in', () => {
   const want = {
-    'd-convo': 'talk', 'd-talk-box': 'talk', 'd-say': 'talk', 'd-qask': 'talk',
+    'd-talk-box': 'talk', 'd-say': 'talk', 'd-qask': 'talk',
     'd-model': 'model', 'd-account': 'model', 'd-runson': 'model',
     'd-memory': 'memory', 'd-restart-agent': 'memory', 'd-restart-start': 'memory',
     'd-instr': 'instr', 'd-instr-save': 'instr', 'd-instr-outdated': 'instr',
