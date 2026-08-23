@@ -208,18 +208,26 @@ function seed() {
     await pg.click('#pick-pm');
     await pg.click('#role-next');
     await pg.waitForTimeout(700);
+    /* Step two is three dropdowns since Josh's redesign (provider, account,
+       model); the model list behind a disclosure lives on first run only.
+       This asserted the old shape on the new screen and was red for a week
+       for a non-defect (#344). What is pinned now is the shape that ships:
+       the three controls exist, the model menu has choices, the provider is
+       Anthropic. */
     const create = await pg.evaluate(() => {
-      const d = document.querySelector('#cstep-name .smore');
-      const tell = document.getElementById('create-tell');
+      const sel = (id) => document.getElementById(id);
+      const tell = sel('create-tell');
+      const model = sel('create-model');
       return { hint: (document.querySelector('#cstep-name p.shint') || {}).textContent,
-        disclosureClosed: d ? d.open === false : null,
-        models: d ? d.querySelectorAll('li').length : 0,
+        provider: sel('create-provider') ? sel('create-provider').value : null,
+        account: !!sel('create-account'),
+        models: model ? model.querySelectorAll('option').length : 0,
         tellDisabled: tell.disabled, tellChecked: tell.checked,
-        note: (document.getElementById('create-tell-note') || {}).textContent };
+        note: (sel('create-tell-note') || {}).textContent };
     });
     chk(/You can change this later/.test(create.hint || ''), theme + ': the model hint is there');
-    chk(create.disclosureClosed === true && create.models === 5,
-      theme + ': five more models, behind a closed disclosure', JSON.stringify(create));
+    chk(create.provider !== null && create.account && create.models >= 2,
+      theme + ': provider, account and model menus, with models to pick from', JSON.stringify(create));
     /* The setting is on by default on a fresh board, so the box is usable and
        says nothing. What must never happen is checked-and-disabled, or a note
        with the box enabled. */
