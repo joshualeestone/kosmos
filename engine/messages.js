@@ -223,6 +223,18 @@ function resolveSender(fromPane, roster) {
  * look -- a screen whose rule is no-state-as-silence needs the
  * difference, and the old swallow-everything read predates that screen.
  */
+/* Kosmos speaking in a room, in its own voice (#167). Only the product may
+   write these; the shape validator refuses any other author, so a note can
+   never dress an agent in words it did not say. Best-effort like every
+   receipt. */
+function roomNote(projectId, text) {
+  try {
+    appendLog({ kind: 'note', from: 'kosmos', to: String(projectId), project: String(projectId),
+      text: String(text), at: new Date().toISOString() });
+    return true;
+  } catch { return false; }
+}
+
 function record() {
   let raw;
   try { raw = fs.readFileSync(LOG, 'utf8'); } catch (err) {
@@ -266,6 +278,12 @@ function rowShaped(m) {
   }
   if (m.kind === 'valve' || m.kind === 'refused') {
     return str(m.from) && str(m.to) && str(m.because);
+  }
+  /* A NOTE is Kosmos itself speaking in a room (#167): the product may say
+     something in its own voice; it may never fabricate a message attributed
+     to an agent. Same shape as the valve band it renders in. */
+  if (m.kind === 'note') {
+    return m.from === 'kosmos' && str(m.project) && str(m.text);
   }
   // The room post (View D): `to` is an ARRAY of names and `outcomes` an
   // object -- the rules above were written for kinds whose `to` is a
@@ -1109,6 +1127,6 @@ module.exports = {
   OPERATOR_DIRECT,
   START, END, blockBody,
   LOG,
-  resolveSender, send, sendPost, list, owesReply, pairCount, readLog, record, markerProblem,
+  resolveSender, send, sendPost, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
   setRunner, resetForTests,
 };
