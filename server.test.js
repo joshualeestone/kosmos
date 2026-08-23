@@ -9421,3 +9421,51 @@ test('a found row shows its folder only when the name alone cannot tell it apart
   assert.match(clash, /\/work\/a\/mike/, 'two agents called Mike are drawn identically');
   assert.match(clash, /\/work\/b\/mike/);
 });
+
+test('the undo route refuses a name that was never connected', async () => {
+  /**
+   * 🛑 THE ROUTE'S JOB IS TO REACH THE GUARD, and that is all this can safely
+   * check from here: the engine refuses any agent whose folder Kosmos created,
+   * and everything this server can see on the machine running the suite is one
+   * of those. A test that got an OK back would be a test that had just
+   * dismantled somebody's agent.
+   *
+   * ⚠️ SO IT ASSERTS THE REFUSAL ARRIVED THROUGH THE ENGINE, not merely that the
+   * status was 400. A route that answered 400 by never calling anything would
+   * pass a status check, and the failure it would be hiding -- Undo does nothing
+   * -- looks identical from the browser.
+   */
+  const out = await req('/api/disconnect-agent', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'nobody-has-an-agent-by-this-name' }),
+  });
+  assert.equal(out.status, 400);
+  const body = JSON.parse(out.body);
+  assert.equal(body.ok, false);
+  assert.match(body.because, /made in Kosmos/i,
+    'the refusal did not come from the engine guard, so the route may not be calling it');
+});
+
+test('the undo route answers a body it cannot read rather than throwing', async () => {
+  const out = await req('/api/disconnect-agent', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{ not json',
+  });
+  assert.equal(out.status, 400);
+  assert.match(JSON.parse(out.body).because, /could not read/i);
+});
+
+test('a name that could escape its folder is refused by the undo route', async () => {
+  /* The route interpolates nothing itself, but the engine below it names paths
+     from this string, and every write route here is asked this question. */
+  for (const bad of ['../elsewhere', 'a/b']) {
+    const out = await req('/api/disconnect-agent', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: bad }),
+    });
+    assert.equal(out.status, 400, `${bad} was accepted`);
+  }
+});
