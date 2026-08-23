@@ -2149,3 +2149,31 @@ fi
 }
 
 main "$@"
+
+#
+#   ------------------------------------------------------------------
+#   IF YOU ARE READING THIS IN YOUR TERMINAL, KOSMOS DID NOT INSTALL.
+#
+#   Nothing went wrong and nothing was broken. This is the installer's
+#   own text, printed to your screen instead of being run.
+#
+#   You need the whole line, including the part at the end:
+#
+#       curl -fsSL https://installkosmos.com/setup | sh
+#
+#   Copy that, paste it into Terminal, and press Return.
+#   ------------------------------------------------------------------
+#
+# ⚠️ THE SAME THREE SENTENCES AS THE TOP OF THIS FILE, AND THE REPETITION IS THE
+# POINT. When the script is printed instead of run, the reader is at the BOTTOM
+# of the scroll -- the banner at line 3 is 2,145 lines above where they are
+# looking, and somebody who believes the product just exploded does not scroll
+# up through an installer to find out otherwise. Casey saw the tail (2026-08-22).
+# Top for anyone who scrolls up, bottom for everyone else. It sits below the
+# entry point, so the shell never reaches it and it costs nothing. (Shredder's
+# catch: "the bottom of the scroll is where the reader actually is.")
+#
+# ⚠️ THE ENTRY POINT IS DELIBERATELY NOT QUOTED IN THIS COMMENT. Its own test
+# finds it with `lastIndexOf`, so writing it here made the comment the last
+# occurrence and the test reported the banner as sitting above the entry point.
+# Describe it; do not spell it.

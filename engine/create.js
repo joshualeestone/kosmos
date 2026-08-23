@@ -250,7 +250,90 @@ function nameProblem(raw) {
 
 /* ── paths, derived once ─────────────────────────────────────────────────── */
 
-function workerDir(name) { return path.join(WORKERS_DIR, name); }
+/**
+ * Where an agent's files are.
+ *
+ * 🛑 A RECORDED FOLDER BEATS A DERIVED ONE, and that is the whole of what lets
+ * Kosmos look after an agent it did not create. Until now this was
+ * `<WORKERS_DIR>/<name>` and nothing else could be true, so an agent somebody
+ * had already built somewhere on their Mac could be SEEN and never MANAGED.
+ * Josh, 2026-08-22: "if people already have agents anywhere, we need to be able
+ * to find them and bring them into the Kosmos platform."
+ *
+ * ⚠️ NOTHING IS COPIED, WHICH IS WHY THIS IS A FOLDER AND NOT AN IMPORT. Their
+ * CLAUDE.md stays their CLAUDE.md, in their folder, and editing it in Kosmos
+ * edits the file their own tooling reads. A copy would be a second file that
+ * drifts from the first the moment either is touched, which is the defect this
+ * codebase pays for most often.
+ *
+ * 🔑 THE CONTAINMENT GUARD IS NOT WEAKENED BY THIS, IT IS NARROWED. Readers pass
+ * a root to `workerfile.readWorkerFile` and it refuses anything outside it. They
+ * used to pass the SHARED workers directory, so any agent's file could contain
+ * any other agent's; they now pass THIS agent's folder. For an ordinary Kosmos
+ * agent that is a strictly tighter root than before. Every other protection --
+ * realpath, the symlinked parent, the fifo, the size cap -- is untouched.
+ *
+ * ⚠️ AND A RECORDED FOLDER IS VALIDATED, NEVER TRUSTED. The record is ours, but
+ * "ours" is exactly what was assumed the last six times a reader walked out of
+ * the root. It must be an absolute path to a real directory that is not itself a
+ * link; anything else falls back to the derived folder, which is always safe.
+ */
+function agentDirRecorded(name) {
+  let dir;
+  try { dir = store.readProfile(name).dir; } catch { return null; }
+  if (typeof dir !== 'string' || !dir || !path.isAbsolute(dir)) return null;
+  let st;
+  try { st = fs.lstatSync(dir); } catch { return null; }
+  /* `lstat`, so a link is refused rather than followed: the escape this whole
+     module family exists to prevent. */
+  if (!st.isDirectory()) return null;
+  return dir;
+}
+
+/**
+ * 🛑 THE DERIVED PATH IS BUILT FROM A SANITISED NAME, AND THAT IS LOAD-BEARING
+ * NOW IN A WAY IT WAS NOT BEFORE. Callers used to pass the SHARED workers root
+ * to `workerfile.readWorkerFile`, so a name like `../victim` produced a path
+ * outside it and the containment check caught it. Readers now pass THIS AGENT'S
+ * folder as the root -- which is what lets a connected agent be read at all --
+ * and a file is always inside its own folder, so that check can no longer catch
+ * an escaping name. Containment moved; it did not disappear. It is here.
+ *
+ * ⚠️ MEASURED, NOT REASONED: the first version of this joined the raw name and
+ * `instructions.test.js`'s escape fixture went red immediately --
+ * `readIdentity('../victim')` served a name and role parsed out of a file
+ * outside the root, which is the sixth defect in this module family arriving for
+ * the seventh time. The test that caught it was written for exactly that.
+ *
+ * An unusable name has no folder at all rather than a guessed one.
+ */
+function workerDir(name) {
+  const recorded = agentDirRecorded(name);
+  if (recorded) return recorded;
+  /* ⚠️ IT REFUSES A BAD NAME, IT DOES NOT REWRITE ONE. `store.safeKey` was the
+     obvious sanitiser and it is wrong here: it LOWERCASES, and a worker folder's
+     spelling is case-sensitive on purpose -- `remove.js` has two tests saying a
+     case-variant must not report a live agent removed, and both went red. The
+     question here is "may this name become a path", not "what would this name
+     look like tidied", and the honest answer to a name that may not is no path
+     at all. */
+  /* ⚠️ AND IT IS A REFUSAL RULE, NOT THE CREATION RULE. Two sanitisers were
+     wrong here before this one. `store.safeKey` LOWERCASES, and a worker
+     folder's spelling is case-sensitive on purpose. An alphanumeric allow-list
+     then refused `orch.main`, `has space`, `0` and `UPPER` -- and removal acts
+     on names nobody chose, because the roster admits any tmux session running
+     Claude, so refusing those breaks managing the agents somebody already has.
+     Both were caught by tests written for exactly those cases.
+
+     🔑 SO IT ASKS THE ONLY QUESTION THAT MATTERS: can this name build a path of
+     its own. Separators and traversal are refused; everything else is somebody's
+     agent, spelled the way they spelled it. Same shape as `instructions.registryKey`,
+     which answers the same question for the same reason. */
+  const raw = String(name == null ? '' : name);
+  if (!raw || raw === '.' || raw === '..') return path.join(WORKERS_DIR, '\u0000-invalid');
+  if (/[/\\\0]/.test(raw) || raw.includes('..')) return path.join(WORKERS_DIR, '\u0000-invalid');
+  return path.join(WORKERS_DIR, raw);
+}
 function instructionFile(name) { return path.join(workerDir(name), 'CLAUDE.md'); }
 function logFile(name) { return path.join(workerDir(name), 'start.log'); }
 function serviceLabel(name) { return `com.kosmos.agent.${name}`; }
