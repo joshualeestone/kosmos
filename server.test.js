@@ -3353,7 +3353,7 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
        from a word on a screen. Both arms asserted, because the confident one is
        unreachable from today's engine and would otherwise be untested. */
     assert.match(api.card(as(rook, { task: null, stateConfidence: 'scraped' })),
-      /Its screen mentions a usage limit/,
+      /Looks like a usage limit/,
       'the paused card lost its reason line');
     /* 🛑 AND IT OUTRANKS A PANE TITLE. `a.task` is `#{pane_title}`, frozen by
        Claude Code at the session's first message, and it used to win — so an
@@ -3361,15 +3361,15 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
        "hello" instead of the fact that it cannot work. Worst on the oldest
        agents, which are the likeliest to be blocked. */
     assert.match(api.card(as(rook, { task: 'Hello', stateConfidence: 'scraped' })),
-      /Its screen mentions a usage limit/,
+      /Looks like a usage limit/,
       'a frozen first-message title is outranking the reason the agent is stopped');
     assert.doesNotMatch(api.card(as(rook, { task: 'Hello', stateConfidence: 'scraped' })),
       /Hello/, 'the stale title is still on the card beside the blocking reason');
     assert.doesNotMatch(api.card(as(rook, { task: null, stateConfidence: 'scraped' })),
-      /Waiting out a usage limit/,
+      /Usage limit reached/,
       'the board still asserts a throttle it only read off a screen');
     assert.match(api.card(as(rook, { task: null, stateConfidence: 'structured' })),
-      /Waiting out a usage limit/,
+      /Usage limit reached/,
       'a state read from a file written for the purpose should be said plainly');
     /**
      * 🛑 THIS ASSERTED THE OPPOSITE UNTIL 2026-08-21, AND ITS PREMISE WAS THE
@@ -3387,7 +3387,7 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
      * working on a fresh agent and silently stopped as an agent aged.
      */
     assert.match(api.card(as(rook, { task: 'Drafting', stateConfidence: 'scraped' })),
-      /Its screen mentions a usage limit/,
+      /Looks like a usage limit/,
       'a frozen pane title is outranking the reason a blocked agent cannot work');
 
     // Grid/list parity on the shared facts, including the stale badge.
@@ -8062,7 +8062,7 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
    * ("Needs you · Mac"), not a fossil, and it must keep coming through.
    */
   const paused = drive({ state: 'rate_limited', stateConfidence: 'scraped', task: 'Hello' });
-  assert.equal(paused.task.textContent, 'Its screen mentions a usage limit',
+  assert.equal(paused.task.textContent, 'Looks like a usage limit',
     'the header still shows a summary of the first message instead of the reason it is stopped');
   assert.notEqual(paused.task.textContent, 'Hello',
     'the header and the card disagree about the same agent');

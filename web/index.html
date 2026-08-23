@@ -5979,9 +5979,17 @@ function taskLine(a) {
  */
 function stateReason(a) {
   if (!a || a.state !== 'rate_limited') return '';
+  /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
+     "the screen of a terminal is not something a white-collar person thinks
+     about"). "Its screen mentions" named our instrument, a regex over a pane.
+     "Looks like" is the same hedge said in the reader's world: it stops short
+     of asserting the account is throttled, which is all SCRAPED asks, and it
+     names nothing the person has a relationship with. The confident arm is
+     unreachable from today's engine and kept so a structured source
+     strengthens the sentence by arriving. */
   return a.stateConfidence === 'scraped'
-    ? 'Its screen mentions a usage limit'
-    : 'Waiting out a usage limit';
+    ? 'Looks like a usage limit'
+    : 'Usage limit reached';
 }
 function modelLine(a) {
   /* Provider-first ("Claude Opus 5"), guarded so a modelName that already
