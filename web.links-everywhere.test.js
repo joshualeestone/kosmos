@@ -50,13 +50,13 @@ test('pjInline links a URL and escapes everything else', () => {
 
 
 test('direct messages link a URL (dmRow), both directions', () => {
-  const fn = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'dmWho', 'dmRow']) + '\nreturn dmRow;')(DANA);
+  const fn = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'dmWho', 'dmRow']) + '\nreturn dmRow;')(DANA);
   expectLinked(fn({ from: 'dana', text: TEXT, at: new Date().toISOString() }, 'Dana'), 'dmRow theirs');
   expectLinked(fn({ from: 'you', you: true, text: TEXT, at: new Date().toISOString() }, 'Dana'), 'dmRow mine');
 });
 
 test('a project message row links a URL (pjMsg)', () => {
-  const src = lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'pjMsg']);
+  const src = lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'pjMsg']);
   const fn = new Function('document', 'pjAnnounce', src + '\nreturn pjMsg;')({ getElementById: () => null }, () => {});
   expectLinked(fn({ from: 'dana', text: TEXT, at: new Date().toISOString() }, 'Dana'), 'pjMsg');
 });
@@ -102,7 +102,7 @@ test('every message row draws the preview card under its text', () => {
     assert.match(body, /pjPreviewCard\((r|m)\.preview\)/, fn + ' does not draw the preview card');
   }
   // And a row with a preview really carries it (the real dmRow, both directions).
-  const dm = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'dmWho', 'dmRow']) + '\nreturn dmRow;')(DANA);
+  const dm = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'dmWho', 'dmRow']) + '\nreturn dmRow;')(DANA);
   const preview = { url: 'https://example.test/p', title: 'Page', site: 'example.test' };
   for (const m of [{ from: 'dana', text: 'see https://example.test/p', at: new Date().toISOString(), preview }, { from: 'you', you: true, text: 'see https://example.test/p', at: new Date().toISOString(), preview }]) {
     const html = dm(m, 'Dana');
@@ -115,7 +115,7 @@ test('every message row draws the preview card under its text', () => {
 
 /* ---- the attached document card (#358), page half ---------------------- */
 test('an attachment card renders by kind from the upload route shape, and never as an empty card', () => {
-  const fn = new Function(lift(['esc', 'pjSize', 'pjAttachmentCard']) + '\nreturn pjAttachmentCard;')();
+  const fn = new Function(lift(['esc', 'pjSize', 'pjWords', 'pjAttachmentCard']) + '\nreturn pjAttachmentCard;')();
   const base = { id: 'a1', name: 'Brief <v2>.pdf', type: 'application/pdf', size: 123456, url: '/api/attachment/a1', preview: '/api/attachment/a1/preview', kind: 'pdf' };
   const pdf = fn(base);
   assert.match(pdf, /^<a class="att att-pdf haspic" href="\/api\/attachment\/a1" download="Brief &lt;v2&gt;\.pdf">/);
@@ -157,4 +157,14 @@ test('every message row draws the attachment card, and the + and drop targets ar
   assert.match(SCRIPT, /: \(attachment \? \{ text, attachment \} : \{ text \}\)\)/, 'the talk sender does not carry the attachment id');
   // The 25 MB limit is the route's; the page says so before sending.
   assert.match(SCRIPT, /file\.size > 25 \* 1024 \* 1024/);
+});
+
+test('a message that is only its attachment\'s name draws the card once, not the name twice (#358)', () => {
+  const fn = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'dmWho', 'dmRow']) + '\nreturn dmRow;')(DANA);
+  const att = { id: 'a1', name: 'lease notes.txt', type: 'text/plain', size: 12, url: '/api/attachment/a1', preview: null, kind: 'text' };
+  const only = fn({ from: 'dana', text: 'lease notes.txt', at: new Date().toISOString(), attachment: att }, 'Dana');
+  assert.equal((only.match(/lease notes\.txt/g) || []).length, 2, 'expected the name in the card (text and download attribute) only');
+  assert.doesNotMatch(only, /dm-b">lease notes\.txt/, 'the file name is drawn as the message words above its own card');
+  const words = fn({ from: 'dana', text: 'here is the lease', at: new Date().toISOString(), attachment: att }, 'Dana');
+  assert.match(words, /dm-b">here is the lease/, 'real words were dropped because a file came with them');
 });

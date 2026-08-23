@@ -10499,7 +10499,7 @@ function dmRow(m, name) {
    * would invent a mechanism that did not happen.
    */
   if (m && m.from) {
-    return '<div class="dm theirs"><div class="dm-b">' + pjInline(m.text) + pjPreviewCard(m.preview) + pjAttachmentCard(m.attachment) + '</div>'
+    return '<div class="dm theirs"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCard(m.attachment) + '</div>'
       + '<span class="dm-w">' + esc(dmWho(m.from, name)) + pjWhenPart(m.at) + '</span></div>';
   }
   const v = pjVerdict(m, name);
@@ -10547,7 +10547,7 @@ function dmRow(m, name) {
      puts it, and no longer inside the verdict. The verdict is silent on an
      ordinary success now, and a timestamp that lived inside it would have gone
      silent with it -- on every message that worked. */
-  return '<div class="dm mine"><div class="dm-b">' + pjInline(m.text) + pjPreviewCard(m.preview) + pjAttachmentCard(m.attachment) + '</div>'
+  return '<div class="dm mine"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCard(m.attachment) + '</div>'
     + '<span class="dm-w">You' + v.when + wire + ' '
     + '<span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span></span></div>';
 }
@@ -17469,6 +17469,17 @@ function pjPreviewCard(preview) {
    preview the board could not make, shows name, type and size. Never an
    empty card. `url` serves the file with content-disposition attachment
    and nosniff, so the link is a download, never an execution. */
+/* The words of a message that carries a file (#358). The sender has to send
+   SOME words (the route refuses an empty message), so with an empty composer
+   the file's name goes as the text, and the bubble then said "lease notes.txt"
+   above a card that also says it. When the words are only the attachment's
+   name, the card carries them and the text line is left out. */
+function pjWords(m) {
+  const text = m && typeof m.text === 'string' ? m.text : '';
+  const att = m && m.attachment;
+  if (att && typeof att.name === 'string' && text.trim() === att.name.trim()) return '';
+  return text;
+}
 function pjAttachmentCard(att) {
   const a = att && typeof att === 'object' ? att : null;
   if (!a || typeof a.url !== 'string' || !/^\/api\//.test(a.url)) return '';
@@ -17989,7 +18000,7 @@ function pjRoomRow(m, p, silent) {
   return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
     + '<div class="msg-b"><div class="msg-h"><b>' + esc(name) + '</b>'
     + '<span class="msg-t">' + esc(pjWhen(m.at) || '') + '</span></div>'
-    + '<p>' + pjBody(m.text, PJ_DOC_NAMES) + '</p>' + pjPreviewCard(m.preview) + pjAttachmentCard(m.attachment) + receipt + '</div></div>';
+    + (pjWords(m) ? '<p>' + pjBody(pjWords(m), PJ_DOC_NAMES) + '</p>' : '') + pjPreviewCard(m.preview) + pjAttachmentCard(m.attachment) + receipt + '</div></div>';
 }
 
 /**
@@ -18634,7 +18645,7 @@ function pjMsg(m, name) {
      agent page's thread are the same conversation kind and share one verdict,
      so they go silent together. */
   return '<div class="pj-msg' + mark + '">'
-    + '<span class="pj-msg-text">' + pjInline(m.text) + '</span>' + pjPreviewCard(m.preview) + pjAttachmentCard(m.attachment)
+    + (pjWords(m) ? '<span class="pj-msg-text">' + pjInline(pjWords(m)) + '</span>' : '') + pjPreviewCard(m.preview) + pjAttachmentCard(m.attachment)
     + '<span class="pj-msg-when">You' + when + '</span>'
     + '<span class="pj-msg-said">' + said + '</span>'
     + '</div>';
