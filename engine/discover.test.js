@@ -1,0 +1,105 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-discover-'));
+process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SB, 'claude');
+
+const discover = require('./discover');
+
+test.after(() => { fs.rmSync(SB, { recursive: true, force: true }); });
+
+/** A working directory with an instruction file, and a Claude project folder
+ *  whose transcript says it ran there. The shape a real machine has. */
+function seed(folderKey, cwdName, claudeMd, { at } = {}) {
+  const cwd = path.join(SB, 'work', cwdName);
+  fs.mkdirSync(cwd, { recursive: true });
+  if (claudeMd !== null) fs.writeFileSync(path.join(cwd, 'CLAUDE.md'), claudeMd);
+  const proj = path.join(SB, 'claude', 'projects', folderKey);
+  fs.mkdirSync(proj, { recursive: true });
+  const t = path.join(proj, `${folderKey}-sess.jsonl`);
+  fs.writeFileSync(t, `{"type":"user"}\n{"cwd":${JSON.stringify(cwd)}}\n`);
+  if (at) fs.utimesSync(t, new Date(at), new Date(at));
+  return cwd;
+}
+
+test('an agent is found from its files, with nothing running', () => {
+  /**
+   * 🔑 THE WHOLE POINT, AND THE REASON THIS MODULE EXISTS. Nothing in this test
+   * starts a process, opens a socket or mentions tmux. Josh: "maybe they just
+   * closed out a Claude Code but they've connected to it and they have agents.
+   * They don't have them running in the background at that exact moment."
+   */
+  seed('anna', 'anna', 'You are **Anna**, a copywriter.\n\nMore instructions.\n');
+  const r = discover.found();
+  assert.equal(r.ok, true);
+  const anna = r.agents.find((a) => a.name === 'Anna');
+  assert.ok(anna, `Anna was not found: ${JSON.stringify(r.agents)}`);
+  assert.equal(anna.role, 'copywriter');
+  assert.match(anna.dir, /work\/anna$/);
+});
+
+test('a CLAUDE.md that introduces nobody is not an agent', () => {
+  /* ⚠️ EVERY REPO IN THIS ORG HAS ONE and they are project instructions. Listing
+     them would bury the real agents in a list nobody trusts, which is worse than
+     finding none: a wrong list is used, an empty one is questioned. */
+  seed('repo', 'some-repo', '# Build notes\n\nRun yarn test before pushing.\n');
+  const names = discover.found().agents.map((a) => a.name);
+  assert.ok(!names.includes('some-repo'));
+  assert.equal(names.filter((n) => /build notes/i.test(n)).length, 0);
+});
+
+test('a folder Claude ran in with no instruction file is not an agent', () => {
+  seed('bare', 'bare-dir', null);
+  const dirs = discover.found().agents.map((a) => a.dir);
+  assert.ok(!dirs.some((d) => d.endsWith('bare-dir')));
+});
+
+test('two project folders pointing at one directory are one agent', () => {
+  /* A directory Claude has run in under two session families still holds one
+     agent, and a list that showed it twice would make the count a lie. */
+  seed('dup-a', 'dupe', 'You are **Dupe**, a tester.\n');
+  seed('dup-b', 'dupe', 'You are **Dupe**, a tester.\n');
+  const hits = discover.found().agents.filter((a) => a.name === 'Dupe');
+  assert.equal(hits.length, 1);
+});
+
+test('the newest transcript decides where a folder ran', () => {
+  /* A project folder accumulates sessions; the current answer is the last one.
+     Seeded oldest-last so a reader that took the first file would fail. */
+  const now = Date.now();
+  seed('moved', 'moved-new', 'You are **Moved**, a wanderer.\n', { at: now });
+  const proj = path.join(SB, 'claude', 'projects', 'moved');
+  const old = path.join(proj, 'older.jsonl');
+  fs.writeFileSync(old, `{"cwd":${JSON.stringify(path.join(SB, 'work', 'gone'))}}\n`);
+  fs.utimesSync(old, new Date(now - 900000), new Date(now - 900000));
+  const hit = discover.found().agents.find((a) => a.name === 'Moved');
+  assert.ok(hit, 'the folder resolved to the older session, or to nothing');
+  assert.match(hit.dir, /moved-new$/);
+});
+
+test('a machine we cannot read answers ok:false, never an empty list', () => {
+  /**
+   * 🛑 THE DISTINCTION THIS WHOLE CODEBASE EXISTS FOR. "We found none" and "we
+   * could not look" are different sentences, and the screen that conflates them
+   * tells somebody with two hundred agents that they have none.
+   */
+  const had = process.env.AGENT_WORKFORCE_CONFIG_ROOT;
+  process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SB, 'nowhere-at-all');
+  try {
+    const r = discover.found();
+    assert.equal(r.ok, false);
+    assert.deepEqual(r.agents, []);
+    assert.match(r.because, /could not read/i);
+  } finally { process.env.AGENT_WORKFORCE_CONFIG_ROOT = had; }
+});
+
+test('CONTROL: the fixture is really being read', () => {
+  /* Without this, every absence above passes on a discovery that found nothing
+     at all -- the shape of a test that stopped exercising its subject. */
+  const r = discover.found();
+  assert.ok(r.agents.length >= 3, `only ${r.agents.length} agents; the fixture stopped seeding`);
+});
