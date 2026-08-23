@@ -1064,8 +1064,15 @@ async function main() {
     for (const scheme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme: scheme });
       await page.goto(BASE + '?tab=projects', { waitUntil: 'networkidle' });
-      await page.waitForSelector('.pj-row', { timeout: 10000 });
-      await page.click('.pj-row');
+      /* ⚠️ THE ROW BY ID, NOT THE FIRST ROW (#429). `.pj-row` bare took
+         whichever project sorted first, and this check makes TWO ('Reused
+         name' in 5e): the day the list's ordering changed, this reload
+         landed on the wrong project, and every later assertion about the
+         Henderson members (the 'stopped' select at round 30) failed with an
+         error naming the select rather than the navigation. A check that
+         locates by class alone cannot fail toward the reason. */
+      await page.waitForSelector('.pj-row[data-project="' + id + '"]', { timeout: 10000 });
+      await page.click('.pj-row[data-project="' + id + '"]');
       await page.waitForSelector('#pj-screen', { timeout: 10000 });
       await page.waitForFunction(() => (document.getElementById('pj-screen').textContent || '').length > 0,
         null, { timeout: 10000 });
