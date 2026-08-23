@@ -34,7 +34,12 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-confi
 // `/bin/echo` exists and is executable, which is all "Claude is installed"
 // means to `start` -- so no test here ever reaches the download path.
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
-process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
+/* ⚠️ A FAKE TMUX, NOT /bin/echo (#332). echo stubbed the writes and printed
+   its arguments to the reads, which the parser refused, so every read fell
+   through to the real tmux on the PATH and these tests measured the
+   operator's live fleet. The fake answers reads from fixtures (none set here:
+   an empty board) and echoes everything else, so write-side receipts hold. */
+process.env.AGENT_WORKFORCE_TMUX_BIN = require('node:path').join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');

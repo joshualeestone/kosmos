@@ -105,6 +105,20 @@ const STATE = {
   UNKNOWN: 'unknown', // the default, deliberately
 };
 
+/* 🛑 THE READS HONOUR THE SAME VARIABLE THE WRITES DO (#332). Every other
+   engine module resolves tmux through AGENT_WORKFORCE_TMUX_BIN; this one
+   read bare `tmux` off the PATH, so a test that pointed the variable at
+   /bin/echo stubbed every WRITE and left every READ on the operator's live
+   fleet. About ten server tests passed on this Mac for that reason and
+   would have behaved differently on any other. The launcher exports the
+   variable to the bundled binary, so in the product the two agree. Bare
+   `tmux` as the default keeps this file's pre-existing behaviour; the
+   writers default to /opt/homebrew/bin/tmux, a split that predates this and
+   only bites a `node server.js` run from a terminal with the variable unset. */
+function tmuxBin() {
+  return process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux';
+}
+
 function sh(cmd, args) {
   const got = shDetail(cmd, args);
   return got.ran && got.status === 0 ? got.out : null;
@@ -221,7 +235,7 @@ function oneLine(text, max) {
 }
 
 function tmuxPanes() {
-  const got = shDetail('tmux', ['list-panes', '-a', '-F', PANE_FORMAT]);
+  const got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
   if (got.ran && got.status === 0) { LAST_LOOK_PROBLEM = null; return got.out; }
   // ⚠️ An empty STRING, not null. `readPanes('')` is zero panes and zero
   // rejects, which is the honest reading of "tmux answered, and there are no
@@ -990,7 +1004,7 @@ function setPaneCapture(fn) { paneCapture = typeof fn === 'function' ? fn : null
 
 function capturePane(target, lines = 40) {
   if (paneCapture) return paneCapture(target, lines);
-  return sh('tmux', ['capture-pane', '-p', '-t', target, '-S', `-${lines}`]);
+  return sh(tmuxBin(), ['capture-pane', '-p', '-t', target, '-S', `-${lines}`]);
 }
 
 /**
@@ -2490,7 +2504,7 @@ function setSessionSource(fn) { sessionSource = typeof fn === 'function' ? fn : 
 
 function tmuxSessions() {
   /* jargon-ok:tmux — a detail path; see the rule above `tmuxPanes`. */
-  const got = shDetail('tmux', ['list-sessions', '-F', SESSION_FORMAT]);
+  const got = shDetail(tmuxBin(), ['list-sessions', '-F', SESSION_FORMAT]);
   if (got.ran && got.status === 0) return got.out;
   // No server is no sessions, which is a real and ordinary answer.
   if (tmuxSaidNoServer(got)) return '';

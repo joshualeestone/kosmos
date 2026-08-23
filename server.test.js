@@ -72,6 +72,19 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 const WORKERS = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-workers-'));
 process.env.AGENT_WORKFORCE_WORKERS = WORKERS;
+
+/* 🔑 THE FOLDER THESE TESTS WRITE INTO IS MADE HERE, NOT INHERITED (#332).
+   Five tests below write instructions for an agent called `angel`, and none
+   of them made its folder. It existed because an earlier test adopted
+   `angel-discord` off the OPERATOR'S LIVE TMUX into the sandbox, which is the
+   defect this branch closes; with reads stubbed, nothing adopts it, and a
+   test that depends on a folder it did not make is a test of the machine. */
+function seedWorker(name, text) {
+  const dir = nodePath.join(WORKERS, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'CLAUDE.md'), text || `You are **${name}**, a tester.\n`);
+  return dir;
+}
 // ⚠️ AND CLAUDE CODE'S OWN CONFIG, which is a different file from the root
 // above and a different tool's. This file creates a real agent (the removable
 // route needs one), and `createAgent` now answers Claude Code's trust question
@@ -135,7 +148,12 @@ process.env.AGENT_WORKFORCE_RELEASE_BASE = 'http://127.0.0.1:9/dist';
 // whether the machine running the suite happens to have Claude installed where
 // this one does.
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
-process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
+/* ⚠️ A FAKE TMUX, NOT /bin/echo (#332). echo stubbed the writes and printed
+   its arguments to the reads, which the parser refused, so every read fell
+   through to the real tmux on the PATH and these tests measured the
+   operator's live fleet. The fake answers reads from fixtures (none set here:
+   an empty board) and echoes everything else, so write-side receipts hold. */
+process.env.AGENT_WORKFORCE_TMUX_BIN = require('node:path').join(__dirname, 'test-support', 'fake-tmux.sh');
 // ⚠️ Belt AND braces for the CHAT engine too (round 26): this branch made
 // `require('./server')` pull in engine/chat, which arms itself from this
 // variable at load. Without it, the only thing between a stray thread-route
@@ -176,38 +194,37 @@ test.after(() => {
 });
 
 /**
- * An agent name the write routes will accept, or null with a VISIBLE skip.
+ * An agent name the write routes will accept: a FIXTURE the helper installs.
  *
- * `knownAgent()` guards the write routes and `server.js` destructures
- * `snapshot()` at import, so the roster cannot be stubbed from here. That makes
- * these two tests dependent on live tmux state, which is worth saying out loud
- * rather than papering over: a silent early return prints a tick for a test
- * that asserted nothing, and a hard failure makes the suite unrunnable on CI.
+ * This comment used to say the roster could not be stubbed from here, which
+ * was true when `server.js` destructured `snapshot()` at import and stopped
+ * being true when the pane-source seam landed; the eleven callers went on
+ * reading live tmux for as long as the comment stood. Installs its own fleet
+ * and restores to no source in `t.after`: do not `fleet.install` in a test
+ * that calls this, the helper would replace it with `april`.
  */
 async function anyAgent(t) {
+  /* 🛑 A FIXTURE, ALWAYS, NOT WHATEVER THE BOARD SHOWS (#332). This used to
+     read /api/status and use the first tied agent it found, skipping on an
+     empty board. On this Mac the reads went to the operator's live tmux, so
+     eleven tests ran against whichever real agents were up and skipped on
+     any other machine. Trusting a non-empty board was the same defect one
+     step removed: the previous test's fixture can still be on it when this
+     one starts. The fleet is made here and taken down with the test. */
+  const made = fleet.install([fleet.agent('april', { state: 'idle', displayName: 'April', role: 'a tester' })]);
+  t.after(() => made.restore());
   const board = await req('/api/status');
   if (!board.type.includes('application/json')) {
     t.skip('the status engine did not return a board on this machine');
     return null;
   }
   const agents = JSON.parse(board.body).agents || [];
-  if (!agents.length) {
-    t.skip('no live agents on this machine, so the write routes cannot be exercised');
-    return null;
-  }
-  // ⚠️ A TIED agent, or this goes RED on exactly the machine this branch exists
-  // to serve. It returned the alphabetically-first of every tmux session, while
-  // the write routes now additionally require the name to be tied — so on any
-  // machine whose first-sorted session is a plain shell, or the non-Discord
-  // agent this branch supports, eight write-route tests get 404 where they
-  // assert 200. Green here only because all thirteen sessions on this machine
-  // carry the suffix, which is the machine-dependence this suite condemns
-  // elsewhere.
   const tied = agents.find((a) => a.isNamedOurs);
-  if (!tied) {
-    t.skip('no agent on this machine can be tied to its name, so the write routes cannot be exercised');
-    return null;
-  }
+  /* RED, not a skip: `fleet.install` verified the fixture is on the board, so
+     the only way to get here without it is a regression in `isNamedOurs` or
+     the route's answer, and a skip on a fixture this helper made would be the
+     vacuous pass the old code was condemned for. */
+  assert.ok(tied, 'the fixture fleet reached the board but not as a tied agent: ' + JSON.stringify(agents.map((a) => [a.sessionName, a.isNamedOurs])));
   return encodeURIComponent(tied.sessionName);
 }
 
@@ -992,13 +1009,8 @@ test('PUT refuses a payload that is not a list', async (t) => {
   // Previously bundled into the test above, which made one request and never
   // exercised this half: deleting the Array.isArray guard left the suite green.
   //
-  // Needs a real agent, because knownAgent() guards the route and server.js
-  // destructures snapshot() at import, so it cannot be stubbed from here.
-  //
-  // A VISIBLE skip when the roster is empty, not a bare return. An earlier
-  // version returned silently and printed a tick for a test that asserted
-  // nothing; a later one hard-failed, which makes the suite unrunnable on any
-  // machine without live agents. Skipping says which of the two happened.
+  // `anyAgent` installs a fixture agent for the route to accept (#332); it
+  // used to depend on a real one and skip when the board was empty.
   const name = await anyAgent(t);
   if (!name) return;
 
@@ -1019,13 +1031,10 @@ test('the status payload carries the STORE value for each agent, not a placehold
   //
   // This stubs the store so the expected value is known, and asserts the
   // payload carries it per agent.
-  // NOTE: the roster cannot be stubbed from here. server.js destructures
-  // snapshot() at import, so reassigning the export has no effect -- an earlier
-  // version of this test did exactly that and carried a comment claiming it
-  // pinned behaviour on an agentless machine. It did not; the stub was inert
-  // and the test still ran against live tmux. The store CAN be stubbed, which
-  // is what actually matters here, and the roster dependency is handled by the
-  // same visible skip the sibling tests use.
+  // The roster is a fixture installed by `anyAgent` (#332). An earlier version
+  // reassigned the snapshot export, which was inert, and the test ran against
+  // live tmux under a comment claiming otherwise. The store is stubbed below,
+  // which is what this test is about.
   if (!(await anyAgent(t))) return;
 
   const commitments = require('./engine/commitments');
@@ -1310,6 +1319,10 @@ test('the status payload carries staleness but NOT the instruction text', async 
   // The board polls this every five seconds for every agent, and the real files
   // run to several kilobytes each. Carrying them here would put roughly 90KB on
   // the wire per poll to render a badge.
+  /* The same fixture as `anyAgent`, for the same reason (#332): a payload to
+     inspect, made here rather than borrowed from the operator's fleet. */
+  const made = fleet.install([fleet.agent('april', { state: 'idle', displayName: 'April', role: 'a tester' })]);
+  t.after(() => made.restore());
   const res = await req('/api/status');
   if (!res.type.includes('application/json')) {
     t.skip('the status engine did not return a board on this machine');
@@ -1317,12 +1330,7 @@ test('the status payload carries staleness but NOT the instruction text', async 
   }
   const body = JSON.parse(res.body);
   const agents = body.agents || [];
-  if (!agents.length) {
-    // A bare return here prints a tick for a test that asserted nothing, which
-    // is the failure `anyAgent` exists to avoid. Say it out loud instead.
-    t.skip('no live agents on this machine, so there is no payload to inspect');
-    return;
-  }
+  assert.ok(agents.length, 'the fixture fleet did not reach the board, which is a regression, not a reason to skip');
 
   for (const a of agents) {
     assert.ok(a.instructions, `${a.sessionName} has no instructions block`);
@@ -5400,6 +5408,7 @@ test('the display name is writable through the profile route, and a blank cannot
 });
 
 test('renaming through the identity line updates the record; mangling it cannot un-name', async () => {
+  seedWorker('angel', 'You are **Angel**, a tester.\n');
   // ⚠️ Round 33: the record wins over the file, so the in-product edit of
   // `You are **X**` -- the one rename path a person had -- was a silent
   // no-op that still said "Saved." A PARSEABLE new name is a deliberate
@@ -5437,6 +5446,7 @@ test('renaming through the identity line updates the record; mangling it cannot 
 });
 
 test('a rename through the profile route reaches the agent\'s own instructions', async () => {
+  seedWorker('angel', 'You are **Angel**, a tester.\n');
   /**
    * 🛑 JOSH RENAMED AN AGENT BOB TO SCARLET AND IT STILL THOUGHT IT WAS BOB
    * (2026-08-22). The name lives in the record, which every SCREEN reads, and in
@@ -5490,6 +5500,7 @@ test('a rename through the profile route reaches the agent\'s own instructions',
 });
 
 test('an unrelated instructions save does not revert a profile-route rename', async () => {
+  seedWorker('angel', 'You are **Angel**, a tester.\n');
   // ⚠️ Round 37: the rename-follow used to key on "the line PARSES to a name
   // that differs from the record", which is also true when the record and the
   // file disagree for some other reason -- the untouched identity line still
@@ -5548,6 +5559,7 @@ test('an unrelated instructions save does not revert a profile-route rename', as
 });
 
 test('a profile store that cannot be written does not un-save the instructions', async () => {
+  seedWorker('angel', 'You are **Angel**, a tester.\n');
   // ⚠️ Round 40 blocker: the rename-follow's writeProfile ran unguarded
   // AFTER instructions.write had committed, so a store failure fell to the
   // route's .catch -- a landed save answered 400 with a raw errno and an
@@ -9213,99 +9225,109 @@ test('the model route writes the choice AND restarts, because either alone is a 
 });
 
 test('the profile route stores a reporting line, clears it, and refuses a self-loop', async () => {
-  /**
-   * #138. The field the org view (#137) has been waiting on.
-   *
-   * ⚠️ `angel` is the agent every other profile test in this file uses, which
-   * means it is one this board really has -- the route 404s an unknown name,
-   * so an invented one would test the guard rather than the field.
-   */
-  const store = require('./engine/store');
-  /* ⚠️ THE PROFILE STORE IS SANDBOXED (AGENT_WORKFORCE_DATA, top of this file),
-     so nothing here touches a real agent's record. `angel` is used because the
-     route 404s a name no pane holds -- an invented name would test the guard
-     rather than the field. An earlier draft of this test carried a save-and-
-     restore for the real profile, which was theatre: it implied this suite
-     writes to the operator's board, and a comment claiming an unsafe root is
-     safe-to-ignore is the exact shape the header above spent a paragraph on. */
-  {
-    const set = await req('/api/agent/angel/profile', {
-      method: 'PUT', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ reportsTo: 'someone-else' }),
-    });
-    assert.equal(set.status, 200);
-    assert.equal(store.readProfile('angel').reportsTo, 'someone-else');
+  seedWorker('angel', 'You are **Angel**, a tester.\n');
+  /* A pane by this name, STUBBED. The comment below says `angel` is used
+     because the route 404s a name no pane holds; it held one on this Mac
+     because the operator's own agent is called angel, which is #332 in one
+     line. The pane is made here so the test carries its own premise. */
+  const status = require('./engine/status');
+  status.setPaneSource(() => fleet.line({ session: 'angel-discord', title: 'working' }));
+  status.setPaneCapture(() => 'Worked for 1m\n> \n');
+  try {
+    /**
+     * #138. The field the org view (#137) has been waiting on.
+     */
+    const store = require('./engine/store');
+    /* ⚠️ THE PROFILE STORE IS SANDBOXED (AGENT_WORKFORCE_DATA, top of this file),
+       so nothing here touches a real agent's record. The name is arbitrary now
+       that the pane above is stubbed; it used to have to be a name this board
+       really held, and `angel` was chosen because it was the operator's own
+       session, which is #332 in one line. An earlier draft of this test carried a save-and-
+       restore for the real profile, which was theatre: it implied this suite
+       writes to the operator's board, and a comment claiming an unsafe root is
+       safe-to-ignore is the exact shape the header above spent a paragraph on. */
+    {
+      const set = await req('/api/agent/angel/profile', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reportsTo: 'someone-else' }),
+      });
+      assert.equal(set.status, 200);
+      assert.equal(store.readProfile('angel').reportsTo, 'someone-else');
 
-    /* An empty string CLEARS it, and that is a real choice rather than a
-       missing value: somebody removing a reporting line must be able to. */
-    const clear = await req('/api/agent/angel/profile', {
-      method: 'PUT', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ reportsTo: '' }),
-    });
-    assert.equal(clear.status, 200);
-    assert.equal(store.readProfile('angel').reportsTo, null);
+      /* An empty string CLEARS it, and that is a real choice rather than a
+         missing value: somebody removing a reporting line must be able to. */
+      const clear = await req('/api/agent/angel/profile', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reportsTo: '' }),
+      });
+      assert.equal(clear.status, 200);
+      assert.equal(store.readProfile('angel').reportsTo, null);
 
-    /* 🛑 And a cycle of one is refused rather than stored: it is the smallest
-       possible cycle and the only one a person can make by picking their own
-       name out of a list. */
-    const loop = await req('/api/agent/angel/profile', {
-      method: 'PUT', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ reportsTo: 'angel' }),
-    });
-    assert.equal(loop.status, 400);
-    assert.match(JSON.parse(loop.body).error, /cannot report to itself/);
-    assert.equal(store.readProfile('angel').reportsTo, null, 'the refused loop was stored anyway');
+      /* 🛑 And a cycle of one is refused rather than stored: it is the smallest
+         possible cycle and the only one a person can make by picking their own
+         name out of a list. */
+      const loop = await req('/api/agent/angel/profile', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reportsTo: 'angel' }),
+      });
+      assert.equal(loop.status, 400);
+      assert.match(JSON.parse(loop.body).error, /cannot report to itself/);
+      assert.equal(store.readProfile('angel').reportsTo, null, 'the refused loop was stored anyway');
 
-    /* 🛑 AND THE LONGER LOOP (#336, Angel's note from the mock): A under B
-       under A, at any distance, refused in a sentence that names the loop.
-       Walked on the records, so it holds for agents that are not running. */
-    store.writeProfile('someone-else', { reportsTo: 'angel' });
-    const ring = await req('/api/agent/angel/profile', {
-      method: 'PUT', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ reportsTo: 'someone-else' }),
-    });
-    assert.equal(ring.status, 400, 'a two-step loop was accepted');
-    assert.match(JSON.parse(ring.body).error, /loop/);
-    assert.equal(store.readProfile('angel').reportsTo, null, 'the refused ring was stored anyway');
-    store.writeProfile('someone-else', { reportsTo: null });
+      /* 🛑 AND THE LONGER LOOP (#336, Angel's note from the mock): A under B
+         under A, at any distance, refused in a sentence that names the loop.
+         Walked on the records, so it holds for agents that are not running. */
+      store.writeProfile('someone-else', { reportsTo: 'angel' });
+      const ring = await req('/api/agent/angel/profile', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reportsTo: 'someone-else' }),
+      });
+      assert.equal(ring.status, 400, 'a two-step loop was accepted');
+      assert.match(JSON.parse(ring.body).error, /loop/);
+      assert.equal(store.readProfile('angel').reportsTo, null, 'the refused ring was stored anyway');
+      store.writeProfile('someone-else', { reportsTo: null });
 
-    /* The file half (#336): a save that moves reportsTo answers with the
-       verdict of telling the agent, so the screen can say a restart is needed
-       rather than infer it. Whatever the verdict here (this fixture's agent
-       may not be one the roster can name as ours), it is CARRIED, in the
-       projects.TOLD vocabulary, and a save that moves neither field carries
-       none. */
-    const moved = await req('/api/agent/angel/profile', {
-      method: 'PUT', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ reportsTo: 'someone-else' }),
-    });
-    assert.equal(moved.status, 200);
-    const verdict = JSON.parse(moved.body).reports;
-    assert.ok(verdict && ['told', 'could_not'].includes(verdict.state), 'the save did not carry the tell verdict');
-    const still = await req('/api/agent/angel/profile', {
-      method: 'PUT', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ displayName: 'Angel' }),
-    });
-    assert.equal(still.status, 200);
-    assert.equal(JSON.parse(still.body).reports, undefined, 'a save that moved nothing reports a tell');
-    await req('/api/agent/angel/profile', {
-      method: 'PUT', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ reportsTo: '' }),
-    });
+      /* The file half (#336): a save that moves reportsTo answers with the
+         verdict of telling the agent, so the screen can say a restart is needed
+         rather than infer it. Whatever the verdict here (this fixture's agent
+         may not be one the roster can name as ours), it is CARRIED, in the
+         projects.TOLD vocabulary, and a save that moves neither field carries
+         none. */
+      const moved = await req('/api/agent/angel/profile', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reportsTo: 'someone-else' }),
+      });
+      assert.equal(moved.status, 200);
+      const verdict = JSON.parse(moved.body).reports;
+      assert.ok(verdict && ['told', 'could_not'].includes(verdict.state), 'the save did not carry the tell verdict');
+      const still = await req('/api/agent/angel/profile', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ displayName: 'Angel' }),
+      });
+      assert.equal(still.status, 200);
+      assert.equal(JSON.parse(still.body).reports, undefined, 'a save that moved nothing reports a tell');
+      await req('/api/agent/angel/profile', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reportsTo: '' }),
+      });
 
-    /* ⚠️ AND A SAVE THAT DOES NOT MENTION IT MUST NOT ERASE IT. The screen
-       sends role and displayName on every Save; if an absent key were read as
-       "clear", editing a role would silently drop somebody's reporting line. */
-    await req('/api/agent/angel/profile', {
-      method: 'PUT', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ reportsTo: 'someone-else' }),
-    });
-    await req('/api/agent/angel/profile', {
-      method: 'PUT', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ role: 'unrelated edit' }),
-    });
-    assert.equal(store.readProfile('angel').reportsTo, 'someone-else',
-      'a role edit erased the reporting line');
+      /* ⚠️ AND A SAVE THAT DOES NOT MENTION IT MUST NOT ERASE IT. The screen
+         sends role and displayName on every Save; if an absent key were read as
+         "clear", editing a role would silently drop somebody's reporting line. */
+      await req('/api/agent/angel/profile', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reportsTo: 'someone-else' }),
+      });
+      await req('/api/agent/angel/profile', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ role: 'unrelated edit' }),
+      });
+      assert.equal(store.readProfile('angel').reportsTo, 'someone-else',
+        'a role edit erased the reporting line');
+    }
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
   }
 });
 
