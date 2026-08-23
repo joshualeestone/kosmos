@@ -103,6 +103,55 @@ function check(name, pass, detail) {
         acctCount: id('create-account').options.length,
         stepIn: { prov: prov.left, acct: acct.left, model: model.left },
         elbow: elbow ? { w: elbow.width, h: elbow.height, color: elbow.borderLeftColor } : null,
+        /**
+         * 🛑 DOES THE ELBOW CROSS A CONTROL? (#322, Josh with a screenshot:
+         * "the little line is overlapping between the account and the model.")
+         * Measured before the fix: the account select ran y 598-632 and the
+         * model row's elbow ran y 620-650 at x 406-418, inside that select's
+         * box. The rows were flush, so the elbow's upward reach had nowhere to
+         * go but over the control above it.
+         *
+         * 🔑 ASKED AS AN INTERSECTION OF LAID-OUT BOXES, not as a spacing
+         * number. A gap that looks right at one viewport is not the claim; the
+         * claim is that no connector is drawn through a menu, and that is true
+         * or false regardless of what the gap happens to be.
+         */
+        clashes: (() => {
+          const g = document.querySelector('.msteps');
+          if (!g) return null;
+          const ctrls = [...g.querySelectorAll('select')].map((c) => c.getBoundingClientRect());
+          const out = [];
+          for (const st of g.querySelectorAll('.mstep')) {
+            const r = st.getBoundingClientRect();
+            const cs = getComputedStyle(st, '::before');
+            const top = r.top + parseFloat(cs.top || '0');
+            const bottom = top + parseFloat(cs.height || '0');
+            const left = r.left + parseFloat(cs.left || '0');
+            const right = left + parseFloat(cs.width || '0');
+            for (const c of ctrls) {
+              if (top < c.bottom && bottom > c.top && left < c.right && right > c.left) {
+                out.push(Math.round(top) + '-' + Math.round(bottom) + ' over a menu at '
+                  + Math.round(c.top) + '-' + Math.round(c.bottom));
+              }
+            }
+          }
+          return out;
+        })(),
+        /* And the arm lands on the middle of what it points at, which is what a
+           connector is for. Reported rather than asserted to a pixel: the number
+           is half a control's height and would move with the control. */
+        armOffCentre: (() => {
+          const steps = [...document.querySelectorAll('.msteps .mstep')];
+          return steps.map((st) => {
+            const r = st.getBoundingClientRect();
+            const cs = getComputedStyle(st, '::before');
+            const bottom = r.top + parseFloat(cs.top || '0') + parseFloat(cs.height || '0');
+            const c = st.querySelector('select');
+            if (!c) return null;
+            const cr = c.getBoundingClientRect();
+            return Math.round(bottom - (cr.top + cr.height / 2));
+          }).filter((n) => n !== null);
+        })(),
         sameRow: tell && btn ? Math.abs(tell.top - btn.top) < 60 && btn.left > tell.right : null,
         labelGap: (() => {
           const l = document.querySelector('label[for="create-name"]');
@@ -146,6 +195,13 @@ function check(name, pass, detail) {
     /* 🛑 THE ELBOW IS THE PART THAT CANNOT BE READ FROM SOURCE. It is one box
        with two borders, and a zero on either dimension leaves a line that goes
        down but never across, or across but never down. */
+    check(`[${engine}] no elbow is drawn through a menu (#322)`,
+      Array.isArray(seen.clashes) && seen.clashes.length === 0,
+      JSON.stringify(seen.clashes));
+    check(`[${engine}] each elbow's arm lands on the middle of its menu`,
+      Array.isArray(seen.armOffCentre) && seen.armOffCentre.length > 0
+        && seen.armOffCentre.every((n) => Math.abs(n) <= 2),
+      JSON.stringify(seen.armOffCentre));
     check(`[${engine}] and an elbow is drawn into the gutter`,
       seen.elbow && parseFloat(seen.elbow.w) > 4 && parseFloat(seen.elbow.h) > 8,
       seen.elbow ? `${seen.elbow.w} x ${seen.elbow.h} in ${seen.elbow.color}` : 'no ::before');
