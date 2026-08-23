@@ -43,7 +43,7 @@ function check(name, pass, detail) {
 const CASES = [
   { name: 'the file changed',
     body: { renamed: { ok: true, changed: true, was: 'Bob', now: 'Scarlet' } },
-    wants: /restart it/i, forbids: null },
+    wants: /^Saved\. Bob will not answer to Scarlet until you restart it\. Restart now$|^Saved\. It will know its new name when it next starts\.$/, forbids: null },
   { name: 'the name was already there',
     body: { renamed: { ok: true, changed: false } },
     wants: /^Saved\.$/, forbids: /restart/i },
@@ -114,6 +114,20 @@ const CASES = [
     const said = await page.evaluate(() => document.getElementById('d-role-msg').textContent.trim());
     const ok = c.wants.test(said) && (!c.forbids || !c.forbids.test(said));
     check(`${c.name}: the sentence matches what happened`, ok, `"${said}"`);
+    if (c.name === 'the file changed') {
+      /* #406: both names and the restart control beside them, while it runs.
+         The button is the page's own restart control, so it opens the same
+         dialog as Fresh start rather than acting. */
+      const running = await page.evaluate(() => (typeof CURRENT !== 'undefined' && !!CURRENT && CURRENT.running !== false));
+      const hasBtn = await page.$('#d-role-msg [data-restart-agent]');
+      check('a running agent gets a Restart now button in the sentence', running ? !!hasBtn : !hasBtn, `running=${running} button=${!!hasBtn}`);
+      if (hasBtn) {
+        await page.click('#d-role-msg [data-restart-agent]'); await page.waitForTimeout(300);
+        const open = await page.$eval('#rst-modal', (m) => !m.hidden);
+        check('Restart now opens the restart dialog rather than restarting', open);
+        await page.click('#rst-keep'); await page.waitForTimeout(200);
+      }
+    }
   }
 
   check('no page errors', errors.length === 0, errors.join(' | '));
