@@ -1283,7 +1283,7 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 .snav button.danger { color: var(--warn-ink); }
 .snav button.danger.on { color: #14161a; }
 /* 🔑 A DOT IS A SHAPE, which is why it is allowed to carry a signal: a pill
-   with a dot differs from one without whether or not the red is seen. It only
+   with a dot differs from one without whether or not its colour is seen. It only
    exists while the button says data-dot, and the "(needs you)" beside it is
    read out and never drawn. */
 .snav .dot { display: none; position: absolute; right: 11px; top: 50%; transform: translateY(-50%);
@@ -4053,7 +4053,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        show. One sentence for both would assert a cause the page has not
        established, for a round trip, on every open. -->
   <p class="dhint dterm-note" id="d-term-reading">Reading its window&hellip;</p>
-  <p class="dhint dterm-note" id="d-term-gone">This agent is no longer under Agents, so there is no window to show.</p>
+  <p class="dhint dterm-note" id="d-term-gone">No window to show.</p>
   <p class="dhint dterm-note" id="d-term-empty">No window to show for this agent. Kosmos shows the window of an agent it can tie to its name; if this one was started some other way, it cannot.</p>
   </section>
   <section class="dsec" id="d-sec-remove" data-sec="remove" tabindex="-1" aria-label="Remove" hidden>
@@ -7769,13 +7769,17 @@ async function tick() {
     if (start) start.hidden = true;
     const withdrawn = 'This agent is no longer under Agents. It may have been removed somewhere else, '
       + 'or it may have stopped. Nothing here can change it until it is back.';
-    const gone = document.getElementById('d-remove-hint');
-    if (gone) gone.textContent = withdrawn;
-    /* And in the header, visible from every section: the Remove block is
-       one section of seven now, and a person on Talk would otherwise watch
-       the controls go grey with nothing on screen saying why. */
+    /* In the header, visible from every section: the Remove block is one
+       section of seven now, and a person on Talk would otherwise watch the
+       controls go grey with nothing on screen saying why. The Remove block's
+       own line says only its section's half, so the page does not repeat
+       itself when both are on screen. Unhidden BEFORE the text lands: a
+       status region announces changes to content already in the tree, and a
+       node that goes hidden-with-text to visible is often not read out. */
     const head = document.getElementById('d-withdrawn');
-    if (head) { head.textContent = withdrawn; head.hidden = false; }
+    if (head) { head.hidden = false; head.textContent = withdrawn; }
+    const gone = document.getElementById('d-remove-hint');
+    if (gone) gone.textContent = 'There is nothing to remove until it is back.';
     PANEL_WITHDRAWN = true;
     // ⚠️ And the removal OFFER is re-asked too, not only the write controls.
     // `setWritesOffered` runs every tick by explicit rule, but `d-remove-start`
@@ -9693,7 +9697,10 @@ let CONVO_LOAD = 0;
    project pages only since agent-page-nav); a refusal is said
    in the engine's own sentence, never rendered as an empty terminal. */
 let WINDOW_LOAD = 0;
-let WINDOW_OPENING = 0; // a COUNTER: two rapid opens overlap their refreshes. DORMANT since agent-page-nav (every caller passes the cached flag); kept with the uncached branch it guards.
+/* A COUNTER: two rapid opens overlap their refreshes. DORMANT since
+   agent-page-nav (every caller passes the cached flag); kept with the
+   uncached branch it guards, to be deleted with it. */
+let WINDOW_OPENING = 0;
 async function paintAgentWindow(sessionName, opts) {
   const box = document.getElementById('d-window-box');
   const pre = document.getElementById('d-window');
@@ -9737,6 +9744,10 @@ async function paintAgentWindow(sessionName, opts) {
     const r = await res.json().catch(() => ({}));
     if (mine !== WINDOW_LOAD) return;
     if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+    /* ONE writer of the 404 marker: set on a 404, cleared by any other
+       answer. `detailPaintWindow` reads it so the tick's re-ask does not
+       flicker the section back to "reading" for a round-trip every time. */
+    box.dataset.gone = res.status === 404 ? '1' : '';
     /* A 404 here is the tie dying mid-flight (the route's knownAgent
        gate), not a window fact to display: the box HIDES, exactly as
        the tick's tie-gone arm would a beat later -- painting the 404
@@ -9744,10 +9755,11 @@ async function paintAgentWindow(sessionName, opts) {
        an agent the person is looking at. */
     if (res.status === 404) {
       /* The route does not know this agent even though the card said tied
-         (roster skew); "Reading its window" would stand until a tick flipped
-         the tie, so the section says the honest thing now. */
-      detailSection('term').dataset.tied = '0';
-      box.dataset.gone = '1';
+         (roster skew). Its body is "no agent by that name", which is the GONE
+         case, not the untied one: "started some other way" would assert a
+         cause the route did not give. "Reading" would stand until a tick
+         flipped the tie, so the section says gone now. */
+      detailSection('term').dataset.tied = 'gone';
       box.hidden = true; return;
     }
     if (r.text != null) {
@@ -9756,7 +9768,6 @@ async function paintAgentWindow(sessionName, opts) {
       document.getElementById('d-window-hint').textContent = 'As it looks right now. It is not a transcript, and it is not what the agent said to you.';
       msg.hidden = true;
       box.hidden = false;
-      delete box.dataset.gone;
       detailSection('term').dataset.tied = '1';
     } else {
       pre.hidden = true;
@@ -9764,7 +9775,6 @@ async function paintAgentWindow(sessionName, opts) {
       msg.textContent = r.because || r.error || 'We could not read its window just now.';
       msg.hidden = false;
       box.hidden = false;
-      delete box.dataset.gone;   // an answer, so not the 404 the marker records
     }
   } catch {
     if (mine !== WINDOW_LOAD) return;
@@ -9779,7 +9789,6 @@ async function paintAgentWindow(sessionName, opts) {
     msg.textContent = 'We could not read its window just now.';
     msg.hidden = false;
     box.hidden = false;
-    delete box.dataset.gone;
   }
 }
 
@@ -11195,7 +11204,7 @@ function detailPaintWindow(a) {
      rather than flickering to "reading" for a round-trip every five seconds;
      a capture that lands flips it back (the success arm owns that). */
   if (!tied) detailSection('term').dataset.tied = '0';
-  else if (box.dataset.gone !== '1') detailSection('term').dataset.tied = '1';
+  else detailSection('term').dataset.tied = box.dataset.gone === '1' ? 'gone' : '1';
   if (tied) {
     paintAgentWindow(a.sessionName, { cachedFlag: true });
   } else {

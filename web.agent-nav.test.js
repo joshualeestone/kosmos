@@ -90,8 +90,10 @@ test('the poll never chooses the section', () => {
 
 test('the agent window no longer answers to the Engineering mode switch on this page', () => {
   const src = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
-  const route = src.slice(src.indexOf("/^\\/api\\/agent\\/([^/]+)\\/window$/"), src.indexOf('/^\\/api\\/agent\\/([^/]+)\\/window$/') + 3000);
-  assert.ok(route.length > 100, 'the window route moved');
+  const at = src.indexOf("/^\\/api\\/agent\\/([^/]+)\\/window$/");
+  const next = src.indexOf('pathname.match(', at + 1);   // the next route's own matcher closes this one
+  const route = src.slice(at, next > at ? next : undefined);
+  assert.ok(route.length > 100 && route.length < 20000, 'the window route moved, or the slice ran into the rest of the file: ' + route.length);
   assert.doesNotMatch(route, /engmode\.read\(\)\.on/, 'the agent window route still reads the switch');
   // The switch's copy must describe what it now governs, and say where the
   // window still is for somebody who turns it off.
