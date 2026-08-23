@@ -2962,14 +2962,14 @@ const server = http.createServer((req, res) => {
     if (name === null) { sendJson(res, 404, { error: 'that is not a name we can read' }); return; }
     if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
     try {
-      if (!engmode.read().on) {
-        // The same gate as the thread's viewport, hoisted above the
-        // roster snapshot it would never use: Off stops the capture, and
-        // a stale client that asks anyway gets the truth in words rather
-        // than a window the person turned off.
-        sendJson(res, 200, { text: null, because: 'engineering mode is off, so the window is not read' });
-        return;
-      }
+      // 🛑 NO LONGER BEHIND THE ENGINEERING-MODE SWITCH (Josh, 2026-08-22, on
+      // the agent-page mock: the agent's own page always shows its window;
+      // the switch was for the project screen). The thread's viewport below
+      // keeps its gate. A client that ungated its box while this route still
+      // refused was the first thing the browser check photographed: a heading
+      // over "engineering mode is off, so the window is not read", a screen
+      // contradicting the switch's own new copy. One surface is governed by
+      // the switch now, and this route is not it.
       const roster = safeRoster();
       // Resolved to the card's OWN sessionName (the sessionOf lesson: a
       // spelling that passes the gate via the safeKey fallback would

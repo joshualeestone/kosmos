@@ -1294,6 +1294,11 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 .dsecs { min-width: 0; }
 .dsec { display: flex; flex-direction: column; gap: 18px; outline: none; }
 .dsec[hidden] { display: none; }
+/* Inside Fresh start the restart control keeps its own label, but the box
+   already has a shouting heading; two uppercase labels stacked read as two
+   boxes. The inner one speaks at sentence size. */
+#d-fresh .field { border-top: 0; margin-top: 0; padding-top: 0; }
+#d-fresh .flabel { text-transform: none; letter-spacing: 0; font-size: 1rem; }
 @media (max-width: 56rem) {
   .dbody { grid-template-columns: minmax(0, 1fr); }
   .snav { position: static; flex-direction: row; flex-wrap: wrap; }
@@ -3767,7 +3772,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        engine (#214 stays open for them); a control drawn without one is a
        promise, so they are not drawn. The restart control is the SAME element
        it was at the foot of the page, with its data attributes and its note. -->
-  <section class="dbox">
+  <section class="dbox" id="d-fresh">
     <h3 class="dlab">Fresh start</h3>
 
   <!-- 🛑 RESTART WAS UNREACHABLE UNLESS THE INSTRUCTIONS HAD DRIFTED. The
@@ -3780,11 +3785,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        the server and unreachable on the screen (the shape Mona Lisa re-keyed
        #204 on, found the same night).
 
-       ⚠️ ABOVE Remove, NOT beside it, and outside the danger block. A restart
-       takes nothing away: the files and the instructions are untouched, and the
-       one real consequence is that the agent comes back with an empty memory
-       ring. Putting it in a red box would teach that those two acts are the
-       same weight, and they are not. -->
+       ⚠️ UNDER MEMORY AS "FRESH START", NOT IN THE REMOVE SECTION (the mock,
+       2026-08-22; it was above Remove and outside the danger block before the
+       page grew sections, for the same reason). A restart takes nothing away:
+       the files and the instructions are untouched, and the one real
+       consequence is that the agent comes back with an empty memory ring.
+       Putting it beside Remove would teach that those two acts are the same
+       weight, and they are not. -->
   <div class="field" id="d-restart-agent" hidden>
     <div>
     <label class="flabel"><b>Restart this agent</b></label>
@@ -4023,9 +4030,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   <section class="dsec" data-sec="remove" tabindex="-1" aria-label="Remove" hidden>
 
   <!-- ⚠️ THE ONE CONTROL THAT TAKES SOMETHING AWAY, and it is here rather than
-       on the card deliberately: at the bottom of the one screen you have to
-       open on purpose, after everything else. Nothing about removing an agent
-       should be reachable in passing.
+       on the card deliberately: its own section, last in the nav and below a
+       rule, on the one screen you have to open on purpose. Nothing about
+       removing an agent should be reachable in passing.
 
        It is offered for EVERY agent, including ones this app did not create.
        Managing the fleet you actually have is the point of the product; an

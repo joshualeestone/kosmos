@@ -525,3 +525,13 @@ NODE_PATH="$PW/node_modules" node docs/browser-checks/render-create-made.js \
 it is in dry run, so nothing in the script can check. Against an ordinary board
 this would spawn a session and install a launch job for an agent nobody asked
 for. It also needs first run complete, same seeding as above.
+
+## The agent page's nav
+
+`render-agent-nav.js` runs the server in-process against a fixture fleet
+(`test-support/fleet`, every state root a temp dir) and clicks the seven pills
+on an agent's page in both themes and at phone width. It asserts visibility by
+rectangle, leads with a control (six sections at zero height before any click),
+and reads the pills' names, the needs-you dot, and the ungated terminal box.
+It found the first defect of its own branch: the client's box was ungated
+while the server route still refused with the switch off.

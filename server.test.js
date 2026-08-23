@@ -6116,13 +6116,21 @@ test('engineering mode round-trips, and the agent window route sits behind the k
     const got = JSON.parse((await req('/api/engmode')).body);
     assert.equal(got.on, false, 'engineering mode does not default Off');
 
-    // The Off serving, pinned BEFORE the mode is turned on below: a
-    // known agent's window answers the truth in words and never the
-    // capture -- the stale-client path, deletable-green without this.
+    // ⚠️ THE OFF SERVING IS GONE FROM THIS ROUTE (agent-page-nav, 2026-08-23):
+    // an agent's own page always shows its window, so the route answers the
+    // capture whether the switch is on or off. Pinned BEFORE the mode is
+    // turned on below, so a revival of the gate fails here rather than
+    // passing on the On leg alone. The thread's viewport keeps its gate.
+    chatEngine.setRunner((args) => {
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: 'seen with the switch off\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
     const offWin = await req('/api/agent/leo/window');
     assert.equal(offWin.status, 200);
-    assert.equal(JSON.parse(offWin.body).text, null);
-    assert.match(JSON.parse(offWin.body).because, /engineering mode is off/);
+    assert.equal(JSON.parse(offWin.body).text, 'seen with the switch off',
+      'the agent window is still gated by engineering mode; the switch governs project pages only');
+    chatEngine.resetForTests();
 
     const bad = await req('/api/engmode', {
       method: 'PUT',
