@@ -3517,10 +3517,19 @@ test('update awareness: the status tick carries the verdict, and the install rou
     updates.resetCache();
     updates.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
     await updates.refresh();
+    /* 🛑 A BOARD RUNNING FROM SOURCE CARRIES NO OFFER, because its install
+       route refuses one (asserted below). It used to offer anyway, so the
+       toast said Install, the dialog promised a restart, and the press met
+       "there is no update to install" (Josh, 2026-08-23 13:03). The offer
+       comes back the moment an installed root exists: the control. */
     const st = await req('/api/status', {});
     assert.equal(st.status, 200);
-    assert.deepEqual(JSON.parse(st.body).update, { version: '99.0.0' },
-      'the status payload does not carry the published update');
+    assert.equal(JSON.parse(st.body).update, null,
+      'a board that cannot install still offers an update in its status payload');
+    updates.setInstalledRoot(() => '/tmp/fake-kosmos-home');
+    assert.deepEqual(JSON.parse((await req('/api/status', {})).body).update, { version: '99.0.0' },
+      'the status payload does not carry the published update on an installed board');
+    updates.setInstalledRoot(null);
 
     // ⚠️ The new POST inherits the cross-site guard. Asserted rather than
     // assumed, because a new sibling does not inherit a guard by being
@@ -6904,7 +6913,15 @@ test('the check route asks fresh, carries reachability, and rides the cross-site
     const body = JSON.parse(out.body);
     assert.equal(body.latest, '99.0.0', 'the check served the TTL cache instead of asking fresh');
     assert.equal(body.reached, true);
-    assert.deepEqual(body.offer, { version: '99.0.0' }, 'the check does not carry the ready-to-install offer');
+    /* From source there is no offer to carry (the install route would refuse
+       it); the check says so with `source: true`. With an installed root the
+       offer rides as before: the control. */
+    assert.equal(body.offer, null, 'a source-run board offered an install it cannot do');
+    assert.equal(body.source, true);
+    updates.setInstalledRoot(() => '/tmp/fake-kosmos-home');
+    const installed = JSON.parse((await req('/api/update/check', { method: 'POST', headers: { 'content-type': 'application/json' } })).body);
+    assert.deepEqual(installed.offer, { version: '99.0.0' }, 'the check does not carry the ready-to-install offer on an installed board');
+    updates.setInstalledRoot(null);
 
     // Unreachable says so, and the status payload agrees (could-not-reach
     // must never render as up-to-date anywhere).
