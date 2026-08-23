@@ -3940,7 +3940,11 @@ const server = http.createServer((req, res) => {
     // ⚠️ 200 WITH A REASON, not an error status: a project whose folder has
     // gone is a state this screen must DRAW, and a 4xx would make the list
     // render as a failed request rather than as "we could not look".
-    sendJson(res, 200, projects.listFiles(record.folder, 10));
+    /* ?limit= for the Documents view (#134), bounded: the tile keeps its 10,
+       the view asks for up to 500, and an unbounded ask cannot be minted. */
+    let fileCap = 10;
+    try { const l = Number(new URL(req.url, ROUTING_BASE).searchParams.get('limit')); if (Number.isFinite(l) && l > 0) fileCap = Math.min(Math.floor(l), 500); } catch { fileCap = 10; }
+    sendJson(res, 200, projects.listFiles(record.folder, fileCap));
     return;
   }
 
