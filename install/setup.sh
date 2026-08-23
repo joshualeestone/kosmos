@@ -1175,6 +1175,14 @@ check_claude_code() {
     info "Claude Code found at $_claude_bin"
     return 0
   fi
+  # Something IS there but cannot run (a broken symlink after a moved npm
+  # prefix, or a file without execute permission): its own sentence, or the
+  # elsewhere-remedy below would claim "nothing there" falsely and its
+  # pasted ln would fail on File exists, a refusal whose remedy loops.
+  if [ -e "$_claude_bin" ] || [ -L "$_claude_bin" ]; then
+    die "There is something at $_claude_bin but it cannot run (a broken link, or a file without execute permission). Remove it and run this again:
+  rm \"$_claude_bin\""
+  fi
   _claude_elsewhere="$(command -v claude 2>/dev/null || true)"
   if [ -n "$_claude_elsewhere" ]; then
     die "Claude Code is installed at $_claude_elsewhere, but Kosmos starts agents from $_claude_bin and there is nothing there. Link it and run this again:

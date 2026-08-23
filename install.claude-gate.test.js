@@ -81,6 +81,32 @@ test('installed elsewhere: names where it is and the one-line link, a DIFFERENT 
     'the two states that look identical from a Terminal got the same sentence');
 });
 
+test('something present that cannot run gets its own sentence, never the false "nothing there"', () => {
+  /* A broken symlink (npm prefix moved) or a chmod-000 file at the path:
+     the elsewhere-remedy's pasted ln would fail on File exists, so this
+     state needs a different sentence and a remedy that works. */
+  const sb = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
+  const home = nodePath.join(sb, 'home');
+  fs.mkdirSync(nodePath.join(home, '.local', 'bin'), { recursive: true });
+  fs.symlinkSync(nodePath.join(sb, 'moved-away'), nodePath.join(home, '.local', 'bin', 'claude'));
+  const bin = nodePath.join(sb, 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const c = nodePath.join(bin, 'claude');
+  fs.writeFileSync(c, '#!/bin/sh\nexit 0\n'); fs.chmodSync(c, 0o755);
+  const script = HARNESS + gate();
+  let out;
+  try {
+    execFileSync('/bin/sh', ['-c', script], { encoding: 'utf8', env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` } });
+    assert.fail('a path with an unrunnable claude completed the gate');
+  } catch (e) {
+    out = String(e.stderr || '');
+  }
+  assert.match(out, /cannot run \(a broken link, or a file without execute permission\)/);
+  assert.match(out, /rm /, 'the remedy is not named');
+  assert.doesNotMatch(out, /nothing there/, 'the false claim survived');
+  assert.doesNotMatch(out, /ln -s/, 'the looping remedy survived');
+});
+
 test('the env override is honored, so sandboxed installs can point at a fixture', () => {
   const sb = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
   const fake = nodePath.join(sb, 'claude');
