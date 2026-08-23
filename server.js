@@ -1002,6 +1002,11 @@ const server = http.createServer((req, res) => {
                 hasAvatar: Boolean(safeAvatarFor(k.name)),
                 profile,
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
+                /* #149/#150: same field the roster rows carry, same meaning.
+                   A stopped agent with no launch file is exactly the state
+                   the sentence exists for: nothing will start it, and no
+                   restart fills the record in. */
+                neverRecorded: !create.hasJob(k.name),
                 account: accountOf(k.name),
                 commitments: commitments.read(k.name),
                 instructions: instructions.staleness(k.name),

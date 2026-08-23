@@ -1446,6 +1446,12 @@ test('an untied card carries no commitments and no boot-file hash of the name it
     assert.equal(card.plannedModelName, null,
       'the untied card carried the real agent’s planned model, read out of a '
       + 'launchd job filed under the name it merely borrowed');
+    /* #149/#150: the FIFTH name-keyed field, and it takes the same gate. A
+       stranger's pane has no plist under the borrowed name, so without the
+       gate this reads true and the card wears "Made before Kosmos recorded
+       this", a provenance claim about a session we cannot identify. */
+    assert.equal(card.neverRecorded, false,
+      'the untied card claimed never-recorded history about a stranger’s session');
   } finally {
     status.setPaneSource(null);
     status.setPaneCapture(null);
@@ -1489,6 +1495,10 @@ test('a tied card reports the model its job will start it on, and only when no l
     assert.equal(card.plannedModelName, 'Claude Opus 5',
       'a tied card did not report the model written into its own launchd job, '
       + 'which is the whole defect this field exists to close');
+    /* #149/#150 control: WITH a job file the never-recorded flag must be
+       false, or every healthy agent would read as history. */
+    assert.equal(card.neverRecorded, false,
+      'a tied card with a launchd job is wearing the never-recorded flag');
   } finally {
     status.setPaneSource(null);
     status.setPaneCapture(null);

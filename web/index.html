@@ -3839,6 +3839,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          the menu. The hint lines below stay for the person reading rather
          than pressing. -->
     <p class="runnow" id="d-runson"></p>
+    <p class="dhint" id="d-runson-why" hidden></p>
     <p class="runnow" id="d-account-now"></p>
     <div class="msteps" role="group" aria-label="Change what this agent runs on" style="margin-top:12px;">
       <div class="frow">
@@ -6453,7 +6454,12 @@ function modelLine(a) {
      closed. One question, one derivation. */
   const notRunning = cardStOf(a).pres === 'off';
   const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName;
-  if (!name) return 'Unknown Model';
+  /* #149/#150: two states were collapsed into "Unknown Model", and only one
+     of them is a fault. No launch file at all means there was never anywhere
+     to look, no restart will fill it in, and the wording (ruled on card #150)
+     says history rather than failure. The server decides `neverRecorded`
+     (tied pane, no plist), so every surface splits the same way. */
+  if (!name) return a.neverRecorded ? 'Made before Kosmos recorded this' : 'Unknown Model';
   return /^claude/i.test(name) ? name : 'Claude ' + name;
 }
 /**
@@ -11703,6 +11709,21 @@ function openDetail(sessionName, section) {
   document.getElementById('d-memory').innerHTML = memoryBox(a);
   const drun = document.getElementById('d-runson');
   drun.innerHTML = esc(runs.lead) + '<b>' + esc(runs.name) + '</b>';
+  /* #149/#150: the sentence alone says WHAT, this says WHY and the way in.
+     The migration path is real (a stopped agent appears under Found agents
+     and Add records it); while it runs Kosmos will not write a launch file
+     for it, because starting a second one in the same folder is the #362
+     defect. Cleared for every other agent so it cannot linger across a
+     switch. */
+  const drunWhy = document.getElementById('d-runson-why');
+  if (drunWhy) {
+    drunWhy.textContent = a.neverRecorded
+      ? 'Kosmos has no record of how this agent starts, and waiting will not add one. '
+        + 'To bring it in: stop it, then add it from Found agents in Settings. '
+        + (a.running === false ? '' : 'Kosmos will not write a launch file while it runs some other way.')
+      : '';
+    drunWhy.hidden = !drunWhy.textContent;
+  }
   /* ⚠️ CLEARED BEFORE the paint's awaits, like the window box below: agent A's
      question and A's messages standing under B's name for two round-trips is
      cross-agent misattribution, and this box holds the strongest version of it
@@ -14392,10 +14413,16 @@ async function paintModelPicker(a) {
      write and cannot rewrite, and the engine refuses it — so the control says so
      by being unavailable rather than by failing after a click. */
   const ours = !!(a && a.isNamedOurs);
-  sel.disabled = !ours;
-  go.disabled = !ours || !sel.value;
-  if (msg && !ours && !msg.textContent) {
-    msg.textContent = 'Kosmos did not start this one, so it cannot change what it runs on.';
+  /* #149/#150: an agent with no launch file has nothing for setModel to
+     rewrite, and the engine would refuse the click. The control says so
+     before the click, in the state's own words, not the stranger's. */
+  const usable = ours && !(a && a.neverRecorded);
+  sel.disabled = !usable;
+  go.disabled = !usable || !sel.value;
+  if (msg && !usable && !msg.textContent) {
+    msg.textContent = ours
+      ? 'Made before Kosmos recorded how it starts, so there is no launch file to change. Stop it, then add it from Found agents in Settings to bring it in.'
+      : 'Kosmos did not start this one, so it cannot change what it runs on.';
   }
 }
 
