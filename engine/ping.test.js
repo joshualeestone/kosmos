@@ -166,7 +166,7 @@ test('the disclosure lives at the point of the act, and agrees with the payload'
 
   // Reworded 2026-08-23 (#331): the receiver is named, because "let the team
   // know" read as a courtesy and it is a network call to a server.
-  assert.match(words, /Send a note to the Kosmos server that you made an agent/,
+  assert.match(words, /Tell the Kosmos server you made an agent/,
     'the create screen no longer offers the choice at all');
   /* Settings carries the fuller explanation and the standing switch. */
   assert.match(words, /so we can count how many people use Kosmos/,
