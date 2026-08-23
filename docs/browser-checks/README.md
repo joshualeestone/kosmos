@@ -106,6 +106,7 @@ one invented by somebody who did not write them.
 | `render-special-purpose.js` | **no header sentence.** Read it before running it, and give it one. |
 | `render-talk.js` | A REAL agent card, from the real producer |
 | `render-tasks.js` | **no header sentence.** Read it before running it, and give it one. |
+| `render-org-drag.js` | The org chart's organic layer (#285): grab the hub, the rings follow, wires stay attached, a drag does not open an agent and a click does. |
 | `render-switch-states.js` | The four Settings switches come BACK once their settings read (#229) |
 | `render-theme-toggle.js` | The light and dark control: two options, gold active, same geometry as the view toggle (#284) |
 | `render-thread.js` | Render and DRIVE the project thread in a real browser |

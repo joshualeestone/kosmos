@@ -248,3 +248,111 @@ test('an empty board places nothing and does not throw', () => {
   const { placed } = place.orgPlace(place.orgTreeOf([]));
   assert.equal(placed.size, 0);
 });
+
+/* ---- the organic layer (#285) -------------------------------------------- */
+const sim = (() => {
+  const at = SCRIPT.indexOf('const ORG_SIM = {');
+  const end = SCRIPT.indexOf('let ORG_LIVE = null;');
+  assert.ok(at > -1 && end > at, 'the simulation left the page');
+  const m = SCRIPT.match(/const\s+ORG_STEP\s*=\s*([-\d.]+)\s*;/);
+  // eslint-disable-next-line no-new-func
+  return new Function('const ORG_STEP = ' + m[1] + ';\n' + SCRIPT.slice(at, end) + '\nreturn { orgStep, ORG_SIM };')();
+})();
+function fleetOf(n, ring, hub) {
+  const nodes = [];
+  for (let i = 0; i < n; i += 1) {
+    const a = (i / n) * Math.PI * 2;
+    nodes.push({ x: hub.x + Math.cos(a) * ring, y: hub.y + Math.sin(a) * ring, vx: 0, vy: 0, ring, parent: null, fixed: false });
+  }
+  return nodes;
+}
+function settle(nodes, hub, box, alpha = 1, steps = 400) {
+  let a = alpha;
+  for (let t = 0; t < steps; t += 1) { sim.orgStep(nodes, hub, a, box); a *= 0.985; }
+}
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+test('the simulation keeps depth: a settled node stays near the ring it was born on, and a child stays outside its parent', () => {
+  const hub = { x: 300, y: 300, vx: 0, vy: 0, fixed: false, home: { x: 300, y: 300 } };
+  const nodes = fleetOf(6, 120, hub);
+  const kid = { x: hub.x + 194, y: hub.y, vx: 0, vy: 0, ring: 194, parent: nodes[0], fixed: false };
+  nodes.push(kid);
+  settle(nodes, hub, { lo: 30, hi: 570 });
+  for (const n of nodes.slice(0, 6)) {
+    const d = dist(n, hub);
+    assert.ok(Math.abs(d - 120) < 35, 'a first-ring node drifted to ' + d.toFixed(0) + ' from its ring at 120');
+  }
+  assert.ok(dist(kid, hub) > dist(nodes[0], hub) + 30, 'the child is no longer further out than its parent');
+});
+
+test('nothing overlaps after settling, and nothing leaves the box', () => {
+  const hub = { x: 300, y: 300, vx: 0, vy: 0, fixed: false, home: { x: 300, y: 300 } };
+  // Everyone starts on the same spot: the worst case for repulsion.
+  const nodes = fleetOf(10, 120, hub).map((n) => ({ ...n, x: 301, y: 299 }));
+  settle(nodes, hub, { lo: 30, hi: 570 });
+  for (let i = 0; i < nodes.length; i += 1) {
+    for (let j = i + 1; j < nodes.length; j += 1) {
+      assert.ok(dist(nodes[i], nodes[j]) >= sim.ORG_SIM.minGap * 0.8, 'two nodes ended up on top of each other');
+    }
+    assert.ok(nodes[i].x >= 30 && nodes[i].x <= 570 && nodes[i].y >= 30 && nodes[i].y <= 570, 'a node left the canvas');
+  }
+});
+
+test('dragging the hub carries the rings with it, and a dragged node is pinned until released', () => {
+  const hub = { x: 300, y: 300, vx: 0, vy: 0, fixed: false, home: { x: 300, y: 300 } };
+  const nodes = fleetOf(6, 120, hub);
+  settle(nodes, hub, { lo: 30, hi: 570 });
+  const before = nodes.map((n) => ({ x: n.x, y: n.y }));
+  // Grab the hub and move it: the grabbed body is fixed, the rest follows.
+  hub.fixed = true; hub.x = 160; hub.y = 160;
+  settle(nodes, hub, { lo: 30, hi: 570 }, 0.6, 300);
+  assert.equal(hub.x, 160, 'the pinned hub moved under simulation');
+  const centroid = nodes.reduce((c, n) => ({ x: c.x + n.x / nodes.length, y: c.y + n.y / nodes.length }), { x: 0, y: 0 });
+  assert.ok(dist(centroid, hub) < 40, 'the rings did not follow the hub; centroid is ' + dist(centroid, hub).toFixed(0) + ' away');
+  assert.ok(nodes.some((n, i) => dist(n, before[i]) > 60), 'nothing moved when the hub was dragged');
+  // Release: the hub drifts home, the rest follow.
+  hub.fixed = false;
+  settle(nodes, hub, { lo: 30, hi: 570 }, 0.5, 600);
+  assert.ok(dist(hub, hub.home) < 25, 'a released hub did not settle back toward its home; at ' + dist(hub, hub.home).toFixed(0));
+});
+
+test('a still step produces no motion: alpha zero is the reduced-motion state', () => {
+  const hub = { x: 300, y: 300, vx: 0, vy: 0, fixed: false, home: { x: 300, y: 300 } };
+  const nodes = fleetOf(4, 120, hub);
+  const moved = sim.orgStep(nodes, hub, 0, { lo: 30, hi: 570 });
+  assert.equal(moved, 0);
+});
+
+test('children are angled among their SIBLINGS, not among every cousin at that depth (#352)', () => {
+  /* Two managers on the first ring, two children each. With the angle derived
+     from a child's index among all four cousins, the children interleave
+     across both parents' arcs; derived among siblings, each pair sits inside
+     its own parent's spread. */
+  const { placed } = place.orgPlace(place.orgTreeOf(
+    agents(a('m1'), a('m2'), a('m3'), a('m4'), a('k1', 'm1'), a('k2', 'm1'), a('k3', 'm3'), a('k4', 'm3')),
+  ));
+  const gap = (x, y) => Math.abs(((placed.get(x).ang - placed.get(y).ang + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+  for (const [kid, parent] of [['k1', 'm1'], ['k2', 'm1'], ['k3', 'm3'], ['k4', 'm3']]) {
+    assert.ok(gap(kid, parent) < 0.7, `${kid} was angled away from its parent ${parent} by ${gap(kid, parent).toFixed(2)} rad`);
+  }
+  // And two siblings do not share a spoke.
+  assert.ok(gap('k1', 'k2') > 0.2, 'two siblings were placed on the same spoke');
+  assert.ok(gap('k3', 'k4') > 0.2, 'two siblings were placed on the same spoke');
+  // Each pair is CENTRED on its parent: the defect's visible form was a bias,
+  // every child pushed to one side of its manager by its index among cousins.
+  const mid = (x, y, p) => {
+    const ax = placed.get(x).ang; const ay = placed.get(y).ang; const ap = placed.get(p).ang;
+    return Math.abs(((ax + ay) / 2 - ap + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+  };
+  assert.ok(mid('k1', 'k2', 'm1') < 0.05, 'm1\'s children are not centred on m1');
+  assert.ok(mid('k3', 'k4', 'm3') < 0.05, 'm3\'s children are not centred on m3');
+  /* The sharpest form: one child each. With the angle derived among cousins,
+     a lone child sits at the EDGE of its parent's arc (idx 0 of 2) rather
+     than straight out from it. */
+  const lone = place.orgPlace(place.orgTreeOf(
+    agents(a('m1'), a('m2'), a('m3'), a('m4'), a('c1', 'm1'), a('c3', 'm3')),
+  )).placed;
+  const g = (x, y) => Math.abs(((lone.get(x).ang - lone.get(y).ang + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+  assert.ok(g('c1', 'm1') < 0.05, 'a lone child is off to the side of its parent by ' + g('c1', 'm1').toFixed(2) + ' rad');
+  assert.ok(g('c3', 'm3') < 0.05, 'a lone child is off to the side of its parent by ' + g('c3', 'm3').toFixed(2) + ' rad');
+});
