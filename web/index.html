@@ -8763,7 +8763,8 @@ async function paintAccounts() {
     // and the row says so rather than the heading assuming it.
     const provider = '<span class="acct-org">' + esc(a.provider || 'Anthropic / Claude') + '</span>';
     return '<div class="acct-row"><div class="acct-who"><b>' + who
-      + (a.isDefault ? ' <span class="acct-tag">your first account</span>' : '') + '</b>' + provider + org + '</div>'
+      // No "your first account" tag (#394): the email is the answer, whole.
+      + '</b>' + provider + org + '</div>'
       + shared + '</div>';
   }).join('');
   for (const btn of box.querySelectorAll('[data-share]')) {
