@@ -106,6 +106,27 @@ const MARKERS = [
 ];
 
 /**
+ * The one impersonation check, shared by every path that keeps agent text.
+ *
+ * Extracted because the check lived twice (msg and post) and the third path
+ * (the reply route) shipped without it: a reply carrying a marker line landed
+ * unrefused in the direct thread, the exact in-band forgery the guard names.
+ * One helper, three callers, and a fourth path cannot quietly skip it by
+ * copying the wrong site. Returns the refusal sentence, or null.
+ *
+ * Call it AFTER messageProblem (every caller does): a non-string reaching
+ * this alone would be coerced by cleanMessage rather than refused, and the
+ * checked-is-what-gets-kept rule lives in messageProblem, not here.
+ */
+function markerProblem(text) {
+  const lowered = chat.cleanMessage(text).toLowerCase();
+  if (MARKERS.some((m) => lowered.includes(m))) {
+    return 'that message contains a delivery marker itself, which would let it impersonate another sender; say it without the bracket line';
+  }
+  return null;
+}
+
+/**
  * What the person's message to an agent's OWN PAGE says about answering.
  *
  * 🛑 THE DIRECT PATH HAD NO ENVELOPE AT ALL, which is the hole under
@@ -395,10 +416,8 @@ function send({ fromPane, to, text, inReplyTo }, roster) {
      passes this gate, but cleanMessage means no forged marker can ever
      start its own line -- it always arrives wrapped inside the genuine
      envelope, attributed to its real sender. */
-  const lowered = chat.cleanMessage(text).toLowerCase();
-  if (MARKERS.some((m) => lowered.includes(m))) {
-    return refuse(toName, 'that message contains a delivery marker itself, which would let it impersonate another sender; say it without the bracket line');
-  }
+  const markerBad = markerProblem(text);
+  if (markerBad) return refuse(toName, markerBad);
 
   const rec = record();
   const log = rec.rows;
@@ -571,7 +590,10 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
       const already = readLog().some((m) => m && m.kind === 'refused'
         && m.from === from && m.to === toLogged && m.because === because
         && Date.parse(m.at) >= now2 - limits.WINDOW_MS);
-      if (!already) appendLog({ kind: 'refused', from, to: toLogged, because, at });
+      /* `project` rides the row (#315) so the room can claim its own refusals
+         and ONLY its own: `to` alone cannot tell a project from an agent that
+         happens to share the slug space. */
+      if (!already) appendLog({ kind: 'refused', from, to: toLogged, project: toLogged, because, at });
     } catch { /* the record is best-effort; the verdict is not */ }
     return { state: chat.DELIVERY.COULD_NOT, because, id: null, at, outcomes: null };
   };
@@ -655,10 +677,8 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
   if (chat.cleanMessage(text).length > MAX_BODY) {
     return refuse('that is a document, not a message; put it in the project folder and post your colleagues the path');
   }
-  const lowered = chat.cleanMessage(text).toLowerCase();
-  if (MARKERS.some((m) => lowered.includes(m))) {
-    return refuse('that message contains a delivery marker itself, which would let it impersonate another sender; say it without the bracket line');
-  }
+  const markerBad = markerProblem(text);
+  if (markerBad) return refuse(markerBad);
 
   const rec = record();
   const log = rec.rows;
@@ -738,7 +758,24 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
     if (!latest || (latest.stopped !== false) !== lim.on) {
       appendLog({ kind: 'valve', from, to: projectId, project: projectId, at, because, stopped: lim.on });
     }
-    if (lim.on) return { state: chat.DELIVERY.COULD_NOT, because, id: null, at, outcomes: null };
+    if (lim.on) {
+      /* 🔑 WHO WAS REFUSED, not only that the room was stopped (#315). The
+         valve notice above is deduped per room, correctly -- so every agent
+         blocked after the first vanished silently, and read from the outside
+         as unresponsive (Scarlett, 2026-08-22: her answer to the operator's
+         own summons left its only trace inside her terminal). One refused row
+         per agent per window, project-stamped so the room can serve it. */
+      try {
+        const already = log.some((m) => m && m.kind === 'refused'
+          && m.from === from && m.project === projectId
+          && Date.parse(m.at) >= now - lim.windowMs);
+        if (!already) {
+          appendLog({ kind: 'refused', from, to: projectId, project: projectId,
+            because: 'the room was going back and forth without landing, so Kosmos was holding it for the person', at });
+        }
+      } catch { /* the record is best-effort; the verdict is not */ }
+      return { state: chat.DELIVERY.COULD_NOT, because, id: null, at, outcomes: null };
+    }
   }
 
   const id = 'm' + (rec.parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
@@ -827,7 +864,25 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
       + ' ' + body;
     /* `trailer` (#358) is the attached file's path, typed after the envelope
        and body and outside the checks, the same way the direct thread does it. */
-    const sent = chat.deliver(name, envelope, roster, undefined, typeof trailer === 'string' ? trailer : undefined);
+    /* 🔑 THE AGENT BROUGHT IN BLIND IS TOLD WHAT IT MISSED (#314, second
+       defect). Josh's live test: the valve asked for the operator, he
+       @-mentioned Scarlett, and she answered "I only got that one message"
+       about a room she could not see. So a MENTIONED recipient who missed
+       posts in the current window is told how many and how to read them
+       ("kosmos room", the sibling of the answer line's "kosmos post").
+       Mentioned only: stamping every background delivery with a missed count
+       would be noise on the arm that is explicitly not addressed to them.
+       Counted from the log this send already read; posts they sent or
+       received do not count as missed. */
+    const missed = log.filter((m) => m && m.kind === 'post' && m.project === projectId
+      && Date.parse(m.at) >= windowFrom && m.from !== name
+      && Array.isArray(m.to) && !m.to.includes(name)).length;
+    const catchUp = mentioned.has(name) && missed > 0
+      ? ' [This room has been talking without you: ' + missed + ' earlier post'
+        + (missed === 1 ? '' : 's') + ' this hour did not reach you.'
+        + ' Read the room with: kosmos room ' + projectId + ']'
+      : '';
+    const sent = chat.deliver(name, envelope + catchUp, roster, undefined, typeof trailer === 'string' ? trailer : undefined);
     outcomes[name] = sent.state;
     if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
   }
@@ -1031,6 +1086,12 @@ function blockBody() {
     'your own words rather than staying silent. The message never arrived,',
     'and a command that never ran leaves no trace for anyone to find.',
     '',
+    '**Do not quote the bracket line when you answer.** Every delivered',
+    'message opens with a bracketed line naming its sender. A message you',
+    'send that contains such a line is refused, because it could',
+    'impersonate another sender. Say it in your own words, or name',
+    'the id ("re m12") instead of pasting the line.',
+    '',
     'Mention @<their-name> to address someone directly; everyone else on',
     'the project receives it marked as background.',
     '',
@@ -1048,6 +1109,6 @@ module.exports = {
   OPERATOR_DIRECT,
   START, END, blockBody,
   LOG,
-  resolveSender, send, sendPost, list, owesReply, pairCount, readLog, record,
+  resolveSender, send, sendPost, list, owesReply, pairCount, readLog, record, markerProblem,
   setRunner, resetForTests,
 };

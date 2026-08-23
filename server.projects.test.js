@@ -972,11 +972,18 @@ async function withThread(spec, answers, fn) {
   try { fs.rmSync(path.join(require('./engine/store').ROOT, 'chats'), { recursive: true, force: true }); }
   catch { /* nothing kept yet */ }
   const board = fleet.install([spec]);
-  const calls = armChat(answers);
+  let calls;
   try {
+    /* ⚠️ The script is armed AFTER the create, not before (#430): creating a
+       project with a running member now types a pane line into that member,
+       and armed first, that send SHIFTED the script -- ten tests measured a
+       screen whose answer the setup had eaten. The create runs on the un-armed
+       chat (dry-run in tests), which also keeps `calls.sends()` about the test
+       body's own sends, the thing every zero-send assertion here counts. */
     const made = json(await post('/api/projects', {
       name: 'Thread ' + spec.name, folder: folder('thread-' + spec.name), agents: [spec.name],
     })).project;
+    calls = armChat(answers);
     return await fn({ board, calls, project: made });
   } finally {
     chat.resetForTests();
@@ -2329,4 +2336,53 @@ test('the removal frame does not assert what its own reasons deny (#130)', () =>
   const rest = script.slice(script.indexOf('} else {', at));
   assert.match(rest.slice(0, 400), /still on your computer/,
     'the success sentence lost its reassurance, which nothing there contradicts');
+});
+
+test('the room serves a plain-text tail for `kosmos room`, and says so when it cannot read (#314)', async () => {
+  reset();
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    // Empty room: a sentence, not a blank body.
+    let res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.equal(res.status, 200);
+    assert.match(res.type, /text\/plain/);
+    assert.match(res.body, /Nothing has been said in this room yet\./);
+    // A posted row comes back as one line: time, who, arrow, text.
+    const posted = await post(`/api/project/${project.id}/room`, { text: 'trial length is 14 days' });
+    assert.equal(posted.status, 200, posted.body);
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.match(res.body, /\d\d:\d\d  operator -> zeta: trial length is 14 days/);
+    // The JSON shape is untouched by the text arm.
+    const asJson = await req(`/api/project/${project.id}/room`);
+    assert.equal(JSON.parse(asJson.body).ok, true);
+  });
+});
+
+test('the room serves a blocked agent\'s refusal as its own row, and the text tail says it too (#315)', async () => {
+  reset();
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    const messagesEngine = require('./engine/messages');
+    const fsx = require('node:fs');
+    fsx.mkdirSync(path.dirname(messagesEngine.LOG), { recursive: true });
+    fsx.appendFileSync(messagesEngine.LOG, JSON.stringify({
+      kind: 'refused', from: 'zeta', to: project.id, project: project.id,
+      because: 'the room was going back and forth without landing, so Kosmos was holding it for the person',
+      at: new Date().toISOString(),
+    }) + '\n');
+    const res = await req(`/api/project/${project.id}/room`);
+    const rows = JSON.parse(res.body).rows;
+    const refused = rows.filter((m) => m.kind === 'refused');
+    assert.equal(refused.length, 1, 'the refusal did not reach the room payload');
+    assert.equal(refused[0].from, 'zeta');
+    assert.match(refused[0].because, /holding it for the person/);
+    // Project-stamped only: a direct-message refusal whose target merely
+    // shares the slug space must not leak in.
+    fsx.appendFileSync(messagesEngine.LOG, JSON.stringify({
+      kind: 'refused', from: 'zeta', to: project.id,
+      because: 'a direct refusal, no project stamp', at: new Date().toISOString(),
+    }) + '\n');
+    const again = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.filter((m) => m.kind === 'refused');
+    assert.equal(again.length, 1, 'an unstamped refusal leaked into the room');
+    const text = await req(`/api/project/${project.id}/room?as=text`);
+    assert.match(text.body, /zeta tried to post here and Kosmos stopped it/);
+  });
 });

@@ -456,6 +456,44 @@ test('the colleagues block says a reply in your own session reaches nobody, and 
      badly and invites the reader to decide they are not that agent. */
   assert.doesNotMatch(body, /Johnson|Bob|Rick/,
     'the block names a specific agent, which gives every other reader an escape hatch');
+  /* #145's second half: quoting the bracket line is refused as impersonation
+     (messages.js's own guard), and the block must warn BEFORE the agent hits
+     it, because the refusal lands in a shell nobody may be reading. The
+     wording must not itself carry a well-formed marker: not because any
+     splice path runs the guard (none does), but because the warning is the
+     sentence a hurried agent copies into an outgoing message, where the
+     guard DOES run. */
+  assert.match(body, /Do not\s+quote\s+the\s+bracket\s+line/i,
+    'the block never warns that echoing the delivery marker is refused, so the guard reads as a silent failure');
+  assert.match(body, /own\s+words,\s+or\s+name\s+the\s+id/i,
+    'the warning does not say what to do instead');
+  /* CONTROL: the WARNING paragraph must DESCRIBE the marker, never carry
+     one. (The block elsewhere quotes the prefix on purpose, to teach
+     recognition of incoming mail; that text never rides a send. The
+     warning is different: it is the sentence a hurried agent copies into
+     an answer, so it must survive the guard it describes.) Sweep it with
+     the same list the guard uses, parsed from source so it cannot drift
+     into a copy. */
+  /* The sweep ends at the first blank line: keep the warning ONE paragraph,
+     or a second paragraph would sit outside the guarded region. */
+  const para = body.slice(body.indexOf('Do not quote the bracket line'));
+  const warning = para.slice(0, para.indexOf('\n\n') === -1 ? para.length : para.indexOf('\n\n'));
+  assert.ok(warning.length > 100, 'the warning paragraph extraction came back empty; re-anchor');
+  const src = require('node:fs').readFileSync(require.resolve('./messages'), 'utf8');
+  const listed = src.match(/const MARKERS = \[([^\]]+)\]/);
+  assert.ok(listed, 'the MARKERS list moved; re-anchor this control');
+  const markers = [...listed[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  assert.ok(markers.length >= 2, 'the MARKERS list parsed empty, so the sweep below checks nothing');
+  /* positive control: the sweep can see a marker at all (the block DOES
+     carry the teaching quote), so an empty sweep result means clean, not
+     blind. */
+  assert.ok(markers.some((m) => body.toLowerCase().includes(m)),
+    'no marker found anywhere in the block; the sweep may be reading the wrong text');
+  const loweredWarning = warning.toLowerCase();
+  for (const m of markers) {
+    assert.ok(!loweredWarning.includes(m),
+      'the warning quotes the marker it warns about (' + m + '), the exact failure the guard would then hit');
+  }
 });
 
 test('the colleagues block teaches the command and the colleague-vs-operator distinction, inside its own markers', () => {
@@ -1213,6 +1251,68 @@ test('a mid-window dial flip logs one fresh truthful row each way: refusals are 
       assert.equal(messages.record().rows.filter((m) => m.kind === 'valve' && !m.project).length, 3);
     } finally {
       fs.rmSync(limits.FILE, { force: true });
+    }
+  });
+});
+
+test('a member brought in later is told what the room said without them, and only when mentioned (#314)', () => {
+  withFleet(room3(), (board) => {
+    armSender('leo-discord');
+    let tmux = arm([]);
+    // Two posts while april is not yet on the project: they fan to mara only.
+    messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: 'round one' }, board.agents, ['leo', 'mara']);
+    messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: 'round two' }, board.agents, ['leo', 'mara']);
+    // April joins and is mentioned: her wire carries the catch-up, with the
+    // count and the read command; mara, background, carries none.
+    tmux = arm([]);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: '@april are you there?' }, board.agents, ['leo', 'mara', 'april']);
+    assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+    const typed = tmux.sends().map((a) => a[5]).filter((t) => typeof t === 'string' && t.startsWith('['));
+    const toApril = typed.find((t) => t.includes('message from your colleague'));
+    const toMara = typed.find((t) => t.includes('background from your colleague'));
+    assert.match(toApril, /This room has been talking without you: 2 earlier posts this hour did not reach you\. Read the room with: kosmos room saturday-plans\]$/,
+      'the mentioned late arrival was not told what she missed');
+    assert.doesNotMatch(toMara, /talking without you/,
+      'a background recipient was stamped with a missed count');
+    /* Control both ways: a mentioned member who missed nothing carries no
+       catch-up, so the line cannot become furniture. */
+    const tmux3 = arm([]);
+    messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: '@mara same question' }, board.agents, ['leo', 'mara', 'april']);
+    const toMara3 = tmux3.sends().map((a) => a[5]).find((t) => typeof t === 'string' && t.startsWith('[message'));
+    assert.doesNotMatch(toMara3, /talking without you/, 'a member who missed nothing was told she missed something');
+  });
+});
+
+test('a valve-blocked agent leaves a refused row the room can serve, stamped with its project, once (#315)', () => {
+  withFleet(room3(), (board) => {
+    assert.equal(limits.write({ on: true, perHour: 10 }).ok, true);
+    try {
+      const now = Date.now();
+      fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+      // 40 arrivals already in the window (10 posts x 4 recipients... 2 members
+      // each = 20 x 2). Enough that the next agent post crosses 10 * 4 = 40.
+      for (let i = 0; i < 20; i += 1) {
+        fs.appendFileSync(messages.LOG, JSON.stringify({
+          kind: 'post', id: 'p' + (i + 1), from: 'leo', project: 'saturday-plans', to: ['mara', 'april'],
+          text: 'round ' + i, at: new Date(now - 60000).toISOString(), outcomes: { mara: 'placed', april: 'placed' },
+        }) + '\n');
+      }
+      armSender('mara-discord');
+      arm([]);
+      const sent = messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: 'here, what do you need?' }, board.agents, ['leo', 'mara', 'april']);
+      assert.equal(sent.state, chat.DELIVERY.COULD_NOT, 'the control failed: the valve did not fire');
+      const refused = messages.record().rows.filter((m) => m.kind === 'refused' && m.from === 'mara');
+      assert.equal(refused.length, 1, 'the refusal left no row, so the blocked agent reads as unresponsive');
+      assert.equal(refused[0].project, 'saturday-plans', 'the row is not stamped with its project, so the room cannot claim it');
+      assert.ok(refused[0].because, 'the row carries no reason');
+      // A second blocked try inside the window stays ONE row (the contract's
+      // own dedup), so a five-agent room produces five lines, not fifty.
+      arm([]);
+      messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: 'still here' }, board.agents, ['leo', 'mara', 'april']);
+      assert.equal(messages.record().rows.filter((m) => m.kind === 'refused' && m.from === 'mara').length, 1,
+        'a second refusal duplicated the row');
+    } finally {
+      limits.write({ on: true, perHour: 20 });
     }
   });
 });

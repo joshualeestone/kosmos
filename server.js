@@ -1914,6 +1914,17 @@ const server = http.createServer((req, res) => {
       });
       return;
     }
+    /* The birth record, surfaced (#157, #265): how many agents Kosmos has
+       ever made on this Mac, and how many attempts it refused. Read from the
+       append-only record so the number survives every deletion; best-effort,
+       because a machine check must not fail over its receipt. */
+    try {
+      const births = create.createdLog();
+      checks.made = {
+        agents: births.filter((b) => b && b.outcome === 'created').length,
+        refused: births.filter((b) => b && b.outcome === 'refused').length,
+      };
+    } catch { checks.made = null; }
     sendJson(res, 200, checks);
     return;
   }
@@ -2374,6 +2385,16 @@ const server = http.createServer((req, res) => {
         // send is: a message we would never keep should not cost a roster read.
         const problem = chat.messageProblem(body.text);
         if (problem) { const bad = new Error(problem); bad.status = 400; throw bad; }
+        /* The same impersonation refusal msg and post run. This route kept a
+           reply carrying a delivery marker until #145's review caught it: the
+           colleagues block promises the refusal on every send path, and this
+           was the path that broke the promise.
+           Bare 400, no logged refusal row, deliberately: this route's
+           messageProblem refusal is equally bare (attribution would cost a
+           roster read before refusing), and the block's warning is the
+           compensating control that reaches the agent BEFORE the guard. */
+        const marker = messages.markerProblem(body.text);
+        if (marker) { const bad = new Error(marker); bad.status = 400; throw bad; }
 
         const roster = safeRoster();
         if (roster === null) {
@@ -3711,14 +3732,43 @@ const server = http.createServer((req, res) => {
     try {
       const rec = messages.record();
       const rows = rec.rows
-        .filter((m) => m && (m.kind === 'post' || m.kind === 'valve') && m.project === id)
-        .map((m) => (m.kind === 'post'
+        /* Refused rows too (#315): the valve notice is deduped per room, so
+           without these every agent blocked after the first vanishes silently
+           and reads as unresponsive. The refusal contract already records
+           who and why, once per sender-reason-window; the room just shows it. */
+        .filter((m) => m && ((m.kind === 'post' || m.kind === 'valve') ? m.project === id
+          : (m.kind === 'refused' && m.project === id)))
+        .map((m) => (m.kind === 'refused'
+          ? { kind: 'refused', from: m.from, because: m.because || null, at: m.at }
+          : m.kind === 'post'
           ? { kind: 'post', id: m.id, from: m.from, to: m.to, operator: m.operator === true,
               text: m.text, at: m.at, outcomes: m.outcomes || {},
               ...(m.attachment && typeof m.attachment === 'object' ? { attachment: m.attachment } : {}),
               ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}) }
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
+      /* Plain text on ?as=text, for `kosmos room <id>` (#314): the CLI runs on
+         stock bash 3.2 with no JSON parser, so the server does the shaping.
+         The tail only (last 40), oldest first, one line per row, and the
+         unreadable case says so rather than printing an empty room. */
+      let asText = false;
+      try { asText = new URL(req.url, ROUTING_BASE).searchParams.get('as') === 'text'; } catch { asText = false; }
+      if (asText) {
+        const tail = rows.slice(-40);
+        const lines = tail.map((m) => {
+          const when = m.at ? String(m.at).slice(11, 16) : '--:--';
+          if (m.kind === 'valve') return when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.');
+          if (m.kind === 'refused') return when + '  [kosmos] ' + m.from + ' tried to post here and Kosmos stopped it: ' + (m.because || 'no reason recorded');
+          const who = m.operator ? 'operator' : m.from;
+          return when + '  ' + who + ' -> ' + (Array.isArray(m.to) ? m.to.join(', ') : 'the room') + ': ' + String(m.text || '');
+        });
+        const head = rec.ok === false
+          ? 'We could not read some of this room; what follows may be missing recent posts.\n'
+          : (lines.length ? '' : 'Nothing has been said in this room yet.\n');
+        res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end(head + lines.join('\n') + (lines.length ? '\n' : ''));
+        return;
+      }
       sendJson(res, 200, { ok: rec.ok, rows: withPreviews(rows) });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the room') });

@@ -940,7 +940,48 @@ function installJob(name, opts) {
  * and whether it worked, because a half-made agent is a real state and the
  * operator has to be able to see which half.
  */
+/* ── the birth record (#157) ─────────────────────────────────────────────
+   One append-only line per creation ATTEMPT, refusals included: state (a
+   folder, a plist, a profile) can be deleted by anything, and when it is,
+   "was this agent ever created by Kosmos?" has no answer. An event log is
+   the only thing that answers "did this happen" after the state is gone,
+   which is the question Josh actually asked ("we would at least have a
+   record of the number of agents"). Best-effort by design: a creation must
+   never fail because its receipt could not be written, so the append is
+   swallowed and the outcome still returned. */
+function createdLogFile() { return path.join(SUPPORT_DIR, 'created.jsonl'); }
+function recordBirth(entry) {
+  try {
+    fs.mkdirSync(SUPPORT_DIR, { recursive: true });
+    fs.appendFileSync(createdLogFile(), JSON.stringify(entry) + '\n', 'utf8');
+  } catch { /* the record is a receipt, never a gate */ }
+}
+/* The record, read back: newest last, bad lines skipped rather than one
+   torn write poisoning the whole answer. */
+function createdLog() {
+  let raw;
+  try { raw = fs.readFileSync(createdLogFile(), 'utf8'); } catch { return []; }
+  return raw.split('\n').filter(Boolean).map((line) => {
+    try { return JSON.parse(line); } catch { return null; }
+  }).filter((e) => e && typeof e === 'object');
+}
+
 function createAgent(opts) {
+  const out = createAgentInner(opts);
+  /* The name as typed, because a refusal can be ABOUT the spelling; role and
+     model as asked for, since a refused creation wrote no plist to read them
+     back from. */
+  recordBirth({
+    at: new Date().toISOString(),
+    name: String((opts && opts.name) || '').slice(0, 120),
+    role: String((opts && opts.role) || '').slice(0, 120),
+    model: String((opts && opts.model) || '').slice(0, 120),
+    outcome: (out && out.outcome) || 'unknown',
+    because: (out && out.because) ? String(out.because).slice(0, 300) : null,
+  });
+  return out;
+}
+function createAgentInner(opts) {
   /**
    * ⚠️ TWO NAMES FROM HERE DOWN, and which one goes where is the whole of 6b.
    *
@@ -1731,6 +1772,7 @@ function createAgent(opts) {
 
 module.exports = {
   MODELS,
+  createdLog, createdLogFile,
   /* ⚠️ Exported as the ONE machine-name rule. `slugFor` only lowercases — it
      is a converter, not a gate — so anything asking "is this a name we can
      act on" has to reach this, or it grows a weaker second copy. */

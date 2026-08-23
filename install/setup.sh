@@ -759,6 +759,27 @@ uninstall() {
     fi
     rm -f "$_plist"
   done
+  # 🛑 THE SWEEP THE PLIST LOOP CANNOT DO (#156). The loop above finds one
+  # session per plist -- and anything that removed plists first (an earlier
+  # wipe, a hand cleanup) leaves agents running with nothing left that can
+  # find them. Rick: created by Kosmos, wiped, still running, back on every
+  # board for a week. The sessions themselves carry the complete inventory:
+  # @kosmos_agent naming the session is exactly the ownership proof the loop
+  # already trusts, and it survives every file on disk being deleted. So the
+  # uninstall also asks tmux directly, and kills only sessions that name
+  # THEMSELVES ours -- a user's `tmux new -s notes` carries no option and a
+  # borrowed name fails the equality, the same two gates as above.
+  if [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then
+    "$KOSMOS_HOME/tmux/bin/tmux" list-sessions -F '#{session_name}' 2>/dev/null | while IFS= read -r _sname; do
+      [ -n "$_sname" ] || continue
+      _owner="$("$KOSMOS_HOME/tmux/bin/tmux" show-options -t "=$_sname" -v @kosmos_agent 2>/dev/null)" || _owner=""
+      if [ "$_owner" = "$_sname" ]; then
+        _agents_stopped=yes
+        info "stopping $_sname (a Kosmos agent still running with no background job)"
+        "$KOSMOS_HOME/tmux/bin/tmux" kill-session -t "=$_sname" 2>/dev/null || true
+      fi
+    done
+  fi
   if [ -d "$KOSMOS_HOME" ]; then
     # ⚠️ REFUSE TO DELETE A FOLDER THAT IS NOT A KOSMOS INSTALL. KOSMOS_HOME
     # is overridable by design, and the one catastrophic misuse is pointing
@@ -1699,7 +1720,12 @@ if [ "$APP_MADE" = "yes" ]; then
     # below would still fire on a link to the bundle just written,
     # narrating a stale icon that does not exist. A link is not a stale
     # bundle; it is left exactly as found, silently.
-    if [ -z "${KOSMOS_APP_DIR:-}" ] && [ -d "$HOME/Applications/Kosmos.app" ] && [ ! -L "$HOME/Applications/Kosmos.app" ]; then
+    # ⚠️ COMBINED sandbox gate, not the single var (#226): every other
+    # sandbox-aware line in this file treats EITHER app-dir override as "this
+    # is a harness run", including the two lsregister brackets inside this very
+    # block. A run sandboxed only by KOSMOS_SYS_APP_DIR would otherwise walk in
+    # here and rm the REAL ~/Applications copy during a normal install step.
+    if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}" ] && [ -d "$HOME/Applications/Kosmos.app" ] && [ ! -L "$HOME/Applications/Kosmos.app" ]; then
       _home_apps_phys="$(cd "$HOME/Applications" 2>/dev/null && pwd -P)" || _home_apps_phys=""
       _app_dir_phys="$(cd "$APP_DIR" 2>/dev/null && pwd -P)" || _app_dir_phys=""
       if [ -n "$_home_apps_phys" ] && [ -n "$_app_dir_phys" ] && [ "$_home_apps_phys" != "$_app_dir_phys" ]; then
