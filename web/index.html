@@ -835,6 +835,10 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 .orgmap .face img, .orgmap .hub img { -webkit-user-drag: none; user-drag: none; pointer-events: none; }
 .orgmap .onode.dragging, .orgmap .hub.dragging { cursor: grabbing; z-index: 3; }
 .orgmap .hub { z-index: 1; }
+/* A hovered node's callout must paint over the person's hub, which sits at
+   z-index 1 and was covering the name and title of any agent drawn near it
+   (Josh, 2026-08-23 14:21, screenshot). Above the hub, below a drag. */
+.orgmap .onode:hover, .orgmap .onode:focus-within, .orgmap .onode:focus-visible { z-index: 2; }
 .wires { position: absolute; inset: 0; width: 100%; height: 100%; }
 .hub {
   position: absolute; transform: translate(-50%, -50%);
