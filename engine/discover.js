@@ -224,8 +224,17 @@ function disconnect(name) {
   let profile = {};
   try { profile = store.readProfile(key) || {}; } catch { profile = {}; }
   if (!profile.dir) {
+    /* ⚠️ TWO DIFFERENT REFUSALS, because they send a person to two different
+       places. An agent Kosmos built has a page with a Remove on it. A name we
+       have no record of adding has nothing to undo, and telling somebody it was
+       "made in Kosmos" about an agent they made themselves is a false sentence
+       in the one message meant to explain what happened. */
+    if (create.hasJob(key)) {
+      return { ok: false,
+        because: 'that agent was made in Kosmos, so this is not an undo. Remove it from its own page.' };
+    }
     return { ok: false,
-      because: 'that agent was made in Kosmos, so this is not an undo. Remove it from its own page.' };
+      because: 'we have no record of adding that agent, so there is nothing to undo' };
   }
 
   /* Captured BEFORE the teardown, because whether the file was one Kosmos wrote

@@ -119,10 +119,41 @@ test('after an undo the same agent can be added again', () => {
   assert.equal(store.readProfile('nina').dir, dir);
 });
 
-test('a name that was never connected is refused rather than acted on', () => {
+test('a name that was never connected is refused, and is not called a Kosmos agent', () => {
   const out = discover.disconnect('stranger');
   assert.equal(out.ok, false);
-  assert.match(out.because, /made in Kosmos/i);
+  /* ⚠️ NOT the "made in Kosmos" sentence. That refusal sends somebody to a page
+     this agent does not have, and it asserts something about where their agent
+     came from that nothing here checked. */
+  assert.match(out.because, /no record of adding/i);
+});
+
+test('an agent whose folder is not called what the agent is called can still be undone', () => {
+  /**
+   * 🛑 THE DEFECT THIS EXISTS FOR, SHIPPED IN 0.3.8. The row shows the name out
+   * of the agent's own instructions; Kosmos files the agent under its FOLDER.
+   * For most real agents those differ -- a folder called `claude-bot` holding an
+   * agent that calls itself Splinter -- and Undo, addressed to the displayed
+   * name, refused every one of them.
+   *
+   * 🔑 EVERY FIXTURE HAD THEM EQUAL, which is why nothing saw it: `theirAgent`
+   * writes a folder named for the agent. This one deliberately does not.
+   */
+  const dir = theirAgent('claude-bot', 'You are **Splinter**, the project manager.\n');
+  const added = discover.connect(dir);
+  assert.equal(added.ok, true, added.because);
+  assert.equal(added.name, 'claude-bot', 'the registered name is no longer the folder');
+  assert.equal(added.displayName, 'Splinter', 'the display name is no longer read from the instructions');
+
+  /* The name the row DISPLAYS cannot address it, and must not claim it can. */
+  const wrong = discover.disconnect(added.displayName);
+  assert.equal(wrong.ok, false);
+
+  /* The name the connect ANSWERED with is the one that works, which is why the
+     page stores that rather than what it drew. */
+  const right = discover.disconnect(added.name);
+  assert.equal(right.ok, true, right.because);
+  assert.equal(create.hasJob('claude-bot'), false);
 });
 
 test('a name that could escape its own folder is refused', () => {

@@ -58,11 +58,13 @@ test('the undo control is painted hidden, beside the add button', () => {
   assert.match(act[1], /fr-foundundo/);
 });
 
-test('the row carries the name the undo route is called with', () => {
+test('the row carries the folder it was found in, and the name it drew', () => {
+  /* ⚠️ NEITHER OF THESE IS WHAT UNDO IS ADDRESSED WITH -- see the test at the
+     bottom of this file. The folder is what Add sends; the drawn name is what
+     rebuilds the label afterwards. */
   const { html } = paint(ONE);
-  assert.match(html, /data-found-name="mike"/,
-    'the row records no name, so Undo has nothing to send');
-  assert.match(html, /data-found-dir="[^"]*mike"/);
+  assert.match(html, /data-found-name="mike"/, 'the row records no drawn name, so the label cannot be rebuilt');
+  assert.match(html, /data-found-dir="[^"]*mike"/, 'the row records no folder, so Add has nothing to send');
 });
 
 test('everything the script reaches for on this row is something the row paints', () => {
@@ -84,9 +86,10 @@ test('everything the script reaches for on this row is something the row paints'
   const keys = new Set([...SCRIPT.matchAll(/dataset\.found([A-Za-z]+)/g)]
     .map((m) => 'found-' + m[1][0].toLowerCase() + m[1].slice(1).replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())));
   assert.ok(keys.size >= 2, `only ${keys.size} dataset keys found; the extractor stopped matching`);
-  /* `foundLabel` is written by the success arm rather than painted, so it is the
-     one key that is legitimately absent from the markup. */
-  const missingKeys = [...keys].filter((k) => k !== 'found-label' && !attrs.has(k));
+  /* `foundLabel` and `foundKey` are written by the success arm rather than
+     painted, so they are the keys legitimately absent from the markup. */
+  const WRITTEN = new Set(['found-label', 'found-key']);
+  const missingKeys = [...keys].filter((k) => !WRITTEN.has(k) && !attrs.has(k));
   assert.deepEqual(missingKeys, [], 'the script reads row data the row does not carry: ' + missingKeys.join(', '));
 });
 
@@ -112,4 +115,26 @@ test('the row is painted with an empty status line', () => {
      this file has hit before. */
   const { html } = paint(ONE);
   assert.match(html, /class="fr-foundsaid"[^>]*><\/p>/, 'the status line is painted with words in it');
+});
+
+test('the undo is addressed with the name the server registered, not the one drawn', () => {
+  /**
+   * 🛑 SHIPPED WRONG IN 0.3.8. The row draws the name from the agent's own
+   * instructions ("Splinter") and Kosmos files the agent under its FOLDER
+   * ("claude-bot"). An undo addressed to the drawn name refused every real
+   * agent, with a sentence claiming it was made in Kosmos.
+   *
+   * 🔑 SO THE SOURCE OF THE KEY IS THE ASSERTION, not the value: it must come
+   * out of the connect ANSWER. Read from the script rather than the DOM because
+   * the two halves are in different handlers, and what went wrong was the
+   * relationship between them.
+   */
+  assert.match(SCRIPT, /row\.dataset\.foundKey = out\.name/,
+    'the row no longer stores the name the server answered with');
+  assert.match(SCRIPT, /const name = row && row\.dataset\.foundKey/,
+    'the undo handler no longer reads the registered name');
+  /* ⚠️ AND NO UNDO WITHOUT ONE. An undo that cannot say which agent it means is
+     worse than no undo, because the button is a promise. */
+  assert.match(SCRIPT, /if \(undo && out\.name\)/,
+    'the undo is offered whether or not the answer named the agent');
 });

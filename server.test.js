@@ -9443,7 +9443,7 @@ test('the undo route refuses a name that was never connected', async () => {
   assert.equal(out.status, 400);
   const body = JSON.parse(out.body);
   assert.equal(body.ok, false);
-  assert.match(body.because, /made in Kosmos/i,
+  assert.match(body.because, /no record of adding/i,
     'the refusal did not come from the engine guard, so the route may not be calling it');
 });
 
