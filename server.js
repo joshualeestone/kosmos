@@ -1253,7 +1253,7 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, {
       // The models an agent can be created on, from the engine's own list,
       // so the menu and the flag the job runs with cannot drift.
-      models: create.MODELS.map((m) => ({ key: m.key, label: m.label, default: m.default === true })),
+      models: create.MODELS.map((m) => ({ key: m.key, label: m.label, default: m.default === true, why: m.why || '' })),
       // The third radio's prefill, served whole so the screen and the
       // engine cannot hold two versions of the example. No label field:
       // that is the person's own words, gated at create.

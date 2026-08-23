@@ -65,11 +65,18 @@ const roles = require('./roles');
  * choice and the preselected one must not behave differently, or the menu
  * lies about what changing it does.
  */
+// `why`: one line a business person can choose by, shown under the picker on
+// the create form and the agent's Model tab (#405). Relative to each other,
+// which is the only comparison a person making this choice has.
 const MODELS = [
-  { key: 'fable', label: 'Claude Fable 5', arg: 'claude-fable-5' },
-  { key: 'opus', label: 'Claude Opus 5', arg: 'claude-opus-5' },
-  { key: 'sonnet', label: 'Claude Sonnet 5', arg: 'claude-sonnet-5', default: true },
-  { key: 'haiku', label: 'Claude Haiku 4.5', arg: 'claude-haiku-4-5-20251001' },
+  { key: 'fable', label: 'Claude Fable 5', arg: 'claude-fable-5',
+    why: 'The most capable, and the most expensive to run. For work where being right matters more than being quick.' },
+  { key: 'opus', label: 'Claude Opus 5', arg: 'claude-opus-5',
+    why: 'Slower, and it holds more of a long job in its head.' },
+  { key: 'sonnet', label: 'Claude Sonnet 5', arg: 'claude-sonnet-5', default: true,
+    why: 'The everyday choice. Quick, and good at most work.' },
+  { key: 'haiku', label: 'Claude Haiku 4.5', arg: 'claude-haiku-4-5-20251001',
+    why: 'The quickest and the cheapest. For small, simple jobs done often.' },
 ];
 // ⚠️ The ROSTER, from the module that defines what an agent name is. A second
 // reading of tmux here would be a second definition of "who is already

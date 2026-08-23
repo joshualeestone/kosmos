@@ -3821,6 +3821,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
             <select id="d-model" aria-label="Model this agent runs on"></select>
             <button class="btn" type="button" id="d-model-go" disabled>Change &amp; Restart</button>
           </div>
+          <p class="dhint" id="d-model-why" style="margin:8px 0 0;" hidden></p>
           <p class="dhint" id="d-model-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
         </div>
       </div>
@@ -4844,6 +4845,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
             <div class="frow">
               <select id="create-model" aria-label="Model"></select>
             </div>
+            <p class="dhint" id="create-model-why" style="margin:8px 0 0;" hidden></p>
           </div>
         </div>
       </div>
@@ -14207,6 +14209,17 @@ let CREATE_MODELS = [];    // the engine's model list, from the same payload
  * for a thing. Not preselecting removes the question instead of answering it
  * badly.
  */
+/* The one line under a model picker (#405): the engine's `why` for whatever is
+   selected, nothing when nothing is. Same rule on the create form and the
+   agent's Model tab, so the two pickers cannot describe one model differently. */
+function paintModelWhy(selId, whyId) {
+  const sel = document.getElementById(selId);
+  const out = document.getElementById(whyId);
+  if (!sel || !out) return;
+  const m = CREATE_MODELS.find((x) => x.key === sel.value);
+  out.textContent = (m && m.why) || '';
+  out.hidden = !out.textContent;
+}
 async function paintModelPicker(a) {
   const sel = document.getElementById('d-model');
   const go = document.getElementById('d-model-go');
@@ -14222,6 +14235,7 @@ async function paintModelPicker(a) {
     CREATE_MODELS.map((m) => '<option value="' + esc(m.key) + '">' + esc(m.label) + '</option>'),
   ).join('');
   if (sel.innerHTML !== html) sel.innerHTML = html;
+  paintModelWhy('d-model', 'd-model-why');
   /* ⚠️ Only for agents this app started. Anything else has a job we did not
      write and cannot rewrite, and the engine refuses it — so the control says so
      by being unavailable rather than by failing after a click. */
@@ -14494,7 +14508,9 @@ document.getElementById('d-clear-go').addEventListener('click', () => {
 document.getElementById('d-model').addEventListener('change', (e) => {
   const go = document.getElementById('d-model-go');
   if (go) go.disabled = !e.target.value;
+  paintModelWhy('d-model', 'd-model-why');
 });
+document.getElementById('create-model').addEventListener('change', () => paintModelWhy('create-model', 'create-model-why'));
 
 async function changeModelNow(say) {
   if (!CURRENT) return;
@@ -15275,6 +15291,7 @@ async function loadCreateExtras() {
   const models = CREATE_MODELS;
   sel.innerHTML = models.map((m) =>
     `<option value="${esc(m.key)}"${m.default ? ' selected' : ''}>${esc(m.label)}</option>`).join('');
+  paintModelWhy('create-model', 'create-model-why');
 
   /* The Claude accounts, from the engine rather than a guess, and ONLY the ones
      an agent's history would follow. An account with its own separate tree is

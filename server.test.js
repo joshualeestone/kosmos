@@ -2541,9 +2541,11 @@ test('the roles payload serves the models list, and the mark family map is whole
     // key/label/default ONLY: the payload deliberately does not carry the
     // model args -- the client sends a key and the engine owns the mapping,
     // so a page can never name the executable-facing id itself.
-    assert.deepEqual(Object.keys(m).sort(), ['default', 'key', 'label'],
+    // (`why` joined in #405: the one line under the picker. Copy, not an id.)
+    assert.deepEqual(Object.keys(m).sort(), ['default', 'key', 'label', 'why'],
       `model ${m.key} serves fields the screen must not receive`);
     assert.equal(typeof m.label, 'string');
+    assert.ok(typeof m.why === 'string' && m.why.length > 0, `model ${m.key} has no line to choose it by`);
   }
   // The full model ids live in the ENGINE list the route maps from.
   const engineModels = require('./engine/create').MODELS;
