@@ -77,3 +77,23 @@ test('the stale sentence names the edits rather than pointing at nothing (#212)'
     'the dates stopped being conditional, so the stand-alone concern is stale');
   assert.match(stale, /Running on older instructions/, 'the heading the sentence stands under is gone');
 });
+
+test('the reports-to control says what the line does, and the save line is read from the route, never inferred (#336)', () => {
+  /* The old hint, "Only used to draw your org chart. Leave it blank if it does
+     not apply", was wrong twice: blank means reporting to the person (Josh,
+     2026-08-23 09:55), and "only used to draw" expired the day the line was
+     written into the agent's file. */
+  // Comments stripped: the comment beside the hint quotes the old sentence on purpose.
+  const words = PAGE.replace(/<!--[\s\S]*?-->/g, '');
+  assert.ok(!/Only used to draw your org chart/.test(words), 'the expired capability claim is back');
+  assert.ok(!/Leave it blank if it does not apply/.test(words), '"blank means does not apply" is back; blank means you');
+  assert.match(words, /Who they report their work to\. Until you pick somebody, that is you\./, 'the hint lost its two facts');
+  /* The save handler reads the route's verdict. Running + told says restart;
+     stopped + told says nothing beyond Saved (it reads the file at start);
+     could_not carries the engine's sentence. */
+  const handler = SCRIPT.slice(SCRIPT.indexOf("document.getElementById('d-save').addEventListener"), SCRIPT.indexOf("document.getElementById('d-save').addEventListener") + 6000);
+  assert.match(handler, /const rep = saved && saved\.reports;/, 'the save line no longer reads the route verdict');
+  assert.match(handler, /Takes effect when it next starts\. It is running now on what it read at boot\./, 'the restart sentence is gone');
+  assert.match(handler, /rep\.state === 'told'[\s\S]{0,200}running\s*\?/, 'told is not gated on running, so a stopped agent is told to restart');
+  assert.match(handler, /rep\.state === 'could_not'[\s\S]{0,120}rep\.because/, 'could_not no longer carries the engine sentence');
+});

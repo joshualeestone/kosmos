@@ -1580,9 +1580,26 @@ test('custom instructions are written verbatim with a trailing newline, and the 
   const text = fs.readFileSync(create.instructionFile('own-words'), 'utf8');
   // ⚠️ Verbatim means no {{NAME}} substitution: these are the person's own
   // words, and rewriting any part of them is the drift rule broken at birth.
-  assert.equal(text, mine + '\n');
+  // 🔑 WHAT VERBATIM HAS ALWAYS MEANT HERE: the words are untouched and no
+  // TEACHING text is added (the role template, the operating defaults, the
+  // colleagues lesson). Managed RECORD blocks are different: the about-you
+  // block has spliced into a person's own words at birth since it existed
+  // (it sits before the role-only gate in create.js), and this test only
+  // ever passed because no About-you record is saved in this sandbox. The
+  // reports-to block (#336) is the same kind of thing and is always present,
+  // so it is stripped here and the person's words are checked byte for byte
+  // around it. A block keyed on the role would have skipped exactly this
+  // agent, which is the hole #333 closed.
+  const projects = require('./projects');
+  const reports = require('./reports');
+  const found = projects.findBlock(text, reports.START, reports.END);
+  assert.ok(found && !found.ambiguous, 'the person\'s own agent did not get the reports-to block at birth');
+  const without = projects.removeBlock(text, reports.START, reports.END);
+  assert.equal(without, mine + '\n', 'something other than a managed record block was added to the person\'s words');
   assert.ok(!text.includes('project manager'),
     'the role template leaked into instructions the person replaced');
+  assert.ok(!text.includes('How you work, whatever the job'),
+    'the operating defaults were appended to words the person wrote without them');
 });
 
 /**
@@ -1909,6 +1926,93 @@ test('an agent made onto a project is born with the block, so the later sync wri
   const seen = instructions.read('born-off');
   instructions.write('born-off', seen.text + '\nOne more line from the person.\n', seen.version, undefined, { who: 'person', because: null });
   assert.deepEqual(instructions.wroteBy('born-off', fs.statSync(file2).mtimeMs), { who: 'person', because: null });
+});
+
+test('every agent is born knowing who it reports to, identically on both paths, and the file follows the record (#336)', () => {
+  /**
+   * 🛑 The record carried reportsTo and role since the org chart shipped and
+   * every screen read them; the agent never did. Josh, 2026-08-23 09:47.
+   *
+   * Three things pinned, each the thing that would rot silently:
+   *  1. KEYED ON THE AGENT: an agent described in the person's own words gets
+   *     the block identically to one off the menu. `own` had no role content
+   *     and went without the #122 block for as long as the product existed.
+   *  2. ALWAYS PRESENT, NAMING THE PERSON: unassigned means reporting to the
+   *     person (Josh 09:55), so the block is there before anybody assigns
+   *     anything, by the About-you name, and is rewritten rather than removed.
+   *  3. THE FILE FOLLOWS THE RECORD: a profile save that moves reportsTo
+   *     rewrites the block and says who wrote it; a save that moves nothing
+   *     writes nothing.
+   */
+  const projects = require('./projects');
+  const reports = require('./reports');
+  const instructions = require('./instructions');
+  const you = require('./you');
+  recorder();
+  create.setDryRun(false);
+  you.save({ name: 'Josh', does: 'Runs a company that builds AI tools' });
+  try {
+    const blockOf = (name) => {
+      const text = fs.readFileSync(create.instructionFile(name), 'utf8');
+      const at = projects.findBlock(text, reports.START, reports.END);
+      assert.ok(at && !at.ambiguous, `${name} has no reports-to block`);
+      return text.slice(at.start, at.end);
+    };
+    // 1 + 2: menu and own-words, no manager: identical blocks naming the person.
+    // Same label both ways, so the only difference between the two agents is
+    // the path they were made by.
+    const menu = create.createAgent({ ...BINS, name: 'rep-menu', role: 'writer', label: 'Business Writer' });
+    assert.equal(menu.outcome, create.OUTCOME.CREATED, menu.because);
+    const own = create.createAgent({ ...BINS, name: 'rep-own', role: 'own', label: 'Business Writer',
+      instructions: 'You are **rep-own**, in my own words.\n\nDo the thing.' });
+    assert.equal(own.outcome, create.OUTCOME.CREATED, own.because);
+    assert.equal(blockOf('rep-menu'), blockOf('rep-own'), 'the self-described agent got a different block from the menu one');
+    assert.match(blockOf('rep-menu'), /You report to \*\*Josh\*\* directly/, 'the default does not name the person');
+    assert.match(blockOf('rep-menu'), /Kosmos lists you as \*\*Business Writer\*\*/, 'the title is missing');
+    assert.doesNotMatch(blockOf('rep-menu'), /nobody/i, 'there is no nobody');
+
+    // A manager picked at creation is named at birth, by display name.
+    store.writeProfile('rep-menu', { displayName: 'Mara' });
+    const under = create.createAgent({ ...BINS, name: 'rep-under', role: 'writer', reportsTo: 'rep-menu' });
+    assert.equal(under.outcome, create.OUTCOME.CREATED, under.because);
+    assert.match(blockOf('rep-under'), /You report to \*\*Mara\*\*\./, 'the manager is not named at birth');
+    assert.match(blockOf('rep-under'), /the person wins/, 'the who-wins sentence is missing');
+
+    // 3: the file follows the record, and says who wrote it.
+    const roster = (() => {
+      const board = fleet.install([fleet.agent('rep-own', { state: 'working' }), fleet.agent('rep-menu', { state: 'working' })]);
+      try { return board.agents; } finally { board.restore(); }
+    })();
+    const before = fs.readFileSync(create.instructionFile('rep-own'), 'utf8');
+    const same = reports.tellAgent('rep-own', roster);
+    assert.equal(same.state, projects.TOLD.TOLD, same.because);
+    assert.equal(fs.readFileSync(create.instructionFile('rep-own'), 'utf8'), before, 'a sync with nothing changed rewrote the file');
+    store.writeProfile('rep-own', { reportsTo: 'rep-menu' });
+    const moved = reports.tellAgent('rep-own', roster);
+    assert.equal(moved.state, projects.TOLD.TOLD, moved.because);
+    assert.match(blockOf('rep-own'), /You report to \*\*Mara\*\*\./, 'the record moved and the file did not');
+    assert.doesNotMatch(blockOf('rep-own'), /directly/, 'the old default sentence survived the rewrite');
+    const rec = store.readProfile('rep-own').instructionsWrite;
+    assert.ok(rec && rec.who === 'kosmos' && /report to Mara/.test(rec.because), 'the stale marker would blame the person for a change Kosmos made');
+    // And the person's own words are still there, untouched, around it.
+    assert.match(fs.readFileSync(create.instructionFile('rep-own'), 'utf8'), /in my own words\.\n\nDo the thing\./);
+
+    // Back to the person: rewritten to the default form, never removed.
+    store.writeProfile('rep-own', { reportsTo: null });
+    assert.equal(reports.tellAgent('rep-own', roster).state, projects.TOLD.TOLD);
+    assert.match(blockOf('rep-own'), /You report to \*\*Josh\*\* directly/, 'clearing the manager removed the block instead of naming the person');
+
+    // The manager's rename reaches the files that name it.
+    store.writeProfile('rep-own', { reportsTo: 'rep-menu' });
+    reports.tellAgent('rep-own', roster);
+    store.writeProfile('rep-menu', { displayName: 'Scarlet' });
+    const told = reports.syncReportsTo('rep-menu', roster);
+    assert.ok(told.some((t) => t.agent === 'rep-own' && t.state === projects.TOLD.TOLD), 'the report did not learn the new name');
+    assert.match(blockOf('rep-own'), /You report to \*\*Scarlet\*\*\./);
+    assert.ok(instructions.read('rep-own').text.includes(reports.START), 'control: the block is still a managed block');
+  } finally {
+    fs.rmSync(you.FILE, { force: true });
+  }
 });
 
 test('a saved About-you record rides the boot file from birth, and its absence costs nothing', () => {

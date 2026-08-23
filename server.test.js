@@ -9253,6 +9253,43 @@ test('the profile route stores a reporting line, clears it, and refuses a self-l
     assert.match(JSON.parse(loop.body).error, /cannot report to itself/);
     assert.equal(store.readProfile('angel').reportsTo, null, 'the refused loop was stored anyway');
 
+    /* 🛑 AND THE LONGER LOOP (#336, Angel's note from the mock): A under B
+       under A, at any distance, refused in a sentence that names the loop.
+       Walked on the records, so it holds for agents that are not running. */
+    store.writeProfile('someone-else', { reportsTo: 'angel' });
+    const ring = await req('/api/agent/angel/profile', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reportsTo: 'someone-else' }),
+    });
+    assert.equal(ring.status, 400, 'a two-step loop was accepted');
+    assert.match(JSON.parse(ring.body).error, /loop/);
+    assert.equal(store.readProfile('angel').reportsTo, null, 'the refused ring was stored anyway');
+    store.writeProfile('someone-else', { reportsTo: null });
+
+    /* The file half (#336): a save that moves reportsTo answers with the
+       verdict of telling the agent, so the screen can say a restart is needed
+       rather than infer it. Whatever the verdict here (this fixture's agent
+       may not be one the roster can name as ours), it is CARRIED, in the
+       projects.TOLD vocabulary, and a save that moves neither field carries
+       none. */
+    const moved = await req('/api/agent/angel/profile', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reportsTo: 'someone-else' }),
+    });
+    assert.equal(moved.status, 200);
+    const verdict = JSON.parse(moved.body).reports;
+    assert.ok(verdict && ['told', 'could_not'].includes(verdict.state), 'the save did not carry the tell verdict');
+    const still = await req('/api/agent/angel/profile', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ displayName: 'Angel' }),
+    });
+    assert.equal(still.status, 200);
+    assert.equal(JSON.parse(still.body).reports, undefined, 'a save that moved nothing reports a tell');
+    await req('/api/agent/angel/profile', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reportsTo: '' }),
+    });
+
     /* ⚠️ AND A SAVE THAT DOES NOT MENTION IT MUST NOT ERASE IT. The screen
        sends role and displayName on every Save; if an absent key were read as
        "clear", editing a role would silently drop somebody's reporting line. */
