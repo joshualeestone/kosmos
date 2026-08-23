@@ -192,4 +192,96 @@ function connect(dir) {
   return { ok: true, name, displayName: id.displayName, dir: given, started: job.started === true };
 }
 
-module.exports = { found, connect };
+/**
+ * Undo a connect.
+ *
+ * 🛑 IT REFUSES ANYTHING KOSMOS MADE ITSELF, and that guard is the whole reason
+ * this is a separate verb. "Undo" on a row somebody just pressed and "remove the
+ * agent I built here" are the same machine operation and completely different
+ * acts, and the only thing telling them apart is whether the agent's folder was
+ * recorded -- which only a connect does.
+ *
+ * 🔑 THE TEARDOWN IS `removal.remove`, NOT A COPY OF IT. That path already boots
+ * the job out in the right order, refuses to kill a session it cannot prove is
+ * ours, re-checks that the session really went, and never touches the folder.
+ * Six of the defects this codebase has paid for were a second copy of a guarded
+ * sequence with fewer guards; this is not going to be the seventh.
+ *
+ * ⚠️ WHAT IT LEAVES BEHIND, said rather than discovered: the agent lands on the
+ * removed list, because that is what `remove` records. For an undone misclick
+ * that is slightly more ceremony than the act deserved, and it is the honest
+ * trade against reimplementing the teardown. Their folder, their instructions
+ * and anything they had running before are untouched.
+ */
+function disconnect(name) {
+  const create = require('./create');
+  const store = require('./store');
+  const removal = require('./remove');
+
+  const key = String(name == null ? '' : name);
+  if (!create.nameUsable(key)) return { ok: false, because: 'that is not an agent we can act on' };
+
+  let profile = {};
+  try { profile = store.readProfile(key) || {}; } catch { profile = {}; }
+  if (!profile.dir) {
+    return { ok: false,
+      because: 'that agent was made in Kosmos, so this is not an undo. Remove it from its own page.' };
+  }
+
+  /* Captured BEFORE the teardown, because whether the file was one Kosmos wrote
+     is the thing that decides if this may delete it. */
+  let job = null;
+  try { job = removal.jobFor(key); } catch { job = null; }
+
+  let out;
+  try { out = removal.remove(key); }
+  catch { return { ok: false, because: 'we could not undo that' }; }
+  if (out && out.outcome === removal.OUTCOME.REFUSED) {
+    return { ok: false, because: out.because || 'we could not undo that' };
+  }
+  const stopped = !(out && out.outcome === removal.OUTCOME.PARTIAL);
+
+  /* 🛑 AND THE JOB FILE GOES, which `remove` deliberately leaves behind (its
+     Restore button re-enables that label, so it needs the file). An undo has no
+     Restore: the person is putting the machine back the way it was, and before
+     the add there was no file. Leaving it would make the row un-re-addable --
+     `connect` refuses a name that already has a job, so the next press would
+     answer "Kosmos already looks after an agent by that name" about an agent
+     they had just taken away.
+     ⚠️ ONLY WHEN THE TEARDOWN FULLY LANDED, and only a file we wrote. Deleting
+     the plist out from under a job launchd still has loaded leaves a live job
+     with nothing on disk to disable, which is worse than the state it fixes. */
+  if (stopped && job && job.ours && job.plist) {
+    try { fs.rmSync(job.plist, { force: true }); } catch { /* best effort: the record and the profile are what matter */ }
+  }
+
+  /* 🛑 AND THE REMOVAL RECORD GOES TOO. `remove` files one, and the board hides
+     every name on that list -- so without this, pressing Undo and then Add again
+     succeeds at every step and produces no agent. Not `restore`, which would put
+     back the launch job this just took away on purpose. */
+  const cleared = removal.forget(key);
+
+  /* ⚠️ THE FOLDER RECORD IS CLEARED LAST, and only after the job is gone.
+     Clearing it first would leave `workerDir` pointing at the derived folder
+     while a live launch job still names theirs -- an agent whose files and whose
+     job disagree about where it lives. */
+  try { store.writeProfile(key, { dir: null }); }
+  catch { return { ok: false, because: 'we undid it, but could not forget where it lived' }; }
+
+  const partial = !stopped || !cleared;
+  return {
+    ok: true,
+    name: key,
+    partial,
+    /* Says which half fell short rather than one sentence for both: a session we
+       could not stop and a list we could not edit need different actions. */
+    because: !cleared
+      ? 'we undid it, but could not take it off the removed list, so it may stay hidden'
+      : (out && out.because) || '',
+    /* Carried, not dropped: a dry run must not reach a screen looking like work.
+       See `markDryRun` in the removal engine. */
+    dryRun: out && out.dryRun === true,
+  };
+}
+
+module.exports = { found, connect, disconnect };

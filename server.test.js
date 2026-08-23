@@ -9385,3 +9385,87 @@ test('somebody who already has agents is never told they have none', () => {
     'CONTROL: this arm is expected to fall through to the empty state today; '
     + 'if that changes, this assertion is the record of what it used to do');
 });
+
+test('a found row shows its folder only when the name alone cannot tell it apart', () => {
+  /**
+   * 🛑 JOSH ASKED FOR THE PATH GONE (2026-08-22) and he is right about the
+   * machine he was looking at: every agent has its own name there, so the folder
+   * under each one is a line of noise.
+   *
+   * ⚠️ IT CANNOT GO UNCONDITIONALLY. Two folders can hold agents with the same
+   * name, and with the path removed those rows are identical -- a person
+   * choosing between two things that look the same, on the screen whose whole
+   * job is telling them what is on their Mac. Same rule the project room's
+   * receipt already follows: drop it when it is not the story, keep it when it
+   * is.
+   */
+  const one = firstRunHarness('frPaintFound', {
+    FR: { path: 'create', fleetCount: 0 },
+    FR_FOUND: { ok: true, agents: [
+      { dir: '/w/mike', name: 'Mike', role: 'copywriter' },
+      { dir: '/w/rosie', name: 'Rosie', role: 'analyst' },
+    ] },
+  });
+  const plain = one.els['fr-fleet'].innerHTML;
+  assert.doesNotMatch(plain, /fr-founddir/, 'the folder is still drawn under every row');
+  assert.match(plain, /Mike/);
+
+  const two = firstRunHarness('frPaintFound', {
+    FR: { path: 'create', fleetCount: 0 },
+    FR_FOUND: { ok: true, agents: [
+      { dir: '/work/a/mike', name: 'Mike', role: 'copywriter' },
+      { dir: '/work/b/mike', name: 'Mike', role: 'copywriter' },
+    ] },
+  });
+  const clash = two.els['fr-fleet'].innerHTML;
+  assert.match(clash, /\/work\/a\/mike/, 'two agents called Mike are drawn identically');
+  assert.match(clash, /\/work\/b\/mike/);
+});
+
+test('the undo route refuses a name that was never connected', async () => {
+  /**
+   * 🛑 THE ROUTE'S JOB IS TO REACH THE GUARD, and that is all this can safely
+   * check from here: the engine refuses any agent whose folder Kosmos created,
+   * and everything this server can see on the machine running the suite is one
+   * of those. A test that got an OK back would be a test that had just
+   * dismantled somebody's agent.
+   *
+   * ⚠️ SO IT ASSERTS THE REFUSAL ARRIVED THROUGH THE ENGINE, not merely that the
+   * status was 400. A route that answered 400 by never calling anything would
+   * pass a status check, and the failure it would be hiding -- Undo does nothing
+   * -- looks identical from the browser.
+   */
+  const out = await req('/api/disconnect-agent', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'nobody-has-an-agent-by-this-name' }),
+  });
+  assert.equal(out.status, 400);
+  const body = JSON.parse(out.body);
+  assert.equal(body.ok, false);
+  assert.match(body.because, /made in Kosmos/i,
+    'the refusal did not come from the engine guard, so the route may not be calling it');
+});
+
+test('the undo route answers a body it cannot read rather than throwing', async () => {
+  const out = await req('/api/disconnect-agent', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{ not json',
+  });
+  assert.equal(out.status, 400);
+  assert.match(JSON.parse(out.body).because, /could not read/i);
+});
+
+test('a name that could escape its folder is refused by the undo route', async () => {
+  /* The route interpolates nothing itself, but the engine below it names paths
+     from this string, and every write route here is asked this question. */
+  for (const bad of ['../elsewhere', 'a/b']) {
+    const out = await req('/api/disconnect-agent', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: bad }),
+    });
+    assert.equal(out.status, 400, `${bad} was accepted`);
+  }
+});

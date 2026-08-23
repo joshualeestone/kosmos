@@ -1688,6 +1688,30 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* Undoing one of those adds. Deliberately a sibling of connect rather than a
+     branch of the removal API: what it is allowed to touch is narrower (an agent
+     whose folder Kosmos did not create), and the engine is where that is
+     enforced. Covered by the same cross-site write guard as every POST here. */
+  if (pathname === '/api/disconnect-agent' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
+        let out;
+        try { out = discover.disconnect(body.name); }
+        catch (err) {
+          sendJson(res, 200, { ok: false,
+            because: 'we could not undo that',
+            detail: String((err && err.message) || err) });
+          return;
+        }
+        sendJson(res, out.ok ? 200 : 400, out);
+      })
+      .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
+    return;
+  }
+
   if (pathname === '/api/first-run' && (req.method === 'GET' || req.method === 'HEAD')) {
     let state;
     try { state = firstrun.state(); }
