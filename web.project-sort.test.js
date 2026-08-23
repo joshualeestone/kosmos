@@ -96,7 +96,10 @@ test('the control sits in the projects statsrow between the counts and the view 
   assert.deepEqual(options, [['newest', 'Newest first'], ['oldest', 'Oldest first'], ['az', 'Name A to Z'], ['za', 'Name Z to A']],
     'the option text or order moved; the card rules these exact words');
   assert.match(html, /<select id="pj-sort" aria-label="Sort projects">/, 'the select lost its accessible name');
-  assert.match(html, /<label class="sortctl" for="pj-sort"><span class="slab">Sort<\/span>/, 'the visible Sort label is gone');
+  // Josh, 2026-08-23: no visible "Sort" word; the control reads as what it is
+  // sorted by, with a chevron. The accessible name above carries the verb.
+  assert.doesNotMatch(html, /<span class="slab">Sort<\/span>/, 'the visible Sort word came back');
+  assert.match(html, /<label class="sortctl" for="pj-sort">[\s\S]{0,600}<svg class="sortctl-i"/, 'the chevron beside the sort control is missing');
   // Never disabled by markup; it stays enabled at zero projects on purpose.
   assert.doesNotMatch(html, /id="pj-sort"[^>]*disabled/, 'the select ships disabled');
 });

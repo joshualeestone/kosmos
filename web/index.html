@@ -960,9 +960,17 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 /* The projects row's right cell holds the sort and the toggle as one unit
    (#168). The toggle keeps its own rule above for the board's statsrow. */
 .statsrow > .viewctl { justify-self: end; display: inline-flex; align-items: center; gap: 12px; }
-.sortctl { display: inline-flex; align-items: center; gap: 6px; }
-.sortctl select { font: inherit; font-size: .8125rem; color: var(--k-ink); background: var(--k-surface);
-  border: 0.5px solid var(--separator); border-radius: 8px; padding: 5px 8px; }
+/* The sort control is drawn as the toggle's sibling: same height, border,
+   radius and ground, its own chevron (the browser's arrow differs per OS and
+   sits at the wrong weight). The select stays a select. */
+.sortctl { position: relative; display: inline-flex; align-items: center; color: var(--label-2); }
+.sortctl select { appearance: none; -webkit-appearance: none; font: inherit; font-size: .8125rem;
+  color: var(--label); background: var(--bg-elevated); border: 0.5px solid var(--separator);
+  border-radius: var(--radius-control); height: 32px; box-sizing: border-box; padding: 0 28px 0 12px;
+  cursor: pointer; }
+.sortctl select:hover { color: var(--label); border-color: var(--label-2); }
+.sortctl select:focus-visible { outline: 2px solid var(--label); outline-offset: -2px; }
+.sortctl-i { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; }
 .stats { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .stat { display: flex; align-items: center; gap: 9px;
         border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface);
@@ -5097,13 +5105,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            the row's shape does not depend on a count. Room stays to the right
            of the toggle for #137's third view. -->
       <div class="viewctl">
-        <label class="sortctl" for="pj-sort"><span class="slab">Sort</span>
+        <!-- No visible "Sort" word (Josh, 2026-08-23): the control reads as
+             what it is sorted by, with a chevron, at the toggle's height. The
+             accessible name still says sort. -->
+        <label class="sortctl" for="pj-sort">
           <select id="pj-sort" aria-label="Sort projects">
             <option value="newest">Newest first</option>
             <option value="oldest">Oldest first</option>
             <option value="az">Name A to Z</option>
             <option value="za">Name Z to A</option>
           </select>
+          <svg class="sortctl-i" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </label>
       <div class="viewtoggle" role="group" aria-label="How to show projects" data-scope="projects">
         <button class="vt on" type="button" data-layout="grid" aria-pressed="true" aria-label="Show projects as a grid" title="Show projects as a grid">
