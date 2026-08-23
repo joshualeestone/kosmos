@@ -35,6 +35,8 @@ const EXCUSED = {
   setInstalledRoot: 'test seam (update root)',
   setAutoPref: 'test seam (auto-update preference file)',
   projectsFor: 'superseded reader: list()/get() carry the same join; kept for its tests until they migrate (#265 sweep)',
+  currentChildPid: 'test seam: reads the tunnel supervisor child pid to assert its lifetime deterministically',
+  setRelay: 'engine/remote.js: dormant until the Kosmos-team Settings surface wires the self-host relay field; validated here so garbage is refused at set time. Its siblings (setOn, status, ...) escape this sweep only because their names collide with words in other files; setRelay is unique, so it is named here rather than passing by luck.',
 };
 
 const engineDir = path.join(__dirname, 'engine');
