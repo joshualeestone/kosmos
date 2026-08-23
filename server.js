@@ -1515,6 +1515,28 @@ const server = http.createServer((req, res) => {
    * restarts or it does not, and a body would invite a caller to pass a name
    * that disagrees with the path.
    */
+  /* Compact and clear (#214): the two Memory controls that had no engine.
+     Each types one Claude Code slash command into the agent's pane and
+     submits it, through the same delivery as a message: no envelope and no
+     operator line (Angel's note: "[message from your operator] /compact" is
+     not a command Claude runs), and the pane has to be idle-shaped, so a
+     busy agent answers could_not with a sentence, which is right here too:
+     compacting mid-task is worse than waiting. Nothing is recorded in any
+     thread; these are not messages, and a row reading "/clear" would be a
+     lie about what the person said. The verdict is the answer. */
+  const ctx = pathname.match(/^\/api\/agent\/([^/]+)\/(compact|clear)$/);
+  if (ctx && req.method === 'POST') {
+    const name = decodeSegment(ctx[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    const command = '/' + ctx[2];
+    let delivery;
+    try { delivery = chat.deliver(name, command, safeRoster(), undefined, undefined); }
+    catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
+    sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { command: ctx[2], delivery });
+    return;
+  }
+
   const rst = pathname.match(/^\/api\/agent\/([^/]+)\/restart$/);
   if (rst && req.method === 'POST') {
     const name = decodeSegment(rst[1]);
