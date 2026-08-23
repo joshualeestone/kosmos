@@ -1156,6 +1156,33 @@ if [ "$_osmajor" -lt "$MACOS_FLOOR_MAJOR" ] || { [ "$_osmajor" -eq "$MACOS_FLOOR
   die "Kosmos needs macOS $MACOS_FLOOR_MAJOR.$MACOS_FLOOR_MINOR or newer. This Mac is on $_osver. Updating macOS in System Settings gets you there."
 fi
 info "macOS $_osver on $ARCH"
+
+# ⚠️ CLAUDE CODE IS GATED HERE, IN A SENTENCE, NOT DISCOVERED BY AN AGENT
+# THAT NEVER STARTS (#133). Kosmos starts every agent with the absolute
+# path ~/.local/bin/claude (engine/create.js binPaths; a fresh Mac does
+# not carry that folder on PATH, so `which claude` answers no on machines
+# where it IS installed -- the check must ask the path the product asks).
+# Three states, three different sentences, because two of them look
+# identical from a Terminal and need opposite things:
+#   at the path Kosmos uses            -> proceed
+#   installed, but somewhere else      -> name where, and the one-line link
+#   genuinely absent                   -> name the install step
+# Extracted as a function so the test runs the shipped code, like the
+# tmux picker.
+check_claude_code() {
+  _claude_bin="${AGENT_WORKFORCE_CLAUDE_BIN:-$HOME/.local/bin/claude}"
+  if [ -x "$_claude_bin" ]; then
+    info "Claude Code found at $_claude_bin"
+    return 0
+  fi
+  _claude_elsewhere="$(command -v claude 2>/dev/null || true)"
+  if [ -n "$_claude_elsewhere" ]; then
+    die "Claude Code is installed at $_claude_elsewhere, but Kosmos starts agents from $_claude_bin and there is nothing there. Link it and run this again:
+  mkdir -p \"\$(dirname \"$_claude_bin\")\" && ln -s \"$_claude_elsewhere\" \"$_claude_bin\""
+  fi
+  die "Kosmos needs Claude Code and this Mac does not have it. Install it first (https://claude.com/claude-code puts it at $_claude_bin), then run this install again."
+}
+check_claude_code
 ok
 
 # ⚠️ IDEMPOTENT, AND IT SAYS SO. Somebody who is not sure whether it worked will
