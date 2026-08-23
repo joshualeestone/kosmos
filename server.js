@@ -2971,6 +2971,10 @@ const server = http.createServer((req, res) => {
       // over "engineering mode is off, so the window is not read", a screen
       // contradicting the switch's own new copy. One surface is governed by
       // the switch now, and this route is not it.
+      // ⚠️ The cost is bounded by the CLIENT (Terminal section on screen,
+      // tab visible, one in flight), not here: every request is a roster
+      // read plus a capture-pane. Fine for a local single-person server;
+      // a second client polling this route pays that every call.
       const roster = safeRoster();
       // Resolved to the card's OWN sessionName (the sessionOf lesson: a
       // spelling that passes the gate via the safeKey fallback would

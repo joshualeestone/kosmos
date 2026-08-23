@@ -112,7 +112,7 @@ function chk(ok, label, extra) {
           const on = [...document.querySelectorAll('#d-nav button.on')].map((x) => x.dataset.go);
           return { current: b.getAttribute('aria-current'), on, focus: document.activeElement && document.activeElement.dataset.sec };
         }, k);
-        chk(pill.current === 'page' && pill.on.length === 1 && pill.on[0] === k,
+        chk(pill.current === 'true' && pill.on.length === 1 && pill.on[0] === k,
           `[${theme}] click ${k}: exactly that pill is on and aria-current`, JSON.stringify(pill));
         chk(pill.focus === k, `[${theme}] click ${k}: focus moved into the section`, String(pill.focus));
         await page.screenshot({ path: path.join(OUT, `${theme}-${k}.png`), fullPage: false });

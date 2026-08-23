@@ -34,7 +34,8 @@ ship here, which wait, and why.
   seven tab stops, no arrow-key roving.
 - Talk and Instructions carry the mock's dot when they need the person: Talk
   when there is an open question, Instructions when the running copy is older
-  than the file. The dot is a shape with a visually-hidden "(needs you)".
+  than the file or the file changed under the open editor (the two notices
+  the section itself shows). The dot is a shape with a visually-hidden "(needs you)".
 - Below 56rem the nav is a wrapping row above the content, not a column.
 - Both themes checked in a real browser, screenshots in the PR and in the
   channel.

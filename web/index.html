@@ -3577,14 +3577,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        rename. The markup ships the nameless form so a painter that returns
        early never leaves the previous agent's name on a button.
        🔑 THE DOT IS A SHAPE, so it survives greyscale; colour reinforces. It is
-       set by `detailDots` from the same two facts the sections render (an open
-       question in the talk box; the running copy older than the file), which
+       set by `detailDots` from the same facts the sections render (an open
+       question in the talk box; the instructions needing the person, which is
+       either the running copy older than the file or the file changed under
+       the editor since it was opened), which
        watches those elements' `hidden` attribute rather than being called by
        each painter, so the nav cannot say "needs you" about a section that
        does not. -->
   <div class="dbody">
   <nav class="snav" id="d-nav" aria-label="Sections of this page">
-    <button type="button" data-go="talk" class="on" aria-current="page"><span id="d-nav-talk">Talk to this agent</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
+    <button type="button" data-go="talk" class="on" aria-current="true"><span id="d-nav-talk">Talk to this agent</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
     <button type="button" data-go="model">Model</button>
     <button type="button" data-go="memory">Memory</button>
     <button type="button" data-go="instr"><span>Instructions</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
@@ -9684,7 +9686,9 @@ async function paintAgentWindow(sessionName, opts) {
   const mine = ++WINDOW_LOAD;
   /* The 5s tick repaints with the CACHED flag ("right now" must not age
      false while the panel sits open); a preference is still never
-     polled -- only the capture is. Opens re-learn the flag. */
+     polled -- only the capture is. Since agent-page-nav every caller passes
+     the cached flag; the uncached branch stays for a caller that wants a
+     fresh read, and the flag is learned where the switch is painted. */
   let on;
   if (opts && opts.cachedFlag) {
     on = ENG_ON;
@@ -9727,6 +9731,7 @@ async function paintAgentWindow(sessionName, opts) {
          (roster skew); "Reading its window" would stand until a tick flipped
          the tie, so the section says the honest thing now. */
       detailSection('term').dataset.tied = '0';
+      box.dataset.gone = '1';
       box.hidden = true; return;
     }
     if (r.text != null) {
@@ -9735,6 +9740,8 @@ async function paintAgentWindow(sessionName, opts) {
       document.getElementById('d-window-hint').textContent = 'As it looks right now. It is not a transcript, and it is not what the agent said to you.';
       msg.hidden = true;
       box.hidden = false;
+      delete box.dataset.gone;
+      detailSection('term').dataset.tied = '1';
     } else {
       pre.hidden = true;
       document.getElementById('d-window-hint').textContent = '';
@@ -11148,8 +11155,17 @@ function detailSection(key) {
   return document.getElementById('d-sec-' + key);
 }
 function detailPaintWindow(a) {
-  const tied = !!(a && a.isNamedOurs === true);
-  detailSection('term').dataset.tied = tied ? '1' : '0';
+  /* No record at all (the agent left the board mid-open): say nothing here.
+     The untied sentence asserts a cause, and "removed" is a different one;
+     the tick's no-longer-on-the-board arm speaks for that case. */
+  if (!a) return;
+  const tied = a.isNamedOurs === true;
+  const box = document.getElementById('d-window-box');
+  /* A box the route 404'd stays "cannot show" across the tick's re-ask
+     rather than flickering to "reading" for a round-trip every five seconds;
+     a capture that lands flips it back (the success arm owns that). */
+  if (!tied) detailSection('term').dataset.tied = '0';
+  else if (box.dataset.gone !== '1') detailSection('term').dataset.tied = '1';
   if (tied) {
     paintAgentWindow(a.sessionName, { cachedFlag: true });
   } else {
@@ -11179,7 +11195,8 @@ function detailGo(section, opts) {
   nav.querySelectorAll('button[data-go]').forEach((b) => {
     const on = b.dataset.go === section;
     b.classList.toggle('on', on);
-    if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+    /* "true", not "page": the pills change no URL, and AT reads "page" as one. */
+    if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
   });
   let target = null;
   document.querySelectorAll('#panel-detail .dsec').forEach((sec) => {
