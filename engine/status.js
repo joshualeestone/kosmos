@@ -1102,6 +1102,11 @@ function matchedLine(text, markers) {
  * through to UNKNOWN on purpose; that is the honest answer and it is what
  * stops the board reporting health it has not verified.
  */
+/* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
+   comment at its use site in classify(). Module-level like its sibling
+   marker sets. */
+const WORKING_LINE = /^\s*[·✢✳✶✻✽*⏺] \S+…\s+\((?:\d+h )?(?:\d+m )?\d+s(?: ·|\))/mu;
+
 function classify(pane, paneText) {
   // ⚠️ A MISSING command is not evidence of anything. A truncated tmux line
   // gave `command: ''`, which fell through to "Claude is not running for this one"
@@ -1208,14 +1213,31 @@ function classify(pane, paneText) {
    * evidence cannot separate working from waiting, and before this rule
    * a fleet mid-turn read "0 Working" on the headline tile.
    */
-  const WORKING_LINE = /^\s*[^\w\s]{1,3} \S+…\s+\((?:\d+h )?(?:\d+m )?\d+s(?: ·|\))/mu;
-  if (WORKING_LINE.test(tail)) {
+  /* The glyph class is the OBSERVED spinner frames, enumerated, not "any
+     punctuation": a bare punctuation class let markdown bullets and
+     box-drawing wrap ("- Deploying… (30s)", "> Fetching… (12s)",
+     "│ Improvising… (35s)") read as the UI's spinner, and Claude panes are
+     full of exactly those shapes. `*` IS a real frame and also a markdown
+     bullet; it stays in because an echoed line would need the ellipsis AND
+     a live timer to slip through, and dropping it would misread every poll
+     that samples that frame. Word and numeral prefixes stay excluded.
+     ⚠️ Further assumed false-negative shapes, beside the seconds field
+     noted above: a days unit ("(2d 4h…") and a multi-word verb
+     ("· Reticulating splines…") do not match; neither has been observed. */
+  const m = tail.match(WORKING_LINE);
+  if (m) {
     return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task',
              /* The whole line via the module's own convention (glyph-strip,
-                240 cap), not the regex fragment: the person sees what the
-                board saw, tokens and all, not a cut ending in a dangling
-                separator. */
-             evidence: matchedLine(tail, [WORKING_LINE]) };
+                240 cap), not the regex fragment. A narrow pane can hard-wrap
+                the spinner line between gerund and timer: the classification
+                still fires (\s+ crosses the wrap) but no single raw line
+                matches, so the per-line reader comes back empty and the
+                match itself, whitespace-normalised, keeps the contract that
+                evidence shows what the board saw. (matchedLine's strip class
+                takes the leading glyph off a *-frame line; cosmetic, and the
+                fallback path keeps its glyph.) */
+             evidence: matchedLine(tail, [WORKING_LINE])
+               || m[0].replace(/\s+/g, ' ').trim().slice(0, 240) };
   }
   if (/✱|Worked for|Brewed for|Baked for|to save .* tokens/i.test(tail)) {
     return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it finished and is waiting for you' };

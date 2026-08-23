@@ -1236,12 +1236,25 @@ test('a Fable session mid-turn is working, not idle: the spinner line is keyed o
     'a mid-turn permission prompt was outranked by the spinner line, so a blocked agent reads busy');
 
   /* An agent NARRATING progress in its own output must not read as the
-     UI's spinner: word and numeral prefixes are excluded by the glyph
-     class. */
-  for (const echo of ['1. Deploying… (30s · staging)', 'npm Loading… (5s · warm)']) {
+     UI's spinner: word prefixes, numerals, markdown bullets and box-drawing
+     wrap are all outside the enumerated frame class. */
+  for (const echo of ['1. Deploying… (30s · staging)', 'npm Loading… (5s · warm)',
+    '- Deploying… (30s · staging)', '> Fetching… (12s · retry)', '│ Improvising… (35s · x)']) {
     assert.equal(classify(pane, echo + footer).state, 'idle',
       'an agent narrating its own progress read as working: ' + echo);
   }
+
+  /* The * frame is a REAL spinner frame as well as a markdown bullet, and
+     it stays in the class: a poll sampling that frame must not read idle. */
+  assert.equal(classify(pane, '* Baking… (3s · ↓ 0.2k tokens)' + footer).state, 'working');
+
+  /* A narrow pane can wrap the spinner line between gerund and timer. The
+     state still reads working, and the evidence contract holds: something
+     is shown, not null, exactly when panes are narrow. */
+  const wrapped = classify(pane, '· Improvising…\n(35s · ↓ 1.5k tokens)' + footer);
+  assert.equal(wrapped.state, 'working');
+  assert.ok(wrapped.evidence && /Improvising/.test(wrapped.evidence),
+    'a wrapped spinner line classified as working but lost its evidence');
 
   /* The evidence is the WHOLE line, not the regex fragment: a fragment cut
      at the first separator drops the tail and dangles mid-parens. */
