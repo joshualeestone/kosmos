@@ -8893,12 +8893,17 @@ async function paintSettings() {
     const m = await (await fetch('/api/machine')).json();
     mach.innerHTML = machineRows(m);
     const made = document.getElementById('set-made');
-    if (made && m.made && typeof m.made.agents === 'number') {
+    /* ⚠️ ONLY ONCE THE RECORD HAS SOMETHING IN IT. The birth record starts the
+       day it ships, so on a machine whose agents predate it, "made 0 agents"
+       sits beside a board showing fourteen -- two true sentences composing a
+       contradiction. An empty record is not a claim of none; it is silence,
+       and the line stays silent with it. */
+    if (made && m.made && typeof m.made.agents === 'number' && (m.made.agents + (m.made.refused || 0)) > 0) {
       made.textContent = 'Kosmos has made ' + m.made.agents + (m.made.agents === 1 ? ' agent' : ' agents')
-        + ' on this Mac so far'
+        + ' on this Mac since it started keeping the record'
         + (m.made.refused > 0 ? ', and turned away ' + m.made.refused + ' attempt' + (m.made.refused === 1 ? '' : 's') + ' it could not do safely' : '') + '.';
       made.hidden = false;
-    }
+    } else if (made) { made.hidden = true; made.textContent = ''; }
     for (const sleepBtn of mach.querySelectorAll('[data-sleep-settings]')) {
       sleepBtn.addEventListener('click', async () => {
         // The pane opening IS the success feedback; words appear on refusal
