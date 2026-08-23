@@ -958,6 +958,61 @@ test('an operator post fans to every member with the operator markers, flagged o
   });
 });
 
+test('once the person has spoken, the room can answer them: the window starts again', () => {
+  /**
+   * 🛑 THE FAILURE THIS IS FOR, AS JOSH MET IT ON 2026-08-22. The room valve had
+   * closed. He posted "@Scarlett are you there?" -- an operator post, exempt,
+   * placed. Scarlett tried to answer and her reply was an ordinary agent post,
+   * charged against the same still-full window, and refused. His screen said
+   * Kosmos had stopped the conversation and asked everyone to bring him in; her
+   * screen said "I couldn't answer in the room, Kosmos blocked the post". Both
+   * sentences were true and the pair of them is the product broken.
+   *
+   * 🔑 EXEMPTING THE OPERATOR'S OWN POSTS WAS HALF THE RULE. The valve's remedy
+   * is "bring the person in", so a person who is in and driving has already
+   * supplied it; what has to restart is the COUNT, not just their own immunity.
+   *
+   * ⚠️ AND ONLY THE OPERATOR CAN RESTART IT, which is what keeps it safe: the
+   * mark moves on `operator: true`, set by the route rather than claimed by a
+   * message. If the room loops again the budget refills and it fires again.
+   */
+  withFleet(room3(), (board) => {
+    wipeLog();
+    const now = Date.now();
+    // A full budget of AGENT traffic, which is the closed valve.
+    for (let i = 0; i < ROOM_BUDGET / 2; i += 1) {
+      fs.appendFileSync(messages.LOG, JSON.stringify({
+        kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease',
+        from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]),
+        text: 'round ' + i, at: new Date(now - 60000).toISOString(), outcomes: {},
+      }) + '\n');
+    }
+    chat.resetForTests();
+    armSender('leo-discord');
+    arm([]);
+    // ⚠️ THE CONTROL, and without it this test passes against a valve that
+    // never closes at all. The room must be shut BEFORE the person speaks.
+    const shut = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'still going round' }, board.agents, MEMBERS);
+    assert.equal(shut.state, chat.DELIVERY.COULD_NOT,
+      'CONTROL: the valve was not closed, so what follows proves nothing');
+    assert.match(String(shut.because || ''), /bring you in/);
+
+    // The remedy arrives.
+    chat.resetForTests();
+    arm([]);
+    const asked = messages.sendPost({ operator: true, project: 'henderson-lease', text: '@leo are you there?' }, board.agents, MEMBERS);
+    assert.equal(asked.state, chat.DELIVERY.PLACED, asked.because || '');
+
+    // And the answer to it gets through.
+    chat.resetForTests();
+    armSender('leo-discord');
+    arm([]);
+    const answered = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'here, what do you need?' }, board.agents, MEMBERS);
+    assert.equal(answered.state, chat.DELIVERY.PLACED,
+      'the person asked the room a question and the room was not allowed to answer them');
+  });
+});
+
 test('an agent cannot smuggle operator authority: the operator markers are refused in bodies on both paths', () => {
   withFleet(room3(), (board) => {
     armSender('leo-discord');

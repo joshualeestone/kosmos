@@ -680,13 +680,48 @@ function sendPost({ fromPane, project, projectName, text, operator }, roster, me
      sender whose turn it was, and naming one would be untrue. */
   const now = Date.parse(at);
   const lim = limits.caps();
+  /* 🛑 THE WINDOW RESTARTS AT THE OPERATOR'S LAST POST, and without this the
+     valve fires at the one person it exists to fetch.
+
+     The recorded decision above exempts the operator's OWN posts. It does not
+     exempt the ANSWER to them, and that is the whole of the hole: Josh posted
+     "@Scarlett are you there?" into a room whose budget was already spent, and
+     Scarlett's reply -- an ordinary agent post -- was charged against the same
+     full window and refused. He could ask and nobody could answer. His screen
+     said the room had been stopped so everyone could bring him in; her screen
+     said "I couldn't answer in the room, Kosmos blocked the post". Both were
+     accurate and the pair of them is the product broken (2026-08-22).
+
+     🔑 SO AN OPERATOR POST IS THE REMEDY ARRIVING, not a message that happens
+     not to count. The valve's stated remedy is "bring the person in"; when the
+     person is in and driving, the loop it was written against is over by
+     definition. Counting only what has happened SINCE they spoke is what makes
+     the remedy actually remedy something.
+
+     ⚠️ AND AGENTS CANNOT RESET IT, which is the property that makes this safe.
+     Only a post carrying `operator: true` moves the mark, and that flag is set
+     by the operator route rather than by anything a message says about itself.
+     If the room loops again after the person speaks, the budget refills and the
+     valve fires again -- later than before, which is the point.
+
+     📌 THE COST IF THIS IS WRONG is one more round of agent chatter after a
+     human intervention, and it re-fires. The cost of leaving it is a room where
+     the person is told everyone was asked to bring them in and then cannot get
+     an answer out of anybody. */
+  const windowFrom = now - lim.windowMs;
+  const lastOperatorAt = log.reduce((mark, m) => {
+    if (!m || m.kind !== 'post' || m.operator !== true || m.project !== projectId) return mark;
+    const at2 = Date.parse(m.at);
+    return Number.isFinite(at2) && at2 > mark ? at2 : mark;
+  }, 0);
+  const countFrom = Math.max(windowFrom, lastOperatorAt);
   // !m.operator: operator posts do not count toward the cap, and the
   // operator is never refused by it (the recorded decision above). The
   // sum is ARRIVALS (each post costs its recipient count), and this
   // post's own arrivals are charged up front: a nine-arrival post at
   // thirty-nine is over the budget, not under it.
   const arrivals = log.filter((m) => m && m.kind === 'post' && !m.operator
-    && m.project === projectId && Date.parse(m.at) >= now - lim.windowMs)
+    && m.project === projectId && Date.parse(m.at) >= countFrom)
     .reduce((n, m) => n + (Array.isArray(m.to) ? m.to.length : 0), 0);
   if (operator !== true && arrivals + recipients.length > lim.roomArrivalsPerWindow) {
     const because = lim.on
