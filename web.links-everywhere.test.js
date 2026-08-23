@@ -146,8 +146,15 @@ test('every message row draws the attachment card, and the + and drop targets ar
   assert.match(words, /<button class="attachbtn" id="d-attach"[^>]*aria-label="Add a file to this conversation"/, 'the agent page + is missing or unnamed');
   assert.match(words, /Drop a file anywhere in the conversation to add it\./, 'the drop sentence is missing');
   // The + posts to the upload routes Angel specified, one per surface.
-  assert.match(SCRIPT, /'\/api\/project\/' \+ encodeURIComponent\(PJ_CURRENT\) \+ '\/attach'/, 'the room + does not post to the project attach route');
-  assert.match(SCRIPT, /'\/api\/agent\/' \+ encodeURIComponent\(CURRENT \? CURRENT\.sessionName : ''\) \+ '\/attach'/, 'the agent + does not post to the agent attach route');
+  /* The route's shape (#389): PUT the bytes to /attachment, then the
+     surface's own sender posts the message with the id. */
+  assert.match(SCRIPT, /'\/api\/project\/' \+ encodeURIComponent\(PJ_CURRENT\) \+ '\/attachment'/, 'the room + does not upload to the project attachment route');
+  assert.match(SCRIPT, /'\/api\/agent\/' \+ encodeURIComponent\(CURRENT \? CURRENT\.sessionName : ''\) \+ '\/attachment'/, 'the agent + does not upload to the agent attachment route');
+  assert.match(SCRIPT, /method: 'PUT',\s*\n\s*headers: \{ 'content-type': file\.type \|\| 'application\/octet-stream', 'x-attachment-name': encodeURIComponent\(file\.name\) \}/, 'the upload is not a raw PUT with the name in its header');
+  assert.match(SCRIPT, /send: \(text, id\) => pjPostSend\(id\)/, 'the room upload does not hand the id to the room sender');
+  assert.match(SCRIPT, /send: \(text, id\) => sendTalk\(text, null, id\)/, 'the agent upload does not hand the id to the talk sender');
+  assert.match(SCRIPT, /JSON\.stringify\(attachment \? \{ text, attachment \} : \{ text \}\)/, 'the room sender does not carry the attachment id');
+  assert.match(SCRIPT, /: \(attachment \? \{ text, attachment \} : \{ text \}\)\)/, 'the talk sender does not carry the attachment id');
   // The 25 MB limit is the route's; the page says so before sending.
   assert.match(SCRIPT, /file\.size > 25 \* 1024 \* 1024/);
 });

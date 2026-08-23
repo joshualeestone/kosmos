@@ -11121,7 +11121,7 @@ async function paintTalk(sessionName, agentName) {
  * and cleared April's draft. `paintTalk` already guards its own paint this way;
  * this path was the hole.
  */
-async function sendTalk(text, chose) {
+async function sendTalk(text, chose, attachment) {
   // ⚠️ ONE SEND AT A TIME IS THE RULE, and it is the page's rule rather than
   // the agent's: the message line and the composer are single elements. What
   // must not happen is a silent refusal — pressing Enter and having nothing at
@@ -11239,7 +11239,7 @@ async function sendTalk(text, chose) {
          particular screen turned the guard off. */
       body: JSON.stringify(chose
         ? { text, chose, asked: askedAbout == null ? '' : askedAbout.split('\u0000').slice(1).join('\u0000') }
-        : { text }),
+        : (attachment ? { text, attachment } : { text })),
     });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not send that');
@@ -18052,7 +18052,7 @@ async function loadRoom() {
   paintRoom(body);
 }
 
-async function pjPostSend() {
+async function pjPostSend(attachment) {
   if (PJ_POSTING) return;
   const p = pjById(PJ_CURRENT);
   if (!p) return;
@@ -18080,7 +18080,7 @@ async function pjPostSend() {
     const res = await fetch('/api/project/' + encodeURIComponent(sentProject) + '/room', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(attachment ? { text, attachment } : { text }),
     });
     const body = await res.json().catch(() => ({}));
     const d = (body && body.delivery) || {};
@@ -18236,22 +18236,26 @@ async function attachUpload(file, where) {
   const input = document.getElementById(where.textId);
   if (!file) return;
   if (file.size > 25 * 1024 * 1024) { msg.textContent = 'That file is over 25 MB, which is the most a message can carry.'; return; }
-  const form = new FormData();
-  form.append('file', file, file.name);
   const text = input ? input.value : '';
-  if (text && text.trim()) form.append('text', text);
   const btn = document.getElementById(where.btnId);
   if (btn) btn.disabled = true;
   msg.textContent = 'Adding ' + file.name + '\u2026';
   try {
-    const res = await fetch(where.url(), { method: 'POST', body: form });
+    const res = await fetch(where.url(), {
+      method: 'PUT',
+      headers: { 'content-type': file.type || 'application/octet-stream', 'x-attachment-name': encodeURIComponent(file.name) },
+      body: file,
+    });
     const body = await res.json().catch(() => null);
-    if (!res.ok) {
+    if (!res.ok || !body || !body.attachment) {
       msg.textContent = (body && body.error) ? body.error : 'We could not add that file (status ' + res.status + ').';
       return;
     }
-    if (input && text && text.trim()) input.value = '';
-    msg.textContent = 'Added ' + file.name + '.';
+    /* The message that carries it. An empty composer sends the file's name
+       as the words, so the row is never a blank bubble over a card. */
+    if (input && !text.trim()) input.value = file.name;
+    msg.textContent = '';
+    await where.send(input ? input.value.trim() : file.name, body.attachment.id);
     if (where.after) where.after();
   } catch {
     msg.textContent = 'We could not reach Kosmos to add that file.';
@@ -18259,14 +18263,21 @@ async function attachUpload(file, where) {
     if (btn) btn.disabled = false;
   }
 }
+/* Two steps, the route's shape (#389): PUT the bytes and get the record,
+   then post the message with `attachment: <id>` through the surface's own
+   sender, so the send keeps every rule that sender already has (one at a
+   time, the receipt, the draft). A failed upload is a sentence before
+   anything is said. */
 const ATTACH_ROOM = {
   btnId: 'pj-attach', fileId: 'pj-attach-file', textId: 'pj-post', msgId: 'pj-room-msg', dropId: 'pj-room',
-  url: () => '/api/project/' + encodeURIComponent(PJ_CURRENT) + '/attach',
+  url: () => '/api/project/' + encodeURIComponent(PJ_CURRENT) + '/attachment',
+  send: (text, id) => pjPostSend(id),
   after: () => { const t = document.getElementById('pj-post'); if (t) pjGrowComposer(t); },
 };
 const ATTACH_AGENT = {
   btnId: 'd-attach', fileId: 'd-attach-file', textId: 'd-say', msgId: 'd-say-msg', dropId: 'd-dmthread',
-  url: () => '/api/agent/' + encodeURIComponent(CURRENT ? CURRENT.sessionName : '') + '/attach',
+  url: () => '/api/agent/' + encodeURIComponent(CURRENT ? CURRENT.sessionName : '') + '/attachment',
+  send: (text, id) => sendTalk(text, null, id),
   after: null,
 };
 /* The two pickers, written out rather than looped, because the file-picker
