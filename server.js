@@ -3085,7 +3085,7 @@ const server = http.createServer((req, res) => {
     unfurl.preview(target).then((got) => {
       if (!got.ok) { sendJson(res, 200, { ok: false, because: got.because }); return; }
       sendJson(res, 200, {
-        ok: true, url: got.url, title: got.title, description: got.description, site: got.site,
+        ok: true, url: got.url, title: got.title, description: got.description, site: got.site, fetchedAt: got.fetchedAt,
         /* The image is served back through this process, never as the site's
            own address: the browser never talks to the site. */
         image: got.image ? '/api/unfurl/image?url=' + encodeURIComponent(got.image) : '',
@@ -3101,7 +3101,13 @@ const server = http.createServer((req, res) => {
     if (!target) { sendJson(res, 400, { error: 'say which image' }); return; }
     unfurl.image(target).then((got) => {
       if (!got.ok) { sendJson(res, 404, { error: got.because }); return; }
-      res.writeHead(200, { 'content-type': got.type, 'cache-control': 'private, max-age=600', 'x-content-type-options': 'nosniff' });
+      /* Raster only (the engine refuses SVG), and sandboxed anyway: this is
+         a third party's bytes on the board's own origin, so nothing in them
+         may run or load. */
+      res.writeHead(200, {
+        'content-type': got.type, 'cache-control': 'private, max-age=600', 'x-content-type-options': 'nosniff',
+        'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': 'inline',
+      });
       res.end(got.bytes);
     }).catch(() => sendJson(res, 404, { error: 'we could not read that image' }));
     return;

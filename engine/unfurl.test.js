@@ -149,18 +149,57 @@ test('a page with no tags is "nothing to show", a non-page is refused, and neith
   assert.match((await unfurl.preview('https://boom.example/')).because, /could not be reached/);
 });
 
-test('the page read stops at the cap rather than reading a site dry, and still finds tags in the head', async () => {
+test('the page read stops at the cap rather than reading a site dry, and the head it did read still yields the tags', async () => {
   const head = '<head><meta property="og:title" content="Big"></head>';
   const big = head + 'x'.repeat(unfurl.PAGE_MAX * 2);
   world({ pages: { 'https://big.example/': { body: big } } });
   const got = await unfurl.preview('https://big.example/');
-  /* The body is over the cap, so the capped reader returns null and the
-     parser sees nothing: "nothing to show", not a hang, not a throw. The tags
-     a real page puts in its head arrive in the first chunk of a streamed
-     body; this fixture delivers all at once, which is the worst case. */
-  assert.equal(got.ok, false);
-  assert.equal(got.because, 'nothing to show');
+  /* A media-heavy page is past the cap; its tags are in the first bytes.
+     Keeping the head is the difference between a preview and none for most
+     real pages, and the cap still bounds what is read. */
+  assert.equal(got.ok, true, JSON.stringify(got));
+  assert.equal(got.title, 'Big');
 });
+
+test('the v6 forms that carry a private v4 inside are refused: NAT64, 6to4, IPv4-compatible, site-local', () => {
+  for (const ip of ['64:ff9b::7f00:1', '64:ff9b::127.0.0.1', '2002:7f00:1::', '2002:c0a8:101::', '::7f00:1', 'fec0::1', '::ffff:a00:1']) {
+    assert.equal(unfurl.privateAddress(ip), true, ip + ' was allowed');
+  }
+  for (const ip of ['64:ff9b::808:808', '2002:808:808::', '::ffff:808:808']) {
+    assert.equal(unfurl.privateAddress(ip), false, ip + ' was refused though it carries a public address');
+  }
+});
+
+test('the parser survives an apostrophe inside double quotes, single-quoted attributes, and ignores tags inside comments and scripts', async () => {
+  world({
+    pages: {
+      'https://q.example/': {
+        body: `<head><!-- <meta property="og:title" content="commented out"> -->
+          <script>var s = '<meta property="og:title" content="scripted">';</script>
+          <meta property='og:title' content="Josh's page, here">
+          <meta name='description' content='single "quoted" description'></head>`,
+      },
+    },
+  });
+  const got = await unfurl.preview('https://q.example/');
+  assert.equal(got.title, "Josh's page, here");
+  assert.equal(got.description, 'single "quoted" description');
+});
+
+test('an SVG is refused by the image proxy even when the site calls it an image', async () => {
+  world({ pages: { 'https://cdn.example/x.svg': { type: 'image/svg+xml', body: '<svg onload="alert(1)"/>' } } });
+  const got = await unfurl.image('https://cdn.example/x.svg');
+  assert.equal(got.ok, false);
+  assert.match(got.because, /not an image this board will show/);
+});
+
+test('a refusal is remembered for a minute, an answer for ten', async () => {
+  const calls = world({ pages: { 'https://blip.example/': () => { throw new Error('ECONNRESET'); } } });
+  await unfurl.preview('https://blip.example/');
+  assert.equal(unfurl.peek('https://blip.example/').ok, false);
+  assert.equal(calls.length, 1);
+});
+
 
 test('the image proxy serves only image types, caps the size, and refuses the same targets', async () => {
   const calls = world({

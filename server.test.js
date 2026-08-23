@@ -9701,6 +9701,7 @@ test('link previews: cross-site GETs are refused, the payload carries the previe
   assert.equal(img.status, 200);
   assert.equal(img.headers.get('content-type'), 'image/png');
   assert.equal(img.headers.get('x-content-type-options'), 'nosniff');
+  assert.match(img.headers.get('content-security-policy') || '', /default-src 'none'; sandbox/, 'a third party\'s bytes are served on the board\'s origin without a sandbox');
   assert.equal((await img.arrayBuffer()).byteLength, 4);
 
   // A message carrying a never-seen link: first poll attaches nothing and
