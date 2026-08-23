@@ -269,10 +269,16 @@ test('on a partial read the headline tiles are marked as floors, never printed a
   assert.equal(tileCount(0, true), '0+', 'zero parsed on a partial read is still a floor, not a claim of none');
   for (const bad of [null, undefined, NaN, '11']) assert.equal(tileCount(bad, false), '?', `${String(bad)} rendered as a number`);
   // The three tiles use it, gated on the same fact the summary reads.
-  const paint = SCRIPT.slice(SCRIPT.indexOf("const c = data.counts;"), SCRIPT.indexOf("const c = data.counts;") + 1800);
+  const paint = SCRIPT.slice(SCRIPT.indexOf("const c = data.counts;"), SCRIPT.indexOf("const c = data.counts;") + 2600);
   assert.match(paint, /const floor = \(c\.unreadableLines \|\| 0\) > 0;/, 'the floor is not derived from unreadableLines');
-  for (const id of ['st-agents', 'st-working', 'st-idle']) {
-    assert.match(paint, new RegExp("getElementById\\('" + id + "'\\)\\.textContent =\\s*tileCount\\([^;]*, floor\\)"), id + ' is not marked as a floor');
+  /* #369 split the gate: the Agents total floors only on unreadable lines,
+     while Working and Idle also floor on any unknown agent, via `stateFloor`,
+     which must itself INCLUDE the partial-read floor or #291 regresses. */
+  assert.match(paint, /const stateFloor = floor \|\| unknowns > 0;/,
+    'the state tiles\' floor no longer includes the partial-read floor');
+  assert.match(paint, new RegExp("getElementById\\('st-agents'\\)\\.textContent =\\s*tileCount\\([^;]*, floor\\)"), 'st-agents is not marked as a floor');
+  for (const id of ['st-working', 'st-idle']) {
+    assert.match(paint, new RegExp("getElementById\\('" + id + "'\\)\\.textContent =\\s*tileCount\\([^;]*, stateFloor\\)"), id + ' is not marked as a floor');
   }
   // And the engine really produces the gate on the mangled fixture (control).
   assert.ok(board({ mangle: true }).counts.unreadableLines > 0, 'the mangled fixture no longer yields an unreadable line, so the gate is untestable');
