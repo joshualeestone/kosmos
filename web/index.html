@@ -954,6 +954,12 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
             gap: 12px; margin: 0 0 18px; }
 .statsrow > .stat.action { justify-self: start; }
 .statsrow > .viewtoggle { justify-self: end; }
+/* The projects row's right cell holds the sort and the toggle as one unit
+   (#168). The toggle keeps its own rule above for the board's statsrow. */
+.statsrow > .viewctl { justify-self: end; display: inline-flex; align-items: center; gap: 12px; }
+.sortctl { display: inline-flex; align-items: center; gap: 6px; }
+.sortctl select { font: inherit; font-size: .8125rem; color: var(--k-ink); background: var(--k-surface);
+  border: 0.5px solid var(--separator); border-radius: 8px; padding: 5px 8px; }
 .stats { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .stat { display: flex; align-items: center; gap: 9px;
         border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface);
@@ -4808,6 +4814,25 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
           <b id="st-pjattn">0</b><span class="slab">Needs you</span>
         </div>
       </div>
+      <!-- 🔑 SORT BESIDE THE VIEW TOGGLE, NOT INSIDE A VIEW (#168, Josh
+           2026-08-21: "next to the 3-tab rather than the list view"). It sits
+           with the view controls so one order holds across grid, list and the
+           archived disclosure, and survives a view switch. A native select:
+           one element, keyboard-complete, and a sort has no state worth a
+           widget. Each option names its own order so it reads right closed.
+           It is a SORT, never a filter: the count tile and every card are
+           unchanged by any option, and it stays enabled at zero projects so
+           the row's shape does not depend on a count. Room stays to the right
+           of the toggle for #137's third view. -->
+      <div class="viewctl">
+        <label class="sortctl" for="pj-sort"><span class="slab">Sort</span>
+          <select id="pj-sort" aria-label="Sort projects">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="az">Name A to Z</option>
+            <option value="za">Name Z to A</option>
+          </select>
+        </label>
       <div class="viewtoggle" role="group" aria-label="How to show projects" data-scope="projects">
         <button class="vt on" type="button" data-layout="grid" aria-pressed="true" aria-label="Show projects as a grid" title="Show projects as a grid">
           <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="1" y="1" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="9" y="1" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="1" y="9" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor"/></svg>
@@ -4815,6 +4840,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <button class="vt" type="button" data-layout="list" aria-pressed="false" aria-label="Show projects as a list" title="Show projects as a list">
           <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="1" y="2" width="14" height="2.2" rx="1.1" fill="currentColor"/><rect x="1" y="6.9" width="14" height="2.2" rx="1.1" fill="currentColor"/><rect x="1" y="11.8" width="14" height="2.2" rx="1.1" fill="currentColor"/></svg>
         </button>
+      </div>
       </div>
     </div>
     <p class="fmsg" id="pj-list-msg" aria-live="polite"></p>
@@ -15002,13 +15028,66 @@ function pjFolderLine(p) {
  */
 const setIfChanged = setLive;
 
+/* The sort (#168). Four orders, each option naming its own; "updated" is
+   deliberately not one, because updatedAt moves on edits nobody remembers
+   making and a list that reorders itself under a person reads as the app
+   losing their project. Default NEWEST FIRST, which flips the store order
+   (oldest first): a board is for what you are doing now. */
+const PJ_SORTS = ['newest', 'oldest', 'az', 'za'];
+const PJ_SORT_DEFAULT = 'newest';
+function pjSortMode(saved) {
+  return PJ_SORTS.includes(saved) ? saved : PJ_SORT_DEFAULT;
+}
+/* Pure and stable: never mutates, never throws, never drops a row. A project
+   with no createdAt (pre-dates the field) sorts after every dated one under
+   both date orders, keeping store order among themselves. Names compare
+   case-insensitively by locale. */
+function sortProjects(list, mode) {
+  const rows = (list || []).map((p, i) => ({ p, i }));
+  const when = (p) => { const t = Date.parse((p && p.createdAt) || ''); return Number.isNaN(t) ? null : t; };
+  const name = (p) => String((p && p.name) || '');
+  const byName = (a, b) => name(a.p).localeCompare(name(b.p), undefined, { sensitivity: 'base' });
+  const byDate = (a, b, dir) => {
+    const ta = when(a.p), tb = when(b.p);
+    if (ta === null && tb === null) return a.i - b.i;
+    if (ta === null) return 1;
+    if (tb === null) return -1;
+    return (ta - tb) * dir || a.i - b.i;
+  };
+  const cmp = mode === 'oldest' ? (a, b) => byDate(a, b, 1)
+    : mode === 'az' ? (a, b) => byName(a, b) || a.i - b.i
+    : mode === 'za' ? (a, b) => byName(b, a) || a.i - b.i
+    : (a, b) => byDate(a, b, -1);
+  return rows.sort(cmp).map((r) => r.p);
+}
+let PJ_SORT = (() => {
+  let saved = null;
+  try { saved = localStorage.getItem('kosmos.sort.projects'); } catch { saved = null; }
+  return pjSortMode(saved);
+})();
+(() => {
+  const sel = document.getElementById('pj-sort');
+  if (!sel) return;
+  sel.value = PJ_SORT;
+  sel.addEventListener('change', () => {
+    PJ_SORT = pjSortMode(sel.value);
+    sel.value = PJ_SORT;
+    // Display preference only, same standing as the layout toggle.
+    try { localStorage.setItem('kosmos.sort.projects', PJ_SORT); } catch { /* display preference only */ }
+    // Repaint in place: no focus move, no scroll.
+    paintProjects();
+  });
+})();
+
 function paintProjects() {
   const list = document.getElementById('pj-list');
   // Archived rows leave this list and live in the disclosure below it. The
   // split happens here, once, so the count the disclosure shows is derived
   // from the same rows it renders and can never disagree with them.
-  const active = PROJECTS.filter((p) => !p.archived);
-  const archived = PROJECTS.filter((p) => p.archived);
+  // One order for the page (#168): active cards and the archived
+  // disclosure sort alike, so a person who chose A to Z gets it everywhere.
+  const active = sortProjects(PROJECTS.filter((p) => !p.archived), PJ_SORT);
+  const archived = sortProjects(PROJECTS.filter((p) => p.archived), PJ_SORT);
   paintArchived(archived);
   /* ⚠️ The tiles write BEFORE any return: the empty-state branches used to
      leave "3 Projects" (and a red Needs-you) sitting above "No projects
