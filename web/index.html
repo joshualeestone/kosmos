@@ -13162,9 +13162,13 @@ async function paintFoundBoard() {
   wrap.hidden = false;
   /* Singular and plural written out rather than assembled: "1 agents" is the
      seam this product keeps being caught on. */
-  toggle.textContent = (FOUND_OPEN ? 'Hide' : 'Show') + ' '
-    + (n === 1 ? 'the agent on this Mac that is not in Kosmos'
-      : 'the ' + n + ' agents on this Mac that are not in Kosmos');
+  /* Josh, 2026-08-23 12:06: "we found agents on your computer", no number.
+     The count was noise to a person, and it was also the thing that made
+     #362 visible (the same agents counted above and offered here); removing
+     it does not settle that, which is why #362 stays open. One sentence,
+     the verb carried by the fold state, no arithmetic for a reader to do. */
+  toggle.textContent = 'We found ' + (n === 1 ? 'an agent' : 'agents') + ' on your computer. '
+    + (FOUND_OPEN ? 'Hide' : 'Show') + ' ' + (n === 1 ? 'it' : 'them');
   toggle.setAttribute('aria-expanded', FOUND_OPEN ? 'true' : 'false');
   list.hidden = !FOUND_OPEN;
 
