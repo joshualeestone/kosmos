@@ -7996,7 +7996,7 @@ test('the agent detail page is seven sections behind a nav, in the ruled order',
   const gos = [...nav.matchAll(/<button type="button" data-go="([a-z]+)"/g)].map((m) => m[1]);
   assert.deepEqual(gos, ['talk', 'model', 'memory', 'instr', 'profile', 'term', 'remove'],
     'the nav order moved; the mock reads Talk, Model, Memory, Instructions, Profile, Terminal, then Remove after a rule');
-  const secs = [...panel.matchAll(/<section class="dsec" data-sec="([a-z]+)"/g)].map((m) => m[1]);
+  const secs = [...panel.matchAll(/<section class="dsec" id="d-sec-[a-z]+" data-sec="([a-z]+)"/g)].map((m) => m[1]);
   assert.deepEqual(secs, gos, 'the sections are not in the order the nav lists them');
   // ⚠️ The control: the old grid no longer exists in this panel, so a revival
   // of it here would be a second layout under the nav.

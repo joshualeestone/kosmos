@@ -30,7 +30,7 @@ function sectionOf(id) {
      none, which is what the control below asserts. */
   const at = PANEL.indexOf('id="' + id + '"');
   if (at < 0) return null;
-  const opens = [...PANEL.slice(0, at).matchAll(/<section class="dsec" data-sec="([a-z]+)"/g)];
+  const opens = [...PANEL.slice(0, at).matchAll(/<section class="dsec" id="d-sec-[a-z]+" data-sec="([a-z]+)"/g)];
   return opens.length ? opens[opens.length - 1][1] : null;
 }
 
@@ -54,14 +54,14 @@ test('each shipped box lives in the section the mock puts it in', () => {
 });
 
 test('only Talk is on screen before a click, and every section can be reached from the nav', () => {
-  const secs = [...PANEL.matchAll(/<section class="dsec" data-sec="([a-z]+)"[^>]*?( hidden)?>/g)]
+  const secs = [...PANEL.matchAll(/<section class="dsec" id="d-sec-[a-z]+" data-sec="([a-z]+)"[^>]*?( hidden)?>/g)]
     .map((m) => ({ key: m[1], hidden: !!m[2] }));
   assert.equal(secs.length, 7, 'the page has ' + secs.length + ' sections, not seven');
   assert.deepEqual(secs.filter((s) => !s.hidden).map((s) => s.key), ['talk'], 'the landing is not Talk alone');
   const gos = [...PANEL.matchAll(/data-go="([a-z]+)"/g)].map((m) => m[1]);
   assert.deepEqual(new Set(gos), new Set(secs.map((s) => s.key)), 'a section has no pill, or a pill has no section');
   for (const s of secs) {
-    assert.match(PANEL, new RegExp('data-sec="' + s.key + '" tabindex="-1"'), s.key + ' cannot take focus, so a click strands the keyboard on the nav');
+    assert.match(PANEL, new RegExp('id="d-sec-' + s.key + '" data-sec="' + s.key + '" tabindex="-1"'), s.key + ' cannot take focus, so a click strands the keyboard on the nav');
   }
 });
 

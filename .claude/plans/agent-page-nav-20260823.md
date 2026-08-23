@@ -23,8 +23,11 @@ ship here, which wait, and why.
   (painters write by id), and never flips the section back. The one painter
   that measures layout (the thread's scroll-to-newest) is re-run when Talk is
   arrived at, because a hidden section measures zero.
-- `openDetail(name, section)` lands on a section, so a caller (the card's
-  needs-you mark, the stale-instructions mark) can deep-link. Default is Talk.
+- `openDetail(name, section)` lands on a section. Default is Talk. No caller
+  passes a section yet (the card's stale-instructions mark is the candidate,
+  its own card); the parameter is exercised by the browser check, including
+  the unknown-section fallback and that a deep-link to Terminal captures the
+  window once, not twice.
 - Switching sections moves keyboard focus to the section itself (visible
   focus ring), so a keyboard user's next Tab is the first control of what
   they asked for rather than the next pill. The pills are ordinary buttons:

@@ -2550,7 +2550,7 @@ const server = http.createServer((req, res) => {
      * ⚠️ AND THE RAW WINDOW IS NOT SERVED FROM HERE AT ALL. This page already
      * has `/api/agent/:name/window` for that (no longer behind Engineering
      * mode since agent-page-nav; the switch governs this page's viewport
-     * only), with its own box. A second copy on this payload was an unread surface on a poll —
+     * only), with its own box. A second copy on this payload was an unread surface on a poll,
      * the thing rounds 19, 22 and 38 deleted three times.
      */
     const view = asking ? chat.viewport(name, roster) : null;

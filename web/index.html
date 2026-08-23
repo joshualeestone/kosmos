@@ -3594,7 +3594,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="remove" class="danger"><span id="d-nav-remove">Remove this agent</span></button>
   </nav>
   <div class="dsecs">
-  <section class="dsec" data-sec="talk" tabindex="-1" aria-label="Talk">
+  <section class="dsec" id="d-sec-talk" data-sec="talk" tabindex="-1" aria-label="Talk">
 
   <!-- ⚠️ THE CONVERSATION (Mona Lisa's messaging-screens spec, 2026-08-18):
        everything said to this agent, in order, whoever said it -- the
@@ -3721,7 +3721,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <p class="dhint" id="d-persist" style="margin:12px 0 0;"></p>
   </section>
   </section>
-  <section class="dsec" data-sec="model" tabindex="-1" aria-label="Model" hidden>
+  <section class="dsec" id="d-sec-model" data-sec="model" tabindex="-1" aria-label="Model" hidden>
   <section class="dbox">
     <h3 class="dlab">Runs on</h3>
     <!-- 🔑 "RIGHT NOW" KEEPS ITS OWN LINE ABOVE THE PICKER (Mona Lisa's runs-on
@@ -3769,7 +3769,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <p class="dhint" style="margin:8px 0 0;">Everything this agent has done comes with it. Moving is how you take an agent off an account that is running out.</p>
   </section>
   </section>
-  <section class="dsec" data-sec="memory" tabindex="-1" aria-label="Memory" hidden>
+  <section class="dsec" id="d-sec-memory" data-sec="memory" tabindex="-1" aria-label="Memory" hidden>
   <section class="dbox">
     <h3 class="dlab">Memory</h3>
     <div id="d-memory"><p class="dhint" style="margin:0;">Opening&hellip;</p></div>
@@ -3822,7 +3822,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   </div>
   </section>
   </section>
-  <section class="dsec" data-sec="instr" tabindex="-1" aria-label="Instructions" hidden>
+  <section class="dsec" id="d-sec-instr" data-sec="instr" tabindex="-1" aria-label="Instructions" hidden>
   <section class="dbox">
   <div class="field">
     <!-- ⚠️ "SPECIAL PURPOSE", AND THE FILENAME IS NEVER THE LABEL. Josh,
@@ -3908,7 +3908,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   </div>
   </section>
   </section>
-  <section class="dsec" data-sec="profile" tabindex="-1" aria-label="Profile" hidden>
+  <section class="dsec" id="d-sec-profile" data-sec="profile" tabindex="-1" aria-label="Profile" hidden>
 
   <section class="dbox">
   <div class="field">
@@ -4017,7 +4017,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   <div class="fmsg" id="d-role-msg"></div>
   </section>
   </section>
-  <section class="dsec" data-sec="term" tabindex="-1" aria-label="Terminal" data-tied="1" hidden>
+  <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-tied="1" hidden>
 
   <!-- The raw session, always offered on this page since agent-page-nav
        (the Engineering-mode switch governs project pages only). Same
@@ -4044,7 +4044,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   <p class="dhint dterm-note" id="d-term-reading">Reading its window&hellip;</p>
   <p class="dhint dterm-note" id="d-term-empty">No window to show for this agent. Kosmos shows the window of an agent it can tie to its name; if this one was started some other way, it cannot.</p>
   </section>
-  <section class="dsec" data-sec="remove" tabindex="-1" aria-label="Remove" hidden>
+  <section class="dsec" id="d-sec-remove" data-sec="remove" tabindex="-1" aria-label="Remove" hidden>
 
   <!-- ⚠️ THE ONE CONTROL THAT TAKES SOMETHING AWAY, and it is here rather than
        on the card deliberately: its own section, last in the nav and below a
@@ -7658,7 +7658,9 @@ async function tick() {
       /* The window box rides the SAME fresh-card lookup as the write
          controls below (one fact, one derivation -- a second find() for
          the same card was the new-sibling shape again). The tie
-         re-checks here every poll: a pane dying mid-open (a stranger
+         re-checks here every poll WHILE THE TERMINAL SECTION IS ON SCREEN
+         (agent-page-nav; on any other section the box is not visible and
+         the arrival paint re-checks when it is): a pane dying mid-open (a stranger
          taking the name) otherwise kept painting "no agent by that
          name" into the box, and the hide RETIRES any in-flight paint
          (the epoch bump) so a fetch launched a beat earlier cannot
@@ -10888,7 +10890,7 @@ function openDetail(sessionName, section) {
      sections by id and never calls detailGo, so a person reading Instructions
      is not flipped back to Talk five seconds later. */
   detailNavNames(a.name);
-  detailGo(section || 'talk', { focus: false });
+  TALK_SCROLL = null;
   /* The name for the Reports-to menu's first option. Fire and forget: the poll
      repaints this panel every five seconds, and until it lands the menu says
      "You", which is true rather than a placeholder. */
@@ -11107,28 +11109,30 @@ function openDetail(sessionName, section) {
      lesson: a new sibling that skips it paints "no agent by that name"
      inside a box on the panel of an agent the person is looking at). An
      untied pane's window is not this agent's to show; the box hides. */
+  /* 🔑 NO CAPTURE ON OPEN. The box was reset above; `data-tied` says what
+     the section should say while it is empty, and the capture itself happens
+     on ARRIVAL at Terminal (detailGo, below, after this reset, so a deep-link
+     to `term` captures exactly once) and on the tick while it is on screen.
+     Capturing here on a Talk landing was a subprocess for a surface nobody
+     could see. */
   detailSection('term').dataset.tied = tied ? '1' : '0';
-  if (tied) {
-    paintAgentWindow(a.sessionName);
-  } else {
-    WINDOW_LOAD += 1;
-    document.getElementById('d-window-box').hidden = true;
-  }
+  WINDOW_LOAD += 1;
   // ⚠️ Asked EVERY time the panel opens, and asked of the engine. Whether an
   // agent can be removed here is a fact about what created it, and this screen
   // must not carry its own opinion about that.
   loadRemoval(a.sessionName);
+  detailGo(section || 'talk', { focus: false });
   showTab('detail');
 }
 
 /* The raw window is captured ONLY while the Terminal section is on screen
-   (the tick's gate) and once on arrival there (detailGo), so a page left open
-   on Talk costs no capture-pane every five seconds. The same tied/untied
+   (the tick's gate) and once on arrival there (detailGo); never on open, so a
+   page opened or left on Talk costs no capture-pane at all. The same tied/untied
    branch either way: a pane that cannot be tied to the agent's name is not
    this agent's to show. The section says "reading" on a tied agent until the
    first capture lands and "cannot show" on an untied one, via `data-tied`. */
 function detailSection(key) {
-  return document.querySelector('#panel-detail .dsec[data-sec="' + key + '"]');
+  return document.getElementById('d-sec-' + key);
 }
 function detailPaintWindow(a) {
   const tied = !!(a && a.isNamedOurs === true);
@@ -11144,8 +11148,17 @@ function detailPaintWindow(a) {
    `detailGo` is the ONLY writer of `.dsec[hidden]`, and it is called from a
    nav click and from `openDetail`, never from the poll. */
 const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'profile', 'term', 'remove'];
+/* The thread's scroll offset while Talk is hidden. A display:none container
+   drops its scrollTop, so "came back to where I was reading" has to be kept
+   here; null means nobody has left Talk for this agent yet. */
+let TALK_SCROLL = null;
 function detailGo(section, opts) {
   if (!DETAIL_SECTIONS.includes(section)) section = 'talk';
+  {
+    const talk = detailSection('talk');
+    const th = document.getElementById('d-dmthread');
+    if (talk && !talk.hidden && section !== 'talk' && th) TALK_SCROLL = th.scrollTop;
+  }
   const nav = document.getElementById('d-nav');
   nav.querySelectorAll('button[data-go]').forEach((b) => {
     const on = b.dataset.go === section;
@@ -11172,9 +11185,10 @@ function detailGo(section, opts) {
      that measures. */
   if (section === 'talk') {
     const th = document.getElementById('d-dmthread');
-    /* Only when nothing has been scrolled: a person who read up, went to
-       Model and came back is not moved off what they were reading. */
-    if (th && th.__lastCount !== null && th.__lastCount !== undefined && th.scrollTop === 0) th.scrollTop = th.scrollHeight;
+    /* Back where they were if they had left; otherwise the newest row, which
+       is what a thread painted into a hidden section could not do. */
+    if (th && TALK_SCROLL !== null) th.scrollTop = TALK_SCROLL;
+    else if (th && th.__lastCount !== null && th.__lastCount !== undefined) th.scrollTop = th.scrollHeight;
   }
   if (section === 'term' && CURRENT && !WINDOW_OPENING) detailPaintWindow(CURRENT);
 }

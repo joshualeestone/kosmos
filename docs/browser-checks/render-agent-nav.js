@@ -118,6 +118,36 @@ function chk(ok, label, extra) {
         await page.screenshot({ path: path.join(OUT, `${theme}-${k}.png`), fullPage: false });
       }
 
+      // Deep-link: openDetail(name, section) lands on that section. No caller
+      // passes one yet (the stale-instructions mark is the candidate), so the
+      // parameter is exercised here or nowhere.
+      await page.evaluate(() => openDetail('april', 'instr'));
+      await page.waitForTimeout(200);
+      r = await rects();
+      chk(r.instr.h > 0 && SECTIONS.filter((j) => j !== 'instr').every((j) => r[j].h === 0),
+        `[${theme}] openDetail(name, 'instr') lands on Instructions`, JSON.stringify(Object.fromEntries(SECTIONS.map((j) => [j, r[j].h]))));
+      await page.evaluate(() => openDetail('april', 'no-such-section'));
+      await page.waitForTimeout(100);
+      r = await rects();
+      chk(r.talk.h > 0, `[${theme}] an unknown section falls back to Talk`, String(r.talk.h));
+      // Capture count: opening on Talk must not capture; arriving at Terminal
+      // captures once; a deep-link to Terminal captures once, not twice.
+      await page.evaluate(() => {
+        window.__caps = 0;
+        const f = window.fetch;
+        window.fetch = function (u, o) { if (String(u).includes('/window')) window.__caps += 1; return f.call(this, u, o); };
+      });
+      // Read straight after the call: the capture's fetch fires synchronously
+      // on these paths, and a longer wait lets the five-second tick's own
+      // (correct) capture land in the count and read as a double.
+      let caps = await page.evaluate(() => { window.__caps = 0; openDetail('april'); return window.__caps; });
+      chk(caps === 0, `[${theme}] opening on Talk captures no window`, String(caps));
+      caps = await page.evaluate(() => { window.__caps = 0; detailGo('term'); return window.__caps; });
+      chk(caps === 1, `[${theme}] arriving at Terminal captures once`, String(caps));
+      caps = await page.evaluate(() => { window.__caps = 0; openDetail('april', 'term'); return window.__caps; });
+      chk(caps === 1, `[${theme}] a deep-link to Terminal captures once, not twice`, String(caps));
+      await page.waitForTimeout(300);
+
       // The terminal box is no longer gated by Engineering mode on this page.
       await page.click('#d-nav button[data-go="term"]');
       await page.waitForTimeout(300);
