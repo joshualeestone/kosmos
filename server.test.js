@@ -5396,29 +5396,94 @@ test('renaming through the identity line updates the record; mangling it cannot 
   }
 });
 
-test('an unrelated instructions save does not revert a profile-route rename', async () => {
-  // ⚠️ Round 37: the rename-follow used to key on "the line PARSES to a name
-  // that differs from the record", which is also true when the person renamed
-  // through the PROFILE route and then saved a paragraph edit -- the untouched
-  // identity line still reads the old name, and following it silently undid
-  // the rename. The follow now keys on the LINE ITSELF changing.
+test('a rename through the profile route reaches the agent\'s own instructions', async () => {
+  /**
+   * 🛑 JOSH RENAMED AN AGENT BOB TO SCARLET AND IT STILL THOUGHT IT WAS BOB
+   * (2026-08-22). The name lives in the record, which every SCREEN reads, and in
+   * the sentence at the top of the instruction file, which is the only one the
+   * AGENT reads. This route moved the first and left the second.
+   *
+   * 🔑 ASSERTED ON THE FILE THE READ ROUTE SERVES, not on the record: the record
+   * was never the broken half, and a test that checked it would have passed
+   * against the defect.
+   */
   const status = require('./engine/status');
   const store = require('./engine/store');
   status.setPaneSource(() => fleet.line({ session: 'angel-discord', title: 'working' }));
   status.setPaneCapture(() => 'Worked for 1m\n> \n');
   try {
-    // The file says Seraphina; the person then renames to Sera via the
-    // profile route.
+    const v0 = JSON.parse((await req('/api/agent/angel/instructions')).body).version;
+    await req('/api/agent/angel/instructions', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'You are **Bob**, a tester.\nBob keeps notes.\n', version: v0 }),
+    });
+
+    const out = await req('/api/agent/angel/profile', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ displayName: 'Scarlet' }),
+    });
+    assert.equal(out.status, 200);
+    const body = JSON.parse(out.body);
+    /* The answer says the file moved, because the screen has to be able to tell
+       somebody their running agent has not heard yet. */
+    assert.equal(body.renamed && body.renamed.changed, true, JSON.stringify(body.renamed));
+    assert.equal(body.renamed.was, 'Bob');
+
+    const after = JSON.parse((await req('/api/agent/angel/instructions')).body).text;
+    assert.match(after, /You are \*\*Scarlet\*\*, a tester\./,
+      'the agent still introduces itself by the old name');
+    /* ⚠️ AND ONLY THAT LINE. The rest is the person\'s own prose. */
+    assert.match(after, /Bob keeps notes\./, 'it rewrote prose that was not the identity line');
+    assert.equal(store.readProfile('angel').displayName, 'Scarlet');
+
+    /* A save that changes no name reports nothing to restart for. */
+    const again = await req('/api/agent/angel/profile', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ displayName: 'Scarlet', role: 'tester' }),
+    });
+    assert.equal(JSON.parse(again.body).renamed, undefined,
+      'an unchanged name still claimed to have touched the instructions');
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+});
+
+test('an unrelated instructions save does not revert a profile-route rename', async () => {
+  // ⚠️ Round 37: the rename-follow used to key on "the line PARSES to a name
+  // that differs from the record", which is also true when the record and the
+  // file disagree for some other reason -- the untouched identity line still
+  // reads the old name, and following it silently undid the rename. The follow
+  // now keys on the LINE ITSELF changing.
+  //
+  // 🛑 THE DIVERGENCE IS SET UP DIRECTLY NOW, and that is a real change of
+  // premise. This used to produce it by renaming through the profile route,
+  // which left the file behind -- the very defect the profile route was later
+  // fixed to stop (Josh, 2026-08-22: renamed Bob to Scarlet and it still thought
+  // it was Bob). That route now moves the file too, so it can no longer be the
+  // source of the disagreement.
+  //
+  // 🔑 THE GUARD STILL MATTERS, WHICH IS WHY THIS TEST STAYS. The file follow is
+  // best-effort by design: a conflicting edit or an unreadable file leaves the
+  // record renamed and the file holding the old name, and from there an
+  // unrelated paragraph save must not walk the rename back. Writing the record
+  // directly reproduces that state without pretending about how it arose.
+  const status = require('./engine/status');
+  const store = require('./engine/store');
+  status.setPaneSource(() => fleet.line({ session: 'angel-discord', title: 'working' }));
+  status.setPaneCapture(() => 'Worked for 1m\n> \n');
+  try {
+    // The file says Seraphina; the record says Sera, as it would after a rename
+    // whose file follow did not land.
     const v0 = JSON.parse((await req('/api/agent/angel/instructions')).body).version;
     await req('/api/agent/angel/instructions', {
       method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ text: 'You are **Seraphina**, a tester.\nParagraph.\n', version: v0 }),
     });
-    await req('/api/agent/angel/profile', {
-      method: 'PUT', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ displayName: 'Sera' }),
-    });
-    assert.equal(store.readProfile('angel').displayName, 'Sera', 'control: the profile rename landed');
+    store.writeProfile('angel', { displayName: 'Sera' });
+    assert.equal(store.readProfile('angel').displayName, 'Sera', 'control: the record says Sera');
+    assert.match(JSON.parse((await req('/api/agent/angel/instructions')).body).text,
+      /You are \*\*Seraphina\*\*/, 'control: the file still says Seraphina, so the two really disagree');
     // An edit that leaves the identity line ALONE must leave the name alone.
     const v1 = JSON.parse((await req('/api/agent/angel/instructions')).body).version;
     const unrelated = await req('/api/agent/angel/instructions', {
