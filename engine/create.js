@@ -360,6 +360,19 @@ function nameUsable(raw) {
 function hasJob(name) {
   try { return fs.existsSync(plistPath(name)); } catch { return false; }
 }
+/**
+ * #149/#150: "no launch file" as a PROVEN absence, never an unreadable one.
+ * `!hasJob(name)` fails the wrong way for this question: existsSync swallows
+ * EACCES and a broken directory into false, so the negation would stamp
+ * "made before Kosmos recorded this", a provenance claim, on every agent the
+ * moment LaunchAgents cannot be read. Only ENOENT is evidence of absence;
+ * any other failure answers "we could not check", which is false here.
+ */
+function jobMissing(name) {
+  try { fs.statSync(plistPath(name)); return false; } catch (e) {
+    return Boolean(e && e.code === 'ENOENT');
+  }
+}
 function instructionFile(name) { return path.join(workerDir(name), 'CLAUDE.md'); }
 function logFile(name) { return path.join(workerDir(name), 'start.log'); }
 function serviceLabel(name) { return `com.kosmos.agent.${name}`; }
@@ -1441,12 +1454,21 @@ function createAgentInner(opts) {
     // test), so nothing is appended to them uninvited -- a person who
     // writes their agent's file can teach it the command themselves.
     if (wantInstructions === undefined) {
+      /* ⚠️ SAID WHEN IT DOES NOT LAND (#182). This block is what teaches an
+         agent that a reply in its own window reaches nobody; an agent born
+         without it fails silently in exactly the way the block exists to
+         prevent, so shipping without it must not be silent too. Still
+         non-gating: the step reports, the creation succeeds. */
+      let blockLanded = false;
       try {
         const messagesMod = require('./messages');
         const spliced = require('./projects').spliceBlock(text, messagesMod.blockBody(), messagesMod.START, messagesMod.END);
         const { MAX_BYTES } = require('./instructions');
-        if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;
-      } catch { /* ships without the block */ }
+        if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; blockLanded = true; }
+      } catch { /* reported below rather than swallowed */ }
+      if (!blockLanded) {
+        steps.push({ label: 'could not add the messaging section to its instructions, so it does not yet know how to answer you; edit its instructions or remake it', ok: false });
+      }
     }
     // The operating defaults (#122): how an agent behaves whatever its job,
     // as opposed to what it is. Same gate and the same reason as the block
@@ -1767,7 +1789,7 @@ module.exports = {
   setModel,
   installJob,
   nameUsable,
-  hasJob,
+  hasJob, jobMissing,
   setAccount,
   readJob,
   createAgent,

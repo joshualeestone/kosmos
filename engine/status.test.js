@@ -2179,7 +2179,18 @@ test('an agent Kosmos launched but that has never spoken says so, and one we did
     const rick = show('rickish');
     assert.equal(rick.context.notYet, false,
       'an agent we never launched was told it had not started, which we cannot know');
-    assert.match(rick.context.because, /cannot find a transcript/);
+    /* #149/#150: the no-plist case now says HISTORY rather than fault. Rick
+       ran for hours with no launch file; "cannot find a transcript" read as
+       something to fix, and nothing anywhere said the state was permanent.
+       The row-level flag is what every screen branches on, and it must be
+       true here and absent-or-false everywhere else in this test. */
+    assert.match(rick.context.because, /made before Kosmos recorded this/,
+      'the no-plist case still reads as a lookup fault instead of history');
+    assert.equal(rick.context.neverRecorded, true);
+    assert.equal(rick.neverRecorded, true,
+      'the roster row does not carry the flag the screens branch on');
+    assert.ok(!ava.neverRecorded,
+      'an agent WITH a launch file is wearing the never-recorded flag');
 
     /* And ours WITH transcripts that do not match is a fault, not a fresh
        agent: something was written and we cannot use it. */
@@ -2192,6 +2203,12 @@ test('an agent Kosmos launched but that has never spoken says so, and one we did
     const broken = show('brokenish');
     assert.equal(broken.context.notYet, false,
       'a transcript exists and cannot be used, which is a fault rather than a new agent');
+    /* The other half of the #149/#150 discriminator: WITH a plist, a missing
+       transcript keeps the fault sentence. Delete the plist gate in
+       readContext and this assertion goes red while rickish's goes green. */
+    assert.match(broken.context.because, /cannot find a transcript/,
+      'a real lookup fault was relabelled as history, which hides a breakage');
+    assert.ok(!broken.neverRecorded);
   } finally {
     setPaneSource(null);
     setPaneCapture(null);
