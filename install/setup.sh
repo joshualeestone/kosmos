@@ -1,4 +1,33 @@
 #!/bin/sh
+#
+#   ------------------------------------------------------------------
+#   IF YOU ARE READING THIS IN YOUR TERMINAL, KOSMOS DID NOT INSTALL.
+#
+#   Nothing went wrong and nothing was broken. This is the installer's
+#   own text, printed to your screen instead of being run.
+#
+#   You need the whole line, including the part at the end:
+#
+#       curl -fsSL https://installkosmos.com/setup | sh
+#
+#   Copy that, paste it into Terminal, and press Return.
+#   ------------------------------------------------------------------
+#
+# ⚠️ THE FIRST TWELVE LINES OF THIS FILE ARE WRITTEN FOR SOMEBODY WHO IS NOT
+# US, AND THEY EARNED THEIR PLACE. On 2026-08-22 the first person outside this
+# team to try Kosmos ran `curl -fsSL .../setup` with no `| sh`. curl did as it
+# was asked, printed 2,169 lines of this file to her screen, and exited 0. She
+# reported to Josh that the product was broken, and she was being reasonable:
+# the failure is silent, succeeds, and looks catastrophic.
+#
+# Everything below this banner is written for whoever maintains the installer.
+# The top of the screen is the one moment we are guaranteed the attention of
+# somebody who has just watched two thousand lines scroll past, and it used to
+# be spent on /Applications icon staging -- true, careful, and useless to her.
+# (Splinter's catch. The page it came from was fixed the same night so the
+# command can no longer be half-selected; this is the belt for every other way
+# a person can arrive holding half of it.)
+#
 # Kosmos installer. One line, no sudo, no password. Everything lives in your
 # home folder except: the app icon, which goes to /Applications when this
 # user can write there without a password (macOS admin accounts can), and
