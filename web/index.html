@@ -5195,6 +5195,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              line under every undescribed project would read as something
              missing. -->
         <p class="pj-desc" id="pj-one-desc" hidden></p>
+        <!-- Who asked for this project (#327): shown only when it was NOT the
+             person, because "made by you" under everything you made is
+             furniture, and an agent-made project is the one a person needs to
+             be able to tell apart at a glance. -->
+        <p class="dhint" id="pj-one-made" style="margin:2px 0 0;" hidden></p>
       </div>
       <!-- The door to settings, in the pack's pjhead corner: what lives
            there is what has nowhere else to live. -->
@@ -6042,6 +6047,24 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            Drawing it with a tick would claim we had verified something. -->
       <p class="dhint" style="margin:12px 0 0;">Kosmos runs in the background. Closing this window does not stop your agents.</p>
     <section class="dbox">
+      <!-- The tmux permission box, explained where a worried person looks
+           (#219). macOS attributes an agent's reach outside its folder to the
+           responsible process, which is tmux, a word no Kosmos user has met.
+           The dialog cannot be pre-granted or suppressed (TCC), and the reach
+           originates with the person's own instruction, so the fix that is
+           left is words: agents pre-warn (the boot block), and this box is
+           the standing answer for someone who met it cold. -->
+      <h3 class="dlab">If your Mac asks about &ldquo;tmux&rdquo;</h3>
+      <p class="dhint" style="margin:0;">
+        Sometimes macOS shows a box like <i>&ldquo;tmux&rdquo; would like to access
+        files in your Desktop folder</i>. tmux is the window Kosmos runs your
+        agents in, so that is an agent asking to reach a folder you gave it
+        work in. Allow it and the agent can do what you asked; Don&rsquo;t Allow
+        quietly stops that one job. Kosmos never reaches outside its own
+        folders unless you ask an agent to.
+      </p>
+    </section>
+    <section class="dbox">
       <h3 class="dlab">Agents already on this computer</h3>
       <!-- #330's ask, answered by pointing at where it was built: discovery's
            permanent home is the Agents page (found-wrap, below the board),
@@ -6531,7 +6554,7 @@ function taskLine(a) {
    * state means the agent cannot work at all. A title is a poor status source in
    * general (#209) and that is a bigger question than this line.
    */
-  return stateReason(a) || a.task || 'no task showing';
+  return stateReason(a) || taskWords(a) || 'no task showing';
 }
 
 /**
@@ -6550,6 +6573,15 @@ function taskLine(a) {
  * not a fossil, so it keeps the title. Only `rate_limited` has a reason that
  * outranks one, because only it means the agent cannot work at all.
  */
+/* The pane title, minus the one value that is not a task (#222, #209): on a
+   brand-new session the frozen title is just the application's name, so the
+   product told a person their agent was doing "Claude Code" -- on the exact
+   screen where they most need reassurance, right after a restart. The name of
+   the software is not work; an empty slot is honest and the header hides it. */
+function taskWords(a) {
+  const t = a && typeof a.task === 'string' ? a.task.trim() : '';
+  return t === 'Claude Code' ? '' : t;
+}
 function stateReason(a) {
   if (!a || a.state !== 'rate_limited') return '';
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
@@ -8883,12 +8915,17 @@ async function paintSettings() {
     const m = await (await fetch('/api/machine')).json();
     mach.innerHTML = machineRows(m);
     const made = document.getElementById('set-made');
-    if (made && m.made && typeof m.made.agents === 'number') {
+    /* ⚠️ ONLY ONCE THE RECORD HAS SOMETHING IN IT. The birth record starts the
+       day it ships, so on a machine whose agents predate it, "made 0 agents"
+       sits beside a board showing fourteen -- two true sentences composing a
+       contradiction. An empty record is not a claim of none; it is silence,
+       and the line stays silent with it. */
+    if (made && m.made && typeof m.made.agents === 'number' && (m.made.agents + (m.made.refused || 0)) > 0) {
       made.textContent = 'Kosmos has made ' + m.made.agents + (m.made.agents === 1 ? ' agent' : ' agents')
-        + ' on this Mac so far'
+        + ' on this Mac since it started keeping the record'
         + (m.made.refused > 0 ? ', and turned away ' + m.made.refused + ' attempt' + (m.made.refused === 1 ? '' : 's') + ' it could not do safely' : '') + '.';
       made.hidden = false;
-    }
+    } else if (made) { made.hidden = true; made.textContent = ''; }
     for (const sleepBtn of mach.querySelectorAll('[data-sleep-settings]')) {
       sleepBtn.addEventListener('click', async () => {
         // The pane opening IS the success feedback; words appear on refusal
@@ -11844,7 +11881,7 @@ function openDetail(sessionName, section) {
   /* The same derivation the card uses, so the two cannot say different things
      about one agent. Falls back to the title, and to nothing at all — the header
      hides rather than printing "no task showing" beside a name. */
-  dtask.textContent = stateReason(a) || a.task || '';
+  dtask.textContent = stateReason(a) || taskWords(a) || '';
   dtask.hidden = !dtask.textContent;
   /* The lede names the AGENT rather than saying "this agent", which is the
      pack's wording and the same substitution the rest of this panel already
@@ -17647,6 +17684,18 @@ function paintOneProject() {
   const desc = document.getElementById('pj-one-desc');
   desc.textContent = p.description || '';
   desc.hidden = !p.description;
+  /* Agent-made projects say so (#327). `by` is the pane's agent when one was
+     offered and resolved; otherwise the honest generic. Screen-made shows
+     nothing: "made by you" under everything is furniture. */
+  const madeLine = document.getElementById('pj-one-made');
+  if (p.made && p.made.via === 'process') {
+    madeLine.textContent = 'Made by ' + (p.made.by ? (pjNameOf(p, p.made.by) || p.made.by) : 'an agent or another program on this Mac')
+      + (p.made.at ? ' on ' + new Date(p.made.at).toLocaleDateString() : '') + '.';
+    madeLine.hidden = false;
+  } else {
+    madeLine.textContent = '';
+    madeLine.hidden = true;
+  }
   /* The raw-path element retired with the pack cut ("~/" is a squiggle to
      this reader): the folder facts live on #pjs-folder-name and
      #pjs-folder-where in Project settings. */
@@ -18489,8 +18538,14 @@ function pjRoomRow(m, p, silent) {
   /* The person's own chip is NEUTRAL, never drawn from the agent face set
      (the pack's rule: "You" is not an agent). Agents get the shared disc,
      or their photo when the tied card carries one. */
+  /* The person's chip wears THEIR picture once they set one (#181: "I come
+     up as just a black circle"). Still never drawn from the agent face set;
+     a photo they chose for themselves is not an agent's face. The neutral
+     disc stays the no-picture state. */
   const av = isOp
-    ? '<div class="msg-av mine" aria-hidden="true"></div>'
+    ? (YOU_PIC
+      ? '<div class="msg-av" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
+      : '<div class="msg-av mine" aria-hidden="true"></div>')
     : (card && card.hasAvatar
       ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar" alt=""></div>'
       : '<div class="msg-av" aria-hidden="true" style="background:' + discTint(m.from) + ';color:' + discInk(m.from) + '">' + esc(initials(m.from)) + '</div>');

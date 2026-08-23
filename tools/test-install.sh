@@ -44,7 +44,15 @@ SB="$(mktemp -d)"
 # The kill skips this shell's own pid: the stale-pidfile fixture seeds $$
 # as a live-but-not-a-board pid, and the first version of this trap
 # SIGTERMed the harness itself right after printing the summary.
-trap 'for _p in "$SB"/home*/board.pid; do if [ -f "$_p" ]; then _k="$(cat "$_p" 2>/dev/null)"; [ "$_k" = "$$" ] || kill "$_k" 2>/dev/null || true; fi; done; chflags -R nouchg "$SB" 2>/dev/null || true; chmod -R u+w "$SB" 2>/dev/null || true; rm -rf "$SB"' EXIT
+# ⚠️ TWO SWEEPS, AND THE SECOND EXISTS BECAUSE THE FIRST LEAKED TWICE (#231).
+# The pidfile glob only finds boards that wrote "$SB"/home*/board.pid; on
+# 2026-08-21 two suite-started servers survived their worktree's removal
+# (one answering as Kosmos on the product's default port for 24 minutes).
+# Anything whose COMMAND LINE references this sandbox dies with the suite:
+# every server the suite can start is launched by a path under $SB, so
+# pgrep -f "$SB" is a complete inventory, and it cannot reach unrelated
+# processes because $SB is a fresh mktemp path no one else names.
+trap 'for _p in "$SB"/home*/board.pid; do if [ -f "$_p" ]; then _k="$(cat "$_p" 2>/dev/null)"; [ "$_k" = "$$" ] || kill "$_k" 2>/dev/null || true; fi; done; for _k in $(pgrep -f "$SB" 2>/dev/null); do [ "$_k" = "$$" ] || kill "$_k" 2>/dev/null || true; done; chflags -R nouchg "$SB" 2>/dev/null || true; chmod -R u+w "$SB" 2>/dev/null || true; rm -rf "$SB"' EXIT
 mkdir -p "$SB/data" "$SB/launch"
 
 # 🛑 REAL CONTENT IN THE DATA FOLDER, BEFORE ANYTHING RUNS. The "user data

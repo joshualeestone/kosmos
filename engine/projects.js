@@ -1319,7 +1319,7 @@ function trueChildName(parent, name) {
  *   which is still fully supported and is the only way to reach work that lives
  *   somewhere else.
  */
-function create({ name, folder, agents, roster, description } = {}) {
+function create({ name, folder, agents, roster, description, made } = {}) {
   const asked = String(folder == null ? '' : folder).trim();
   // ⚠️ On the default path the FOLDER-NAME refusal comes first, because it
   // is the sentence the person has been reading: the preview line under the
@@ -1377,6 +1377,15 @@ function create({ name, folder, agents, roster, description } = {}) {
       a, Array.isArray(roster) ? roster.some((c) => c && c.sessionName === a) : null,
     ])),
     told: {},
+    /* Who asked for this project (#327): 'screen' is the operator's own page
+       (the route derives it, never the request body), 'process' is anything
+       else on this machine, with the pane's agent name when one was offered
+       and resolved. Advisory by design: an agent runs as the operator and
+       could edit this file directly, so the record is for TELLING things
+       apart on the board, not for authorization. */
+    made: made && typeof made === 'object'
+      ? { via: made.via === 'screen' ? 'screen' : made.via === 'kosmos' ? 'kosmos' : 'process', by: typeof made.by === 'string' && made.by ? made.by : null, at: now }
+      : null,
     createdAt: now,
     updatedAt: now,
   };

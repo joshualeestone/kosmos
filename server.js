@@ -1414,6 +1414,36 @@ const server = http.createServer((req, res) => {
             if (p.added) p.told = { state: projects.TOLD.NOT_TRIED, because: null };
           }
         }
+        /* 🔑 THE FIRST AGENT BRINGS ITS OWN HOME (#166, Josh's idea with the
+           card's two constraints): a person's first screen after making their
+           first agent is otherwise a blank projects page. Created WITH the
+           first agent, never at install (a memberless default is the same
+           empty state in a different shape); its description says it is
+           Kosmos's and removable. Best-effort and non-gating; told rides the
+           same not-tried -> member-route re-fire path via result.projects.
+           Once EVER, held by a flag rather than store-emptiness: remove()
+           deletes the record outright, so an empty store cannot tell "never
+           had one" from "the person removed it", and a removed seed must
+           never regrow. */
+        if (result.outcome === create.OUTCOME.CREATED) {
+          try {
+            const seededFlag = path.join(require('./engine/store').ROOT, 'seeded-project.json');
+            if (!fs.existsSync(seededFlag) && projects.readAll().length === 0) {
+              const home = projects.create({
+                name: 'Getting started',
+                agents: [result.name],
+                roster: safeRoster(),
+                description: 'Kosmos made this so your first agent has somewhere to work with you. '
+                  + 'Post below and everyone on it answers here. It is only an example: remove it whenever you like.',
+                made: { via: 'kosmos' },
+              });
+              result.projects = (result.projects || []).concat([
+                { id: home.id, added: true, seeded: true, told: { state: projects.TOLD.NOT_TRIED, because: null } },
+              ]);
+              fs.writeFileSync(seededFlag, JSON.stringify({ at: new Date().toISOString(), project: home.id }) + '\n', 'utf8');
+            }
+          } catch { /* a first screen a person fills themselves is the fallback, not a failure */ }
+        }
         sendJson(res, code, result);
       })
       // ⚠️ OUR sentence, never the raw message. The first version called
@@ -3502,7 +3532,33 @@ const server = http.createServer((req, res) => {
         // One roster for the whole request: the same observation decides
         // `everSeen`, the write permission, and what the response reports.
         const roster = safeRoster();
-        const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description });
+        /* Who is asking (#327): a browser sends sec-fetch-site, a curl does
+           not, and the header is the BROWSER'S, not the request body's -- so
+           the screen/process split cannot be minted by a local process lying
+           about itself in JSON. A process that offered its pane gets named
+           through the same roster the write already trusts. Advisory: an
+           agent runs as the operator; this is for telling things apart. */
+        const viaScreen = typeof req.headers['sec-fetch-site'] === 'string'
+          || (() => { try { const h = new URL(String(req.headers.origin || '')).hostname.replace(/\.$/, '').toLowerCase(); return LOOPBACK_HOSTS.has(h) || ALLOWED_HOSTS.has(h); } catch { return false; } })();
+        const paneCard = !viaScreen && typeof body.from_pane === 'string'
+          ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
+          : null;
+        /* The runaway bound (#327 q2): a looping process can create projects
+           as fast as it can curl, and nothing else limits API writes. Twelve
+           process-made projects in an hour is far past any brief and far
+           under any loop. The SCREEN is never valved -- the person is the
+           one participant this exists to protect, the room valve's own rule. */
+        if (!viaScreen) {
+          const hourAgo = Date.now() - 3600000;
+          const recent = projects.readAll().filter((p) => p && p.made && p.made.via === 'process'
+            && Number.isFinite(Date.parse(p.made.at)) && Date.parse(p.made.at) >= hourAgo).length;
+          if (recent >= 12) {
+            sendJson(res, 429, { error: 'agents have made ' + recent + ' projects in the last hour, so Kosmos is pausing agent-made projects; the person can still make them from the screen' });
+            return;
+          }
+        }
+        const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description,
+          made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } });
         // ⚠️ Told AFTER the record is written, never before. If announcing it
         // failed first, a membership the person asked for would not exist at
         // all -- and the whole point of the three-valued verdict is that a

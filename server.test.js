@@ -7921,7 +7921,7 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
      else. It exists so the card and this header cannot disagree about one
      agent, so a copy of it in the test would defeat its whole purpose. */
   const tables = script.slice(tablesFrom, script.indexOf('\n', cardStAt) + 1)
-    + '\n' + pageFnSource('stateReason');
+    + '\n' + pageFnSource('taskWords') + '\n' + pageFnSource('stateReason');
 
   const dmAt = script.indexOf('  const dm = cardStOf(a);');
   assert.ok(dmAt > -1,
