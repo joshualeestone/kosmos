@@ -2884,6 +2884,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 .fr-found { display: grid; gap: var(--space-3); margin: var(--space-5) 0; max-width: 36rem; }
 .fr-foundrow { display: grid; gap: 2px; padding: 10px 12px;
   border: 1px solid var(--separator); border-radius: var(--radius-control); }
+.fr-foundrow .fr-foundgo { margin-top: var(--space-3); justify-self: start; }
+/* An empty status line takes no room, so a row that has not been pressed is the
+   same height as it was before the control existed. */
+.fr-foundrow .fr-foundsaid:empty { display: none; }
+.fr-foundrow .fr-foundsaid { margin: var(--space-3) 0 0; font: var(--text-callout) var(--font-ui);
+  color: var(--label-2); }
+.fr-foundrow.done { border-color: var(--label-3); }
 .fr-foundname { font: 600 var(--text-body) var(--font-ui); color: var(--label); }
 .fr-foundrole { font: var(--text-callout) var(--font-ui); color: var(--label-2); }
 .fr-founddir { font: var(--text-caption) var(--font-mono, var(--font-ui)); color: var(--label-3);
@@ -19900,17 +19907,28 @@ function frPaintFound() {
   box.innerHTML = '<p>They are not in Kosmos yet. You will be able to add them here, and '
     + 'adding one leaves it exactly where it is, in its own folder with its own instructions.</p>'
     + '<div class="fr-found">' + FR_FOUND.agents.map((a) =>
-      /* 🔑 NO CONTROLS ON THE ROW. A ticked box that does nothing is worse than
-         no box: ticked says a decision has been made and inert says it has not,
-         on the same pixel. The list without controls is a complete, honest
-         thing; a control that cannot act is not. */
-      '<div class="fr-foundrow"><span class="fr-foundname">' + esc(a.name) + '</span>'
+      /* 🔑 ONE BUTTON PER AGENT, AND NO "ADD ALL" (Josh, 2026-08-22: "Add buttons
+         are fine for beta, no add all, yes long form btns"). Each press starts a
+         real session on this machine, and a single control that starts four
+         hundred of them is not a button, it is a cliff. The long label is his
+         too: on a row that already carries a name, "Add" alone would be the only
+         word on the screen that does not say what it acts on.
+         ⚠️ THEY EXIST NOW BECAUSE THEY CAN ACT. An earlier slice drew this list
+         with tick boxes and no route behind them; Mona Lisa's rule was that a
+         ticked box which does nothing is worse than no box, because ticked says
+         a decision has been made while inert says it has not, on the same pixel.
+         The rule has not changed -- the route arrived. */
+      '<div class="fr-foundrow" data-found-dir="' + esc(a.dir) + '">'
+      + '<span class="fr-foundname">' + esc(a.name) + '</span>'
       /* Role is optional by ruling ("even if it's just title unknown"): an agent
          whose file never says what it does is still an agent. */
       + '<span class="fr-foundrole">' + esc(a.role || 'No title in its instructions') + '</span>'
       /* The folder answers "is that MY Mike or another one", which is the only
          unambiguous thing on the row. */
-      + '<span class="fr-founddir">' + esc(a.dir) + '</span></div>').join('')
+      + '<span class="fr-founddir">' + esc(a.dir) + '</span>'
+      + '<button class="btn fr-foundgo" type="button">Add ' + esc(a.name) + ' to Kosmos</button>'
+      + '<p class="fr-foundsaid" role="status" aria-live="polite"></p>'
+      + '</div>').join('')
     + '</div>';
   /* 🛑 `Continue`, NOT "Take me to my agents". Nothing has been added, so the
      board still shows what tmux shows -- and somebody whose agent has not run
@@ -19919,6 +19937,56 @@ function frPaintFound() {
      costs nothing and cannot be wrong (Mona Lisa). */
   frActions({ label: 'Continue', go: () => frFinish(() => showTab('agents')) });
 }
+
+/**
+ * Bringing one found agent in.
+ *
+ * ⚠️ ONE ROW AT A TIME, AND THE ROW REPORTS ITSELF. Each press installs a launch
+ * job and starts a session, so a failure belongs beside the agent it failed for
+ * rather than in a banner that could be about any of them.
+ *
+ * 🔑 THE LIST IS NOT REPAINTED ON SUCCESS. `frPaintFound` rebuilds every row from
+ * `FR_FOUND`, which would throw away the state of the other rows somebody has
+ * already pressed -- and this screen is the one place where a person may press
+ * four buttons in a row. The row edits itself instead.
+ */
+document.addEventListener('click', async (e) => {
+  const go = e.target.closest && e.target.closest('.fr-foundgo');
+  if (!go || go.disabled) return;
+  const row = go.closest('.fr-foundrow');
+  const said = row && row.querySelector('.fr-foundsaid');
+  const dir = row && row.dataset.foundDir;
+  if (!dir || !said) return;
+  const was = go.textContent;
+  go.disabled = true;
+  go.textContent = 'Adding\u2026';
+  said.textContent = '';
+  let out = null;
+  try {
+    const res = await fetch('/api/connect-agent', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dir }),
+    });
+    out = await res.json().catch(() => null);
+  } catch { out = null; }
+  if (out && out.ok) {
+    /* ⚠️ THE BUTTON BECOMES THE RECEIPT rather than vanishing. A control that
+       disappears on success leaves somebody wondering whether they pressed it,
+       on a screen where they are about to press three more. */
+    go.textContent = 'Added';
+    row.classList.add('done');
+    /* Said plainly, because it is the thing people will not believe: their agent
+       is still where they left it. */
+    said.textContent = out.started
+      ? 'Added, and started. It stays in its own folder.'
+      : 'Added. It stays in its own folder, and will start at the next login.';
+    return;
+  }
+  go.disabled = false;
+  go.textContent = was;
+  said.textContent = (out && out.because) || 'We could not bring that one in.';
+});
 
 function frPaintFleet() {
   const box = document.getElementById('fr-fleet');

@@ -113,4 +113,83 @@ function found() {
   return { ok: true, agents, because: null };
 }
 
-module.exports = { found };
+/**
+ * Bring an agent Kosmos did not create under its management.
+ *
+ * 🔑 NOTHING IS MOVED, COPIED OR RE-CREATED, and that is the whole design. The
+ * agent already exists: a folder with a CLAUDE.md in it. Connecting records
+ * where that folder is and installs the launch job that starts an agent THERE,
+ * so from that moment its instructions are read from their file, its restart is
+ * the same one click as any other agent's, and it comes back at login.
+ *
+ * ⚠️ SO CONNECTING AND RESTARTING ARE THE SAME OPERATION, which is the insight
+ * that made this small (Splinter, 2026-08-22): Kosmos never has to take over a
+ * running process. It starts a fresh session in that folder, and every managed
+ * behaviour follows from having started it.
+ *
+ * ⚠️ AND IT REFUSES RATHER THAN GUESSES. A folder with no readable identity, a
+ * name that cannot become a session, or a name already taken all stop here with
+ * a sentence. The one thing this must never do is half-connect: a recorded
+ * folder for an agent with no job is an agent the board believes in and launchd
+ * has never heard of, so the record is rolled back if the job cannot be written.
+ */
+function connect(dir) {
+  const create = require('./create');
+  const store = require('./store');
+
+  const given = String(dir == null ? '' : dir);
+  if (!given || !path.isAbsolute(given)) {
+    return { ok: false, because: 'that is not a folder on this computer' };
+  }
+  let st;
+  /* `lstat`, so a link is refused rather than followed -- the escape this module
+     family has shipped six times. */
+  try { st = fs.lstatSync(given); } catch { return { ok: false, because: 'that folder is not there any more' }; }
+  if (!st.isDirectory()) return { ok: false, because: 'that is not a folder' };
+
+  let text;
+  try { text = fs.readFileSync(path.join(given, 'CLAUDE.md'), 'utf8').slice(0, 4000); }
+  catch { return { ok: false, because: 'that folder has no instructions in it, so there is no agent to connect' }; }
+  const id = status.identityFromText(text);
+  if (!id || !id.displayName) {
+    return { ok: false, because: 'those instructions do not say who the agent is, so we cannot bring it in' };
+  }
+
+  /* 🔑 THE FOLDER'S OWN NAME IS THE AGENT'S NAME, not the display name from the
+     file. It is what tmux and launchd will carry, it is already unique on this
+     machine by virtue of being a directory, and it is what its owner has been
+     calling it. A display name like "Casey Jones" is not a session name and
+     inventing a slug from it would give the same agent two names on day one. */
+  const name = path.basename(given);
+  if (!create.nameUsable(name)) {
+    return { ok: false, because: 'that folder\u2019s name cannot be used as an agent name' };
+  }
+
+  if (create.hasJob(name)) {
+    return { ok: false, because: 'Kosmos already looks after an agent by that name' };
+  }
+
+  /* ⚠️ THE RECORD GOES FIRST, because `installJob` resolves the folder through
+     it -- without it the job would be written for `<workers>/<name>`, which is
+     not where this agent lives. */
+  let before = {};
+  try { before = store.readProfile(name); } catch { before = {}; }
+  if (before && before.dir && before.dir !== given) {
+    return { ok: false, because: 'an agent by that name is already connected to a different folder' };
+  }
+  try { store.writeProfile(name, { dir: given, displayName: id.displayName }); }
+  catch { return { ok: false, because: 'we could not record where that agent lives' }; }
+
+  const job = create.installJob(name, {});
+  if (!job.ok) {
+    /* Rolled back to what was there before, so a failed connect leaves nothing
+       claiming an agent exists. */
+    try { store.writeProfile(name, { dir: before.dir || null, displayName: before.displayName || null }); }
+    catch { /* the job is the thing that matters and it was not written */ }
+    return { ok: false, because: job.because || 'we could not set it up to run' };
+  }
+
+  return { ok: true, name, displayName: id.displayName, dir: given, started: job.started === true };
+}
+
+module.exports = { found, connect };

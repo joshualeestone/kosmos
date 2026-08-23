@@ -330,9 +330,28 @@ function workerDir(name) {
      agent, spelled the way they spelled it. Same shape as `instructions.registryKey`,
      which answers the same question for the same reason. */
   const raw = String(name == null ? '' : name);
-  if (!raw || raw === '.' || raw === '..') return path.join(WORKERS_DIR, '\u0000-invalid');
-  if (/[/\\\0]/.test(raw) || raw.includes('..')) return path.join(WORKERS_DIR, '\u0000-invalid');
+  if (!nameUsable(raw)) return path.join(WORKERS_DIR, '\u0000-invalid');
   return path.join(WORKERS_DIR, raw);
+}
+
+/**
+ * May this name become a path, a tmux session and a launchd label?
+ *
+ * 🔑 EXPORTED SO THERE IS ONE ANSWER. `workerDir` asks it to decide whether to
+ * join, and `discover.connect` asks it before offering to bring a folder in --
+ * two callers, one rule. A second copy is how the six escapes in this module
+ * family happened, each one a reader with fewer guards than its sibling.
+ */
+function nameUsable(raw) {
+  const s = String(raw == null ? '' : raw);
+  if (!s || s === '.' || s === '..') return false;
+  if (/[/\\\0]/.test(s) || s.includes('..')) return false;
+  return true;
+}
+
+/** Does Kosmos already have a launch job for this name? */
+function hasJob(name) {
+  try { return fs.existsSync(plistPath(name)); } catch { return false; }
 }
 function instructionFile(name) { return path.join(workerDir(name), 'CLAUDE.md'); }
 function logFile(name) { return path.join(workerDir(name), 'start.log'); }
@@ -1652,6 +1671,8 @@ module.exports = {
   NAME_RE,
   setModel,
   installJob,
+  nameUsable,
+  hasJob,
   setAccount,
   readJob,
   createAgent,
