@@ -1242,12 +1242,14 @@ function classify(pane, paneText) {
                 evidence shows what the board saw. (matchedLine's strip class
                 takes the leading glyph off a *-frame line; cosmetic, and the
                 fallback path keeps its glyph.) */
-             evidence: matchedLine(tail, [WORKING_LINE]) || (() => {
-               /* The physical region the match spans, start-of-line to the
-                  end of the line the timer closes on, joined: the fragment
-                  m[0] alone ends at the first separator, the exact dangling
-                  cut the whole-line contract forbids. Same cap convention
-                  as matchedLine, truncation marked. */
+             evidence: (() => {
+               /* ONE evidence path, the region builder, never matchedLine:
+                  a wrapped line's FIRST physical fragment can satisfy the
+                  regex alone (a trailing separator doubles as the close),
+                  so the per-line reader returns exactly the dangling cut
+                  the whole-line contract forbids. Start of the match's
+                  line through the timer group's closing paren, joined,
+                  matchedLine's cap convention, truncation marked. */
                const from = tail.lastIndexOf('\n', m.index) + 1;
                /* Through the timer group's CLOSING paren, not merely to the
                   end of the line the match stops on: a wrap right after the
