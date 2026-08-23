@@ -4742,7 +4742,20 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <button class="btn uprime big" id="made-hello-go" type="button">Say hello</button>
     </div>
     <div class="frow" style="margin-top: var(--space-7);">
-      <button class="btn" id="made-done" type="button" hidden>See it under Agents</button>
+      <!-- 🛑 "See it under Agents" IS GONE (Josh, 2026-08-22): "we're not trying
+           to create an agent and then send them back to the agents page so they
+           have to go find the agent, then click on the agent, and then go to the
+           page." The success ending answers that with Say Hello, which opens the
+           agent directly.
+           🔑 THIS ENDING NEEDED A TRUER OFFER RATHER THAN THE SAME ONE. It is
+           reached when the agent WAS created and the board has not seen it come
+           up within thirty seconds, and the honest fact about that moment is in
+           the sentence above it: this screen stopped waiting, it did not stop
+           the agent. So the offer is to wait again, which is the thing the
+           person actually wants and the only one this screen can carry out.
+           Sending them to a list to hunt for a card that does not exist yet was
+           never that. -->
+      <button class="btn" id="made-look" type="button" hidden>Look again</button>
       <button class="btn" id="made-retry" type="button" hidden>Start over</button>
     </div>
   </div>
@@ -5817,6 +5830,21 @@ paintThemePicker();
  * that silently kills tab switching.
  */
 let WATCH = 0;
+/**
+ * What the Look-again button re-runs.
+ *
+ * Held rather than re-derived: the button is pressed long after the click
+ * handler's locals are gone, and rebuilding the engine's answer from the screen
+ * would be a second derivation of a thing it already said.
+ *
+ * ⚠️ DECLARED HERE, BESIDE `WATCH`, FOR THE REASON ITS NOTE GIVES. `let` is not
+ * hoisted, and both of these are read by click handlers registered further down
+ * the file; that is safe only because nothing can dispatch an event during
+ * synchronous evaluation. One programmatic click during load turns a
+ * declaration further down into a ReferenceError, which is why the other one
+ * lives up here.
+ */
+let MADE_LAST = null;
 
 const STATE_COPY = {
   working:      { label: 'Working',       attn: false },
@@ -13664,7 +13692,19 @@ document.getElementById('made-hello-go').addEventListener('click', (e) => {
   WATCH += 1;      // the creation watch is over; nothing may repaint behind us
   openDetail(who);
 });
-document.getElementById('made-done').addEventListener('click', () => { showTab('agents'); tick(); });
+document.getElementById('made-look').addEventListener('click', () => {
+  /* ⚠️ A FRESH GENERATION, or the watch it starts is one the CURRENT token has
+     already retired: `watchForAgent` compares its own `attempt` against `WATCH`
+     on every poll and returns silently when they differ, so re-running with the
+     old number would draw nothing and look like a dead button. */
+  const box = document.getElementById('made-look');
+  if (!MADE_LAST) return;
+  box.hidden = true;
+  document.getElementById('made-retry').hidden = true;
+  document.getElementById('made-warn').hidden = true;
+  document.getElementById('made-head').textContent = 'Looking for ' + (MADE_LAST.result.shownAs || MADE_LAST.name);
+  watchForAgent(MADE_LAST.name, MADE_LAST.result, ++WATCH);
+});
 document.getElementById('made-retry').addEventListener('click', openCreate);
 
 document.getElementById('role-next').addEventListener('click', () => {
@@ -14304,7 +14344,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
   document.getElementById('made-head').textContent = 'Making ' + name;
   document.getElementById('made-warn').hidden = true;
   document.getElementById('made-hello').hidden = true;
-  document.getElementById('made-done').hidden = true;
+  document.getElementById('made-look').hidden = true;
   document.getElementById('made-retry').hidden = true;
   /* The mark works while the work does. Started here rather than on the page's
      boot: it draws on every frame, and a canvas nobody is looking at should not
@@ -14344,7 +14384,15 @@ document.getElementById('create-go').addEventListener('click', async () => {
     // half made" sat above a sentence saying nothing was left on the computer.
     warn.innerHTML = '<b>Nothing was made.</b> ' + esc(result.because || '');
     warn.hidden = false;
-    document.getElementById('made-done').hidden = false;
+    /* 🛑 NO "See it under Agents" HERE, AND THIS ONE IS NOT A COPY PREFERENCE.
+       The heading says the agent was not made and the line under it says
+       nothing was made; a button offering to go and look at it under Agents
+       sends somebody to hunt for a thing this same screen has just told them
+       does not exist. Every partial rolls back, so there is no folder, no job
+       and no card -- the offer could not come true.
+       ⚠️ Starting over is the only true offer on this ending, and it is the one
+       thing the person actually wants to do. */
+    document.getElementById('made-look').hidden = true;
     document.getElementById('made-retry').hidden = false;
     tick();
     return;
@@ -14453,6 +14501,7 @@ function boardCanSeeIt(a) {
  * NOT treated as failure here; the structural facts are.
  */
 async function watchForAgent(name, result, attempt) {
+  MADE_LAST = { name, result };
   // ⚠️ MATCH ON `name` (the board's key), SPEAK `shown`. They differ the moment
   // somebody types a capital, and using one for both would either look for a
   // `Casey` the board will never list or head the screen with `casey` after the
@@ -14597,7 +14646,7 @@ async function watchForAgent(name, result, attempt) {
         : '<br>It is set to keep trying at every login. If it appears under Agents, you can remove it there. If it never appears, we cannot clear it out for you yet.');
   }
   warn.hidden = false;
-  document.getElementById('made-done').hidden = false;
+  document.getElementById('made-look').hidden = false;
   document.getElementById('made-retry').hidden = false;
   tick();
 }
