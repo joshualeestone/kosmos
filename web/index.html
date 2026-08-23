@@ -1996,6 +1996,11 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
 .qask p.qout { margin: 10px 0 0; font-size: .8125rem; color: var(--k-ink-2); }
 .dmbar { margin-top: 14px; }
 #d-say { flex: 1 1 auto; }
+/* Inside the room's box the field is bare: the box carries the border and the
+   focus ring. Specific enough to beat `.detail .dbox input[type=text]`. */
+.detail .dbox .composerbox input[type=text].cinput, .dbox .composerbox input[type=text].cinput {
+  border: 0; background: none; box-shadow: none; border-radius: 0; min-width: 0; }
+.detail .dbox .composerbox input[type=text].cinput:focus { outline: none; box-shadow: none; border: 0; }
 /* ⚠️ A CLOSED BOX HAS TO LOOK CLOSED. The pack dims its disabled composer
    (`.dmbar .btn-gold[disabled], .dmbar .inp[disabled] { opacity: .5 }`) and the
    build has no `.btn[disabled]` rule at all -- so a Send that cannot send was
@@ -3756,18 +3761,21 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <p class="dmbusy" id="d-busy" hidden></p>
     <p class="dhint" id="d-talk-older" style="margin:10px 0 0;" hidden></p>
     <div class="dmoff" id="d-dmoff" hidden></div>
-    <div class="frow dmbar">
+    <!-- The room's box, on the agent page too (#385, Josh 2026-08-23): one
+         composer drawn one way. The input element and every id stay, so the
+         send logic is untouched; only the box around it changed. -->
+    <div class="dmbar composerbox">
+      <button class="attachbtn" id="d-attach" type="button" aria-label="Add a file to this conversation" title="Add a file"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
+      <input id="d-attach-file" type="file" multiple hidden>
       <!-- ⚠️ THE ACCESSIBLE NAME SHIPS IN THE MARKUP. paintTalk refines it to
            name the agent, but every early return in that function (a failed
            fetch, an agent switched mid-flight) leaves the element as it was,
            and an unnamed text input is a WCAG 4.1.2 failure on the one control
            this box exists for. The room's own box carries a static label for
            the same reason. -->
-      <input type="text" id="d-say" maxlength="2000"
+      <input type="text" class="cinput" id="d-say" maxlength="2000"
              aria-label="Type a message for this agent" placeholder="Message this agent…">
-      <button class="attachbtn" id="d-attach" type="button" aria-label="Add a file to this conversation" title="Add a file"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
-      <input id="d-attach-file" type="file" multiple hidden>
-      <button class="btn" id="d-send" type="button">Send</button>
+            <button class="btn uprime cpost" id="d-send" type="button">Send</button>
     </div>
     <!-- The attached-but-unsent files (#358, Josh 1:59 PM: "it just instantly
          uploads it... I don't get to write a caption", then "multiple pictures
@@ -5307,6 +5315,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                hearing "Write to the project" has none of the context a sighted
                reader gets from the members column beside it, so it keeps the
                plain outcome. Found by Mona Lisa. -->
+          <!-- The + sits at the far left, inside the box, where the pack drew it
+               (Josh, 2026-08-23 13:59). -->
+          <button class="attachbtn" id="pj-attach" type="button" aria-label="Add a file to this conversation" title="Add a file"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
+          <input id="pj-attach-file" type="file" multiple hidden>
           <textarea class="cinput" id="pj-post" rows="1" maxlength="2000"
                     placeholder="Write to the project&hellip;"
                     aria-label="Post to everyone on this project"></textarea>
@@ -5320,10 +5332,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                currently means "this is the step that moves you on", everywhere
                it is used. Raised as a question by Mona Lisa, who named this
                counter-argument herself; ruled here and recorded in the pack
-               against `btn-gold` so the two files stop disagreeing. -->
-          <button class="attachbtn" id="pj-attach" type="button" aria-label="Add a file to this conversation" title="Add a file"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
-          <input id="pj-attach-file" type="file" multiple hidden>
-          <button class="btn cpost" id="pj-post-go" type="button">Post</button>
+               against `btn-gold` so the two files stop disagreeing.
+               🛑 OVERRULED BY JOSH, 2026-08-23 13:59, looking at the running
+               app: "the yellow post button", match the pack. So Post and the
+               agent page's Send wear `.uprime`, the build's gold. The
+               argument above stays as the record of what it cost. -->
+                    <button class="btn uprime cpost" id="pj-post-go" type="button">Post</button>
         </div>
         <!-- 🔑 THE @ PICKER (#312). Josh: "if I hit the @ symbol, it would pop
              up a list as I type to give me a clickable choice". The stronger
@@ -10619,7 +10633,7 @@ function dmRow(m, name) {
    * would invent a mechanism that did not happen.
    */
   if (m && m.from) {
-    return '<div class="dm theirs"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCard(m.attachment) + '</div>'
+    return '<div class="dm theirs"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
       + '<span class="dm-w">' + esc(dmWho(m.from, name)) + pjWhenPart(m.at) + '</span></div>';
   }
   const v = pjVerdict(m, name);
@@ -10667,7 +10681,7 @@ function dmRow(m, name) {
      puts it, and no longer inside the verdict. The verdict is silent on an
      ordinary success now, and a timestamp that lived inside it would have gone
      silent with it -- on every message that worked. */
-  return '<div class="dm mine"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCard(m.attachment) + '</div>'
+  return '<div class="dm mine"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
     + '<span class="dm-w">You' + v.when + wire + ' '
     + '<span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span></span></div>';
 }
@@ -17684,11 +17698,43 @@ function pjPreviewCard(preview) {
    the file's name goes as the text, and the bubble then said "lease notes.txt"
    above a card that also says it. When the words are only the attachment's
    name, the card carries them and the text line is left out. */
+/* Every file on a message, in order: `attachments` when the row carries it
+   (#426), else the single `attachment` older rows have. One reading for the
+   four renderers, so none of them can draw a different count. */
+function pjFiles(m) {
+  const many = m && Array.isArray(m.attachments) ? m.attachments.filter((a) => a && typeof a === 'object') : [];
+  if (many.length) return many;
+  return m && m.attachment && typeof m.attachment === 'object' ? [m.attachment] : [];
+}
 function pjWords(m) {
   const text = m && typeof m.text === 'string' ? m.text : '';
-  const att = m && m.attachment;
-  if (att && typeof att.name === 'string' && text.trim() === att.name.trim()) return '';
+  /* A post made with no words carries the file names as its text (one name,
+     or several joined with ", "), and the cards already say them; showing the
+     line too is the same name twice. Hidden only when the text IS that list. */
+  const names = pjFiles(m).map((a) => (typeof a.name === 'string' ? a.name.trim() : '')).filter(Boolean);
+  if (names.length && text.trim() === names.join(', ')) return '';
   return text;
+}
+/* All of a message's files, one card each, in the order they were added. */
+function pjAttachmentCards(m) {
+  return pjFiles(m).map(pjAttachmentCard).join('');
+}
+/* What a business person calls the file: "PowerPoint", not
+   "application/vnd.openxmlformats-officedocument.presentationml.presentation".
+   Falls back to the extension in capitals, then to the kind. */
+function pjFileWord(type, name, kind) {
+  const t = String(type || '').toLowerCase();
+  const ext = (String(name || '').match(/\.([a-z0-9]+)$/i) || [, ''])[1].toLowerCase();
+  if (t === 'application/pdf' || ext === 'pdf') return 'PDF';
+  if (/wordprocessingml|msword/.test(t) || ['doc', 'docx'].includes(ext)) return 'Word document';
+  if (/spreadsheetml|ms-excel/.test(t) || ['xls', 'xlsx'].includes(ext)) return 'Excel spreadsheet';
+  if (/presentationml|ms-powerpoint/.test(t) || ['ppt', 'pptx'].includes(ext)) return 'PowerPoint';
+  if (t.startsWith('image/') || kind === 'image') return 'Image';
+  if (ext === 'csv') return 'CSV';
+  if (ext === 'md' || t === 'text/markdown') return 'Text';
+  if (t.startsWith('text/') || kind === 'text') return 'Text';
+  if (ext) return ext.toUpperCase() + ' file';
+  return 'File';
 }
 function pjAttachmentCard(att) {
   const a = att && typeof att === 'object' ? att : null;
@@ -17696,7 +17742,7 @@ function pjAttachmentCard(att) {
   const name = typeof a.name === 'string' && a.name.trim() ? a.name.trim() : 'a file';
   const kind = ['image', 'pdf', 'text', 'other'].includes(a.kind) ? a.kind : 'other';
   const preview = typeof a.preview === 'string' && /^\/api\//.test(a.preview) ? a.preview : null;
-  const meta = [a.type && typeof a.type === 'string' ? a.type : null, pjSize(a.size) || null].filter(Boolean).join(' · ');
+  const meta = [pjFileWord(a.type, name, kind), pjSize(a.size) || null].filter(Boolean).join(' · ');
   const pic = preview && (kind === 'image' || kind === 'pdf')
     ? '<span class="att-pic"><img src="' + esc(preview) + '" alt="" loading="lazy"></span>' : '';
   return '<a class="att att-' + kind + (pic ? ' haspic' : '') + '" href="' + esc(a.url) + '" download="' + esc(name) + '">'
@@ -18211,7 +18257,7 @@ function pjRoomRow(m, p, silent) {
   return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
     + '<div class="msg-b"><div class="msg-h"><b>' + esc(name) + '</b>'
     + '<span class="msg-t">' + esc(pjWhen(m.at) || '') + '</span></div>'
-    + (pjWords(m) ? '<p>' + pjBody(pjWords(m), PJ_DOC_NAMES) + '</p>' : '') + pjPreviewCard(m.preview) + pjAttachmentCard(m.attachment) + receipt + '</div></div>';
+    + (pjWords(m) ? '<p>' + pjBody(pjWords(m), PJ_DOC_NAMES) + '</p>' : '') + pjPreviewCard(m.preview) + pjAttachmentCards(m) + receipt + '</div></div>';
 }
 
 /**
@@ -18936,7 +18982,7 @@ function pjMsg(m, name) {
      agent page's thread are the same conversation kind and share one verdict,
      so they go silent together. */
   return '<div class="pj-msg' + mark + '">'
-    + (pjWords(m) ? '<span class="pj-msg-text">' + pjInline(pjWords(m)) + '</span>' : '') + pjPreviewCard(m.preview) + pjAttachmentCard(m.attachment)
+    + (pjWords(m) ? '<span class="pj-msg-text">' + pjInline(pjWords(m)) + '</span>' : '') + pjPreviewCard(m.preview) + pjAttachmentCards(m)
     + '<span class="pj-msg-when">You' + when + '</span>'
     + '<span class="pj-msg-said">' + said + '</span>'
     + '</div>';
