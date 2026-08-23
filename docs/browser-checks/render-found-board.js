@@ -22,6 +22,13 @@
  *     echo '{"completedAt":"2026-01-01T00:00:00.000Z"}' \
  *       > "$SB/data/AgentWorkforce/first-run.json"
  *
+ * 🔑 AND SEED ONE REMOVED AGENT, or the above-the-removed-ones assertion reports
+ * itself SKIPPED: that panel is absent on a machine that has removed nothing,
+ * and a hidden element measures a top of 0, which is above everything.
+ *
+ *     printf '%s' '[{"name":"oldbob","shownAs":"Old Bob","removedAt":"2026-01-01T00:00:00.000Z","stopped":true}]' \\
+ *       > "$SB/data/AgentWorkforce/removed.json"
+ *
  * Run: see the README in this directory.
  */
 'use strict';
@@ -101,6 +108,13 @@ const FOUND = {
     const g = grid ? grid.getBoundingClientRect() : null;
     const rm = removed ? removed.getBoundingClientRect() : null;
     const first = rows[0] && rows[0].querySelector('.fr-foundgo');
+    /* 🛑 SCROLLED INTO VIEW FIRST. `elementFromPoint` is VIEWPORT-relative, and
+       this panel now sits under the cards -- so on any board with more than a
+       screenful of agents the hit test lands outside the window and answers
+       null, which reads as "the button cannot be pressed" for a button that is
+       perfectly fine. Cost one red run to find, on the very move that put it
+       down here. */
+    if (first) first.scrollIntoView({ block: 'center' });
     const fr = first ? first.getBoundingClientRect() : null;
     const at = fr ? document.elementFromPoint(fr.left + fr.width / 2, fr.top + fr.height / 2) : null;
     return {
