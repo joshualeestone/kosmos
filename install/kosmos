@@ -103,7 +103,47 @@ export LANG="${LANG:-en_US.UTF-8}"
 # agent) refuses, and the generated launchd plists bake the Homebrew path.
 # Unfindable by testing on a machine with Homebrew tmux; found by reading
 # the resolution chain.
-export AGENT_WORKFORCE_TMUX_BIN="${AGENT_WORKFORCE_TMUX_BIN:-$KOSMOS_HOME/tmux/bin/tmux}"
+# 🛑 AND THE BUNDLED COPY IS THE FALLBACK, NOT THE RULE. Two tmux binaries of
+# different versions share one socket and CANNOT read each other's server: the
+# older one answers "server exited unexpectedly" and sees nothing at all.
+# Measured on this machine, 2026-08-22 -- Homebrew's tmux 3.6a lists thirteen
+# sessions and the tmux we ship (3.5a) refuses the same socket outright.
+#
+# ⚠️ WHAT THAT COSTS IS THE ENTIRE ADOPT AUDIENCE. Josh's sister installed
+# Kosmos on a machine already running two agents in tmux, in our own shape, and
+# Kosmos could not see either of them. Not the naming, not the mark: it was
+# looking through a binary that could not reach the running server. Everyone who
+# already has agents has a tmux, and anyone whose tmux is newer than ours is
+# invisible to us -- which is exactly the person the "you already have agents
+# here" screen was written for. It had never been seen outside this team, and
+# this team all run the version we ship against.
+#
+# 🔑 SO THE CHOICE IS MADE BY ASKING, NOT BY PREFERENCE. A tmux on PATH that can
+# actually LIST a running server is the one that can see this machine's agents,
+# and it wins for that reason alone. If it cannot list one -- no tmux, no server,
+# a permissions refusal, anything -- nothing has been established and the bundled
+# copy stays, which is the clean-Mac case this export was added for.
+#
+# ⚠️ IT CAN ONLY EVER IMPROVE ON THE OLD BEHAVIOUR. The old value is what runs
+# whenever the probe does not positively succeed, so a machine with no tmux, or
+# with a tmux that agrees with ours, is unchanged. An explicit
+# AGENT_WORKFORCE_TMUX_BIN still wins over both: the harness sets it.
+_kosmos_pick_tmux() {
+  # Already chosen for us (harness, or a person who knows what they are doing).
+  [ -n "${AGENT_WORKFORCE_TMUX_BIN:-}" ] && return 0
+  _sys="$(command -v tmux 2>/dev/null || true)"
+  if [ -n "$_sys" ] && [ -x "$_sys" ]; then
+    # `list-sessions`, not `-V`: the question is whether it can reach the
+    # server, and a version string proves only that a binary exists.
+    if "$_sys" list-sessions >/dev/null 2>&1; then
+      AGENT_WORKFORCE_TMUX_BIN="$_sys"
+      return 0
+    fi
+  fi
+  AGENT_WORKFORCE_TMUX_BIN="$KOSMOS_HOME/tmux/bin/tmux"
+}
+_kosmos_pick_tmux
+export AGENT_WORKFORCE_TMUX_BIN
 
 # The installer sets KOSMOS_SAY_INDENT so this command's narration nests as
 # detail under the installer's own step lines instead of reading as new
