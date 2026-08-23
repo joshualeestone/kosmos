@@ -176,3 +176,44 @@ test('the Settings status glyph clears 3:1 in BOTH themes, on the ground each si
   assert.match(PAGE, /class="chk-m" aria-hidden="true"/,
     'the glyph is exposed again, so it is announced beside a sentence that already says it');
 });
+
+test('the one state pill whose SHAPE carries meaning clears 3:1 in both themes, and idle has an edge (#293)', () => {
+  /**
+   * Six pills, and ten of their twelve theme readings are under 3:1 on
+   * purpose: every pill carries its state WORD, so the border is a container
+   * boundary and a quiet one is a choice, not a failure. Two are different.
+   * `st-unknown` is the only pill that uses shape (the sole dashed border;
+   * "shape distinguishes, words identify"), so its edge is doing
+   * identification work and SC 1.4.11 binds on it: it measured 1.61:1 on
+   * white, the one edge that had to be seen and nearly could not be. `st-idle`
+   * is the commonest state on a healthy board and measured 1.31 / 1.27, so the
+   * pill shape was absent from most pills a person sees; it only has to read
+   * as the same object as paused and stopped, which is the bar here.
+   *
+   * Ground: the plain card, `--k-surface`, which is what idle and unknown
+   * cards sit on (#221: only working and needs-you tint the card).
+   */
+  const rule = (sel, theme) => {
+    const re = theme === 'light'
+      ? new RegExp('^\\.astate\\.' + sel + '\\s*\\{[^}]*border-color:\\s*(rgba\\([^)]*\\)|#[0-9a-fA-F]{6}|var\\(--[a-z-]+\\))', 'm')
+      : new RegExp(':root\\[data-theme="dark"\\] \\.astate\\.' + sel + '(?:,[^{]*)?\\s*\\{[^}]*border-color:\\s*(rgba\\([^)]*\\)|#[0-9a-fA-F]{6})', 'm');
+    const m = PAGE.match(re);
+    assert.ok(m, `no ${theme} border-color rule for .astate.${sel}`);
+    return m[1];
+  };
+  const surface = { light: colour(decls('k-surface')[0]), dark: colour('#17191c') };
+  assert.equal(decls('k-surface')[1], '#17191c', 'the dark card surface moved; re-point the ground here');
+
+  for (const theme of ['light', 'dark']) {
+    const dash = ratio(colour(rule('st-unknown', theme)), surface[theme]);
+    assert.ok(dash >= 3, `st-unknown's dashed edge is ${dash.toFixed(2)}:1 in ${theme}; the one border that carries meaning must clear 3:1`);
+    const idle = ratio(colour(rule('st-idle', theme)), surface[theme]);
+    const paused = ratio(colour(rule('st-paused', theme)), surface[theme]);
+    assert.ok(idle >= 1.9, `st-idle's edge is ${idle.toFixed(2)}:1 in ${theme}; it reads as floating text`);
+    assert.ok(Math.abs(idle - paused) < 0.05, `st-idle (${idle.toFixed(2)}) and st-paused (${paused.toFixed(2)}) are not the same object in ${theme}`);
+  }
+  // The dash is the shape, and the shape is the point: it must still be dashed.
+  assert.match(PAGE, /\.astate\.st-unknown\s*\{[^}]*border-style:\s*dashed/, 'unknown lost its dash, so its edge now means nothing');
+  // POSITIVE CONTROL: the instrument sees the old value as the failure it was.
+  assert.ok(ratio(colour('rgba(20,22,26,.22)'), surface.light) < 3, 'the contrast helper no longer fails the value this card was filed on');
+});

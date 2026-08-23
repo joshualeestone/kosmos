@@ -1125,10 +1125,20 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 .acard > .astate { align-self: center; }
 .astate.st-working { border-color: rgba(47,125,90,.55); }
 .astate.st-attn    { border-color: rgba(179,38,30,.55); }
-.astate.st-idle    { border-color: var(--k-rule); }
+/* 🔑 IDLE AND UNKNOWN GOT REAL EDGES (#293). Idle is the commonest state on a
+   healthy board and its border measured 1.31:1 on white, so the pill shape,
+   the board's grammar for "this is a state", was missing from most pills a
+   person sees. It now takes paused/stopped's value: the same object as its
+   neighbours, still quiet. Unknown is the only pill whose SHAPE carries
+   meaning (the sole dashed border: "shape distinguishes, words identify"), and
+   it measured 1.61:1, the one edge that had to be seen and nearly could not
+   be. Both themes now clear 3:1 for the dash (3.24 light, 3.60 dark over the
+   plain card). The other four stay as they are; their words do the work.
+   Pinned by web.label-contrast.test.js. */
+.astate.st-idle    { border-color: rgba(20,22,26,.30); }
 .astate.st-paused  { border-color: rgba(20,22,26,.30); }
 .astate.st-stopped { border-color: rgba(20,22,26,.30); }
-.astate.st-unknown { border-color: rgba(20,22,26,.22); border-style: dashed; }
+.astate.st-unknown { border-color: rgba(20,22,26,.48); border-style: dashed; }
 .acard > .astate.st-attn { display: flex; align-items: center; gap: 6px; width: 100%; }
 /* ⚠️ .875rem, NOT .9375rem, and this was the one item of four the card regroup
    missed. Josh's words: "I also shrunk the status text by quite a bit so it's
@@ -2807,7 +2817,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   :root:not([data-theme="light"]) .membadge { background: #ff8c82; color: #0c0d0f; }
   :root:not([data-theme="light"]) .astate.st-working { border-color: rgba(121,197,157,.62); }
   :root:not([data-theme="light"]) .astate.st-paused, :root:not([data-theme="light"]) .astate.st-stopped { border-color: rgba(245,245,244,.32); }
-  :root:not([data-theme="light"]) .astate.st-unknown { border-color: rgba(245,245,244,.24); }
+  :root:not([data-theme="light"]) .astate.st-idle { border-color: rgba(245,245,244,.32); }
+  :root:not([data-theme="light"]) .astate.st-unknown { border-color: rgba(245,245,244,.40); }
   :root:not([data-theme="light"]) .lrow:hover { border-color: rgba(245,245,244,.30); }
   :root:not([data-theme="light"]) .pj-row:hover { border-color: rgba(245,245,244,.30); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
 }
@@ -3299,7 +3310,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .membadge { background: #ff8c82; color: #0c0d0f; }
 :root[data-theme="dark"] .astate.st-working { border-color: rgba(121,197,157,.62); }
 :root[data-theme="dark"] .astate.st-paused, :root[data-theme="dark"] .astate.st-stopped { border-color: rgba(245,245,244,.32); }
-:root[data-theme="dark"] .astate.st-unknown { border-color: rgba(245,245,244,.24); }
+:root[data-theme="dark"] .astate.st-idle { border-color: rgba(245,245,244,.32); }
+:root[data-theme="dark"] .astate.st-unknown { border-color: rgba(245,245,244,.40); }
 :root[data-theme="dark"] .lrow:hover { border-color: rgba(245,245,244,.30); }
 :root[data-theme="dark"] .pj-row:hover { border-color: rgba(245,245,244,.30); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
 
