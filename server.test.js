@@ -9814,4 +9814,21 @@ test('attachments: a message carries several files, in order, with every path in
   });
   assert.equal(many.status, 400);
   assert.match(JSON.parse(many.body).error, /can carry 10 files/);
+
+  // The ROOM route with the list, which is the route the blocker lived on.
+  const projectsEngine = require('./engine/projects');
+  const messagesEngine = require('./engine/messages');
+  const pr = projectsEngine.create({ name: 'Two Files Room' });
+  projectsEngine.writeAll(projectsEngine.readAll().map((x) => (x.id === pr.id ? { ...x, agents: [decodeURIComponent(name)] } : x)));
+  t.after(() => { try { projectsEngine.writeAll(projectsEngine.readAll().filter((x) => x.id !== pr.id)); } catch { /* sandboxed */ } try { fs.rmSync(messagesEngine.LOG, { force: true }); } catch { /* sandboxed */ } });
+  const pup = async (n, body) => JSON.parse(await (await fetch(base + '/api/project/' + pr.id + '/attachment', { method: 'PUT', headers: { 'content-type': 'text/plain', 'x-attachment-name': n }, body })).text()).attachment;
+  const pa = await pup('plan.txt', 'plan'); const pb = await pup('budget.txt', 'budget');
+  const roomPost = await req('/api/project/' + pr.id + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'plan.txt, budget.txt', attachments: [pa.id, pb.id] }) });
+  assert.equal(roomPost.status, 200, roomPost.body);
+  const roomRows = JSON.parse((await req('/api/project/' + pr.id + '/room')).body).rows;
+  const roomRow = roomRows.find((r) => r.kind === 'post' && r.text === 'plan.txt, budget.txt');
+  assert.ok(roomRow && roomRow.attachments && roomRow.attachments.length === 2, 'the room row does not carry both: ' + JSON.stringify(roomRow));
+  assert.equal(roomRow.attachment.id, pa.id);
+  const roomWire = typed.map((x) => x[5]).find((x) => typeof x === 'string' && x.includes('plan.txt, budget.txt')) || '';
+  assert.match(roomWire, /\[attached file: \/.+\/plan\.txt\] \[attached file: \/.+\/budget\.txt\]$/, roomWire);
 });

@@ -158,9 +158,18 @@ test('every message row draws the attachment card, and the + and drop targets ar
   assert.doesNotMatch(SCRIPT, /await where\.send\(/, 'the upload still sends on pick');
   assert.match(SCRIPT, /pendingIds\.length \? \{ text, attachments: pendingIds \} : \{ text \}/, 'the room sender does not carry the pending ids');
   assert.match(SCRIPT, /: \(pendingIds\.length \? \{ text, attachments: pendingIds \} : \{ text \}\)\)/, 'the talk sender does not carry the pending ids');
-  assert.match(SCRIPT, /attachClear\(ATTACH_ROOM\)/, 'the room sender never clears the chips');
-  assert.match(SCRIPT, /attachClear\(ATTACH_AGENT\)/, 'the talk sender never clears the chips');
-  assert.match(SCRIPT, /else if \(ATTACH_PENDING\.agent\.length\) sendTalk\(/, 'Send with files and no words does nothing');
+  assert.equal((SCRIPT.match(/else if \(attachList\(ATTACH_AGENT\)\.length\) sendTalk\(/g) || []).length, 2, 'Send (click and Enter) with files and no words does nothing on one of the two paths');
+  /* Keyed by agent and by project, like the drafts: a switch repaints the
+     right chips, and a send clears only the target it went to. */
+  assert.match(SCRIPT, /const ATTACH_PENDING = \{ room: \{\}, agent: \{\} \};/, 'pending files are one list per composer, not keyed by target');
+  assert.match(SCRIPT, /attachPaint\(ATTACH_AGENT\);\s*\/\/ this agent's pending files/, 'opening an agent does not repaint its own chips');
+  assert.match(SCRIPT, /attachPaint\(ATTACH_ROOM\);\s*\/\/ this project's pending files/, 'opening a project does not repaint its own chips');
+  assert.match(SCRIPT, /if \(pendingIds\.length\) attachClear\(ATTACH_AGENT, sentName\);/, 'the talk sender clears the current composer rather than the sent agent');
+  assert.match(SCRIPT, /if \(pendingIds\.length\) attachClear\(ATTACH_ROOM, sentProject\);/, 'the room sender clears the current composer rather than the sent project');
+  /* The room reads its text AFTER the names are substituted in. */
+  assert.match(SCRIPT, /input\.value = attachList\(ATTACH_ROOM\)\.map\(\(r\) => r\.name\)\.join\(', '\);\n\s*const text = input\.value;/, 'the room sends the text captured before the names were put in the box');
+  assert.match(PAGE, /id="pj-attach-file" type="file" multiple/, 'the room picker takes one file at a time');
+  assert.match(PAGE, /id="d-attach-file" type="file" multiple/, 'the agent picker takes one file at a time');
   // The 25 MB limit is the route's; the page says so before sending.
   assert.match(SCRIPT, /file\.size > 25 \* 1024 \* 1024/);
 });

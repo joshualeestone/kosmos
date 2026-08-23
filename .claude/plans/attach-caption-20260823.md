@@ -7,11 +7,16 @@ Josh: "I got the screenshot but no note came with it. What is it for?"
 
 ## What finished looks like
 
-- Picking or dropping a file ATTACHES it: a chip beside the composer with
-  its name and an x; up to ten. Nothing is sent until Send or Post.
+- Picking or dropping files (several at once) ATTACHES them: a chip each
+  beside the composer with the name and an x; up to ten, checked before the
+  upload. Nothing is sent until Send or Post. Pending files are keyed by
+  agent and by project the way drafts are, so a switch shows the right chips
+  and a file attached for one agent can never be sent to another.
 - Send or Post carries the words and every pending file as one message
-  (`attachments: [ids]`); with no words, the file names are the words. The
-  chips clear only when the send is answered, so a failed send keeps them.
+  (`attachments: [ids]`); with no words, the file names are the words (read
+  after the substitution, on both composers). The chips clear on exactly the
+  verdicts the words clear on, for the target they went to, so a failed or
+  unrecorded send keeps them for the retry.
 - The row carries `attachments` (all, in order) and `attachment` (the first),
   so the card drawn against one file keeps working until the page draws all.
 - The pane's bracketed line lists every file's path in order. The room post
