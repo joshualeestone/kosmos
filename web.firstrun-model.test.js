@@ -70,3 +70,50 @@ test('the disclosure uses the separator the rest of the product uses', () => {
   assert.ok(!/&mdash;|—/.test(dis), 'an em dash reached the disclosure');
   assert.match(dis, /&middot;/, 'the separator changed to something the sibling list does not use');
 });
+
+test('the Connect button says Connected once it is, and stops saying it if we lose sight of that', () => {
+  /**
+   * 🛑 WHAT THIS IS FOR. The button was static markup reading "Connect"
+   * whatever the state, directly above a verdict row that could say "A Claude
+   * subscription is connected". The first person outside this team to reach
+   * this screen asked Josh whether she was connected (2026-08-22). Two answers
+   * on one screen, and the button is the louder one.
+   *
+   * ⚠️ THE SECOND HALF IS THE ONE THAT MATTERS MORE. A recheck can move from
+   * connected to `unknown`, and a button still reading "Connected" is this
+   * screen's cardinal sin with the states swapped: "we could not tell" must
+   * never render as an answer, in either direction.
+   */
+  const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  const at = page.indexOf('function frPaintSubscription(');
+  assert.notEqual(at, -1, 'frPaintSubscription moved; re-point this test');
+  let d = 0; let i = page.indexOf('{', page.indexOf(')', at));
+  for (; i < page.length; i++) { if (page[i] === '{') d++; else if (page[i] === '}') { d--; if (!d) break; } }
+  const body = page.slice(at, i + 1);
+
+  const btn = { textContent: 'Connect', disabled: false };
+  const els = { 'fr-llm-connect': btn, 'fr-sub': { innerHTML: '' } };
+  const run = (subscription) => {
+    // eslint-disable-next-line no-new-func
+    new Function('document', 'FR', 'frCheckRow', 'frActions', 'frGo', 'frRecheck',
+      body + '\nfrPaintSubscription();')(
+      { getElementById: (id) => els[id] || null },
+      { subscription },
+      () => '', () => {}, () => {}, () => {},
+    );
+  };
+
+  run({ state: 'connected', plan: 'Claude Max' });
+  assert.equal(btn.textContent, 'Connected', 'a connected machine is still offered Connect');
+  assert.equal(btn.disabled, true, 'the button still invites a press with nothing to do');
+
+  /* ⚠️ AND BACK AGAIN. Without this the test passes on a one-way change, which
+     is the version that leaves "Connected" standing over "we could not tell". */
+  run({ state: 'unknown', because: 'we could not read the settings' });
+  assert.equal(btn.textContent, 'Connect', 'a state we cannot read still claims it is connected');
+  assert.equal(btn.disabled, false, 'the way to connect was taken away on a state that is not an answer');
+
+  run({ state: 'none' });
+  assert.equal(btn.textContent, 'Connect');
+  assert.equal(btn.disabled, false);
+});
