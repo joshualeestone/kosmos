@@ -9579,3 +9579,55 @@ test('attachments: a file is uploaded to an agent, rides the message, reaches th
   const spacedWire = typed.map((a) => a[5]).find((x) => typeof x === 'string' && x.includes('Q3  report.txt')) || '';
   assert.ok(spacedWire, 'the two-space file name was collapsed on the way to the pane');
 });
+
+/** Attachments in a project room (#358): the upload is the project's, the
+ *  room post carries it, the pane is told the path, and the room's rows
+ *  carry the record back. */
+test('attachments: a room post carries a project attachment to every member and back out in the room rows', async (t) => {
+  const chatEngine = require('./engine/chat');
+  const messagesEngine = require('./engine/messages');
+  const projectsEngine = require('./engine/projects');
+  const name = await anyAgent(t);
+  if (!name) return;
+  const typed = [];
+  chatEngine.setRunner((args) => {
+    if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+    typed.push(args);
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  });
+  const pr = projectsEngine.create({ name: 'Room Attach Check' });
+  projectsEngine.writeAll(projectsEngine.readAll().map((x) => (x.id === pr.id ? { ...x, agents: [decodeURIComponent(name)] } : x)));
+  t.after(() => {
+    chatEngine.resetForTests();
+    try { projectsEngine.writeAll(projectsEngine.readAll().filter((x) => x.id !== pr.id)); } catch { /* sandboxed */ }
+    try { fs.rmSync(messagesEngine.LOG, { force: true }); } catch { /* sandboxed */ }
+  });
+  const up = await fetch(base + '/api/project/' + pr.id + '/attachment', {
+    method: 'PUT', headers: { 'content-type': 'text/plain', 'x-attachment-name': 'brief.txt' }, body: 'the brief',
+  });
+  const { attachment } = JSON.parse(await up.text());
+  assert.equal(attachment.kind, 'text');
+  const post = await req('/api/project/' + pr.id + '/room', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'read the brief', attachment: attachment.id }),
+  });
+  assert.equal(post.status, 200, post.body);
+  const wire = typed.map((a) => a[5]).find((x) => typeof x === 'string' && x.includes('read the brief')) || '';
+  assert.match(wire, /read the brief \[attached file: \/.+\/brief\.txt\]$/, wire);
+  const rows = JSON.parse((await req('/api/project/' + pr.id + '/room')).body).rows;
+  const row = rows.find((r) => r.kind === 'post' && r.text === 'read the brief');
+  assert.ok(row && row.attachment, 'the room row carries no attachment: ' + JSON.stringify(row));
+  assert.equal(row.attachment.id, attachment.id);
+  assert.equal(row.attachment.preview, 'the brief');
+  // The wrong owner: an agent's attachment into the room.
+  const ag = await fetch(base + '/api/agent/' + name + '/attachment', {
+    method: 'PUT', headers: { 'content-type': 'text/plain', 'x-attachment-name': 'mine.txt' }, body: 'mine',
+  });
+  const agRec = JSON.parse(await ag.text()).attachment;
+  const wrong = await req('/api/project/' + pr.id + '/room', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'x', attachment: agRec.id }),
+  });
+  assert.equal(wrong.status, 400);
+  assert.match(JSON.parse(wrong.body).error, /not one this project can send/);
+});
