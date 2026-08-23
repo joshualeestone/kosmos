@@ -6535,7 +6535,7 @@ function taskLine(a) {
    * state means the agent cannot work at all. A title is a poor status source in
    * general (#209) and that is a bigger question than this line.
    */
-  return stateReason(a) || a.task || 'no task showing';
+  return stateReason(a) || taskWords(a) || 'no task showing';
 }
 
 /**
@@ -6554,6 +6554,15 @@ function taskLine(a) {
  * not a fossil, so it keeps the title. Only `rate_limited` has a reason that
  * outranks one, because only it means the agent cannot work at all.
  */
+/* The pane title, minus the one value that is not a task (#222, #209): on a
+   brand-new session the frozen title is just the application's name, so the
+   product told a person their agent was doing "Claude Code" -- on the exact
+   screen where they most need reassurance, right after a restart. The name of
+   the software is not work; an empty slot is honest and the header hides it. */
+function taskWords(a) {
+  const t = a && typeof a.task === 'string' ? a.task.trim() : '';
+  return t === 'Claude Code' ? '' : t;
+}
 function stateReason(a) {
   if (!a || a.state !== 'rate_limited') return '';
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
@@ -11805,7 +11814,7 @@ function openDetail(sessionName, section) {
   /* The same derivation the card uses, so the two cannot say different things
      about one agent. Falls back to the title, and to nothing at all — the header
      hides rather than printing "no task showing" beside a name. */
-  dtask.textContent = stateReason(a) || a.task || '';
+  dtask.textContent = stateReason(a) || taskWords(a) || '';
   dtask.hidden = !dtask.textContent;
   /* The lede names the AGENT rather than saying "this agent", which is the
      pack's wording and the same substitution the rest of this panel already
