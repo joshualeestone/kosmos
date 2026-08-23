@@ -6661,6 +6661,17 @@ function memPrint(ctx, pct) {
 }
 
 function memUnknown(ctx) {
+  /* #149/#150: the never-recorded state is HISTORY, and the lead was still
+     the fault sentence while the note under it said otherwise. Same shape as
+     the notYet branch: a state that is not a failure must not greet the
+     person with one. The engine's because still ships in the note. */
+  if (ctx && ctx.neverRecorded === true) {
+    return { notYet: false,
+      word: 'Unknown',
+      aria: ('Memory was never recorded. ' + memWhy(ctx)).trim(),
+      lead: 'memory was never recorded.',
+      note: (memWhy(ctx) || '') + 'Nothing here can tell you how much room is left.' };
+  }
   /* 🛑 A THIRD CASE, AND IT WAS SHIPPING A FALSE SENTENCE ON THE SURFACE THIS
      CHANGE REWRITES. When a reading is taken but the model's limit is unknown,
      the engine returns tokens with a null percent — so every surface here said
@@ -11571,6 +11582,15 @@ function openDetail(sessionName, section) {
      sections by id and never calls detailGo, so a person reading Instructions
      is not flipped back to Talk five seconds later. */
   detailNavNames(a.name);
+  /* #149/#150 review: the model box's message slot is written only-when-empty
+     (so a change verdict survives a same-agent repaint), and nothing cleared
+     it on a SWITCH, so agent A's refusal sentence stood on agent B's panel.
+     Two different sentences now compete for the slot (never-recorded vs
+     not-ours), which turns the stale line into a wrong-agent provenance
+     claim. Cleared here, at the one moment the agent changes.
+     ⚠️ d-account-msg shares this only-when-empty shape and its single
+     sentence can equally linger; pre-existing, carded separately. */
+  { const mm = document.getElementById('d-model-msg'); if (mm) mm.textContent = ''; }
   TALK_SCROLL = null;
   /* The name for the Reports-to menu's first option. Fire and forget: the poll
      repaints this panel every five seconds, and until it lands the menu says
@@ -11719,8 +11739,10 @@ function openDetail(sessionName, section) {
   if (drunWhy) {
     drunWhy.textContent = a.neverRecorded
       ? 'Kosmos has no record of how this agent starts, and waiting will not add one. '
-        + 'To bring it in: stop it, then add it from Found agents in Settings. '
-        + (a.running === false ? '' : 'Kosmos will not write a launch file while it runs some other way.')
+        + (a.running === false
+          ? 'To bring it in: add it from Found agents in Settings.'
+          : 'To bring it in: stop it, then add it from Found agents in Settings. '
+            + 'Kosmos will not write a launch file while it runs some other way.')
       : '';
     drunWhy.hidden = !drunWhy.textContent;
   }
@@ -14421,7 +14443,10 @@ async function paintModelPicker(a) {
   go.disabled = !usable || !sel.value;
   if (msg && !usable && !msg.textContent) {
     msg.textContent = ours
-      ? 'Made before Kosmos recorded how it starts, so there is no launch file to change. Stop it, then add it from Found agents in Settings to bring it in.'
+      ? 'Made before Kosmos recorded how it starts, so there is no launch file to change. '
+        + (a && a.running === false
+          ? 'Add it from Found agents in Settings to bring it in.'
+          : 'Stop it, then add it from Found agents in Settings to bring it in.')
       : 'Kosmos did not start this one, so it cannot change what it runs on.';
   }
 }

@@ -1446,10 +1446,11 @@ test('an untied card carries no commitments and no boot-file hash of the name it
     assert.equal(card.plannedModelName, null,
       'the untied card carried the real agent’s planned model, read out of a '
       + 'launchd job filed under the name it merely borrowed');
-    /* #149/#150: the FIFTH name-keyed field, and it takes the same gate. A
-       stranger's pane has no plist under the borrowed name, so without the
-       gate this reads true and the card wears "Made before Kosmos recorded
-       this", a provenance claim about a session we cannot identify. */
+    /* #149/#150: the FIFTH name-keyed field. ⚠️ THIS assertion alone cannot
+       prove the gate: the fixture WRITES a real plist above, so with the
+       gate deleted the flag is still false here. The control that can fail
+       is the orphan test below (untied pane, NO plist), which is the leak
+       direction. This one pins the plist-present half only. */
     assert.equal(card.neverRecorded, false,
       'the untied card claimed never-recorded history about a stranger’s session');
   } finally {
@@ -1458,6 +1459,32 @@ test('an untied card carries no commitments and no boot-file hash of the name it
     // The sandbox is shared across this file, so the fixture job must not
     // outlive the test that needed it.
     fs.rmSync(create.plistPath('fixtureborrowed'), { force: true });
+  }
+});
+
+/**
+ * #149/#150, THE CONTROL THAT CAN FAIL. An untied pane with NO plist under
+ * its name is exactly the input where the tied gate is load-bearing: delete
+ * `tied ?` in snapshot() and neverRecorded('fixtureorphan') is TRUE, so this
+ * card wears "Made before Kosmos recorded this", a provenance claim about a
+ * session Kosmos cannot identify, while every plist-bearing pin above stays
+ * green. The suite's own note on plannedModelName records this exact control
+ * gap shape; the fifth field does not re-enter it.
+ */
+test('an untied pane with no job file is never given the history claim', async () => {
+  const status = require('./engine/status');
+  status.setPaneSource(() => fleet.line({ session: 'fixtureorphan', title: 'stranger' }));
+  status.setPaneCapture(() => 'Worked for 1m\n> \n');
+  try {
+    const board = JSON.parse((await req('/api/status')).body);
+    const card = (board.agents || []).find((a) => a.sessionName === 'fixtureorphan');
+    assert.ok(card, 'the fixture did not produce a card');
+    assert.equal(card.isNamedOurs, false, 'the fixture is not exercising the untied case');
+    assert.equal(card.neverRecorded, false,
+      'an untied pane with no plist was given the history claim, which is the gate\u2019s whole leak direction');
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
   }
 });
 
@@ -3332,16 +3359,21 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     // could-not sentence and failed on a correct render; then it was widened to
     // an alternation of both, which passes whichever half the fixture lands in
     // and would not notice a classification regression at all.
-    // ⚠️ THIS FIXTURE IS A RUNNING CLAUDE PANE with no registry entry, which is
-    // deliberately the ADMISSION: no entry does not mean no session, because
-    // the registry key is <session>_<window>.<pane> and an agent in 0.1 has one
-    // we never look for. So the sentence is pinned, AND the branch that
-    // produces it is asserted separately, so a flip is a failure rather than a
-    // silently different pass.
+    // ⚠️ THIS FIXTURE IS A RUNNING CLAUDE PANE with no registry entry AND, in
+    // the sandbox, no plist under its name — which since #149/#150 is the
+    // NEVER-RECORDED branch, not the plain admission (the sandbox never wrote
+    // it a launch file, and the engine now says so instead of claiming a
+    // lookup fault). Same discipline as before: the sentence is pinned, AND
+    // the branch that produces it is asserted separately, so a flip is a
+    // failure rather than a silently different pass — this line has been
+    // re-aimed for a third time now, and each time the branch assert is what
+    // made the move loud.
     const spoiled = api.card(spoofed);
     assert.equal(spoofed.context.notYet, false,
       'this fixture changed branch, so the sentence pinned below is no longer the one it produces');
-    assert.match(spoiled, /aria-label="[^"]*Memory could not be read/,
+    assert.equal(spoofed.context.neverRecorded, true,
+      'this fixture changed branch (a sandbox plist appeared?), so the sentence pinned below is no longer the one it produces');
+    assert.match(spoiled, /aria-label="[^"]*Memory was never recorded/,
       'CONTROL: the spoofed percent did not degrade to the unknown ring, so the raw assertion proves nothing');
 
     // ⚠️ ANCHORED ON THE ELEMENT, NOT THE WORDS. The line above matches the
