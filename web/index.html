@@ -8935,10 +8935,14 @@ function paintOrg() {
     const tint = a.hasAvatar ? '' : ' style="background:' + discTint(shown) + ';color:' + discInk(shown) + '"';
     nodes.push('<button class="onode' + ring + '" type="button" data-agent="' + esc(a.sessionName) + '"'
       + ' style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px"'
-      + ' aria-label="' + esc(shown) + '">'
+      + ' aria-label="Open ' + esc(shown) + '">'
       + '<span class="face"' + tint + '>' + face + '</span>'
       + (nameAtRest ? '<span class="oname">' + esc(shown) + '</span>' : '')
-      + '<span class="callout">' + esc(shown) + '</span></button>');
+      /* A name alone is a label; "Open Anna" is a control, and the node IS one
+         (#284: "say what it does"). The gold is the app's action treatment, so
+         the words say the action too; the accessible name matches. The name at
+         rest stays a plain label, because it is one. */
+      + '<span class="callout">Open ' + esc(shown) + '</span></button>');
   }
 
   const html = '<svg class="wires" id="orgwires" viewBox="0 0 ' + size + ' ' + size
