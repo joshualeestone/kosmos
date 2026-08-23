@@ -307,8 +307,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    agents grid does nothing at all. */
 [hidden] { display: none !important; }
 /* ---- the agent page: the pack's view B shell (pack-pass, scrappy).
-   The elevated 720px card retired; the page is pack ground with dhead +
-   dgrid, and each field lives inside a k-surface .dbox. Field internals
+   The elevated 720px card retired; the page is pack ground with dhead and
+   (since agent-page-nav) a nav beside one section, each field inside a
+   k-surface .dbox. Field internals
    ride k-ink, the SAME token system as their surface (the hold-the-line
    lesson, restated for flipping tokens: mixing --label furniture into a
    k-surface box pairs values from two systems that flip separately). */
@@ -401,9 +402,13 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    the gold mark, the product doing its job. */
 .cvrow.valve p { color: var(--k-ink-2); font-style: normal; }
 .cv-none { font-size: .9375rem; color: var(--k-ink-2); margin: 0; }
-.detail .field { border-top: 0; padding-top: 0; margin-top: 0; }
-.detail .dbox .flabel, .detail .dbox .fhint, .detail .dbox .fmsg, .detail .dbox .fpath { color: var(--k-ink-2); }
-.detail .dbox .flabel { font-size: .75rem; letter-spacing: .14em; text-transform: uppercase;
+/* `#panel-settings` alongside `.detail` since settings-nav: the Your name
+   field is the one form field Settings shares with the agent page, and it
+   sits in the same k-surface box, so it wears the same dress. */
+.detail .field, #panel-settings .field { border-top: 0; padding-top: 0; margin-top: 0; }
+.detail .dbox .flabel, .detail .dbox .fhint, .detail .dbox .fmsg, .detail .dbox .fpath,
+#panel-settings .dbox .flabel, #panel-settings .dbox .fhint, #panel-settings .dbox .fmsg { color: var(--k-ink-2); }
+.detail .dbox .flabel, #panel-settings .dbox .flabel { font-size: .75rem; letter-spacing: .14em; text-transform: uppercase;
   font-weight: 700; margin-bottom: 8px; }
 /* ⚠️ `--border-strong`, not `--k-rule`. MEASURED with the alpha composited:
    --k-rule gives 1.31:1 light / 1.27:1 dark against this box; --border-strong
@@ -1256,9 +1261,8 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
    ⚠️ `min(28rem, 100%)` rather than a bare `28rem`: a track floor wider than
    the viewport overflows it, and the narrow-screen media query below is a
    second answer to that rather than the only one. */
-.dgrid { display: grid; gap: 18px;
-         grid-template-columns: repeat(auto-fill, minmax(min(28rem, 100%), 1fr)); }
-@media (max-width: 56rem) { .dgrid { grid-template-columns: minmax(0, 1fr); } }
+/* `.dgrid` is gone: both pages that used it (the agent page, then Settings) are
+   sections behind a nav now (.dbody/.snav/.dsec below). */
 .dbox { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 16px;
         padding: 22px 24px; color: var(--k-ink); }
 .dlab { font-size: .75rem; letter-spacing: .14em; text-transform: uppercase;
@@ -3518,8 +3522,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   <!-- ⚠️ THE PACK'S AGENT PAGE (view B, pack-pass, scrappy): dhead carries
        who the agent IS (big gauge avatar, name beside its state, role,
        the machine-name disclosure, the because sentence, and the projects
-       it is assigned to); the dgrid boxes below carry the readings and the
-       controls that exist. Every control id predates this restyle; the
+       it is assigned to); the sections below (agent-page-nav) carry the
+       readings and the controls that exist. Every control id predates this restyle; the
        pack's model/account selects and fresh-start actions have no engine
        yet and are drawn as the honest not-built line instead (recorded
        gaps in the plan). -->
@@ -5591,7 +5595,30 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        below) and Engineering mode is a live switch. A number in a comment
        reads as owned, so nobody looked (#123). Cite a card, never a PR, and
        say what is built rather than what is coming. -->
-  <div class="dgrid">
+  <!-- ⚠️ THE LEFT NAV (Mona Lisa's settings mock, 2026-08-22; Josh 08-23, the
+       second of the two subpages). Seven sections against the eight boxes that
+       shipped; the mapping is the plan's, and it is a regrouping, not a
+       rewrite: Opening Kosmos and Keeping agents running are both facts about
+       this Mac, so they share a section; Engineering mode and Delete history
+       are both things most people never touch, so they are Advanced. The
+       boxes are the SAME elements, ids intact; every painter keeps working.
+       Same CSS primitives as the agent page (.dbody, .snav, .dsec) and the
+       same switch shape (`settingsGo` beside `detailGo`, two copies of one
+       twenty-line function rather than a shared one with two sets of
+       extras), so the two pages are one structure rather than two that
+       resemble each other. -->
+  <div class="dbody">
+  <nav class="snav" id="s-nav" aria-label="Sections of Settings">
+    <button type="button" data-go="you" aria-controls="s-sec-you" class="on" aria-current="true">You</button>
+    <button type="button" data-go="accounts" aria-controls="s-sec-accounts">Claude accounts</button>
+    <button type="button" data-go="connect" aria-controls="s-sec-connect">Connections</button>
+    <button type="button" data-go="talking" aria-controls="s-sec-talking">Agents talking</button>
+    <button type="button" data-go="mac" aria-controls="s-sec-mac">This Mac</button>
+    <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
+    <button type="button" data-go="advanced" aria-controls="s-sec-advanced">Advanced</button>
+  </nav>
+  <div class="dsecs">
+  <section class="dsec" id="s-sec-you" data-sec="you" tabindex="-1" aria-label="You">
     <section class="dbox">
       <h3 class="dlab">You</h3>
       <!-- Josh, 2026-08-22: "we need the user avatar somewhere in settings
@@ -5612,39 +5639,25 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         </div>
       </div>
       <p class="dhint" id="you-msg" role="status" style="margin:10px 0 0;">It appears wherever Kosmos shows you, which is the middle of the org chart and beside anything you have said.</p>
-    </section>
-
-    <section class="dbox">
-      <h3 class="dlab">Opening Kosmos</h3>
-      <div id="set-applocation"><p class="dhint">Checking where the app is…</p></div>
-      <div class="dstack">
-        <button class="btn-quiet dwide" type="button" id="set-reveal" hidden>Show me where it is</button>
+      <!-- 🔑 YOUR NAME LIVES HERE (Mona Lisa's settings mock, 2026-08-22: "the
+           first thing a new person sees in Settings, and one field they
+           understand is a better opening than eight sections they do not").
+           It was set in first run and nowhere else; the PUT route and the
+           sync that tells every agent already existed for first run. The
+           record is whole on save (`you.save` replaces it), so the other two
+           fields are carried from the last read, never blanked. -->
+      <div class="field" style="margin-top:18px;">
+        <label class="flabel" for="you-name">Your name</label>
+        <div class="fhint">What your agents call you.</div>
+        <div class="frow">
+          <input type="text" id="you-name" maxlength="80" placeholder="Your name" disabled>
+          <button class="btn" type="button" id="you-name-save" aria-label="Save your name" disabled>Save</button>
+        </div>
+        <p class="fmsg" id="you-name-msg" role="status" aria-live="polite"></p>
       </div>
-      <p class="dhint" id="set-reveal-msg" style="margin:12px 0 0;" hidden></p>
-      <p class="dhint" style="margin:12px 0 0;">
-        Drag it onto the Dock to keep it one click away.
-      </p>
     </section>
-
-    <section class="dbox">
-      <h3 class="dlab">Keeping agents running</h3>
-      <div id="set-machine"><p class="dhint">Checking this computer…</p></div>
-      <p class="dhint" id="set-machine-msg" role="status" hidden></p>
-      <!-- 🔑 MOVED OUT OF THE UPDATES BOX (Mona Lisa, 2026-08-21). When the
-           version line came back to Settings this sentence came with it, and
-           landed directly beneath `#build` — so a fact about how Kosmos RUNS
-           read as a subtitle explaining what "0.2.24" means. The two are
-           unrelated and the layout said otherwise.
-           ⚠️ MOVED RATHER THAN DROPPED: it is the only place in the app that
-           says this, and it is the reassurance somebody needs the first time
-           they close the window. This box's subject is exactly "your agents
-           keep running", which is what the sentence is about.
-           📌 A plain hint rather than a ✓ row: the rows above are CHECKED
-           machine state, and this is a statement about the product's design.
-           Drawing it with a tick would claim we had verified something. -->
-      <p class="dhint" style="margin:12px 0 0;">Kosmos runs in the background. Closing this window does not stop your agents.</p>
-    </section>
-
+  </section>
+  <section class="dsec" id="s-sec-accounts" data-sec="accounts" tabindex="-1" aria-label="Claude accounts" hidden>
     <section class="dbox">
       <h3 class="dlab">Your Claude accounts</h3>
       <div id="set-account"><p class="dhint">Checking the connection…</p></div>
@@ -5663,9 +5676,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         Kosmos never sees your password and holds no account of its own.
       </p>
     </section>
-
+  </section>
+  <section class="dsec" id="s-sec-connect" data-sec="connect" tabindex="-1" aria-label="Connections" hidden>
     <section class="dbox">
-      <h3 class="dlab">Your task board</h3>
+      <h3 class="dlab">Connections</h3>
       <p class="dhint" style="margin:0 0 14px;">
         Kosmos gives you a simple task list to start with, and it is the one
         on your projects. Later you will be able to connect a board you
@@ -5691,7 +5705,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         them, so nothing here can disagree with your board.
       </p>
     </section>
-
+  </section>
+  <section class="dsec" id="s-sec-talking" data-sec="talking" tabindex="-1" aria-label="Agents talking" hidden>
     <section class="dbox">
       <!-- ⚠️ THE CONVERSATION LIMIT (2026-08-18 in-channel). Copy is Mona
            Lisa's VERBATIM: the heading line, the hint, "Stop them after
@@ -5702,7 +5717,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            default tier (Josh). The category label, the high-tier cost
            line, and the told-only record sentences are Mona Lisa's ruled
            copy (her pass, 2026-08-18 ~1:42 PM). -->
-      <h3 class="dlab">Agent conversations</h3>
+      <h3 class="dlab">Agents talking to each other</h3>
       <div class="setrow" id="lim-row">
         <div><b>Limit how often your agents message each other</b>
           <p class="dhint" style="margin:2px 0 0;">Every message between your agents is billed to your AI plan. Past the limit below, Kosmos stops them for the rest of the hour. If your model does not charge per use, turn this off.</p></div>
@@ -5717,7 +5732,40 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <p class="dhint" id="lim-off-note" hidden style="margin:12px 0 0;">Your agents will keep talking as long as they have something to say. Kosmos will still tell you when a conversation stops going anywhere, but it will not step in.</p>
       <p class="dhint" id="lim-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
+  </section>
+  <section class="dsec" id="s-sec-mac" data-sec="mac" tabindex="-1" aria-label="This Mac" hidden>
+    <section class="dbox">
+      <h3 class="dlab">Opening Kosmos</h3>
+      <div id="set-applocation"><p class="dhint">Checking where the app is…</p></div>
+      <div class="dstack">
+        <button class="btn-quiet dwide" type="button" id="set-reveal" hidden>Show me where it is</button>
+      </div>
+      <p class="dhint" id="set-reveal-msg" style="margin:12px 0 0;" hidden></p>
+      <p class="dhint" style="margin:12px 0 0;">
+        Drag it onto the Dock to keep it one click away.
+      </p>
+    </section>
 
+    <section class="dbox">
+      <h3 class="dlab">Keeping agents running</h3>
+      <div id="set-machine"><p class="dhint">Checking this computer…</p></div>
+      <p class="dhint" id="set-machine-msg" role="status" hidden></p>
+      <!-- 🔑 MOVED OUT OF THE UPDATES BOX (Mona Lisa, 2026-08-21). When the
+           version line came back to Settings this sentence came with it, and
+           landed directly beneath `#build`, so a fact about how Kosmos RUNS
+           read as a subtitle explaining what "0.2.24" means. The two are
+           unrelated and the layout said otherwise.
+           ⚠️ MOVED RATHER THAN DROPPED: it is the only place in the app that
+           says this, and it is the reassurance somebody needs the first time
+           they close the window. This box's subject is exactly "your agents
+           keep running", which is what the sentence is about.
+           📌 A plain hint rather than a ✓ row: the rows above are CHECKED
+           machine state, and this is a statement about the product's design.
+           Drawing it with a tick would claim we had verified something. -->
+      <p class="dhint" style="margin:12px 0 0;">Kosmos runs in the background. Closing this window does not stop your agents.</p>
+    </section>
+  </section>
+  <section class="dsec" id="s-sec-updates" data-sec="updates" tabindex="-1" aria-label="Updates" hidden>
     <section class="dbox">
       <!-- The update control joins the pack's Updates card rather than
            becoming a second update-ish card (flagged for Mona Lisa's
@@ -5780,7 +5828,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       </div>
       <p class="dhint" id="auto-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
-
+  </section>
+  <section class="dsec" id="s-sec-advanced" data-sec="advanced" tabindex="-1" aria-label="Advanced" hidden>
     <section class="dbox">
       <!-- LIVE now (eng-mode): On reveals the raw session on the project
            page and the agent page; Off hides them, and hiding is the
@@ -5812,7 +5861,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       </div>
       <p class="dhint" id="eng-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
-  </div>
 
   <div class="dremove">
     <div>
@@ -5833,6 +5881,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <p class="dhint" id="hist-count" style="margin:6px 0 0;"></p>
     </div>
     <button class="btn-quiet" type="button" id="hist-go">Delete history&hellip;</button>
+  </div>
+  </section>
+  </div>
   </div>
 </section>
 <!-- ⚠️ ONE FACT ABOUT THE MACHINE, ABOVE THE FLEET, not a badge on thirteen
@@ -8360,7 +8411,83 @@ function accountRow(conn) {
     detail: (conn && conn.because) || 'We could not read the connection state.',
   });
 }
+/* The person's record, as last read, so a name-only save can carry the
+   other two fields whole. Null until read; a save with no record is refused
+   on screen rather than sent, because `you.save` needs all of it. */
+let YOU_REC = null;
+async function paintYouName() {
+  const inp = document.getElementById('you-name');
+  const btn = document.getElementById('you-name-save');
+  const msg = document.getElementById('you-name-msg');
+  try {
+    const r = await (await fetch('/api/you', { cache: 'no-store' })).json();
+    if (r && r.you && r.you.name) {
+      YOU_REC = r.you;
+      if (document.activeElement !== inp) inp.value = r.you.name;
+      inp.disabled = false;
+      btn.disabled = false;
+      /* A read that worked clears whatever an earlier read or save left:
+         the repaint runs on arriving at the tab, and a "Saved." from before
+         the person left is a receipt for a save they are no longer making. */
+      msg.textContent = '';
+      return;
+    }
+    YOU_REC = null;
+    inp.disabled = true; btn.disabled = true;
+    msg.textContent = r && r.because ? r.because : 'Kosmos has not been told your name yet; setup asks for it.';
+  } catch {
+    YOU_REC = null;
+    inp.disabled = true; btn.disabled = true;
+    msg.textContent = 'We could not read your name just now.';
+  }
+}
+document.getElementById('you-name-save').addEventListener('click', async () => {
+  const inp = document.getElementById('you-name');
+  const btn = document.getElementById('you-name-save');
+  const msg = document.getElementById('you-name-msg');
+  const name = inp.value.trim();
+  if (!YOU_REC) { msg.textContent = 'Nothing to change yet.'; return; }
+  if (!name) { msg.textContent = 'Say what your agents should call you.'; return; }
+  btn.disabled = true;
+  msg.textContent = 'Saving…';
+  try {
+    const res = await fetch('/api/you', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name, does: YOU_REC.does, know: YOU_REC.know }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) { msg.textContent = out.error || 'That did not save.'; return; }
+    YOU_REC = out.you || { ...YOU_REC, name };
+    /* What the save did for the agents, from the engine's own verdicts: a
+       name they were not told is a name they go on not using. */
+    const told = Array.isArray(out.told) ? out.told : [];
+    const missed = told.filter((t) => t && t.state !== 'told');
+    /* Each miss by name and reason, the engine's own sentence, the way the
+       project-removal line does it. No promise about a later start: nothing
+       re-tells an agent at restart, so an untold agent stays untold until the
+       next save. A roster that could not be read comes back as one entry
+       with no agent; that is said as what it is. */
+    const each = missed.map((t) => (t.agent ? (t.shownAs || t.agent) + ': ' : '') + (t.because || 'we could not tell it'));
+    /* COUNTED, never "your agents": the sync reaches only agents running
+       under a name Kosmos can tie, so "all told" would be a claim about
+       agents it never looked at. An agent not running learns the name from
+       its file when it starts, if its file was written; one it could not
+       reach is named above. */
+    const toldN = told.filter((t) => t && t.state === 'told').length;
+    const toldWord = toldN === 1 ? '1 running agent' : toldN + ' running agents';
+    msg.textContent = !missed.length
+      ? (toldN ? 'Saved. Told ' + toldWord + '.' : 'Saved. No agent was running to tell.')
+      : missed.some((t) => !t.agent)
+        ? 'Saved, but we could not tell your agents: ' + each.join('; ') + '. Save again once Kosmos can see them.'
+        : 'Saved. Told ' + toldWord + '; could not tell ' + each.join('; ') + '. Save again to retry.';
+  } catch {
+    msg.textContent = 'We could not reach Kosmos to save that.';
+  } finally {
+    btn.disabled = false;
+  }
+});
 async function paintSettings() {
+  paintYouName();
   const loc = document.getElementById('set-applocation');
   const mach = document.getElementById('set-machine');
   const acct = document.getElementById('set-account');
@@ -11314,8 +11441,9 @@ function detailPaintWindow(a) {
   }
 }
 /* The agent page's sections. One on screen at a time; the nav says which.
-   `detailGo` is the ONLY writer of `.dsec[hidden]`, and it is called from a
-   nav click and from `openDetail`, never from the poll. */
+   `detailGo` is the only writer of `.dsec[hidden]` ON THIS PANEL (Settings
+   has `settingsGo` for its own), and it is called from a nav click and from
+   `openDetail`, never from the poll. */
 const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'profile', 'term', 'remove'];
 /* The thread's scroll offset while Talk is hidden. A display:none container
    drops its scrollTop, so "came back to where I was reading" has to be kept
@@ -11387,6 +11515,37 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
   detailGo(b.dataset.go);
+});
+/* Settings has the same shape: seven sections, one on screen, the nav says
+   which. No arrival work here (nothing in Settings measures layout or
+   captures a pane), so this is the agent page's switch with the extras
+   left out rather than a second design. `paintSettings` paints by id into
+   every section, open or hidden, and never calls this. */
+/* The section persists across leaving and returning to the tab (the agent
+   page resets to Talk because it opens a different agent each time; Settings
+   is one page, and a person who left Updates to look at the board comes back
+   to Updates). "Landing is You" is the first arrival. */
+const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'talking', 'mac', 'updates', 'advanced'];
+function settingsGo(section, opts) {
+  if (!SETTINGS_SECTIONS.includes(section)) section = 'you';
+  const nav = document.getElementById('s-nav');
+  nav.querySelectorAll('button[data-go]').forEach((b) => {
+    const on = b.dataset.go === section;
+    b.classList.toggle('on', on);
+    if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
+  });
+  let target = null;
+  document.querySelectorAll('#panel-settings .dsec').forEach((sec) => {
+    const on = sec.dataset.sec === section;
+    sec.hidden = !on;
+    if (on) target = sec;
+  });
+  if (target && !(opts && opts.focus === false)) target.focus();
+}
+document.getElementById('s-nav').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-go]');
+  if (!b) return;
+  settingsGo(b.dataset.go);
 });
 /* The Fresh start button's name, in one place: visible text in the mock's
    long form, and an accessible name that says which of this page's two

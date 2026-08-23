@@ -3115,7 +3115,13 @@ const server = http.createServer((req, res) => {
         let told;
         try {
           const roster = safeRoster();
-          told = you.syncEveryone(roster);
+          /* The display name beside the machine name, for the screen: a miss
+             read out as "claudebot" is about an agent every other screen
+             calls Splinter. Same shape as the project-removal route. */
+          told = you.syncEveryone(roster).map((t) => {
+            const card = t && Array.isArray(roster) ? roster.find((c) => c && c.sessionName === t.agent) : null;
+            return card && card.name ? { ...t, shownAs: card.name } : t;
+          });
           // The reports-to block names the person in its default form (#336),
           // so a new name here has to reach it too. Same roster, same posture.
           try { reports.syncEveryone(roster); } catch { /* carried by the marker, not here */ }

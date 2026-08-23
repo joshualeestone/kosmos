@@ -97,6 +97,9 @@ test('the two Save buttons on the agent panel say which they are', () => {
   /* CONTROL: both buttons really do still show the same visible word, which is
      the condition that makes the labels necessary. If one is ever renamed this
      test should be revisited rather than silently kept. */
-  assert.equal((PAGE.match(/>Save</g) || []).length, 2,
+  assert.equal((PAGE.match(/>Save</g) || []).length, 3,
     'the number of buttons visibly reading Save changed, so this pairing needs re-checking');
+  /* The third (settings-nav, 2026-08-23) is the Your name field's, on another
+     page; named for the same reason, pinned here so the count stays explained. */
+  assert.match(PAGE, /id="you-name-save" aria-label="Save your name"/, 'the Settings Save button announces as a bare Save');
 });
