@@ -17,13 +17,23 @@ const { chromium } = require('playwright');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const PORT = 4671;
-const MEMBER = 'angel';   // a session name that really exists on this machine
+/* A FIXTURE member, never a live one (#383 review): this check used to name
+   a real session here, and every run typed the membership tell into that
+   agent's live pane, because sandboxing the store is not sandboxing
+   delivery. The spawned server gets the fake tmux below, so the roster is
+   this fixture and a send goes nowhere. */
+const MEMBER = 'taskmate';
 
 (async () => {
   const roots = {};
   for (const k of ['DATA', 'WORKERS', 'LAUNCH', 'PROJECTS']) {
     roots[k] = fs.mkdtempSync(path.join(os.tmpdir(), 'tk-drive-' + k.toLowerCase() + '-'));
   }
+  fs.writeFileSync(roots.DATA + '/fake-panes',
+    'taskmate-discord\t0.0\t2.1.212\t0\ttaskmate\t\u2733 idle\n');
+  fs.writeFileSync(roots.DATA + '/fake-sessions', 'taskmate-discord\n');
+  fs.writeFileSync(roots.DATA + '/fake-screen',
+    '\u276f \n  \u23f5\u23f5 bypass permissions on (shift+tab to cycle)\n');
   const srv = spawn('node', ['server.js'], {
     cwd: REPO,
     env: {
@@ -34,6 +44,10 @@ const MEMBER = 'angel';   // a session name that really exists on this machine
       AGENT_WORKFORCE_WORKERS: roots.WORKERS,
       AGENT_WORKFORCE_LAUNCH: roots.LAUNCH,
       AGENT_WORKFORCE_PROJECTS: roots.PROJECTS,
+      AGENT_WORKFORCE_TMUX_BIN: path.join(REPO, 'test-support', 'fake-tmux.sh'),
+      AGENT_WORKFORCE_FAKE_PANES: roots.DATA + '/fake-panes',
+      AGENT_WORKFORCE_FAKE_SESSIONS: roots.DATA + '/fake-sessions',
+      AGENT_WORKFORCE_FAKE_SCREEN: roots.DATA + '/fake-screen',
     },
     stdio: 'ignore',
   });
@@ -76,25 +90,28 @@ const MEMBER = 'angel';   // a session name that really exists on this machine
     await p.locator('#pj-list').getByText('Task Drive').first().click();
     await p.waitForSelector('#pj-tasks-field', { state: 'visible', timeout: 10000 });
 
-    // The modal, pack copy verbatim.
+    // The new-task PAGE (#383): + navigates, nothing pops over the project.
     await p.click('#pj-newtask');
-    await p.waitForSelector('#nt-modal', { state: 'visible' });
-    const hint = await p.evaluate(() => document.querySelector('#nt-modal .fhint').textContent.trim());
+    await p.waitForSelector('#pj-newtask-view', { state: 'visible' });
+    if (await p.isVisible('#pj-one-view')) die('the project view is still on screen under the new-task page');
+    const hint = await p.evaluate(() => document.querySelector('#pj-newtask-view .fhint').textContent.trim());
     if (hint !== 'You can give it to somebody later.') die('the default-to-nobody hint drifted: ' + hint);
     if (!(await p.locator('#nt-go').isDisabled())) die('Create task is live with no sentence');
-    await p.screenshot({ path: path.join(REPO, 'docs/browser-checks/shots/tasks-new-modal.png') });
+    await p.screenshot({ path: path.join(REPO, 'docs/browser-checks/shots/tasks-new-page.png') });
 
-    // Escape closes; the trap holds while open.
-    await p.locator('#nt-who').focus();
-    await p.keyboard.press('Tab');   // -> Cancel
-    await p.keyboard.press('Tab');   // -> nt-go is disabled, wraps to nt-what
-    const active = await p.evaluate(() => document.activeElement.id);
-    if (active !== 'nt-what') die('the new-task trap leaked to: ' + active);
+    // A page does not trap and does not dismiss: Escape leaves it standing,
+    // and typed words survive Back to the same project.
     await p.keyboard.press('Escape');
-    if (await p.isVisible('#nt-modal')) die('Escape did not close the new-task dialog');
+    if (!(await p.isVisible('#pj-newtask-view'))) die('Escape dismissed a page, the modal behaviour surviving');
+    await p.fill('#nt-what', 'held across Back');
+    await p.click('#nt-back');
+    await p.waitForSelector('#pj-one-view', { state: 'visible' });
+    await p.click('#pj-newtask');
+    const held = await p.inputValue('#nt-what');
+    if (held !== 'held across Back') die('Back ate the typed draft: "' + held + '"');
+    await p.fill('#nt-what', '');
 
     // Create one task given to the member, one given to nobody.
-    await p.click('#pj-newtask');
     await p.fill('#nt-what', 'Rewrite the handoff checklist');
     await p.fill('#nt-detail', 'The old one mentions the removed billing screen.');
     await p.selectOption('#nt-who', MEMBER);
@@ -137,19 +154,23 @@ const MEMBER = 'angel';   // a session name that really exists on this machine
     if (!/says it is on this/.test(say)) die('says-line text: ' + say);
     if ((await p.locator('.tksay').count()) !== 1) die('the says-line leaked onto unclaimed cards');
 
-    // The view dialog: meta, the blessed close-note naming the agent.
+    // The view PAGE (#206): meta, the blessed close-note naming the agent.
     await p.locator('.tkcard').first().click();
-    await p.waitForSelector('#tk-modal', { state: 'visible' });
+    await p.waitForSelector('#pj-task-view', { state: 'visible' });
     const note = (await p.locator('#tk-note').textContent()).replace(/\s+/g, ' ').trim();
     if (!note.startsWith(MEMBER + ' says it is on this. Marking it done closes it here. It does not stop ')
         || !note.includes(MEMBER)) die('the joined close-note drifted: ' + note);
-    await p.screenshot({ path: path.join(REPO, 'docs/browser-checks/shots/tasks-view-modal.png') });
+    await p.screenshot({ path: path.join(REPO, 'docs/browser-checks/shots/tasks-view-page.png') });
 
     // Mark as done. The reveal is still on (it persists across same-project
     // repaints by design), so the done card stays visible, now struck
     // through, and the door stays hidden because everything is showing.
     await p.click('#tk-done');
-    await p.waitForSelector('#tk-modal', { state: 'hidden', timeout: 10000 });
+    /* A page is not dismissed by succeeding (#206's own ruling): it stays,
+       repainted; the button flips to Reopen. Back is the navigation. */
+    await p.waitForFunction(() => document.getElementById('tk-done').textContent.trim() === 'Reopen', null, { timeout: 10000 });
+    await p.click('#tk-back');
+    await p.waitForSelector('#pj-one-view', { state: 'visible', timeout: 10000 });
     await p.waitForSelector('.tkcard.closed', { timeout: 10000 });
     if ((await p.locator('.tkcard').count()) !== 2) die('the reveal lost a card on repaint');
     if (!(await p.locator('#pj-alltasks').isHidden())) die('the door shows while everything is revealed');
@@ -169,14 +190,14 @@ const MEMBER = 'angel';   // a session name that really exists on this machine
     const doneCard = p.locator('.tkcard.closed').first();
     if (!(await doneCard.count())) die('the done task is not behind the door');
     await doneCard.click();
-    await p.waitForSelector('#tk-modal', { state: 'visible' });
+    await p.waitForSelector('#pj-task-view', { state: 'visible' });
     if ((await p.locator('#tk-done').textContent()).trim() !== 'Reopen') die('a done task does not offer Reopen');
     if (!(await p.locator('#tk-note').isHidden())) die('the close-note shows on a done task');
     await p.click('#tk-done');
-    await p.waitForSelector('#tk-modal', { state: 'hidden', timeout: 10000 });
+    await p.waitForFunction(() => document.getElementById('tk-done').textContent.trim() !== 'Reopen', null, { timeout: 10000 });
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('TASKS DRIVE OK: modal verbatim + gated, trap holds, column/door split, chip-is-status, THE JOIN (report -> says-line -> joined note, nothing before the report), done and reopen round trip, 0 page errors');
+    console.log('TASKS DRIVE OK: creation and view both pages (no trap, Escape inert, draft survives Back), column/door split, chip-is-status, THE JOIN (report -> says-line -> joined note, nothing before the report), done and reopen round trip, fixture tmux only, 0 page errors');
   } finally {
     await b.close();
     srv.kill();

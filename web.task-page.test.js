@@ -236,9 +236,14 @@ test('the page is a page: no Escape handler and no focus trap on it', () => {
   assert.equal(SCRIPT.includes("['tk-modal'"), false, 'the focus trap still lists the task surface');
   assert.equal(SCRIPT.includes('closeTaskModal'), false, 'the dialog closer is still wired');
   assert.equal(PAGE.includes('id="tk-modal"'), false, 'the dialog markup is still in the page');
-  // The control: the NEW-task dialog is still a dialog and keeps both.
-  assert.ok(SCRIPT.includes("['nt-modal'"), 'the new-task dialog lost its trap, which is a real regression');
-  assert.ok(SCRIPT.includes('closeNewTask()'), 'the new-task dialog lost its Escape');
+  /* #383 finished what #206 started: creation is a page too, so the trap
+     and the Escape are gone for BOTH task surfaces, on purpose. The old
+     control here asserted the modal KEPT them, which was right while it
+     was a modal and is the regression direction now. */
+  assert.equal(SCRIPT.includes("['nt-modal'"), false, 'the focus trap still lists the retired new-task modal');
+  assert.equal(PAGE.includes('id="nt-modal"'), false, 'the new-task modal markup is still in the page');
+  assert.ok(PAGE.includes('id="pj-newtask-view"'), 'the new-task page is gone with nothing in its place');
+  assert.ok(SCRIPT.includes('leaveNewTask'), 'the page has no leave, so Back is dead');
 });
 
 test('the poll repaints the task page, not only the project under it', () => {
@@ -250,7 +255,19 @@ test('the poll repaints the task page, not only the project under it', () => {
 });
 
 test('the view is one of the project views, so opening it puts the others away', () => {
-  assert.match(SCRIPT, /for \(const v of \['list', 'one', 'add', 'settings', 'task'\]\)/);
+  assert.match(SCRIPT, /for \(const v of \['list', 'one', 'add', 'settings', 'task', 'newtask'\]\)/);
+});
+
+test('the new-task page keeps typed words across Back, and never across projects (#383)', () => {
+  /* The modal's never-delete rule survives the surface change with a
+     sharper edge: Back parks the draft (NT_FOR remembers whose it is),
+     reopening for the SAME project keeps it, and a DIFFERENT project
+     starts clean, so a half-written task cannot be filed under the wrong
+     project. Source pins, because the property is a pair of branches. */
+  assert.match(SCRIPT, /if \(NT_FOR !== p\.id\)/,
+    'the draft is no longer keyed to its project, so it leaks across projects or dies on Back');
+  assert.match(SCRIPT, /NT_FOR = null;\s*\n\s*document\.getElementById\('nt-what'\)\.value = '';/,
+    'a created task does not clear the draft, so the next open shows the last task again');
 });
 
 test('there is no due date field, and that is a decision rather than an omission', () => {
