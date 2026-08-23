@@ -19730,6 +19730,30 @@ function frPaintSubscription() {
   const sub = (FR && FR.subscription) || { state: 'unknown', because: 'we have not been able to look' };
   const box = document.getElementById('fr-sub');
 
+  /* 🛑 THE BUTTON HAS TO AGREE WITH THE ROW UNDERNEATH IT. It was static markup
+     reading "Connect" no matter what, sitting directly above a verdict row that
+     could say "A Claude subscription is connected" -- so the first person
+     outside this team to reach this screen asked Josh whether she was connected
+     (2026-08-22). She had two answers on one screen and the louder one was the
+     button.
+
+     ⚠️ ONLY THE CONNECTED ARM MAY SAY SO, and every other arm has to put it
+     back. A recheck can move from connected to `unknown`, and a button left
+     reading "Connected" after that is the same defect with the states swapped --
+     this screen's whole rule is that "we could not tell" must never render as an
+     answer, in either direction.
+
+     📌 DISABLED RATHER THAN RELABELLED TO SOMETHING CLEVER. There is nothing for
+     the press to do once it is connected, and a live button that no-ops is what
+     sent her looking for reassurance in the first place. Changing accounts lives
+     on its own screen. */
+  const connectBtn = document.getElementById('fr-llm-connect');
+  if (connectBtn) {
+    const done = sub.state === 'connected';
+    connectBtn.textContent = done ? 'Connected' : 'Connect';
+    connectBtn.disabled = done;
+  }
+
   if (sub.state === 'connected') {
     box.innerHTML = frCheckRow({
       state: 'ok',
