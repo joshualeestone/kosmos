@@ -70,12 +70,26 @@ function setOn(on) {
 }
 
 /** What leaves the Mac. Exported so the test and the Settings copy can be
-    checked against it: no field here may ever carry a message's words. */
-function payload({ kind, agent, project, at }) {
+    checked against it: no field here may ever carry a message's words.
+      installId  this install's random id (the created ping's; read here
+                 through ping.installId, which mints and stores it on first
+                 use, the one cross-feature write, and the same id the
+                 created ping sends so one Mac is one install on both)
+      id         the event's own key (a post's message id; a reply's
+                 agent-plus-time), so a coordinator can de-duplicate and a
+                 phone can ask the Mac for this one; null when there is none
+      kind       one of KINDS
+      agent      the agent's shown name, for the notification's words
+      session    the agent's session name, the key the Mac's routes use
+      project    the project's name, or null
+      at         when */
+function payload({ kind, id, agent, session, project, at }) {
   return {
     installId: ping.installId(),
+    id: id ? String(id).slice(0, 120) : null,
     kind,
     agent: String(agent || '').slice(0, 80),
+    session: session ? String(session).slice(0, 80) : null,
     project: project ? String(project).slice(0, 120) : null,
     at: at || new Date().toISOString(),
   };
@@ -85,16 +99,24 @@ function payload({ kind, agent, project, at }) {
     when off, never sends under test without an injected sender. */
 function happened(event) {
   try {
-    if (!event || !KINDS.has(event.kind)) return;
+    /* An unknown kind is a caller's typo, and a silent drop is a notification
+       that never comes with no symptom. It is said once to the board's log
+       (stderr, which launchd keeps) and dropped; a throw here would be
+       swallowed by the catch below and be the same silence. */
+    if (!event || !KINDS.has(event.kind)) {
+      process.stderr.write('notify: unknown kind ' + JSON.stringify(event && event.kind) + ', not sent\n');
+      return;
+    }
     if (!sender && ping.underTest()) return;
     if (!read().on) return;
     const body = JSON.stringify(payload(event));
     const post = sender || ((url, init) => fetch(url, init));
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 3000);
-    Promise.resolve(post(endpoint(), {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: ctl.signal,
-    })).catch(() => { /* fire and forget */ }).finally(() => clearTimeout(timer));
+    let p;
+    try { p = Promise.resolve(post(endpoint(), { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: ctl.signal })); }
+    catch (err) { clearTimeout(timer); throw err; }
+    p.catch(() => { /* fire and forget */ }).finally(() => clearTimeout(timer));
   } catch { /* nothing here may reach the caller */ }
 }
 

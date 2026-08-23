@@ -25,7 +25,7 @@ const { chromium } = require('playwright');
   await pg.waitForTimeout(1200);
   const fails = [];
   const say = (ok, l, x) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + l + (x ? '  ' + x : '')); if (!ok) fails.push(l); };
-  /* Since settings-nav the four switches are in three sections (talking,
+  /* Since settings-nav the five switches are in three sections (talking,
      updates, advanced) and only one is on screen at a time, so each is
      measured from inside its own section or its rect reads zero. */
   const WHERE = { 'lim-toggle': 'talking', 'tell-toggle': 'updates', 'notify-toggle': 'updates', 'auto-toggle': 'updates', 'eng-toggle': 'advanced' };

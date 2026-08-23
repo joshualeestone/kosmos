@@ -2379,12 +2379,19 @@ const server = http.createServer((req, res) => {
         if (!sender.ok) { sendJson(res, 200, { kept: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
-        notify.happened({ kind: 'replied', agent: sender.card.name || who, project: null });
+        const at = new Date().toISOString();
         const kept = chat.appendMessage(chat.DIRECT, who, {
           text: body.text,
-          at: new Date().toISOString(),
+          at,
           from: who,
         });
+        /* The phone seam, AFTER the record: a reply that was not kept is not
+           something the phone can fetch. The id is the thread's own key for
+           the row (agent plus time), so a coordinator can de-duplicate and a
+           phone can ask the Mac for this one. */
+        if (kept.recorded === true) {
+          notify.happened({ kind: 'replied', id: 'reply:' + who + ':' + at, agent: sender.card.name || who, session: who, project: null });
+        }
         sendJson(res, 200, {
           kept: kept.recorded === true,
           because: kept.recorded === true ? null : kept.because,
@@ -2478,7 +2485,7 @@ const server = http.createServer((req, res) => {
            words. */
         if (delivery && delivery.state !== 'could_not') {
           const card = roster.find((c) => c && c.sessionName === delivery.from) || null;
-          notify.happened({ kind: 'posted', agent: (card && card.name) || delivery.from || 'an agent', project: found.name });
+          notify.happened({ kind: 'posted', id: delivery.id || null, agent: (card && card.name) || delivery.from || 'an agent', session: delivery.from || null, project: found.name });
         }
         sendJson(res, 200, { delivery });
       })

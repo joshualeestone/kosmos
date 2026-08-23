@@ -40,7 +40,8 @@ test('what leaves the Mac is who, what, which project and when; never the words,
   notify.happened({ kind: 'typed', agent: 'Mikey' });
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(sent.length, 2, 'an unknown kind was sent, or a known one was not');
-  assert.deepEqual(Object.keys(sent[0].body).sort(), ['agent', 'at', 'installId', 'kind', 'project']);
+  assert.deepEqual(Object.keys(sent[0].body).sort(), ['agent', 'at', 'id', 'installId', 'kind', 'project', 'session']);
+  assert.equal(sent[0].body.id, null, 'an event with no key must say null, not omit it');
   assert.equal(sent[0].body.kind, 'posted');
   assert.equal(sent[0].body.agent, 'Leo');
   assert.equal(sent[0].body.project, 'Henderson lease');
@@ -50,19 +51,29 @@ test('what leaves the Mac is who, what, which project and when; never the words,
   assert.match(sent[0].body.installId, /^[0-9a-f-]{36}$/);
 });
 
-test('CONTROL: with no injected sender under test, nothing is sent even when on (the send path cannot reach the internet from the suite)', async () => {
+test('CONTROL: with no injected sender under test, nothing is sent even when on, and the guard is what stops it', async () => {
   notify.setOn(true);
   notify.setSender(null);
-  /* No fetch is reachable here; if the guard were missing this would try the
-     real endpoint. Prove the guard by overriding fetch and counting. */
   const had = global.fetch;
   let calls = 0;
   global.fetch = async () => { calls += 1; return { ok: true }; };
+  const ctx = process.env.NODE_TEST_CONTEXT;
   try {
+    /* The positive half first: with the under-test mark removed, the same
+       call reaches the (overridden) fetch exactly once. Without this, a
+       fetch captured at module load would pass the negative half green. */
+    delete process.env.NODE_TEST_CONTEXT;
     notify.happened({ kind: 'posted', agent: 'Leo', project: 'x' });
     await new Promise((r) => setTimeout(r, 10));
-  } finally { global.fetch = had; }
-  assert.equal(calls, 0, 'the suite reached for the network');
+    assert.equal(calls, 1, 'with the guard lifted the send did not reach fetch, so the negative half below proves nothing');
+    process.env.NODE_TEST_CONTEXT = ctx || 'child';
+    notify.happened({ kind: 'posted', agent: 'Leo', project: 'x' });
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(calls, 1, 'the suite reached for the network');
+  } finally {
+    global.fetch = had;
+    if (ctx === undefined) delete process.env.NODE_TEST_CONTEXT; else process.env.NODE_TEST_CONTEXT = ctx;
+  }
 });
 
 test('the Settings copy says what the payload carries and nothing it does not', () => {
@@ -70,7 +81,11 @@ test('the Settings copy says what the payload carries and nothing it does not', 
   const at = page.indexOf('id="notify-row"');
   const row = page.slice(at, page.indexOf('id="notify-msg"', at));
   assert.match(row, /Off by default/);
-  assert.match(row, /which agent, whether it posted or answered, which project, and when/);
+  /* Derived from the payload's keys, so a field added to the payload and not
+     to the copy fails here rather than shipping unsaid. */
+  const keys = Object.keys(notify.payload({ kind: 'posted', agent: 'x', project: 'y' }));
+  const said = { agent: /which agent/, kind: /whether it posted or answered/, project: /which project/, at: /when/, installId: /random ID for this install/, id: /one small message each time/i, session: /which agent/ };
+  for (const k of keys) { assert.ok(said[k], 'the payload carries `' + k + '` and the copy has no phrase for it'); assert.match(row, said[k], 'the copy does not say `' + k + '`'); }
   assert.match(row, /Never the words/);
   assert.match(page, /\/api\/notify-setting/, 'the switch is not wired to its route');
 });

@@ -9728,10 +9728,14 @@ test('notify: an agent posting or replying sends one outbound call when on, neve
     assert.equal(sent[0].kind, 'posted');
     assert.equal(sent[0].agent, 'Leo');
     assert.equal(sent[0].project, 'Notify room');
+    assert.match(String(sent[0].id), /^m\d+$/, 'a post carries no message id for the coordinator to de-duplicate on');
+    assert.equal(sent[0].session, 'leo');
     assert.ok(!JSON.stringify(sent[0]).includes('secret'), 'the words left the Mac');
 
     // The person's own post in the room: nothing (it is not something that happened TO them).
-    await req('/api/project/notifyroom/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'from me' }) });
+    const mine = await req('/api/project/notifyroom/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'from me' }) });
+    assert.equal(mine.status, 200, mine.body);
+    assert.notEqual(JSON.parse(mine.body).delivery.state, 'could_not', 'the person\'s post did not go, so its silence proves nothing: ' + mine.body);
     await new Promise((r) => setTimeout(r, 20));
     assert.equal(sent.length, 1, 'the person\'s own post produced a call');
 
@@ -9749,6 +9753,7 @@ test('notify: an agent posting or replying sends one outbound call when on, neve
     assert.equal(sent[1].kind, 'replied');
     assert.equal(sent[1].agent, 'Leo');
     assert.equal(sent[1].project, null);
+    assert.match(String(sent[1].id), /^reply:leo:\d{4}-/, 'a reply carries no key');
     assert.ok(!JSON.stringify(sent[1]).includes('secret'));
 
     // Off again: silence.
