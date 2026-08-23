@@ -37,26 +37,15 @@ const nodePath = require('node:path');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 
-test('the element sits above the persistence note, not below it', () => {
-  /**
-   * ⚠️ PLACEMENT IS THE POINT (Mona Lisa): by the time somebody reaches the
-   * bottom of a box they have already decided what it does. The restart note
-   * has been at the foot all along and Josh never mentioned it.
-   */
-  const reply = PAGE.indexOf('id="d-reply-where"');
-  const persist = PAGE.indexOf('id="d-persist"');
-  const composer = PAGE.indexOf('id="d-send"');
-  assert.notEqual(reply, -1);
-  /* ⚠️ MEASURED AND THE COMMENT WAS WRONG ABOUT ITS OWN PLACEMENT. DOM order is
-     composer → send-result alert → this line → the restart note. It is BELOW
-     the composer, second to last. The claim that it "sits by the composer,
-     above the foot" was not true of where it landed.
-     🔑 What it IS adjacent to is the send button and the result of sending,
-     which is where a person looks after pressing it — so the position is
-     defensible and the sentence describing it was not. Pinning what is true. */
-  assert.ok(composer < reply, 'the line moved above the composer; the comment describes it as following the send controls');
-  assert.ok(reply < persist, 'the line was moved below the restart note, which is where notes go to be unread');
-});
+/* 🛑 A TEST THAT PINNED WHERE A DEAD ELEMENT SAT WAS HERE, and it is the reason
+   the element outlived its sentence by a day. The paragraph stopped being
+   painted on 2026-08-21 and was left in the page permanently empty; this test
+   went on asserting that the empty thing came after the send button and before
+   the restart note, in a file whose own header already said the line was gone.
+   ⚠️ SO REMOVING THE CORPSE LOOKED LIKE A REGRESSION. That is the cost worth
+   recording: a test can hold something in place long after anyone has decided
+   it should be there, and geometry is the easiest thing to keep asserting about
+   an element that renders nothing. Nothing here measured whether it drew. */
 
 test('the box still says the two things it said before', () => {
   /**
@@ -267,11 +256,20 @@ test('the reply-location line is gone, and gone rather than reworded', () => {
   assert.doesNotMatch(code, /will see this in their own window/,
     'a reworded version of the same apology came back');
   /* ⚠️ AND THE STRIPPER NEEDS ITS OWN CONTROL, or a regex that ate the file
-     would make every absence above vacuous. */
-  assert.ok(code.includes("getElementById('d-reply-where')"), 'the comment stripper removed code');
+     would make every absence above vacuous. It cannot be keyed on the element
+     any more -- that is what the next assertion is about -- so it is keyed on
+     the note that still sits beside it. */
+  assert.ok(code.includes("getElementById('d-persist')"), 'the comment stripper removed code');
 
-  const at = PAGE.indexOf("document.getElementById('d-reply-where').hidden = true;");
-  assert.notEqual(at, -1, 'the element is no longer hidden, so an empty line may take space');
+  /* 🛑 AND THE ELEMENT IS GONE TOO, NOT JUST HIDDEN. It sat empty for a day with
+     three surviving decisions about whether to show it, and the markup comment
+     above it went on explaining a sentence that no longer existed and asserting
+     a limitation -- "the record has no field for a sender" -- that #175 had
+     already removed. On 2026-08-22 that comment was read as ground truth and
+     passed to somebody mocking the screen, who checked the code and found it
+     false. A stale comment is not inert; it is a confident source. */
+  assert.doesNotMatch(code, /d-reply-where/,
+    'the empty element is back, and with it a place for a comment to go stale');
 });
 
 test('the Settings row can say what the chat holds again, and still does not overclaim', () => {
