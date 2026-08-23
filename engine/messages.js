@@ -540,7 +540,7 @@ function send({ fromPane, to, text, inReplyTo }, roster) {
  * (the route reads it off the project record): this module stays the
  * mechanism and owns no membership model.
  */
-function sendPost({ fromPane, project, projectName, text, operator, attachment, trailer }, roster, members) {
+function sendPost({ fromPane, project, projectName, text, operator, attachment, attachments, trailer }, roster, members) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -853,7 +853,8 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
 
   appendLog({ kind: 'post', id, project: projectId, from, to: recipients, text: cleaned, at, outcomes,
     ...(operator === true ? { operator: true } : {}),
-    ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}) });
+    ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),
+    ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
   /* The aggregate state is a SUMMARY, not the receipt: the receipt
      sentence must be built from `outcomes` per recipient (a post to
      three that reaches two must never render as sent). */

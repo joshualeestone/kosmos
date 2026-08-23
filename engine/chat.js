@@ -1606,6 +1606,14 @@ function appendMessage(projectId, agent, entry, bornAt) {
   return held.value;
 }
 
+/** An attachment record by its known fields (what is CHECKED is what is KEPT). */
+function keptAttachment(a) {
+  return {
+    id: a.id, name: String(a.name || ''), type: String(a.type || ''),
+    size: Number(a.size) || 0, kind: String(a.kind || 'other'),
+    url: String(a.url || ''), preview: a.preview == null ? null : String(a.preview),
+  };
+}
 function appendLocked(projectId, agent, entry, bornAt) {
   let existing;
   let supersededBecause = null;
@@ -1730,11 +1738,10 @@ function appendLocked(projectId, agent, entry, bornAt) {
          kept by its known fields for the same reason `wire` is re-checked:
          what is CHECKED is what gets KEPT. `preview` is null, never absent. */
       ...(entry && entry.attachment && typeof entry.attachment === 'object' && typeof entry.attachment.id === 'string'
-        ? { attachment: {
-          id: entry.attachment.id, name: String(entry.attachment.name || ''), type: String(entry.attachment.type || ''),
-          size: Number(entry.attachment.size) || 0, kind: String(entry.attachment.kind || 'other'),
-          url: String(entry.attachment.url || ''), preview: entry.attachment.preview == null ? null : String(entry.attachment.preview),
-        } }
+        ? { attachment: keptAttachment(entry.attachment) }
+        : {}),
+      ...(entry && Array.isArray(entry.attachments) && entry.attachments.length
+        ? { attachments: entry.attachments.filter((a) => a && typeof a === 'object' && typeof a.id === 'string').map(keptAttachment) }
         : {}),
       /**
        * 🛑 A ROW WITH A SENDER HAS NO DELIVERY, and the default here was

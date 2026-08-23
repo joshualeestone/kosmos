@@ -194,9 +194,40 @@ async function preview(rec) {
   try { return { ok: true, type: 'image/png', bytes: fs.readFileSync(out) }; } catch { return { ok: false, because: 'this Mac could not draw the first page' }; }
 }
 
-/** The sentence added to the wire so the agent can open the file. */
-function wireNote(rec) {
-  return rec ? ' [attached file: ' + rec.file + ']' : '';
+/** The sentence added to the wire so the agent can open the file(s): one
+    bracket per file, in the order they were attached. */
+function wireNote(recs) {
+  const list = Array.isArray(recs) ? recs : (recs ? [recs] : []);
+  return list.filter(Boolean).map((r) => ' [attached file: ' + r.file + ']').join('');
 }
 
-module.exports = { MAX_BYTES, ROOT, kindOf, safeName, save, read, rowField, preview, wireNote, setRenderer };
+/** Resolve a request's attachment ids (either `attachment: id` or
+    `attachments: [ids]`, at most MAX_PER_MESSAGE) to records owned by this
+    scope and owner. Returns { ok: true, recs } or { ok: false, because }. */
+const MAX_PER_MESSAGE = 10;
+function resolveForMessage(body, scope, owner, refusal) {
+  const ids = Array.isArray(body && body.attachments) ? body.attachments.slice() : [];
+  if (body && body.attachment) ids.unshift(body.attachment);
+  if (!ids.length) return { ok: true, recs: [] };
+  if (ids.length > MAX_PER_MESSAGE) return { ok: false, because: 'a message can carry ' + MAX_PER_MESSAGE + ' files; send these first' };
+  const recs = [];
+  const seen = new Set();
+  for (const id of ids) {
+    if (seen.has(String(id))) continue;
+    seen.add(String(id));
+    const rec = read(id);
+    if (!rec || rec.scope !== scope || rec.owner !== owner) return { ok: false, because: refusal };
+    recs.push(rec);
+  }
+  return { ok: true, recs };
+}
+
+/** The row's fields for a list: `attachments` for every file, and
+    `attachment` as the first so a card drawn against one file keeps working. */
+function rowFields(recs) {
+  const list = (recs || []).map(rowField).filter(Boolean);
+  if (!list.length) return {};
+  return { attachment: list[0], attachments: list };
+}
+
+module.exports = { MAX_BYTES, MAX_PER_MESSAGE, ROOT, kindOf, safeName, save, read, rowField, rowFields, resolveForMessage, preview, wireNote, setRenderer };

@@ -2915,14 +2915,11 @@ const server = http.createServer((req, res) => {
         // failure, exactly as the project thread does.
         /* An attached file (#358): the record rides the row, and the pane is
            told the file's path in the bracketed line so the agent can open it. */
-        let attached = null;
-        if (body.attachment) {
-          attached = attachments.read(body.attachment);
-          if (!attached || attached.scope !== 'agent' || attached.owner !== name) throw new Error('that attachment is not one this conversation can send');
-        }
-        const delivery = chat.deliver(name, body.text, roster, messages.OPERATOR_DIRECT, attachments.wireNote(attached));
+        const files = attachments.resolveForMessage(body, 'agent', name, 'that attachment is not one this conversation can send');
+        if (!files.ok) throw new Error(files.because);
+        const delivery = chat.deliver(name, body.text, roster, messages.OPERATOR_DIRECT, attachments.wireNote(files.recs));
         const kept = chat.appendMessage(chat.DIRECT, name, {
-          ...(attached ? { attachment: attachments.rowField(attached) } : {}),
+          ...attachments.rowFields(files.recs),
           text: chose || body.text,
           /**
            * The PERSON'S words as they reached the pane, when they are not the
@@ -3703,7 +3700,8 @@ const server = http.createServer((req, res) => {
         .map((m) => (m.kind === 'post'
           ? { kind: 'post', id: m.id, from: m.from, to: m.to, operator: m.operator === true,
               text: m.text, at: m.at, outcomes: m.outcomes || {},
-              ...(m.attachment && typeof m.attachment === 'object' ? { attachment: m.attachment } : {}) }
+              ...(m.attachment && typeof m.attachment === 'object' ? { attachment: m.attachment } : {}),
+              ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}) }
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
       sendJson(res, 200, { ok: rec.ok, rows: withPreviews(rows) });
@@ -3747,16 +3745,12 @@ const server = http.createServer((req, res) => {
         }
         const members = (found.agents || []).map((a) => a.sessionName);
         /* An attached file (#358), owned by this project. */
-        let attached = null;
-        if (body.attachment) {
-          attached = attachments.read(body.attachment);
-          if (!attached || attached.scope !== 'project' || attached.owner !== found.id) {
-            sendJson(res, 400, { error: 'that attachment is not one this project can send' }); return;
-          }
-        }
+        const files = attachments.resolveForMessage(body, 'project', found.id, 'that attachment is not one this project can send');
+        if (!files.ok) { sendJson(res, 400, { error: files.because }); return; }
+        const fields = attachments.rowFields(files.recs);
         const delivery = messages.sendPost({
           operator: true, project: found.id, projectName: found.name, text: body.text,
-          attachment: attached ? attachments.rowField(attached) : null, trailer: attachments.wireNote(attached),
+          attachment: fields.attachment || null, attachments: fields.attachments || null, trailer: attachments.wireNote(files.recs),
         }, roster, members);
         sendJson(res, 200, { delivery });
       })
@@ -4300,13 +4294,10 @@ const server = http.createServer((req, res) => {
          * composer, so a screen that folded it into `could_not` would invite
          * the re-send that duplicates it. See `DELIVERY` in engine/chat.js.
          */
-        let attached = null;
-        if (body.attachment) {
-          attached = attachments.read(body.attachment);
-          if (!attached || attached.scope !== 'project' || attached.owner !== id) throw new Error('that attachment is not one this project can send');
-        }
-        const delivery = chat.deliver(name, body.text, roster, undefined, attachments.wireNote(attached));
-        const kept = chat.appendMessage(id, name, { text: body.text, at: delivery.at, delivery, ...(attached ? { attachment: attachments.rowField(attached) } : {}) }, project.createdAt);
+        const files = attachments.resolveForMessage(body, 'project', id, 'that attachment is not one this project can send');
+        if (!files.ok) throw new Error(files.because);
+        const delivery = chat.deliver(name, body.text, roster, undefined, attachments.wireNote(files.recs));
+        const kept = chat.appendMessage(id, name, { text: body.text, at: delivery.at, delivery, ...attachments.rowFields(files.recs) }, project.createdAt);
         sendJson(res, 200, {
           delivery,
           recorded: kept.recorded === true,

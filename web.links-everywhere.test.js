@@ -151,10 +151,16 @@ test('every message row draws the attachment card, and the + and drop targets ar
   assert.match(SCRIPT, /'\/api\/project\/' \+ encodeURIComponent\(PJ_CURRENT\) \+ '\/attachment'/, 'the room + does not upload to the project attachment route');
   assert.match(SCRIPT, /'\/api\/agent\/' \+ encodeURIComponent\(CURRENT \? CURRENT\.sessionName : ''\) \+ '\/attachment'/, 'the agent + does not upload to the agent attachment route');
   assert.match(SCRIPT, /method: 'PUT',\s*\n\s*headers: \{ 'content-type': file\.type \|\| 'application\/octet-stream', 'x-attachment-name': encodeURIComponent\(file\.name\) \}/, 'the upload is not a raw PUT with the name in its header');
-  assert.match(SCRIPT, /send: \(text, id\) => pjPostSend\(id\)/, 'the room upload does not hand the id to the room sender');
-  assert.match(SCRIPT, /send: \(text, id\) => sendTalk\(text, null, id\)/, 'the agent upload does not hand the id to the talk sender');
-  assert.match(SCRIPT, /JSON\.stringify\(attachment \? \{ text, attachment \} : \{ text \}\)/, 'the room sender does not carry the attachment id');
-  assert.match(SCRIPT, /: \(attachment \? \{ text, attachment \} : \{ text \}\)\)/, 'the talk sender does not carry the attachment id');
+  /* Attach, then send (Josh, 2026-08-23 1:59 PM): a picked file waits on a
+     chip beside the composer, and the surface's own sender carries every
+     pending id with the words as `attachments`, clearing them on success. */
+  assert.match(SCRIPT, /attachAdd\(where, \{ id: body\.attachment\.id, name: body\.attachment\.name \}\)/, 'the upload does not attach the file to the composer');
+  assert.doesNotMatch(SCRIPT, /await where\.send\(/, 'the upload still sends on pick');
+  assert.match(SCRIPT, /pendingIds\.length \? \{ text, attachments: pendingIds \} : \{ text \}/, 'the room sender does not carry the pending ids');
+  assert.match(SCRIPT, /: \(pendingIds\.length \? \{ text, attachments: pendingIds \} : \{ text \}\)\)/, 'the talk sender does not carry the pending ids');
+  assert.match(SCRIPT, /attachClear\(ATTACH_ROOM\)/, 'the room sender never clears the chips');
+  assert.match(SCRIPT, /attachClear\(ATTACH_AGENT\)/, 'the talk sender never clears the chips');
+  assert.match(SCRIPT, /else if \(ATTACH_PENDING\.agent\.length\) sendTalk\(/, 'Send with files and no words does nothing');
   // The 25 MB limit is the route's; the page says so before sending.
   assert.match(SCRIPT, /file\.size > 25 \* 1024 \* 1024/);
 });
