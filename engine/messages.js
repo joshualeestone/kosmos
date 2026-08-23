@@ -113,6 +113,10 @@ const MARKERS = [
  * unrefused in the direct thread, the exact in-band forgery the guard names.
  * One helper, three callers, and a fourth path cannot quietly skip it by
  * copying the wrong site. Returns the refusal sentence, or null.
+ *
+ * Call it AFTER messageProblem (every caller does): a non-string reaching
+ * this alone would be coerced by cleanMessage rather than refused, and the
+ * checked-is-what-gets-kept rule lives in messageProblem, not here.
  */
 function markerProblem(text) {
   const lowered = chat.cleanMessage(text).toLowerCase();
