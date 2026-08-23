@@ -52,6 +52,10 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = require('node:path').join(__dirname, 'tes
 // variable whose stated purpose is a different module. chat.js reads this
 // from its first require.
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+// The #166 seed test below creates agents over the wire, so Claude Code's own
+// config is sandboxed too (the fixture-discipline fourth root): without this,
+// running the suite writes into the operator's real ~/.claude.json.
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = require('node:path').join(require('node:os').tmpdir(), 'aw-spj-claude-' + process.pid + '.json');
 
 // ⚠️ THAT VARIABLE DOES NOT STUB THE STATUS ENGINE, and a comment here used to
 // claim it did. `engine/status.js` calls `sh('tmux', …)` directly and never
