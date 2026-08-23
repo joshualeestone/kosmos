@@ -597,7 +597,7 @@ function waitingNote(state, outcome) {
  * for the one fact that separates them: whether anything of the person's text
  * could have reached the pane. None of them says the agent knows anything.
  */
-function deliver(sessionName, raw, roster, envelope) {
+function deliver(sessionName, raw, roster, envelope, trailer) {
   const at = new Date().toISOString();
   const problem = messageProblem(raw);
   if (problem) return { state: DELIVERY.COULD_NOT, because: problem, at, paneState: null, paneNote: null };
@@ -625,7 +625,19 @@ function deliver(sessionName, raw, roster, envelope) {
    * wrote"; only this one had no bound of its own.
    */
   const text = cleanMessage(raw);
-  const wire = (typeof envelope === 'string' && envelope.trim()) ? envelope.trim() + ' ' + text : text;
+  /* `trailer` (#358) is the attached file's path, appended AFTER the checks:
+     the cap is measured against the person's words alone (the envelope
+     comment above), and `cleanMessage` must not collapse the spaces in a
+     file name into a path that does not exist. A trailer with a newline or a
+     control character is refused here rather than typed. */
+  let tail = '';
+  if (typeof trailer === 'string' && trailer) {
+    if (/[\r\n\u0000-\u0008\u000b-\u001f\u007f]/.test(trailer)) {
+      return { state: DELIVERY.COULD_NOT, because: 'the attached file\'s name has characters we will not type into a terminal', at, paneState: null, paneNote: null };
+    }
+    tail = trailer;
+  }
+  const wire = ((typeof envelope === 'string' && envelope.trim()) ? envelope.trim() + ' ' + text : text) + tail;
   const target = paneTarget(allowed.card);
   // Read BEFORE the send, from the card the send was authorised against, so the
   // note describes the pane we typed into rather than whatever it became while

@@ -2849,7 +2849,7 @@ const server = http.createServer((req, res) => {
           attached = attachments.read(body.attachment);
           if (!attached || attached.scope !== 'agent' || attached.owner !== name) throw new Error('that attachment is not one this conversation can send');
         }
-        const delivery = chat.deliver(name, body.text + attachments.wireNote(attached), roster, messages.OPERATOR_DIRECT);
+        const delivery = chat.deliver(name, body.text, roster, messages.OPERATOR_DIRECT, attachments.wireNote(attached));
         const kept = chat.appendMessage(chat.DIRECT, name, {
           ...(attached ? { attachment: attachments.rowField(attached) } : {}),
           text: chose || body.text,
@@ -2974,7 +2974,11 @@ const server = http.createServer((req, res) => {
     const owner = decodeSegment(attachUp[2]);
     if (owner === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     if (scope === 'agent' && !knownAgent(owner)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
-    if (scope === 'project' && !projects.readAll().some((p) => p.id === owner)) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+    if (scope === 'project') {
+      let has = false;
+      try { has = projects.readAll().some((p) => p.id === owner); } catch { sendJson(res, 500, { error: 'we could not read the projects' }); return; }
+      if (!has) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+    }
     readBody(req, attachments.MAX_BYTES + 1)
       .then((bytes) => {
         let name = '';
@@ -2990,10 +2994,11 @@ const server = http.createServer((req, res) => {
     const rec = attachments.read(attachGet[1]);
     if (!rec) { sendJson(res, 404, { error: 'no such attachment' }); return; }
     if (attachGet[2]) {
-      const pv = attachments.preview(rec);
-      if (!pv.ok) { sendJson(res, 404, { error: pv.because }); return; }
-      res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
-      res.end(req.method === 'HEAD' ? undefined : pv.bytes);
+      attachments.preview(rec).then((pv) => {
+        if (!pv.ok) { sendJson(res, 404, { error: pv.because }); return; }
+        res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
+        res.end(req.method === 'HEAD' ? undefined : pv.bytes);
+      }).catch(() => sendJson(res, 404, { error: 'this Mac could not draw the first page' }));
       return;
     }
     let bytes;
@@ -4217,7 +4222,7 @@ const server = http.createServer((req, res) => {
           attached = attachments.read(body.attachment);
           if (!attached || attached.scope !== 'project' || attached.owner !== id) throw new Error('that attachment is not one this project can send');
         }
-        const delivery = chat.deliver(name, body.text + attachments.wireNote(attached), roster);
+        const delivery = chat.deliver(name, body.text, roster, undefined, attachments.wireNote(attached));
         const kept = chat.appendMessage(id, name, { text: body.text, at: delivery.at, delivery, ...(attached ? { attachment: attachments.rowField(attached) } : {}) }, project.createdAt);
         sendJson(res, 200, {
           delivery,

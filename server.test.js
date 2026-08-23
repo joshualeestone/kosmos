@@ -9506,12 +9506,29 @@ test('attachments: a file is uploaded to an agent, rides the message, reaches th
   const noPv = await fetch(base + '/api/attachment/' + attachment.id + '/preview');
   assert.equal(noPv.status, 404);
 
-  // The wrong owner cannot send someone else's attachment.
-  const wrong = await req('/api/project/nosuchproject/thread/' + name, {
+  // The wrong owner cannot send someone else's attachment: an AGENT's
+  // attachment posted into a real project the agent is on, and a PROJECT's
+  // attachment posted into the agent's own thread.
+  const projectsEngine = require('./engine/projects');
+  const pr = projectsEngine.create({ name: 'Attach Owner Check' });
+  projectsEngine.writeAll(projectsEngine.readAll().map((x) => (x.id === pr.id ? { ...x, agents: [decodeURIComponent(name)] } : x)));
+  t.after(() => { try { projectsEngine.writeAll(projectsEngine.readAll().filter((x) => x.id !== pr.id)); } catch { /* sandboxed */ } });
+  const wrong = await req('/api/project/' + pr.id + '/thread/' + name, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ text: 'x', attachment: attachment.id }),
   });
-  assert.notEqual(wrong.status, 200, 'an agent attachment was accepted by a project post');
+  assert.equal(wrong.status, 400, wrong.body);
+  assert.match(JSON.parse(wrong.body).error, /not one this project can send/);
+  const pup = await fetch(base + '/api/project/' + pr.id + '/attachment', {
+    method: 'PUT', headers: { 'content-type': 'text/plain', 'x-attachment-name': 'p.txt' }, body: 'project file',
+  });
+  const pRec = (await pup.json()).attachment;
+  const crossed = await req('/api/agent/' + name + '/thread', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'x', attachment: pRec.id }),
+  });
+  assert.equal(crossed.status, 400);
+  assert.match(JSON.parse(crossed.body).error, /not one this conversation can send/);
   const unknown = await req('/api/agent/' + name + '/thread', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ text: 'x', attachment: 'zzzzzzzzzzzzzzzzzzzzzzzz' }),
@@ -9519,9 +9536,29 @@ test('attachments: a file is uploaded to an agent, rides the message, reaches th
   assert.equal(unknown.status, 400);
   assert.match(JSON.parse(unknown.body).error, /not one this conversation can send/);
 
-  // Too large is a sentence, and nothing is kept.
+  // Too large is refused, and nothing is kept: the owner's folder has the
+  // same entries after as before.
+  const ownerDir = nodePath.join(attachmentsEngine.ROOT, 'agent', decodeURIComponent(name));
+  const before = fs.readdirSync(ownerDir).length;
   const big = await fetch(base + '/api/agent/' + name + '/attachment', {
     method: 'PUT', headers: { 'content-type': 'application/octet-stream', 'x-attachment-name': 'big.bin' }, body: Buffer.alloc(attachmentsEngine.MAX_BYTES + 2),
   }).catch((e) => ({ status: 0, text: async () => String(e) }));
-  assert.notEqual(big.status, 200, 'a file past the cap was kept');
+  assert.notEqual(big.status, 200, 'a file past the cap was accepted');
+  assert.equal(fs.readdirSync(ownerDir).length, before, 'a file past the cap was kept');
+
+  // A message at the cap still sends with an attachment: the path rides
+  // outside the person's 2000 characters, and a name with two spaces reaches
+  // the pane uncollapsed.
+  const spaced = await fetch(base + '/api/agent/' + name + '/attachment', {
+    method: 'PUT', headers: { 'content-type': 'text/plain', 'x-attachment-name': encodeURIComponent('Q3  report.txt') }, body: 'q3',
+  });
+  const spacedRec = (await spaced.json()).attachment;
+  const long = await req('/api/agent/' + name + '/thread', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'y'.repeat(1990), attachment: spacedRec.id }),
+  });
+  assert.equal(long.status, 200, long.body);
+  assert.equal(JSON.parse(long.body).delivery.state, 'placed', JSON.stringify(JSON.parse(long.body).delivery));
+  const spacedWire = typed.map((a) => a[5]).find((x) => typeof x === 'string' && x.includes('Q3  report.txt')) || '';
+  assert.ok(spacedWire, 'the two-space file name was collapsed on the way to the pane');
 });

@@ -28,7 +28,11 @@ test('kind is decided by type first and extension second, and an unknown file is
 });
 
 test('a file name becomes one path segment: no separators, no leading dots, never empty', () => {
-  assert.equal(attachments.safeName('../../etc/passwd'), '.._.._etc_passwd'.replace(/^\.+/, ''));
+  assert.equal(attachments.safeName('../../etc/passwd'), '_.._etc_passwd');
+  assert.equal(attachments.safeName('record.json'), 'file-record.json', 'a file named like the metadata would overwrite it');
+  assert.equal(attachments.safeName('Preview.PNG'), 'file-Preview.PNG');
+  assert.equal(attachments.safeName('a\u001bb\u0007.txt'), 'ab.txt', 'control characters reach the pane');
+  assert.equal(Array.from(attachments.safeName('😀'.repeat(200))).length, 160, 'a surrogate pair was halved');
   assert.equal(attachments.safeName('.hidden'), 'hidden');
   assert.equal(attachments.safeName(''), 'file');
   assert.equal(attachments.safeName('a/b\\c\0d.txt'), 'a_b_c_d.txt');
@@ -68,9 +72,9 @@ test('a text file\'s preview is the text itself, capped; an unknown kind has pre
   assert.equal(zrow.preview, null);
 });
 
-test('the preview: an image is itself, a PDF goes through the renderer seam and is cached, a failure is a sentence', () => {
+test('the preview: an image is itself, a PDF goes through the renderer seam and is cached, a failure is a sentence', async () => {
   const png = attachments.save('agent', 'april', { name: 'a.png', type: 'image/png', bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47]) });
-  const got = attachments.preview(attachments.read(png.id));
+  const got = await attachments.preview(attachments.read(png.id));
   assert.equal(got.ok, true);
   assert.equal(got.type, 'image/png');
   assert.equal(got.bytes.length, 4);
@@ -79,23 +83,29 @@ test('the preview: an image is itself, a PDF goes through the renderer seam and 
   attachments.setRenderer((file, dir) => { renders += 1; fs.writeFileSync(path.join(dir, 'preview.png'), Buffer.from('PNG!')); });
   try {
     const pdf = attachments.save('agent', 'april', { name: 'deck.pdf', type: 'application/pdf', bytes: Buffer.from('%PDF') });
-    const first = attachments.preview(attachments.read(pdf.id));
+    const first = await attachments.preview(attachments.read(pdf.id));
     assert.equal(first.ok, true);
     assert.equal(first.bytes.toString(), 'PNG!');
-    const second = attachments.preview(attachments.read(pdf.id));
+    const second = await attachments.preview(attachments.read(pdf.id));
     assert.equal(second.ok, true);
     assert.equal(renders, 1, 'the preview was rendered again instead of read from beside the file');
 
     attachments.setRenderer(() => { throw new Error('no Quick Look here'); });
     const bad = attachments.save('agent', 'april', { name: 'broken.pdf', type: 'application/pdf', bytes: Buffer.from('%PDF') });
-    const failed = attachments.preview(attachments.read(bad.id));
+    const failed = await attachments.preview(attachments.read(bad.id));
     assert.equal(failed.ok, false);
     assert.match(failed.because, /could not draw the first page/);
   } finally {
     attachments.setRenderer(null);
   }
   const other = attachments.save('agent', 'april', { name: 'x.zip', type: 'application/zip', bytes: Buffer.from([1]) });
-  assert.match(attachments.preview(attachments.read(other.id)).because, /no preview for this kind/);
+  assert.match((await attachments.preview(attachments.read(other.id))).because, /no preview for this kind/);
+  /* The type an image preview is served as comes from the IMAGE set, never
+     the uploader's header: a .png uploaded as text/html must not draw as HTML. */
+  const lied = attachments.save('agent', 'april', { name: 'lie.png', type: 'text/html', bytes: Buffer.from('<h1>log in again</h1>') });
+  const served = await attachments.preview(attachments.read(lied.id));
+  assert.equal(served.ok, true);
+  assert.equal(served.type, 'image/png', 'the preview took the uploader\'s content-type');
 });
 
 test('too large, empty, and a bad id are refused in words, and read never walks a path the id built', () => {

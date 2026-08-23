@@ -33,7 +33,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { execFileSync } = require('node:child_process');
+const { execFile } = require('node:child_process');
 const store = require('./store');
 
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -52,10 +52,18 @@ function kindOf(type, name) {
   return 'other';
 }
 
-/** One path segment, never empty, never a dotfile, never a path. */
+/** One path segment, never empty, never a dotfile, never a path, no control
+    characters (they would reach the pane in the bracketed line and be refused
+    there, after the upload had already said yes), cut on characters rather
+    than code units so a surrogate pair is never halved, and never one of the
+    two names this module writes beside the file. A leading `-` is kept: the
+    renderer is always handed the absolute path, never the bare name. */
+const RESERVED = new Set(['record.json', 'preview.png']);
 function safeName(name) {
-  let n = String(name || '').replace(/[/\\\0]/g, '_').replace(/^\.+/, '').trim().slice(0, 160);
+  let n = String(name || '').replace(/[/\\\0]/g, '_').replace(/[\u0000-\u001f\u007f]/g, '').replace(/^\.+/, '').trim();
+  n = Array.from(n).slice(0, 160).join('');
   if (!n) n = 'file';
+  if (RESERVED.has(n.toLowerCase())) n = 'file-' + n;
   return n;
 }
 
@@ -114,7 +122,9 @@ function read(id) {
 }
 
 /** The row's field: what the page draws against. `preview` is null, never
-    absent, when there is none. */
+    absent, when there is none. ⚠️ For kind 'text' it is the file's own first
+    characters, UNTRUSTED TEXT, never markup: a `.html` upload is kind text,
+    and the page must draw the snippet with textContent. */
 function rowField(rec) {
   if (!rec) return null;
   let preview = null;
@@ -125,9 +135,42 @@ function rowField(rec) {
   return { id: rec.id, name: rec.name, type: rec.type, size: rec.size, kind: rec.kind, url: '/api/attachment/' + rec.id, preview };
 }
 
-/* The preview renderer seam: tests replace it so nothing shells out. */
+/* The preview renderer seam: tests replace it so nothing shells out. The
+   real one runs qlmanage off the event loop (a slow Quick Look must not
+   stall every poll on the board) with a timeout, writing to a temp name and
+   renaming into place so two requests racing on one fresh PDF cannot cache a
+   half-written PNG; the second waits on the first's promise. */
 let renderer = null;
 function setRenderer(fn) { renderer = typeof fn === 'function' ? fn : null; }
+const rendering = new Map();
+function renderPdf(file, dir, out) {
+  if (rendering.has(out)) return rendering.get(out);
+  const p = new Promise((resolve) => {
+    if (renderer) {
+      try { renderer(file, dir); resolve(fs.existsSync(out)); } catch { resolve(false); }
+      return;
+    }
+    const tmp = path.join(dir, 'preview-' + process.pid + '-' + Date.now());
+    fs.mkdirSync(tmp, { recursive: true });
+    execFile('/usr/bin/qlmanage', ['-t', '-s', '1024', '-o', tmp, file], { timeout: 10000 }, () => {
+      try {
+        const made = path.join(tmp, path.basename(file) + '.png');
+        if (fs.existsSync(made)) fs.renameSync(made, out);
+      } catch { /* no preview, said below */ }
+      try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* best effort */ }
+      resolve(fs.existsSync(out));
+    });
+  }).finally(() => rendering.delete(out));
+  rendering.set(out, p);
+  return p;
+}
+/** The type an image preview is served as: from the IMAGE set by extension,
+    never the uploader's header (a .png uploaded as text/html must not draw as
+    HTML on the board's origin). */
+function imageTypeOf(name) {
+  const ext = path.extname(String(name || '')).toLowerCase();
+  return { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.heic': 'image/heic', '.avif': 'image/avif' }[ext] || null;
+}
 
 /**
  * A PNG preview: for an image, the file itself (the browser draws it; the
@@ -135,30 +178,20 @@ function setRenderer(fn) { renderer = typeof fn === 'function' ? fn : null; }
  * for a PDF, the first page through qlmanage, cached beside the file. Returns
  * { ok: true, type, bytes } or { ok: false, because }.
  */
-function preview(rec) {
+async function preview(rec) {
   if (!rec) return { ok: false, because: 'no such attachment' };
   if (rec.kind === 'image') {
-    try { return { ok: true, type: rec.type, bytes: fs.readFileSync(rec.file) }; } catch { return { ok: false, because: 'that file could not be read' }; }
+    const type = imageTypeOf(rec.name) || (IMAGE_TYPES.has(String(rec.type).toLowerCase()) ? String(rec.type).toLowerCase() : null);
+    if (!type) return { ok: false, because: 'that is not an image this board will draw' };
+    try { return { ok: true, type, bytes: fs.readFileSync(rec.file) }; } catch { return { ok: false, because: 'that file could not be read' }; }
   }
   if (rec.kind !== 'pdf') return { ok: false, because: 'no preview for this kind of file' };
   const out = path.join(rec.dir, 'preview.png');
-  if (fs.existsSync(out)) {
-    try { return { ok: true, type: 'image/png', bytes: fs.readFileSync(out) }; } catch { /* re-render below */ }
+  if (!fs.existsSync(out)) {
+    const made = await renderPdf(rec.file, rec.dir, out);
+    if (!made) return { ok: false, because: 'this Mac could not draw the first page' };
   }
-  try {
-    if (renderer) renderer(rec.file, rec.dir);
-    else {
-      /* qlmanage writes <file name>.png into the output folder. Ten seconds,
-         then it is "no preview", never a hung request. */
-      execFileSync('/usr/bin/qlmanage', ['-t', '-s', '1024', '-o', rec.dir, rec.file], { timeout: 10000, stdio: 'ignore' });
-      const made = path.join(rec.dir, path.basename(rec.file) + '.png');
-      if (fs.existsSync(made)) fs.renameSync(made, out);
-    }
-    if (!fs.existsSync(out)) return { ok: false, because: 'this Mac could not draw the first page' };
-    return { ok: true, type: 'image/png', bytes: fs.readFileSync(out) };
-  } catch {
-    return { ok: false, because: 'this Mac could not draw the first page' };
-  }
+  try { return { ok: true, type: 'image/png', bytes: fs.readFileSync(out) }; } catch { return { ok: false, because: 'this Mac could not draw the first page' }; }
 }
 
 /** The sentence added to the wire so the agent can open the file. */
