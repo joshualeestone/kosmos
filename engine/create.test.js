@@ -2734,6 +2734,8 @@ test('jobMissing counts only a proven absence: EACCES answers false, never "neve
   } finally {
     fs.chmodSync(dir, 0o700);
     fs.rmSync(create.plistPath('jmhere'), { force: true });
+  }
+});
 
 test('an agent born without the messaging block is SAID, not silent (#182)', () => {
   const messagesMod = require('./messages');
