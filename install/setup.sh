@@ -804,7 +804,27 @@ uninstall() {
   # THEMSELVES ours -- a user's `tmux new -s notes` carries no option and a
   # borrowed name fails the equality, the same two gates as above.
   if [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then
-    "$KOSMOS_HOME/tmux/bin/tmux" list-sessions -F '#{session_name}' 2>/dev/null | while IFS= read -r _sname; do
+    # 🛑 THE PIPELINE IS GUARDED, and the guard is load-bearing on EVERY
+    # clean Mac: with no agents ever created there is no tmux server, so
+    # `list-sessions` exits non-zero -- and under this script's pipefail
+    # that unguarded pipeline ABORTED the whole uninstall right here, after
+    # the kosmos command was removed and before the app, the login job and
+    # KOSMOS_HOME were: a half-removed install on precisely the machine
+    # with nothing to sweep. Found by the clean-machine target (tools/
+    # clean-machine.sh) on its first run against the served installer.
+    # An unreadable server (a NEWER system tmux owns the socket) takes the
+    # same path: nothing listable means nothing sweepable, and the rest of
+    # the uninstall must still run.
+    # Capture-then-loop, not a guarded pipeline: forgiving the WHOLE
+    # pipeline would also silence a future unguarded command in the loop
+    # body, truncating the sweep while the uninstall then deletes the
+    # agents' tmux out from under them. Only list-sessions is forgiven,
+    # and the heredoc keeps the loop in THIS shell, so _agents_stopped
+    # actually reaches the closing message that reads it (the pipeline
+    # form assigned it in a subshell and the message was wrong for every
+    # machine whose only agents ran without background jobs).
+    _slist="$("$KOSMOS_HOME/tmux/bin/tmux" list-sessions -F '#{session_name}' 2>/dev/null || true)"
+    while IFS= read -r _sname; do
       [ -n "$_sname" ] || continue
       _owner="$("$KOSMOS_HOME/tmux/bin/tmux" show-options -t "=$_sname" -v @kosmos_agent 2>/dev/null)" || _owner=""
       if [ "$_owner" = "$_sname" ]; then
@@ -812,7 +832,9 @@ uninstall() {
         info "stopping $_sname (a Kosmos agent still running with no background job)"
         "$KOSMOS_HOME/tmux/bin/tmux" kill-session -t "=$_sname" 2>/dev/null || true
       fi
-    done
+    done <<KOSMOS_SWEEP_LIST
+$_slist
+KOSMOS_SWEEP_LIST
   fi
   if [ -d "$KOSMOS_HOME" ]; then
     # ⚠️ REFUSE TO DELETE A FOLDER THAT IS NOT A KOSMOS INSTALL. KOSMOS_HOME

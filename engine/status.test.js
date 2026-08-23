@@ -1192,6 +1192,45 @@ test('a registry entry naming a different agent is not read for this one', () =>
   }
 });
 
+test('the bundled tmux\'s serverless voice reads as a clean machine, and ONLY with no socket on disk (#224 find)', () => {
+  /* 🛑 EVERY FRESH INSTALL 500ED until this branch: the shipped 3.5a says
+     "server exited unexpectedly" where the engine matched only 3.6\'s
+     "no server running", so the first-run machine this product installs
+     onto read as unreadable. The same words are ALSO the version wall (a
+     live newer server our client cannot read), so the pin is the PAIR:
+     the words with no socket are the empty machine, the words with a
+     socket present stay the refusal, and only the socket separates them.
+     Both wordings measured 2026-08-23 against the shipped bundle. */
+  const status = require('./status');
+  const sockDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'tsock-'));
+  const prev = process.env.TMUX_TMPDIR;
+  process.env.TMUX_TMPDIR = sockDir;
+  try {
+    const said = { ran: true, status: 1, err: 'server exited unexpectedly' };
+    assert.equal(status.tmuxSaidNoServer(said), true,
+      'the shipped tmux\'s serverless voice still reads as unreadable, so every fresh install shows a broken board');
+    /* The other state behind the same words: a socket exists (somebody\'s
+       live server), and claiming empty would hide their agents, the
+       catastrophic conversion this module names. */
+    fs.mkdirSync(nodePath.join(sockDir, 'tmux-' + process.getuid()), { recursive: true });
+    fs.writeFileSync(nodePath.join(sockDir, 'tmux-' + process.getuid(), 'default'), '');
+    assert.equal(status.tmuxSaidNoServer(said), false,
+      'a live server our tmux cannot read was reported as an empty machine, which hides every agent on an adopt machine');
+    /* And an UNREADABLE socket dir is could-not-check, never absence: the
+       existsSync form returned false on EACCES and stamped clean-machine
+       over a hidden live server. ENOENT-only, like jobMissing. */
+    fs.chmodSync(nodePath.join(sockDir, 'tmux-' + process.getuid()), 0o000);
+    try {
+      assert.equal(status.tmuxSaidNoServer(said), false,
+        'an unreadable socket directory was read as evidence of absence, the EACCES-stamps-history failure again');
+    } finally {
+      fs.chmodSync(nodePath.join(sockDir, 'tmux-' + process.getuid()), 0o700);
+    }
+  } finally {
+    if (prev === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = prev;
+  }
+});
+
 test('a Fable session mid-turn is working, not idle: the spinner line is keyed on structure (#369)', () => {
   /* 🛑 MEASURED 2026-08-23 on the live fleet, which read "0 Working, 14
      Idle" while two agents were mid-turn. The current Claude Code spinner

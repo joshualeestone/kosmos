@@ -28,6 +28,80 @@ test('the uninstall sweeps live sessions by @kosmos_agent, after the plist loop'
   assert.doesNotMatch(tail, /kill-server/, 'the sweep must never kill the server; it is not ours on a shared machine');
 });
 
+test('the sweep survives a tmux with nothing to list, which is every clean Mac (#224 find)', () => {
+  /* 🛑 EXECUTED, under the script's own `set -euo pipefail`, because this
+     is the defect a source pin cannot fail toward: the unguarded pipeline
+     read green in every string check while `list-sessions` exiting 1 (no
+     server -- the state of any Mac that never created an agent) aborted
+     the ENTIRE uninstall mid-flight, after the kosmos command was removed
+     and before the app was. Found by tools/clean-machine.sh against the
+     served installer. The lifted region runs with a stub tmux that fails
+     exactly like a serverless one, and the sentinel after the block proves
+     the script survives to keep uninstalling. */
+  const os = require('node:os');
+  const { execFileSync } = require('node:child_process');
+  const sb = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sweep-')));
+  fs.mkdirSync(path.join(sb, 'tmux', 'bin'), { recursive: true });
+  const stub = path.join(sb, 'tmux', 'bin', 'tmux');
+  fs.writeFileSync(stub, '#!/bin/sh\necho "no server running" >&2\nexit 1\n');
+  fs.chmodSync(stub, 0o755);
+
+  /* TWO blocks test the same binary (the plist loop above the sweep does
+     too), so the anchor walks BACK from the sweep's own list-sessions to
+     its enclosing if: the first draft anchored the first if and lifted the
+     plist loop's tail, whose loop variable is unbound in isolation. */
+  const ls = SH.indexOf("list-sessions -F '#{session_name}'");
+  const at = SH.lastIndexOf('if [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then', ls);
+  assert.ok(ls > -1 && at > -1, 'the sweep block moved; re-anchor this test');
+  /* The guard is capture-then-loop: ONLY list-sessions is forgiven, so a
+     future unguarded command in the loop body still fails loudly instead
+     of silently truncating the sweep before the uninstall deletes the
+     agents' tmux out from under them. */
+  const capture = SH.indexOf('|| true)"', at);
+  const heredocClose = SH.indexOf('\nKOSMOS_SWEEP_LIST', SH.indexOf('done <<KOSMOS_SWEEP_LIST', at));
+  assert.ok(capture > at && capture < ls + 200, 'list-sessions lost its own || true, the abort defect itself');
+  assert.ok(heredocClose > at, 'the loop is a pipeline again, which both aborts on serverless and drops the flag in a subshell');
+  const end = SH.indexOf('fi', heredocClose);
+  const region = SH.slice(at, end + 2);
+
+  const script = 'set -euo pipefail\nKOSMOS_HOME=' + JSON.stringify(sb) + '\n'
+    + 'info() { :; }\n_agents_stopped=no\n' + region + '\necho SURVIVED=$_agents_stopped';
+  const out = execFileSync('/bin/bash', ['-c', script], { encoding: 'utf8' });
+  assert.match(out, /SURVIVED=no/,
+    'a serverless tmux aborted the uninstall mid-flight again: the guard is gone');
+});
+
+test('the sweep flag reaches the shell that reads it, proven with a session to stop', () => {
+  /* The pipeline form assigned _agents_stopped in a subshell, so the
+     closing message that branches on it was wrong for every machine whose
+     only agents ran without background jobs. The heredoc loop runs in the
+     parent shell; a stub tmux offering one self-owned session must flip
+     the flag HERE, where the message can see it. */
+  const os = require('node:os');
+  const { execFileSync } = require('node:child_process');
+  const sb = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sweep2-')));
+  fs.mkdirSync(path.join(sb, 'tmux', 'bin'), { recursive: true });
+  const stub = path.join(sb, 'tmux', 'bin', 'tmux');
+  fs.writeFileSync(stub, ['#!/bin/sh',
+    'case "$1" in',
+    '  list-sessions) echo aa ;;',
+    '  show-options) echo aa ;;',
+    '  kill-session) : ;;',
+    'esac', ''].join('\n'));
+  fs.chmodSync(stub, 0o755);
+
+  const ls = SH.indexOf("list-sessions -F '#{session_name}'");
+  const at = SH.lastIndexOf('if [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then', ls);
+  const end = SH.indexOf('fi', SH.indexOf('\nKOSMOS_SWEEP_LIST', SH.indexOf('done <<KOSMOS_SWEEP_LIST', at)));
+  assert.ok(ls > -1 && at > -1 && end > at, 'the sweep block moved; re-anchor this test');
+  const region = SH.slice(at, end + 2);
+  const script = 'set -euo pipefail\nKOSMOS_HOME=' + JSON.stringify(sb) + '\n'
+    + 'info() { :; }\n_agents_stopped=no\n' + region + '\necho FLAG=$_agents_stopped';
+  const out = execFileSync('/bin/bash', ['-c', script], { encoding: 'utf8' });
+  assert.match(out, /FLAG=yes/,
+    'the stopped-agents flag died in a subshell again, so the closing message lies about the sweep');
+});
+
 test('no launchctl call escapes a sandboxed run into the real gui domain', () => {
   /* launchd has no sandbox: AGENT_WORKFORCE_LAUNCH redirects plist FILES, but
      "gui/$uid" is always the real domain. Found live 2026-08-23: a suite run
