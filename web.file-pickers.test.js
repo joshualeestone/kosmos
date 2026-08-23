@@ -29,6 +29,9 @@ const PICKERS = [
   { input: 'create-avatar', button: 'create-avatar-btn' },
   { input: 'd-file', button: 'd-file-btn' },
   { input: 'you-file', button: 'you-file-btn' },
+  // The document pickers on the two conversation composers (#358).
+  { input: 'pj-attach-file', button: 'pj-attach' },
+  { input: 'd-attach-file', button: 'd-attach' },
 ];
 
 test('every file input is hidden and driven by a real button', () => {
