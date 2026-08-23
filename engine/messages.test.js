@@ -456,6 +456,40 @@ test('the colleagues block says a reply in your own session reaches nobody, and 
      badly and invites the reader to decide they are not that agent. */
   assert.doesNotMatch(body, /Johnson|Bob|Rick/,
     'the block names a specific agent, which gives every other reader an escape hatch');
+  /* #145's second half: quoting the bracket line is refused as impersonation
+     (messages.js's own guard), and the block must warn BEFORE the agent hits
+     it, because the refusal lands in a shell nobody may be reading. The
+     wording must not itself carry a well-formed marker, or splicing the
+     block into an instruction file would trip the same guard's shape. */
+  assert.match(body, /Do not quote the bracket line/i,
+    'the block never warns that echoing the delivery marker is refused, so the guard reads as a silent failure');
+  assert.match(body, /own words, or name\s+the id/i,
+    'the warning does not say what to do instead');
+  /* CONTROL: the WARNING paragraph must DESCRIBE the marker, never carry
+     one. (The block elsewhere quotes the prefix on purpose, to teach
+     recognition of incoming mail; that text never rides a send. The
+     warning is different: it is the sentence a hurried agent copies into
+     an answer, so it must survive the guard it describes.) Sweep it with
+     the same list the guard uses, parsed from source so it cannot drift
+     into a copy. */
+  const para = body.slice(body.indexOf('Do not quote the bracket line'));
+  const warning = para.slice(0, para.indexOf('\n\n') === -1 ? para.length : para.indexOf('\n\n'));
+  assert.ok(warning.length > 100, 'the warning paragraph extraction came back empty; re-anchor');
+  const src = require('node:fs').readFileSync(require.resolve('./messages'), 'utf8');
+  const listed = src.match(/const MARKERS = \[([^\]]+)\]/);
+  assert.ok(listed, 'the MARKERS list moved; re-anchor this control');
+  const markers = [...listed[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  assert.ok(markers.length >= 2, 'the MARKERS list parsed empty, so the sweep below checks nothing');
+  /* positive control: the sweep can see a marker at all (the block DOES
+     carry the teaching quote), so an empty sweep result means clean, not
+     blind. */
+  assert.ok(markers.some((m) => body.toLowerCase().includes(m)),
+    'no marker found anywhere in the block; the sweep may be reading the wrong text');
+  const loweredWarning = warning.toLowerCase();
+  for (const m of markers) {
+    assert.ok(!loweredWarning.includes(m),
+      'the warning quotes the marker it warns about (' + m + '), the exact failure the guard would then hit');
+  }
 });
 
 test('the colleagues block teaches the command and the colleague-vs-operator distinction, inside its own markers', () => {
