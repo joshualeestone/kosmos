@@ -9441,19 +9441,27 @@ test('somebody who already has agents is never told they have none', () => {
   assert.doesNotMatch(found.els['fr-fleet'].innerHTML, /<input/i,
     'a control that cannot act is back on the row');
 
-  /* Looked and found none: the honest empty state, unchanged. */
+  /* Looked and found none: says what the search did, not what the machine
+     holds (#320). "None on this computer" was a claim about the computer. */
   const empty = firstRunHarness('frPaintFleet', { FR: create, FR_FOUND: { ok: true, agents: [] } });
-  assert.match(empty.els['fr-fleet'].innerHTML, /none on this computer/i);
+  assert.match(empty.els['fr-fleet'].innerHTML, /did not find any agents already here/i);
+  assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /none on this computer/i,
+    'the sentence about the computer is back');
   assert.match(empty.els['fr-title'].textContent, /Create your first agent/i);
 
   /* ⚠️ AND A SEARCH THAT COULD NOT RUN IS NOT AN EMPTY MACHINE. This is the same
-     distinction one level down: `ok:false` must not license the sentence. */
+     distinction one level down: `ok:false` must not license either sentence.
+     (Until #320 this arm fell through to the empty state, and the assertion
+     here recorded that as a known gap rather than a pass.) */
   const blind = firstRunHarness('frPaintFleet', {
     FR: create, FR_FOUND: { ok: false, agents: [], because: 'we could not look' },
   });
-  assert.match(blind.els['fr-fleet'].innerHTML, /none on this computer/i,
-    'CONTROL: this arm is expected to fall through to the empty state today; '
-    + 'if that changes, this assertion is the record of what it used to do');
+  assert.match(blind.els['fr-fleet'].innerHTML, /could not look for agents already on this computer/i,
+    'a search that could not run is reported as an empty machine');
+  assert.doesNotMatch(blind.els['fr-fleet'].innerHTML, /did not find|none on this computer/i,
+    'a failed search is claiming a result');
+  assert.match(blind.els['fr-title'].textContent, /Create your first agent/i,
+    'the way forward is gone on a failed search');
 });
 
 test('a found row shows its folder only when the name alone cannot tell it apart', () => {
