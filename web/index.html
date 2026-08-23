@@ -3767,49 +3767,56 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   <section class="dsec" id="d-sec-model" data-sec="model" tabindex="-1" aria-label="Model" hidden>
   <section class="dbox">
     <h3 class="dlab">Runs on</h3>
-    <!-- 🔑 "RIGHT NOW" KEEPS ITS OWN LINE ABOVE THE PICKER (Mona Lisa's runs-on
-         spec). A dropdown reading "Opus 5" means "running Opus 5" until somebody
-         touches it and "about to be Opus 5" after; the line above only ever
-         means the first. Two tenses, two elements. -->
+    <!-- 🔑 THE SAME THREE STEPS AS THE CREATE FORM (#386). Josh, 2026-08-23
+         12:40: "we did not design it the way that it is designed: mona lisa
+         made with the three different drop-downs for a provider, the account,
+         and then the model." Creation asked provider, account, model; this
+         page offered a flat model list and a separate account control. One
+         decision, one shape, on both screens. The provider step is Anthropic
+         with the others disabled, exactly as the create form draws it.
+         🔑 "RIGHT NOW" KEEPS ITS OWN LINE ABOVE THE PICKERS (Mona Lisa's
+         runs-on spec). A menu reading "Opus 5" means "running Opus 5" until
+         somebody touches it and "about to be Opus 5" after; the line above
+         only ever means the first. Two tenses, two elements.
+         🛑 NOTHING HAPPENS ON PICK. A change restarts the agent, so it goes
+         through a dialog that names what is lost and what is kept BEFORE it
+         happens, and that stays open to say what happened AFTER. Josh
+         refreshed several times and said hello to the agent before he could
+         tell a change had worked, because the outcome was a faint hint under
+         the menu. The hint lines below stay for the person reading rather
+         than pressing. -->
     <p class="runnow" id="d-runson"></p>
-    <div class="frow" style="margin-top:10px;">
-      <select id="d-model" aria-label="Model this agent runs on"></select>
-      <button class="btn" type="button" id="d-model-go" disabled>Change &amp; Restart</button>
-    </div>
-    <p class="dhint" id="d-model-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
-    <!-- 🛑 THE SENTENCE THAT WAS HERE SAID "Changing this is not built yet",
-         which is a screen naming a thing it will not do. It is built now, so it
-         goes. What replaces it is the one consequence a person cannot see:
-         changing the model restarts the agent, and a restart is how an agent
-         reads its instructions again. -->
-    <!-- 🛑 THE SENTENCE NAMES THE COST (Mona Lisa, agent-page mock 2026-08-22).
-         It used to say the restart "picks up the new one", which describes a
-         destructive act as a benefit, beside a button that now says "& Restart".
-         The restart drops what the agent agreed to and has not done, which a
-         person does not read into "memory". The button label is Josh's wording
-         verbatim, the one ampersand among the build's button labels, recorded
-         as a decision so it spreads on purpose if it spreads. -->
-    <p class="dhint" style="margin:8px 0 0;">Changing this restarts the agent. It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.</p>
-
-    <!-- ⚠️ THE ACCOUNT LIVES IN THE SAME BOX AS THE MODEL, and it belongs
-         there: "Runs on" is the box's subject, and which Claude account an
-         agent runs on is the other half of that sentence. A second box would
-         have made two homes for one question.
-         🔑 THE HISTORY LINE IS THE POINT OF THIS CONTROL. Transcripts live
-         inside a Claude account's own directory, so the obvious build of this
-         feature moves an agent and silently empties everything it has ever
-         done -- it comes up looking fine and behaving like a new hire. Josh's
-         rule is the opposite: her memory should follow her everywhere she
-         goes. Accounts that cannot keep that promise are refused by the engine
-         rather than warned about here. -->
-    <div class="fdiv" style="margin-top:16px;"></div>
     <p class="runnow" id="d-account-now"></p>
-    <div class="frow" style="margin-top:10px;">
-      <select id="d-account" aria-label="Claude account this agent runs on"></select>
-      <button class="btn" type="button" id="d-account-go" disabled>Move</button>
+    <div class="msteps" role="group" aria-label="Change what this agent runs on" style="margin-top:12px;">
+      <div class="frow">
+        <select id="d-provider" aria-label="Provider">
+          <option value="anthropic" selected>Anthropic / Claude</option>
+          <option value="openai" disabled>OpenAI &middot; coming soon</option>
+          <option value="google" disabled>Google Gemini &middot; coming soon</option>
+          <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
+          <option value="xai" disabled>xAI Grok &middot; coming soon</option>
+          <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
+          <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
+          <option value="mistral" disabled>Mistral &middot; coming soon</option>
+        </select>
+      </div>
+      <div class="mstep">
+        <div class="frow">
+          <select id="d-account" aria-label="Claude account this agent runs on"></select>
+          <button class="btn" type="button" id="d-account-go" disabled>Move</button>
+        </div>
+        <p class="dhint" id="d-account-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+        <div class="mstep">
+          <div class="frow">
+            <select id="d-model" aria-label="Model this agent runs on"></select>
+            <button class="btn" type="button" id="d-model-go" disabled>Change &amp; Restart</button>
+          </div>
+          <p class="dhint" id="d-model-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+        </div>
+      </div>
     </div>
-    <p class="dhint" id="d-account-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
-    <p class="dhint" style="margin:8px 0 0;">Everything this agent has done comes with it. Moving is how you take an agent off an account that is running out.</p>
+    <p class="dhint" style="margin:12px 0 0;">Changing the model restarts the agent. It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.</p>
+    <p class="dhint" style="margin:8px 0 0;">Moving it to another account takes everything it has done with it. Moving is how you take an agent off an account that is running out.</p>
   </section>
   </section>
   <section class="dsec" id="d-sec-memory" data-sec="memory" tabindex="-1" aria-label="Memory" hidden>
@@ -4245,6 +4252,21 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   </div>
 </div>
 
+<!-- The change dialog (#386): a model change or an account move restarts
+     the agent, so it is confirmed with what is lost and what is kept, and the
+     dialog stays open to report the outcome in the engine's words. Same box as
+     Remove, because it is the same kind of moment. -->
+<div class="rm-back" id="chg-modal" hidden>
+  <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="chg-title" aria-describedby="chg-small">
+    <h2 class="rm-title" id="chg-title"></h2>
+    <p class="rm-small" id="chg-small"></p>
+    <div class="rm-acts">
+      <button class="btn" id="chg-keep" type="button">Keep it as it is</button>
+      <button class="btn uprime" id="chg-go" type="button"></button>
+    </div>
+    <div class="fmsg" id="chg-msg" role="alert" aria-live="assertive"></div>
+  </div>
+</div>
 <div class="rm-back" id="rm-modal" hidden>
   <div class="rm-box" role="alertdialog" aria-modal="true"
        aria-labelledby="rm-title" aria-describedby="rm-small">
@@ -7497,7 +7519,23 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   if (!res || !res.ok) {
     // The route's own sentence: a from-source run, nothing newer published,
     // or a spawn failure. All are states, not scoldings.
-    err.textContent = (body && body.error) || 'we could not start the update';
+    const said = (body && body.error) || 'we could not start the update';
+    /* 🛑 "THERE IS NO UPDATE TO INSTALL RIGHT NOW" UNDER A BUTTON THAT SAYS
+       UPDATE (Josh, 2026-08-23 13:03, screenshot). The offer came from a
+       poll; by the press the board had already been restarted on the newer
+       version, so the route was right and the dialog was stranded: an error
+       line, the same button, nothing to do. Say where you are and offer the
+       one act that helps. The page-stale toast would say the same a moment
+       later; this says it here, where the person is looking. */
+    if (res && res.status === 409 && /no update to install/.test(said)) {
+      err.textContent = 'Kosmos is already on ' + (SERVED_VERSION || 'the latest version') + '. Reload to see it.';
+      err.hidden = false;
+      go.textContent = 'Reload';
+      go.disabled = false;
+      go.onclick = () => window.location.reload();
+      return;
+    }
+    err.textContent = said;
     err.hidden = false;
     go.disabled = false;
     return;
@@ -14180,7 +14218,7 @@ async function paintAccountPicker(a) {
      session, from a screen guessing at what a null meant. */
   now.innerHTML = acct
     ? 'Signed in as <b>' + esc(acct.email || acct.label || acct.dir) + '</b>'
-      + (acct.isDefault ? ' <span class="acct-tag">your first account</span>' : '')
+
     : 'We cannot tell which account this one uses, so we cannot move it.';
 
   /* Only accounts whose history is the shared one. The engine refuses the rest
@@ -14189,7 +14227,7 @@ async function paintAccountPicker(a) {
   const movable = ACCOUNTS.filter((x) => x.memoryShared);
   const html = ['<option value="">Move to&hellip;</option>'].concat(
     movable.map((x) => '<option value="' + esc(x.dir) + '">'
-      + esc(x.email || x.label || x.dir) + (x.isDefault ? ' (your first account)' : '') + '</option>'),
+      + esc(x.email || x.label || x.dir) + '</option>'),
   ).join('');
   if (sel.innerHTML !== html) sel.innerHTML = html;
 
@@ -14216,7 +14254,7 @@ document.getElementById('d-account').addEventListener('change', (e) => {
   if (go) go.disabled = !e.target.value;
 });
 
-document.getElementById('d-account-go').addEventListener('click', async () => {
+async function moveAccountNow(say) {
   if (!CURRENT) return;
   const sel = document.getElementById('d-account');
   const go = document.getElementById('d-account-go');
@@ -14242,17 +14280,75 @@ document.getElementById('d-account-go').addEventListener('click', async () => {
     // from "saved but still on the old account", which a person acts on
     // differently.
     msg.textContent = out.because || 'Moved.';
+    if (say) say(out.because || 'Moved.', true);
     sel.value = '';
     ACCOUNTS = [];   // the move can change nothing about the list, but a stale one outlives a connect
     await tick();
   } catch (err) {
     msg.textContent = String((err && err.message) || 'that did not work');
+    if (say) say(String((err && err.message) || 'that did not work'), false);
   } finally {
     const sel2 = document.getElementById('d-account');
     const go2 = document.getElementById('d-account-go');
     if (sel2) sel2.disabled = false;
     if (go2) go2.disabled = !sel2 || !sel2.value;
   }
+}
+
+/* ---- the change dialog (#386) ------------------------------------------------
+   A model change or an account move restarts the agent. The press opens a
+   dialog that names what is lost and what is kept, in the same words the hint
+   under the menus uses; confirming runs the existing request; the dialog stays
+   open and carries the engine's own sentence for the outcome, success or
+   refusal, so nobody has to refresh and say hello to find out. */
+function changeDialog({ title, small, go, run }) {
+  const back = document.getElementById('chg-modal');
+  const t = document.getElementById('chg-title');
+  const sm = document.getElementById('chg-small');
+  const keep = document.getElementById('chg-keep');
+  const goBtn = document.getElementById('chg-go');
+  const msg = document.getElementById('chg-msg');
+  t.textContent = title; sm.textContent = small; goBtn.textContent = go; msg.textContent = '';
+  keep.textContent = 'Keep it as it is';
+  keep.hidden = false; goBtn.hidden = false; goBtn.disabled = false;
+  const close = () => { back.hidden = true; keep.onclick = null; goBtn.onclick = null; };
+  keep.onclick = close;
+  goBtn.onclick = async () => {
+    goBtn.disabled = true; keep.hidden = true;
+    msg.textContent = 'Working…';
+    await run((sentence, ok) => {
+      msg.textContent = sentence;
+      goBtn.hidden = true;
+      keep.textContent = ok ? 'Done' : 'Close';
+      keep.hidden = false;
+      try { keep.focus(); } catch { /* the sentence stands on its own */ }
+    });
+  };
+  back.hidden = false;
+  try { goBtn.focus(); } catch { /* fine */ }
+}
+const agentShown = () => (CURRENT && (CURRENT.name || CURRENT.sessionName)) || 'this agent';
+document.getElementById('d-model-go').addEventListener('click', () => {
+  const sel = document.getElementById('d-model');
+  if (!CURRENT || !sel.value) return;
+  const label = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent.trim() : sel.value;
+  changeDialog({
+    title: 'Change ' + agentShown() + ' to ' + label + '?',
+    small: agentShown() + ' restarts. It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.',
+    go: 'Change and restart',
+    run: (say) => changeModelNow(say),
+  });
+});
+document.getElementById('d-account-go').addEventListener('click', () => {
+  const sel = document.getElementById('d-account');
+  if (!CURRENT || !sel.value) return;
+  const label = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent.trim() : sel.value;
+  changeDialog({
+    title: 'Move ' + agentShown() + ' to ' + label + '?',
+    small: agentShown() + ' restarts on that account. Everything it has done comes with it. Anything it was part way through ends, including anything it agreed to and has not done yet.',
+    go: 'Move and restart',
+    run: (say) => moveAccountNow(say),
+  });
 });
 
 document.getElementById('d-model').addEventListener('change', (e) => {
@@ -14260,7 +14356,7 @@ document.getElementById('d-model').addEventListener('change', (e) => {
   if (go) go.disabled = !e.target.value;
 });
 
-document.getElementById('d-model-go').addEventListener('click', async () => {
+async function changeModelNow(say) {
   if (!CURRENT) return;
   const sel = document.getElementById('d-model');
   const go = document.getElementById('d-model-go');
@@ -14309,6 +14405,7 @@ document.getElementById('d-model-go').addEventListener('click', async () => {
     nudge = true;
   } catch (err) {
     msg.textContent = err.message;
+    if (say) say(err.message, false);
   } finally {
     if (!CURRENT || CURRENT.sessionName === forAgent) {
       sel.disabled = false;
@@ -14319,7 +14416,7 @@ document.getElementById('d-model-go').addEventListener('click', async () => {
       if (nudge) { try { sel.focus(); } catch { /* the sentence stands on its own */ } }
     }
   }
-});
+}
 
 let OWN_ROLE = null;       // the third radio's prefill entry, served whole
 let PICKED = null;         // the role key the person chose
@@ -15086,7 +15183,7 @@ async function loadCreateExtras() {
     const usable = movable.length ? movable : list;
     asel.innerHTML = usable.length
       ? usable.map((x) =>
-        `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${esc(x.email || x.label || x.dir)}${x.isDefault ? ' (your first account)' : ''}</option>`).join('')
+        `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${esc(x.email || x.label || x.dir)}</option>`).join('')
       : '<option value="">Your Claude account</option>';
   })();
   /* 🛑 THE PROJECTS PICKER IS GONE (Josh, 2026-08-22). What was here fetched
