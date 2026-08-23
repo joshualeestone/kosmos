@@ -3716,8 +3716,15 @@ const server = http.createServer((req, res) => {
     try {
       const rec = messages.record();
       const rows = rec.rows
-        .filter((m) => m && (m.kind === 'post' || m.kind === 'valve') && m.project === id)
-        .map((m) => (m.kind === 'post'
+        /* Refused rows too (#315): the valve notice is deduped per room, so
+           without these every agent blocked after the first vanishes silently
+           and reads as unresponsive. The refusal contract already records
+           who and why, once per sender-reason-window; the room just shows it. */
+        .filter((m) => m && ((m.kind === 'post' || m.kind === 'valve') ? m.project === id
+          : (m.kind === 'refused' && m.project === id)))
+        .map((m) => (m.kind === 'refused'
+          ? { kind: 'refused', from: m.from, because: m.because || null, at: m.at }
+          : m.kind === 'post'
           ? { kind: 'post', id: m.id, from: m.from, to: m.to, operator: m.operator === true,
               text: m.text, at: m.at, outcomes: m.outcomes || {},
               ...(m.attachment && typeof m.attachment === 'object' ? { attachment: m.attachment } : {}),
@@ -3735,6 +3742,7 @@ const server = http.createServer((req, res) => {
         const lines = tail.map((m) => {
           const when = m.at ? String(m.at).slice(11, 16) : '--:--';
           if (m.kind === 'valve') return when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.');
+          if (m.kind === 'refused') return when + '  [kosmos] ' + m.from + ' tried to post here and Kosmos stopped it: ' + (m.because || 'no reason recorded');
           const who = m.operator ? 'operator' : m.from;
           return when + '  ' + who + ' -> ' + (Array.isArray(m.to) ? m.to.join(', ') : 'the room') + ': ' + String(m.text || '');
         });

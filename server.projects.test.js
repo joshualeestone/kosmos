@@ -2356,3 +2356,33 @@ test('the room serves a plain-text tail for `kosmos room`, and says so when it c
     assert.equal(JSON.parse(asJson.body).ok, true);
   });
 });
+
+test('the room serves a blocked agent\'s refusal as its own row, and the text tail says it too (#315)', async () => {
+  reset();
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    const messagesEngine = require('./engine/messages');
+    const fsx = require('node:fs');
+    fsx.mkdirSync(path.dirname(messagesEngine.LOG), { recursive: true });
+    fsx.appendFileSync(messagesEngine.LOG, JSON.stringify({
+      kind: 'refused', from: 'zeta', to: project.id, project: project.id,
+      because: 'the room was going back and forth without landing, so Kosmos was holding it for the person',
+      at: new Date().toISOString(),
+    }) + '\n');
+    const res = await req(`/api/project/${project.id}/room`);
+    const rows = JSON.parse(res.body).rows;
+    const refused = rows.filter((m) => m.kind === 'refused');
+    assert.equal(refused.length, 1, 'the refusal did not reach the room payload');
+    assert.equal(refused[0].from, 'zeta');
+    assert.match(refused[0].because, /holding it for the person/);
+    // Project-stamped only: a direct-message refusal whose target merely
+    // shares the slug space must not leak in.
+    fsx.appendFileSync(messagesEngine.LOG, JSON.stringify({
+      kind: 'refused', from: 'zeta', to: project.id,
+      because: 'a direct refusal, no project stamp', at: new Date().toISOString(),
+    }) + '\n');
+    const again = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.filter((m) => m.kind === 'refused');
+    assert.equal(again.length, 1, 'an unstamped refusal leaked into the room');
+    const text = await req(`/api/project/${project.id}/room?as=text`);
+    assert.match(text.body, /zeta tried to post here and Kosmos stopped it/);
+  });
+});

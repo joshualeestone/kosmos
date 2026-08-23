@@ -590,7 +590,10 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
       const already = readLog().some((m) => m && m.kind === 'refused'
         && m.from === from && m.to === toLogged && m.because === because
         && Date.parse(m.at) >= now2 - limits.WINDOW_MS);
-      if (!already) appendLog({ kind: 'refused', from, to: toLogged, because, at });
+      /* `project` rides the row (#315) so the room can claim its own refusals
+         and ONLY its own: `to` alone cannot tell a project from an agent that
+         happens to share the slug space. */
+      if (!already) appendLog({ kind: 'refused', from, to: toLogged, project: toLogged, because, at });
     } catch { /* the record is best-effort; the verdict is not */ }
     return { state: chat.DELIVERY.COULD_NOT, because, id: null, at, outcomes: null };
   };
@@ -755,7 +758,24 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
     if (!latest || (latest.stopped !== false) !== lim.on) {
       appendLog({ kind: 'valve', from, to: projectId, project: projectId, at, because, stopped: lim.on });
     }
-    if (lim.on) return { state: chat.DELIVERY.COULD_NOT, because, id: null, at, outcomes: null };
+    if (lim.on) {
+      /* 🔑 WHO WAS REFUSED, not only that the room was stopped (#315). The
+         valve notice above is deduped per room, correctly -- so every agent
+         blocked after the first vanished silently, and read from the outside
+         as unresponsive (Scarlett, 2026-08-22: her answer to the operator's
+         own summons left its only trace inside her terminal). One refused row
+         per agent per window, project-stamped so the room can serve it. */
+      try {
+        const already = log.some((m) => m && m.kind === 'refused'
+          && m.from === from && m.project === projectId
+          && Date.parse(m.at) >= now - lim.windowMs);
+        if (!already) {
+          appendLog({ kind: 'refused', from, to: projectId, project: projectId,
+            because: 'the room was going back and forth without landing, so Kosmos was holding it for the person', at });
+        }
+      } catch { /* the record is best-effort; the verdict is not */ }
+      return { state: chat.DELIVERY.COULD_NOT, because, id: null, at, outcomes: null };
+    }
   }
 
   const id = 'm' + (rec.parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);

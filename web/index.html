@@ -18361,6 +18361,17 @@ function pjSilences(allRows, p) {
 }
 
 function pjRoomRow(m, p, silent) {
+  /* A refusal the room can see (#315): Scarlett tried to answer, was stopped,
+     and the only record was inside her own window, so from the outside she
+     read as broken. The engine's refusal contract already dedups (one row per
+     agent per reason per window); this line joins her story to the room's.
+     Same quiet band as the valve: it is Kosmos speaking, not a message. */
+  if (m.kind === 'refused') {
+    const whenR = pjWhen(m.at) || '';
+    return '<div class="msg-valve">' + esc(pjNameOf(p, m.from) || m.from)
+      + ' tried to post here and Kosmos stopped it: ' + esc(pjSentence(m.because || 'no reason was recorded'))
+      + (whenR ? '<span class="msg-t">' + esc(whenR) + '</span>' : '') + '</div>';
+  }
   if (m.kind === 'valve') {
     /* Reassurance, not an error: the valve is the product doing its job.
        The timestamp span only exists when there is a timestamp, so its
@@ -18439,7 +18450,8 @@ function pjRoomFilterRows(rows, p, q) {
     // route does carry it, so the guarantee must live here).
     const who = m.kind === 'valve' ? ''
       : (m.operator === true ? 'you' : (pjNameOf(p, m.from) || m.from || ''));
-    const text = (m.kind === 'valve') ? (m.because || PJ_VALVE_FALLBACK) : (m.text || '');
+    const text = (m.kind === 'valve') ? (m.because || PJ_VALVE_FALLBACK)
+      : (m.kind === 'refused') ? (m.because || '') : (m.text || '');
     return String(who).toLowerCase().includes(needle)
       || String(text).toLowerCase().includes(needle);
   });
