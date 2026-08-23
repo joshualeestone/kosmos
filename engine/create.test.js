@@ -2764,3 +2764,28 @@ test('an agent born without the messaging block is SAID, not silent (#182)', () 
     create.setRunner(null);
   }
 });
+
+test('disabledJobs reads the launchd overrides and fails soft to an empty set (#310)', () => {
+  const orig = [];
+  create.setRunner((file, args) => {
+    orig.push([file, ...(args || [])].join(' '));
+    return { ok: true, stdout: 'disabled services = {\n\t"com.kosmos.agent.rick" => disabled\n\t"com.kosmos.agent.anna" => true\n\t"com.other.thing" => true\n}\n' };
+  });
+  create.setDryRun(false);
+  try {
+    const off = create.disabledJobs();
+    assert.deepEqual([...off].sort(), ['anna', 'rick'], 'the parse missed a form launchctl uses, or claimed a label that is not ours');
+    assert.ok(orig.some((c) => /launchctl print-disabled gui\//.test(c)), 'the probe is not the non-mutating read');
+    assert.ok(!orig.some((c) => /enable|disable |bootout|bootstrap/.test(c)), 'the probe mutates launchd state');
+  } finally {
+    create.setRunner(null);
+  }
+  /* Fail-soft: a runner that throws yields an empty set, never a claim. */
+  create.setRunner(() => { throw new Error('no launchctl here'); });
+  create.setDryRun(false);
+  try {
+    assert.equal(create.disabledJobs().size, 0, 'a failed look dressed agents in switched-off');
+  } finally {
+    create.setRunner(null);
+  }
+});

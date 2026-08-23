@@ -975,6 +975,9 @@ const server = http.createServer((req, res) => {
           const seen = new Set(agents.map((a) => a.sessionName));
           const known = register.survey();
           if (!known.ok) return [];
+          /* One launchd probe per poll, for #310's sentence below. Empty on
+             any failure: could-not-look must never read as switched-off. */
+          const switchedOff = create.disabledJobs();
           return known.agents
             .filter((k) => !k.removed && k.folder && !seen.has(k.name) && !gone.has(k.name))
             .map((k) => {
@@ -998,7 +1001,14 @@ const server = http.createServer((req, res) => {
                    is also stopped, and that agent IS up. */
                 running: false,
                 stateConfidence: 'structured',
-                because: 'this agent is not running: nothing on this computer has a session for it',
+                /* #310: when the job exists and launchd holds an override
+                   against it, the Login Items switch is the story, and it is
+                   the one cause a person produced themselves with no screen
+                   connecting the two. Said here, once, so every surface that
+                   reads `because` says it. */
+                because: (!create.jobMissing(k.name) && switchedOff.has(k.name))
+                  ? 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again'
+                  : 'this agent is not running: nothing on this computer has a session for it',
                 hasAvatar: Boolean(safeAvatarFor(k.name)),
                 profile,
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
@@ -1007,6 +1017,10 @@ const server = http.createServer((req, res) => {
                    the sentence exists for: nothing will start it, and no
                    restart fills the record in. */
                 neverRecorded: create.jobMissing(k.name),
+                /* #310: the Login Items switch. Only meaningful on a stopped
+                   agent with a job that EXISTS and is overridden off; the
+                   never-recorded case above wins when both could apply. */
+                jobSwitchedOff: !create.jobMissing(k.name) && switchedOff.has(k.name),
                 account: accountOf(k.name),
                 commitments: commitments.read(k.name),
                 instructions: instructions.staleness(k.name),
