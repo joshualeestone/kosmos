@@ -146,3 +146,18 @@ test('the commitment text is escaped, because an agent wrote it', () => {
   const src = page.lift(SCRIPT, 'openRestartModal');
   assert.match(src, /esc\(/, 'the commitments an agent wrote reach the page unescaped');
 });
+
+test('the Restart confirmation names the promises a restart drops, not only the memory (#316)', () => {
+  /* The model-change hint said "including anything it agreed to and has not
+     done yet"; the dedicated Restart confirmation did not, so the smaller
+     control was the more honest one. A person reads "memory" as context and
+     "agreed to and has not done yet" as promises, and the second is what they
+     want to know before pressing. */
+  const words = PAGE.replace(/<!--[\s\S]*?-->/g, '');
+  const at = words.indexOf('id="d-restart-start"');
+  assert.ok(at > -1, 'the Restart control moved');
+  const before = words.slice(Math.max(0, at - 1200), at);
+  assert.match(before, /anything it was part way through ends, including anything it agreed to and has not done yet\./,
+    'the confirmation no longer names the promises a restart drops');
+});
+
