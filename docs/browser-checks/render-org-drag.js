@@ -29,6 +29,12 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     fleet.agent('kid', { state: 'idle', displayName: 'Kid' }),
   ]);
   store.writeProfile('kid', { reportsTo: 'mara' });
+  // Sam gets a real picture (#381): a node with an <img> is the one whose
+  // drag the browser hijacks, and the initials disc never reproduces it.
+  const avatars = path.join(store.ROOT, 'avatars');
+  fs.mkdirSync(avatars, { recursive: true });
+  fs.writeFileSync(path.join(avatars, 'sam.png'), Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFklEQVR4nGNgYGD4z0AswKqQUgwAAP//AwAD9QSGqBOqDgAAAABJRU5ErkJggg==', 'base64'));
   try { firstrun.complete(); } catch { /* fine */ }
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -58,6 +64,20 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
   const kidNow = await pos('.onode[data-agent="kid"]');
   const wireEnd = await page.$eval('#orgmap line[data-for="kid"]', (l) => { const r = l.ownerSVGElement.getBoundingClientRect(); const vb = l.ownerSVGElement.viewBox.baseVal; const sx = r.width / vb.width; return { x: r.x + Number(l.getAttribute('x2')) * sx, y: r.y + Number(l.getAttribute('y2')) * sx }; });
   chk(Math.hypot(wireEnd.x - kidNow.x, wireEnd.y - kidNow.y) < 4, 'the wire ends on the node it belongs to', Math.hypot(wireEnd.x - kidNow.x, wireEnd.y - kidNow.y).toFixed(1) + 'px');
+  // Drag a NODE, not only the hub (#381): a node has a click action, the hub
+  // does not, so this is the case the first version of this check could not
+  // see. Letting go must not open the agent.
+  await page.waitForTimeout(1500);
+  const samBefore = await pos('.onode[data-agent="sam"]');
+  await page.mouse.move(samBefore.x, samBefore.y);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i += 1) { await page.mouse.move(samBefore.x - 10 * i, samBefore.y + 6 * i); await page.waitForTimeout(30); }
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  chk(!(await page.$('#panel-detail:not([hidden])')), 'letting go of a dragged node does not open its page');
+  const samAfter = await pos('.onode[data-agent="sam"]');
+  chk(Math.hypot(samAfter.x - samBefore.x, samAfter.y - samBefore.y) > 30, 'the node moved with the pointer', Math.hypot(samAfter.x - samBefore.x, samAfter.y - samBefore.y).toFixed(0) + 'px');
+  chk(await page.$eval('#orgmap', (m) => [...m.querySelectorAll('img')].every((i) => i.getAttribute('draggable') === 'false')), 'every picture on the chart refuses the native image drag');
   // A plain click still opens the agent.
   await page.waitForTimeout(2500);
   const maraNow = await pos('.onode[data-agent="mara"]');
