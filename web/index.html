@@ -4010,7 +4010,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          was editing stayed behind. -->
     <div class="frow">
       <button class="btn sav-btn" type="button" id="d-file-btn">Change picture</button>
-      <button class="btn" id="d-remove" type="button">Remove</button>
+      <!-- "Remove picture", not "Remove": this row sits on a page whose last
+             pill is "Remove <name>", and a bare verb beside "Change picture"
+             reads as the agent until you have pressed it (#406). -->
+        <button class="btn" id="d-remove" type="button">Remove picture</button>
       <input type="file" id="d-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
     </div>
     <div class="fmsg" id="d-msg"></div>
@@ -12386,7 +12389,7 @@ document.getElementById('d-remove').addEventListener('click', async () => {
   if (!CURRENT || CURRENT.sessionName !== forAgent) return;
   // It reported "Removed." whatever came back, so a refusal read as a success.
   if (!res.ok) { msg.textContent = 'That picture could not be removed.'; return; }
-  msg.textContent = 'Removed.';
+  msg.textContent = 'Picture removed.';
   await tick();
   refreshAvatar();
 });
