@@ -1225,6 +1225,28 @@ test('a Fable session mid-turn is working, not idle: the spinner line is keyed o
   /* CONTROL: the footer alone still reads idle, so the working assertions
      above are the spinner line being recognised, not the fixture leaking. */
   assert.equal(classify(pane, footer).state, 'idle');
+
+  /* Blocked beats busy, pinned rather than left to source position: a pane
+     mid-turn that draws a permission prompt (the spinner line still in the
+     tail) is an agent that CANNOT proceed, and a reorder grouping the
+     working rules above needs_you would pass everything else here. */
+  const asking = classify(pane,
+    '· Improvising… (35s · ↓ 1.5k tokens)\n\nDo you want to proceed?\n❯ 1. Yes\n  2. No' + footer);
+  assert.equal(asking.state, 'needs_you',
+    'a mid-turn permission prompt was outranked by the spinner line, so a blocked agent reads busy');
+
+  /* An agent NARRATING progress in its own output must not read as the
+     UI's spinner: word and numeral prefixes are excluded by the glyph
+     class. */
+  for (const echo of ['1. Deploying… (30s · staging)', 'npm Loading… (5s · warm)']) {
+    assert.equal(classify(pane, echo + footer).state, 'idle',
+      'an agent narrating its own progress read as working: ' + echo);
+  }
+
+  /* The evidence is the WHOLE line, not the regex fragment: a fragment cut
+     at the first separator drops the tail and dangles mid-parens. */
+  const ev = classify(pane, '· Canoodling… (4h 39m 45s · ↓ 673.5k tokens)' + footer);
+  assert.equal(ev.evidence, '· Canoodling… (4h 39m 45s · ↓ 673.5k tokens)');
 });
 
 test('an agent sitting at its prompt is idle, not unreadable', () => {

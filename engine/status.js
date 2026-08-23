@@ -1192,18 +1192,30 @@ function classify(pane, paneText) {
    * a word list would be stale on arrival: the finished-line list below
    * already misses "Cooked for" and "Crunched for" for exactly that
    * reason. The stable parts are the ellipsis and the timer, so that is
-   * the key. The finished line ("✱ Cooked for 1m 33s") has no parens and
-   * cannot match; a person's own text could echo the shape, which is true
-   * of every scraped marker in this function and no worse here.
+   * the key. The finished line ("✳ Cooked for 1m 33s", U+2733 as measured,
+   * not the U+2731 the enumerated idle list keys on, so those lines reach
+   * idle only via the footer rule below) has no parens and cannot match; a
+   * person's own text could echo the shape, which is true of every scraped
+   * marker in this function and no worse here. The glyph class excludes
+   * word and numeral prefixes, so an agent NARRATING its own progress
+   * ("1. Deploying… (30s)") does not read as the UI's spinner.
+   * ⚠️ ASSUMED: the timer always renders a seconds field. Every observed
+   * variant does; if the UI ever drops seconds at large elapsed values
+   * this goes false negative and the tile undercounts again.
    *
    * ⚠️ This sits ABOVE the prompt-footer idle rule by necessity, not
    * taste: the ⏵⏵ footer stays on screen DURING a Fable turn, so footer
    * evidence cannot separate working from waiting, and before this rule
    * a fleet mid-turn read "0 Working" on the headline tile.
    */
-  const workingLine = tail.match(/^\s*\S{1,3} \S+…\s+\((?:\d+h )?(?:\d+m )?\d+s(?: ·|\))/mu);
-  if (workingLine) {
-    return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task', evidence: workingLine[0].trim().slice(0, 120) };
+  const WORKING_LINE = /^\s*[^\w\s]{1,3} \S+…\s+\((?:\d+h )?(?:\d+m )?\d+s(?: ·|\))/mu;
+  if (WORKING_LINE.test(tail)) {
+    return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task',
+             /* The whole line via the module's own convention (glyph-strip,
+                240 cap), not the regex fragment: the person sees what the
+                board saw, tokens and all, not a cut ending in a dangling
+                separator. */
+             evidence: matchedLine(tail, [WORKING_LINE]) };
   }
   if (/✱|Worked for|Brewed for|Baked for|to save .* tokens/i.test(tail)) {
     return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it finished and is waiting for you' };
