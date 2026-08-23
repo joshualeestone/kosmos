@@ -7093,6 +7093,12 @@ function updateLaterVersion() {
  * staleness would compare the page against something that is not installed.
  */
 let SERVED_VERSION = null;
+/* The engine's own staleness, from the poll (#338): `{ startedAt, staleSince }`
+   where staleSince is set when a loaded engine file on disk is newer than the
+   process. Read per request, `web/index.html` is never the stale part; the
+   process is, and nothing on screen said so while it answered with hours-old
+   code. Null until a poll says otherwise. */
+let ENGINE_STALE = null;
 
 /**
  * The top-left toast, in two states that share a slot and share nothing else.
@@ -7126,6 +7132,30 @@ let SERVED_VERSION = null;
  */
 function renderUpdateToast(u) {
   const slot = document.getElementById('utoast-slot');
+  /* 🛑 THE ENGINE STATE OUTRANKS BOTH OTHERS (#338). A server behind the code
+     on disk is the one condition that makes the page-stale state moot and the
+     update offer premature: restarting is the act that settles all three, so
+     it is the one to ask for first. Same slot, same class, not dismissible: a
+     state, not a notice. The mechanism that would make this a button has to
+     work on a machine whose plist has no KeepAlive (the shipped one), so until
+     the updater's own stop/start path is reachable from here the remedy is
+     said in words. No version number: the merges that caused this never moved
+     one, which is why this compares files to the process and not numbers. */
+  if (ENGINE_STALE && ENGINE_STALE.staleSince) {
+    if (slot.dataset.v === 'engine') return;
+    slot.dataset.v = 'engine';
+    const since = (() => {
+      const d = new Date(ENGINE_STALE.startedAt || '');
+      return Number.isNaN(d.getTime()) ? null : d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    })();
+    slot.innerHTML = '<div class="utoast stale" role="status">'
+      + '<span class="udot" aria-hidden="true"></span>'
+      + '<div class="utxt"><b>Kosmos changed on disk</b><small>'
+      + (since ? 'The board is running code from ' + esc(since) + '. ' : 'The board is running older code. ')
+      + 'Only a restart picks it up: <code>kosmos restart</code></small></div>'
+      + '</div>';
+    return;
+  }
   if (!UPDATING_NOW && pageIsStale(SERVED_VERSION)) {
     if (slot.dataset.v === 'stale') return;
     slot.dataset.v = 'stale';
@@ -8016,6 +8046,7 @@ async function tick() {
        the same paint that proves it. */
     paintOfflineNote(false);
     SERVED_VERSION = data.version || null;
+    ENGINE_STALE = data.engine || null;
     paintBuildLine(data.version);
 
     // The freshness stamp is load-bearing. An ambient board gets trusted

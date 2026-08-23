@@ -19,18 +19,35 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const page = require('./test-support/page');
 const SCRIPT = page.scriptOf(PAGE);
 
-function toast({ baked, served, offer, updating = false, later = null }) {
+function toast({ baked, served, offer, updating = false, later = null, engine = null }) {
   const slot = { dataset: {}, innerHTML: '' };
   const listeners = [];
   const doc = {
     getElementById: (id) => (id === 'utoast-slot' ? slot : { addEventListener: (_, f) => listeners.push(f), focus() {}, hidden: true }),
     querySelector: () => (baked === undefined ? null : { getAttribute: () => baked }),
   };
-  new Function('document', 'esc', 'UPDATING_NOW', 'SERVED_VERSION', 'updateLaterVersion', 'UPD_CONFIRM_OPENER', 'OFFER',
+  new Function('document', 'esc', 'UPDATING_NOW', 'SERVED_VERSION', 'updateLaterVersion', 'UPD_CONFIRM_OPENER', 'OFFER', 'ENGINE_STALE',
     page.liftAll(SCRIPT, ['bakedVersion', 'pageIsStale', 'renderUpdateToast'])
-    + '\nrenderUpdateToast(OFFER);')(doc, (x) => String(x), updating, served, () => later, null, offer);
+    + '\nrenderUpdateToast(OFFER);')(doc, (x) => String(x), updating, served, () => later, null, offer, engine);
   return { html: slot.innerHTML, v: slot.dataset.v, listeners };
 }
+
+test('a board running older engine code than the disk says so, and outranks both other states (#338)', () => {
+  // Shape agreed with Angel 2026-08-23: `engine: { startedAt, staleSince }`,
+  // staleSince null when current, always present. The server test pins it.
+  const engine = { startedAt: '2026-08-23T11:51:00Z', staleSince: '2026-08-23T15:30:00Z' };
+  const t = toast({ baked: '0.2.75', served: '0.2.76', offer: { version: '0.2.77' }, engine });
+  assert.equal(t.v, 'engine');
+  assert.match(t.html, /Kosmos changed on disk/);
+  assert.match(t.html, /running code from \d/);
+  assert.match(t.html, /kosmos restart/);
+  assert.doesNotMatch(t.html, /previous version|ut-reload|0\.2\.77/, 'a lower state rendered beside the one that settles it');
+  // Null and a current engine fall through to the states below.
+  for (const e of [null, { startedAt: '2026-08-23T11:51:00Z', staleSince: null }]) {
+    const f = toast({ baked: '0.2.75', served: '0.2.76', engine: e });
+    assert.equal(f.v, 'stale', 'an engine that is not stale hid the page-stale state');
+  }
+});
 
 test('a page older than the running Kosmos says so, and offers the one thing that fixes it', () => {
   const t = toast({ baked: '0.2.75', served: '0.2.76' });
@@ -109,9 +126,9 @@ test('the same page is not repainted every five seconds', () => {
     getElementById: (id) => (id === 'utoast-slot' ? slot : { addEventListener() {}, focus() {}, hidden: true }),
     querySelector: () => ({ getAttribute: () => '0.2.75' }),
   };
-  const run = new Function('document', 'esc', 'UPDATING_NOW', 'SERVED_VERSION', 'updateLaterVersion',
+  const run = new Function('document', 'esc', 'UPDATING_NOW', 'SERVED_VERSION', 'updateLaterVersion', 'ENGINE_STALE',
     page.liftAll(SCRIPT, ['bakedVersion', 'pageIsStale', 'renderUpdateToast'])
-    + '\nreturn renderUpdateToast;')(doc, (x) => String(x), false, '0.2.76', () => null);
+    + '\nreturn renderUpdateToast;')(doc, (x) => String(x), false, '0.2.76', () => null, null);
   run(null);
   slot.innerHTML = 'MARKED';
   run(null);
