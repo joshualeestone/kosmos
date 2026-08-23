@@ -85,14 +85,25 @@ function fileFor(agent) {
   } catch {
     return null;
   }
-  const file = path.join(ROOT, key, FILENAME);
+  /* Through `create.workerDir`, so a connected agent's own folder is used and an
+     ordinary one is unchanged. `safeKey` still sanitises the name first: the
+     folder may now come from a record, and the NAME must still never be able to
+     build a path of its own. */
+  const file = path.join(require('./create').workerDir(key), FILENAME);
 
   // Belt to safeKey's braces, and NOT load-bearing today: safeKey already
   // strips separators, so this cannot currently fail and removing it leaves the
   // suite green. It stays because the consequence of safeKey ever changing is a
   // path-traversal WRITE to an arbitrary file, and that is worth a line.
   // Declared as untested rather than left to look like coverage.
-  if (!file.startsWith(ROOT + path.sep)) return null;
+  /* ⚠️ THE PREFIX ASSERTION MOVED WITH THE ROOT. It used to prove the file was
+     inside the shared workers directory, which is no longer true of every agent;
+     it now proves the file is inside the folder we resolved for this agent,
+     which is the same guarantee against a name that tries to build its own path.
+     Declared untested for the same reason it always was: `safeKey` strips
+     separators, so this cannot currently fail. */
+  const dir = require('./create').workerDir(key);
+  if (!file.startsWith(dir + path.sep)) return null;
   return file;
 }
 
@@ -235,7 +246,12 @@ function inspect(agent) {
   // Every filesystem-level refusal comes from the shared reader, so this module
   // and `status.readIdentity` cannot disagree about what is safe to read. They
   // did, twice: the directory check landed here first, then the file check.
-  const got = workerfile.readWorkerFile(file, ROOT);
+  /* 🔑 THE AGENT'S OWN FOLDER IS THE ROOT, not the shared workers directory.
+     Narrower than before for an ordinary agent -- its file can no longer be
+     contained by a sibling's folder -- and it is what lets a connected agent,
+     whose folder is wherever its owner put it, be read at all. `create.workerDir`
+     is the one place that decides where an agent lives. */
+  const got = workerfile.readWorkerFile(file, path.dirname(file));
   if (!got.ok) return { file, stat: got.stat, ok: false, missing: got.missing, because: got.because };
 
   // ⚠️ Refuse anything that would not survive being handed back. The editor

@@ -2134,7 +2134,15 @@ function readIdentity(sessionName) {
   const recorded = remembered && typeof remembered.displayName === 'string'
     ? remembered.displayName.trim() : '';
 
-  const file = path.join(WORKERS_DIR, sessionName, 'CLAUDE.md');
+  /* ⚠️ THROUGH `create.workerDir`, NOT `WORKERS_DIR` + name. This module and
+     `instructions.js` are the two readers of one file, and they diverged once
+     before -- one refused a linked worker folder and the other followed it. A
+     connected agent's folder is recorded rather than derived, so a second
+     derivation here would find nothing for exactly the agents this change
+     exists to support, while the instructions route found it.
+     ⚠️ Required lazily: `create` requires `store`, and requiring it at the top
+     of this file makes a cycle. */
+  const file = path.join(require('./create').workerDir(sessionName), 'CLAUDE.md');
 
   // ⚠️ Through the SHARED reader, not a local `readFileSync`.
   //
@@ -2151,7 +2159,9 @@ function readIdentity(sessionName) {
   // kept going wrong. `engine/workerfile.js` sits below both modules on purpose:
   // `instructions.js` already requires this one, so anything shared has to live
   // underneath or the require becomes a cycle.
-  const got = readWorkerFile(file, WORKERS_DIR);
+  /* The agent's own folder as the root, matching `instructions.fileFor`: two
+     readers of one file, one rule about where that file may be. */
+  const got = readWorkerFile(file, path.dirname(file));
   // ⚠️ `derived: true` when we have a recorded name even though the file is
   // unreadable, because `derived` answers "did we find a real name for this
   // one, or is this the machine name?" — and a recorded name IS a real name.
