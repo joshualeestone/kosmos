@@ -73,9 +73,15 @@ test('the memory panel says never recorded, for a running context and for a stop
   const engineSrc = fs.readFileSync(path.join(__dirname, 'engine', 'status.js'), 'utf8');
   /* Scoped to readContext so a future second occurrence elsewhere in
      status.js cannot silently re-aim this pin. */
+  /* File-wide count-of-one, NOT a scope: a left-bounded slice would
+     silently re-aim to a later occurrence; refusing on any count but one
+     forces the re-anchor to be deliberate. Zero and many get their own
+     messages, because they mean opposite repairs. */
   const engineHits = engineSrc.match(/because: 'made before Kosmos recorded this[^']*'/g) || [];
+  assert.ok(engineHits.length > 0,
+    'status.js lost the sentence entirely; the engine half of this drift pin has nothing to compare');
   assert.equal(engineHits.length, 1,
-    'status.js now carries the sentence more than once; a left-only slice would re-aim silently, so re-anchor this pin deliberately');
+    'status.js now carries the sentence more than once; re-anchor this pin deliberately');
   const engineSentence = engineHits[0].match(/because: '(made before Kosmos recorded this[^']*)'/);
   const pageSentence = mb.match(/because: '(made before Kosmos recorded this[^']*)'/);
   assert.ok(engineSentence && pageSentence, 'one side lost the sentence entirely; re-anchor this pin');
@@ -113,18 +119,28 @@ test('the picker and the explainer both name the way in, and only for the never-
     'the recorded-folder state lost its sentence');
   assert.match(PAGE, /, so it will not start on its own\./,
     'the stopped recorded-folder arm lost its consequence clause');
-  assert.match(PAGE, /There is no control here that re-records one yet\./,
-    'the stated reason no path is offered is gone, which reopens the 149 done-when');
+  /* BOTH surfaces carry this sentence, so the count is pinned at two:
+     deleting it from either one alone must fail, not hide behind the
+     other (the same both-surfaces trap the preamble above records). */
+  assert.equal((PAGE.match(/There is no control here that re-records one yet\./g) || []).length, 2,
+    'a surface lost the stated reason no path is offered, which reopens the 149 done-when');
   /* Scoped to the two assignment regions: a page-wide quoted-string sweep
      cannot tell copy from comments (apostrophes in prose make the quotes
-     span arbitrary code, measured: 168 false spans). */
-  for (const [label, anchor] of [
-    ['explainer', 'drunWhy.textContent = a.neverRecorded'],
-    ['picker refusal', "msg.textContent = ours"],
+     span arbitrary code, measured: 168 false spans). The region END is a
+     structural successor, never the first semicolon: the exact wording
+     this pin exists to keep out CARRIED a semicolon inside its string, so
+     a first-; cut would truncate before the leak and fail open on the
+     canonical regression (proven by mutation before this anchor change). */
+  for (const [label, anchor, until] of [
+    ['explainer', 'drunWhy.textContent = a.neverRecorded', 'drunWhy.hidden'],
+    ['picker refusal', 'msg.textContent = ours', 'so it cannot change what it runs on'],
   ]) {
     const at = PAGE.indexOf(anchor);
     assert.ok(at > 0, 'the ' + label + ' assignment moved; re-anchor this pin');
-    const region = PAGE.slice(at, PAGE.indexOf(';', at) + 1);
+    const stop = PAGE.indexOf(until, at);
+    assert.ok(stop > at, 'the ' + label + ' successor anchor moved; re-anchor this pin');
+    const region = PAGE.slice(at, stop);
+    assert.ok(region.length > 200, 'the ' + label + ' region collapsed; the sweep below checks almost nothing');
     assert.doesNotMatch(region, /#\d{2,}/,
       'a tracker number leaked into the ' + label + ' user copy');
   }
