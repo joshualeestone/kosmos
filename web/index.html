@@ -10094,7 +10094,7 @@ function convoRow(r, agentName) {
       state = '<span class="cv-state"><b>Not delivered to ' + esc(agentName) + '.</b></span>';
     }
     return '<div class="cvrow ' + (isOp ? 'you' : 'peer') + '"><span class="cv-who">' + esc(who) + '</span><p>'
-      + esc(r.text) + '</p>' + state + '</div>';
+      + pjInline(r.text) + '</p>' + state + '</div>';
   }
   if (r.kind === 'refused') {
     // Her copy, the because verbatim: a refusal their agent met is an
@@ -10138,7 +10138,7 @@ function convoRow(r, agentName) {
     state = '<span class="cv-state"><b>Not sent.</b>' + (r.because ? ' ' + esc(r.because) : '') + '</span>';
   }
   return '<div class="' + cls + '"><span class="cv-who">' + esc(who) + '</span><p>'
-    + esc(r.text) + '</p>' + state + '</div>';
+    + pjInline(r.text) + '</p>' + state + '</div>';
 }
 
 let CONVO_LOAD = 0;
@@ -10499,7 +10499,7 @@ function dmRow(m, name) {
    * would invent a mechanism that did not happen.
    */
   if (m && m.from) {
-    return '<div class="dm theirs"><div class="dm-b">' + esc(m.text) + '</div>'
+    return '<div class="dm theirs"><div class="dm-b">' + pjInline(m.text) + '</div>'
       + '<span class="dm-w">' + esc(dmWho(m.from, name)) + pjWhenPart(m.at) + '</span></div>';
   }
   const v = pjVerdict(m, name);
@@ -10547,7 +10547,7 @@ function dmRow(m, name) {
      puts it, and no longer inside the verdict. The verdict is silent on an
      ordinary success now, and a timestamp that lived inside it would have gone
      silent with it -- on every message that worked. */
-  return '<div class="dm mine"><div class="dm-b">' + esc(m.text) + '</div>'
+  return '<div class="dm mine"><div class="dm-b">' + pjInline(m.text) + '</div>'
     + '<span class="dm-w">You' + v.when + wire + ' '
     + '<span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span></span></div>';
 }
@@ -17321,6 +17321,11 @@ function pjBody(text, names) {
     : pjLinkPaths(seg, names))).join('');
 }
 
+/* 🔑 EVERY PLACE A PERSON'S MESSAGE IS DRAWN GOES THROUGH THIS (#355). It was
+   written for the project room and the other rows kept `esc(text)`, so the
+   same pasted URL was a link in one box and dead characters in the next box
+   along; nobody chose that. Escaping is still done here, token by token, so a
+   message with no URL in it renders exactly as before. */
 function pjInline(text) {
   const raw = String(text == null ? '' : text);
   if (raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1) return esc(raw);
@@ -18403,7 +18408,7 @@ function pjMsg(m, name) {
      agent page's thread are the same conversation kind and share one verdict,
      so they go silent together. */
   return '<div class="pj-msg' + mark + '">'
-    + '<span class="pj-msg-text">' + esc(m.text) + '</span>'
+    + '<span class="pj-msg-text">' + pjInline(m.text) + '</span>'
     + '<span class="pj-msg-when">You' + when + '</span>'
     + '<span class="pj-msg-said">' + said + '</span>'
     + '</div>';

@@ -6039,7 +6039,7 @@ test('the limits routes round-trip the person\u2019s control, and the valve rows
     const at = sc.indexOf('function esc(');
     return sc.slice(at, sc.indexOf('\n}', at) + 2);
   })();
-  const convoRow = pageFunction('convoRow', escSrc);
+  const convoRow = pageFunction('convoRow', escSrc + '\n' + pageFnSource('pjInline'));
   const toldPair = convoRow({ kind: 'valve', from: 'leo', to: 'mara', stopped: false, at: 'x' }, 'mara');
   assert.match(toldPair, /did not step in, because you have the limit turned off/);
   assert.doesNotMatch(toldPair, /stopped them/, 'a told-only pair row claims Kosmos stopped them');
@@ -6216,7 +6216,7 @@ test('a room post renders as a room post everywhere: the agent page names the pr
     const at = sc.indexOf('function esc(');
     return sc.slice(at, sc.indexOf('\n}', at) + 2);
   })();
-  const convoRow = pageFunction('convoRow', escSrc);
+  const convoRow = pageFunction('convoRow', escSrc + '\n' + pageFnSource('pjInline'));
 
   const agentPost = convoRow({ kind: 'post', from: 'mara', to: ['leo', 'april'], project: 'hendersonlease',
     operator: false, text: 'the draft is up', at: new Date().toISOString(), state: 'placed' }, 'leo');
@@ -6274,7 +6274,7 @@ test('the conversation rows hold the spec grammar: attributed peers, verbatim re
       const raw2 = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
       const sc = raw2.match(/<script>([\s\S]*?)<\/script>/)[1];
       const at = sc.indexOf('function esc(');
-      return sc.slice(at, sc.indexOf('\n}', at) + 2);
+      return sc.slice(at, sc.indexOf('\n}', at) + 2) + '\n' + pageFnSource('pjInline');
     })());
 
   const you = convoRow({ kind: 'operator', text: 'have a look at the lease', project: 'Vendor Review', state: 'placed' }, 'leo');
@@ -6454,7 +6454,7 @@ test('an attributed refusal is an event: logged once per window with its because
     const raw2 = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
     const sc = raw2.match(/<script>([\s\S]*?)<\/script>/)[1];
     const escAt = sc.indexOf('function esc(');
-    const convoRow = pageFunction('convoRow', sc.slice(escAt, sc.indexOf('\n}', escAt) + 2));
+    const convoRow = pageFunction('convoRow', sc.slice(escAt, sc.indexOf('\n}', escAt) + 2) + '\n' + pageFnSource('pjInline'));
     const drawn = convoRow({ kind: 'refused', from: 'leo', to: 'april', because: 'that agent’s pane is a shell' }, 'leo');
     assert.match(drawn, /leo tried to message april\./, 'the refusal row lost her sentence');
     assert.match(drawn, /<b>Not sent:<\/b> that agent’s pane is a shell/, 'the because did not ship verbatim');
@@ -9048,7 +9048,7 @@ test('a room row on an agent’s page names the project the way a person named i
     const at = sc.indexOf('function esc(');
     return sc.slice(at, sc.indexOf('\n}', at) + 2);
   })();
-  const convoRow = pageFunction('convoRow', escSrc);
+  const convoRow = pageFunction('convoRow', escSrc + '\n' + pageFnSource('pjInline'));
 
   const named = convoRow({ kind: 'post', from: 'heather', to: ['marilyn'], project: 'aug21404pm',
     projectName: 'Aug 21 4:04 PM', text: 'hello', at: 'x' }, 'marilyn');
