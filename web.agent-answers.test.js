@@ -148,7 +148,7 @@ test('a reply is escaped on its way to the screen', () => {
   // eslint-disable-next-line no-new-func
   const dmRow = new Function(
     'let CURRENT = ' + JSON.stringify(pick(card)) + ';\n'
-    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'dmWho', 'dmRow'].map(slice).join('\n')
+    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'dmRow'].map(slice).join('\n')
     + '; return dmRow;',
   )();
 
@@ -189,7 +189,7 @@ test('the receipt speaks about what happens next, and is silent when there is no
   const lift = (n) => page.lift(SCRIPT, n);
   // eslint-disable-next-line no-new-func
   const pjVerdict = new Function(
-    ['esc', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict'].map(lift).join('\n')
+    ['esc', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict'].map(lift).join('\n')
     + '; return pjVerdict;',
   )();
   const at = new Date().toISOString();
@@ -246,7 +246,7 @@ test('the person’s own row carries its time now that the receipt may say nothi
   // eslint-disable-next-line no-new-func
   const dmRow = new Function(
     'let CURRENT = ' + JSON.stringify(pick(card)) + ';\n'
-    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'dmWho', 'dmRow'].map(lift).join('\n')
+    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'dmRow'].map(lift).join('\n')
     + '; return dmRow;',
   )();
   const at = new Date().toISOString();

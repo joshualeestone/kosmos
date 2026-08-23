@@ -11304,7 +11304,13 @@ async function sendTalk(text, chose, attachment) {
     let line;
     if (d.state === 'placed') {
       clearSent();
-      line = 'Placed into ' + name + '’s session' + note + '.';
+      /* 🛑 SILENT WHEN IT WORKED (#402). This line printed "Placed into April's
+         session." under every message that arrived, after Josh had ruled that
+         clause out of the room (2026-08-21) and out of this page's own thread
+         rows. The page was the one surface that never converged. It speaks
+         only when there is something about what happens next, and it keeps
+         the agent's name on the arms where something went wrong. */
+      line = placedWords(d);
     } else if (d.state === 'unconfirmed') {
       if (inThread) clearSent();
       line = 'We could not confirm that reached ' + name + '’s session' + note + '. '
@@ -18617,6 +18623,17 @@ function pjWhen(at) {
  * taken the timestamp with it. The room's row has always carried its own time
  * in its own element; the direct rows now do the same.
  */
+/* What a message that was PLACED owes the person, as plain text: nothing when
+   the agent was at its prompt, and the consequence when it was not ("It was
+   mid-task, so it will not read this until it finishes."). One rule for the
+   row in the thread and the line under the composer (#402), so the two cannot
+   disagree about what one send did. Josh's 2026-08-21 ruling for the room,
+   adopted by the agent page's rows the same week and by its composer line now. */
+function placedWords(d) {
+  const note = (d && d.paneNote) || '';
+  if (!note || d.paneState === 'idle') return '';
+  return note.charAt(0).toUpperCase() + note.slice(1) + '.';
+}
 function pjVerdict(m, name) {
   const d = (m && m.delivery) || {};
   // The pane's state when we typed, and what it means for what happens next.
@@ -18631,7 +18648,7 @@ function pjVerdict(m, name) {
        of it. That clause is the one Josh named, and on the agent's own page a
        note about what it was doing needs no antecedent -- the row sits under
        the message it is about. */
-    said = consequential ? note.charAt(0).toUpperCase() + note.slice(1) + '.' : '';
+    said = esc(placedWords(d));
   } else if (d.state === 'unconfirmed') {
     mark = ' unsure';
     // A row is history, so it states what happened and stops. The instruction
