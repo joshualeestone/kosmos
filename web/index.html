@@ -18557,6 +18557,14 @@ function pjRoomRow(m, p, silent) {
      read as broken. The engine's refusal contract already dedups (one row per
      agent per reason per window); this line joins her story to the room's.
      Same quiet band as the valve: it is Kosmos speaking, not a message. */
+  /* Kosmos's own note (#167): the product speaking in its own band, no
+     avatar and no name badge, so nobody wonders whether Kosmos is a
+     participant they can talk to. */
+  if (m.kind === 'note') {
+    const whenN = pjWhen(m.at) || '';
+    return '<div class="msg-valve">' + esc(m.text || '')
+      + (whenN ? '<span class="msg-t">' + esc(whenN) + '</span>' : '') + '</div>';
+  }
   if (m.kind === 'refused') {
     const whenR = pjWhen(m.at) || '';
     return '<div class="msg-valve">' + esc(pjNameOf(p, m.from) || m.from)
