@@ -342,9 +342,6 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .dtask { font: var(--text-body) var(--font-ui); color: var(--k-ink-2);
          min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dname { font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; color: var(--k-ink); }
-.dprojects { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-.dprojlab { font-size: .6875rem; letter-spacing: .12em; text-transform: uppercase;
-            font-weight: 600; color: var(--k-ink-2); }
 /* A hairline between the two halves of Runs on: the model above, the account
    below. Without it the second "Right now" line reads as a continuation of the
    first control rather than the start of a second one. */
@@ -2747,7 +2744,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   :root:not([data-theme="light"]) .dremove { border-top-color: var(--separator); color: var(--label); }
   :root:not([data-theme="light"]) .dremove .dhint, :root:not([data-theme="light"]) .detail .dremove .fhint, :root:not([data-theme="light"]) .detail .dremove .fmsg { color: var(--label-2); }
   :root:not([data-theme="light"]) .dremove .btn-quiet { color: var(--label); }
-  :root:not([data-theme="light"]) .dprojlab { color: var(--label-2); }
   :root:not([data-theme="light"]) .pjpill.attn { color: #ff8c82; }
   :root:not([data-theme="light"]) .pj-row.attn { border-color: rgba(255,140,130,.55); }
   :root:not([data-theme="light"]) .acard.attn { border-color: rgba(255,140,130,.55); box-shadow: 0 1px 3px rgba(255,140,130,.14); }
@@ -3202,7 +3198,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .dremove { border-top-color: var(--separator); color: var(--label); }
 :root[data-theme="dark"] .dremove .dhint, :root[data-theme="dark"] .detail .dremove .fhint, :root[data-theme="dark"] .detail .dremove .fmsg { color: var(--label-2); }
 :root[data-theme="dark"] .dremove .btn-quiet { color: var(--label); }
-:root[data-theme="dark"] .dprojlab { color: var(--label-2); }
 :root[data-theme="dark"] .pjpill.attn { color: #ff8c82; }
 :root[data-theme="dark"] .pj-row.attn { border-color: rgba(255,140,130,.55); }
 :root[data-theme="dark"] .acard.attn { border-color: rgba(255,140,130,.55); box-shadow: 0 1px 3px rgba(255,140,130,.14); }
@@ -3410,13 +3405,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            sentence is shown, which names the model and carries the vendor's own
            remedies, and stays true if that wording changes under us. -->
       <blockquote class="detail-said" id="d-said" hidden></blockquote>
-      <!-- The relationship read from the agent's end, in the header per the
-           pack: on this page it is part of who the agent is, not a section
-           you act in. -->
-      <div class="dprojects" id="d-projects-field" hidden>
-        <span class="dprojlab" id="d-projects-label">Assigned to</span>
-        <div class="pj-projects" id="d-projects"></div>
-      </div>
+      <!-- 🛑 THE "ASSIGNED TO" ROW IS GONE (Josh, 2026-08-22), and what went with
+           it is worth knowing before anybody brings it back. It listed the
+           projects this agent is on, read from the agent's end, and it carried a
+           careful failure arm: when the projects could not be read it changed
+           its own heading from "Assigned to" to "Projects" and said so, because
+           "Assigned to" over a sentence declining to say is a heading asserting
+           the thing the sentence refuses. If this returns, it returns with that
+           arm; a list that renders empty on a failed read says the agent is on
+           no projects, which is a claim nobody made. -->
     </div>
   </div>
   <p id="d-untied" hidden></p>
@@ -3759,7 +3756,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          this is free text rather than a picked role, since a role catalogue
          exists and would make a reader expect a list. The placeholder beside
          it already carries the examples. -->
-    <div class="fhint">Your words, not a fixed list.</div>
     <div class="frow">
       <input type="text" id="d-role" placeholder="Executive Assistant, Bookkeeper, Researcher&hellip;">
     </div>
@@ -10532,6 +10528,10 @@ function openDetail(sessionName) {
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
   CURRENT = a;
+  /* The name for the Reports-to menu's first option. Fire and forget: the poll
+     repaints this panel every five seconds, and until it lands the menu says
+     "You", which is true rather than a placeholder. */
+  refreshYouName();
   /**
    * 🛑 THE FILE PICKER IS EMPTIED ON EVERY OPEN. It is one <input> reused by
    * every agent's panel, and nothing cleared it — so choosing a picture for one
@@ -10756,81 +10756,16 @@ function openDetail(sessionName) {
   // agent can be removed here is a fact about what created it, and this screen
   // must not carry its own opinion about that.
   loadRemoval(a.sessionName);
-  paintAgentProjects(a.sessionName);
   showTab('detail');
 }
 
-/**
- * Which projects this agent is on.
- *
- * ⚠️ HIDDEN when it is on none, rather than showing an empty box captioned
- * "Projects it is on". An empty list under a heading reads as a checked and
- * confirmed nothing; the heading only appears when there is something true to
- * put under it.
- *
- * ⚠️ Reads from `PROJECTS`, which is loaded when the Projects tab is opened —
- * so it can legitimately be empty here having never been fetched. That is why
- * it fetches rather than trusting what happens to be in memory: "we have not
- * looked" must not render as "it is on none".
- */
-async function paintAgentProjects(sessionName) {
-  const field = document.getElementById('d-projects-field');
-  field.hidden = true;
-  // ⚠️ Takes a generation like `loadProjects` does. It is the second writer of
-  // the same two globals, and it had no guard -- so its response could land
-  // after a newer read and roll the list back. A new sibling does not inherit
-  // the guard; it has to be given it.
-  const gen = ++PJ_GEN;
-  try {
-    const res = await fetch('/api/projects');
-    const body = await res.json();
-    // ⚠️ CHECKED BEFORE ANYTHING IS ASSIGNED. The sibling in `loadProjects` was
-    // corrected for exactly this and THIS copy was left assigning first and
-    // throwing second -- so the comment below described a guard that was not
-    // here. A new sibling does not inherit the guard; it has to be given it. A 500
-    // answered `{error, projectsUnreadable}` with no `projects` key, so
-    // `body.projects || []` made an agent whose list we COULD NOT READ render
-    // identically to one that is on none -- this function's own docstring says
-    // "we have not looked" must not render as "it is on none", and the 500 path
-    // was exactly that failure.
-    if (gen !== PJ_GEN) return;
-    if (!res.ok || body.projectsUnreadable) throw new Error(body.error || 'unreadable');
-    PROJECTS = body.projects || [];
-    PJ_AGENTS_UNREADABLE = body.agentsUnreadable === true;
-  } catch {
-    // ⚠️ SAID, never swallowed. This returned silently with the field hidden --
-    // byte-identical to an agent that is genuinely on no projects -- under a
-    // docstring four lines up saying "we have not looked" must not render as
-    // "it is on none". The catch even had a comment rationalising the silence.
-    // A corrupt projects file, or any 500, and the panel quietly asserted the
-    // stronger claim.
-    if (gen !== PJ_GEN) return;
-    // ⚠️ The LABEL changes too. "Projects it is on" is itself a claim, and
-    // leaving it over a sentence saying we could not look put the honest line
-    // under a heading asserting the thing it declines to assert.
-    const label = document.getElementById('d-projects-label');
-    if (label) label.textContent = 'Projects';
-    document.getElementById('d-projects').innerHTML =
-      '<span class="pj-tag pj-tag-unread">We could not read your projects just now, '
-      + 'so we cannot say which ones this agent is on.</span>';
-    field.hidden = false;
-    return;
-  }
-  const mine = PROJECTS.filter((p) => (p.agents || []).some((a) => a.sessionName === sessionName));
-  if (!mine.length) return;
-  // Restored, because the failure arm above changes it: a panel opened after a
-  // failed read and then a good one would otherwise keep the weaker heading.
-  const okLabel = document.getElementById('d-projects-label');
-  if (okLabel) okLabel.textContent = 'Assigned to';
-  document.getElementById('d-projects').innerHTML =
-    // Archived travels with the name here: archiving keeps the membership
-    // (the engine's own rule), so the tag stays -- but a project that left
-    // the projects list must not read as active on this card. A new sibling
-    // does not inherit the split paintProjects makes; it is given the fact.
-    mine.map((p) => '<span class="pj-tag">' + esc(p.name)
-      + (p.archived ? ' <span class="pj-tag-arch">archived</span>' : '') + '</span>').join('');
-  field.hidden = false;
-}
+/* 📌 `paintAgentProjects` WENT WITH THE ROW IT PAINTED (Josh, 2026-08-22). It
+   fetched /api/projects rather than trusting `PROJECTS`, because that global is
+   only loaded when the Projects tab has been opened and "we have not looked"
+   must not render as "it is on none" -- and it carried a generation guard,
+   because it was the second writer of those globals and a late response could
+   roll a newer read back. Both are worth having again if this comes back; the
+   membership itself is unchanged and still lives on the project screen. */
 
 /**
  * Show or withdraw the three write affordances, and say why.
@@ -13060,12 +12995,34 @@ function paintReportsTo(a) {
   if (!wrap || !sel) return;
   const me = a && a.sessionName;
   const others = (LAST || []).filter((x) => x && x.sessionName && x.sessionName !== me);
-  /* Mona Lisa's rule 1: no field on the first agent. There is nobody to name
-     but yourself, so the menu would carry one option and no choice. */
-  wrap.hidden = others.length === 0;
-  if (wrap.hidden) { sel.innerHTML = ''; return; }
+  /* 🛑 ALWAYS HERE, AND YOU ARE THE DEFAULT. This is the create form's ruling
+     (0.2.95) arriving on the second surface that needed it, and it arrives late:
+     Josh gave it once, for one screen, and this one kept the old shape for
+     three weeks. "It either reports to you as the user or it's going to report
+     to some other agent" is a fact about agents, not about a screen.
+
+     The old rule read: no field on the first agent, because there is nobody to
+     name but yourself. That was only true while the menu could not name YOU. It
+     can now, so the field has an answer on the first agent and every agent
+     after it, and the case where somebody most wants to know who is in charge
+     is the one where the field used to be absent.
+
+     ⚠️ "NOBODY" IS GONE AS AN OPTION, at Josh's word (2026-08-22): "it defaults
+     to the username, never to Nobody, that shouldn't even be an option". The
+     stored value for it is unchanged -- an empty string still means no agent
+     above this one -- so nothing in the record moved. What changed is that the
+     empty value now has an honest NAME on screen. The org chart has always
+     drawn these agents to the hub that is you; this is the menu finally saying
+     the same thing. */
+  wrap.hidden = false;
   const now = (a && a.profile && typeof a.profile.reportsTo === 'string') ? a.profile.reportsTo : '';
-  const html = ['<option value="">Nobody</option>'].concat(
+  /* ⚠️ "You" IS THE FALLBACK AND IT IS A TRUE ANSWER, not a placeholder waiting
+     to be replaced. The record is optional and plenty of machines never fill it
+     in; it is also the word the org chart puts on the hub, so the two surfaces
+     agree by default rather than by coincidence. On the first paint after
+     opening a panel the name may not have been read yet, and "You" standing in
+     for one poll is a true sentence rather than a wrong one. */
+  const html = ['<option value="">' + esc(YOU_NAME || 'You') + '</option>'].concat(
     others.map((x) => '<option value="' + esc(x.sessionName) + '"'
       + (x.sessionName === now ? ' selected' : '') + '>' + esc(x.name || x.sessionName) + '</option>'),
   ).join('');
@@ -17922,7 +17879,10 @@ async function pjAnswerFrom(sessionName, displayName) {
 
 async function pjBrowse(at) {
   const box = document.getElementById('pj-browse');
-  // ⚠️ A GENERATION, like `loadProjects` and `paintAgentProjects` both take.
+  // ⚠️ A GENERATION, like `loadProjects` takes. (A third function took one too,
+  // the agent page's project row, and it was removed on 2026-08-22 -- this
+  // comment named it and is corrected rather than left citing something that is
+  // not there, which is how prose goes stale at a distance from the edit.)
   // Two quick clicks (folder A, then B) can land out of order, leaving the
   // crumb, the list and `PJ_HERE` describing A while the person is in B — and
   // "Use this folder" would then choose the wrong one. A new sibling does not

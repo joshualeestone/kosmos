@@ -260,3 +260,74 @@ test('the person’s own row carries its time now that the receipt may say nothi
   assert.match(busy, /mid-task/, 'CONTROL: the row cannot say anything at all');
   fleet.restore();
 });
+
+test('reports-to names you, is always offered, and never says Nobody', () => {
+  /**
+   * 🛑 THE CREATE FORM'S RULING ARRIVING ON THE SURFACE THAT MISSED IT. Josh,
+   * 2026-08-22: "it defaults to the username, never to Nobody, that shouldn't
+   * even be an option." He had already said the same thing for the create form
+   * three weeks earlier and this panel kept the old shape, which is the same
+   * one-ruling-two-surfaces gap as the delivery receipt.
+   *
+   * ⚠️ AND THE FIELD NO LONGER DISAPPEARS ON THE FIRST AGENT. The old rule --
+   * nobody to name but yourself, so no choice -- was only true while the menu
+   * could not name YOU. The person most likely to want to know who is in charge
+   * is the one with one agent, and the field was absent exactly there.
+   *
+   * 📌 THE STORED VALUE IS UNTOUCHED: empty still means no agent above this one.
+   * What changed is that the empty value now has an honest name on screen.
+   *
+   * ⚠️ REAL ROSTERS, from the producer. Hand-written `{ sessionName, name }`
+   * literals are what this repo's own lint refuses, and it caught the first
+   * version of this test: a stand-in is free to carry fields the route never
+   * emits, which is how a renderer gets tested against a shape production
+   * cannot produce.
+   */
+  const SCRIPT = page.scriptOf(fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8'));
+  const wrap = { hidden: true };
+  const sel = { innerHTML: '' };
+  const run = (youName, roster, forCard) => {
+    // eslint-disable-next-line no-new-func
+    new Function('document', 'LAST', 'YOU_NAME', 'esc', 'A', `${page.lift(SCRIPT, 'paintReportsTo')}
+      paintReportsTo(A);`)(
+      { getElementById: (id) => (id === 'd-reports-wrap' ? wrap : (id === 'd-reports' ? sel : null)) },
+      roster, youName, (x) => String(x == null ? '' : x),
+      /* ⚠️ THE REAL CARD, not a two-field stand-in for one. The first version
+         passed `{ sessionName, profile: {} }` and the lint refused it, rightly:
+         the renderer reads fields off this object, and a literal is free to
+         carry a shape the route never produces. The fixture's card already
+         carries an empty profile, which is the state this test wants. */
+      forCard,
+    );
+  };
+
+  /* ⚠️ `strict: false`, WITH THE REASON, which is the fixture's own contract for
+     turning it off. `paintReportsTo` reads `a.profile.reportsTo`, and the route
+     does not emit that key for an agent with no reporting line -- in production
+     the read is `undefined` and the `typeof === 'string'` guard handles it. The
+     strict proxy throws on it instead, so here the proxy is stricter than the
+     product, and leaving it on would make this test refuse the ordinary case it
+     exists to cover. */
+  const alone = fleet.install([fleet.agent('dana')], { strict: false });
+  /* One agent on the board: the case the field used to vanish on. */
+  run('Josh', alone.agents, alone.agents[0]);
+  assert.equal(wrap.hidden, false, 'the field is gone on the first agent, where the answer matters most');
+  assert.match(sel.innerHTML, /<option value="">Josh<\/option>/,
+    'the first option does not name the person it reports to');
+  assert.doesNotMatch(sel.innerHTML, /Nobody/, 'Nobody is still on offer');
+
+  /* With no record of a name, the honest stand-in, which is the org chart's own
+     word for the same hub. */
+  run('', alone.agents, alone.agents[0]);
+  assert.match(sel.innerHTML, /<option value="">You<\/option>/);
+  fleet.restore();
+
+  /* And the other agents are still there to choose. */
+  const pair = fleet.install([fleet.agent('dana'), fleet.agent('mara')], { strict: false });
+  const dana = pair.agents.find((x) => x.sessionName.indexOf('dana') === 0);
+  run('Josh', pair.agents, dana);
+  assert.match(sel.innerHTML, /value="mara"/,
+    'the other agents on the board are no longer offered');
+  assert.doesNotMatch(sel.innerHTML, /Nobody/);
+  fleet.restore();
+});
