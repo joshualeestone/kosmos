@@ -3829,7 +3829,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       </div>
       <div class="mstep">
         <div class="frow">
-          <select id="d-account" aria-label="Claude account this agent runs on"></select>
+          <select id="d-account" aria-label="Account this agent runs on"></select>
           <button class="btn" type="button" id="d-account-go" disabled>Move</button>
         </div>
         <p class="dhint" id="d-account-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
@@ -5721,7 +5721,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   <div class="dbody">
   <nav class="snav" id="s-nav" aria-label="Sections of Settings">
     <button type="button" data-go="you" aria-controls="s-sec-you" class="on" aria-current="true">You</button>
-    <button type="button" data-go="accounts" aria-controls="s-sec-accounts">Claude accounts</button>
+    <button type="button" data-go="accounts" aria-controls="s-sec-accounts">Accounts</button>
     <button type="button" data-go="connect" aria-controls="s-sec-connect">Connections</button>
     <button type="button" data-go="talking" aria-controls="s-sec-talking">Agents talking</button>
     <button type="button" data-go="mac" aria-controls="s-sec-mac">This Mac</button>
@@ -5768,9 +5768,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       </div>
     </section>
   </section>
-  <section class="dsec" id="s-sec-accounts" data-sec="accounts" tabindex="-1" aria-label="Claude accounts" hidden>
+  <section class="dsec" id="s-sec-accounts" data-sec="accounts" tabindex="-1" aria-label="Accounts" hidden>
     <section class="dbox">
-      <h3 class="dlab">Your Claude accounts</h3>
+      <!-- "Accounts", not "Claude accounts" (#382). The create form asks
+           provider, then account, then model; a person who picked a provider
+           there has no reason to look under one provider's name here. Each
+           row says which provider it belongs to instead. -->
+      <h3 class="dlab">Your accounts, by provider</h3>
       <div id="set-account"><p class="dhint">Checking the connection…</p></div>
       <!-- 🛑 "One account for now. Connecting another is not built yet." WAS
            HERE, under a greyed-out button, and it was wrong on this machine
@@ -8755,8 +8759,11 @@ async function paintAccounts() {
     const shared = a.memoryShared
       ? '<span class="acct-ok">An agent moved here keeps its conversation history</span>'
       : '<button class="linkish" type="button" data-share="' + esc(a.dir) + '">An agent moved here would start with no history. Fix this</button>';
+    // The provider, on every row (#382): today every account is Anthropic's,
+    // and the row says so rather than the heading assuming it.
+    const provider = '<span class="acct-org">' + esc(a.provider || 'Anthropic / Claude') + '</span>';
     return '<div class="acct-row"><div class="acct-who"><b>' + who
-      + (a.isDefault ? ' <span class="acct-tag">your first account</span>' : '') + '</b>' + org + '</div>'
+      + (a.isDefault ? ' <span class="acct-tag">your first account</span>' : '') + '</b>' + provider + org + '</div>'
       + shared + '</div>';
   }).join('');
   for (const btn of box.querySelectorAll('[data-share]')) {
