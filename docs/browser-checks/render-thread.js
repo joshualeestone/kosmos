@@ -1071,8 +1071,8 @@ async function main() {
          Henderson members (the 'stopped' select at round 30) failed with an
          error naming the select rather than the navigation. A check that
          locates by class alone cannot fail toward the reason. */
-      await page.waitForSelector('.pj-row[data-project="' + id + '"]', { timeout: 10000 });
-      await page.click('.pj-row[data-project="' + id + '"]');
+      await page.waitForSelector(`.pj-row[data-project="${id}"]`, { timeout: 10000 });
+      await page.click(`.pj-row[data-project="${id}"]`);
       await page.waitForSelector('#pj-screen', { timeout: 10000 });
       await page.waitForFunction(() => (document.getElementById('pj-screen').textContent || '').length > 0,
         null, { timeout: 10000 });
