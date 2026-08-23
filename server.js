@@ -31,6 +31,7 @@ const {
 } = require('./engine/status');
 const removal = require('./engine/remove');
 const firstrun = require('./engine/firstrun');
+const discover = require('./engine/discover');
 const subscription = require('./engine/subscription');
 const connect = require('./engine/connect');
 const machine = require('./engine/machine');
@@ -1626,6 +1627,33 @@ const server = http.createServer((req, res) => {
    * instruction editor shipped a version of that bug and it took two review
    * passes to find.
    */
+  /**
+   * The agents this computer already has, running or not.
+   *
+   * 🛑 ITS OWN ROUTE, NOT A FIELD ON /api/first-run, and the reason is cost. That
+   * route is polled: every "Check again", every repaint of the setup flow. This
+   * one opens a transcript per project folder and an instruction file per agent,
+   * which is the right price to pay once when somebody is looking at the list and
+   * the wrong one to pay on a poll.
+   *
+   * ⚠️ READ-ONLY. Finding is not connecting; nothing here starts, stops or writes
+   * anything, which is why it answers to GET.
+   */
+  if (pathname === '/api/found-agents' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let out;
+    try { out = discover.found(); }
+    catch (err) {
+      /* Never 500s for a state question, the same contract /api/machine records:
+         "we could not look" is an ANSWER and the screen can render it. */
+      sendJson(res, 200, { ok: false, agents: [],
+        because: 'we could not look for the agents on this computer',
+        detail: String((err && err.message) || err) });
+      return;
+    }
+    sendJson(res, 200, out);
+    return;
+  }
+
   if (pathname === '/api/first-run' && (req.method === 'GET' || req.method === 'HEAD')) {
     let state;
     try { state = firstrun.state(); }

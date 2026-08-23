@@ -1514,3 +1514,35 @@ test('tmux is preferred over the transcript, because it sees every restart', () 
     () => instructions.staleness('startboth'));
   assert.equal(got.state, instructions.STALENESS.CURRENT);
 });
+
+test('a brand-new agent is not born on older instructions', () => {
+  /**
+   * 🛑 THE FAULT, AS JOSH MET IT ONE MINUTE AFTER MAKING AN AGENT (2026-08-22):
+   * "I literally just created this agent a minute ago so I don't know why I'm
+   * getting the issue there." The first screen of a new agent carried "Running
+   * on older instructions" and a Restart button, about a file nobody had edited.
+   *
+   * 🔑 TWO CLOCKS AT DIFFERENT RESOLUTIONS. A file's mtime has milliseconds;
+   * tmux's `session_created` is whole seconds. Creation writes the instructions
+   * and starts the session inside the same second, so the file's fraction made
+   * it look NEWER than the start once the start was truncated.
+   */
+  const t = 1787000000000;                 // a whole second
+  const wroteAt = t + 500;                 // instructions written mid-second
+  const startedAt = t + 900;               // session started 400ms later
+  const truncated = Math.floor(startedAt / 1000) * 1000;   // what tmux reports
+
+  assert.equal(instructions.compare(wroteAt, truncated).state, instructions.STALENESS.CURRENT,
+    'a file written BEFORE the session started was called older than it');
+
+  /* ⚠️ AND THE CONTROL, or the fix reads as "nothing is ever stale". A real edit
+     after a real start still has to say so -- that notice is the only thing
+     telling somebody their changes are not live yet. */
+  assert.equal(instructions.compare(t + 60000, t).state, instructions.STALENESS.STALE,
+    'an edit a minute after the agent started is exactly what this notice is for');
+
+  /* The boundary in both directions, stated so nobody re-tightens it: within one
+     second is not stale, the next second is. */
+  assert.equal(instructions.compare(t + 999, t).state, instructions.STALENESS.CURRENT);
+  assert.equal(instructions.compare(t + 1000, t).state, instructions.STALENESS.STALE);
+});

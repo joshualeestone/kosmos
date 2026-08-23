@@ -361,7 +361,27 @@ function compare(editedAt, startedAt) {
   if (!editedAt || !startedAt) {
     return { state: STALENESS.UNKNOWN, because: 'we cannot tell when this agent last started' };
   }
-  return editedAt > startedAt
+  /**
+   * 🛑 BOTH FLOORED TO WHOLE SECONDS, BECAUSE ONE CLOCK HAS NO FRACTION. A file's
+   * mtime carries milliseconds; tmux's `session_created` is whole seconds. So a
+   * file written 500ms before its session started reads as 500ms AFTER it once
+   * the session's time is truncated -- and creation writes the instructions and
+   * starts the session within the same second, every time.
+   *
+   * ⚠️ SO EVERY BRAND-NEW AGENT WAS BORN STALE. Josh, 2026-08-22, one minute
+   * after making one: "I literally just created this agent a minute ago so I
+   * don't know why I'm getting the issue there." It arrived on the screen with
+   * "Running on older instructions" and a Restart button, on an agent whose
+   * instructions had never been edited by anybody.
+   *
+   * 📌 THE COST OF THE FIX IS AN EDIT MADE INSIDE THE SAME SECOND AS A START,
+   * which reads as current for up to one second. Against a false "older
+   * instructions" on the first screen of every agent anybody makes, that is not
+   * a close call. The comparison is only ever as fine as its coarser clock, and
+   * pretending otherwise is what produced the fault.
+   */
+  const sec = (ms) => Math.floor(ms / 1000);
+  return sec(editedAt) > sec(startedAt)
     ? {
       state: STALENESS.STALE,
       because: 'the file has been edited since this agent started, and only a restart re-reads it',

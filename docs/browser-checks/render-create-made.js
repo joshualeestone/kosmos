@@ -143,6 +143,7 @@ async function makeAnna(page, { seen }) {
         ? null : document.getElementById('made-hello-say').textContent,
       btn: go.textContent,
       goesTo: go.dataset.agent,
+      doneHidden: document.getElementById('made-done').hidden,
       ink: eval(inkSrc),
     };
   }, INK);
@@ -156,11 +157,24 @@ async function makeAnna(page, { seen }) {
     !done.labels.some((l) => /project|board/i.test(l)), done.labels.join(' | '));
   check('the heading becomes the agent running', /anna is running/i.test(done.head),
     JSON.stringify(done.head));
-  check('the invitation says what the state is, and does not say "activate"',
-    done.hello && /waiting for its first message/i.test(done.hello) && !/activat/i.test(done.hello),
+  /* 🛑 THE COPY REVERSED ON 2026-08-22 AND THIS CHECK IS THE RECORD OF WHY. It
+     asserted the invitation did NOT say "activate": an agent is running from the
+     moment it is made and has simply never been given anything to do, so the
+     word describes a switch that is not there. Mona Lisa ruled it, I built it,
+     and Josh overruled us both with the only evidence anybody had -- ten agents
+     of his own: "Unless I go say hello to them, they don't start."
+     ⚠️ SO THE ASSERTION IS INVERTED RATHER THAN DELETED. If the mechanism is ever
+     pinned down and the word turns out to be wrong after all, this line is where
+     the argument is kept. */
+  check('the invitation asks for the hello, in his words',
+    done.hello && /say hello to your agent to activate it on kosmos/i.test(done.hello),
     JSON.stringify(done.hello));
-  check('the button names the agent, in sentence case',
-    done.btn === 'Say hello to Anna' && done.goesTo === 'anna', JSON.stringify(done.btn));
+  check('the button names the agent, with the capital he asked for',
+    done.btn === 'Say Hello to Anna' && done.goesTo === 'anna', JSON.stringify(done.btn));
+  /* One button on the success path: no "See it under Agents" sending somebody
+     back to a list to find the agent they just made. */
+  check('the only way on is straight to the agent', done.doneHidden === true,
+    `See-it-under-Agents hidden=${done.doneHidden}`);
   /* The mark completed: same dots, now green. */
   check('the mark has turned into a green tick',
     done.ink.n > 200 && done.ink.g > done.ink.r + 20 && done.ink.g > done.ink.b + 20,

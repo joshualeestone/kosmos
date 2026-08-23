@@ -4836,8 +4836,27 @@ function firstRunHarness(name, state, opts = {}) {
     const document = { getElementById: (id) => (__els[id] = __els[id] || { innerHTML: '', textContent: '' }) };
     let FR = ${JSON.stringify(state.FR)};
     let FR_MACHINE = ${JSON.stringify(state.FR_MACHINE === undefined ? null : state.FR_MACHINE)};
+    /* THE SEARCH FOR AGENTS ALREADY ON THE DISK. Null is not a default here: it
+       means "we have not looked yet", which is now a real state of the create
+       ending -- it paints "Looking for agents already here" and returns. A
+       harness that left this null would put every create-ending assertion
+       against that screen instead of the one it means to test, so the default
+       is an ANSWER and callers override it.
+       (No backticks in this comment: it lives inside a template literal, and
+       one would end the string. Cost one run to find.) */
+    let FR_FOUND = ${JSON.stringify(state.FR_FOUND === undefined ? { ok: true, agents: [] } : state.FR_FOUND)};
+    let FR_FOUND_GEN = 0;
+    let FR_STEP = 6;   // the fleet screen is the LAST step, not the machine check
+    function frFindAgents() {}
+    /* The REAL found-agents painter, not a stub: its copy is the thing under
+       test, and a stub here would let the wording drift while the test stayed
+       green -- which is how "already here" would have survived being ruled out. */
+    ${name === 'frPaintFound' ? '' : 'const frPaintFound = ' + pageFunction('frPaintFound',
+      'const esc = ' + realEsc.toString() + ';\nlet FR_FOUND = null; function frActions() {} '
+      + 'function frFinish() {} function showTab() {} const document = { getElementById: () => ({}) };').toString() + ';'}
+    
     let __actions = null;
-    function frActions(primary, alt) { __actions = { primary: primary.label, alt: alt && alt.label }; }
+    function frActions(primary, alt) { __actions = primary ? { primary: primary.label, alt: alt && alt.label } : null; }
     ${name === 'frForkActions' ? '' : 'const frForkActions = ' + realFork.toString() + ';'}
     function frGo() {}
     function frFinish() {}
@@ -9314,4 +9333,55 @@ test('the rows arrive one at a time, and an unrevealed row says it is working', 
      other caller on this page relies on that. */
   paintMade(steps, null, null);
   assert.doesNotMatch(globalThis.__el2.innerHTML, /class="tick working"/);
+});
+
+test('somebody who already has agents is never told they have none', () => {
+  /**
+   * 🛑 THE SENTENCE THIS REMOVES. "There are none on this computer yet" was
+   * shown to the first person outside this team to install Kosmos, on a Mac
+   * running two of her own agents. Josh, 2026-08-22: "the most catastrophic
+   * flaw in the entire system."
+   *
+   * The cause was that `path` is decided from tmux, which is processes running
+   * RIGHT NOW, while a person means the agents they have made. The fix looks on
+   * the disk before saying anybody has nothing.
+   *
+   * ⚠️ THREE STATES, AND THE MIDDLE ONE IS THE POINT: not looked yet, looked and
+   * found some, looked and found none. Only the third may say "none".
+   */
+  const create = { path: 'create', fleetCount: 0 };
+
+  /* Not looked yet: it must not say either thing. */
+  const looking = firstRunHarness('frPaintFleet', { FR: create, FR_FOUND: null });
+  assert.match(looking.els['fr-title'].textContent, /Looking for agents/i);
+  assert.doesNotMatch(looking.els['fr-fleet'].innerHTML, /none on this computer/i,
+    'the empty claim was made before the search had run');
+
+  /* Looked and found some: the empty state is replaced outright. */
+  const found = firstRunHarness('frPaintFleet', {
+    FR: create,
+    FR_FOUND: { ok: true, agents: [{ dir: '/w/mike', name: 'Mike', role: 'copywriter' }] },
+  });
+  assert.doesNotMatch(found.els['fr-fleet'].innerHTML || '', /none on this computer/i,
+    'somebody with agents was still told they have none');
+  assert.match(found.els['fr-title'].textContent, /found an agent on this Mac/i,
+    'the title conflates being on the Mac with being in Kosmos');
+  assert.match(found.els['fr-fleet'].innerHTML, /not in Kosmos yet/i,
+    'the screen no longer says what has NOT happened, which is the whole distinction');
+  assert.doesNotMatch(found.els['fr-fleet'].innerHTML, /<input/i,
+    'a control that cannot act is back on the row');
+
+  /* Looked and found none: the honest empty state, unchanged. */
+  const empty = firstRunHarness('frPaintFleet', { FR: create, FR_FOUND: { ok: true, agents: [] } });
+  assert.match(empty.els['fr-fleet'].innerHTML, /none on this computer/i);
+  assert.match(empty.els['fr-title'].textContent, /Create your first agent/i);
+
+  /* ⚠️ AND A SEARCH THAT COULD NOT RUN IS NOT AN EMPTY MACHINE. This is the same
+     distinction one level down: `ok:false` must not license the sentence. */
+  const blind = firstRunHarness('frPaintFleet', {
+    FR: create, FR_FOUND: { ok: false, agents: [], because: 'we could not look' },
+  });
+  assert.match(blind.els['fr-fleet'].innerHTML, /none on this computer/i,
+    'CONTROL: this arm is expected to fall through to the empty state today; '
+    + 'if that changes, this assertion is the record of what it used to do');
 });
