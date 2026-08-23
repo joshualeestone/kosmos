@@ -4675,7 +4675,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <div class="field" id="create-tell-wrap">
         <label class="tellrow" for="create-tell">
           <input type="checkbox" id="create-tell">
-          <span>Let Kosmos know you created an agent</span>
+          <span>Send a note to the Kosmos server that you made an agent</span>
         </label>
         <div class="fhint" id="create-tell-note"></div>
       </div>
@@ -5520,9 +5520,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            copy (her pass, 2026-08-18 ~1:42 PM). -->
       <h3 class="dlab">Agent conversations</h3>
       <div class="setrow" id="lim-row">
-        <div><b>Limit how much your agents talk to each other</b>
-          <p class="dhint" style="margin:2px 0 0;">Every message between your agents uses your AI plan. If you run a model that does not charge you, turn this off.</p></div>
-        <button class="toggle" id="lim-toggle" role="switch" aria-label="Limit how much your agents talk to each other" hidden><i></i></button>
+        <div><b>Limit how often your agents message each other</b>
+          <p class="dhint" style="margin:2px 0 0;">Every message between your agents is billed to your AI plan. Past the limit below, Kosmos stops them for the rest of the hour. If your model does not charge per use, turn this off.</p></div>
+        <button class="toggle" id="lim-toggle" role="switch" aria-label="Limit how often your agents message each other" hidden><i></i></button>
       </div>
       <div class="frow" id="lim-tier-row" hidden style="margin-top:12px; align-items:center; gap:8px;">
         <label class="dhint" for="lim-tier" style="margin:0;">Stop them after</label>
@@ -5583,9 +5583,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <!-- The standing answer for the same thing (#238). The box on the create
            page answers for one agent; this answers for good, and it wins. -->
       <div class="setrow" id="tell-row" style="margin-top:12px;">
-        <div><b>Let the Kosmos team know when you make an agent</b>
-          <p class="dhint" style="margin:2px 0 0;">Just that it happened, so we know how many people are using Kosmos. Nothing about the agent, and nothing it does.</p></div>
-        <button class="toggle" id="tell-toggle" role="switch" aria-label="Let the Kosmos team know when you make an agent" hidden><i></i></button>
+        <div><b>Send a note to the Kosmos server when you make an agent</b>
+          <p class="dhint" style="margin:2px 0 0;">One small message each time: that an agent was made, when, which Kosmos version and which macOS, and a random ID for this install, so we can count how many people use Kosmos. Nothing about the agent, and nothing it does.</p></div>
+        <button class="toggle" id="tell-toggle" role="switch" aria-label="Send a note to the Kosmos server when you make an agent" hidden><i></i></button>
       </div>
       <p class="dhint" id="tell-msg" role="status" style="margin:8px 0 0;"></p>
 
