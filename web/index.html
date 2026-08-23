@@ -4268,32 +4268,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     </div>
   </div>
 </div>
-<!-- ============ NEW TASK (pack FROZEN-2026-08-16, copy verbatim) ============
-     Two things asked, one required: the sentence. No status field (status is
-     derived; a typed "Working" is a claim the system is supposed to observe),
-     no number field (the project issues it), no project picker (it was opened
-     from inside one). -->
-<div class="rm-back" id="nt-modal" hidden>
-  <div class="rm-box" role="dialog" aria-modal="true" aria-labelledby="nt-t">
-    <h2 class="rm-title" id="nt-t">New task</h2>
-    <p class="rm-small">In <b id="nt-project"></b>.</p>
-    <label class="flabel tk-lab" for="nt-what">What needs doing?</label>
-    <input class="tk-inp" id="nt-what" type="text" maxlength="200" placeholder="Rewrite the handoff checklist">
-    <label class="flabel tk-lab" for="nt-detail">Anything they should know</label>
-    <textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, what done looks like, anything you already tried."></textarea>
-    <label class="flabel tk-lab" for="nt-who">Who is on it</label>
-    <select class="tk-inp" id="nt-who"><option value="">Nobody yet</option></select>
-    <!-- "You can give it to somebody later" is the whole reason the field is
-         allowed to default to nobody (pack): without it, a person reads an
-         unassigned task as a mistake they are about to make. -->
-    <p class="fhint" style="margin:8px 0 0;">You can give it to somebody later.</p>
-    <div class="rm-acts">
-      <button class="btn" id="nt-cancel" type="button">Cancel</button>
-      <button class="btn uprime" id="nt-go" type="button" disabled>Create task</button>
-    </div>
-    <div class="fmsg" id="nt-msg" role="alert" aria-live="assertive"></div>
-  </div>
-</div>
+
 
 <!-- ============ VIEW TASK ============
      The one human verb and its undo (pack: Mark as done / reopen), plus the
@@ -5555,6 +5530,44 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <p class="dhint" style="margin:12px 0 0;">Anything written here is part of the task, so an agent picking it up later reads the whole thing rather than just the title.</p>
       </aside>
     </div>
+  </div>
+
+  <!-- ============ NEW TASK, ITS OWN PAGE (#383) ============
+       The fields are the modal's, verbatim (pack FROZEN-2026-08-16): two
+       things asked, one required. What changed is the SURFACE: Josh's ruling
+       is that hitting + must not pop a dialog, matching what viewing a task
+       already became in #206. Back is the leave; there is no Cancel, no
+       backdrop, no focus trap and no Escape, because a page is not an
+       overlay. Typed words survive Back for the same project (the page's
+       never-delete rule); arriving from a DIFFERENT project starts clean. -->
+  <div id="pj-newtask-view" hidden>
+    <button class="back" id="nt-back" type="button"></button>
+    <div class="pjhead">
+      <div class="pjtitle">
+        <h2 class="dname" id="nt-t">New task</h2>
+        <p class="pj-desc">In <b id="nt-project"></b>.</p>
+      </div>
+    </div>
+    <div class="field">
+      <label class="flabel tk-lab" for="nt-what">What needs doing?</label>
+      <input class="tk-inp" id="nt-what" type="text" maxlength="200" placeholder="Rewrite the handoff checklist">
+    </div>
+    <div class="field">
+      <label class="flabel tk-lab" for="nt-detail">Anything they should know</label>
+      <textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, what done looks like, anything you already tried."></textarea>
+    </div>
+    <div class="field">
+      <label class="flabel tk-lab" for="nt-who">Who is on it</label>
+      <select class="tk-inp" id="nt-who"><option value="">Nobody yet</option></select>
+      <!-- "You can give it to somebody later" is the whole reason the field is
+           allowed to default to nobody (pack): without it, a person reads an
+           unassigned task as a mistake they are about to make. -->
+      <p class="fhint" style="margin:8px 0 0;">You can give it to somebody later.</p>
+    </div>
+    <div class="frow" style="margin-top: var(--space-4);">
+      <button class="btn uprime" id="nt-go" type="button" disabled>Create task</button>
+    </div>
+    <div class="fmsg" id="nt-msg" role="alert" aria-live="assertive"></div>
   </div>
 
   <div id="pj-settings-view" hidden>
@@ -8685,7 +8698,7 @@ function topLevelReset(tab) {
    button is a separate decision (what should Back mean inside a single-page
    board?) and is left as it was rather than half-made here. */
 let URL_TAB = 'agents';
-let PJ_VIEW = 'list';   // the projects sub-view showing: list, one, add, settings, task
+let PJ_VIEW = 'list';   // the projects sub-view showing: list, one, add, settings, task, newtask
 function syncUrl() {
   try {
     const q = new URLSearchParams();
@@ -16334,7 +16347,7 @@ let PJ_THREAD_GEN = 0;
 let PJ_NAV_GEN = 0;
 
 function pjView(which) {
-  for (const v of ['list', 'one', 'add', 'settings', 'task']) {
+  for (const v of ['list', 'one', 'add', 'settings', 'task', 'newtask']) {
     document.getElementById('pj-' + v + '-view').hidden = (v !== which);
   }
   PJ_VIEW = which;
@@ -16994,7 +17007,7 @@ let TK_SHOW_ALL = false;   // the door's reveal; resets when the project changes
    list left standing would dress another project's words as citations of files
    this one does not have. */
 let PJ_DOC_NAMES = null;
-let TK_OPEN = null;        // the task number the view dialog is showing
+let TK_OPEN = null;        // the task number the task page is showing
 
 /** Re-read the store; loadProjects itself repaints the open project on
     success, so this is a named alias for the intent, not a second paint. */
@@ -17405,40 +17418,61 @@ document.getElementById('tk-done').addEventListener('click', async () => {
   }
 });
 
-/* ---- the new-task dialog (pack copy verbatim) ---- */
+/* ---- new task, its own page (#383; fields are the pack's, verbatim) ---- */
+/* Which project the typed draft belongs to. Back keeps the words (the
+   page's never-delete rule: navigation must not eat a draft); opening for
+   a DIFFERENT project starts clean, so one project's half-written task can
+   never be filed under another. */
+let NT_FOR = null;
 function openNewTask() {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
   document.getElementById('nt-project').textContent = p.name;
-  document.getElementById('nt-what').value = '';
-  document.getElementById('nt-detail').value = '';
+  document.getElementById('nt-back').textContent = '\u2190 ' + p.name;
+  /* Decided BEFORE the key moves: keepWho below must answer "was there a
+     kept draft when we arrived", and reading NT_FOR after this block sets
+     it would resurrect the PREVIOUS task's assignee on a clean open
+     (measured: the check's second, unassigned task filed itself to the
+     first task's member). */
+  const sameDraft = NT_FOR === p.id;
+  if (!sameDraft) {
+    NT_FOR = p.id;
+    document.getElementById('nt-what').value = '';
+    document.getElementById('nt-detail').value = '';
+  }
   const sel = document.getElementById('nt-who');
+  /* The chosen assignee is part of the draft too: the rebuild below resets
+     a select, so without carrying the value a person who picked somebody,
+     backed out to check a thing and returned would file the task to
+     "Nobody yet" without noticing. Carried only for the same project's
+     draft, and only if the member is still on the project after the
+     rebuild (a departed member's option is gone, and the select then
+     honestly rests on Nobody). */
+  const keepWho = sameDraft ? sel.value : '';
   // Project members only, "Name · role" like the pack; the task belongs to
   // the project, so its people are the choices.
   sel.innerHTML = '<option value="">Nobody yet</option>' + (p.agents || []).map((m) =>
     '<option value="' + esc(m.sessionName) + '">' + esc(m.name || m.sessionName)
     + (m.role ? ' · ' + esc(m.role) : '') + '</option>').join('');
+  if (keepWho) {
+    sel.value = keepWho;
+    /* The departed-member case, actually guarded: assigning a value with
+       no surviving option deselects EVERYTHING (selectedIndex -1) and the
+       control renders blank, an impossible-looking state; rest it on
+       Nobody, which is what an unselected select would submit anyway. */
+    if (sel.selectedIndex === -1) sel.selectedIndex = 0;
+  }
   document.getElementById('nt-msg').textContent = '';
-  document.getElementById('nt-go').disabled = true;
-  document.getElementById('nt-modal').hidden = false;
+  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
+  pjView('newtask');
   document.getElementById('nt-what').focus();
 }
-function closeNewTask() {
-  document.getElementById('nt-modal').hidden = true;
+function leaveNewTask() {
+  pjView('one');
   document.getElementById('pj-newtask').focus();
 }
 document.getElementById('pj-newtask').addEventListener('click', openNewTask);
-document.getElementById('nt-cancel').addEventListener('click', closeNewTask);
-document.getElementById('nt-modal').addEventListener('click', (e) => {
-  if (e.target.id !== 'nt-modal') return;
-  // ⚠️ The backdrop is the MISCLICK surface, and it must not delete typed
-  // words (the page's never-delete rule; drafts elsewhere are parked at the
-  // keystroke for the same reason). With anything typed, a backdrop click
-  // does nothing; Escape and Cancel remain the explicit discards.
-  if (document.getElementById('nt-what').value.trim()
-      || document.getElementById('nt-detail').value.trim()) return;
-  closeNewTask();
-});
+document.getElementById('nt-back').addEventListener('click', leaveNewTask);
 // Create is held down until the one required thing exists (pack: disabled).
 document.getElementById('nt-what').addEventListener('input', () => {
   document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
@@ -17464,7 +17498,10 @@ document.getElementById('nt-go').addEventListener('click', async () => {
       go.disabled = false;
       return;
     }
-    closeNewTask();
+    NT_FOR = null;
+    document.getElementById('nt-what').value = '';
+    document.getElementById('nt-detail').value = '';
+    leaveNewTask();
     await pjReload();
   } catch {
     document.getElementById('nt-msg').textContent = 'we could not add that task';
@@ -17472,26 +17509,26 @@ document.getElementById('nt-go').addEventListener('click', async () => {
   }
 });
 
-/* Escape + focus trap for BOTH task dialogs, the full machinery from the
-   start (tonight's own lesson: a new sibling does not inherit a guard).
-   The trap intercepts at the LAST stop in the traversal direction. */
+/* Escape + focus-trap machinery for dialogs. Both task surfaces left it
+   (#206, then #383): they are pages now, and neither Escape nor a trap may
+   apply to a page. The machinery stays so the next dialog inherits working
+   guards rather than a deleted one; the trap intercepts at the LAST stop
+   in the traversal direction. */
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (!document.getElementById('nt-modal').hidden) closeNewTask();
-  else if (!document.getElementById('hist-modal').hidden) closeHistModal();
-  /* ⚠️ THE TASK PAGE IS NOT AN ESCAPE TARGET ANY MORE, and that is the point
-     of the change rather than an omission. Escape dismisses a thing that
-     covers your work; it does not navigate. Leaving it wired would make a
-     page behave like an overlay, which is the confusion #206 was about. */
+  if (!document.getElementById('hist-modal').hidden) closeHistModal();
+  /* ⚠️ NEITHER TASK SURFACE IS AN ESCAPE TARGET ANY MORE (#206, then #383):
+     Escape dismisses a thing that covers your work; it does not navigate.
+     Both halves of tasks are pages now, and wiring Escape on either would
+     be the modal behaviour surviving the markup that stopped being one. */
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Tab') return;
   for (const [backId, stopIds, home] of [
-    ['nt-modal', ['nt-what', 'nt-detail', 'nt-who', 'nt-cancel', 'nt-go'], 'nt-what'],
-    /* ⚠️ NO TRAP ON THE TASK PAGE. A focus trap is what makes a dialog modal;
-       a page must let the keyboard reach the tab bar and everything else on
-       the screen. Trapping here would be the modal behaviour surviving the
-       markup that stopped being a modal. */
+    /* ⚠️ NO TRAP ON EITHER TASK PAGE (#206, then #383). A focus trap is what
+       makes a dialog modal; a page must let the keyboard reach the tab bar
+       and everything else on the screen. The list is kept, empty, so the
+       next dialog inherits working machinery rather than a deleted one. */
   ]) {
     const back = document.getElementById(backId);
     if (back.hidden) continue;
