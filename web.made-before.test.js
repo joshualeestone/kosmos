@@ -63,9 +63,19 @@ test('the memory panel says never recorded, for a running context and for a stop
     'the screen-reader sentence keeps the fault framing');
   assert.equal(run({}).lead, 'memory could not be read.',
     'the fault state lost its own sentence, which hides a breakage');
-  const mb = SCRIPT.slice(SCRIPT.indexOf('function memoryBox('), SCRIPT.indexOf('function memoryBox(') + 1600);
+  const mb = SCRIPT.slice(SCRIPT.indexOf('function memoryBox('), SCRIPT.indexOf('function memoryBox(') + 2200);
   assert.ok(/a\.context \|\| \(a\.neverRecorded/.test(mb),
     'memoryBox no longer reaches the treatment for a stopped row, whose context is absent');
+  /* The stopped row's synthesized because is a PAGE-OWNED copy of the
+     engine's running-row sentence, and one-sided pins let the two drift:
+     changing the engine fails only the engine test. Compare the strings to
+     each other, both read from source, so either side moving alone is loud. */
+  const engineSrc = fs.readFileSync(path.join(__dirname, 'engine', 'status.js'), 'utf8');
+  const engineSentence = engineSrc.match(/because: '(made before Kosmos recorded this[^']*)'/);
+  const pageSentence = mb.match(/because: '(made before Kosmos recorded this[^']*)'/);
+  assert.ok(engineSentence && pageSentence, 'one side lost the sentence entirely; re-anchor this pin');
+  assert.equal(pageSentence[1], engineSentence[1],
+    'the stopped note (page words) and the running note (engine words) have drifted apart');
 });
 
 test('the picker and the explainer both name the way in, and only for the never-recorded state', () => {

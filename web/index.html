@@ -11914,12 +11914,23 @@ function openDetail(sessionName, section) {
      switch. */
   const drunWhy = document.getElementById('d-runson-why');
   if (drunWhy) {
+    /* ⚠️ THE FOUND-AGENTS PATH IS ONLY CLAIMED WHERE IT IS TRUE. Found
+       agents refuses a folder somebody already connected (its Add checks
+       the recorded folder), so an agent whose profile RECORDS a folder gets
+       a sentence naming a screen that will refuse it. The discriminator the
+       page holds is profile.dir. (An agent that never ran leaves nothing
+       for Found agents to list either; the page cannot see that, and the
+       birth record (#157) is where that story lives.) */
+    const recordedDir = !!(a.profile && a.profile.dir);
     drunWhy.textContent = a.neverRecorded
       ? 'Kosmos has no record of how this agent starts, and waiting will not add one. '
-        + (a.running === false
-          ? 'To bring it in: add it from Found agents in Settings.'
-          : 'To bring it in: stop it, then add it from Found agents in Settings. '
-            + 'Kosmos will not write a launch file while it runs some other way.')
+        + (recordedDir
+          ? 'Kosmos records where this agent lives but has no launch file for it'
+            + (a.running === false ? ', so it will not start on its own.' : '. Kosmos will not write one while it runs some other way.')
+          : (a.running === false
+            ? 'To bring it in: add it from Found agents in Settings.'
+            : 'To bring it in: stop it, then add it from Found agents in Settings. '
+              + 'Kosmos will not write a launch file while it runs some other way.'))
       : '';
     drunWhy.hidden = !drunWhy.textContent;
   }
@@ -14628,9 +14639,11 @@ async function paintModelPicker(a) {
   if (msg && !usable && !msg.textContent) {
     msg.textContent = ours
       ? 'Made before Kosmos recorded how it starts, so there is no launch file to change. '
-        + (a && a.running === false
-          ? 'Add it from Found agents in Settings to bring it in.'
-          : 'Stop it, then add it from Found agents in Settings to bring it in.')
+        + (a && a.profile && a.profile.dir
+          ? ''
+          : (a && a.running === false
+            ? 'Add it from Found agents in Settings to bring it in.'
+            : 'Stop it, then add it from Found agents in Settings to bring it in.'))
       : 'Kosmos did not start this one, so it cannot change what it runs on.';
   }
 }
