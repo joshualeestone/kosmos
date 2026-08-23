@@ -1294,7 +1294,9 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 .dsecs { min-width: 0; }
 .dsec { display: flex; flex-direction: column; gap: 18px; border-radius: 16px; }
 .dsec:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; }
-#d-window-box:not([hidden]) ~ #d-term-empty { display: none; }
+#d-window-box:not([hidden]) ~ .dterm-note { display: none; }
+.dsec[data-tied="1"] #d-term-empty { display: none; }
+.dsec[data-tied="0"] #d-term-reading { display: none; }
 .dsec[hidden] { display: none; }
 /* Inside Fresh start the restart control keeps its own label, but the box
    already has a shouting heading; two uppercase labels stacked read as two
@@ -3576,9 +3578,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        early never leaves the previous agent's name on a button.
        🔑 THE DOT IS A SHAPE, so it survives greyscale; colour reinforces. It is
        set by `detailDots` from the same two facts the sections render (an open
-       question in the talk box; the running copy older than the file), called
-       from those painters rather than from the poll, so the nav cannot say
-       "needs you" about a section that does not. -->
+       question in the talk box; the running copy older than the file), which
+       watches those elements' `hidden` attribute rather than being called by
+       each painter, so the nav cannot say "needs you" about a section that
+       does not. -->
   <div class="dbody">
   <nav class="snav" id="d-nav" aria-label="Sections of this page">
     <button type="button" data-go="talk" class="on" aria-current="page"><span id="d-nav-talk">Talk to this agent</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
@@ -4014,7 +4017,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   <div class="fmsg" id="d-role-msg"></div>
   </section>
   </section>
-  <section class="dsec" data-sec="term" tabindex="-1" aria-label="Terminal" hidden>
+  <section class="dsec" data-sec="term" tabindex="-1" aria-label="Terminal" data-tied="1" hidden>
 
   <!-- The raw session, always offered on this page since agent-page-nav
        (the Engineering-mode switch governs project pages only). Same
@@ -4033,7 +4036,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          role="region" aria-labelledby="d-window-label"></pre>
     <p class="dhint" id="d-window-msg" hidden></p>
   </section>
-  <p class="dhint" id="d-term-empty">No window to show for this agent right now. Kosmos shows the window of an agent it can tie to its name; if this one was started some other way, it cannot.</p>
+  <!-- Two sentences for the box being hidden, and `data-tied` on the section
+       says which is true: a tied agent's first capture is in flight (the box
+       hides until it lands); an untied agent's window is not this agent's to
+       show. One sentence for both would assert a cause the page has not
+       established, for a round trip, on every open. -->
+  <p class="dhint dterm-note" id="d-term-reading">Reading its window&hellip;</p>
+  <p class="dhint dterm-note" id="d-term-empty">No window to show for this agent. Kosmos shows the window of an agent it can tie to its name; if this one was started some other way, it cannot.</p>
   </section>
   <section class="dsec" data-sec="remove" tabindex="-1" aria-label="Remove" hidden>
 
@@ -7699,13 +7708,9 @@ async function tick() {
          own comments name. The Terminal section is the one surface this
          tick captures for, and it captures whether the switch is on or off. */
       if (!WINDOW_OPENING && !document.hidden
-          && !document.getElementById('panel-detail').hidden) {
-        if (fresh && fresh.isNamedOurs === true) {
-          paintAgentWindow(CURRENT.sessionName, { cachedFlag: true });
-        } else {
-          WINDOW_LOAD += 1;
-          document.getElementById('d-window-box').hidden = true;
-        }
+          && !document.getElementById('panel-detail').hidden
+          && !detailSection('term').hidden) {
+        detailPaintWindow(fresh);
       }
 
       /* ⚠️ RE-APPLY the tie check on every poll, not only when the panel opens.
@@ -11102,6 +11107,7 @@ function openDetail(sessionName, section) {
      lesson: a new sibling that skips it paints "no agent by that name"
      inside a box on the panel of an agent the person is looking at). An
      untied pane's window is not this agent's to show; the box hides. */
+  detailSection('term').dataset.tied = tied ? '1' : '0';
   if (tied) {
     paintAgentWindow(a.sessionName);
   } else {
@@ -11115,6 +11121,25 @@ function openDetail(sessionName, section) {
   showTab('detail');
 }
 
+/* The raw window is captured ONLY while the Terminal section is on screen
+   (the tick's gate) and once on arrival there (detailGo), so a page left open
+   on Talk costs no capture-pane every five seconds. The same tied/untied
+   branch either way: a pane that cannot be tied to the agent's name is not
+   this agent's to show. The section says "reading" on a tied agent until the
+   first capture lands and "cannot show" on an untied one, via `data-tied`. */
+function detailSection(key) {
+  return document.querySelector('#panel-detail .dsec[data-sec="' + key + '"]');
+}
+function detailPaintWindow(a) {
+  const tied = !!(a && a.isNamedOurs === true);
+  detailSection('term').dataset.tied = tied ? '1' : '0';
+  if (tied) {
+    paintAgentWindow(a.sessionName, { cachedFlag: true });
+  } else {
+    WINDOW_LOAD += 1;
+    document.getElementById('d-window-box').hidden = true;
+  }
+}
 /* The agent page's sections. One on screen at a time; the nav says which.
    `detailGo` is the ONLY writer of `.dsec[hidden]`, and it is called from a
    nav click and from `openDetail`, never from the poll. */
@@ -11147,8 +11172,11 @@ function detailGo(section, opts) {
      that measures. */
   if (section === 'talk') {
     const th = document.getElementById('d-dmthread');
-    if (th && th.__lastCount !== null && th.__lastCount !== undefined) th.scrollTop = th.scrollHeight;
+    /* Only when nothing has been scrolled: a person who read up, went to
+       Model and came back is not moved off what they were reading. */
+    if (th && th.__lastCount !== null && th.__lastCount !== undefined && th.scrollTop === 0) th.scrollTop = th.scrollHeight;
   }
+  if (section === 'term' && CURRENT && !WINDOW_OPENING) detailPaintWindow(CURRENT);
 }
 document.getElementById('d-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
@@ -13709,24 +13737,22 @@ document.getElementById('d-model-go').addEventListener('click', async () => {
     sel.value = '';
     await tick();
     /**
-     * 🔑 THE CURSOR GOES WHERE THE NEXT ACTION IS. A restarted agent has done
-     * nothing, so every reading on this page is empty until somebody speaks to
-     * it — which Josh read as the change having failed. The sentence above says
-     * so; this puts the caret in the box that fixes it.
+     * 🔑 FOCUS STAYS IN THIS BOX. This used to put the caret in the talk box,
+     * because a restarted agent has done nothing and every reading is empty
+     * until somebody speaks to it, which Josh once read as the change having
+     * failed. Since agent-page-nav the talk box is in another section, and
+     * focus() on a display:none element does nothing, silently: a keyboard
+     * user would be left on <body>. Moving them to Talk is their click, not
+     * ours; the sentence above is what tells them the restart worked.
      *
-     * ⚠️ FOCUS, NOT A SENT MESSAGE. Kosmos could wake the agent itself and the
-     * ring would fill without anybody asking — and it would be Kosmos putting
-     * words in a person's mouth, on their quota, to an agent that would act on
-     * them. The nudge stops at the caret.
+     * ⚠️ THE PICKER, NOT THE BUTTON. The button was disabled before the fetch
+     * and the picker's value was just cleared, so `finally` leaves the button
+     * disabled; focusing it is a no-op that reads as handled. The picker is
+     * the one live control in this box.
      *
-     * 📌 Guarded: the box only exists for an agent whose page is open, and a
-     * failed focus must never take down the verdict that has just been shown.
+     * 📌 A failed focus must never take down the verdict just shown.
      */
-    /* The nudge-to-caret that lived here focused the talk box, which since
-       agent-page-nav is in another section: focus() on a display:none
-       element does nothing, silently. Focus stays on this box's own button,
-       where the person is. Moving them to Talk is their click, not ours. */
-    try { go.focus(); } catch { /* the sentence stands on its own */ }
+    try { sel.focus(); } catch { /* the sentence stands on its own */ }
   } catch (err) {
     msg.textContent = err.message;
   } finally {

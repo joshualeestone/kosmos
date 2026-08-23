@@ -155,6 +155,8 @@ function chk(ok, label, extra) {
         empty: document.getElementById('d-term-empty').getBoundingClientRect().height,
         sec: document.querySelector('#panel-detail .dsec[data-sec="term"]').getBoundingClientRect().height,
       }));
+      const reading = await page.evaluate(() => document.getElementById('d-term-reading').getBoundingClientRect().height);
+      chk(reading === 0, `[${theme}] the untied agent is not told its window is being read`, String(reading));
       chk(untied.box === true, `[${theme}] control: the untied agent has no window box`, JSON.stringify(untied));
       chk(untied.empty > 0 && untied.sec > 0, `[${theme}] the untied agent's Terminal section says why it is empty`, JSON.stringify(untied));
       await page.screenshot({ path: path.join(OUT, `${theme}-term-untied.png`), fullPage: false });

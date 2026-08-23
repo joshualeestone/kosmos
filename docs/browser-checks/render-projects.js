@@ -608,8 +608,10 @@ async function main() {
         viewportHidden: document.querySelector('.pj-viewport').hidden,
       }));
       if (revealed.viewportHidden) throw new Error('the switch is On and the raw window stayed hidden');
-      // The SECOND surface: the agent page's window box, on the same
-      // switch, opened on a card PROVEN TIED (an untied card correctly
+      // The SECOND surface: the agent page's window box, opened on a card
+      // PROVEN TIED. ⚠️ Since agent-page-nav the box is NOT on the switch
+      // (an agent's own page always shows its window); this leg now only
+      // proves the box draws for a tied agent, whatever the switch says (an untied card correctly
       // hides the box since the tied gate, so clicking blind would red
       // with a wrong-cause message against correct behavior). For a
       // tied agent the capture either succeeds or refuses in words --

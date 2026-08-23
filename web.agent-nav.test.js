@@ -67,16 +67,19 @@ test('only Talk is on screen before a click, and every section can be reached fr
 
 test('the poll never chooses the section', () => {
   const script = PAGE.slice(PAGE.lastIndexOf('<script>'));
-  const calls = [...script.matchAll(/detailGo\(/g)].length;
-  /* The definition, the nav click, and openDetail. A fourth caller is the
-     poll or a painter, and either one flips a reader off the section they
-     chose five seconds after they chose it. */
-  assert.equal(calls, 3, 'detailGo has ' + calls + ' call sites; the design allows the definition, the nav click and openDetail');
+  /* The poll is the one caller that would flip a reader off the section
+     they chose five seconds after they chose it. The identifier, not just a
+     call: an alias (`const go = detailGo`) is the same defect. */
   const at = script.indexOf('function tick(');
   const end = script.indexOf('\nfunction ', at + 1);
   const tick = script.slice(at, end > at ? end : undefined);
   assert.ok(tick.length > 5000, 'tick() moved or shrank; the slice below covers ' + tick.length + ' characters');
-  assert.doesNotMatch(tick, /detailGo\(/, 'the poll picks a section');
+  assert.doesNotMatch(tick, /\bdetailGo\b/, 'the poll picks a section');
+  // And the poll's capture is gated on the Terminal section being on screen,
+  // with the arrival capture in detailGo, or a page left open on Talk costs a
+  // capture-pane every five seconds for nothing anybody can see.
+  assert.match(tick, /!detailSection\('term'\)\.hidden/, 'the poll captures the window while the Terminal section is hidden');
+  assert.match(script, /if \(section === 'term' && CURRENT[^\n]*detailPaintWindow\(CURRENT\)/, 'arriving at Terminal does not capture, so the section shows a stale window until the next tick');
 });
 
 test('the agent window no longer answers to the Engineering mode switch on this page', () => {
