@@ -81,6 +81,7 @@ one invented by somebody who did not write them.
 | `render-connection.js` | **no header sentence.** Read it before running it, and give it one. |
 | `render-fields.js` | The field and control invariants, measured in a real browser, in BOTH schemes |
 | `render-first-run.js` | Render every first-run state in a real browser and look at it |
+| `render-found-board.js` | The board's panel for agents on this Mac that Kosmos is not looking after |
 | `render-found-undo.js` | Add and Undo on the found-agents row, pressed for real in a browser |
 | `render-full-width.js` | The board, settings and create form at 1760px: one row lining up with another (#286, #287) |
 | `render-list-row.js` | The not-running row in the list layout, measured cell by cell against a running one (#278) |
