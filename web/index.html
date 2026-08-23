@@ -1825,7 +1825,7 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
 .attachbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
 .attachbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .attachbtn:disabled { opacity: .5; cursor: default; }
-.thread.dragging, #d-convo.dragging { outline: 2px dashed var(--gold-deep); outline-offset: -2px; background: rgba(214,166,46,.06); }
+.thread.dragging, #d-dmthread.dragging { outline: 2px dashed var(--gold-deep); outline-offset: -2px; background: rgba(214,166,46,.06); }
 .dm-b { max-width: 92%; padding: 9px 13px; border-radius: 12px; font-size: .9375rem;
   line-height: 1.45; background: var(--k-sunk, rgba(20,22,26,.05));
   overflow-wrap: anywhere; }
@@ -18157,7 +18157,7 @@ const ATTACH_ROOM = {
   after: () => { const t = document.getElementById('pj-post'); if (t) pjGrowComposer(t); },
 };
 const ATTACH_AGENT = {
-  btnId: 'd-attach', fileId: 'd-attach-file', textId: 'd-say', msgId: 'd-say-msg', dropId: 'd-convo',
+  btnId: 'd-attach', fileId: 'd-attach-file', textId: 'd-say', msgId: 'd-say-msg', dropId: 'd-dmthread',
   url: () => '/api/agent/' + encodeURIComponent(CURRENT ? CURRENT.sessionName : '') + '/attach',
   after: null,
 };
