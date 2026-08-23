@@ -1909,6 +1909,17 @@ const server = http.createServer((req, res) => {
       });
       return;
     }
+    /* The birth record, surfaced (#157, #265): how many agents Kosmos has
+       ever made on this Mac, and how many attempts it refused. Read from the
+       append-only record so the number survives every deletion; best-effort,
+       because a machine check must not fail over its receipt. */
+    try {
+      const births = create.createdLog();
+      checks.made = {
+        agents: births.filter((b) => b && b.outcome === 'created').length,
+        refused: births.filter((b) => b && b.outcome === 'refused').length,
+      };
+    } catch { checks.made = null; }
     sendJson(res, 200, checks);
     return;
   }
