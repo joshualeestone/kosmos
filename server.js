@@ -3497,7 +3497,33 @@ const server = http.createServer((req, res) => {
         // One roster for the whole request: the same observation decides
         // `everSeen`, the write permission, and what the response reports.
         const roster = safeRoster();
-        const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description });
+        /* Who is asking (#327): a browser sends sec-fetch-site, a curl does
+           not, and the header is the BROWSER'S, not the request body's -- so
+           the screen/process split cannot be minted by a local process lying
+           about itself in JSON. A process that offered its pane gets named
+           through the same roster the write already trusts. Advisory: an
+           agent runs as the operator; this is for telling things apart. */
+        const viaScreen = typeof req.headers['sec-fetch-site'] === 'string'
+          || (() => { try { const h = new URL(String(req.headers.origin || '')).hostname.replace(/\.$/, '').toLowerCase(); return LOOPBACK_HOSTS.has(h) || ALLOWED_HOSTS.has(h); } catch { return false; } })();
+        const paneCard = !viaScreen && typeof body.from_pane === 'string'
+          ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
+          : null;
+        /* The runaway bound (#327 q2): a looping process can create projects
+           as fast as it can curl, and nothing else limits API writes. Twelve
+           process-made projects in an hour is far past any brief and far
+           under any loop. The SCREEN is never valved -- the person is the
+           one participant this exists to protect, the room valve's own rule. */
+        if (!viaScreen) {
+          const hourAgo = Date.now() - 3600000;
+          const recent = projects.readAll().filter((p) => p && p.made && p.made.via === 'process'
+            && Number.isFinite(Date.parse(p.made.at)) && Date.parse(p.made.at) >= hourAgo).length;
+          if (recent >= 12) {
+            sendJson(res, 429, { error: 'agents have made ' + recent + ' projects in the last hour, so Kosmos is pausing agent-made projects; the person can still make them from the screen' });
+            return;
+          }
+        }
+        const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description,
+          made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } });
         // ⚠️ Told AFTER the record is written, never before. If announcing it
         // failed first, a membership the person asked for would not exist at
         // all -- and the whole point of the three-valued verdict is that a

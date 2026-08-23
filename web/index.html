@@ -5194,6 +5194,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              line under every undescribed project would read as something
              missing. -->
         <p class="pj-desc" id="pj-one-desc" hidden></p>
+        <!-- Who asked for this project (#327): shown only when it was NOT the
+             person, because "made by you" under everything you made is
+             furniture, and an agent-made project is the one a person needs to
+             be able to tell apart at a glance. -->
+        <p class="dhint" id="pj-one-made" style="margin:2px 0 0;" hidden></p>
       </div>
       <!-- The door to settings, in the pack's pjhead corner: what lives
            there is what has nowhere else to live. -->
@@ -17555,6 +17560,18 @@ function paintOneProject() {
   const desc = document.getElementById('pj-one-desc');
   desc.textContent = p.description || '';
   desc.hidden = !p.description;
+  /* Agent-made projects say so (#327). `by` is the pane's agent when one was
+     offered and resolved; otherwise the honest generic. Screen-made shows
+     nothing: "made by you" under everything is furniture. */
+  const madeLine = document.getElementById('pj-one-made');
+  if (p.made && p.made.via === 'process') {
+    madeLine.textContent = 'Made by ' + (p.made.by ? (pjNameOf(p, p.made.by) || p.made.by) : 'an agent or another program on this Mac')
+      + (p.made.at ? ' on ' + new Date(p.made.at).toLocaleDateString() : '') + '.';
+    madeLine.hidden = false;
+  } else {
+    madeLine.textContent = '';
+    madeLine.hidden = true;
+  }
   /* The raw-path element retired with the pack cut ("~/" is a squiggle to
      this reader): the folder facts live on #pjs-folder-name and
      #pjs-folder-where in Project settings. */
