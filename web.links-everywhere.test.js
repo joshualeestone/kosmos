@@ -50,13 +50,13 @@ test('pjInline links a URL and escapes everything else', () => {
 
 
 test('direct messages link a URL (dmRow), both directions', () => {
-  const fn = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'dmWho', 'dmRow']) + '\nreturn dmRow;')(DANA);
+  const fn = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'dmRow']) + '\nreturn dmRow;')(DANA);
   expectLinked(fn({ from: 'dana', text: TEXT, at: new Date().toISOString() }, 'Dana'), 'dmRow theirs');
   expectLinked(fn({ from: 'you', you: true, text: TEXT, at: new Date().toISOString() }, 'Dana'), 'dmRow mine');
 });
 
 test('a project message row links a URL (pjMsg)', () => {
-  const src = lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'pjMsg']);
+  const src = lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'pjMsg']);
   const fn = new Function('document', 'pjAnnounce', src + '\nreturn pjMsg;')({ getElementById: () => null }, () => {});
   expectLinked(fn({ from: 'dana', text: TEXT, at: new Date().toISOString() }, 'Dana'), 'pjMsg');
 });
@@ -102,7 +102,7 @@ test('every message row draws the preview card under its text', () => {
     assert.match(body, /pjPreviewCard\((r|m)\.preview\)/, fn + ' does not draw the preview card');
   }
   // And a row with a preview really carries it (the real dmRow, both directions).
-  const dm = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'dmWho', 'dmRow']) + '\nreturn dmRow;')(DANA);
+  const dm = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'dmRow']) + '\nreturn dmRow;')(DANA);
   const preview = { url: 'https://example.test/p', title: 'Page', site: 'example.test' };
   for (const m of [{ from: 'dana', text: 'see https://example.test/p', at: new Date().toISOString(), preview }, { from: 'you', you: true, text: 'see https://example.test/p', at: new Date().toISOString(), preview }]) {
     const html = dm(m, 'Dana');
@@ -160,7 +160,7 @@ test('every message row draws the attachment card, and the + and drop targets ar
 });
 
 test('a message that is only its attachment\'s name draws the card once, not the name twice (#358)', () => {
-  const fn = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'dmWho', 'dmRow']) + '\nreturn dmRow;')(DANA);
+  const fn = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'dmRow']) + '\nreturn dmRow;')(DANA);
   const att = { id: 'a1', name: 'lease notes.txt', type: 'text/plain', size: 12, url: '/api/attachment/a1', preview: null, kind: 'text' };
   const only = fn({ from: 'dana', text: 'lease notes.txt', at: new Date().toISOString(), attachment: att }, 'Dana');
   assert.equal((only.match(/lease notes\.txt/g) || []).length, 2, 'expected the name in the card (text and download attribute) only');

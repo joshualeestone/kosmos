@@ -1338,6 +1338,34 @@ function unreachableStates() {
         problems.push(`[${theme}] paste: the draft survived a placed send as ${JSON.stringify(pasted.draft)}`);
       }
 
+      /* 4b. THE LINE UNDER THE COMPOSER IS QUIET WHEN THE SEND WORKED (#402).
+         The send in step 4 was placed with the agent at its prompt, so the
+         line owes nothing; it used to print "Placed into April's session."
+         here on every message. Then the same send against a mid-task agent,
+         which owes the one sentence about what happens next. Both halves,
+         because silence alone is also what a broken line looks like. */
+      const quiet = await page.evaluate(() => document.getElementById('d-say-msg').textContent);
+      if (quiet.trim() !== '') {
+        problems.push(`[${theme}] receipt: a healthy send still prints "${quiet}" under the composer`);
+      }
+      await page.evaluate(() => {
+        window.__posted = [];
+        delete TALK_ANSWERED.april;
+        window.__postAnswer = {
+          delivery: { state: 'placed', because: null, at: '2026-08-19T12:00:00.000Z', paneState: 'working',
+            paneNote: 'it was mid-task, so it will not read this until it finishes' },
+          recorded: true, recordedBecause: null,
+        };
+        document.getElementById('d-say').value = 'and one more';
+      });
+      await page.evaluate(() => paintTalk('april', 'April'));
+      await page.click('#d-send');
+      await page.waitForFunction(() => window.__posted.length > 0 && !TALK_SENDING, null, { timeout: 4000 });
+      const busyLine = await page.evaluate(() => { const t = document.getElementById('d-say-msg').textContent; delete window.__postAnswer; return t; });
+      if (!/^It was mid-task, so it will not read this until it finishes\.$/.test(busyLine.trim())) {
+        problems.push(`[${theme}] receipt: a mid-task send should say the consequence, got "${busyLine}"`);
+      }
+
       /* 5. A poll that FAILS while the person is standing on an option button.
          ⚠️ THE ARM WITH NO RESCUE. paintTalk's success path carries four focus
          rescues and its failure arm carried none: it hides the question region
