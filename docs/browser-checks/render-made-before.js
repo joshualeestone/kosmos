@@ -96,7 +96,6 @@ function chk(ok, label, extra) {
     await page.click('#d-nav button[data-go="model"]');
     await page.waitForTimeout(400);
     const rick = await page.evaluate(() => ({
-      why: document.getElementById('d-runson-why'),
       whyText: document.getElementById('d-runson-why').textContent,
       whyH: document.getElementById('d-runson-why').getBoundingClientRect().height,
       msg: document.getElementById('d-model-msg').textContent,

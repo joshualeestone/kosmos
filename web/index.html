@@ -11914,11 +11914,12 @@ function openDetail(sessionName, section) {
      switch. */
   const drunWhy = document.getElementById('d-runson-why');
   if (drunWhy) {
-    /* ⚠️ THE FOUND-AGENTS PATH IS ONLY CLAIMED WHERE IT IS TRUE. Found
-       agents refuses a folder somebody already connected (its Add checks
-       the recorded folder), so an agent whose profile RECORDS a folder gets
-       a sentence naming a screen that will refuse it. The discriminator the
-       page holds is profile.dir. (An agent that never ran leaves nothing
+    /* ⚠️ THE FOUND-AGENTS PATH IS ONLY CLAIMED WHERE IT IS TRUE. The Found
+       list EXCLUDES a folder somebody already connected (alreadyIn's
+       profile-dir rung in engine/discover.js; connect itself would accept
+       the same dir if it were ever offered), so an agent whose profile
+       RECORDS a folder gets a sentence naming a screen that will not show
+       it. The discriminator the page holds is profile.dir. (An agent that never ran leaves nothing
        for Found agents to list either; the page cannot see that, and the
        birth record (#157) is where that story lives.) */
     const recordedDir = !!(a.profile && a.profile.dir);
@@ -11927,7 +11928,7 @@ function openDetail(sessionName, section) {
         + (recordedDir
           ? 'Kosmos records where this agent lives but has no launch file for it'
             + (a.running === false ? ', so it will not start on its own.' : '. Kosmos will not write one while it runs some other way.')
-            + ' There is no control here that re-records one yet; that repair is coming with the launch-file backfill (#275).'
+            + ' There is no control here that re-records one yet.'
           : (a.running === false
             ? 'To bring it in: add it from Found agents in Settings.'
             : 'To bring it in: stop it, then add it from Found agents in Settings. '

@@ -73,8 +73,10 @@ test('the memory panel says never recorded, for a running context and for a stop
   const engineSrc = fs.readFileSync(path.join(__dirname, 'engine', 'status.js'), 'utf8');
   /* Scoped to readContext so a future second occurrence elsewhere in
      status.js cannot silently re-aim this pin. */
-  const rc = engineSrc.slice(engineSrc.indexOf('function readContext('));
-  const engineSentence = rc.match(/because: '(made before Kosmos recorded this[^']*)'/);
+  const engineHits = engineSrc.match(/because: 'made before Kosmos recorded this[^']*'/g) || [];
+  assert.equal(engineHits.length, 1,
+    'status.js now carries the sentence more than once; a left-only slice would re-aim silently, so re-anchor this pin deliberately');
+  const engineSentence = engineHits[0].match(/because: '(made before Kosmos recorded this[^']*)'/);
   const pageSentence = mb.match(/because: '(made before Kosmos recorded this[^']*)'/);
   assert.ok(engineSentence && pageSentence, 'one side lost the sentence entirely; re-anchor this pin');
   assert.equal(pageSentence[1], engineSentence[1],
@@ -103,6 +105,30 @@ test('the picker and the explainer both name the way in, and only for the never-
      shows nothing rather than a stale sentence. */
   assert.match(PAGE, /id="d-runson-why" hidden/,
     'the explainer does not start hidden, so it can linger across an agent switch');
+  /* The recorded-folder sub-state: the newest wording on the branch, and
+     the only branch that had zero pins until this block. The Found path is
+     not claimed (that list excludes a recorded folder), the reason no path
+     is offered is stated, and no tracker number leaks into user copy. */
+  assert.match(PAGE, /Kosmos records where this agent lives but has no launch file for it/,
+    'the recorded-folder state lost its sentence');
+  assert.match(PAGE, /, so it will not start on its own\./,
+    'the stopped recorded-folder arm lost its consequence clause');
+  assert.match(PAGE, /There is no control here that re-records one yet\./,
+    'the stated reason no path is offered is gone, which reopens the 149 done-when');
+  /* Scoped to the two assignment regions: a page-wide quoted-string sweep
+     cannot tell copy from comments (apostrophes in prose make the quotes
+     span arbitrary code, measured: 168 false spans). */
+  for (const [label, anchor] of [
+    ['explainer', 'drunWhy.textContent = a.neverRecorded'],
+    ['picker refusal', "msg.textContent = ours"],
+  ]) {
+    const at = PAGE.indexOf(anchor);
+    assert.ok(at > 0, 'the ' + label + ' assignment moved; re-anchor this pin');
+    const region = PAGE.slice(at, PAGE.indexOf(';', at) + 1);
+    assert.doesNotMatch(region, /#\d{2,}/,
+      'a tracker number leaked into the ' + label + ' user copy');
+  }
+
   /* And the model-message slot is cleared at the switch moment, so one
      agent's refusal cannot stand on another's panel. Structural pin on the
      clear living in openDetail, before the paints. */
