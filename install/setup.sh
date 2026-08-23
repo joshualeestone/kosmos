@@ -1171,17 +1171,28 @@ info "macOS $_osver on $ARCH"
 # tmux picker.
 check_claude_code() {
   _claude_bin="${AGENT_WORKFORCE_CLAUDE_BIN:-$HOME/.local/bin/claude}"
-  if [ -x "$_claude_bin" ]; then
+  # -f AND -x: a DIRECTORY at the path is executable in the -x sense and
+  # sailed through the first draft of this gate, completing an install
+  # whose every agent then fails to start, the exact #133 failure. -f
+  # follows symlinks, so a link to a real binary still passes.
+  if [ -f "$_claude_bin" ] && [ -x "$_claude_bin" ]; then
     info "Claude Code found at $_claude_bin"
     return 0
   fi
   # Something IS there but cannot run (a broken symlink after a moved npm
-  # prefix, or a file without execute permission): its own sentence, or the
-  # elsewhere-remedy below would claim "nothing there" falsely and its
-  # pasted ln would fail on File exists, a refusal whose remedy loops.
+  # prefix, a folder, or a file without execute permission): its own
+  # sentence, or the elsewhere-remedy below would claim "nothing there"
+  # falsely and its pasted ln would fail on File exists, a refusal whose
+  # remedy loops. rm -r covers all three shapes. When a working claude IS
+  # on PATH, the one-shot remedy saves the person a second round trip.
   if [ -e "$_claude_bin" ] || [ -L "$_claude_bin" ]; then
-    die "There is something at $_claude_bin but it cannot run (a broken link, or a file without execute permission). Remove it and run this again:
-  rm \"$_claude_bin\""
+    _claude_elsewhere="$(command -v claude 2>/dev/null || true)"
+    if [ -n "$_claude_elsewhere" ]; then
+      die "There is something at $_claude_bin but it cannot run (a broken link, a folder, or a file without execute permission), and Claude Code is installed at $_claude_elsewhere. Replace it and run this again:
+  rm -r \"$_claude_bin\" && ln -s \"$_claude_elsewhere\" \"$_claude_bin\""
+    fi
+    die "There is something at $_claude_bin but it cannot run (a broken link, a folder, or a file without execute permission). Remove it and run this again:
+  rm -r \"$_claude_bin\""
   fi
   _claude_elsewhere="$(command -v claude 2>/dev/null || true)"
   if [ -n "$_claude_elsewhere" ]; then

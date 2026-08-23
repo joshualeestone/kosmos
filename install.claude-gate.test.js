@@ -94,17 +94,41 @@ test('something present that cannot run gets its own sentence, never the false "
   const c = nodePath.join(bin, 'claude');
   fs.writeFileSync(c, '#!/bin/sh\nexit 0\n'); fs.chmodSync(c, 0o755);
   const script = HARNESS + gate();
-  let out;
+  let code = 0; let out = '';
   try {
     execFileSync('/bin/sh', ['-c', script], { encoding: 'utf8', env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` } });
-    assert.fail('a path with an unrunnable claude completed the gate');
   } catch (e) {
-    out = String(e.stderr || '');
+    code = e.status; out = String(e.stderr || '');
   }
-  assert.match(out, /cannot run \(a broken link, or a file without execute permission\)/);
-  assert.match(out, /rm /, 'the remedy is not named');
+  assert.notEqual(code, 0, 'a path with an unrunnable claude completed the gate');
+  assert.match(out, /cannot run \(a broken link, a folder, or a file without execute permission\)/);
+  assert.match(out, /rm -r /, 'the remedy is not named, or cannot handle every shape');
   assert.doesNotMatch(out, /nothing there/, 'the false claim survived');
-  assert.doesNotMatch(out, /ln -s/, 'the looping remedy survived');
+  /* A working claude IS on PATH in this fixture, so the one-shot replace
+     remedy is the right sentence: rm then ln in one line. */
+  assert.match(out, /&& ln -s/, 'the one-shot replacement is not offered although a working claude is on PATH');
+});
+
+test('a DIRECTORY at the path is refused as unrunnable, never accepted', () => {
+  /* mode-755 directories pass a bare -x, and the first draft of this gate
+     accepted one: the install completed and every agent spawned from the
+     path failed to start, the exact #133 failure. No claude on PATH here,
+     so the plain remove remedy is the sentence, and rm -r is the form
+     that works on a folder. */
+  const sb = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
+  const home = nodePath.join(sb, 'home');
+  fs.mkdirSync(nodePath.join(home, '.local', 'bin', 'claude'), { recursive: true });
+  const script = HARNESS + gate();
+  let code = 0; let out = '';
+  try {
+    execFileSync('/bin/sh', ['-c', script], { encoding: 'utf8', env: { HOME: home, PATH: '/usr/bin:/bin' } });
+  } catch (e) {
+    code = e.status; out = String(e.stderr || '');
+  }
+  assert.notEqual(code, 0, 'a directory at the path completed the gate');
+  assert.match(out, /a folder, or a file without execute permission/);
+  assert.match(out, /rm -r /, 'the remedy would fail verbatim on a folder');
+  assert.doesNotMatch(out, /&& ln -s/, 'the replace remedy was offered with nothing to link');
 });
 
 test('the env override is honored, so sandboxed installs can point at a fixture', () => {
