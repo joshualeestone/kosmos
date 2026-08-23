@@ -1957,6 +1957,15 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
    dashed border is the shape of a slot waiting to be filled; "we could not
    read this" is not an empty slot, it is an unanswered question. */
 .pj-empty.boardfail { border-style: solid; border-color: var(--border-strong); }
+/* 🛑 THE FOUND PANEL IS LEFT-ALIGNED AND FULL WIDTH, and both are overrides
+   rather than the shared shape. `.pj-empty` is centred because it is normally a
+   sentence and a button; this one is a sentence and a LIST, and a centred
+   heading over left-aligned rows reads as a layout that did not finish. The
+   36rem cap on `.fr-found` is right inside setup's card and leaves the rows
+   stopping halfway across a board-width panel. Measured on the board at 1200px:
+   the rows ended at 620 inside a 1150 panel. */
+#found-wrap .pj-empty { text-align: left; }
+#found-wrap .fr-found { max-width: none; margin: var(--space-5) 0 0; }
 /* The commitments a restart would end. Not a bullet list: these are sentences
    an agent wrote about its own work, and bullets make them read as options. */
 .rst-list { list-style: none; margin: 10px 0 0; padding: 0; }
