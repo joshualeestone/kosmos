@@ -3858,26 +3858,29 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          Compact and Clear act on this session's memory and leave the
          instruction file unread; Restart forgets the session AND reads the
          file again. Josh, 2026-08-21: "three buttons here: compact, clear,
-         and restart. All those need to actually work." The sentence above
-         the three says which does what, because a person pressing the wrong
-         one here loses something. Each opens a dialog that names the cost
+         and restart. All those need to actually work." Each button names
+         the agent (#404), because a person pressing the wrong one here loses
+         something. Each opens a dialog that names the cost
          first and reports the engine's verdict after; the two new ones type
          Claude Code's own slash command into the agent's window, which is
          what the engine routes do, and record nothing in any thread. -->
     <div class="field" id="d-reset-agent" hidden>
-      <div class="fhint" style="margin-bottom:12px;"><b>Three ways to reset, and they differ.</b> Compact keeps it working and keeps its instructions. Clear forgets this session and keeps its instructions. Restart forgets this session and reads its instructions again.</div>
-      <div class="field" style="margin-top:0;">
-        <label class="flabel"><b>Compact its memory</b></label>
-        <div class="fhint">It summarises this session to make room and keeps going. Fine detail from earlier in the session may be lost. Its instructions are not read again.</div>
-        <div class="frow"><button class="btn" id="d-compact-go" type="button">Compact</button></div>
-        <div class="fmsg" id="d-compact-msg" role="status" aria-live="polite"></div>
+      <!-- 🔑 THE BUTTONS CARRY THE NAME AND THE DIALOGS CARRY THE COST (#404).
+           Josh, 2026-08-22: long form on all three, "Compact April's memory",
+           "Clear April's memory", "Restart April", matching "Change & Restart
+           April" on the Model tab. The name is the safety feature: this page
+           always shows one agent, so a bare Clear is unambiguous only while
+           you remember which page you are on. The per-button paragraphs went
+           with it; each button's dialog already says what it keeps and loses,
+           and two copies of one explanation is one to keep current. Painted by
+           resetLabels() on open and after a rename. -->
+      <div class="fhint" style="margin-bottom:12px;">Three ways to get it going again, and they differ. Each one says what it stands to lose before you choose.</div>
+      <div class="frow">
+        <button class="btn" id="d-compact-go" type="button">Compact its memory</button>
+        <button class="btn" id="d-clear-go" type="button">Clear its memory</button>
       </div>
-      <div class="field">
-        <label class="flabel"><b>Clear its memory</b></label>
-        <div class="fhint">It forgets this session and starts the next thing clean. Anything it was part way through ends. Its instructions are not read again; for that, restart it.</div>
-        <div class="frow"><button class="btn" id="d-clear-go" type="button">Clear</button></div>
-        <div class="fmsg" id="d-clear-msg" role="status" aria-live="polite"></div>
-      </div>
+      <div class="fmsg" id="d-compact-msg" role="status" aria-live="polite"></div>
+      <div class="fmsg" id="d-clear-msg" role="status" aria-live="polite"></div>
     </div>
     <div class="field" id="d-restart-agent" hidden>
     <div>
@@ -11789,6 +11792,10 @@ function freshStartLabel(name) {
   const b = document.getElementById('d-restart-start');
   b.textContent = n ? 'Restart ' + n : 'Restart it';
   b.setAttribute('aria-label', 'Fresh start: ' + b.textContent);
+  /* The other two of the three, same ruling (#404): the agent's name on the
+     button, the possessive the dialog title already uses. */
+  document.getElementById('d-compact-go').textContent = n ? 'Compact ' + n + '\u2019s memory' : 'Compact its memory';
+  document.getElementById('d-clear-go').textContent = n ? 'Clear ' + n + '\u2019s memory' : 'Clear its memory';
 }
 /* Two pills carry the agent's name. Painted from the same `a.name` the header
    paints, on open and after a rename, and never left holding the last agent's. */
@@ -14418,7 +14425,7 @@ document.getElementById('d-compact-go').addEventListener('click', () => {
   changeDialog({
     title: 'Compact ' + agentShown() + '\u2019s memory?',
     small: agentShown() + ' summarises this session to make room and keeps going. Fine detail from earlier in the session may be lost. What it agreed to stays. Its instructions are not read again, so a changed file still needs a restart.',
-    go: 'Compact',
+    go: 'Compact ' + agentShown() + '\u2019s memory',
     run: (say) => memoryCommand('compact', say),
   });
 });
@@ -14427,7 +14434,7 @@ document.getElementById('d-clear-go').addEventListener('click', () => {
   changeDialog({
     title: 'Clear ' + agentShown() + '\u2019s memory?',
     small: agentShown() + ' forgets this session. Anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched, and not read again; a changed file still needs a restart.',
-    go: 'Clear',
+    go: 'Clear ' + agentShown() + '\u2019s memory',
     run: (say) => memoryCommand('clear', say),
   });
 });
