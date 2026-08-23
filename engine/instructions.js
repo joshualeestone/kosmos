@@ -801,7 +801,79 @@ function write(agent, text, expectedVersion, exactSession) {
   return { ...read(agent, exactSession), keptPrevious, hadIdentityText: shown && shown.exists ? String(shown.text).slice(0, 4000) : null };
 }
 
+/**
+ * Make an agent's own instructions agree with the name Kosmos shows.
+ *
+ * 🛑 JOSH RENAMED AN AGENT BOB TO SCARLET AND IT STILL THOUGHT IT WAS BOB
+ * (2026-08-22). The name lives in two places: Kosmos's record, which the board
+ * and every screen read, and the sentence at the top of the agent's own
+ * instruction file, which is the only one the AGENT ever sees. Renaming through
+ * the profile route moved the first and left the second, so every screen agreed
+ * on Scarlet while Scarlet introduced herself as Bob.
+ *
+ * 🔑 IT EDITS ONE LINE AND GOES THROUGH `write`, not `writeFileSync`. The file
+ * may be somebody's own, in their own folder, written before Kosmos existed --
+ * a connected agent's instructions are not ours to reformat. Going through the
+ * write path also means a concurrent edit CONFLICTS rather than being clobbered,
+ * which a hand-rolled write here would not.
+ *
+ * ⚠️ IT NEVER ADDS A LINE THAT WAS NOT THERE. An instruction file that does not
+ * introduce its agent by name is not broken, and inserting a sentence into
+ * somebody's file to fix a disagreement it does not have is a bigger act than
+ * the one being asked for. It reports that it changed nothing and why.
+ *
+ * ⚠️ AND IT NEVER THROWS AT THE CALLER. The rename it follows has already been
+ * recorded; a failure here is a stale sentence in a file, not a failed rename,
+ * and reporting it as one would tell somebody their rename did not work when it
+ * did. Every arm answers a shape.
+ */
+function renameIn(agent, displayName) {
+  const want = String(displayName == null ? '' : displayName).trim();
+  if (!want) return { ok: false, changed: false, because: 'that is not a name' };
+  /* The same cap the routes apply, so a name too long to store cannot be
+     written into a file either. */
+  if (want.length > 80) return { ok: false, changed: false, because: 'that name is too long' };
+  /* 🛑 A NAME CARRYING THE MARKUP WOULD BREAK THE LINE IT IS WRITTEN INTO, and
+     the next read would parse something else entirely -- or nothing, which
+     un-names the agent in its own file. */
+  if (/[*\n\r]/.test(want)) return { ok: false, changed: false, because: 'that name cannot go in an instruction file' };
+
+  let seen;
+  try { seen = read(agent); } catch { return { ok: false, changed: false, because: 'we could not read its instructions' }; }
+  if (!seen || !seen.exists) {
+    return { ok: false, changed: false, because: 'it has no instructions for us to update' };
+  }
+
+  const text = String(seen.text || '');
+  const m = text.match(/You are \*\*([^*]+)\*\*/);
+  if (!m) {
+    return { ok: false, changed: false,
+      because: 'its instructions do not introduce it by name, so we left them as they are' };
+  }
+  if (m[1].trim() === want) return { ok: true, changed: false, because: 'its instructions already say that' };
+
+  /* ⚠️ THE FIRST OCCURRENCE, BY INDEX, NOT `String.replace`. A `$` in a name is
+     a substitution pattern to `replace`, so a name containing one would be
+     written into the file mangled -- and this is the one place a person's typed
+     text reaches a file's contents through a pattern. Slicing cannot interpret
+     anything. */
+  const at = text.indexOf(m[0]);
+  const next = text.slice(0, at) + 'You are **' + want + '**' + text.slice(at + m[0].length);
+
+  try {
+    write(agent, next, seen.version);
+  } catch (err) {
+    return { ok: false, changed: false,
+      /* Says which thing did not happen. The rename itself is already recorded,
+         and a person told "that did not work" would try it again. */
+      because: (err && err.code === 'CONFLICT')
+        ? 'its instructions changed while we were renaming it, so we left them alone'
+        : 'we could not update its instructions' };
+  }
+  return { ok: true, changed: true, was: m[1].trim(), now: want };
+}
+
 module.exports = {
   ROOT, FILENAME, MAX_BYTES, MIN_CHARS, STALENESS, ABSENT, UNREADABLE,
-  fileFor, registryKey, sessionStartedAt, staleness, compare, versionOf, read, write,
+  fileFor, registryKey, sessionStartedAt, staleness, compare, versionOf, read, write, renameIn,
 };
