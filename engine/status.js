@@ -1084,6 +1084,15 @@ const RATE_LIMIT_MARKERS = [
  * prefixes its own notices with, and capped: pane text is arbitrary and this is
  * on its way to a person's screen.
  */
+/* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
+   comment at its use site in classify(). Module-level like its sibling
+   marker sets.
+   🛑 THE FRAME CLASS IS MEASURED, NOT GUESSED, and it excludes ⏺ on
+   purpose: that is the bullet Claude prefixes on every line the AGENT
+   writes, so including it (an earlier draft did) turned any echoed
+   "⏺ Waiting… (10s)" into a working verdict on a finished pane. */
+const WORKING_LINE = /^\s*[·✢✳✶✻✽*] \S+…\s+\((?:\d+h )?(?:\d+m )?\d+s(?: ·|\))/mu;
+
 function matchedLine(text, markers) {
   const lines = String(text == null ? '' : text).split('\n');
   for (const raw of lines) {
@@ -1102,11 +1111,6 @@ function matchedLine(text, markers) {
  * through to UNKNOWN on purpose; that is the honest answer and it is what
  * stops the board reporting health it has not verified.
  */
-/* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
-   comment at its use site in classify(). Module-level like its sibling
-   marker sets. */
-const WORKING_LINE = /^\s*[·✢✳✶✻✽*⏺] \S+…\s+\((?:\d+h )?(?:\d+m )?\d+s(?: ·|\))/mu;
-
 function classify(pane, paneText) {
   // ⚠️ A MISSING command is not evidence of anything. A truncated tmux line
   // gave `command: ''`, which fell through to "Claude is not running for this one"
@@ -1236,8 +1240,18 @@ function classify(pane, paneText) {
                 evidence shows what the board saw. (matchedLine's strip class
                 takes the leading glyph off a *-frame line; cosmetic, and the
                 fallback path keeps its glyph.) */
-             evidence: matchedLine(tail, [WORKING_LINE])
-               || m[0].replace(/\s+/g, ' ').trim().slice(0, 240) };
+             evidence: matchedLine(tail, [WORKING_LINE]) || (() => {
+               /* The physical region the match spans, start-of-line to the
+                  end of the line the timer closes on, joined: the fragment
+                  m[0] alone ends at the first separator, the exact dangling
+                  cut the whole-line contract forbids. Same cap convention
+                  as matchedLine, truncation marked. */
+               const from = tail.lastIndexOf('\n', m.index) + 1;
+               const at = tail.indexOf('\n', m.index + m[0].length);
+               const line = tail.slice(from, at === -1 ? tail.length : at)
+                 .replace(/\s+/g, ' ').trim();
+               return line.length > 240 ? line.slice(0, 240) + '…' : line;
+             })() };
   }
   if (/✱|Worked for|Brewed for|Baked for|to save .* tokens/i.test(tail)) {
     return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it finished and is waiting for you' };

@@ -1248,13 +1248,20 @@ test('a Fable session mid-turn is working, not idle: the spinner line is keyed o
      it stays in the class: a poll sampling that frame must not read idle. */
   assert.equal(classify(pane, '* Baking… (3s · ↓ 0.2k tokens)' + footer).state, 'working');
 
+  /* ⏺ is NOT a frame: it is the bullet on every line the agent itself
+     writes, so an echoed progress line under it is narration, and a
+     finished pane whose last reply carries the shape must stay idle. An
+     earlier draft had ⏺ in the class and nothing caught it. */
+  assert.equal(classify(pane, '⏺ Waiting… (10s · retry)' + footer).state, 'idle',
+    'the agent-reply bullet read as the UI spinner, the narration hole reopened');
+
   /* A narrow pane can wrap the spinner line between gerund and timer. The
      state still reads working, and the evidence contract holds: something
      is shown, not null, exactly when panes are narrow. */
   const wrapped = classify(pane, '· Improvising…\n(35s · ↓ 1.5k tokens)' + footer);
   assert.equal(wrapped.state, 'working');
-  assert.ok(wrapped.evidence && /Improvising/.test(wrapped.evidence),
-    'a wrapped spinner line classified as working but lost its evidence');
+  assert.equal(wrapped.evidence, '· Improvising… (35s · ↓ 1.5k tokens)',
+    'the wrapped-line evidence is not the whole joined region, so the card shows a dangling fragment');
 
   /* The evidence is the WHOLE line, not the regex fragment: a fragment cut
      at the first separator drops the tail and dangles mid-parens. */
