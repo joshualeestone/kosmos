@@ -863,6 +863,27 @@ function binPaths(opts) {
  * deletes nothing), must not have it silently rewritten from defaults we had to
  * guess at.
  */
+/* ── the switched-off job (#310) ─────────────────────────────────────────
+   macOS's Login Items shows every agent's background job with a switch, and
+   the notice explaining it was removed on Josh's own ruling -- so a person
+   who flips one off has silently stopped their agent, and the symptom is an
+   agent that never comes back after a restart with nothing connecting the
+   two. launchd records exactly this: a per-user override, readable without
+   mutation. One probe for the whole fleet, launchctl print-disabled, parsed
+   for our label prefix; fail-soft to an empty set, because "we could not
+   look" must never dress an agent in "you switched it off". */
+function disabledJobs() {
+  try {
+    const out = run('/bin/launchctl', ['print-disabled', `gui/${process.getuid()}`]);
+    const text = String((out && out.stdout) || '');
+    const names = new Set();
+    for (const m of text.matchAll(/"com\.kosmos\.agent\.([^"]+)"\s*=>\s*(?:true|disabled)/g)) {
+      names.add(m[1]);
+    }
+    return names;
+  } catch { return new Set(); }
+}
+
 function installJob(name, opts) {
   const clean = String(name == null ? '' : name);
   if (!NAME_RE.test(clean)) {
@@ -1781,7 +1802,7 @@ function createAgentInner(opts) {
 
 module.exports = {
   MODELS,
-  createdLog, createdLogFile,
+  createdLog, createdLogFile, disabledJobs,
   /* ⚠️ Exported as the ONE machine-name rule. `slugFor` only lowercases — it
      is a converter, not a gate — so anything asking "is this a name we can
      act on" has to reach this, or it grows a weaker second copy. */
