@@ -126,8 +126,26 @@ const placed = (text, wire) => ({
   delivery: { state: 'placed', because: null, paneState: 'working', paneNote: 'it was mid-task' },
 });
 
+/* A question wider than the box, the shape of Claude Code's own permission
+   prompt with a real path in it. The box is `white-space: pre`, cut at the
+   right edge, and two assertions below (a cut line stays reachable; a poll
+   does not drag a reader back to the start of it) can only fire on a fixture
+   that overflows. The 70-column QUESTION above stopped overflowing the day the
+   page went full-width (#413), and both went UNCHECKED on every run. */
+const WIDE_QUESTION = {
+  text: [
+    '│ Edit /Users/josh/Documents/Projects/kosmos-launch/help-centre/articles/getting-started/import-from-csv-and-spreadsheets.md?',
+    '│ The previous version is kept alongside it.',
+    '│',
+    '│ ❯ 1. Yes',
+    '│   2. Yes, and do not ask again for this file',
+    '│   3. No',
+  ].join('\n'),
+};
+
 const STATES = {
   '1-menu': { ...base, asking: true, question: QUESTION, options: [{ n: 1, label: '14 days' }, { n: 2, label: '30 days' }] },
+  '1w-menu-wide': { ...base, asking: true, question: WIDE_QUESTION, options: [{ n: 1, label: 'Yes' }, { n: 2, label: 'Yes, and do not ask again for this file' }, { n: 3, label: 'No' }] },
   '2-answered-placed': { ...base, messages: [placed('14 days', '1')] },
   '3-unconfirmed': {
     ...base,
@@ -1600,7 +1618,7 @@ function unreachableStates() {
         window.__fx = { ...f, question: { text: f.question.text + '\n│ ✳ Thinking… (3s · 41% context left)' } };
         await paintTalk('april', 'April');
         return { scrolls, stood, after: Math.round(q.scrollLeft), rewrote: q.textContent !== before };
-      }, menu);
+      }, STATES['1w-menu-wide']);
       if (!qhold.scrolls) {
         problems.push(`[${theme}] qhold: the question box did not overflow, so the scroll-hold is UNCHECKED`);
       }
