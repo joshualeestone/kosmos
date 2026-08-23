@@ -275,8 +275,10 @@ test('the new-task page keeps typed words across Back, and never across projects
     'the kept-draft decision is not taken before the key moves, so a clean open resurrects the previous assignee');
   assert.match(SCRIPT, /const keepWho = sameDraft \? sel\.value : '';/,
     'the chosen assignee dies on Back, so a checked-something-and-returned person files to Nobody');
-  assert.match(SCRIPT, /if \(keepWho\) sel\.value = keepWho;/,
+  assert.match(SCRIPT, /sel\.value = keepWho;/,
     'the carried assignee is never restored after the rebuild');
+  assert.match(SCRIPT, /if \(sel\.selectedIndex === -1\) sel\.selectedIndex = 0;/,
+    'a departed member leaves the select blank instead of resting on Nobody');
 });
 
 test('there is no due date field, and that is a decision rather than an omission', () => {

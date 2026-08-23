@@ -110,12 +110,16 @@ const MEMBER = 'taskmate';
     await p.keyboard.press('Escape');
     if (!(await p.isVisible('#pj-newtask-view'))) die('Escape dismissed a page, the modal behaviour surviving');
     await p.fill('#nt-what', 'held across Back');
+    await p.selectOption('#nt-who', MEMBER);
     await p.click('#nt-back');
     await p.waitForSelector('#pj-one-view', { state: 'visible' });
     await p.click('#pj-newtask');
     const held = await p.inputValue('#nt-what');
     if (held !== 'held across Back') die('Back ate the typed draft: "' + held + '"');
+    const heldWho = await p.inputValue('#nt-who');
+    if (heldWho !== MEMBER) die('Back ate the chosen assignee: "' + heldWho + '"');
     await p.fill('#nt-what', '');
+    await p.selectOption('#nt-who', '');
 
     // Create one task given to the member, one given to nobody.
     await p.fill('#nt-what', 'Rewrite the handoff checklist');

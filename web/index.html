@@ -17454,7 +17454,14 @@ function openNewTask() {
   sel.innerHTML = '<option value="">Nobody yet</option>' + (p.agents || []).map((m) =>
     '<option value="' + esc(m.sessionName) + '">' + esc(m.name || m.sessionName)
     + (m.role ? ' · ' + esc(m.role) : '') + '</option>').join('');
-  if (keepWho) sel.value = keepWho;
+  if (keepWho) {
+    sel.value = keepWho;
+    /* The departed-member case, actually guarded: assigning a value with
+       no surviving option deselects EVERYTHING (selectedIndex -1) and the
+       control renders blank, an impossible-looking state; rest it on
+       Nobody, which is what an unselected select would submit anyway. */
+    if (sel.selectedIndex === -1) sel.selectedIndex = 0;
+  }
   document.getElementById('nt-msg').textContent = '';
   document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
   pjView('newtask');
