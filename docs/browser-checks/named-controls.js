@@ -47,7 +47,15 @@ function chk(ok, label, extra) {
    as a pass. */
 const SURFACES = [
   ['agents board', async () => {}],
-  ['agent panel', async (pg) => { await pg.locator('.acard .namego').first().click(); }],
+  /* ⚠️ THE AGENT PAGE IS SEVEN SURFACES since agent-page-nav: one section on
+     screen at a time behind a left nav, and a sweep that counts only controls
+     with a rect sees the landing section alone. One surface per pill. */
+  ...['talk', 'model', 'memory', 'instr', 'profile', 'term', 'remove'].map((sec) => [
+    'agent panel: ' + sec, async (pg) => {
+      await pg.locator('.acard .namego').first().click();
+      await pg.waitForTimeout(900);
+      await pg.click('#d-nav button[data-go="' + sec + '"]');
+    }]),
   ['projects', async (pg) => { await pg.evaluate(() => showTab('projects')); }],
   ['settings', async (pg) => { await pg.evaluate(() => showTab('settings')); }],
   ['create form', async (pg) => {
@@ -58,11 +66,13 @@ const SURFACES = [
   ['restart dialog', async (pg) => {
     await pg.locator('.acard .namego').first().click();
     await pg.waitForTimeout(1200);
+    await pg.click('#d-nav button[data-go="memory"]');   // Restart lives under Memory as Fresh start
     await pg.click('#d-restart-start');
   }],
   ['removal dialog', async (pg) => {
     await pg.locator('.acard .namego').first().click();
     await pg.waitForTimeout(1400);
+    await pg.click('#d-nav button[data-go="remove"]');
     await pg.click('#d-remove-start');
   }],
   /* First run is six panes behind one overlay, and each is a surface a person

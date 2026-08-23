@@ -6108,7 +6108,7 @@ test('the limit card shows each caution only when it matters (her always-on-scre
     'the tier handler hardcoded On instead of reading the toggle');
 });
 
-test('engineering mode round-trips, and the agent window route sits behind the knownAgent gate', async () => {
+test('engineering mode round-trips; the agent window route sits behind the knownAgent gate and NOT behind the switch', async () => {
   const engmodeEngine = require('./engine/engmode');
   const chatEngine = require('./engine/chat');
   const board = fleet.install([fleet.agent('leo', { state: 'idle' })]);

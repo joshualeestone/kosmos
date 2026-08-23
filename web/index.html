@@ -3596,14 +3596,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        does not. -->
   <div class="dbody">
   <nav class="snav" id="d-nav" aria-label="Sections of this page">
-    <button type="button" data-go="talk" class="on" aria-current="true"><span id="d-nav-talk">Talk to this agent</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
-    <button type="button" data-go="model">Model</button>
-    <button type="button" data-go="memory">Memory</button>
-    <button type="button" data-go="instr"><span>Instructions</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
-    <button type="button" data-go="profile">Profile</button>
-    <button type="button" data-go="term">Terminal</button>
+    <button type="button" data-go="talk" aria-controls="d-sec-talk" class="on" aria-current="true"><span id="d-nav-talk">Talk to this agent</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
+    <button type="button" data-go="model" aria-controls="d-sec-model">Model</button>
+    <button type="button" data-go="memory" aria-controls="d-sec-memory">Memory</button>
+    <button type="button" data-go="instr" aria-controls="d-sec-instr"><span>Instructions</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
+    <button type="button" data-go="profile" aria-controls="d-sec-profile">Profile</button>
+    <button type="button" data-go="term" aria-controls="d-sec-term">Terminal</button>
     <div class="sep" role="separator"></div>
-    <button type="button" data-go="remove" class="danger"><span id="d-nav-remove">Remove this agent</span></button>
+    <button type="button" data-go="remove" aria-controls="d-sec-remove" class="danger"><span id="d-nav-remove">Remove this agent</span></button>
   </nav>
   <div class="dsecs">
   <section class="dsec" id="d-sec-talk" data-sec="talk" tabindex="-1" aria-label="Talk">
@@ -11298,6 +11298,16 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
   if (!b) return;
   detailGo(b.dataset.go);
 });
+/* The Fresh start button's name, in one place: visible text in the mock's
+   long form, and an accessible name that says which of this page's two
+   restarts it is, because the confirmation dialog's own button is also
+   "Restart <name>" and the page behind a dialog is not made inert. */
+function freshStartLabel(name) {
+  const n = (name || '').trim();
+  const b = document.getElementById('d-restart-start');
+  b.textContent = n ? 'Restart ' + n : 'Restart it';
+  b.setAttribute('aria-label', 'Fresh start: ' + b.textContent);
+}
 /* Two pills carry the agent's name. Painted from the same `a.name` the header
    paints, on open and after a rename, and never left holding the last agent's. */
 function detailNavNames(name) {
@@ -11310,6 +11320,15 @@ function detailNavNames(name) {
      does: a page that always shows one agent makes a bare label unambiguous
      only while you remember which page you are on. */
   document.getElementById('d-model-go').textContent = n ? 'Change & Restart ' + n : 'Change & Restart';
+  /* The Fresh start button too (the mock's ruling, Josh 2026-08-22: long form
+     on all three, naming the agent). It also stops this page carrying two
+     controls called "Restart it" (the header banner's and this one), which a
+     screen reader cannot tell apart. */
+  freshStartLabel(n);
+  /* The Remove pill and the removal dialog's confirm would both read "Remove
+     <name>" while the dialog is open; the pill's accessible name keeps its
+     visible text and says what it is. */
+  document.querySelector('#d-nav button[data-go="remove"]').setAttribute('aria-label', n ? 'Go to Remove ' + n : 'Go to Remove this agent');
 }
 /* 🔑 THE DOTS ARE READ OFF THE SECTIONS, NOT COMPUTED AGAIN. A nav that derived
    "needs you" from the agent record would be a second rendering of a state the
@@ -11986,7 +12005,11 @@ async function loadRemoval(sessionName, { fromPoll = false } = {}) {
   if (!fromPoll) {
     document.getElementById('d-restart-msg').textContent = '';
     rstBtn.disabled = false;
-    rstBtn.textContent = 'Restart it';
+    /* The same name detailNavNames paints (the mock's long form), not the
+       bare verb: this reset used to put "Restart it" back after an open,
+       which gave the page two controls by that name beside the header
+       banner's. */
+    freshStartLabel(CURRENT && CURRENT.name);
   }
 
   const mine = ++REMOVE_TOKEN;
