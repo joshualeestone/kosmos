@@ -351,3 +351,22 @@ correspondence.
   its reason gets worked around rather than followed.
 
 This repo is public. Anything you commit is public the moment you push it, and so is the history.
+
+## After you merge: a running board keeps the engine it started with
+
+`web/index.html` is read from disk on every request, so a merged page change is
+live the moment it lands. `engine/*.js` and `server.js` are not: node holds what
+it `require`d at startup. A board left running across a merge serves a current
+page on a stale engine, and nothing on screen says so yet (#338 is the notice).
+Measured 2026-08-23: six hours, three merged PRs, `/api/roles` still answering
+from the morning's file.
+
+So, after merging anything under `engine/` or `server.js`, restart the board you
+are looking at:
+
+    kosmos restart
+
+On a machine whose `com.kosmos.board` plist carries `KeepAlive` (a development
+setup, not the shipped one, which deliberately has none: `install/setup.sh`),
+`launchctl stop com.kosmos.board` is enough; it comes straight back. A user's
+install never needs this: the updater stops and starts the board itself.
