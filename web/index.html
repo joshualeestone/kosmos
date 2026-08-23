@@ -2362,11 +2362,29 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
    elbow's `top` is the row gap negated, because the line has to start exactly
    where the control above ends. Change one without the other and the line either
    floats free of the menu above it or overlaps it. */
+/* 🛑 THE GAP HERE DOES NOTHING AND IT IS NOT DEAD CODE BY ACCIDENT. Each
+   `.mstep` is nested INSIDE the one above it rather than being its sibling, so
+   this grid has exactly one child and there is nothing for a gap to sit
+   between. Kept as the container's declaration; the space between the rows is
+   the margin below, which is the only thing that can make it. */
 .msteps { display: grid; gap: var(--space-5); }
+/* 🔑 THE SPACE BETWEEN A CONTROL AND THE ROW UNDER IT, and the reason the elbow
+   stopped crossing things. Measured before the change (1280px, create step 2):
+   the account select ran y 598-632 and the model row's elbow ran y 620-650 at
+   x 406-418 -- INSIDE that select's box, which is what Josh photographed as
+   "the little line is overlapping between the account and the model". The rows
+   were flush, so the elbow's upward reach had nowhere to go but over the
+   control above it. With a real gap, that reach lands in empty space. */
 .mstep { position: relative; padding-left: 28px; }
+.mstep + .mstep, .mstep .mstep { margin-top: var(--space-5); }
 .mstep::before {
   content: ''; position: absolute; left: 10px; top: calc(var(--space-5) * -1);
-  height: calc(var(--space-5) + 18px); width: 12px;
+  /* ⚠️ 17px IS HALF A CONTROL, MEASURED, not a nudge. These selects are 34px
+     tall, so the elbow's horizontal arm lands on the vertical centre of the
+     control it points at -- the thing a connector is supposed to do. The old
+     18px was a third of the way down a row that started higher up, which is how
+     it ended up mid-control instead. */
+  height: calc(var(--space-5) + 17px); width: 12px;
   /* 🛑 `--label-3`, NOT A SEPARATOR TOKEN, AND THAT IS A CONTRAST DECISION.
      Measured against the page in both themes: `--separator` is 1.45:1 in dark
      and `--border-strong` 2.26:1, both under the 3:1 that WCAG asks of a
