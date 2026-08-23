@@ -798,6 +798,17 @@ uninstall() {
   # THEMSELVES ours -- a user's `tmux new -s notes` carries no option and a
   # borrowed name fails the equality, the same two gates as above.
   if [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then
+    # 🛑 THE PIPELINE IS GUARDED, and the guard is load-bearing on EVERY
+    # clean Mac: with no agents ever created there is no tmux server, so
+    # `list-sessions` exits non-zero -- and under this script's pipefail
+    # that unguarded pipeline ABORTED the whole uninstall right here, after
+    # the kosmos command was removed and before the app, the login job and
+    # KOSMOS_HOME were: a half-removed install on precisely the machine
+    # with nothing to sweep. Found by the clean-machine target (tools/
+    # clean-machine.sh) on its first run against the served installer.
+    # An unreadable server (a NEWER system tmux owns the socket) takes the
+    # same path: nothing listable means nothing sweepable, and the rest of
+    # the uninstall must still run.
     "$KOSMOS_HOME/tmux/bin/tmux" list-sessions -F '#{session_name}' 2>/dev/null | while IFS= read -r _sname; do
       [ -n "$_sname" ] || continue
       _owner="$("$KOSMOS_HOME/tmux/bin/tmux" show-options -t "=$_sname" -v @kosmos_agent 2>/dev/null)" || _owner=""
@@ -806,7 +817,7 @@ uninstall() {
         info "stopping $_sname (a Kosmos agent still running with no background job)"
         "$KOSMOS_HOME/tmux/bin/tmux" kill-session -t "=$_sname" 2>/dev/null || true
       fi
-    done
+    done || true
   fi
   if [ -d "$KOSMOS_HOME" ]; then
     # ⚠️ REFUSE TO DELETE A FOLDER THAT IS NOT A KOSMOS INSTALL. KOSMOS_HOME

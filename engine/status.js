@@ -156,7 +156,9 @@ function shDetail(cmd, args) {
  *
  * ⚠️ A REAL PRODUCT STATE, and refusing it was a regression this branch
  * introduced while fixing its mirror image. `tmux list-panes -a` exits 1 with
- * "no server running on …" / "error connecting to …" when no tmux server is up
+ * "no server running on …" / "error connecting to …" (and, from the bundled
+ * 3.5a, "server exited unexpectedly" with no socket on disk) when no tmux
+ * server is up
  * — which is the NORMAL state of a machine that has tmux installed and no
  * agents running yet. That is precisely the first-run machine this product
  * exists for.
@@ -196,8 +198,31 @@ function tmuxSaidNoServer(got) {
   // MEASURED, and it is why the qualifier matters: a tmux socket directory with
   // wrong permissions answers "directory … has unsafe permissions", which
   // matches neither branch and correctly stays a refusal.
-  return /no server running/i.test(err)
-    || (/error connecting to/i.test(err) && /no such file or directory/i.test(err));
+  if (/no server running/i.test(err)) return true;
+  if (/error connecting to/i.test(err) && /no such file or directory/i.test(err)) return true;
+  /* 🛑 THE TMUX WE BUNDLE HAS A THIRD SERVERLESS VOICE, and until this
+     branch the board 500ed on every fresh install because of it. The
+     shipped 3.5a, asked to list with no server, auto-spawns one that exits
+     at once having nothing to serve, and the client reports "server exited
+     unexpectedly" (MEASURED 2026-08-23 against the shipped bundle with a
+     fresh empty TMUX_TMPDIR; it leaves no socket behind). The SAME words
+     are also the version wall: a REAL server owned by a newer tmux answers
+     identically to our older client (measured on this fleet's own Mac,
+     which is how a sister's machine full of agents once read as empty).
+     Two states, one sentence, so the words alone must never decide: the
+     socket on disk is the dimension. No socket file = there was never a
+     server = the clean machine this product installs onto. A socket
+     present = somebody's live server we cannot read = the refusal stands,
+     and the board says it cannot see rather than claiming empty. The
+     existsSync failure direction is the refusal too: an unreadable socket
+     directory is not evidence of absence. */
+  if (/server exited unexpectedly/i.test(err)) {
+    try {
+      const sock = path.join(process.env.TMUX_TMPDIR || '/tmp', 'tmux-' + process.getuid(), 'default');
+      return !fs.existsSync(sock);
+    } catch { return false; }
+  }
+  return false;
 }
 
 /**
