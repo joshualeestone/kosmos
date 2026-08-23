@@ -2164,21 +2164,15 @@ function readIdentity(sessionName) {
   }
   const text = got.buf.toString('utf8').slice(0, 4000);
 
-  const m = text.match(/You are \*\*([^*]+)\*\*(?:\s*\(([^)]+)\))?\s*,?\s*([^.\n]*)/);
-  if (!m) {
+  const parsed = identityFromText(text);
+  if (!parsed) {
     return recorded
       ? { displayName: recorded, role: null, derived: true }
       : { displayName: sessionName, role: null, derived: false };
   }
 
-  const displayName = recorded || m[1].trim();
-  let role = (m[3] || '')
-    .replace(/\*\*/g, '')          // instruction files are markdown; strip emphasis
-    .replace(/^(the|a|an)\s+/i, '')
-    .replace(/^Josh Stone's\s+/i, '')
-    .split(/\s+in the\s+|,/)[0]
-    .trim();
-  if (role.length > 60) role = role.slice(0, 60).trim();
+  const displayName = recorded || parsed.displayName;
+  const role = parsed.role;
 
   // No `source` field (round 22): it had no consumer anywhere -- snapshot
   // builds the card from displayName/derived/role, the page never read it,
@@ -2187,6 +2181,35 @@ function readIdentity(sessionName) {
   // thing round 19 removed from the thread payload; where a name came from
   // is answered by `derived` for the one question the page asks.
   return { displayName, role: role || null, derived: true };
+}
+
+/**
+ * The name and role an instruction file states about itself.
+ *
+ * 🔑 EXTRACTED FROM `readIdentity` RATHER THAN COPIED, because a second reader of
+ * this sentence is two derivations of one fact and they drift the first time
+ * either is edited -- the habit this file pays for most. `readIdentity` answers
+ * for an agent Kosmos knows by session name; discovery has to ask the same
+ * question of a folder it has never seen, and both now ask it here.
+ *
+ * ⚠️ IT KNOWS NOTHING ABOUT PROFILES. The record's display name WINS over the
+ * file for an agent that has one, and that precedence belongs to the caller:
+ * this reads what the file says and stops.
+ *
+ * Returns null when the file does not introduce an agent at all, which is the
+ * honest answer for a CLAUDE.md that is project notes rather than an identity.
+ */
+function identityFromText(text) {
+  const m = String(text || '').match(/You are \*\*([^*]+)\*\*(?:\s*\(([^)]+)\))?\s*,?\s*([^.\n]*)/);
+  if (!m) return null;
+  let role = (m[3] || '')
+    .replace(/\*\*/g, '')          // instruction files are markdown; strip emphasis
+    .replace(/^(the|a|an)\s+/i, '')
+    .replace(/^Josh Stone's\s+/i, '')
+    .split(/\s+in the\s+|,/)[0]
+    .trim();
+  if (role.length > 60) role = role.slice(0, 60).trim();
+  return { displayName: m[1].trim(), role: role || null };
 }
 
 function safeAvatar(name) {
@@ -2510,6 +2533,7 @@ function sessionStartedAtFromTmux(sessionName, now = Date.now()) {
 module.exports = {
   NO_READING,
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
+  identityFromText, configRoots, transcriptCwd,
   countAgents, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   rank, paneOrder, modelDisplayName, readIdentity, transcriptFor,
   /* ⚠️ Exported so the ROUTE can say what tmux said. The alternative is a
