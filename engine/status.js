@@ -1631,6 +1631,22 @@ function notYetStarted(agentName) {
   try { return byWorkdirDetailed(agentName).sawTranscripts === false; } catch { return false; }
 }
 
+/**
+ * No launch file at all: made (or hand-started) before Kosmos recorded how it
+ * starts. The same plist gate `notYetStarted` trusts, inverted, and it FAILS
+ * TOWARD FALSE: a wrong "never recorded" asserts provenance about an agent we
+ * could not check, while a wrong false only leaves the ordinary admission,
+ * which is vague but not a claim. Which is why this is create.jobMissing and
+ * not !existsSync: only ENOENT counts as absence, an unreadable directory
+ * answers "could not check" and stays false. Callers must apply it only to a pane tied
+ * to the name (`isNamedOurs`); this function knows files, not panes.
+ */
+function neverRecorded(agentName) {
+  // require at CALL time: create.js requires status.js at load, so a
+  // top-level require here would be a cycle landing half-initialized.
+  try { return require('./create').jobMissing(agentName) === true; } catch { return false; }
+}
+
 function transcriptCwd(file) {
   const text = headBytes(file, 65536);
   if (text === null) return null;
@@ -1799,6 +1815,16 @@ function readContext(agentName, model, exactSession) {
                   happened yet. Beside `lead: 'memory has nothing recorded yet.'`
                   the pair reads as one thought rather than two vocabularies. */
                because: 'it has not done anything yet' };
+    }
+    /* #149/#150: the no-plist case CAN be separated, by the same bookkeeping
+       fact the notYet gate above trusts. "We cannot find a transcript" reads
+       as a fault somebody should fix; for an agent Kosmos never recorded a
+       launch file for, the truth is there was never anywhere to look, and no
+       amount of restarting fills it in. Only reached for a TIED pane: the
+       untied refusal returns before readContext is called. */
+    if (neverRecorded(agentName)) {
+      return { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false, neverRecorded: true,
+               because: 'made before Kosmos recorded this, so there is no record to read' };
     }
     return { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false,
              because: NO_READING.NO_TRANSCRIPT };
@@ -2410,6 +2436,13 @@ function snapshot() {
       context,
       model,
       modelName: modelDisplayName(model),
+      /* #149/#150: no launch file for a pane TIED to the name. The screen's
+         wording branches on this rather than re-deriving it, so the card, the
+         detail panel and the memory panel cannot disagree about which state
+         the agent is in. Never computed for an untied pane: answering "was
+         this made before Kosmos kept records" about a stranger's session is
+         answering for a stranger. */
+      neverRecorded: tied ? neverRecorded(pane.name) : false,
       // Things a person set, which the machine cannot derive. Role in
       // particular: nothing on this machine records what an agent *is*.
       // ⚠️ These two are keyed on the NAME as well, and gating identity, model

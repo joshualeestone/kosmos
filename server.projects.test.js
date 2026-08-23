@@ -52,6 +52,10 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = require('node:path').join(__dirname, 'tes
 // variable whose stated purpose is a different module. chat.js reads this
 // from its first require.
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+// The #166 seed test below creates agents over the wire, so Claude Code's own
+// config is sandboxed too (the fixture-discipline fourth root): without this,
+// running the suite writes into the operator's real ~/.claude.json.
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = require('node:path').join(require('node:os').tmpdir(), 'aw-spj-claude-' + process.pid + '.json');
 
 // ⚠️ THAT VARIABLE DOES NOT STUB THE STATUS ENGINE, and a comment here used to
 // claim it did. `engine/status.js` calls `sh('tmux', …)` directly and never
@@ -2422,4 +2426,33 @@ test('a project records who asked for it, and a process runaway is paused while 
   // The record survives in the store, not only the response.
   const stored = projectsEngine.readAll().find((p) => p.name === 'By A Process');
   assert.equal(stored.made.via, 'process');
+});
+
+test('the first agent brings its own home, once, and never regrows a removed one (#166)', async () => {
+  reset();
+  const projectsEngine = require('./engine/projects');
+  const fsx = require('node:fs');
+  try { fsx.rmSync(path.join(require('./engine/store').ROOT, 'seeded-project.json'), { force: true }); } catch { /* fresh */ }
+  assert.equal(projectsEngine.readAll().length, 0, 'control: the sandbox starts with projects');
+  const made = await post('/api/agents', { name: 'first-ever', role: 'pm' });
+  assert.equal(made.status, 200, made.body);
+  const out = json(made);
+  assert.equal(out.outcome, 'created', out.because);
+  const all = projectsEngine.readAll();
+  assert.equal(all.length, 1, 'the first agent arrived to a blank projects page');
+  const home = all[0];
+  assert.equal(home.name, 'Getting started');
+  assert.deepEqual(home.agents, ['first-ever']);
+  assert.match(home.description, /remove it whenever you like/i, 'the seed does not say it is removable');
+  assert.equal(home.made && home.made.via, 'kosmos', 'the seed does not say Kosmos made it');
+  const row = (out.projects || []).find((p) => p.seeded);
+  assert.ok(row && row.added && row.told && row.told.state === 'not_tried',
+    'the seed does not ride the not-tried -> re-fire path the creation screen already drives');
+  await post('/api/agents', { name: 'second-ever', role: 'pm' });
+  assert.equal(projectsEngine.readAll().length, 1, 'a second agent grew a second seed');
+  projectsEngine.remove(home.id);
+  const again = await post('/api/agents', { name: 'third-ever', role: 'pm' });
+  assert.equal(json(again).outcome, 'created');
+  assert.equal(projectsEngine.readAll().filter((p) => p.name === 'Getting started').length, 0,
+    'the removed seed came back');
 });

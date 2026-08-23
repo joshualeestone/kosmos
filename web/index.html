@@ -3854,6 +3854,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          the menu. The hint lines below stay for the person reading rather
          than pressing. -->
     <p class="runnow" id="d-runson"></p>
+    <p class="dhint" id="d-runson-why" hidden></p>
     <p class="runnow" id="d-account-now"></p>
     <div class="msteps" role="group" aria-label="Change what this agent runs on" style="margin-top:12px;">
       <div class="frow">
@@ -6629,7 +6630,12 @@ function modelLine(a) {
      closed. One question, one derivation. */
   const notRunning = cardStOf(a).pres === 'off';
   const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName;
-  if (!name) return 'Unknown Model';
+  /* #149/#150: two states were collapsed into "Unknown Model", and only one
+     of them is a fault. No launch file at all means there was never anywhere
+     to look, no restart will fill it in, and the wording (ruled on card #150)
+     says history rather than failure. The server decides `neverRecorded`
+     (tied pane, no plist), so every surface splits the same way. */
+  if (!name) return a.neverRecorded === true ? 'Made before Kosmos recorded this' : 'Unknown Model';
   return /^claude/i.test(name) ? name : 'Claude ' + name;
 }
 /**
@@ -6831,6 +6837,17 @@ function memPrint(ctx, pct) {
 }
 
 function memUnknown(ctx) {
+  /* #149/#150: the never-recorded state is HISTORY, and the lead was still
+     the fault sentence while the note under it said otherwise. Same shape as
+     the notYet branch: a state that is not a failure must not greet the
+     person with one. The engine's because still ships in the note. */
+  if (ctx && ctx.neverRecorded === true) {
+    return { notYet: false,
+      word: 'Unknown',
+      aria: ('Memory was never recorded. ' + memWhy(ctx)).trim(),
+      lead: 'memory was never recorded.',
+      note: (memWhy(ctx) || '') + 'Nothing here can tell you how much room is left.' };
+  }
   /* 🛑 A THIRD CASE, AND IT WAS SHIPPING A FALSE SENTENCE ON THE SURFACE THIS
      CHANGE REWRITES. When a reading is taken but the model's limit is unknown,
      the engine returns tokens with a null percent — so every surface here said
@@ -6985,7 +7002,12 @@ function assumedCeilingNote(ctx) {
 }
 
 function pctOf(ctx) {
-  return Number.isFinite(ctx.percent) ? ctx.percent : null;
+  /* Null-tolerant (#149/#150 review): a STOPPED row deliberately carries no
+     context at all, and this dereference threw before the stopped half of
+     the never-recorded treatment (the explainer, the memory sentence) could
+     ever paint. Absent context and unreadable context land in the same
+     place: no percent. */
+  return ctx && Number.isFinite(ctx.percent) ? ctx.percent : null;
 }
 function boardMods(a, m) {
   return [
@@ -8893,12 +8915,17 @@ async function paintSettings() {
     const m = await (await fetch('/api/machine')).json();
     mach.innerHTML = machineRows(m);
     const made = document.getElementById('set-made');
-    if (made && m.made && typeof m.made.agents === 'number') {
+    /* ⚠️ ONLY ONCE THE RECORD HAS SOMETHING IN IT. The birth record starts the
+       day it ships, so on a machine whose agents predate it, "made 0 agents"
+       sits beside a board showing fourteen -- two true sentences composing a
+       contradiction. An empty record is not a claim of none; it is silence,
+       and the line stays silent with it. */
+    if (made && m.made && typeof m.made.agents === 'number' && (m.made.agents + (m.made.refused || 0)) > 0) {
       made.textContent = 'Kosmos has made ' + m.made.agents + (m.made.agents === 1 ? ' agent' : ' agents')
-        + ' on this Mac so far'
+        + ' on this Mac since it started keeping the record'
         + (m.made.refused > 0 ? ', and turned away ' + m.made.refused + ' attempt' + (m.made.refused === 1 ? '' : 's') + ' it could not do safely' : '') + '.';
       made.hidden = false;
-    }
+    } else if (made) { made.hidden = true; made.textContent = ''; }
     for (const sleepBtn of mach.querySelectorAll('[data-sleep-settings]')) {
       sleepBtn.addEventListener('click', async () => {
         // The pane opening IS the success feedback; words appear on refusal
@@ -10372,7 +10399,20 @@ function memoryBox(a) {
        is false — it is also the longest, most confident statement of the fact
        on any screen, so it is the one that would do the most damage left
        unchanged. */
-    const u = memUnknown(a.context);
+    /* #149/#150: a stopped row carries no context at all, so the flag rides
+       the ROW there; the running path's context already carries it. Without
+       this, a stopped never-recorded agent's memory box kept the fault
+       sentence while the model line beside it said history: one panel, one
+       state, two vocabularies. */
+    const u = memUnknown(a.context || (a.neverRecorded === true
+      ? { neverRecorded: true,
+          /* The page owns these words for the stopped row the way modelLine
+             owns its sentence: there is no engine context here to quote, and
+             a bare flag left the stopped note one sentence short of the
+             running one. Same words as the engine's running-row because, on
+             purpose; drift shows up in the pin below. */
+          because: 'made before Kosmos recorded this, so there is no record to read' }
+      : null));
     return '<div class="memrow"><span class="bar unknown"></span><span class="pct">' + u.word + '</span></div>'
       + '<p class="dhint" style="margin:12px 0 0;"><b>' + esc(a.name) + '\u2019s ' + u.lead + '</b> '
       + u.note + '</p>';
@@ -11756,6 +11796,15 @@ function openDetail(sessionName, section) {
      sections by id and never calls detailGo, so a person reading Instructions
      is not flipped back to Talk five seconds later. */
   detailNavNames(a.name);
+  /* #149/#150 review: the model box's message slot is written only-when-empty
+     (so a change verdict survives a same-agent repaint), and nothing cleared
+     it on a SWITCH, so agent A's refusal sentence stood on agent B's panel.
+     Two different sentences now compete for the slot (never-recorded vs
+     not-ours), which turns the stale line into a wrong-agent provenance
+     claim. Cleared here, at the one moment the agent changes.
+     ⚠️ d-account-msg shares this only-when-empty shape and its single
+     sentence can equally linger; pre-existing, carded separately. */
+  { const mm = document.getElementById('d-model-msg'); if (mm) mm.textContent = ''; }
   TALK_SCROLL = null;
   /* The name for the Reports-to menu's first option. Fire and forget: the poll
      repaints this panel every five seconds, and until it lands the menu says
@@ -11894,6 +11943,36 @@ function openDetail(sessionName, section) {
   document.getElementById('d-memory').innerHTML = memoryBox(a);
   const drun = document.getElementById('d-runson');
   drun.innerHTML = esc(runs.lead) + '<b>' + esc(runs.name) + '</b>';
+  /* #149/#150: the sentence alone says WHAT, this says WHY and the way in.
+     The migration path is real (a stopped agent appears under Found agents
+     and Add records it); while it runs Kosmos will not write a launch file
+     for it, because starting a second one in the same folder is the #362
+     defect. Cleared for every other agent so it cannot linger across a
+     switch. */
+  const drunWhy = document.getElementById('d-runson-why');
+  if (drunWhy) {
+    /* ⚠️ THE FOUND-AGENTS PATH IS ONLY CLAIMED WHERE IT IS TRUE. The Found
+       list EXCLUDES a folder somebody already connected (alreadyIn's
+       profile-dir rung in engine/discover.js; connect itself would accept
+       the same dir if it were ever offered), so an agent whose profile
+       RECORDS a folder gets a sentence naming a screen that will not show
+       it. The discriminator the page holds is profile.dir. (An agent that never ran leaves nothing
+       for Found agents to list either; the page cannot see that, and the
+       birth record (#157) is where that story lives.) */
+    const recordedDir = !!(a.profile && a.profile.dir);
+    drunWhy.textContent = a.neverRecorded === true
+      ? 'Kosmos has no record of how this agent starts, and waiting will not add one. '
+        + (recordedDir
+          ? 'Kosmos records where this agent lives but has no launch file for it'
+            + (a.running === false ? ', so it will not start on its own.' : '. Kosmos will not write one while it runs some other way.')
+            + ' There is no control here that re-records one yet.'
+          : (a.running === false
+            ? 'To bring it in: add it from Found agents in Settings.'
+            : 'To bring it in: stop it, then add it from Found agents in Settings. '
+              + 'Kosmos will not write a launch file while it runs some other way.'))
+      : '';
+    drunWhy.hidden = !drunWhy.textContent;
+  }
   /* ⚠️ CLEARED BEFORE the paint's awaits, like the window box below: agent A's
      question and A's messages standing under B's name for two round-trips is
      cross-agent misattribution, and this box holds the strongest version of it
@@ -14568,11 +14647,18 @@ async function paintModelPicker(a) {
   const go = document.getElementById('d-model-go');
   const msg = document.getElementById('d-model-msg');
   if (!sel || !go) return;
+  /* Flight guard (#149/#150 review): on the first-ever open this awaits the
+     roles fetch, and a switch during that await would land agent A's
+     continuation, refusal sentence included, on agent B's panel after
+     openDetail's clear. Same class as TALK_FLIGHT: bail when the panel has
+     moved on. */
+  const forWhom = a && a.sessionName;
   if (!CREATE_MODELS.length) {
     try {
       const res = await fetch('/api/roles', { cache: 'no-store' });
       if (res.ok) CREATE_MODELS = ((await res.json()) || {}).models || [];
     } catch { /* the control stays empty and disabled, which is honest */ }
+    if (!CURRENT || CURRENT.sessionName !== forWhom) return;
   }
   const html = ['<option value="">Change to&hellip;</option>'].concat(
     CREATE_MODELS.map((m) => '<option value="' + esc(m.key) + '">' + esc(m.label) + '</option>'),
@@ -14583,10 +14669,21 @@ async function paintModelPicker(a) {
      write and cannot rewrite, and the engine refuses it — so the control says so
      by being unavailable rather than by failing after a click. */
   const ours = !!(a && a.isNamedOurs);
-  sel.disabled = !ours;
-  go.disabled = !ours || !sel.value;
-  if (msg && !ours && !msg.textContent) {
-    msg.textContent = 'Kosmos did not start this one, so it cannot change what it runs on.';
+  /* #149/#150: an agent with no launch file has nothing for setModel to
+     rewrite, and the engine would refuse the click. The control says so
+     before the click, in the state's own words, not the stranger's. */
+  const usable = ours && !(a && a.neverRecorded === true);
+  sel.disabled = !usable;
+  go.disabled = !usable || !sel.value;
+  if (msg && !usable && !msg.textContent) {
+    msg.textContent = ours
+      ? 'Made before Kosmos recorded how it starts, so there is no launch file to change. '
+        + (a && a.profile && a.profile.dir
+          ? 'There is no control here that re-records one yet.'
+          : (a && a.running === false
+            ? 'Add it from Found agents in Settings to bring it in.'
+            : 'Stop it, then add it from Found agents in Settings to bring it in.'))
+      : 'Kosmos did not start this one, so it cannot change what it runs on.';
   }
 }
 

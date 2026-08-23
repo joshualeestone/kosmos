@@ -1384,7 +1384,7 @@ function create({ name, folder, agents, roster, description, made } = {}) {
        could edit this file directly, so the record is for TELLING things
        apart on the board, not for authorization. */
     made: made && typeof made === 'object'
-      ? { via: made.via === 'screen' ? 'screen' : 'process', by: typeof made.by === 'string' && made.by ? made.by : null, at: now }
+      ? { via: made.via === 'screen' ? 'screen' : made.via === 'kosmos' ? 'kosmos' : 'process', by: typeof made.by === 'string' && made.by ? made.by : null, at: now }
       : null,
     createdAt: now,
     updatedAt: now,

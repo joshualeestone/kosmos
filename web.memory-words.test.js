@@ -198,10 +198,11 @@ test('no surface still hardcodes the old word, ANYWHERE EXCEPT the one place tha
   const owned = PAGE.slice(at, end);
   /* ⚠️ AND THE CONTROL COVERS BOTH LITERALS, so a zero count for either one is
      provably findable rather than provably absent from a badly-cut slice. */
-  /* ⚠️ TWICE, because two branches now share the word: the admission and the
-     read-but-unscalable one. A count of exactly 1 was pinning an implementation
-     detail rather than the property, which is that the word lives HERE. */
-  assert.equal(owned.split("'Unknown'").length - 1, 2, 'the derivation no longer holds the word, so the exclusion above is hiding it');
+  /* ⚠️ THREE TIMES, because three branches now share the word: the admission,
+     the read-but-unscalable one, and #149/#150's never-recorded state. A count
+     of exactly 1 was pinning an implementation detail rather than the
+     property, which is that the word lives HERE. */
+  assert.equal(owned.split("'Unknown'").length - 1, 3, 'the derivation no longer holds the word, so the exclusion above is hiding it');
   assert.equal(owned.split("'Not yet read'").length - 1, 1, 'the derivation no longer holds the new word either');
 });
 
@@ -224,6 +225,25 @@ const deps = ['esc', 'memWhy', 'memUnknown', 'memPrint', 'assumedCeilingNote', '
     'const NEARLY_FULL = 80, WARM = 60;\n' + deps.map(sliceFn).join('\n') + '; return memoryBox;',
   )();
 }());
+
+test('a stopped never-recorded row renders the memory box instead of throwing', () => {
+  /* #149/#150: a stopped row carries NO context field at all, and pctOf used
+     to throw on it, so the stopped half of the never-recorded treatment was
+     dead code behind a crash. Executed, not source-matched: the earlier pin
+     for this feature was a regex over the page text, which stayed green
+     while the branch was unreachable. */
+  const html = memoryBox({ name: 'Gone', neverRecorded: true });
+  const text = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  assert.match(text, /Gone\u2019s memory was never recorded\./,
+    'the stopped row does not reach the never-recorded sentence');
+  assert.match(text, /Made before Kosmos recorded this, so there is no record to read\./,
+    'the stopped note lost the reason the running note carries');
+  /* And a stopped row that is NOT never-recorded keeps the plain admission,
+     still without throwing. */
+  const plain = memoryBox({ name: 'Off' });
+  assert.match(plain.replace(/<[^>]*>/g, ' '), /memory could not be read/,
+    'an ordinary context-less row lost its admission');
+});
 
 test('the Memory box sentence reads as English after the name it follows', () => {
   /**
