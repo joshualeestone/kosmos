@@ -13846,6 +13846,8 @@ document.getElementById('d-save').addEventListener('click', async () => {
   // neighbours carry. The write went to the right agent, but "Saved." landed
   // under whichever agent happened to be open when the answer arrived.
   const forAgent = CURRENT.sessionName;
+  /* The name it answered to before this save, for the sentence after it (#406). */
+  const wasCalled = (CURRENT.name || '').trim();
   msg.textContent = 'Saving…';
   try {
     const renameTo = document.getElementById('d-rename').value.trim().slice(0, 80);
@@ -13873,10 +13875,29 @@ document.getElementById('d-save').addEventListener('click', async () => {
        somebody to restart an agent whose instructions we could not update is
        sending them to do something that will not help. */
     const ren = saved && saved.renamed;
+    /* 🔑 BOTH NAMES IN ONE LINE, AND THE RESTART RIGHT THERE (#406, Saturday's
+       design). "Restart it when you are ready" named nothing and sent the
+       person to another tab to find the button. The old name and the new one
+       together are what make the problem legible: the reader can see which
+       one is stale. The agent's own restart control, same dialog as Fresh
+       start, sits beside the sentence, and the verdict lands in this line.
+       ⚠️ ONLY WHILE IT IS RUNNING. A stopped agent reads the file when it
+       starts, so "will not answer to" would be a claim about nothing. */
+    const isRunning = !!(CURRENT && CURRENT.running !== false);
+    /* The route says what the file said before (`was`); the screen's name is
+       the fallback for an older engine that does not. */
+    const before = (ren && ren.changed && (ren.was || wasCalled) || '').trim();
+    const renamedFrom = before && renameTo && before !== renameTo ? before : '';
     msg.textContent = !ren ? 'Saved.'
-      : ren.changed ? 'Saved. Its instructions say the new name too, so restart it when you are ready and it will know.'
+      : ren.changed ? (isRunning
+          ? 'Saved. Its instructions say the new name too, so restart it when you are ready and it will know.'
+          : 'Saved. It will know its new name when it next starts.')
       : ren.ok ? 'Saved.'
       : 'Saved here, but ' + ren.because + '.';
+    if (renamedFrom && isRunning) {
+      msg.innerHTML = 'Saved. ' + esc(renamedFrom) + ' will not answer to ' + esc(renameTo) + ' until you restart it. '
+        + '<button class="btn-quiet instr-restart" type="button" data-restart-agent="' + esc(forAgent) + '" data-restart-note="d-role-msg">Restart now</button>';
+    }
     /* The role and reports-to half (#336). The route answers `reports`, the
        verdict of writing the file, only on a save that moved either field,
        and the screen READS it: told + running means a restart is what makes
