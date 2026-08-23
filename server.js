@@ -42,6 +42,49 @@ const updates = require('./engine/update');
 // on screen has to be the number in the release rather than a hand-typed label
 // that drifts.
 const { version } = require('./package.json');
+
+/**
+ * Whether this process is behind the code on disk (#338).
+ *
+ * `web/index.html` is read per request, so the page is never the stale part;
+ * the engine is: node holds what it `require`d at startup, and a board left
+ * running across a merge answered with hours-old code while looking entirely
+ * current. Measured 2026-08-23: six hours, three merged PRs, `/api/roles`
+ * still serving the morning's file.
+ *
+ * ⚠️ NOT A VERSION COMPARISON. The merges that caused it never bumped
+ * `package.json`, so served and disk versions were equal the whole time. This
+ * compares the mtime of every loaded module under the repo root to when the
+ * process started, which is the same comparison `engine/instructions.js`
+ * makes for an agent's own file.
+ *
+ * 📌 One stat sweep per five seconds, not per request (the poll's own
+ * cadence), over repo-root entries of `require.cache` only; `node_modules` is
+ * excluded by path even though nothing there is loaded today. `staleSince` is
+ * ALWAYS present, null when current, so the status shape never grows a field
+ * conditionally. Never throws: an unreadable stat counts as not stale.
+ */
+const ENGINE_STARTED_AT = new Date();
+const ENGINE_ROOT = __dirname + path.sep;
+let engineLook = { at: 0, staleSince: null };
+function engineFreshness() {
+  const now = Date.now();
+  if (now - engineLook.at > 5000) {
+    let newest = 0;
+    for (const file of Object.keys(require.cache)) {
+      if (!file.startsWith(ENGINE_ROOT) || file.includes(path.sep + 'node_modules' + path.sep)) continue;
+      try {
+        const m = fs.statSync(file).mtimeMs;
+        if (m > newest) newest = m;
+      } catch { /* gone or unreadable: not evidence of staleness */ }
+    }
+    engineLook = {
+      at: now,
+      staleSince: Math.floor(newest / 1000) > Math.floor(ENGINE_STARTED_AT.getTime() / 1000) ? new Date(newest).toISOString() : null,
+    };
+  }
+  return { startedAt: ENGINE_STARTED_AT.toISOString(), staleSince: engineLook.staleSince };
+}
 const store = require('./engine/store');
 const create = require('./engine/create');
 const register = require('./engine/register');
@@ -954,6 +997,7 @@ const server = http.createServer((req, res) => {
       body = JSON.stringify({
         ...snap, agents: agents.concat(offline), counts, connection, version,
         update: updates.available(), updateLook: updates.lastLook(),
+        engine: engineFreshness(),
       });
     } catch (err) {
       // Failing loudly beats serving a stale or empty board that looks healthy.

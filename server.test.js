@@ -260,6 +260,40 @@ const UNREAD_ON_PURPOSE = {
      watching it becomes where real gaps go to be forgotten. */
 };
 
+test('the board reports when its own engine is behind the disk, and says nothing when it is not (#338)', async (t) => {
+  /**
+   * 🛑 THE PAGE IS READ PER REQUEST AND THE ENGINE IS NOT, so a board left
+   * running across a merge answers with old code while looking current.
+   * Measured 2026-08-23: six hours, three merged PRs, /api/roles serving the
+   * morning's file. A version comparison cannot see it (nothing bumped), so
+   * the field compares loaded modules' mtimes to the process start. Always
+   * present, null when current, so the fixture's field list is stable.
+   */
+  const board = await req('/api/status');
+  if (!board.type.includes('application/json')) { t.skip('no board on this machine'); return; }
+  const first = JSON.parse(board.body).engine;
+  assert.ok(first && typeof first === 'object', 'the engine field is missing');
+  assert.ok(!Number.isNaN(Date.parse(first.startedAt)), 'startedAt is not a time');
+  assert.ok('staleSince' in first, 'staleSince is absent rather than null');
+  assert.equal(first.staleSince, null, 'a freshly started server reports itself stale');
+
+  /* POSITIVE CONTROL: a loaded module whose file moves on. The sweep is cached
+     for the poll's five seconds, so wait it out once; mtime is restored after,
+     and nothing in the file changes. */
+  const target = require.resolve('./engine/roles');
+  const before = fs.statSync(target);
+  const future = new Date(Date.now() + 10000);
+  fs.utimesSync(target, future, future);
+  try {
+    await new Promise((r) => setTimeout(r, 5200));
+    const again = JSON.parse((await req('/api/status')).body).engine;
+    assert.ok(again.staleSince, 'a changed engine file went unreported');
+    assert.equal(again.startedAt, first.startedAt, 'startedAt moved, so it is not the process start');
+  } finally {
+    fs.utimesSync(target, before.atime, before.mtime);
+  }
+});
+
 test('no field the board sends is unknown to the page', async (t) => {
   const board = await req('/api/status');
   if (!board.type.includes('application/json')) {
