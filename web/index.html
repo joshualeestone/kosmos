@@ -1389,7 +1389,6 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 .btn-quiet:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
 .btn-quiet[disabled] { opacity: .55; cursor: default; }
 .btn-quiet[disabled]:hover { background: transparent; }
-.dwide { width: 100%; justify-content: center; }
 .llmrow { display: flex; align-items: center; gap: 14px; padding: 14px 16px;
        border: 1px solid var(--k-rule); border-radius: 12px; margin-bottom: 10px; background: var(--k-surface); }
 .llmrow b { display: block; font-size: 1rem; }
@@ -5853,7 +5852,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <h3 class="dlab">Opening Kosmos</h3>
       <div id="set-applocation"><p class="dhint">Checking where the app is…</p></div>
       <div class="dstack">
-        <button class="btn-quiet dwide" type="button" id="set-reveal" hidden>Show me where it is</button>
+        <!-- Quiet and its own width (#371): a convenience, not the page's main
+             action. The same size as "Open sleep settings" two rows down. -->
+        <button class="btn-quiet" type="button" id="set-reveal" hidden style="font-size:.875rem;">Show me where it is</button>
       </div>
       <p class="dhint" id="set-reveal-msg" style="margin:12px 0 0;" hidden></p>
       <p class="dhint" style="margin:12px 0 0;">
