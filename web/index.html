@@ -1805,6 +1805,19 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
    deleted: when the agent's side lands, the drawing is already right and this
    is the rule it needs. (Distinct from the 18e `.pjthread` case, which was a
    rule that DID have an element and was silently outranked by another rule.) */
+/* The link preview card (#357): one quiet bordered block under the text, image
+   left when there is one, title as the link, host small, description clamped
+   to two lines. Tokens only, so both themes follow. */
+.lpv { display: flex; gap: 12px; align-items: stretch; margin-top: 8px; max-width: 32rem;
+  border: 0.5px solid var(--separator); border-radius: 10px; overflow: hidden; text-decoration: none;
+  color: var(--k-ink); background: var(--k-surface); }
+.lpv:hover { border-color: var(--k-ink-2); }
+.lpv-img { flex: 0 0 96px; background: var(--k-bg); }
+.lpv-img img { display: block; width: 96px; height: 100%; min-height: 64px; object-fit: cover; }
+.lpv-txt { display: flex; flex-direction: column; gap: 2px; padding: 9px 12px; min-width: 0; }
+.lpv-site { font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); text-transform: lowercase; }
+.lpv-title { font: 600 .9375rem var(--font-ui); color: var(--k-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lpv-desc { font: var(--text-callout) var(--font-ui); color: var(--k-ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .dm-b { max-width: 92%; padding: 9px 13px; border-radius: 12px; font-size: .9375rem;
   line-height: 1.45; background: var(--k-sunk, rgba(20,22,26,.05));
   overflow-wrap: anywhere; }
@@ -10094,7 +10107,7 @@ function convoRow(r, agentName) {
       state = '<span class="cv-state"><b>Not delivered to ' + esc(agentName) + '.</b></span>';
     }
     return '<div class="cvrow ' + (isOp ? 'you' : 'peer') + '"><span class="cv-who">' + esc(who) + '</span><p>'
-      + pjInline(r.text) + '</p>' + state + '</div>';
+      + pjInline(r.text) + '</p>' + pjPreviewCard(r.preview) + state + '</div>';
   }
   if (r.kind === 'refused') {
     // Her copy, the because verbatim: a refusal their agent met is an
@@ -10138,7 +10151,7 @@ function convoRow(r, agentName) {
     state = '<span class="cv-state"><b>Not sent.</b>' + (r.because ? ' ' + esc(r.because) : '') + '</span>';
   }
   return '<div class="' + cls + '"><span class="cv-who">' + esc(who) + '</span><p>'
-    + pjInline(r.text) + '</p>' + state + '</div>';
+    + pjInline(r.text) + '</p>' + pjPreviewCard(r.preview) + state + '</div>';
 }
 
 let CONVO_LOAD = 0;
@@ -10499,7 +10512,7 @@ function dmRow(m, name) {
    * would invent a mechanism that did not happen.
    */
   if (m && m.from) {
-    return '<div class="dm theirs"><div class="dm-b">' + pjInline(m.text) + '</div>'
+    return '<div class="dm theirs"><div class="dm-b">' + pjInline(m.text) + pjPreviewCard(m.preview) + '</div>'
       + '<span class="dm-w">' + esc(dmWho(m.from, name)) + pjWhenPart(m.at) + '</span></div>';
   }
   const v = pjVerdict(m, name);
@@ -10547,7 +10560,7 @@ function dmRow(m, name) {
      puts it, and no longer inside the verdict. The verdict is silent on an
      ordinary success now, and a timestamp that lived inside it would have gone
      silent with it -- on every message that worked. */
-  return '<div class="dm mine"><div class="dm-b">' + pjInline(m.text) + '</div>'
+  return '<div class="dm mine"><div class="dm-b">' + pjInline(m.text) + pjPreviewCard(m.preview) + '</div>'
     + '<span class="dm-w">You' + v.when + wire + ' '
     + '<span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span></span></div>';
 }
@@ -17341,6 +17354,32 @@ function pjInline(text) {
   }).join('');
 }
 
+/* The link preview card (#357). Drawn under a message's text when the engine
+   has fetched the first URL's tags and attached them as `m.preview`; absent
+   preview, nothing, because a failed fetch is represented by absence and an
+   empty card is worse than no card. The image is a board-served path, never
+   the remote URL, so the viewer's browser never touches the linked host
+   (Josh: "the board can fetch it, don't leak IPs"). Title is the link; host
+   in small type; description clamped by CSS. Same new-tab, no-referrer
+   treatment as the inline link. Escaped field by field. */
+function pjPreviewCard(preview) {
+  const p = preview && typeof preview === 'object' ? preview : null;
+  if (!p || typeof p.url !== 'string' || !/^https?:\/\//.test(p.url)) return '';
+  const title = typeof p.title === 'string' && p.title.trim() ? p.title.trim() : null;
+  const desc = typeof p.description === 'string' && p.description.trim() ? p.description.trim() : null;
+  if (!title && !desc && !p.image) return '';
+  const image = typeof p.image === 'string' && /^\/api\//.test(p.image) ? p.image : null;
+  let site = typeof p.site === 'string' && p.site.trim() ? p.site.trim() : '';
+  if (!site) { try { site = new URL(p.url).host; } catch { site = ''; } }
+  return '<a class="lpv" href="' + esc(p.url) + '" target="_blank" rel="noreferrer noopener">'
+    + (image ? '<span class="lpv-img"><img src="' + esc(image) + '" alt="" loading="lazy"></span>' : '')
+    + '<span class="lpv-txt">'
+    + (site ? '<span class="lpv-site">' + esc(site) + '</span>' : '')
+    + '<span class="lpv-title">' + esc(title || p.url) + '</span>'
+    + (desc ? '<span class="lpv-desc">' + esc(desc) + '</span>' : '')
+    + '</span></a>';
+}
+
 function pjSize(bytes) {
   const n = Number(bytes);
   if (!Number.isFinite(n) || n < 0) return '';
@@ -17846,7 +17885,7 @@ function pjRoomRow(m, p, silent) {
   return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
     + '<div class="msg-b"><div class="msg-h"><b>' + esc(name) + '</b>'
     + '<span class="msg-t">' + esc(pjWhen(m.at) || '') + '</span></div>'
-    + '<p>' + pjBody(m.text, PJ_DOC_NAMES) + '</p>' + receipt + '</div></div>';
+    + '<p>' + pjBody(m.text, PJ_DOC_NAMES) + '</p>' + pjPreviewCard(m.preview) + receipt + '</div></div>';
 }
 
 /**
@@ -18408,7 +18447,7 @@ function pjMsg(m, name) {
      agent page's thread are the same conversation kind and share one verdict,
      so they go silent together. */
   return '<div class="pj-msg' + mark + '">'
-    + '<span class="pj-msg-text">' + pjInline(m.text) + '</span>'
+    + '<span class="pj-msg-text">' + pjInline(m.text) + '</span>' + pjPreviewCard(m.preview)
     + '<span class="pj-msg-when">You' + when + '</span>'
     + '<span class="pj-msg-said">' + said + '</span>'
     + '</div>';
