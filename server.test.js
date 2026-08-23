@@ -9631,3 +9631,61 @@ test('attachments: a room post carries a project attachment to every member and 
   assert.equal(wrong.status, 400);
   assert.match(JSON.parse(wrong.body).error, /not one this project can send/);
 });
+
+test('compact and clear type the bare slash command into the pane, refuse a pane that cannot be typed into, and record nothing (#214)', async () => {
+  /**
+   * The two Memory controls that had no engine. Each is one Claude Code
+   * slash command delivered like a message but with NO envelope and no
+   * operator line, because "[message from your operator] /compact" is not a
+   * command Claude runs (Angel). A pane that is not idle-shaped refuses with
+   * a sentence, which is right here too: compacting mid-task is worse than
+   * waiting. And nothing lands in any thread: a row reading "/clear" would be
+   * a lie about what the person said.
+   */
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const sends = [];
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    const before = JSON.parse((await req('/api/messages?agent=mara')).body).messages.length;
+    for (const cmd of ['compact', 'clear']) {
+      sends.length = 0;
+      const r = await req('/api/agent/mara/' + cmd, { method: 'POST', headers: { 'content-type': 'application/json' } });
+      assert.equal(r.status, 200, cmd + ': ' + r.body);
+      const out = JSON.parse(r.body);
+      assert.equal(out.command, cmd);
+      assert.equal(out.delivery.state, 'placed', cmd + ' did not deliver: ' + (out.delivery.because || ''));
+      const typed = sends.filter((a) => a[0] === 'send-keys');
+      assert.ok(typed.length >= 1, cmd + ' typed nothing');
+      assert.equal(typed[0][5], '/' + cmd, cmd + ' was wrapped or altered on the wire: ' + JSON.stringify(typed[0][5]));
+      assert.ok(!typed.some((a) => /message from your operator/.test(String(a[5]))), cmd + ' carried an operator line');
+    }
+    const after = JSON.parse((await req('/api/messages?agent=mara')).body).messages.length;
+    assert.equal(after, before, 'a command was recorded in the thread as if it were a message');
+    // A pane that is not typeable at the moment of sending (the probe's third
+    // field: scrolled back into copy mode) refuses with the engine's sentence
+    // and types nothing. A merely busy agent is NOT refused: the command is
+    // typed and read when its turn ends, which deliver already says.
+    const sends2 = [];
+    chatEngine.setRunner((args) => {
+      sends2.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t1\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    const back = await req('/api/agent/mara/compact', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(back.status, 409, 'a scrolled-back pane was not refused: ' + back.body);
+    assert.equal(JSON.parse(back.body).delivery.state, 'could_not');
+    assert.equal(sends2.filter((a) => a[0] === 'send-keys').length, 0, 'something was typed into a pane the probe said not to type into');
+    // Unknown agent: 404, never a send.
+    const nope = await req('/api/agent/nobody-here/clear', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(nope.status, 404);
+  } finally {
+    chatEngine.setRunner(null);
+    board.restore();
+  }
+});
