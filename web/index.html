@@ -1403,6 +1403,21 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 .settings-connected { display: inline-flex; align-items: center; gap: 6px; font-size: .875rem;
   font-weight: 600; color: var(--k-ink-2); }
 .settings-connected span { color: var(--gold-deep); font-weight: 700; }
+/* Connections (#282): two groups, one quiet line per category. The summary
+   row is the whole claim when nothing is connected; the options only exist
+   once opened. Chevron rotates open, native details behaviour otherwise. */
+.con-group { font: var(--text-caption) var(--font-ui); letter-spacing: .08em; text-transform: uppercase;
+             color: var(--label-2); margin: 18px 0 6px; }
+.con-cat { border-bottom: 0.5px solid var(--separator); }
+.con-cat summary { display: flex; align-items: center; gap: 10px; padding: 10px 2px; cursor: pointer;
+                   list-style: none; font: var(--text-body) var(--font-ui); color: var(--label); }
+.con-cat summary::-webkit-details-marker { display: none; }
+.con-cat summary b { font-weight: 600; }
+.con-cat .con-state { margin-left: auto; color: var(--label-2); font-size: .8125rem; }
+.con-cat .con-chev { color: var(--label-2); transition: transform .12s ease; }
+.con-cat[open] .con-chev { transform: rotate(90deg); }
+.con-cat summary:focus-visible { outline: 2px solid var(--label); outline-offset: -2px; }
+.con-cat .con-body { padding: 0 2px 12px; }
 .boardrow { display: flex; gap: 8px; flex-wrap: wrap; }
 .boardname { font-size: .875rem; font-weight: 600; color: var(--k-ink-2);
   border: 1px solid var(--k-rule); border-radius: 8px; padding: 7px 12px; background: var(--k-surface); }
@@ -5826,32 +5841,144 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     </section>
   </section>
   <section class="dsec" id="s-sec-connect" data-sec="connect" tabindex="-1" aria-label="Connections" hidden>
-    <section class="dbox">
-      <h3 class="dlab">Connections</h3>
-      <p class="dhint" style="margin:0 0 14px;">
-        Kosmos gives you a simple task list to start with, and it is the one
-        on your projects. Later you will be able to connect a board you
-        already use instead of moving your work into ours.
-      </p>
-      <div class="boardrow">
-        <span class="boardname on">Trello</span>
-        <span class="boardname off">Jira</span>
-        <span class="boardname off">Notion</span>
-        <span class="boardname off">Asana</span>
-        <span class="boardname off">monday.com</span>
-        <span class="boardname off">ClickUp</span>
-        <span class="boardname off">Linear</span>
-        <span class="boardname off">Airtable</span>
-      </div>
-      <p class="dhint" style="margin:12px 0 0;"><b>None of these are connected yet.</b> Trello is the one being built first.</p>
-      <p class="dhint" style="margin:8px 0 0;">
-        Kosmos is open source. If you want a different one before we get to
-        it, you can wire it up yourself.
-      </p>
-      <p class="dhint" style="margin:8px 0 0;">
-        Your tasks stay where they are. Kosmos reads them and does not copy
-        them, so nothing here can disagree with your board.
-      </p>
+  <section class="dbox">
+    <h3 class="dlab">Connections</h3>
+    <!-- 🔑 THE SHAPE IS TWO GROUPS AND QUIET ROWS (#282, #325). Sixteen
+         categories is roughly sixty services; flat, the page is a wall and
+         nearly all of it is irrelevant to any one person. So: a category with
+         nothing connected is ONE line that opens on request, and the split is
+         by how often an AGENT touches it (Splinter's inventory, 2026-08-23):
+         the five or six an agent uses daily lead, the set-up-once tail
+         follows. ⚠️ The service names inside are the COMMON OPTIONS for each
+         category, deliberately not a record of anyone's stack: this repo is
+         public, and the inventory that informed the grouping lives in a
+         private document.
+         🛑 NO CONNECT BUTTONS. Nothing here can be connected yet, and a
+         connect button that does not work is worse than an absent one, so the
+         names are passive pills until each connection is really built. Task
+         boards go first. <details>, not a hand-rolled toggle: the keyboard
+         and screen-reader behaviour come with the element. -->
+    <p class="dhint" style="margin:0 0 6px;">
+      The services your agents reach: where your code lives, where your team
+      talks, where your tasks are. Nothing is connected yet; connections open
+      up here one at a time, starting with task boards.
+    </p>
+    <p class="dhint" style="margin:0 0 14px;">
+      When one opens up, you sign in on the service&rsquo;s own page and this Mac
+      holds the key. Kosmos never sees a password.
+    </p>
+    <h4 class="con-group">What agents touch every day</h4>
+      <details class="con-cat" data-cat="tasks">
+        <summary><b>Tasks and issues</b><span class="con-state">Being built first</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <p class="dhint" style="margin:0 0 8px;">Kosmos gives you a simple task list to start with, and it is the one on your projects. Connecting a board you already use means your tasks stay where they are: Kosmos reads them and does not copy them, so nothing here can disagree with your board. Trello is the one being built first.</p>
+          <div class="boardrow"><span class="boardname off">Trello</span><span class="boardname off">Jira</span><span class="boardname off">Linear</span><span class="boardname off">Asana</span><span class="boardname off">Notion</span><span class="boardname off">monday.com</span><span class="boardname off">ClickUp</span><span class="boardname off">Airtable</span></div>
+        </div>
+      </details>
+      <details class="con-cat" data-cat="code">
+        <summary><b>Code</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <p class="dhint" style="margin:0 0 8px;">Where your code lives. Agents read it, open pull requests, and watch the checks.</p>
+          <div class="boardrow"><span class="boardname off">GitHub</span><span class="boardname off">GitLab</span><span class="boardname off">Bitbucket</span></div>
+        </div>
+      </details>
+      <details class="con-cat" data-cat="chat">
+        <summary><b>Team chat</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <p class="dhint" style="margin:0 0 8px;">Where your team already talks, so agents can answer where the question was asked.</p>
+          <div class="boardrow"><span class="boardname off">Slack</span><span class="boardname off">Discord</span><span class="boardname off">Microsoft Teams</span></div>
+        </div>
+      </details>
+      <details class="con-cat" data-cat="search">
+        <summary><b>Web search</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <p class="dhint" style="margin:0 0 8px;">How agents look things up on the open web.</p>
+          <div class="boardrow"><span class="boardname off">Brave Search</span><span class="boardname off">Tavily</span><span class="boardname off">Exa</span><span class="boardname off">Serper</span></div>
+        </div>
+      </details>
+      <details class="con-cat" data-cat="google">
+        <summary><b>Google</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <p class="dhint" style="margin:0 0 8px;">Mail, files and calendar, read and written on your behalf.</p>
+          <div class="boardrow"><span class="boardname off">Gmail</span><span class="boardname off">Google Drive</span><span class="boardname off">Google Calendar</span><span class="boardname off">Microsoft 365</span></div>
+        </div>
+      </details>
+      <details class="con-cat" data-cat="email">
+        <summary><b>Sending email</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <p class="dhint" style="margin:0 0 8px;">How an agent sends mail to other people for you.</p>
+          <div class="boardrow"><span class="boardname off">Resend</span><span class="boardname off">Postmark</span><span class="boardname off">SendGrid</span><span class="boardname off">Mailgun</span><span class="boardname off">Amazon SES</span></div>
+        </div>
+      </details>
+    <h4 class="con-group">Set up once, rarely touched after</h4>
+      <details class="con-cat" data-cat="deploy">
+        <summary><b>Deploy and hosting</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <div class="boardrow"><span class="boardname off">Vercel</span><span class="boardname off">Netlify</span><span class="boardname off">Cloudflare Pages</span><span class="boardname off">Render</span><span class="boardname off">Fly.io</span><span class="boardname off">Railway</span></div>
+        </div>
+      </details>
+      <details class="con-cat" data-cat="dns">
+        <summary><b>Domains and DNS</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <div class="boardrow"><span class="boardname off">Cloudflare</span><span class="boardname off">Namecheap</span><span class="boardname off">Route 53</span><span class="boardname off">Porkbun</span></div>
+        </div>
+      </details>
+      <details class="con-cat" data-cat="storage">
+        <summary><b>File storage</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <div class="boardrow"><span class="boardname off">Amazon S3</span><span class="boardname off">Cloudflare R2</span><span class="boardname off">Backblaze B2</span><span class="boardname off">Wasabi</span></div>
+        </div>
+      </details>
+      <details class="con-cat" data-cat="db">
+        <summary><b>Database</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <div class="boardrow"><span class="boardname off">Supabase</span><span class="boardname off">Neon</span><span class="boardname off">PlanetScale</span><span class="boardname off">Turso</span></div>
+        </div>
+      </details>
+      <details class="con-cat" data-cat="payments">
+        <summary><b>Payments</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <div class="boardrow"><span class="boardname off">Stripe</span><span class="boardname off">Paddle</span><span class="boardname off">Lemon Squeezy</span></div>
+        </div>
+      </details>
+      <details class="con-cat" data-cat="sms">
+        <summary><b>Texts and calls</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <div class="boardrow"><span class="boardname off">Twilio</span><span class="boardname off">Vonage</span></div>
+        </div>
+      </details>
+      <details class="con-cat" data-cat="uptime">
+        <summary><b>Uptime and monitoring</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <div class="boardrow"><span class="boardname off">UptimeRobot</span><span class="boardname off">Better Stack</span><span class="boardname off">Pingdom</span><span class="boardname off">Checkly</span></div>
+        </div>
+      </details>
+      <details class="con-cat" data-cat="servers">
+        <summary><b>Servers</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <div class="boardrow"><span class="boardname off">DigitalOcean</span><span class="boardname off">Hetzner</span><span class="boardname off">Linode</span><span class="boardname off">AWS</span></div>
+        </div>
+      </details>
+      <details class="con-cat" data-cat="appstores">
+        <summary><b>App stores</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <div class="boardrow"><span class="boardname off">Apple App Store Connect</span><span class="boardname off">Google Play</span></div>
+        </div>
+      </details>
+      <details class="con-cat" data-cat="social">
+        <summary><b>Social</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <div class="boardrow"><span class="boardname off">X</span><span class="boardname off">Reddit</span><span class="boardname off">LinkedIn</span><span class="boardname off">Bluesky</span><span class="boardname off">Mastodon</span><span class="boardname off">Farcaster</span></div>
+        </div>
+      </details>
+    <p class="dhint" style="margin:14px 0 0;">
+      Claude and other model accounts are not here. Who answers for an agent
+      lives under Accounts; this page is what an agent can reach.
+    </p>
+    <p class="dhint" style="margin:8px 0 0;">
+      Kosmos is open source. If you want a connection before we get to it,
+      you can wire it up yourself.
+    </p>
     </section>
   </section>
   <section class="dsec" id="s-sec-talking" data-sec="talking" tabindex="-1" aria-label="Agents talking" hidden>
