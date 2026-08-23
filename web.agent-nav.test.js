@@ -79,7 +79,8 @@ test('the poll never chooses the section', () => {
   // with the arrival capture in detailGo, or a page left open on Talk costs a
   // capture-pane every five seconds for nothing anybody can see.
   assert.match(tick, /!detailSection\('term'\)\.hidden/, 'the poll captures the window while the Terminal section is hidden');
-  assert.match(script, /if \(section === 'term' && CURRENT[^\n]*detailPaintWindow\(CURRENT\)/, 'arriving at Terminal does not capture, so the section shows a stale window until the next tick');
+  const go = script.slice(script.indexOf('function detailGo('), script.indexOf('\nfunction ', script.indexOf('function detailGo(') + 1));
+  assert.match(go, /detailPaintWindow\(CURRENT\)/, 'arriving at Terminal does not capture, so the section shows a stale window until the next tick');
 });
 
 test('the agent window no longer answers to the Engineering mode switch on this page', () => {

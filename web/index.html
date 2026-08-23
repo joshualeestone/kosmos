@@ -7709,9 +7709,11 @@ async function tick() {
          is the affirmative-hint-over-a-stale-screen defect this function's
          own comments name. The Terminal section is the one surface this
          tick captures for, and it captures whether the switch is on or off. */
-      if (!WINDOW_OPENING && !document.hidden
+      if (!document.hidden
           && !document.getElementById('panel-detail').hidden
           && !detailSection('term').hidden) {
+        /* `WINDOW_OPENING` no longer gates this: every caller passes the
+           cached flag, so the refresh it counted never runs from here. */
         detailPaintWindow(fresh);
       }
 
@@ -9699,10 +9701,12 @@ async function paintAgentWindow(sessionName, opts) {
   /* 🛑 THE SWITCH NO LONGER GATES THIS BOX (Josh, 2026-08-22, on the agent-page
      mock: always available here, the switch was for the PROJECT screen). With
      the page split into sections, a gated box would have left the Terminal
-     pill opening an empty section, which is a control that does nothing. The
-     flag is still learned above because `pjApplyEngMode` reads it for the
-     project room, which the switch still governs. `on` is deliberately unused
-     past this line. */
+     pill opening an empty section, which is a control that does nothing.
+     Every caller now passes `cachedFlag`, so the refresh branch above is not
+     reached from here (the flag is learned where the switch is painted); it
+     is kept rather than deleted because `ENG_ON` is read by the project
+     room, which the switch still governs. `on` is deliberately unused past
+     this line. */
   void on;
   /* The box reveals with CONTENT (a capture or a refusal in words), not
      before it: a bare heading over an empty pre for a round-trip is the
@@ -9718,7 +9722,13 @@ async function paintAgentWindow(sessionName, opts) {
        the tick's tie-gone arm would a beat later -- painting the 404
        body would put "no agent by that name" inside the open panel of
        an agent the person is looking at. */
-    if (res.status === 404) { box.hidden = true; return; }
+    if (res.status === 404) {
+      /* The route does not know this agent even though the card said tied
+         (roster skew); "Reading its window" would stand until a tick flipped
+         the tie, so the section says the honest thing now. */
+      detailSection('term').dataset.tied = '0';
+      box.hidden = true; return;
+    }
     if (r.text != null) {
       pre.textContent = r.text;
       pre.hidden = false;
@@ -9802,7 +9812,10 @@ async function paintConversation(sessionName, agentName) {
  *
  * The scroll key rides here too: the MARKUP decides whether to rewrite, the
  * message COUNT decides whether to jump to the bottom -- a new message should
- * land in view, an unchanged list should not move under a reader.
+ * land in view, an unchanged list should not move under a reader. ⚠️ While the
+ * Talk section is hidden (agent-page-nav) the jump is a no-op on a zero-height
+ * container; `detailGo` does the landing on return, and a reader's kept place
+ * wins over a message that arrived while they were away.
  */
 function setThread(el, html, count) {
   if (el.__lastThread !== html) {
@@ -11154,7 +11167,10 @@ const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'profile', 'term', 
 let TALK_SCROLL = null;
 function detailGo(section, opts) {
   if (!DETAIL_SECTIONS.includes(section)) section = 'talk';
-  {
+  /* The reader's place is kept only across THEIR OWN click away from Talk
+     (the open path passes focus:false and never captures: it is a different
+     agent's thread, and openDetail has just reset the offset for it). */
+  if (!(opts && opts.focus === false)) {
     const talk = detailSection('talk');
     const th = document.getElementById('d-dmthread');
     if (talk && !talk.hidden && section !== 'talk' && th) TALK_SCROLL = th.scrollTop;
@@ -11176,7 +11192,7 @@ function detailGo(section, opts) {
      open it stays where it was: opening an agent already manages focus (the
      answer button's intent, the back button), and yanking it here would fight
      that. */
-  if (target && !(opts && opts.focus === false)) target.focus({ preventScroll: false });
+  if (target && !(opts && opts.focus === false)) target.focus();
   /* ⚠️ A PAINT THAT MEASURES LAYOUT CANNOT DO IT INTO A HIDDEN SECTION.
      `setThread` scrolls the thread to its newest row when the count changes;
      with Talk at display:none the scrollHeight is 0, the assignment is a
@@ -11185,12 +11201,16 @@ function detailGo(section, opts) {
      that measures. */
   if (section === 'talk') {
     const th = document.getElementById('d-dmthread');
-    /* Back where they were if they had left; otherwise the newest row, which
-       is what a thread painted into a hidden section could not do. */
-    if (th && TALK_SCROLL !== null) th.scrollTop = TALK_SCROLL;
+    /* Back where they were if they had left, consumed on use so a second
+       click on the Talk pill does not drag them back to an older offset;
+       otherwise the newest row, which is what a thread painted into a hidden
+       section could not do. 📌 THE RULING: a reader's place beats a message
+       that arrived while they were away. `setThread`'s newest-row jump is
+       for the live list under a reader; here the reader had left. */
+    if (th && TALK_SCROLL !== null) { th.scrollTop = TALK_SCROLL; TALK_SCROLL = null; }
     else if (th && th.__lastCount !== null && th.__lastCount !== undefined) th.scrollTop = th.scrollHeight;
   }
-  if (section === 'term' && CURRENT && !WINDOW_OPENING) detailPaintWindow(CURRENT);
+  if (section === 'term' && CURRENT) detailPaintWindow(CURRENT);
 }
 document.getElementById('d-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
@@ -13728,6 +13748,7 @@ document.getElementById('d-model-go').addEventListener('click', async () => {
   const msg = document.getElementById('d-model-msg');
   const want = sel.value;
   if (!want) return;
+  let nudge = false;   // set on success; the focus happens after the re-enable in finally
   /* The same capture-and-recheck the instruction save and the avatar upload
      use: switching agents mid-flight must not land this answer on another
      agent's panel. */
@@ -13766,13 +13787,17 @@ document.getElementById('d-model-go').addEventListener('click', async () => {
      *
      * 📌 A failed focus must never take down the verdict just shown.
      */
-    try { sel.focus(); } catch { /* the sentence stands on its own */ }
+    nudge = true;
   } catch (err) {
     msg.textContent = err.message;
   } finally {
     if (!CURRENT || CURRENT.sessionName === forAgent) {
       sel.disabled = false;
       go.disabled = !sel.value;
+      /* After the re-enable, or the focus lands on a disabled control and
+         does nothing; and only on success, so a failure leaves the person
+         where they were to read the sentence. */
+      if (nudge) { try { sel.focus(); } catch { /* the sentence stands on its own */ } }
     }
   }
 });
