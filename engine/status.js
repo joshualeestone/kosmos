@@ -1636,11 +1636,13 @@ function notYetStarted(agentName) {
  * starts. The same plist gate `notYetStarted` trusts, inverted, and it FAILS
  * TOWARD FALSE: a wrong "never recorded" asserts provenance about an agent we
  * could not check, while a wrong false only leaves the ordinary admission,
- * which is vague but not a claim. Callers must apply it only to a pane tied
+ * which is vague but not a claim. Which is why this is create.jobMissing and
+ * not !existsSync: only ENOENT counts as absence, an unreadable directory
+ * answers "could not check" and stays false. Callers must apply it only to a pane tied
  * to the name (`isNamedOurs`); this function knows files, not panes.
  */
 function neverRecorded(agentName) {
-  try { return !fs.existsSync(require('./create').plistPath(agentName)); } catch { return false; }
+  try { return require('./create').jobMissing(agentName) === true; } catch { return false; }
 }
 
 function transcriptCwd(file) {

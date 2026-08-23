@@ -3360,12 +3360,12 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     // an alternation of both, which passes whichever half the fixture lands in
     // and would not notice a classification regression at all.
     // ⚠️ THIS FIXTURE IS A RUNNING CLAUDE PANE with no registry entry AND, in
-    // the sandbox, no plist under its name — which since #149/#150 is the
+    // the sandbox, no plist under its name, which since #149/#150 is the
     // NEVER-RECORDED branch, not the plain admission (the sandbox never wrote
     // it a launch file, and the engine now says so instead of claiming a
     // lookup fault). Same discipline as before: the sentence is pinned, AND
     // the branch that produces it is asserted separately, so a flip is a
-    // failure rather than a silently different pass — this line has been
+    // failure rather than a silently different pass. This line has been
     // re-aimed for a third time now, and each time the branch assert is what
     // made the move loud.
     const spoiled = api.card(spoofed);

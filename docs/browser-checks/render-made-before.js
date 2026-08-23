@@ -72,6 +72,13 @@ function chk(ok, label, extra) {
     }));
     chk(cards.rick === 'Made before Kosmos recorded this', 'the no-plist card wears the sentence', cards.rick);
     chk(cards.bob !== 'Made before Kosmos recorded this', 'CONTROL: the with-plist card does not', cards.bob);
+    /* The sentence is 2.5x the old label; a text-equality pin cannot see an
+       ellipsis or an overflowed row, so measure the fit where it renders. */
+    const fit = await page.evaluate(() => {
+      const el = document.querySelector('[data-agent="rick"] .amodel');
+      return { over: el.scrollWidth > el.clientWidth + 1, w: el.clientWidth, sw: el.scrollWidth };
+    });
+    chk(!fit.over, 'the longer sentence fits the card without overflowing', JSON.stringify(fit));
 
     // Rick's panel: explainer visible with the way in, picker refused pre-click.
     await page.click('[data-agent="rick"]');

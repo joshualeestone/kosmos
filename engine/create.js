@@ -360,6 +360,19 @@ function nameUsable(raw) {
 function hasJob(name) {
   try { return fs.existsSync(plistPath(name)); } catch { return false; }
 }
+/**
+ * #149/#150: "no launch file" as a PROVEN absence, never an unreadable one.
+ * `!hasJob(name)` fails the wrong way for this question: existsSync swallows
+ * EACCES and a broken directory into false, so the negation would stamp
+ * "made before Kosmos recorded this", a provenance claim, on every agent the
+ * moment LaunchAgents cannot be read. Only ENOENT is evidence of absence;
+ * any other failure answers "we could not check", which is false here.
+ */
+function jobMissing(name) {
+  try { fs.statSync(plistPath(name)); return false; } catch (e) {
+    return Boolean(e && e.code === 'ENOENT');
+  }
+}
 function instructionFile(name) { return path.join(workerDir(name), 'CLAUDE.md'); }
 function logFile(name) { return path.join(workerDir(name), 'start.log'); }
 function serviceLabel(name) { return `com.kosmos.agent.${name}`; }
@@ -1725,7 +1738,7 @@ module.exports = {
   setModel,
   installJob,
   nameUsable,
-  hasJob,
+  hasJob, jobMissing,
   setAccount,
   readJob,
   createAgent,

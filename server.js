@@ -1006,7 +1006,7 @@ const server = http.createServer((req, res) => {
                    A stopped agent with no launch file is exactly the state
                    the sentence exists for: nothing will start it, and no
                    restart fills the record in. */
-                neverRecorded: !create.hasJob(k.name),
+                neverRecorded: create.jobMissing(k.name),
                 account: accountOf(k.name),
                 commitments: commitments.read(k.name),
                 instructions: instructions.staleness(k.name),

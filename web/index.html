@@ -10198,7 +10198,12 @@ function memoryBox(a) {
        is false — it is also the longest, most confident statement of the fact
        on any screen, so it is the one that would do the most damage left
        unchanged. */
-    const u = memUnknown(a.context);
+    /* #149/#150: a stopped row carries no context at all, so the flag rides
+       the ROW there; the running path's context already carries it. Without
+       this, a stopped never-recorded agent's memory box kept the fault
+       sentence while the model line beside it said history: one panel, one
+       state, two vocabularies. */
+    const u = memUnknown(a.context || (a.neverRecorded ? { neverRecorded: true } : null));
     return '<div class="memrow"><span class="bar unknown"></span><span class="pct">' + u.word + '</span></div>'
       + '<p class="dhint" style="margin:12px 0 0;"><b>' + esc(a.name) + '\u2019s ' + u.lead + '</b> '
       + u.note + '</p>';

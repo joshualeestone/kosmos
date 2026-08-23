@@ -49,6 +49,25 @@ test('no model and no launch file reads as history; no model WITH one stays the 
     'a readable model was displaced by the history sentence');
 });
 
+test('the memory panel says never recorded, for a running context and for a stopped row alike', () => {
+  /* The engine flag rides context for a running agent; a stopped row carries
+     NO context, so memoryBox synthesizes one from the row flag. Two pins:
+     the wording branch itself (lifted and run), and the synthesis (checked
+     structurally, because lifting memoryBox drags six dependencies whose
+     table values are not what this test is about). */
+  const src = liftAll(SCRIPT, ['memUnknown', 'memWhy']);
+  const run = new Function('ctx', src + '\nreturn memUnknown(ctx);');
+  assert.equal(run({ neverRecorded: true }).lead, 'memory was never recorded.',
+    'the never-recorded memory state still greets the person with a fault sentence');
+  assert.match(run({ neverRecorded: true }).aria, /Memory was never recorded/,
+    'the screen-reader sentence keeps the fault framing');
+  assert.equal(run({}).lead, 'memory could not be read.',
+    'the fault state lost its own sentence, which hides a breakage');
+  const mb = SCRIPT.slice(SCRIPT.indexOf('function memoryBox('), SCRIPT.indexOf('function memoryBox(') + 1600);
+  assert.ok(/a\.context \|\| \(a\.neverRecorded/.test(mb),
+    'memoryBox no longer reaches the treatment for a stopped row, whose context is absent');
+});
+
 test('the picker and the explainer both name the way in, and only for the never-recorded state', () => {
   /* Text-level pins on the page: the wording ruled on card #150, the
      migration path, and the #362 reason the path is gated. Each pin anchors
@@ -75,6 +94,6 @@ test('the picker and the explainer both name the way in, and only for the never-
      agent's refusal cannot stand on another's panel. Structural pin on the
      clear living in openDetail, before the paints. */
   const od = PAGE.slice(PAGE.indexOf('function openDetail('), PAGE.indexOf('function openDetail(') + 4000);
-  assert.ok(/d-model-msg/.test(od),
+  assert.ok(/getElementById\('d-model-msg'\)[\s\S]{0,120}?\.textContent = ''/.test(od),
     'openDetail no longer clears the model message, so a refusal lingers across an agent switch');
 });
