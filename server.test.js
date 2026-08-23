@@ -9433,3 +9433,132 @@ test('link previews: cross-site GETs are refused, the payload carries the previe
   assert.ok(row2.preview.fetchedAt, 'no fetchedAt');
   assert.ok(calls.includes('https://site.example/new-post'), 'the link was never fetched');
 });
+
+/**
+ * Attachments (#358): upload, then a message that carries it; the file served
+ * as a download; the preview; the pane told the path; the wrong owner refused.
+ */
+test('attachments: a file is uploaded to an agent, rides the message, reaches the pane as a path, and is served as a download', async (t) => {
+  const chatEngine = require('./engine/chat');
+  const attachmentsEngine = require('./engine/attachments');
+  const name = await anyAgent(t);
+  if (!name) return;
+  const typed = [];
+  chatEngine.setRunner((args) => {
+    if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+    typed.push(args);
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  });
+  t.after(() => chatEngine.resetForTests());
+
+  // Upload: raw bytes, the name in a header.
+  const up = await fetch(base + '/api/agent/' + name + '/attachment', {
+    method: 'PUT', headers: { 'content-type': 'text/plain', 'x-attachment-name': encodeURIComponent('lease notes.txt') },
+    body: 'The lease runs to March.',
+  });
+  const upBody = await up.text();
+  assert.equal(up.status, 200, upBody);
+  const { attachment } = JSON.parse(upBody);
+  assert.match(attachment.id, /^[0-9a-f]{24}$/);
+  assert.equal(attachment.name, 'lease notes.txt');
+  assert.equal(attachment.kind, 'text');
+  assert.equal(attachment.preview, 'The lease runs to March.', 'a text file\'s preview is its text');
+  assert.equal(attachment.url, '/api/attachment/' + attachment.id);
+
+  // The message that carries it.
+  const post = await req('/api/agent/' + name + '/thread', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'here is the lease', attachment: attachment.id }),
+  });
+  assert.equal(post.status, 200, post.body);
+  const thread = JSON.parse((await req('/api/agent/' + name + '/thread')).body);
+  const row = (thread.messages || []).find((m) => m.text === 'here is the lease');
+  assert.ok(row, 'the message is not in the thread');
+  assert.ok(row.attachment, 'the row carries no attachment');
+  assert.equal(row.attachment.id, attachment.id);
+  assert.equal(row.attachment.kind, 'text');
+  assert.ok('preview' in row.attachment, 'preview is absent rather than null or a value');
+
+  // The pane was told where the file is, in the bracketed line.
+  const wire = typed.map((a) => a[5]).find((x) => typeof x === 'string' && x.includes('here is the lease')) || '';
+  assert.match(wire, /here is the lease \[attached file: \/.+\/lease notes\.txt\]$/, wire);
+  const rec = attachmentsEngine.read(attachment.id);
+  assert.ok(wire.includes(rec.file), 'the path in the wire is not the stored file');
+
+  // Served as a download, never inline, with nosniff and a sandbox.
+  const dl = await fetch(base + attachment.url);
+  assert.equal(dl.status, 200);
+  assert.match(dl.headers.get('content-disposition') || '', /^attachment; filename\*=UTF-8''lease%20notes\.txt$/);
+  assert.equal(dl.headers.get('x-content-type-options'), 'nosniff');
+  assert.match(dl.headers.get('content-security-policy') || '', /sandbox/);
+  assert.equal(await dl.text(), 'The lease runs to March.');
+
+  // An image's preview is the image; a text file has no preview route.
+  const img = await fetch(base + '/api/agent/' + name + '/attachment', {
+    method: 'PUT', headers: { 'content-type': 'image/png', 'x-attachment-name': 'a.png' }, body: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+  });
+  const imgRec = (await img.json()).attachment;
+  assert.equal(imgRec.kind, 'image');
+  const pv = await fetch(base + imgRec.preview);
+  assert.equal(pv.status, 200);
+  assert.equal(pv.headers.get('content-type'), 'image/png');
+  assert.equal((await pv.arrayBuffer()).byteLength, 4);
+  const noPv = await fetch(base + '/api/attachment/' + attachment.id + '/preview');
+  assert.equal(noPv.status, 404);
+
+  // The wrong owner cannot send someone else's attachment: an AGENT's
+  // attachment posted into a real project the agent is on, and a PROJECT's
+  // attachment posted into the agent's own thread.
+  const projectsEngine = require('./engine/projects');
+  const pr = projectsEngine.create({ name: 'Attach Owner Check' });
+  projectsEngine.writeAll(projectsEngine.readAll().map((x) => (x.id === pr.id ? { ...x, agents: [decodeURIComponent(name)] } : x)));
+  t.after(() => { try { projectsEngine.writeAll(projectsEngine.readAll().filter((x) => x.id !== pr.id)); } catch { /* sandboxed */ } });
+  const wrong = await req('/api/project/' + pr.id + '/thread/' + name, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'x', attachment: attachment.id }),
+  });
+  assert.equal(wrong.status, 400, wrong.body);
+  assert.match(JSON.parse(wrong.body).error, /not one this project can send/);
+  const pup = await fetch(base + '/api/project/' + pr.id + '/attachment', {
+    method: 'PUT', headers: { 'content-type': 'text/plain', 'x-attachment-name': 'p.txt' }, body: 'project file',
+  });
+  const pRec = (await pup.json()).attachment;
+  const crossed = await req('/api/agent/' + name + '/thread', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'x', attachment: pRec.id }),
+  });
+  assert.equal(crossed.status, 400);
+  assert.match(JSON.parse(crossed.body).error, /not one this conversation can send/);
+  const unknown = await req('/api/agent/' + name + '/thread', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'x', attachment: 'zzzzzzzzzzzzzzzzzzzzzzzz' }),
+  });
+  assert.equal(unknown.status, 400);
+  assert.match(JSON.parse(unknown.body).error, /not one this conversation can send/);
+
+  // Too large is refused, and nothing is kept: the owner's folder has the
+  // same entries after as before.
+  const ownerDir = nodePath.join(attachmentsEngine.ROOT, 'agent', decodeURIComponent(name));
+  const before = fs.readdirSync(ownerDir).length;
+  const big = await fetch(base + '/api/agent/' + name + '/attachment', {
+    method: 'PUT', headers: { 'content-type': 'application/octet-stream', 'x-attachment-name': 'big.bin' }, body: Buffer.alloc(attachmentsEngine.MAX_BYTES + 2),
+  }).catch((e) => ({ status: 0, text: async () => String(e) }));
+  assert.notEqual(big.status, 200, 'a file past the cap was accepted');
+  assert.equal(fs.readdirSync(ownerDir).length, before, 'a file past the cap was kept');
+
+  // A message at the cap still sends with an attachment: the path rides
+  // outside the person's 2000 characters, and a name with two spaces reaches
+  // the pane uncollapsed.
+  const spaced = await fetch(base + '/api/agent/' + name + '/attachment', {
+    method: 'PUT', headers: { 'content-type': 'text/plain', 'x-attachment-name': encodeURIComponent('Q3  report.txt') }, body: 'q3',
+  });
+  const spacedRec = (await spaced.json()).attachment;
+  const long = await req('/api/agent/' + name + '/thread', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'y'.repeat(1990), attachment: spacedRec.id }),
+  });
+  assert.equal(long.status, 200, long.body);
+  assert.equal(JSON.parse(long.body).delivery.state, 'placed', JSON.stringify(JSON.parse(long.body).delivery));
+  const spacedWire = typed.map((a) => a[5]).find((x) => typeof x === 'string' && x.includes('Q3  report.txt')) || '';
+  assert.ok(spacedWire, 'the two-space file name was collapsed on the way to the pane');
+});
