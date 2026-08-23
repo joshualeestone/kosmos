@@ -104,6 +104,7 @@ one invented by somebody who did not write them.
 | `render-reload-toast.js` | The reload toast in both tones, beside the shipped offer toast it must not look like (#270) |
 | `render-sleep-button.js` | **no header sentence.** Read it before running it, and give it one. |
 | `render-special-purpose.js` | **no header sentence.** Read it before running it, and give it one. |
+| `render-talk-search.js` | The search box above the agent thread: filter by text and by who, the no-match sentence, reset on switching agent |
 | `render-talk.js` | A REAL agent card, from the real producer |
 | `render-tasks.js` | **no header sentence.** Read it before running it, and give it one. |
 | `render-memory-controls.js` | The Memory tab's three controls (#214): Compact, Clear, Restart together, the chooser sentence, Compact's dialog and verdict. |
