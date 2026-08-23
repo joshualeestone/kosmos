@@ -81,8 +81,8 @@ test('it offers only the agents Kosmos does not already have', async () => {
   assert.match(list.innerHTML, /Anna/);
   assert.doesNotMatch(list.innerHTML, /Bob/,
     'an agent Kosmos already looks after is offered back to the person who added it');
-  assert.match(toggle.textContent, /the agent on this Mac that is not in Kosmos/,
-    'the count is not the number of rows drawn');
+  assert.match(toggle.textContent, /^We found an agent on your computer\. (Show|Hide) it$/,
+    'the sentence does not count the rows drawn (one row, singular)');
 });
 
 test('it is a fold, shut until somebody opens it', async () => {
@@ -91,12 +91,13 @@ test('it is a fold, shut until somebody opens it', async () => {
   const { wrap, list, toggle } = await paint([LOOSE], { open: false });
   assert.equal(wrap.hidden, false, 'the fold itself is hidden, so there is nothing to open');
   assert.equal(list.hidden, true, 'the list is open before anybody asked for it');
-  assert.match(toggle.textContent, /^Show /);
+  assert.match(toggle.textContent, /\. Show (it|them)$/);
+  assert.doesNotMatch(toggle.textContent, /\d/, 'a number is back in the sentence; Josh ruled none');
   assert.equal(toggle.attrs['aria-expanded'], 'false');
 
   const open = await paint([LOOSE], { open: true });
   assert.equal(open.list.hidden, false);
-  assert.match(open.toggle.textContent, /^Hide /);
+  assert.match(open.toggle.textContent, /\. Hide (it|them)$/);
   assert.equal(open.toggle.attrs['aria-expanded'], 'true');
 });
 
