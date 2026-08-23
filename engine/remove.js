@@ -609,7 +609,14 @@ function plan(name) {
     // cannot say "Splinter" above a button reading "Remove claudebot".
     label: shown,
     question: `Are you sure you want to remove ${shown} from Kosmos?`,
-    reassurance: "The agent's folder and the contents you wrote for it will not be deleted.",
+    reassurance: 'Removing is not deleting. Its files will not be deleted.',
+    // What the person is deciding, in two columns (#407, the Saturday design).
+    // The jobless arm differs on one line only: Kosmos cannot start that one
+    // again, so "put it back" is not on offer and the list must not imply it.
+    loses: jobFor(clean)
+      ? ['Its place on the board', 'Starting again on its own, until you put it back']
+      : ['Its place on the board', 'Running, and Kosmos cannot start it again for you'],
+    keeps: ['Its folder, on this computer', 'Its instructions', 'Everything it has written'],
     /**
      * ⚠️ THE HINT ON THE DETAIL SCREEN, and it comes from here for the same
      * reason the question does.
@@ -634,12 +641,14 @@ function plan(name) {
      * reassurance was describing an undo that does not exist.
      */
     hint: jobFor(clean)
-      ? 'Removing it takes it off Kosmos and stops it starting again. '
-        + 'Nothing on your computer is deleted, and you can put it back.'
-      : 'Removing it takes it off Kosmos and stops it running. '
-        + 'It is not set to start on its own, so Kosmos cannot start it again for you. '
-        + 'You would start it the same way you did the first time. '
-        + 'Nothing on your computer is deleted.',
+      ? 'It stops running and leaves the board, and Kosmos stops it starting again; you can put it back. '
+        + 'Its folder, its instructions and everything it has written stay on this computer. '
+        + 'Removing is not deleting.'
+      : 'It stops running and leaves the board. '
+        + 'It is not set to start on its own, so Kosmos cannot start it again for you; '
+        + 'you would start it the same way you did the first time. '
+        + 'Its folder, its instructions and everything it has written stay on this computer. '
+        + 'Removing is not deleting.',
   };
 }
 

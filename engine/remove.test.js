@@ -1307,7 +1307,7 @@ test('what the detail screen is told about removing an agent comes from here, an
   const a = remove.plan(withJob);
   assert.ok(a.hint, 'the detail screen is given nothing to say about what removing does');
   assert.match(a.hint, /stops it starting again/);
-  assert.match(a.hint, /Nothing on your computer is deleted/,
+  assert.match(a.hint, /Removing is not deleting/,
     'it does not answer the one thing they might fear');
 
   boardShows(jobless, jobless);
