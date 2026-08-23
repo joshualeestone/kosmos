@@ -3555,24 +3555,30 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <button class="btn" id="d-send" type="button">Send</button>
     </div>
     <p class="fmsg" id="d-say-msg" role="alert" aria-live="assertive"></p>
-    <!-- 🛑 WHERE A REPLY COMES BACK, said because it does not come back HERE.
-         An agent cannot write into this thread: the record has no field for a
-         sender, so every entry in it is the person's message to the agent
-         (#175). The box's own heading says "Just between you and <name>", which
-         describes a two-way place — so somebody says hello, sees the answer in
-         the agent's terminal and nothing here, and waits. That is exactly what
-         happened to Josh on 2026-08-21.
-         ⚠️ THIS FIXES NOTHING. It stops the screen implying a conversation the
-         product cannot hold, and it tells the person where the answer actually
-         is, which is the difference between an admission and a useful one.
-         ⚠️ IT SITS BY THE COMPOSER, NOT AT THE FOOT (Mona Lisa): by the time
-         somebody reaches the bottom of a box they have already decided what it
-         does. The restart note below has been there all along and he never
-         mentioned it.
-         ⚠️ "FOR NOW" IS THE HOUSE FORM, checked rather than invented — Settings
-         already says "One account for now. Connecting another is not built
-         yet." It says the limit is known, not that they are holding it wrong. -->
-    <p class="dhint" id="d-reply-where" style="margin:8px 0 0;"></p>
+    <!-- 🛑 A DEAD ELEMENT AND A COMMENT THAT OUTLIVED ITS OWN SUBJECT SAT HERE
+         FOR A DAY, and the comment is why this note is longer than the deletion.
+
+         It described a paragraph telling the person that replies arrive in the
+         agent's own terminal rather than in this box, and it explained, at
+         length and correctly for its time, that the stored record had no field
+         for a sender so an agent had nowhere to write. The reply path (#175)
+         gave it one; the sentence was removed the same afternoon; the ELEMENT
+         and its three visibility decisions were left behind, permanently empty,
+         and THIS COMMENT was never touched. Nothing on screen changed, so
+         nothing complained.
+
+         ⚠️ WHAT IT COST, because it is not hypothetical. On 2026-08-22 I read
+         this comment, believed it, and told Mona Lisa as verified ground truth
+         that an agent cannot reply into this thread -- while she was mocking the
+         screen. She checked the code and it was false: `dmRow` has had a
+         `theirs` branch keyed on `m.from` since #175, `messages.send` writes
+         `from` from the sending pane, `rowShaped` REQUIRES it, and `list`
+         filters on it. A stale comment is not inert; it is a confident source.
+
+         📌 THE PATTERN, STATED SO THE NEXT ONE IS EASIER TO SPOT: the change
+         that falsified this was in the SCRIPT and the false sentence was in the
+         MARKUP, and the commit that made it updated the comment at the line it
+         edited. Prose goes stale at a distance from the edit that kills it. -->
     <!-- ⚠️ THE THREAD PERSISTS, THE AGENT'S RECOLLECTION DOES NOT, and a chat
          window normally conflates the two. The pack's sentence, verbatim. -->
     <p class="dhint" id="d-persist" style="margin:12px 0 0;"></p>
@@ -9738,8 +9744,6 @@ async function paintTalk(sessionName, agentName) {
      has never been told the command will not answer, and nothing here can tell
      which. That is said where it is actionable rather than as a standing
      caveat — see the send verdict. */
-  document.getElementById('d-reply-where').hidden = true;
-  document.getElementById('d-reply-where').textContent = '';
   /* ⚠️ THE TEXT HERE, THE VISIBILITY ON THE SUCCESS PATH, and the first
      version of this fix got that backwards. Whether the line says the right
      agent's name does not depend on the fetch, so it is written with the other
@@ -9830,7 +9834,6 @@ async function paintTalk(sessionName, agentName) {
        under a sentence saying we cannot resolve that agent at all. Written
        before the fetch for the reason above; HIDDEN here for the reason the
        persistence line is. */
-    document.getElementById('d-reply-where').hidden = true;
     document.getElementById('d-say').disabled = true;
     document.getElementById('d-send').disabled = true;
     /* The section itself, never the composer this arm just closed: the
@@ -10023,10 +10026,6 @@ async function paintTalk(sessionName, agentName) {
      talk-9-unfilable shows it happening. The thread arm already splits on this
      fact; the promise splits with it. */
   document.getElementById('d-persist').hidden = body.historyUnfilable === true;
-  /* ⚠️ AND THE SAME RESET FOR THE REPLY-LOCATION LINE, for the reason above:
-     the 404 arm hides it, the element is reused, and without this a borrowed
-     name once opened would silence the line for every agent after it. */
-  document.getElementById('d-reply-where').hidden = false;
   /**
    * ⚠️ THE BUTTONS DIE WITH THE COMPOSER (Mona Lisa, state 6). A live option
    * above a closed box promises a route that is shut, which is the same lie as
@@ -10234,20 +10233,15 @@ async function paintTalk(sessionName, agentName) {
     off.textContent = '';
     off.hidden = true;
   }
-  /* 🛑 ONE PLACE DECIDES WHETHER THE REPLY-LOCATION LINE SHOWS, and it is here
-     rather than in each arm. Hiding it in a branch without a matching un-hide
-     is how a line disappears for the REST OF THE SESSION: the element is reused
-     across agents, so a refusal on one leaves it hidden on the next, and
-     "absent" is indistinguishable from "we decided not to say it".
-     ⚠️ THE CONDITION IS `presence === 'off'` because every reason that arm
-     prints is about the WINDOW — "its window is scrolled back", "there is no
-     Claude running in its window", "we cannot reach its window" — and this line
-     says the answer arrives in that window. The screen would otherwise state
-     the window is unreachable and that the reply comes back through it, at the
-     same time.
-     ⚠️ An earlier version also hid it inside that arm, which was two
-     derivations of one decision — the habit this file pays for most. */
-  document.getElementById('d-reply-where').hidden = body.presence === 'off';
+  /* 📌 A DECISION THAT NO LONGER HAS ANYTHING TO DECIDE WAS HERE. It chose
+     whether the reply-location line showed, keyed on `presence === 'off'`,
+     because every reason that arm prints is about the agent's WINDOW and the
+     line said the answer arrives in that window: without it the screen would
+     say the window is unreachable and that replies come back through it, at
+     once. Sound, and about a sentence removed the day it shipped. The rule it
+     encodes -- one place decides whether a line shows, never one branch hiding
+     it with no matching un-hide, because the element is reused across agents --
+     is worth keeping for the next line that needs it. */
   /**
    * ⚠️ THE BOX STAYS TYPEABLE WHILE A SEND IS IN FLIGHT, and only the button
    * goes dead — the room's split, for the room's reason: a flight can honestly
