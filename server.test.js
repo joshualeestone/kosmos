@@ -2881,7 +2881,10 @@ test('the detail panel carries the explanation the card gave up', () => {
     return el;
   };
   const told = drive('we could not read the pane');
-  assert.equal(told.textContent, 'we could not read the pane',
+  // Capitalised and finished with a full stop on the way to the screen (run-
+  // through 2026-08-23): the engine writes it to follow "because", the page
+  // shows it alone under a name. The words themselves are untouched.
+  assert.equal(told.textContent, 'We could not read the pane.',
     'the panel does not show the reason the board holds for its belief');
   assert.equal(told.hidden, false, 'a present explanation must be visible');
   const healthy = drive(undefined);

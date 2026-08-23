@@ -8578,9 +8578,13 @@ async function paintAccounts() {
     const who = esc(a.email || a.label || a.dir);
     const org = a.organization && a.organization !== a.email
       ? '<span class="acct-org">' + esc(a.organization) + '</span>' : '';
+    /* Both arms in the reader's world (run-through 2026-08-23): what happens
+       to an agent MOVED to this account, which is the only moment the fact
+       matters. "History follows agents here" named the mechanism and nobody
+       outside the team could say what it meant. */
     const shared = a.memoryShared
-      ? '<span class="acct-ok">History follows agents here</span>'
-      : '<button class="linkish" type="button" data-share="' + esc(a.dir) + '">Keeps its own history, fix this</button>';
+      ? '<span class="acct-ok">An agent moved here keeps its conversation history</span>'
+      : '<button class="linkish" type="button" data-share="' + esc(a.dir) + '">An agent moved here would start with no history. Fix this</button>';
     return '<div class="acct-row"><div class="acct-who"><b>' + who
       + (a.isDefault ? ' <span class="acct-tag">your first account</span>' : '') + '</b>' + org + '</div>'
       + shared + '</div>';
@@ -11490,7 +11494,12 @@ function openDetail(sessionName, section) {
      Empty hides: a healthy working agent has no reason sentence to show,
      and an empty grey line would read as something failing to load. */
   const why = document.getElementById('d-why');
-  why.textContent = String(a.because || '').trim();
+  /* The engine's sentence is written to follow "because", so it arrives
+     lowercase and unpunctuated ("it is sitting at its prompt"). Under a name,
+     on its own line, that reads as a fragment; a capital and a full stop make
+     it the sentence it is. Nothing else about the words changes. */
+  const reason = String(a.because || '').trim();
+  why.textContent = reason ? reason.charAt(0).toUpperCase() + reason.slice(1) + (/[.!?]$/.test(reason) ? '' : '.') : '';
   why.hidden = !why.textContent;
   /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
      somebody's terminal, on its way to a product surface. `textContent` is the
