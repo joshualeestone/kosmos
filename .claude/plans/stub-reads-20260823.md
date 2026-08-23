@@ -27,7 +27,13 @@ because that is my own session name.
 - A guard test pins it: a fixture pane is seen through the variable, `/bin/echo`
   as the tmux is refused rather than falling through to the PATH, an empty
   fixture is an empty board, and no server suite points the variable at echo.
-- `yarn test` passes with 0 skipped on a machine with no tmux server at all.
+- MEASURED with tmux removed from the PATH (node wrapper, homebrew dropped):
+  this branch 1546 of 1550 pass, 0 skipped; main has 14 failures of 1541 (the
+  same four plus ten live-fleet reads). The four
+  that still need a real tmux on the PATH are in other suites (#323's
+  born-with-the-block test, a tmux-that-answers machine test, and two remove
+  tests that default to /opt/homebrew/bin/tmux) and are not this card's; the
+  rest of main's failures were the live-fleet reads this branch closes.
 
 ## Not done here
 

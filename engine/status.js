@@ -111,7 +111,10 @@ const STATE = {
    /bin/echo stubbed every WRITE and left every READ on the operator's live
    fleet. About ten server tests passed on this Mac for that reason and
    would have behaved differently on any other. The launcher exports the
-   variable to the bundled binary, so in the product the two agree. */
+   variable to the bundled binary, so in the product the two agree. Bare
+   `tmux` as the default keeps this file's pre-existing behaviour; the
+   writers default to /opt/homebrew/bin/tmux, a split that predates this and
+   only bites a `node server.js` run from a terminal with the variable unset. */
 function tmuxBin() {
   return process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux';
 }

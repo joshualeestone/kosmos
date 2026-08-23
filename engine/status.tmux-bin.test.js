@@ -54,14 +54,29 @@ test('CONTROL: /bin/echo as the tmux is refused, not passed over to the real tmu
 });
 
 test('an empty fixture is an empty board, not a refusal (a Mac with no agents is a valid state)', () => {
-  const board = withTmux(FAKE, {}, () => status.snapshot());
+  const board = withTmux(FAKE, { AGENT_WORKFORCE_FAKE_PANES: '', AGENT_WORKFORCE_FAKE_SESSIONS: '', AGENT_WORKFORCE_FAKE_SCREEN: '' }, () => status.snapshot());
   assert.deepEqual(board.agents, [], JSON.stringify(board.agents));
 });
 
-test('no server test points the tmux variable at /bin/echo', () => {
+test('nothing that starts the server points the tmux variable at /bin/echo without installing a pane source', () => {
+  /* The pattern to catch is "the variable points at echo and nothing stubs
+     the reads": echo answers list-panes with its own arguments, which the
+     parser refuses, and before this branch the refusal fell through to the
+     PATH. A file that calls `fleet.install` never reaches list-panes and is
+     exempt; its list-sessions and display-message still get echo's answer,
+     which is a known limit rather than a live read. */
   const root = path.join(__dirname, '..');
-  for (const f of fs.readdirSync(root).filter((x) => /^server.*\.test\.js$/.test(x))) {
-    const src = fs.readFileSync(path.join(root, f), 'utf8');
-    assert.ok(!/AGENT_WORKFORCE_TMUX_BIN = '\/bin\/echo'/.test(src), f + ' stubs the writes with echo and leaves the reads on the live fleet');
+  const files = [
+    ...fs.readdirSync(root).filter((x) => /\.test\.js$/.test(x)).map((x) => path.join(root, x)),
+    ...fs.readdirSync(path.join(root, 'docs', 'browser-checks')).filter((x) => /\.js$/.test(x)).map((x) => path.join(root, 'docs', 'browser-checks', x)),
+  ];
+  let seen = 0;
+  for (const f of files) {
+    const src = fs.readFileSync(f, 'utf8');
+    if (!/AGENT_WORKFORCE_TMUX_BIN = '\/bin\/echo'/.test(src)) continue;
+    seen += 1;
+    assert.ok(/fleet\.install\(/.test(src), path.relative(root, f) + ' points the tmux variable at /bin/echo and installs no pane source, so its reads fall to the parser\'s refusal (or, with the fallthrough back, to the live fleet)');
   }
+  assert.ok(files.length > 10, 'the sweep read ' + files.length + ' files, so it is looking in the wrong place');
+  console.log('    ' + seen + ' files use /bin/echo with a pane source installed (allowed)');
 });

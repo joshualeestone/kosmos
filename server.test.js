@@ -194,13 +194,14 @@ test.after(() => {
 });
 
 /**
- * An agent name the write routes will accept, or null with a VISIBLE skip.
+ * An agent name the write routes will accept: a FIXTURE the helper installs.
  *
- * `knownAgent()` guards the write routes and `server.js` destructures
- * `snapshot()` at import, so the roster cannot be stubbed from here. That makes
- * these two tests dependent on live tmux state, which is worth saying out loud
- * rather than papering over: a silent early return prints a tick for a test
- * that asserted nothing, and a hard failure makes the suite unrunnable on CI.
+ * This comment used to say the roster could not be stubbed from here, which
+ * was true when `server.js` destructured `snapshot()` at import and stopped
+ * being true when the pane-source seam landed; the eleven callers went on
+ * reading live tmux for as long as the comment stood. Installs its own fleet
+ * and restores to no source in `t.after`: do not `fleet.install` in a test
+ * that calls this, the helper would replace it with `april`.
  */
 async function anyAgent(t) {
   /* 🛑 A FIXTURE, ALWAYS, NOT WHATEVER THE BOARD SHOWS (#332). This used to
@@ -219,10 +220,11 @@ async function anyAgent(t) {
   }
   const agents = JSON.parse(board.body).agents || [];
   const tied = agents.find((a) => a.isNamedOurs);
-  if (!tied) {
-    t.skip('the fixture fleet did not reach the board as a tied agent, so the write routes cannot be exercised');
-    return null;
-  }
+  /* RED, not a skip: `fleet.install` verified the fixture is on the board, so
+     the only way to get here without it is a regression in `isNamedOurs` or
+     the route's answer, and a skip on a fixture this helper made would be the
+     vacuous pass the old code was condemned for. */
+  assert.ok(tied, 'the fixture fleet reached the board but not as a tied agent: ' + JSON.stringify(agents.map((a) => [a.sessionName, a.isNamedOurs])));
   return encodeURIComponent(tied.sessionName);
 }
 
@@ -1007,13 +1009,8 @@ test('PUT refuses a payload that is not a list', async (t) => {
   // Previously bundled into the test above, which made one request and never
   // exercised this half: deleting the Array.isArray guard left the suite green.
   //
-  // Needs a real agent, because knownAgent() guards the route and server.js
-  // destructures snapshot() at import, so it cannot be stubbed from here.
-  //
-  // A VISIBLE skip when the roster is empty, not a bare return. An earlier
-  // version returned silently and printed a tick for a test that asserted
-  // nothing; a later one hard-failed, which makes the suite unrunnable on any
-  // machine without live agents. Skipping says which of the two happened.
+  // `anyAgent` installs a fixture agent for the route to accept (#332); it
+  // used to depend on a real one and skip when the board was empty.
   const name = await anyAgent(t);
   if (!name) return;
 
@@ -1034,13 +1031,10 @@ test('the status payload carries the STORE value for each agent, not a placehold
   //
   // This stubs the store so the expected value is known, and asserts the
   // payload carries it per agent.
-  // NOTE: the roster cannot be stubbed from here. server.js destructures
-  // snapshot() at import, so reassigning the export has no effect -- an earlier
-  // version of this test did exactly that and carried a comment claiming it
-  // pinned behaviour on an agentless machine. It did not; the stub was inert
-  // and the test still ran against live tmux. The store CAN be stubbed, which
-  // is what actually matters here, and the roster dependency is handled by the
-  // same visible skip the sibling tests use.
+  // The roster is a fixture installed by `anyAgent` (#332). An earlier version
+  // reassigned the snapshot export, which was inert, and the test ran against
+  // live tmux under a comment claiming otherwise. The store is stubbed below,
+  // which is what this test is about.
   if (!(await anyAgent(t))) return;
 
   const commitments = require('./engine/commitments');
@@ -1336,7 +1330,7 @@ test('the status payload carries staleness but NOT the instruction text', async 
   }
   const body = JSON.parse(res.body);
   const agents = body.agents || [];
-  if (!agents.length) { t.skip('the fixture fleet did not reach the board'); return; }
+  assert.ok(agents.length, 'the fixture fleet did not reach the board, which is a regression, not a reason to skip');
 
   for (const a of agents) {
     assert.ok(a.instructions, `${a.sessionName} has no instructions block`);
@@ -9242,16 +9236,13 @@ test('the profile route stores a reporting line, clears it, and refuses a self-l
   try {
     /**
      * #138. The field the org view (#137) has been waiting on.
-     *
-     * ⚠️ `angel` is the agent every other profile test in this file uses, which
-     * means it is one this board really has -- the route 404s an unknown name,
-     * so an invented one would test the guard rather than the field.
      */
     const store = require('./engine/store');
     /* ⚠️ THE PROFILE STORE IS SANDBOXED (AGENT_WORKFORCE_DATA, top of this file),
-       so nothing here touches a real agent's record. `angel` is used because the
-       route 404s a name no pane holds -- an invented name would test the guard
-       rather than the field. An earlier draft of this test carried a save-and-
+       so nothing here touches a real agent's record. The name is arbitrary now
+       that the pane above is stubbed; it used to have to be a name this board
+       really held, and `angel` was chosen because it was the operator's own
+       session, which is #332 in one line. An earlier draft of this test carried a save-and-
        restore for the real profile, which was theatre: it implied this suite
        writes to the operator's board, and a comment claiming an unsafe root is
        safe-to-ignore is the exact shape the header above spent a paragraph on. */
