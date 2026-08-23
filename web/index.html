@@ -1806,6 +1806,26 @@ p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
 .lpv-site { font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); text-transform: lowercase; }
 .lpv-title { font: 600 .9375rem var(--font-ui); color: var(--k-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lpv-desc { font: var(--text-callout) var(--font-ui); color: var(--k-ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* The attached document card (#358): a picture when the board made one,
+   always a name, type and size; the whole card downloads. The + on each
+   composer and the drop target on each thread are the pack's own. */
+.att { display: flex; gap: 12px; align-items: center; margin-top: 8px; max-width: 32rem;
+  border: 0.5px solid var(--separator); border-radius: 10px; overflow: hidden; text-decoration: none;
+  color: var(--k-ink); background: var(--k-surface); }
+.att:hover { border-color: var(--k-ink-2); }
+.att-pic { flex: 0 0 96px; background: var(--k-bg); align-self: stretch; }
+.att-pic img { display: block; width: 96px; height: 100%; min-height: 64px; object-fit: cover; }
+.att.att-image .att-pic { flex-basis: 160px; }
+.att.att-image .att-pic img { width: 160px; max-height: 200px; object-fit: contain; }
+.att-txt { display: flex; flex-direction: column; gap: 2px; padding: 9px 12px; min-width: 0; }
+.att-name { font: 600 .9375rem var(--font-ui); color: var(--k-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-meta { font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
+.attachbtn { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px;
+  border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
+.attachbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
+.attachbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.attachbtn:disabled { opacity: .5; cursor: default; }
+.thread.dragging, #d-convo.dragging { outline: 2px dashed var(--gold-deep); outline-offset: -2px; background: rgba(214,166,46,.06); }
 .dm-b { max-width: 92%; padding: 9px 13px; border-radius: 12px; font-size: .9375rem;
   line-height: 1.45; background: var(--k-sunk, rgba(20,22,26,.05));
   overflow-wrap: anywhere; }
@@ -3710,6 +3730,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            the same reason. -->
       <input type="text" id="d-say" maxlength="2000"
              aria-label="Type a message for this agent" placeholder="Message this agent…">
+      <button class="attachbtn" id="d-attach" type="button" aria-label="Add a file to this conversation" title="Add a file"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
+      <input id="d-attach-file" type="file" hidden>
       <button class="btn" id="d-send" type="button">Send</button>
     </div>
     <p class="fmsg" id="d-say-msg" role="alert" aria-live="assertive"></p>
@@ -5192,6 +5214,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                it is used. Raised as a question by Mona Lisa, who named this
                counter-argument herself; ruled here and recorded in the pack
                against `btn-gold` so the two files stop disagreeing. -->
+          <button class="attachbtn" id="pj-attach" type="button" aria-label="Add a file to this conversation" title="Add a file"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
+          <input id="pj-attach-file" type="file" hidden>
           <button class="btn cpost" id="pj-post-go" type="button">Post</button>
         </div>
         <!-- 🔑 THE @ PICKER (#312). Josh: "if I hit the @ symbol, it would pop
@@ -5207,7 +5231,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <div class="mention" id="pj-mention" role="listbox" aria-label="Agents on this project" hidden></div>
         <!-- #142: a symbol is not a verb, and the bold @ rendered as a smudge
              that read as a zero. The key is named, the bold is off the glyph. -->
-        <p class="composerhint" id="pj-composerhint">Type @ and a name to ask one agent directly.</p>
+        <p class="composerhint" id="pj-composerhint">Drop a file anywhere in the conversation to add it. Type @ and a name to ask one agent directly.</p>
       </div>
       <p class="fmsg" id="pj-room-msg"></p>
       <p class="vh" id="pj-room-say" role="status" aria-live="polite"></p>
@@ -10401,7 +10425,7 @@ function dmRow(m, name) {
    * would invent a mechanism that did not happen.
    */
   if (m && m.from) {
-    return '<div class="dm theirs"><div class="dm-b">' + pjInline(m.text) + pjPreviewCard(m.preview) + '</div>'
+    return '<div class="dm theirs"><div class="dm-b">' + pjInline(m.text) + pjPreviewCard(m.preview) + pjAttachmentCard(m.attachment) + '</div>'
       + '<span class="dm-w">' + esc(dmWho(m.from, name)) + pjWhenPart(m.at) + '</span></div>';
   }
   const v = pjVerdict(m, name);
@@ -10449,7 +10473,7 @@ function dmRow(m, name) {
      puts it, and no longer inside the verdict. The verdict is silent on an
      ordinary success now, and a timestamp that lived inside it would have gone
      silent with it -- on every message that worked. */
-  return '<div class="dm mine"><div class="dm-b">' + pjInline(m.text) + pjPreviewCard(m.preview) + '</div>'
+  return '<div class="dm mine"><div class="dm-b">' + pjInline(m.text) + pjPreviewCard(m.preview) + pjAttachmentCard(m.attachment) + '</div>'
     + '<span class="dm-w">You' + v.when + wire + ' '
     + '<span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span></span></div>';
 }
@@ -17260,6 +17284,28 @@ function pjPreviewCard(preview) {
     + '</span></a>';
 }
 
+/* The attached document card (#358), drawn under a message's text when the
+   row carries `attachment` from the upload route: {id, name, type, size, url,
+   preview, kind}. Branches on kind: an image shows itself; a PDF shows its
+   first page when the board could render one; anything else, and any
+   preview the board could not make, shows name, type and size. Never an
+   empty card. `url` serves the file with content-disposition attachment
+   and nosniff, so the link is a download, never an execution. */
+function pjAttachmentCard(att) {
+  const a = att && typeof att === 'object' ? att : null;
+  if (!a || typeof a.url !== 'string' || !/^\/api\//.test(a.url)) return '';
+  const name = typeof a.name === 'string' && a.name.trim() ? a.name.trim() : 'a file';
+  const kind = ['image', 'pdf', 'text', 'other'].includes(a.kind) ? a.kind : 'other';
+  const preview = typeof a.preview === 'string' && /^\/api\//.test(a.preview) ? a.preview : null;
+  const meta = [a.type && typeof a.type === 'string' ? a.type : null, pjSize(a.size) || null].filter(Boolean).join(' · ');
+  const pic = preview && (kind === 'image' || kind === 'pdf')
+    ? '<span class="att-pic"><img src="' + esc(preview) + '" alt="" loading="lazy"></span>' : '';
+  return '<a class="att att-' + kind + (pic ? ' haspic' : '') + '" href="' + esc(a.url) + '" download="' + esc(name) + '">'
+    + pic
+    + '<span class="att-txt"><span class="att-name">' + esc(name) + '</span>'
+    + (meta ? '<span class="att-meta">' + esc(meta) + '</span>' : '') + '</span></a>';
+}
+
 function pjSize(bytes) {
   const n = Number(bytes);
   if (!Number.isFinite(n) || n < 0) return '';
@@ -17765,7 +17811,7 @@ function pjRoomRow(m, p, silent) {
   return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
     + '<div class="msg-b"><div class="msg-h"><b>' + esc(name) + '</b>'
     + '<span class="msg-t">' + esc(pjWhen(m.at) || '') + '</span></div>'
-    + '<p>' + pjBody(m.text, PJ_DOC_NAMES) + '</p>' + pjPreviewCard(m.preview) + receipt + '</div></div>';
+    + '<p>' + pjBody(m.text, PJ_DOC_NAMES) + '</p>' + pjPreviewCard(m.preview) + pjAttachmentCard(m.attachment) + receipt + '</div></div>';
 }
 
 /**
@@ -18070,6 +18116,78 @@ document.getElementById('pj-mention').addEventListener('mousedown', (e) => {
   mentionPick(i);
 });
 
+/* ---- adding a document (#358) -----------------------------------------------
+   The + on each composer opens the file picker; dropping a file on the thread
+   does the same. One file, sent with whatever is in the composer as the
+   message text, to the upload route for the room or the agent. The reply
+   row arrives on the next poll like any other message, so nothing here
+   invents a row. Every sentence the person sees comes from the route's
+   answer or names what we did, never what we hope. */
+async function attachUpload(file, where) {
+  const msg = document.getElementById(where.msgId);
+  const input = document.getElementById(where.textId);
+  if (!file) return;
+  if (file.size > 25 * 1024 * 1024) { msg.textContent = 'That file is over 25 MB, which is the most a message can carry.'; return; }
+  const form = new FormData();
+  form.append('file', file, file.name);
+  const text = input ? input.value : '';
+  if (text && text.trim()) form.append('text', text);
+  const btn = document.getElementById(where.btnId);
+  if (btn) btn.disabled = true;
+  msg.textContent = 'Adding ' + file.name + '\u2026';
+  try {
+    const res = await fetch(where.url(), { method: 'POST', body: form });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      msg.textContent = (body && body.error) ? body.error : 'We could not add that file (status ' + res.status + ').';
+      return;
+    }
+    if (input && text && text.trim()) input.value = '';
+    msg.textContent = 'Added ' + file.name + '.';
+    if (where.after) where.after();
+  } catch {
+    msg.textContent = 'We could not reach Kosmos to add that file.';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+const ATTACH_ROOM = {
+  btnId: 'pj-attach', fileId: 'pj-attach-file', textId: 'pj-post', msgId: 'pj-room-msg', dropId: 'pj-room',
+  url: () => '/api/project/' + encodeURIComponent(PJ_CURRENT) + '/attach',
+  after: () => { const t = document.getElementById('pj-post'); if (t) pjGrowComposer(t); },
+};
+const ATTACH_AGENT = {
+  btnId: 'd-attach', fileId: 'd-attach-file', textId: 'd-say', msgId: 'd-say-msg', dropId: 'd-convo',
+  url: () => '/api/agent/' + encodeURIComponent(CURRENT ? CURRENT.sessionName : '') + '/attach',
+  after: null,
+};
+/* The two pickers, written out rather than looped, because the file-picker
+   rule (web.file-pickers.test.js) reads the wiring by name: a hidden input
+   driven by a real button, no bare file control on the page. */
+document.getElementById('pj-attach').addEventListener('click', () => document.getElementById('pj-attach-file').click());
+document.getElementById('pj-attach-file').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0]; e.target.value = ''; attachUpload(f, ATTACH_ROOM);
+});
+document.getElementById('d-attach').addEventListener('click', () => document.getElementById('d-attach-file').click());
+document.getElementById('d-attach-file').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0]; e.target.value = ''; attachUpload(f, ATTACH_AGENT);
+});
+for (const where of [ATTACH_ROOM, ATTACH_AGENT]) {
+  const drop = document.getElementById(where.dropId);
+  if (drop) {
+    let depth = 0;
+    drop.addEventListener('dragenter', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); depth += 1; drop.classList.add('dragging'); } });
+    drop.addEventListener('dragover', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+    drop.addEventListener('dragleave', () => { depth = Math.max(0, depth - 1); if (!depth) drop.classList.remove('dragging'); });
+    drop.addEventListener('drop', (e) => {
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!f) return;
+      e.preventDefault(); depth = 0; drop.classList.remove('dragging');
+      attachUpload(f, where);
+    });
+  }
+}
+
 document.getElementById('pj-post').addEventListener('keydown', (e) => {
   if (MENTION) {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -18327,7 +18445,7 @@ function pjMsg(m, name) {
      agent page's thread are the same conversation kind and share one verdict,
      so they go silent together. */
   return '<div class="pj-msg' + mark + '">'
-    + '<span class="pj-msg-text">' + pjInline(m.text) + '</span>' + pjPreviewCard(m.preview)
+    + '<span class="pj-msg-text">' + pjInline(m.text) + '</span>' + pjPreviewCard(m.preview) + pjAttachmentCard(m.attachment)
     + '<span class="pj-msg-when">You' + when + '</span>'
     + '<span class="pj-msg-said">' + said + '</span>'
     + '</div>';

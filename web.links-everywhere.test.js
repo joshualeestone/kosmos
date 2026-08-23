@@ -50,13 +50,13 @@ test('pjInline links a URL and escapes everything else', () => {
 
 
 test('direct messages link a URL (dmRow), both directions', () => {
-  const fn = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'dmWho', 'dmRow']) + '\nreturn dmRow;')(DANA);
+  const fn = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'dmWho', 'dmRow']) + '\nreturn dmRow;')(DANA);
   expectLinked(fn({ from: 'dana', text: TEXT, at: new Date().toISOString() }, 'Dana'), 'dmRow theirs');
   expectLinked(fn({ from: 'you', you: true, text: TEXT, at: new Date().toISOString() }, 'Dana'), 'dmRow mine');
 });
 
 test('a project message row links a URL (pjMsg)', () => {
-  const src = lift(['esc', 'pjInline', 'pjPreviewCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'pjMsg']);
+  const src = lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'pjMsg']);
   const fn = new Function('document', 'pjAnnounce', src + '\nreturn pjMsg;')({ getElementById: () => null }, () => {});
   expectLinked(fn({ from: 'dana', text: TEXT, at: new Date().toISOString() }, 'Dana'), 'pjMsg');
 });
@@ -102,7 +102,7 @@ test('every message row draws the preview card under its text', () => {
     assert.match(body, /pjPreviewCard\((r|m)\.preview\)/, fn + ' does not draw the preview card');
   }
   // And a row with a preview really carries it (the real dmRow, both directions).
-  const dm = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'dmWho', 'dmRow']) + '\nreturn dmRow;')(DANA);
+  const dm = new Function('CURRENT', lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'pjVerdict', 'dmWho', 'dmRow']) + '\nreturn dmRow;')(DANA);
   const preview = { url: 'https://example.test/p', title: 'Page', site: 'example.test' };
   for (const m of [{ from: 'dana', text: 'see https://example.test/p', at: new Date().toISOString(), preview }, { from: 'you', you: true, text: 'see https://example.test/p', at: new Date().toISOString(), preview }]) {
     const html = dm(m, 'Dana');
@@ -111,4 +111,43 @@ test('every message row draws the preview card under its text', () => {
   }
   const plain = dm({ from: 'dana', text: 'hello', at: new Date().toISOString() }, 'Dana');
   assert.doesNotMatch(plain, /lpv/, 'a row with no preview drew a card');
+});
+
+/* ---- the attached document card (#358), page half ---------------------- */
+test('an attachment card renders by kind from the upload route shape, and never as an empty card', () => {
+  const fn = new Function(lift(['esc', 'pjSize', 'pjAttachmentCard']) + '\nreturn pjAttachmentCard;')();
+  const base = { id: 'a1', name: 'Brief <v2>.pdf', type: 'application/pdf', size: 123456, url: '/api/attachment/a1', preview: '/api/attachment/a1/preview', kind: 'pdf' };
+  const pdf = fn(base);
+  assert.match(pdf, /^<a class="att att-pdf haspic" href="\/api\/attachment\/a1" download="Brief &lt;v2&gt;\.pdf">/);
+  assert.match(pdf, /<img src="\/api\/attachment\/a1\/preview" alt="" loading="lazy">/);
+  assert.match(pdf, /att-name">Brief &lt;v2&gt;\.pdf</, 'the name reached the page unescaped or was dropped');
+  assert.match(pdf, /att-meta">application\/pdf · 121 KB</);
+  // An image shows itself; text and other show no picture even with a preview path.
+  assert.match(fn({ ...base, kind: 'image', type: 'image/png' }), /att-image haspic/);
+  assert.doesNotMatch(fn({ ...base, kind: 'text', preview: '/api/attachment/a1/preview' }), /att-pic/);
+  assert.doesNotMatch(fn({ ...base, kind: 'other', preview: null }), /att-pic/);
+  // No preview the board could make: name, type, size, never a blank picture.
+  const bare = fn({ ...base, preview: null });
+  assert.doesNotMatch(bare, /att-pic|haspic/);
+  assert.match(bare, /att-name">Brief/);
+  // Refusals: no attachment, a non-board url, a remote preview.
+  for (const bad of [undefined, null, {}, { ...base, url: 'https://evil.test/f' }]) assert.equal(fn(bad), '', 'rendered for ' + JSON.stringify(bad));
+  assert.doesNotMatch(fn({ ...base, preview: 'https://evil.test/p.png' }), /evil/, 'a remote preview reached the page');
+  // An unknown kind falls back to other rather than to nothing.
+  assert.match(fn({ ...base, kind: 'zip', preview: null }), /att att-other/);
+});
+
+test('every message row draws the attachment card, and the + and drop targets are wired, with no dead button', () => {
+  for (const fn of ['dmRow', 'pjMsg', 'pjRoomRow']) {
+    assert.match(page.lift(SCRIPT, fn), /pjAttachmentCard\((r|m)\.attachment\)/, fn + ' does not draw the attachment card');
+  }
+  const words = PAGE.replace(/<!--[\s\S]*?-->/g, '');
+  assert.match(words, /<button class="attachbtn" id="pj-attach"[^>]*aria-label="Add a file to this conversation"/, 'the room + is missing or unnamed');
+  assert.match(words, /<button class="attachbtn" id="d-attach"[^>]*aria-label="Add a file to this conversation"/, 'the agent page + is missing or unnamed');
+  assert.match(words, /Drop a file anywhere in the conversation to add it\./, 'the drop sentence is missing');
+  // The + posts to the upload routes Angel specified, one per surface.
+  assert.match(SCRIPT, /'\/api\/project\/' \+ encodeURIComponent\(PJ_CURRENT\) \+ '\/attach'/, 'the room + does not post to the project attach route');
+  assert.match(SCRIPT, /'\/api\/agent\/' \+ encodeURIComponent\(CURRENT \? CURRENT\.sessionName : ''\) \+ '\/attach'/, 'the agent + does not post to the agent attach route');
+  // The 25 MB limit is the route's; the page says so before sending.
+  assert.match(SCRIPT, /file\.size > 25 \* 1024 \* 1024/);
 });
