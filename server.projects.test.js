@@ -2386,3 +2386,40 @@ test('the room serves a blocked agent\'s refusal as its own row, and the text ta
     assert.match(text.body, /zeta tried to post here and Kosmos stopped it/);
   });
 });
+
+test('a project records who asked for it, and a process runaway is paused while the screen never is (#327)', async () => {
+  reset();
+  const projectsEngine = require('./engine/projects');
+  // A create with a browser-shaped request (origin header) records screen.
+  const fromScreen = json(await post('/api/projects', { name: 'By The Person' })).project;
+  assert.equal(fromScreen.made && fromScreen.made.via, 'screen');
+  // A create with neither browser header records process; a pane that
+  // resolves through the roster names the agent.
+  const bare = async (name) => {
+    const res = await fetch(base + '/api/projects', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    return { status: res.status, body: await res.text() };
+  };
+  const r1 = await bare('By A Process');
+  assert.equal(r1.status, 200, r1.body);
+  const made1 = JSON.parse(r1.body).project.made;
+  assert.equal(made1.via, 'process');
+  assert.equal(made1.by, null);
+  /* The valve: after twelve process-made projects in the hour, the
+     thirteenth is refused with a sentence, and the screen still works. */
+  for (let i = 0; i < 11; i += 1) {
+    const r = await bare('Loop ' + i);
+    assert.equal(r.status, 200, 'the valve fired early on #' + i + ': ' + r.body);
+  }
+  const refused = await bare('One Too Many');
+  assert.equal(refused.status, 429, refused.body);
+  assert.match(JSON.parse(refused.body).error, /pausing agent-made projects/);
+  assert.match(JSON.parse(refused.body).error, /from the screen/, 'the refusal does not say the person still can');
+  const stillScreen = await post('/api/projects', { name: 'Person Again' });
+  assert.equal(stillScreen.status, 200, 'the valve reached the person, the one participant it exists to protect');
+  // The record survives in the store, not only the response.
+  const stored = projectsEngine.readAll().find((p) => p.name === 'By A Process');
+  assert.equal(stored.made.via, 'process');
+});
