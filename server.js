@@ -1654,6 +1654,40 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /**
+   * Bring one agent that already exists on this computer under Kosmos.
+   *
+   * ⚠️ POST, and behind the same cross-site guard as every other write: it
+   * installs a launch job and starts a session, which is the most consequential
+   * thing any route here does on somebody's machine.
+   *
+   * 🔑 IT TAKES A FOLDER, NOT A NAME. The folder is the agent -- the name is
+   * derived from it, and a name is exactly the kind of thing a caller could bend
+   * into a path. `discover.connect` refuses anything that is not an absolute
+   * path to a real directory holding instructions that say who the agent is.
+   */
+  if (pathname === '/api/connect-agent' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
+        let out;
+        try { out = discover.connect(body.dir); }
+        catch (err) {
+          /* A state question never 500s, the contract every sibling here keeps:
+             the screen can render "we could not" and cannot render a stack. */
+          sendJson(res, 200, { ok: false,
+            because: 'we could not bring that agent in',
+            detail: String((err && err.message) || err) });
+          return;
+        }
+        sendJson(res, out.ok ? 200 : 400, out);
+      })
+      .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
+    return;
+  }
+
   if (pathname === '/api/first-run' && (req.method === 'GET' || req.method === 'HEAD')) {
     let state;
     try { state = firstrun.state(); }
