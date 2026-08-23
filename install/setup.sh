@@ -549,11 +549,21 @@ die()   {
 # soon as both ends are open, so nothing is left behind.
 start_log() {
   mkdir -p "$LOG_DIR" || die "Could not create $KOSMOS_HOME. Check that your home folder is writable."
-  printf '\n=== kosmos install %s ===\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
+  # ⚠️ EVERY FILE LINE CARRIES THIS RUN'S ID (#237). The header lands in the
+  # file synchronously while the body drains through a background reader, so
+  # two overlapping runs interleave -- invisibly, because the text still reads
+  # as ordered. Two readers independently misread one 4KB log from adjacency
+  # alone, and this file is the one thing we ask a stranger to send us. The
+  # console stays untagged (the person watching needs no run ids); only the
+  # file, where runs can mix, says which line belongs to whom.
+  printf '\n=== kosmos install %s · run %s ===\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" >> "$LOG"
   _pipe="$LOG_DIR/.log.pipe.$$"
   rm -f "$_pipe"
   if mkfifo "$_pipe" 2>/dev/null; then
-    tee -a "$LOG" < "$_pipe" &
+    # awk, not tee: one reader, two shapes. `print` goes to the console
+    # verbatim; the file copy is prefixed with the run id. fflush both ways,
+    # or the file trails the console by a buffer and a crash loses the tail.
+    awk -v id="$$" -v logfile="$LOG" '{ print "[" id "] " $0 >> logfile; fflush(logfile); print; fflush() }' < "$_pipe" &
     exec > "$_pipe" 2>&1
     rm -f "$_pipe"
   fi
