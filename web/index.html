@@ -20540,11 +20540,20 @@ function frPaintFleet() {
     const snags = checked
       ? FR_MACHINE.checks.filter((c) => c.state === 'attention' || c.state === 'unknown')
       : null;
-    // The pack's ending B, verbatim (spec corrected ed29b78: the pack HAS
-    // all three endings and its copy wins). The outstanding-check honesty
-    // notes stay beneath it: the check screen must never be contradicted
-    // one screen later, and the pack makes no start-promise to hedge.
-    box.innerHTML = '<p>There are none on this computer yet.</p>'
+    /* 🔑 A READING, SAID AS A READING (#320). The pack's ending B said "There
+       are none on this computer yet", and that is a claim about the computer,
+       which Kosmos cannot make: it can only say what its own search found. The
+       first person outside this team to install was told it on a Mac running
+       two of her own agents. The search now runs first (above), and what it
+       says here is what the search did: looked and found none, or could not
+       look. Neither arm claims the machine is empty. Supersedes the pack's
+       ending B; the pack is corrected to match rather than the other way
+       round, because the pack was the thing that was wrong. The outstanding-
+       check notes stay beneath: the check screen must never be contradicted
+       one screen later. */
+    box.innerHTML = (FR_FOUND.ok
+        ? '<p>We looked, and did not find any agents already here.</p>'
+        : '<p>We could not look for agents already on this computer, so we cannot say whether there are any.</p>')
       + '<p>Two questions: what it is for, and what to call it.</p>'
       + (!checked
         ? '<div class="fr-note">We did not get to look over this computer, so we cannot say '
