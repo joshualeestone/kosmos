@@ -105,7 +105,7 @@ function chk(ok, label, extra) {
       }
 
       // The switches resolved and are measurable from inside their sections.
-      const WHERE = { 'lim-toggle': 'talking', 'tell-toggle': 'updates', 'auto-toggle': 'updates', 'eng-toggle': 'advanced' };
+      const WHERE = { 'lim-toggle': 'talking', 'tell-toggle': 'updates', 'notify-toggle': 'updates', 'auto-toggle': 'updates', 'eng-toggle': 'advanced' };
       for (const id of Object.keys(WHERE)) {
         await page.click('#s-nav button[data-go="' + WHERE[id] + '"]');
         await page.waitForTimeout(150);

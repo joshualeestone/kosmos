@@ -9691,3 +9691,82 @@ test('compact and clear type the bare slash command into the pane, refuse a pane
     board.restore();
   }
 });
+
+/**
+ * The "something happened" seam (engine/notify.js): an agent's room post and
+ * an agent's reply each produce one outbound call when the switch is on,
+ * carrying who and what and never the words; the person's own post does not;
+ * a refused post does not; and the setting round-trips.
+ */
+test('notify: an agent posting or replying sends one outbound call when on, never the words, never for the person or a refusal', async () => {
+  const notifyEngine = require('./engine/notify');
+  const messagesEngine = require('./engine/messages');
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([fleet.agent('leo', { state: 'idle', displayName: 'Leo' }), fleet.agent('mara', { state: 'idle' })]);
+  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-notify-route-'));
+  const sent = [];
+  notifyEngine.setSender(async (url, init) => { sent.push(JSON.parse(init.body)); return { ok: true }; });
+  try {
+    // The setting: off by default, round-trips.
+    assert.equal(JSON.parse((await req('/api/notify-setting')).body).on, false);
+    const put = await req('/api/notify-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: true }) });
+    assert.equal(JSON.parse(put.body).on, true);
+
+    messagesEngine.setRunner(() => ({ ok: true, session: 'leo-discord' }));
+    chatEngine.setRunner((args) => {
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    await req('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Notify room', folder: dir, agents: ['leo', 'mara'] }) });
+
+    // An agent's post: one call, the shown name, the project's name, no words.
+    const post = await req('/api/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ project: 'notifyroom', text: 'the secret plan @mara', from_pane: '%3' }) });
+    assert.equal(post.status, 200, post.body);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(sent.length, 1, 'an agent post did not produce exactly one call: ' + JSON.stringify(sent));
+    assert.equal(sent[0].kind, 'posted');
+    assert.equal(sent[0].agent, 'Leo');
+    assert.equal(sent[0].project, 'Notify room');
+    assert.match(String(sent[0].id), /^m\d+$/, 'a post carries no message id for the coordinator to de-duplicate on');
+    assert.equal(sent[0].session, 'leo');
+    assert.ok(!JSON.stringify(sent[0]).includes('secret'), 'the words left the Mac');
+
+    // The person's own post in the room: nothing (it is not something that happened TO them).
+    const mine = await req('/api/project/notifyroom/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'from me' }) });
+    assert.equal(mine.status, 200, mine.body);
+    assert.notEqual(JSON.parse(mine.body).delivery.state, 'could_not', 'the person\'s post did not go, so its silence proves nothing: ' + mine.body);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(sent.length, 1, 'the person\'s own post produced a call');
+
+    // A refused post: nothing.
+    const refused = await req('/api/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ project: 'no-such-room', text: 'x', from_pane: '%3' }) });
+    assert.match(JSON.parse(refused.body).delivery.because, /no project/);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(sent.length, 1, 'a refused post produced a call');
+
+    // An agent's reply to the person: one call, kind replied, no project.
+    const reply = await req('/api/reply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'my secret answer', from_pane: '%3' }) });
+    assert.equal(reply.status, 200, reply.body);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(sent.length, 2, 'a reply did not produce exactly one more call: ' + JSON.stringify(sent));
+    assert.equal(sent[1].kind, 'replied');
+    assert.equal(sent[1].agent, 'Leo');
+    assert.equal(sent[1].project, null);
+    assert.match(String(sent[1].id), /^reply:leo:\d{4}-/, 'a reply carries no key');
+    assert.ok(!JSON.stringify(sent[1]).includes('secret'));
+
+    // Off again: silence.
+    await req('/api/notify-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: false }) });
+    await req('/api/reply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'again', from_pane: '%3' }) });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(sent.length, 2, 'a call went out with the switch off');
+  } finally {
+    notifyEngine.setSender(null);
+    fs.rmSync(notifyEngine.FILE, { force: true });
+    messagesEngine.resetForTests();
+    chatEngine.resetForTests();
+    try { fs.rmSync(messagesEngine.LOG, { force: true }); } catch { /* sandboxed */ }
+    board.restore();
+  }
+});
