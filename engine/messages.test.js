@@ -1254,3 +1254,31 @@ test('a mid-window dial flip logs one fresh truthful row each way: refusals are 
     }
   });
 });
+
+test('a member brought in later is told what the room said without them, and only when mentioned (#314)', () => {
+  withFleet(room3(), (board) => {
+    armSender('leo-discord');
+    let tmux = arm([]);
+    // Two posts while april is not yet on the project: they fan to mara only.
+    messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: 'round one' }, board.agents, ['leo', 'mara']);
+    messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: 'round two' }, board.agents, ['leo', 'mara']);
+    // April joins and is mentioned: her wire carries the catch-up, with the
+    // count and the read command; mara, background, carries none.
+    tmux = arm([]);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: '@april are you there?' }, board.agents, ['leo', 'mara', 'april']);
+    assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+    const typed = tmux.sends().map((a) => a[5]).filter((t) => typeof t === 'string' && t.startsWith('['));
+    const toApril = typed.find((t) => t.includes('message from your colleague'));
+    const toMara = typed.find((t) => t.includes('background from your colleague'));
+    assert.match(toApril, /This room has been talking without you: 2 earlier posts this hour did not reach you\. Read the room with: kosmos room saturday-plans\]$/,
+      'the mentioned late arrival was not told what she missed');
+    assert.doesNotMatch(toMara, /talking without you/,
+      'a background recipient was stamped with a missed count');
+    /* Control both ways: a mentioned member who missed nothing carries no
+       catch-up, so the line cannot become furniture. */
+    const tmux3 = arm([]);
+    messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: '@mara same question' }, board.agents, ['leo', 'mara', 'april']);
+    const toMara3 = tmux3.sends().map((a) => a[5]).find((t) => typeof t === 'string' && t.startsWith('[message'));
+    assert.doesNotMatch(toMara3, /talking without you/, 'a member who missed nothing was told she missed something');
+  });
+});

@@ -522,6 +522,29 @@ cmd_restart() {
   cmd_start
 }
 
+# Read a project room's recent talk (#314): the tail, oldest first, shaped by
+# the server (?as=text) because stock bash has no JSON parser. This is the
+# command an agent brought in after a valve is taught, so it must work with
+# nothing but curl.
+cmd_room() {
+  local project
+  project="${1:-}"
+  if [ -z "$project" ]; then
+    say "Usage: kosmos room <project-id>   (project ids are in your instructions' Your projects section)"
+    exit 2
+  fi
+  if ! healthy; then
+    say "Kosmos is not running, so the room cannot be read. Start it with: kosmos start"
+    exit 1
+  fi
+  local esc_project
+  esc_project=$(printf '%s' "$project" | sed "s/[^A-Za-z0-9._-]//g")
+  if ! curl -sS -m 15 "$URL/api/project/$esc_project/room?as=text" 2>/dev/null; then
+    say "We could not reach Kosmos to read that room. Is it running at $URL?"
+    exit 1
+  fi
+}
+
 case "${1:-}" in
   start)   cmd_start ;;
   stop)    cmd_stop ;;
@@ -533,8 +556,9 @@ case "${1:-}" in
   msg)     shift; cmd_msg "$@" ;;
   reply)   shift; cmd_reply "$@" ;;
   post)    shift; cmd_post "$@" ;;
+  room)    shift; cmd_room "$@" ;;
   *)
-    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply\n\n'
+    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | room\n\n'
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2
     ;;

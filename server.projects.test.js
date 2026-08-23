@@ -2337,3 +2337,22 @@ test('the removal frame does not assert what its own reasons deny (#130)', () =>
   assert.match(rest.slice(0, 400), /still on your computer/,
     'the success sentence lost its reassurance, which nothing there contradicts');
 });
+
+test('the room serves a plain-text tail for `kosmos room`, and says so when it cannot read (#314)', async () => {
+  reset();
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    // Empty room: a sentence, not a blank body.
+    let res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.equal(res.status, 200);
+    assert.match(res.type, /text\/plain/);
+    assert.match(res.body, /Nothing has been said in this room yet\./);
+    // A posted row comes back as one line: time, who, arrow, text.
+    const posted = await post(`/api/project/${project.id}/room`, { text: 'trial length is 14 days' });
+    assert.equal(posted.status, 200, posted.body);
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.match(res.body, /\d\d:\d\d  operator -> zeta: trial length is 14 days/);
+    // The JSON shape is untouched by the text arm.
+    const asJson = await req(`/api/project/${project.id}/room`);
+    assert.equal(JSON.parse(asJson.body).ok, true);
+  });
+});
