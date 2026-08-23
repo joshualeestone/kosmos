@@ -110,6 +110,7 @@ one invented by somebody who did not write them.
 | `render-switch-states.js` | The four Settings switches come BACK once their settings read (#229) |
 | `render-theme-toggle.js` | The light and dark control: two options, gold active, same geometry as the view toggle (#284) |
 | `render-thread.js` | Render and DRIVE the project thread in a real browser |
+| `render-url-state.js` | The view survives a refresh (#374): agent, project, task; and the overview writes a clean URL. |
 | `render-update-toast.js` | **no header sentence.** Read it before running it, and give it one. |
 | `thread-server.js` | A server for looking at the project thread, with NOTHING pointed at the real |
 

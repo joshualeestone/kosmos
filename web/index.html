@@ -8308,7 +8308,43 @@ function topLevelReset(tab) {
   PJ_CURRENT = null;
 }
 
+/* ---- the view, in the address bar (#374) ---------------------------------
+   Josh, 2026-08-23: refreshing on an agent's or a project's page threw him back
+   to the overview. It did, every time, by construction: nothing wrote the view
+   into the URL, so a refresh booted the default. The agent deep link
+   (?tab=detail&agent=) was read at boot and never written. This writes the
+   view on every change and the boot below reads it back, so a refresh, a
+   bookmark, and a reopened tab land where the person was.
+   📌 replaceState, not pushState: the address bar follows the view; the Back
+   button is a separate decision (what should Back mean inside a single-page
+   board?) and is left as it was rather than half-made here. */
+let URL_TAB = 'agents';
+let PJ_VIEW = 'list';   // the projects sub-view showing: list, one, add, settings, task
+function syncUrl() {
+  try {
+    const q = new URLSearchParams();
+    const tab = URL_TAB;
+    if (tab === 'detail' && CURRENT && CURRENT.sessionName) {
+      q.set('tab', 'detail'); q.set('agent', CURRENT.sessionName);
+    } else if (tab === 'projects' && PJ_CURRENT && PJ_VIEW !== 'list') {
+      /* Which project, and the task when the task page is the view showing;
+         the sub-view is what the person sees, so it decides, not the state
+         left behind it. */
+      q.set('tab', 'projects'); q.set('project', PJ_CURRENT);
+      if (PJ_VIEW === 'task' && TK_OPEN !== null && TK_OPEN !== undefined) q.set('task', String(TK_OPEN));
+    } else if (tab && tab !== 'agents') {
+      q.set('tab', tab);
+    }
+    /* Carry through the two debugging knobs a person may have typed. */
+    for (const k of ['limit', 'first-run']) { const v = new URLSearchParams(location.search).get(k); if (v) q.set(k, v); }
+    const want = q.toString() ? '?' + q.toString() : location.pathname;
+    const have = location.search || location.pathname;
+    if (want !== have) history.replaceState(null, '', q.toString() ? '?' + q.toString() : location.pathname);
+  } catch { /* an address bar we cannot write is not a reason to stop painting */ }
+}
+
 function showTab(tab) {
+  URL_TAB = tab;
   const btn = document.querySelector('.tab[data-tab="' + tab + '"]');
   document.querySelectorAll('.tab').forEach((t) => {
     const on = t === btn;
@@ -8316,6 +8352,7 @@ function showTab(tab) {
     t.setAttribute('aria-selected', String(on));
   });
   if (!btn && !BUTTONLESS.includes(tab)) return;
+  syncUrl();
   const agents = tab === 'agents';
   // Tab first (boardbar is the tab's one honest witness), then the computed
   // grid/alist visibility that folds the layout in.
@@ -11395,6 +11432,8 @@ function openDetail(sessionName, section) {
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
   CURRENT = a;
+  URL_TAB = 'detail';
+  syncUrl();
   /* ⚠️ THE SECTION IS CHOSEN ON OPEN AND NEVER BY THE POLL. A caller that
      knows where the person is going (the stale mark on the card would be the
      first) would name it; today every caller lands on Talk, the mock's landing
@@ -15749,6 +15788,8 @@ function pjView(which) {
   for (const v of ['list', 'one', 'add', 'settings', 'task']) {
     document.getElementById('pj-' + v + '-view').hidden = (v !== which);
   }
+  PJ_VIEW = which;
+  syncUrl();
   // Arriving at a project resets the member picker to its resting state (the
   // "+ Add Member" button), so an open picker does not leak from the last
   // project into this one. Navigation-only: repaints while the view is open
@@ -16308,6 +16349,16 @@ async function loadProjects() {
     // has projects we simply could not read.
     if (!res.ok || body.projectsUnreadable) throw new Error(body.error || 'we cannot read your projects right now');
     PROJECTS = body.projects || [];
+    /* The project deep link (#374), once: the first load that can see the
+       project opens it, the way the first poll opens WANT_AGENT. A project
+       that is not there lands on the list, which says so. */
+    if (WANT_PROJECT && !PJ_CURRENT && !WANT_PROJECT_DONE) {
+      WANT_PROJECT_DONE = true;
+      if (pjById(WANT_PROJECT)) {
+        openProject(WANT_PROJECT);
+        if (WANT_TASK) { const n = Number(WANT_TASK); if (Number.isFinite(n)) openTaskPage(n); }
+      }
+    }
     PJ_AGENTS_UNREADABLE = body.agentsUnreadable === true;
     PJ_READ_FAILED = false;
   } catch {
@@ -22126,6 +22177,9 @@ async function firstRunBoot(force, step) {
 // Deep-link straight to one agent, so a page can be shared or bookmarked.
 const PARAMS = new URLSearchParams(location.search);
 const WANT_AGENT = PARAMS.get('agent');
+const WANT_PROJECT = PARAMS.get('project');
+const WANT_TASK = PARAMS.get('task');
+let WANT_PROJECT_DONE = false;
 /* ⚠️ An unknown ?tab= value falls back to the board rather than stranding
    the tablist with nothing selected (showTab deselects before it bails on
    a tab it cannot find). `joint` is aliased, not unknown: the tab retired
