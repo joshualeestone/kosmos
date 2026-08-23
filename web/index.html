@@ -11329,7 +11329,9 @@ function detailDots() {
   set('instr', shown('d-instr-outdated') || shown('d-instr-stale'));
 }
 (function watchDots() {
-  /* The text tests evaluate this script in a scope with no DOM globals. */
+  /* A text test that lifts a slice of this script into `new Function` has
+     no DOM globals; this IIFE is not lifted today, but the guard costs one
+     line and a lifted neighbour would otherwise throw at load. */
   if (typeof MutationObserver === 'undefined') return;
   const mo = new MutationObserver(detailDots);
   ['d-qask', 'd-instr-outdated', 'd-instr-stale'].forEach((id) => {

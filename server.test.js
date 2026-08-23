@@ -7974,12 +7974,11 @@ test('a card names a planned model plainly, while the detail panel keeps its ten
  * next person to insert a `.dbox` shifts every pair below it silently, and this
  * exact order is the thing Josh reported as wrong.
  *
- * ⚠️ SOURCE ORDER IS THE RIGHT THING TO PIN HERE even though it is NOT the
- * reading order. `.dgrid` is two columns, so the rendered sequence is the source
- * sequence read in pairs — a stable function of it. Pinning source order pins
- * reading order for as long as the grid stays two-wide, and a change to the
- * column count is exactly the kind of change that should have to come here and
- * say so.
+ * ⚠️ THE GRID THIS COMMENT USED TO DESCRIBE IS GONE (agent-page-nav,
+ * 2026-08-23): the page is one section at a time behind a left nav, so
+ * "source order read in pairs" is no longer a property it has. What can drift
+ * now is the nav's order and the sections' order against it, which is what the
+ * test pins; membership box by box is in web.agent-nav.test.js.
  */
 test('the agent detail page is seven sections behind a nav, in the ruled order', () => {
   /* ⚠️ THIS TEST USED TO PIN SOURCE ORDER OF A TWO-COLUMN GRID (Runs on | Memory,
