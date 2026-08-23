@@ -14194,7 +14194,7 @@ async function paintAccountPicker(a) {
      session, from a screen guessing at what a null meant. */
   now.innerHTML = acct
     ? 'Signed in as <b>' + esc(acct.email || acct.label || acct.dir) + '</b>'
-      + (acct.isDefault ? ' <span class="acct-tag">your first account</span>' : '')
+
     : 'We cannot tell which account this one uses, so we cannot move it.';
 
   /* Only accounts whose history is the shared one. The engine refuses the rest
@@ -14203,7 +14203,7 @@ async function paintAccountPicker(a) {
   const movable = ACCOUNTS.filter((x) => x.memoryShared);
   const html = ['<option value="">Move to&hellip;</option>'].concat(
     movable.map((x) => '<option value="' + esc(x.dir) + '">'
-      + esc(x.email || x.label || x.dir) + (x.isDefault ? ' (your first account)' : '') + '</option>'),
+      + esc(x.email || x.label || x.dir) + '</option>'),
   ).join('');
   if (sel.innerHTML !== html) sel.innerHTML = html;
 
@@ -15159,7 +15159,7 @@ async function loadCreateExtras() {
     const usable = movable.length ? movable : list;
     asel.innerHTML = usable.length
       ? usable.map((x) =>
-        `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${esc(x.email || x.label || x.dir)}${x.isDefault ? ' (your first account)' : ''}</option>`).join('')
+        `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${esc(x.email || x.label || x.dir)}</option>`).join('')
       : '<option value="">Your Claude account</option>';
   })();
   /* 🛑 THE PROJECTS PICKER IS GONE (Josh, 2026-08-22). What was here fetched
