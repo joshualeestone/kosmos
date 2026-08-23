@@ -65,7 +65,7 @@ trap cleanup EXIT
 # INT/TERM must EXIT after cleaning, or a Ctrl+C mid-walk deletes the
 # sandbox and the script then runs the remaining legs against nothing,
 # printing a cascade of misleading FAILs before cleaning up again.
-trap 'trap - EXIT; cleanup; exit 130' INT TERM
+trap 'trap - EXIT INT TERM; cleanup; exit 130' INT TERM
 
 # A free port WITHOUT binding it first: bind-and-close parks the port in
 # TIME_WAIT (the macos-time-wait bulletin), the installer then finds its
@@ -75,7 +75,10 @@ trap 'trap - EXIT; cleanup; exit 130' INT TERM
 # walk leg reads that announcement rather than trusting the request.
 PORT=""
 for _try in 1 2 3 4 5; do
-  _cand=$(( (${RANDOM:-$$} % 15000) + 40000 ))
+  # ${RANDOM:-...}: under a non-bash sh RANDOM is unset and $$ is constant,
+  # which would try ONE candidate five times; mix the loop counter in so the
+  # retries are real everywhere.
+  _cand=$(( ((${RANDOM:-$$} + _try * 7919) % 15000) + 40000 ))
   if ! lsof -iTCP:"$_cand" -sTCP:LISTEN >/dev/null 2>&1; then PORT="$_cand"; break; fi
 done
 [ -n "$PORT" ] || { fail "could not pick a port"; exit 1; }

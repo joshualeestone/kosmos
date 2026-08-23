@@ -93,6 +93,7 @@ test('the sweep flag reaches the shell that reads it, proven with a session to s
   const ls = SH.indexOf("list-sessions -F '#{session_name}'");
   const at = SH.lastIndexOf('if [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then', ls);
   const end = SH.indexOf('fi', SH.indexOf('\nKOSMOS_SWEEP_LIST', SH.indexOf('done <<KOSMOS_SWEEP_LIST', at)));
+  assert.ok(ls > -1 && at > -1 && end > at, 'the sweep block moved; re-anchor this test');
   const region = SH.slice(at, end + 2);
   const script = 'set -euo pipefail\nKOSMOS_HOME=' + JSON.stringify(sb) + '\n'
     + 'info() { :; }\n_agents_stopped=no\n' + region + '\necho FLAG=$_agents_stopped';
