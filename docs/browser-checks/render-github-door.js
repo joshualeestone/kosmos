@@ -30,6 +30,12 @@ let failed = 0;
     await p.waitForTimeout(400);
     await p.evaluate(() => { document.querySelectorAll('#s-sec-connect details').forEach((d) => { d.open = true; }); const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'GitHub'); pill.click(); });
     await p.waitForTimeout(900);
+    /* The door probes gh when it opens and says "Checking…" until the probe
+       answers. Under load that outlived the fixed settle here and the first
+       read saw the probing door, then clicked a Connect that was not there
+       yet (retried in the gate, 2026-08-24 18:05, #708). Wait for the probe
+       to settle, bounded, before the first read. */
+    await p.waitForFunction(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'GitHub'); const door = pill && pill.closest('.boardrow').nextElementSibling; return door && !/Checking…/.test(door.innerText); }, null, { timeout: 15000 }).catch(() => {});
     return p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'GitHub'); const door = pill.closest('.boardrow').nextElementSibling; return { hidden: door.hidden, text: door.innerText.replace(/\s+/g, ' ').trim(), drawn: door.getBoundingClientRect().height > 0, buttons: [...door.querySelectorAll('button')].map((x) => x.innerText.trim()), links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
   };
   // A: gh absent
