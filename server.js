@@ -2487,7 +2487,20 @@ const server = http.createServer((req, res) => {
         detail: String((err && err.message) || err) });
       return;
     }
-    sendJson(res, 200, out);
+    /* Whether the person sent the board's block away for good (Josh,
+       2026-08-24 17:06). Carried on the same answer so the painter cannot
+       show the list on one fetch and hide it on another. */
+    sendJson(res, 200, { ...out, dismissed: discover.dismissed() });
+    return;
+  }
+
+  /* "Dismiss this forever": remembered on disk, behind the same cross-site
+     guard as every other write. There is no route back on purpose; the word
+     Josh chose was forever, and the confirmation on the board says so. */
+  if (pathname === '/api/found-agents/dismiss' && req.method === 'POST') {
+    try { discover.dismiss(); }
+    catch { sendJson(res, 500, { ok: false, because: 'we could not remember that' }); return; }
+    sendJson(res, 200, { ok: true, dismissed: true });
     return;
   }
 
