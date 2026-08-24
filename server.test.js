@@ -3385,7 +3385,7 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
       'this fixture changed branch, so the sentence pinned below is no longer the one it produces');
     assert.equal(spoofed.context.neverRecorded, true,
       'this fixture changed branch (a sandbox plist appeared?), so the sentence pinned below is no longer the one it produces');
-    assert.match(spoiled, /aria-label="[^"]*The session was never recorded/,
+    assert.match(spoiled, /aria-label="[^"]*Memory was never recorded/,
       'CONTROL: the spoofed percent did not degrade to the unknown ring, so the raw assertion proves nothing');
 
     // ⚠️ ANCHORED ON THE ELEMENT, NOT THE WORDS. The line above matches the
