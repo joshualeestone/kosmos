@@ -86,21 +86,12 @@ test('add never overwrites: a taken name is refused in a sentence; re-ingest by 
   policy.clear();
 });
 
-test('the nameless save is the shipped screen\'s, honoured while at most one policy exists (#685)', () => {
-  // Zero policies: it creates the first, wearing the default name.
-  policy.add({ text: 'The only words.', source: 'pasted' });
-  let got = policy.read();
-  assert.equal(got.policies[0].name, policy.DEFAULT_NAME);
-  // One policy, even a renamed one: it lands on that entry.
-  policy.rename(got.policies[0].id, 'House rules');
-  policy.add({ text: 'The only words, again.', source: 'pasted' });
-  got = policy.read();
-  assert.equal(got.policies.length, 1, 'the nameless save minted a second policy');
-  assert.equal(got.policies[0].name, 'House rules', 'the nameless save renamed the entry it landed on');
-  assert.match(got.policies[0].text, /again/);
-  // Several: refused, so nobody's policy is silently chosen for replacement.
-  policy.add({ name: 'Engineering', text: 'The engineering words.', source: 'pasted' });
+test('a new policy is named, always: the nameless form went with the single-policy screen (#701)', () => {
+  assert.throws(() => policy.add({ text: 'The only words.', source: 'pasted' }), /give this policy a name/,
+    'a nameless add on an empty list was honoured after the screen that needed it was gone');
+  policy.add({ name: 'House rules', text: 'The only words.', source: 'pasted' });
   assert.throws(() => policy.add({ text: 'Whose?', source: 'pasted' }), /give this policy a name/);
+  assert.equal(policy.read().policies.length, 1, 'a refused nameless add changed the record');
   policy.clear();
 });
 

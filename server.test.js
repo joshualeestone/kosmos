@@ -10379,10 +10379,10 @@ test('the policy over the wire: absent, pasted and distributed, then removed', a
   fsx.mkdirSync(createEngine.workerDir('casey'), { recursive: true });
   fsx.writeFileSync(pathx.join(createEngine.workerDir('casey'), 'CLAUDE.md'), 'You are **Casey**.\n\nDo the work well, and say what you did.\n');
   r = await req('/api/policy', { method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ text: 'Never paste customer data into a chat.' }) });
+    body: JSON.stringify({ name: 'Data handling', text: 'Never paste customer data into a chat.' }) });
   assert.equal(r.status, 200, r.body);
   const out = JSON.parse(r.body);
-  assert.equal(out.policy.source, 'pasted');
+  assert.equal(out.policies[0].source, 'pasted');
   assert.ok(Array.isArray(out.told));
   const boot = fsx.readFileSync(pathx.join(createEngine.workerDir('casey'), 'CLAUDE.md'), 'utf8');
   assert.ok(boot.includes(policyEngine.START) && boot.includes('customer data'), 'the block did not reach the instruction file');
@@ -10392,10 +10392,12 @@ test('the policy over the wire: absent, pasted and distributed, then removed', a
   r = await req('/api/policy');
   const got = JSON.parse(r.body);
   assert.equal(got.state, 'saved');
-  assert.equal(got.policy.chars, 'Never paste customer data into a chat.'.length);
+  assert.equal(got.policies[0].chars, 'Never paste customer data into a chat.'.length);
 
-  // Removed: record gone, block gone, the agent's own words survive.
-  r = await req('/api/policy/remove', { method: 'POST' });
+  // Removed BY ID (#701: removal always names what it removes): record
+  // gone, block gone, the agent's own words survive.
+  r = await req('/api/policy/remove', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: got.policies[0].id }) });
   assert.equal(r.status, 200);
   assert.equal(JSON.parse((await req('/api/policy')).body).state, 'absent');
   const after = fsx.readFileSync(pathx.join(createEngine.workerDir('casey'), 'CLAUDE.md'), 'utf8');
@@ -10446,12 +10448,16 @@ test('policies over the wire, plural (#685): named adds, refused collisions, ren
   const left = JSON.parse(r.body);
   assert.equal(left.state, 'saved');
   assert.deepEqual(left.policies.map((p) => p.name), ['Branding']);
-  // GET agrees, and still carries the compat singular for the shipped screen.
+  // GET agrees, and carries no compat singular any more (#701).
   const got = JSON.parse((await req('/api/policy')).body);
   assert.deepEqual(got.policies.map((p) => p.name), ['Branding']);
-  assert.equal(got.policy.chars, 'The branding words.'.length);
-  // The last no-id remove is the shipped screen's clear, and is honoured.
+  assert.equal(got.policy, undefined, 'the pre-#685 compat field is back after its screen is gone');
+  // A no-id remove is refused whatever the count: removal names its target (#701).
   r = await req('/api/policy/remove', { method: 'POST' });
+  assert.equal(r.status, 400);
+  assert.match(JSON.parse(r.body).error, /say which policy to remove/);
+  r = await req('/api/policy/remove', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: got.policies[0].id }) });
   assert.equal(r.status, 200);
   assert.equal(JSON.parse((await req('/api/policy')).body).state, 'absent');
 });

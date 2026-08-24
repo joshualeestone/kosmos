@@ -4142,13 +4142,12 @@ const server = http.createServer((req, res) => {
     try {
       const r = policyEngine.read();
       // The full text stays on disk; the screen gets what it shows.
-      /* `policy` (singular) is the FIRST entry in the pre-#685 shape, kept
-         so the currently shipped Settings screen keeps working until the
-         plural screen lands; that screen reads `policies` and ignores it. */
-      const summaries = policySummaries(r);
+      /* The pre-#685 singular `policy` field is gone: the plural Settings
+         screen (#701) reads `policies` only, and Mona Lisa cleared the
+         drop on 2026-08-24 once nothing shipped depended on it. */
       sendJson(res, 200, r.state === 'saved'
-        ? { state: 'saved', policies: summaries, policy: { source: summaries[0].source, savedAt: summaries[0].savedAt, chars: summaries[0].chars, opening: summaries[0].opening }, because: null }
-        : { state: r.state, policies: [], policy: null, because: r.because });
+        ? { state: 'saved', policies: policySummaries(r), because: null }
+        : { state: r.state, policies: [], because: r.because });
     } catch { sendJson(res, 500, { error: 'that record could not be read' }); }
     return;
   }
@@ -4178,9 +4177,8 @@ const server = http.createServer((req, res) => {
         let saved;
         /* `id` re-ingests an existing policy's words; `name` adds a new one
            (add never overwrites -- a taken name is refused in the engine's
-           own sentence); neither is the shipped single-policy screen's POST,
-           honoured while at most one policy exists (#685, the shape Mona
-           Lisa's screen ruled). */
+           own sentence). The old screen's nameless POST is gone with that
+           screen (#701): a policy is named or it is a re-ingest. */
         try { saved = policyEngine.add({ id: body.id, name: body.name, text, source }); }
         catch (err) { sendJson(res, 400, { error: String((err && err.message) || 'we could not save that') }); return; }
         // Non-gating, same as every tell: a policy that could not be
@@ -4195,7 +4193,7 @@ const server = http.createServer((req, res) => {
         } catch (err2) { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not tell the agents') }]; }
         sendJson(res, 200, {
           policies: policySummaries(),
-          policy: { source: saved.source, savedAt: saved.savedAt, chars: saved.text.length, opening: saved.text.slice(0, 240) },
+          saved: { id: saved.id, name: saved.name },
           told,
         });
       })
@@ -4231,21 +4229,12 @@ const server = http.createServer((req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const id = (typeof body.id === 'string' && body.id) ? body.id : null;
-        try {
-          if (id) {
-            policyEngine.removeOne(id);
-          } else {
-            /* The shipped screen's no-id remove meant "clear the policy",
-               which is only still unambiguous while there is exactly one
-               to clear. With several, an id is required (#685). */
-            const r = policyEngine.read();
-            if (r.state === 'saved' && r.policies.length > 1) {
-              sendJson(res, 400, { error: 'say which policy to remove' });
-              return;
-            }
-            policyEngine.clear();
-          }
-        } catch (err) { sendJson(res, 400, { error: String((err && err.message) || 'we could not remove the saved policy') }); return; }
+        /* An id, always (#701): the no-id "clear the policy" belonged to
+           the single-policy screen and went with it. Removal names what it
+           removes, whatever the count. */
+        if (!id) { sendJson(res, 400, { error: 'say which policy to remove' }); return; }
+        try { policyEngine.removeOne(id); }
+        catch (err) { sendJson(res, 400, { error: String((err && err.message) || 'we could not remove the saved policy') }); return; }
         let told;
         try { told = policyEngine.syncEveryone(safeRoster()); }
         catch { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: 'we could not tell the agents' }]; }
