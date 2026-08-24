@@ -1045,6 +1045,8 @@ driverTest('#248: a flow with its own account directory reads and writes only th
   writeClaudeConfig(CONNECTED_CONFIG);
   subscription.resetCache();
 
+  assert.equal(subscription.check().state, subscription.STATE.CONNECTED,
+    'the premise: the global account must read connected or this test proves nothing');
   const term = fakeTerminal();
   /* A login in THIS flow lands in the flow's own directory, exactly the
      side effect a real login under CLAUDE_CONFIG_DIR has. */
@@ -1074,6 +1076,36 @@ driverTest('#248: a flow with its own account directory reads and writes only th
   assert.equal(put.ok, true, put.because);
   await until(() => connect.state().phase === connect.PHASE.CONNECTED, 5000);
   assert.equal(connect.state().configDir, flowDir, 'the terminal verdict lost its account directory');
+  fs.rmSync(flowDir, { recursive: true, force: true });
+});
+
+driverTest('#248: login-done on screen does not finish the flow until the flow DIR says connected', async () => {
+  const flowDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'connect-hold-'));
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.resetCache();
+  const term = fakeTerminal();
+  /* THE DISCRIMINATOR: the screen says Login successful while the flow's
+     directory still holds nothing. An unscoped finish-line check reads
+     the GLOBAL config, sees connected, and declares this flow done with
+     the FIRST account's plan before any login landed. The scoped check
+     must hold the phase until the flow dir itself says connected. */
+  term.onCode = () => { term.screen = SCREEN_LOGIN_DONE; };
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+
+  await connect.start({ configDir: flowDir });
+  await until(() => connect.state().phase === connect.PHASE.SIGNIN_AWAITING_CODE, 5000);
+  const put = connect.submitCode('abCD1234#efGH5678');
+  assert.equal(put.ok, true, put.because);
+  /* Give the driver plenty of ticks to be wrong in. */
+  await new Promise((r) => setTimeout(r, 400));
+  assert.notEqual(connect.state().phase, connect.PHASE.CONNECTED,
+    'the finish line read the GLOBAL account: login-done with an empty flow dir was declared connected');
+
+  /* And the moment the flow dir itself says connected, it finishes. */
+  fs.writeFileSync(nodePath.join(flowDir, '.claude.json'), JSON.stringify(CONNECTED_CONFIG));
+  await until(() => connect.state().phase === connect.PHASE.CONNECTED, 5000);
+  assert.equal(connect.state().configDir, flowDir);
   fs.rmSync(flowDir, { recursive: true, force: true });
 });
 

@@ -175,7 +175,14 @@ let mem = { phase: PHASE.IDLE };
 let flowDir = null;
 
 function writeState(next) {
-  mem = { ...next, configDir: flowDir, pid: process.pid, updatedAt: new Date().toISOString() };
+  /* ⚠️ THE OWNING DRIVER OUTRANKS THE MODULE VARIABLE. Two rapid starts
+     both assign flowDir before either claims the driver, and the loser's
+     assignment survives the probe await; every write from a claimed flow
+     therefore reads the driver's OWN dir, identity-safe like every other
+     arm, and flowDir only speaks for the pre-claim and teardown writes
+     (their setters re-aim it at the owning flow's dir first). */
+  const dirNow = driver ? (driver.configDir || null) : flowDir;
+  mem = { ...next, configDir: dirNow, pid: process.pid, updatedAt: new Date().toISOString() };
   try {
     fs.mkdirSync(path.dirname(STATE_FILE()), { recursive: true });
     const tmp = `${STATE_FILE()}.${process.pid}.new`;
@@ -650,6 +657,10 @@ async function start(opts) {
      * established no live flow owns it.
      */
     await killSession();
+    /* Re-asserted after the await: a concurrent start may have re-aimed
+       flowDir while the kill ran, and this verdict is about THIS call's
+       account. */
+    flowDir = configDir;
     return publicView(writeState({ phase: PHASE.CONNECTED, plan: sub.plan, startedOnce: true }));
   }
 
@@ -682,6 +693,7 @@ async function start(opts) {
    * then saw "a driver exists" and tore down the healthy new flow. `!driver`
    * cannot distinguish "cancelled" from "replaced"; `driver !== owner` can.
    */
+  flowDir = configDir;
   const owner = { pendingCode: null, lastActed: null, acted: null, unknownTicks: 0, configDir };
   driver = owner;
 
@@ -832,7 +844,7 @@ async function launchSignin(owner) {
   // CONFIG override set but the DIR unset drives the CLI at the REAL config
   // while subscription reads the override, so a successful login would end
   // in "we cannot see the connection yet". Loud, because it is silent.
-  if (process.env.AGENT_WORKFORCE_CLAUDE_CONFIG && !process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR) {
+  if (!owner.configDir && process.env.AGENT_WORKFORCE_CLAUDE_CONFIG && !process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR) {
     console.warn('connect: AGENT_WORKFORCE_CLAUDE_CONFIG is set without AGENT_WORKFORCE_CLAUDE_CONFIG_DIR; '
       + 'the sign-in will write a config the checker is not reading');
   }
@@ -1286,6 +1298,9 @@ async function finishConnected(owner, sub) {
   if (driver !== owner) return;
   const d = driver;
   driver = null;
+  /* Same ownership rule as becomeStuck: the verdict names the owner's
+     account, whatever the module variable says by now. */
+  flowDir = owner.configDir || null;
   if (d && d.timer) clearInterval(d.timer);
   const memBefore = mem;
   await killSession();
@@ -1311,6 +1326,10 @@ function becomeStuck(owner, because, tail) {
   if (!driver || driver !== owner) return;
   const d = driver;
   driver = null;
+  /* The STUCK verdict below is about the OWNER's account; the module
+     variable may have been re-aimed by a raced start while this flow was
+     parked on the await that brought it here. */
+  flowDir = owner.configDir || null;
   if (d && d.timer) clearInterval(d.timer);
   if (activeRequest) { try { activeRequest.destroy(); } catch { /* already ended */ } activeRequest = null; }
   if (activeChild) { try { activeChild.kill(); } catch { /* already exited */ } activeChild = null; }
@@ -1398,6 +1417,9 @@ async function cancel() {
   }
   const d = driver;
   driver = null;
+  /* The idle record cancel writes below is nobody's flow; a lingering
+     account name on it would be a label with no referent. */
+  flowDir = null;
   if (d && d.timer) clearInterval(d.timer);
   if (activeRequest) { try { activeRequest.destroy(); } catch { /* already ended */ } activeRequest = null; }
   if (activeChild) { try { activeChild.kill(); } catch { /* already exited */ } activeChild = null; }

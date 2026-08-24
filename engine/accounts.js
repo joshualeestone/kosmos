@@ -248,15 +248,30 @@ function prepare(label) {
  * to it. The reuse arm is deliberate: a cancelled add-another-account
  * attempt leaves a prepared, unclaimed directory behind, and without reuse
  * every retry would litter work2, work3, ... while work1 sat empty. A dir
- * with ANY identity is somebody's account and is skipped, so nothing that
- * has been signed in to is ever offered as a fresh spot.
+ * whose config file exists AT ALL (readable or not) may be somebody's
+ * account and is skipped, and a dir carrying a real projects tree is
+ * somebody's history and is skipped too; only a spot with neither is free.
  */
 function nextWorkDir() {
   for (let n = 1; n <= 500; n += 1) {
     const label = `work${n}`;
     const dir = path.join(HOME, `.claude-${label}`);
     if (!fs.existsSync(dir)) return { label, dir };
-    if (identityOf(dir) === null) return { label, dir };
+    /* ⚠️ PRESENT-BUT-UNREADABLE IS NOT ABSENT. identityOf answers null for
+       a damaged or unreadable .claude.json too, and offering that dir
+       would hand the next sign-in an account somebody may be signed in
+       to. Free demands the config FILE be genuinely missing. And a dir
+       carrying a real (non-symlink) projects tree is somebody's history,
+       not a spot: prepare would rightly refuse to wire it, so it is not
+       offered either. */
+    let cfgAbsent = false;
+    try { fs.statSync(path.join(dir, '.claude.json')); }
+    catch (err) { cfgAbsent = Boolean(err && err.code === 'ENOENT'); }
+    if (!cfgAbsent) continue;
+    let projectsOk = true;
+    try { projectsOk = fs.lstatSync(path.join(dir, 'projects')).isSymbolicLink(); }
+    catch (err) { projectsOk = Boolean(err && err.code === 'ENOENT'); }
+    if (projectsOk) return { label, dir };
   }
   /* 500 signed-in work accounts is not a real machine; say so rather than
      loop forever. */

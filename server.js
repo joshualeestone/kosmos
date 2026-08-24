@@ -2385,7 +2385,14 @@ const server = http.createServer((req, res) => {
     readBody(req)
       .then((buf) => {
         let body = {};
-        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        /* Fails CLOSED: an unreadable request must not run the OPPOSITE
+           flow from the one asked for (a mangled another:true silently
+           becoming a global start would kill a leftover session and
+           answer connected for the wrong account). Same direction as
+           /api/connect/code one route below. */
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return null; }
+        if (typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return null; }
         /* { another: true } asks for a SECOND account (#248/#324): pick the
            first free work spot, prepare it (idempotent; the shared-memory
            symlink is wired before the sign-in so the account is right from
@@ -2400,6 +2407,14 @@ const server = http.createServer((req, res) => {
           const prep = accounts.prepare(spot.label);
           if (!prep.ok) {
             sendJson(res, 500, { error: prep.because });
+            return null;
+          }
+          /* Born shared or not born: an account whose memory is not the
+             one shared tree gives every agent moved onto it a blank
+             history with nothing on screen saying why. Refusing here is
+             the whole point of preparing BEFORE the sign-in. */
+          if (!prep.memoryShared) {
+            sendJson(res, 500, { error: 'we could not set up the new account to share this computer\'s memory, so we did not start the sign-in' });
             return null;
           }
           return connect.start({ configDir: prep.dir });
