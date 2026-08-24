@@ -58,16 +58,37 @@ test.after(() => stub.close());
 
 const settle = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
-test('the Josh-line: unconfigured, start refuses with the ruled sentence and state says why, nothing throws', async () => {
+/* The Josh-line moved (#620, closed): Josh registered the app, the id ships
+   in the build, and the unconfigured state this test used to pin no longer
+   exists in any install. What remains to pin is the CONTRACT that killed it:
+   every install has a usable id out of the box, and the two override roads
+   still outrank it. The shipped value itself is deliberately not repeated
+   here -- asserting the literal would be a second copy of one fact, and the
+   door test drives the real one against the stub below. */
+test('the shipped build is configured out of the box, and the overrides outrank the shipped id', async () => {
   delete process.env.KOSMOS_GITHUB_CLIENT_ID;
+  const bare = gd.clientId();
+  assert.ok(typeof bare === 'string' && bare.trim() && !/\s/.test(bare),
+    'a fresh install has no usable client id, so the no-install road is dead for everyone but Josh');
   const st = await gd.state();
-  assert.equal(st.ready, false);
-  assert.equal(st.because, gd.NO_APP);
+  assert.notEqual(st.because, gd.NO_APP,
+    'a fresh install still shows the not-switched-on sentence, so the shipped id is not reaching state()');
   assert.equal(st.holder, 'kosmos');
   assert.equal(st.gh, 'missing');
-  const started = await gd.start();
-  assert.equal(started.refused, gd.NO_APP);
-  assert.equal(started.connected, false);
+  /* The paste road (the door's override) beats the build. The store root
+     exists on any real install; this test runs before anything else made it. */
+  fs.mkdirSync(path.dirname(gd.APP_FILE), { recursive: true });
+  const saved = gd.setClientId('Iv1.pasted-own-app');
+  assert.equal(saved.ok, true);
+  try {
+    assert.equal(gd.clientId(), 'Iv1.pasted-own-app', 'a pasted per-install id no longer outranks the shipped one');
+    /* And the env var beats both. */
+    process.env.KOSMOS_GITHUB_CLIENT_ID = 'Iv1.envwins';
+    assert.equal(gd.clientId(), 'Iv1.envwins', 'the env override no longer outranks the pasted id');
+  } finally {
+    delete process.env.KOSMOS_GITHUB_CLIENT_ID;
+    fs.rmSync(gd.APP_FILE, { force: true });
+  }
 });
 
 test('the whole flow against the stub: code shown, pending then slow_down then token, stored 600, connected read from GitHub', async () => {
