@@ -126,3 +126,10 @@ test('piece seven: the projects panel drops its box padding in the consolidated 
   assert.match(block, /> #panel-projects \{ padding: 0; border: 0; background: none;/, 'the projects panel keeps its box padding, which sits the title below the agents rail');
   assert.match(block, /body\.consolidated \.pjhead \{ margin-bottom: 10px; padding: 0; \}/);
 });
+
+test('piece eight: the member rows go flat in the consolidated view, not boxed', () => {
+  const start = PAGE.indexOf('@media (min-width: 1280px) {\n  html[data-layout="consolidated"]');
+  const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
+  assert.match(block, /body\.consolidated \.pj-member \{ border: 0; padding: 6px 8px;/, 'the member rows keep their box border in the consolidated view');
+  assert.match(block, /body\.consolidated \.pj-member:hover \{ background: var\(--k-surface\); \}/);
+});
