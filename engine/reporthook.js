@@ -79,6 +79,15 @@ function entryIsOurs(entry) {
  */
 function ensureWired(settingsPath, scriptPath) {
   if (!scriptPath) return { wired: false, because: 'the reporting hook script is not on this machine' };
+  /* The path is embedded in a double-quoted bash command; a quote,
+     backslash, dollar or backtick in it would break the command or execute
+     inside it. setup.sh refuses similar characters for the profile write,
+     and this keeps the pair consistent (Angel's review). No real
+     KOSMOS_HOME carries these; a hand-built one that does gets a sentence
+     instead of a settings file that runs it. */
+  if (/["\\$`]/.test(scriptPath)) {
+    return { wired: false, because: 'the hook script path contains characters we will not embed in a command' };
+  }
   let target = settingsPath;
   try {
     target = fs.realpathSync(target);
@@ -114,7 +123,11 @@ function ensureWired(settingsPath, scriptPath) {
   if (!changed) return { wired: true, changed: false };
   try {
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    const tmp = target + '.kosmos.new';
+    /* Pid-suffixed: a concurrent prepare and installer writing the same
+       settings file must not share a temp name (Angel's review). The rename
+       stays atomic either way; this only keeps the two writers from
+       clobbering each other's staging file mid-write. */
+    const tmp = target + '.kosmos.' + process.pid + '.new';
     fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', prevMode !== null ? { mode: prevMode } : {});
     if (prevMode !== null) fs.chmodSync(tmp, prevMode);
     fs.renameSync(tmp, target);

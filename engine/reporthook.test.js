@@ -121,3 +121,10 @@ test('hookScriptPath finds the source-checkout script from the engine directory'
     'the probe found nothing; the script beside install/kosmos is missing');
   assert.ok(fs.existsSync(found));
 });
+
+test('a script path carrying shell-special characters is refused, not embedded in a command', () => {
+  const evil = path.join(SANDBOX, 'x"y', 'kosmos-report-hook.sh');
+  const got = reporthook.ensureWired(fresh(), evil);
+  assert.equal(got.wired, false);
+  assert.match(got.because, /will not embed/);
+});

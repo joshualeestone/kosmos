@@ -71,7 +71,7 @@ resolve_kosmos() {
 KOSMOS="$(resolve_kosmos)"
 
 JQ="$(command -v jq 2>/dev/null || true)"
-[ -n "$JQ" ] || [ -x /opt/homebrew/bin/jq ] && JQ="${JQ:-/opt/homebrew/bin/jq}"
+if [ -z "$JQ" ] && [ -x /opt/homebrew/bin/jq ]; then JQ=/opt/homebrew/bin/jq; fi
 
 INPUT=$(cat 2>/dev/null || true)
 if [ -n "$JQ" ]; then
@@ -92,7 +92,17 @@ json_field() { # $1 jq path, $2 sed key fallback
 THROTTLE_DIR="${TMPDIR:-/tmp}/kosmos-report-throttle"
 MARK="$THROTTLE_DIR/$(printf '%s' "${TMUX_PANE:-nopane}" | tr -c 'A-Za-z0-9_-' '_')"
 
-report() { [ -n "$KOSMOS" ] && "$KOSMOS" report "$@" >/dev/null 2>&1 || true; }
+# ⚠️ NON-BLOCKING, and the reason is the update window: the CLI's report is
+# a curl with a 15-second ceiling, and a board that is down, refusing, or
+# mid-update-restart would otherwise hold EVERY unthrottled hook (a person's
+# own prompt included) at that ceiling -- an agent that stalls for fifteen
+# seconds exactly when the board bounces. The subshell-background pair
+# detaches the send so the hook returns immediately; the report either
+# lands or it does not, and the SessionStart delivery check below is the
+# once-per-session place where "does not" is said OUT LOUD instead of
+# swallowed. That check is deliberately the one FOREGROUND send, because it
+# needs the verdict.
+report() { [ -n "$KOSMOS" ] && ( "$KOSMOS" report "$@" >/dev/null 2>&1 </dev/null & ) 2>/dev/null || true; }
 
 heartbeat_due() {
   mkdir -p "$THROTTLE_DIR" 2>/dev/null || return 0

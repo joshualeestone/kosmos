@@ -2180,13 +2180,26 @@ fi
 # Same fail-soft posture as the permission block above: a machine that could
 # not be wired still installs, and the board falls back to reading screens,
 # which is the pre-hook world rather than a corruption.
-if "$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" <<'NODEEOF' 2>/dev/null
+# ⚠️ The heredoc marker here must NOT be the one the permission block above
+# uses, and this comment must not spell that marker either: the permission
+# acceptance test extracts the merge program above by sed-slicing this file
+# from any line matching that marker's opener shape to the next line that is
+# exactly the marker -- so a second heredoc using it (the first version of
+# this block), or even a comment containing the opener text (the second
+# version), concatenates into its fixture and fails the suite.
+if "$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" <<'HOOKSEOF' 2>/dev/null
 const path = require('path');
 const kosmosHome = process.argv[2];
 const reporthook = require(path.join(kosmosHome, 'app', 'engine', 'reporthook.js'));
 const accounts = require(path.join(kosmosHome, 'app', 'engine', 'accounts.js'));
 const script = reporthook.hookScriptPath();
-const targets = [path.join(process.env.HOME, '.claude', 'settings.json')]
+/* ⚠️ ONE HOME FOR BOTH HALVES of this loop: accounts.list() scans the HOME
+   accounts resolved (AGENT_WORKFORCE_HOME first, for sandboxing), so the
+   default ~/.claude target must resolve through THE SAME answer -- reading
+   process.env.HOME here would wire the operator's real settings while
+   iterating a sandbox's accounts, two roots in one loop. (Angel's review.) */
+const home = accounts.HOME_FOR_TEST;
+const targets = [path.join(home, '.claude', 'settings.json')]
   .concat(accounts.list().filter((a) => !a.isDefault).map((a) => path.join(a.dir, 'settings.json')));
 let refused = 0;
 for (const t of targets) {
@@ -2194,7 +2207,7 @@ for (const t of targets) {
   if (got.wired !== true) refused += 1;
 }
 process.exit(refused === 0 ? 0 : 1);
-NODEEOF
+HOOKSEOF
 then
   info "agents on this Mac report what they are doing themselves; the board reads their"
   info "own words instead of their screens"
