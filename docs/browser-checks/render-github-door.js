@@ -16,6 +16,9 @@ const MARK = process.argv[4] || '/tmp/fake-gh-mark';
 const VMARK = process.argv[5] || '/tmp/fake-vercel-mark';
 let failed = 0;
 (async () => {
+  // A retry must start signed out: the stand-ins sign in on these markers, and
+  // the harness reruns a failed check on the same boards.
+  for (const m of [MARK, VMARK]) { try { fs.unlinkSync(m); } catch { /* not there */ } }
   const b = await pw.chromium.launch({ headless: true });
   const say = (k, v, d) => { if (!v) failed += 1; console.log((v ? 'PASS' : 'FAIL') + '  ' + k + (d ? '  ' + d : '')); };
   const openDoor = async (p, base) => {
@@ -34,7 +37,7 @@ let failed = 0;
   await p.close();
   // B: gh present, signed out
   p = await b.newPage(); d = await openDoor(p, PRESENT);
-  say('present gh: Connect is offered with the promise beneath it', d.buttons.includes('Connect') && /never sees a password/.test(d.text), d.text.slice(-120));
+  say('present gh: Connect is offered with the promise beneath it', d.buttons.includes('Connect') && /never sees (a|your) password/.test(d.text), d.text.slice(-120));
   await p.evaluate(() => { document.querySelector('[data-svc-connect="GitHub"]').click(); });
   await p.waitForTimeout(2500);
   d = await p.evaluate(() => { const door = document.querySelector('[data-svc-cancel]') ? document.querySelector('[data-svc-cancel]').closest('.svc-door') : null; return door ? { text: door.textContent.replace(/\s+/g, ' ').trim(), links: [...door.querySelectorAll('a')].map((a) => a.href) } : null; });
@@ -54,7 +57,9 @@ let failed = 0;
   say('Vercel: Connect is offered, with Vercel’s own words and the GitHub-first sentence', d.buttons.includes('Connect') && /Vercel’s own page/.test(d.text) && /needs GitHub connected first/.test(d.text), d.text.slice(-160));
   await p.evaluate(() => { document.querySelector('[data-svc-connect="Vercel"]').click(); });
   await p.waitForTimeout(2500);
-  d = await openVercel().then(() => p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.textContent.trim() === 'Vercel'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.textContent.replace(/\s+/g, ' ').trim(), links: [...door.querySelectorAll('a')].map((a) => a.href) }; }));
+  // Do not click the pill again here: a click on an open pill closes the door
+  // and stops its paint loop, which is the very state this leg reads.
+  d = await p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.textContent.trim() === 'Vercel'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.textContent.replace(/\s+/g, ' ').trim(), links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
   say('Vercel after Connect: the code and vercel.com/oauth/device are on the door', /VRCL-5678/.test(d.text) && d.links.some((l) => /vercel\.com\/oauth\/device/.test(l)), d.text.slice(0, 160));
   fs.writeFileSync(VMARK, '1');
   await p.waitForTimeout(3500);
