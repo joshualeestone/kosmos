@@ -562,6 +562,84 @@ function setAccount(name, dir) {
  * `claude` and `tmux` paths live in that file and are what the rewrite has to
  * preserve; inventing them would repoint an agent at binaries nobody chose.
  */
+/**
+ * Switch an agent between providers, with its memory (#246).
+ *
+ * 🔑 WHAT "WITH ITS MEMORY" MEANS, per the outline and Josh's rulings: the
+ * agent keeps everything Kosmos owns -- its name, id (#170), face, role,
+ * instructions, worker folder, commitments, projects -- and its past stays
+ * READABLE, shared not copied, with no provenance recorded (Josh,
+ * 2026-08-24: history is shared, "I don't care about identifying which
+ * account a conversation came from"). What does NOT cross is the context
+ * window, which does not survive a same-provider restart either, and the
+ * provider-shaped choices: a Claude model pick and a Claude account mean
+ * nothing to codex, so the switch DROPS them rather than smuggling them,
+ * and says so in its result so the route can say so in words.
+ *
+ * The mechanism is a plist rewrite through the one writer (`plistFor`) and
+ * nothing else: no record is copied, moved, or stamped, because nothing
+ * about the agent's memory lives in the launch file.
+ */
+function setProvider(name, provider, opts) {
+  const clean = cleanName(name);
+  if (!NAME_RE.test(String(clean == null ? '' : clean))) {
+    return { outcome: OUTCOME.REFUSED, because: 'that is not a name we can act on' };
+  }
+  if (provider !== 'anthropic' && provider !== 'openai') {
+    return { outcome: OUTCOME.REFUSED, because: 'pick a provider from the list' };
+  }
+  const job = readJob(clean);
+  if (!job) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `${clean} was not started by Kosmos, so we cannot change what it runs on.`,
+    };
+  }
+  const runner = provider === 'openai' ? 'codex' : 'claude';
+  if (job.runner === runner) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `${clean} already runs on ${provider === 'openai' ? 'OpenAI' : 'Anthropic'}`,
+    };
+  }
+  const { claudeBin, codexBin } = binPaths(opts);
+  const runnerBin = runner === 'codex' ? codexBin : claudeBin;
+  if (!DRY_RUN && !fs.existsSync(runnerBin)) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: runner === 'codex'
+        ? 'we could not find the OpenAI runner on this computer, so nothing was changed'
+        : 'we could not find Claude on this computer, so nothing was changed',
+    };
+  }
+  if (runner === 'codex' && !DRY_RUN) {
+    try { trustCodexFolder(workerDir(clean)); }
+    catch {
+      return { outcome: OUTCOME.REFUSED, because: 'we could not let the OpenAI runner work in its folder, so nothing was changed' };
+    }
+  }
+  /* ⚠️ `job.tmux` is kept (the recorded path is the working one); the model
+     and the account are NOT, in either direction: they are provider-shaped
+     choices, and carrying one across would hand the new runner a value it
+     has never heard of, silently, at its next start. */
+  try {
+    fs.writeFileSync(plistPath(clean), plistFor(clean, runnerBin, job.tmux, null, null, runner), 'utf8');
+  } catch {
+    return { outcome: OUTCOME.REFUSED, because: `we could not write ${clean}'s startup file, so nothing changed.` };
+  }
+  try { store.writeProfile(clean, { provider }); }
+  catch { /* the plist is the launch truth; the profile record catches up on the next write */ }
+  return {
+    outcome: OUTCOME.CREATED,
+    because: null,
+    provider,
+    dropped: {
+      model: job.model || null,
+      account: Boolean(job.configDir),
+    },
+  };
+}
+
 function setModel(name, modelKey) {
   const clean = cleanName(name);
   if (!NAME_RE.test(String(clean == null ? '' : clean))) {
@@ -625,6 +703,31 @@ function supervisorPath() {
 /* The codex notify bridge (#245): installed beside the supervisor, by the
    same refresh, for the same reason — one copy, every agent, every fix
    reaching agents made long ago at their next start. */
+/** The one CODEX_HOME resolution, shared by the trust write and the
+    connected-check so the two cannot look in different homes. */
+function codexHomeDir() {
+  return process.env.AGENT_WORKFORCE_CODEX_HOME
+    || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.codex');
+}
+
+/**
+ * Trust an agent's folder for the codex runner, the way the Yes button on
+ * codex's own trust dialog would. MEASURED (#245): the bypass flag does
+ * not skip the dialog; only this config entry does. Append-only, once,
+ * into the same CODEX_HOME codexsession.js reads. Shared by creation and
+ * the provider switch, one definition.
+ */
+function trustCodexFolder(dir) {
+  const codexHome = codexHomeDir();
+  const cfg = path.join(codexHome, 'config.toml');
+  let text = '';
+  try { text = fs.readFileSync(cfg, 'utf8'); } catch { /* first entry ever */ }
+  const key = `[projects."${dir}"]`;
+  if (text.includes(key)) return;
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.appendFileSync(cfg, `${text && !text.endsWith('\n') ? '\n' : ''}${key}\ntrust_level = "trusted"\n`);
+}
+
 function bridgeSource() {
   return path.join(__dirname, '..', 'bin', 'codex-report-bridge.js');
 }
@@ -1417,12 +1520,47 @@ function createAgentInner(opts) {
   // one argument. Kept for the same reason as the binaries above: a path
   // carrying a quote or a newline is one nothing good comes of passing
   // anywhere, and the guard that matters for the plist is the XML escaping.
-  for (const [what, bin] of [['Claude', claudeBin], ['tmux', tmuxBin], ['the agents folder', workerDir(name)]]) {
+  /**
+   * ⚠️ THE RUNNER CHECKED IS THE ONE THIS AGENT WILL RUN (#548). This loop
+   * checked Claude for every creation, which was right when Claude was the
+   * only engine and became false with #530: an OpenAI-only Mac -- exactly
+   * the fresh machine Josh installed on -- was refused an OPENAI agent for
+   * Claude's absence. Wrong by supersession, the same expiry as the
+   * installer's gate, found by probing the engine rather than reading it.
+   *
+   * And when Claude IS the missing one, the refusal now carries the remedy
+   * and, ONLY WHEN IT IS REAL ON THIS MACHINE, the other path (Mona Lisa's
+   * rule, the pill-door law applied to a sentence): "or create this agent
+   * on OpenAI instead" is said only with the codex runner present AND an
+   * OpenAI sign-in on the machine, because an alternative that dead-ends
+   * is a dead click in words. Which condition suppressed it rides the
+   * engine-side `alternative`, never the person's sentence.
+   */
+  const runnerLabel = runner === 'codex' ? 'the OpenAI runner' : 'Claude Code';
+  for (const [what, bin] of [[runnerLabel, runnerBin], ['tmux', tmuxBin], ['the agents folder', workerDir(name)]]) {
     if (unusablePath(bin)) {
       return { outcome: OUTCOME.REFUSED, because: `we cannot use that path for ${what}`, steps };
     }
     if (what === 'the agents folder') continue;
     if (!fs.existsSync(bin)) {
+      if (what === runnerLabel && runner === 'claude') {
+        const codexPresent = fs.existsSync(codexBin);
+        const codexConnected = codexPresent && fs.existsSync(path.join(codexHomeDir(), 'auth.json'));
+        return {
+          outcome: OUTCOME.REFUSED,
+          steps,
+          /* "could not", not "would never" (Mona Lisa's copy ruling on this
+             PR): a person who installs Claude Code an hour later watches
+             the agent start, so "never" is false on a real path.
+             Present-tense truth, same weight, no forever claim. */
+          because: 'we could not find Claude Code on this computer, so an agent made now could not start. '
+            + 'Install it first (https://claude.com/claude-code)'
+            + (codexConnected ? ', or create this agent on OpenAI instead' : ''),
+          alternative: codexConnected
+            ? { offered: true }
+            : { offered: false, because: codexPresent ? 'no OpenAI sign-in on this computer' : 'the codex runner is not on this computer' },
+        };
+      }
       return {
         outcome: OUTCOME.REFUSED,
         because: `we could not find ${what} on this computer, so an agent made now would never start`,
@@ -1720,15 +1858,7 @@ function createAgentInner(opts) {
   const trustedFolder = provider !== 'openai'
     || ((wroteInstructions && installedSupervisor) && step('let the OpenAI runner work in its folder', () => {
       if (DRY_RUN) return true;
-      const codexHome = process.env.AGENT_WORKFORCE_CODEX_HOME
-        || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.codex');
-      const cfg = path.join(codexHome, 'config.toml');
-      let text = '';
-      try { text = fs.readFileSync(cfg, 'utf8'); } catch { /* first entry ever */ }
-      const key = `[projects."${workerDir(name)}"]`;
-      if (text.includes(key)) return true;
-      fs.mkdirSync(codexHome, { recursive: true });
-      fs.appendFileSync(cfg, `${text && !text.endsWith('\n') ? '\n' : ''}${key}\ntrust_level = "trusted"\n`);
+      trustCodexFolder(workerDir(name));
       return true;
     }));
 
@@ -1967,6 +2097,7 @@ module.exports = {
   nameUsable,
   hasJob, jobMissing,
   setAccount,
+  setProvider,
   readJob,
   createAgent,
   binPaths,

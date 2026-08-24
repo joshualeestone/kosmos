@@ -36,7 +36,7 @@ function gate() {
    too rather than only in the real installer. */
 const HARNESS = 'set -euo pipefail\ndie() { printf "%s\\n" "$*" >&2; exit 1; }\ninfo() { printf "%s\\n" "$*"; }\n';
 
-function run({ homeHasClaude, pathClaude }) {
+function run({ homeHasClaude, pathClaude, installer }) {
   const sb = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
   const home = nodePath.join(sb, 'home');
   fs.mkdirSync(nodePath.join(home, '.local', 'bin'), { recursive: true });
@@ -50,15 +50,38 @@ function run({ homeHasClaude, pathClaude }) {
     const c = nodePath.join(bin, 'claude');
     fs.writeFileSync(c, '#!/bin/sh\nexit 0\n'); fs.chmodSync(c, 0o755);
   }
+  /**
+   * ⚠️ THE CARRY ARM MUST NEVER REACH THE REAL NETWORK FROM A TEST. The
+   * gate's install URL is overridable (an operator-mirror seam), and every
+   * case here sets it to a LOCAL stub via file://, which curl speaks:
+   * 'lands'  a stub installer that writes a runnable claude where
+   *          Anthropic's own does,
+   * 'fails'  a stub that exits 1,
+   * absent   a file:// URL with nothing behind it (curl -f fails).
+   */
+  let installUrl = `file://${sb}/no-such-installer.sh`;
+  if (installer === 'lands') {
+    // The stub claude ANSWERS --version, because the gate probes rather
+    // than trusts (a truncated binary passes -f/-x); a stub that only
+    // exits would fail the carry the way a truncated real one should.
+    const inst = nodePath.join(sb, 'installer.sh');
+    fs.writeFileSync(inst,
+      '#!/bin/sh\nmkdir -p "$HOME/.local/bin"\nprintf \'#!/bin/sh\\necho 9.9.9-stub\\n\' > "$HOME/.local/bin/claude"\nchmod 755 "$HOME/.local/bin/claude"\n');
+    installUrl = `file://${inst}`;
+  } else if (installer === 'fails') {
+    const inst = nodePath.join(sb, 'installer.sh');
+    fs.writeFileSync(inst, '#!/bin/sh\nexit 1\n');
+    installUrl = `file://${inst}`;
+  }
   const script = HARNESS + gate();
   try {
     const out = execFileSync('/bin/sh', ['-c', script], {
       encoding: 'utf8',
-      env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+      env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, AGENT_WORKFORCE_CLAUDE_INSTALL_URL: installUrl },
     });
-    return { code: 0, out, err: '' };
+    return { code: 0, out, err: '', home };
   } catch (e) {
-    return { code: e.status, out: String(e.stdout || ''), err: String(e.stderr || '') };
+    return { code: e.status, out: String(e.stdout || ''), err: String(e.stderr || ''), home };
   }
 }
 
@@ -68,33 +91,48 @@ test('present at the path Kosmos uses: proceeds, and says where it looked', () =
   assert.match(r.out, /Claude Code found at .*\.local\/bin\/claude/);
 });
 
-test('genuinely absent: refuses with the install step, never a bare failure', () => {
-  const r = run({ homeHasClaude: false, pathClaude: false });
-  assert.notEqual(r.code, 0, 'a Mac with no Claude Code completed the gate');
-  assert.match(r.err, /needs Claude Code and this Mac does not have it/);
+/* RESTATED for carry (#548, Josh's ruling 2026-08-24 11:06), not deleted:
+   the absent case now INSTALLS instead of refusing, and the assertions
+   moved with the product the way clean-machine's phase did. */
+test('genuinely absent: carries — says what it is doing, installs, and continues', () => {
+  const r = run({ homeHasClaude: false, pathClaude: false, installer: 'lands' });
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /does not have it/, 'the state is named before anything happens');
+  assert.match(r.out, /Installing it now with Anthropic's own installer/, 'the carry is silent, which the card forbids');
+  assert.match(r.out, /Claude Code installed at /);
+  const landed = nodePath.join(r.home, '.local', 'bin', 'claude');
+  assert.ok(fs.existsSync(landed) && (fs.statSync(landed).mode & 0o100),
+    'the carry sentence appeared but nothing runnable landed');
+});
+
+test('a failed carry dies the way the old gate did: named, with the self-remedy, never a bare failure', () => {
+  const r = run({ homeHasClaude: false, pathClaude: false, installer: 'fails' });
+  assert.notEqual(r.code, 0, 'a failed carry completed the gate, building the agents-that-never-start machine');
+  assert.match(r.err, /We tried to install Claude Code and it did not work/);
   assert.match(r.err, /claude\.com\/claude-code/, 'the refusal does not say what to do');
 });
 
-test('installed elsewhere: names where it is and the one-line link, a DIFFERENT sentence than absent', () => {
+test('installed elsewhere: linked into place with a sentence, a DIFFERENT sentence than absent', () => {
   const r = run({ homeHasClaude: false, pathClaude: true });
-  assert.notEqual(r.code, 0, 'an agent started from a path with nothing at it would never run');
-  assert.match(r.err, /is installed at .*\/bin\/claude, but Kosmos starts agents from/);
-  /* Both remedies CREATE a symlink, so the accept arm must accept one, or
-     every remedy would produce a state the gate then refuses, an infinite
-     remedy loop the suite would never see. */
-  const home2 = nodePath.join(fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-'))), 'home');
-  fs.mkdirSync(nodePath.join(home2, '.local', 'bin'), { recursive: true });
-  const target = nodePath.join(home2, 'real-claude');
-  fs.writeFileSync(target, '#!/bin/sh\nexit 0\n'); fs.chmodSync(target, 0o755);
-  fs.symlinkSync(target, nodePath.join(home2, '.local', 'bin', 'claude'));
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /is installed at .*\/bin\/claude, but Kosmos starts agents from/);
+  assert.match(r.out, /Linking it there now/);
+  assert.match(r.out, /Claude Code linked at /);
+  const link = nodePath.join(r.home, '.local', 'bin', 'claude');
+  assert.ok(fs.existsSync(link) && (fs.statSync(link).mode & 0o100),
+    'the link sentence appeared but nothing runnable is at the path');
+  /* The link the gate just CREATED must be accepted on the next run, or
+     every carry-linked machine gets re-linked (or worse) forever. Kept
+     from the old remedy-loop control, one step tighter: the state under
+     test is now the gate's own output, not a pasted remedy's. */
   const linked = execFileSync('/bin/sh', ['-c', HARNESS + gate()], {
-    encoding: 'utf8', env: { HOME: home2, PATH: '/usr/bin:/bin' },
+    encoding: 'utf8',
+    env: { HOME: r.home, PATH: '/usr/bin:/bin', AGENT_WORKFORCE_CLAUDE_INSTALL_URL: 'file:///never-reached' },
   });
   assert.match(linked, /Claude Code found at /,
-    'the remedy-created symlink state is refused, so every remedy loops');
-  assert.match(r.err, /ln -s/, 'the fix is not named');
-  assert.doesNotMatch(r.err, /does not have it/,
-    'the two states that look identical from a Terminal got the same sentence');
+    'the gate refuses the very link it created, so every linked machine loops');
+  assert.doesNotMatch(r.out, /Installing it now/,
+    'the two states that look identical from a Terminal took the same arm');
 });
 
 test('something present that cannot run gets its own sentence, never the false "nothing there"', () => {

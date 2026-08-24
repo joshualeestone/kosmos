@@ -373,8 +373,8 @@ KOSMOS_RELEASE_BASE="${KOSMOS_RELEASE_BASE:-https://installkosmos.com/dist}"
 # ⚠️ shasum, not sha256sum: macOS ships shasum, and this is the user path
 # where nothing beyond a clean Mac may be assumed.
 verify_download() {
-  local file="$1" url="$2" want got
-  curl -fsL -m 30 "$url.sha256" -o "$file.sha256" 2>/dev/null || {
+  local file="$1" url="$2" shaurl="${3:-$2.sha256}" want got
+  curl -fsL -m 30 "$shaurl" -o "$file.sha256" 2>/dev/null || {
     info "the download could not be verified (its verification file is missing)."
     info "This usually means the download site is mid-update. Wait a minute, then paste the install line again."
     return 1
@@ -437,7 +437,17 @@ fetch_tmux() {
     [ -d "$KOSMOS_TMUX_SRC" ] || { rm -rf "$stage"; return 1; }
     cp -R "$KOSMOS_TMUX_SRC/." "$stage/" || { rm -rf "$stage"; return 1; }
   else
-    local url="$KOSMOS_RELEASE_BASE/tmux-$ARCH.tar.gz"
+    # The version-tied query is the same cache-buster the kosmos fetch
+    # carries: one URL across releases invites a cache to answer with
+    # the past. tmux changes rarely, which makes a stale copy HARDER to
+    # notice, not safer.
+    local url="$KOSMOS_RELEASE_BASE/tmux-$ARCH.tar.gz" shaurl=""
+    if [ -n "${BUST:-}" ]; then
+      url="$KOSMOS_RELEASE_BASE/tmux-$ARCH.tar.gz?v=${TARGET_VERSION:-$$}"
+      shaurl="$KOSMOS_RELEASE_BASE/tmux-$ARCH.tar.gz.sha256?v=${TARGET_VERSION:-$$}"
+    else
+      shaurl="$url.sha256"
+    fi
     # A reachability probe first, so the two failures a launch-day install
     # actually hits (no network, a half-published CDN) refuse in a sentence
     # instead of a curl error code. The real download keeps its progress
@@ -451,7 +461,7 @@ fetch_tmux() {
     # ⚠️ Progress is ON. `curl -fsSL` is silent, and several minutes of nothing
     # is the failure this whole file is written against.
     curl -fL --progress-bar "$url" -o "$stage/tmux.tar.gz" || { rm -rf "$stage"; return 1; }
-    verify_download "$stage/tmux.tar.gz" "$url" || { rm -rf "$stage"; return 1; }
+    verify_download "$stage/tmux.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
     tar -xzf "$stage/tmux.tar.gz" -C "$stage" || { rm -rf "$stage"; return 1; }
     rm -f "$stage/tmux.tar.gz"
   fi
@@ -487,12 +497,33 @@ install_kosmos() {
   sweep_dead_stages "$dest"/.kosmos.stage.*
   rm -rf "$stage"
   mkdir -p "$stage" || { rm -rf "$stage"; return 1; }
+  local from_network=no
   if [ -n "${KOSMOS_SRC:-}" ]; then
     info "using local copy: $KOSMOS_SRC"
     [ -d "$KOSMOS_SRC" ] || { rm -rf "$stage"; return 1; }
     cp -R "$KOSMOS_SRC/." "$stage/" || { rm -rf "$stage"; return 1; }
   else
-    local url="$KOSMOS_RELEASE_BASE/kosmos-$ARCH.tar.gz"
+    from_network=yes
+    # ⚠️ THE BYTES MUST BE THE POINTER'S VERSION. The plain name is one
+    # URL across every release, so any cache between this Mac and the
+    # host can satisfy it with LAST release's tarball and its matching
+    # checksum, and the swap below would then install old bytes while
+    # reporting success (measured on Josh's machine, 2026-08-24: a
+    # completed update log over a disk still holding the prior version).
+    # The versioned name cannot collide across releases; where it is not
+    # published yet, the plain name is fetched with a version-tied
+    # cache-busting query, which a cache treats as a fresh resource.
+    local url="" shaurl=""
+    if [ -n "${TARGET_VERSION:-}" ] && reachable "$KOSMOS_RELEASE_BASE/kosmos-$TARGET_VERSION-$ARCH.tar.gz"; then
+      url="$KOSMOS_RELEASE_BASE/kosmos-$TARGET_VERSION-$ARCH.tar.gz"
+      shaurl="$url.sha256"
+    elif [ -n "${BUST:-}" ]; then
+      url="$KOSMOS_RELEASE_BASE/kosmos-$ARCH.tar.gz?v=${TARGET_VERSION:-$$}"
+      shaurl="$KOSMOS_RELEASE_BASE/kosmos-$ARCH.tar.gz.sha256?v=${TARGET_VERSION:-$$}"
+    else
+      url="$KOSMOS_RELEASE_BASE/kosmos-$ARCH.tar.gz"
+      shaurl="$url.sha256"
+    fi
     if ! reachable "$url"; then
       info "could not reach the download at $url"
       info "Check your internet connection and paste the install line again; it is safe to re-run."
@@ -500,7 +531,7 @@ install_kosmos() {
     fi
     info "downloading from $url"
     curl -fL --progress-bar "$url" -o "$stage/kosmos.tar.gz" || { rm -rf "$stage"; return 1; }
-    verify_download "$stage/kosmos.tar.gz" "$url" || { rm -rf "$stage"; return 1; }
+    verify_download "$stage/kosmos.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
     tar -xzf "$stage/kosmos.tar.gz" -C "$stage" || { rm -rf "$stage"; return 1; }
     rm -f "$stage/kosmos.tar.gz"
   fi
@@ -538,6 +569,24 @@ install_kosmos() {
     mv "$stage/VERSION" "$dest/VERSION" || { rm -rf "$stage"; return 1; }
   fi
   rm -rf "$stage"
+  # 🛑 THE READ-BACK IS THE PROOF. Every claim above is about what this
+  # run DID; this is the only line that looks at what the destination
+  # HOLDS. A landed version that differs from the run's target means some
+  # cache served old bytes whatever the transport, and the one honest
+  # outcome is failure in a sentence, never "installed ... done" over the
+  # previous release. Unknown landed version with a known target is
+  # reported, not fatal: an older bundle without the field still installs.
+  local landed=""
+  landed="$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$dest/app/package.json" 2>/dev/null | head -1)"
+  # KOSMOS_SRC is somebody explicitly choosing their bytes (a thumb drive,
+  # a harness); the pointer has no authority over that choice, so the
+  # assertion holds only for bytes the network delivered.
+  if [ "$from_network" = yes ] && [ -n "${TARGET_VERSION:-}" ] && [ -n "$landed" ] && [ "$landed" != "$TARGET_VERSION" ]; then
+    info "the release pointer says $TARGET_VERSION, but the files that landed are $landed."
+    info "A cache between this Mac and the download host served an old copy. Wait a minute, then paste the install line again."
+    return 1
+  fi
+  info "on disk now: Kosmos ${landed:-(version unrecorded in this bundle)}"
   return 0
 }
 
@@ -1145,6 +1194,34 @@ start_log
 printf '\n  Installing Kosmos\n'
 printf '  This takes a couple of minutes and does not need your password.\n'
 
+# The version this run SET OUT to install, resolved before any artifact
+# moves, so the log can answer which release a run was and the read-back
+# after the swap has something to hold the landed files against. The
+# pointer is tiny and fetched with a cache-busting query: a stale edge
+# handing out an old pointer would quietly aim the whole run at the past.
+# An unreachable pointer degrades to a versionless run that says so.
+TARGET_VERSION=""
+# file:// bases (thumb drives, the test harness) have no cache to bust,
+# and a query string there is a different, missing filename.
+BUST=""
+case "$KOSMOS_RELEASE_BASE" in http://*|https://*) BUST=yes ;; esac
+if [ -n "$BUST" ]; then
+  _ptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/latest.json?nocache=$$" 2>/dev/null)" || _ptr=""
+else
+  _ptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/latest.json" 2>/dev/null)" || _ptr=""
+fi
+# ⚠️ The || guard is load-bearing under set -euo pipefail: a giant 200
+# page full of version keys makes head close the pipe early, sed takes
+# SIGPIPE, and the bare assignment would kill the run with no sentence
+# (exit 141, measured). Every pointer shape must degrade to the
+# versionless run, never to silence.
+TARGET_VERSION="$(printf '%s' "$_ptr" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)" || TARGET_VERSION=""
+if [ -n "$TARGET_VERSION" ]; then
+  printf '  This run installs Kosmos %s.\n' "$TARGET_VERSION"
+else
+  printf '  (could not read the release pointer; installing what the download host serves)\n'
+fi
+
 step "Checking this Mac."
 # (A second Darwin check, deliberately: the one at the top of the file runs
 # before the log exists and protects the shell from non-bash sh; this one
@@ -1224,10 +1301,52 @@ check_claude_code() {
   fi
   _claude_elsewhere="$(command -v claude 2>/dev/null || true)"
   if [ -n "$_claude_elsewhere" ]; then
-    die "Claude Code is installed at $_claude_elsewhere, but Kosmos starts agents from $_claude_bin and there is nothing there. Link it and run this again:
+    # Carry's spirit applied to the near-miss (#548): the fix is one
+    # symlink into the exact path Kosmos launches from, so make it, and
+    # say so first. Nothing is installed; a link is named as a link.
+    info "Claude Code is installed at $_claude_elsewhere, but Kosmos starts agents from $_claude_bin. Linking it there now."
+    mkdir -p "$(dirname "$_claude_bin")" \
+      && ln -s "$_claude_elsewhere" "$_claude_bin" \
+      && [ -f "$_claude_bin" ] && [ -x "$_claude_bin" ] \
+      && { info "Claude Code linked at $_claude_bin"; return 0; }
+    die "We could not link it. Link it yourself and run this again:
   mkdir -p \"\$(dirname \"$_claude_bin\")\" && ln -s \"$_claude_elsewhere\" \"$_claude_bin\""
   fi
-  die "Kosmos needs Claude Code and this Mac does not have it. Install it first (https://claude.com/claude-code puts it at $_claude_bin), then run this install again."
+  # 🔑 CARRY (#548, Josh's ruling 2026-08-24 11:06: "let's carry and just
+  # install now"). This used to refuse the whole install (#133), which was
+  # right when Claude Code was the only engine and expired when it stopped
+  # being one. Now the installer installs it, using Anthropic's own
+  # installer into the exact path Kosmos launches from, and SAYS SO FIRST:
+  # nothing is installed beyond what this sentence names. Neutral -- no
+  # engine until first-run picks a provider -- remains the destination and
+  # stacks on top of this unchanged.
+  #
+  # The URL is overridable for sandboxed installs of Kosmos itself, not a
+  # test convenience: an operator mirroring Anthropic's installer points
+  # this at their mirror.
+  _claude_install_url="${AGENT_WORKFORCE_CLAUDE_INSTALL_URL:-https://claude.ai/install.sh}"
+  # ⚠️ THE SAME FACT IN THE SAME WORDS as the #133 refusal a person may
+  # have met yesterday (Mona Lisa's copy ruling): only what FOLLOWS it
+  # changed, from install-it-first to installing-it-now.
+  info "Kosmos needs Claude Code and this Mac does not have it."
+  info "Installing it now with Anthropic's own installer ($_claude_install_url), into $_claude_bin."
+  # ⚠️ The landed binary is PROBED, not trusted: a truncated download
+  # passes -f and -x (measured under #133, Angel), so the carry succeeds
+  # only when the binary ANSWERS. Its version goes into the log in the
+  # same breath (Mona Lisa's breadcrumb: today's incident hinged on a log
+  # that could not say what a run actually installed).
+  if curl -fsSL "$_claude_install_url" | sh >/tmp/kosmos-claude-install.$$.log 2>&1 \
+     && [ -f "$_claude_bin" ] && [ -x "$_claude_bin" ] \
+     && _claude_version="$("$_claude_bin" --version 2>/dev/null | head -1)" \
+     && [ -n "$_claude_version" ]; then
+    info "Claude Code installed at $_claude_bin ($_claude_version)"
+    rm -f "/tmp/kosmos-claude-install.$$.log"
+    return 0
+  fi
+  # ⚠️ A FAILED CARRY DIES THE WAY THE OLD GATE DID, in a named sentence
+  # with the self-remedy: finishing here would build the exact
+  # agents-that-never-start machine #133 existed to prevent.
+  die "We tried to install Claude Code and it did not work (the log is at /tmp/kosmos-claude-install.$$.log). Install it yourself (https://claude.com/claude-code puts it at $_claude_bin), then run this install again."
 }
 check_claude_code
 ok
@@ -1322,6 +1441,33 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
       die "Another app on this Mac is using port $PORT, which Kosmos needs. Quit that app, then paste the install line again."
       ;;
   esac
+  # ⚠️ GONE BY PORT, not merely quiet over HTTP: a listener that stopped
+  # answering the probe (mid-shutdown, wedged, or simply not speaking
+  # HTTP) still holds the port, and the final start would then find a
+  # healthy-looking board and quietly leave the OLD process serving
+  # (the exact after-state found on Josh's machine, 2026-08-24: a board
+  # outside launchd's supervision on the prior version). A survivor is
+  # named by pid. No lsof on this Mac degrades to the probe above.
+  if command -v lsof >/dev/null 2>&1; then
+    # Ten seconds of grace: a node board draining on a busy Mac can hold
+    # the listener a few seconds past the stop, and a die here on an
+    # honest shutdown would be this guard crying wolf.
+    # ⚠️ EVERY lsof CALL WEARS AN || true: this script runs under set -e,
+    # and lsof answers exit 1 for the GOOD case (nothing listening), so
+    # the bare substitution killed the run silently at "pausing" (found
+    # by the harness's update pass going from green to a log that just
+    # stops). The good case must never be the fatal one.
+    _tries=0; _pids=""
+    while [ "$_tries" -lt 10 ]; do
+      _pids="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)"
+      if [ -z "$_pids" ]; then break; fi
+      _tries=$((_tries + 1)); sleep 1
+    done
+    if [ -n "$_pids" ]; then
+      _pids="$(printf '%s' "$_pids" | tr '\n' ' ' | sed 's/ *$//')"
+      die "A process is still holding port $PORT after the pause (pid $_pids). Quit it (or run 'kill $_pids'), then paste the install line again."
+    fi
+  fi
 fi
 
 step "Setting up the pieces Kosmos needs."
@@ -2154,12 +2300,18 @@ if [ "$_board_ok" = yes ]; then
       # keyed on the label that outlives the plist, and bootstrapping into a
       # standing disable succeeds and starts nothing.
       /bin/launchctl enable "gui/$_uid/$_board_label" 2>/dev/null || true
-      # RunAtLoad means this bootstrap also runs `kosmos start`, which finds the
-      # board this installer started a moment ago and says so.
-      /bin/launchctl bootstrap "gui/$_uid" "$_board_plist" 2>/dev/null || true
+      # Outcome CHECKED (a refused bootstrap printed success on Josh's
+      # machine, 2026-08-24): not fatal, but a different true sentence.
+      if ! /bin/launchctl bootstrap "gui/$_uid" "$_board_plist" 2>/dev/null; then
+        _board_ok=later
+      fi
     fi
   fi
-  info "Kosmos will start itself when you log in"
+  if [ "$_board_ok" = later ]; then
+    info "note: macOS did not accept the background item just now; it is written and loads at your next login"
+  else
+    info "Kosmos will start itself when you log in"
+  fi
   ok
 else
   # ⚠️ NOT FATAL, and said in terms of what it costs rather than what failed.

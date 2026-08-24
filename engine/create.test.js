@@ -2825,6 +2825,112 @@ test('#245: openai refuses a model choice, an account choice, a missing runner, 
   assert.match(r.because, /pick a provider/);
 });
 
+test('#246: the switch rewrites only the launch, both directions, and drops what cannot cross', () => {
+  recorder();
+  create.setDryRun(false);
+  const codexHome = fs.mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'codex-home-sw-'));
+  process.env.AGENT_WORKFORCE_CODEX_HOME = codexHome;
+  // Not 'switcher': line ~2460 already owns that name in this shared sandbox.
+  const name = 'provider-hopper';
+  // Born on Claude, with a model choice, so the switch has something to drop.
+  const out = create.createAgent({ ...BINS, codexBin: '/bin/echo', name, role: 'pm', model: 'opus' });
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  const idBefore = store.readProfile(name).id;
+
+  // Claude -> OpenAI: runner codex, model and account dropped and REPORTED.
+  const sw = create.setProvider(name, 'openai', { ...BINS, codexBin: '/bin/echo' });
+  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
+  assert.equal(sw.provider, 'openai');
+  assert.ok(sw.dropped.model, 'the dropped model choice must be reported so the route can say it');
+  let args = plistArgs(name);
+  assert.equal(args[8], 'codex');
+  assert.equal(args[7], '', 'the Claude model must not be smuggled into a codex launch');
+  // With its memory: same id, same profile, provider updated, folder trusted.
+  assert.equal(store.readProfile(name).id, idBefore, 'the switch minted a new identity, which is the same-agent ruling broken');
+  assert.equal(store.readProfile(name).provider, 'openai');
+  assert.match(fs.readFileSync(nodePath.join(codexHome, 'config.toml'), 'utf8'),
+    new RegExp(`\\[projects\\."${create.workerDir(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\]`),
+    'the switch must trust the folder or the agent restarts into a blocking dialog');
+
+  // Same provider again: refused in words, nothing rewritten.
+  const again = create.setProvider(name, 'openai');
+  assert.equal(again.outcome, create.OUTCOME.REFUSED);
+  assert.match(again.because, /already runs on OpenAI/);
+
+  // OpenAI -> Claude: back on the seven-argument claude vector, default
+  // model and account until chosen (and the result says nothing was kept).
+  const back = create.setProvider(name, 'anthropic', { ...BINS, codexBin: '/bin/echo' });
+  assert.equal(back.outcome, create.OUTCOME.CREATED, back.because);
+  args = plistArgs(name);
+  assert.equal(args.length, 7, 'a claude agent carries the pre-runner vector');
+  assert.equal(store.readProfile(name).provider, 'anthropic');
+  assert.equal(store.readProfile(name).id, idBefore);
+
+  // Refusals: unknown provider, and a name Kosmos never started.
+  assert.equal(create.setProvider(name, 'closedai').outcome, create.OUTCOME.REFUSED);
+  assert.equal(create.setProvider('nobody-here', 'openai').outcome, create.OUTCOME.REFUSED);
+});
+
+test('#548: a claude-less Mac refuses an anthropic creation in words, offering OpenAI only when that path is real', () => {
+  recorder();
+  create.setDryRun(false);
+  const os2 = require('node:os');
+  const noClaude = { tmuxBin: '/bin/echo', claudeBin: '/nonexistent-claude' };
+
+  // No codex runner either: the sentence ends at the install remedy, and
+  // the engine-side field says which condition suppressed the alternative.
+  let r = create.createAgent({ ...noClaude, codexBin: '/nonexistent-codex', name: 'cg-a', role: 'pm' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.match(r.because, /could not find Claude Code/);
+  assert.ok(!/OpenAI instead/.test(r.because), 'a dead-end alternative was offered in words');
+  assert.equal(r.alternative.offered, false);
+  assert.match(r.alternative.because, /codex runner/);
+
+  // Runner present but no OpenAI sign-in: still not offered, different why.
+  const emptyHome = fs.mkdtempSync(nodePath.join(os2.tmpdir(), 'codex-empty-'));
+  process.env.AGENT_WORKFORCE_CODEX_HOME = emptyHome;
+  r = create.createAgent({ ...noClaude, codexBin: '/bin/echo', name: 'cg-b', role: 'pm' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.ok(!/OpenAI instead/.test(r.because));
+  assert.match(r.alternative.because, /sign-in/);
+
+  // Runner present AND signed in: the alternative is real, so it is said.
+  fs.writeFileSync(nodePath.join(emptyHome, 'auth.json'), '{"OPENAI_API_KEY":"x"}');
+  r = create.createAgent({ ...noClaude, codexBin: '/bin/echo', name: 'cg-c', role: 'pm' });
+  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.match(r.because, /or create this agent on OpenAI instead/);
+  assert.equal(r.alternative.offered, true);
+
+  // And nothing was half-made by any of the three refusals.
+  for (const n of ['cg-a', 'cg-b', 'cg-c']) {
+    assert.equal(fs.existsSync(create.plistPath(n)), false, `${n} left a job behind`);
+    assert.equal(fs.existsSync(create.workerDir(n)), false, `${n} left a folder behind`);
+  }
+});
+
+test('#548: an OpenAI-only Mac creates an OpenAI agent; Claude\'s absence is not its problem', () => {
+  /**
+   * The finding that replaced my wrong one, probed not read: the runner
+   * check was provider-blind, so exactly the fresh OpenAI-only Mac Josh
+   * installed on was refused an OPENAI agent for CLAUDE's absence. The
+   * runner checked is the one this agent will run.
+   */
+  recorder();
+  create.setDryRun(false);
+  const os2 = require('node:os');
+  const home = fs.mkdtempSync(nodePath.join(os2.tmpdir(), 'codex-only-'));
+  fs.writeFileSync(nodePath.join(home, 'auth.json'), '{"OPENAI_API_KEY":"x"}');
+  process.env.AGENT_WORKFORCE_CODEX_HOME = home;
+  const r = create.createAgent({
+    tmuxBin: '/bin/echo', claudeBin: '/nonexistent-claude', codexBin: '/bin/echo',
+    name: 'codex-only', role: 'pm', provider: 'openai',
+  });
+  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+});
+
 test('#245: a claude agent\'s launch vector is untouched by the runner feature', () => {
   recorder();
   create.setDryRun(false);

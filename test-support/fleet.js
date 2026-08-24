@@ -149,6 +149,8 @@ function agent(name, opts = {}) {
     // ⚠️ The claim must equal the pane's own NAME to tie it. A claim naming
     // somebody else is somebody else's claim, and `isNamedOurs` says so.
     claim: ours === 'claim' ? key : (opts.claim || ''),
+    /* #245/#246: the runner the supervisor records; empty means claude. */
+    runner: opts.runner || '',
     title: opts.title || '',
     screen: opts.screen !== undefined ? opts.screen : SCREEN[state],
     state,

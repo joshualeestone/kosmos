@@ -2754,6 +2754,11 @@ function snapshot() {
       // claim to have destroyed the record, because those belong to whoever
       // owns the NAME and this pane has not proven it is them.
       isNamedOurs: isNamedOurs(pane),
+      /* Which runner this pane RECORDED at launch (#245/#246): 'codex' or
+         'claude', with empty meaning claude the way it does everywhere the
+         option is absent. The switch screen keys on this, and it is the
+         supervisor's record, never an inference from the command. */
+      runner: pane.runner === 'codex' ? 'codex' : 'claude',
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,

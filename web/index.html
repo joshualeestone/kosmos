@@ -303,6 +303,12 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
     background: var(--attn-bg); color: var(--label);
     font: var(--text-callout) var(--font-ui);
   }
+  /* #541: news, not a problem: quiet card tones, never the warning tint. */
+  .newsbar { display: flex; align-items: baseline; gap: 10px; margin: 10px 24px 0;
+             padding: 9px 14px; border: 1px solid var(--k-rule); border-radius: 10px;
+             background: var(--k-surface); font-size: .875rem; color: var(--k-ink-2); }
+  .newsbar a { color: var(--k-ink); }
+  .newsbar .linkish { margin-left: auto; }
   .conn[hidden] { display: none; }   /* an author rule would beat the UA hidden */
   .conn-bad { background: var(--warn-bg); border-color: var(--warn-border); }
   .conn-unsure { background: var(--attn-bg); border-color: var(--separator); }
@@ -2062,9 +2068,15 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
 #d-say { flex: 1 1 auto; }
 /* Inside the room's box the field is bare: the box carries the border and the
    focus ring. Specific enough to beat `.detail .dbox input[type=text]`. */
-.detail .dbox .composerbox input[type=text].cinput, .dbox .composerbox input[type=text].cinput {
+.detail .dbox .composerbox input[type=text].cinput, .dbox .composerbox input[type=text].cinput,
+.composerbox textarea.cinput {
   border: 0; background: none; box-shadow: none; border-radius: 0; min-width: 0; }
-.detail .dbox .composerbox input[type=text].cinput:focus { outline: none; box-shadow: none; border: 0; }
+/* ⚠️ The selector above covered only the INPUT variant, so the room's
+   TEXTAREA composer took the column's --field-fill and drew a light gray
+   bar inside the white box (Josh, 2026-08-24 10:54: "a very light gray
+   behind the text field... should not be there"). The box is the field;
+   what sits inside it is bare. */
+.detail .dbox .composerbox input[type=text].cinput:focus, .composerbox textarea.cinput:focus { outline: none; box-shadow: none; border: 0; }
 /* ⚠️ A CLOSED BOX HAS TO LOOK CLOSED. The pack dims its disabled composer
    (`.dmbar .btn-gold[disabled], .dmbar .inp[disabled] { opacity: .5 }`) and the
    build has no `.btn[disabled]` rule at all -- so a Send that cannot send was
@@ -3922,9 +3934,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <p class="dhint" id="d-runson-why" hidden></p>
     <div class="msteps" role="group" aria-label="Change what this agent runs on" style="margin-top:12px;">
       <div class="frow">
+        <!-- #246: the switch is real now, so this menu takes the same shape
+             as the two below it: a placeholder first (the two tenses rule --
+             a preselected value would read as "is on" and "about to be" with
+             one element), a button that stays down until something OTHER
+             than the current provider is chosen, and nothing happening on
+             pick. The current provider's option is disabled per open, so
+             the only choices offered are ones the engine will not refuse. -->
         <select id="d-provider" aria-label="Provider">
-          <option value="anthropic" selected>Anthropic / Claude</option>
-          <option value="openai" disabled>OpenAI &middot; coming soon</option>
+          <option value="">Change to&hellip;</option>
+          <option value="anthropic">Anthropic / Claude</option>
+          <option value="openai">OpenAI / Codex</option>
           <option value="google" disabled>Google Gemini &middot; coming soon</option>
           <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
           <option value="xai" disabled>xAI Grok &middot; coming soon</option>
@@ -3932,7 +3952,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
           <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
           <option value="mistral" disabled>Mistral &middot; coming soon</option>
         </select>
+        <button class="btn" type="button" id="d-provider-go" disabled>Switch &amp; Restart</button>
       </div>
+      <p class="dhint" id="d-provider-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
       <div class="mstep">
         <div class="frow">
           <select id="d-account" aria-label="Account this agent runs on"></select>
@@ -5318,6 +5340,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            "Add Member", and title case on a control makes it read as a proper
            noun rather than an instruction. -->
       <button class="btn-quiet pj-addmem" id="pj-add-member" type="button"><span aria-hidden="true">+</span> Add member</button>
+      <!-- The door to removal (Josh, 2026-08-24 10:52: he could not find it).
+           The per-row buttons left this card by his OWN earlier ruling (the
+           listener comment at pjs-members records it), so the resting card
+           stays uncluttered and the DOOR is what lives here: one quiet link
+           to the settings rows where Remove has always been. -->
+      <button class="linkish" id="pj-remove-member" type="button" style="margin-top:6px;">Remove a member&hellip;</button>
       <div id="pj-one-add-row" hidden style="margin-top: var(--space-5)">
         <!-- ⚠️ A VISIBLE LABEL, not only an aria one (#109). The picker opens
              from a button, so it arrives on screen with no heading above it and
@@ -5843,6 +5871,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            line. A screen reader reaches the settled line in reading
            order once typing is done. -->
       <p class="pj-chosen" id="pj-will-be"></p>
+    </div>
+    <!-- #551 (Josh, 2026-08-24 10:55): a project can be born described. The
+         SAME field Project settings edits, optional on purpose: a name is
+         enough to start, and a required description is a wall. -->
+    <div class="field">
+      <span class="flabel">What is it about? <small style="font-weight:400;color:var(--label-2)">You can skip this.</small></span>
+      <textarea class="tk-inp" id="pj-add-desc" rows="2" maxlength="500"
+                aria-label="What this project is about"
+                placeholder="Renewing the Henderson lease before October."></textarea>
     </div>
 
     <!-- The advanced route, one link away: for work that already lives
@@ -6581,6 +6618,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      the whole board looks asleep.
      `role="status"` and not `alert`: it is a condition, announced when it
      appears, not an interruption. -->
+<!-- #541: ship-day made visible. One quiet line after an update installs
+     under a running board; dismiss records the seen version server-side so
+     it survives restarts and never returns for a seen version. First sight
+     of a machine records silently: the line only ever describes a CHANGE. -->
+<div class="newsbar" id="newsbar" role="status" hidden>
+  <span id="newsbar-text"></span>
+  <a id="newsbar-link" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">What changed</a>
+  <button class="linkish" id="newsbar-ok" type="button" aria-label="Dismiss this update note">Got it</button>
+</div>
 <div class="conn" id="conn" role="status" aria-live="polite" hidden></div>
 <!-- The pack's stats row: the New agent action as a dashed tile locked
      left, the counts on the true centre, the view toggle pinned right.
@@ -7017,6 +7063,12 @@ function modelLine(a) {
      more and the card would name the transcript model while the detail panel
      named the job's, reopening the card-vs-meta disagreement this branch
      closed. One question, one derivation. */
+  /* #246: the day this comment warned about arrived. An OpenAI agent's
+     runner is recorded (the supervisor's option on running panes, the
+     profile on stopped ones) and its model is codex's own choice, which we
+     deliberately do not scrape a name for -- naming the provider is the
+     truth we hold, and it is what the switch changed. */
+  if (a.runner === 'codex') return 'OpenAI Codex';
   const notRunning = cardStOf(a).pres === 'off';
   const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName;
   /* #149/#150: two states were collapsed into "Unknown Model", and only one
@@ -12450,6 +12502,7 @@ function openDetail(sessionName, section) {
      it needs a stub the test would then be asserting against instead of the
      page. Outside it, the same test keeps working and this keeps its real one. */
   paintModelPicker(a);
+  paintProviderPicker(a);
   paintAccountPicker(a);
   paintReportsTo(a);
   /* The explanation's landing place after it left the card with the
@@ -12911,6 +12964,33 @@ document.querySelectorAll('#s-sec-connect .boardrow').forEach((row) => {
 });
 
 /* The connect tab's one computed sentence (the taxonomy doc's defect half). */
+/* #541: the one line that makes ship-day visible. */
+async function newsbarCheck() {
+  try {
+    const res = await fetch('/api/whats-new', { cache: 'no-store' });
+    if (!res.ok) return;
+    const got = await res.json();
+    if (!got || typeof got.current !== 'string') return;
+    const record = () => fetch('/api/whats-new/seen', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ version: got.current }),
+    }).catch(() => { /* tried again next load */ });
+    if (!got.seen) { record(); return; } // first sight: silent
+    if (got.seen === got.current) return;
+    document.getElementById('newsbar-text').textContent =
+      'Kosmos updated itself to ' + got.current + ' while you were away.';
+    document.getElementById('newsbar-link').href =
+      'https://installkosmos.com/versions#v' + got.current.replace(/\./g, '-');
+    const bar = document.getElementById('newsbar');
+    bar.hidden = false;
+    document.getElementById('newsbar-ok').addEventListener('click', () => {
+      bar.hidden = true;
+      record();
+    }, { once: true });
+  } catch { /* news can wait */ }
+}
+newsbarCheck();
+
 async function paintConnLive() {
   const el = document.getElementById('conn-live');
   if (!el) return;
@@ -15886,6 +15966,105 @@ function changeDialog({ title, small, go, run }) {
   try { goBtn.focus(); } catch { /* fine */ }
 }
 const agentShown = () => (CURRENT && (CURRENT.name || CURRENT.sessionName)) || 'this agent';
+
+/* #246: which provider an agent is on, from the RECORD: the supervisor's
+   runner option on running panes, the profile's provider on stopped rows.
+   'claude'/'codex' is the runner vocabulary; this answers in the menu's. */
+const providerOf = (a) => ((a && a.runner === 'codex') ? 'openai' : 'anthropic');
+
+function paintProviderPicker(a) {
+  const sel = document.getElementById('d-provider');
+  const go = document.getElementById('d-provider-go');
+  const msg = document.getElementById('d-provider-msg');
+  if (!sel || !go) return;
+  sel.value = '';
+  if (msg) msg.textContent = '';
+  const current = providerOf(a);
+  /* The current provider is not an offer: picking it would be a no-op the
+     engine refuses, and the button being down is not enough of a reason
+     (the account picker's lesson). Disabled per open, re-enabled for
+     whichever provider is the OTHER one. */
+  for (const opt of sel.options) {
+    if (opt.value === 'anthropic' || opt.value === 'openai') opt.disabled = (opt.value === current);
+  }
+  const ours = !!(a && a.isNamedOurs);
+  const usable = ours && !(a && a.neverRecorded === true);
+  sel.disabled = !usable;
+  go.disabled = true;
+  /* An OpenAI agent's model and account menus park with words, the same
+     rule as the create form: the engine refuses both, and a control that
+     accepts a choice the request then refuses is the offer-that-cannot-work
+     shape. Un-parking on a claude agent is paintModelPicker's normal job. */
+  if (usable && current === 'openai') {
+    const dm = document.getElementById('d-model');
+    const da = document.getElementById('d-account');
+    if (dm) dm.disabled = true;
+    if (da) da.disabled = true;
+    const dmm = document.getElementById('d-model-msg');
+    if (dmm && !dmm.textContent) dmm.textContent = 'OpenAI picks its own model, and this agent runs on this computer’s OpenAI sign-in. Switch it back to Anthropic to choose these again.';
+  }
+}
+
+document.getElementById('d-provider').addEventListener('change', (e) => {
+  const go = document.getElementById('d-provider-go');
+  if (go) go.disabled = !e.target.value || !CURRENT || e.target.value === providerOf(CURRENT);
+});
+
+async function changeProviderNow() {
+  if (!CURRENT) return;
+  const sel = document.getElementById('d-provider');
+  const go = document.getElementById('d-provider-go');
+  const msg = document.getElementById('d-provider-msg');
+  const want = sel.value;
+  if (!want) return;
+  const forAgent = CURRENT.sessionName;
+  go.disabled = true;
+  sel.disabled = true;
+  msg.textContent = 'Switching…';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/provider', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: want }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!CURRENT || CURRENT.sessionName !== forAgent) return;
+    if (!res.ok || !out) throw new Error((out && (out.because || out.error)) || 'that did not work');
+    /* The route's sentence verbatim: it says what stayed, what did not
+       cross, and that the agent will look idle until spoken to. */
+    msg.textContent = out.because || 'Switched.';
+    sel.value = '';
+  } catch (err) {
+    if (!CURRENT || CURRENT.sessionName !== forAgent) return;
+    msg.textContent = String((err && err.message) || 'That did not work.');
+  } finally {
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      sel.disabled = false;
+      go.disabled = true;
+    }
+  }
+}
+
+document.getElementById('d-provider-go').addEventListener('click', () => {
+  const sel = document.getElementById('d-provider');
+  if (!CURRENT || !sel.value) return;
+  const toOpenai = sel.value === 'openai';
+  const label = toOpenai ? 'OpenAI' : 'Anthropic';
+  changeDialog({
+    title: 'Switch ' + agentShown() + ' to ' + label + '?',
+    /* The memory sentence is the ruling, said before it happens: what she
+       knows stays, her past stays readable, the conversation ends the way
+       it does on any restart, and the provider-shaped choices do not
+       cross. */
+    small: agentShown() + ' keeps its name, its face, its instructions, its files, and everything it has done; its past stays readable. '
+      + 'It restarts, so this conversation ends, as it does on any restart. '
+      + (toOpenai
+        ? 'Its Claude model and account choices do not cross: OpenAI picks its own model, on this computer’s OpenAI sign-in.'
+        : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
+    go: 'Switch and restart',
+    run: () => changeProviderNow(),
+  });
+});
 document.getElementById('d-model-go').addEventListener('click', () => {
   const sel = document.getElementById('d-model');
   if (!CURRENT || !sel.value) return;
@@ -18664,6 +18843,15 @@ document.getElementById('pj-settings-link').addEventListener('click', () => {
   paintProjectSettings(p);
   pjView('settings');
   document.getElementById('pj-settings-back').focus();
+});
+document.getElementById('pj-remove-member').addEventListener('click', () => {
+  const p = pjById(PJ_CURRENT);
+  if (!p) return;
+  paintProjectSettings(p);
+  pjView('settings');
+  /* Land the person ON the member rows, where each Remove button is. */
+  const rows = document.getElementById('pjs-members');
+  if (rows) { rows.scrollIntoView({ block: 'start' }); const b = rows.querySelector('[data-drop]'); if (b) b.focus(); }
 });
 document.getElementById('pj-settings-back').addEventListener('click', () => {
   pjView('one');
@@ -21630,6 +21818,7 @@ function openAddProject() {
   const name = document.getElementById('pj-name');
   name.value = '';
   name.dataset.auto = '1';
+  document.getElementById('pj-add-desc').value = ''; // #551: no leak between opens
   document.getElementById('pj-add-msg').textContent = '';
   document.getElementById('pj-chosen').textContent = 'No folder chosen yet.';
   // The advanced route starts closed on every arrival, so a person who opened
@@ -21854,6 +22043,9 @@ document.getElementById('pj-create').addEventListener('click', async () => {
         // branches on the field being absent, and `folder: null` is a caller
         // saying "this project lives nowhere" rather than "you choose".
         ...(PJ_PICKED ? { folder: PJ_PICKED } : {}),
+        /* #551: absent when blank, same absent-not-null discipline as folder. */
+        ...(document.getElementById('pj-add-desc').value.trim()
+          ? { description: document.getElementById('pj-add-desc').value.trim() } : {}),
         agents: PJ_ADD_AGENTS,
       }),
     });
