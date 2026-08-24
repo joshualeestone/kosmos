@@ -10431,3 +10431,109 @@ test('the fence infostring becomes a source line when it is path-shaped (#121)',
   out = body('```brief.md\nnever closes', names);
   assert.ok(!out.includes('codeb') && out.includes('```'), 'an unclosed labelled fence was guessed into a block');
 });
+
+/* ------------------------------------------------------------------------- *
+ * #188's third verb: POST /api/report records rather than delivers.
+ * ------------------------------------------------------------------------- */
+
+test('the report route derives the sender from the pane, records, and the board reads it back as truth', async () => {
+  const messagesEngine = require('./engine/messages');
+  const selfreportEngine = require('./engine/selfreport');
+  /* The pane says idle; the agent says working. The board must answer with
+     the agent's own account, marked as reported, at structured confidence:
+     the record is a file written for this purpose, which is that tier's
+     definition. */
+  const board = fleet.install([fleet.agent('peteworker', { state: 'idle' })]);
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'peteworker-discord' }));
+
+    const r = await req('/api/report', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ state: 'working', text: 'wiring the report route', from_pane: '%7' }),
+    });
+    assert.equal(r.status, 200);
+    assert.equal(JSON.parse(r.body).recorded, true, 'the report was not kept: ' + r.body);
+
+    /* Kept under the PANE-derived name. The body carries no sender field at
+       all, which is the property (not a detail): an agent can only ever
+       report as itself, so the record is evidence rather than typing. */
+    const kept = selfreportEngine.read('peteworker');
+    assert.equal(kept.state, 'working');
+    assert.equal(kept.because, 'wiring the report route');
+
+    const st = await req('/api/status');
+    const row = JSON.parse(st.body).agents.find((a) => a.sessionName === 'peteworker');
+    assert.ok(row, 'the reporting agent fell off the board');
+    assert.equal(row.state, 'working', 'a fresh report did not outrank the scraped idle');
+    assert.equal(row.stateReported, true);
+    assert.equal(row.because, 'wiring the report route');
+    assert.equal(row.stateConflict, null);
+  } finally {
+    fs.rmSync(selfreportEngine.fileFor('peteworker'), { force: true });
+    messagesEngine.resetForTests();
+    board.restore();
+  }
+});
+
+test('the report route refuses an unknown state word with the closed list, and a caller with no pane with the identity sentence', async () => {
+  const messagesEngine = require('./engine/messages');
+  const board = fleet.install([fleet.agent('peteworker', { state: 'idle' })]);
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'peteworker-discord' }));
+    const bad = await req('/api/report', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ state: 'vibing', text: 'x', from_pane: '%7' }),
+    });
+    const verdict = JSON.parse(bad.body);
+    assert.equal(verdict.recorded, false);
+    assert.match(verdict.because, /started, working, idle, needs_you, blocked, stopped/,
+      'the refusal does not teach the caller the six words');
+
+    const anon = await req('/api/report', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ state: 'working' }),
+    });
+    const who = JSON.parse(anon.body);
+    assert.equal(who.recorded, false);
+    assert.match(who.because, /which agent/, 'an unidentifiable caller was not refused in a sentence');
+  } finally {
+    messagesEngine.resetForTests();
+    board.restore();
+  }
+});
+
+test('a reported needs_you reaches the phone seam in the same word, with zero translation', async () => {
+  const messagesEngine = require('./engine/messages');
+  const selfreportEngine = require('./engine/selfreport');
+  const notifyEngine = require('./engine/notify');
+  const board = fleet.install([fleet.agent('peteworker', { state: 'idle' })]);
+  const pinged = [];
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'peteworker-discord' }));
+    notifyEngine.setSender((url, init) => { pinged.push(JSON.parse(init.body)); return Promise.resolve({ ok: true }); });
+    assert.equal(notifyEngine.setOn(true).ok, true, 'could not switch the notify seam on in the sandbox');
+
+    const r = await req('/api/report', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ state: 'needs_you', text: 'Which domain should the relay use?', from_pane: '%7' }),
+    });
+    assert.equal(JSON.parse(r.body).recorded, true);
+    assert.equal(pinged.length, 1, 'the needs_you transition did not reach notify');
+    assert.equal(pinged[0].kind, 'needs_you', 'the report word and the notify word are not the same word');
+    assert.equal(pinged[0].session, 'peteworker');
+    /* The payload rule notify.js states: never the words. The question stays
+       on the Mac, in the record; the ping carries who and what kind and when. */
+    assert.equal(JSON.stringify(pinged[0]).includes('Which domain'), false,
+      'the question text left the Mac through the ping');
+  } finally {
+    fs.rmSync(selfreportEngine.fileFor('peteworker'), { force: true });
+    notifyEngine.setOn(false);
+    notifyEngine.setSender(null);
+    messagesEngine.resetForTests();
+    board.restore();
+  }
+});

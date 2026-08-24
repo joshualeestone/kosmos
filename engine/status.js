@@ -18,6 +18,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const store = require('./store');
+const selfreport = require('./selfreport');
 const { readWorkerFile } = require('./workerfile');
 
 const HOME = os.homedir();
@@ -102,6 +103,13 @@ const STATE = {
   RATE_LIMITED: 'rate_limited',
   IDLE: 'idle',
   STOPPED: 'stopped',
+  /* Reported-only (#188's third verb): waiting on something that is NOT the
+     person -- another agent, a deploy, a review. No pane shape produces it;
+     it exists because an agent can SAY it, with what and who, which is the
+     split every agent already reports in prose ("blocked on X, owned by Y").
+     A rate limit is the one blocked the pane can see, and it keeps its own
+     state above because the screens treat it specially. */
+  BLOCKED: 'blocked',
   UNKNOWN: 'unknown', // the default, deliberately
 };
 
@@ -2563,12 +2571,113 @@ function paneRoster() {
   }));
 }
 
+/* Five minutes. A genuinely working agent heartbeats through its tool calls,
+   so a `working` older than this is a claim nobody is standing behind. */
+const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
+
+/**
+ * One state from two witnesses: the agent's own report and the pane reader.
+ * A fresh report is authoritative; the reader stays as corroboration and
+ * audit (#188, and the architecture note on #253: reports as truth, readers
+ * as evidence -- both, never a choice between them).
+ *
+ * The precedence, in order, and each line is a rule rather than a tiebreak:
+ *
+ *   1. No report -> the scraped verdict, untouched. An agent that never
+ *      adopted the verb renders exactly as today.
+ *   2. STRUCTURE OUTRANKS ANY CLAIM ABOUT LIVENESS, both directions. A pane
+ *      whose process is gone (`stopped` at STRUCTURED confidence) is stopped
+ *      whatever the record's last line says -- an agent cannot report its own
+ *      death, so a crash's last word is `working` forever and must not win.
+ *      And a live process that reported `stopped` is running, whatever it
+ *      said: the scraped state stands, with the contradiction SURFACED.
+ *   3. THE RED IS NEVER SUPPRESSED BY A REPORT. A scraped `needs_you` beside
+ *      a report that says otherwise renders `needs_you`, with the conflict
+ *      surfaced. This is deliberate asymmetry for the interface's one known
+ *      hole (a question asked through the runtime's question tool fires no
+ *      hook, so the reporter can honestly not know) -- and false calm is the
+ *      failure that ships, four times now on this fleet.
+ *   4. A fresh reported `working` is working, in the agent's own words.
+ *   5. A STALE `working` DECAYS TO UNKNOWN, NEVER TO IDLE. A report that
+ *      stopped arriving says the REPORTER stopped, not that the agent
+ *      finished; an agent mid-task rendered "resting quietly" is the
+ *      false-negative this board has paid for repeatedly, because nobody
+ *      investigates calm. Before decaying, the pane gets its say: a screen
+ *      still visibly mid-task means the agent is alive and the REPORTER is
+ *      broken -- a different fault with a different fix, so that renders as
+ *      the scraped working with the contradiction surfaced rather than
+ *      collapsing to unknown before the comparison can happen.
+ *   6. `idle`, `needs_you` and `blocked` do NOT decay: an idle agent has no
+ *      execution to heartbeat with, and a question keeps standing until it
+ *      is answered. Their liveness guard is rule 2, not a clock.
+ *
+ * `conflict` on the answer is a sentence when the two witnesses materially
+ * disagree, null otherwise. Surfaced, never silently resolved: a silent
+ * override is how two sources of truth become one confident lie.
+ */
+function reconcileReport(reported, scraped, nowMs) {
+  if (!reported || reported.found !== true) return { ...scraped, reported: false, conflict: null };
+
+  const said = (fallback) => reported.because || fallback;
+
+  // Rule 2: the process is gone. Agreement is a clean goodbye; anything
+  // else is a crash, which is rule 2's whole reason to exist -- not a
+  // contradiction to flag but the honest reading of a dead process.
+  if (scraped.state === STATE.STOPPED && scraped.confidence === CONFIDENCE.STRUCTURED) {
+    if (reported.state === 'stopped') {
+      return { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'it said it was stopping', reported: true, conflict: null };
+    }
+    return { ...scraped, reported: false, conflict: null };
+  }
+  // Rule 2, the other direction: it said goodbye and is visibly still here.
+  if (reported.state === 'stopped') {
+    return { ...scraped, reported: false, conflict: 'it reported stopping, but it is still running' };
+  }
+  // Rule 3: the red stands.
+  if (scraped.state === STATE.NEEDS_YOU && reported.state !== 'needs_you') {
+    return { ...scraped, reported: false, conflict: 'its screen shows a question its reports do not mention' };
+  }
+
+  if (reported.state === 'working') {
+    const at = Date.parse(reported.at || '');
+    const stale = !Number.isFinite(at) || (nowMs - at) > REPORT_WORKING_DECAY_MS;
+    if (!stale) {
+      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null };
+    }
+    // Rule 5: the comparison happens BEFORE the decay.
+    if (scraped.state === STATE.WORKING) {
+      return { ...scraped, reported: false, conflict: 'its reports stopped arriving while its screen still shows work, so the reporter may be broken' };
+    }
+    return {
+      state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE,
+      because: 'it said it was working and has not said anything since; we could not check',
+      reported: true, conflict: null,
+    };
+  }
+  if (reported.state === 'needs_you') {
+    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said('it is asking you something'), reported: true, conflict: null };
+  }
+  if (reported.state === 'blocked') {
+    const what = reported.on ? 'it is waiting on ' + reported.on + (reported.owner ? ', which ' + reported.owner + ' owns' : '')
+      : 'it is waiting on something that is not you';
+    return { state: STATE.BLOCKED, confidence: CONFIDENCE.STRUCTURED, because: said(what), reported: true, conflict: null };
+  }
+  // `idle`, and `started` with nothing after it: at rest either way.
+  return { state: STATE.IDLE, confidence: CONFIDENCE.STRUCTURED, because: said('it is at rest and nothing is needed'), reported: true, conflict: null };
+}
+
 function snapshot() {
   const { panes: read, rejected: unreadableLines } = listPanes();
   const panes = onePanePerSession(read);
   const agents = panes.map((pane) => {
     const text = capturePane(pane.target);
-    const status = classify(pane, text);
+    const scrapedStatus = classify(pane, text);
+    /* The agent's own account outranks the scrape when fresh (#188); only a
+       pane TIED to the name may read that name's record, the same gate every
+       name-keyed read below honours. */
+    const status = reconcileReport(
+      isNamedOurs(pane) ? selfreport.read(pane.name) : { found: false },
+      scrapedStatus, Date.now());
     // ⚠️ Identity, model and context are all filed under the NAME, and only a
     // pane whose SESSION NAME says it is ours has been tied to that name.
     //
@@ -2639,6 +2748,13 @@ function snapshot() {
          every state that did not read a sentence off the screen. */
       stateEvidence: status.evidence || null,
       because: status.because,
+      /* Whether the state above is the agent's own account (#188's third
+         verb) rather than a pane reading. */
+      stateReported: status.reported === true,
+      /* A sentence when the agent's report and the pane reader materially
+         disagree, null otherwise. Surfaced rather than silently resolved:
+         the two witnesses disagreeing is a fact the operator gets to see. */
+      stateConflict: status.conflict || null,
       context,
       model,
       modelName: modelDisplayName(model),
@@ -2805,6 +2921,9 @@ module.exports = {
   lastLookProblem,
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
   setPaneSource, setPaneCapture, tmuxSaidNoServer, shDetail,
+  /* #188's third verb: one state from two witnesses. Exported so the suite
+     can pin every precedence rule without standing up a fleet. */
+  reconcileReport, REPORT_WORKING_DECAY_MS,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an
      agent LAST RAN AS into a job that never recorded a choice. Exported rather

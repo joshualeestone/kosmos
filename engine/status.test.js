@@ -2575,3 +2575,110 @@ test('a full model id beats a bare short form that happens to be later', () => {
     setPaneCapture(null);
   }
 });
+
+/* ------------------------------------------------------------------------- *
+ * #188's third verb: one state from two witnesses (reconcileReport).
+ *
+ * Pure-function tests, one per precedence rule, because each rule is a
+ * decision this fleet has already paid for once: a stale `working` decaying
+ * to idle is the calm-fleet false negative, a report outranking a dead
+ * process is a crash rendered alive, and a report suppressing a scraped
+ * needs_you is the one red state going structurally unreachable (#249's
+ * shape, from the other side).
+ * ------------------------------------------------------------------------- */
+
+const { reconcileReport, REPORT_WORKING_DECAY_MS } = require('./status');
+
+const T0 = Date.parse('2026-08-24T16:00:00Z');
+const rep = (state, extra) => ({ found: true, state, because: null, on: null, owner: null, until: null, at: new Date(T0).toISOString(), ...extra });
+const scr = (state, confidence, because) => ({ state, confidence, because: because || 'x' });
+
+test('reconcile: no report means the scraped verdict untouched, so a non-adopting agent renders exactly as today', () => {
+  const scraped = scr(STATE.IDLE, CONFIDENCE.SCRAPED, 'it is sitting at its prompt');
+  const got = reconcileReport({ found: false }, scraped, T0);
+  assert.equal(got.state, STATE.IDLE);
+  assert.equal(got.because, 'it is sitting at its prompt');
+  assert.equal(got.reported, false);
+  assert.equal(got.conflict, null);
+});
+
+test('reconcile: a fresh reported working is authoritative, in the agent\'s own words', () => {
+  const got = reconcileReport(rep('working', { because: 'wiring the report route' }),
+    scr(STATE.IDLE, CONFIDENCE.SCRAPED), T0 + 60_000);
+  assert.equal(got.state, STATE.WORKING);
+  assert.equal(got.confidence, CONFIDENCE.STRUCTURED);
+  assert.equal(got.because, 'wiring the report route');
+  assert.equal(got.reported, true);
+});
+
+test('reconcile: a stale working decays to UNKNOWN, never to idle -- nobody investigates calm', () => {
+  const got = reconcileReport(rep('working'), scr(STATE.IDLE, CONFIDENCE.SCRAPED),
+    T0 + REPORT_WORKING_DECAY_MS + 60_000);
+  assert.equal(got.state, STATE.UNKNOWN);
+  assert.equal(got.confidence, CONFIDENCE.NONE);
+  assert.match(got.because, /could not check/);
+});
+
+test('reconcile: a stale working reaches the comparison first -- a screen still mid-task means the REPORTER is broken, and says so', () => {
+  const got = reconcileReport(rep('working'), scr(STATE.WORKING, CONFIDENCE.SCRAPED, 'it is mid-task'),
+    T0 + REPORT_WORKING_DECAY_MS + 60_000);
+  assert.equal(got.state, STATE.WORKING, 'the live screen was thrown away before the comparison');
+  assert.match(got.conflict, /reporter may be broken/);
+});
+
+test('reconcile: a dead process outranks any report -- a crash\'s last word is working forever and must not win', () => {
+  const got = reconcileReport(rep('working'),
+    scr(STATE.STOPPED, CONFIDENCE.STRUCTURED, 'Claude is not running for this one'), T0 + 1000);
+  assert.equal(got.state, STATE.STOPPED);
+  assert.equal(got.reported, false);
+});
+
+test('reconcile: a clean goodbye agrees with the dead process and is believed in the report\'s words', () => {
+  const got = reconcileReport(rep('stopped'),
+    scr(STATE.STOPPED, CONFIDENCE.STRUCTURED), T0 + 1000);
+  assert.equal(got.state, STATE.STOPPED);
+  assert.equal(got.because, 'it said it was stopping');
+  assert.equal(got.reported, true);
+});
+
+test('reconcile: a live process that reported stopping renders as what the pane sees, contradiction surfaced', () => {
+  const got = reconcileReport(rep('stopped'), scr(STATE.WORKING, CONFIDENCE.SCRAPED), T0 + 1000);
+  assert.equal(got.state, STATE.WORKING);
+  assert.match(got.conflict, /reported stopping/);
+});
+
+test('reconcile: the red is never suppressed -- a scraped needs_you beside a calm report stands, conflict surfaced', () => {
+  const got = reconcileReport(rep('working'),
+    scr(STATE.NEEDS_YOU, CONFIDENCE.SCRAPED, 'it is asking you something'), T0 + 1000);
+  assert.equal(got.state, STATE.NEEDS_YOU, 'a report suppressed the board\'s one red state');
+  assert.match(got.conflict, /question its reports do not mention/);
+});
+
+test('reconcile: a reported needs_you carries the question itself', () => {
+  const got = reconcileReport(rep('needs_you', { because: 'Which domain should the relay use?' }),
+    scr(STATE.WORKING, CONFIDENCE.SCRAPED), T0 + 1000);
+  assert.equal(got.state, STATE.NEEDS_YOU);
+  assert.equal(got.because, 'Which domain should the relay use?');
+});
+
+test('reconcile: needs_you and idle do NOT decay -- an idle agent has nothing to heartbeat with', () => {
+  const hoursLater = T0 + 6 * 60 * 60_000;
+  const asked = reconcileReport(rep('needs_you', { because: 'may I merge?' }),
+    scr(STATE.IDLE, CONFIDENCE.SCRAPED), hoursLater);
+  assert.equal(asked.state, STATE.NEEDS_YOU, 'a standing question decayed');
+  const rest = reconcileReport(rep('idle'), scr(STATE.IDLE, CONFIDENCE.SCRAPED), hoursLater);
+  assert.equal(rest.state, STATE.IDLE);
+});
+
+test('reconcile: blocked becomes its own state and the sentence says what and who', () => {
+  const got = reconcileReport(rep('blocked', { on: 'PR review', owner: 'the kosmos team' }),
+    scr(STATE.IDLE, CONFIDENCE.SCRAPED), T0 + 1000);
+  assert.equal(got.state, STATE.BLOCKED);
+  assert.equal(got.because, 'it is waiting on PR review, which the kosmos team owns');
+});
+
+test('reconcile: started with nothing after it renders idle -- alive and at rest', () => {
+  const got = reconcileReport(rep('started'), scr(STATE.IDLE, CONFIDENCE.SCRAPED), T0 + 1000);
+  assert.equal(got.state, STATE.IDLE);
+  assert.equal(got.reported, true);
+});

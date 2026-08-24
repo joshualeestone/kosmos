@@ -106,6 +106,7 @@ const accounts = require('./engine/accounts');
 const forget = require('./engine/forget');
 const ping = require('./engine/ping');
 const notify = require('./engine/notify');
+const selfreport = require('./engine/selfreport');
 const remote = require('./engine/remote');
 const styles = require('./engine/styles');
 const autoupdate = require('./engine/autoupdate');
@@ -2700,6 +2701,61 @@ const server = http.createServer((req, res) => {
    * arrival. Reporting `placed` would invent a mechanism that did not happen —
    * the claim-table rule, applied to the direction nobody had built yet.
    */
+  if (pathname === '/api/report' && req.method === 'POST') {
+    /* #188's third verb: records rather than delivers. The agent says what
+       it is DOING (one of selfreport.STATES); nothing is typed anywhere,
+       nothing fans out. The board reads the record back through
+       `status.reconcileReport`, where a fresh report outranks the pane.
+
+       🔑 THE SENDER IS A PROPERTY, NOT A FIELD: identity NEVER comes from
+       the body. It is derived from the pane (messages.resolveSender, the
+       rule every write route enforces), so an agent can only ever report as
+       itself -- a report anyone on the machine could forge would not be
+       evidence, and evidence is this record's whole job. */
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read');
+          bad.status = 400; throw bad;
+        }
+        if (!body || typeof body !== 'object') {
+          const bad = new Error('that request is not the shape we expect');
+          bad.status = 400; throw bad;
+        }
+        const roster = safeRoster();
+        if (roster === null) {
+          sendJson(res, 200, { recorded: false, because: 'we could not check which agents are running, so we could not tell who this is from' });
+          return;
+        }
+        const sender = messages.resolveSender(body.from_pane, roster);
+        if (!sender.ok) { sendJson(res, 200, { recorded: false, because: sender.because }); return; }
+
+        const who = sender.card.sessionName;
+        const kept = selfreport.record(who, {
+          state: body.state,
+          because: body.text,
+          on: body.on,
+          owner: body.owner,
+          until: body.until,
+        });
+        if (kept.recorded !== true) {
+          sendJson(res, 200, { recorded: false, because: kept.because });
+          return;
+        }
+        /* The phone seam, AFTER the record, and with ZERO translation: the
+           report's word IS notify's word. This is the state transition
+           notify.js:26 has been waiting for -- `needs_you` stops being a
+           pane scrape on every platform at once, because the agent said it. */
+        if (body.state === 'needs_you') {
+          notify.happened({ kind: 'needs_you', id: 'report:' + who + ':' + kept.at, agent: sender.card.name || who, session: who, project: null });
+        }
+        sendJson(res, 200, { recorded: true });
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
+    return;
+  }
+
   if (pathname === '/api/reply' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
