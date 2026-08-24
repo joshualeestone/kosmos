@@ -6778,6 +6778,9 @@ const STATE_COPY = {
   working:      { label: 'Working',       attn: false },
   needs_you:    { label: 'Needs you',     attn: true  },
   rate_limited: { label: 'Paused',        attn: true  },
+  /* Reported-only (#188's third verb): the agent said it is waiting on
+     something that is not you. No pane shape produces it. */
+  blocked:      { label: 'Waiting',       attn: true  },
   idle:         { label: 'Idle',          attn: false },
   stopped:      { label: 'Not running',   attn: true  },
   unknown:      { label: "Can't tell",    attn: true  },
@@ -6802,6 +6805,9 @@ const CARD_ST = {
   working:      { st: 'working', pres: 'on' },
   needs_you:    { st: 'attn',    pres: 'on' },
   rate_limited: { st: 'paused',  pres: 'on' },
+  /* blocked wears paused's quieter shape: waiting is waiting, and red stays
+     reserved for "somebody is waiting on YOU". */
+  blocked:      { st: 'paused',  pres: 'on' },
   idle:         { st: 'idle',    pres: 'on' },
   stopped:      { st: 'stopped', pres: 'off' },
   unknown:      { st: 'unknown', pres: 'unsure' },
