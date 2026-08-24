@@ -49,19 +49,23 @@ printf '#!/bin/bash\n# build, with a changed distribution template\n' > "$T/tool
 g="$(pkg_input_sha "$T")"
 [ "$g" != "$f" ] && ok "CONTROL: editing the build script (the distribution template lives in it) changes the sha" || bad "editing build-installer-pkg.sh did NOT change the sha"
 # moving bytes between sections is a change too (a screen is not a script).
-# ⚠️ THE FILE IS NAMED SO THE CONTROL CAN FAIL: "z" sorts after everything in
-# pkg-scripts and before everything in pkg-resources, so without the section
-# labels the concatenation is byte-identical before and after the move (a
-# reviewer measured a sectionless hasher passing the earlier welcome.html
-# version of this control, because that move also changed the order).
-printf 'zed\n' > "$T/install/pkg-resources/aaa-z"
-h1="$(pkg_input_sha "$T")"; mv "$T/install/pkg-resources/aaa-z" "$T/install/pkg-scripts/zzz-z"
-printf 'zed\n' > "$T/install/pkg-scripts/zzz-z"
-h2="$(pkg_input_sha "$T")"
+# ⚠️ A FIXTURE WHERE THE MOVE IS ORDER-NEUTRAL, or the control cannot fail:
+# with scripts {a} and resources {c}, the file b moved between them produces
+# the same sorted stream a,b,c either way, and the same path line, so only
+# the section labels can tell the two apart. (Two earlier versions of this
+# control passed on a sectionless hasher, measured by mutation: one changed
+# the order, one changed the name.)
+T2="$(mktemp -d "${TMPDIR:-/tmp}/pkg-input-guard-sec.XXXXXX")"
+mkdir -p "$T2/install/pkg-scripts" "$T2/install/pkg-resources" "$T2/tools"
+printf 'A\n' > "$T2/install/pkg-scripts/a"; printf 'C\n' > "$T2/install/pkg-resources/c"; printf 'B\n' > "$T2/tools/build-installer-pkg.sh"
+printf 'B\n' > "$T2/install/pkg-resources/b"
+h1="$(pkg_input_sha "$T2")"
+mv "$T2/install/pkg-resources/b" "$T2/install/pkg-scripts/b"
+h2="$(pkg_input_sha "$T2")"
 [ "$h1" != "$h2" ] && ok "a file moving between sections changes the sha (order-neutral move)" || bad "a file moved between sections was not seen -- the section labels are not doing their job"
-mv "$T/install/pkg-scripts/zzz-z" "$T/install/pkg-resources/aaa-z"
-[ "$(pkg_input_sha "$T")" = "$h1" ] && ok "and moving it back restores the sha (determinism across sections)" || bad "sha did not restore after moving the file back"
-rm -f "$T/install/pkg-resources/aaa-z"
+mv "$T2/install/pkg-scripts/b" "$T2/install/pkg-resources/b"
+[ "$(pkg_input_sha "$T2")" = "$h1" ] && ok "and moving it back restores the sha (determinism across sections)" || bad "sha did not restore after moving the file back"
+rm -rf "$T2"
 
 # CONTROLS THE OTHER WAY: things that are NOT inputs must leave the sha alone,
 # or the release rebuilds + notarises every cut from a fresh worktree. An
