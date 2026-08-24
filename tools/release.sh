@@ -114,6 +114,22 @@ grep -E '^ℹ (tests|pass|fail)' "$_suite_log" || true
 [ "$_suite_exit" -eq 0 ] || { echo "the suite is red (exit $_suite_exit); full output: $_suite_log"; exit 1; }
 rm -f "$_suite_log"
 
+echo "== 3b. the page layer, headless (#39) =="
+# ⚠️ THE PAGE IS PART OF WHAT SHIPS, and `node --test` cannot see it: round
+# 16 of the project-chat review put 18 page mutations through the whole
+# suite and 16 survived. The browser checks CAN see it and now gate the
+# release the same way the suite does: exit code, printed reason, named
+# log. The harness fails LOUD when no Playwright is on the machine
+# (KOSMOS_SKIP_BROWSER_CHECKS=1 is the explicit, printed opt-out), so a
+# release machine without a browser says so rather than shipping an
+# unchecked page.
+_page_log="$(mktemp)"
+_page_exit=0
+( cd "$REPO" && bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+grep -E '^PASS |^FAIL |^‼️|retried:|all page' "$_page_log" || true
+[ "$_page_exit" -eq 0 ] || { echo "the page checks are red (exit $_page_exit); full output: $_page_log"; exit 1; }
+rm -f "$_page_log"
+
 echo "== 4. build =="
 ( cd "$REPO" && bash tools/build-kosmos-bundle.sh dist )
 cp "$REPO/dist/kosmos-arm64.tar.gz" "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/"

@@ -1666,14 +1666,21 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    ink because at callout size it rendered byte-identical to the machine
    path below it; at the pack's .9375rem the size split carries that
    distinction, so the pack's ink-2 stands. */
-p.pj-desc-empty { color: var(--label-3); font-style: italic; }
+/* .panel p.* on both, and three classes on the empty form: the same
+   specificity story as .panel p.shint (line 2828's lesson) -- .panel p's
+   font shorthand (0,1,1) beats a bare class, so the description computed
+   13px while declaring .9375rem (#39, found by matched-rules in the
+   harness, not by reading). The empty form outranks the base by CLASS
+   COUNT rather than by source order, because order is the same class of
+   defect deferred until someone moves a block (Mona Lisa's ruling). */
+.panel p.pj-desc.pj-desc-empty { color: var(--label-3); font-style: italic; }
 .skillrow { padding: 8px 2px; border-bottom: 0.5px solid var(--separator);
             display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .skillrm { border: 0; background: none; color: var(--danger, #b3261e); font: inherit;
            font-size: 13px; cursor: pointer; padding: 2px 4px; border-radius: 6px; flex: none; }
 .skillrm.armed { font-weight: 600; }
 .skillrow b { font: 600 var(--text-body) var(--font-ui); }
-.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
+.panel p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
   line-height: 1.45; color: var(--label-2); max-width: 62ch;
   /* --label-2, not k-ink-2: the detail sits on the legacy-token panel,
      and its ink stays in the same token system as that surface (the
@@ -13050,10 +13057,17 @@ async function newsbarCheck() {
     if (!res.ok) return;
     const got = await res.json();
     if (!got || typeof got.current !== 'string') return;
+    /* ⚠️ THE RESPONSE IS READ, AND NOT AS TIDINESS (#39, measured): a fetch
+       whose body nobody consumes leaves the connection counted as in-flight
+       until the Response is garbage-collected, so every FIRST page load on a
+       fresh install carried one request that never finished -- invisible to a
+       person, and a hang to anything that waits for the network to settle
+       (the browser checks' networkidle timed out 9 runs out of 9 on exactly
+       this, and passed on retry because `seen` was recorded by then). */
     const record = () => fetch('/api/whats-new/seen', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ version: got.current }),
-    }).catch(() => { /* tried again next load */ });
+    }).then((r) => r.text()).catch(() => { /* tried again next load */ });
     if (!got.seen) { record(); return; } // first sight: silent
     if (got.seen === got.current) return;
     document.getElementById('newsbar-text').textContent =
