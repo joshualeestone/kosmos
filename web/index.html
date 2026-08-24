@@ -9453,8 +9453,10 @@ function acctFlowPaint(st) {
     btn.disabled = true;
     say.textContent = ACCT_FLOW_SAY[phase] || 'Working…';
     const wantCode = phase === 'signin-awaiting-code';
-    // A reason on the same phase means the typed code did not work; the
-    // rebuild that empties the field is the honest one here.
+    // Angel's contract: a rejected code does NOT move the polled state (the
+    // POST answers alone, handled at the submit button). A because on this
+    // phase would come from the ENGINE's own path (e.g. a code expiring);
+    // honoured the same way if it ever arrives: say it, empty the field.
     if (wantCode && st && st.because) {
       say.textContent = st.because + ' Enter the code from your email to try again.';
       document.getElementById('acct-code').value = '';
@@ -9514,14 +9516,31 @@ document.getElementById('acct-add').addEventListener('click', async () => {
 document.getElementById('acct-code-go').addEventListener('click', async () => {
   const code = document.getElementById('acct-code').value.trim();
   if (!code) return;
+  const say = document.getElementById('acct-flow-say');
   try {
-    await fetch('/api/connect/code', {
+    const res = await fetch('/api/connect/code', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ code }),
     });
+    /* ⚠️ A REJECTED CODE SPEAKS ONLY HERE (Angel, the contract): the flow
+       state keeps its phase AND its because on a 400/409, so waiting on the
+       poll renders nothing forever. The POST's own error is the verdict,
+       said beside the row, and the field empties because the code in it did
+       not work. An accepted code says nothing; the poll carries the hop. */
+    if (!res.ok) {
+      const out = await res.json().catch(() => null);
+      say.textContent = ((out && (out.error || out.because)) || 'That code did not work.')
+        + ' Enter the code from your email to try again.';
+      const field = document.getElementById('acct-code');
+      field.value = '';
+      field.focus();
+      return;
+    }
     ACCT_FLOW_LAST = null; // the next poll repaints whatever the code caused
-  } catch { /* the poll carries the verdict */ }
+  } catch {
+    say.textContent = 'We could not reach Kosmos to send that code. It is still waiting; try again.';
+  }
 });
 document.getElementById('acct-cancel').addEventListener('click', async () => {
   try { await fetch('/api/connect/cancel', { method: 'POST' }); } catch { /* the poll sees it */ }
