@@ -10768,3 +10768,25 @@ test('the found-agents block can be dismissed forever, and every answer carries 
   if (after.ok === true) assert.equal(after.dismissed, true);
   assert.ok(require('node:fs').existsSync(require('./engine/discover').DISMISS_FILE));
 });
+
+
+test('the policies screen says what just happened, never "Saved" over a removal (#685)', () => {
+  const polSaid = pageFunction('polSaid', 'function pjSentence(s) { return s; }');
+  const all = { told: [{ agent: 'a', state: 'told' }, { agent: 'b', state: 'told' }] };
+  const none = { told: [] };
+  const some = { told: [{ agent: 'a', state: 'told' }, { agent: 'b', shownAs: 'Bea', state: 'could-not', because: 'its instructions are already at the size limit' }] };
+  assert.equal(polSaid(all, 'handed'), 'Handed to every agent. Each one starts following it at its next restart.');
+  assert.equal(polSaid(all, 'replaced'), 'Replaced for every agent. Each one starts following the new words at its next restart.');
+  assert.equal(polSaid(all, 'renamed'), 'Renamed. Each agent sees the new name at its next restart.');
+  assert.equal(polSaid(all, 'removed'), 'Removed. Each agent lets go of it at its next restart.');
+  assert.equal(polSaid(none, 'removed'), 'Removed. No agents are running, so there was nothing to take back.');
+  assert.match(polSaid(none, 'handed'), /^Saved\. No agents are running yet/);
+  assert.equal(polSaid(none, 'renamed'), 'Renamed.');
+  assert.match(polSaid(none, 'replaced'), /^Replaced\. No agents are running yet; each one gets the new words/);
+  const partial = polSaid(some, 'removed');
+  assert.match(partial, /^Removed\. 1 of 2 agents let go of it\. Not yet: Bea \(its instructions are already at the size limit\)$/);
+  // The control: no act is ever reported as "Saved" when it was a removal.
+  for (const got of [all, none, some]) assert.doesNotMatch(polSaid(got, 'removed'), /Saved/);
+  // And the shape the miss line uses names the agent the person knows (shownAs), not the machine name.
+  assert.doesNotMatch(partial, /\bb \(/);
+});
