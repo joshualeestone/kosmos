@@ -17,9 +17,12 @@
 # Usage: source this file.
 #   build="$(release_freeze <repo> <sha> <root>)"   prints the worktree path
 #   release_thaw <repo> <build>                     removes it
-#   release_bundle_matches_tree <tarball> <tree>    0 if every app/ file in the
-#       tarball equals the tree's (web/index.html after the version bake, the
-#       one substitution the bundle build makes); prints each difference
+#   release_bundle_matches_tree <tarball> <tree> [<connector-sha>]
+#       0 if every tree-derived file in the tarball (app/** and the top-level
+#       bin/kosmos command) equals the tree's, web/index.html after the
+#       version bake; the connector (app/bin/kosmos-tunnel, not a tree file) is
+#       matched against <connector-sha> when given and must be PRESENT if it is;
+#       prints each difference
 
 release_freeze() {
   local repo="$1" sha="$2" root="$3" build
