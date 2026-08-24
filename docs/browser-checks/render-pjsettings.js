@@ -16,6 +16,10 @@ const { chromium } = require('playwright');
 const shown = async (loc) => ((await loc.boundingBox()) ? loc.innerText() : '');
 
 const REPO = path.resolve(__dirname, '..', '..');
+/* Screenshots go to SHOT_DIR or a fresh temp dir, never into the repo (#630):
+   they differ byte for byte run to run and dirtied the shared checkout under
+   every cut. The path is printed at the end so a person can find them. */
+const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'pjsettings-shots-'));
 const PORT = 4679;
 
 (async () => {
@@ -65,7 +69,7 @@ const PORT = 4679;
     for (const id of ['pjs-reveal', 'pj-one-archive', 'pj-one-remove', 'pjs-save']) {
       if (!(await p.locator('#' + id).isVisible())) die(id + ' is missing from settings');
     }
-    await p.screenshot({ path: path.join(REPO, 'docs/browser-checks/shots/project-settings.png') });
+    await p.screenshot({ path: path.join(OUT, 'project-settings.png') });
 
     // Save round trip: rename, verify it lands everywhere.
     await p.fill('#pjs-name', 'Settings Drive Renamed');
@@ -83,7 +87,7 @@ const PORT = 4679;
     await p.waitForFunction(() => { const m = document.getElementById('pjs-msg'); return m.getBoundingClientRect().height > 0 && m.innerText.trim() === 'Nothing has changed.'; }, { timeout: 5000 });
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, save round trip, honest no-op, relocated blocks present, no path on the project page, 0 page errors');
+    console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, save round trip, honest no-op, relocated blocks present, no path on the project page, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     srv.kill();

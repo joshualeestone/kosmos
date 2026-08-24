@@ -16,6 +16,10 @@ const path = require('node:path');
 const { chromium } = require('playwright');
 
 const REPO = path.resolve(__dirname, '..', '..');
+/* Screenshots go to SHOT_DIR or a fresh temp dir, never into the repo (#630):
+   they differ byte for byte run to run and dirtied the shared checkout under
+   every cut. The path is printed at the end so a person can find them. */
+const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'sleep-shots-'));
 const PORT = 4667;
 
 const paneRunning = () => {
@@ -74,7 +78,7 @@ const settingsRunning = () => {
     await p.waitForSelector('.fr-sleepbtn', { state: 'visible', timeout: 20000 });
     const label = (await p.locator('.fr-sleepbtn').textContent()).trim();
     if (label !== 'Open sleep settings') die('button label drifted: ' + label);
-    await p.screenshot({ path: path.join(REPO, 'docs/browser-checks/shots/sleep-settings-button.png') });
+    await p.screenshot({ path: path.join(OUT, 'sleep-settings-button.png') });
 
     await p.click('.fr-sleepbtn');
     weOpenedSettings = true;
@@ -88,7 +92,7 @@ const settingsRunning = () => {
     if (msg) die('a successful open wrote an error message: ' + msg);
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('SLEEP BUTTON DRIVE OK: rendered because the pane exists, click launched the pane process, no error message, 0 page errors');
+    console.log('SLEEP BUTTON DRIVE OK: rendered because the pane exists, click launched the pane process, no error message, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     cleanup();
