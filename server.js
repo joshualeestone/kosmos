@@ -981,8 +981,19 @@ const server = http.createServer((req, res) => {
           /* One launchd probe per poll, for #310's sentence below. Empty on
              any failure: could-not-look must never read as switched-off. */
           const switchedOff = create.disabledJobs();
+          /* 🛑 #127: A LEFTOVER JOB WITH NO FOLDER IS STILL A LEFTOVER, and it
+             was the one this list discarded. The gate used to be `k.folder`
+             alone, so an agent whose worker folder was deleted while its
+             launchd job survived (the shape Splinter's orphaned processes took
+             tonight: the directory gone, the work not) fell out of the roster
+             entirely -- invisible in the product, and therefore unremovable
+             from it, while `create.js` still refused the name because the job
+             exists (`:715`). `remove.js` can already clear it (`exists()` gates
+             on `jobFor`), so the only thing missing was the row that carries a
+             Remove control to it. A folder OR a job is enough to be a leftover
+             worth showing; both blocking states are now reachable. */
           return known.agents
-            .filter((k) => !k.removed && k.folder && !seen.has(k.name) && !gone.has(k.name))
+            .filter((k) => !k.removed && (k.folder || k.job) && !seen.has(k.name) && !gone.has(k.name))
             .map((k) => {
               const profile = store.readProfile(k.name) || {};
               return {
@@ -1009,9 +1020,17 @@ const server = http.createServer((req, res) => {
                    the one cause a person produced themselves with no screen
                    connecting the two. Said here, once, so every surface that
                    reads `because` says it. */
-                because: (!create.jobMissing(k.name) && switchedOff.has(k.name))
-                  ? 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again'
-                  : 'this agent is not running: nothing on this computer has a session for it',
+                because: (k.job && !k.folder)
+                  /* #127: the distinct, broken state this row now surfaces. A
+                     job with no folder cannot start (it has nothing to run) and
+                     fails on every launchd interval; the only cure is to remove
+                     it, which this row finally makes reachable. Said before the
+                     switched-off case because it is the stronger fact: a folder
+                     that is gone is gone whether or not the job is also off. */
+                  ? 'this agent cannot run: its folder is gone but a leftover startup job remains. Remove it here to free the name'
+                  : (!create.jobMissing(k.name) && switchedOff.has(k.name))
+                    ? 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again'
+                    : 'this agent is not running: nothing on this computer has a session for it',
                 hasAvatar: Boolean(safeAvatarFor(k.name)),
                 profile,
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
