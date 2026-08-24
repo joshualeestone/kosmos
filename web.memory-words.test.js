@@ -84,7 +84,7 @@ test('an agent with nothing recorded yet is not told it is unreadable', () => {
 test('an agent we genuinely could not read still says so', () => {
   const u = memUnknown({ tokens: null, percent: null, notYet: false });
   assert.equal(u.word, 'Unknown');
-  assert.equal(u.aria, 'Memory could not be read.');
+  assert.equal(u.aria, 'The session could not be read.');
 });
 
 test('a reading with no notYet field at all resolves to the ADMISSION, not the claim', () => {
@@ -234,14 +234,14 @@ test('a stopped never-recorded row renders the memory box instead of throwing', 
      while the branch was unreachable. */
   const html = memoryBox({ name: 'Gone', neverRecorded: true });
   const text = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-  assert.match(text, /Gone\u2019s memory was never recorded\./,
+  assert.match(text, /Gone\u2019s session was never recorded\./,
     'the stopped row does not reach the never-recorded sentence');
   assert.match(text, /Made before Kosmos recorded this, so there is no record to read\./,
     'the stopped note lost the reason the running note carries');
   /* And a stopped row that is NOT never-recorded keeps the plain admission,
      still without throwing. */
   const plain = memoryBox({ name: 'Off' });
-  assert.match(plain.replace(/<[^>]*>/g, ' '), /memory could not be read/,
+  assert.match(plain.replace(/<[^>]*>/g, ' '), /session could not be read/,
     'an ordinary context-less row lost its admission');
 });
 
@@ -263,7 +263,8 @@ test('the Memory box sentence reads as English after the name it follows', () =>
     const html = memoryBox({ name: 'Dan', context: { percent: null, ...ctx } });
     const text = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 
-    assert.match(text, /Dan\u2019s memory\b/, `reads wrong after a possessive: "${text}"`);
+    // The ring's noun is 'session' since the Room rename (#223); 'memory' stays for what an agent knows.
+    assert.match(text, /Dan\u2019s session\b/, `reads wrong after a possessive: "${text}"`);
     assert.doesNotMatch(text, /\u2019s (has|is|does|will|can|was|shows)\b/,
       `a verb directly after the possessive: "${text}"`);
     assert.match(text, /\.\s|\.$/, 'the box produced no sentence at all');
@@ -414,7 +415,7 @@ test('the unknown box says WHY, in the engine’s own words', () => {
   const notYet = memUnknown({ tokens: null, percent: null, notYet: true });
   assert.notEqual(bare.note, notYet.note,
     'with no cause, "could not read" and "nothing recorded yet" say the same thing');
-  assert.equal(bare.aria, 'Memory could not be read.',
+  assert.equal(bare.aria, 'The session could not be read.',
     'a missing cause left a trailing space or an invented reason');
 
   /* One of the real causes contradicts the old hedge outright, which is why the
@@ -460,7 +461,7 @@ test('a percentage measured against a guess says so, and one measured against a 
      the one a person is most likely to act on. */
   const full = box({ tokens: 900000, percent: 90, ceiling: 1000000,
     ceilingAssumed: true, because: 'measured, against a limit we have assumed rather than watched' });
-  assert.match(full, /Memory nearly full/);
+  assert.match(full, /Nearly full/);
   assert.match(full, /assumed rather than watched/,
     'the arm a person acts on is the one that dropped the qualifier');
 });

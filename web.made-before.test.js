@@ -57,11 +57,11 @@ test('the memory panel says never recorded, for a running context and for a stop
      table values are not what this test is about). */
   const src = liftAll(SCRIPT, ['memUnknown', 'memWhy']);
   const run = new Function('ctx', src + '\nreturn memUnknown(ctx);');
-  assert.equal(run({ neverRecorded: true }).lead, 'memory was never recorded.',
+  assert.equal(run({ neverRecorded: true }).lead, 'session was never recorded.',
     'the never-recorded memory state still greets the person with a fault sentence');
-  assert.match(run({ neverRecorded: true }).aria, /Memory was never recorded/,
+  assert.match(run({ neverRecorded: true }).aria, /The session was never recorded/,
     'the screen-reader sentence keeps the fault framing');
-  assert.equal(run({}).lead, 'memory could not be read.',
+  assert.equal(run({}).lead, 'session could not be read.',
     'the fault state lost its own sentence, which hides a breakage');
   const mbAt = SCRIPT.indexOf('function memoryBox(');
   const mbEnd = SCRIPT.indexOf('const band = memBand(', mbAt);
