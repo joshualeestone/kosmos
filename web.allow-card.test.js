@@ -47,8 +47,8 @@ test('the change-your-password sentence appears on the Not-me branch and the re-
   const plain = JS.slice(JS.indexOf("'<div class=\"askrow\"><p>Someone signed in as"), JS.indexOf("If that is the phone in your hand"));
   assert.doesNotMatch(plain, /password/, 'the plain ask carries the intruder sentence, which the wrong person reads every time');
   const denied = JS.slice(JS.indexOf("e.state === 'denied'"), JS.indexOf('Got it'));
-  assert.match(denied, /change that email's password/);
-  assert.match(JS, /has asked again\. If it is not yours, change that email's password; that is what stops it/);
+  assert.match(denied, /change that email\\?'s password/);
+  assert.match(JS, /has asked again\. If it is not yours, change that email\\?'s password; that is what stops it/);
 });
 
 test('Remove confirms inline with the sentence the tunnel makes true, and Not now is the only dismiss', () => {
