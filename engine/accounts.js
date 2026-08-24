@@ -62,8 +62,12 @@ const HOME = process.env.AGENT_WORKFORCE_HOME || os.homedir();
  * spelling of the default dir, same as every caller passes.
  */
 function configFile(dir) {
-  const isDefault = dir === path.join(HOME, '.claude');
-  return isDefault ? path.join(HOME, '.claude.json') : path.join(dir, '.claude.json');
+  /* Resolved first: a trailing slash or unnormalized spelling of the
+     default dir must not silently fall to the inside-the-dir branch,
+     which is the wrong-path bug this helper exists to prevent. */
+  const clean = path.resolve(String(dir || ''));
+  const isDefault = clean === path.join(HOME, '.claude');
+  return isDefault ? path.join(HOME, '.claude.json') : path.join(clean, '.claude.json');
 }
 
 /**
@@ -278,7 +282,7 @@ function nextWorkDir() {
        their credentials. */
     let cfgFree = false;
     try {
-      const raw = fs.readFileSync(path.join(dir, '.claude.json'), 'utf8');
+      const raw = fs.readFileSync(configFile(dir), 'utf8');
       try {
         const parsed = JSON.parse(raw);
         const acct = parsed && parsed.oauthAccount;

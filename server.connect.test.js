@@ -28,6 +28,12 @@ process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+/* Both sandbox knobs travel together (#527): the scoped check resolves
+   the DEFAULT account's record through accounts, whose HOME is its own
+   seam; without this, a future default-dir scoped check in this file
+   would read the operator's real ~/.claude.json while believing itself
+   sandboxed. */
+process.env.AGENT_WORKFORCE_HOME = HOME;
 // The two sandbox seams travel together (launchSignin warns loudly otherwise,
 // and a warning that fires on every green run trains people to ignore it).
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-config-dir');
