@@ -203,6 +203,55 @@ function block() {
 }
 
 /**
+ * Which revision of the block this is (#539). Recorded on every agent's
+ * profile at birth, beside the #170 id, so "was this agent born before the
+ * current ways of working" is a comparison of two numbers rather than a
+ * guess from file contents -- and so a consented refresh can say exactly
+ * which doctrine an agent runs.
+ *
+ * ⚠️ BUMP THIS WHEN BLOCK'S TEXT CHANGES, and the suite enforces the pairing:
+ * defaults.test.js pins a fingerprint of the composed block against this
+ * number, so editing the text without bumping (or bumping without editing)
+ * reds with a sentence instead of silently telling the fleet it is current.
+ *
+ * The log, so the number means something:
+ *   1  the #122 block as born, 2026-08-19
+ *   2  the three additions of 2026-08-22
+ *   3  #518/#519's rhythms, 2026-08-24
+ */
+const DOCTRINE_VERSION = 3;
+
+/**
+ * The block as named sections (#539): the `##` preamble first, then each
+ * `###` section. DERIVED from BLOCK by splitting, never a second copy of
+ * the text -- the composed output is the one source, and the test asserts
+ * the sections re-join to it byte-for-byte.
+ */
+function sections() {
+  const parts = BLOCK.split('\n### ');
+  return parts.map((p, i) => {
+    const text = i === 0 ? p : '### ' + p;
+    return { heading: text.split('\n', 1)[0], text };
+  });
+}
+
+/**
+ * The sections an instruction file does not carry (#539's refresh reads
+ * this; the CONSENT dialog shows exactly what it returns, which is what
+ * makes the heading-match detection safe: a person who rewrote or removed
+ * a section sees it offered and declines, rather than anything deciding
+ * for them).
+ *
+ * ⚠️ Presence is the HEADING LINE, matched whole. Looser matching would
+ * claim a section a person rewrote under the same idea; tighter (whole
+ * text) would re-offer a section they touched one word of, forever.
+ */
+function missingFrom(text) {
+  const body = String(text == null ? '' : text);
+  return sections().filter((s) => !body.includes(s.heading));
+}
+
+/**
  * Append the defaults to an agent's instruction text.
  *
  * ⚠️ IT REFUSES TO ADD THEM TWICE. `createAgent` is not the only thing that
@@ -219,4 +268,4 @@ function appendTo(text) {
   return `${body}${sep}${BLOCK}\n`;
 }
 
-module.exports = { block, appendTo };
+module.exports = { block, appendTo, DOCTRINE_VERSION, sections, missingFrom };

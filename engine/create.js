@@ -2089,6 +2089,13 @@ function createAgentInner(opts) {
     /* The provider, recorded at birth beside the id (#245, per the OpenAI
        outline): never inferred from what happens to be running in a pane. */
     profile.provider = provider;
+    /* Which revision of the working rules this agent was born with (#539),
+       beside the id for the same reason the provider is: recorded at the
+       moment it is true, never inferred later from file contents a person
+       owns and may edit. "Was this agent born before the current ways of
+       working" becomes a comparison of two numbers, which is what the
+       consented refresh's banner and its per-agent Not-now memory key on. */
+    profile.doctrineVersion = require('./defaults').DOCTRINE_VERSION;
     /* Written even when the patch is empty (#170): the write is what mints
        the agent's id, and an id at birth is the point. Before this, an
        all-defaults creation wrote no profile at all and the gate below
