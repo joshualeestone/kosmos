@@ -197,12 +197,22 @@ if [ -z "$adopt" ]; then
   # --dangerously-skip-permissions is --dangerously-bypass-approvals-and-
   # sandbox; its model flag is -m.
   if [ "$RUNNER" = codex ]; then
+    # Self-reporting (#245 on #526): codex's notify hook runs the bridge
+    # with one JSON argument per event, from INSIDE the agent's pane, so
+    # the report arrives carrying TMUX_PANE — the identity the route
+    # resolves, same evidence property as `kosmos report`. Launch-scoped
+    # via -c (probed: -c sets top-level keys reliably; nothing global is
+    # touched). The bridge lives beside this script; the path may carry a
+    # space (Application Support) and TOML quoting handles it, and neither
+    # quotes nor backslashes can appear in SUPPORT_DIR paths we write.
+    BRIDGE="$(cd "$(dirname "$0")" && pwd)/codex-report-bridge.js"
+    NOTIFY_CFG="notify=[\"$BRIDGE\"]"
     if [ -n "$MODEL" ]; then
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" \
-        "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -m "$MODEL" || exit 1
+        "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -m "$MODEL" || exit 1
     else
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" \
-        "$CLAUDE" --dangerously-bypass-approvals-and-sandbox || exit 1
+        "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" || exit 1
     fi
   else
     if [ -n "$MODEL" ]; then

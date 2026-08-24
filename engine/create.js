@@ -622,6 +622,17 @@ function supervisorPath() {
   return path.join(SUPPORT_DIR, 'bin', 'agent-supervisor.sh');
 }
 
+/* The codex notify bridge (#245): installed beside the supervisor, by the
+   same refresh, for the same reason — one copy, every agent, every fix
+   reaching agents made long ago at their next start. */
+function bridgeSource() {
+  return path.join(__dirname, '..', 'bin', 'codex-report-bridge.js');
+}
+
+function bridgePath() {
+  return path.join(SUPPORT_DIR, 'bin', 'codex-report-bridge.js');
+}
+
 /**
  * Put the current supervisor where the jobs point, and answer whether it is
  * there.
@@ -669,11 +680,25 @@ function installSupervisor() {
     fs.copyFileSync(supervisorSource(), staging);
     fs.chmodSync(staging, 0o755);
     fs.renameSync(staging, dest);
+    // The codex notify bridge rides the same refresh, same staging-rename
+    // discipline, same reason (#245). It is read per event rather than held
+    // open like the supervisor, but the interleaved-truncation hazard the
+    // pattern exists for is identical.
+    const bridgeDest = bridgePath();
+    const bridgeStaging = `${bridgeDest}.${process.pid}.new`;
+    fs.copyFileSync(bridgeSource(), bridgeStaging);
+    fs.chmodSync(bridgeStaging, 0o755);
+    fs.renameSync(bridgeStaging, bridgeDest);
     return { ok: true };
   } catch (err) {
     // Leave nothing half-written beside the real one.
     try { fs.rmSync(`${supervisorPath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
-    return { ok: false, missing: err && err.code === 'ENOENT' && !fs.existsSync(supervisorSource()) };
+    try { fs.rmSync(`${bridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
+    return {
+      ok: false,
+      missing: err && err.code === 'ENOENT'
+        && (!fs.existsSync(supervisorSource()) || !fs.existsSync(bridgeSource())),
+    };
   }
 }
 
