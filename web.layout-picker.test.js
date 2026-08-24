@@ -110,3 +110,12 @@ test('piece five: the header folds to its notice slots, the K mark is the header
   assert.match(SCRIPT, /getElementById\('rail-k'\)\.addEventListener\('click', \(\) => document\.getElementById\('klink'\)\.click\(\)\)/);
   assert.match(block, /body\.consolidated \.lrow \{ border: 0; background: none;/);
 });
+
+test('piece six: the board notice bars do not sit over the consolidated grid, and the project cards go flat', () => {
+  const start = PAGE.indexOf('@media (min-width: 1280px) {\n  html[data-layout="consolidated"]');
+  const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
+  assert.match(block, /> #found-wrap, [^{]*> #removed-wrap, [^{]*> #restart-wrap \{ display: none; \}/, 'the found/removed/restart bars still stack over the grid');
+  assert.match(block, /\.pj3 > \.pjcol \.pjcard, [^{]*\.pj3 > aside\.pjcol \{ border: 0; background: none;/, 'the project cards keep their boxed look');
+  /* Control: the news line is NOT hidden here; it has a home in the header slot. */
+  assert.doesNotMatch(block, /#unews-slot|#newsbar[^-]/, 'the news line was hidden rather than relocated');
+});
