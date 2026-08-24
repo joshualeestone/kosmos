@@ -2291,6 +2291,14 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .xlink { color: var(--k-ink); text-underline-offset: 3px; }
 /* The pack's quoted block, on this file's tokens. No figcaption rule: nothing
    can produce a source yet, so there is no caption to style. */
+/* #460: a quoted line, the pack's .quoteb. Drawn ONLY where the engine
+   attached a source row to a span of the text (`quotes[]` on the room row);
+   no rule here and no code below ever reads the text for a quote mark. A
+   blockquote is a claim about authorship, so it is never guessed. */
+.msg .quoteb { margin: 10px 0 0; padding: 2px 0 2px 13px; border-left: 3px solid var(--k-rule);
+  font-size: .9375rem; line-height: 1.5; color: var(--k-ink-2); overflow-wrap: anywhere; }
+.msg .quoteb + p, .msg p + .quoteb + p { margin-top: 10px; }
+.msg .quoteb-from { display: block; font-style: normal; font-size: .75rem; color: var(--label-3); margin-top: 2px; }
 .codeb { margin: 10px 0 0; border: 1px solid var(--k-rule); border-radius: 10px;
          overflow: hidden; background: var(--k-surface); }
 /* The block's source line (#121): body type, the agent's voice, above. */
@@ -20515,6 +20523,41 @@ function pjSilences(allRows, p) {
   return out;
 }
 
+/* #460: the body of a room post, with quoted spans drawn as the pack's
+   .quoteb. The ONLY input that can produce a blockquote is the engine's
+   `quotes: [{of, from, start, end}]` on the row, offsets into `text`,
+   attached where the words are verbatim another author's earlier post in
+   this room. Nothing here reads the text for a `>` or anything else: a
+   blockquote asserts "these are not my words", and that is never inferred.
+   A tag this code cannot trust (offsets outside the text, overlapping, no
+   source row) is not "probably a quote", it is the flat paragraph. */
+function pjRoomBody(m, p) {
+  const words = pjWords(m);
+  if (!words) return '';
+  const flat = '<p>' + pjBody(words, PJ_DOC_NAMES) + '</p>';
+  const qs = Array.isArray(m.quotes) ? m.quotes.filter((q) => q && typeof q === 'object'
+    && typeof q.of === 'string' && q.of
+    && Number.isInteger(q.start) && Number.isInteger(q.end)
+    && q.start >= 0 && q.end > q.start && q.end <= words.length)
+    .slice().sort((a, b) => a.start - b.start) : [];
+  if (!qs.length || (Array.isArray(m.quotes) && qs.length !== m.quotes.length)) return flat;
+  for (let i = 1; i < qs.length; i += 1) if (qs[i].start < qs[i - 1].end) return flat;
+  /* Prose between quotes keeps the spacing the person typed inside it; only
+     the whitespace at its edges goes, since that only separated it from the
+     quote, so no empty paragraph or hanging indent is drawn beside the bar. */
+  const prose = (t) => { const k = t.replace(/^\s+|\s+$/g, ''); return k ? '<p>' + pjBody(k, PJ_DOC_NAMES) + '</p>' : ''; };
+  let out = '';
+  let at = 0;
+  for (const q of qs) {
+    out += prose(words.slice(at, q.start));
+    const who = q.from === 'you' ? 'You' : (pjNameOf(p, q.from) || q.from);
+    out += '<blockquote class="quoteb">' + pjBody(words.slice(q.start, q.end).replace(/^\n+|\n+$/g, ''), PJ_DOC_NAMES)
+      + '<cite class="quoteb-from">' + esc(who) + ', earlier</cite></blockquote>';
+    at = q.end;
+  }
+  out += prose(words.slice(at));
+  return out;
+}
 function pjRoomRow(m, p, silent) {
   /* A refusal the room can see (#315): Scarlett tried to answer, was stopped,
      and the only record was inside her own window, so from the outside she
@@ -20589,7 +20632,7 @@ function pjRoomRow(m, p, silent) {
   return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
     + '<div class="msg-b"><div class="msg-h"><b>' + esc(name) + '</b>'
     + '<span class="msg-t">' + esc(pjWhen(m.at) || '') + '</span></div>'
-    + (pjWords(m) ? '<p>' + pjBody(pjWords(m), PJ_DOC_NAMES) + '</p>' : '') + pjPreviewCard(m.preview) + pjAttachmentCards(m) + receipt + '</div></div>';
+    + pjRoomBody(m, p) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + receipt + '</div></div>';
 }
 
 /**
