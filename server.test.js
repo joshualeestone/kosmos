@@ -5829,6 +5829,14 @@ test('the 80-character cap holds on BOTH display-name writers, and no record is 
   }
 });
 
+test('#617: no picture yet answers 204 on GET and HEAD, not 404, so a fresh board logs no console error on every screen', async () => {
+  const head = await req('/api/you/avatar', { method: 'HEAD' });
+  assert.equal(head.status, 204, 'HEAD with no picture must be 204 (the page probes this on every paint)');
+  const get = await req('/api/you/avatar');
+  assert.equal(get.status, 204);
+  assert.equal(get.body, '', 'a 204 carries no body');
+});
+
 test('the person record: absent, refused, saved-and-told, prefill round trip', async () => {
   // Absent is the wizard's normal starting state: a 200 with the state, never
   // a 404 the screen has to special-case.
