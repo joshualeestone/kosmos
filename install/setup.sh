@@ -2254,14 +2254,11 @@ if [ "$_board_ok" = yes ]; then
       # keyed on the label that outlives the plist, and bootstrapping into a
       # standing disable succeeds and starts nothing.
       /bin/launchctl enable "gui/$_uid/$_board_label" 2>/dev/null || true
-      # RunAtLoad means this bootstrap also runs `kosmos start`, which finds the
-      # board this installer started a moment ago and says so.
-      # ⚠️ THE OUTCOME IS CHECKED. This step printed its success line over
-      # a failed registration on Josh's machine (2026-08-24), which is a
-      # diary asserting a state the machine was not in. A refused
-      # bootstrap is not fatal (the plist on disk loads at the next
-      # login) but it is a DIFFERENT true sentence, and that is the one
-      # that prints.
+      # RunAtLoad means this bootstrap also runs `kosmos start`. The
+      # outcome is CHECKED: this step printed success over a failed
+      # registration (Josh's machine, 2026-08-24); a refused bootstrap
+      # is not fatal (the plist loads at next login) but it is a
+      # different true sentence, printed below via _board_ok=later.
       if ! /bin/launchctl bootstrap "gui/$_uid" "$_board_plist" 2>/dev/null; then
         _board_ok=later
       fi
