@@ -184,10 +184,9 @@ function refuseOversizedStack(policies) {
  * it stands, name and position unchanged, savedAt moved (savedAt means
  * "when the words last changed"; rename does not move it).
  *
- * The nameless form is the shipped single-policy screen's POST, honoured
- * only while at most one policy exists: it lands on that one entry (or
- * creates the first, wearing DEFAULT_NAME), and is refused once several
- * exist, because "which one?" has stopped having an obvious answer.
+ * A new policy is NAMED, always. The nameless form that served the
+ * single-policy screen went with that screen (#701, Mona Lisa's word);
+ * DEFAULT_NAME remains only as the name the migrated #479 record wears.
  */
 function add({ id, name, text, source } = {}) {
   const current = read();
@@ -208,22 +207,7 @@ function add({ id, name, text, source } = {}) {
     return entry;
   }
 
-  const wanted = cleanName(name || '');
-  if (!wanted && policies.length > 1) {
-    throw new Error('give this policy a name, so the others keep theirs');
-  }
-  if (!wanted && policies.length === 1) {
-    // The shipped screen's no-name save, landing on the one entry it knows.
-    entry.id = policies[0].id;
-    entry.name = policies[0].name;
-    const bad = problem(entry);
-    if (bad) throw new Error(bad);
-    policies[0] = entry;
-    refuseOversizedStack(policies);
-    persist(policies);
-    return entry;
-  }
-  entry.name = wanted || DEFAULT_NAME;
+  entry.name = cleanName(name || '');
   const bad = problem(entry);
   if (bad) throw new Error(bad);
   const taken = policies.find((p) => p.name.toLowerCase() === entry.name.toLowerCase());
