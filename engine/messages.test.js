@@ -1594,3 +1594,118 @@ test('#185: the room store refuses an agent-authored row with no command provena
       'the refused post still reached the store');
   });
 });
+
+/* ── #562: the incremental reader ──────────────────────────────────────────
+   The #185 sweep made the log's first per-minute whole-record customer, so
+   record() stopped re-parsing history it has already parsed. These pin the
+   two halves of the card's done-condition: the cost is bounded (measured in
+   bytes actually read, not asserted from the code), and the answers are
+   byte-for-byte what the whole-file parse gave -- including every way a
+   file can change out from under a memory of it. */
+
+function seedRow(i) {
+  return JSON.stringify({ kind: 'message', id: 'm' + i, from: 'ann', to: 'bob', text: 'row ' + i, at: new Date().toISOString() }) + '\n';
+}
+
+test('#562: an append is answered by reading the tail, not the history, and the rows match a cold parse', () => {
+  messages.resetForTests();
+  fs.rmSync(messages.LOG, { force: true });
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  let seed = '';
+  for (let i = 0; i < 300; i += 1) seed += seedRow(i);
+  fs.appendFileSync(messages.LOG, seed);
+  assert.equal(messages.record().rows.length, 300, 'the warm-up parse is wrong before anything is measured');
+
+  const size = fs.statSync(messages.LOG).size;
+  const realReadSync = fs.readSync;
+  let bytes = 0;
+  fs.readSync = (...a) => { const n = realReadSync(...a); bytes += n; return n; };
+  try {
+    fs.appendFileSync(messages.LOG, seedRow(300));
+    const warm = messages.record();
+    assert.equal(warm.rows.length, 301, 'the appended row did not arrive');
+    assert.ok(bytes < 1024,
+      `an append cost ${bytes} bytes of reading against a ${size}-byte history -- the reader re-read the world`);
+
+    /* Control: a cold reader pays the whole file, so the small number above
+       is the incremental memory and not a broken counter. */
+    bytes = 0;
+    messages.resetForTests();
+    const cold = messages.record();
+    assert.ok(bytes >= size, `CONTROL: the cold parse read ${bytes} bytes of a ${size}-byte file, so the meter is not measuring`);
+    assert.deepEqual(warm.rows, cold.rows, 'the warm answer differs from the cold parse');
+    assert.deepEqual(warm.parsed, cold.parsed, 'the id-reservation view differs from the cold parse');
+  } finally {
+    fs.readSync = realReadSync;
+  }
+});
+
+test('#562: every way the file changes out from under the memory is seen, never mixed', () => {
+  messages.resetForTests();
+  fs.rmSync(messages.LOG, { force: true });
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  fs.appendFileSync(messages.LOG, seedRow(1) + seedRow(2) + seedRow(3));
+  assert.equal(messages.record().rows.length, 3);
+
+  // Truncated shorter: the memory is thrown away, not subtracted from.
+  fs.writeFileSync(messages.LOG, seedRow(7));
+  let got = messages.record();
+  assert.deepEqual(got.rows.map((m) => m.id), ['m7'], 'a truncated file was answered from memory');
+
+  // Rewritten in place to a LARGER file with a different head: the stat
+  // facts look exactly like an append, and the seam bytes are what catch it.
+  messages.resetForTests();
+  fs.writeFileSync(messages.LOG, seedRow(1) + seedRow(2));
+  assert.equal(messages.record().rows.length, 2);
+  let big = '';
+  for (let i = 10; i < 20; i += 1) big += seedRow(i);
+  fs.writeFileSync(messages.LOG, big);
+  got = messages.record();
+  assert.deepEqual(got.rows.map((m) => m.id), ['m10', 'm11', 'm12', 'm13', 'm14', 'm15', 'm16', 'm17', 'm18', 'm19'],
+    'an in-place rewrite that grew the file was mixed with the old memory (the seam check is not holding)');
+
+  // Replaced (new inode): seen by the inode alone.
+  messages.resetForTests();
+  assert.equal(messages.record().rows.length, 10);
+  fs.rmSync(messages.LOG);
+  fs.writeFileSync(messages.LOG, seedRow(21));
+  got = messages.record();
+  assert.deepEqual(got.rows.map((m) => m.id), ['m21'], 'a replaced file was answered from the old file\'s memory');
+
+  // Deleted: absent answers empty and ok, exactly as before.
+  fs.rmSync(messages.LOG);
+  got = messages.record();
+  assert.equal(got.ok, true);
+  assert.equal(got.rows.length, 0, 'a deleted log still answered rows');
+});
+
+test('#562: a half-appended last line is answered when it is whole, and never counted twice', () => {
+  messages.resetForTests();
+  fs.rmSync(messages.LOG, { force: true });
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  fs.appendFileSync(messages.LOG, seedRow(1));
+  assert.equal(messages.record().rows.length, 1);
+
+  /* An unterminated but valid last line counts -- the whole-file reader
+     accepted it, and behavior is pinned across the boundary. */
+  const bare = seedRow(2).trimEnd();
+  fs.appendFileSync(messages.LOG, bare);
+  let got = messages.record();
+  assert.deepEqual(got.rows.map((m) => m.id), ['m1', 'm2'], 'a valid unterminated last line stopped counting');
+
+  /* The line completes and a sibling lands: m2 exactly once. */
+  fs.appendFileSync(messages.LOG, '\n' + seedRow(3));
+  got = messages.record();
+  assert.deepEqual(got.rows.map((m) => m.id), ['m1', 'm2', 'm3'],
+    'completing a fragment lost it or counted it twice');
+
+  /* A HALF row (not yet valid JSON) stays uncounted until its bytes land,
+     then counts once -- the mid-append moment another process is in. */
+  const half = seedRow(4).trimEnd();
+  fs.appendFileSync(messages.LOG, half.slice(0, 20));
+  got = messages.record();
+  assert.deepEqual(got.rows.map((m) => m.id), ['m1', 'm2', 'm3'], 'half an append was parsed as a row');
+  fs.appendFileSync(messages.LOG, half.slice(20) + '\n');
+  got = messages.record();
+  assert.deepEqual(got.rows.map((m) => m.id), ['m1', 'm2', 'm3', 'm4'], 'the completed append did not arrive whole');
+});
