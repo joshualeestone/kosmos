@@ -12769,8 +12769,7 @@ async function paintTalk(sessionName, agentName) {
        it is there, and the wrapper states the consequence.
        ⚠️ Only the copy-mode arm has a fixture (`6-off`), so the other three are
        drawn by nothing in the render check. */
-    off.textContent = name + ' cannot be handed a message: '
-      + pjSentence(body.presenceBecause || 'we cannot reach its window');
+    off.textContent = dmOffLine(name, body, CURRENT);
     off.hidden = false;
   } else if (body.presence === 'unsure') {
     off.textContent = 'We could not check whether ' + name + ' is running. '
@@ -22270,6 +22269,35 @@ function pjSentence(because) {
   const said = String(because || '').trim();
   if (!said) return '';
   return said.charAt(0).toUpperCase() + said.slice(1) + (/[.!?]$/.test(said) ? '' : '.');
+}
+
+/**
+ * The closed-composer line: why this agent cannot be handed a message.
+ *
+ * #671: THE VERDICT CARRIES THE NEXT MOVE FOR ITS CAUSE. For an agent with no
+ * session at all, the engine's reason ("we cannot see an agent by exactly
+ * this name...") is true and a full stop: a stranger at this box has nothing
+ * to do next (witnessed on the first-run journey walk). The board's offline
+ * row already carries the cause-specific story -- switched off in Login
+ * Items, the folder-gone leftover, #668's running-unseen, or the
+ * self-starting launch model -- so the ONE derivation of it is spoken here,
+ * at the decision point, rather than re-diagnosed. It REPLACES the engine's
+ * sentence rather than following it: for a `running === false` row the only
+ * reachable engine reason is the no-card one, which the row's own sentence
+ * subsumes, and saying the failure twice in one line is the noise this page
+ * keeps removing. Deliberately a repeat of the why-line at the top of the
+ * page: the person at this box should not have to scroll to learn their next
+ * move.
+ *
+ * ⚠️ Gated on `running === false`, because that flag answers "is there a pane
+ * here": a reachability failure on a LIVE pane (scrolled back, a shell in the
+ * window) is fully told by the engine's own sentence, and the row's why-line
+ * for a live pane is about its state, not about reachability.
+ */
+function dmOffLine(name, body, current) {
+  const rowSaysWhy = current && current.running === false && current.because;
+  return name + ' cannot be handed a message: '
+    + pjSentence(rowSaysWhy ? current.because : (body.presenceBecause || 'we cannot reach its window'));
 }
 
 /**

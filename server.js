@@ -1109,6 +1109,18 @@ const server = http.createServer((req, res) => {
                   ? 'something is off about this agent: this computer says its background job is running, but no session for it is visible from here, so Kosmos cannot show or reach whatever that job started'
                   : (!create.jobMissing(k.name) && switchedOff.has(k.name))
                     ? 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again'
+                    : !create.jobMissing(k.name)
+                    /* #671: the one offline cause whose sentence ended at the
+                       diagnosis. The agent has a job, is not removed (filtered
+                       above) and is not switched off (the branch above), so
+                       the launch model is the true next move: nothing to
+                       press, it comes back on its own -- and when it does
+                       not, this computer holds no reason, and saying THAT is
+                       still more than a full stop. Sentence shared with
+                       remove.js's restart refusal via create.SELF_STARTS. */
+                    ? 'this agent is not running: nothing on this computer has a session for it. '
+                      + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1)
+                      + '; if it stays off, this computer is not saying why'
                     : 'this agent is not running: nothing on this computer has a session for it',
                 hasAvatar: Boolean(safeAvatarFor(k.name)),
                 profile,
