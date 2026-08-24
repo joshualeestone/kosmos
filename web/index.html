@@ -3704,6 +3704,20 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   </div>
 </header>
 </div>
+<!-- #567: the Allow moment. A device that signed in with the account's email
+     and code is asking to use this Kosmos; the person standing here is asked
+     "is this you, holding that phone right now", never "who is this". One row
+     per device, each with the code the phone is also showing. It sits directly under the header so it is above EVERY view, not only the board. The card never
+     asks about a device already on this Mac's list (the tunnel's pending
+     excludes them), and it paints only while Plus is on and enrolled (the
+     engine returns an empty list otherwise). The change-your-password
+     sentence lives on the Not-me branch and nowhere else: a person holding
+     their own phone never reads it, and the person who needs it reads it at
+     the moment it is true. -->
+<div class="askcard" id="askcard" role="status" aria-live="polite" hidden>
+  <h3 id="ask-title"></h3>
+  <p id="ask-lead" hidden></p>
+  <div id="ask-rows"></div>
 <section class="detail" id="panel-detail" hidden>
   <button class="back" id="detail-back">&#8592; All agents</button>
   <!-- ⚠️ THE PACK'S AGENT PAGE (view B, pack-pass, scrappy): dhead carries
@@ -6682,20 +6696,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   <a id="newsbar-link" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">What changed</a>
   <button class="linkish" id="newsbar-ok" type="button" aria-label="Dismiss this update note">Got it</button>
 </div>
-<!-- #567: the Allow moment. A device that signed in with the account's email
-     and code is asking to use this Kosmos; the person standing here is asked
-     "is this you, holding that phone right now", never "who is this". One row
-     per device, each with the code the phone is also showing. The card never
-     asks about a device already on this Mac's list (the tunnel's pending
-     excludes them), and it paints only while Plus is on and enrolled (the
-     engine returns an empty list otherwise). The change-your-password
-     sentence lives on the Not-me branch and nowhere else: a person holding
-     their own phone never reads it, and the person who needs it reads it at
-     the moment it is true. -->
-<div class="askcard" id="askcard" role="status" aria-live="polite" hidden>
-  <h3 id="ask-title"></h3>
-  <p id="ask-lead" hidden></p>
-  <div id="ask-rows"></div>
 </div>
 <div class="conn" id="conn" role="status" aria-live="polite" hidden></div>
 <!-- The pack's stats row: the New agent action as a dashed tile locked
