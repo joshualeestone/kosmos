@@ -9960,3 +9960,120 @@ test('putting a running agent on a project types one line into its pane, once, a
     chatEngine.setRunner(null);
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The Plus routes (#464's engine behind the Settings tab)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('the Plus state route is honest unconfigured, and the flow gates travel with it', async () => {
+  /* No relay configured in the sandbox: the page's whole holding-place
+     gate is this field, so it must be false here and flip on the env
+     seam, never on wishful defaults. */
+  const bare = JSON.parse((await req('/api/remote')).body);
+  assert.equal(bare.configured, false, 'an unconfigured machine claims a relay');
+  assert.equal(bare.status.state, 'off');
+  assert.match(bare.status.because, /\w/, 'the off state carries no sentence');
+
+  const prev = process.env.AGENT_WORKFORCE_TUNNEL_RELAY;
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = 'relay.test:443';
+  try {
+    const conf = JSON.parse((await req('/api/remote')).body);
+    assert.equal(conf.configured, true, 'the env seam does not configure');
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_RELAY;
+    else process.env.AGENT_WORKFORCE_TUNNEL_RELAY = prev;
+  }
+});
+
+test('the Plus switch round-trips and the off state comes back honest', async () => {
+  const on = await req('/api/remote', {
+    method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ on: true }),
+  });
+  assert.equal(on.status, 200, on.body);
+  assert.equal(JSON.parse(on.body).on, true);
+  const off = await req('/api/remote', {
+    method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ on: false }),
+  });
+  assert.equal(JSON.parse(off.body).on, false);
+  assert.equal(JSON.parse(off.body).status.state, 'off');
+});
+
+test('the sign-up succeeds end to end through the routes, with the fake binary (the confirm has never once succeeded before this test)', async () => {
+  /* The first draft called setupComplete(email, code) against a
+     setupComplete(code, name) engine, so EVERY confirm 400ed while the
+     suite stayed green, because only refusal paths were tested. This is
+     the success path, driven through the same env seams the engine's own
+     suite uses. */
+  const os = require('node:os');
+  const sb = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'plusflow-')));
+  const fakeBin = nodePath.join(sb, 'fake-tunnel');
+  fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
+    "if (process.argv[2] === 'setup') process.exit(0);",
+    'process.exit(0);', ''].join('\n'));
+  fs.chmodSync(fakeBin, 0o755);
+  const prev = {
+    bin: process.env.AGENT_WORKFORCE_TUNNEL_BIN,
+    relay: process.env.AGENT_WORKFORCE_TUNNEL_RELAY,
+    state: process.env.AGENT_WORKFORCE_TUNNEL_STATE,
+  };
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeBin;
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = 'relay.test:443';
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(sb, 'state');
+  try {
+    const started = await req('/api/remote/setup-start', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'person@example.com' }),
+    });
+    assert.equal(started.status, 200, started.body);
+    const done = await req('/api/remote/setup-complete', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: '123456', name: 'my-mac' }),
+    });
+    assert.equal(done.status, 200, done.body);
+    assert.equal(JSON.parse(done.body).ok, true);
+  } finally {
+    for (const [k, v] of [['AGENT_WORKFORCE_TUNNEL_BIN', prev.bin], ['AGENT_WORKFORCE_TUNNEL_RELAY', prev.relay], ['AGENT_WORKFORCE_TUNNEL_STATE', prev.state]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+    const remoteEngine = require('./engine/remote');
+    try { remoteEngine.setOn(false); } catch { /* leave the sandbox off */ }
+    /* And the email the start step wrote: residue in the shared fixture
+       would leak into any later status sentence. */
+    try {
+      const rj = JSON.parse(fs.readFileSync(remoteEngine.FILE, 'utf8'));
+      rj.email = '';
+      fs.writeFileSync(remoteEngine.FILE, JSON.stringify(rj));
+    } catch { /* nothing written means nothing to clear */ }
+  }
+});
+
+test('the server tells the engine its port at boot, or the tunnel can never start', () => {
+  /* Source pin on the contract the engine states and the first draft
+     ignored: ensure(port) inside start()'s listening callback, with the
+     BOUND port. Without it, a configured, enrolled, switched-on machine
+     rests forever at "the board has not started the tunnel". */
+  const src = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
+  const bStart = src.indexOf('const onListening');
+  const bEnd = src.indexOf('resolve(server);', bStart);
+  assert.ok(bStart > -1 && bEnd > bStart, 'the listening block moved; re-anchor this pin');
+  const listening = src.slice(bStart, bEnd);
+  assert.match(listening, /remote\.ensure\(server\.address\(\)\.port\)/,
+    'nothing tells the engine the board\u2019s port at boot, so the switch is a dead control');
+});
+
+test('the sign-up start refuses a non-email before anything spawns', async () => {
+  const r = await req('/api/remote/setup-start', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'not-an-email' }),
+  });
+  assert.equal(r.status, 400);
+  assert.match(JSON.parse(r.body).error, /does not look like an email/);
+  const empty = await req('/api/remote/setup-complete', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'a@b.co', code: '' }),
+  });
+  assert.equal(empty.status, 400);
+  assert.match(JSON.parse(empty.body).error, /code from the email/);
+});

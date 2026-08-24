@@ -104,6 +104,7 @@ const accounts = require('./engine/accounts');
 const forget = require('./engine/forget');
 const ping = require('./engine/ping');
 const notify = require('./engine/notify');
+const remote = require('./engine/remote');
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
@@ -1709,6 +1710,82 @@ const server = http.createServer((req, res) => {
   /* The outbound "something happened" setting (engine/notify.js): the seam a
      phone notification rides on, off by default. Same two routes as the
      created ping, same shape. */
+  /* ---- Plus (the relay service): the Settings tab's seam over
+     engine/remote.js (#464). READ is always honest; the write routes are
+     real but the page renders them only when a relay is configured,
+     because sign-up cannot complete before DNS and certificates exist and
+     a working-looking button that cannot work is the dead-button rule
+     broken (the domain is deliberately NOT known to this app: the relay
+     address arrives by configuration, never a baked-in name). */
+  if (pathname === '/api/remote' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = remote.read();
+      sendJson(res, 200, {
+        status: remote.status(),
+        on: r.on === true,
+        ok: r.ok !== false,
+        /* Configured is a FACT about this machine, not the service: the
+           relay address is present (stored or env). The page gates the
+           whole flow on it. */
+        configured: Boolean(r.relay || process.env.AGENT_WORKFORCE_TUNNEL_RELAY),
+        email: r.email || '',
+        enrolled: remote.enrolled() === true,
+      });
+    } catch { sendJson(res, 500, { error: 'we could not read the Plus state' }); }
+    return;
+  }
+  if (pathname === '/api/remote' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const saved = remote.setOn(body.on);
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        try { remote.ensure(); } catch { /* status says what happened */ }
+        sendJson(res, 200, { status: remote.status(), on: remote.read().on === true });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  if (pathname === '/api/remote/setup-start' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const email = String(body.email || '').trim();
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          sendJson(res, 400, { error: 'that does not look like an email address' });
+          return;
+        }
+        const got = await remote.setupStart(email);
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        sendJson(res, 200, { ok: true });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not start the sign-up' }));
+    return;
+  }
+  if (pathname === '/api/remote/setup-complete' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const code = String(body.code || '').trim();
+        const name = String(body.name || '').trim();
+        if (!code) { sendJson(res, 400, { error: 'type the code from the email' }); return; }
+        /* The engine's order and its second argument, read from source this
+           time: setupComplete(code, name), the email already held by the
+           settings the start step wrote. */
+        const got = await remote.setupComplete(code, name);
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        try { remote.ensure(); } catch { /* status says what happened */ }
+        sendJson(res, 200, { ok: true, status: remote.status() });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not finish the sign-up' }));
+    return;
+  }
   if (pathname === '/api/notify-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { const r = notify.read(); sendJson(res, 200, { on: r.on, ok: r.ok }); }
     catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
@@ -4770,6 +4847,11 @@ function start(port = PORT) {
       server.on('error', (err) => {
         process.stderr.write(`Kosmos server error: ${String(err && err.message)}\n`);
       });
+      /* The engine's own contract: the server calls ensure at boot with
+         the board's port, and until somebody does, a configured, enrolled,
+         switched-on machine rests forever at "the board has not started
+         the tunnel". The bound port, not the requested one. */
+      try { remote.ensure(server.address().port); } catch { /* status says what happened */ }
       resolve(server);
     };
     server.once('error', onError);

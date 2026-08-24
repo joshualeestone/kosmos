@@ -5833,6 +5833,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="talking" aria-controls="s-sec-talking">Agents talking</button>
     <button type="button" data-go="mac" aria-controls="s-sec-mac">This Mac</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
+    <button type="button" data-go="plus" aria-controls="s-sec-plus">Plus Account</button>
     <button type="button" data-go="advanced" aria-controls="s-sec-advanced">Advanced</button>
   </nav>
   <div class="dsecs">
@@ -6229,6 +6230,66 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <p class="dhint" id="auto-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
   </section>
+  <!-- ============ PLUS ACCOUNT (#Josh 19:15, the relay service's home) ====
+       A HOLDING PLACE first, his word: the relay is built and sign-up
+       cannot complete until DNS and certificates exist, so the resting
+       state is a real explanation with no dead buttons. The flow below it
+       is REAL code, gated on this machine actually having a relay
+       configured (the engine's seam), so the day the service opens this
+       tab starts working without a rebuild. No domain appears anywhere in
+       this section on purpose: the address arrives from the service, and
+       the name Josh has ruled durable is "Plus", not any hostname. -->
+  <section class="dsec" id="s-sec-plus" data-sec="plus" tabindex="-1" aria-label="Plus Account" hidden>
+    <h2>Plus Account</h2>
+    <p class="fhint">Use your Kosmos from anywhere.</p>
+
+    <div id="plus-holding">
+      <p>Plus connects this Mac to your phone and your other computers:
+      open your board from anywhere, get a notification when an agent
+      posts or needs you, and everything you have stays on this Mac. The
+      connection is end-to-end encrypted, and the service cannot read
+      what passes through it.</p>
+      <p><b>Sign-up is not open yet.</b> When it opens, this is where it
+      happens: your email, a code to confirm it, and this Mac gets an
+      address of its own. Nothing to install and nothing to configure on
+      your router.</p>
+    </div>
+
+    <div id="plus-flow" hidden>
+      <div class="setrow">
+        <div>
+          <p class="setname">Use Kosmos from anywhere</p>
+          <p class="fhint" id="plus-status" aria-live="polite"></p>
+        </div>
+        <button class="btn" type="button" id="plus-switch"></button>
+      </div>
+      <div id="plus-enrol" hidden style="margin-top:12px;">
+        <div class="field">
+          <label class="flabel" for="plus-email">Your email</label>
+          <input class="tk-inp" id="plus-email" type="email" maxlength="120" autocomplete="email">
+        </div>
+        <div class="frow">
+          <button class="btn" type="button" id="plus-send-code">Email me a code</button>
+        </div>
+        <div id="plus-code-row" hidden>
+          <div class="field">
+            <label class="flabel" for="plus-code">The code from the email</label>
+            <input class="tk-inp" id="plus-code" type="text" inputmode="numeric" maxlength="12">
+          </div>
+          <div class="field">
+            <label class="flabel" for="plus-name">A name for your address</label>
+            <p class="fhint">3 to 32 characters: lowercase letters, digits and hyphens.</p>
+            <input class="tk-inp" id="plus-name" type="text" maxlength="32" autocomplete="off" autocapitalize="none">
+          </div>
+          <div class="frow" style="margin-top:8px;">
+            <button class="btn uprime" type="button" id="plus-confirm">Confirm</button>
+          </div>
+        </div>
+      </div>
+      <p class="fmsg" id="plus-msg" role="alert" aria-live="assertive"></p>
+    </div>
+  </section>
+
   <section class="dsec" id="s-sec-advanced" data-sec="advanced" tabindex="-1" aria-label="Advanced" hidden>
     <section class="dbox">
       <!-- LIVE now (eng-mode): On reveals the raw session on the project
@@ -12278,7 +12339,7 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
    page resets to Talk because it opens a different agent each time; Settings
    is one page, and a person who left Updates to look at the board comes back
    to Updates). "Landing is You" is the first arrival. */
-const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'talking', 'mac', 'updates', 'advanced'];
+const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'talking', 'mac', 'updates', 'plus', 'advanced'];
 function settingsGo(section, opts) {
   if (!SETTINGS_SECTIONS.includes(section)) section = 'you';
   const nav = document.getElementById('s-nav');
@@ -12294,6 +12355,10 @@ function settingsGo(section, opts) {
     if (on) target = sec;
   });
   if (target && !(opts && opts.focus === false)) target.focus();
+  /* Plus paints on arrival: its truth is a fetch (the engine's state),
+     not the poll, and painting every poll for a hidden section would be
+     traffic for nobody. */
+  if (section === 'plus') paintPlus();
 }
 document.getElementById('s-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
@@ -14706,6 +14771,95 @@ let CREATE_MODELS = [];    // the engine's model list, from the same payload
 /* The one line under a model picker (#405): the engine's `why` for whatever is
    selected, nothing when nothing is. Same rule on the create form and the
    agent's Model tab, so the two pickers cannot describe one model differently. */
+/* ---- Plus Account (the relay service's Settings home) -----------------
+   The holding place is the RESTING state: the flow renders only when this
+   machine actually has a relay configured, so nothing on the tab can look
+   like a working button before the service can honour it. All wording
+   here names the service ("Plus"), never a hostname: the address arrives
+   from the service and the domain is explicitly temporary. */
+async function paintPlus() {
+  const holding = document.getElementById('plus-holding');
+  const flow = document.getElementById('plus-flow');
+  if (!holding || !flow) return;
+  let r = null;
+  try { r = await (await fetch('/api/remote', { cache: 'no-store' })).json(); } catch { r = null; }
+  if (!r || r.configured !== true) {
+    holding.hidden = false;
+    flow.hidden = true;
+    return;
+  }
+  holding.hidden = true;
+  flow.hidden = false;
+  const sw = document.getElementById('plus-switch');
+  sw.textContent = r.on ? 'Turn off' : 'Turn on';
+  const st = document.getElementById('plus-status');
+  const stat = r.status || {};
+  const because = plusWords(stat.because || '');
+  st.textContent = stat.state === 'up'
+    ? ('Connected. Your address: ' + (stat.address || 'is on its way.'))
+    : (because ? because.charAt(0).toUpperCase() + because.slice(1) + '.' : '');
+  /* The enrol steps show only when the switch is on and nothing is
+     enrolled yet: the state the engine calls waiting-for-the-sign-in. */
+  document.getElementById('plus-enrol').hidden = !(r.on && r.enrolled !== true);
+}
+/* The engine's honest-but-technical sentence for a missing binary, said
+   the way this page speaks. Everything else relays verbatim. */
+function plusWords(text) {
+  /* Only the engine's own spawn-failure shape means the binary is
+     missing; a bare ENOENT about some other file must relay as itself. */
+  return /could not be started:.*ENOENT/.test(String(text || ''))
+    ? 'the Plus connector is not installed on this Mac yet'
+    : String(text || '');
+}
+/* Codes arrive by paste, with the email's whitespace riding along; a
+   maxlength alone truncates BEFORE any trim can run, so the field
+   normalizes itself: digits only, six at most. */
+document.getElementById('plus-code').addEventListener('input', (e) => {
+  const clean = e.target.value.replace(/\D/g, '').slice(0, 6);
+  if (e.target.value !== clean) e.target.value = clean;
+});
+document.getElementById('plus-switch').addEventListener('click', async () => {
+  const msg = document.getElementById('plus-msg');
+  msg.textContent = '';
+  /* The click means what the BUTTON said, not what a re-fetch says now:
+     acting on re-read state lets a stale label do the opposite of its own
+     words, and a double click land twice at one value. */
+  const wantOn = document.getElementById('plus-switch').textContent === 'Turn on';
+  try {
+    const res = await fetch('/api/remote', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: wantOn }) });
+    if (!res.ok) msg.textContent = plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not change that');
+  } catch { msg.textContent = 'we could not change that'; }
+  paintPlus();
+});
+document.getElementById('plus-send-code').addEventListener('click', async () => {
+  const msg = document.getElementById('plus-msg');
+  msg.textContent = '';
+  const email = document.getElementById('plus-email').value.trim();
+  try {
+    const res = await fetch('/api/remote/setup-start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email }) });
+    if (!res.ok) { msg.textContent = plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not start the sign-up'); return; }
+    document.getElementById('plus-code-row').hidden = false;
+    document.getElementById('plus-code').focus();
+  } catch { msg.textContent = 'we could not start the sign-up'; }
+});
+document.getElementById('plus-confirm').addEventListener('click', async () => {
+  const msg = document.getElementById('plus-msg');
+  msg.textContent = '';
+  const code = document.getElementById('plus-code').value.replace(/\D/g, '');
+  const name = document.getElementById('plus-name').value.trim();
+  /* The engine validates before spawning too; saying it here saves the
+     round trip, in the engine's own sentence so the two cannot drift. */
+  if (name && !/^[a-z0-9-]{3,32}$/.test(name)) {
+    msg.textContent = 'the name is 3 to 32 lowercase letters, digits or hyphens';
+    return;
+  }
+  try {
+    const res = await fetch('/api/remote/setup-complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, name }) });
+    if (!res.ok) { msg.textContent = plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not finish the sign-up'); return; }
+  } catch { msg.textContent = 'we could not finish the sign-up'; }
+  paintPlus();
+});
+
 function paintModelWhy(selId, whyId) {
   const sel = document.getElementById(selId);
   const out = document.getElementById(whyId);
