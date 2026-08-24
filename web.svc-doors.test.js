@@ -43,5 +43,5 @@ test('no pill is inert and no door holds a control for an unbuilt flow', () => {
   const built = fn.slice(fn.indexOf('const SVC_BUILT'), fn.indexOf('function svcDoorText'));
   assert.match(built, /'GitHub': '\/api\/github'/, 'GitHub is built and must be listed as such');
   assert.ok(!/'Vercel'|'Cloudflare'|'Gmail'/.test(built), 'a service without a flow is listed as built');
-  assert.match(fn, /GitHub needs the GitHub CLI on this Mac today/, 'the absent-gh branch lost its plain sentence');
+  assert.match(fn, /To connect GitHub, this Mac needs the GitHub CLI, and it is not here yet/, 'the absent-gh branch lost its plain sentence');
 });

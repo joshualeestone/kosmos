@@ -28,7 +28,7 @@ let failed = 0;
   // A: gh absent
   let p = await b.newPage(); let d = await openDoor(p, ABSENT);
   say('absent gh: the door opens', !d.hidden);
-  say('absent gh: the plain sentence is the main road, with the install link', /needs the GitHub CLI on this Mac today/.test(d.text) && d.links.some((l) => /cli\.github\.com/.test(l)), d.text.slice(0, 140));
+  say('absent gh: the plain sentence is the main road, with the install link', /this Mac needs the GitHub CLI, and it is not here yet/.test(d.text) && d.links.some((l) => /cli\.github\.com/.test(l)), d.text.slice(0, 140));
   say('absent gh: nothing to press', d.buttons.length === 0, JSON.stringify(d.buttons));
   await p.close();
   // B: gh present, signed out
