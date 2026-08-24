@@ -58,7 +58,7 @@ let failed = 0;
   say('adding answers with the tail, never the key', /API key ending WALK/.test(msg) && !/walkwalk/.test(msg), msg);
   say('the key field is emptied after the add', (await p.inputValue('#acct-openai-key')) === '');
   const rows = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-row')].map((r) => r.textContent.replace(/\s+/g, ' ').trim()));
-  say('the row lists by provider with the key tail', rows.some((r) => /OpenAI \/ Codex/.test(r) && /API key ending WALK/.test(r)), JSON.stringify(rows));
+  say('the row lists by provider with the key tail', rows.some((r) => /OpenAI/.test(r) && !/Codex/.test(r) && /API key ending WALK/.test(r)), JSON.stringify(rows));
   say('no OpenAI row carries the history arm', !rows.some((r) => /OpenAI/.test(r) && /history/.test(r)));
   // Create form: OpenAI provider -> account menu offers the new account
   await p.goto(BASE + '/?tab=create', { waitUntil: 'load' });

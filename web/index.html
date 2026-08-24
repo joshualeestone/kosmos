@@ -6208,12 +6208,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            password field so the screen does not show it either. ⚠️ Every
            sentence here is placeholder copy until Mona Lisa says it. -->
       <div id="acct-openai-flow" hidden style="margin:10px 0 0;">
-        <p class="dhint" style="margin:0 0 8px;">Paste an OpenAI API key. It is kept by the OpenAI runner on this Mac, the way it would be if you signed in yourself; Kosmos never shows it again.</p>
+        <p class="dhint" style="margin:0 0 8px;">Paste an OpenAI API key. It stays on this Mac with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
         <div class="frow">
           <input type="password" id="acct-openai-key" autocomplete="off" spellcheck="false"
                  aria-label="OpenAI API key" placeholder="sk-…">
           <input type="text" id="acct-openai-label" autocomplete="off" maxlength="40"
-                 aria-label="A name for this account (optional)" placeholder="A name for it (optional)">
+                 aria-label="A name for this account (optional)" placeholder="A name, if you want one">
           <button class="btn" id="acct-openai-go" type="button">Add</button>
         </div>
         <p class="dhint" id="acct-openai-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
@@ -16821,7 +16821,7 @@ function fillCreateAccounts() {
   asel.innerHTML = usable.length
     ? usable.map((x) =>
       `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${esc(nameOf(x))}</option>`).join('')
-    : (openai ? '<option value="">This computer’s OpenAI sign-in</option>' : '<option value="">Your Claude account</option>');
+    : (openai ? '<option value="">The OpenAI sign-in on this Mac</option>' : '<option value="">Your Claude account</option>');
 }
 document.getElementById('create-provider').addEventListener('change', () => {
   const openai = document.getElementById('create-provider').value === 'openai';

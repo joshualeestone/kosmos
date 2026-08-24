@@ -24,7 +24,9 @@ const { spawnSync } = require('node:child_process');
 
 const HOME = process.env.AGENT_WORKFORCE_HOME || os.homedir();
 const PROVIDER = 'openai';
-const PROVIDER_NAME = 'OpenAI / Codex';
+/* "OpenAI", not "OpenAI / Codex" (Mona Lisa, #540): Codex is the runner's name and
+   a person never needs it to pick an account. */
+const PROVIDER_NAME = 'OpenAI';
 
 /** The default codex home, the one rule create.js's codexHomeDir also keeps. */
 function defaultDir() {
@@ -124,7 +126,7 @@ function nextWorkDir() {
 function keyProblem(key) {
   const k = String(key == null ? '' : key);
   if (!k.trim()) return 'paste the key first';
-  if (/\s/.test(k.trim())) return 'that does not look like a key: keys have no spaces or line breaks in them';
+  if (/\s/.test(k.trim())) return 'that does not look like a key: a key has no spaces or line breaks in it';
   if (k.trim().length < 20) return 'that is too short to be a key';
   return null;
 }
@@ -143,7 +145,7 @@ function addWithKey({ key, label, codexBin }) {
     const clean = cleanLabel(label);
     if (!clean) return { ok: false, because: 'that is not a name we can use for an account' };
     spot = { label: clean, dir: path.join(HOME, `.codex-${clean}`) };
-    if (fs.existsSync(authFile(spot.dir))) return { ok: false, because: 'there is already an OpenAI account by that name on this computer' };
+    if (fs.existsSync(authFile(spot.dir))) return { ok: false, because: 'there is already an OpenAI account by that name on this Mac' };
   } else {
     spot = nextWorkDir();
     if (!spot) return { ok: false, because: 'we could not find a free spot for another account' };
