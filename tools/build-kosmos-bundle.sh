@@ -94,6 +94,9 @@ if [ -f "$REPO/assets/Kosmos.icns" ]; then
 fi
 
 # ---- the command ------------------------------------------------------------
+# ⚠️ A relocation (install/kosmos -> bin/kosmos): tools/lib/release-freeze.sh
+# names it too (release_bundle_source_path), so the served bundle's command can
+# be compared against the tree it came from.
 cp "$REPO/install/kosmos" "$STAGE/bin/kosmos"
 # The reporting hook script (#561) rides in app/bin so an UPDATE (which swaps
 # app/, never bin/) carries fixes to it, while the path settings.json points
