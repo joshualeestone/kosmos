@@ -77,3 +77,14 @@ test('piece two: the rail heads exist once, hidden until the mode, with a + on t
      name `.asgrid` too or it loses regardless of order. Measured 2026-08-24. */
   assert.match(PAGE, /body\.consolidated\.fold-p #pj-list\.asgrid[^{]*\{ display: none; \}/, 'the projects fold lost to #pj-list.asgrid again');
 });
+
+test('piece three: the person\'s row exists once, hidden until the mode, opens Settings, and its pill is the header\'s own theme buttons', () => {
+  assert.equal((PAGE.match(/id="rail-me"/g) || []).length, 1);
+  assert.match(PAGE, /<div class="railme" id="rail-me" hidden>/);
+  const row = PAGE.slice(PAGE.indexOf('id="rail-me"'), PAGE.indexOf('id="rail-me"') + 2500);
+  assert.equal((row.match(/data-theme-set="(light|dark)"/g) || []).length, 2, 'the row does not carry the two theme buttons the document handler serves');
+  assert.match(SCRIPT, /getElementById\('rail-me'\)\.hidden = !cons/);
+  assert.match(SCRIPT, /querySelector\('\.tab\[data-tab="settings"\]'\)/, 'the row does not open Settings through the tab');
+  assert.match(SCRIPT, /function paintRailMe\(\)/);
+  assert.match(SCRIPT, /paintRailMe\(\);\n  if \(!face\) return;/, 'paintYou no longer paints the row');
+});
