@@ -100,11 +100,25 @@ fi
   echo "the tree is dirty after the bump; the bundle would ship as -DIRTY"; exit 1; }
 
 echo "== 3. the whole suite, on the tree that ships =="
-( cd "$REPO" && yarn test 2>&1 | grep -E '^ℹ (tests|pass|fail)' )
+# ⚠️ NO PIPE ON A VERDICT. `yarn test | grep` reports grep's exit, so a
+# red suite released; the code is read from the file and the summary
+# printed after.
+_suite_log="$(mktemp)"
+( cd "$REPO" && yarn test >"$_suite_log" 2>&1 ); _suite_exit=$?
+grep -E '^ℹ (tests|pass|fail)' "$_suite_log" || true
+[ "$_suite_exit" -eq 0 ] || { echo "the suite is red (exit $_suite_exit); see $_suite_log"; exit 1; }
+rm -f "$_suite_log"
 
 echo "== 4. build =="
 ( cd "$REPO" && bash tools/build-kosmos-bundle.sh dist )
 cp "$REPO/dist/kosmos-arm64.tar.gz" "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/"
+# ⚠️ THE VERSIONED NAME IS THE ONE A CACHE CANNOT LIE ABOUT. The plain
+# name is one URL across every release, and an edge cache satisfied an
+# update from it with the PRIOR release's bytes and matching checksum
+# (Josh's machine, 2026-08-24). The installer prefers this name; the
+# plain pair stays for installers older than this change.
+cp "$REPO/dist/kosmos-arm64.tar.gz" "$SITE/dist/kosmos-$V-arm64.tar.gz"
+cp "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256"
 node -e "require('node:fs').writeFileSync('$SITE/dist/latest.json', JSON.stringify({version:'$V'})+'\n')"
 echo "   latest.json -> $(cat "$SITE/dist/latest.json")"
 
