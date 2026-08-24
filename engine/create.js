@@ -879,8 +879,29 @@ function unxml(value) {
  * the notice is coming, in as many words, rather than letting somebody meet it
  * unexplained and switch their own agent off.
  */
+/* Which board a launched agent belongs to (#577). The server reads PORT the
+   same way (server.js: `Number(process.env.PORT || 16180)`), so this is the
+   creating server's own port, not a guess. ⚠️ One more copy of the 16180
+   default, beside server.js's and install/kosmos's; it exists so the child
+   can be told nothing when the answer is the default every agent on every
+   machine already assumes, and told exactly once when it is not. */
+const DEFAULT_BOARD_PORT = 16180;
+function boardPort() {
+  return Number(process.env.PORT) || DEFAULT_BOARD_PORT;
+}
+
 function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
   const label = serviceLabel(name);
+  /* KOSMOS_PORT (#577): a sandboxed server seals what IT writes with the
+     AGENT_WORKFORCE_* variables, but nothing told the agent which board made
+     it, so its `kosmos reply` and self-reports went to the live board on
+     :16180. The job now carries the creating server's port, the supervisor
+     hands it into the pane, and the CLI and the codex bridge already read it.
+     ⚠️ ABSENT MEANS THE DEFAULT PORT, the same rule as CLAUDE_CONFIG_DIR
+     below: stamping 16180 on every job would make every plist rewrite look
+     like a change. */
+  const port = boardPort();
+  const portLine = port !== DEFAULT_BOARD_PORT ? `\n    <key>KOSMOS_PORT</key><string>${port}</string>` : '';
   // The optional sixth supervisor argument. Log ($5) must be present when
   // model ($6) is, and it always is below; an agent created without a model
   // choice writes the five-argument job every existing agent already runs.
@@ -923,7 +944,7 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
   <dict>
     <key>HOME</key><string>${xml(HOME)}</string>
     <key>PATH</key><string>${xml(`${path.dirname(claudeBin)}:${path.dirname(tmuxBin)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`)}</string>
-    <key>LANG</key><string>en_US.UTF-8</string>${configLine}
+    <key>LANG</key><string>en_US.UTF-8</string>${configLine}${portLine}
   </dict>
   <!-- Whose background item this is. See the note above plistFor. -->
   <key>AssociatedBundleIdentifiers</key>

@@ -196,6 +196,16 @@ if [ -z "$adopt" ]; then
   # there to answer it. codex's spelling of claude's
   # --dangerously-skip-permissions is --dangerously-bypass-approvals-and-
   # sandbox; its model flag is -m.
+  # Which board this agent belongs to (#577). The launchd job carries
+  # KOSMOS_PORT only when the creating server is not on the default port,
+  # and tmux does NOT hand a client's environment to a session it makes on
+  # an already-running server, so the value has to ride new-session's -e or
+  # the pane never sees it. `kosmos reply`, `kosmos report` and the codex
+  # bridge all read KOSMOS_PORT; with it absent they use the default board.
+  PORT_ENV=()
+  if [ -n "${KOSMOS_PORT:-}" ]; then
+    PORT_ENV=(-e "KOSMOS_PORT=$KOSMOS_PORT")
+  fi
   if [ "$RUNNER" = codex ]; then
     # Self-reporting (#245 on #526): codex's notify hook runs the bridge
     # with one JSON argument per event, from INSIDE the agent's pane, so
@@ -208,18 +218,18 @@ if [ -z "$adopt" ]; then
     BRIDGE="$(cd "$(dirname "$0")" && pwd)/codex-report-bridge.js"
     NOTIFY_CFG="notify=[\"$BRIDGE\"]"
     if [ -n "$MODEL" ]; then
-      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" \
+      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PORT_ENV[@]+"${PORT_ENV[@]}"} \
         "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -m "$MODEL" || exit 1
     else
-      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" \
+      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PORT_ENV[@]+"${PORT_ENV[@]}"} \
         "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" || exit 1
     fi
   else
     if [ -n "$MODEL" ]; then
-      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" \
+      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PORT_ENV[@]+"${PORT_ENV[@]}"} \
         "$CLAUDE" --dangerously-skip-permissions --model "$MODEL" || exit 1
     else
-      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" \
+      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PORT_ENV[@]+"${PORT_ENV[@]}"} \
         "$CLAUDE" --dangerously-skip-permissions || exit 1
     fi
   fi
