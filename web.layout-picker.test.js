@@ -47,7 +47,10 @@ test('the mode is gated on width and on the two tabs it merges; Settings stays a
 test('the consolidated CSS re-lays the board list and the projects panel; it hides nothing a person needs', () => {
   const css = PAGE.slice(PAGE.indexOf('/* ---- #520: the consolidated view'), PAGE.indexOf('.laytiles {'));
   assert.ok(css.length > 200, 'the CSS block moved; re-anchor');
-  const block = PAGE.slice(PAGE.indexOf('@media (min-width: 1280px) {\n  html[data-layout="consolidated"]'), PAGE.indexOf('.laytiles {') + 3000);
+  /* The whole media block, to its closing brace, so an added rule can never
+     push the ones asserted on out of the window. */
+  const start = PAGE.indexOf('@media (min-width: 1280px) {\n  html[data-layout="consolidated"]');
+  const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
   assert.match(block, /> #alist \{ grid-column: 1/);
   assert.match(block, /> #panel-projects \{ grid-column: 2/);
   assert.doesNotMatch(block, /#pj-room[^}]*display: none|\.composer[^}]*display: none|#pj-room-search[^}]*display: none/, 'the room, its search or its composer is hidden in the consolidated view');
