@@ -51,6 +51,17 @@ if (args[0] === 'setup' && args[1] === 'complete') {
   console.log('registered. address: ' + flag('--name') + '.kosmos.invalid');
   process.exit(0);
 }
+if (args[0] === 'devices') {
+  const verb = args[1];
+  if (mode === 'devices-fail') {
+    process.stderr.write('the coordinator said no (404): no such pending device\\n');
+    process.exit(1);
+  }
+  if (verb === 'list') { console.log(JSON.stringify({ devices: [{ device_id: 'dev-1', name: 'iPhone', allowed_at: 1756000000, last_seen: 0, code: 'K7-3M' }] })); process.exit(0); }
+  if (verb === 'pending') { console.log(JSON.stringify({ devices: [] })); process.exit(0); }
+  console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
+  process.exit(0);
+}
 if (args[0] === 'run') {
   if (mode === 'crash') process.exit(3);
   const statusFile = flag('--status-file');
@@ -230,4 +241,85 @@ test('setRelay refuses anything that is not host:port', () => {
   assert.match(remote.setRelay('host-with-no-port:').because, /host:port/);
   assert.equal(remote.setRelay('relay.example.com:8443').ok, true);
   assert.equal(remote.setRelay('').ok, true, 'empty must clear, not error');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Devices (#567): the Allow moment's seam
+// ─────────────────────────────────────────────────────────────────────────────
+
+/* Enrolled means the four files exist; the fake's setup writes them, but a
+   test of the devices seam should not depend on the setup flow. */
+function enrol() {
+  const dir = nodePath.join(SANDBOX, 'remote');
+  fs.mkdirSync(dir, { recursive: true });
+  for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(nodePath.join(dir, f), 'fake');
+  return dir;
+}
+
+test('pending is a FILE the tunnel writes: read, never spawned, and empty while off or unenrolled', () => {
+  const dir = enrol();
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: 'dev-9', name: 'iPhone', first_seen: 1756000000, code: 'K7-3M' },
+    { device_id: '../evil', name: 'x', first_seen: 1, code: 'AAAA' },
+  ] }));
+  /* Off: the switch is the gate, whatever the file says. */
+  assert.deepEqual(remote.pendingDevices().devices, [], 'a board with Plus off asked about a device');
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = 'relay.test:443';
+  remote.setOn(true);
+  const got = remote.pendingDevices();
+  assert.equal(got.snapshot, true);
+  assert.equal(got.devices.length, 1, 'a device id that is not an id passed through');
+  assert.equal(got.devices[0].code, 'K7-3M');
+  assert.equal(got.devices[0].denied_at, 0);
+  assert.ok(!recorded().some((a) => a[0] === 'devices'), 'reading pending spawned the binary');
+});
+
+test('allow drives the binary with the Mac-first verb, the id and the kind; a bad id is refused in words without spawning', async () => {
+  enrol();
+  const bad = await remote.deviceAllow('../evil', 'iPhone');
+  assert.equal(bad.ok, false);
+  assert.match(bad.because, /not a device we know/);
+  assert.ok(!recorded().some((a) => a[0] === 'devices'), 'a bad id reached the binary');
+  const ok = await remote.deviceAllow('dev-9', 'iPhone');
+  assert.equal(ok.ok, true, ok.because);
+  assert.equal(ok.data.allowed, true);
+  const call = recorded().find((a) => a[0] === 'devices' && a[1] === 'allow');
+  assert.ok(call, 'allow never reached the binary');
+  assert.equal(call[call.indexOf('--device-id') + 1], 'dev-9');
+  assert.equal(call[call.indexOf('--name') + 1], 'iPhone');
+  assert.ok(call.includes('--coordinator'), 'allow forgot the coordinator, so the phone would never be told');
+});
+
+test('deny remembers the No, so a re-ask from the same id carries when this Mac said no', async () => {
+  const dir = enrol();
+  const r = await remote.deviceDeny('dev-9');
+  assert.equal(r.ok, true, r.because);
+  assert.ok(remote.read().denied['dev-9'] > 1700000000, 'the No was not recorded');
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [{ device_id: 'dev-9', name: 'iPhone', first_seen: 1756000000, code: 'K7-3M' }] }));
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = 'relay.test:443';
+  remote.setOn(true);
+  assert.ok(remote.pendingDevices().devices[0].denied_at > 1700000000, 'the re-ask does not know it was said no to');
+});
+
+test('remove has no coordinator (the Mac list is the authority) and the binary’s refusal surfaces as its last sentence', async () => {
+  enrol();
+  const ok = await remote.deviceRemove('dev-1');
+  assert.equal(ok.ok, true, ok.because);
+  const call = recorded().find((a) => a[0] === 'devices' && a[1] === 'remove');
+  assert.ok(call && !call.includes('--coordinator'), 'remove asked the coordinator, which is not where the list lives');
+  process.env.FAKE_TUNNEL_MODE = 'devices-fail';
+  const no = await remote.deviceDeny('dev-1');
+  assert.equal(no.ok, false);
+  assert.match(no.because, /no such pending device/);
+});
+
+test('list joins the sidecar for the screen, and unenrolled is an empty list without a spawn', async () => {
+  const none = await remote.devicesList();
+  assert.deepEqual(none.data.devices, []);
+  assert.ok(!recorded().some((a) => a[0] === 'devices'), 'unenrolled list spawned the binary');
+  enrol();
+  const got = await remote.devicesList();
+  assert.equal(got.ok, true, got.because);
+  assert.equal(got.data.devices[0].name, 'iPhone');
+  assert.equal(got.data.devices[0].code, 'K7-3M');
 });

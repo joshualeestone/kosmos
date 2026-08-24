@@ -2012,6 +2012,45 @@ const server = http.createServer((req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not finish the sign-up' }));
     return;
   }
+  /* ---- Devices (#567): the Allow moment's seam. `pending` is a FILE the
+     running tunnel refreshes (every open board reads it every five seconds,
+     so it must never spawn); the list and the three verbs shell to the
+     tunnel, the only writer of this Mac's allow_list. The page renders the
+     card only when Plus is on and enrolled, which the engine already
+     encodes as an empty list. */
+  if (pathname === '/api/remote/pending' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { sendJson(res, 200, remote.pendingDevices()); }
+    catch { sendJson(res, 500, { error: 'we could not read what is waiting' }); }
+    return;
+  }
+  if (pathname === '/api/remote/devices' && (req.method === 'GET' || req.method === 'HEAD')) {
+    remote.devicesList()
+      .then((list) => {
+        if (!list.ok) { sendJson(res, 500, { error: list.because }); return; }
+        const pending = remote.pendingDevices();
+        sendJson(res, 200, { pending: pending.devices, allowed: list.data.devices, email: pending.email, on: remote.read().on === true });
+      })
+      .catch(() => sendJson(res, 500, { error: 'we could not read the devices' }));
+    return;
+  }
+  const deviceVerb = /^\/api\/remote\/devices\/(allow|deny|remove)$/.exec(pathname);
+  if (deviceVerb && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const id = typeof body.device_id === 'string' ? body.device_id : '';
+        const verb = deviceVerb[1];
+        const got = verb === 'allow' ? await remote.deviceAllow(id, body.name)
+          : verb === 'deny' ? await remote.deviceDeny(id)
+            : await remote.deviceRemove(id);
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        sendJson(res, 200, { ok: true, ...(got.data || {}) });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not change that' }));
+    return;
+  }
   /* ---- Styles (#480): named themes plus a pasted token file ---- */
   if (pathname === '/api/style' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, { ...styles.effective(), themes: styles.themeList() }); }

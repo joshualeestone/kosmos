@@ -10150,6 +10150,22 @@ test('the Plus state route is honest unconfigured, and the flow gates travel wit
   }
 });
 
+test('the Allow seam (#567): pending is honest-empty off the switch, and the verbs refuse a bad id in words', async () => {
+  const pending = JSON.parse((await req('/api/remote/pending')).body);
+  assert.deepEqual(pending.devices, [], 'a board with Plus off has something waiting');
+  assert.equal(pending.snapshot, false);
+  for (const verb of ['allow', 'deny', 'remove']) {
+    const r = await req('/api/remote/devices/' + verb, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ device_id: '../evil' }),
+    });
+    assert.equal(r.status, 400, verb + ' accepted an id that is not an id');
+    assert.match(JSON.parse(r.body).error, /not a device we know/);
+  }
+  const list = JSON.parse((await req('/api/remote/devices')).body);
+  assert.deepEqual(list.allowed, [], 'an unenrolled Mac lists devices');
+});
+
 test('the Plus switch round-trips and the off state comes back honest', async () => {
   const on = await req('/api/remote', {
     method: 'PUT', headers: { 'content-type': 'application/json' },

@@ -74,16 +74,19 @@ function secureStateDir() {
 function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
-    if (err && err.code === 'ENOENT') return { on: false, relay: '', email: '', ok: true };
-    return { on: false, relay: '', email: '', ok: false };
+    if (err && err.code === 'ENOENT') return { on: false, relay: '', email: '', denied: {}, ok: true };
+    return { on: false, relay: '', email: '', denied: {}, ok: false };
   }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { return { on: false, relay: '', email: '', ok: false }; }
-  if (!parsed || typeof parsed !== 'object') return { on: false, relay: '', email: '', ok: false };
+  try { parsed = JSON.parse(raw); } catch { return { on: false, relay: '', email: '', denied: {}, ok: false }; }
+  if (!parsed || typeof parsed !== 'object') return { on: false, relay: '', email: '', denied: {}, ok: false };
   return {
     on: parsed.on === true,
     relay: typeof parsed.relay === 'string' ? parsed.relay : '',
     email: typeof parsed.email === 'string' ? parsed.email : '',
+    /* #567: ids this Mac said no to, with when. A re-ask from one of them
+       gets a sentence on the card; nothing else reads this. */
+    denied: parsed.denied && typeof parsed.denied === 'object' && !Array.isArray(parsed.denied) ? parsed.denied : {},
     ok: true,
   };
 }
@@ -367,6 +370,101 @@ async function setupComplete(code, name) {
   return result;
 }
 
+
+/* ---- Devices (#567): the Allow moment. The tunnel binary is the ONLY
+   writer of this Mac's allow_list; this module asks it in the shape setup
+   already uses, and reads the pending snapshot the running tunnel refreshes
+   every five seconds, so every open board can poll without spawning. ---- */
+const DEVICE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+const DEVICE_NAME = /^[^\n\r]{1,60}$/;
+function pendingFile() { return path.join(STATE_DIR(), 'pending.json'); }
+/** What is waiting for this Mac's Allow. A missing snapshot is an empty
+    list, not an error: the tunnel writes it only once it is up, and a
+    board with Plus off has nothing waiting. `snapshot` says which. */
+function pendingDevices() {
+  const settings = read();
+  if (!settings.on || !enrolled()) return { devices: [], snapshot: false, email: settings.email || '' };
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { raw = null; }
+  const list = raw && Array.isArray(raw.devices) ? raw.devices : [];
+  const devices = list
+    .filter((d) => d && DEVICE_ID.test(String(d.device_id || '')))
+    .map((d) => ({
+      device_id: String(d.device_id),
+      name: typeof d.name === 'string' && d.name.trim() ? d.name.trim().slice(0, 60) : null,
+      first_seen: Number(d.first_seen) || 0,
+      code: typeof d.code === 'string' ? d.code : '',
+      /* When this Mac last said no to this id, or 0: the re-ask sentence. */
+      denied_at: Number(settings.denied[String(d.device_id)]) || 0,
+    }));
+  return { devices, snapshot: raw !== null, email: settings.email || '' };
+}
+/** The binary answers JSON on stdout for every devices verb; a non-JSON
+    answer is reported as such rather than guessed at. */
+function parseSaid(result) {
+  if (!result.ok) return result;
+  try { return { ok: true, because: null, data: JSON.parse(result.said) }; }
+  catch { return { ok: false, because: 'the tunnel program answered in a shape we could not read' }; }
+}
+function deviceArgs(verb, id, withCoordinator) {
+  const args = ['devices', verb];
+  if (withCoordinator) args.push('--coordinator', COORDINATOR());
+  args.push('--state-dir', STATE_DIR());
+  if (id !== null) args.push('--device-id', id);
+  return args;
+}
+function checkId(id) {
+  return typeof id === 'string' && DEVICE_ID.test(id) ? null : { ok: false, because: 'that is not a device we know' };
+}
+/** The devices this Mac lets in, joined with the sidecar (name, when let
+    in, last used). Not enrolled means none, without asking the binary. */
+async function devicesList() {
+  if (!enrolled()) return { ok: true, because: null, data: { devices: [] } };
+  const r = parseSaid(await setupRun(deviceArgs('list', null, false)));
+  if (!r.ok) return r;
+  const list = r.data && Array.isArray(r.data.devices) ? r.data.devices : [];
+  return { ok: true, because: null, data: { devices: list
+    .filter((d) => d && DEVICE_ID.test(String(d.device_id || '')))
+    .map((d) => ({
+      device_id: String(d.device_id),
+      name: typeof d.name === 'string' && d.name.trim() ? d.name.trim().slice(0, 60) : null,
+      allowed_at: Number(d.allowed_at) || 0,
+      last_seen: Number(d.last_seen) || 0,
+      code: typeof d.code === 'string' ? d.code : '',
+    })) } };
+}
+/** Let a device in: the binary writes this Mac's list FIRST, then tells the
+    coordinator; a failed ack heals on the tunnel's next poll and the allow
+    stands. `name` is the kind the phone gave, recorded for the list. */
+async function deviceAllow(id, name) {
+  const bad = checkId(id); if (bad) return bad;
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  const args = deviceArgs('allow', id, true);
+  if (typeof name === 'string' && DEVICE_NAME.test(name.trim())) args.push('--name', name.trim());
+  return parseSaid(await setupRun(args));
+}
+/** Say no: the coordinator drops the request and the phone is told. Writes
+    nothing on this Mac; a fresh sign-in may ask again. */
+async function deviceDeny(id) {
+  const bad = checkId(id); if (bad) return bad;
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  const r = parseSaid(await setupRun(deviceArgs('deny', id, true)));
+  if (r.ok) {
+    const denied = { ...read().denied, [id]: Math.floor(Date.now() / 1000) };
+    /* Bounded: the newest 50, so a file cannot grow without limit. */
+    const keep = Object.entries(denied).sort((a, b) => b[1] - a[1]).slice(0, 50);
+    write({ denied: Object.fromEntries(keep) });
+  }
+  return r;
+}
+/** Take it back: off this Mac's list at once, and the tunnel drops any live
+    session for it on the next request. */
+async function deviceRemove(id) {
+  const bad = checkId(id); if (bad) return bad;
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  return parseSaid(await setupRun(deviceArgs('remove', id, false)));
+}
+
 module.exports = {
   FILE,
   read,
@@ -378,6 +476,11 @@ module.exports = {
   status,
   setupStart,
   setupComplete,
+  pendingDevices,
+  devicesList,
+  deviceAllow,
+  deviceDeny,
+  deviceRemove,
   /* test seam: stops the supervised child between cases (the name is the
      one the reachability sweep excuses for exactly this job) */
   resetForTests: stopChild,

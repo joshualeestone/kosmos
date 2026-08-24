@@ -309,6 +309,32 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
              background: var(--k-surface); font-size: .875rem; color: var(--k-ink-2); }
   .newsbar a { color: var(--k-ink); }
   .newsbar .linkish { margin-left: auto; }
+  /* #567: the Allow moment. A device asking sits where the news line sits,
+     on every view, with the gold edge (attention) and never the warning
+     tint: the common case is the person's own phone, in their hand. */
+  .askcard { margin: 10px 24px 0; padding: 12px 16px; border: 1px solid var(--k-rule);
+             border-left: 3px solid var(--gold); border-radius: 10px;
+             background: var(--k-surface); font-size: .875rem; color: var(--k-ink-2); }
+  .askcard h3 { font: 600 1rem var(--font-ui); color: var(--k-ink); margin: 0 0 4px; }
+  .askcard p { margin: 0; max-width: 64ch; }
+  .askcard p b { color: var(--k-ink); font-weight: 600; }
+  .askcard .code { font-family: var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .06em;
+                   color: var(--k-ink); background: var(--k-sunk, rgba(20,22,26,.05)); padding: 1px 6px; border-radius: 5px; }
+  .askrow { padding: 8px 0; border-top: 1px solid var(--k-rule); }
+  .askrow:first-child { border-top: 0; padding-top: 0; }
+  .askrow .acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  .askrow.done p { color: var(--k-ink); }
+  /* The Settings list: the durable home of the same rows. */
+  .devrow { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 0.5px solid var(--separator); flex-wrap: wrap; }
+  .devrow:first-child { border-top: 0; }
+  .devrow .devbody { flex: 1; min-width: 180px; }
+  .devrow .devname { font-weight: 600; color: var(--k-ink); }
+  .devrow .devmeta { font: var(--text-callout) var(--font-ui); color: var(--label-3); }
+  .devrow .devmeta .code { font-family: var(--font-mono, ui-monospace, Menlo, monospace); }
+  .devrow .acts { display: flex; gap: 8px; align-items: center; }
+  .devrow.pending { background: linear-gradient(90deg, rgba(214,166,46,.10), transparent 40%); margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 8px; }
+  .devrow .confirm { width: 100%; font: var(--text-callout) var(--font-ui); color: var(--label-2); }
+  .devrow .confirm .acts { margin-top: 6px; }
   .conn[hidden] { display: none; }   /* an author rule would beat the UA hidden */
   .conn-bad { background: var(--warn-bg); border-color: var(--warn-border); }
   .conn-unsure { background: var(--attn-bg); border-color: var(--separator); }
@@ -3678,6 +3704,21 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   </div>
 </header>
 </div>
+<!-- #567: the Allow moment. A device that signed in with the account's email
+     and code is asking to use this Kosmos; the person standing here is asked
+     "is this you, holding that phone right now", never "who is this". One row
+     per device, each with the code the phone is also showing. It sits directly under the header so it is above EVERY view, not only the board. The card never
+     asks about a device already on this Mac's list (the tunnel's pending
+     excludes them), and it paints only while Plus is on and enrolled (the
+     engine returns an empty list otherwise). The change-your-password
+     sentence lives on the Not-me branch and nowhere else: a person holding
+     their own phone never reads it, and the person who needs it reads it at
+     the moment it is true. -->
+<div class="askcard" id="askcard" role="status" aria-live="polite" hidden>
+  <h3 id="ask-title"></h3>
+  <p id="ask-lead" hidden></p>
+  <div id="ask-rows"></div>
+</div>
 <section class="detail" id="panel-detail" hidden>
   <button class="back" id="detail-back">&#8592; All agents</button>
   <!-- ⚠️ THE PACK'S AGENT PAGE (view B, pack-pass, scrappy): dhead carries
@@ -6006,7 +6047,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="talking" aria-controls="s-sec-talking">Agents Talking</button>
     <button type="button" data-go="mac" aria-controls="s-sec-mac">This Mac</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
-    <button type="button" data-go="plus" aria-controls="s-sec-plus">Plus Account</button>
+    <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Plus Account</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
     <button type="button" data-go="styles" aria-controls="s-sec-styles">Styles</button>
     <button type="button" data-go="advanced" aria-controls="s-sec-advanced">Advanced</button>
   </nav>
@@ -6535,6 +6576,19 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
             <button class="btn uprime" type="button" id="plus-confirm">Confirm</button>
           </div>
         </div>
+      </div>
+      <!-- #567: the durable home of the Allow rows. Pending first (the same
+           two buttons as the card), then what this Mac lets in, with Remove
+           confirming inline and saying a sentence the engine makes true:
+           the tunnel re-reads the list on every request and drops a live
+           session on the spot. -->
+      <div id="plus-devices" hidden style="margin-top:16px;">
+        <p class="setname">Devices that can reach this Mac</p>
+        <p class="fhint">Each one asked here first. Remove one and it stops right away; it can ask again by signing in.</p>
+        <p class="fhint" id="plus-devices-off" hidden>Plus is off, so nothing can reach this Mac right now. Your devices are kept for when you turn it back on.</p>
+        <div id="plus-devlist"></div>
+        <p class="fhint" id="plus-devempty" hidden>None yet. The first time you sign in from a phone, it asks here.</p>
+        <p class="fmsg" id="plus-devmsg" role="alert" aria-live="assertive"></p>
       </div>
       <p class="fmsg" id="plus-msg" role="alert" aria-live="assertive"></p>
     </div>
@@ -15700,6 +15754,191 @@ if (document.getElementById('style-clear')) document.getElementById('style-clear
    like a working button before the service can honour it. All wording
    here names the service ("Plus"), never a hostname: the address arrives
    from the service and the domain is explicitly temporary. */
+/* ---- #567: the Allow moment ------------------------------------------
+   The card above the board and the list under Plus read ONE state: what the
+   tunnel says is pending (a file it refreshes every five seconds, so this
+   poll never spawns), plus what this page has done about it since. Rules the
+   sentences are written against: a device is named by its kind and the time
+   it asked, never by anything that identifies it; the time keeps ticking
+   while shown; the two buttons keep their colours whatever the history,
+   because swapping the gold one on a re-ask is itself a mis-tap hazard. */
+const ASK = { devices: [], email: '', done: {}, later: false, allowed: null, confirm: null };
+try { ASK.later = sessionStorage.getItem('ask-later') === '1'; } catch { /* no storage: the card simply shows */ }
+function askKind(d) { return d && typeof d.name === 'string' && d.name ? d.name : 'device'; }
+function askArticle(kind, cap) {
+  const an = /^[aeiou]/i.test(kind);
+  return (cap ? (an ? 'An ' : 'A ') : (an ? 'an ' : 'a ')) + kind;
+}
+/* Relative, rounding DOWN, so "a moment ago" is never claimed for something
+   that is 61 seconds old. Past a day it is the date, not "yesterday" forever. */
+function askAgo(unix) {
+  if (!unix) return 'just now';
+  const s = Math.floor(Date.now() / 1000 - unix);
+  if (s < 60) return 'a moment ago';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + (m === 1 ? ' minute ago' : ' minutes ago');
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + (h === 1 ? ' hour ago' : ' hours ago');
+  const d = Math.floor(h / 24);
+  if (d === 1) return 'yesterday';
+  return 'on ' + new Date(unix * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+function askClock(unix) {
+  return unix ? new Date(unix * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
+}
+function askEsc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function askLive() { return ASK.devices.filter((d) => !ASK.done[d.device_id]); }
+async function pollAsk() {
+  let r = null;
+  try { r = await (await fetch('/api/remote/pending', { cache: 'no-store' })).json(); } catch { r = null; }
+  if (!r || !Array.isArray(r.devices)) return;   /* a blip keeps the last paint; nothing is invented */
+  ASK.devices = r.devices;
+  ASK.email = r.email || '';
+  /* A finished row leaves once the tunnel stops listing the device (allowed
+     ids are excluded from pending; a deny drops the row at the coordinator),
+     and an allowed row leaves on its own after a few seconds regardless. */
+  for (const id of Object.keys(ASK.done)) {
+    const still = ASK.devices.some((d) => d.device_id === id);
+    const e = ASK.done[id];
+    if (e.state === 'allowed' && Date.now() - e.at > 6000) delete ASK.done[id];
+    else if (e.state === 'error' && !still) delete ASK.done[id];
+  }
+  paintAsk();
+}
+function paintAsk() {
+  const card = document.getElementById('askcard');
+  if (!card) return;
+  const live = askLive();
+  const rows = ASK.devices.filter((d) => !ASK.done[d.device_id] || ASK.done[d.device_id].state !== 'gone');
+  const doneIds = Object.keys(ASK.done).filter((id) => ASK.done[id].state !== 'gone');
+  const anything = live.length || doneIds.length;
+  /* Not now hides the card for this browser session only; the Settings
+     row and the tab dot carry the fact until then. */
+  const hide = !anything || (ASK.later && !doneIds.length);
+  card.hidden = hide;
+  const dot = document.querySelector('#s-nav button[data-go="plus"]');
+  if (dot) { if (live.length && ASK.later) dot.setAttribute('data-dot', '1'); else dot.removeAttribute('data-dot'); }
+  if (hide) return;
+  const title = document.getElementById('ask-title');
+  const lead = document.getElementById('ask-lead');
+  if (live.length >= 2) {
+    title.textContent = (live.length === 2 ? 'Two' : String(live.length)) + ' devices are asking to use this Kosmos';
+    lead.textContent = 'Allow only the one you are holding. The other can ask again.';
+    lead.hidden = false;
+  } else if (live.length === 1) {
+    title.textContent = askArticle(askKind(live[0]), true) + ' is asking to use this Kosmos';
+    lead.hidden = true;
+  } else {
+    title.textContent = '';
+    lead.hidden = true;
+  }
+  const out = [];
+  const seen = new Set();
+  const render = (d, e) => {
+    const kind = askKind(d);
+    if (e && e.state === 'allowed') {
+      return '<div class="askrow done"><p>Your ' + askEsc(kind) + ' is in. It should let you through on its own in a moment.</p></div>';
+    }
+    if (e && e.state === 'denied') {
+      return '<div class="askrow done"><p>That ' + askEsc(kind) + ' was not let in. Someone had a code that was sent to <b>' + askEsc(ASK.email || 'your email') +
+        '</b>. If you did not just sign in anywhere, change that email\'s password.</p>' +
+        '<div class="acts"><button class="btn" type="button" data-ask="gotit" data-id="' + askEsc(d.device_id) + '">Got it</button></div></div>';
+    }
+    const old = d.first_seen && (Date.now() / 1000 - d.first_seen) > 10 * 60;
+    const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgo(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
+    return '<div class="askrow"><p>Someone signed in as <b>' + askEsc(ASK.email || 'your account') + '</b> on ' + askEsc(askArticle(kind, false)) + ' ' + askAgo(d.first_seen) +
+      (d.code ? '. The phone is showing the code <span class="code">' + askEsc(d.code) + '</span>' : '') +
+      '. If that is the phone in your hand, allow it: it will see and do everything you can here, from anywhere, until you remove it in Settings.' +
+      (old ? ' That was a while ago. If you are not holding that phone now, say Not me. A phone can always ask again.' : '') + again +
+      (e && e.state === 'error' ? ' ' + askEsc(e.because) : '') + '</p>' +
+      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '">Allow this ' + askEsc(kind) + '</button>' +
+      '<button class="btn" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '">Not me</button>' +
+      '<span aria-hidden="true">&middot;</span><button class="linkish" type="button" data-ask="later">Not now</button></div></div>';
+  };
+  for (const d of rows) { seen.add(d.device_id); out.push(render(d, ASK.done[d.device_id])); }
+  for (const id of doneIds) { if (!seen.has(id)) out.push(render(ASK.done[id].device, ASK.done[id])); }
+  document.getElementById('ask-rows').innerHTML = out.join('');
+}
+async function askAct(act, id) {
+  const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
+  if (act === 'later') { ASK.later = true; try { sessionStorage.setItem('ask-later', '1'); } catch { /* fine */ } paintAsk(); return; }
+  if (act === 'gotit') { if (ASK.done[id]) ASK.done[id] = { state: 'gone', at: Date.now(), device: d }; paintAsk(); paintDevices(); return; }
+  if (!d) return;
+  const verb = act === 'allow' ? 'allow' : 'deny';
+  let res = null;
+  try {
+    res = await fetch('/api/remote/devices/' + verb, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ device_id: id, name: d.name || undefined }) });
+  } catch { res = null; }
+  if (res && res.ok) {
+    ASK.done[id] = { state: act === 'allow' ? 'allowed' : 'denied', at: Date.now(), device: d };
+    ASK.later = false; try { sessionStorage.removeItem('ask-later'); } catch { /* fine */ }
+  } else {
+    const said = res ? await res.json().catch(() => null) : null;
+    ASK.done[id] = { state: 'error', at: Date.now(), device: d, because: plusWords((said && said.error) || 'We could not save that. Try again.') };
+  }
+  paintAsk();
+  paintDevices();
+}
+document.getElementById('askcard').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ask]');
+  if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'));
+});
+/* The Settings list. Painted on arrival at the Plus section and after any
+   action; the allowed rows come from the tunnel's list (one subprocess),
+   the pending rows from the same file the card reads. */
+async function paintDevices() {
+  const box = document.getElementById('plus-devices');
+  if (!box || box.hidden) return;
+  let r = null;
+  try { r = await (await fetch('/api/remote/devices', { cache: 'no-store' })).json(); } catch { r = null; }
+  const list = document.getElementById('plus-devlist');
+  const msg = document.getElementById('plus-devmsg');
+  if (!r || !Array.isArray(r.allowed)) { msg.textContent = plusWords((r && r.error) || 'we could not read the devices'); return; }
+  msg.textContent = '';
+  ASK.allowed = r.allowed;
+  document.getElementById('plus-devices-off').hidden = r.on !== false;
+  const pending = (r.pending || []).filter((d) => !ASK.done[d.device_id]);
+  const out = [];
+  for (const d of pending) {
+    out.push('<div class="devrow pending"><div class="devbody"><div class="devname">' + askEsc(askKind(d)) + '</div>' +
+      '<div class="devmeta">asking since ' + askEsc(askClock(d.first_seen)) + (d.code ? ' &middot; code <span class="code">' + askEsc(d.code) + '</span>' : '') + '</div></div>' +
+      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '">Allow</button>' +
+      '<button class="btn" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '">Not me</button></div></div>');
+  }
+  for (const d of r.allowed) {
+    const name = askKind(d);
+    const meta = 'let in ' + askEsc(d.allowed_at ? askAgo(d.allowed_at).replace(/^on /, '') : 'today') +
+      (d.last_seen ? ' &middot; last used ' + askEsc(askAgo(d.last_seen)) : ' &middot; not used yet');
+    const confirming = ASK.confirm === d.device_id;
+    out.push('<div class="devrow"><div class="devbody"><div class="devname">' + askEsc(name) + '</div><div class="devmeta">' + meta + '</div></div>' +
+      '<div class="acts"><button class="btn" type="button" data-dev="remove" data-id="' + askEsc(d.device_id) + '"' + (confirming ? ' disabled' : '') + '>Remove</button></div>' +
+      (confirming ? '<div class="confirm">Remove this ' + askEsc(name) + '? It stops right away. It can ask again by signing in.' +
+        '<div class="acts"><button class="btn" type="button" data-dev="removeyes" data-id="' + askEsc(d.device_id) + '">Remove</button>' +
+        '<button class="btn" type="button" data-dev="keep">Keep</button></div></div>' : '') + '</div>');
+  }
+  list.innerHTML = out.join('');
+  document.getElementById('plus-devempty').hidden = out.length > 0;
+}
+document.getElementById('plus-devlist').addEventListener('click', async (e) => {
+  const a = e.target.closest('[data-ask]');
+  if (a) { askAct(a.getAttribute('data-ask'), a.getAttribute('data-id')); return; }
+  const b = e.target.closest('[data-dev]');
+  if (!b) return;
+  const act = b.getAttribute('data-dev'); const id = b.getAttribute('data-id');
+  const msg = document.getElementById('plus-devmsg');
+  if (act === 'remove') { ASK.confirm = id; paintDevices(); return; }
+  if (act === 'keep') { ASK.confirm = null; paintDevices(); return; }
+  if (act === 'removeyes') {
+    ASK.confirm = null;
+    let res = null;
+    try { res = await fetch('/api/remote/devices/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: id }) }); } catch { res = null; }
+    if (!res || !res.ok) { const said = res ? await res.json().catch(() => null) : null; msg.textContent = plusWords((said && said.error) || 'we could not remove that'); }
+    paintDevices();
+  }
+});
+setInterval(pollAsk, 5000);
+pollAsk();
 async function paintPlus() {
   const holding = document.getElementById('plus-holding');
   const flow = document.getElementById('plus-flow');
@@ -15724,6 +15963,9 @@ async function paintPlus() {
   /* The enrol steps show only when the switch is on and nothing is
      enrolled yet: the state the engine calls waiting-for-the-sign-in. */
   document.getElementById('plus-enrol').hidden = !(r.on && r.enrolled !== true);
+  /* #567: the list shows once enrolled, on or off (off says so above it). */
+  document.getElementById('plus-devices').hidden = r.enrolled !== true;
+  paintDevices();
 }
 /* The engine's honest-but-technical sentence for a missing binary, said
    the way this page speaks. Everything else relays verbatim. */
