@@ -130,8 +130,12 @@ const ROLES = [
       /* Josh ruled autonomous briefing (2026-08-18); the wording is Mona
          Lisa's. The tell-the-operator sentence is the delegation-not-
          opacity half she kept on her own authority. */
-      '- When a job needs a skill you do not have, brief the agent who has',
-      '  it rather than attempting it badly. Tell the operator who you',
+      /* "expertise", not "skill": a Skill is an installable capability in
+         this product now (Josh, 2026-08-23 19:26), and an agent reading
+         "a skill you do not have" beside a Skills tab would go looking
+         for a file where the sentence means an ability. */
+      '- When a job needs expertise you do not have, brief the agent who',
+      '  has it rather than attempting it badly. Tell the operator who you',
       '  briefed and why.',
       '- Keep a short written record of what was agreed. It survives you.',
     ].join('\n'),

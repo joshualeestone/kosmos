@@ -495,7 +495,7 @@ test('the roles where being wrong is expensive carry their limit in BOTH places'
     // Josh ruled autonomous briefing (2026-08-18). The pinned invariant
     // survives every wording of it: the PM does not attempt work outside
     // its skill -- it briefs the agent who has it.
-    pm: /brief the agent who has\s+it rather than attempting it badly/i,
+    pm: /brief the agent who\s+has\s+it rather than attempting it badly/i,
   };
   for (const role of roles.ROLES.filter((r) => r.caution)) {
     const mustSay = BOUNDARY[role.key];
