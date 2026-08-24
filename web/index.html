@@ -44,7 +44,8 @@
      (the control that consumes them); the dark inverses live in the
      prefers-color-scheme block below (the pack's own set, added when
      Mona Lisa measured literal-white cards on the dark ground); the
-     manual data-theme toggle remains #40's. */
+     manual data-theme toggle is BUILT: the header's .themepick writes
+     data-theme, which every :root:not([data-theme]) selector reads. */
   --k-bg: #faf9f7; --k-ink: #14161a; --k-ink-2: #4a4f57; --k-rule: #e3e1dc;
   --k-surface: #ffffff; --k-track: rgba(20,22,26,.16); --k-knob: #ffffff;
   /* ⚠️ DEFINED HERE, not inherited from a fallback. The pack writes this token
@@ -176,8 +177,9 @@
        both schemes, so every card riding --k-surface sat literal-white
        on the flipped page ground -- measured by Mona Lisa 2026-08-18
        (card interior 255,255,255 in dark). This was the deferred half
-       of the theme pass (#40); the card-surface flip ships here, the
-       manual data-theme toggle stays with #40. */
+       of the theme pass (#40, a record of what shipped); the
+       card-surface flip ships here. The manual toggle is built since:
+       the header's .themepick writes data-theme. */
     --k-bg:      #0c0d0f;
     --k-surface: #17191c;
     --k-ink:     #f5f5f4;
@@ -2973,8 +2975,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    removed section unreadable, and the shared .linkish regressing the
    PROJECTS tab (round 5 measured who at ~1.0:1 on the dark body). A
    cascade defeat is silent; position is the fix, and this comment is the
-   guard against someone "tidying" the block back up the file. The pack's
-   real dark values replace all of this in #40. */
+   guard against someone "tidying" the block back up the file. If the
+   pack's real dark values ever land wholesale this block retires with
+   them; nothing owns that today, and this sentence stops pretending a
+   closed PR does (#147). */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .stat.action { background: var(--k-surface); border-color: var(--label-3); }
   :root:not([data-theme="light"]) .stat.action:hover { background: var(--k-surface); border-color: var(--gold-deep); }
@@ -3432,8 +3436,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        both schemes, so every card riding --k-surface sat literal-white
        on the flipped page ground -- measured by Mona Lisa 2026-08-18
        (card interior 255,255,255 in dark). This was the deferred half
-       of the theme pass (#40); the card-surface flip ships here, the
-       manual data-theme toggle stays with #40. */
+       of the theme pass (#40, a record of what shipped); the
+       card-surface flip ships here. The manual toggle is built since:
+       the header's .themepick writes data-theme. */
     --k-bg:      #0c0d0f;
     --k-surface: #17191c;
     --k-ink:     #f5f5f4;
