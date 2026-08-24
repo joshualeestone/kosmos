@@ -3918,9 +3918,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <p class="dhint" id="d-runson-why" hidden></p>
     <div class="msteps" role="group" aria-label="Change what this agent runs on" style="margin-top:12px;">
       <div class="frow">
+        <!-- #246: the switch is real now, so this menu takes the same shape
+             as the two below it: a placeholder first (the two tenses rule --
+             a preselected value would read as "is on" and "about to be" with
+             one element), a button that stays down until something OTHER
+             than the current provider is chosen, and nothing happening on
+             pick. The current provider's option is disabled per open, so
+             the only choices offered are ones the engine will not refuse. -->
         <select id="d-provider" aria-label="Provider">
-          <option value="anthropic" selected>Anthropic / Claude</option>
-          <option value="openai" disabled>OpenAI &middot; coming soon</option>
+          <option value="">Change to&hellip;</option>
+          <option value="anthropic">Anthropic / Claude</option>
+          <option value="openai">OpenAI / Codex</option>
           <option value="google" disabled>Google Gemini &middot; coming soon</option>
           <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
           <option value="xai" disabled>xAI Grok &middot; coming soon</option>
@@ -3928,7 +3936,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
           <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
           <option value="mistral" disabled>Mistral &middot; coming soon</option>
         </select>
+        <button class="btn" type="button" id="d-provider-go" disabled>Switch &amp; Restart</button>
       </div>
+      <p class="dhint" id="d-provider-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
       <div class="mstep">
         <div class="frow">
           <select id="d-account" aria-label="Account this agent runs on"></select>
@@ -7001,6 +7011,12 @@ function modelLine(a) {
      more and the card would name the transcript model while the detail panel
      named the job's, reopening the card-vs-meta disagreement this branch
      closed. One question, one derivation. */
+  /* #246: the day this comment warned about arrived. An OpenAI agent's
+     runner is recorded (the supervisor's option on running panes, the
+     profile on stopped ones) and its model is codex's own choice, which we
+     deliberately do not scrape a name for -- naming the provider is the
+     truth we hold, and it is what the switch changed. */
+  if (a.runner === 'codex') return 'OpenAI Codex';
   const notRunning = cardStOf(a).pres === 'off';
   const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName;
   /* #149/#150: two states were collapsed into "Unknown Model", and only one
@@ -12434,6 +12450,7 @@ function openDetail(sessionName, section) {
      it needs a stub the test would then be asserting against instead of the
      page. Outside it, the same test keeps working and this keeps its real one. */
   paintModelPicker(a);
+  paintProviderPicker(a);
   paintAccountPicker(a);
   paintReportsTo(a);
   /* The explanation's landing place after it left the card with the
@@ -15870,6 +15887,105 @@ function changeDialog({ title, small, go, run }) {
   try { goBtn.focus(); } catch { /* fine */ }
 }
 const agentShown = () => (CURRENT && (CURRENT.name || CURRENT.sessionName)) || 'this agent';
+
+/* #246: which provider an agent is on, from the RECORD: the supervisor's
+   runner option on running panes, the profile's provider on stopped rows.
+   'claude'/'codex' is the runner vocabulary; this answers in the menu's. */
+const providerOf = (a) => ((a && a.runner === 'codex') ? 'openai' : 'anthropic');
+
+function paintProviderPicker(a) {
+  const sel = document.getElementById('d-provider');
+  const go = document.getElementById('d-provider-go');
+  const msg = document.getElementById('d-provider-msg');
+  if (!sel || !go) return;
+  sel.value = '';
+  if (msg) msg.textContent = '';
+  const current = providerOf(a);
+  /* The current provider is not an offer: picking it would be a no-op the
+     engine refuses, and the button being down is not enough of a reason
+     (the account picker's lesson). Disabled per open, re-enabled for
+     whichever provider is the OTHER one. */
+  for (const opt of sel.options) {
+    if (opt.value === 'anthropic' || opt.value === 'openai') opt.disabled = (opt.value === current);
+  }
+  const ours = !!(a && a.isNamedOurs);
+  const usable = ours && !(a && a.neverRecorded === true);
+  sel.disabled = !usable;
+  go.disabled = true;
+  /* An OpenAI agent's model and account menus park with words, the same
+     rule as the create form: the engine refuses both, and a control that
+     accepts a choice the request then refuses is the offer-that-cannot-work
+     shape. Un-parking on a claude agent is paintModelPicker's normal job. */
+  if (usable && current === 'openai') {
+    const dm = document.getElementById('d-model');
+    const da = document.getElementById('d-account');
+    if (dm) dm.disabled = true;
+    if (da) da.disabled = true;
+    const dmm = document.getElementById('d-model-msg');
+    if (dmm && !dmm.textContent) dmm.textContent = 'OpenAI picks its own model, and this agent runs on this computer’s OpenAI sign-in. Switch it back to Anthropic to choose these again.';
+  }
+}
+
+document.getElementById('d-provider').addEventListener('change', (e) => {
+  const go = document.getElementById('d-provider-go');
+  if (go) go.disabled = !e.target.value || !CURRENT || e.target.value === providerOf(CURRENT);
+});
+
+async function changeProviderNow() {
+  if (!CURRENT) return;
+  const sel = document.getElementById('d-provider');
+  const go = document.getElementById('d-provider-go');
+  const msg = document.getElementById('d-provider-msg');
+  const want = sel.value;
+  if (!want) return;
+  const forAgent = CURRENT.sessionName;
+  go.disabled = true;
+  sel.disabled = true;
+  msg.textContent = 'Switching…';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/provider', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: want }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!CURRENT || CURRENT.sessionName !== forAgent) return;
+    if (!res.ok || !out) throw new Error((out && (out.because || out.error)) || 'that did not work');
+    /* The route's sentence verbatim: it says what stayed, what did not
+       cross, and that the agent will look idle until spoken to. */
+    msg.textContent = out.because || 'Switched.';
+    sel.value = '';
+  } catch (err) {
+    if (!CURRENT || CURRENT.sessionName !== forAgent) return;
+    msg.textContent = String((err && err.message) || 'That did not work.');
+  } finally {
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      sel.disabled = false;
+      go.disabled = true;
+    }
+  }
+}
+
+document.getElementById('d-provider-go').addEventListener('click', () => {
+  const sel = document.getElementById('d-provider');
+  if (!CURRENT || !sel.value) return;
+  const toOpenai = sel.value === 'openai';
+  const label = toOpenai ? 'OpenAI' : 'Anthropic';
+  changeDialog({
+    title: 'Switch ' + agentShown() + ' to ' + label + '?',
+    /* The memory sentence is the ruling, said before it happens: what she
+       knows stays, her past stays readable, the conversation ends the way
+       it does on any restart, and the provider-shaped choices do not
+       cross. */
+    small: agentShown() + ' keeps its name, its face, its instructions, its files, and everything it has done; its past stays readable. '
+      + 'It restarts, so this conversation ends, as it does on any restart. '
+      + (toOpenai
+        ? 'Its Claude model and account choices do not cross: OpenAI picks its own model, on this computer’s OpenAI sign-in.'
+        : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
+    go: 'Switch and restart',
+    run: () => changeProviderNow(),
+  });
+});
 document.getElementById('d-model-go').addEventListener('click', () => {
   const sel = document.getElementById('d-model');
   if (!CURRENT || !sel.value) return;
