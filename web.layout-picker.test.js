@@ -119,3 +119,10 @@ test('piece six: the board notice bars do not sit over the consolidated grid, an
   /* Control: the news line is NOT hidden here; it has a home in the header slot. */
   assert.doesNotMatch(block, /#unews-slot|#newsbar[^-]/, 'the news line was hidden rather than relocated');
 });
+
+test('piece seven: the projects panel drops its box padding in the consolidated view, so the title sits flush with the rail top', () => {
+  const start = PAGE.indexOf('@media (min-width: 1280px) {\n  html[data-layout="consolidated"]');
+  const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
+  assert.match(block, /> #panel-projects \{ padding: 0; border: 0; background: none;/, 'the projects panel keeps its box padding, which sits the title below the agents rail');
+  assert.match(block, /body\.consolidated \.pjhead \{ margin-bottom: 10px; padding: 0; \}/);
+});
