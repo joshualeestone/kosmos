@@ -695,6 +695,9 @@ html { scroll-padding-top: 132px; }
 .utoast .udot { width: 8px; height: 8px; border-radius: 50%; background: var(--utone); flex: 0 0 8px; }
 .utoast .utxt b { display: block; font-size: .8125rem; line-height: 1.3; color: var(--utone); }
 .utoast .utxt small { font-size: .6875rem; color: var(--label-2); }
+.utoast .newsupd { color: inherit; text-decoration: none; }
+.utoast .newsupd:hover b { text-decoration: underline; text-underline-offset: 2px; }
+.utoast .uacts .newsx { font-size: 1.1rem; line-height: 1; }
 /* #655: the news line's link and dismiss, in the toast's own ink and on one line. */
 .utoast .utxt small a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .utoast .uacts button { white-space: nowrap; }
@@ -3845,8 +3848,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <div id="unews-slot">
       <div class="utoast stale" id="newsbar" role="status" hidden>
         <span class="udot" aria-hidden="true"></span>
-        <div class="utxt"><b id="newsbar-text"></b><small><a id="newsbar-link" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">What changed</a></small></div>
-        <div class="uacts"><button type="button" id="newsbar-ok" aria-label="Dismiss this update note">Got it</button></div>
+        <div class="utxt"><a id="newsbar-link" class="newsupd" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener"><b id="newsbar-text"></b></a></div>
+        <div class="uacts"><button type="button" id="newsbar-ok" class="newsx" aria-label="Close this note">&times;</button></div>
       </div>
     </div>
     <!-- ⚠️ ITS OWN SLOT RATHER THAN SHARING `#unote-slot`, and the reason is a
@@ -13856,8 +13859,9 @@ async function newsbarCheck() {
     }).then((r) => r.text()).catch(() => { /* tried again next load */ });
     if (!got.seen) { record(); return; } // first sight: silent
     if (got.seen === got.current) return;
-    document.getElementById('newsbar-text').textContent =
-      'Kosmos updated itself to ' + got.current + ' while you were away.';
+    // Josh, 2026-08-24 16:50: short. The whole line is the link (click to
+    // see what changed); the X closes it. No "while you were away".
+    document.getElementById('newsbar-text').textContent = 'Kosmos updated to ' + got.current;
     document.getElementById('newsbar-link').href =
       'https://installkosmos.com/versions#v' + got.current.replace(/\./g, '-');
     const bar = document.getElementById('newsbar');
