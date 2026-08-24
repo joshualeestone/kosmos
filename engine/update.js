@@ -241,6 +241,26 @@ function setupUrl() {
  * are separate process trees).
  */
 let installStarted = false;
+/* #553: the last install ATTEMPT this server saw end, so the page can say
+   a true sentence instead of spinning. A failed install never kills this
+   server, so the child's non-zero exit (or a spawn error) is observable
+   here and nowhere else; a SUCCESSFUL install kills us before it could be
+   recorded, which is the right shape: success is the server coming back
+   changed, and only failure needs a record. Cleared at the next press so
+   an old failure can never fail a new attempt. */
+let lastAttempt = null;
+function noteAttemptEnd(code, why) {
+  lastAttempt = {
+    startedAt: lastAttempt && lastAttempt.startedAt ? lastAttempt.startedAt : new Date().toISOString(),
+    endedAt: new Date().toISOString(),
+    code: Number.isInteger(code) ? code : null,
+    because: why || null,
+    /* Where the installer wrote its diary, from the engine's own root,
+       never guessed by the page. Null on a from-source run. */
+    log: installedRoot() ? path.join(installedRoot(), 'logs', 'install.log') : null,
+  };
+}
+function lastAttemptView() { return lastAttempt ? { ...lastAttempt } : null; }
 
 /**
  * The two things that must happen when an installer child fails, wherever the
@@ -256,6 +276,7 @@ function wireChild(child, opts) {
   // the flag, and the person's retry gets a real attempt.
   child.on('error', (err) => {
     installStarted = false;
+    noteAttemptEnd(null, 'the installer could not be started: ' + String((err && err.message) || err));
     /* Only the unattended path is held back. A person pressing Install is
        present, is watching, and gets an immediate attempt every time. */
     if (opts && opts.auto) autoFailedAt = Date.now();
@@ -273,6 +294,7 @@ function wireChild(child, opts) {
   child.on('exit', (code) => {
     if (code !== 0) {
       installStarted = false;
+      noteAttemptEnd(code, 'the installer stopped before it could restart the board');
       if (opts && opts.auto) autoFailedAt = Date.now();
       process.stderr.write(`Kosmos update failed before it could restart the board (exit ${code}); Install can be tried again\n`);
     }
@@ -287,6 +309,9 @@ function beginInstall(opts) {
   // lifetime; the flag dies with the process the installer restarts.
   if (installStarted) return;
   installStarted = true;
+  /* A fresh press starts a fresh record: the previous attempt's failure
+     is history, not a verdict on this one. */
+  lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null };
   /* 🛑 AN INJECTED RUNNER GOES THROUGH THE SAME WIRING, and it did not before.
      This returned immediately on `installRunner`, so the two handlers below --
      the ones that release the single-flight flag and stamp the automatic
@@ -322,10 +347,10 @@ function setInstallRunner(f) { installRunner = f; }
 function setAutoPref(f) { autoPrefFn = f; }
 function setInstalledRoot(f) { installedRootFn = f; }
 function setFetcher(f) { fetcher = f; }
-function resetCache() { cache = { at: 0, latest: null, reached: false, readable: false }; inFlight = null; installStarted = false; autoFailedAt = 0; }
+function resetCache() { cache = { at: 0, latest: null, reached: false, readable: false }; inFlight = null; installStarted = false; autoFailedAt = 0; lastAttempt = null; }
 
 module.exports = {
-  available, poke, refresh, newer, installedRoot, setupUrl, beginInstall,
+  available, poke, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView,
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,
   resetCache, RUNNING, TTL, lastLook, checkNow,
 };

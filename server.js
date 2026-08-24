@@ -1168,6 +1168,10 @@ const server = http.createServer((req, res) => {
            able to keep; a source-run board says what it is instead (the
            engine-stale line from #338 covers "newer code is on disk"). */
         update: updates.installedRoot() ? updates.available() : null, updateLook: updates.lastLook(),
+        /* #553: the last install attempt this server saw END (a failure;
+           a success kills the server first). The overlay reads it to say
+           a true sentence instead of spinning. */
+        updateAttempt: updates.lastAttempt(),
         engine: engineFreshness(),
       });
     } catch (err) {
@@ -2437,7 +2441,11 @@ const server = http.createServer((req, res) => {
       sendJson(res, 500, { error: 'we could not start the update', detail: String((err && err.message) || err) });
       return;
     }
-    sendJson(res, 200, { ok: true, updating: avail.version });
+    /* #553: the attempt's own start stamp rides back so the page can tell
+       THIS attempt's verdict from any older one by exact equality, never
+       by comparing clocks. */
+    const att = updates.lastAttempt();
+    sendJson(res, 200, { ok: true, updating: avail.version, startedAt: att ? att.startedAt : null });
     return;
   }
 

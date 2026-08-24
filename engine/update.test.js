@@ -343,3 +343,46 @@ test('a hostile release base cannot become a command', () => {
   assert.ok(!url.includes('\n'), 'the URL carries a newline, which no positional parameter should');
   update.setBase(null);
 });
+
+test('#553: a failed install is RECORDED for the page, keyed to its own press, and a new press starts clean', async () => {
+  update.resetCache();
+  update.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+  update.setInstalledRoot(() => '/opt/kosmos');
+  update.setAutoPref(() => ({ on: false, ok: true }));
+  await update.refresh();
+  assert.equal(update.lastAttempt(), null, 'the premise: nothing has been attempted yet');
+
+  /* A runner that FAILS the way a real one does: spawn succeeds, exit 3. */
+  let exitFn = null;
+  update.setInstallRunner(() => ({ on: (evt, fn) => { if (evt === 'exit') exitFn = fn; }, unref() {} }));
+  update.beginInstall();
+  const started = update.lastAttempt();
+  assert.ok(started && started.startedAt && started.endedAt === null, 'the press did not open a record');
+  exitFn(3);
+  const ended = update.lastAttempt();
+  assert.equal(ended.code, 3, 'the installer\'s exit code did not reach the record');
+  assert.equal(ended.startedAt, started.startedAt, 'the ended record lost the press it belongs to');
+  assert.ok(ended.endedAt, 'no end stamp');
+  assert.equal(ended.log, '/opt/kosmos/logs/install.log', 'the diary path is not the engine\'s own');
+  assert.match(ended.because, /stopped/);
+
+  /* A new press: the old failure is history, not a verdict on this one. */
+  update.beginInstall();
+  const fresh = update.lastAttempt();
+  assert.equal(fresh.endedAt, null);
+  assert.equal(fresh.code, null);
+  assert.notEqual(fresh.startedAt, undefined);
+
+  /* A spawn error records too, with its own sentence. */
+  update.resetCache();
+  await update.refresh();
+  update.setInstallRunner(() => ({ on: (evt, fn) => { if (evt === 'error') setTimeout(() => fn(new Error('EAGAIN')), 0); }, unref() {} }));
+  update.beginInstall();
+  await new Promise((r) => setTimeout(r, 5));
+  assert.match(update.lastAttempt().because, /could not be started/);
+  assert.equal(update.lastAttempt().code, null);
+
+  update.setInstalledRoot(null); update.setAutoPref(null); update.setInstallRunner(null);
+  update.resetCache();
+  assert.equal(update.lastAttempt(), null, 'resetCache left an attempt behind');
+});

@@ -8405,21 +8405,69 @@ document.getElementById('uc-go').addEventListener('click', async () => {
      If neither happens before the deadline (installer found nothing to do,
      or died before the swap), reload anyway: the fresh page's own toast
      says what is actually true, which beats this overlay guessing. */
+  /* #553: THE SPINNER CAN SAY IT FAILED. Every poll is folded through
+     updateVerdict (pure, slice-tested): done reloads into the finish
+     line; failed (the installer's OWN non-zero exit, matched to THIS
+     press by its start stamp) and did-not-take (the board went away and
+     came back on the old version) and the deadline each paint a true
+     sentence with Try again and Reload instead of a blind reload into
+     a toast that says update available; slow keeps waiting but says so.
+     "It failed" is only ever the installer's word, never our guess. */
   let sawDown = false;
   const before = LAST_VERSION;
-  const deadline = Date.now() + 3 * 60 * 1000;
-  while (Date.now() < deadline) {
+  const myStart = body && body.startedAt ? String(body.startedAt) : null;
+  const t0 = Date.now();
+  const msg = back.querySelector('.upd-msg');
+  const settle = (verdict, versionNow, attempt) => {
+    const logAt = attempt && attempt.log ? attempt.log : '~/.local/share/kosmos/logs/install.log';
+    const still = versionNow ? ' Kosmos is still on ' + esc(versionNow) + '.' : '';
+    const text = verdict === 'failed'
+      ? '<b>The update did not take.</b> The installer stopped' + (attempt && attempt.code != null ? ' (code ' + esc(String(attempt.code)) + ')' : '') + '.' + still
+        + ' Its own notes are at <code>' + esc(logAt) + '</code>.'
+      : verdict === 'did-not-take'
+        ? '<b>The update did not take.</b> Kosmos came back on the same version.' + still
+          + ' The installer\'s notes are at <code>' + esc(logAt) + '</code>.'
+        : '<b>This is taking longer than expected.</b>' + still
+          + ' If Kosmos does not come back on its own, open it again from Applications; the installer\'s notes are at <code>' + esc(logAt) + '</code>.';
+    msg.innerHTML = text
+      + '<div class="frow" style="margin-top:12px;justify-content:center;">'
+      + '<button class="btn" type="button" id="upd-again">Try again</button>'
+      + '<button class="btn uprime" type="button" id="upd-reload">Reload</button></div>';
+    msg.querySelector('#upd-reload').addEventListener('click', () => location.reload());
+    msg.querySelector('#upd-again').addEventListener('click', () => location.reload());
+    msg.focus();
+  };
+  for (;;) {
     await new Promise((r) => setTimeout(r, 2000));
+    let versionNow = null; let attempt = null; let reached = false;
     try {
       const ping = await fetch('/api/status', { cache: 'no-store' });
       if (ping.ok) {
-        const now = (await ping.json().catch(() => null) || {}).version;
-        if (sawDown || (before && now && now !== before)) break;
+        const st = await ping.json().catch(() => null) || {};
+        versionNow = st.version || null; attempt = st.updateAttempt || null; reached = true;
       }
     } catch { sawDown = true; }
+    const verdict = updateVerdict({ elapsedMs: Date.now() - t0, sawDown, reached, before, now: versionNow, attempt, myStart });
+    if (verdict === 'done') { location.reload(); return; }
+    if (verdict === 'slow') { msg.querySelector('b').textContent = 'Still updating.'; continue; }
+    if (verdict !== 'waiting') { settle(verdict, versionNow, attempt); return; }
   }
-  location.reload();
 });
+
+/* #553: the one place the overlay decides what is true. Pure, so the
+   suite can drive every branch. `attempt` is the server's record of the
+   last install attempt it saw END (a failure; a success kills the server
+   before it could be recorded); it counts only when its start stamp is
+   THIS press's, by exact equality, never by clocks. */
+function updateVerdict(v) {
+  const mine = v.attempt && v.myStart && v.attempt.startedAt === v.myStart;
+  if (mine && v.attempt.endedAt && v.attempt.code !== 0) return 'failed';
+  if (v.reached && v.before && v.now && v.now !== v.before) return 'done';
+  if (v.sawDown && v.reached && v.before && v.now === v.before) return 'did-not-take';
+  if (v.elapsedMs >= 3 * 60 * 1000) return 'deadline';
+  if (v.elapsedMs >= 90 * 1000 && !v.sawDown) return 'slow';
+  return 'waiting';
+}
 
 /* "Updated. You are on Kosmos X." -- once, from the first status after a
    reload that followed an install. Shown ONLY when the served version
