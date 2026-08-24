@@ -10175,6 +10175,17 @@ test('the Allow seam (#567): pending is honest-empty off the switch, and the ver
   assert.deepEqual(list.allowed, [], 'an unenrolled Mac lists devices');
 });
 
+test('the leftover routes (#514): a name with nothing left is refused in words, and a bad name never reaches the engine', async () => {
+  const none = await req('/api/agent/nobody-here/leftover');
+  assert.equal(none.status, 400);
+  assert.match(JSON.parse(none.body).because, /nothing of nobody-here is left/);
+  const bad = await req('/api/agent/' + encodeURIComponent('../x') + '/leftover', { method: 'DELETE' });
+  assert.equal(bad.status, 400);
+  const gone = await req('/api/agent/nobody-here/leftover', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: '{}' });
+  assert.equal(gone.status, 400, 'a delete of nothing answered success');
+  assert.equal(JSON.parse(gone.body).outcome, 'refused');
+});
+
 test('the Plus switch round-trips and the off state comes back honest', async () => {
   const on = await req('/api/remote', {
     method: 'PUT', headers: { 'content-type': 'application/json' },

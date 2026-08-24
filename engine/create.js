@@ -1394,7 +1394,7 @@ function createAgentInner(opts) {
   if (removedList.isRemoved(name)) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `${shown} is on your removed list. Put that one back from "Show removed agents" at the bottom of the Agents tab, or pick a different name.`,
+      because: `${shown} is on your removed list. Put that one back from "Show removed agents" at the bottom of the Agents tab, delete what was left of it there to free the name, or pick a different name.`,
       steps,
     };
   }
@@ -1419,21 +1419,21 @@ function createAgentInner(opts) {
   if (hasFolder && hasJob) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `there is already an agent called ${shown}. If it never came up, it is half made rather than missing. Pick another name. If you can see it under Agents, you can remove it there instead.`,
+      because: `there is already an agent called ${shown}. If it never came up, it is half made rather than missing. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
       steps,
     };
   }
   if (hasJob) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `something called ${shown} is still set to start on this computer, though there is no folder for it. Pick another name. If you can see it under Agents, you can remove it there instead.`,
+      because: `something called ${shown} is still set to start on this computer, though there is no folder for it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
       steps,
     };
   }
   if (hasFolder) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `there is already a folder for an agent called ${shown}. If you removed that agent, its folder was left behind. Pick another name. If you can see it under Agents, you can remove it there instead.`,
+      because: `there is already a folder for an agent called ${shown}. If you removed that agent, its folder was left behind. Pick another name, or delete what was left of it, from its page under Agents or from "Show removed agents" at the bottom of the Agents tab, which frees the name.`,
       steps,
     };
   }
@@ -1472,7 +1472,7 @@ function createAgentInner(opts) {
   if (loaded) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `something called ${shown} is already set to start on this computer, though there is nothing else left of it. Pick another name. If you can see it under Agents, you can remove it there instead.`,
+      because: `something called ${shown} is already set to start on this computer, though there is nothing else left of it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
       steps,
     };
   }

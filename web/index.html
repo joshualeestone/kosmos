@@ -2814,6 +2814,16 @@ svg { display: block; }
 .danger .flabel { color: var(--label); }
 .danger-btn { border-color: var(--warn-border); }
 .danger-btn:hover { background: var(--warn-bg); }
+/* #514: the delete's own button. It must not look like the Remove beside
+   it (a border) and must not be the calm one: filled with the warning
+   tint, and disabled until the typed name matches when the files cannot
+   come back. */
+.del-go { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn-ink); font-weight: 600; }
+.del-go:hover { background: var(--warn-bg); filter: brightness(.96); }
+.del-go:disabled { opacity: .5; cursor: default; filter: none; }
+.del-list { margin: 10px 0 4px; text-align: left; }
+.del-list li { border: 0; padding: 0 0 4px; margin: 0; }
+.removed-row .acts { display: flex; gap: 8px; }
 /* ⚠️ `--label-2`, NOT `--label-3`. Measured on the rendered panel: at
    `--label-3` this was 3.01:1 at 10px, which fails AA for normal text and is
    not close. It pre-dates this change, but this change is what made it matter:
@@ -4397,6 +4407,24 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          message here a person must not walk away without hearing. -->
     <div class="fmsg" id="d-remove-msg" role="alert" aria-live="assertive"></div>
   </div>
+  <!-- #514: the one act on this page that a person may not be able to take
+       back, offered only when the engine says there is something left and
+       nothing running. Remove above stops an agent and keeps its files; this
+       is what frees the name, and the words in its confirmation come from
+       the engine (`plan`), never from this file. When the Mac's Trash can
+       take the files it is where they go, so the act stays undoable by the
+       person alone; when it cannot, the confirmation says so and asks for
+       the name to be typed. -->
+  <div class="dremove danger" id="d-delete-leftover" hidden>
+    <div>
+    <label class="flabel"><b>Delete what was left behind</b></label>
+    <div class="fhint" id="d-delete-hint"></div>
+    </div>
+    <div class="frow">
+      <button class="btn danger-btn" id="d-delete-start" type="button">Delete its files…</button>
+    </div>
+    <div class="fmsg" id="d-delete-msg" role="alert" aria-live="assertive"></div>
+  </div>
   </section>
   </div>
   </div>
@@ -4535,6 +4563,27 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <button class="btn uprime" id="chg-go" type="button"></button>
     </div>
     <div class="fmsg" id="chg-msg" role="alert" aria-live="assertive"></div>
+  </div>
+</div>
+<!-- #514: the delete confirmation. Every sentence in it is the engine's
+     (`question`, `reassurance`, `loses`, `verb`): a screen that composes its
+     own description of a destructive act can drift from the act. Keep is
+     first and focused; the delete button is filled, not bordered, and is
+     disabled until the name is typed when the files cannot come back. -->
+<div class="rm-back" id="del-modal" hidden>
+  <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="del-title" aria-describedby="del-small">
+    <h2 class="rm-title" id="del-title"></h2>
+    <p class="rm-small" id="del-small"></p>
+    <ul class="rst-list del-list" id="del-list"></ul>
+    <div class="field" id="del-type-row" hidden>
+      <label class="flabel" for="del-typed" id="del-typed-label"></label>
+      <input class="tk-inp" id="del-typed" type="text" autocomplete="off" autocapitalize="none" spellcheck="false">
+    </div>
+    <div class="rm-acts">
+      <button class="btn" id="del-keep" type="button">Keep the files</button>
+      <button class="btn del-go" id="del-go" type="button"></button>
+    </div>
+    <div class="fmsg" id="del-msg" role="alert" aria-live="assertive"></div>
   </div>
 </div>
 <div class="rm-back" id="rm-modal" hidden>
@@ -13954,6 +14003,9 @@ let REMOVE_ASK = null;
 let REMOVE_TOKEN = 0;
 
 async function loadRemoval(sessionName, { fromPoll = false } = {}) {
+  /* #514: whether anything is left to delete. Not on the poll: the plan
+     walks the folder to count it, and the answer only changes on an act. */
+  if (!fromPoll) loadLeftover(sessionName);
   const box = document.getElementById('d-remove-agent');
   const hint = document.getElementById('d-remove-hint');
   /**
@@ -14343,6 +14395,120 @@ document.getElementById('d-remove-start').addEventListener('click', () => {
 });
 
 document.getElementById('rm-keep').addEventListener('click', closeRemoveModal);
+
+/* ---- #514: delete what is left of an agent --------------------------------
+   Two doors onto one modal: the detail page of a leftover, and the removed
+   list. The modal paints the engine's words. After the act the name is free,
+   which the removed list and the roster both show on their next paint. */
+let DEL_FOR = null;
+let DEL_PLAN = null;
+let DEL_RETURN = null;
+let DEL_TOKEN = 0;
+async function fetchLeftoverPlan(name) {
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/leftover', { cache: 'no-store' });
+    return await res.json().catch(() => null);
+  } catch { return null; }
+}
+async function loadLeftover(sessionName) {
+  const box = document.getElementById('d-delete-leftover');
+  if (!box) return;
+  const mine = ++DEL_TOKEN;
+  const plan = await fetchLeftoverPlan(sessionName);
+  if (mine !== DEL_TOKEN || !CURRENT || CURRENT.sessionName !== sessionName) return;
+  /* A refusal here is not a message, it is the block staying hidden: the
+     Remove section above already says what state the agent is in. */
+  if (!plan || !plan.ok) { box.hidden = true; DEL_PLAN = null; return; }
+  DEL_PLAN = plan;
+  document.getElementById('d-delete-hint').textContent = plan.hint || '';
+  box.hidden = false;
+}
+function openDeleteModal(plan) {
+  DEL_FOR = plan.name;
+  DEL_PLAN = plan;
+  DEL_RETURN = document.activeElement;
+  document.getElementById('del-title').textContent = plan.question;
+  document.getElementById('del-small').textContent = plan.reassurance;
+  const ul = document.getElementById('del-list');
+  ul.innerHTML = '';
+  for (const t of (plan.loses || [])) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }
+  const row = document.getElementById('del-type-row');
+  const inp = document.getElementById('del-typed');
+  const go = document.getElementById('del-go');
+  go.textContent = plan.verb;
+  inp.value = '';
+  if (plan.typeToConfirm) {
+    row.hidden = false;
+    document.getElementById('del-typed-label').textContent = 'Type ' + plan.typeToConfirm + ' to confirm';
+    go.disabled = true;
+  } else {
+    row.hidden = true;
+    go.disabled = false;
+  }
+  document.getElementById('del-msg').textContent = '';
+  document.getElementById('del-modal').hidden = false;
+  document.getElementById('del-keep').focus();
+}
+function closeDeleteModal() {
+  document.getElementById('del-modal').hidden = true;
+  DEL_FOR = null;
+  if (DEL_RETURN && DEL_RETURN.focus) DEL_RETURN.focus();
+  DEL_RETURN = null;
+}
+document.getElementById('del-typed').addEventListener('input', (e) => {
+  document.getElementById('del-go').disabled = !(DEL_PLAN && DEL_PLAN.typeToConfirm && e.target.value.trim() === DEL_PLAN.typeToConfirm);
+});
+document.getElementById('d-delete-start').addEventListener('click', () => {
+  if (DEL_PLAN && DEL_PLAN.ok) openDeleteModal(DEL_PLAN);
+});
+document.getElementById('del-keep').addEventListener('click', closeDeleteModal);
+document.getElementById('del-modal').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDeleteModal(); });
+document.getElementById('del-go').addEventListener('click', async () => {
+  const go = document.getElementById('del-go');
+  const msg = document.getElementById('del-msg');
+  if (!DEL_FOR) return;
+  go.disabled = true;
+  msg.textContent = '';
+  let res = null;
+  let body = null;
+  try {
+    res = await fetch('/api/agent/' + encodeURIComponent(DEL_FOR) + '/leftover', {
+      method: 'DELETE', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ typed: document.getElementById('del-typed').value }),
+    });
+    body = await res.json().catch(() => null);
+  } catch { res = null; }
+  if (!res || !body || (!res.ok && body.outcome !== 'partial')) {
+    msg.textContent = (body && (body.because || body.error)) || 'We could not reach the board just now. Nothing was deleted.';
+    go.disabled = false;
+    return;
+  }
+  closeDeleteModal();
+  const say = body.said || body.because || '';
+  const dmsg = document.getElementById('d-delete-msg');
+  if (dmsg) dmsg.textContent = say;
+  const rmsg = document.getElementById('removed-msg');
+  const wrap = document.getElementById('removed-wrap');
+  if (rmsg && wrap && !wrap.hidden) rmsg.textContent = say;
+  const box = document.getElementById('d-delete-leftover');
+  if (box) box.hidden = true;
+  DEL_PLAN = null;
+  try { paintRemoved(); } catch { /* the next paint shows it */ }
+});
+/* The removed list's door: fetch the plan on the click, so a refusal is a
+   sentence on the list rather than a modal with nothing true in it. */
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-delete-leftover]');
+  if (!btn) return;
+  const name = btn.dataset.deleteLeftover;
+  btn.disabled = true;
+  const plan = await fetchLeftoverPlan(name);
+  btn.disabled = false;
+  const rmsg = document.getElementById('removed-msg');
+  if (!plan) { if (rmsg) rmsg.textContent = 'We could not reach the board just now.'; return; }
+  if (!plan.ok) { if (rmsg) rmsg.textContent = plan.because || 'We cannot delete that right now.'; return; }
+  openDeleteModal(plan);
+});
 
 // The backdrop and Escape both mean keep it. Every accidental dismissal lands
 // on the harmless answer, which is what makes the modal safe to make loud.
@@ -14967,12 +15133,17 @@ async function paintRemoved() {
        "Starting <name> again", and with only `data-restore` to read from it
        would have said `claudebot` for the agent every other surface calls
        Splinter — the exact unrecognisability this row was rebuilt to end. */
-    + '<button class="btn" type="button" data-restore="' + esc(a.name) + '"'
+    + '<div class="acts"><button class="btn" type="button" data-restore="' + esc(a.name) + '"'
     + ' data-shown-as="' + esc(a.shownAs || a.name) + '">Restore</button>'
+    /* #514: the way through for a removed agent whose name is still taken.
+       The plan is fetched on the click, so a row never promises a delete
+       the engine would refuse. */
+    + '<button class="btn danger-btn" type="button" data-delete-leftover="' + esc(a.name) + '"'
+    + ' data-shown-as="' + esc(a.shownAs || a.name) + '">Delete its files…</button></div>'
     + '</div>').join('')
     /* the hint rides INSIDE the list so it shows exactly when the rows do;
        it restates what makes the light Remove confirmation honest */
-    + '<p class="removed-hint">Nothing was deleted. Their folders and everything you wrote for them are still on this computer, so restoring puts them back as they were.</p>';
+    + '<p class="removed-hint">Nothing was deleted. Their folders and everything you wrote for them are still on this computer, so restoring puts them back as they were. A name stays taken while its files stay; delete them to use it again.</p>';
 
   /**
    * ⚠️ ONLY REWRITE WHEN THE ANSWER ACTUALLY CHANGED, and this is not an

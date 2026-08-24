@@ -30,6 +30,7 @@ const {
   lastLookProblem,
 } = require('./engine/status');
 const removal = require('./engine/remove');
+const leftover = require('./engine/delete-leftover');
 const firstrun = require('./engine/firstrun');
 const discover = require('./engine/discover');
 const subscription = require('./engine/subscription');
@@ -1748,6 +1749,37 @@ const server = http.createServer((req, res) => {
   // cataloguing. It re-enables the SPECIFIC label that was disabled — read back
   // from the record, never re-derived — so a foreign agent goes back onto the
   // job that actually starts it.
+  /* #514: delete what is left of an agent, the separate verb that frees a
+     name. `remove` never deletes (its first rule), so a removed agent's name
+     stays taken by its folder or job file; this is the way through. GET
+     plans in the engine's words (the confirmation paints those, never its
+     own); DELETE acts, with the typed name when the plan asked for one. */
+  const lo = pathname.match(/^\/api\/agent\/([^/]+)\/leftover$/);
+  if (lo && (req.method === 'GET' || req.method === 'HEAD')) {
+    const name = decodeSegment(lo[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let plan;
+    try { plan = leftover.plan(name); }
+    catch (err) { sendJson(res, 500, { error: 'we could not work out what is left of this agent', detail: String(err && err.message || err) }); return; }
+    sendJson(res, plan.ok ? 200 : 400, plan);
+    return;
+  }
+  if (lo && req.method === 'DELETE') {
+    const name = decodeSegment(lo[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body = {};
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        let done;
+        try { done = leftover.del(name, { typed: body.typed }); }
+        catch (err) { sendJson(res, 500, { error: 'the delete failed partway and we cannot tell you how far it got', detail: String(err && err.message || err) }); return; }
+        sendJson(res, done.outcome === leftover.OUTCOME.REFUSED ? 400 : 200, done);
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
   const rs = pathname.match(/^\/api\/agent\/([^/]+)\/restore$/);
   if (rs && req.method === 'POST') {
     const name = decodeSegment(rs[1]);
