@@ -204,10 +204,10 @@ if [ -z "$adopt" ]; then
   # never sees it: the board it belongs to (KOSMOS_PORT), and the account it
   # runs on (CLAUDE_CONFIG_DIR for claude, CODEX_HOME for codex). Absent
   # means the default, the plist's own rule, so nothing is passed for it.
-  PORT_ENV=()
+  PANE_ENV=()
   for _var in KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME; do
     if [ -n "$(eval "printf '%s' \"\${$_var:-}\"")" ]; then
-      PORT_ENV+=(-e "$_var=$(eval "printf '%s' \"\$$_var\"")")
+      PANE_ENV+=(-e "$_var=$(eval "printf '%s' \"\$$_var\"")")
     fi
   done
   if [ "$RUNNER" = codex ]; then
@@ -222,18 +222,18 @@ if [ -z "$adopt" ]; then
     BRIDGE="$(cd "$(dirname "$0")" && pwd)/codex-report-bridge.js"
     NOTIFY_CFG="notify=[\"$BRIDGE\"]"
     if [ -n "$MODEL" ]; then
-      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PORT_ENV[@]+"${PORT_ENV[@]}"} \
+      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
         "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -m "$MODEL" || exit 1
     else
-      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PORT_ENV[@]+"${PORT_ENV[@]}"} \
+      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
         "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" || exit 1
     fi
   else
     if [ -n "$MODEL" ]; then
-      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PORT_ENV[@]+"${PORT_ENV[@]}"} \
+      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
         "$CLAUDE" --dangerously-skip-permissions --model "$MODEL" || exit 1
     else
-      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PORT_ENV[@]+"${PORT_ENV[@]}"} \
+      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
         "$CLAUDE" --dangerously-skip-permissions || exit 1
     fi
   fi
