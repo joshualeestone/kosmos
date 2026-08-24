@@ -4957,7 +4957,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                  that is broken, and it is the phrase this file already uses
                  five times elsewhere (Mona Lisa, #301). -->
             <option value="anthropic" selected>Anthropic / Claude</option>
-            <option value="openai" disabled>OpenAI &middot; coming soon</option>
+            <!-- Enabled with #245, per this menu's own instruction above:
+                 the create path can wire a codex agent end to end now. -->
+            <option value="openai">OpenAI / Codex</option>
             <option value="google" disabled>Google Gemini &middot; coming soon</option>
             <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
             <option value="xai" disabled>xAI Grok &middot; coming soon</option>
@@ -15744,6 +15746,25 @@ document.getElementById('d-model').addEventListener('change', (e) => {
   paintModelWhy('d-model', 'd-model-why');
 });
 document.getElementById('create-model').addEventListener('change', () => paintModelWhy('create-model', 'create-model-why'));
+/* #245: the provider choice governs the two Claude-shaped controls beside
+   it. On OpenAI the model is codex's own and the account menu is Claude
+   accounts, so both disable WITH WORDS rather than sitting enabled and
+   ignored -- a control that accepts a choice the request then drops is the
+   offer-that-cannot-work shape this file keeps removing. */
+document.getElementById('create-provider').addEventListener('change', () => {
+  const openai = document.getElementById('create-provider').value === 'openai';
+  const model = document.getElementById('create-model');
+  const acct = document.getElementById('create-account');
+  model.disabled = openai;
+  acct.disabled = openai;
+  const why = document.getElementById('create-model-why');
+  if (openai) {
+    if (why) why.textContent = 'OpenAI picks its own model for now, and the agent runs on this computer’s OpenAI sign-in.';
+  } else {
+    if (why) why.textContent = '';
+    paintModelWhy('create-model', 'create-model-why');
+  }
+});
 
 async function changeModelNow(say) {
   if (!CURRENT) return;
@@ -16647,8 +16668,15 @@ document.getElementById('create-go').addEventListener('click', async () => {
         if (PICKED === 'own' ? label : (LABEL_DIRTY && label && role2 && label !== role2.label)) b.label = label;
         const instr = document.getElementById('create-instr').value;
         if (INSTR_DIRTY && instr.trim() && instr !== instrTemplate()) b.instructions = instr;
+        /* #245: the provider travels only when it is not the default, the
+           same only-what-changed rule as everything else here. On OpenAI
+           the model and account are NOT sent even though their (disabled)
+           menus still hold values: the engine refuses both by design, and
+           sending them would turn every OpenAI creation into a refusal. */
+        const prov = document.getElementById('create-provider').value;
+        if (prov && prov !== 'anthropic') b.provider = prov;
         const model = document.getElementById('create-model').value;
-        if (model) b.model = model;
+        if (model && prov !== 'openai') b.model = model;
         /* 🛑 THE VALUE, NOT THE VISIBILITY. This read the `hidden` flag on the
            account field's old wrapper element, which was deleted when the
            account became a rung of the model group -- so this line threw a
@@ -16660,7 +16688,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
            for exactly that reason. So an unanswerable account is empty and is not
            sent, which is what the hidden flag used to stand for. */
         const acct = document.getElementById('create-account').value;
-        if (acct) b.account = acct;
+        if (acct && prov !== 'openai') b.account = acct;
         /* Empty means you, which is the default and is not a reporting line the
            engine needs to record: the org chart draws an agent with no manager to
            the hub already. */

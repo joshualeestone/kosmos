@@ -2765,6 +2765,77 @@ test('an existing agent is backfilled on first write, and a restored profile is 
     'a restored agent kept the other install\'s id, recreating the same-or-copy question Josh ruled off the screen');
 });
 
+/* ── the OpenAI provider (#245) ──────────────────────────────────────────── */
+
+const plistArgs = (name) => {
+  const text = fs.readFileSync(create.plistPath(name), 'utf8');
+  const block = text.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
+  return [...block[1].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) => m[1]);
+};
+
+test('#245: an OpenAI agent is created on the codex runner, recorded everywhere, with the right launch vector', () => {
+  recorder();
+  create.setDryRun(false);
+  const codexHome = fs.mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'codex-home-'));
+  process.env.AGENT_WORKFORCE_CODEX_HOME = codexHome;
+  const name = 'codex-kid';
+  const out = create.createAgent({ ...BINS, codexBin: '/bin/echo', name, role: 'pm', provider: 'openai' });
+  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  /* The folder is trusted at creation, or the agent is born into codex's
+     blocking trust dialog (measured; the bypass flag does not skip it). */
+  const toml = fs.readFileSync(nodePath.join(codexHome, 'config.toml'), 'utf8');
+  assert.ok(toml.includes(`[projects."${create.workerDir(name)}"]`), 'the worker folder was not trusted');
+  assert.match(toml, /trust_level = "trusted"/);
+  // The vector: 0 bash, 1 supervisor, 2 name, 3 workdir, 4 runner-bin,
+  // 5 tmux, 6 log, 7 model (empty, codex's own default), 8 runner.
+  const args = plistArgs(name);
+  assert.equal(args[4], '/bin/echo', 'the runner binary is not the codex path');
+  assert.equal(args[7], '', 'the model slot must be written empty so the runner cannot slide into it');
+  assert.equal(args[8], 'codex');
+  // Recorded, never inferred: the profile and the birth record both say so.
+  assert.equal(store.readProfile(name).provider, 'openai');
+  const last = create.createdLog().slice(-1)[0];
+  assert.equal(last.provider, 'openai');
+  // And the Claude model catalogue cannot be written into a codex launch.
+  const changed = create.setModel(name, 'opus');
+  assert.equal(changed.outcome, create.OUTCOME.REFUSED);
+  assert.match(changed.because, /runs on OpenAI/);
+});
+
+test('#245: openai refuses a model choice, an account choice, a missing runner, and an unknown provider refuses outright', () => {
+  recorder();
+  create.setDryRun(false);
+  const base = { ...BINS, codexBin: '/bin/echo', role: 'pm', provider: 'openai' };
+  let r = create.createAgent({ ...base, name: 'x-model', model: 'opus' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.match(r.because, /leave the model unchosen/);
+  r = create.createAgent({ ...base, name: 'x-acct', account: '/some/claude/dir' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.match(r.because, /leave the account unchosen/);
+  r = create.createAgent({ ...base, name: 'x-norunner', codexBin: '/nonexistent-codex' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.match(r.because, /could not find the OpenAI runner/);
+  r = create.createAgent({ ...BINS, name: 'x-prov', role: 'pm', provider: 'closedai' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.match(r.because, /pick a provider/);
+});
+
+test('#245: a claude agent\'s launch vector is untouched by the runner feature', () => {
+  recorder();
+  create.setDryRun(false);
+  const name = 'claude-classic';
+  const out = create.createAgent({ ...BINS, name, role: 'pm' });
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  const args = plistArgs(name);
+  // Seven arguments, exactly as before runners existed: no empty model
+  // placeholder, no runner, and the binary is claude's.
+  assert.equal(args.length, 7, `expected the pre-runner seven-argument vector, got ${args.length}`);
+  assert.equal(args[4], BINS.claudeBin);
+  assert.ok(!args.includes('codex'));
+  assert.equal(store.readProfile(name).provider, 'anthropic');
+});
+
 test('jobMissing counts only a proven absence: EACCES answers false, never "never recorded" (#149/#150)', () => {
   /* The function's whole reason to exist over !hasJob(): existsSync swallows
      EACCES into false, so the negation would stamp a provenance claim on

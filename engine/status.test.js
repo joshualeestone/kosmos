@@ -220,6 +220,24 @@ const CODEX_IDLE = `╭───────────────────
 const CODEX_WORKING = `• Reconnecting... 4/5 (4s • esc to interrupt)
   └ Unexpected status 401 Unauthorized`;
 
+test('#245: the recorded runner routes a node-fronted codex pane to the codex classifier', () => {
+  /**
+   * MEASURED on the first live codex agent this machine ran: the homebrew
+   * codex is an npm launcher, so pane_current_command says `node` -- which
+   * is on Claude's own allowlist, so command-based dispatch routed a codex
+   * pane through the CLAUDE classifier and its questions read unknown.
+   * The supervisor records @kosmos_runner at launch; the pane carries it;
+   * the dispatch believes the record over the command.
+   */
+  const r = classify(pane({ command: 'node', runner: 'codex' }), CODEX_TRUST_PROMPT);
+  assert.equal(r.state, STATE.NEEDS_YOU);
+  // And with no recorded runner, a node pane stays on the Claude path:
+  // this fixture matches no Claude marker, and unknown is that path's
+  // honest answer for it.
+  const unrouted = classify(pane({ command: 'node' }), CODEX_TRUST_PROMPT);
+  assert.equal(unrouted.state, STATE.UNKNOWN);
+});
+
 test('#249: a Codex agent asking a question is needs_you, the red that could never appear', () => {
   const r = classify(pane({ command: 'codex' }), CODEX_TRUST_PROMPT);
   assert.equal(r.state, STATE.NEEDS_YOU);
@@ -1210,7 +1228,10 @@ test('every declared column reaches the parsed pane, not just the ones we rememb
     // this test was written for. `session` and `pane` are excluded because the
     // parser deliberately transforms them (the suffix is stripped, the target
     // is composed), and `command`/`inMode` are normalised.
-    if (['session', 'pane', 'command', 'inMode'].includes(c.key)) return;
+    /* `runner` joined the normalised set with #245: it is folded to the two
+       words the classifier dispatches on ('codex' or empty-means-claude),
+       so a truncated or hostile line cannot invent a runner. */
+    if (['session', 'pane', 'command', 'inMode', 'runner'].includes(c.key)) return;
     assert.equal(got[c.key], values[c.key],
       `the column '${c.key}' reaches the parsed pane as a constant rather than `
       + 'as what tmux reported, so its value is silently dropped');
