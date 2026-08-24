@@ -178,6 +178,18 @@ const os = require('node:os');
  * says we looked and there was nobody — and every consumer treats a non-array
  * roster as "we could not look" and says so.
  */
+/* What the policy screens are shown (#685): every entry, full text summarised
+   the same way in every route -- id, name, provenance, size, first 240
+   characters. ONE derivation, because GET and all three mutations answer the
+   same list and two spellings of it would drift. Pass a fresh read() to
+   avoid a second disk read when the caller already holds one. */
+function policySummaries(r) {
+  const got = r || policyEngine.read();
+  return got.policies.map((p) => ({
+    id: p.id, name: p.name, source: p.source, savedAt: p.savedAt,
+    chars: p.text.length, opening: p.text.slice(0, 240),
+  }));
+}
 function safeRoster() {
   try {
     const board = snapshot();
@@ -4111,14 +4123,19 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // --- the company AI policy: held once, handed to every agent (#479) ------
+  // --- the company AI policies: held once, handed to every agent (#479,
+  //     plural since #685: named, all global, stacked) ----------------------
   if (pathname === '/api/policy' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const r = policyEngine.read();
       // The full text stays on disk; the screen gets what it shows.
+      /* `policy` (singular) is the FIRST entry in the pre-#685 shape, kept
+         so the currently shipped Settings screen keeps working until the
+         plural screen lands; that screen reads `policies` and ignores it. */
+      const summaries = policySummaries(r);
       sendJson(res, 200, r.state === 'saved'
-        ? { state: 'saved', policy: { source: r.policy.source, savedAt: r.policy.savedAt, chars: r.policy.text.length, opening: r.policy.text.slice(0, 240) } }
-        : { state: r.state, policy: null, because: r.because });
+        ? { state: 'saved', policies: summaries, policy: { source: summaries[0].source, savedAt: summaries[0].savedAt, chars: summaries[0].chars, opening: summaries[0].opening }, because: null }
+        : { state: r.state, policies: [], policy: null, because: r.because });
     } catch { sendJson(res, 500, { error: 'that record could not be read' }); }
     return;
   }
@@ -4146,7 +4163,12 @@ const server = http.createServer((req, res) => {
           return;
         }
         let saved;
-        try { saved = policyEngine.save({ text, source }); }
+        /* `id` re-ingests an existing policy's words; `name` adds a new one
+           (add never overwrites -- a taken name is refused in the engine's
+           own sentence); neither is the shipped single-policy screen's POST,
+           honoured while at most one policy exists (#685, the shape Mona
+           Lisa's screen ruled). */
+        try { saved = policyEngine.add({ id: body.id, name: body.name, text, source }); }
         catch (err) { sendJson(res, 400, { error: String((err && err.message) || 'we could not save that') }); return; }
         // Non-gating, same as every tell: a policy that could not be
         // announced everywhere is still saved, and each verdict is carried.
@@ -4158,20 +4180,66 @@ const server = http.createServer((req, res) => {
             return card && card.name ? { ...t, shownAs: card.name } : t;
           });
         } catch (err2) { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not tell the agents') }]; }
-        sendJson(res, 200, { policy: { source: saved.source, savedAt: saved.savedAt, chars: saved.text.length, opening: saved.text.slice(0, 240) }, told });
+        sendJson(res, 200, {
+          policies: policySummaries(),
+          policy: { source: saved.source, savedAt: saved.savedAt, chars: saved.text.length, opening: saved.text.slice(0, 240) },
+          told,
+        });
+      })
+      .catch(() => sendJson(res, 500, { error: 'we could not save that record' }));
+    return;
+  }
+  if (pathname === '/api/policy/rename' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* A rename changes no agent's words TODAY (names only appear in the
+           stacked block), but it changes what the next splice writes, so the
+           agents are told the same non-gating way every policy change tells
+           them -- and when exactly one policy exists the splice is unchanged
+           and tells write nothing. */
+        let renamed;
+        try { renamed = policyEngine.rename(body.id, body.name); }
+        catch (err) { sendJson(res, 400, { error: String((err && err.message) || 'we could not rename that') }); return; }
+        let told;
+        try { told = policyEngine.syncEveryone(safeRoster()); }
+        catch { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: 'we could not tell the agents' }]; }
+        sendJson(res, 200, { policies: policySummaries(), renamed: { id: renamed.id, name: renamed.name }, told });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not save that record' }));
     return;
   }
   if (pathname === '/api/policy/remove' && req.method === 'POST') {
-    try { policyEngine.clear(); }
-    catch (err) { sendJson(res, 500, { error: String((err && err.message) || 'we could not remove the saved policy') }); return; }
-    let told;
-    try {
-      const roster = safeRoster();
-      told = policyEngine.syncEveryone(roster);
-    } catch { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: 'we could not tell the agents' }]; }
-    sendJson(res, 200, { state: 'absent', told });
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const id = (typeof body.id === 'string' && body.id) ? body.id : null;
+        try {
+          if (id) {
+            policyEngine.removeOne(id);
+          } else {
+            /* The shipped screen's no-id remove meant "clear the policy",
+               which is only still unambiguous while there is exactly one
+               to clear. With several, an id is required (#685). */
+            const r = policyEngine.read();
+            if (r.state === 'saved' && r.policies.length > 1) {
+              sendJson(res, 400, { error: 'say which policy to remove' });
+              return;
+            }
+            policyEngine.clear();
+          }
+        } catch (err) { sendJson(res, 400, { error: String((err && err.message) || 'we could not remove the saved policy') }); return; }
+        let told;
+        try { told = policyEngine.syncEveryone(safeRoster()); }
+        catch { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: 'we could not tell the agents' }]; }
+        const after = policyEngine.read();
+        sendJson(res, 200, { state: after.state, policies: policySummaries(after), told });
+      })
+      .catch(() => sendJson(res, 500, { error: 'we could not save that record' }));
     return;
   }
 
