@@ -8186,7 +8186,10 @@ function card(a) {
    gauge in small, on the same .gt/.gf classes so the colours and the dark
    theme are the app's own; nothing is drawn when the memory is unknown.
    The warning is the mock's red triangle over the face of anyone who needs
-   you, so it reads in the folded rail where the state words are gone. */
+   you, so it reads in the folded rail where the state words are gone. A
+   stopped row draws neither: the route emits no memory reading for a
+   stopped agent, and reading a field the route does not emit is the defect
+   the roster fixture exists to throw on. */
 const LROW_WARN = '<svg class="lwarn" viewBox="0 0 22 20" role="img" aria-label="Needs you"><path d="M11 1.5 20.5 18h-19z" fill="#b3261e" stroke="var(--k-bg)" stroke-width="1.5" stroke-linejoin="round"/><rect x="10" y="6.5" width="2" height="6" rx="1" fill="#fff"/><circle cx="11" cy="15" r="1.2" fill="#fff"/></svg>';
 function lrowRing(a) {
   const pct = pctOf(a.context);
@@ -8236,7 +8239,7 @@ function lrow(a) {
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
     return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}">
-      <div class="lav">${off}${lrowRing(a)}</div>
+      <div class="lav">${off}</div>
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b><small>${esc(roleLine(a, ROLE_TITLES))}</small></div>
       <div class="lstate st-stopped">${GLYPH.stopped}Not running</div>
       <div class="ltask"></div>
