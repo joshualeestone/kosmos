@@ -24,9 +24,11 @@ current artifact.
 ## Changes
 1. build-kosmos-bundle.sh: stage the connector from KOSMOS_TUNNEL_BIN (default
    ~/work/kosmos-relay/dist/kosmos-tunnel), refuse a missing or non-universal
-   input, log its sha + kosmos-relay provenance. The input is expected already
-   signed; this step does not re-sign (signing rewrites the Mach-O, so it must
-   precede this copy).
+   input (lipo -archs: both x86_64 and a plain arm64 slice), Developer ID sign
+   it in-build (Splinter's ruling; the input arrives UNSIGNED from kosmos-relay),
+   verify the signature, run it (--help) to prove it loads, and log its sha +
+   provenance. Fail LOUD if the cert is absent, no ad-hoc fallback: a nested
+   ad-hoc binary makes the whole bundle's notarisation Invalid.
 2. engine/remote.js: BIN() resolves __dirname/../bin/kosmos-tunnel when present
    (the installed layout, where the board's launchd PATH would not find a bare
    name), env override wins, bare-name PATH fallback for the source checkout.
@@ -39,10 +41,11 @@ current artifact.
    (matches, wrong sha caught, empty sha refused not skipped, changed caught).
 
 ## Not in this change
-Signing / notarisation (Splinter's Apple lane). An automated check that the
-INPUT connector matches a kosmos-relay-published checksum (kosmos-relay does
-not publish per-commit shas yet); the input's sha + provenance are logged for
-now, and served==built is proven. That completeness step is a follow-up.
+Notarisation of the whole app/DMG (Splinter's Apple lane; the connector itself
+is Developer ID signed here so it is not the blocker). An automated check that
+the INPUT connector matches a kosmos-relay-published checksum (kosmos-relay
+does not publish per-commit shas yet); the input's sha + provenance are logged
+for now, and served==built is proven. That completeness step is a follow-up.
 
 ## Measured
 Frozen at the branch HEAD, built with the real universal binary as input:

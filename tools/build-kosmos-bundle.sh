@@ -119,13 +119,12 @@ chmod +x "$STAGE/bin/kosmos"
 # downloaded input rather than a tree file. Provide it at KOSMOS_TUNNEL_BIN;
 # the default is kosmos-relay's release output beside this checkout.
 #
-# ⚠️ THE INPUT IS EXPECTED IN ITS FINAL, SIGNED FORM. Signing rewrites the
-# Mach-O, so it must happen BEFORE this copy or the served bytes would not
-# match what a later checksum captured. Whether that signature is ad-hoc (the
-# tmux path: the tunnel is spawned, not launched, so Gatekeeper's
-# notarisation check does not apply) or Developer ID is the Apple lane's call;
-# either way the binary arrives here already signed and this step does not
-# re-sign it.
+# ⚠️ THE INPUT IS UNSIGNED (kosmos-relay builds it, does not sign it). This
+# step signs it Developer ID below, in the build that produces the final bytes,
+# so the checksum captured after signing IS what ships and nothing signs after.
+# Why Developer ID and not ad-hoc even though the tunnel is spawned, not
+# launched: a nested ad-hoc binary makes the whole bundle's notarisation
+# Invalid, so every binary in the bundle is Developer ID from the start.
 TUNNEL_BIN="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
 [ -f "$TUNNEL_BIN" ] || { echo "the Plus connector is missing: no kosmos-tunnel at $TUNNEL_BIN (build it with kosmos-relay tools/build-tunnel-release.sh, or set KOSMOS_TUNNEL_BIN)" >&2; exit 1; }
 # Refuse anything but a universal Mach-O carrying BOTH arches: a per-arch or
@@ -151,16 +150,18 @@ chmod +x "$STAGE/app/bin/kosmos-tunnel"
 # later -- the same defect one layer down.
 _codesign_id="${KOSMOS_CODESIGN_ID:-Developer ID Application: Stone Syndicate LLC (864QZ69GF2)}"
 codesign --force --options runtime --timestamp -s "$_codesign_id" "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || {
-  echo "could not Developer ID sign the Plus connector as "$_codesign_id" (is this the machine holding the cert? set KOSMOS_CODESIGN_ID to override). NOT falling back to ad-hoc." >&2; exit 1; }
+  printf '%s\n' "could not Developer ID sign the Plus connector as \"$_codesign_id\" (is this the machine holding the cert? set KOSMOS_CODESIGN_ID to override). NOT falling back to ad-hoc." >&2; exit 1; }
 codesign -v "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || { echo "the connector's signature did not verify after signing" >&2; exit 1; }
 # ⚠️ RUN IT, not just verify the signature. Under hardened runtime a binary can
 # sign clean and still fail to LOAD if a linked library is unsigned. otool -L
 # shows the tunnel links only /usr/lib/libiconv and /usr/lib/libSystem (both
 # always-valid system libs, no bundled dylibs), so one codesign of the
 # executable is sufficient and no inside-out dylib pass is needed -- but this
-# runs it to prove the signed binary actually loads and executes, and for this
-# binary --help exercises its entire linkage (unlike a binary whose --version
-# skips its heavy libs).
+# runs it to prove the signed binary loads and executes on THIS build machine's
+# native slice (the other slice cannot run here without emulation). For this
+# binary --help exercises that slice's entire linkage (unlike a binary whose
+# --version skips its heavy libs); the x86_64 slice's own load is covered when
+# an Intel install runs it, not provable at build time on Apple silicon.
 "$STAGE/app/bin/kosmos-tunnel" --help >/dev/null 2>&1 || { echo "the signed connector does not run (--help failed); it may not load under hardened runtime" >&2; exit 1; }
 # Provenance, logged not baked: the input's own checksum, and which
 # kosmos-relay commit produced it when the input sits in a checkout. This is
