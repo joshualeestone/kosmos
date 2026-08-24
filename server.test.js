@@ -10190,6 +10190,21 @@ test('the leftover routes (#514): a name with nothing left is refused in words, 
   assert.equal(JSON.parse(gone.body).outcome, 'refused');
 });
 
+test('the layout setting (#520): tabs by default, round-trips, and refuses anything else in words', async () => {
+  const before = JSON.parse((await req('/api/style')).body);
+  assert.equal(before.layout, 'tabs', 'a fresh install does not open in the tab view');
+  const on = await req('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) });
+  assert.equal(on.status, 200, on.body);
+  assert.equal(JSON.parse(on.body).layout, 'consolidated');
+  assert.equal(JSON.parse((await req('/api/style')).body).layout, 'consolidated', 'the choice did not survive a re-read');
+  const bad = await req('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'sideways' }) });
+  assert.equal(bad.status, 400);
+  assert.match(JSON.parse(bad.body).error, /tabs or consolidated/);
+  assert.equal(JSON.parse((await req('/api/style')).body).layout, 'consolidated', 'a refused value moved the setting');
+  const back = await req('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'tabs' }) });
+  assert.equal(JSON.parse(back.body).layout, 'tabs');
+});
+
 test('the Plus switch round-trips and the off state comes back honest', async () => {
   const on = await req('/api/remote', {
     method: 'PUT', headers: { 'content-type': 'application/json' },
