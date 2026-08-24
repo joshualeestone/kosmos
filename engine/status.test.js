@@ -220,6 +220,28 @@ const CODEX_IDLE = `╭───────────────────
 const CODEX_WORKING = `• Reconnecting... 4/5 (4s • esc to interrupt)
   └ Unexpected status 401 Unauthorized`;
 
+test('#246: the recorded runner reaches the board row, and absent means claude', () => {
+  const { setPaneSource, setPaneCapture, snapshot } = require('./status');
+  try {
+    // Column order per PANE_COLUMNS: session, pane, command, inMode, claim,
+    // runner, title. One codex agent (node-fronted, runner recorded), one
+    // pre-runner claude agent whose line simply has no runner field.
+    setPaneSource(() => [
+      'kid-discord\t0.0\tnode\t0\t\tcodex\t',
+      'old-discord\t0.0\t2.1.212\t0\t\t\t',
+    ].join('\n'));
+    setPaneCapture(() => '› Ask Codex to do anything\n');
+    const board = snapshot();
+    const kid = board.agents.find((a) => a.sessionName === 'kid');
+    const old = board.agents.find((a) => a.sessionName === 'old');
+    assert.equal(kid && kid.runner, 'codex', 'the switch screen keys on this and it must travel');
+    assert.equal(old && old.runner, 'claude', 'absent means claude, as everywhere the option is missing');
+  } finally {
+    require('./status').setPaneSource(null);
+    require('./status').setPaneCapture(null);
+  }
+});
+
 test('#245: the recorded runner routes a node-fronted codex pane to the codex classifier', () => {
   /**
    * MEASURED on the first live codex agent this machine ran: the homebrew
