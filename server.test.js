@@ -10176,8 +10176,12 @@ test('the Allow seam (#567): pending is honest-empty off the switch, and the ver
 });
 
 test('the leftover routes (#514): a name with nothing left is refused in words, and a bad name never reaches the engine', async () => {
+  /* GET is a question every agent page asks; "not a leftover" is an answer,
+     so it is 200 with ok:false, never a status the console logs as an error
+     (that 400 turned the release page gate red on 2026-08-24). */
   const none = await req('/api/agent/nobody-here/leftover');
-  assert.equal(none.status, 400);
+  assert.equal(none.status, 200);
+  assert.equal(JSON.parse(none.body).ok, false);
   assert.match(JSON.parse(none.body).because, /nothing of nobody-here is left/);
   const bad = await req('/api/agent/' + encodeURIComponent('../x') + '/leftover', { method: 'DELETE' });
   assert.equal(bad.status, 400);

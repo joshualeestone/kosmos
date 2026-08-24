@@ -1761,7 +1761,12 @@ const server = http.createServer((req, res) => {
     let plan;
     try { plan = leftover.plan(name); }
     catch (err) { sendJson(res, 500, { error: 'we could not work out what is left of this agent', detail: String(err && err.message || err) }); return; }
-    sendJson(res, plan.ok ? 200 : 400, plan);
+    /* 200 whatever the plan says: every agent page asks this question, and
+       "not a leftover" is a true answer to it, not a failed request. A 400
+       here logged a console error on every living agent's page and turned
+       the release page gate red (Angel, 2026-08-24). The page reads
+       `plan.ok`, never the status. DELETE keeps 400 for a refusal. */
+    sendJson(res, 200, plan);
     return;
   }
   if (lo && req.method === 'DELETE') {
