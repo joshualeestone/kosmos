@@ -79,9 +79,6 @@ one invented by somebody who did not write them.
 | `render-agent-nav.js` | The agent page's left nav, on a screen (agent-page-nav, 2026-08-23). |
 | `render-made-before.js` | The never-recorded state, on a screen (#149/#150, 2026-08-23). |
 | `render-busy-line.js` | The "<name> is working…" line, rendered |
-| `render-mention-picker.js` | The @ picker in the project room (#312): opens on @, narrows, inserts the exact key, stays shut inside an email address. |
-| `render-connect.js` | **no header sentence.** Read it before running it, and give it one. |
-| `render-connection.js` | **no header sentence.** Read it before running it, and give it one. |
 | `render-fields.js` | The field and control invariants, measured in a real browser, in BOTH schemes |
 | `render-first-run.js` | Render every first-run state in a real browser and look at it |
 | `render-found-board.js` | The board's panel for agents on this Mac that Kosmos is not looking after |
@@ -216,51 +213,6 @@ it before any clean result below is worth reading.
 Skip, Escape, the hand-off into creating an agent, a returning visit, a failing
 `/api/first-run`, a failing `/api/machine`, and a completion flag that will not
 stick. It asserts against the DOM and the real flag file, never against source.
-
-## render-connection.js
-
-The connection notice on the board, in all three states.
-
-    SB=$(mktemp -d /tmp/connsb-XXXXXX); CFG="$SB/claude.json"
-    echo '{"oauthAccount":{"organizationType":"claude_max"}}' > "$CFG"
-    PORT=4412 AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_WORKERS="$SB/workers" \
-      AGENT_WORKFORCE_LAUNCH="$SB/launch" AGENT_WORKFORCE_CLAUDE_CONFIG="$CFG" node server.js &
-    AGENT_WORKFORCE_DATA="$SB/data" NODE_PATH=/path/to/playwright/node_modules \
-      node docs/browser-checks/render-connection.js http://127.0.0.1:4412 /tmp/connshots "$CFG"
-
-⚠️ It **rewrites** the config path it is given, so it refuses anything that is not under a
-temp root, and refuses the real `~/.claude.json` outright.
-
-⚠️ It marks first run complete in the sandbox before rendering. Without that every
-screenshot is a picture of the onboarding wizard with the board behind it, and the DOM
-assertions still pass. That happened on the first run of this very check: three
-byte-identical screenshots, 17/19 green.
-
-## render-connect.js
-
-The click-to-connect flow on first-run step 3: the Connect Claude click through
-the real route, download progress measured on the screen (bar geometry, not the
-style attribute), the paste box surviving the poll's repaint mid-typing, the
-stuck panel containing 40 lines of terminal without becoming a 40-line dialog,
-and AA in light and dark.
-
-    SB=$(mktemp -d /tmp/connectsb-XXXXXX); CFG="$SB/claude.json"
-    echo '{"oauthAccount":{"organizationType":"claude_free"}}' > "$CFG"
-    PORT=4437 AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_WORKERS="$SB/workers" \
-      AGENT_WORKFORCE_LAUNCH="$SB/launch" AGENT_WORKFORCE_CLAUDE_CONFIG="$CFG" \
-      AGENT_WORKFORCE_CLAUDE_BIN=/bin/echo AGENT_WORKFORCE_TMUX_BIN=/bin/echo \
-      AGENT_WORKFORCE_DRY_RUN=1 node server.js &
-    NODE_PATH=/path/to/playwright/node_modules \
-      node docs/browser-checks/render-connect.js http://127.0.0.1:4437 /tmp/connectshots "$CFG"
-
-The none-state and the live click drive the REAL routes (DRY_RUN makes the
-driver inert); the other phases are painted by intercepting `GET /api/connect`,
-because the engine behind those answers has its own node tests.
-
-⚠️ **The duplication check exists because the screenshot caught what 32
-assertions did not**: the phase announcement rendered visibly under a title
-that already said it. Look at the pictures; the checks are the floor, not the
-ceiling.
 
 ## live-connect.js
 
