@@ -654,6 +654,119 @@ function room3() {
 }
 const MEMBERS = ['leo', 'mara', 'april'];
 
+/* ── quoted words (#460) ─────────────────────────────────────────────────── */
+
+const QUOTE = 'the lease renews on the first of the month unless either side gives notice';
+
+test('#460: a verbatim requote of another author\'s earlier post is tagged with its source; unmarked text never is', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: QUOTE }, board.agents, MEMBERS);
+    assert.equal(first.state, chat.DELIVERY.PLACED, first.because || '');
+    // Positive control: leo requotes mara, with commentary around it.
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    const body = 'mara said "' + QUOTE + '" and I read the lease the same way';
+    const second = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: body }, board.agents, MEMBERS);
+    assert.equal(second.state, chat.DELIVERY.PLACED, second.because || '');
+    const rows = messages.record().rows.filter((m) => m.kind === 'post');
+    assert.equal(rows[0].quotes, undefined, 'the original author\'s own words must never be marked');
+    assert.deepEqual(rows[1].quotes, [{ of: first.id, from: 'mara', start: body.indexOf(QUOTE), end: body.indexOf(QUOTE) + QUOTE.length }]);
+    assert.equal(body.slice(rows[1].quotes[0].start, rows[1].quotes[0].end), QUOTE);
+    // Negative control (a): the same words posted again by their original author.
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: QUOTE }, board.agents, MEMBERS);
+    // Negative control (b): a paraphrase, and a one-word overlap.
+    armSender('april-discord');
+    arm([ok(), ok()]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'so the lease renews monthly unless someone gives notice, which is what I expected' }, board.agents, MEMBERS);
+    const after = messages.record().rows.filter((m) => m.kind === 'post');
+    assert.equal(after[2].quotes, undefined, 'an author reposting her own words is not quoting anyone');
+    assert.equal(after[3].quotes, undefined, 'a paraphrase is the quoter\'s own words');
+  });
+});
+
+test('#460: a post that is entirely a piece of another author\'s longer post is tagged whole; a shared path never qualifies', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    const long = QUOTE + ', and the deposit is returned within thirty days of the keys coming back';
+    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: long }, board.agents, MEMBERS);
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: QUOTE }, board.agents, MEMBERS);
+    const rows = messages.record().rows.filter((m) => m.kind === 'post' && m.project === 'henderson-lease');
+    const mine = rows[rows.length - 1];
+    assert.deepEqual(mine.quotes, [{ of: first.id, from: 'mara', start: 0, end: QUOTE.length }]);
+    // A long path is one token: two agents posting it are not quoting each other.
+    const PATH = '/Users/agent1/work/henderson-lease/documents/2026/renewal-notice-final-signed.pdf';
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: PATH }, board.agents, MEMBERS);
+    armSender('april-discord');
+    arm([ok(), ok()]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: PATH }, board.agents, MEMBERS);
+    const last = messages.record().rows.filter((m) => m.kind === 'post').pop();
+    assert.equal(last.text, PATH);
+    assert.equal(last.quotes, undefined, 'a path is not a quotation, whoever posted it first');
+    assert.equal(messages.quoteWorthy(PATH), false);
+    assert.equal(messages.quoteWorthy(QUOTE), true);
+  });
+});
+
+test('#460: two agents emitting the same whole line is ambiguous and never styled; a line that recurs untagged is common speech', () => {
+  withFleet(room3(), (board) => {
+    const STATUS = 'nothing on this project needs you right now and I will say so the moment that changes';
+    // Whole-post identity, two authors: the boilerplate shape. Not a quote.
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: STATUS }, board.agents, MEMBERS);
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: STATUS }, board.agents, MEMBERS);
+    let rows = messages.record().rows.filter((m) => m.kind === 'post');
+    assert.equal(rows[1].quotes, undefined, 'a whole identical post is ambiguous, and ambiguity is no styling');
+    // A third agent embedding it in commentary: the words already recur
+    // untagged by a second author, so they are this room's common speech.
+    armSender('april-discord');
+    arm([ok(), ok()]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'as leo put it, ' + STATUS + ', so I am moving on' }, board.agents, MEMBERS);
+    rows = messages.record().rows.filter((m) => m.kind === 'post');
+    assert.equal(rows[2].quotes, undefined, 'a line two people said independently is boilerplate, not a quotation');
+    // The contrast: a genuine chain. mara says a thing once; leo quotes it
+    // (tagged); april quotes it too. Tagged requotes do not make it common.
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    const said = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: QUOTE }, board.agents, MEMBERS);
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'mara wrote: ' + QUOTE }, board.agents, MEMBERS);
+    armSender('april-discord');
+    arm([ok(), ok()]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'agreed with "' + QUOTE + '"' }, board.agents, MEMBERS);
+    rows = messages.record().rows.filter((m) => m.kind === 'post');
+    assert.equal(rows[4].quotes[0].of, said.id);
+    assert.equal(rows[5].quotes[0].of, said.id, 'a third quoter still points at the origin, not at the last quoter');
+    assert.equal(rows[5].quotes[0].from, 'mara');
+    void first;
+  });
+});
+
+test('#460: quotes stay inside the room: the same words in another project are not a quotation here', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    messages.sendPost({ fromPane: '%7', project: 'other-room', projectName: 'Other', text: QUOTE }, board.agents, MEMBERS);
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: QUOTE }, board.agents, MEMBERS);
+    const last = messages.record().rows.filter((m) => m.kind === 'post').pop();
+    assert.equal(last.quotes, undefined);
+  });
+});
+
 test('a post fans out to every member, mentioned as a request and the rest MARKED background, one log row', () => {
   withFleet(room3(), (board) => {
     armSender('leo-discord');

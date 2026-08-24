@@ -4437,6 +4437,8 @@ const server = http.createServer((req, res) => {
           : m.kind === 'post'
           ? { kind: 'post', id: m.id, from: m.from, to: m.to, operator: m.operator === true,
               text: m.text, at: m.at, outcomes: m.outcomes || {},
+              // #460: the only thing a renderer may style as quoted.
+              ...(Array.isArray(m.quotes) && m.quotes.length ? { quotes: m.quotes } : {}),
               ...(m.attachment && typeof m.attachment === 'object' ? { attachment: m.attachment } : {}),
               ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}) }
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
