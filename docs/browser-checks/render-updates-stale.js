@@ -24,8 +24,10 @@
  * and a read that lands after it looks like a regression. The press, the
  * fetch, the paint and the poll that repaints the build line are the page's
  * own. The answer shape (`running`, `reached`, `readable`) is the route's in
- * engine/update.js; a rename there would surface here as a stubbed field the
- * page ignores, so `served` is read from the real /api/status first.
+ * engine/update.js. `served` is read from the real /api/status first, so the
+ * stub cannot invent a version; a renamed field on the server would NOT be
+ * caught here (the page falls back to the polled version), only by the
+ * route's own tests.
  *
  *   AGENT_WORKFORCE_DATA=/tmp/us PORT=17372 node server.js &
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" \
@@ -72,6 +74,10 @@ function chk(ok, label, extra) {
       const data = await res.json();
       data.updateLook = { reached: true, readable: true, looked: true };
       data.update = null;
+      /* The engine-stale notice outranks the stale toast in the same slot and
+         is a fact about the sandboxed board's files, not about #691; pinned
+         off so the toast assertion below cannot fail for that cause. */
+      data.engine = null;
       await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
     });
     await pg.goto(URL, { waitUntil: 'networkidle' });
@@ -86,9 +92,10 @@ function chk(ok, label, extra) {
     await pg.evaluate(([v]) => {
       document.querySelector('meta[name="kosmos-version"]').setAttribute('content', v);
     }, [baked]);
-    /* The build line is painted by the poll (every five seconds); wait for the
-       poll to see the new meta, so the line and the verdict are read from the
-       same world. */
+    /* The build line is painted by the poll (every five seconds). In the stale
+       state, wait for the poll to see the new meta so the line and the verdict
+       are read from the same world; in the current state the condition already
+       holds (baked equals served, the poll changes nothing). */
     await pg.waitForFunction(([s, v]) => {
       const t = (document.getElementById('build') || {}).textContent || '';
       return s === 'stale' ? /reload for/.test(t) : (t.indexOf(v) > -1 && !/reload for/.test(t));
@@ -102,9 +109,10 @@ function chk(ok, label, extra) {
     const before = await pg.$eval('#upd-line', (el) => el.textContent);
     chk(before === '', state + ': at rest the verdict line is quiet', JSON.stringify(before));
     if (state === 'stale') {
-      /* Cross-surface consistency, not a press effect: the poll drew the stale
-         toast when it saw the new meta, before any press. The card's sentence
-         points at this control, so it must be there before the sentence is. */
+      /* Cross-surface consistency, not a press effect: the toast and the card
+         read the same pageIsStale, and the poll drew the stale toast when it
+         saw the new meta, before any press. The sentence names no control on
+         purpose; this pins that the two surfaces agree on staleness. */
       const toast = await pg.$eval('#utoast-slot', (el) => el.innerText).catch(() => '');
       chk(/Kosmos updated/.test(toast) && /Reload/.test(toast), 'stale: before the press, the top-left toast already offers the reload', JSON.stringify(toast));
     }
@@ -112,7 +120,7 @@ function chk(ok, label, extra) {
     await pg.waitForFunction(() => !/Checking\.$/.test(document.getElementById('upd-line').textContent), null, { timeout: 12000 });
     const line = await pg.$eval('#upd-line', (el) => el.textContent);
     if (state === 'stale') {
-      chk(line === 'This page is the older one. Reload it to get the newer one.',
+      chk(line === 'This page is older than the Kosmos running it. Reload the page to get the newer one.',
         'stale: the press says reload, not "Up to date"', JSON.stringify(line));
       chk(!/Up to date/.test(line), 'stale: "Up to date" is not on the card', JSON.stringify(line));
     } else {

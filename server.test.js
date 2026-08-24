@@ -10738,7 +10738,7 @@ test('with a newer version installed than the open page, Check for Update says r
     // The screenshot: page baked 0.5.22, server running 0.5.23, button pressed.
     let els = mk('0.5.22');
     asked('0.5.23', null, { reached: true, readable: true, looked: true });
-    assert.equal(els['upd-line'].textContent, 'This page is the older one. Reload it to get the newer one.',
+    assert.equal(els['upd-line'].textContent, 'This page is older than the Kosmos running it. Reload the page to get the newer one.',
       'a stale page was told it is up to date');
     assert.equal(els['upd-btn'].textContent, 'Check for Update', 'the control changed with the sentence');
     // CONTROL: the same press on a current page still gets the verdict. Without
@@ -10777,7 +10777,7 @@ test('with a newer version installed than the open page, Check for Update says r
         global.document, () => {}, running);
       return pressed['upd-line'].textContent;
     };
-    assert.equal(await press('0.5.22', '0.5.23'), 'This page is the older one. Reload it to get the newer one.',
+    assert.equal(await press('0.5.22', '0.5.23'), 'This page is older than the Kosmos running it. Reload the page to get the newer one.',
       'the real press on a stale page did not say reload');
     assert.equal(await press('0.5.23', '0.5.23'), 'Up to date.', 'CONTROL: the real press on a current page lost its verdict');
   } finally {

@@ -2,11 +2,12 @@
 
 ## Finished looks like
 With a newer version installed than the page that is open (server on 0.5.23, page
-baked 0.5.22), pressing Check for Update writes "This page is the older one. Reload
-it to get the newer one." on the card line, never "Up to date." (No version in the
-sentence: the row above it already says "reload for 0.5.23". No pointer to the toast's
-Reload button: when the engine is also stale that slot shows the restart notice
-instead, and the browser's own reload is always there.)
+baked 0.5.22), pressing Check for Update writes "This page is older than the Kosmos
+running it. Reload the page to get the newer one." on the card line, never "Up to
+date." (No version in the sentence: the row above it already says "reload for 0.5.23".
+No pointer to the toast's Reload button: when the engine is also stale that slot shows
+the restart notice instead, and the browser's own reload is always there. The sentence
+stands alone, because the live region is what a screen reader hears.)
 With the page current, the same press still writes "Up to date." Nothing else on the
 card changes.
 

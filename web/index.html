@@ -8720,9 +8720,12 @@ function paintUpdateCard(running, offer, look) {
        engine-stale notice when the code on disk is newer than the process
        (no Reload there), so the sentence would send a person to a button
        that is not on screen. The browser's own reload is the remedy and is
-       always there; the toast offers the same when it is drawn. */
+       always there; the toast offers the same when it is drawn.
+       ⚠️ AND IT STANDS ALONE. This node is the role="status" live region, so a
+       screen reader hears only this sentence, never the build line beside it:
+       "older" has to say older than what inside the sentence itself. */
     if (UPD_ASKED && pageIsStale(running)) {
-      put('This page is the older one. Reload it to get the newer one.');
+      put('This page is older than the Kosmos running it. Reload the page to get the newer one.');
     } else {
       put(UPD_ASKED ? 'Up to date.' : '');
     }
