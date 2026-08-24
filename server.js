@@ -1046,13 +1046,16 @@ const server = http.createServer((req, res) => {
                       /* The folder arm is only reachable through the birth
                          receipt, which IS Kosmos's own record; saying "no
                          record" there would be contradicted by the row's
-                         own existence. The job arm has no receipt: the
-                         label namespace is the tie, and no-record is
-                         exactly true. */
+                         own existence. The job arm's tie is the label
+                         namespace, which says nothing about whether a
+                         receipt exists (a created agent whose folder and
+                         profile were deleted lands here too), so its
+                         sentence claims only what was checked: no profile,
+                         nothing set up. */
                       ? ('Kosmos made this agent once, but only its folder'
                           + (k.job ? ' and a startup job remain' : ' remains')
                           + ' on disk. Removing it clears it off the board; its files are never deleted')
-                      : 'Kosmos has no record of this agent: a startup job was found on disk. Removing it stops that job and clears it off the board')
+                      : 'Kosmos no longer has this agent set up: a startup job was found on disk. Removing it stops that job and clears it off the board')
                   : (k.job && !k.folder)
                   /* #127: the distinct, broken state this row now surfaces. A
                      job with no folder cannot start (it has nothing to run) and
@@ -1099,7 +1102,10 @@ const server = http.createServer((req, res) => {
                    flows here to names with no profile at all) must not
                    take every profile-backed row off the board with it.
                    The outer catch keeps its job for known()-level
-                   failures. */
+                   failures. Known quiet spot: a dropped row shrinks
+                   notRunning with nothing saying a row was withheld;
+                   the accounting field belongs with #514's surface work
+                   alongside straySweepFailed. */
                 return null;
               }
             })

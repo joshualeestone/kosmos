@@ -126,7 +126,11 @@ function known() {
  * draw a row whose removal then refuses (remove acts by EXACT spelling,
  * existsExactly, and rightly so), and a row whose control cannot work
  * is worse than the blindness. The class belongs to #514, where a
- * delete that names exact spellings can carry it.
+ * delete that names exact spellings can carry it. The same limit block
+ * owns a second class: a Kosmos-made folder RESTORED from backup or
+ * copied back wears the copy's birthtime, fails the later-tenant bound
+ * below, and stays invisible; the bound requires it, and #514 is where
+ * a content witness could readmit it.
  *
  * 🛑 A FOLDER IS OURS ONLY IF THE BIRTH RECORD SAYS SO. The workers root
  * is a plain directory: on this fleet's own Mac it holds worker
@@ -154,7 +158,17 @@ function strays(profileNames) {
   const have = new Set(profileNames);
   const born = new Map();
   try {
-    for (const e of create.createdLog()) {
+    const log = create.createdLog();
+    /* createdLog swallows its own read errors into [], so an empty
+       answer from a file that HAS bytes is could-not-read (or a log of
+       lines nothing could parse), not nothing-ever-written; the flag
+       says so instead of every folder stray silently vanishing. ENOENT
+       stays a fresh machine. */
+    if (!log.length) {
+      try { if (fs.statSync(create.createdLogFile()).size > 0) failed = true; }
+      catch (err) { failed = failed || (err && err.code !== 'ENOENT'); }
+    }
+    for (const e of log) {
       if (e.outcome === create.OUTCOME.CREATED || e.outcome === create.OUTCOME.PARTIAL) {
         /* ⚠️ THE SLUG, not the name as typed: the birth line records the
            spelling the person used ("Casey"), the folder is made under
@@ -189,7 +203,7 @@ function strays(profileNames) {
            the witness must not hide a genuine stray. */
         const bound = born.get(d) + 24 * 60 * 60 * 1000;
         if (st.isDirectory() && (st.birthtimeMs || 0) <= bound) note(d, 'folder');
-      } catch { /* a vanished entry is not a stray */ }
+      } catch (err) { failed = failed || (err && err.code !== 'ENOENT'); }
     }
   } catch (err) { failed = failed || (err && err.code !== 'ENOENT'); }
   try {
@@ -198,7 +212,7 @@ function strays(profileNames) {
       if (!m) continue;
       try {
         if (fs.statSync(path.join(create.AGENTS_DIR, f)).isFile()) note(m[1], 'job');
-      } catch { /* a vanished entry is not a stray */ }
+      } catch (err) { failed = failed || (err && err.code !== 'ENOENT'); }
     }
   } catch (err) { failed = failed || (err && err.code !== 'ENOENT'); }
   /* found-nothing and could-not-look are different facts; the flag keeps

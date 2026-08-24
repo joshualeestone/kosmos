@@ -121,7 +121,7 @@ test('#500: both profile-less strays are visible, with the no-record sentence', 
   assert.equal(sf.id, null, 'a profile-less stray carried an id from nowhere');
   const sj = rows.get('strayjob');
   assert.ok(sj, 'the label-namespace stray job is absent: the survey still enumerates from profiles only');
-  assert.match(sj.because, /no record of this agent/, sj.because);
+  assert.match(sj.because, /no longer has this agent set up/, sj.because);
   assert.match(sj.because, /a startup job was found/, sj.because);
   assert.doesNotMatch(sj.because, /free the name/, sj.because);
 });
@@ -132,7 +132,7 @@ test('#500: the stranger\'s checkout stays invisible, and the control is a norma
     'a directory with no birth record reached the board: the roster-from-records ruling is broken');
   const control = rows.get('control');
   assert.ok(control, 'the profile-backed control is absent, so the stray assertions above prove nothing');
-  assert.doesNotMatch(control.because || '', /no record|made this agent once/,
+  assert.doesNotMatch(control.because || '', /no longer has this agent set up|made this agent once/,
     'the control wears a stray sentence');
 });
 
