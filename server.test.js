@@ -10618,3 +10618,75 @@ test('whats-new: first sight is silent-recordable, a change is reported, garbage
   assert.equal(r.status, 400);
   assert.equal(JSON.parse((await req('/api/whats-new')).body).seen, '0.5.09', 'a refused write still changed the record');
 });
+
+/* ------------------------------------------------------------------------- *
+ * #539: the working rules, consented. The GET plans, only the click writes,
+ * and a fleet click never overrides a per-agent Not now.
+ * ------------------------------------------------------------------------- */
+
+test('the doctrine routes: plan, consent-by-hash, not-now, and the fleet list', async () => {
+  const fsx = require('node:fs');
+  const nodePathx = require('node:path');
+  const doctrineEngine = require('./engine/doctrine');
+  const defaultsEngine = require('./engine/defaults');
+  const storeEngine = require('./engine/store');
+  const board = fleet.install([fleet.agent('doctest', { state: 'idle' })]);
+  const dir = nodePathx.join(process.env.AGENT_WORKFORCE_WORKERS, 'doctest');
+  fsx.mkdirSync(dir, { recursive: true });
+  const file = nodePathx.join(dir, 'CLAUDE.md');
+  fsx.writeFileSync(file, '# Doctest\n\nMy own words.\n');
+  try {
+    const plan = JSON.parse((await req('/api/agent/doctest/doctrine')).body);
+    assert.equal(plan.state, 'refresh');
+    assert.ok(plan.sections.length >= 10, 'a bare file is not offered the sections');
+    assert.ok(plan.span.includes('with your OK'), 'the dialog cannot show the span it needs the person to consent to');
+    assert.ok(plan.hash, 'no hash, so the click cannot prove what it consented to');
+
+    /* The GET planned; nothing may have been written by planning. */
+    assert.equal(fsx.readFileSync(file, 'utf8'), '# Doctest\n\nMy own words.\n', 'the GET wrote');
+
+    /* The per-agent click REQUIRES the plan it consented to: a hashless
+       POST refuses without writing (Angel's review of #637). */
+    const bare = await req('/api/agent/doctest/doctrine/refresh', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    });
+    assert.equal(bare.status, 400);
+    assert.match(JSON.parse(bare.body).because, /must carry the plan/);
+    assert.equal(fsx.readFileSync(file, 'utf8'), '# Doctest\n\nMy own words.\n', 'the hashless refusal wrote');
+
+    const go = JSON.parse((await req('/api/agent/doctest/doctrine/refresh', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ hash: plan.hash }),
+    })).body);
+    assert.equal(go.state, 'added', JSON.stringify(go));
+    const after = fsx.readFileSync(file, 'utf8');
+    assert.ok(after.startsWith('# Doctest\n\nMy own words.'), 'a byte the person owns moved');
+    assert.ok(after.includes('kosmos:doctrine:start'));
+
+    const again = JSON.parse((await req('/api/agent/doctest/doctrine')).body);
+    assert.equal(again.state, 'current');
+
+    /* Not now, remembered server-side, keyed on the version. */
+    fsx.writeFileSync(file, '# Doctest\n\nBack to bare.\n');
+    await req('/api/agent/doctest/doctrine/not-now', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(storeEngine.readProfile('doctest').doctrineDeclined, defaultsEngine.DOCTRINE_VERSION);
+
+    /* The fleet list shows the declined agent as staying, and the fleet
+       click honours it: no write reaches a Not-now agent. */
+    const fleetPlan = JSON.parse((await req('/api/doctrine/fleet')).body);
+    const row = fleetPlan.agents.find((a) => a.sessionName === 'doctest');
+    assert.equal(row && row.state, 'declined', JSON.stringify(fleetPlan.agents));
+    const sweep = JSON.parse((await req('/api/doctrine/refresh-fleet', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ names: ['doctest'] }),
+    })).body);
+    assert.equal(sweep.verdicts[0].state, 'declined');
+    assert.equal(fsx.readFileSync(file, 'utf8'), '# Doctest\n\nBack to bare.\n',
+      'a fleet click overrode a per-agent Not now');
+    void doctrineEngine;
+  } finally {
+    fsx.rmSync(dir, { recursive: true, force: true });
+    try { fsx.rmSync(storeEngine.PROFILES + '/doctest.json', { force: true }); } catch { }
+    board.restore();
+  }
+});
