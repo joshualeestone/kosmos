@@ -13533,16 +13533,16 @@ function svcDoorTokenHtml(name, st) {
   const own = SVC_DOORS[name] ? '<b>' + esc(name) + '.</b> ' + esc(SVC_DOORS[name]) + ' ' : '<b>' + esc(name) + '.</b> ';
   if (!st) return own + '<span class="dhint">Checking…</span>';
   if (st.connected) {
-    return own + '<p class="dhint" style="margin:8px 0 0;"><span class="acct-ok">Connected.</span> Cloudflare says the token is active. '
-      + 'It stays in one file on this Mac that your agents are handed when they start; Kosmos never shows it again.</p>'
+    return own + '<p class="dhint" style="margin:8px 0 0;"><span class="acct-ok">Connected.</span> Cloudflare says this token is active. '
+      + 'It is kept in one file on this Mac and handed to your agents when they start; Kosmos will not show it again.</p>'
       + '<p class="dhint" style="margin:6px 0 0;"><button class="linkish" type="button" data-svc-forget="' + esc(name) + '">Forget this token</button></p>';
   }
-  const why = st.because ? '<p class="dhint" style="margin:8px 0 0;">' + esc(st.because) + (st.held ? ' Paste a new one to replace it.' : '') + '</p>' : '';
-  return own + why + '<p class="dhint" style="margin:8px 0 0;">Make a token on <a class="xlink" href="' + esc(st.where) + '" target="_blank" rel="noopener">Cloudflare’s API Tokens page</a> '
-    + '(choose the zones your agents may touch), then paste it here.</p>'
+  const why = st.because ? '<p class="dhint" style="margin:8px 0 0;">' + esc(st.because) + (st.held ? ' The one Kosmos has is unchanged. Paste a new one to replace it.' : '') + '</p>' : '';
+  return own + why + '<p class="dhint" style="margin:8px 0 0;">Make a token on <a class="xlink" href="' + esc(st.where) + '" target="_blank" rel="noopener">Cloudflare’s API Tokens page</a>, '
+    + 'choosing the zones your agents may touch, then paste it here.</p>'
     + '<div class="frow" style="margin:6px 0 0;"><input type="password" autocomplete="off" spellcheck="false" aria-label="Cloudflare API token" placeholder="Paste the token" data-svc-token-field="' + esc(name) + '">'
     + '<button class="btn" type="button" data-svc-token-go="' + esc(name) + '">Connect</button></div>'
-    + '<p class="dhint" style="margin:6px 0 0;">Kosmos checks it with Cloudflare first and keeps only a token Cloudflare accepts, in one file on this Mac.</p>';
+    + '<p class="dhint" style="margin:6px 0 0;">Kosmos checks it with Cloudflare first. If Cloudflare accepts it, Kosmos keeps it in one file on this Mac and hands it to your agents when they start. This is the one key Kosmos holds for you.</p>';
 }
 async function svcDoorLive(name, door) {
   const api = SVC_BUILT[name];
