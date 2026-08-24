@@ -999,6 +999,15 @@ function createAgent(opts) {
     model: String((opts && opts.model) || '').slice(0, 120),
     outcome: (out && out.outcome) || 'unknown',
     because: (out && out.because) ? String(out.because).slice(0, 300) : null,
+    /* #170: the same id the profile carries, on the creation line, so "was
+       this agent ever created" and "which agent was it" are one lookup even
+       after every file is wiped. Read back rather than passed through: the
+       profile write is the single mint point, and a second copy of the mint
+       here is a second place for the two to disagree. Null for refusals
+       (nothing was made) and under DRY_RUN (nothing was written). */
+    id: (out && out.outcome === OUTCOME.CREATED && !DRY_RUN)
+      ? (store.readProfile(out.name).id || null)
+      : null,
   });
   return out;
 }
@@ -1798,10 +1807,12 @@ function createAgentInner(opts) {
        diagram does not look like a guess: an unanswered reporting line stays
        empty. Kosmos asks; it does not work it out from a role name. */
     if (wantReportsTo) profile.reportsTo = wantReportsTo;
-    if (Object.keys(profile).length) {
-      try { store.writeProfile(name, profile); }
-      catch { /* a card that reads `casey` with the role template's words is a working agent, not a failure */ }
-    }
+    /* Written even when the patch is empty (#170): the write is what mints
+       the agent's id, and an id at birth is the point. Before this, an
+       all-defaults creation wrote no profile at all and the gate below
+       skipped the mint with it. */
+    try { store.writeProfile(name, profile); }
+    catch { /* a card that reads `casey` with the role template's words is a working agent, not a failure */ }
   }
   return {
     outcome: OUTCOME.CREATED,
