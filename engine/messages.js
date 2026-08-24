@@ -103,6 +103,11 @@ const MARKERS = [
   '[background from your colleague',
   '[message from your operator',
   '[from your operator',
+  /* #185: the nudge is Kosmos's own voice into a pane, and the born-
+     knowing block trains agents to run what a bracket line says, so a
+     forged copy inside a body is an in-band steering vector. Minted
+     here, refused here, like every marker this module can speak. */
+  '[the room has not seen an answer',
 ];
 
 /**
@@ -284,6 +289,11 @@ function rowShaped(m) {
      to an agent. Same shape as the valve band it renders in. */
   if (m.kind === 'note') {
     return m.from === 'kosmos' && str(m.project) && str(m.text);
+  }
+  /* #185: the nudge receipt. Kosmos's own voice into ONE pane, recorded so
+     the at-most-once rule is checkable from the store rather than believed. */
+  if (m.kind === 'nudge') {
+    return str(m.post) && str(m.to) && str(m.project);
   }
   // The room post (View D): `to` is an ARRAY of names and `outcomes` an
   // object -- the rules above were written for kinds whose `to` is a
@@ -925,6 +935,11 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
   }
 
   appendLog({ kind: 'post', id, project: projectId, from, to: recipients, text: cleaned, at, outcomes,
+    /* #185: the tokenizer's verdict, persisted at the one moment it runs.
+       The unanswered state keys on WHO WAS ASKED, and re-deriving that at
+       render time would be a second tokenizer that can drift from this
+       one. */
+    ...(mentioned.size ? { mentioned: [...mentioned] } : {}),
     ...(operator === true ? { operator: true } : {}),
     ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),
     ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
@@ -1123,10 +1138,123 @@ function blockBody() {
   ].join('\n');
 }
 
+/* ── #185: silence made visible, from stored facts only ─────────────────
+   A room message the person @-addressed to an agent, delivered, and
+   followed by no post from that agent in that room, becomes an
+   UNANSWERED state once the constant below has passed. Every claim
+   derives from the record: the state can never be wrong about words,
+   only about waiting, and waiting is what it measures. */
+
+/* The spec's starting value, one constant, named. */
+let UNANSWERED_AFTER_MS = 10 * 60 * 1000;
+function setUnansweredAfterForTests(ms) {
+  /* Number.isFinite, not truthiness: zero is a legal test value and the
+     bar `|| default` silently turned it into ten minutes. */
+  UNANSWERED_AFTER_MS = Number.isFinite(ms) ? ms : 10 * 60 * 1000;
+}
+
+/**
+ * Which addressed agents have not answered which operator posts in this
+ * project, from the record alone. Returns { <postId>: [names...] }.
+ *
+ * ⚠️ OPERATOR posts only, MENTIONED names only, TYPED deliveries only:
+ * a colleague's mention is a different contract (the room model refuses
+ * unaddressed steering, and a peer's ask carries no operator weight), a
+ * name the tokenizer did not mark was never asked, and a delivery that
+ * never reached the pane is not silence, it is non-delivery, which the
+ * post's own outcomes already report.
+ */
+function unanswered(projectId, now) {
+  const at = Number.isFinite(now) ? now : Date.now();
+  const rec = record();
+  if (!rec.ok) return {};
+  const rows = rec.rows.filter((m) => m && m.project === projectId);
+  const out = {};
+  for (const p of rows) {
+    if (p.kind !== 'post' || p.operator !== true || !Array.isArray(p.mentioned) || !p.mentioned.length) continue;
+    const age = at - Date.parse(p.at);
+    if (!Number.isFinite(age) || age < UNANSWERED_AFTER_MS) continue;
+    const silent = p.mentioned.filter((name) => {
+      /* UNCONFIRMED counts as typed on purpose: chat's own semantics say
+         the text may well have landed, and treating maybe-delivered as
+         not-delivered would hide real silence behind a shaky tmux
+         answer. Only COULD_NOT, where nothing reached the pane, is
+         non-delivery rather than silence. */
+      const typed = p.outcomes && p.outcomes[name] && p.outcomes[name] !== chat.DELIVERY.COULD_NOT;
+      if (!typed) return false;
+      /* >= rather than >: an answer landing in the same millisecond as
+         the ask still clears (measured in the suite, where both writes
+         share a tick). m.operator !== true, because operator posts log
+         from: 'you' and 'you' is a legal session name: an agent named
+         you must not find every operator post standing in as its
+         answer, the module's own never-promote-on-a-string-match rule
+         read in the other direction. */
+      return !rows.some((m) => m.kind === 'post' && m.operator !== true && m.from === name
+        && Date.parse(m.at) >= Date.parse(p.at));
+    });
+    if (silent.length) out[p.id] = silent;
+  }
+  return out;
+}
+
+/**
+ * The moment-of-reply nudge (#185, spec step 2): when the unanswered
+ * state is true and no nudge has ever been sent for that post-and-agent
+ * pair, ONE follow-up line goes into the agent's pane, on the same
+ * channel the original arrived on, still never speaking FOR the agent.
+ *
+ * ⚠️ THE ROW IS THE AT-MOST-ONCE. It is appended whatever the delivery
+ * outcome, so an agent whose pane refused the nudge is not re-nudged
+ * every sweep forever; the room's own unanswered line remains the
+ * person-facing surface either way. Recorded, so the rule is checkable
+ * from the store rather than believed.
+ */
+function sweepUnanswered(roster, now) {
+  /* ⚠️ Check-then-act against a snapshot, single-writer by assumption:
+     two processes sharing one data dir could both read no-nudge-row and
+     both type the line. One board per data dir is the product's shape
+     (the same assumption the state file and the log itself rest on),
+     so the trade is recorded rather than locked away.
+     ⚠️ And the sweep re-parses the whole record each minute; an ancient
+     never-answered ask is re-derived for the life of the install. The
+     log's size bound covers today; when retention lands, this reader
+     is the first customer. Both trades stated, per the house rule. */
+  const rec = record();
+  if (!rec.ok) return { ok: false, nudged: [] };
+  const projects = new Set(rec.rows.filter((m) => m && m.kind === 'post' && m.operator === true
+    && Array.isArray(m.mentioned)).map((m) => m.project));
+  const nudged = [];
+  for (const projectId of projects) {
+    const silentByPost = unanswered(projectId, now);
+    for (const [postId, names] of Object.entries(silentByPost)) {
+      for (const name of names) {
+        const already = rec.rows.some((m) => m && m.kind === 'nudge' && m.post === postId && m.to === name);
+        if (already) continue;
+        /* ⚠️ ONLY AN ADDRESSABLE CARD MAY SPEND THE PAIR'S ONE NUDGE.
+           A roster row with no target is OUR caller handing thin rows
+           (the paneRoster shape), not the agent being gone; burning the
+           at-most-once on our own bad input would silence the pair
+           forever with zero keystrokes ever typed. Skipped without a
+           row, so a later sweep with a full roster still fires. */
+        const card = (roster || []).find((c) => c && c.sessionName === name);
+        if (!card || !card.target) continue;
+        const line = '[the room has not seen an answer to ' + postId
+          + '; to answer, run: kosmos post ' + projectId + ']';
+        const sent = chat.deliver(name, line, roster);
+        appendLog({ kind: 'nudge', post: postId, to: name, project: projectId,
+          at: new Date().toISOString(), outcome: sent.state });
+        nudged.push({ post: postId, to: name, outcome: sent.state });
+      }
+    }
+  }
+  return { ok: true, nudged };
+}
+
 module.exports = {
   OPERATOR_DIRECT,
   START, END, blockBody,
   LOG,
+  unanswered, sweepUnanswered, setUnansweredAfterForTests,
   resolveSender, send, sendPost, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
   setRunner, resetForTests,
 };

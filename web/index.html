@@ -20050,6 +20050,16 @@ function pjRoomFilterRows(rows, p, q) {
 }
 
 let PJ_ROOM_QUERY = '';
+/* #185: the silence line. The names come from the server's own store
+   computation (body.unanswered, post id to still-silent addressed
+   agents); the page renders and never re-derives, so the claim cannot
+   drift from the record. Kosmos's own band, because it is Kosmos
+   measuring WAITING, never speaking anybody's words. */
+function pjUnansweredLine(m, p, silent) {
+  if (!m || m.kind !== 'post' || !silent || !Array.isArray(silent[m.id]) || !silent[m.id].length) return '';
+  return silent[m.id].map((name) => '<div class="msg-valve">'
+    + esc(pjNameOf(p, name) || name) + ' has not answered here yet.</div>').join('');
+}
 function paintRoom(body) {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
@@ -20058,7 +20068,7 @@ function paintRoom(body) {
   const shown = pjRoomFilterRows(allRows, p, PJ_ROOM_QUERY);
   const filtering = PJ_ROOM_QUERY.trim() !== '';
   const silences = pjSilences(allRows, p);
-  const rows = shown.map((m) => pjRoomRow(m, p, silences.get(m))).join('');
+  const rows = shown.map((m) => pjRoomRow(m, p, silences.get(m)) + pjUnansweredLine(m, p, body.unanswered)).join('');
   /* An unreadable record is SAID, ahead of whatever could be read --
      no-state-as-silence, the same rule as every list on this app. */
   const note = body.ok === false

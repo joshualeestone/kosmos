@@ -30,6 +30,7 @@ const EXCUSED = {
   setTickInterval: 'test seam (connect pacing)',
   setUnknownGrace: 'test seam (connect pacing)',
   setFreshnessForTests: 'test seam',
+  setUnansweredAfterForTests: 'test seam (#185 unanswered constant)',
   setBase: 'test seam (update feed base url)',
   setInstallRunner: 'test seam (update installer)',
   setInstalledRoot: 'test seam (update root)',

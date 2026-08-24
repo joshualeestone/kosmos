@@ -4379,7 +4379,12 @@ const server = http.createServer((req, res) => {
         res.end(head + lines.join('\n') + (lines.length ? '\n' : ''));
         return;
       }
-      sendJson(res, 200, { ok: rec.ok, rows: withPreviews(rows) });
+      /* #185: which addressed agents have not answered which posts, from
+         the record alone; the page renders the small line from this and
+         never re-derives it. Best-effort like the room itself. */
+      let silent = {};
+      try { silent = messages.unanswered(id, Date.now()); } catch { silent = {}; }
+      sendJson(res, 200, { ok: rec.ok, rows: withPreviews(rows), unanswered: silent });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the room') });
     }
@@ -5319,6 +5324,23 @@ function start(port = PORT) {
          switched-on machine rests forever at "the board has not started
          the tunnel". The bound port, not the requested one. */
       try { remote.ensure(server.address().port); } catch { /* status says what happened */ }
+      /* #185: the nudge sweep. Its own timer, never the status GET (a
+         read must stay a read); once a minute is far inside the
+         ten-minute constant it serves. unref'd so it never holds the
+         process open, and every run is best-effort: the room's own
+         unanswered line is the person-facing surface either way. */
+      const sweep = setInterval(() => {
+        /* ⚠️ safeRoster(), NEVER paneRoster(): the sweep delivers, and
+           delivery needs full snapshot-shaped cards (target and all).
+           paneRoster's thin rows fail addressable() before anything is
+           typed, and the first call site shipped exactly that, burning
+           every pair's one nudge as could_not with zero send-keys,
+           invisibly, while the suite's full-card fixture passed. The
+           paneRoster-vs-snapshot confusion this file's own docblock
+           warns about, one more time. */
+        try { messages.sweepUnanswered(safeRoster()); } catch { /* the line still shows */ }
+      }, 60 * 1000);
+      if (sweep && typeof sweep.unref === 'function') sweep.unref();
       resolve(server);
     };
     server.once('error', onError);
