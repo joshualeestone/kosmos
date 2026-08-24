@@ -164,8 +164,17 @@ echo "== 4. build =="
 # 9b can prove the SERVED tunnel is byte-for-byte the one tested here (#583).
 # The connector is not a tree file (kosmos-relay builds it), so this is its
 # source of truth, the analog of the app/ files' tree comparison.
-TUNNEL_SHA="$(tar -xzOf "$REPO/dist/kosmos-arm64.tar.gz" app/bin/kosmos-tunnel 2>/dev/null | shasum -a 256 | awk '{print $1}')"
-[ -n "$TUNNEL_SHA" ] && [ "$TUNNEL_SHA" != "$(printf '' | shasum -a 256 | awk '{print $1}')" ] || { echo "the built bundle carries no Plus connector (app/bin/kosmos-tunnel); build-kosmos-bundle.sh should have refused"; exit 1; }
+# ⚠️ `tar | shasum` in a pipeline: under set -o pipefail a member-absent tar
+# would abort the assignment before the guard below could name the cause, so
+# extract to a file first (tar's own non-zero is captured, not fatal here) and
+# let the guard speak.
+_tunnel_tmp="$(mktemp)"
+if tar -xzOf "$REPO/dist/kosmos-arm64.tar.gz" app/bin/kosmos-tunnel > "$_tunnel_tmp" 2>/dev/null && [ -s "$_tunnel_tmp" ]; then
+  TUNNEL_SHA="$(shasum -a 256 "$_tunnel_tmp" | awk '{print $1}')"
+else
+  rm -f "$_tunnel_tmp"; echo "the built bundle carries no Plus connector (app/bin/kosmos-tunnel); build-kosmos-bundle.sh should have refused"; exit 1
+fi
+rm -f "$_tunnel_tmp"
 echo "   connector: kosmos-tunnel $TUNNEL_SHA"
 cp "$REPO/dist/kosmos-arm64.tar.gz" "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/"
 # ⚠️ THE VERSIONED NAME IS THE ONE A CACHE CANNOT LIE ABOUT. The plain

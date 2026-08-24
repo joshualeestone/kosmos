@@ -85,7 +85,15 @@ release_bundle_matches_tree "$T/tun.tgz" "$BUILD" "deadbeef" >/dev/null && bad "
 release_bundle_matches_tree "$T/tun.tgz" "$BUILD" "" >/dev/null && bad "a connector with no expected checksum was passed (skipped)" || ok "a connector with no expected checksum is refused, not skipped"
 printf 'connector-v2' > "$T/bundle/app/bin/kosmos-tunnel"; bundle tun2.tgz
 release_bundle_matches_tree "$T/tun2.tgz" "$BUILD" "$_tsha" >/dev/null && bad "a changed connector still matched the old checksum" || ok "a changed connector no longer matches the old checksum"
+# Presence, not just checksum-if-present: a bundle with matching tree files but
+# NO connector must fail when a connector sha is expected (the #583 failure).
 rm -f "$T/bundle/app/bin/kosmos-tunnel"
+# Presence, not just checksum-if-present: with the connector now removed, a
+# bundle whose tree files match but which lacks the connector must fail when a
+# connector sha is expected (the #583 failure), and pass when none is expected.
+bundle noconn.tgz
+release_bundle_matches_tree "$T/noconn.tgz" "$BUILD" "$_tsha" >/dev/null && bad "a bundle missing the connector passed with an expected sha" || ok "a bundle missing the connector is caught when one is expected"
+release_bundle_matches_tree "$T/noconn.tgz" "$BUILD" "" >/dev/null && ok "a bundle with no connector and no expectation passes" || bad "no-connector-no-expectation was wrongly failed"
 
 # A tarball missing a whole tree (no bin member) is a setup failure (2), not a pass.
 tar -czf "$T/nobin.tgz" -C "$T/bundle" app

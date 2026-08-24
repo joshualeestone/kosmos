@@ -83,7 +83,7 @@ release_bundle_source_path() {
 # Passing it empty means no bundle is expected to carry a tunnel, and a tunnel
 # appearing anyway is a failure (a file the comparison has no source for).
 release_bundle_matches_tree() {
-  local tar="$1" tree="$2" want_tunnel_sha="${3:-}" tmp ver rel src cmpfile got_tunnel_sha bad=0
+  local tar="$1" tree="$2" want_tunnel_sha="${3:-}" tmp ver rel src cmpfile got_tunnel_sha saw_tunnel=0 bad=0
   [ -f "$tar" ] && [ -d "$tree" ] || { echo "release_bundle_matches_tree: need a tarball and a tree" >&2; return 2; }
   ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tree/package.json" | head -1)"
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bundle-cmp.XXXXXX")" || return 2
@@ -96,6 +96,7 @@ release_bundle_matches_tree() {
     if [ "$rel" = app/bin/kosmos-tunnel ]; then
       # The connector: verified against the built tunnel's checksum, not the tree.
       if [ -z "$want_tunnel_sha" ]; then echo "   the bundle carries a connector but no expected checksum was given: $rel"; bad=1; continue; fi
+      saw_tunnel=1
       got_tunnel_sha="$(shasum -a 256 "$tmp/$rel" | awk '{print $1}')"
       [ "$got_tunnel_sha" = "$want_tunnel_sha" ] || { echo "   the served connector is not the one this release built ($got_tunnel_sha != $want_tunnel_sha): $rel"; bad=1; }
       continue
@@ -112,5 +113,12 @@ release_bundle_matches_tree() {
   rm -rf "$tmp"
   # ⚠️ An empty bundle compares equal to everything; zero files is a failure.
   [ "$n" -gt 0 ] || { echo "   the bundle holds no tree-derived files" ; return 1; }
+  # ⚠️ PRESENCE, not just checksum-if-present: when a connector sha is
+  # expected (a real cut), a bundle that shipped WITHOUT the connector must
+  # fail -- a Kosmos with no Plus connector is the exact thing #583 prevents,
+  # and its tree files would otherwise all match and pass here.
+  if [ -n "$want_tunnel_sha" ] && [ "$saw_tunnel" -eq 0 ]; then
+    echo "   the bundle carries no Plus connector (app/bin/kosmos-tunnel) but one was expected"; bad=1
+  fi
   return $bad
 }

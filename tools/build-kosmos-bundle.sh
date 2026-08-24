@@ -130,13 +130,29 @@ TUNNEL_BIN="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
 [ -f "$TUNNEL_BIN" ] || { echo "the Plus connector is missing: no kosmos-tunnel at $TUNNEL_BIN (build it with kosmos-relay tools/build-tunnel-release.sh, or set KOSMOS_TUNNEL_BIN)" >&2; exit 1; }
 # Refuse anything but a universal Mach-O carrying BOTH arches: a per-arch or
 # wrong file would install and then fail Plus on the other arch, silently.
-_tunnel_arch="$(file -b "$TUNNEL_BIN" 2>/dev/null || echo '?')"
-case "$_tunnel_arch" in
-  *"universal binary"*"x86_64"*"arm64"*|*"universal binary"*"arm64"*"x86_64"*) : ;;
-  *) echo "the Plus connector at $TUNNEL_BIN is not a universal x86_64+arm64 Mach-O (file says: $_tunnel_arch)" >&2; exit 1 ;;
+# Require BOTH arches by NAME, and reject arm64e-standing-in-for-arm64: `file`
+# prints one "(for architecture <arch>)" line per slice, so match those tokens
+# exactly rather than as substrings ("arm64" is a substring of "arm64e", which
+# stock arm64 Macs cannot run).
+_tunnel_arches="$(lipo -archs "$TUNNEL_BIN" 2>/dev/null || echo '')"
+case " $_tunnel_arches " in
+  *" x86_64 "*) case " $_tunnel_arches " in *" arm64 "*) : ;; *) echo "the Plus connector at $TUNNEL_BIN lacks a plain arm64 slice (lipo: $_tunnel_arches)" >&2; exit 1 ;; esac ;;
+  *) echo "the Plus connector at $TUNNEL_BIN is not a universal x86_64+arm64 Mach-O (lipo: ${_tunnel_arches:-not a Mach-O})" >&2; exit 1 ;;
 esac
 cp "$TUNNEL_BIN" "$STAGE/app/bin/kosmos-tunnel"
 chmod +x "$STAGE/app/bin/kosmos-tunnel"
+# ⚠️ SIGNED HERE, Developer ID, in the build that produces the final bytes, so
+# the checksum captured below IS what ships and nothing signs after (#583,
+# Splinter's Apple-lane ruling). The tunnel is spawned not launched, but a
+# nested ad-hoc binary makes the whole bundle's notarisation Invalid (measured
+# on the tmux case), so the connector is Developer ID from the start.
+# FAIL LOUD if the identity is absent: a release binds to a machine holding the
+# cert, and a silent ad-hoc fallback would build fine and fail notarisation
+# later -- the same defect one layer down.
+_codesign_id="${KOSMOS_CODESIGN_ID:-Developer ID Application: Stone Syndicate LLC (864QZ69GF2)}"
+codesign --force --options runtime --timestamp -s "$_codesign_id" "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || {
+  echo "could not Developer ID sign the Plus connector as "$_codesign_id" (is this the machine holding the cert? set KOSMOS_CODESIGN_ID to override). NOT falling back to ad-hoc." >&2; exit 1; }
+codesign -v "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || { echo "the connector's signature did not verify after signing" >&2; exit 1; }
 # Provenance, logged not baked: the input's own checksum, and which
 # kosmos-relay commit produced it when the input sits in a checkout. This is
 # what a human (or a follow-up automated check) compares against Baron's build
