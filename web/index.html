@@ -2068,9 +2068,15 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
 #d-say { flex: 1 1 auto; }
 /* Inside the room's box the field is bare: the box carries the border and the
    focus ring. Specific enough to beat `.detail .dbox input[type=text]`. */
-.detail .dbox .composerbox input[type=text].cinput, .dbox .composerbox input[type=text].cinput {
+.detail .dbox .composerbox input[type=text].cinput, .dbox .composerbox input[type=text].cinput,
+.composerbox textarea.cinput {
   border: 0; background: none; box-shadow: none; border-radius: 0; min-width: 0; }
-.detail .dbox .composerbox input[type=text].cinput:focus { outline: none; box-shadow: none; border: 0; }
+/* ⚠️ The selector above covered only the INPUT variant, so the room's
+   TEXTAREA composer took the column's --field-fill and drew a light gray
+   bar inside the white box (Josh, 2026-08-24 10:54: "a very light gray
+   behind the text field... should not be there"). The box is the field;
+   what sits inside it is bare. */
+.detail .dbox .composerbox input[type=text].cinput:focus, .composerbox textarea.cinput:focus { outline: none; box-shadow: none; border: 0; }
 /* ⚠️ A CLOSED BOX HAS TO LOOK CLOSED. The pack dims its disabled composer
    (`.dmbar .btn-gold[disabled], .dmbar .inp[disabled] { opacity: .5 }`) and the
    build has no `.btn[disabled]` rule at all -- so a Send that cannot send was
@@ -5334,6 +5340,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            "Add Member", and title case on a control makes it read as a proper
            noun rather than an instruction. -->
       <button class="btn-quiet pj-addmem" id="pj-add-member" type="button"><span aria-hidden="true">+</span> Add member</button>
+      <!-- The door to removal (Josh, 2026-08-24 10:52: he could not find it).
+           The per-row buttons left this card by his OWN earlier ruling (the
+           listener comment at pjs-members records it), so the resting card
+           stays uncluttered and the DOOR is what lives here: one quiet link
+           to the settings rows where Remove has always been. -->
+      <button class="linkish" id="pj-remove-member" type="button" style="margin-top:6px;">Remove a member&hellip;</button>
       <div id="pj-one-add-row" hidden style="margin-top: var(--space-5)">
         <!-- ⚠️ A VISIBLE LABEL, not only an aria one (#109). The picker opens
              from a button, so it arrives on screen with no heading above it and
@@ -5859,6 +5871,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            line. A screen reader reaches the settled line in reading
            order once typing is done. -->
       <p class="pj-chosen" id="pj-will-be"></p>
+    </div>
+    <!-- #551 (Josh, 2026-08-24 10:55): a project can be born described. The
+         SAME field Project settings edits, optional on purpose: a name is
+         enough to start, and a required description is a wall. -->
+    <div class="field">
+      <span class="flabel">What is it about? <small style="font-weight:400;color:var(--label-2)">You can skip this.</small></span>
+      <textarea class="tk-inp" id="pj-add-desc" rows="2" maxlength="500"
+                aria-label="What this project is about"
+                placeholder="Renewing the Henderson lease before October."></textarea>
     </div>
 
     <!-- The advanced route, one link away: for work that already lives
@@ -18823,6 +18844,15 @@ document.getElementById('pj-settings-link').addEventListener('click', () => {
   pjView('settings');
   document.getElementById('pj-settings-back').focus();
 });
+document.getElementById('pj-remove-member').addEventListener('click', () => {
+  const p = pjById(PJ_CURRENT);
+  if (!p) return;
+  paintProjectSettings(p);
+  pjView('settings');
+  /* Land the person ON the member rows, where each Remove button is. */
+  const rows = document.getElementById('pjs-members');
+  if (rows) { rows.scrollIntoView({ block: 'start' }); const b = rows.querySelector('[data-drop]'); if (b) b.focus(); }
+});
 document.getElementById('pj-settings-back').addEventListener('click', () => {
   pjView('one');
   document.getElementById('pj-settings-link').focus();
@@ -21778,6 +21808,7 @@ function openAddProject() {
   const name = document.getElementById('pj-name');
   name.value = '';
   name.dataset.auto = '1';
+  document.getElementById('pj-add-desc').value = ''; // #551: no leak between opens
   document.getElementById('pj-add-msg').textContent = '';
   document.getElementById('pj-chosen').textContent = 'No folder chosen yet.';
   // The advanced route starts closed on every arrival, so a person who opened
@@ -22002,6 +22033,9 @@ document.getElementById('pj-create').addEventListener('click', async () => {
         // branches on the field being absent, and `folder: null` is a caller
         // saying "this project lives nowhere" rather than "you choose".
         ...(PJ_PICKED ? { folder: PJ_PICKED } : {}),
+        /* #551: absent when blank, same absent-not-null discipline as folder. */
+        ...(document.getElementById('pj-add-desc').value.trim()
+          ? { description: document.getElementById('pj-add-desc').value.trim() } : {}),
         agents: PJ_ADD_AGENTS,
       }),
     });
