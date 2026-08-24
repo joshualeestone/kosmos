@@ -102,7 +102,15 @@ function planFor(text, now) {
     /* An existing managed span: its sections are OURS to bring current;
        sections a person carries OUTSIDE the span are theirs and are never
        duplicated (whole-file heading presence decides "outside"). */
-    const spanInner = body.slice(body.indexOf('\n', found.start) + 1, body.lastIndexOf(END));
+    /* ⚠️ THE READ BOUNDARY MATCHES THE WRITE BOUNDARY (Angel's review of
+       #637): spliceBlock replaces to the FIRST end after start (found.end),
+       so the span is read to exactly there. A lastIndexOf(END) here jumped
+       to a stray END marker in the person's prose after the block, over-
+       extended the read into their words, misclassified an up-to-date file
+       as refresh (a write for a non-change, rotating their one-deep undo)
+       and pulled prose headings into the composed block. The write was
+       always bounded; the read now is too. */
+    const spanInner = body.slice(body.indexOf('\n', found.start) + 1, found.end - END.length);
     const outside = body.slice(0, found.start) + body.slice(found.end);
     const wanted = defaults.sections().filter((s) => spanInner.includes(s.heading) || !outside.includes(s.heading));
     if (!wanted.length) return { state: 'current' };
@@ -179,6 +187,17 @@ function refresh(sessionName, roster, opts) {
          the person's one-deep .previous undo for a non-change). */
       return { state: 'current' };
     }
+    /* Two consent strengths, each stated where it is enforced (Angel's
+       review, decision recorded): the PER-AGENT route REQUIRES the hash,
+       so that path's "the click writes exactly what the dialog showed" is
+       enforced, not asserted; the FLEET path passes none, deliberately --
+       its dialog lists NAMES, and Mona Lisa's ruling makes the fleet click
+       name-level consent ("consent for the listed names only"), with the
+       freshly-composed write still incapable of wrong bytes. A stale hash
+       refuses with look-again rather than writing a composition nobody
+       saw; the hash embeds the click-day date, so a dialog opened at 23:59
+       and clicked at 00:01 refuses falsely once and the retry works --
+       known, benign, and cheaper than a dateless hash. */
     if (opts && opts.expectHash && opts.expectHash !== plan.hash) {
       return { state: 'could_not', because: 'its instructions changed since you looked, so nothing was written; look again' };
     }

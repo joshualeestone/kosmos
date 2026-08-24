@@ -155,3 +155,19 @@ test('Not now is remembered per agent, keyed on the version so a future bump un-
   assert.equal(st.declined, true);
   assert.equal(st.state, 'refresh', 'declining must not hide the FACT that sections are missing, only the banner');
 });
+
+test('a stray END marker in the person’s prose never over-extends the span read (Angel’s review, #637)', () => {
+  /* The read boundary must match the write boundary: spliceBlock replaces
+     to the FIRST end after start, so the span read must stop there too. A
+     lastIndexOf jumped to a stray END in prose, over-extended spanInner,
+     misclassified an up-to-date file as refresh (rotating the person's
+     undo for a non-change) and pulled prose headings into the composed
+     block while their copies stayed outside. */
+  const first = doctrine.planFor('# Mine\n', new Date(2026, 7, 23));
+  const withProse = first.fileNext
+    + '\nMy own notes about markers: the string ' + doctrine.END + ' appears in my prose.\n'
+    + '\n### Never wait silently\n\nmy own late copy of this idea\n';
+  const plan = doctrine.planFor(withProse, NOW);
+  assert.equal(plan.state, 'current',
+    'an up-to-date span beside a stray END in prose was misclassified as refresh');
+});

@@ -10630,6 +10630,15 @@ test('the doctrine routes: plan, consent-by-hash, not-now, and the fleet list', 
     /* The GET planned; nothing may have been written by planning. */
     assert.equal(fsx.readFileSync(file, 'utf8'), '# Doctest\n\nMy own words.\n', 'the GET wrote');
 
+    /* The per-agent click REQUIRES the plan it consented to: a hashless
+       POST refuses without writing (Angel's review of #637). */
+    const bare = await req('/api/agent/doctest/doctrine/refresh', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    });
+    assert.equal(bare.status, 400);
+    assert.match(JSON.parse(bare.body).because, /must carry the plan/);
+    assert.equal(fsx.readFileSync(file, 'utf8'), '# Doctest\n\nMy own words.\n', 'the hashless refusal wrote');
+
     const go = JSON.parse((await req('/api/agent/doctest/doctrine/refresh', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ hash: plan.hash }),

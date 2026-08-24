@@ -1495,6 +1495,14 @@ const server = http.createServer((req, res) => {
       .then((buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
+        /* The per-agent click REQUIRES the plan it consented to (Angel's
+           review): without the hash, "the click writes what the dialog
+           showed" would be a claim the code does not enforce. The fleet
+           route is the deliberate name-level exception, stated there. */
+        if (typeof body.hash !== 'string' || !body.hash) {
+          sendJson(res, 400, { state: 'could_not', because: 'the click must carry the plan it consented to; reopen the dialog' });
+          return;
+        }
         const got = doctrine.refresh(name, safeRoster(), { expectHash: body.hash });
         sendJson(res, 200, got);
       })
