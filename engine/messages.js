@@ -103,6 +103,11 @@ const MARKERS = [
   '[background from your colleague',
   '[message from your operator',
   '[from your operator',
+  /* #185: the nudge is Kosmos's own voice into a pane, and the born-
+     knowing block trains agents to run what a bracket line says, so a
+     forged copy inside a body is an in-band steering vector. Minted
+     here, refused here, like every marker this module can speak. */
+  '[the room has not seen an answer',
 ];
 
 /**
@@ -1174,9 +1179,12 @@ function unanswered(projectId, now) {
       if (!typed) return false;
       /* >= rather than >: an answer landing in the same millisecond as
          the ask still clears (measured in the suite, where both writes
-         share a tick). The ask itself can never match, its from is not
-         the agent. */
-      return !rows.some((m) => m.kind === 'post' && m.from === name
+         share a tick). m.operator !== true, because operator posts log
+         from: 'you' and 'you' is a legal session name: an agent named
+         you must not find every operator post standing in as its
+         answer, the module's own never-promote-on-a-string-match rule
+         read in the other direction. */
+      return !rows.some((m) => m.kind === 'post' && m.operator !== true && m.from === name
         && Date.parse(m.at) >= Date.parse(p.at));
     });
     if (silent.length) out[p.id] = silent;
@@ -1197,6 +1205,15 @@ function unanswered(projectId, now) {
  * from the store rather than believed.
  */
 function sweepUnanswered(roster, now) {
+  /* ⚠️ Check-then-act against a snapshot, single-writer by assumption:
+     two processes sharing one data dir could both read no-nudge-row and
+     both type the line. One board per data dir is the product's shape
+     (the same assumption the state file and the log itself rest on),
+     so the trade is recorded rather than locked away.
+     ⚠️ And the sweep re-parses the whole record each minute; an ancient
+     never-answered ask is re-derived for the life of the install. The
+     log's size bound covers today; when retention lands, this reader
+     is the first customer. Both trades stated, per the house rule. */
   const rec = record();
   if (!rec.ok) return { ok: false, nudged: [] };
   const projects = new Set(rec.rows.filter((m) => m && m.kind === 'post' && m.operator === true

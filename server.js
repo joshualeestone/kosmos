@@ -4265,7 +4265,6 @@ const server = http.createServer((req, res) => {
           : m.kind === 'post'
           ? { kind: 'post', id: m.id, from: m.from, to: m.to, operator: m.operator === true,
               text: m.text, at: m.at, outcomes: m.outcomes || {},
-              ...(Array.isArray(m.mentioned) ? { mentioned: m.mentioned } : {}),
               ...(m.attachment && typeof m.attachment === 'object' ? { attachment: m.attachment } : {}),
               ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}) }
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
