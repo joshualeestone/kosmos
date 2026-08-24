@@ -1839,7 +1839,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      names the same class or its display:none loses the specificity contest
      (the switch-specificity trap: two classes beat one, order irrelevant). */
   html[data-layout="consolidated"] body.consolidated.fold-p #pj-list, html[data-layout="consolidated"] body.consolidated.fold-p #pj-list.asgrid, html[data-layout="consolidated"] body.consolidated.fold-p #pj-arch-wrap, html[data-layout="consolidated"] body.consolidated.fold-p #pj-list-msg { display: none; }
-  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 40; max-width: none; margin: 0; }
+  /* #520 piece nine: the panel starts on the agents rail HEAD's row, not the
+     list's, so the PROJECTS head, the project title and the right column all
+     share the AGENTS head's top (Josh, 16:32: "flush vertically with agents";
+     measured before this at 42px below it). */
+  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 39 / span 2; max-width: none; margin: 0; padding-top: 0 !important; }
   /* The rail row: the face, then the name over the title over the state. */
   html[data-layout="consolidated"] body.consolidated .lrow { grid-template-columns: 34px minmax(0, 1fr); gap: 2px 10px; padding: 8px 10px; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lav { grid-row: 1 / span 2; }
@@ -1907,6 +1911,20 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated > #panel-projects { padding: 0; border: 0; background: none; box-shadow: none; }
   html[data-layout="consolidated"] body.consolidated .pjhead { margin-bottom: 10px; padding: 0; }
   html[data-layout="consolidated"] body.consolidated #pj-one-view .dname { font-size: 1.25rem; }
+  /* #520 piece nine: the project head sits inside the conversation header,
+     beside the search (placeProjectHead moves it there). The header takes
+     the mock's shape: title left, search right, one rule beneath; the
+     "Conversation" label steps aside because the title now names the
+     column. The description keeps one line so the header stays a header. */
+  html[data-layout="consolidated"] body.consolidated .pjmidhead { align-items: center; gap: 12px; padding: 0 0 10px; margin-bottom: 12px; border-bottom: 1px solid var(--k-rule); }
+  html[data-layout="consolidated"] body.consolidated .pjmidhead > .dlab { display: none; }
+  html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead { flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; align-items: center; gap: 12px; }
+  html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .dname { font-size: 1rem; font-weight: 650; }
+  html[data-layout="consolidated"] body.consolidated .pjmidhead .pjtitle { display: grid; gap: 1px; }
+  html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .pj-desc, html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 0; max-width: none; line-height: 1.35; }
+  html[data-layout="consolidated"] body.consolidated .pjmidhead .pj-desc.pj-desc-none { display: none; }
+  html[data-layout="consolidated"] body.consolidated .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
+  html[data-layout="consolidated"] body.consolidated .pjmidhead .tsearch { flex: 0 1 min(320px, 40%); }
   html[data-layout="consolidated"] body.consolidated #pj-one-name + .pj-desc, html[data-layout="consolidated"] body.consolidated #pj-one-made { margin-top: 1px; }
   html[data-layout="consolidated"] body.consolidated #rail-agents, html[data-layout="consolidated"] body.consolidated > #panel-projects, html[data-layout="consolidated"] body.consolidated > #alist { padding-top: 6px; }
   /* #520 piece eight (Josh, toward the mock): the member rows lose their box
@@ -16947,7 +16965,25 @@ function applyLayout(layout, apply) {
   if (!apply) return;
   const was = document.documentElement.getAttribute('data-layout') || 'tabs';
   document.documentElement.setAttribute('data-layout', want);
+  placeProjectHead(want);
   if (was !== want && typeof URL_TAB === 'string') showTab(URL_TAB);
+}
+/* #520 piece nine (the card's finesse item 1): in the consolidated view the
+   project's title lives in the conversation column's own header, beside the
+   search, the way the mock draws it. Two siblings' children cannot share a
+   line by CSS alone, so the head is MOVED, and moved back when the tabs view
+   returns. The elements are the same ones either way: every painter that
+   writes #pj-one-name or #pj-one-desc keeps working, and nothing is copied. */
+function placeProjectHead(want) {
+  const head = document.querySelector('#pj-one-view .pjhead');
+  const mid = document.querySelector('#pj-one-view .pjmidhead');
+  const grid = document.querySelector('#pj-one-view .pj3');
+  if (!head || !mid || !grid) return;
+  if (want === 'consolidated') {
+    if (head.parentElement !== mid) mid.insertBefore(head, mid.firstChild);
+  } else if (head.parentElement === mid) {
+    grid.parentElement.insertBefore(head, grid);
+  }
 }
 document.querySelectorAll('[data-layout-pick]').forEach((b) => {
   b.addEventListener('click', async () => {
@@ -20614,6 +20650,7 @@ function paintOneProject() {
      colleague reading the page cannot take the placeholder for the
      project's actual description. */
   desc.textContent = p.description || 'This project has no description yet. Add one in Project settings.';
+  desc.classList.toggle('pj-desc-none', !p.description);
   desc.classList.toggle('pj-desc-empty', !p.description);
   desc.hidden = false;
   /* Agent-made projects say so (#327). `by` is the pane's agent when one was

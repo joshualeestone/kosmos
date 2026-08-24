@@ -133,3 +133,30 @@ test('piece eight: the member rows go flat in the consolidated view, not boxed',
   assert.match(block, /body\.consolidated \.pj-member \{ border: 0; padding: 6px 8px;/, 'the member rows keep their box border in the consolidated view');
   assert.match(block, /body\.consolidated \.pj-member:hover \{ background: var\(--k-surface\); \}/);
 });
+
+test('piece nine: the project head moves into the conversation header in the consolidated view, and back for tabs', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  // The move is a function called from the layout switch, so both boot and a click take the same path.
+  assert.match(src, /document\.documentElement\.setAttribute\('data-layout', want\);\n  placeProjectHead\(want\);/);
+  const fn = src.match(/function placeProjectHead\(want\) \{[\s\S]*?\n\}/);
+  assert.ok(fn, 'placeProjectHead is defined');
+  assert.match(fn[0], /mid\.insertBefore\(head, mid\.firstChild\)/, 'consolidated: the head goes first in the conversation header');
+  assert.match(fn[0], /grid\.parentElement\.insertBefore\(head, grid\)/, 'tabs: the head returns above the grid');
+  // Exercised, not just read: a bare DOM stand-in runs both directions.
+  const mk = (children = []) => { const n = { children: [...children], parentElement: null, get firstChild() { return this.children[0] || null; },
+    insertBefore(node, before) { if (node.parentElement) node.parentElement.children = node.parentElement.children.filter((c) => c !== node); node.parentElement = this; const i = before ? this.children.indexOf(before) : -1; if (i < 0) this.children.push(node); else this.children.splice(i, 0, node); } }; children.forEach((c) => { c.parentElement = n; }); return n; };
+  const head = mk(); const dlab = mk(); const mid = mk([dlab]); const grid = mk(); const view = mk([head, grid]);
+  const document = { querySelector: (sel) => ({ '#pj-one-view .pjhead': head, '#pj-one-view .pjmidhead': mid, '#pj-one-view .pj3': grid })[sel] };
+  // eslint-disable-next-line no-new-func
+  const place = new Function('document', fn[0] + '\nreturn placeProjectHead;')(document);
+  place('consolidated');
+  assert.equal(head.parentElement, mid); assert.equal(mid.children[0], head, 'ahead of the Conversation label');
+  place('consolidated');
+  assert.equal(mid.children.filter((c) => c === head).length, 1, 'a second apply does not duplicate it');
+  place('tabs');
+  assert.equal(head.parentElement, view); assert.equal(view.children.indexOf(head), view.children.indexOf(grid) - 1, 'back directly above the grid');
+  // And the CSS: the label steps aside, the header takes the rule.
+  const block = src.slice(src.indexOf('html[data-layout="consolidated"]'));
+  assert.match(block, /body\.consolidated \.pjmidhead > \.dlab \{ display: none; \}/);
+  assert.match(block, /body\.consolidated \.pjmidhead \{[^}]*border-bottom: 1px solid var\(--k-rule\)/);
+});
