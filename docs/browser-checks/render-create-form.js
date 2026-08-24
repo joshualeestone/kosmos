@@ -227,11 +227,14 @@ function check(name, pass, detail) {
         && enabled.some(([t]) => /openai/i.test(t))
         && seen.providers.length === 8,
       `${enabled.length} of ${seen.providers.length} selectable: ${enabled.map((x) => x[0]).join(', ')}`);
-    /* #245: choosing OpenAI disables the two Claude-shaped controls WITH
-       WORDS, and choosing Anthropic back re-enables them. Driven, not read
-       from source: the disabling is a live listener. */
-    check(`[${engine}] choosing OpenAI parks the model and account menus, with words, and Anthropic unparks them`,
-      seen.openaiParks && seen.openaiParks.modelDisabled && seen.openaiParks.acctDisabled
+    /* #245: choosing OpenAI disables the model control WITH WORDS, and
+       choosing Anthropic back re-enables it. Driven, not read from source:
+       the disabling is a live listener. #540 moved the ACCOUNT menu out of
+       this: it no longer parks for OpenAI, it fills with OpenAI accounts (or
+       names this computer's sign-in when there are none), so the assertion
+       moved with the product in the same change. */
+    check(`[${engine}] choosing OpenAI parks the model menu with words and leaves the account menu live; Anthropic unparks the model`,
+      seen.openaiParks && seen.openaiParks.modelDisabled && !seen.openaiParks.acctDisabled
         && /model/i.test(seen.openaiParks.why || '')
         && seen.openaiParks.reModelEnabled && seen.openaiParks.reAcctEnabled,
       JSON.stringify(seen.openaiParks));

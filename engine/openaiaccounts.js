@@ -31,6 +31,12 @@ function defaultDir() {
   return process.env.AGENT_WORKFORCE_CODEX_HOME || path.join(HOME, '.codex');
 }
 
+/* ⚠️ NO beside-the-directory case here, on purpose (Angel, #540 review). The
+   Claude DEFAULT account's record lives BESIDE its directory (~/.claude.json
+   next to ~/.claude), an asymmetry accounts.js warns about at length. codex
+   keeps auth.json INSIDE ~/.codex like every other home, so the analog does
+   not exist and must not be imported to be faithful: the default and a
+   labelled home are read the same way. */
 function authFile(dir) {
   return path.join(path.resolve(String(dir || '')), 'auth.json');
 }
