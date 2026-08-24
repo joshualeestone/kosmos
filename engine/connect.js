@@ -83,9 +83,12 @@ function tmuxBinPath() {
 const STATE_FILE = () => path.join(store.ROOT, 'connect.json');
 
 /**
- * The tmux session the sign-in runs in. Ours, disposable, and named so that
- * the board's roster can never mistake it for an agent (agents are adopted by
- * name; nothing creates one called this).
+ * The tmux session the sign-in runs in. Ours, disposable, and RESERVED at
+ * both ends by this one exported constant: create.js refuses the exact name
+ * to agents, and status.parsePanes excludes the exact session from the
+ * roster (#603 -- the first wording here claimed the roster "can never
+ * mistake it for an agent" while nothing enforced that, and Josh met the
+ * mystery card live).
  */
 const SESSION = 'kosmos-connect';
 /**
