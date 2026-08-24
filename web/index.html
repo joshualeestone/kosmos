@@ -13157,9 +13157,13 @@ function openDetail(sessionName, section) {
      differently is precisely what this branch exists to stop. It takes the name
      the box resolved rather than deriving a second one. */
   const runs = runsOnLine(a);   // one evaluation, read by the meta line and the box
+  /* #684: "shown by its machine name" only read as English to someone who had
+     read the code (the first-run journey walk hit it in minute two). The fact
+     it carries -- nobody chose a name, so the one on screen is the internal
+     one -- now says itself in the stranger's words. */
   document.getElementById('d-meta').textContent =
     [roleLine(a, ROLE_TITLES), runs.name,
-     a.nameDerived ? null : 'shown by its machine name'].filter(Boolean).join(' · ');
+     a.nameDerived ? null : 'no name was chosen for it, so this is the one it runs under'].filter(Boolean).join(' · ');
   const copy = STATE_COPY[a.state] || STATE_COPY.unknown;
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
      class, `GLYPH` the mark, `STATE_COPY` the word. A card and its detail page
@@ -24157,7 +24161,13 @@ async function frPaintYou() {
     // will not advance (SC 3.3.2); the fields carry aria-required too.
     '<p class="vh">The first two answers are needed before Continue.</p>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-name">What should your agents call you?</label>' +
-    '<input class="inp" type="text" id="fr-you-name" maxlength="80" placeholder="Josh" aria-required="true"></div>' +
+    /* #683: an example name, and NOT the author's. The pack's mock carried
+       "Josh" because Josh drew it about himself, and on anyone else's machine
+       a real first name in the box reads as a previous owner -- the
+       co-founder's install would literally show the name of the person who
+       sent them the app. The sibling placeholders are examples, so this stays
+       one; it just stops being a person connected to the product. */
+    '<input class="inp" type="text" id="fr-you-name" maxlength="80" placeholder="Alex" aria-required="true"></div>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-do">What do you do?</label>' +
     '<input class="inp" type="text" id="fr-you-do" maxlength="200" placeholder="I run a company that builds AI tools" aria-required="true"></div>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-know">Anything they should always know?</label>' +

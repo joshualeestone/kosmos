@@ -34,7 +34,7 @@ const REPO = __dirname;
 const create = require('./engine/create');
 const page = require('./test-support/page');
 
-function boardWithStoppedAgent({ job }) {
+function boardWithStoppedAgent({ job, named = true }) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-nm-'));
   const profiles = nodePath.join(sb, 'data', 'AgentWorkforce', 'profiles');
   const launch = nodePath.join(sb, 'launch');
@@ -42,7 +42,7 @@ function boardWithStoppedAgent({ job }) {
   fs.mkdirSync(launch, { recursive: true });
   fs.mkdirSync(nodePath.join(sb, 'workers', 'quiet'), { recursive: true });
   fs.writeFileSync(nodePath.join(profiles, 'quiet.json'),
-    JSON.stringify({ role: 'Researcher', displayName: 'Quiet' }));
+    JSON.stringify(named ? { role: 'Researcher', displayName: 'Quiet' } : { role: 'Researcher' }));
   if (job) {
     fs.writeFileSync(nodePath.join(launch, 'com.kosmos.agent.quiet.plist'),
       create.plistFor('quiet', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5'));
@@ -134,4 +134,21 @@ test('#671: the composer speaks the row\'s own cause at the decision point, and 
     'a live-pane reachability reason was replaced, so the person loses the one sentence that explains the box');
   assert.doesNotMatch(liveLine, /sitting at its prompt/,
     'a live row\'s state line was spoken as a reachability reason');
+});
+
+test('#684: an offline agent with a chosen name is not disclosed as unnamed, and one without one is', () => {
+  /* The offline mapper hardcoded nameDerived: false, so every offline agent
+     WITH a chosen name wore the panel's no-name disclosure about a name
+     somebody chose (witnessed on the first-run journey walk: a just-created
+     agent's panel carried it). Same meaning as readIdentity's derived: true
+     when a record supplied the name. */
+  const withName = (boardWithStoppedAgent({ job: true }).agents || []).find((a) => a.sessionName === 'quiet');
+  assert.ok(withName, 'the named offline agent fell out of the roster');
+  assert.equal(withName.name, 'Quiet', 'the chosen name is not the one shown, so the disclosure claim cannot be judged');
+  assert.equal(withName.nameDerived, true,
+    'an offline agent with a chosen name still reads nameDerived false, so its panel discloses a no-name that is false (#684)');
+  const nameless = (boardWithStoppedAgent({ job: true, named: false }).agents || []).find((a) => a.sessionName === 'quiet');
+  assert.ok(nameless, 'the nameless offline agent fell out of the roster');
+  assert.equal(nameless.nameDerived, false,
+    'an offline agent with no chosen name claims one, so the honest disclosure never shows');
 });

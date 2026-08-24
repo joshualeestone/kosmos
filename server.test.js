@@ -3198,8 +3198,12 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
     return el.textContent;
   };
   const surfaced = drive({ role: 'archive worker', modelName: 'Claude Opus 5', nameDerived: false, state: 'working' });
-  assert.match(surfaced, /shown by its machine name/,
+  /* #684: the disclosure in the stranger's words. "shown by its machine name"
+     only read as English to someone who had read the code. */
+  assert.match(surfaced, /no name was chosen for it/,
     'a display name that IS the machine name carries no disclosure on the panel');
+  assert.doesNotMatch(surfaced, /machine name/,
+    'the panel still says "machine name", which is a code word a stranger has never met (#684)');
   assert.match(surfaced, /Archive worker · Claude Opus 5 · /,
     'CONTROL: the meta line lost its role and model, so the disclosure assertion floats free');
   // ⚠️ CAPITAL A, and that is the assertion rather than an incidental. The
@@ -3211,8 +3215,8 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
     'the panel rendered a parsed role in different capitals from the card that '
     + 'links to it, which is the second-definition drift roleLine exists to end');
   const named = drive({ role: 'archive worker', modelName: 'Claude Opus 5', nameDerived: true, state: 'working' });
-  assert.doesNotMatch(named, /machine name/,
-    'an agent with a real display name is told it is shown by its machine name');
+  assert.doesNotMatch(named, /no name was chosen/,
+    'an agent with a real display name is told no name was chosen for it');
   // The panel reads the SAME model derivation as both board renderers: a
   // provider-less name gets the same provider-first treatment everywhere,
   // and a missing name is the card's honest "Unknown Model", not an

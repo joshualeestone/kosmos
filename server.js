@@ -28,6 +28,10 @@ const {
   snapshot, paneRoster, countAgents, STATE, modelDisplayName,
   /* What tmux said the last time a look failed, for the 500 below to carry. */
   lastLookProblem,
+  /* #684: the ONE derivation of "did anyone actually name this agent", for
+     the offline rows below. `register.survey`'s shownAs cannot answer it --
+     shownName falls back to the machine name, so it is never empty. */
+  readIdentity,
 } = require('./engine/status');
 const removal = require('./engine/remove');
 const leftover = require('./engine/delete-leftover');
@@ -1039,7 +1043,16 @@ const server = http.createServer((req, res) => {
                 name: k.shownAs || k.name,
                 sessionName: k.name,
                 session: null,
-                nameDerived: false,
+                /* #684: TRUE WHEN A RECORD SUPPLIED THE NAME -- readIdentity's
+                   own `derived`, not a re-derivation (shownAs cannot answer
+                   this: it falls back to the machine name, so it is never
+                   empty). This was hardcoded false, so every offline agent
+                   WITH a chosen name wore the panel's no-name disclosure
+                   about a name somebody chose (witnessed on the first-run
+                   journey walk: a just-created agent's panel said it was
+                   shown by its machine name). Fail toward false: an identity
+                   we could not read keeps the honest disclosure. */
+                nameDerived: (() => { try { return readIdentity(k.name).derived === true; } catch { return false; } })(),
                 role: profile.role || null,
                 /* Nothing to act ON: there is no pane to type into, no session
                    to capture, and every gate downstream reads these. */
