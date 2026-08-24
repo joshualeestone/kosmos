@@ -8092,6 +8092,8 @@ function renderConnection(conn, agents) {
    and never showing again would hide the release after this one. */
 let UPDATING_NOW = false;
 let LAST_VERSION = null;   // the served version, kept by tick for the update wait loop
+let LAST_BOOTED_AT = null; // #553: the server's boot identity, kept by tick
+let LAST_UPDATE_LOG = null; // #553: the installer diary path, from the engine
 function updateLaterVersion() {
   try { return localStorage.getItem('kosmos-update-later'); } catch { return null; }
 }
@@ -8467,21 +8469,80 @@ document.getElementById('uc-go').addEventListener('click', async () => {
      If neither happens before the deadline (installer found nothing to do,
      or died before the swap), reload anyway: the fresh page's own toast
      says what is actually true, which beats this overlay guessing. */
-  let sawDown = false;
+  /* #553: THE SPINNER CAN SAY IT FAILED. Every poll is folded through
+     updateVerdict (pure, slice-tested): done reloads into the finish
+     line; failed (the installer's OWN non-zero exit, matched to THIS
+     press by its start stamp) and did-not-take (the board went away and
+     came back on the old version) and the deadline each paint a true
+     sentence with Try again and Reload instead of a blind reload into
+     a toast that says update available; slow keeps waiting but says so.
+     "It failed" is only ever the installer's word, never our guess. */
   const before = LAST_VERSION;
-  const deadline = Date.now() + 3 * 60 * 1000;
-  while (Date.now() < deadline) {
+  const myStart = body && body.startedAt ? String(body.startedAt) : null;
+  const t0 = Date.now();
+  const msg = back.querySelector('.upd-msg');
+  /* Remembered from the last status seen: the diary path from the engine
+     (never guessed), and the boot identity the press was made against. */
+  let logSeen = LAST_UPDATE_LOG || null;
+  const bootBefore = LAST_BOOTED_AT || null;
+  const settle = (verdict, versionNow, attempt) => {
+    const logAt = (attempt && attempt.log) || logSeen || null;
+    const still = versionNow ? ' Kosmos is still on ' + esc(versionNow) + '.' : '';
+    const notes = logAt ? ' The installer\'s notes are at <code>' + esc(logAt) + '</code>.' : '';
+    const text = verdict === 'failed'
+      ? '<b>The update did not take.</b>The installer ' + (attempt && attempt.code != null ? 'stopped (code ' + esc(String(attempt.code)) + ')' : 'could not be started') + '.' + still + notes
+      : verdict === 'did-not-take'
+        ? '<b>The update did not take.</b>Kosmos came back on the same version.' + still + notes
+        : '<b>This is taking longer than expected.</b>' + still.replace(/^ /, '')
+          + ' If Kosmos does not come back on its own, open it again from Applications.' + notes;
+    /* One span for the sentence: .upd-msg is a flex column, so bare
+       inline children (the <code> path, the closing period) would each
+       become their own row. */
+    msg.innerHTML = '<span>' + text + '</span>'
+      + '<div class="frow" style="margin-top:12px;justify-content:center;">'
+      + '<button class="btn" type="button" id="upd-again">Reload and try again</button>'
+      + '<button class="btn uprime" type="button" id="upd-reload">Reload</button></div>';
+    msg.querySelector('#upd-reload').addEventListener('click', () => location.reload());
+    msg.querySelector('#upd-again').addEventListener('click', () => location.reload());
+    msg.focus();
+  };
+  for (;;) {
     await new Promise((r) => setTimeout(r, 2000));
+    let versionNow = null; let attempt = null; let reached = false; let bootNow = null;
     try {
       const ping = await fetch('/api/status', { cache: 'no-store' });
       if (ping.ok) {
-        const now = (await ping.json().catch(() => null) || {}).version;
-        if (sawDown || (before && now && now !== before)) break;
+        const st = await ping.json().catch(() => null) || {};
+        versionNow = st.version || null; attempt = st.updateAttempt || null; reached = true;
+        bootNow = st.bootedAt || null; if (st.updateLog) logSeen = st.updateLog;
       }
-    } catch { sawDown = true; }
+    } catch { /* a throw is not evidence of anything; the boot identity is */ }
+    const verdict = updateVerdict({ elapsedMs: Date.now() - t0, reached, before, now: versionNow, attempt, myStart, bootBefore, bootNow });
+    if (verdict === 'done') { location.reload(); return; }
+    if (verdict === 'slow') { msg.querySelector('b').textContent = 'Still updating.'; continue; }
+    if (verdict !== 'waiting') { settle(verdict, versionNow, attempt); return; }
   }
-  location.reload();
 });
+
+/* #553: the one place the overlay decides what is true. Pure, so the
+   suite can drive every branch. `attempt` is the server's record of the
+   last install attempt it saw END (a failure; a success kills the server
+   before it could be recorded); it counts only when its start stamp is
+   THIS press's, by exact equality, never by clocks. */
+function updateVerdict(v) {
+  const mine = v.attempt && v.myStart && v.attempt.startedAt === v.myStart;
+  if (mine && v.attempt.endedAt && v.attempt.code !== 0) return 'failed';
+  if (v.reached && v.before && v.now && v.now !== v.before) return 'done';
+  /* "Went away and came back" is a CHANGE OF BOOT IDENTITY, never a
+     client-side fetch throw: a wifi toggle or a sleep aborts a localhost
+     fetch while the server lives, and a failure sentence on that guess
+     would be the page putting words in the installer's mouth. */
+  const rebooted = v.reached && v.bootBefore && v.bootNow && v.bootNow !== v.bootBefore;
+  if (rebooted && v.before && v.now === v.before) return 'did-not-take';
+  if (v.elapsedMs >= 3 * 60 * 1000) return 'deadline';
+  if (v.elapsedMs >= 90 * 1000 && v.reached && !rebooted) return 'slow';
+  return 'waiting';
+}
 
 /* "Updated. You are on Kosmos X." -- once, from the first status after a
    reload that followed an install. Shown ONLY when the served version
@@ -8715,6 +8776,8 @@ async function tick() {
     paintUpdateCard(data.version, data.update, data.updateLook);
     updatedNoteOnce(data.version);
     LAST_VERSION = data.version || LAST_VERSION;
+    LAST_BOOTED_AT = data.bootedAt || LAST_BOOTED_AT;
+    LAST_UPDATE_LOG = data.updateLog || LAST_UPDATE_LOG;
     // Set only after a response, never after a failure: a poll that threw has
     // still not told us what is on this machine.
     BOARD_LOOKED = true;

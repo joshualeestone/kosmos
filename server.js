@@ -103,6 +103,9 @@ const reports = require('./engine/reports');
 const limits = require('./engine/limits');
 const engmode = require('./engine/engmode');
 const accounts = require('./engine/accounts');
+/* #553: this process's boot identity, for the update overlay to tell "the
+   board went away and came back" from a client-side fetch failure. */
+const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const ping = require('./engine/ping');
 const notify = require('./engine/notify');
@@ -1168,6 +1171,17 @@ const server = http.createServer((req, res) => {
            able to keep; a source-run board says what it is instead (the
            engine-stale line from #338 covers "newer code is on disk"). */
         update: updates.installedRoot() ? updates.available() : null, updateLook: updates.lastLook(),
+        /* #553: the last install attempt this server saw END (a failure;
+           a success kills the server first). The overlay reads it to say
+           a true sentence instead of spinning. */
+        updateAttempt: updates.lastAttempt(),
+        /* And the two facts the overlay needs even when the attempt record
+           is gone with the old server: the diary's path (from the engine's
+           root, never guessed by the page) and THIS server's boot identity,
+           so "went away and came back" is a change of boot, never a client
+           network hiccup. */
+        updateLog: updates.installLog(),
+        bootedAt: BOOTED_AT,
         engine: engineFreshness(),
       });
     } catch (err) {
@@ -2468,7 +2482,10 @@ const server = http.createServer((req, res) => {
       // Idempotent: the first POST started it; a retry, a double click, or a
       // second tab gets the same true answer without a second installer
       // racing the first through the stage-and-swap.
-      sendJson(res, 200, { ok: true, updating: avail.version, already: true });
+      /* The in-flight attempt is the one this second press joins; its
+         stamp rides back so a reattached overlay can see its verdict. */
+      const inflight = updates.lastAttempt();
+      sendJson(res, 200, { ok: true, updating: avail.version, already: true, startedAt: inflight ? inflight.startedAt : null });
       return;
     }
     try { updates.beginInstall(); }
@@ -2476,7 +2493,11 @@ const server = http.createServer((req, res) => {
       sendJson(res, 500, { error: 'we could not start the update', detail: String((err && err.message) || err) });
       return;
     }
-    sendJson(res, 200, { ok: true, updating: avail.version });
+    /* #553: the attempt's own start stamp rides back so the page can tell
+       THIS attempt's verdict from any older one by exact equality, never
+       by comparing clocks. */
+    const att = updates.lastAttempt();
+    sendJson(res, 200, { ok: true, updating: avail.version, startedAt: att ? att.startedAt : null });
     return;
   }
 
