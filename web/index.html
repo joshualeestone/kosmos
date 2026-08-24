@@ -208,7 +208,15 @@
 /* Containers that are themselves elevated: a field on them takes the PAPER of
    the same token system, so it is never the identical colour as its own box. */
 .dbox, .pjcol { --field-fill: var(--k-bg); }
-.rm-box, .rolepick, #pj-settings-view, #pj-add-view { --field-fill: var(--bg); }
+.rm-box, .rolepick { --field-fill: var(--bg); }
+/* ⚠️ The project dialogs used to sit in the group above. Josh, 2026-08-23
+   19:58: "The dialog box on the projects has a gray area behind the input
+   text part. Can we make that white so that it will match what the dialog
+   box looks like on the agents' portion." So they take the root's white,
+   the same as the create-agent dialog; the never-identical rule above is
+   consciously overridden here on his call, and the field still reads
+   through its border. */
+#pj-settings-view, #pj-add-view { --field-fill: var(--k-surface); }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -1244,9 +1252,11 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
             font-variant-numeric: tabular-nums;
             color: #fff; background: #b3261e; border-radius: 100px;
             padding: .12rem .42rem; border: 2px solid var(--k-surface); }
-.ansgo { margin-left: auto; padding: 0 0 1px; font-size: .8125rem; font-weight: 600; color: var(--k-ink-2);
+.ansgo { margin-left: auto; font-size: .8125rem; font-weight: 600; color: var(--k-ink-2);
          border: 0; background: none;
-         padding: 0; font-family: inherit; cursor: pointer;
+         /* One padding declaration only: a second one in this same rule was
+            silently clobbering the pack's 1px baseline nudge (#179). */
+         padding: 0 0 1px; font-family: inherit; cursor: pointer;
          /* ⚠️ 24px minimum (WCAG 2.2 SC 2.5.8), the floor the retired
             .card-answer carried and .linkish duplicates: this is the one
             control on the card whose function nothing else duplicates
@@ -1685,11 +1695,11 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
 .tasknum { font: 600 11px var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
            letter-spacing: .06em; color: var(--label-2); text-transform: uppercase; margin: 0 0 4px; }
 .tmeta { display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-         padding: 7px 0; border-bottom: 1px solid var(--k-rule); font-size: .8125rem; }
+         padding: 8px 0; border-bottom: 1px solid var(--k-rule); font-size: .8125rem; }
 .tmeta:last-of-type { border-bottom: 0; }
 .tmeta > span { color: var(--label-2); }
 .tmeta > b { font-weight: 600; text-align: right; min-width: 0; }
-.tkstate { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.tkstate { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; } /* pack (#179) */
 /* The pack has `10px 0 0` and this had `10px 0 18px`. Mona Lisa: either is
    defensible, pick one. Picked the pack's: the note is about the button
    directly above it, and 18px of air below pushes it toward the columns
@@ -1807,7 +1817,7 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
                stadium, a wrapped verdict renders a small card instead of a
                blob with semicircular ends. */
             max-width: 36ch; text-align: left; line-height: 1.45;
-            padding: .18rem .6rem; border-radius: 1.1em; border: 1px solid var(--k-rule);
+            padding: .18rem .6rem; border-radius: 100px; border: 1px solid var(--k-rule);
             color: var(--k-ink-2); }
 .delivery.placed { border-color: rgba(47,125,90,.5); }
 .delivery.failed { border-color: rgba(179,38,30,.5); }
@@ -2407,7 +2417,7 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
               border: 0; padding: 0; margin: 0; min-width: 0; }
 .pick2 {
   display: grid; grid-template-columns: 18px auto 1fr; align-items: baseline;
-  gap: var(--space-2) var(--space-5);
+  gap: var(--space-2) 10px; /* the pack's column gap; 10 is not a scale step (#179) */
   width: 100%; text-align: left; font: inherit; color: var(--label); cursor: pointer;
   background: var(--bg-elevated); border: 1px solid var(--separator);
   border-radius: var(--radius-control); padding: 11px 14px;
@@ -2637,12 +2647,14 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
    under the role menu was removed outright, so the only place a caution is
    painted now is the last step. The treatment is unchanged. */
 .rolelimit {
-  display: block; margin-top: var(--space-3); padding-left: var(--space-4);
-  border-left: 2px solid var(--border-strong); color: var(--label);
+  /* The pack's values (#179): quieter ink, 14px lead; neither 14 nor the
+     18 below is a scale step, said plainly rather than rounded to one. */
+  display: block; margin-top: var(--space-3); padding-left: 14px;
+  border-left: 2px solid var(--border-strong); color: var(--label-2);
   font: var(--text-callout) var(--font-ui); }
 /* On the last step it is a block in its own right rather than a tail on a
    paragraph, so it gets the room a standalone sentence needs above the button. */
-.rolelimit { margin: var(--space-5) 0 0; }
+.rolelimit { margin: 18px 0 0; }
 .rolelimit[hidden] { display: none; }
 .pick small { font: var(--text-callout) var(--font-ui); color: var(--label-3); }
 .ticks { margin: var(--space-6) 0 0; }
@@ -2803,9 +2815,10 @@ svg { display: block; }
 /* A focus ring on the summary, because it IS the control and a disclosure
    somebody can reach by keyboard but cannot see focused fails AA (2.4.7). */
 .smore > summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-.smore ul { list-style: none; margin: 6px 0 0; padding: 0 0 0 4px; }
-.smore li { color: var(--k-ink-2); line-height: 1.7; }
-.smore-t { margin: 10px 0 0 4px; color: var(--k-ink-2); font-weight: 600; }
+.smore ul { list-style: none; margin: 8px 0 0; padding: 0 0 0 4px; color: var(--k-ink-2); }
+.smore li { color: var(--k-ink-2); line-height: 1.7; margin: 3px 0; }
+.smore-t { margin: 9px 0 0; color: var(--k-ink-2); font-weight: 600;
+           font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase; }
 code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          background: color-mix(in srgb, var(--k-ink) 7%, transparent); }
 
