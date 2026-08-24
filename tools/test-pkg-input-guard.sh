@@ -88,6 +88,11 @@ printf '{"version":"9.9.9"}\n' > "$T/package.json"
 chmod -x "$T/install/pkg-scripts/postinstall"
 [ "$(pkg_input_sha "$T")" != "$base" ] && ok "CONTROL: dropping the postinstall's x bit changes the sha" || bad "chmod -x on the postinstall left the sha alone -- a pkg that runs nothing reads as current"
 chmod +x "$T/install/pkg-scripts/postinstall"; base="$(pkg_input_sha "$T")"
+# only the x bit, not the whole mode: a group-read change must leave the sha alone,
+# or a umask-077 worktree would hash differently from the tree it froze.
+chmod g-r "$T/install/pkg-resources/conclusion.html"
+[ "$(pkg_input_sha "$T")" = "$base" ] && ok "CONTROL: a mode change other than x (chmod g-r) leaves the sha alone" || bad "a non-x mode bit moved the sha -- the hasher frames the whole mode, and umask would break the freeze"
+chmod g+r "$T/install/pkg-resources/conclusion.html"
 printf 'junk\n' > "$T/install/pkg-resources/.DS_Store"
 [ "$(pkg_input_sha "$T")" = "$base" ] && ok "CONTROL: a dotfile in an input dir (.DS_Store) is not an input" || bad "a dotfile moved the sha -- the shared checkout would read stale"
 rm -f "$T/install/pkg-resources/.DS_Store"
@@ -129,6 +134,10 @@ pkg_sidecar_write "$D/Kosmos.pkg" "$want" "$D/Kosmos.pkg.inputs"
 # and the control's control: touch one input in source, the current pair is stale again.
 printf '#!/bin/sh\necho changed again\n' > "$T/install/pkg-scripts/postinstall"; want2="$(pkg_input_sha "$T")"
 if pkg_publish_needed "$D" "$want2" >/dev/null; then ok "CONTROL: after a source edit the same pair is stale again"; else bad "a source edit did not make the pair stale"; fi
+# put the fixture back: a control that leaves its edit behind makes every later
+# comparison against $base a comparison against a different tree (it did).
+printf '#!/bin/sh\necho hello world\n' > "$T/install/pkg-scripts/postinstall"
+[ "$(pkg_input_sha "$T")" = "$base" ] && ok "fixture restored: the sha is back to base" || bad "the fixture did not restore to base after the decision block"
 rm -rf "$D"
 
 # a name with a space is one input, checked and hashed as one.
@@ -153,6 +162,17 @@ chmod 755 "$T/install/pkg-resources"
 ln -s welcome.html "$T/install/pkg-resources/link.html"
 if pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "a symlinked input did not refuse (it would hash as absent)"; else grep -q "symlink" "$T/err" && ok "a symlink among the inputs refuses and says so" || bad "the refusal did not name the symlink: $(cat "$T/err")"; fi
 rm -f "$T/install/pkg-resources/link.html"
+# a name containing a newline refuses (the stream is line-delimited; it would hash as two absent names).
+printf 'nl\n' > "$T/install/pkg-resources/a
+b"
+if pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "a name containing a newline did not refuse (it would hash as absent)"; else grep -q "newline in the name" "$T/err" && ok "a name containing a newline refuses and says so" || bad "the refusal did not name the newline: $(cat "$T/err")"; fi
+rm -f "$T/install/pkg-resources/a
+b"
+# a hidden directory is pruned, never entered: an unsearchable one is silent and does not change the sha.
+before_hid="$(pkg_input_sha "$T")"
+mkdir -p "$T/install/pkg-resources/.hid"; printf 'h\n' > "$T/install/pkg-resources/.hid/x"; chmod 000 "$T/install/pkg-resources/.hid"
+if out="$(pkg_input_sha "$T" 2>&1)"; then [ "$out" = "$before_hid" ] && ok "an unsearchable hidden directory is pruned: same sha, no complaint in the output" || bad "a hidden directory changed the sha or printed: $out"; else bad "a hidden directory made the hash refuse: $out"; fi
+chmod 755 "$T/install/pkg-resources/.hid"; rm -rf "$T/install/pkg-resources/.hid"
 
 # the upload filter, evaluated by git, not grepped.
 F="$(mktemp -d "${TMPDIR:-/tmp}/pkg-filter.XXXXXX")"

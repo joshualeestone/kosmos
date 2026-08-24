@@ -11,7 +11,8 @@
    versioned tarball, so a notarisation flake never costs a version bump) builds,
    signs, notarises and publishes Kosmos.pkg + .sha256 + .inputs whenever the SITE DIST's
    copy (what the next deploy will serve) is missing, has no sidecar, was built from
-   other inputs, disagrees with its checksum, or has a sidecar vouching for other bytes;
+   other inputs, has no checksum, disagrees with its checksum, or has a sidecar vouching
+   for other bytes;
    otherwise it says why not. Step 9c then reads the SERVED host, six reads, and names
    the fact that failed. verify-served.sh checks the served pkg's inputs, checksum,
    signature, staple, and that the sidecar vouches for the served bytes. The sidecar is

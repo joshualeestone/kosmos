@@ -26,8 +26,10 @@
 # signature/timestamp (those change every build and are not source), and NOT
 # mtimes: bytes plus the executable bit (pkgbuild ships modes, and a postinstall
 # without x is a pkg that runs nothing), and every path repo-relative, so a
-# fresh worktree at any root hashes the same as the one it froze (git carries
-# the x bit across worktrees, not mtimes; the two-root control proves it).
+# fresh worktree at any root hashes the same as the one it froze. The two-root
+# control proves the hashing is root-independent; that git carries the x bit
+# and nothing else mode-wise across a fresh worktree was measured separately
+# (a detached worktree under umask 077, cwd /, a non-C locale: same sha).
 # ⚠️ Hashing the whole build script means a comment edit there also asks for a
 # rebuild + notarise + publish. That over-asks by minutes; the alternative
 # under-asks by silently shipping an old Conclusion screen, which is the hole
@@ -88,7 +90,7 @@ _pkg_stream_file() {
 }
 # Every non-hidden regular file under the cwd, sorted, framed.
 _pkg_stream_dir() {
-  find . -type f ! -path '*/.*' | LC_ALL=C sort | while IFS= read -r f; do _pkg_stream_file "$f"; done
+  find . -name '.?*' -prune -o -type f -print | LC_ALL=C sort | while IFS= read -r f; do _pkg_stream_file "$f"; done
 }
 # The first input that cannot be hashed as it is, among the two dirs and the
 # build script, or nothing. NUL-delimited so a name with a space is one name.
@@ -102,6 +104,17 @@ _pkg_stream_dir() {
 #                                      guessing what a link is worth. None
 #                                      exist today; if one is ever wanted,
 #                                      decide here how to hash it.
+#   a name containing a newline        this check is NUL-delimited, the
+#                                      stream below is line-delimited, so
+#                                      such a name would frame as two names
+#                                      that do not exist and hash as absent
+#                                      (measured). Refused here, by name.
+# Hidden entries are pruned (not merely filtered), so a hidden tree is never
+# entered: an unsearchable .dir printed find's complaint into the release log.
+# A newline, held once, so the test below is a plain function call: a case
+# pattern built from $(printf) inside a $( ) misparses on bash 3.2.
+_PKG_NL="$(printf '\nx')"; _PKG_NL="${_PKG_NL%x}"
+_pkg_has_newline() { case "$1" in *"$_PKG_NL"*) return 0;; esac; return 1; }
 _pkg_first_unreadable() {
   local d f
   for d in "$1" "$2"; do
@@ -109,7 +122,8 @@ _pkg_first_unreadable() {
     # substitution below, which would report nothing and stream an empty
     # section (measured), the sha-over-less this function exists to refuse.
     [ -r "$d" ] && [ -x "$d" ] || { printf 'unsearchable directory %s' "$d"; return 0; }
-    f="$(cd "$d" && find . ! -path '*/.*' \( -type f -o -type d -o -type l \) -print0 | while IFS= read -r -d '' f; do
+    f="$(cd "$d" && find . -name '.?*' -prune -o \( -type f -o -type d -o -type l \) -print0 | while IFS= read -r -d '' f; do
+           if _pkg_has_newline "$f"; then printf 'newline in the name of %s/%s' "$d" "${f#./}"; break; fi
            if [ -L "$f" ]; then printf 'symlink %s/%s' "$d" "${f#./}"; break; fi
            if [ -d "$f" ]; then [ -r "$f" ] && [ -x "$f" ] || { printf 'unsearchable directory %s/%s' "$d" "${f#./}"; break; }
            else [ -r "$f" ] || { printf 'unreadable %s/%s' "$d" "${f#./}"; break; }; fi
