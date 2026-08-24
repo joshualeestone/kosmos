@@ -47,7 +47,12 @@ prof_sum() {
 }
 BEFORE_PROFILES="$(prof_sum)"
 BEFORE_AGENTS="$(ls "$HOME/Library/LaunchAgents" 2>/dev/null | sort)"
-BEFORE_LABELS="$(launchctl list 2>/dev/null | grep -o 'com\.kosmos[^"[:space:]]*' | sort)"
+# The launchd witness (#566): label AND registered plist path, snapshotted
+# together, so the final check can tell a real job from a sandboxed test
+# create instead of failing on every honest create-verification this Mac
+# hosts. The judging rules live in the lib so the test drives the same code.
+. "$(dirname "$0")/lib/launchd-witness.sh"
+BEFORE_JOBS="$(lw_snapshot)"
 
 kill_sandbox() {
   # Kill by state path, never by name: a name is a guess, the path is ours.
@@ -248,11 +253,35 @@ esac
 # And EVERY com.kosmos label, not only the board: the uninstall path also
 # manages com.kosmos.agent.* jobs, and a sandbox-registered agent label
 # would slip every file witness for the same reason the board's did.
-AFTER_LABELS="$(launchctl list 2>/dev/null | grep -o 'com\.kosmos[^"[:space:]]*' | sort)"
-if [ "$BEFORE_LABELS" = "$AFTER_LABELS" ]; then
-  pass "the launchd domain holds the same com.kosmos labels it started with"
+#
+# ⚠️ JUDGED BY PLIST PATH, NOT BY LABEL EQUALITY (#566). launchd has one gui
+# domain, so any honest create-and-chat verification on this Mac bootstraps
+# a real com.kosmos.agent.* job into it even when its store is sealed -- the
+# strict equality failed on every such run, forever. The lib names each
+# changed job REAL / OURS / SANDBOX / UNKNOWN; only the first, second and
+# fourth fail. A SANDBOX job is somebody else's test create: ignored, and
+# SAID, because a transient job must read as "observed, ignored" rather
+# than as silence -- while ignoring OURS would let this harness's own
+# uninstall leak hide behind the same word.
+AFTER_JOBS="$(lw_snapshot)"
+if [ "$BEFORE_JOBS" = "$AFTER_JOBS" ]; then
+  pass "the launchd domain holds the same com.kosmos jobs it started with"
 else
-  fail "launchd's com.kosmos labels changed: $(printf '%s\n%s' "$BEFORE_LABELS" "$AFTER_LABELS" | sort | uniq -u | tr '\n' ' ')"
+  LW_REAL_CHANGES=0
+  while IFS=' ' read -r _kind _label _path; do
+    [ -n "$_kind" ] || continue
+    case "$_kind" in
+      REAL)    fail "a REAL com.kosmos job changed during the run: $_label ($_path)"; LW_REAL_CHANGES=1 ;;
+      OURS)    fail "uninstall left this sandbox's job registered in launchd: $_label ($_path)"; LW_REAL_CHANGES=1 ;;
+      UNKNOWN) fail "a com.kosmos job appeared or vanished too fast to read where it was registered from: $_label; rerun to be sure"; LW_REAL_CHANGES=1 ;;
+      SANDBOX) say "   sandboxed create observed elsewhere on this Mac, ignored: $_label (plist at $_path, not ~/Library/LaunchAgents)" ;;
+    esac
+  done <<LWEOF
+$(lw_judge "$BEFORE_JOBS" "$AFTER_JOBS" "$HOME/Library/LaunchAgents" "$SB")
+LWEOF
+  if [ "$LW_REAL_CHANGES" -eq 0 ]; then
+    pass "the launchd domain's changes were all sandboxed test creates, named above"
+  fi
 fi
 
 say ""
