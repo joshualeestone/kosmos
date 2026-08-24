@@ -255,6 +255,30 @@ test('#249: a Codex pane mid-task is working, and a live one is never "stopped"'
   }
 });
 
+test('#249: the command-approval dialog, observed with a live key, is needs_you', () => {
+  /**
+   * The one shape #249 shipped WITHOUT, refused rather than guessed while
+   * the machine's key answered 401. CAPTURED 2026-08-24 from a live
+   * codex-cli 0.149.1 pane the morning Josh's working key arrived: the
+   * dialog's selected option is '› 1. Yes, proceed (y)', which the marker
+   * shipped from the trust prompt already matches -- so this is EVIDENCE
+   * joining the engine, not a marker extension, and the state-reading
+   * architecture question stays unruled and untouched.
+   */
+  const CODEX_APPROVAL = `• Running touch /Users/agent1/codex-approval-probe.txt
+  Would you like to run the following command?
+  Environment: local
+  Reason: Allow creating codex-approval-probe.txt in /Users/agent1, outside the workspace?
+  $ touch /Users/agent1/codex-approval-probe.txt
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with \`touch /Users/agent1/codex-approval-probe.txt\` (p)
+  3. No, and tell Codex what to do differently (esc)
+  Press enter to confirm or esc to cancel`;
+  const r = classify(pane({ command: 'codex' }), CODEX_APPROVAL);
+  assert.equal(r.state, STATE.NEEDS_YOU);
+  assert.equal(r.confidence, CONFIDENCE.SCRAPED);
+});
+
 test('#249: a Codex agent at its empty composer is idle, sitting at its prompt', () => {
   const r = classify(pane({ command: 'codex' }), CODEX_IDLE);
   assert.equal(r.state, STATE.IDLE);
