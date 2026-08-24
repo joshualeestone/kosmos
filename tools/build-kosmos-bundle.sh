@@ -129,10 +129,11 @@ TUNNEL_BIN="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
 [ -f "$TUNNEL_BIN" ] || { echo "the Plus connector is missing: no kosmos-tunnel at $TUNNEL_BIN (build it with kosmos-relay tools/build-tunnel-release.sh, or set KOSMOS_TUNNEL_BIN)" >&2; exit 1; }
 # Refuse anything but a universal Mach-O carrying BOTH arches: a per-arch or
 # wrong file would install and then fail Plus on the other arch, silently.
-# Require BOTH arches by NAME, and reject arm64e-standing-in-for-arm64: `file`
-# prints one "(for architecture <arch>)" line per slice, so match those tokens
-# exactly rather than as substrings ("arm64" is a substring of "arm64e", which
-# stock arm64 Macs cannot run).
+# Require BOTH arches by NAME, and reject arm64e-standing-in-for-arm64: `lipo
+# -archs` prints the slice arch names space-separated ("x86_64 arm64"), so match
+# space-padded tokens exactly rather than as substrings ("arm64" is a substring
+# of "arm64e", which stock arm64 Macs cannot run). A non-Mach-O input makes lipo
+# fail with empty output, which falls to the refuse branch.
 _tunnel_arches="$(lipo -archs "$TUNNEL_BIN" 2>/dev/null || echo '')"
 case " $_tunnel_arches " in
   *" x86_64 "*) case " $_tunnel_arches " in *" arm64 "*) : ;; *) echo "the Plus connector at $TUNNEL_BIN lacks a plain arm64 slice (lipo: $_tunnel_arches)" >&2; exit 1 ;; esac ;;
@@ -158,10 +159,10 @@ codesign -v "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || { echo "the
 # always-valid system libs, no bundled dylibs), so one codesign of the
 # executable is sufficient and no inside-out dylib pass is needed -- but this
 # runs it to prove the signed binary loads and executes on THIS build machine's
-# native slice (the other slice cannot run here without emulation). For this
-# binary --help exercises that slice's entire linkage (unlike a binary whose
-# --version skips its heavy libs); the x86_64 slice's own load is covered when
-# an Intel install runs it, not provable at build time on Apple silicon.
+# native slice: under hardened runtime the load-time signature check of the
+# linked libraries happens at exec, so any invocation that starts the process
+# proves the load. The x86_64 slice's own load is covered when an Intel install
+# runs it, not provable here on Apple silicon without emulation.
 "$STAGE/app/bin/kosmos-tunnel" --help >/dev/null 2>&1 || { echo "the signed connector does not run (--help failed); it may not load under hardened runtime" >&2; exit 1; }
 # Provenance, logged not baked: the input's own checksum, and which
 # kosmos-relay commit produced it when the input sits in a checkout. This is

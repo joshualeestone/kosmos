@@ -5,7 +5,7 @@ A Mac that installs Kosmos has app/bin/kosmos-tunnel present, remote.js finds
 it without a PATH entry, and the release proves the SERVED connector is the one
 the cut built (by checksum, named in the log) rather than skipping it. A build
 with no connector input REFUSES rather than shipping a Plus that cannot turn on.
-Signing is the Apple lane's (Splinter): the connector arrives already signed.
+The connector is Developer ID signed in this build (the input arrives UNSIGNED from kosmos-relay); whole-app/DMG notarisation is the Apple lane's (Splinter).
 
 ## Why
 The tunnel routes, the door opens, the screen exists, and the connector never
