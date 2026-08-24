@@ -10754,3 +10754,17 @@ test('the doctrine routes: plan, consent-by-hash, not-now, and the fleet list', 
     board.restore();
   }
 });
+
+test('the found-agents block can be dismissed forever, and every answer carries it', async () => {
+  let r = await req('/api/found-agents');
+  assert.equal(r.status, 200);
+  const before = JSON.parse(r.body);
+  if (before.ok === true) assert.equal(before.dismissed, false);
+  r = await req('/api/found-agents/dismiss', { method: 'POST' });
+  assert.equal(r.status, 200);
+  assert.equal(JSON.parse(r.body).dismissed, true);
+  r = await req('/api/found-agents');
+  const after = JSON.parse(r.body);
+  if (after.ok === true) assert.equal(after.dismissed, true);
+  assert.ok(require('node:fs').existsSync(require('./engine/discover').DISMISS_FILE));
+});
