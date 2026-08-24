@@ -44,8 +44,9 @@ test('each settings box lives in the section the mock puts it in', () => {
 
 test('the nav is in the ruled order, only You shows before a click, and the two renamed headings read as the mock', () => {
   const gos = [...BODY.matchAll(/<button type="button" data-go="([a-z]+)"/g)].map((m) => m[1]);
-  // Global skills joined after Connections (#478).
-  assert.deepEqual(gos, ['you', 'accounts', 'connect', 'gskills', 'talking', 'mac', 'updates', 'advanced']);
+  /* Global skills joined after Connections (#478); Plus Account before
+     Advanced (Josh, 2026-08-23 19:15). Union merged in landing order. */
+  assert.deepEqual(gos, ['you', 'accounts', 'connect', 'gskills', 'talking', 'mac', 'updates', 'plus', 'advanced']);
   const secs = [...BODY.matchAll(/<section class="dsec" id="s-sec-[a-z]+" data-sec="([a-z]+)"[^>]*?( hidden)?>/g)]
     .map((m) => ({ key: m[1], hidden: !!m[2] }));
   assert.deepEqual(secs.map((s) => s.key), gos, 'the sections are not in the order the nav lists them');
