@@ -352,8 +352,19 @@ git -C "$SITE" push -q origin HEAD || {
 [ -z "$(git -C "$SITE" status --porcelain -- $_site_paths)" ] || { echo "release files still dirty after the commit"; exit 1; }
 echo "   site committed and pushed: $(git -C "$SITE" log --oneline -1)"
 
-echo "== 8. deploy =="
-( cd "$SITE" && vercel deploy --prod --yes )
+echo "== 8. deploy, from an export of the COMMITTED site plus the named artifacts (#649) =="
+# 🛑 NEVER THE WORKING TREE. This deployed $SITE itself, so a cut published
+# whatever anybody had uncommitted in the shared checkout (a half-edited
+# homepage twice during the 0.5.22 cut, caught by hand), and the gitignored
+# release artifacts reached production only through that accident. The
+# export is `git archive HEAD` (the pages as committed, which 7b just pushed)
+# plus each artifact class by name (tools/lib/site-deploy.sh says which and
+# why), and it prints what the working tree holds that does NOT ship. It
+# lives under BUILD_ROOT so the 2b trap removes it.
+. "$REPO/tools/lib/site-deploy.sh"
+_site_export="$BUILD_ROOT/site-export"
+site_deploy_export "$SITE" "$_site_export" || { echo "could not export the site for deploy; nothing was deployed"; exit 1; }
+( cd "$_site_export" && vercel deploy --prod --yes )
 
 echo "== 9. verify what is SERVED, from the code that fetches it =="
 # ⚠️ Retried, because a deploy is live before every edge has it, and a single
