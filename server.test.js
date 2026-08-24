@@ -2861,13 +2861,14 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   assert.equal(known['st-idle'].textContent, '1', 'a fully-known fleet must not wear the floor mark');
   assert.equal(live['st-attn'].textContent, '1', 'the needs-you tile lost its count');
   assert.equal(live['st-attn-tile'].hidden, false, 'a nonzero needs-you must show the alert tile');
+  /* #653 (Josh, 2026-08-24): the Not-running tile is gone. The painter must
+     not touch its old ids; the stub keeps them so a regression that writes
+     them again is caught here rather than as a null dereference. */
+  assert.equal(live['st-off'].textContent, '', 'the painter wrote the Not-running tile Josh removed');
+  assert.equal(some['st-off'].textContent, '', 'the painter wrote the Not-running tile Josh removed');
   /* 🔑 THE FOURTH TILE, and it is what makes the row add up: working plus idle
      plus not-running is the agents total, which a person can check. */
-  assert.equal(live['st-off'].textContent, '0');
-  assert.equal(live['st-off-tile'].hidden, true, 'a fleet with none stopped shows a Not running tile');
   const some = drive(fleet, { total: 9, needsYou: 1, notRunning: 2 });
-  assert.equal(some['st-off'].textContent, '2', 'the not-running tile lost its count');
-  assert.equal(some['st-off-tile'].hidden, false, 'a stopped agent does not reach the headline');
   /* ⚠️ FROM THE COUNT, not from filtering the roster: the roster here holds no
      not-running rows at all, so a tile derived from it would read 0 and this
      assertion is what says which source won. */
@@ -2880,8 +2881,6 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
      unknowable, and hiding the tile is the same claim in another form
      (Mona Lisa, #294). */
   const murky = drive(fleet, { total: 7, needsYou: 1, notRunning: null });
-  assert.equal(murky['st-off'].textContent, '?', 'an unknowable count renders as a number');
-  assert.equal(murky['st-off-tile'].hidden, false, 'the tile hides, which says none are stopped');
 
   const calm = drive(fleet.filter((a) => a.state !== 'needs_you'), { total: 6, needsYou: 0 });
   assert.equal(calm['st-attn-tile'].hidden, true,

@@ -138,3 +138,14 @@ test('the unreadable branch was never at risk, because it writes through the hel
   render(STALE);
   assert.equal(el.innerHTML, first, 'the banner came back empty after an unreadable reading');
 });
+
+test('#655: the updated-itself line lives in the header\'s notice slot in the toast\'s shape, and the row has no Not-running tile (#653)', () => {
+  const fs2 = require('node:fs');
+  const page = fs2.readFileSync(require('node:path').join(__dirname, 'web', 'index.html'), 'utf8');
+  const slot = page.slice(page.indexOf('<div id="unote-slot">'), page.indexOf('<div id="uoffline-slot">'));
+  assert.match(slot, /<div class="utoast stale" id="newsbar" role="status" hidden>/, 'the news line is not in the header slot in the toast shape');
+  assert.match(slot, /id="newsbar-text"[\s\S]*id="newsbar-link"[\s\S]*id="newsbar-ok"/, 'the line lost its text, link or dismiss');
+  assert.equal((page.match(/class="newsbar"/g) || []).length, 0, 'the old full-width bar is still in the page');
+  assert.equal((page.match(/id="st-off-tile"/g) || []).length, 0, 'the Not-running tile is still in the stats row');
+  assert.doesNotMatch(page.slice(page.lastIndexOf('<script>')), /getElementById\('st-off/, 'a painter still writes the removed tile');
+});
