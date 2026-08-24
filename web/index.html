@@ -1714,6 +1714,18 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
            font-size: 13px; cursor: pointer; padding: 2px 4px; border-radius: 6px; flex: none; }
 .skillrm.armed { font-weight: 600; }
 .skillrow b { font: 600 var(--text-body) var(--font-ui); }
+/* AI policies (#685): one card per policy. The name and its three acts share
+   a line; where it came from and when sits beneath; then its opening words.
+   Rename swaps the name for a field in the same slot, so the card does not
+   jump. */
+.polcard { padding: 10px 2px; border-bottom: 0.5px solid var(--separator); }
+.polhead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.polname { font: 600 var(--text-body) var(--font-ui); overflow-wrap: anywhere; }
+.polacts { display: flex; gap: 14px; align-items: baseline; flex: none; }
+.polacts .linkish { font-weight: 500; color: var(--label-2); }
+.polfrom { display: block; margin-top: 2px; overflow-wrap: anywhere; }
+.polopen { display: block; margin-top: 6px; overflow-wrap: anywhere; }
+.polrenamerow { flex: 1; }
 .panel p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
   line-height: 1.45; color: var(--label-2); max-width: 62ch;
   /* --label-2, not k-ink-2: the detail sits on the legacy-token panel,
@@ -6370,7 +6382,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="accounts" aria-controls="s-sec-accounts">Accounts</button>
     <button type="button" data-go="connect" aria-controls="s-sec-connect">Connections</button>
     <button type="button" data-go="gskills" aria-controls="s-sec-gskills">Global Skills</button>
-    <button type="button" data-go="policy" aria-controls="s-sec-policy">AI Policy</button>
+    <button type="button" data-go="policy" aria-controls="s-sec-policy">AI Policies</button>
     <button type="button" data-go="talking" aria-controls="s-sec-talking">Agents Talking</button>
     <button type="button" data-go="mac" aria-controls="s-sec-mac">This Mac</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
@@ -6674,25 +6686,40 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       </div>
     </section>
   </section>
-  <section class="dsec" id="s-sec-policy" data-sec="policy" tabindex="-1" aria-label="AI policy" hidden>
+  <section class="dsec" id="s-sec-policy" data-sec="policy" tabindex="-1" aria-label="AI policies" hidden>
     <section class="dbox">
-      <h3 class="dlab">AI policy</h3>
+      <h3 class="dlab">AI policies</h3>
+      <!-- Several named policies, every one handed to every agent (#685; Josh,
+           2026-08-24 16:45: legal, engineering, branding each write one "for
+           everybody"). The name says who mandates it, not who receives it. No
+           example rows, by his ruling: an empty list with a working Add is
+           honest; a pre-filled "Legal" row is the placeholder that gets
+           believed. -->
       <p class="dhint" style="margin:0 0 12px;">
         If your company has rules for how AI gets used, put them here and
-        every agent on this Mac will follow them. Paste a link to the
-        policy, or paste the policy itself.
+        every agent on this Mac will follow them. Keep as many as you have,
+        say one from Legal and one from Engineering; every agent gets all
+        of them.
       </p>
       <div id="pol-state"></div>
       <div class="field" id="pol-add" style="margin-top:16px;">
-        <label class="flabel" for="pol-url">Add it from a link</label>
+        <label class="flabel" for="pol-name" id="pol-add-label">Add a policy</label>
+        <div class="fhint" id="pol-add-hint">Name it for whoever it comes from. Then paste a link to it, or paste the policy itself.</div>
+        <div class="frow" id="pol-name-row">
+          <input type="text" id="pol-name" maxlength="60" placeholder="Legal">
+        </div>
+        <label class="flabel" for="pol-url" style="margin-top:14px;">From a link</label>
         <div class="fhint">We fetch the page and hand its words to your agents. Your agents never visit the site themselves.</div>
         <div class="frow">
           <input type="text" id="pol-url" maxlength="2000" placeholder="https://yourcompany.com/ai-policy" inputmode="url">
           <button class="btn" id="pol-fetch" type="button">Fetch it</button>
         </div>
         <label class="flabel" for="pol-text" style="margin-top:14px;">Or paste it</label>
-        <textarea class="tk-inp" id="pol-text" rows="6" maxlength="16384" placeholder="Paste your company&rsquo;s AI policy here."></textarea>
-        <div class="frow" style="margin-top:8px;"><button class="btn" id="pol-save" type="button">Hand it to every agent</button></div>
+        <textarea class="tk-inp" id="pol-text" rows="6" maxlength="16384" placeholder="Paste the policy here."></textarea>
+        <div class="frow" style="margin-top:8px;">
+          <button class="btn" id="pol-save" type="button">Hand it to every agent</button>
+          <button class="linkish" id="pol-cancel" type="button" hidden>Keep the old words</button>
+        </div>
       </div>
       <p class="fmsg" id="pol-msg" role="status" aria-live="polite"></p>
     </section>
@@ -13916,6 +13943,20 @@ async function paintConnLive() {
   }
 }
 
+/* --- the company's AI policies (#479; plural since #685) -----------------
+   Several named policies, every one handed to every agent, stacked (Josh,
+   2026-08-24 16:45). The engine guarantees what this screen leans on: add
+   never overwrites (a taken name is refused), names are one line and unique,
+   order is add-order, and a stack too large for an instruction file is
+   refused before any agent is told. So the screen only has to say what
+   happened, never to check first. */
+let POL_EDIT = null;   // { id, name } while the form is replacing one policy's words
+const POL_ADD_HINT = document.getElementById('pol-add-hint').textContent;
+function polFrom(p) {
+  const when = p.savedAt ? new Date(p.savedAt).toLocaleDateString() : '';
+  const from = p.source === 'pasted' ? 'Pasted' : 'From ' + p.source;
+  return from + (when ? ', updated ' + when : '') + '.';
+}
 async function paintPolicy() {
   const box = document.getElementById('pol-state');
   box.textContent = '';
@@ -13924,45 +13965,148 @@ async function paintPolicy() {
     if (got.state !== 'saved') {
       const p = document.createElement('p'); p.className = 'fhint';
       p.textContent = got.state === 'unknown'
-        ? pjSentence(got.because || 'we could not read the saved policy')
-        : 'No policy here yet.';
+        ? pjSentence(got.because || 'we could not read the saved policies')
+        : 'No policies here yet.';
       box.append(p);
       return;
     }
-    const card = document.createElement('div'); card.className = 'skillrow';
-    const n = document.createElement('b');
-    n.textContent = got.policy.source === 'pasted' ? 'Your AI policy' : got.policy.source;
-    const d = document.createElement('span'); d.className = 'fhint'; d.style.display = 'block';
-    d.textContent = 'Added ' + (got.policy.savedAt ? new Date(got.policy.savedAt).toLocaleDateString() : '') +
-      '. Every agent gets it; each one starts following it at its next restart.';
-    const o = document.createElement('span'); o.className = 'fhint'; o.style.display = 'block'; o.style.marginTop = '6px';
-    o.textContent = got.policy.opening + (got.policy.chars > 240 ? '\u2026' : '');
-    const rm = document.createElement('button'); rm.className = 'btn'; rm.type = 'button';
-    rm.style.marginTop = '10px'; rm.textContent = 'Remove it';
-    rm.addEventListener('click', async () => {
-      const msg = document.getElementById('pol-msg');
-      msg.textContent = 'Removing\u2026';
-      try {
-        await (await fetch('/api/policy/remove', { method: 'POST' })).json();
-        msg.textContent = 'Removed. Each agent lets go of it at its next restart.';
-        paintPolicy();
-      } catch { msg.textContent = 'We could not reach Kosmos to remove it.'; }
-    });
-    card.append(n, d, o, rm);
-    box.append(card);
+    const list = Array.isArray(got.policies) ? got.policies : [];
+    /* Said once above the list, not once per card: with several policies
+       the same sentence under each would be the only thing on the screen
+       that repeats. */
+    const lead = document.createElement('p'); lead.className = 'fhint';
+    lead.textContent = list.length === 1
+      ? 'Every agent gets it; each one starts following it at its next restart.'
+      : 'Every agent gets all of these; each one starts following them at its next restart.';
+    box.append(lead);
+    for (const p of list) box.append(polCard(p));
   } catch {
     const p = document.createElement('p'); p.className = 'fhint';
-    p.textContent = 'We could not reach Kosmos to check for a policy.';
+    p.textContent = 'We could not reach Kosmos to check for policies.';
     box.append(p);
   }
 }
-function polSaid(got) {
+function polCard(p) {
+  const card = document.createElement('div'); card.className = 'polcard';
+  const head = document.createElement('div'); head.className = 'polhead';
+  const n = document.createElement('b'); n.className = 'polname'; n.textContent = p.name;
+  const acts = document.createElement('span'); acts.className = 'polacts';
+  const rename = document.createElement('button'); rename.type = 'button'; rename.className = 'linkish';
+  rename.textContent = 'Rename'; rename.setAttribute('aria-label', 'Rename the policy ' + p.name);
+  const swap = document.createElement('button'); swap.type = 'button'; swap.className = 'linkish';
+  swap.textContent = 'Replace its words'; swap.setAttribute('aria-label', 'Replace the words of the policy ' + p.name);
+  const rm = document.createElement('button'); rm.type = 'button'; rm.className = 'skillrm';
+  rm.textContent = 'Remove'; rm.setAttribute('aria-label', 'Remove the policy ' + p.name);
+  acts.append(rename, swap, rm);
+  head.append(n, acts);
+  const d = document.createElement('span'); d.className = 'fhint polfrom';
+  d.textContent = polFrom(p);
+  const o = document.createElement('span'); o.className = 'fhint polopen';
+  o.textContent = (p.opening || '') + (p.chars > 240 ? '…' : '');
+  card.append(head, d, o);
+
+  /* Rename in place: the name becomes a field in the same slot. Enter keeps,
+     Escape or "Leave it" puts the old name back. */
+  rename.addEventListener('click', () => {
+    if (head.querySelector('input')) return;
+    const inp = document.createElement('input'); inp.type = 'text'; inp.maxLength = 60; inp.value = p.name;
+    inp.setAttribute('aria-label', 'New name for ' + p.name);
+    const keep = document.createElement('button'); keep.type = 'button'; keep.className = 'btn'; keep.textContent = 'Keep';
+    const leave = document.createElement('button'); leave.type = 'button'; leave.className = 'linkish'; leave.textContent = 'Leave it';
+    const row = document.createElement('span'); row.className = 'frow polrenamerow'; row.append(inp, keep, leave);
+    n.replaceWith(row); acts.hidden = true; inp.focus(); inp.select();
+    const back = () => { row.replaceWith(n); acts.hidden = false; rename.focus(); };
+    leave.addEventListener('click', back);
+    const go = async () => {
+      const name = inp.value.trim();
+      const msg = document.getElementById('pol-msg');
+      if (!name) { msg.textContent = 'Give it a name first.'; return; }
+      if (name === p.name) { back(); return; }
+      keep.disabled = true;
+      msg.textContent = 'Renaming…';
+      try {
+        const res = await fetch('/api/policy/rename', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: p.id, name }) });
+        const got = await res.json();
+        if (!res.ok) { msg.textContent = pjSentence(got.error || 'we could not rename it'); keep.disabled = false; return; }
+        if (POL_EDIT && POL_EDIT.id === p.id) POL_EDIT.name = name;
+        msg.textContent = polSaid(got, 'renamed');
+        paintPolicy();
+      } catch { msg.textContent = 'We could not reach Kosmos to rename it.'; keep.disabled = false; }
+    };
+    keep.addEventListener('click', go);
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); go(); }
+      if (e.key === 'Escape') back();
+    });
+  });
+
+  /* Replacing the words uses the add form, aimed at this policy: the name
+     stays, the words change, and the engine keeps its place in the list. */
+  swap.addEventListener('click', () => polEditStart(p));
+
+  /* Remove asks once in place, like a skill's Remove: the second click is
+     the consent and looking away resets it. */
+  let armed = false;
+  rm.addEventListener('click', async () => {
+    if (!armed) { armed = true; rm.textContent = 'Remove it for good?'; rm.classList.add('armed'); return; }
+    rm.disabled = true;
+    const msg = document.getElementById('pol-msg');
+    msg.textContent = 'Removing…';
+    try {
+      const res = await fetch('/api/policy/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: p.id }) });
+      const got = await res.json();
+      if (!res.ok) { msg.textContent = pjSentence(got.error || 'we could not remove it'); rm.disabled = false; return; }
+      if (POL_EDIT && POL_EDIT.id === p.id) polEditStop();
+      msg.textContent = polSaid(got, 'removed');
+      paintPolicy();
+    } catch { msg.textContent = 'We could not reach Kosmos to remove it.'; rm.disabled = false; }
+  });
+  rm.addEventListener('blur', () => { if (!rm.disabled) { armed = false; rm.textContent = 'Remove'; rm.classList.remove('armed'); } });
+  return card;
+}
+function polEditStart(p) {
+  POL_EDIT = { id: p.id, name: p.name };
+  document.getElementById('pol-add-label').textContent = 'Replace the words of ' + p.name;
+  document.getElementById('pol-add-hint').textContent = 'Paste a link to the new version, or paste the new words. The name stays.';
+  document.getElementById('pol-name-row').hidden = true;
+  document.getElementById('pol-save').textContent = 'Replace it for every agent';
+  document.getElementById('pol-cancel').hidden = false;
+  document.getElementById('pol-msg').textContent = '';
+  document.getElementById('pol-add').scrollIntoView({ block: 'nearest' });
+  document.getElementById('pol-url').focus();
+}
+function polEditStop() {
+  POL_EDIT = null;
+  document.getElementById('pol-add-label').textContent = 'Add a policy';
+  document.getElementById('pol-add-hint').textContent = POL_ADD_HINT;
+  document.getElementById('pol-name-row').hidden = false;
+  document.getElementById('pol-save').textContent = 'Hand it to every agent';
+  document.getElementById('pol-cancel').hidden = true;
+}
+document.getElementById('pol-cancel').addEventListener('click', polEditStop);
+
+/* One sentence for what the agents did with it. `did` is the act that just
+   happened, because "Saved" over a removal would be a lie about it. */
+function polSaid(got, did) {
   const told = got.told || [];
   const misses = told.filter((t) => t.state !== 'told');
-  if (!told.length) return 'Saved. No agents are running yet; each one gets it when it exists.';
-  if (!misses.length) return 'Handed to every agent. Each one starts following it at its next restart.';
+  const lead = { handed: 'Saved', replaced: 'Replaced', renamed: 'Renamed', removed: 'Removed' }[did] || 'Saved';
+  if (!told.length) {
+    if (did === 'removed') return 'Removed. No agents are running, so there was nothing to take back.';
+    if (did === 'renamed') return 'Renamed.';
+    if (did === 'replaced') return 'Replaced. No agents are running yet; each one gets the new words when it exists.';
+    return 'Saved. No agents are running yet; each one gets it when it exists.';
+  }
+  if (!misses.length) {
+    if (did === 'handed') return 'Handed to every agent. Each one starts following it at its next restart.';
+    if (did === 'replaced') return 'Replaced for every agent. Each one starts following the new words at its next restart.';
+    if (did === 'renamed') return 'Renamed. Each agent sees the new name at its next restart.';
+    return 'Removed. Each agent lets go of it at its next restart.';
+  }
   const who = misses.map((m) => (m.shownAs || m.agent || 'one agent') + ' (' + pjSentence(m.because || 'could not be told') + ')').join('; ');
-  return 'Saved. ' + (told.length - misses.length) + ' of ' + told.length + ' agents have it. Not yet: ' + who;
+  const have = told.length - misses.length;
+  const verb = did === 'removed' ? 'let go of it' : (did === 'renamed' ? 'have the new name' : 'have it');
+  return lead + '. ' + have + ' of ' + told.length + ' agents ' + verb + '. Not yet: ' + who;
 }
 async function polSubmit(body, doing) {
   const msg = document.getElementById('pol-msg');
@@ -13971,18 +14115,25 @@ async function polSubmit(body, doing) {
     const res = await fetch('/api/policy', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const got = await res.json();
     if (!res.ok) { msg.textContent = pjSentence(got.error || 'we could not save that'); return; }
-    msg.textContent = polSaid(got);
+    msg.textContent = polSaid(got, body.id ? 'replaced' : 'handed');
     document.getElementById('pol-url').value = '';
     document.getElementById('pol-text').value = '';
+    document.getElementById('pol-name').value = '';
+    if (body.id) polEditStop();
     paintPolicy();
   } catch { msg.textContent = 'We could not reach Kosmos to save it.'; }
 }
 /* Both ways in pass through the confirmation: writing into every agent's
    instructions is a fleet-wide act, so the click says what it is about to do
-   before it does it. */
+   before it does it. The title carries the policy's name, so the dialog
+   says which one when there are several. */
 let POL_PENDING = null;
 function polConfirm(body, doing) {
   POL_PENDING = { body, doing };
+  const who = '“' + (POL_EDIT ? POL_EDIT.name : body.name) + '”';
+  document.getElementById('pol-m-title').textContent = POL_EDIT
+    ? 'Replace the words of ' + who + ' for every agent?'
+    : 'Hand ' + who + ' to every agent?';
   document.getElementById('pol-modal').hidden = false;
   // Enter on an unaimed dialog lands on the harmless answer.
   document.getElementById('pol-m-keep').focus();
@@ -14000,15 +14151,29 @@ document.getElementById('pol-m-go').addEventListener('click', () => {
   POL_PENDING = null;
   if (p) polSubmit(p.body, p.doing);
 });
+/* The name travels with an add; the id travels with a replacement. Never
+   both: to the engine an id means "this one" and a name means "a new one". */
+function polBody(part) {
+  if (POL_EDIT) return { id: POL_EDIT.id, ...part };
+  return { name: document.getElementById('pol-name').value.trim(), ...part };
+}
+function polNamed() {
+  if (POL_EDIT || document.getElementById('pol-name').value.trim()) return true;
+  document.getElementById('pol-msg').textContent = 'Give it a name first.';
+  document.getElementById('pol-name').focus();
+  return false;
+}
 document.getElementById('pol-fetch').addEventListener('click', () => {
+  if (!polNamed()) return;
   const url = document.getElementById('pol-url').value.trim();
   if (!url) { document.getElementById('pol-msg').textContent = 'Paste the link first.'; return; }
-  polConfirm({ url }, 'Fetching the page\u2026');
+  polConfirm(polBody({ url }), 'Fetching the page…');
 });
 document.getElementById('pol-save').addEventListener('click', () => {
+  if (!polNamed()) return;
   const text = document.getElementById('pol-text').value;
   if (!text.trim()) { document.getElementById('pol-msg').textContent = 'Paste the policy first.'; return; }
-  polConfirm({ text }, 'Saving\u2026');
+  polConfirm(polBody({ text }), 'Saving…');
 });
 /* The Fresh start button's name, in one place: visible text in the mock's
    long form, and an accessible name that says which of this page's two
