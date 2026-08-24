@@ -232,4 +232,13 @@ test('#248: nextWorkDir finds the first free spot, reuses unclaimed leftovers, s
      spot; prepare would refuse to wire it, so it is never offered. */
   fs.mkdirSync(nodePath.join(home, '.claude-work3', 'projects'), { recursive: true });
   assert.equal(accounts.nextWorkDir().label, 'work4');
+
+  /* A BROKEN projects symlink is not free either (iteration 3, measured):
+     prepare can never claim it (it will not replace an existing link), so
+     calling it free wedges every future attempt on the same dead spot.
+     The two ENOENTs, no entry at all versus a link whose target does not
+     resolve, must not be conflated. */
+  fs.mkdirSync(nodePath.join(home, '.claude-work4'), { recursive: true });
+  fs.symlinkSync(nodePath.join(home, 'nowhere-real'), nodePath.join(home, '.claude-work4', 'projects'));
+  assert.equal(accounts.nextWorkDir().label, 'work5');
 });

@@ -283,13 +283,23 @@ function nextWorkDir() {
        forever: the projects entry must be absent, or a symlink that
        RESOLVES to the shared tree. A symlink pointing elsewhere, a
        broken one, and a real directory are all somebody's state. */
+    /* ⚠️ TWO DIFFERENT ENOENTs, split on purpose: lstat throwing ENOENT
+       means NO projects entry (free), while realpath throwing ENOENT
+       means the entry EXISTS as a symlink whose target does not resolve,
+       which is somebody's broken state and, worse, a spot prepare can
+       never claim (it will not replace an existing link), so calling it
+       free would wedge every future attempt on the same dead dir. */
     let projectsOk = false;
     const projects = path.join(dir, 'projects');
-    try {
-      const st = fs.lstatSync(projects);
-      projectsOk = st.isSymbolicLink()
-        && fs.realpathSync(projects) === fs.realpathSync(path.join(HOME, '.claude', 'projects'));
-    } catch (err) { projectsOk = Boolean(err && err.code === 'ENOENT'); }
+    let entry = null;
+    try { entry = fs.lstatSync(projects); }
+    catch (err) { projectsOk = Boolean(err && err.code === 'ENOENT'); }
+    if (entry) {
+      try {
+        projectsOk = entry.isSymbolicLink()
+          && fs.realpathSync(projects) === fs.realpathSync(path.join(HOME, '.claude', 'projects'));
+      } catch { projectsOk = false; }
+    }
     if (projectsOk) return { label, dir };
   }
   /* 500 signed-in work accounts is not a real machine; say so rather than
