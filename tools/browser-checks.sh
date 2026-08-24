@@ -246,7 +246,7 @@ if wait_up "$P4" "$sb4/server.log"; then
 else
   FAILED+=("render-accounts-openai (server did not boot)")
 fi
-# #529: the GitHub door, on two boards: gh absent, and a stand-in gh that
+# #529/#620: the doors, on two boards: gh absent (the no-install road, against a stub GitHub), and a stand-in gh that
 # signs in when a marker file appears. No real gh and no real GitHub.
 sb5="$(new_sandbox)"; sb6="$(new_sandbox)"
 cat > "$sb6/fake-gh" <<'FAKE'

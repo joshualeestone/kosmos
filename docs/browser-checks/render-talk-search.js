@@ -55,7 +55,8 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
   await type('april');
   chk(await count() === 1, 'typing the agent\'s name keeps the row they said', String(await count()));
   await type('zzz');
-  const none = await page.$eval('#d-dmthread', (e) => e.textContent.trim());
+  // Rendered text (innerText), not DOM text: a hidden sentence must not pass this.
+  const none = await page.$eval('#d-dmthread', (e) => e.innerText.trim());
   chk(await count() === 0 && /Nothing here matches "zzz"\. Clearing the search brings the conversation back\./.test(none), 'no match prints the room\'s sentence', none);
   await type('');
   chk(await count() === 3, 'clearing the search brings the rows back', String(await count()));
