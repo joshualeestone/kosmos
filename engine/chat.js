@@ -151,8 +151,26 @@ function setDryRun(on) {
   DRY_RUN = Boolean(on);
 }
 
+/**
+ * The gap between typing a message and pressing Enter, for CODEX panes only.
+ * MEASURED (#571, codex 0.149.1): an Enter that arrives immediately after a
+ * `send-keys -l` burst is taken as part of a paste and becomes a newline in
+ * the composer, at any message length; an Enter 0.5s later submits. Claude
+ * Code accepts the immediate Enter, and this server is synchronous, so the
+ * pause is paid by everyone on the board while it runs: it is charged only to
+ * the runner that needs it. `pauser` is the test seam, the way `runner` is
+ * for tmux; null means the real wait.
+ */
+const CODEX_ENTER_GAP_MS = 500;
+let pauser = null;
+
+function setPauser(fn) {
+  pauser = typeof fn === 'function' ? fn : null;
+}
+
 function resetForTests() {
   runner = null;
+  pauser = null;
   DRY_RUN = true;
 }
 
@@ -720,6 +738,9 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
       at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED),
     };
   }
+  /* Codex swallows an Enter that rides the paste burst (#571): let the
+     composer settle first. Claude panes skip this and pay nothing. */
+  if (allowed.card.runner === 'codex') (pauser || pauseMs)(CODEX_ENTER_GAP_MS);
   const entered = tmux(['send-keys', '-t', target, 'Enter']);
   if (!entered.ran || entered.status !== 0) {
     /**
@@ -1926,7 +1947,7 @@ module.exports = {
   deliver, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,
-  setRunner, setDryRun, resetForTests,
+  setRunner, setDryRun, setPauser, resetForTests, CODEX_ENTER_GAP_MS,
 };
 
 /**
