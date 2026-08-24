@@ -28,6 +28,11 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+# ⚠️ THE VERSION IS METADATA ONLY. It is baked into the component and the
+# pkg-ref (Installer shows it), but the pkg is rebuilt only when its INPUTS
+# change (tools/lib/pkg-inputs.sh), so a pkg that stays current across cuts
+# carries an older version string than the release that serves it. That is
+# by design for a payload-free pkg; do not "fix" it by hashing the version.
 VERSION="${1:?usage: bash tools/build-installer-pkg.sh <version>}"
 OUT_DIR="${OUT_DIR:-$REPO/dist}"
 SCRIPTS="$REPO/install/pkg-scripts"

@@ -28,7 +28,8 @@ the build script, none of which the guard could see. And release.sh has no pkg s
 all: Baron's installer fixes reach nobody unless someone hand-publishes.
 
 ## Changes
-- tools/lib/pkg-inputs.sh: four inputs, sectioned, all-or-nothing.
+- tools/lib/pkg-inputs.sh: three paths (the identifier rides inside the build script), sectioned,
+  framed, all-or-nothing (unreadable file, unsearchable directory or symlink refuses).
 - tools/test-pkg-input-guard.sh: controls for each new input and each refusal.
 - tools/release.sh: step 3c (before the bundle build) publishes the triple into the site dist when
   needed and evaluates .vercelignore with git; 9c verifies the served host after the deploy.

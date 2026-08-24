@@ -129,15 +129,39 @@ chmod -r "$T/install/pkg-resources/welcome logo.txt"
 if pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "an unreadable input (with a space) did not refuse"; else grep -q "welcome logo.txt" "$T/err" && ok "an unreadable input refuses and names the real file, space and all" || bad "the refusal misnamed the file: $(cat "$T/err")"; fi
 chmod +r "$T/install/pkg-resources/welcome logo.txt"; rm -f "$T/install/pkg-resources/welcome logo.txt"
 
+# an unsearchable directory or a symlink among the inputs refuses (measured before
+# this control existed: chmod 000 on a subdir gave the same sha as deleting it).
+mkdir -p "$T/install/pkg-resources/sub"; printf 'deep\n' > "$T/install/pkg-resources/sub/x"
+withsub="$(pkg_input_sha "$T")"; chmod 000 "$T/install/pkg-resources/sub"
+if pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "an unsearchable input directory did not refuse"; else grep -q "unsearchable directory" "$T/err" && ok "an unsearchable input directory refuses and says so" || bad "the refusal did not name the directory: $(cat "$T/err")"; fi
+chmod 755 "$T/install/pkg-resources/sub"
+[ "$(pkg_input_sha "$T")" = "$withsub" ] && ok "and restoring the directory restores the sha" || bad "sha changed after restoring the directory"
+rm -rf "$T/install/pkg-resources/sub"
+ln -s welcome.html "$T/install/pkg-resources/link.html"
+if pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "a symlinked input did not refuse (it would hash as absent)"; else grep -q "symlink" "$T/err" && ok "a symlink among the inputs refuses and says so" || bad "the refusal did not name the symlink: $(cat "$T/err")"; fi
+rm -f "$T/install/pkg-resources/link.html"
+
 # the upload filter, evaluated by git, not grepped.
 F="$(mktemp -d "${TMPDIR:-/tmp}/pkg-filter.XXXXXX")"
 printf 'docs/\ntools/\n' > "$F/ok"
-[ -z "$(pkg_upload_filter_excludes "$F/ok")" ] && ok "filter: a .vercelignore that names no dist files lets the triple through" || bad "a clean filter was read as excluding"
+out="$(pkg_upload_filter_excludes "$F/ok")"; rc=$?
+[ "$rc" = 0 ] && [ -z "$out" ] && ok "filter: a .vercelignore that names no dist files lets the triple through (rc 0, nothing excluded)" || bad "a clean filter came back rc $rc '$out'"
 for line in 'dist/*.pkg' '*.pkg' '**/*.pkg' 'dist/**' 'dist/Kosmos.pkg' 'Kosmos.pkg' 'dist/*.pkg.inputs'; do
   printf 'docs/\n%s\n' "$line" > "$F/bad"
   [ -n "$(pkg_upload_filter_excludes "$F/bad")" ] && ok "filter: '$line' is seen to drop part of the triple" || bad "filter: '$line' was NOT seen to exclude"
 done
-if pkg_upload_filter_excludes "$F/missing" >/dev/null; then bad "a MISSING filter file read as fine (Vercel would fall back to .gitignore)"; else ok "filter: a missing .vercelignore is refused, not passed"; fi
-rm -rf "$F"
+pkg_upload_filter_excludes "$F/missing" >/dev/null; rc=$?
+[ "$rc" = 1 ] && ok "filter: a missing .vercelignore is rc 1, refused, not passed" || bad "a MISSING filter file came back rc $rc"
+# fail CLOSED when git itself cannot evaluate: a git that exits 128 must be rc 3, never "carries".
+mkdir -p "$F/bin"; printf '#!/bin/sh\nexit 128\n' > "$F/bin/git"; chmod +x "$F/bin/git"
+out="$(PATH="$F/bin:$PATH" pkg_upload_filter_excludes "$F/ok")"; rc=$?
+[ "$rc" = 3 ] && ok "filter: a broken git is rc 3 (could not evaluate), not a pass" || bad "a broken git came back rc $rc with '$out' -- the evaluator fails open"
+# isolated from the operator's git: a global excludes file matching *.pkg must not leak in.
+printf '*.pkg\n' > "$F/global-ignore"; printf '[core]\n\texcludesFile = %s\n' "$F/global-ignore" > "$F/gitconfig"
+out="$(GIT_CONFIG_GLOBAL="$F/gitconfig" HOME="$F" pkg_upload_filter_excludes "$F/ok")"; rc=$?
+[ "$rc" = 0 ] && [ -z "$out" ] && ok "filter: a global core.excludesFile with *.pkg does not leak into the evaluation" || bad "the operator's global gitignore leaked in (rc=$rc, '$out')"
+# the control's control: the same global file DOES exclude when git is not isolated.
+G="$(mktemp -d "${TMPDIR:-/tmp}/pkg-filter-ctl.XXXXXX")"; ( cd "$G" && GIT_CONFIG_GLOBAL="$F/gitconfig" HOME="$F" git init -q . && mkdir dist && : > dist/Kosmos.pkg && GIT_CONFIG_GLOBAL="$F/gitconfig" HOME="$F" git check-ignore -q dist/Kosmos.pkg ) && ok "CONTROL: without isolation that global file really excludes dist/Kosmos.pkg" || bad "CONTROL: the global excludes file did not exclude even unisolated, so the isolation assert proves nothing"
+rm -rf "$G" "$F"
 
 echo "pkg-input-guard: $FAILS failures"; [ "$FAILS" -eq 0 ]

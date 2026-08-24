@@ -57,7 +57,7 @@ pkg_input_sha() {
   # that do not exist.
   local unreadable
   unreadable="$( _pkg_first_unreadable "$scripts" "$resources" "$build" )"
-  [ -z "$unreadable" ] || { echo "pkg_input_sha: cannot read input $unreadable" >&2; return 1; }
+  [ -z "$unreadable" ] || { echo "pkg_input_sha: cannot hash input as it is: $unreadable" >&2; return 1; }
   # Each entry is framed: path, executable bit, byte count, then the bytes, so
   # a file with no trailing newline cannot run into the next path line.
   {
@@ -80,17 +80,29 @@ _pkg_stream_file() {
 _pkg_stream_dir() {
   find . -type f ! -path '*/.*' | LC_ALL=C sort | while IFS= read -r f; do _pkg_stream_file "$f"; done
 }
-# The first unreadable input among the two dirs and the build script, or
-# nothing. NUL-delimited so a name with a space is one name.
+# The first input that cannot be hashed as it is, among the two dirs and the
+# build script, or nothing. NUL-delimited so a name with a space is one name.
+# Three shapes, because "all inputs or nothing" has to hold for each:
+#   a file that is not readable        cat would hash it as absent
+#   a directory that is not searchable find cannot enter it, its contents
+#                                      would hash as absent (measured: the
+#                                      same sha as deleting the directory)
+#   a symlink                          find -type f skips it, pkgbuild ships
+#                                      it; the guard refuses rather than
+#                                      guessing what a link is worth. None
+#                                      exist today; if one is ever wanted,
+#                                      decide here how to hash it.
 _pkg_first_unreadable() {
   local d f
   for d in "$1" "$2"; do
-    f="$(cd "$d" && find . -type f ! -path '*/.*' -print0 | while IFS= read -r -d '' f; do
-           [ -r "$f" ] || { printf '%s/%s' "$d" "${f#./}"; break; }
+    f="$(cd "$d" && find . ! -path '*/.*' \( -type f -o -type d -o -type l \) -print0 | while IFS= read -r -d '' f; do
+           if [ -L "$f" ]; then printf 'symlink %s/%s' "$d" "${f#./}"; break; fi
+           if [ -d "$f" ]; then [ -r "$f" ] && [ -x "$f" ] || { printf 'unsearchable directory %s/%s' "$d" "${f#./}"; break; }
+           else [ -r "$f" ] || { printf 'unreadable %s/%s' "$d" "${f#./}"; break; }; fi
          done)"
     [ -z "$f" ] || { printf '%s' "$f"; return 0; }
   done
-  [ -r "$3" ] || printf '%s' "$3"
+  [ -r "$3" ] || printf 'unreadable %s' "$3"
   return 0
 }
 
@@ -155,17 +167,40 @@ pkg_publish_needed() {
 # triple through? Evaluated by git itself on a scratch repo with the filter
 # as its .gitignore, because a grep for four spellings is a spot check that
 # also passes on a MISSING file, and a missing .vercelignore makes Vercel fall
-# back to the site's .gitignore, which excludes dist/*.pkg. Prints the first
-# excluded path, or nothing; returns 1 if the filter file does not exist.
+# back to the site's .gitignore, which excludes dist/*.pkg.
+# Prints the first excluded path, or nothing. Returns 0 = evaluated, 1 = the
+# filter file does not exist, 3 = could not evaluate (a caller must refuse on
+# 3, not read "nothing printed" as "carries": a stub git that exits 128
+# printed nothing and passed, measured).
+# ⚠️ ISOLATED FROM THE OPERATOR'S GIT: a global core.excludesFile with *.pkg
+# in it made a clean filter read as excluding (measured on this Mac, whose
+# ~/.gitignore_global participates in check-ignore). Only the filter's own
+# patterns are evaluated: no global or system config, no init template.
 pkg_upload_filter_excludes() {   # <filter-file>
-  local filter="${1:?}" t f
+  local filter="${1:?}" t out rc
   [ -f "$filter" ] || return 1
-  t="$(mktemp -d "${TMPDIR:-/tmp}/pkg-upload-filter.XXXXXX")"
-  ( cd "$t" && git init -q . && cp "$filter" .gitignore && mkdir -p dist \
-    && : > dist/Kosmos.pkg && : > dist/Kosmos.pkg.sha256 && : > dist/Kosmos.pkg.inputs \
-    && for f in dist/Kosmos.pkg dist/Kosmos.pkg.sha256 dist/Kosmos.pkg.inputs; do
-         if git check-ignore -q "$f"; then printf '%s' "$f"; break; fi
-       done )
+  t="$(mktemp -d "${TMPDIR:-/tmp}/pkg-upload-filter.XXXXXX")" || return 3
+  # ⚠️ NO COMMENTS INSIDE THE SUBSTITUTION BELOW: bash 3.2 does not skip
+  # quotes inside a comment inside $( ), so an apostrophe there is an EOF
+  # error, and a bare 0) pattern there is a syntax error (hence the (0) form).
+  # And "check-ignore && rc=0 || rc=$?", because its 1 (not ignored) would
+  # otherwise trip the subshell's errexit and read as "could not evaluate".
+  out="$(
+    set -e
+    cd "$t"
+    export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 HOME="$t" XDG_CONFIG_HOME="$t"
+    git init -q --template= . >/dev/null
+    cp "$filter" .gitignore
+    mkdir -p dist
+    : > dist/Kosmos.pkg; : > dist/Kosmos.pkg.sha256; : > dist/Kosmos.pkg.inputs
+    for f in dist/Kosmos.pkg dist/Kosmos.pkg.sha256 dist/Kosmos.pkg.inputs; do
+      git check-ignore -q "$f" && rc=0 || rc=$?
+      case "$rc" in (0) printf '%s' "$f"; exit 0;; (1) ;; (*) exit 3;; esac
+    done
+    exit 0
+  )"; rc=$?
   rm -rf "$t"
+  [ "$rc" = 0 ] || return 3
+  printf '%s' "$out"
   return 0
 }

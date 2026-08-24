@@ -160,9 +160,10 @@ rm -f "$_page_log"
 
 echo "== 3c. the installer .pkg, rebuilt and published only when its inputs changed (#555, #638 B) =="
 # 🛑 THE DOWNLOAD BUTTON SERVES THIS FILE AND NO RELEASE STEP EVER TOUCHED IT.
-# Baron built and hand-copied the first Kosmos.pkg (2026-08-24 16:36); every
-# installer fix after that reached nobody until someone remembered. This step
-# is the remembering. It is NOT a rebuild every cut: the pkg is payload-free
+# Baron built and hand-copied the first Kosmos.pkg (2026-08-24); every
+# installer fix after that reached nobody until someone remembered, and the
+# same afternoon a hand republish went live beside the previous build's
+# .sha256. This step is the remembering. It is NOT a rebuild every cut: the pkg is payload-free
 # (a postinstall that runs the served /setup), so it changes only when its
 # INPUTS change (pkg-scripts, pkg-resources, the build script, which carries
 # the identifier; tools/lib/pkg-inputs.sh is the one definition). A rebuild
@@ -173,6 +174,11 @@ echo "== 3c. the installer .pkg, rebuilt and published only when its inputs chan
 # Here a flake aborts a cut nothing has been copied for, and a successful
 # build leaves the triple in the site's working tree, so a later abort (the
 # versions page, say) costs nothing on the re-run: 3c finds it current.
+# ⚠️ AND IF THERE IS NO RE-RUN: the triple sits in the site's working tree,
+# built from the pushed bump sha (not stale), and the next site deploy by
+# anyone publishes it with no 9c behind it. verify-served.sh is the check
+# that then applies; run it after any site deploy that follows an abandoned
+# cut.
 # ⚠️ NAMED HAZARD, SAME AS THE TARBALLS: the site gitignores dist/*.pkg,
 # dist/*.pkg.sha256 and dist/*.pkg.inputs (build output; .vercelignore
 # carries them to the deploy), so all three go live from the site's WORKING
@@ -206,8 +212,11 @@ fi
 # patterns (the same semantics Vercel applies), and a MISSING filter is a
 # refusal: without one Vercel falls back to the site's .gitignore, which
 # excludes dist/*.pkg, which is the exact hole the site's .gitignore warns of.
-if ! _pkg_dropped="$(pkg_upload_filter_excludes "$SITE/.vercelignore")"; then
+set +e; _pkg_dropped="$(pkg_upload_filter_excludes "$SITE/.vercelignore")"; _pkg_frc=$?; set -e
+if [ "$_pkg_frc" = 1 ]; then
   echo "the site has no .vercelignore; Vercel would fall back to .gitignore and drop dist/Kosmos.pkg from the upload"; exit 1
+elif [ "$_pkg_frc" != 0 ]; then
+  echo "could not evaluate the site's .vercelignore (rc=$_pkg_frc); refusing to assume the deploy carries the pkg"; exit 1
 elif [ -n "$_pkg_dropped" ]; then
   echo "the site's .vercelignore excludes $_pkg_dropped; the deploy would not carry the pkg triple"; exit 1
 fi
