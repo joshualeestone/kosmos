@@ -5918,6 +5918,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="mac" aria-controls="s-sec-mac">This Mac</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
     <button type="button" data-go="plus" aria-controls="s-sec-plus">Plus Account</button>
+    <button type="button" data-go="styles" aria-controls="s-sec-styles">Styles</button>
     <button type="button" data-go="advanced" aria-controls="s-sec-advanced">Advanced</button>
   </nav>
   <div class="dsecs">
@@ -6418,6 +6419,37 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         </div>
       </div>
       <p class="fmsg" id="plus-msg" role="alert" aria-live="assertive"></p>
+    </div>
+  </section>
+
+  <!-- ============ STYLES (#480, Josh 19:15) ============
+       Function and plain words, polish deferred by his own ruling. Two
+       ways in: a few named themes, and a pasted style an agent wrote.
+       Tokens only, never a stylesheet: a paste can recolor the page and
+       cannot make it do anything. Applied on the root element, so a
+       custom style shows in light and dark alike, said below in words. -->
+  <section class="dsec" id="s-sec-styles" data-sec="styles" tabindex="-1" aria-label="Styles" hidden>
+    <h2>Styles</h2>
+    <p class="fhint">How your Kosmos looks.</p>
+
+    <div class="field">
+      <label class="flabel" for="style-theme">Theme</label>
+      <select class="tk-inp" id="style-theme"></select>
+      <p class="fhint">Changes apply as soon as you pick one.</p>
+    </div>
+
+    <div class="field" style="margin-top:16px;">
+      <label class="flabel" for="style-custom">A style of your own</label>
+      <p class="fhint">Ask one of your agents to write you a style file:
+      lines of <code>--name: value;</code>, one color or size per line.
+      Paste it here and it applies on top of the theme, in light and dark
+      alike.</p>
+      <textarea class="tk-inp" id="style-custom" rows="6" spellcheck="false"></textarea>
+      <div class="frow" style="margin-top:8px;">
+        <button class="btn uprime" type="button" id="style-apply">Apply</button>
+        <button class="btn" type="button" id="style-clear" hidden>Remove my style</button>
+      </div>
+      <p class="fmsg" id="style-msg" role="alert" aria-live="assertive"></p>
     </div>
   </section>
 
@@ -12515,7 +12547,7 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
    page resets to Talk because it opens a different agent each time; Settings
    is one page, and a person who left Updates to look at the board comes back
    to Updates). "Landing is You" is the first arrival. */
-const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'policy', 'talking', 'mac', 'updates', 'plus', 'advanced'];
+const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'policy', 'talking', 'mac', 'updates', 'plus', 'styles', 'advanced'];
 function settingsGo(section, opts) {
   if (!SETTINGS_SECTIONS.includes(section)) section = 'you';
   const nav = document.getElementById('s-nav');
@@ -12535,6 +12567,10 @@ function settingsGo(section, opts) {
      not the poll, and painting every poll for a hidden section would be
      traffic for nobody. */
   if (section === 'plus') paintPlus();
+  /* apply=true: if the one boot-time fetch failed, arriving here
+     heals it; applyStyle removes before re-adding, so a repaint of an
+     already-applied style is a no-op on screen. */
+  if (section === 'styles') paintStyles(true);
 }
 document.getElementById('s-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
@@ -15120,6 +15156,96 @@ let CREATE_MODELS = [];    // the engine's model list, from the same payload
 /* The one line under a model picker (#405): the engine's `why` for whatever is
    selected, nothing when nothing is. Same rule on the create form and the
    agent's Model tab, so the two pickers cannot describe one model differently. */
+/* ---- Styles (#480): tokens applied on the root, themes plus a paste ---
+   The apply is setProperty per token, so a pasted file can recolor and
+   cannot do anything else; it sits above the light/dark machinery and
+   the tab says so. Applied at boot so a saved style survives a reload. */
+let STYLE_APPLIED = [];
+let STYLE_STORE_MSG = false;
+/* Latest wins: a slow boot GET must not land on top of a fresh save.
+   Every painter takes a ticket; a response older than the newest
+   ticket is dropped whole. */
+let STYLE_REQ = 0;
+function applyStyle(tokens) {
+  const root = document.documentElement;
+  for (const name of STYLE_APPLIED) root.style.removeProperty(name);
+  STYLE_APPLIED = [];
+  for (const [name, value] of Object.entries(tokens || {})) {
+    root.style.setProperty(name, value);
+    STYLE_APPLIED.push(name);
+  }
+}
+async function paintStyles(apply) {
+  const ticket = ++STYLE_REQ;
+  let r = null;
+  try { r = await (await fetch('/api/style', { cache: 'no-store' })).json(); } catch { r = null; }
+  if (!r || ticket !== STYLE_REQ) return;
+  if (apply) applyStyle(r.tokens);
+  const sel = document.getElementById('style-theme');
+  if (sel) {
+    const html = (r.themes || []).map((t) => '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>').join('');
+    if (sel.innerHTML !== html) sel.innerHTML = html;
+    sel.value = r.theme;
+    document.getElementById('style-clear').hidden = !(r.customCount > 0);
+  }
+  /* A corrupt saved style falls back to the shipped look AND says so
+     here, the promise the engine's because field exists to keep. */
+  /* Keyed on the STATE, not the sentence's wording: the flag remembers
+     that the slot holds the store-read failure, so a healthy read clears
+     exactly that and never a fresh save verdict standing there. */
+  const smsg = document.getElementById('style-msg');
+  if (smsg) {
+    if (r.ok === false && r.because) { smsg.textContent = r.because; STYLE_STORE_MSG = true; }
+    else if (STYLE_STORE_MSG) { smsg.textContent = ''; STYLE_STORE_MSG = false; }
+  }
+}
+paintStyles(true);
+if (document.getElementById('style-theme')) document.getElementById('style-theme').addEventListener('change', async (e) => {
+  const msg = document.getElementById('style-msg');
+  msg.textContent = '';
+  try {
+    STYLE_REQ += 1;
+    const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ theme: e.target.value }) });
+    const body = await res.json().catch(() => null);
+    /* A failed save reverts the select: the control shows what is
+       standing, never a pick that neither saved nor applied. */
+    if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; paintStyles(false); return; }
+    applyStyle(body.tokens);
+    document.getElementById('style-clear').hidden = !(body.customCount > 0);
+  } catch { msg.textContent = 'we could not save the style'; paintStyles(false); }
+});
+if (document.getElementById('style-apply')) document.getElementById('style-apply').addEventListener('click', async () => {
+  const msg = document.getElementById('style-msg');
+  msg.textContent = '';
+  const text = document.getElementById('style-custom').value;
+  try {
+    STYLE_REQ += 1;
+    const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ customText: text }) });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; return; }
+    applyStyle(body.tokens);
+    document.getElementById('style-clear').hidden = !(body.customCount > 0);
+    STYLE_STORE_MSG = false;
+    msg.textContent = body.customCount === 1 ? 'Applied: 1 token.'
+      : body.customCount > 0 ? 'Applied: ' + body.customCount + ' tokens.' : 'Applied.';
+  } catch { msg.textContent = 'we could not save the style'; }
+});
+if (document.getElementById('style-clear')) document.getElementById('style-clear').addEventListener('click', async () => {
+  const msg = document.getElementById('style-msg');
+  msg.textContent = '';
+  try {
+    STYLE_REQ += 1;
+    const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ customText: '' }) });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; return; }
+    document.getElementById('style-custom').value = '';
+    applyStyle(body.tokens);
+    document.getElementById('style-clear').hidden = true;
+    STYLE_STORE_MSG = false;
+    msg.textContent = 'Your style is removed; the theme stays.';
+  } catch { msg.textContent = 'we could not save the style'; }
+});
+
 /* ---- Plus Account (the relay service's Settings home) -----------------
    The holding place is the RESTING state: the flow renders only when this
    machine actually has a relay configured, so nothing on the tab can look

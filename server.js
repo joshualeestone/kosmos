@@ -107,6 +107,7 @@ const forget = require('./engine/forget');
 const ping = require('./engine/ping');
 const notify = require('./engine/notify');
 const remote = require('./engine/remote');
+const styles = require('./engine/styles');
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
@@ -1885,6 +1886,36 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, { ok: true, status: remote.status() });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not finish the sign-up' }));
+    return;
+  }
+  /* ---- Styles (#480): named themes plus a pasted token file ---- */
+  if (pathname === '/api/style' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { sendJson(res, 200, { ...styles.effective(), themes: styles.themeList() }); }
+    catch { sendJson(res, 500, { error: 'we could not read the style' }); }
+    return;
+  }
+  if (pathname === '/api/style' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* A present-but-mistyped field is a 400 naming the field, never
+           a silent no-change 200 a scripted client reads as saved. */
+        if ('theme' in body && typeof body.theme !== 'string') { sendJson(res, 400, { error: 'theme must be a string' }); return; }
+        if ('customText' in body && typeof body.customText !== 'string') { sendJson(res, 400, { error: 'customText must be a string' }); return; }
+        /* One validated write for the whole request: sequential setters
+           left a half-applied theme behind a refused paste, and the 400
+           then named only the paste while the store had already moved. */
+        const saved = styles.set({
+          theme: typeof body.theme === 'string' ? body.theme : undefined,
+          customText: typeof body.customText === 'string' ? body.customText : undefined,
+        });
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        sendJson(res, 200, { ...styles.effective(), themes: styles.themeList() });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save the style' }));
     return;
   }
   if (pathname === '/api/notify-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
