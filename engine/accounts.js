@@ -242,4 +242,69 @@ function prepare(label) {
   return { ok: true, dir, label: clean, memoryShared };
 }
 
-module.exports = { list, identityOf, prepare, share, sharesMemory, HOME_FOR_TEST: HOME };
+/**
+ * The first free work-account spot (#248/#324): ~/.claude-workN where free
+ * means the directory does not exist, or exists with no identity signed in
+ * to it. The reuse arm is deliberate: a cancelled add-another-account
+ * attempt leaves a prepared, unclaimed directory behind, and without reuse
+ * every retry would litter work2, work3, ... while work1 sat empty. A dir
+ * with an account block in its config, or whose config cannot be read,
+ * may be somebody's account and is skipped; a config with no account
+ * block is the shape a cancelled launch leaves and is reused; and the
+ * projects entry must be absent or already the shared-tree link, the
+ * same thing prepare demands, so a spot is never offered that prepare
+ * would then refuse forever.
+ */
+function nextWorkDir() {
+  for (let n = 1; n <= 500; n += 1) {
+    const label = `work${n}`;
+    const dir = path.join(HOME, `.claude-${label}`);
+    if (!fs.existsSync(dir)) return { label, dir };
+    /* ⚠️ THREE GRADES OF CONFIG, three answers. Missing: free. Present
+       and readable with NO account block: free, and this is the arm the
+       contract's anti-litter promise lives in, because the CLI writes a
+       theme-and-onboarding .claude.json the moment it launches, so the
+       COMMON cancel leaves exactly this shape behind. Present with an
+       account block, or unreadable, or unparseable: NOT free, because it
+       may be somebody's signed-in account and a wrong guess overwrites
+       their credentials. */
+    let cfgFree = false;
+    try {
+      const raw = fs.readFileSync(path.join(dir, '.claude.json'), 'utf8');
+      try {
+        const parsed = JSON.parse(raw);
+        const acct = parsed && parsed.oauthAccount;
+        cfgFree = !acct || typeof acct !== 'object';
+      } catch { cfgFree = false; }
+    } catch (err) { cfgFree = Boolean(err && err.code === 'ENOENT'); }
+    if (!cfgFree) continue;
+    /* And freeness demands exactly what preparability demands, or a
+       half-formed spot is offered forever while prepare refuses it
+       forever: the projects entry must be absent, or a symlink that
+       RESOLVES to the shared tree. A symlink pointing elsewhere, a
+       broken one, and a real directory are all somebody's state. */
+    /* ⚠️ TWO DIFFERENT ENOENTs, split on purpose: lstat throwing ENOENT
+       means NO projects entry (free), while realpath throwing ENOENT
+       means the entry EXISTS as a symlink whose target does not resolve,
+       which is somebody's broken state and, worse, a spot prepare can
+       never claim (it will not replace an existing link), so calling it
+       free would wedge every future attempt on the same dead dir. */
+    let projectsOk = false;
+    const projects = path.join(dir, 'projects');
+    let entry = null;
+    try { entry = fs.lstatSync(projects); }
+    catch (err) { projectsOk = Boolean(err && err.code === 'ENOENT'); }
+    if (entry) {
+      try {
+        projectsOk = entry.isSymbolicLink()
+          && fs.realpathSync(projects) === fs.realpathSync(path.join(HOME, '.claude', 'projects'));
+      } catch { projectsOk = false; }
+    }
+    if (projectsOk) return { label, dir };
+  }
+  /* 500 signed-in work accounts is not a real machine; say so rather than
+     loop forever. */
+  return null;
+}
+
+module.exports = { list, identityOf, prepare, share, sharesMemory, nextWorkDir, HOME_FOR_TEST: HOME };

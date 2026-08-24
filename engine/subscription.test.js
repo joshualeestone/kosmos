@@ -337,3 +337,22 @@ test('no user-facing sentence uses developer jargon', () => {
     assert.ok(!JARGON.test(t), `user-facing sentence uses jargon: "${t}"`);
   }
 });
+
+test('#248: check({configDir}) reads that account and only that account', () => {
+  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'sub-dir-'));
+  /* The global config says CONNECTED; the directory has nothing. The scoped
+     check must answer for the DIRECTORY: a flow creating a second account
+     that read the global would early-exit every attempt as already done. */
+  fs.writeFileSync(CONFIG, JSON.stringify({ oauthAccount: { organizationType: 'claude_max', emailAddress: 'main@example.com' } }));
+  sub.resetCache();
+  assert.equal(sub.check().state, sub.STATE.CONNECTED, 'the premise: the global account is connected');
+  assert.equal(sub.check({ configDir: dir }).state, sub.STATE.NONE,
+    'an empty account directory read as connected: the scoped check is reading the global config');
+
+  /* And the other direction: the directory signed in, the answer follows it. */
+  fs.writeFileSync(nodePath.join(dir, '.claude.json'),
+    JSON.stringify({ oauthAccount: { organizationType: 'claude_pro', emailAddress: 'second@example.com' } }));
+  const scoped = sub.check({ configDir: dir });
+  assert.equal(scoped.state, sub.STATE.CONNECTED);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

@@ -203,3 +203,42 @@ test('share() points an existing account at the one tree, and refuses to delete 
   // and sharing something already shared is a no-op that says so
   assert.deepEqual(accounts.share(empty), { ok: true, already: true });
 });
+
+test('#248: nextWorkDir finds the first free spot, reuses unclaimed leftovers, skips signed-in accounts', () => {
+  const home = accounts.HOME_FOR_TEST;
+  /* Fresh: nothing named work-anything exists yet, so the first spot. */
+  const first = accounts.nextWorkDir();
+  assert.equal(first.label, 'work1');
+  assert.equal(first.dir, nodePath.join(home, '.claude-work1'));
+
+  /* A signed-in work1 is somebody's account: skipped, never offered. */
+  fs.mkdirSync(nodePath.join(home, '.claude-work1'), { recursive: true });
+  fs.writeFileSync(nodePath.join(home, '.claude-work1', '.claude.json'),
+    JSON.stringify({ oauthAccount: { emailAddress: 'w1@example.com' } }));
+  assert.equal(accounts.nextWorkDir().label, 'work2');
+
+  /* An UNCLAIMED work2 (a cancelled attempt's leftover: directory, no
+     identity) is reused, so retries do not litter work3, work4, ... */
+  fs.mkdirSync(nodePath.join(home, '.claude-work2'), { recursive: true });
+  assert.equal(accounts.nextWorkDir().label, 'work2');
+
+  /* Present-but-unreadable is NOT absent: a damaged config may be
+     somebody's signed-in account, and offering it would overwrite their
+     credentials. Skipped. */
+  fs.writeFileSync(nodePath.join(home, '.claude-work2', '.claude.json'), '{not json');
+  assert.equal(accounts.nextWorkDir().label, 'work3');
+
+  /* And a dir carrying a REAL projects tree is somebody's history, not a
+     spot; prepare would refuse to wire it, so it is never offered. */
+  fs.mkdirSync(nodePath.join(home, '.claude-work3', 'projects'), { recursive: true });
+  assert.equal(accounts.nextWorkDir().label, 'work4');
+
+  /* A BROKEN projects symlink is not free either (iteration 3, measured):
+     prepare can never claim it (it will not replace an existing link), so
+     calling it free wedges every future attempt on the same dead spot.
+     The two ENOENTs, no entry at all versus a link whose target does not
+     resolve, must not be conflated. */
+  fs.mkdirSync(nodePath.join(home, '.claude-work4'), { recursive: true });
+  fs.symlinkSync(nodePath.join(home, 'nowhere-real'), nodePath.join(home, '.claude-work4', 'projects'));
+  assert.equal(accounts.nextWorkDir().label, 'work5');
+});

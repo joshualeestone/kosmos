@@ -324,6 +324,38 @@ test('start on an already-connected machine answers connected and runs nothing',
   }
 });
 
+test('#248: start with another:true points the flow at a fresh prepared work account', async () => {
+  /* The global machine is CONNECTED, which is exactly when a person adds a
+     second account; without the scoped flow this would answer connected
+     and run nothing. */
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  try {
+    const got = await post('/api/connect/start', { another: true });
+    assert.equal(got.status, 200, got.body);
+    const st = json(got);
+    const workDir = path.join(process.env.HOME, '.claude-work1');
+    assert.equal(st.configDir, workDir, 'the flow does not name the fresh account directory');
+    assert.notEqual(st.phase, 'connected',
+      'the second-account flow early-exited on the GLOBAL account');
+    /* Prepared from birth: the directory exists and its memory is the one
+       shared tree, so the account is right before anybody signs in to it. */
+    assert.ok(fs.existsSync(workDir), 'the work directory was never made');
+    const projects = path.join(workDir, 'projects');
+    assert.ok(fs.lstatSync(projects).isSymbolicLink(), 'the shared-memory link was not wired');
+    /* And the plain start still answers for the global account with no
+       directory, byte for byte the call it always was. */
+    await post('/api/connect/cancel');
+    const plain = await post('/api/connect/start');
+    assert.equal(json(plain).phase, 'connected');
+    assert.equal(json(plain).configDir, null);
+  } finally {
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+    fs.rmSync(path.join(process.env.HOME, '.claude-work1'), { recursive: true, force: true });
+    await post('/api/connect/cancel');
+    connect.resetForTests();
+  }
+});
+
 /* --------------------------------------------------------------------------
    The connect painter, RUN rather than grepped -- same harness discipline as
    server.test.js's first-run render tests.
