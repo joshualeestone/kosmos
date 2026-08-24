@@ -3104,6 +3104,54 @@ test('the detail memory box reads the same derivations as the board, and stays h
     'an agent name reached the memory box as a live tag');
 });
 
+test('the runs-on box says model and account in one line, and the Signed-in-as sentence stays gone', () => {
+  /* The removal pattern again: this change is a removal (the d-account-now
+     sentence) plus a promise (the email rides the runs-on line). Nothing
+     else in the suite reaches either half, so a quiet revert of the
+     composition, or the sentence creeping back, would pass every test. */
+  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.ok(!raw.includes('d-account-now'), 'the removed element is back');
+  assert.ok(!raw.includes('Signed in as'), 'the removed sentence is back');
+  const scriptMatch = raw.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(scriptMatch, 'the page lost its script block');
+  const script = scriptMatch[1];
+  const esc = pageFunction('esc');
+  const from = script.indexOf('const acctEmail =');
+  const mid = script.indexOf("drun.innerHTML", from);
+  const end = script.indexOf(';', script.indexOf(": ''", mid)) + 1;
+  assert.ok(from > -1 && mid > from && end > mid,
+    'the runs-on composition fell outside the extracted slice');
+  const drive = (a, runs) => {
+    const drun = { innerHTML: 'seeded' };
+    // eslint-disable-next-line no-new-func
+    new Function('a', 'runs', 'drun', 'esc', script.slice(from, end))(a, runs, drun, esc);
+    return drun.innerHTML;
+  };
+  const runs = { lead: 'Runs on ', name: 'Claude Opus 5' };
+  assert.equal(drive({ account: { email: 'josh@stuff.io' } }, runs),
+    'Runs on <b>Claude Opus 5</b> (josh@stuff.io)');
+  assert.equal(drive({ account: { email: null, label: 'the second account' } }, runs),
+    'Runs on <b>Claude Opus 5</b> (the second account)');
+  /* No account record: the line, whole, with no empty parentheses. And a
+     dir-only account stays out of the headline by design; the dropdown
+     below is where the raw path shows. */
+  assert.equal(drive({ account: null }, runs), 'Runs on <b>Claude Opus 5</b>');
+  assert.equal(drive({ account: { email: null, label: null, dir: '/x/y' } }, runs),
+    'Runs on <b>Claude Opus 5</b>');
+  /* The email is escaped on its way into innerHTML. */
+  assert.equal(drive({ account: { email: '<img>' } }, runs),
+    'Runs on <b>Claude Opus 5</b> (&lt;img&gt;)');
+
+  /* The branch's two safety additions, pinned the way the sibling
+     d-model-msg clear is pinned, so neither can quietly revert. */
+  const od = script.slice(script.indexOf('function openDetail('), script.indexOf('function openDetail(') + 4200);
+  assert.ok(/getElementById\('d-account-msg'\)[\s\S]{0,60}?\.textContent = ''/.test(od),
+    'openDetail no longer clears the account message on a switch');
+  const pap = script.slice(script.indexOf('async function paintAccountPicker('), script.indexOf('async function paintAccountPicker(') + 2400);
+  assert.ok(/!CURRENT \|\| CURRENT\.sessionName !== forAgent/.test(pap),
+    'the accounts-fetch continuation lost its capture-and-recheck');
+});
+
 test('the detail meta line keeps the machine-name disclosure the card gave up', () => {
   /* ⚠️ The SECOND instance of the removal pattern in one branch (Mona
      Lisa's check, 2026-08-17): a removal is two changes, and only one of

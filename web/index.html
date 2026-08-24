@@ -3900,7 +3900,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          than pressing. -->
     <p class="runnow" id="d-runson"></p>
     <p class="dhint" id="d-runson-why" hidden></p>
-    <p class="runnow" id="d-account-now"></p>
     <div class="msteps" role="group" aria-label="Change what this agent runs on" style="margin-top:12px;">
       <div class="frow">
         <select id="d-provider" aria-label="Provider">
@@ -12121,6 +12120,7 @@ async function sendTalk(text, chose, attachment) {
 function openDetail(sessionName, section) {
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
+  const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
   URL_TAB = 'detail';
   syncUrl();
@@ -12137,9 +12137,15 @@ function openDetail(sessionName, section) {
      Two different sentences now compete for the slot (never-recorded vs
      not-ours), which turns the stale line into a wrong-agent provenance
      claim. Cleared here, at the one moment the agent changes.
-     ⚠️ d-account-msg shares this only-when-empty shape and its single
-     sentence can equally linger; pre-existing, carded separately. */
+     d-account-msg shares the shape, and since the Signed-in-as line
+     went it is the ONLY place the cannot-tell state explains its
+     disabled controls, so a lingering wrong-agent sentence would
+     both misattribute and suppress. Cleared together. */
   { const mm = document.getElementById('d-model-msg'); if (mm) mm.textContent = ''; }
+  /* On a SWITCH only: a same-agent reopen keeps the Move verdict,
+     which is the one sentence naming the saved-but-not-restarted
+     window until the restart happens. */
+  if (cameFrom !== a.sessionName) { const am = document.getElementById('d-account-msg'); if (am) am.textContent = ''; }
   TALK_SCROLL = null;
   /* The name for the Reports-to menu's first option. Fire and forget: the poll
      repaints this panel every five seconds, and until it lands the menu says
@@ -12280,7 +12286,22 @@ function openDetail(sessionName, section) {
   dbadge.hidden = !(dpct === null || dpct >= NEARLY_FULL);
   document.getElementById('d-memory').innerHTML = memoryBox(a);
   const drun = document.getElementById('d-runson');
-  drun.innerHTML = esc(runs.lead) + '<b>' + esc(runs.name) + '</b>';
+  /* The design's one line: model and account together, "Claude Opus 5
+     (josh@stuff.io)". The email rides here since #491 put it in the
+     account dropdown too; the separate Signed-in-as sentence below was
+     the fourth explains-the-visible line Josh cut tonight, and it went
+     with this change. */
+  /* email, then label, and DELIBERATELY not the dir rung the picker
+     keeps: a raw filesystem path does not belong in the headline, and
+     the dropdown below still shows it for the configured-but-unknown
+     account state. And the parenthetical reads from the launch file,
+     the same source the dropdown shows; in the saved-but-not-restarted
+     window after a Move both therefore name the account the agent will
+     use, not the one the live session still runs on, and the Move
+     verdict sentence is what names that window on screen. */
+  const acctEmail = a && a.account && (a.account.email || a.account.label);
+  drun.innerHTML = esc(runs.lead) + '<b>' + esc(runs.name) + '</b>'
+    + (acctEmail ? ' (' + esc(acctEmail) + ')' : '');
   /* #149/#150: the sentence alone says WHAT, this says WHY and the way in.
      The migration path is real (a stopped agent appears under Found agents
      and Add records it); while it runs Kosmos will not write a launch file
@@ -15450,16 +15471,25 @@ let ACCOUNTS = [];
 async function paintAccountPicker(a) {
   const sel = document.getElementById('d-account');
   const go = document.getElementById('d-account-go');
-  const now = document.getElementById('d-account-now');
   const msg = document.getElementById('d-account-msg');
-  if (!sel || !go || !now) return;
+  if (!sel || !go) return;
   if (!ACCOUNTS.length) {
+    /* The same capture-and-recheck as moveAccountNow: an agent switch
+       while this fetch is in flight must not let the OLD agent's
+       continuation paint its sentence onto the NEW agent's panel,
+       which the switch-time clear had just emptied for it. */
+    const forAgent = a && a.sessionName;
     try {
       const res = await fetch('/api/accounts', { cache: 'no-store' });
       if (res.ok) ACCOUNTS = ((await res.json()) || {}).accounts || [];
     } catch { /* the control stays empty and disabled, which is honest */ }
+    if (!CURRENT || CURRENT.sessionName !== forAgent) return;
   }
   const acct = a && a.account;
+  /* The comments below predate the Signed-in-as line's removal. The
+     msg sentence below now carries their hedge itself: acct null means
+     we could not read the launch file, whoever started the agent, and
+     the sentence claims no more than that. */
   /* ⚠️ "We cannot tell" is a THIRD state and gets its own sentence. An agent
      Kosmos did not start has no startup file of ours to read, and saying "the
      default account" about it would be answering for a stranger's session. */
@@ -15469,10 +15499,11 @@ async function paintAccountPicker(a) {
      "your first account" for any agent of ours rendered that sentence about an
      agent Kosmos never started -- a confident claim about somebody else's
      session, from a screen guessing at what a null meant. */
-  now.innerHTML = acct
-    ? 'Signed in as <b>' + esc(acct.email || acct.label || acct.dir) + '</b>'
-
-    : 'We cannot tell which account this one uses, so we cannot move it.';
+  /* The Signed-in-as line is gone (Josh, 19:56 family: the dropdown and
+     the runs-on line both say the account now, and a sentence restating
+     the visible was the pattern he cut three times tonight). The
+     cannot-tell state keeps its words below, on the msg the disabled
+     controls already explain themselves with. */
 
   /* Only accounts whose history is the shared one. The engine refuses the rest
      and says why; the picker does not offer them at all, because an option that
@@ -15504,7 +15535,7 @@ async function paintAccountPicker(a) {
   sel.disabled = !ours;
   go.disabled = !ours || !sel.value;
   if (msg && !msg.textContent && !ours) {
-    msg.textContent = 'Kosmos did not start this one, so it cannot move it.';
+    msg.textContent = 'We cannot tell which account this one uses, so it cannot be moved from here.';
   }
 }
 
