@@ -22,8 +22,10 @@ Only a byte diff of the served bundle showed it. #597.
    (the local board runs from it) and for nothing else. The log prints
    "building <sha> in <path>" and step 9 prints the sha again beside the
    served artifacts.
-2. `tools/verify-served.sh` (if it reads the repo): compare the served
-   bundle's app files against `git archive $SHA`, not against the checkout.
+2. The served bundle is compared against the frozen tree in release.sh step
+   9b (via release_bundle_matches_tree in the lib), not inside verify-served.sh:
+   one frozen tree, one comparator, app/** plus the top-level bin/kosmos, the
+   version bake and the two relocations allowed.
 3. A test: `tools/test-release-detached.sh` runs the worktree-making part
    against a scratch repo, pulls a new commit into the scratch "main"
    checkout mid-way, and asserts the built tree is the bump sha.

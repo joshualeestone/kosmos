@@ -98,18 +98,25 @@ if ! git -C "$REPO" diff --quiet -- package.json; then
 fi
 [ -z "$(git -C "$REPO" status --porcelain)" ] || {
   echo "the tree is dirty after the bump; the bundle would ship as -DIRTY"; exit 1; }
+# ⚠️ CAPTURED HERE, the instant the tree is known clean and before step 2b can
+# do anything an auto-sync pull could race. Reading it inside 2b left a window
+# in which the frozen sha was not the bump commit (self-consistent downstream,
+# but the plan's "frozen at the bump sha" would quietly be false).
+SHA="$(git -C "$REPO" rev-parse HEAD)"
 
 echo "== 2b. the tree that ships, frozen at one sha (#597) =="
 # 🛑 FROM HERE ON, $REPO IS A DETACHED WORKTREE AT THE BUMP SHA, NOT THE
 # SHARED CHECKOUT. The checkout this script lives in is pulled by every agent
 # on the Mac; on 2026-08-24 two cuts in a row were fast-forwarded mid-run, so
 # the suite and the page gate ran on one sha and the bundle shipped another.
-# Steps 3 through 6 run in the frozen tree; step 9b compares what is SERVED
-# against it; only step 10 (the board on this Mac runs from the shared
-# checkout) goes back to MAIN_REPO. The worktree is removed on every exit.
+# Steps 3 through 6 run in the frozen tree, and so does step 9:
+# verify-served.sh reads $REPO/install/setup.sh and $REPO/package.json, and
+# its baked-in default REPO is the shared checkout, so the REPO="$REPO" pass
+# below is load-bearing, not redundant. Step 9b compares what is SERVED
+# against the frozen tree; only step 10 (the board on this Mac runs from the
+# shared checkout) goes back to MAIN_REPO. The worktree is removed on every exit.
 . "$REPO/tools/lib/release-freeze.sh"
 MAIN_REPO="$REPO"
-SHA="$(git -C "$MAIN_REPO" rev-parse HEAD)"
 BUILD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-release.XXXXXX")" || { echo "no temp dir for the frozen tree"; exit 1; }
 BUILD="$(release_freeze "$MAIN_REPO" "$SHA" "$BUILD_ROOT")" || { rm -rf "$BUILD_ROOT"; echo "could not freeze the tree at $SHA"; exit 1; }
 trap 'release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
@@ -283,7 +290,7 @@ echo "== 9b. the served bundle is the frozen tree, file by file (#597) =="
 _served_tgz="$(mktemp)"
 if curl -fsSL -m 120 "${HOST:-https://installkosmos.com}/dist/kosmos-$V-arm64.tar.gz" -o "$_served_tgz" \
    && release_bundle_matches_tree "$_served_tgz" "$BUILD"; then
-  echo "   the served kosmos-$V-arm64.tar.gz is ${SHA:0:12}, file for file"
+  echo "   the served kosmos-$V-arm64.tar.gz is ${SHA:0:12}: every tree file (app/ and bin/kosmos) matches"
 else
   rm -f "$_served_tgz"; echo "THE SERVED BUNDLE IS NOT THE TREE THAT WAS TESTED (${SHA:0:12})"; exit 1
 fi

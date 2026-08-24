@@ -10,7 +10,7 @@
     "type-check": "echo 'plain JavaScript, nothing to type-check'",
     "lint-fix": "echo 'no linter configured'",
     "build": "echo 'no build step for the app: it runs from source. Release bundles: tools/build-*-bundle.sh'",
-    "test:shell": "sh -n install/setup.sh && bash -n install/kosmos && bash -n install/kosmos-report-hook.sh && bash -n tools/build-tmux-bundle.sh && bash -n tools/build-kosmos-bundle.sh && bash -n tools/build-tmux-from-source.sh && bash -n tools/restart-local-board.sh && bash -n tools/browser-checks.sh && bash -n tools/lib/floor-gate.sh && bash -n tools/test-install.sh && sh -n tools/clean-machine.sh && bash -n tools/lib/launchd-witness.sh && bash -n tools/lib/release-freeze.sh && bash tools/test-release-detached.sh && bash -n tools/witness-pane-env.sh && bash tools/test-clean-witness.sh && bash tools/check-floor-consistency.sh && bash tools/test-permission-acceptance.sh",
+    "test:shell": "sh -n install/setup.sh && bash -n install/kosmos && bash -n install/kosmos-report-hook.sh && bash -n tools/build-tmux-bundle.sh && bash -n tools/build-kosmos-bundle.sh && bash -n tools/build-tmux-from-source.sh && bash -n tools/restart-local-board.sh && bash -n tools/browser-checks.sh && bash -n tools/lib/floor-gate.sh && bash -n tools/test-install.sh && sh -n tools/clean-machine.sh && bash -n tools/lib/launchd-witness.sh && bash -n tools/release.sh && bash -n tools/lib/release-freeze.sh && bash tools/test-release-detached.sh && bash -n tools/witness-pane-env.sh && bash tools/test-clean-witness.sh && bash tools/check-floor-consistency.sh && bash tools/test-permission-acceptance.sh",
     "test:install": "bash tools/test-install.sh",
     "verify:served": "bash tools/verify-served.sh",
     "release": "bash tools/release.sh"

@@ -25,12 +25,21 @@ release_freeze() {
   local repo="$1" sha="$2" root="$3" build
   [ -n "$repo" ] && [ -n "$sha" ] && [ -n "$root" ] || { echo "release_freeze: repo, sha and root are required" >&2; return 1; }
   build="$root/kosmos-$sha"
-  git -C "$repo" worktree add --detach -q "$build" "$sha" 2>&1 >&2 || return 1
+  # git's chatter to stderr, never into the stdout this function returns.
+  git -C "$repo" worktree add --detach -q "$build" "$sha" >&2 || return 1
   # ⚠️ Checked, not assumed: the worktree is AT the sha and carries nothing
   # else. A worktree that resolved the sha to something else, or picked up
   # untracked files, would put the whole class back with a reassuring path.
-  [ "$(git -C "$build" rev-parse HEAD)" = "$sha" ] || { echo "release_freeze: $build is not at $sha" >&2; return 1; }
-  [ -z "$(git -C "$build" status --porcelain)" ] || { echo "release_freeze: $build is not clean" >&2; return 1; }
+  # ⚠️ THE ADD SUCCEEDED, so a failed check below must remove the worktree it
+  # made -- otherwise the shared checkout keeps a phantom registration in
+  # .git/worktrees until git gc, and the caller's EXIT trap is not installed
+  # until it has this function's return value.
+  if [ "$(git -C "$build" rev-parse HEAD)" != "$sha" ]; then
+    echo "release_freeze: $build is not at $sha" >&2; release_thaw "$repo" "$build"; return 1
+  fi
+  if [ -n "$(git -C "$build" status --porcelain)" ]; then
+    echo "release_freeze: $build is not clean" >&2; release_thaw "$repo" "$build"; return 1
+  fi
   printf '%s' "$build"
 }
 
@@ -47,32 +56,49 @@ release_thaw() {
 # not here and the next release refuses at step 9b with "not in the tree",
 # which is the loud direction; the reverse (here and not there) cannot make
 # a mismatch pass, because the file would then be missing from the bundle.
+# Map a path AS IT SITS IN THE TARBALL to the tree file it was copied from.
+# ⚠️ EACH RELOCATION IS STATED HERE AND AT THE `cp` IN build-kosmos-bundle.sh
+# THAT PERFORMS IT. app/* mirrors the repo root; two files are relocated
+# (bin/kosmos <- install/kosmos, app/bin/kosmos-report-hook.sh <-
+# install/kosmos-report-hook.sh); everything else under app/ keeps its path
+# with the app/ prefix stripped. Add a relocation there and not here and the
+# next release refuses at step 9b with "not in the tree", the loud direction.
 release_bundle_source_path() {
   case "$1" in
-    bin/kosmos-report-hook.sh) printf '%s' "install/kosmos-report-hook.sh" ;;
-    *) printf '%s' "$1" ;;
+    bin/kosmos)                    printf '%s' "install/kosmos" ;;
+    app/bin/kosmos-report-hook.sh) printf '%s' "install/kosmos-report-hook.sh" ;;
+    app/*)                         printf '%s' "${1#app/}" ;;
+    *)                             printf '%s' "$1" ;;
   esac
 }
 
+# Compare every TREE-DERIVED file the served bundle ships against the tree it
+# was built from: app/** and the top-level bin/kosmos (the command every user
+# runs). runtime/** (a downloaded Node) and VERSION (a build stamp) are not
+# tree files and are deliberately not extracted, so they cannot be compared.
+# app/web/index.html is compared after the one substitution the build makes.
 release_bundle_matches_tree() {
-  local tar="$1" tree="$2" tmp ver rel src bad=0
+  local tar="$1" tree="$2" tmp ver rel src cmpfile bad=0
   [ -f "$tar" ] && [ -d "$tree" ] || { echo "release_bundle_matches_tree: need a tarball and a tree" >&2; return 2; }
   ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tree/package.json" | head -1)"
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bundle-cmp.XXXXXX")" || return 2
-  tar -xzf "$tar" -C "$tmp" app || { rm -rf "$tmp"; echo "release_bundle_matches_tree: could not read app/ from $tar" >&2; return 2; }
+  # `app bin`: the two tree-derived trees. A tarball missing either is a
+  # failure, not a skip -- tar exits non-zero when a named member is absent.
+  tar -xzf "$tar" -C "$tmp" app bin || { rm -rf "$tmp"; echo "release_bundle_matches_tree: could not read app/ and bin/ from $tar" >&2; return 2; }
   local n=0
   while IFS= read -r rel; do
     n=$((n+1))
     src="$(release_bundle_source_path "$rel")"
+    cmpfile="$tmp/$rel"
     if [ ! -f "$tree/$src" ]; then echo "   not in the tree: $rel"; bad=1
-    elif [ "$rel" = web/index.html ]; then
-      sed "s/__KOSMOS_VERSION__/$ver/" "$tree/$src" | cmp -s - "$tmp/app/$rel" || { echo "   differs from the tree beyond the baked version: $rel"; bad=1; }
+    elif [ "$rel" = app/web/index.html ]; then
+      sed "s/__KOSMOS_VERSION__/$ver/" "$tree/$src" | cmp -s - "$cmpfile" || { echo "   differs from the tree beyond the baked version: $rel"; bad=1; }
     else
-      cmp -s "$tree/$src" "$tmp/app/$rel" || { echo "   differs from the tree: $rel"; bad=1; }
+      cmp -s "$tree/$src" "$cmpfile" || { echo "   differs from the tree: $rel"; bad=1; }
     fi
-  done < <(cd "$tmp/app" && find . -type f | sed 's|^\./||')
+  done < <(cd "$tmp" && find app bin -type f 2>/dev/null | sed 's|^\./||')
   rm -rf "$tmp"
   # ⚠️ An empty bundle compares equal to everything; zero files is a failure.
-  [ "$n" -gt 0 ] || { echo "   the bundle holds no app files" ; return 1; }
+  [ "$n" -gt 0 ] || { echo "   the bundle holds no tree-derived files" ; return 1; }
   return $bad
 }
