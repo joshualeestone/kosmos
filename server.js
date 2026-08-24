@@ -115,6 +115,7 @@ const forget = require('./engine/forget');
 const ping = require('./engine/ping');
 const notify = require('./engine/notify');
 const selfreport = require('./engine/selfreport');
+const doctrine = require('./engine/doctrine');
 const remote = require('./engine/remote');
 const styles = require('./engine/styles');
 const autoupdate = require('./engine/autoupdate');
@@ -1454,6 +1455,101 @@ const server = http.createServer((req, res) => {
         }
         const made = skillsEngine.add(skillsEngine.agentDir(create.workerDir(name)), { name: body.name, body: body.body });
         sendJson(res, made.ok ? 200 : 400, made);
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
+  /* ── the working rules, consented (#539) ─────────────────────────────────
+     GET answers the banner and the dialog (which sections are missing, the
+     exact span a click would write, and the hash that click must present);
+     the two POSTs are the click and the Not-now. NOTHING here writes
+     without the click: the GET is pure planning, and the plan the dialog
+     shows is the composition the click writes, proven by hash (a file that
+     changed in between refuses with look-again). */
+  const doc = pathname.match(/^\/api\/agent\/([^/]+)\/doctrine$/);
+  if (doc && (req.method === 'GET' || req.method === 'HEAD')) {
+    const name = decodeSegment(doc[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    if (!fs.existsSync(create.workerDir(name))) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
+    const st = doctrine.status(name);
+    sendJson(res, 200, {
+      state: st.state,
+      because: st.because || null,
+      carried: st.carried === undefined ? null : st.carried,
+      currentVersion: st.currentVersion,
+      declined: st.declined === true,
+      sections: (st.sections || []).map((s) => s.heading),
+      span: st.spanNext || null,
+      hash: st.hash || null,
+    });
+    return;
+  }
+  const docGo = pathname.match(/^\/api\/agent\/([^/]+)\/doctrine\/(refresh|not-now)$/);
+  if (docGo && req.method === 'POST') {
+    const name = decodeSegment(docGo[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    if (docGo[2] === 'not-now') {
+      sendJson(res, 200, doctrine.decline(name));
+      return;
+    }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
+        /* The per-agent click REQUIRES the plan it consented to (Angel's
+           review): without the hash, "the click writes what the dialog
+           showed" would be a claim the code does not enforce. The fleet
+           route is the deliberate name-level exception, stated there. */
+        if (typeof body.hash !== 'string' || !body.hash) {
+          sendJson(res, 400, { state: 'could_not', because: 'the click must carry the plan it consented to; reopen the dialog' });
+          return;
+        }
+        const got = doctrine.refresh(name, safeRoster(), { expectHash: body.hash });
+        sendJson(res, 200, got);
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  if (pathname === '/api/doctrine/fleet' && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* The fleet dialog's list, computed BEFORE any click: which agents
+       would change and which would not and why, by name (Mona Lisa's
+       ruling: the click is consent for the listed names only). */
+    const roster = safeRoster();
+    if (!Array.isArray(roster)) { sendJson(res, 200, { ok: false, because: 'we could not check which agents are running' }); return; }
+    const rows = roster.filter((a) => a && a.isNamedOurs === true).map((a) => {
+      const st = doctrine.status(a.sessionName);
+      return {
+        name: a.name || a.sessionName,
+        sessionName: a.sessionName,
+        state: st.declined === true && st.state === 'refresh' ? 'declined' : st.state,
+        because: st.because || null,
+        sections: (st.sections || []).map((s) => s.heading),
+      };
+    });
+    sendJson(res, 200, { currentVersion: require('./engine/defaults').DOCTRINE_VERSION, agents: rows });
+    return;
+  }
+  if (pathname === '/api/doctrine/refresh-fleet' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
+        const names = Array.isArray(body.names) ? body.names.filter((n) => typeof n === 'string') : [];
+        if (!names.length) { sendJson(res, 400, { ok: false, because: 'no agents were named, and a fleet click is consent for named agents only' }); return; }
+        const roster = safeRoster();
+        const verdicts = names.map((name) => {
+          /* A fleet click never overrides a per-agent Not now (Mona Lisa's
+             ruling): the list showed those names as staying, so writing to
+             one would be a write nobody consented to. */
+          let profile = {};
+          try { profile = store.readProfile(name) || {}; } catch { profile = {}; }
+          if (profile.doctrineDeclined === require('./engine/defaults').DOCTRINE_VERSION) {
+            return { name, state: 'declined' };
+          }
+          return { name, ...doctrine.refresh(name, roster) };
+        });
+        sendJson(res, 200, { verdicts });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;

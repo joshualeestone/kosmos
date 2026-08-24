@@ -186,6 +186,13 @@ const REPORTS_END = '<!-- kosmos:reports:end -->';
 // The AI-policy pair (#479), defined beside the others for the same reason:
 // the neutralisers derive from the list and the registry test reads it.
 const POLICY_START = '<!-- kosmos:policy:start -->';
+/* The working-rules span the consented refresh writes (#539, engine/doctrine.js).
+   Constant and machine-shaped ON PURPOSE: findBlock is exact-match, so a marker
+   carrying the click date could never be re-found and the next refresh would
+   append a second block. The dated human sentence lives INSIDE the span
+   (Mona Lisa's ruling); these two never change. */
+const DOCTRINE_START = '<!-- kosmos:doctrine:start -->';
+const DOCTRINE_END = '<!-- kosmos:doctrine:end -->';
 const POLICY_END = '<!-- kosmos:policy:end -->';
 
 /**
@@ -213,7 +220,7 @@ const POLICY_END = '<!-- kosmos:policy:end -->';
  */
 function ALL_MARKERS() {
   const mm = require('./messages');
-  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, POLICY_START, POLICY_END, mm.START, mm.END];
+  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, mm.START, mm.END];
 }
 
 /**
@@ -2019,7 +2026,7 @@ function syncAgent(sessionName, roster) {
 }
 
 module.exports = {
-  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, POLICY_START, POLICY_END, ALL_MARKERS, neutralise,
+  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe,
   list, get, projectsFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,

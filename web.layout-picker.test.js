@@ -88,3 +88,13 @@ test('piece three: the person\'s row exists once, hidden until the mode, opens S
   assert.match(SCRIPT, /function paintRailMe\(\)/);
   assert.match(SCRIPT, /paintRailMe\(\);\n  if \(!face\) return;/, 'paintYou no longer paints the row');
 });
+
+test('piece four: the row draws its ring only with a known memory and its warning only on needs-you, and both are hidden outside the mode', () => {
+  const fn = SCRIPT.slice(SCRIPT.indexOf('function lrowRing('), SCRIPT.indexOf('function lrow('));
+  assert.match(fn, /if \(pct === null\) return '';/, 'a ring is drawn for an unknown memory');
+  assert.match(fn, /class="gf \$\{band\}"/, 'the ring does not use the gauge\'s own band classes');
+  assert.match(SCRIPT, /\$\{av\}\$\{lrowRing\(a\)\}\$\{m\.st === 'attn' \? LROW_WARN : ''\}/, 'the warning is not gated on the needs-you state');
+  assert.match(SCRIPT, /<div class="lav">\$\{off\}<\/div>/, 'a stopped row reads a memory the route does not emit for it');
+  assert.match(PAGE, /\.lav \.lring, \.lav \.lwarn \{ display: none; \}/, 'the ring or warning shows in the tabs\' list layout');
+  assert.match(PAGE, /body\.consolidated \.lrow > \.lav > \.lwarn \{ display: block/);
+});
