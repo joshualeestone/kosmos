@@ -1631,7 +1631,11 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
    path below it; at the pack's .9375rem the size split carries that
    distinction, so the pack's ink-2 stands. */
 p.pj-desc-empty { color: var(--label-3); font-style: italic; }
-.skillrow { padding: 8px 2px; border-bottom: 0.5px solid var(--separator); }
+.skillrow { padding: 8px 2px; border-bottom: 0.5px solid var(--separator);
+            display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.skillrm { border: 0; background: none; color: var(--danger, #b3261e); font: inherit;
+           font-size: 13px; cursor: pointer; padding: 2px 4px; border-radius: 6px; flex: none; }
+.skillrm.armed { font-weight: 600; }
 .skillrow b { font: 600 var(--text-body) var(--font-ui); }
 .pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
   line-height: 1.45; color: var(--label-2); max-width: 62ch;
@@ -4363,6 +4367,25 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      not a removal. The machinery is the same on purpose (backdrop and Escape
      both mean keep, focus opens on the harmless answer, two-button trap),
      because a person should not have to learn two dialogs. -->
+<!-- The policy hand-out confirmation (Josh, 2026-08-23 20:02: "it wasn't
+     clear at all to me that that was about to happen"). It confirms the TRUE
+     thing: instructions are written, nothing restarts. The warning he asked
+     for ("this will restart all of your agents") would be false, so the
+     dialog says what actually happens instead. -->
+<div class="rm-back" id="pol-modal" hidden>
+  <div class="rm-box" role="alertdialog" aria-modal="true"
+       aria-labelledby="pol-m-title" aria-describedby="pol-m-small">
+    <h2 class="rm-title" id="pol-m-title">Hand this policy to every agent?</h2>
+    <p class="rm-small" id="pol-m-small">It goes into the instructions of every
+      agent on this Mac. Nothing restarts and nothing is interrupted; each agent
+      starts following it after its own next restart.</p>
+    <div class="rm-acts">
+      <button class="btn" id="pol-m-keep" type="button">Not yet</button>
+      <button class="btn" id="pol-m-go" type="button">Hand it out</button>
+    </div>
+  </div>
+</div>
+
 <div class="rm-back" id="rst-modal" hidden>
   <div class="rm-box" role="alertdialog" aria-modal="true"
        aria-labelledby="rst-title" aria-describedby="rst-small">
@@ -5876,9 +5899,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="you" aria-controls="s-sec-you" class="on" aria-current="true">You</button>
     <button type="button" data-go="accounts" aria-controls="s-sec-accounts">Accounts</button>
     <button type="button" data-go="connect" aria-controls="s-sec-connect">Connections</button>
-    <button type="button" data-go="gskills" aria-controls="s-sec-gskills">Global skills</button>
-    <button type="button" data-go="policy" aria-controls="s-sec-policy">AI policy</button>
-    <button type="button" data-go="talking" aria-controls="s-sec-talking">Agents talking</button>
+    <button type="button" data-go="gskills" aria-controls="s-sec-gskills">Global Skills</button>
+    <button type="button" data-go="policy" aria-controls="s-sec-policy">AI Policy</button>
+    <button type="button" data-go="talking" aria-controls="s-sec-talking">Agents Talking</button>
     <button type="button" data-go="mac" aria-controls="s-sec-mac">This Mac</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
     <button type="button" data-go="plus" aria-controls="s-sec-plus">Plus Account</button>
@@ -12496,6 +12519,10 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
    The list is whatever the runtime's folder holds right now; painting from
    anything else would let the screen disagree with what a session loads. */
 async function loadSkills(url, listId, msgId) {
+  /* Header only, no body text (Josh, 2026-08-23 20:01: "this page could get
+     really gigantic... just have only the header"). Each row carries its
+     Remove, which asks once in place before it acts: the second click is
+     the consent, and looking away resets it. */
   const box = document.getElementById(listId);
   const msg = document.getElementById(msgId);
   msg.textContent = 'Looking\u2026';
@@ -12510,11 +12537,22 @@ async function loadSkills(url, listId, msgId) {
       const row = document.createElement('div');
       row.className = 'skillrow';
       const n = document.createElement('b'); n.textContent = sk.name;
-      row.append(n);
-      if (sk.description) {
-        const d = document.createElement('span'); d.className = 'fhint'; d.style.display = 'block';
-        d.textContent = sk.description; row.append(d);
-      }
+      const rm = document.createElement('button');
+      rm.type = 'button'; rm.className = 'skillrm'; rm.textContent = 'Remove';
+      rm.setAttribute('aria-label', 'Remove the skill ' + sk.name);
+      let armed = false;
+      rm.addEventListener('click', async () => {
+        if (!armed) { armed = true; rm.textContent = 'Remove it for good?'; rm.classList.add('armed'); return; }
+        rm.disabled = true;
+        try {
+          const res = await fetch(url + '/' + encodeURIComponent(sk.key), { method: 'DELETE' });
+          const out = await res.json();
+          if (!res.ok) { msg.textContent = pjSentence(out.because || 'we could not remove it'); rm.disabled = false; return; }
+          loadSkills(url, listId, msgId);
+        } catch { msg.textContent = 'We could not reach Kosmos to remove it.'; rm.disabled = false; }
+      });
+      rm.addEventListener('blur', () => { armed = false; rm.textContent = 'Remove'; rm.classList.remove('armed'); });
+      row.append(n, rm);
       box.append(row);
     }
   } catch { box.textContent = ''; msg.textContent = 'We could not reach Kosmos to list the skills.'; }
@@ -12607,15 +12645,38 @@ async function polSubmit(body, doing) {
     paintPolicy();
   } catch { msg.textContent = 'We could not reach Kosmos to save it.'; }
 }
+/* Both ways in pass through the confirmation: writing into every agent's
+   instructions is a fleet-wide act, so the click says what it is about to do
+   before it does it. */
+let POL_PENDING = null;
+function polConfirm(body, doing) {
+  POL_PENDING = { body, doing };
+  document.getElementById('pol-modal').hidden = false;
+  // Enter on an unaimed dialog lands on the harmless answer.
+  document.getElementById('pol-m-keep').focus();
+}
+document.getElementById('pol-m-keep').addEventListener('click', () => {
+  document.getElementById('pol-modal').hidden = true;
+  POL_PENDING = null;
+});
+document.getElementById('pol-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'pol-modal') { document.getElementById('pol-modal').hidden = true; POL_PENDING = null; }
+});
+document.getElementById('pol-m-go').addEventListener('click', () => {
+  const p = POL_PENDING;
+  document.getElementById('pol-modal').hidden = true;
+  POL_PENDING = null;
+  if (p) polSubmit(p.body, p.doing);
+});
 document.getElementById('pol-fetch').addEventListener('click', () => {
   const url = document.getElementById('pol-url').value.trim();
   if (!url) { document.getElementById('pol-msg').textContent = 'Paste the link first.'; return; }
-  polSubmit({ url }, 'Fetching the page\u2026');
+  polConfirm({ url }, 'Fetching the page\u2026');
 });
 document.getElementById('pol-save').addEventListener('click', () => {
   const text = document.getElementById('pol-text').value;
   if (!text.trim()) { document.getElementById('pol-msg').textContent = 'Paste the policy first.'; return; }
-  polSubmit({ text }, 'Saving\u2026');
+  polConfirm({ text }, 'Saving\u2026');
 });
 /* The Fresh start button's name, in one place: visible text in the mock's
    long form, and an accessible name that says which of this page's two

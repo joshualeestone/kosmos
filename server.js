@@ -1294,6 +1294,33 @@ const server = http.createServer((req, res) => {
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
   }
+  const globalSkillRm = pathname.match(/^\/api\/skills\/([^/]+)$/);
+  if (globalSkillRm && req.method === 'DELETE') {
+    const key = decodeSegment(globalSkillRm[1]);
+    if (key === null) { sendJson(res, 400, { ok: false, because: 'that is not a skill name we can read' }); return; }
+    const gone = skillsEngine.remove(skillsEngine.globalDir(), key);
+    sendJson(res, gone.ok ? 200 : 400, gone);
+    return;
+  }
+  /* The delete carries the same exact-match permit as the write: removing a
+     file from a worker folder is a write to it. */
+  const agentSkillRm = pathname.match(/^\/api\/agent\/([^/]+)\/skills\/([^/]+)$/);
+  if (agentSkillRm && req.method === 'DELETE') {
+    const name = decodeSegment(agentSkillRm[1]);
+    const key = decodeSegment(agentSkillRm[2]);
+    if (name === null || key === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    const roster = safeRoster();
+    if (!Array.isArray(roster) || !roster.some((a) => a && a.sessionName === name && a.isNamedOurs === true)) {
+      sendJson(res, 409, { ok: false,
+        because: !Array.isArray(roster)
+          ? 'we could not check which agents are running, so we will not write into a worker folder on a guess'
+          : 'we could not find an agent with exactly this name on this computer' });
+      return;
+    }
+    const gone = skillsEngine.remove(skillsEngine.agentDir(create.workerDir(name)), key);
+    sendJson(res, gone.ok ? 200 : 400, gone);
+    return;
+  }
   const agentSkills = pathname.match(/^\/api\/agent\/([^/]+)\/skills$/);
   if (agentSkills && (req.method === 'GET' || req.method === 'HEAD')) {
     const name = decodeSegment(agentSkills[1]);
