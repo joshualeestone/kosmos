@@ -1631,6 +1631,8 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
    path below it; at the pack's .9375rem the size split carries that
    distinction, so the pack's ink-2 stands. */
 p.pj-desc-empty { color: var(--label-3); font-style: italic; }
+.skillrow { padding: 8px 2px; border-bottom: 0.5px solid var(--separator); }
+.skillrow b { font: 600 var(--text-body) var(--font-ui); }
 .pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
   line-height: 1.45; color: var(--label-2); max-width: 62ch;
   /* --label-2, not k-ink-2: the detail sits on the legacy-token panel,
@@ -3706,7 +3708,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="model" aria-controls="d-sec-model">Model</button>
     <button type="button" data-go="memory" aria-controls="d-sec-memory">Memory</button>
     <button type="button" data-go="instr" aria-controls="d-sec-instr"><span>Instructions</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
-    <button type="button" data-go="profile" aria-controls="d-sec-profile">Profile</button>
+    <button type="button" data-go="skills" aria-controls="d-sec-skills">Skills</button>
+      <button type="button" data-go="profile" aria-controls="d-sec-profile">Profile</button>
     <button type="button" data-go="term" aria-controls="d-sec-term">Terminal</button>
     <div class="sep" role="separator"></div>
     <button type="button" data-go="remove" aria-controls="d-sec-remove" class="danger"><span id="d-nav-remove">Remove this agent</span></button>
@@ -4069,6 +4072,31 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <div class="fmsg" id="d-instr-msg" role="status" aria-live="polite"></div>
   </div>
   </section>
+  </section>
+  <!-- Skills (#477): what this agent can be handed beyond its instructions.
+       The list is read from the agent's own skills folder, the same one its
+       runtime loads, so the screen can never disagree with what a session
+       actually gets. Adding writes the runtime's own SKILL.md convention. -->
+  <section class="dsec" id="d-sec-skills" data-sec="skills" tabindex="-1" aria-label="Skills" hidden>
+    <section class="dbox">
+      <h3 class="dlab">Skills</h3>
+      <p class="dhint" style="margin:0 0 12px;">
+        Ways of working you hand this agent beyond its instructions: how to
+        summarise, how to file an expense, how your team writes minutes. It
+        reads them when it starts, so anything you add here arrives at its
+        next restart.
+      </p>
+      <div id="d-skills-list" class="pj-docs"></div>
+      <p class="fmsg" id="d-skills-msg" role="status" aria-live="polite"></p>
+      <div class="field" style="margin-top:16px;">
+        <label class="flabel" for="d-skill-name">Add a skill</label>
+        <div class="fhint">Name it, then write what it should do, the way you would brief a person.</div>
+        <div class="frow"><input type="text" id="d-skill-name" maxlength="80" placeholder="Meeting minutes"></div>
+        <textarea class="tk-inp" id="d-skill-body" rows="5" maxlength="65536" placeholder="Turn a meeting transcript into minutes. Keep every decision and who owns it. One page at most."></textarea>
+        <div class="frow" style="margin-top:8px;"><button class="btn" id="d-skill-add" type="button">Add skill</button></div>
+        <p class="fmsg" id="d-skill-add-msg" role="status" aria-live="polite"></p>
+      </div>
+    </section>
   </section>
   <section class="dsec" id="d-sec-profile" data-sec="profile" tabindex="-1" aria-label="Profile" hidden>
 
@@ -5830,6 +5858,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="you" aria-controls="s-sec-you" class="on" aria-current="true">You</button>
     <button type="button" data-go="accounts" aria-controls="s-sec-accounts">Accounts</button>
     <button type="button" data-go="connect" aria-controls="s-sec-connect">Connections</button>
+    <button type="button" data-go="gskills" aria-controls="s-sec-gskills">Global skills</button>
     <button type="button" data-go="talking" aria-controls="s-sec-talking">Agents talking</button>
     <button type="button" data-go="mac" aria-controls="s-sec-mac">This Mac</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
@@ -6056,6 +6085,30 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       Kosmos is open source. If you want a connection before we get to it,
       you can wire it up yourself.
     </p>
+    </section>
+  </section>
+  <!-- Global Skills (#478): the user-level skills folder every agent loads,
+       because every agent runs as this person -- global by construction, no
+       distribution machinery to drift. Same screen grammar as the agent
+       page's Skills tab; one painter drives both. -->
+  <section class="dsec" id="s-sec-gskills" data-sec="gskills" tabindex="-1" aria-label="Global skills" hidden>
+    <section class="dbox">
+      <h3 class="dlab">Global skills</h3>
+      <p class="dhint" style="margin:0 0 12px;">
+        Skills every agent on this Mac gets, alongside whatever each one has
+        of its own. Agents read them when they start, so anything you add
+        arrives at each agent&rsquo;s next restart.
+      </p>
+      <div id="g-skills-list" class="pj-docs"></div>
+      <p class="fmsg" id="g-skills-msg" role="status" aria-live="polite"></p>
+      <div class="field" style="margin-top:16px;">
+        <label class="flabel" for="g-skill-name">Add a global skill</label>
+        <div class="fhint">Name it, then write what it should do, the way you would brief a person.</div>
+        <div class="frow"><input type="text" id="g-skill-name" maxlength="80" placeholder="How we write emails"></div>
+        <textarea class="tk-inp" id="g-skill-body" rows="5" maxlength="65536" placeholder="Short sentences. Say the ask in the first line. Never more than one question per email."></textarea>
+        <div class="frow" style="margin-top:8px;"><button class="btn" id="g-skill-add" type="button">Add skill</button></div>
+        <p class="fmsg" id="g-skill-add-msg" role="status" aria-live="polite"></p>
+      </div>
     </section>
   </section>
   <section class="dsec" id="s-sec-talking" data-sec="talking" tabindex="-1" aria-label="Agents talking" hidden>
@@ -12197,7 +12250,7 @@ function detailPaintWindow(a) {
    `detailGo` is the only writer of `.dsec[hidden]` ON THIS PANEL (Settings
    has `settingsGo` for its own), and it is called from a nav click and from
    `openDetail`, never from the poll. */
-const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'profile', 'term', 'remove'];
+const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'];
 /* The thread's scroll offset while Talk is hidden. A display:none container
    drops its scrollTop, so "came back to where I was reading" has to be kept
    here; null means nobody has left Talk for this agent yet. */
@@ -12268,6 +12321,9 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
   detailGo(b.dataset.go);
+  if (b.dataset.go === 'skills' && CURRENT) {
+    loadSkills('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills', 'd-skills-list', 'd-skills-msg');
+  }
 });
 /* Settings has the same shape: seven sections, one on screen, the nav says
    which. No arrival work here (nothing in Settings measures layout or
@@ -12278,7 +12334,7 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
    page resets to Talk because it opens a different agent each time; Settings
    is one page, and a person who left Updates to look at the board comes back
    to Updates). "Landing is You" is the first arrival. */
-const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'talking', 'mac', 'updates', 'advanced'];
+const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'talking', 'mac', 'updates', 'advanced'];
 function settingsGo(section, opts) {
   if (!SETTINGS_SECTIONS.includes(section)) section = 'you';
   const nav = document.getElementById('s-nav');
@@ -12299,7 +12355,61 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
   settingsGo(b.dataset.go);
+  if (b.dataset.go === 'gskills') loadSkills('/api/skills', 'g-skills-list', 'g-skills-msg');
 });
+
+/* ── skills, both surfaces, one painter (#477, #478) ─────────────────────
+   The list is whatever the runtime's folder holds right now; painting from
+   anything else would let the screen disagree with what a session loads. */
+async function loadSkills(url, listId, msgId) {
+  const box = document.getElementById(listId);
+  const msg = document.getElementById(msgId);
+  msg.textContent = 'Looking\u2026';
+  try {
+    const got = await (await fetch(url, { cache: 'no-store' })).json();
+    if (got.ok === false) { box.textContent = ''; msg.textContent = pjSentence(got.because || 'we could not read the skills folder'); return; }
+    box.textContent = '';
+    const skills = got.skills || [];
+    if (!skills.length) { msg.textContent = 'No skills here yet.'; return; }
+    msg.textContent = '';
+    for (const sk of skills) {
+      const row = document.createElement('div');
+      row.className = 'skillrow';
+      const n = document.createElement('b'); n.textContent = sk.name;
+      row.append(n);
+      if (sk.description) {
+        const d = document.createElement('span'); d.className = 'fhint'; d.style.display = 'block';
+        d.textContent = sk.description; row.append(d);
+      }
+      box.append(row);
+    }
+  } catch { box.textContent = ''; msg.textContent = 'We could not reach Kosmos to list the skills.'; }
+}
+function wireSkillAdd(btnId, nameId, bodyId, msgId, urlFor, saidFor) {
+  document.getElementById(btnId).addEventListener('click', async () => {
+    const msg = document.getElementById(msgId);
+    const name = document.getElementById(nameId).value.trim();
+    const body = document.getElementById(bodyId).value;
+    msg.textContent = 'Adding\u2026';
+    try {
+      const res = await fetch(urlFor(), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, body }) });
+      const out = await res.json().catch(() => null);
+      if (!res.ok || !out || out.ok === false) { msg.textContent = pjSentence((out && out.because) || 'we could not add that skill'); return; }
+      document.getElementById(nameId).value = ''; document.getElementById(bodyId).value = '';
+      msg.textContent = saidFor();
+      /* The list is the receipt: repaint it so the new skill appears where
+         it will be read from. */
+      if (btnId === 'g-skill-add') loadSkills('/api/skills', 'g-skills-list', 'g-skills-msg');
+      else if (CURRENT) loadSkills('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills', 'd-skills-list', 'd-skills-msg');
+    } catch { msg.textContent = 'We could not reach Kosmos to add that skill.'; }
+  });
+}
+wireSkillAdd('g-skill-add', 'g-skill-name', 'g-skill-body', 'g-skill-add-msg',
+  () => '/api/skills',
+  () => 'Added. Every agent picks it up at its next restart.');
+wireSkillAdd('d-skill-add', 'd-skill-name', 'd-skill-body', 'd-skill-add-msg',
+  () => '/api/agent/' + encodeURIComponent(CURRENT ? CURRENT.sessionName : '') + '/skills',
+  () => 'Added. ' + ((CURRENT && CURRENT.name) || 'This agent') + ' picks it up at its next restart.');
 /* The Fresh start button's name, in one place: visible text in the mock's
    long form, and an accessible name that says which of this page's two
    restarts it is, because the confirmation dialog's own button is also

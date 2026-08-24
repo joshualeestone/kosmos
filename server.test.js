@@ -154,6 +154,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
    operator's live fleet. The fake answers reads from fixtures (none set here:
    an empty board) and echoes everything else, so write-side receipts hold. */
 process.env.AGENT_WORKFORCE_TMUX_BIN = require('node:path').join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_SKILLS_DIR = require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'aw-gskills-'));
 // ⚠️ Belt AND braces for the CHAT engine too (round 26): this branch made
 // `require('./server')` pull in engine/chat, which arms itself from this
 // variable at load. Without it, the only thing between a stray thread-route
@@ -7878,7 +7879,7 @@ test('a card names a planned model plainly, while the detail panel keeps its ten
  * now is the nav's order and the sections' order against it, which is what the
  * test pins; membership box by box is in web.agent-nav.test.js.
  */
-test('the agent detail page is seven sections behind a nav, in the ruled order', () => {
+test('the agent detail page is eight sections behind a nav, in the ruled order', () => {
   /* ⚠️ THIS TEST USED TO PIN SOURCE ORDER OF A TWO-COLUMN GRID (Runs on | Memory,
      then Conversation | Instructions). The grid is gone: since agent-page-nav
      (2026-08-23, Mona Lisa's mock, Josh's ask) the page is one section at a
@@ -7891,7 +7892,8 @@ test('the agent detail page is seven sections behind a nav, in the ruled order',
                           raw.indexOf('<section class="panel" id="panel-settings"'));
   const nav = panel.slice(panel.indexOf('<nav class="snav" id="d-nav"'), panel.indexOf('</nav>'));
   const gos = [...nav.matchAll(/<button type="button" data-go="([a-z]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(gos, ['talk', 'model', 'memory', 'instr', 'profile', 'term', 'remove'],
+  // Skills joined after Instructions (#477): what it reads at boot, then what it can do, then who it is.
+  assert.deepEqual(gos, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'],
     'the nav order moved; the mock reads Talk, Model, Memory, Instructions, Profile, Terminal, then Remove after a rule');
   const secs = [...panel.matchAll(/<section class="dsec" id="d-sec-[a-z]+" data-sec="([a-z]+)"/g)].map((m) => m[1]);
   assert.deepEqual(secs, gos, 'the sections are not in the order the nav lists them');
@@ -9959,4 +9961,36 @@ test('putting a running agent on a project types one line into its pane, once, a
   } finally {
     chatEngine.setRunner(null);
   }
+});
+
+test('skills over the wire: global lists and adds; the agent write carries the exact-match permit (#477/#478)', async () => {
+  const skillsEngine = require('./engine/skills');
+  // Global: empty, add, listed.
+  let r = await req('/api/skills');
+  assert.equal(r.status, 200);
+  assert.deepEqual(JSON.parse(r.body).skills, []);
+  r = await req('/api/skills', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'How we write emails', body: 'Short sentences. The ask in the first line.' }) });
+  assert.equal(r.status, 200, r.body);
+  r = await req('/api/skills');
+  const got = JSON.parse(r.body).skills;
+  assert.equal(got.length, 1);
+  assert.equal(got[0].key, 'how-we-write-emails');
+  assert.equal(got[0].description, 'Short sentences. The ask in the first line.');
+  // Agent: a name the roster does not carry as ours is refused before any write.
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  const createEngine = require('./engine/create');
+  const fsx = require('node:fs');
+  fsx.mkdirSync(createEngine.workerDir('mara'), { recursive: true });
+  r = await req('/api/agent/nobody-here/skills', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'x', body: 'y' }) });
+  assert.equal(r.status, 409, 'a write for an agent the roster cannot vouch for must be refused');
+  assert.match(JSON.parse(r.body).because, /exactly this name/);
+  r = await req('/api/agent/mara/skills', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'File an expense', body: 'Receipts first. Then the form.' }) });
+  assert.equal(r.status, 200, r.body);
+  r = await req('/api/agent/mara/skills');
+  assert.deepEqual(JSON.parse(r.body).skills.map((x) => x.key), ['file-an-expense']);
+  // And it landed in the folder the runtime reads, nowhere else.
+  assert.ok(fsx.existsSync(require('node:path').join(skillsEngine.agentDir(createEngine.workerDir('mara')), 'file-an-expense', 'SKILL.md')));
 });

@@ -97,6 +97,7 @@ function safeAvatarFor(name) {
 const roles = require('./engine/roles');
 const commitments = require('./engine/commitments');
 const you = require('./engine/you');
+const skillsEngine = require('./engine/skills');
 const reports = require('./engine/reports');
 const limits = require('./engine/limits');
 const engmode = require('./engine/engmode');
@@ -1269,6 +1270,59 @@ const server = http.createServer((req, res) => {
   // the suggested first action so the screen cannot invent either — the copy a
   // person reads while choosing has to be the copy the agent is actually
   // created from.
+  /* ── skills (#477 per-agent, #478 global) ──────────────────────────────
+     Reads answer from disk, the same folders the runtime loads. Writes into
+     an agent's own folder carry the LOOSE-TO-NOTICE, EXACT-TO-PERMIT gate
+     every instruction-file write carries: any spelling can ask, only an
+     exact roster match with isNamedOurs may cause a write into a worker
+     directory. The global write needs no roster: the directory belongs to
+     the operator, not to any agent. */
+  if (pathname === '/api/skills' && (req.method === 'GET' || req.method === 'HEAD')) {
+    sendJson(res, 200, skillsEngine.list(skillsEngine.globalDir()));
+    return;
+  }
+  if (pathname === '/api/skills' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
+        const made = skillsEngine.add(skillsEngine.globalDir(), { name: body.name, body: body.body });
+        sendJson(res, made.ok ? 200 : 400, made);
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  const agentSkills = pathname.match(/^\/api\/agent\/([^/]+)\/skills$/);
+  if (agentSkills && (req.method === 'GET' || req.method === 'HEAD')) {
+    const name = decodeSegment(agentSkills[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    const dir = create.workerDir(name);
+    if (!fs.existsSync(dir)) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
+    sendJson(res, 200, skillsEngine.list(skillsEngine.agentDir(dir)));
+    return;
+  }
+  if (agentSkills && req.method === 'POST') {
+    const name = decodeSegment(agentSkills[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
+        const roster = safeRoster();
+        if (!Array.isArray(roster) || !roster.some((a) => a && a.sessionName === name && a.isNamedOurs === true)) {
+          sendJson(res, 409, { ok: false,
+            because: !Array.isArray(roster)
+              ? 'we could not check which agents are running, so we will not write into a worker folder on a guess'
+              : 'we could not find an agent with exactly this name on this computer' });
+          return;
+        }
+        const made = skillsEngine.add(skillsEngine.agentDir(create.workerDir(name)), { name: body.name, body: body.body });
+        sendJson(res, made.ok ? 200 : 400, made);
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
   if (pathname === '/api/roles' && (req.method === 'GET' || req.method === 'HEAD')) {
     sendJson(res, 200, {
       // The models an agent can be created on, from the engine's own list,
