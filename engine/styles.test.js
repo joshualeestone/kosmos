@@ -37,6 +37,13 @@ test('a token file parses; anything shaped like behavior is refused with the lin
     ['--k-bg: image-set(url(http://x))', /image-set\(\)/],
     ['--k-bg: expression(alert(1))', /expression\(\)/],
     ['--x: @import', /@-rule/],
+    /* The comment-split family (iteration-2 blocker): the tokenizer
+       drops comments BEFORE producing tokens, so a comment wedged into
+       a function name splits it for a detector and joins it for the
+       browser. Both of these ACCEPTED before the comment ban landed;
+       the value-level comment refusal is what turns them away now. */
+    ['--k-bg: url/**' + '*'.repeat(0) + '/("http://evil/x")', /comment inside a value/],
+    ['--k-bg: image-set/**' + '/(url/**' + '/("http://e/x.png"))', /comment inside a value/],
   ]) {
     const r = styles.parseTokens(text);
     assert.equal(r.ok, false, text.slice(0, 30));
@@ -45,15 +52,15 @@ test('a token file parses; anything shaped like behavior is refused with the lin
 });
 
 test('theme and custom round-trip; effective layers custom over theme; an unknown theme is refused', () => {
-  assert.equal(styles.setTheme('nope').ok, false);
-  assert.equal(styles.setTheme('paper').ok, true);
-  assert.equal(styles.setCustom('--k-bg: #123456').ok, true);
+  assert.equal(styles.set({ theme: 'nope' }).ok, false);
+  assert.equal(styles.set({ theme: 'paper' }).ok, true);
+  assert.equal(styles.set({ customText: '--k-bg: #123456' }).ok, true);
   const eff = styles.effective();
   assert.equal(eff.theme, 'paper');
   assert.equal(eff.tokens['--k-bg'], '#123456', 'the pasted style does not win over the theme');
   assert.equal(eff.tokens['--k-surface'], styles.THEMES.paper.tokens['--k-surface'], 'the theme under it was lost');
   /* Clearing: an empty paste removes the custom set and keeps the theme. */
-  assert.equal(styles.setCustom('').ok, true);
+  assert.equal(styles.set({ customText: '' }).ok, true);
   assert.equal(styles.effective().customCount, 0);
   assert.equal(styles.effective().theme, 'paper');
 });
@@ -77,8 +84,26 @@ test('a tampered store cannot smuggle what the paste path refuses (#480 review)'
   fs.rmSync(styles.FILE(), { force: true });
 });
 
+test('a store token judges name and value as separate fields, and read mirrors the paste caps (iteration 2)', () => {
+  fs.mkdirSync(nodePath.dirname(styles.FILE()), { recursive: true });
+  const many = [];
+  for (let i = 0; i < 80; i += 1) many.push({ name: '--pad-' + i, value: '#111' });
+  fs.writeFileSync(styles.FILE(), JSON.stringify({ theme: 'kosmos', custom: [
+    /* the composed-line smuggle: a name field carrying ': red' read as
+       one valid LINE before the fields were judged separately */
+    { name: '--a: red', value: '#fff' },
+    { name: '--K-Bg', value: '#123456' },
+  ].concat(many) }));
+  const eff = styles.effective();
+  assert.equal(Object.keys(eff.tokens).some((k) => k.includes(':')), false,
+    'a store name smuggling a colon reached the page');
+  assert.equal(eff.tokens['--k-bg'], '#123456', 'read did not lowercase the stored name');
+  assert.ok(eff.customCount <= 60, 'read applied more tokens than the paste path allows: ' + eff.customCount);
+  fs.rmSync(styles.FILE(), { force: true });
+});
+
 test('one request with a good theme and a bad paste applies NEITHER (#480 review)', () => {
-  styles.setTheme('kosmos');
+  styles.set({ theme: 'kosmos' });
   const r = styles.set({ theme: 'slate', customText: 'body { color: red }' });
   assert.equal(r.ok, false);
   assert.equal(styles.read().theme, 'kosmos',

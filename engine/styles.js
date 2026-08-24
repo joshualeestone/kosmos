@@ -47,6 +47,12 @@ const THEMES = {
      spellings is a guard the escape walks straight through. Colors and
      sizes never need an escape, so the backslash itself is refused,
      which closes the whole encoding family at once;
+   - NO COMMENT INSIDE A VALUE. The tokenizer discards comments before
+     it produces tokens, so an empty comment wedged between a function
+     name and its open paren splits the ident for our detector while the
+     browser reads the joined call. Escapes and comments are the only
+     two ident rewrites the tokenizer performs; banning the backslash
+     and the comment-opener closes both;
    - functions by ALLOWLIST: rgb, rgba, hsl, hsla, calc and var are what
      colors and sizes use; url, image-set, expression, and anything
      newer or cleverer is simply not on the list. An @-word anywhere is
@@ -58,6 +64,7 @@ const FN_ALLOWED = new Set(['rgb', 'rgba', 'hsl', 'hsla', 'calc', 'var']);
 
 function valueProblem(value) {
   if (/\\/.test(value)) return 'has a backslash, which a color or size never needs';
+  if (value.includes('/*') || value.includes('*/')) return 'has a comment inside a value, which a color or size never needs';
   if (/@/.test(value)) return 'has an @-rule, and a style may only set colors and sizes';
   for (const m of value.matchAll(/([a-z-]+)\s*\(/gi) || []) {
     if (!FN_ALLOWED.has(m[1].toLowerCase())) {
@@ -96,9 +103,17 @@ function read() {
        round-trip into applyStyle just because the paste path would have
        refused it. A token the rules refuse is dropped, the inert
        direction. */
-    const custom = Array.isArray(data.custom)
-      ? data.custom.filter((t) => t && typeof t.name === 'string' && typeof t.value === 'string'
-          && LINE.test(t.name + ': ' + t.value) && valueProblem(t.value) === null) : [];
+    /* Name and value are judged as SEPARATE fields. The earlier
+       composed check (LINE over name + ': ' + value) let a store token
+       smuggle ': ' inside its name field and still read as one valid
+       line; each field now meets its own rule, and the read path
+       mirrors the paste path exactly: lowercased names, 60-token cap. */
+    const custom = (Array.isArray(data.custom) ? data.custom : [])
+      .filter((t) => t && typeof t.name === 'string' && typeof t.value === 'string'
+          && /^--[a-z0-9-]{1,40}$/i.test(t.name)
+          && /^[^;{}<>]{1,120}$/.test(t.value) && valueProblem(t.value) === null)
+      .slice(0, 60)
+      .map((t) => ({ name: t.name.toLowerCase(), value: t.value }));
     return { ok: true, theme, custom };
   } catch (err) {
     if (err && err.code === 'ENOENT') return { ok: true, theme: 'kosmos', custom: [] };
@@ -134,23 +149,6 @@ function set({ theme, customText }) {
   catch { return { ok: false, because: 'we could not save the style' }; }
 }
 
-function setTheme(theme) {
-  if (typeof theme !== 'string' || !THEMES[theme]) {
-    return { ok: false, because: 'pick a theme from the list' };
-  }
-  const now = read();
-  try { write({ theme, custom: now.custom }); return { ok: true }; }
-  catch { return { ok: false, because: 'we could not save the style' }; }
-}
-
-function setCustom(text) {
-  const parsed = parseTokens(text);
-  if (!parsed.ok) return parsed;
-  const now = read();
-  try { write({ theme: now.theme, custom: parsed.tokens }); return { ok: true, count: parsed.tokens.length }; }
-  catch { return { ok: false, because: 'we could not save the style' }; }
-}
-
 /* What the page actually applies: the theme's set with the custom set on
    top, custom winning, because the pasted file is the person's own last
    word. */
@@ -165,4 +163,4 @@ function themeList() {
   return Object.entries(THEMES).map(([key, t]) => ({ key, label: t.label }));
 }
 
-module.exports = { read, set, setTheme, setCustom, effective, themeList, parseTokens, FILE, THEMES };
+module.exports = { read, set, effective, themeList, parseTokens, FILE, THEMES };
