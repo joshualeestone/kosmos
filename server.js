@@ -106,6 +106,7 @@ const forget = require('./engine/forget');
 const ping = require('./engine/ping');
 const notify = require('./engine/notify');
 const remote = require('./engine/remote');
+const styles = require('./engine/styles');
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
@@ -1838,6 +1839,31 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, { ok: true, status: remote.status() });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not finish the sign-up' }));
+    return;
+  }
+  /* ---- Styles (#480): named themes plus a pasted token file ---- */
+  if (pathname === '/api/style' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { sendJson(res, 200, { ...styles.effective(), themes: styles.themeList() }); }
+    catch { sendJson(res, 500, { error: 'we could not read the style' }); }
+    return;
+  }
+  if (pathname === '/api/style' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body.theme === 'string') {
+          const t = styles.setTheme(body.theme);
+          if (!t.ok) { sendJson(res, 400, { error: t.because }); return; }
+        }
+        if (typeof body.customText === 'string') {
+          const c = styles.setCustom(body.customText);
+          if (!c.ok) { sendJson(res, 400, { error: c.because }); return; }
+        }
+        sendJson(res, 200, { ...styles.effective(), themes: styles.themeList() });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save the style' }));
     return;
   }
   if (pathname === '/api/notify-setting' && (req.method === 'GET' || req.method === 'HEAD')) {

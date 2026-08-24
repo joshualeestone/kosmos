@@ -34,7 +34,7 @@ const srv = require('../../server.js');
 require('../../engine/you').save({ name: 'Josh', does: 'runs the company', know: null });
 
 const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'snav-shots-'));
-const SECTIONS = ['you', 'accounts', 'connect', 'talking', 'mac', 'updates', 'plus', 'advanced'];
+const SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'talking', 'mac', 'updates', 'plus', 'styles', 'advanced'];
 const fail = [];
 function chk(ok, label, extra) {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));

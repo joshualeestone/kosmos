@@ -10111,3 +10111,39 @@ test('the sign-up start refuses a non-email before anything spawns', async () =>
   assert.equal(empty.status, 400);
   assert.match(JSON.parse(empty.body).error, /code from the email/);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Styles (#480)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('the style routes round-trip a theme and a pasted file, and refuse behavior with the line named', async () => {
+  const got = JSON.parse((await req('/api/style')).body);
+  assert.ok(Array.isArray(got.themes) && got.themes.length >= 2, 'no themes offered');
+
+  const themed = await req('/api/style', {
+    method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ theme: 'slate' }),
+  });
+  assert.equal(themed.status, 200, themed.body);
+  assert.equal(JSON.parse(themed.body).theme, 'slate');
+
+  const pasted = await req('/api/style', {
+    method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ customText: '--k-bg: #101010' }),
+  });
+  assert.equal(JSON.parse(pasted.body).tokens['--k-bg'], '#101010');
+
+  const bad = await req('/api/style', {
+    method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ customText: '--x: url(http://x)' }),
+  });
+  assert.equal(bad.status, 400);
+  assert.match(JSON.parse(bad.body).error, /loads something from elsewhere/);
+  /* A refused paste must not have half-applied: the last good custom set
+     survives. */
+  assert.equal(JSON.parse((await req('/api/style')).body).tokens['--k-bg'], '#101010',
+    'a refused paste destroyed the style that was standing');
+
+  // reset for later tests
+  await req('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ theme: 'kosmos', customText: '' }) });
+});
