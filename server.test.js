@@ -10138,7 +10138,7 @@ test('the style routes round-trip a theme and a pasted file, and refuse behavior
     body: JSON.stringify({ customText: '--x: url(http://x)' }),
   });
   assert.equal(bad.status, 400);
-  assert.match(JSON.parse(bad.body).error, /loads something from elsewhere/);
+  assert.match(JSON.parse(bad.body).error, /uses url\(\)/);
   /* A refused paste must not have half-applied: the last good custom set
      survives. */
   assert.equal(JSON.parse((await req('/api/style')).body).tokens['--k-bg'], '#101010',

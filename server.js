@@ -1853,14 +1853,14 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        if (typeof body.theme === 'string') {
-          const t = styles.setTheme(body.theme);
-          if (!t.ok) { sendJson(res, 400, { error: t.because }); return; }
-        }
-        if (typeof body.customText === 'string') {
-          const c = styles.setCustom(body.customText);
-          if (!c.ok) { sendJson(res, 400, { error: c.because }); return; }
-        }
+        /* One validated write for the whole request: sequential setters
+           left a half-applied theme behind a refused paste, and the 400
+           then named only the paste while the store had already moved. */
+        const saved = styles.set({
+          theme: typeof body.theme === 'string' ? body.theme : undefined,
+          customText: typeof body.customText === 'string' ? body.customText : undefined,
+        });
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         sendJson(res, 200, { ...styles.effective(), themes: styles.themeList() });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save the style' }));

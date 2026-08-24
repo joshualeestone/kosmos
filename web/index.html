@@ -14942,7 +14942,7 @@ async function paintStyles(apply) {
   }
 }
 paintStyles(true);
-document.getElementById('style-theme').addEventListener('change', async (e) => {
+if (document.getElementById('style-theme')) document.getElementById('style-theme').addEventListener('change', async (e) => {
   const msg = document.getElementById('style-msg');
   msg.textContent = '';
   try {
@@ -14953,7 +14953,7 @@ document.getElementById('style-theme').addEventListener('change', async (e) => {
     document.getElementById('style-clear').hidden = !(body.customCount > 0);
   } catch { msg.textContent = 'we could not save the style'; }
 });
-document.getElementById('style-apply').addEventListener('click', async () => {
+if (document.getElementById('style-apply')) document.getElementById('style-apply').addEventListener('click', async () => {
   const msg = document.getElementById('style-msg');
   msg.textContent = '';
   const text = document.getElementById('style-custom').value;
@@ -14966,7 +14966,7 @@ document.getElementById('style-apply').addEventListener('click', async () => {
     msg.textContent = body.customCount > 0 ? 'Applied: ' + body.customCount + ' tokens.' : 'Applied.';
   } catch { msg.textContent = 'we could not save the style'; }
 });
-document.getElementById('style-clear').addEventListener('click', async () => {
+if (document.getElementById('style-clear')) document.getElementById('style-clear').addEventListener('click', async () => {
   const msg = document.getElementById('style-msg');
   msg.textContent = '';
   try {

@@ -38,13 +38,34 @@ const THEMES = {
 };
 
 /* One pasted line: a custom property, a safe value, an optional
-   semicolon. The value class shuts the doors that would turn a color
-   file into behavior: no braces (rules), no angle brackets (markup), no
-   semicolons mid-value (smuggled declarations), and no url() or import
-   anywhere (fetches). Blank lines and full-line comments are allowed so
-   an agent can annotate what it wrote. */
-const LINE = /^\s*(--[a-z0-9-]{2,40})\s*:\s*([^;{}<>]{1,120}?)\s*;?\s*$/i;
-const FORBIDDEN = /url\s*\(|@import|expression\s*\(/i;
+   semicolon. The value rules shut every door that would turn a color
+   file into behavior, and they are structural, not spellings:
+   - no braces, angle brackets or mid-value semicolons (LINE's class);
+   - NO BACKSLASH, EVER. CSS escapes rewrite spellings under the
+     tokenizer (a pasted \75rl( decodes to url( when the browser
+     substitutes the token into background:), so a blocklist of literal
+     spellings is a guard the escape walks straight through. Colors and
+     sizes never need an escape, so the backslash itself is refused,
+     which closes the whole encoding family at once;
+   - functions by ALLOWLIST: rgb, rgba, hsl, hsla, calc and var are what
+     colors and sizes use; url, image-set, expression, and anything
+     newer or cleverer is simply not on the list. An @-word anywhere is
+     refused the same way.
+   Blank lines and full-line comments are allowed so an agent can
+   annotate what it wrote. */
+const LINE = /^\s*(--[a-z0-9-]{1,40})\s*:\s*([^;{}<>]{1,120}?)\s*;?\s*$/i;
+const FN_ALLOWED = new Set(['rgb', 'rgba', 'hsl', 'hsla', 'calc', 'var']);
+
+function valueProblem(value) {
+  if (/\\/.test(value)) return 'has a backslash, which a color or size never needs';
+  if (/@/.test(value)) return 'has an @-rule, and a style may only set colors and sizes';
+  for (const m of value.matchAll(/([a-z-]+)\s*\(/gi) || []) {
+    if (!FN_ALLOWED.has(m[1].toLowerCase())) {
+      return 'uses ' + m[1] + '(), which a style file does not need';
+    }
+  }
+  return null;
+}
 
 function parseTokens(text) {
   const raw = String(text == null ? '' : text);
@@ -54,13 +75,12 @@ function parseTokens(text) {
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     if (!line.trim() || /^\s*\/\*.*\*\/\s*$/.test(line)) continue;
-    if (FORBIDDEN.test(line)) {
-      return { ok: false, because: 'line ' + (i + 1) + ' loads something from elsewhere, and a style may only set colors and sizes' };
-    }
     const m = LINE.exec(line);
     if (!m) {
       return { ok: false, because: 'line ' + (i + 1) + ' is not a token line; every line looks like --name: value;' };
     }
+    const bad = valueProblem(m[2]);
+    if (bad) return { ok: false, because: 'line ' + (i + 1) + ' ' + bad };
     tokens.push({ name: m[1].toLowerCase(), value: m[2] });
     if (tokens.length > 60) return { ok: false, because: 'that style sets more than 60 tokens, which is more than the whole page uses' };
   }
@@ -71,8 +91,14 @@ function read() {
   try {
     const data = JSON.parse(fs.readFileSync(FILE(), 'utf8'));
     const theme = typeof data.theme === 'string' && THEMES[data.theme] ? data.theme : 'kosmos';
+    /* The FULL rules on read, not a partial check: a tampered or
+       hand-edited file carrying a literal url() (or its escape) must not
+       round-trip into applyStyle just because the paste path would have
+       refused it. A token the rules refuse is dropped, the inert
+       direction. */
     const custom = Array.isArray(data.custom)
-      ? data.custom.filter((t) => t && typeof t.name === 'string' && LINE.test(t.name + ': ' + t.value)) : [];
+      ? data.custom.filter((t) => t && typeof t.name === 'string' && typeof t.value === 'string'
+          && LINE.test(t.name + ': ' + t.value) && valueProblem(t.value) === null) : [];
     return { ok: true, theme, custom };
   } catch (err) {
     if (err && err.code === 'ENOENT') return { ok: true, theme: 'kosmos', custom: [] };
@@ -87,6 +113,25 @@ function write(next) {
   fs.writeFileSync(tmp, JSON.stringify(next, null, 2), { flag: 'wx' });
   try { fs.renameSync(tmp, FILE()); }
   catch (err) { try { fs.unlinkSync(tmp); } catch { /* the write failed louder */ } throw err; }
+}
+
+/* One request, one write: both halves validated BEFORE anything lands,
+   so a refused paste can never leave a half-applied theme behind it. */
+function set({ theme, customText }) {
+  const now = read();
+  let nextTheme = now.theme;
+  if (theme !== undefined) {
+    if (typeof theme !== 'string' || !THEMES[theme]) return { ok: false, because: 'pick a theme from the list' };
+    nextTheme = theme;
+  }
+  let nextCustom = now.custom;
+  if (customText !== undefined) {
+    const parsed = parseTokens(customText);
+    if (!parsed.ok) return parsed;
+    nextCustom = parsed.tokens;
+  }
+  try { write({ theme: nextTheme, custom: nextCustom }); return { ok: true }; }
+  catch { return { ok: false, because: 'we could not save the style' }; }
 }
 
 function setTheme(theme) {
@@ -120,4 +165,4 @@ function themeList() {
   return Object.entries(THEMES).map(([key, t]) => ({ key, label: t.label }));
 }
 
-module.exports = { read, setTheme, setCustom, effective, themeList, parseTokens, FILE, THEMES };
+module.exports = { read, set, setTheme, setCustom, effective, themeList, parseTokens, FILE, THEMES };
