@@ -49,15 +49,30 @@ check_200   "$HOST/setup.sha256" "/setup.sha256"
 # whatever the working tree held at deploy time; a script matching no
 # revision confounds the line-number diagnostic that found the 0.5.13
 # wedge, and leaves the thing every install runs outside anybody's history.
-SITE=${SITE:-$HOME/work/chaoskosmos-site}
+# ⚠️ FETCHED WITH THE UPDATER'S OWN CACHE-BUSTER (?v=<version>), so a stale
+# edge cannot fail this check spuriously the way it served stale bytes on
+# 2026-08-24: this line measures what an UPDATING machine runs; check_bytes
+# above measures the plain URL the marketing line runs, and the six-read
+# retry in release.sh covers edge lag on both. Both sides hash FILES whose
+# fetch succeeded: an empty stdin hashes to a real value, so a failed curl
+# and a missing ref used to agree with each other and print a match.
+SITE=${SITE:-${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}}
 if [ -d "$SITE/.git" ]; then
-  git -C "$SITE" fetch -q origin 2>/dev/null || true
-  served_sha=$(curl -fsS "$HOST/setup" | shasum -a 256 | awk '{print $1}')
-  committed_sha=$(git -C "$SITE" show origin/main:setup 2>/dev/null | shasum -a 256 | awk '{print $1}')
-  if [ -n "$served_sha" ] && [ "$served_sha" = "$committed_sha" ]; then say "/setup (history)" "matches origin/main of the site"
-  else say "/setup (history)" "SERVED SCRIPT IS NOT THE COMMITTED ONE (origin/main of the site)"; fail=1; fi
+  fetched=yes
+  git -C "$SITE" fetch -q origin 2>/dev/null || fetched=no
+  vtmp_s=$(mktemp); vtmp_c=$(mktemp)
+  if curl -fsS "$HOST/setup?v=$want" -o "$vtmp_s" && git -C "$SITE" show origin/main:setup > "$vtmp_c" 2>/dev/null && [ -s "$vtmp_s" ] && [ -s "$vtmp_c" ]; then
+    if cmp -s "$vtmp_s" "$vtmp_c"; then
+      say "/setup (history)" "matches origin/main of the site$([ "$fetched" = yes ] || printf ' (fetch failed; compared against the last-fetched origin/main)')"
+    else
+      say "/setup (history)" "SERVED SCRIPT IS NOT THE COMMITTED ONE (origin/main of the site)$([ "$fetched" = yes ] || printf '; and the fetch failed, so origin/main may be stale here')"; fail=1
+    fi
+  else
+    say "/setup (history)" "COULD NOT COMPARE (the served script or origin/main:setup did not come back)"; fail=1
+  fi
+  rm -f "$vtmp_s" "$vtmp_c"
 else
-  say "/setup (history)" "no site checkout at $SITE; could not check the served script against history"
+  say "/setup (history)" "NO SITE CHECKOUT at $SITE, so the served script was not checked against history"; fail=1
 fi
 
 echo "== what an existing install polls =="

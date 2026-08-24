@@ -202,13 +202,29 @@ echo "== 7b. the site's release files are committed and pushed BEFORE they deplo
 # the served script matches no revision at all. Named paths only, never
 # add -A: the site checkout carries other people's in-progress page work.
 [ "$(git -C "$SITE" rev-parse --abbrev-ref HEAD)" = main ] || { echo "the site checkout is not on main"; exit 1; }
-git -C "$SITE" add dist/latest.json setup setup.sha256 versions.html
-if ! git -C "$SITE" diff --cached --quiet; then
-  git -C "$SITE" commit -q -m "$V: the served installer, pointer and versions entry"
+# 🛑 PATH-LIMITED AT EVERY STEP, the commit included. `git add <paths>`
+# alone was not enough: a plain `git commit` takes the WHOLE index, so
+# anything somebody had staged in this shared checkout would have ridden
+# the release commit to origin/main unseen (caught in review). The
+# `-- <paths>` on the commit leaves other staged work exactly as staged.
+# What the push DOES carry: any commits already on this checkout's main
+# that were not pushed yet, which the deploy would serve regardless.
+_site_paths="dist/latest.json setup setup.sha256 versions.html"
+# shellcheck disable=SC2086
+git -C "$SITE" add $_site_paths
+# shellcheck disable=SC2086
+if ! git -C "$SITE" diff --quiet HEAD -- $_site_paths; then
+  # shellcheck disable=SC2086
+  git -C "$SITE" commit -q -m "$V: the served installer, pointer and versions entry" -- $_site_paths
 fi
-git -C "$SITE" push -q origin HEAD || { echo "could not push the site; the release files are committed locally, push before deploying"; exit 1; }
-[ -z "$(git -C "$SITE" status --porcelain -- dist/latest.json setup setup.sha256 versions.html)" ] || { echo "release files still dirty after the commit"; exit 1; }
-echo "   site committed and pushed: $(git -C "$SITE" log --oneline -1 | cat)"
+git -C "$SITE" push -q origin HEAD || {
+  echo "could not push the site (origin/main moved, or no network). The $V site commit is local."
+  echo "Recover: git -C \"$SITE\" pull --rebase && git -C \"$SITE\" push, then re-run release.sh; expect to bump the version, because the bundle build is not byte-reproducible and the versioned name refuses different bytes."
+  exit 1
+}
+# shellcheck disable=SC2086
+[ -z "$(git -C "$SITE" status --porcelain -- $_site_paths)" ] || { echo "release files still dirty after the commit"; exit 1; }
+echo "   site committed and pushed: $(git -C "$SITE" log --oneline -1)"
 
 echo "== 8. deploy =="
 ( cd "$SITE" && vercel deploy --prod --yes )
@@ -218,7 +234,7 @@ echo "== 9. verify what is SERVED, from the code that fetches it =="
 # read cannot tell "not published" from "not yet".
 SERVED_OK=0
 for i in 1 2 3 4 5 6; do
-  if bash "$REPO/tools/verify-served.sh"; then SERVED_OK=1; break; fi
+  if SITE="$SITE" bash "$REPO/tools/verify-served.sh"; then SERVED_OK=1; break; fi
   echo "   (attempt $i did not match; waiting)"
   sleep 10
 done
