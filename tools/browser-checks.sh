@@ -172,15 +172,15 @@ free_port() {
 }
 pick_ports() {
   local picked=() p n
-  while [ "${#picked[@]}" -lt 7 ]; do
+  while [ "${#picked[@]}" -lt 8 ]; do
     p="$(free_port)"
     for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
     [ -n "$p" ] && picked+=("$p")
   done
-  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"
 }
 pick_ports
-log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 (chosen by the OS, #633)"
+log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 (chosen by the OS, #633)"
 
 # --- 1. regress-a-night: a night's releases still COMPOSE --------------------
 # The one check that asserts the whole board still hangs together (three
@@ -267,6 +267,37 @@ if wait_up "$P5" "$sb5/server.log" && wait_up "$P6" "$sb6/server.log"; then
 else
   FAILED+=("render-github-door (a server did not boot)")
 fi
+# #616: every check that was green on a clean main in #545's count, and was
+# not wired, now runs here. Two groups. The first shares one board with
+# first run completed through the product's own route (on a fresh board the
+# first-run pane sits on top of Settings and a check clicks a paragraph).
+# render-offline-note goes LAST on that board on purpose: it kills the server
+# it loads from, and anything scheduled after it on the same board reads as
+# a dead check. The second group boots its own fixture server in-process
+# and runs bare. A check nobody asks a question of is a script; these are
+# now asked one every release.
+sb7="$(new_sandbox)"
+if boot_board "$sb7" "$P8"; then
+  curl -s -X POST "http://127.0.0.1:$P8/api/first-run/complete" >/dev/null
+  B8="http://127.0.0.1:$P8"
+  run_one "contrast"            env KOSMOS_URL="$B8" node docs/browser-checks/contrast.js
+  run_one "named-controls"      env KOSMOS_URL="$B8" node docs/browser-checks/named-controls.js
+  run_one "render-create-form"  node docs/browser-checks/render-create-form.js "$B8"
+  run_one "render-found-undo"   node docs/browser-checks/render-found-undo.js "$B8"
+  run_one "render-made-endings" node docs/browser-checks/render-made-endings.js "$B8"
+  run_one "render-rename-say"   node docs/browser-checks/render-rename-say.js "$B8"
+  run_one "render-role-limit"   node docs/browser-checks/render-role-limit.js "$B8"
+  run_one "render-role-order"   node docs/browser-checks/render-role-order.js "$B8"
+  run_one "render-reload-toast"  env KOSMOS_URL="$B8" node docs/browser-checks/render-reload-toast.js "$sb7/shots-reload"
+  run_one "render-switch-states" env KOSMOS_URL="$B8" node docs/browser-checks/render-switch-states.js
+  run_one "render-theme-toggle"  env KOSMOS_URL="$B8" node docs/browser-checks/render-theme-toggle.js "$sb7/shots-toggle"
+  run_one "render-offline-note"  env KOSMOS_URL="$B8" node docs/browser-checks/render-offline-note.js "$sb7/shots-offline"
+else
+  for n in contrast named-controls render-create-form render-found-undo render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-switch-states render-theme-toggle render-offline-note; do FAILED+=("$n (server did not boot)"); done
+fi
+for n in live-connect render-agent-nav render-busy-line render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state; do
+  run_one "$n" node "docs/browser-checks/$n.js"
+done
 sb3="$(new_sandbox)"
 if boot_thread_server "$sb3" "$P3"; then
   run_one "render-thread" node docs/browser-checks/render-thread.js \
