@@ -4489,15 +4489,26 @@ const server = http.createServer((req, res) => {
          unreadable case says so rather than printing an empty room. */
       let asText = false;
       try { asText = new URL(req.url, ROUTING_BASE).searchParams.get('as') === 'text'; } catch { asText = false; }
+      /* #185, #563: who still owes an answer, from the record alone, computed
+         ONCE here for both arms. The page draws its small line from this and
+         the text view prints the same line under the same post, so an agent
+         reading the room with `kosmos room` sees its own debt where the
+         person sees it. Neither arm re-derives it. Best-effort like the room. */
+      let silent = {};
+      try { silent = messages.unanswered(id, Date.now()); } catch { silent = {}; }
       if (asText) {
         const tail = rows.slice(-40);
-        const lines = tail.map((m) => {
+        const lines = tail.flatMap((m) => {
           const when = m.at ? String(m.at).slice(11, 16) : '--:--';
-          if (m.kind === 'valve') return when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.');
-          if (m.kind === 'refused') return when + '  [kosmos] ' + m.from + ' tried to post here and Kosmos stopped it: ' + (m.because || 'no reason recorded');
-          if (m.kind === 'note') return when + '  [kosmos] ' + String(m.text || '');
+          if (m.kind === 'valve') return [when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.')];
+          if (m.kind === 'refused') return [when + '  [kosmos] ' + m.from + ' tried to post here and Kosmos stopped it: ' + (m.because || 'no reason recorded')];
+          if (m.kind === 'note') return [when + '  [kosmos] ' + String(m.text || '')];
           const who = m.operator ? 'operator' : m.from;
-          return when + '  ' + who + ' -> ' + (Array.isArray(m.to) ? m.to.join(', ') : 'the room') + ': ' + String(m.text || '');
+          const line = when + '  ' + who + ' -> ' + (Array.isArray(m.to) ? m.to.join(', ') : 'the room') + ': ' + String(m.text || '');
+          /* The same sentence the page shows, one per silent name, right
+             under the post it is about (#563). */
+          const owed = Array.isArray(silent[m.id]) ? silent[m.id] : [];
+          return [line, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
         });
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
@@ -4509,8 +4520,6 @@ const server = http.createServer((req, res) => {
       /* #185: which addressed agents have not answered which posts, from
          the record alone; the page renders the small line from this and
          never re-derives it. Best-effort like the room itself. */
-      let silent = {};
-      try { silent = messages.unanswered(id, Date.now()); } catch { silent = {}; }
       sendJson(res, 200, { ok: rec.ok, rows: withPreviews(rows), unanswered: silent });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the room') });
