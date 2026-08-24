@@ -2291,7 +2291,7 @@ if [ "$_board_ok" = yes ]; then
     # T/kosmos-clean-*/. The plist WRITE above stays sandboxed and asserted
     # by the suite; the launchd registration is real-machine-only.
     if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ]; then
-      _board_ok=sandbox # unreachable inside the -z arm above; the belt the gate scan reads
+      _board_ok=sandbox # unreachable inside the -z arm above; the belt the gate scan reads (its window is 12 lines above each launchctl call: keep this arm close)
     elif /bin/launchctl print "gui/$_uid/$_board_label" >/dev/null 2>&1; then
       : # already registered; the rewritten file is picked up at the next login
     else

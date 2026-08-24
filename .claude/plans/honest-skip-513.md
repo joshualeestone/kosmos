@@ -26,8 +26,9 @@ anything, and the guard this narration hides was earned twice (Shredder
   state and the closing sentence chooser speaks per state (registered
   now / accepted at next login / SKIPPED, sandboxed run / could not
   write). No behavior change, sentences only.
-- tools/test-install.sh: the sandboxed install passes gain the
-  discriminating pin: skip sentence present, false promise absent.
+- tools/test-install.sh: the first sandboxed install pass gains the
+  discriminating pin pair: skip sentence present, false promise absent
+  (the download-path pass runs the same code and is left unpinned).
 
 ## Review bound (stated before the loop)
 
