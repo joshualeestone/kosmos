@@ -7326,7 +7326,9 @@ test('the card standoff, the confirm focus fallback, and the identical-write gua
   const line = { _t: '', get textContent() { return this._t; }, set textContent(v) { this._t = v; writes += 1; } };
   const quiet = { 'upd-line': line, 'upd-btn': { textContent: '', hidden: false, disabled: false, dataset: {} } };
   global.document = { getElementById: (id) => quiet[id] };
-  const paint = pageFunction('paintUpdateCard', updateCardDeps() + 'let UPD_CHECKING = false;\n');
+  // UPD_ASKED declared here on purpose: the arm under test reads it, and
+  // without it this harness ran only because an earlier test leaked a global.
+  const paint = pageFunction('paintUpdateCard', updateCardDeps() + 'let UPD_CHECKING = false;\nlet UPD_ASKED = true;\n');
   paint('0.1.9', null, { reached: true, readable: true });
   const after = writes;
   paint('0.1.9', null, { reached: true, readable: true });
@@ -10736,7 +10738,7 @@ test('with a newer version installed than the open page, Check for Update says r
     // The screenshot: page baked 0.5.22, server running 0.5.23, button pressed.
     let els = mk('0.5.22');
     asked('0.5.23', null, { reached: true, readable: true, looked: true });
-    assert.equal(els['upd-line'].textContent, '0.5.23 is installed. Reload this page to use it.',
+    assert.equal(els['upd-line'].textContent, 'This page is the older one. Reload from the top left to use it.',
       'a stale page was told it is up to date');
     assert.equal(els['upd-btn'].textContent, 'Check for Update', 'the control changed with the sentence');
     // CONTROL: the same press on a current page still gets the verdict. Without
@@ -10772,10 +10774,10 @@ test('with a newer version installed than the open page, Check for Update says r
         + '\nreturn updCheckNowClick();');
       await run({ removeItem: () => {} },
         async () => ({ ok: true, json: async () => ({ running, latest: running, reached: true, readable: true, offer: null }) }),
-        global.document, () => {}, baked);
+        global.document, () => {}, running);
       return pressed['upd-line'].textContent;
     };
-    assert.equal(await press('0.5.22', '0.5.23'), '0.5.23 is installed. Reload this page to use it.',
+    assert.equal(await press('0.5.22', '0.5.23'), 'This page is the older one. Reload from the top left to use it.',
       'the real press on a stale page did not say reload');
     assert.equal(await press('0.5.23', '0.5.23'), 'Up to date.', 'CONTROL: the real press on a current page lost its verdict');
   } finally {

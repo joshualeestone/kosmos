@@ -15,10 +15,17 @@
  *
  * A source checkout bakes no version (the meta is the untouched marker), so the
  * page can never be stale on its own; the meta is set the way the toast check
- * sets it. The update host is unreachable on a sandboxed board, so the check
- * route's ANSWER is stubbed (reached, readable, nothing newer); the press, the
+ * sets it. The update host is unreachable on a sandboxed board, so the update
+ * ANSWERS are stubbed at the network edge and nowhere else: the check route's
+ * (reached, readable, nothing newer) and, in the poll's /api/status, only the
+ * `updateLook`/`update` fields (same answer), with everything else passed
+ * through from the real server. Without the second stub the poll repaints the
+ * card "Could not reach the update server" within five seconds of the press
+ * and a read that lands after it looks like a regression. The press, the
  * fetch, the paint and the poll that repaints the build line are the page's
- * own.
+ * own. The answer shape (`running`, `reached`, `readable`) is the route's in
+ * engine/update.js; a rename there would surface here as a stubbed field the
+ * page ignores, so `served` is read from the real /api/status first.
  *
  *   AGENT_WORKFORCE_DATA=/tmp/us PORT=17372 node server.js &
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" \
@@ -51,6 +58,13 @@ function chk(ok, label, extra) {
       status: 200, contentType: 'application/json',
       body: JSON.stringify({ running: served, latest: served, reached: true, readable: true, offer: null }),
     }));
+    await pg.route('**/api/status', async (route) => {
+      const res = await route.fetch();
+      const data = await res.json();
+      data.updateLook = { reached: true, readable: true, looked: true };
+      data.update = null;
+      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
     await pg.goto(URL, { waitUntil: 'networkidle' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
     await pg.click('.tab[data-tab="settings"]');
@@ -74,21 +88,24 @@ function chk(ok, label, extra) {
     chk(state === 'stale' ? /reload for/.test(build) : !/reload for/.test(build),
       state + ': the build line says ' + (state === 'stale' ? '"reload for"' : 'no reload'), build);
 
-    /* At rest, before the press, the verdict has not been given. On a sandboxed
-       board the update host is unreachable, so the resting line is the poll's
-       own "Could not reach" (correct, and not this check's subject); what it
-       must not be is either answer to the question nobody has asked yet. */
+    /* At rest, before the press, the verdict has not been given: the line is
+       quiet, in both states. */
     const before = await pg.$eval('#upd-line', (el) => el.textContent);
-    chk(!/Up to date|Reload this page/.test(before), state + ': at rest the verdict has not been given', JSON.stringify(before));
+    chk(before === '', state + ': at rest the verdict line is quiet', JSON.stringify(before));
+    if (state === 'stale') {
+      /* Cross-surface consistency, not a press effect: the poll drew the stale
+         toast when it saw the new meta, before any press. The card's sentence
+         points at this control, so it must be there before the sentence is. */
+      const toast = await pg.$eval('#utoast-slot', (el) => el.innerText).catch(() => '');
+      chk(/Kosmos updated/.test(toast) && /Reload/.test(toast), 'stale: before the press, the top-left toast already offers the reload', JSON.stringify(toast));
+    }
     await pg.click('#upd-btn');
     await pg.waitForFunction(() => !/Checking\.$/.test(document.getElementById('upd-line').textContent), null, { timeout: 12000 });
     const line = await pg.$eval('#upd-line', (el) => el.textContent);
     if (state === 'stale') {
-      chk(line === served + ' is installed. Reload this page to use it.',
+      chk(line === 'This page is the older one. Reload from the top left to use it.',
         'stale: the press says reload, not "Up to date"', JSON.stringify(line));
       chk(!/Up to date/.test(line), 'stale: "Up to date" is not on the card', JSON.stringify(line));
-      const toast = await pg.$eval('#utoast-slot', (el) => el.innerText).catch(() => '');
-      chk(/Kosmos updated/.test(toast) && /Reload/.test(toast), 'stale: the top-left toast offers the reload', JSON.stringify(toast));
     } else {
       chk(line === 'Up to date.', 'CONTROL current: the press still says "Up to date."', JSON.stringify(line));
     }
