@@ -47,7 +47,10 @@ test('the mode is gated on width and on the two tabs it merges; Settings stays a
 test('the consolidated CSS re-lays the board list and the projects panel; it hides nothing a person needs', () => {
   const css = PAGE.slice(PAGE.indexOf('/* ---- #520: the consolidated view'), PAGE.indexOf('.laytiles {'));
   assert.ok(css.length > 200, 'the CSS block moved; re-anchor');
-  const block = PAGE.slice(PAGE.indexOf('@media (min-width: 1280px) {\n  html[data-layout="consolidated"]'), PAGE.indexOf('.laytiles {') + 3000);
+  /* The whole media block, to its closing brace, so an added rule can never
+     push the ones asserted on out of the window. */
+  const start = PAGE.indexOf('@media (min-width: 1280px) {\n  html[data-layout="consolidated"]');
+  const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
   assert.match(block, /> #alist \{ grid-column: 1/);
   assert.match(block, /> #panel-projects \{ grid-column: 2/);
   assert.doesNotMatch(block, /#pj-room[^}]*display: none|\.composer[^}]*display: none|#pj-room-search[^}]*display: none/, 'the room, its search or its composer is hidden in the consolidated view');
@@ -56,4 +59,21 @@ test('the consolidated CSS re-lays the board list and the projects panel; it hid
 test('no em dash in what a person reads', () => {
   const at = PAGE.indexOf('id="layout-field"');
   assert.doesNotMatch(PAGE.slice(at, at + 4000), /—/);
+});
+
+test('piece two: the rail heads exist once, hidden until the mode, with a + on the board\'s own actions and a fold per rail', () => {
+  assert.equal((PAGE.match(/id="rail-agents"/g) || []).length, 1);
+  assert.equal((PAGE.match(/id="rail-projects"/g) || []).length, 1);
+  assert.match(PAGE, /<div class="railhead" id="rail-agents" hidden>/);
+  assert.match(PAGE, /<div class="railhead" id="rail-projects" hidden>/);
+  assert.match(SCRIPT, /getElementById\('rail-agents'\)\.hidden = !cons/);
+  assert.match(SCRIPT, /getElementById\('rail-agents-new'\)\.addEventListener\('click', \(\) => document\.getElementById\('new-agent'\)\.click\(\)\)/, 'the rail + is not the board\'s own New agent');
+  assert.match(SCRIPT, /getElementById\('rail-projects-new'\)\.addEventListener\('click', \(\) => document\.getElementById\('pj-new'\)\.click\(\)\)/, 'the rail + is not the list\'s own New project');
+  assert.match(SCRIPT, /sessionStorage\.getItem\('rail-fold-' \+ k\)/, 'a fold is not per session');
+  assert.match(PAGE, /body\.consolidated\.fold-a \{ grid-template-columns: 48px/);
+  assert.match(PAGE, /body\.consolidated\.fold-p #panel-projects \{ grid-template-columns: 48px/);
+  /* The switch-specificity trap: `#pj-list.asgrid { display: flex }` carries
+     one more class than a `#pj-list { display: none }` fold, so the fold must
+     name `.asgrid` too or it loses regardless of order. Measured 2026-08-24. */
+  assert.match(PAGE, /body\.consolidated\.fold-p #pj-list\.asgrid[^{]*\{ display: none; \}/, 'the projects fold lost to #pj-list.asgrid again');
 });
