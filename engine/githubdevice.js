@@ -57,7 +57,8 @@ const PHASE = Object.freeze({
 
 /* Ice Cream Kitty's ruled sentence for the unconfigured state: it is what
    the door prints under the install-the-CLI road until the id exists. */
-const NO_APP = 'the no-install way is not switched on yet; it needs a GitHub OAuth App id that only Josh can make';
+// Person-facing (Mona Lisa, #620): no "OAuth" here; it is true and it is jargon. The log line may say OAuth.
+const NO_APP = 'The no-install way is not switched on yet. It needs a GitHub app id that only Josh can make.';
 
 let fetcher = null; // test seam: (url, opts) => Promise<{ok, status, body}>
 function setFetcher(fn) { fetcher = typeof fn === 'function' ? fn : null; }
