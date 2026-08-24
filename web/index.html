@@ -9761,6 +9761,11 @@ function showTab(tab) {
   // decides. Unhiding it on every tab switch put an empty box on screen.
   if (!agents) {
     document.getElementById('removed-wrap').hidden = true;
+    /* The found-agents block ("We found agents on your computer") is painted
+       only on the Agents tab and was never hidden on the way off it, so it
+       followed a person to Projects, a task, the create form and every
+       Settings screen (Josh, 2026-08-24 15:48, with screenshots). */
+    document.getElementById('found-wrap').hidden = true;
     // ⚠️ And the message with it. It deliberately lives outside the wrap so a
     // repaint cannot erase it -- which also means nothing else hides it, so a
     // sentence about the removed list would otherwise sit under Settings or

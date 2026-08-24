@@ -152,3 +152,13 @@ test('a changed list IS rebuilt', async () => {
   assert.doesNotMatch(list.innerHTML, /first paint/, 'a different list did not repaint');
   assert.match(list.innerHTML, /Anna/);
 });
+
+test('leaving the Agents tab hides the found-agents block (it followed a person to every other tab)', () => {
+  const fs2 = require('node:fs');
+  const page = fs2.readFileSync(require('node:path').join(__dirname, 'web', 'index.html'), 'utf8');
+  const script = page.slice(page.lastIndexOf('<script>'));
+  const st = script.slice(script.indexOf('function showTab('), script.indexOf('function showTab(') + 5000);
+  const off = st.slice(st.indexOf('if (!agents) {'), st.indexOf('} else {', st.indexOf('if (!agents) {')));
+  assert.match(off, /getElementById\('found-wrap'\)\.hidden = true;/, 'the found block is not hidden when the tab changes; it was on every screen but Agents on 0.5.21');
+  assert.match(off, /getElementById\('removed-wrap'\)\.hidden = true;/, 'CONTROL: the removed block, hidden the same way, is not in this slice');
+});
