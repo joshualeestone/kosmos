@@ -67,7 +67,7 @@ test('an agent with a folder and no job is the thing being looked for', () => {
      saying Ava, Brigitte and Scarlett. With no display name recorded, the two
      are the same string, which is the ordinary case and not a fallback. */
   assert.deepEqual(s.agents.find((x) => x.name === 'anna'),
-    { name: 'anna', shownAs: 'anna', removed: false, folder: true, job: true });
+    { name: 'anna', shownAs: 'anna', removed: false, folder: true, job: true, profile: true });
 });
 
 test('the roster comes from what Kosmos wrote, never from what is in the folder', () => {
@@ -240,4 +240,126 @@ test('the survey speaks the name the person typed', () => {
   assert.equal(row.name, 'scarlett');
   assert.deepEqual(register.survey().missing, ['scarlett'], 'the list a repair acts on stopped being machine names');
   assert.equal(register.repair().results[0].shownAs, 'Scarlett', 'the report speaks the machine name');
+});
+
+test('#500: a folder or job with no profile is surveyed as a stray, and repair never touches it', () => {
+  reset();
+  /* The positive control FIRST: the profile-backed folder-only shape must
+     still enumerate and still repair, or this test proves absence with a
+     survey that finds nothing at all. */
+  agent('with-profile');
+  agent('stray-folder', { profile: false });
+  agent('stray-job', { profile: false, folder: false, job: true });
+  /* The birth record is what ties a folder to Kosmos: `stray-folder` was
+     created once (the receipt survives its deleted profile), while the
+     stranger's checkout below has no line and must stay invisible. */
+  fs.rmSync(create.createdLogFile(), { force: true });
+  fs.mkdirSync(path.dirname(create.createdLogFile()), { recursive: true });
+  fs.appendFileSync(create.createdLogFile(),
+    JSON.stringify({ at: new Date().toISOString(), name: 'stray-folder', outcome: 'created' }) + '\n', 'utf8');
+  /* The birth line records the spelling the person TYPED; the folder is
+     made under the slug. The tie must match "Casey" to casey or every
+     capitalized creation's remains stay invisible. */
+  agent('casey', { profile: false });
+  fs.appendFileSync(create.createdLogFile(),
+    JSON.stringify({ at: new Date().toISOString(), name: 'Casey', outcome: 'partial' }) + '\n', 'utf8');
+  fs.mkdirSync(path.join(SB, 'workers', 'somebody-elses-checkout'), { recursive: true });
+  /* A directory whose name fails NAME_RE cannot collide with any creatable
+     name; it holds nothing hostage and is not ours to show. */
+  fs.mkdirSync(path.join(SB, 'workers', 'Bad Name'), { recursive: true });
+
+  const s = register.survey();
+  assert.equal(s.ok, true);
+  const byName = new Map(s.agents.map((a) => [a.name, a]));
+  assert.equal(byName.get('with-profile').profile, true);
+  assert.deepEqual(s.missing, ['with-profile'],
+    'the profile-backed control fell out of missing, or a stray got in');
+
+  const sf = byName.get('stray-folder');
+  assert.ok(sf, 'the profile-less folder is absent: the survey still enumerates from profiles only');
+  assert.deepEqual({ folder: sf.folder, job: sf.job, profile: sf.profile },
+    { folder: true, job: false, profile: false });
+  const sj = byName.get('stray-job');
+  assert.ok(sj, 'the profile-less job is absent: the survey still enumerates from profiles only');
+  assert.deepEqual({ folder: sj.folder, job: sj.job, profile: sj.profile },
+    { folder: false, job: true, profile: false });
+  assert.equal(byName.has('Bad Name'), false, 'a NAME_RE-failing directory is not a name');
+  assert.equal(byName.has('somebody-elses-checkout'), false,
+    'a directory with no birth record was shown: the roster-from-records ruling is broken');
+  assert.ok(byName.get('casey'), 'a capitalized birth line failed to tie its lowercased folder');
+  assert.equal(byName.get('casey').profile, false);
+
+  /* repair() acts on missing. After it runs, the stray folder must hold no
+     launchd job: minting one would resurrect an agent nobody registered. */
+  const r = register.repair();
+  assert.equal(r.ok, true);
+  assert.equal(fs.existsSync(create.plistPath('stray-folder')), false,
+    'repair wrote a job for a profile-less stray');
+  assert.equal(fs.existsSync(create.plistPath('with-profile')), true,
+    'the control was not repaired, so the guard proves nothing');
+});
+
+test('#500: a removed name with stray remains is carried as removed and never queued for repair', () => {
+  reset();
+  fs.rmSync(create.createdLogFile(), { force: true });
+  agent('ghost', { profile: false });
+  fs.mkdirSync(path.dirname(create.createdLogFile()), { recursive: true });
+  fs.appendFileSync(create.createdLogFile(),
+    JSON.stringify({ at: new Date().toISOString(), name: 'ghost', outcome: 'created' }) + '\n', 'utf8');
+  fs.mkdirSync(store.ROOT, { recursive: true });
+  fs.writeFileSync(path.join(store.ROOT, 'removed.json'), JSON.stringify([{ name: 'ghost' }]), 'utf8');
+  const s = register.survey();
+  assert.equal(s.ok, true);
+  const ghost = s.agents.find((a) => a.name === 'ghost');
+  assert.ok(ghost, 'the removed stray fell out of the survey entirely');
+  assert.equal(ghost.removed, true, 'somebody\'s removal decision was dropped');
+  assert.deepEqual(s.missing, [], 'a removed stray was queued to be repaired');
+});
+
+test('#500: a directory born long after every line for its name is a later tenant, not a stray', () => {
+  reset();
+  fs.rmSync(create.createdLogFile(), { force: true });
+  /* The line predates the directory by years: whatever this folder is,
+     it is not what that creation made. It stays invisible, and the
+     control right beside it (a line YOUNGER than its folder) shows. */
+  agent('old-name', { profile: false });
+  agent('young-name', { profile: false });
+  fs.mkdirSync(path.dirname(create.createdLogFile()), { recursive: true });
+  fs.appendFileSync(create.createdLogFile(),
+    JSON.stringify({ at: '2001-01-01T00:00:00Z', name: 'old-name', outcome: 'created' }) + '\n'
+    + JSON.stringify({ at: '2099-01-01T00:00:00Z', name: 'young-name', outcome: 'created' }) + '\n', 'utf8');
+  const s = register.survey();
+  const names = s.agents.map((a) => a.name);
+  assert.ok(names.includes('young-name'), 'the control stray is absent, so the later-tenant assert proves nothing');
+  assert.ok(!names.includes('old-name'), 'a directory born after its only line was shown as that line\'s remains');
+});
+
+test('#500: an unreadable root reports the sweep failed rather than a confident absence', () => {
+  reset();
+  agent('solo');
+  fs.chmodSync(path.join(SB, 'workers'), 0o000);
+  try {
+    const s = register.survey();
+    assert.equal(s.ok, true, 'an unreadable stray root took the whole survey down');
+    assert.equal(s.straySweepFailed, true, 'could-not-look was reported as found-nothing');
+  } finally {
+    fs.chmodSync(path.join(SB, 'workers'), 0o755);
+  }
+  const healthy = register.survey();
+  assert.equal(healthy.straySweepFailed, false, 'the flag stuck after the root came back');
+});
+
+test('#500: both walks fail soft on a machine with neither root', () => {
+  reset();
+  /* An ABSENT root contributes nothing rather than failing the survey:
+     the profile-backed roster must survive a fresh machine with neither
+     directory. (The unreadable arm is driven by its own test above,
+     through the straySweepFailed flag.) */
+  fs.rmSync(create.createdLogFile(), { force: true });
+  fs.rmSync(path.join(SB, 'workers'), { recursive: true, force: true });
+  fs.rmSync(path.join(SB, 'launch'), { recursive: true, force: true });
+  store.writeProfile('solo', { role: 'helper' });
+  const s = register.survey();
+  assert.equal(s.ok, true);
+  assert.deepEqual(s.agents.map((a) => a.name), ['solo']);
 });
