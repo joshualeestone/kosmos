@@ -7921,13 +7921,15 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   const tablesFrom = script.indexOf('const STATE_COPY = {');
   const cardStAt = script.indexOf('function cardStOf(a)');
   assert.ok(tablesFrom > -1 && cardStAt > tablesFrom, 'the shared state tables moved');
-  /* ⚠️ `stateReason` JOINS THE PRELUDE, sliced from the page like the tables
-     above and for the identical reason: the header painter calls it now, and a
-     stub here would let this test pass while the shipped helper said something
-     else. It exists so the card and this header cannot disagree about one
-     agent, so a copy of it in the test would defeat its whole purpose. */
+  /* ⚠️ `taskLine` (and the `stateReason` it calls) JOIN THE PRELUDE, sliced
+     from the page like the tables above and for the identical reason: the
+     header painter calls `taskLine` now, and a stub here would let this test
+     pass while the shipped helper said something else. It exists so the card
+     and this header cannot disagree about one agent, so a copy of it in the
+     test would defeat its whole purpose. (`taskWords` was removed by #209; the
+     header no longer shows the frozen pane title in any state.) */
   const tables = script.slice(tablesFrom, script.indexOf('\n', cardStAt) + 1)
-    + '\n' + pageFnSource('taskWords') + '\n' + pageFnSource('stateReason');
+    + '\n' + pageFnSource('stateReason') + '\n' + pageFnSource('taskLine');
 
   const dmAt = script.indexOf('  const dm = cardStOf(a);');
   assert.ok(dmAt > -1,
@@ -7963,33 +7965,38 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   assert.match(needs.state.className, /\bst-attn\b/,
     'the badge class does not track the state, so its colour cannot');
   assert.match(needs.state.innerHTML, /Needs you/, 'the badge lost its word');
-  assert.equal(needs.task.textContent, 'Mac', 'the task did not reach its own element');
+  // #209: needs_you no longer borrows the frozen title as its qualifier. The
+  // title is a boot fossil (Kosmos never writes it), and it misled worst here,
+  // because a person deciding whether to answer read it as what the agent is
+  // stuck ON. So the header shows the badge and nothing beside it.
+  assert.equal(needs.task.textContent, '', 'needs_you still showed the frozen title as its task');
+  assert.equal(needs.task.hidden, true, 'the empty task line was not hidden');
 
   /**
-   * 🛑 AND THE HEADER SAYS WHAT THE CARD SAYS. Making the blocking reason
-   * outrank the frozen pane title fixed the card and the list row and left this
-   * header on `a.task` — so one agent read "Paused · Its screen mentions a usage
-   * limit" on the board and "Paused · Hello" on its own page, an inch above the
-   * sentence explaining it. A correct fix that moved half of a pair.
-   *
-   * 📌 The `needs_you` case above is the control: its title is a real qualifier
-   * ("Needs you · Mac"), not a fossil, and it must keep coming through.
+   * 🛑 AND THE HEADER SAYS WHAT THE CARD SAYS. Both derive the task line from
+   * `taskLine`, so a state that shows a reason on the card shows the same reason
+   * here, and a state that shows nothing shows nothing on both. `rate_limited`
+   * is the one state whose task line still has content after #209, so it is the
+   * case that exercises "the task is a SEPARATE element from the badge".
    */
   const paused = drive({ state: 'rate_limited', stateConfidence: 'scraped', task: 'Hello' });
   assert.equal(paused.task.textContent, 'Looks like a usage limit',
     'the header still shows a summary of the first message instead of the reason it is stopped');
   assert.notEqual(paused.task.textContent, 'Hello',
-    'the header and the card disagree about the same agent');
-  assert.equal(needs.task.hidden, false, 'a real task was hidden');
+    'the header showed the frozen pane title instead of the reason it is stopped');
+  assert.equal(paused.task.hidden, false, 'a real reason was hidden');
   // ⚠️ The regression this change exists to prevent: the badge must NOT swallow
-  // the task. "Needs you: Mac" as one string is what Josh marked up.
-  assert.doesNotMatch(needs.state.innerHTML, /Mac/,
-    'the badge swallowed the task again, so the state and the thing it is about '
+  // the task into one unstyleable run. Shown on rate_limited, whose reason is
+  // the content that survives #209.
+  assert.doesNotMatch(paused.state.innerHTML, /Looks like a usage limit/,
+    'the badge swallowed the reason, so the state and the thing it is about '
     + 'are one unstyleable run');
 
   const working = drive({ state: 'working', task: 'Building the campaign calendar' });
   assert.match(working.state.className, /\bst-working\b/);
   assert.match(working.state.innerHTML, /Working/);
+  // #209: a working agent's frozen title is not shown as what it is doing.
+  assert.equal(working.task.hidden, true, 'a working agent showed its frozen pane title as its task');
 
   // ⚠️ CONTROL: no task means no line, not an empty one. Without this, a task
   // element that never hides would satisfy every assertion above.

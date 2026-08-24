@@ -6763,34 +6763,57 @@ function taskLine(a) {
    * state means the agent cannot work at all. A title is a poor status source in
    * general (#209) and that is a bigger question than this line.
    */
-  return stateReason(a) || taskWords(a) || 'no task showing';
+  /**
+   * 🛑 #209 RESOLVED: THE FROZEN TITLE IS NEVER SHOWN AS STATUS, IN ANY STATE.
+   *
+   * `a.task` is `#{pane_title}`, which Claude Code writes once from a summary of
+   * the session's FIRST message and never refreshes. Two independent proofs it is
+   * a fossil, not just often stale:
+   *
+   *   1. Measured on the live fleet: an agent deep in one task shows the title of
+   *      a DIFFERENT one it started on hours earlier (this very agent's pane read
+   *      "Kosmos relay implementation" while it was on an unrelated card), and two
+   *      agents that both ran the same boot routine show the identical frozen
+   *      title. It never once tracked current work across the sampled fleet.
+   *   2. By construction: NOTHING in this repo writes a pane title. Kosmos only
+   *      reads it (status.js, `#{pane_title}`); there is no `rename-window`, no
+   *      `select-pane -T`, no title escape anywhere. So Kosmos cannot make the
+   *      value current even in principle, in any state. The fossil is guaranteed,
+   *      not merely observed, which is what makes suppressing it safe everywhere
+   *      rather than per-state.
+   *
+   * So no state borrows the title to describe work. The card already carries the
+   * honest, observed thing in `.astate` (the classifier's state and its
+   * evidence); an empty task slot beats a confident fossil. The empty slot is an
+   * already-shipped, graceful state (#222 emptied it for the "Claude Code"
+   * default and the layout holds).
+   *
+   * 📌 `needs_you` USED TO KEEP THE TITLE as the thing it needs you ABOUT
+   * ("Needs you · Mac"); that qualifier is a fossil too, and it misled worst
+   * exactly there, because a person deciding whether to answer read it as what
+   * the agent is stuck ON. Dropped with Mona Lisa's agreement (she wrote the
+   * original and asked for the by-construction check above before relying on
+   * "never"). `rate_limited` still speaks its own honest reason, which is not the
+   * title at all.
+   */
+  return stateReason(a);
 }
 
 /**
  * What a STATE says about itself, or nothing.
  *
- * 🛑 EXTRACTED SO THE CARD AND THE DETAIL HEADER CANNOT DISAGREE. Making the
- * reason outrank the frozen title fixed the card and the list and left the
- * header on `a.task` — so the same agent read "Paused · Its screen mentions a
- * usage limit" on the board and "Paused · Hello" on its own page, an inch from
- * the sentence explaining it. A correct fix that moved half of a pair, which is
- * the shape this codebase keeps paying for; caught by Mona Lisa reading the file
- * rather than the release note.
+ * 🛑 EXTRACTED SO THE CARD AND THE DETAIL HEADER CANNOT DISAGREE. Both surfaces
+ * derive their task line from `taskLine`, which calls this. The frozen pane
+ * title used to be the fallback here; #209 removed it entirely (a title Kosmos
+ * never writes and Claude Code freezes at first message is a fossil, not a
+ * status), so today only `rate_limited` speaks and every other state shows
+ * nothing rather than a stale summary.
  *
- * 📌 EMPTY FOR EVERY OTHER STATE ON PURPOSE. `needs_you` uses `a.task` as the
- * thing it needs you ABOUT ("Needs you · Mac"), which is a real qualifier and
- * not a fossil, so it keeps the title. Only `rate_limited` has a reason that
- * outranks one, because only it means the agent cannot work at all.
+ * 🛑 `taskWords` IS GONE. It stripped the "Claude Code" default out of the
+ * frozen title (#222) so a brand-new agent did not read as "doing Claude Code".
+ * With the title no longer shown in any state, that whole concern is subsumed by
+ * #209: there is no title on screen to strip.
  */
-/* The pane title, minus the one value that is not a task (#222, #209): on a
-   brand-new session the frozen title is just the application's name, so the
-   product told a person their agent was doing "Claude Code" -- on the exact
-   screen where they most need reassurance, right after a restart. The name of
-   the software is not work; an empty slot is honest and the header hides it. */
-function taskWords(a) {
-  const t = a && typeof a.task === 'string' ? a.task.trim() : '';
-  return t === 'Claude Code' ? '' : t;
-}
 function stateReason(a) {
   if (!a || a.state !== 'rate_limited') return '';
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
@@ -12083,15 +12106,18 @@ function openDetail(sessionName, section) {
   const dst = document.getElementById('d-state');
   dst.className = 'detail-state astate st-' + dm.st;
   dst.innerHTML = GLYPH[dm.st] + '<b>' + esc(copy.label) + '</b>';
-  /* ⚠️ HIDDEN WHEN THERE IS NO TASK, rather than the card's "no task showing".
-     Beside a badge that already says Idle, that sentence restates the badge;
-     on a card, where the badge is small and the row is the only line, it
-     carries. Same fact, different surface, and the pack shows nothing here. */
+  /* ⚠️ HIDDEN WHEN THERE IS NO TASK. Beside a badge that already says Idle,
+     a task line would restate the badge; this panel shows nothing rather than
+     that. Since #209 the card, too, shows nothing here rather than a frozen
+     title, so the two surfaces no longer diverge on what "no task" looks like. */
   const dtask = document.getElementById('d-task');
-  /* The same derivation the card uses, so the two cannot say different things
-     about one agent. Falls back to the title, and to nothing at all — the header
-     hides rather than printing "no task showing" beside a name. */
-  dtask.textContent = stateReason(a) || taskWords(a) || '';
+  /* THE SAME derivation the card uses, called not copied, so the two cannot say
+     different things about one agent (the split this whole area keeps paying
+     for). Since #209 that derivation no longer includes the frozen pane title,
+     so the header shows a state's own honest reason (only rate_limited has one)
+     and otherwise nothing, which this panel already prefers to a restated
+     badge. */
+  dtask.textContent = taskLine(a);
   dtask.hidden = !dtask.textContent;
   /* The lede names the AGENT rather than saying "this agent", which is the
      pack's wording and the same substitution the rest of this panel already
