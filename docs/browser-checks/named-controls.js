@@ -140,10 +140,17 @@ const SCAN = () => {
 
 (async () => {
   const b = await chromium.launch({ headless: process.env.HEADED === '0' });
+  /* One page for the whole walk (#652): the reload per surface was the cost
+     of this check, not the sweep. A reset before each surface (back to the
+     board, any dialog closed) gives the isolation the reload gave; proven
+     equal by the same PASS lines and counts as the reloading version. */
+  const pg = await b.newPage({ viewport: { width: 1400, height: 1200 } });
+  await pg.goto(URL, { waitUntil: 'networkidle' });
+  await pg.waitForTimeout(2200);
   for (const [surface, go] of SURFACES) {
-    const pg = await b.newPage({ viewport: { width: 1400, height: 1200 } });
-    await pg.goto(URL, { waitUntil: 'networkidle' });
-    await pg.waitForTimeout(2200);
+    await pg.keyboard.press('Escape');
+    await pg.evaluate(() => showTab('agents'));
+    await pg.waitForTimeout(500);
     /* ⚠️ The first-run surfaces REOPEN it, so this dismissal must not fight
        them: it runs before `go`, and those steps put the overlay back. */
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(600); }
@@ -162,8 +169,8 @@ const SCAN = () => {
       chk(r.unnamed.length === 0, surface + ': every visible control has a name', r.unnamed.join(', '));
       chk(r.duplicates.length === 0, surface + ': no two controls answer to the same name', r.duplicates.join(', '));
     }
-    await pg.close();
   }
+  await pg.close();
   await b.close();
   console.log(fail.length ? '\n' + fail.length + ' FAILED: ' + fail.join('; ') : '\nall green');
   console.log('\nNOT CHECKED, said so nobody reads this as a clean bill: the '

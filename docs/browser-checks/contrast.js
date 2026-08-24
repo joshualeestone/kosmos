@@ -118,11 +118,20 @@ const SURFACES = [
 (async () => {
   const b = await chromium.launch({ headless: process.env.HEADED === '0' });
   for (const theme of ['light', 'dark']) {
+    /* One page per theme (#652). The walk used to reload the board for every
+       surface, 32 loads with a 2.2s settle each, which was the whole cost of
+       this check; the measuring is milliseconds. A reset before each surface
+       (back to the board, any dialog closed) gives the isolation the reload
+       gave. Proven equal by the same PASS lines and the same "found text to
+       check N" per surface as the reloading version, on one tree. */
+    const pg = await b.newPage({ viewport: { width: 1400, height: 1200 }, colorScheme: theme });
+    await pg.goto(URL, { waitUntil: 'networkidle' });
+    await pg.waitForTimeout(2200);
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(600); }
     for (const [name, go] of SURFACES) {
-      const pg = await b.newPage({ viewport: { width: 1400, height: 1200 }, colorScheme: theme });
-      await pg.goto(URL, { waitUntil: 'networkidle' });
-      await pg.waitForTimeout(2200);
-      if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(600); }
+      await pg.keyboard.press('Escape');
+      await pg.evaluate(() => showTab('agents'));
+      await pg.waitForTimeout(500);
       let reached = true;
       try {
         if (go && go.startsWith('SETTINGS:')) {
@@ -149,8 +158,8 @@ const SURFACES = [
         chk(r.checked > 0, theme + ' ' + name + ': found text to check', String(r.checked));
         chk(r.bad.length === 0, theme + ' ' + name + ': every visible text clears AA', r.bad.slice(0, 4).join(' | '));
       }
-      await pg.close();
     }
+    await pg.close();
   }
   await b.close();
   console.log(fail.length ? '\n' + fail.length + ' FAILED: ' + fail.join('; ') : '\nall green');
