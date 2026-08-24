@@ -2547,7 +2547,9 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   const launches = script.split('\n').filter((l) => /new-session -d -s "\$SESSION"/.test(l));
   assert.equal(launches.length, 4, 'the supervisor launch lines moved; update this test with them');
   for (const l of launches) assert.match(l, /PORT_ENV/, 'a launch line does not pass KOSMOS_PORT into the pane: ' + l);
-  assert.match(script, /PORT_ENV=\(-e "KOSMOS_PORT=\$KOSMOS_PORT"\)/);
+  // The three the pane must have, by name, so a new one cannot be forgotten
+  // silently: the board, the Claude account, the codex account.
+  assert.match(script, /for _var in KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME; do/);
 });
 
 test('a job made by the default board carries no KOSMOS_PORT: absent means the default, so old plists do not change (#577)', () => {
@@ -2563,6 +2565,27 @@ test('a job made by the default board carries no KOSMOS_PORT: absent means the d
   }
   const plist = fs.readFileSync(create.plistPath('ordinary'), 'utf8');
   assert.doesNotMatch(plist, /KOSMOS_PORT/);
+});
+
+test('an OpenAI agent made on a non-default OpenAI account carries CODEX_HOME, and its folder is trusted in THAT home (#540)', () => {
+  recorder();
+  create.setDryRun(false);
+  const home = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-team');
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(nodePath.join(home, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtesttesttestTEAM' }), 'utf8');
+  const made = create.createAgent({ ...BINS, name: 'onteam', role: 'pm', provider: 'openai', codexBin: '/bin/echo', account: home });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  const plist = fs.readFileSync(create.plistPath('onteam'), 'utf8');
+  assert.match(plist, new RegExp('<key>CODEX_HOME</key><string>' + home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '</string>'));
+  assert.doesNotMatch(plist, /CLAUDE_CONFIG_DIR/, 'a codex agent must not be handed a Claude account variable');
+  const toml = fs.readFileSync(nodePath.join(home, 'config.toml'), 'utf8');
+  assert.match(toml, /trust_level = "trusted"/, 'the trust entry went somewhere other than the account codex will read');
+  // And the job reads back with the account as its configDir, one field for either provider.
+  assert.equal(create.readJob('onteam').configDir, home);
+  // An account nobody signed in to is refused in words.
+  const no = create.createAgent({ ...BINS, name: 'onnobody', role: 'pm', provider: 'openai', codexBin: '/bin/echo', account: nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-nobody') });
+  assert.equal(no.outcome, create.OUTCOME.REFUSED);
+  assert.match(no.because, /do not know that OpenAI account/);
 });
 
 test('an agent can be moved to another account, and the model comes with it', () => {
@@ -2853,9 +2876,11 @@ test('#245: openai refuses a model choice, an account choice, a missing runner, 
   let r = create.createAgent({ ...base, name: 'x-model', model: 'opus' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
   assert.match(r.because, /leave the model unchosen/);
+  // #540 lifted the account refusal: an OpenAI account is a directory with
+  // codex's sign-in in it, and a Claude directory is not one of those.
   r = create.createAgent({ ...base, name: 'x-acct', account: '/some/claude/dir' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
-  assert.match(r.because, /leave the account unchosen/);
+  assert.match(r.because, /do not know that OpenAI account/);
   r = create.createAgent({ ...base, name: 'x-norunner', codexBin: '/nonexistent-codex' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
   assert.match(r.because, /could not find the OpenAI runner/);
