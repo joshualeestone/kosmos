@@ -549,6 +549,9 @@ install_kosmos() {
   [ -x "$stage/runtime/bin/node" ] || { rm -rf "$stage"; return 1; }
   [ -f "$stage/app/server.js" ] || { rm -rf "$stage"; return 1; }
   [ -f "$stage/app/web/index.html" ] || { rm -rf "$stage"; return 1; }
+  # The Plus connector (#583) rides in the bundle; a Kosmos without it installs
+  # fine and then cannot turn Plus on, so a missing one is a broken download.
+  [ -x "$stage/app/bin/kosmos-tunnel" ] || { rm -rf "$stage"; return 1; }
   # The runtime must RUN here, the same probe the tmux bundle gets: a
   # binary that will not load fails silently and baffling, and the floor
   # gate upstream makes that unlikely, not impossible.
