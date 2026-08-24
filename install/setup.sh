@@ -1197,39 +1197,61 @@ info "macOS $_osver on $ARCH"
 #   genuinely absent                   -> name the install step
 # Extracted as a function so the test runs the shipped code, like the
 # tmux picker.
-check_claude_code() {
+# ⚠️ RECONNAISSANCE, NOT A GATE (#547). This function used to refuse the
+# whole install when Claude Code was missing (#133), and that was right
+# when an agent genuinely could not run without it. That premise expired
+# with #530/#537/#544: an OpenAI-only Mac is a legitimate machine, so the
+# install proceeds on ANY Mac and the provider requirement lives where a
+# provider is CHOSEN -- creation refuses, per provider, in a named sentence
+# (engine/create.js). What this keeps from #133 is the discipline: every
+# state is still named here, including the broken-thing-at-a-path remedies,
+# which stay verbatim as ADVICE because the pasted fix is genuinely the
+# help -- only the refusal is gone.
+check_runners() {
   _claude_bin="${AGENT_WORKFORCE_CLAUDE_BIN:-$HOME/.local/bin/claude}"
+  _have_claude="no"
+  _have_codex="no"
   # -f AND -x: a DIRECTORY at the path is executable in the -x sense and
-  # sailed through the first draft of this gate, completing an install
-  # whose every agent then fails to start, the exact #133 failure. -f
-  # follows symlinks, so a link to a real binary still passes.
+  # sailed through the first draft of the old gate; -f follows symlinks, so
+  # a link to a real binary still passes.
   if [ -f "$_claude_bin" ] && [ -x "$_claude_bin" ]; then
     info "Claude Code found at $_claude_bin"
-    return 0
-  fi
-  # Something IS there but cannot run (a broken symlink after a moved npm
-  # prefix, a folder, or a file without execute permission): its own
-  # sentence, or the elsewhere-remedy below would claim "nothing there"
-  # falsely and its pasted ln would fail on File exists, a refusal whose
-  # remedy loops. rm -r covers all three shapes. When a working claude IS
-  # on PATH, the one-shot remedy saves the person a second round trip.
-  if [ -e "$_claude_bin" ] || [ -L "$_claude_bin" ]; then
+    _have_claude="yes"
+  elif [ -e "$_claude_bin" ] || [ -L "$_claude_bin" ]; then
+    # Something IS there but cannot run (a broken symlink after a moved npm
+    # prefix, a folder, or a file without execute permission). Named, with
+    # the same one-shot remedy the old gate carried; the install continues.
     _claude_elsewhere="$(command -v claude 2>/dev/null || true)"
     if [ -n "$_claude_elsewhere" ]; then
-      die "There is something at $_claude_bin but it cannot run (a broken link, a folder, or a file without execute permission), and Claude Code is installed at $_claude_elsewhere. Replace it and run this again:
-  rm -rf \"$_claude_bin\" && ln -s \"$_claude_elsewhere\" \"$_claude_bin\""
+      info "There is something at $_claude_bin but it cannot run, and Claude Code is installed at $_claude_elsewhere. Claude agents will not start until it is replaced:"
+      info "  rm -rf \"$_claude_bin\" && ln -s \"$_claude_elsewhere\" \"$_claude_bin\""
+    else
+      info "There is something at $_claude_bin but it cannot run (a broken link, a folder, or a file without execute permission). Claude agents will not start until it is removed:"
+      info "  rm -rf \"$_claude_bin\""
     fi
-    die "There is something at $_claude_bin but it cannot run (a broken link, a folder, or a file without execute permission). Remove it and run this again:
-  rm -rf \"$_claude_bin\""
+  else
+    _claude_elsewhere="$(command -v claude 2>/dev/null || true)"
+    if [ -n "$_claude_elsewhere" ]; then
+      info "Claude Code is installed at $_claude_elsewhere, but Kosmos starts agents from $_claude_bin. Claude agents will not start until it is linked:"
+      info "  mkdir -p \"\$(dirname \"$_claude_bin\")\" && ln -s \"$_claude_elsewhere\" \"$_claude_bin\""
+    fi
   fi
-  _claude_elsewhere="$(command -v claude 2>/dev/null || true)"
-  if [ -n "$_claude_elsewhere" ]; then
-    die "Claude Code is installed at $_claude_elsewhere, but Kosmos starts agents from $_claude_bin and there is nothing there. Link it and run this again:
-  mkdir -p \"\$(dirname \"$_claude_bin\")\" && ln -s \"$_claude_elsewhere\" \"$_claude_bin\""
+  _codex_bin="${AGENT_WORKFORCE_CODEX_BIN:-$(command -v codex 2>/dev/null || true)}"
+  if [ -n "$_codex_bin" ] && [ -f "$_codex_bin" ] && [ -x "$_codex_bin" ]; then
+    info "OpenAI Codex found at $_codex_bin"
+    _have_codex="yes"
   fi
-  die "Kosmos needs Claude Code and this Mac does not have it. Install it first (https://claude.com/claude-code puts it at $_claude_bin), then run this install again."
+  if [ "$_have_claude" = "no" ] && [ "$_have_codex" = "no" ]; then
+    # ⚠️ STILL NOT A REFUSAL. The board installs and runs without any
+    # runner; agents are what need one to think, and creation says so per
+    # provider at the moment a provider is chosen.
+    info "No AI runner is on this Mac yet. Kosmos installs fine without one; agents need one before they can think."
+    info "  Claude Code: https://claude.com/claude-code"
+    info "  OpenAI Codex: npm install -g @openai/codex"
+  fi
+  return 0
 }
-check_claude_code
+check_runners
 ok
 
 # ⚠️ IDEMPOTENT, AND IT SAYS SO. Somebody who is not sure whether it worked will
