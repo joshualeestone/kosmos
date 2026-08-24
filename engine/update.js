@@ -261,9 +261,14 @@ function installLog() { return installedRoot() ? path.join(installedRoot(), 'log
    A successful install rewrites the file with code 0, which seeds
    nothing: success is the board coming back changed. */
 function installStatusFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'install.status') : null; }
-function noteAttemptEnd(code, why) {
-  /* Node can emit exit after error for some spawn failures; the first,
-     more specific sentence wins. */
+function noteAttemptEnd(owner, code, why) {
+  /* ⚠️ IDENTITY, not existence. A child's exit/error listener stays bound
+     for that child's life; only the record its OWN press created may be
+     ended by it, or a superseded attempt's late exit would overwrite the
+     current one (single-flight makes this rare in production; a fake
+     timer leaking across tests makes it certain, which is how it was
+     found). And the first, more specific sentence for one owner wins. */
+  if (owner !== lastAttempt) return;
   if (lastAttempt && lastAttempt.endedAt) return;
   lastAttempt = {
     startedAt: lastAttempt && lastAttempt.startedAt ? lastAttempt.startedAt : new Date().toISOString(),
@@ -303,9 +308,10 @@ function wireChild(child, opts) {
   // installer running to bring it back -- while the single-flight flag,
   // stranded true, answered every retry "already updating". Log, release
   // the flag, and the person's retry gets a real attempt.
+  const owner = lastAttempt;
   child.on('error', (err) => {
     installStarted = false;
-    noteAttemptEnd(null, 'the installer could not be started: ' + String((err && err.message) || err));
+    noteAttemptEnd(owner, null, 'the installer could not be started: ' + String((err && err.message) || err));
     /* Only the unattended path is held back. A person pressing Install is
        present, is watching, and gets an immediate attempt every time. */
     if (opts && opts.auto) autoFailedAt = Date.now();
@@ -323,7 +329,7 @@ function wireChild(child, opts) {
   child.on('exit', (code) => {
     if (code !== 0) {
       installStarted = false;
-      noteAttemptEnd(code, 'the installer stopped before it could restart the board');
+      noteAttemptEnd(owner, code, 'the installer stopped before it could restart the board');
       if (opts && opts.auto) autoFailedAt = Date.now();
       process.stderr.write(`Kosmos update failed before it could restart the board (exit ${code}); Install can be tried again\n`);
     }

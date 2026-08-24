@@ -381,18 +381,27 @@ test('#553: a failed install is RECORDED for the page, keyed to its own press, a
   assert.equal(fresh.code, null);
   assert.notEqual(fresh.startedAt, undefined);
 
-  /* A spawn error records too, with its own sentence. */
-  update.resetCache();
-  await update.refresh();
-  update.setInstallRunner(() => ({ on: (evt, fn) => { if (evt === 'error') setTimeout(() => fn(new Error('EAGAIN')), 0); }, unref() {} }));
-  update.beginInstall();
-  await new Promise((r) => setTimeout(r, 5));
-  assert.match(update.lastAttempt().because, /could not be started/);
-  assert.equal(update.lastAttempt().code, null);
-
   update.setInstalledRoot(null); update.setAutoPref(null); update.setInstallRunner(null);
   update.resetCache();
   assert.equal(update.lastAttempt(), null, 'resetCache left an attempt behind');
+});
+
+test('#553: a spawn error records its own sentence, in a run of its own so no earlier exit bleeds in', async () => {
+  update.resetCache();
+  update.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+  update.setInstalledRoot(() => '/opt/kosmos');
+  update.setAutoPref(() => ({ on: false, ok: true }));
+  await update.refresh();
+  /* Only 'error' is wired here (a real spawn failure emits it); the
+     record must carry the could-not-start sentence and no code. */
+  update.setInstallRunner(() => ({ on: (evt, fn) => { if (evt === 'error') setTimeout(() => fn(new Error('EAGAIN')), 0); }, unref() {} }));
+  update.beginInstall();
+  await new Promise((r) => setTimeout(r, 10));
+  const got = update.lastAttempt();
+  assert.match(got.because, /could not be started/);
+  assert.equal(got.code, null);
+  update.setInstalledRoot(null); update.setAutoPref(null); update.setInstallRunner(null);
+  update.resetCache();
 });
 
 test('#553: a failure the OLD server never lived to see is read back from logs/install.status', () => {
