@@ -1853,6 +1853,10 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* A present-but-mistyped field is a 400 naming the field, never
+           a silent no-change 200 a scripted client reads as saved. */
+        if ('theme' in body && typeof body.theme !== 'string') { sendJson(res, 400, { error: 'theme must be a string' }); return; }
+        if ('customText' in body && typeof body.customText !== 'string') { sendJson(res, 400, { error: 'customText must be a string' }); return; }
         /* One validated write for the whole request: sequential setters
            left a half-applied theme behind a refused paste, and the 400
            then named only the paste while the store had already moved. */

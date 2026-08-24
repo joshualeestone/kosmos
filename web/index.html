@@ -12447,7 +12447,10 @@ function settingsGo(section, opts) {
      not the poll, and painting every poll for a hidden section would be
      traffic for nobody. */
   if (section === 'plus') paintPlus();
-  if (section === 'styles') paintStyles(false);
+  /* apply=true: if the one boot-time fetch failed, arriving here
+     heals it; applyStyle removes before re-adding, so a repaint of an
+     already-applied style is a no-op on screen. */
+  if (section === 'styles') paintStyles(true);
 }
 document.getElementById('s-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
@@ -14976,6 +14979,7 @@ if (document.getElementById('style-apply')) document.getElementById('style-apply
     if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; return; }
     applyStyle(body.tokens);
     document.getElementById('style-clear').hidden = !(body.customCount > 0);
+    STYLE_STORE_MSG = false;
     msg.textContent = body.customCount === 1 ? 'Applied: 1 token.'
       : body.customCount > 0 ? 'Applied: ' + body.customCount + ' tokens.' : 'Applied.';
   } catch { msg.textContent = 'we could not save the style'; }
@@ -14990,6 +14994,7 @@ if (document.getElementById('style-clear')) document.getElementById('style-clear
     document.getElementById('style-custom').value = '';
     applyStyle(body.tokens);
     document.getElementById('style-clear').hidden = true;
+    STYLE_STORE_MSG = false;
     msg.textContent = 'Your style is removed; the theme stays.';
   } catch { msg.textContent = 'we could not save the style'; }
 });

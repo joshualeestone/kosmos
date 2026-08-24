@@ -71,7 +71,7 @@ function valueProblem(value) {
   if (/\\/.test(value)) return 'has a backslash, which a color or size never needs';
   if (value.includes('/*') || value.includes('*/')) return 'has a comment inside a value, which a color or size never needs';
   if (/\r/.test(value)) return 'has a hidden line break, which a color or size never needs';
-  if (value.includes('!')) return 'has an !important, which a pasted style never needs';
+  if (value.includes('!')) return 'has an exclamation mark, which a color or size never needs';
   if (/@/.test(value)) return 'has an @-rule, and a style may only set colors and sizes';
   /* Every open paren is judged by the ident TOUCHING it, the way the
      CSS tokenizer builds a function token: ident adjacent to its paren.

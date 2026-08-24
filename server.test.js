@@ -10139,6 +10139,17 @@ test('the style routes round-trip a theme and a pasted file, and refuse behavior
     body: JSON.stringify({ customText: '--x: url(http://x)' }),
   });
   assert.equal(bad.status, 400);
+
+  /* A present-but-mistyped field is refused by name, never a silent
+     no-change 200 a scripted client would read as saved (iteration 5). */
+  for (const wrong of [{ theme: 42 }, { customText: ['--x: red'] }]) {
+    const r = await req('/api/style', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(wrong),
+    });
+    assert.equal(r.status, 400, JSON.stringify(wrong));
+    assert.match(JSON.parse(r.body).error, /must be a string/, JSON.stringify(wrong));
+  }
   assert.match(JSON.parse(bad.body).error, /uses url\(\)/);
   /* A refused paste must not have half-applied: the last good custom set
      survives. */

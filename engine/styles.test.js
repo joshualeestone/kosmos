@@ -55,7 +55,7 @@ test('a token file parses; anything shaped like behavior is refused with the lin
     /* Iteration 4: a carriage return is a line break the naked eye
        cannot see, and !important never belongs in a pasted color. */
     ['--x: red\rextra', /hidden line break/],
-    ['--x: red !important', /!important/],
+    ['--x: red !important', /exclamation mark/],
     ['/* an unclosed comment\n--a: red', /opens a comment it does not close/],
   ]) {
     const r = styles.parseTokens(text);
