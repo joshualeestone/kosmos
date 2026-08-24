@@ -320,7 +320,11 @@ async function main() {
   //    machine can tell, one gets an agent it cannot, one gets nobody.
   const agents = await someAgents(2, SANDBOX);
   const home = process.env.HOME;
-  const demo = path.join(home, 'kosmos-demo');
+  // Per run (#633): `kosmos-demo-<pid>`, directly under HOME because the folder
+  // picker lists HOME's own children and nothing deeper. Two runs on one Mac
+  // therefore never find each other's folder and refuse on it. The picker
+  // selectors below match on the `kosmos-demo-` prefix, not the whole name.
+  const demo = path.join(home, 'kosmos-demo-' + process.pid);
   // ⚠️ REFUSES to reuse a folder that was already there, because the cleanup at
   // the end removes this tree recursively -- and `mkdirSync(recursive)`
   // succeeds silently on an existing directory, so an operator who happens to
@@ -334,7 +338,7 @@ async function main() {
   // that refused to touch an operator's existing ~/kosmos-demo printed
   // "it will not touch yours" and then deleted it on the way out. The guard
   // could not protect anything it was standing in front of.
-  OURS = demo;
+  OURS = demo;   // only the folder this run made is ever deleted (#633: it is per run now)
   for (const d of ['henderson-lease', 'quarter-close', 'reed-handover']) {
     fs.mkdirSync(path.join(demo, d), { recursive: true });
   }
@@ -720,7 +724,7 @@ async function main() {
     // Walk in and choose, so the screenshot shows a real chosen folder rather
     // than the opening state -- and so a regression that re-selects whatever
     // is being looked at would show up here.
-    await page.click('button[data-into$="kosmos-demo"]');
+    await page.click('button[data-into*="kosmos-demo-"]');
     await page.waitForTimeout(400);
 
     // ⚠️ KEYBOARD FOCUS SURVIVED THE STEP. `pjBrowse` replaces the whole list
@@ -771,7 +775,7 @@ async function main() {
       await page.waitForTimeout(400);
       await page.click('#pj-advanced');
       await page.waitForTimeout(500);
-      await page.click('button[data-into$="kosmos-demo"]');
+      await page.click('button[data-into*="kosmos-demo-"]');
       await page.waitForTimeout(300);
       await page.click('#pj-use');
       await page.waitForTimeout(200);
