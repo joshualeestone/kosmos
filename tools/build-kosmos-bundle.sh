@@ -153,6 +153,15 @@ _codesign_id="${KOSMOS_CODESIGN_ID:-Developer ID Application: Stone Syndicate LL
 codesign --force --options runtime --timestamp -s "$_codesign_id" "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || {
   echo "could not Developer ID sign the Plus connector as "$_codesign_id" (is this the machine holding the cert? set KOSMOS_CODESIGN_ID to override). NOT falling back to ad-hoc." >&2; exit 1; }
 codesign -v "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || { echo "the connector's signature did not verify after signing" >&2; exit 1; }
+# ⚠️ RUN IT, not just verify the signature. Under hardened runtime a binary can
+# sign clean and still fail to LOAD if a linked library is unsigned. otool -L
+# shows the tunnel links only /usr/lib/libiconv and /usr/lib/libSystem (both
+# always-valid system libs, no bundled dylibs), so one codesign of the
+# executable is sufficient and no inside-out dylib pass is needed -- but this
+# runs it to prove the signed binary actually loads and executes, and for this
+# binary --help exercises its entire linkage (unlike a binary whose --version
+# skips its heavy libs).
+"$STAGE/app/bin/kosmos-tunnel" --help >/dev/null 2>&1 || { echo "the signed connector does not run (--help failed); it may not load under hardened runtime" >&2; exit 1; }
 # Provenance, logged not baked: the input's own checksum, and which
 # kosmos-relay commit produced it when the input sits in a checkout. This is
 # what a human (or a follow-up automated check) compares against Baron's build
