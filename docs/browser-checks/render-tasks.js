@@ -23,6 +23,10 @@ const { chromium } = require('playwright');
 const shown = async (loc) => ((await loc.boundingBox()) ? loc.innerText() : '');
 
 const REPO = path.resolve(__dirname, '..', '..');
+/* Screenshots go to SHOT_DIR or a fresh temp dir, never into the repo (#630):
+   they differ byte for byte run to run and dirtied the shared checkout under
+   every cut. The path is printed at the end so a person can find them. */
+const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'tasks-shots-'));
 const PORT = 4671;
 /* A FIXTURE member, never a live one (#383 review): this check used to name
    a real session here, and every run typed the membership tell into that
@@ -107,7 +111,7 @@ const MEMBER = 'taskmate';
     const hint = await p.evaluate(() => { const h = document.querySelector('#pj-newtask-view .fhint'); return h.getBoundingClientRect().height > 0 ? h.innerText.trim() : ''; });
     if (hint !== 'You can give it to somebody later.') die('the default-to-nobody hint drifted: ' + hint);
     if (!(await p.locator('#nt-go').isDisabled())) die('Create task is live with no sentence');
-    await p.screenshot({ path: path.join(REPO, 'docs/browser-checks/shots/tasks-new-page.png') });
+    await p.screenshot({ path: path.join(OUT, 'tasks-new-page.png') });
 
     // A page does not trap and does not dismiss: Escape leaves it standing,
     // and typed words survive Back to the same project.
@@ -148,7 +152,7 @@ const MEMBER = 'taskmate';
     if (!/View all tasks \(2\)/.test(doorTxt)) die('door text: ' + doorTxt);
     const chip = (await shown(p.locator('.tkcard-who'))).trim();
     if (!chip.includes(MEMBER)) die('the who chip does not name the member: ' + chip);
-    await p.screenshot({ path: path.join(REPO, 'docs/browser-checks/shots/tasks-column.png') });
+    await p.screenshot({ path: path.join(OUT, 'tasks-column.png') });
 
     // Behind the door: the unassigned card says the only allowed state word.
     await p.click('#pj-alltasks');
@@ -179,7 +183,7 @@ const MEMBER = 'taskmate';
     const note = (await shown(p.locator('#tk-note'))).replace(/\s+/g, ' ').trim();
     if (!note.startsWith(MEMBER + ' says it is on this. Marking it done closes it here. It does not stop ')
         || !note.includes(MEMBER)) die('the joined close-note drifted: ' + note);
-    await p.screenshot({ path: path.join(REPO, 'docs/browser-checks/shots/tasks-view-page.png') });
+    await p.screenshot({ path: path.join(OUT, 'tasks-view-page.png') });
 
     // Mark as done. The reveal is still on (it persists across same-project
     // repaints by design), so the done card stays visible, now struck
@@ -217,7 +221,7 @@ const MEMBER = 'taskmate';
     await p.waitForFunction(() => document.getElementById('tk-done').textContent.trim() !== 'Reopen', null, { timeout: 10000 });
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('TASKS DRIVE OK: creation and view both pages (no trap, Escape inert, draft survives Back), column/door split, chip-is-status, THE JOIN (report -> says-line -> joined note, nothing before the report), done and reopen round trip, fixture tmux only, 0 page errors');
+    console.log('TASKS DRIVE OK: creation and view both pages (no trap, Escape inert, draft survives Back), column/door split, chip-is-status, THE JOIN (report -> says-line -> joined note, nothing before the report), done and reopen round trip, fixture tmux only, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     srv.kill();

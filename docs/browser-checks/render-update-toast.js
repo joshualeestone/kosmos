@@ -16,6 +16,10 @@ const { chromium } = require('playwright');
  * Sandboxes every root the server writes to and runs its own local release
  * host; kills only the processes it started. */
 const REPO = path.resolve(__dirname, '..', '..');
+/* Screenshots go to SHOT_DIR or a fresh temp dir, never into the repo (#630):
+   they differ byte for byte run to run and dirtied the shared checkout under
+   every cut. The path is printed at the end so a person can find them. */
+const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'toast-shots-'));
 const PORT = 4653;
 const RELPORT = 4654;
 
@@ -108,7 +112,7 @@ const RELPORT = 4654;
     if (withToast.newagent !== sansToast.newagent || withToast.checked !== sansToast.checked) {
       die('the notice re-spaces the header row: ' + JSON.stringify({ withToast, sansToast }));
     }
-    await p.screenshot({ path: path.join(REPO, 'docs/browser-checks/shots/update-toast.png') });
+    await p.screenshot({ path: path.join(OUT, 'update-toast.png') });
 
     // The toast's Install is GOLD (the pack's action colour): the neutral
     // .uacts button rule outweighed the gold class once, silently.
@@ -126,7 +130,7 @@ const RELPORT = 4654;
     const goTxt = (await p.locator('#uc-go').textContent()).trim();
     const noTxt = (await p.locator('#uc-no').textContent()).trim();
     if (goTxt !== 'Update' || noTxt !== 'Not now') die('confirm buttons: ' + noTxt + ' / ' + goTxt);
-    await p.screenshot({ path: path.join(REPO, 'docs/browser-checks/shots/update-confirm.png') });
+    await p.screenshot({ path: path.join(OUT, 'update-confirm.png') });
 
     // The trap holds at BOTH wrap boundaries, with real keypresses: Tab on
     // the last stop wraps to the first; Shift+Tab on the first wraps back.
@@ -173,10 +177,10 @@ const RELPORT = 4654;
       if (overlap(mboxes.toast, mboxes[k])) die('mobile: toast overlaps ' + k + ' ' + JSON.stringify(mboxes));
     }
     if (mboxes.toast.x < 0 || mboxes.toast.y < 0) die('mobile: toast off-screen ' + JSON.stringify(mboxes.toast));
-    await p.screenshot({ path: path.join(REPO, 'docs/browser-checks/shots/update-toast-375.png') });
+    await p.screenshot({ path: path.join(OUT, 'update-toast-375.png') });
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('TOAST DRIVE OK: render, geometry clear of header controls, frozen copy verbatim, from-source refusal surfaced, Later remembered per version, 0 page errors');
+    console.log('TOAST DRIVE OK: render, geometry clear of header controls, frozen copy verbatim, from-source refusal surfaced, Later remembered per version, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     srv.kill();

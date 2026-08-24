@@ -131,7 +131,11 @@ is an absence control (`=== ''`, `!/.../.test`), which hidden text should fail
 too. Every read that stays on `textContent` in a wired check carries a comment
 saying which of those it is (#687). Do not sweep a `textContent` blind: an exact
 match like `=== 'Saved.'` changes under `innerText` when the element wears
-`text-transform`, so check the CSS on the element first.
+`text-transform`, so check the CSS on the element first. The instance, so the
+rule is not abstract: `regress-a-night.js` asserted the instructions lede
+"states the consequence" from the Memory screen, where that lede is not drawn,
+and passed for weeks on a sentence that was never rendered. The size guard
+caught it the hour it went in (#687).
 
 **If an assertion is only true until we do better, say so in the check.** A check
 pinned to a temporary state ("Windows is still coming soon", "the no-install road
@@ -140,6 +144,18 @@ fires looking exactly like a regression. Three of those happened in one day
 (#650, #612, and the engine-off legs of `render-github-door.js` the hour #680
 shipped the client id). Put the sentence "true until <the improvement>" beside the
 assertion, so the person who meets the red knows it is the feature arriving.
+
+## Where the screenshots go
+
+Every check writes its screenshots to `SHOT_DIR` if set, otherwise to a fresh
+temp dir it names at the end. **None writes into this repo.** Four used to
+write into `shots/` here (#630); screenshots differ byte for byte from run to
+run, so every page run left the shared checkout dirty and `release.sh` refused
+the cut on "main is dirty" (it aborted 0.5.21 that way). A browser-check run
+must leave `git status` clean. The PNGs still committed under `shots/` are the
+historical set from the PRs that introduced them, not a reference a check
+compares against; when a screenshot belongs in a PR, copy it out of `SHOT_DIR`
+on purpose.
 
 ## Running them
 
