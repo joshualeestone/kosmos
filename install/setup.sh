@@ -2169,6 +2169,40 @@ else
   info "one-time question in its own window, and answering it once clears it for good"
 fi
 
+# ---- the reporting hooks (#561) ---------------------------------------------
+# Layer 1 of the report interface: Claude Code hooks that run `kosmos report`
+# so the board reads each agent's state from the agent's own record instead
+# of scraping its pane (#526 shipped the verb; this gives it a mouth on every
+# machine). ONE merge implementation does all the wiring -- engine/reporthook
+# -- called here for the default ~/.claude and every existing account dir,
+# and by accounts.prepare for every account born later. Updates re-run this
+# script, so machines that predate the hook pick it up on their next update.
+# Same fail-soft posture as the permission block above: a machine that could
+# not be wired still installs, and the board falls back to reading screens,
+# which is the pre-hook world rather than a corruption.
+if "$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" <<'NODEEOF' 2>/dev/null
+const path = require('path');
+const kosmosHome = process.argv[2];
+const reporthook = require(path.join(kosmosHome, 'app', 'engine', 'reporthook.js'));
+const accounts = require(path.join(kosmosHome, 'app', 'engine', 'accounts.js'));
+const script = reporthook.hookScriptPath();
+const targets = [path.join(process.env.HOME, '.claude', 'settings.json')]
+  .concat(accounts.list().filter((a) => !a.isDefault).map((a) => path.join(a.dir, 'settings.json')));
+let refused = 0;
+for (const t of targets) {
+  const got = reporthook.ensureWired(t, script);
+  if (got.wired !== true) refused += 1;
+}
+process.exit(refused === 0 ? 0 : 1);
+NODEEOF
+then
+  info "agents on this Mac report what they are doing themselves; the board reads their"
+  info "own words instead of their screens"
+else
+  info "some agent settings could not carry the reporting hook (an unreadable settings"
+  info "file is left alone on purpose); those agents stay readable the older way"
+fi
+
 # ---- start ------------------------------------------------------------------
 step "Starting Kosmos."
 KOSMOS_SAY_INDENT="     " "$KOSMOS_HOME/bin/kosmos" start || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."

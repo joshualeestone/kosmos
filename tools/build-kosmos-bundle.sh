@@ -95,6 +95,12 @@ fi
 
 # ---- the command ------------------------------------------------------------
 cp "$REPO/install/kosmos" "$STAGE/bin/kosmos"
+# The reporting hook script (#561) rides in app/bin so an UPDATE (which swaps
+# app/, never bin/) carries fixes to it, while the path settings.json points
+# at -- $KOSMOS_HOME/app/bin/kosmos-report-hook.sh -- stays constant. Its CLI
+# is resolved from its own location, so the pair can never version-skew.
+cp "$REPO/install/kosmos-report-hook.sh" "$STAGE/app/bin/kosmos-report-hook.sh"
+chmod +x "$STAGE/app/bin/kosmos-report-hook.sh"
 chmod +x "$STAGE/bin/kosmos"
 
 # ---- the runtime ------------------------------------------------------------
