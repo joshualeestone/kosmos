@@ -60,3 +60,32 @@ pkg_input_sha() {
 _pkg_hash() {
   if command -v shasum >/dev/null 2>&1; then shasum -a 256; else sha256sum; fi
 }
+
+# Does the site's copy of the pkg need rebuilding + republishing? Prints ONE
+# reason line and returns 0 (needed) or 1 (current). The decision reads the
+# SITE checkout's dist (what the next deploy will serve), never the served
+# host: the served host is what step 9c confirms AFTER the deploy.
+#
+# Four ways to need it, each named, because "rebuild" without a reason is the
+# re-run-instead-of-read habit #708 is about:
+#   no pkg          nothing to serve
+#   no sidecar      the pkg predates the guard, its inputs are unknown
+#   inputs differ   someone changed a postinstall, a screen or the build
+#   pair broken     Kosmos.pkg and Kosmos.pkg.sha256 disagree (the one-cache
+#                   wedge shape, or a half-copied publish)
+pkg_publish_needed() {
+  local dist="${1:?pkg_publish_needed needs the site dist dir}"
+  local want="${2:?pkg_publish_needed needs the source input sha}"
+  local pkg="$dist/Kosmos.pkg" side="$dist/Kosmos.pkg.inputs" sum="$dist/Kosmos.pkg.sha256"
+  local have real pub
+  [ -f "$pkg" ]  || { echo "no Kosmos.pkg in the site dist"; return 0; }
+  [ -f "$side" ] || { echo "Kosmos.pkg has no input sidecar (it predates the guard)"; return 0; }
+  have="$(tr -d '[:space:]' < "$side")"
+  [ "$have" = "$want" ] || { echo "the pkg's inputs (${have:0:12}) differ from source (${want:0:12})"; return 0; }
+  [ -f "$sum" ] || { echo "Kosmos.pkg has no .sha256 beside it"; return 0; }
+  real="$(_pkg_hash < "$pkg" | awk '{print $1}')"
+  pub="$(awk '{print $1}' < "$sum")"
+  [ "$real" = "$pub" ] || { echo "Kosmos.pkg and Kosmos.pkg.sha256 disagree"; return 0; }
+  echo "current: inputs match source (${want:0:12}) and the pair agrees"
+  return 1
+}

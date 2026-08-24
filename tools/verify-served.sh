@@ -108,5 +108,37 @@ if curl -fsS "$vurl" -o "$vtmp"; then
 else say "/dist/kosmos-$want-arm64.tar.gz" "MISSING -- installers fall back to the cacheable plain name"; fail=1; fi
 rm -f "$vtmp"
 
+echo "== what the Download button serves =="
+# The homepage's macOS button points at /dist/Kosmos.pkg (#555). The pkg is
+# payload-free and rebuilt only when its inputs change, so "current" here means
+# its INPUTS sidecar matches the source (tools/lib/pkg-inputs.sh, the one
+# definition), its bytes match the checksum served beside it, and the
+# signature and staple are real. A pkg that fails any of these is what a
+# person double-clicks, so each is its own line.
+. "$REPO/tools/lib/pkg-inputs.sh"
+pwant=$(pkg_input_sha "$REPO") || { say "/dist/Kosmos.pkg inputs" "could not compute the source input sha"; fail=1; pwant=; }
+pside=$(curl -fsS -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos.pkg.inputs" 2>/dev/null | tr -d '[:space:]')
+if [ -z "$pside" ]; then say "/dist/Kosmos.pkg.inputs" "MISSING -- the served pkg predates the guard, its inputs are unknown"; fail=1
+elif [ -n "$pwant" ] && [ "$pside" = "$pwant" ]; then say "/dist/Kosmos.pkg.inputs" "matches source (${pwant:0:12})"
+else say "/dist/Kosmos.pkg.inputs" "STALE -- served ${pside:0:12}, source ${pwant:0:12}"; fail=1; fi
+ptmp=$(mktemp)
+if curl -fsS "$HOST/dist/Kosmos.pkg" -o "$ptmp"; then
+  preal=$(shasum -a 256 "$ptmp" | awk '{print $1}')
+  ppub=$(curl -fsS "$HOST/dist/Kosmos.pkg.sha256" | awk '{print $1}')
+  if [ "$preal" = "$ppub" ]; then say "/dist/Kosmos.pkg" "$(wc -c < "$ptmp" | tr -d ' ') bytes, checksum matches"
+  else say "/dist/Kosmos.pkg" "CHECKSUM MISMATCH -- the pair a person downloads disagrees with itself"; fail=1; fi
+  # The signature and the staple, from the downloaded bytes, on a Mac only
+  # (elsewhere the tools do not exist and their absence is said, not passed).
+  if command -v pkgutil >/dev/null 2>&1; then
+    if pkgutil --check-signature "$ptmp" 2>/dev/null | grep -q "Developer ID Installer"; then say "/dist/Kosmos.pkg signature" "Developer ID Installer"
+    else say "/dist/Kosmos.pkg signature" "NOT a Developer ID Installer signature"; fail=1; fi
+  else say "/dist/Kosmos.pkg signature" "not checked here (no pkgutil on this machine)"; fi
+  if command -v xcrun >/dev/null 2>&1 && xcrun --find stapler >/dev/null 2>&1; then
+    if xcrun stapler validate "$ptmp" >/dev/null 2>&1; then say "/dist/Kosmos.pkg staple" "notarisation ticket stapled"
+    else say "/dist/Kosmos.pkg staple" "NO valid staple -- a fresh Mac shows the warning"; fail=1; fi
+  else say "/dist/Kosmos.pkg staple" "not checked here (no stapler on this machine)"; fi
+else say "/dist/Kosmos.pkg" "could not be fetched"; fail=1; fi
+rm -f "$ptmp"
+
 echo
 [ "$fail" = "0" ] && echo "every artifact a user can receive matches the repo" || { echo "SOMETHING A USER RECEIVES IS WRONG"; exit 1; }

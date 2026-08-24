@@ -60,4 +60,22 @@ mkdir -p "$U/install/pkg-resources"; rm "$U/tools/build-installer-pkg.sh"
 if pkg_input_sha "$U" >/dev/null 2>&1; then bad "a missing build script did not refuse"; else ok "a missing build script refuses, not a sha over less"; fi
 rm -rf "$U"
 
+# The publish decision release.sh step 5b makes, every arm named.
+D="$(mktemp -d "${TMPDIR:-/tmp}/pkg-publish.XXXXXX")"; want="$(pkg_input_sha "$T")"
+why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"no Kosmos.pkg"*) ok "publish: no pkg in the site dist -> needed ($why)";; *) bad "no-pkg reason wrong: $why";; esac || bad "no pkg was judged current"
+printf 'PKGBYTES\n' > "$D/Kosmos.pkg"
+why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"no input sidecar"*) ok "publish: pkg without a sidecar -> needed ($why)";; *) bad "no-sidecar reason wrong: $why";; esac || bad "a pkg with no sidecar was judged current"
+printf 'deadbeef\n' > "$D/Kosmos.pkg.inputs"
+why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"differ from source"*) ok "publish: inputs differ -> needed ($why)";; *) bad "differ reason wrong: $why";; esac || bad "differing inputs were judged current"
+printf '%s\n' "$want" > "$D/Kosmos.pkg.inputs"
+why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"no .sha256"*) ok "publish: no checksum beside the pkg -> needed ($why)";; *) bad "no-sha256 reason wrong: $why";; esac || bad "a pkg with no checksum was judged current"
+printf '%s  Kosmos.pkg\n' "0000000000000000000000000000000000000000000000000000000000000000" > "$D/Kosmos.pkg.sha256"
+why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"disagree"*) ok "publish: pkg and checksum disagree -> needed ($why)";; *) bad "disagree reason wrong: $why";; esac || bad "a broken pair was judged current"
+( cd "$D" && shasum -a 256 Kosmos.pkg > Kosmos.pkg.sha256 )
+if why="$(pkg_publish_needed "$D" "$want")"; then bad "CONTROL: a current pair was judged as needing a publish ($why)"; else ok "CONTROL: a current pair (inputs match, checksum agrees) -> not needed ($why)"; fi
+# and the control's control: touch one input in source, the current pair is stale again.
+printf '#!/bin/sh\necho changed again\n' > "$T/install/pkg-scripts/postinstall"; want2="$(pkg_input_sha "$T")"
+if pkg_publish_needed "$D" "$want2" >/dev/null; then ok "CONTROL: after a source edit the same pair is stale again"; else bad "a source edit did not make the pair stale"; fi
+rm -rf "$D"
+
 echo "pkg-input-guard: $FAILS failures"; [ "$FAILS" -eq 0 ]

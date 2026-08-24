@@ -111,5 +111,10 @@ echo
 _insha="$(pkg_input_sha "$REPO")" || { echo "could not compute the pkg input sha" >&2; exit 1; }
 printf '%s\n' "$_insha" > "$OUT_DIR/Kosmos.pkg.inputs"
 echo "==> input sidecar: Kosmos.pkg.inputs = $_insha"
+# The checksum the site serves beside the pkg, in the shape every other served
+# pair uses ("<sha>  Kosmos.pkg"), written HERE so build and publish cannot
+# drift: the first served pair was made by hand.
+( cd "$OUT_DIR" && shasum -a 256 Kosmos.pkg > Kosmos.pkg.sha256 )
+echo "==> checksum: $(cat "$OUT_DIR/Kosmos.pkg.sha256")"
 
 echo "built + notarised + stapled: $PKG"
