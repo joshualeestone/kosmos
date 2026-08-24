@@ -115,6 +115,14 @@ fi
 # recovers on its own the moment that session ends.
 adopt=
 warned=0
+waited=0
+# ⚠️ SEAMS, defaulted to the shipped behaviour: the poll interval exists so
+# the wait loop is TESTABLE at all (tools/test-supervisor-wait.sh drives it
+# in seconds; nothing else should ever set it), and the escalation cadence
+# is how often the not-ours wait says it is still waiting. 0 disables the
+# escalation, which nothing should do outside a test of the quiet arm.
+POLL_SECS="${AGENT_WORKFORCE_WAIT_POLL_SECS:-5}"
+ESCALATE_SECS="${AGENT_WORKFORCE_WAIT_ESCALATE_SECS:-600}"
 while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
   if [ "$("$TMUX_BIN" show-options -t "$SESSION" -v @kosmos_agent 2>/dev/null)" = "$SESSION" ]; then
     # Ours -- but do not throw away a HEALTHY one. This file can be run by hand,
@@ -175,7 +183,23 @@ EOF
     say "a session called $SESSION is already running and is not ours -- waiting rather than killing it"
     warned=1
   fi
-  sleep 5
+  sleep "$POLL_SECS"
+  # ⚠️ A WAIT THAT CAN FAIL MUST BE ABLE TO SAY SO (#579). The not-ours arm
+  # used to warn ONCE and then wait in silence, unbounded: a leaked test
+  # session held the name `bl2` for 19.8 hours and the log carried one
+  # warning and 14,225 has-session traces -- launchd said running, the
+  # process WAS running, and the agent never started. Waiting stays right
+  # (exiting makes launchd respawn us every 30 seconds, and the name may be
+  # somebody's real work we must not kill); waiting SILENTLY was the
+  # defect. So the wait now escalates on a slow cadence, NAMING how long it
+  # has been and what is holding the name, so a log tail shows the blockage
+  # rather than only line 2 of 14,226 -- and it never quietly gives up,
+  # because a silent timeout is the same defect with a shorter duration.
+  waited=$((waited + POLL_SECS))
+  if [ "$ESCALATE_SECS" -gt 0 ] 2>/dev/null && [ "$waited" -ge "$ESCALATE_SECS" ] && [ $((waited % ESCALATE_SECS)) -lt "$POLL_SECS" ]; then
+    holder=$("$TMUX_BIN" list-panes -s -t "$TARGET" -F '#{pane_current_command}' 2>/dev/null | tr '\n' ' ')
+    say "STILL WAITING after $((waited / 60)) minutes: the session name $SESSION is held by a session we did not create (running: ${holder:-unreadable}). $SESSION cannot start until that session ends. If it is a leftover, close or kill it by hand; we will not, because it may be somebody's real work."
+  fi
 done
 
 # --dangerously-skip-permissions is not optional for an unattended agent.
