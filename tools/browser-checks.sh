@@ -139,22 +139,31 @@ wait_up() {
 # run_one <label> <cmd...>: run a check headless, retry ONCE on failure, and say
 # out loud when it retried. A green that quietly retried is indistinguishable
 # from a clean green, so the retry is always printed.
+# A red must say WHY in the summary, or it gets re-run instead of read (#616:
+# the gate now asks 28 checks, and a label alone is a coin to flip). Each
+# attempt's output is captured as well as streamed, and on the final failure
+# the check's own FAIL and error lines are kept and printed under its label.
+REASONS=()
 run_one() {
   local label="$1"; shift
+  local cap; cap="$(mktemp "${TMPDIR:-/tmp}/kosmos-bc-out.XXXXXX")"
   RAN+=("$label")
   sec "$label"
-  if HEADED=0 NODE_PATH="$PW_NODE_PATH" "$@"; then
-    log "PASS  $label"
+  if HEADED=0 NODE_PATH="$PW_NODE_PATH" "$@" 2>&1 | tee "$cap"; [ "${PIPESTATUS[0]}" -eq 0 ]; then
+    log "PASS  $label"; rm -f "$cap"
     return 0
   fi
   log "⚠️  $label failed once, retrying (flaky-timeout guard). A retried pass is reported, not hidden."
   RETRIED+=("$label")
-  if HEADED=0 NODE_PATH="$PW_NODE_PATH" "$@"; then
-    log "PASS  $label (on retry — treat repeated retries as a finding, not noise)"
+  if HEADED=0 NODE_PATH="$PW_NODE_PATH" "$@" 2>&1 | tee "$cap"; [ "${PIPESTATUS[0]}" -eq 0 ]; then
+    log "PASS  $label (on retry — treat repeated retries as a finding, not noise)"; rm -f "$cap"
     return 0
   fi
   log "FAIL  $label (failed twice)"
   FAILED+=("$label")
+  local why; why="$(grep -E '^\s*(FAIL|✖)|Error|Timeout|REFUS|refus' "$cap" | grep -vE '^\s*at ' | head -3 | cut -c1-200 | sed 's/^/           /')"
+  REASONS+=("$label:"$'\n'"${why:-           (no FAIL or error line in its output; read the full log)}")
+  rm -f "$cap"
   return 1
 }
 
@@ -312,6 +321,8 @@ log "ran:     ${RAN[*]:-none}"
 [ "${#RETRIED[@]}" -gt 0 ] && log "retried: ${RETRIED[*]}  (repeated retries are a flake to fix, not to accept)"
 if [ "${#FAILED[@]}" -gt 0 ]; then
   log "FAILED:  ${FAILED[*]}"
+  log "why, from each check's own output (the full log has the rest):"
+  for r in ${REASONS[@]+"${REASONS[@]}"}; do log "  $r"; done
   exit 1
 fi
 log "all page checks passed"
