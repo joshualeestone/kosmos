@@ -10055,6 +10055,18 @@ test('skills over the wire: global lists and adds; the agent write carries the e
   assert.deepEqual(JSON.parse(r.body).skills.map((x) => x.key), ['file-an-expense']);
   // And it landed in the folder the runtime reads, nowhere else.
   assert.ok(fsx.existsSync(require('node:path').join(skillsEngine.agentDir(createEngine.workerDir('mara')), 'file-an-expense', 'SKILL.md')));
+  // Delete carries the same permit as the write, then genuinely removes.
+  r = await req('/api/agent/nobody-here/skills/file-an-expense', { method: 'DELETE' });
+  assert.equal(r.status, 409, 'a delete for an agent the roster cannot vouch for must be refused');
+  r = await req('/api/agent/mara/skills/file-an-expense', { method: 'DELETE' });
+  assert.equal(r.status, 200, r.body);
+  assert.deepEqual(JSON.parse((await req('/api/agent/mara/skills')).body).skills, []);
+  // Global delete: gone, and the second ask is a sentence, not a quiet yes.
+  r = await req('/api/skills/how-we-write-emails', { method: 'DELETE' });
+  assert.equal(r.status, 200, r.body);
+  r = await req('/api/skills/how-we-write-emails', { method: 'DELETE' });
+  assert.equal(r.status, 400);
+  assert.match(JSON.parse(r.body).because, /no skill by this name/);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
