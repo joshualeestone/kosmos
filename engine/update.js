@@ -220,7 +220,15 @@ function installedRoot() {
     that suffix yields <base>/setup, so a nonstandard staging base must
     keep the /dist shape. */
 function setupUrl() {
-  return base.replace(/\/dist\/?$/, '') + '/setup';
+  /* The version rides as a cache-buster (#the 0.5.13 wedge): /setup is
+     one URL across releases, so an edge cache can hand an updating
+     machine the PREVIOUS release's installer, which then fetches the
+     previous release's bytes and reports success. Keyed on the version
+     the update is FOR, so the same update retried hits the same cache
+     entry rather than minting one per attempt. Harmless to any origin:
+     a query on a static file is ignored where there is no cache. */
+  const v = cache && cache.latest && cache.latest.version ? String(cache.latest.version) : '';
+  return base.replace(/\/dist\/?$/, '') + '/setup' + (v ? '?v=' + encodeURIComponent(v) : '');
 }
 
 /**
