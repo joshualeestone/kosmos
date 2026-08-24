@@ -2,9 +2,12 @@
 
 ## Finished looks like
 With a newer version installed than the page that is open (server on 0.5.23, page
-baked 0.5.22), pressing Check for Update writes "0.5.23 is installed. Reload this
-page to use it." on the card line, never "Up to date." With the page current, the
-same press still writes "Up to date." Nothing else on the card changes.
+baked 0.5.22), pressing Check for Update writes "This page is the older one. Reload
+from the top left to get the newer one." on the card line, never "Up to date." (No
+version in the sentence: the row above it already says "reload for 0.5.23"; it names
+where the Reload control is because the live region is what a screen reader hears.)
+With the page current, the same press still writes "Up to date." Nothing else on the
+card changes.
 
 ## Why
 Josh, #chaoskosmos-design 2026-08-24 16:50, with a screenshot: the build line read
@@ -28,6 +31,8 @@ is stale, and no wording fixes not knowing.
    tools/browser-checks.sh and named in the README.
 
 ## Not in this change
-The card's Update arm when an offer AND a stale page coincide (the toast prefers
+An offline machine with a stale page still gets "Could not reach the update server."
+beside "reload for 0.5.23" (the unreachable arm; same true-in-scope shape, separate
+card). The card's Update arm when an offer AND a stale page coincide (the toast prefers
 stale, the card prefers the offer); the 409 arm already covers the press. The
 button stays "Check for Update"; the reload control is the toast's.

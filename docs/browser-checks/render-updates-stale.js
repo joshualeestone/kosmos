@@ -47,8 +47,17 @@ function chk(ok, label, extra) {
 
 (async () => {
   const b = await chromium.launch({ headless: process.env.HEADED === '0' });
-  const served = (await (await b.newPage()).request.get(URL + '/api/status').then((r) => r.json())).version;
+  const probe = await b.newPage();
+  const served = (await probe.request.get(URL + '/api/status').then((r) => r.json())).version;
+  await probe.close();
   chk(typeof served === 'string' && served.length > 0, 'the board reports a served version', String(served));
+  if (typeof served !== 'string' || !served) {
+    // Everything below stubs answers around `served`; without it the report
+    // would be a cascade of downstream FAILs about one missing number.
+    await b.close();
+    console.log('\nFAILED: ' + fail.join(', '));
+    process.exit(1);
+  }
 
   for (const state of ['stale', 'current']) {
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
@@ -103,7 +112,7 @@ function chk(ok, label, extra) {
     await pg.waitForFunction(() => !/Checking\.$/.test(document.getElementById('upd-line').textContent), null, { timeout: 12000 });
     const line = await pg.$eval('#upd-line', (el) => el.textContent);
     if (state === 'stale') {
-      chk(line === 'This page is the older one. Reload from the top left to use it.',
+      chk(line === 'This page is the older one. Reload from the top left to get the newer one.',
         'stale: the press says reload, not "Up to date"', JSON.stringify(line));
       chk(!/Up to date/.test(line), 'stale: "Up to date" is not on the card', JSON.stringify(line));
     } else {
