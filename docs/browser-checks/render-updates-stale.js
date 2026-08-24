@@ -15,7 +15,10 @@
  *
  * A source checkout bakes no version (the meta is the untouched marker), so the
  * page can never be stale on its own; the meta is set the way the toast check
- * sets it. The update host is unreachable on a sandboxed board, so the update
+ * sets it. The real look at the update host is not this check's subject and
+ * is not under its control (a sandboxed board scopes data roots, not the
+ * network: on a connected Mac the look can reach the host and even carry a
+ * real offer, which would flip the card into the offer arm), so the update
  * ANSWERS are stubbed at the network edge and nowhere else: the check route's
  * (reached, readable, nothing newer) and, in the poll's /api/status, only the
  * `updateLook`/`update` fields (same answer) and `engine` (the engine-stale
@@ -103,10 +106,10 @@ function chk(ok, label, extra) {
        are read from the same world; in the current state the condition already
        holds (baked equals served, the poll changes nothing). */
     await pg.waitForFunction(([s, v]) => {
-      const t = (document.getElementById('build') || {}).textContent || '';
+      const t = (document.getElementById('build') || {}).innerText || '';
       return s === 'stale' ? /reload for/.test(t) : (t.indexOf(v) > -1 && !/reload for/.test(t));
     }, [state, served], { timeout: 12000 }).catch((e) => { pollNote = ' (the poll did not repaint the build line in time: ' + e.message.split('\n')[0] + ')'; });
-    const build = await pg.$eval('#build', (el) => el.textContent);
+    const build = await pg.$eval('#build', (el) => el.innerText);
     chk(state === 'stale' ? /reload for/.test(build) : !/reload for/.test(build),
       state + ': the build line says ' + (state === 'stale' ? '"reload for"' : 'no reload'), build + pollNote);
 

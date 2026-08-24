@@ -231,6 +231,8 @@ stopped reporting anything" is also what a checker broken into silence looks
 like. So it plants one element that genuinely fails and requires itself to catch
 it before any clean result below is worth reading.
 
+**`render-updates-stale.js`** writes its screenshots into the directory you pass (argv[2]); `shots/updates-stale.png` and `shots/updates-current.png` are copies of one run, and a rerun does not touch them. Copy over when they are what you want in the PR.
+
 **`click-first-run.js`** clicks the whole thing like a person: every step, Back,
 Skip, Escape, the hand-off into creating an agent, a returning visit, a failing
 `/api/first-run`, a failing `/api/machine`, and a completion flag that will not
@@ -539,5 +541,3 @@ own declarations and reports ZERO matches** — a false zero that reads as
 Check `selectorText` first, recurse after. The same shape as
 test-support/page.js's brace-walk lesson: verify the instrument before
 believing its silence.
-
-**`render-updates-stale.js`** writes its screenshots into the directory you pass (argv[2]); `shots/updates-stale.png` and `shots/updates-current.png` are copies of one run, and a rerun does not touch them. Copy over when they are what you want in the PR.

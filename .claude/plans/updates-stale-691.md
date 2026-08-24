@@ -37,6 +37,8 @@ is stale, and no wording fixes not knowing.
   beside "reload for 0.5.23" (the unreachable arm), and the board-failed arm of the
   press ("Could not check just now.") has the same true-in-scope shape. Separate card.
 - An offer beside a stale page: the toast prefers the stale state and offers Reload,
-  the card's offer arm wins and offers Update. Both true; the 409 arm of the press
-  already covers the page that is behind.
+  the card's offer arm wins and offers Update. Both true: Update installs the offer on
+  the board side whatever page asked, and the Install confirm's 409 arm covers an offer
+  the board has already applied. Under UPDATING_NOW the toast alone stands down, behind
+  the inert update overlay.
 - The button stays "Check for Update". The browser's own reload is the remedy.
