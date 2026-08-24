@@ -20542,10 +20542,10 @@ function pjRoomBody(m, p) {
     .slice().sort((a, b) => a.start - b.start) : [];
   if (!qs.length || (Array.isArray(m.quotes) && qs.length !== m.quotes.length)) return flat;
   for (let i = 1; i < qs.length; i += 1) if (qs[i].start < qs[i - 1].end) return flat;
-  /* Prose between quotes keeps the spacing the person typed, except the
-     newlines that only separated it from the quote, so no empty paragraph
-     is drawn on either side of the bar. */
-  const prose = (t) => { const k = t.replace(/^\n+|\n+$/g, ''); return k ? '<p>' + pjBody(k, PJ_DOC_NAMES) + '</p>' : ''; };
+  /* Prose between quotes keeps the spacing the person typed inside it; only
+     the whitespace at its edges goes, since that only separated it from the
+     quote, so no empty paragraph or hanging indent is drawn beside the bar. */
+  const prose = (t) => { const k = t.replace(/^\s+|\s+$/g, ''); return k ? '<p>' + pjBody(k, PJ_DOC_NAMES) + '</p>' : ''; };
   let out = '';
   let at = 0;
   for (const q of qs) {
