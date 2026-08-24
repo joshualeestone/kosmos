@@ -16,7 +16,7 @@
 #
 # Usage, which is what the launchd job runs:
 #
-#   agent-supervisor.sh <session> <workdir> <claude-bin> <tmux-bin> [log] [model]
+#   agent-supervisor.sh <session> <workdir> <runner-bin> <tmux-bin> [log] [model] [runner]
 #
 # ⚠️ THIS VECTOR IS A CONTRACT WITH EVERY AGENT THAT ALREADY EXISTS, and it is
 # the one thing about this file that CANNOT be changed freely.
@@ -58,6 +58,13 @@ LOG="${5:-}"
 # pass five arguments and keep working untouched; only agents created with
 # an explicit model choice carry a sixth.
 MODEL="${6:-}"
+# The RUNNER this agent runs on, optional and NEW as of #245 (2026-08-24).
+# 'claude' (the default every existing plist means by omission) or 'codex'.
+# Per the vector contract above: optional, defaulted, position seven, and
+# every earlier argument keeps its position and meaning. $3 stays "the path
+# to the runner binary" -- for a codex agent, create.js writes the codex
+# path there, so this script needs no second binary argument.
+RUNNER="${7:-claude}"
 
 # ⚠️ TWO SPELLINGS OF THE SAME SESSION, and which commands take which was
 # MEASURED on tmux 3.6a rather than assumed, because assuming it broke the claim
@@ -143,8 +150,13 @@ while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
       # numeric segments. A looser copy of a definition, beside a comment
       # claiming they are the same, in the place where being loose means
       # supervising a dead agent forever.
+      # ⚠️ codex/codex.exe joined the allowlist with #245, mirroring
+      # status.js's isCodexCommand the way the claude entries mirror
+      # isClaudeCommand. Without them, a LIVE codex agent's pane reads as
+      # "every pane is a shell: it crashed" and this script kills it.
       if [[ "$pane_cmd" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
-        || [ "$pane_cmd" = claude ] || [ "$pane_cmd" = claude.exe ] || [ "$pane_cmd" = node ]; then
+        || [ "$pane_cmd" = claude ] || [ "$pane_cmd" = claude.exe ] || [ "$pane_cmd" = node ] \
+        || [ "$pane_cmd" = codex ] || [ "$pane_cmd" = codex.exe ]; then
         alive=1
       fi
     done <<EOF
@@ -177,13 +189,29 @@ done
 if [ -z "$adopt" ]; then
   # ⚠️ The model flag is appended ONLY when a model was chosen, as two more
   # quoted arguments -- never interpolated into a string this file's header
-  # forbids. An empty MODEL adds nothing and claude picks its own default.
-  if [ -n "$MODEL" ]; then
-    "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" \
-      "$CLAUDE" --dangerously-skip-permissions --model "$MODEL" || exit 1
+  # forbids. An empty MODEL adds nothing and the runner picks its own default.
+  #
+  # Per-runner autonomy flags, same posture both ways: an unattended agent
+  # that stops on its first permission prompt freezes forever with nobody
+  # there to answer it. codex's spelling of claude's
+  # --dangerously-skip-permissions is --dangerously-bypass-approvals-and-
+  # sandbox; its model flag is -m.
+  if [ "$RUNNER" = codex ]; then
+    if [ -n "$MODEL" ]; then
+      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" \
+        "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -m "$MODEL" || exit 1
+    else
+      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" \
+        "$CLAUDE" --dangerously-bypass-approvals-and-sandbox || exit 1
+    fi
   else
-    "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" \
-      "$CLAUDE" --dangerously-skip-permissions || exit 1
+    if [ -n "$MODEL" ]; then
+      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" \
+        "$CLAUDE" --dangerously-skip-permissions --model "$MODEL" || exit 1
+    else
+      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" \
+        "$CLAUDE" --dangerously-skip-permissions || exit 1
+    fi
   fi
 fi
 
@@ -203,6 +231,12 @@ fi
 # be set at every start rather than once at creation.
 "$TMUX_BIN" set-option -t "$SESSION" @kosmos_agent "$SESSION" \
   || say "could not claim $SESSION -- the board will not recognise it"
+# The runner rides beside the claim (#245), for the same reason and with the
+# same lifetime: pane_current_command cannot say which runner this is (the
+# npm-installed codex fronts as `node`), so the process that KNOWS records
+# it, and the board reads a fact instead of inferring one.
+"$TMUX_BIN" set-option -t "$SESSION" @kosmos_runner "$RUNNER" \
+  || say "could not record $SESSION's runner -- the board will read it as claude"
 
 # Stay alive while the session does, so launchd supervises the AGENT rather than
 # a command that exits in a tenth of a second.

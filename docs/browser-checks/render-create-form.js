@@ -84,7 +84,27 @@ function check(name, pass, detail) {
       const prov = box('create-provider');
       const el = document.querySelector('.mstep');
       const elbow = el ? getComputedStyle(el, '::before') : null;
+      /* #245: drive the provider menu both ways and read what it does to
+         its neighbours, then leave it where it started. */
+      const openaiParks = (() => {
+        const sel = id('create-provider');
+        const model = id('create-model');
+        const acctSel = id('create-account');
+        sel.value = 'openai';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        const parked = {
+          modelDisabled: model.disabled,
+          acctDisabled: acctSel.disabled,
+          why: (id('create-model-why') || {}).textContent || '',
+        };
+        sel.value = 'anthropic';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        parked.reModelEnabled = !model.disabled;
+        parked.reAcctEnabled = !acctSel.disabled;
+        return parked;
+      })();
       return {
+        openaiParks,
         fieldCount: fields.length,
         ruledCount: ruled.length,
         order,
@@ -184,9 +204,24 @@ function check(name, pass, detail) {
       `first option ${JSON.stringify(seen.reportsFirst)}, value ${JSON.stringify(seen.reportsValue)}`);
 
     const enabled = seen.providers.filter(([, d]) => !d);
-    check(`[${engine}] one provider can be chosen and the rest are refused up front`,
-      enabled.length === 1 && /anthropic/i.test(enabled[0][0]) && seen.providers.length === 8,
+    /* #245: OpenAI joined Anthropic as choosable; everything else still says
+       coming soon. This assertion moved WITH the product in the same change,
+       per the menu's own instruction that whoever wires a second provider
+       enables its option in the same commit. */
+    check(`[${engine}] two providers can be chosen and the rest are refused up front`,
+      enabled.length === 2
+        && enabled.some(([t]) => /anthropic/i.test(t))
+        && enabled.some(([t]) => /openai/i.test(t))
+        && seen.providers.length === 8,
       `${enabled.length} of ${seen.providers.length} selectable: ${enabled.map((x) => x[0]).join(', ')}`);
+    /* #245: choosing OpenAI disables the two Claude-shaped controls WITH
+       WORDS, and choosing Anthropic back re-enables them. Driven, not read
+       from source: the disabling is a live listener. */
+    check(`[${engine}] choosing OpenAI parks the model and account menus, with words, and Anthropic unparks them`,
+      seen.openaiParks && seen.openaiParks.modelDisabled && seen.openaiParks.acctDisabled
+        && /model/i.test(seen.openaiParks.why || '')
+        && seen.openaiParks.reModelEnabled && seen.openaiParks.reAcctEnabled,
+      JSON.stringify(seen.openaiParks));
     check(`[${engine}] the account rung is drawn even with one account in it`,
       seen.acctShown && seen.acctCount >= 1, `${seen.acctCount} options`);
     check(`[${engine}] each menu steps in from the one above`,

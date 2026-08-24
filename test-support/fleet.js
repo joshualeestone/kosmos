@@ -190,6 +190,10 @@ function line(spec) {
     command: spec.command === undefined ? CLAUDE_COMMAND : spec.command,
     inMode: spec.inMode || '0',
     claim: spec.claim || '',
+    /* The runner the supervisor records beside the claim (#245). Empty is
+       the default and means claude, exactly as it does for every real pane
+       that predates the option; a test building a codex agent names it. */
+    runner: spec.runner || '',
     title: spec.title || '',
   };
   return status.PANE_COLUMNS.map((col) => {

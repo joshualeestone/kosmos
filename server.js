@@ -1542,6 +1542,10 @@ const server = http.createServer((req, res) => {
         const result = create.createAgent({
           name: body.name, role: body.role,
           label: body.label, instructions: body.instructions, model: body.model,
+          // Which provider it runs on (#245). Absent means Anthropic, which
+          // is what every existing caller means; the engine validates and
+          // refuses anything it does not know.
+          provider: body.provider,
           // Which Claude account it runs on. Absent is the default account,
           // which is what every agent already made on this machine has.
           account: body.account,

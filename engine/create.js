@@ -459,7 +459,8 @@ function readJob(name) {
   try { text = fs.readFileSync(plistPath(name), 'utf8'); } catch { return null; }
   const block = text.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
   const args = block ? [...block[1].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((x) => unxml(x[1])) : [];
-  // 0 bash, 1 supervisor, 2 name, 3 worker dir, 4 claude, 5 tmux, 6 log, 7 model.
+  // 0 bash, 1 supervisor, 2 name, 3 worker dir, 4 runner-bin, 5 tmux,
+  // 6 log, 7 model, 8 runner (#245; absent means claude).
   if (args.length < 7 || !args[4] || !args[5]) return null;
   /* ⚠️ Matched inside EnvironmentVariables only in the sense that it is the one
      place this key is ever written; the value is read back verbatim, and an
@@ -471,6 +472,9 @@ function readJob(name) {
     tmux: args[5],
     model: args.length > 7 && args[7] ? args[7] : null,
     configDir: cfg ? unxml(cfg[1]) : null,
+    // Absent means claude, the same way it does in the supervisor: every
+    // plist written before runners existed carries no ninth argument.
+    runner: args.length > 8 && args[8] ? args[8] : 'claude',
   };
 }
 
@@ -517,9 +521,15 @@ function setAccount(name, dir) {
       because: `we could not read how ${clean} is started, so we have not changed it.`,
     };
   }
+  if (job.runner === 'codex') {
+    // Accounts here are Claude accounts (CLAUDE_CONFIG_DIR), which mean
+    // nothing to codex; writing one anyway would claim an account change
+    // that changes nothing (#245 v1).
+    return { outcome: OUTCOME.REFUSED, because: `${clean} runs on OpenAI, on this computer's OpenAI sign-in, so there is no Claude account to change` };
+  }
   try {
     fs.writeFileSync(plistPath(clean),
-      plistFor(clean, job.claude, job.tmux, job.model, acct.isDefault ? null : acct.dir), 'utf8');
+      plistFor(clean, job.claude, job.tmux, job.model, acct.isDefault ? null : acct.dir, job.runner), 'utf8');
   } catch {
     return { outcome: OUTCOME.REFUSED, because: `we could not write ${clean}'s startup file, so nothing changed.` };
   }
@@ -571,9 +581,15 @@ function setModel(name, modelKey) {
       because: `${clean} was not started by Kosmos, so we cannot change what it runs on.`,
     };
   }
+  if (job.runner === 'codex') {
+    // The catalogue this function validates against is Claude's (#245 v1);
+    // writing one of its args into a codex launch would hand codex a model
+    // name it has never heard of, at its next restart, silently.
+    return { outcome: OUTCOME.REFUSED, because: `${clean} runs on OpenAI, which picks its own model for now` };
+  }
 
   try {
-    fs.writeFileSync(plistPath(clean), plistFor(clean, job.claude, job.tmux, m.arg, job.configDir), 'utf8');
+    fs.writeFileSync(plistPath(clean), plistFor(clean, job.claude, job.tmux, m.arg, job.configDir, job.runner), 'utf8');
   } catch {
     return { outcome: OUTCOME.REFUSED, because: `we could not write ${clean}'s startup file, so nothing changed.` };
   }
@@ -735,12 +751,20 @@ function unxml(value) {
  * the notice is coming, in as many words, rather than letting somebody meet it
  * unexplained and switch their own agent off.
  */
-function plistFor(name, claudeBin, tmuxBin, modelArg, configDir) {
+function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
   const label = serviceLabel(name);
   // The optional sixth supervisor argument. Log ($5) must be present when
   // model ($6) is, and it always is below; an agent created without a model
   // choice writes the five-argument job every existing agent already runs.
-  const modelLine = modelArg ? `\n    <string>${xml(modelArg)}</string>` : '';
+  //
+  // ⚠️ The RUNNER rides as the optional SEVENTH (#245), and position is the
+  // contract: when a runner other than claude is written, the model line is
+  // written too (empty when no model was chosen) so the runner can never
+  // slide into the model's slot. A claude agent's plist is byte-for-byte
+  // what it was before runners existed.
+  const isCodex = runner === 'codex';
+  const modelLine = (modelArg || isCodex) ? `\n    <string>${xml(modelArg || '')}</string>` : '';
+  const runnerLine = isCodex ? `\n    <string>codex</string>` : '';
   /* 🔑 WHICH CLAUDE ACCOUNT THIS AGENT RUNS ON, and it is one environment
      variable because that is genuinely all it is: `CLAUDE_CONFIG_DIR` selects
      the config directory, and everything a Claude Code process knows lives in
@@ -764,7 +788,7 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir) {
     <string>${xml(workerDir(name))}</string>
     <string>${xml(claudeBin)}</string>
     <string>${xml(tmuxBin)}</string>
-    <string>${xml(logFile(name))}</string>${modelLine}
+    <string>${xml(logFile(name))}</string>${modelLine}${runnerLine}
   </array>
   <key>WorkingDirectory</key><string>${xml(workerDir(name))}</string>
   <key>EnvironmentVariables</key>
@@ -832,6 +856,11 @@ function binPaths(opts) {
     tmuxBin: (opts && opts.tmuxBin)
       || process.env.AGENT_WORKFORCE_TMUX_BIN
       || '/opt/homebrew/bin/tmux',
+    // The OpenAI runner (#245). Same resolution shape as the other two, so
+    // the first-run check and creation keep answering the same question.
+    codexBin: (opts && opts.codexBin)
+      || process.env.AGENT_WORKFORCE_CODEX_BIN
+      || '/opt/homebrew/bin/codex',
   };
 }
 
@@ -997,6 +1026,8 @@ function createAgent(opts) {
     name: String((opts && opts.name) || '').slice(0, 120),
     role: String((opts && opts.role) || '').slice(0, 120),
     model: String((opts && opts.model) || '').slice(0, 120),
+    /* #245: the provider as asked for, same posture as role and model. */
+    provider: String((opts && opts.provider) || 'anthropic').slice(0, 40),
     outcome: (out && out.outcome) || 'unknown',
     because: (out && out.because) ? String(out.because).slice(0, 300) : null,
     /* #170: the same id the profile carries, on the creation line, so "was
@@ -1035,9 +1066,40 @@ function createAgentInner(opts) {
      person can actually create by picking their own name from a list. */
   const wantReportsTo = (opts && typeof opts.reportsTo === 'string' && opts.reportsTo.trim())
     ? opts.reportsTo.trim().slice(0, 80) : null;
-  const { claudeBin, tmuxBin } = binPaths(opts);
+  const { claudeBin, tmuxBin, codexBin } = binPaths(opts);
+
+  /**
+   * Which provider this agent runs on (#245). 'anthropic' is the default
+   * and the word every existing caller means by omission; 'openai' launches
+   * the codex runner. RECORDED, never inferred: the choice lands in the
+   * plist (the runner argument), the profile, and the birth record, so no
+   * screen ever has to guess a runner from what happens to be in a pane.
+   */
+  const provider = (opts && opts.provider !== undefined && opts.provider !== null && String(opts.provider) !== '')
+    ? String(opts.provider) : 'anthropic';
+  const runner = provider === 'openai' ? 'codex' : 'claude';
+  const runnerBin = runner === 'codex' ? codexBin : claudeBin;
 
   const steps = [];
+  if (provider !== 'anthropic' && provider !== 'openai') {
+    return { outcome: OUTCOME.REFUSED, because: 'pick a provider from the list', steps };
+  }
+  if (provider === 'openai') {
+    /* v1 boundaries, refused in words rather than silently ignored: the
+       model is codex's own default (its catalogue is not ours to mirror
+       yet), and the account is this computer's OpenAI sign-in (Claude
+       account selection is CLAUDE_CONFIG_DIR, which means nothing to
+       codex). Both lift when phase 2 gives them real mechanisms. */
+    if (opts && opts.model !== undefined) {
+      return { outcome: OUTCOME.REFUSED, because: 'an OpenAI agent picks its own model for now, so leave the model unchosen', steps };
+    }
+    if (wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
+      return { outcome: OUTCOME.REFUSED, because: "an OpenAI agent runs on this computer's OpenAI sign-in for now, so leave the account unchosen", steps };
+    }
+    if (!DRY_RUN && !fs.existsSync(codexBin)) {
+      return { outcome: OUTCOME.REFUSED, because: 'we could not find the OpenAI runner on this computer, so an agent made now would never start', steps };
+    }
+  }
   const problem = nameProblem(shown);
   if (problem) return { outcome: OUTCOME.REFUSED, because: problem, steps };
 
@@ -1620,10 +1682,35 @@ function createAgentInner(opts) {
    * then permanently refused by the leftover-job branch above, so the person
    * cannot even retry from the screen.
    */
-  const wroteJob = (wroteInstructions && installedSupervisor) && step('set it up to keep running', () => {
+  /**
+   * ⚠️ AN OPENAI AGENT'S FOLDER IS TRUSTED AT CREATION, or the agent is born
+   * into a blocking dialog. MEASURED on the first live codex agent this
+   * machine ran: codex asks "Do you trust the contents of this directory?"
+   * on every launch in an untrusted folder, and
+   * --dangerously-bypass-approvals-and-sandbox does NOT skip it (probed) --
+   * only the config entry the Yes button writes does (probed too). Creating
+   * the agent IS that consent: the folder is ours, made three steps up.
+   * Append-only, once, into the same CODEX_HOME codexsession.js reads.
+   */
+  const trustedFolder = provider !== 'openai'
+    || ((wroteInstructions && installedSupervisor) && step('let the OpenAI runner work in its folder', () => {
+      if (DRY_RUN) return true;
+      const codexHome = process.env.AGENT_WORKFORCE_CODEX_HOME
+        || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.codex');
+      const cfg = path.join(codexHome, 'config.toml');
+      let text = '';
+      try { text = fs.readFileSync(cfg, 'utf8'); } catch { /* first entry ever */ }
+      const key = `[projects."${workerDir(name)}"]`;
+      if (text.includes(key)) return true;
+      fs.mkdirSync(codexHome, { recursive: true });
+      fs.appendFileSync(cfg, `${text && !text.endsWith('\n') ? '\n' : ''}${key}\ntrust_level = "trusted"\n`);
+      return true;
+    }));
+
+  const wroteJob = (wroteInstructions && installedSupervisor && trustedFolder) && step('set it up to keep running', () => {
     if (DRY_RUN) return true;
     fs.mkdirSync(AGENTS_DIR, { recursive: true });
-    fs.writeFileSync(plistPath(name), plistFor(name, claudeBin, tmuxBin, modelArg, configDir), 'utf8');
+    fs.writeFileSync(plistPath(name), plistFor(name, runnerBin, tmuxBin, modelArg, configDir, runner), 'utf8');
   });
 
   /**
@@ -1807,6 +1894,9 @@ function createAgentInner(opts) {
        diagram does not look like a guess: an unanswered reporting line stays
        empty. Kosmos asks; it does not work it out from a role name. */
     if (wantReportsTo) profile.reportsTo = wantReportsTo;
+    /* The provider, recorded at birth beside the id (#245, per the OpenAI
+       outline): never inferred from what happens to be running in a pane. */
+    profile.provider = provider;
     /* Written even when the patch is empty (#170): the write is what mints
        the agent's id, and an id at birth is the point. Before this, an
        all-defaults creation wrote no profile at all and the gate below
