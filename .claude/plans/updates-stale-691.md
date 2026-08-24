@@ -33,8 +33,10 @@ is stale, and no wording fixes not knowing.
    tools/browser-checks.sh and named in the README.
 
 ## Not in this change
-An offline machine with a stale page still gets "Could not reach the update server."
-beside "reload for 0.5.23" (the unreachable arm; same true-in-scope shape, separate
-card), and so does the board-failed arm of the press ("Could not check just now."). The card's Update arm when an offer AND a stale page coincide (the toast prefers
-stale, the card prefers the offer); the 409 arm already covers the press. The
-button stays "Check for Update"; the reload control is the toast's.
+- An offline machine with a stale page still gets "Could not reach the update server."
+  beside "reload for 0.5.23" (the unreachable arm), and the board-failed arm of the
+  press ("Could not check just now.") has the same true-in-scope shape. Separate card.
+- An offer beside a stale page: the toast prefers the stale state and offers Reload,
+  the card's offer arm wins and offers Update. Both true; the 409 arm of the press
+  already covers the page that is behind.
+- The button stays "Check for Update". The browser's own reload is the remedy.

@@ -20,18 +20,19 @@
  * (reached, readable, nothing newer) and, in the poll's /api/status, only the
  * `updateLook`/`update` fields (same answer) and `engine` (the engine-stale
  * notice, pinned off), with everything else passed through from the real
- * server. The screenshots are written into the directory you pass (argv[2]);
- * the two under docs/browser-checks/shots/ (updates-stale.png,
- * updates-current.png) are copies of one run, and a rerun does NOT touch them:
- * copy them over when they are what you want in the PR. Without the second stub the poll repaints the
- * card "Could not reach the update server" within five seconds of the press
- * and a read that lands after it looks like a regression. The press, the
- * fetch, the paint and the poll that repaints the build line are the page's
- * own. The answer shape (`running`, `reached`, `readable`) is the route's in
- * engine/update.js. `served` is read from the real /api/status first, so the
- * stub cannot invent a version; a renamed field on the server would NOT be
- * caught here (the page falls back to the polled version), only by the
- * route's own tests.
+ * server. Without the second stub the poll repaints the card "Could not reach
+ * the update server" within five seconds of the press and a read that lands
+ * after it looks like a regression. The press, the fetch, the paint and the
+ * poll that repaints the build line are the page's own. The answer shape
+ * (`running`, `reached`, `readable`) is the route's in engine/update.js.
+ * `served` is read from the real /api/status first, so the stub cannot invent
+ * a version; a renamed field on the server would NOT be caught here (the page
+ * falls back to the polled version), only by the route's own tests.
+ *
+ * The screenshots are written into the directory you pass (argv[2]). The two
+ * under docs/browser-checks/shots/ (updates-stale.png, updates-current.png)
+ * are copies of one run, and a rerun does NOT touch them: copy them over when
+ * they are what you want in the PR.
  *
  *   AGENT_WORKFORCE_DATA=/tmp/us PORT=17372 node server.js &
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" \
