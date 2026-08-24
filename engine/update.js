@@ -249,18 +249,47 @@ let installStarted = false;
    changed, and only failure needs a record. Cleared at the next press so
    an old failure can never fail a new attempt. */
 let lastAttempt = null;
+function installLog() { return installedRoot() ? path.join(installedRoot(), 'logs', 'install.log') : null; }
+/* 🛑 THE DURABLE CHANNEL. On an UPDATE the installer runs `kosmos stop`
+   before it downloads a byte, so this server is dead for every real
+   failure (a 404, a dropped download, a checksum refusal, a failed
+   swap): the in-memory exit listener below only ever sees preflight
+   refusals and spawn errors. So the spawned shell writes the installer's
+   exit code and the attempt's start stamp to logs/install.status when
+   it finishes, and whichever server answers next (the reopened old
+   board after a failure, or the new board after a success) reads it.
+   A successful install rewrites the file with code 0, which seeds
+   nothing: success is the board coming back changed. */
+function installStatusFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'install.status') : null; }
 function noteAttemptEnd(code, why) {
+  /* Node can emit exit after error for some spawn failures; the first,
+     more specific sentence wins. */
+  if (lastAttempt && lastAttempt.endedAt) return;
   lastAttempt = {
     startedAt: lastAttempt && lastAttempt.startedAt ? lastAttempt.startedAt : new Date().toISOString(),
     endedAt: new Date().toISOString(),
     code: Number.isInteger(code) ? code : null,
     because: why || null,
-    /* Where the installer wrote its diary, from the engine's own root,
-       never guessed by the page. Null on a from-source run. */
-    log: installedRoot() ? path.join(installedRoot(), 'logs', 'install.log') : null,
+    log: installLog(),
   };
 }
-function lastAttemptView() { return lastAttempt ? { ...lastAttempt } : null; }
+function seedFromStatusFile() {
+  const file = installStatusFile();
+  if (!file) return;
+  let raw = '';
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { return; }
+  const m = /^(-?\d+)\s+(\S+)/.exec(raw.trim());
+  if (!m) return;
+  const code = Number(m[1]);
+  if (code === 0) return;
+  let endedAt = null;
+  try { endedAt = fs.statSync(file).mtime.toISOString(); } catch { endedAt = new Date().toISOString(); }
+  lastAttempt = { startedAt: m[2], endedAt, code, because: 'the installer stopped before it could restart the board', log: installLog() };
+}
+function lastAttemptView() {
+  if (!lastAttempt) seedFromStatusFile();
+  return lastAttempt ? { ...lastAttempt } : null;
+}
 
 /**
  * The two things that must happen when an installer child fails, wherever the
@@ -332,7 +361,12 @@ function beginInstall(opts) {
   // rides along so the installer stages its tarballs from the SAME host the
   // script came from (the app's env override and the installer's default
   // could otherwise split-brain a staging deployment).
-  const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh', 'sh', setupUrl()], {
+  /* The exit code and the start stamp land in install.status whatever
+     happens to this server; the file is the only witness a failed update
+     leaves for the next board. Positional parameters, never interpolated
+     into the one command in this product that ends in `| sh`. */
+  const statusFile = installStatusFile() || '/dev/null';
+  const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; code=$?; printf "%s %s\n" "$code" "$3" > "$2"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt], {
     detached: true,
     stdio: 'ignore',
     env: { ...process.env, KOSMOS_RELEASE_BASE: base },
@@ -350,7 +384,7 @@ function setFetcher(f) { fetcher = f; }
 function resetCache() { cache = { at: 0, latest: null, reached: false, readable: false }; inFlight = null; installStarted = false; autoFailedAt = 0; lastAttempt = null; }
 
 module.exports = {
-  available, poke, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView,
+  available, poke, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,
   resetCache, RUNNING, TTL, lastLook, checkNow,
 };

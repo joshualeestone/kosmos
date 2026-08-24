@@ -316,9 +316,12 @@ test('the installer URL is a positional parameter, never interpolated into the s
   assert.ok(at > -1, 'the installer spawn is gone or no longer uses /bin/sh directly');
   const call = SRC.slice(at, SRC.indexOf(')', SRC.indexOf('setupUrl()', at)) + 1);
 
-  /* The safe shape, asserted positively first: the command references `$1` and
-     the URL rides as its own argv element after the `sh` argv[0] filler. */
-  assert.match(call, /'-c',\s*'curl -fsSL "\$1" \| sh',\s*'sh',\s*setupUrl\(\)/,
+  /* The safe shape, asserted positively first: the command references `$1`,
+     `$2` and `$3` only, and the URL, the status file and the stamp ride as
+     their own argv elements after the `sh` argv[0] filler (#553 added the
+     two trailing positionals so the installer's exit code and start stamp
+     land in logs/install.status whatever happens to this server). */
+  assert.match(call, /'-c',\s*'curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s\\n" "\$code" "\$3" > "\$2"',\s*'sh',\s*setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt/,
     'the installer command is no longer the reviewed shape: ' + call);
 
   /* And the unsafe shapes, by name. A template literal or a concatenation
@@ -385,4 +388,27 @@ test('#553: a failed install is RECORDED for the page, keyed to its own press, a
   update.setInstalledRoot(null); update.setAutoPref(null); update.setInstallRunner(null);
   update.resetCache();
   assert.equal(update.lastAttempt(), null, 'resetCache left an attempt behind');
+});
+
+test('#553: a failure the OLD server never lived to see is read back from logs/install.status', () => {
+  /* On an update the installer stops the board before it downloads, so
+     the exit listener is dead for every real failure; the spawned shell
+     writes the code and the start stamp to a file, and whichever server
+     answers next seeds its record from it. A code of 0 seeds nothing. */
+  const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-upd-'));
+  fs.mkdirSync(path.join(root, 'logs'), { recursive: true });
+  update.resetCache();
+  update.setInstalledRoot(() => root);
+  fs.writeFileSync(path.join(root, 'logs', 'install.status'), '0 2026-08-24T18:00:00.000Z\n');
+  assert.equal(update.lastAttempt(), null, 'a successful run seeded a failure');
+  fs.writeFileSync(path.join(root, 'logs', 'install.status'), '1 2026-08-24T18:05:00.000Z\n');
+  const got = update.lastAttempt();
+  assert.ok(got, 'the failed run left no record for the next board');
+  assert.equal(got.code, 1);
+  assert.equal(got.startedAt, '2026-08-24T18:05:00.000Z', 'the stamp did not come from the file');
+  assert.equal(got.log, path.join(root, 'logs', 'install.log'));
+  assert.ok(got.endedAt);
+  update.setInstalledRoot(null); update.resetCache();
+  fs.rmSync(root, { recursive: true, force: true });
 });

@@ -27,16 +27,16 @@ for (let k = script.indexOf('{', start); k < script.length; k += 1) {
 const updateVerdict = new Function(script.slice(start, end) + '\nreturn updateVerdict;')();
 
 const MIN = 60 * 1000;
-const base = { elapsedMs: 10 * 1000, sawDown: false, reached: true, before: '0.5.12', now: '0.5.12', attempt: null, myStart: '2026-08-24T16:00:00.000Z' };
+const base = { elapsedMs: 10 * 1000, reached: true, before: '0.5.12', now: '0.5.12', attempt: null, myStart: '2026-08-24T16:00:00.000Z', bootBefore: 'boot-A', bootNow: 'boot-A' };
 const v = (over) => updateVerdict({ ...base, ...over });
 
 test('while the board still answers the old version early on, the overlay waits', () => {
   assert.equal(v({}), 'waiting');
 });
 
-test('the board coming back on a NEW version is done, whether or not the dip was seen', () => {
+test('the board coming back on a NEW version is done, whether or not the reboot was seen', () => {
   assert.equal(v({ now: '0.5.13' }), 'done');
-  assert.equal(v({ now: '0.5.13', sawDown: true }), 'done');
+  assert.equal(v({ now: '0.5.13', bootNow: 'boot-B' }), 'done');
 });
 
 test('the installer\'s own non-zero exit on THIS press is failed, and an old failure is not', () => {
@@ -51,18 +51,22 @@ test('the installer\'s own non-zero exit on THIS press is failed, and an old fai
   assert.equal(v({ attempt: { ...failed, code: 0 } }), 'waiting');
 });
 
-test('the board went away and came back on the SAME version: did not take', () => {
-  assert.equal(v({ sawDown: true, now: '0.5.12' }), 'did-not-take');
-  /* Gone and not yet back is still waiting, not a verdict. */
-  assert.equal(v({ sawDown: true, reached: false, now: null }), 'waiting');
+test('a NEW boot identity on the SAME version is did-not-take; a fetch hiccup alone never is', () => {
+  assert.equal(v({ bootNow: 'boot-B', now: '0.5.12' }), 'did-not-take');
+  /* The page's own network trouble is not evidence about the installer:
+     an unreached tick with the boot identity unknown stays waiting. */
+  assert.equal(v({ reached: false, now: null, bootNow: null }), 'waiting');
+  /* And a reached tick from the SAME boot on the same version is just
+     the old board still up: waiting, not a verdict. */
+  assert.equal(v({ bootNow: 'boot-A', now: '0.5.12' }), 'waiting');
 });
 
-test('ninety seconds with the board never gone is slow; three minutes is the deadline, gone or not', () => {
+test('ninety seconds with the same board still answering is slow; three minutes is the deadline either way', () => {
   assert.equal(v({ elapsedMs: 91 * 1000 }), 'slow');
-  assert.equal(v({ elapsedMs: 91 * 1000, sawDown: true, reached: false, now: null }), 'waiting',
-    'a board that went away is working; slow is for one that never left');
+  assert.equal(v({ elapsedMs: 91 * 1000, reached: false, now: null, bootNow: null }), 'waiting',
+    'a board that is not answering may be mid-swap; slow is for one that never left');
   assert.equal(v({ elapsedMs: 3 * MIN + 1 }), 'deadline');
-  assert.equal(v({ elapsedMs: 3 * MIN + 1, sawDown: true, reached: false, now: null }), 'deadline');
+  assert.equal(v({ elapsedMs: 3 * MIN + 1, reached: false, now: null, bootNow: null }), 'deadline');
 });
 
 test('failed outranks everything, including a version that looks changed', () => {
