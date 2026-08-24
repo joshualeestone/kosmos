@@ -18,8 +18,10 @@
  * sets it. The update host is unreachable on a sandboxed board, so the update
  * ANSWERS are stubbed at the network edge and nowhere else: the check route's
  * (reached, readable, nothing newer) and, in the poll's /api/status, only the
- * `updateLook`/`update` fields (same answer), with everything else passed
- * through from the real server. Without the second stub the poll repaints the
+ * `updateLook`/`update` fields (same answer) and `engine` (the engine-stale
+ * notice, pinned off), with everything else passed through from the real
+ * server. The two PNGs under docs/browser-checks/shots/ (updates-stale.png,
+ * updates-current.png) are emitted by this check; a rerun overwrites them. Without the second stub the poll repaints the
  * card "Could not reach the update server" within five seconds of the press
  * and a read that lands after it looks like a regression. The press, the
  * fetch, the paint and the poll that repaints the build line are the page's
@@ -107,7 +109,10 @@ function chk(ok, label, extra) {
     /* At rest, before the press, the verdict has not been given: the line is
        quiet, in both states. */
     const before = await pg.$eval('#upd-line', (el) => el.textContent);
-    chk(before === '', state + ': at rest the verdict line is quiet', JSON.stringify(before));
+    // The button ships hidden and only a paint unhides it, so "quiet" here is
+    // a painted quiet, not a line nothing ever wrote.
+    const painted = await pg.$eval('#upd-btn', (el) => !el.hidden);
+    chk(painted && before === '', state + ': at rest the verdict line is quiet (and the card was painted)', JSON.stringify(before) + ' painted=' + painted);
     if (state === 'stale') {
       /* Cross-surface consistency, not a press effect: the toast and the card
          read the same pageIsStale, and the poll drew the stale toast when it

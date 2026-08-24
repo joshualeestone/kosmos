@@ -35,6 +35,6 @@ is stale, and no wording fixes not knowing.
 ## Not in this change
 An offline machine with a stale page still gets "Could not reach the update server."
 beside "reload for 0.5.23" (the unreachable arm; same true-in-scope shape, separate
-card). The card's Update arm when an offer AND a stale page coincide (the toast prefers
+card), and so does the board-failed arm of the press ("Could not check just now."). The card's Update arm when an offer AND a stale page coincide (the toast prefers
 stale, the card prefers the offer); the 409 arm already covers the press. The
 button stays "Check for Update"; the reload control is the toast's.
