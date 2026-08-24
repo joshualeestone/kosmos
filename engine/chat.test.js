@@ -232,6 +232,47 @@ test('a good send is two calls in order: the literal text, then Enter, both pinn
   });
 });
 
+const CODEX_IDLE = `╭────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.149.1)                     │
+│                                                │
+│ model:     gpt-5.6-sol   /model to change      │
+│ directory: /private/tmp/…/workers/pixel        │
+╰────────────────────────────────────────────────╯
+› Ask Codex to do anything
+  gpt-5.6-sol default · /private/tmp/somewhere`;
+
+test('a send to a CODEX pane waits between the text and Enter, because codex takes an immediate Enter as part of the paste (#571)', () => {
+  // A codex pane the way the supervisor records one: runner set, the
+  // process is node, and the screen is codex's own prompt (status.test.js).
+  withFleet([fleet.agent('pixel', { state: 'idle', runner: 'codex', command: 'node', screen: CODEX_IDLE })], (board) => {
+    const tmux = arm([ok(), ok()]);
+    // The pause lands in the same call log as the keystrokes, so ORDER is
+    // asserted, not just presence: text, then the wait, then Enter.
+    chat.setPauser((ms) => { tmux.calls.push(['<pause>', ms]); });
+    const verdict = chat.deliver('pixel', 'answer with: direct works', board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.PLACED);
+    const keys = tmux.calls.filter((c) => c[0] === 'send-keys' || c[0] === '<pause>');
+    assert.equal(keys.length, 3);
+    assert.deepEqual(keys[0].slice(0, 2), ['send-keys', '-t']);
+    assert.deepEqual(keys[0].slice(-1), ['answer with: direct works']);
+    assert.deepEqual(keys[1], ['<pause>', chat.CODEX_ENTER_GAP_MS]);
+    assert.deepEqual(keys[2].slice(-1), ['Enter']);
+    assert.ok(chat.CODEX_ENTER_GAP_MS >= 500, 'measured boundary on codex 0.149.1: 0.5s submits, 0 does not');
+  });
+});
+
+test('a send to a CLAUDE pane never pays the codex gap: the server is synchronous and the whole board waits with it', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const tmux = arm([ok(), ok()]);
+    let paused = 0;
+    chat.setPauser(() => { paused += 1; });
+    const verdict = chat.deliver('casey', 'have a look at the lease', board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.PLACED);
+    assert.equal(paused, 0);
+    assert.equal(tmux.sends().length, 2);
+  });
+});
+
 test('the target carries the `=` exact-match pin, which is what stops a send landing on a lookalike session', () => {
   // Measured on tmux 3.6a: with the session killed and a `kchatprobe2` still
   // alive, the pinned form answers "can't find session" instead of typing into
