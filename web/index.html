@@ -13295,7 +13295,13 @@ const SVC_DOORS = {
    svcDoorLive paints the door from the engine's state and may offer a
    control; every other door keeps the coming-soon sentence and no control,
    which web.svc-doors.test.js pins. */
-const SVC_BUILT = { 'GitHub': '/api/github' };
+const SVC_BUILT = { 'GitHub': '/api/github', 'Vercel': '/api/vercel' };
+/* The words that differ per built service (#529). GitHub's are Mona Lisa's
+   sentences as she wrote them; a new service adds a row, never a branch. */
+const SVC_TOOL = {
+  'GitHub': { cli: 'the GitHub CLI', install: 'https://cli.github.com', installText: 'cli.github.com', page: 'the GitHub page', device: 'github.com/login/device', site: 'GitHub’s own page' },
+  'Vercel': { cli: 'the Vercel CLI', install: 'https://vercel.com/docs/cli', installText: 'vercel.com/docs/cli', page: 'the Vercel page', device: 'vercel.com/oauth/device', site: 'Vercel’s own page' },
+};
 function svcDoorText(name) {
   const own = SVC_DOORS[name];
   const how = 'Coming soon. When it opens up here, you sign in on ' + name
@@ -13312,25 +13318,26 @@ function svcDoorLiveStop() { if (SVC_LIVE_TIMER) { clearInterval(SVC_LIVE_TIMER)
 function svcDoorLiveHtml(name, st) {
   const own = SVC_DOORS[name] ? '<b>' + esc(name) + '.</b> ' + esc(SVC_DOORS[name]) + ' ' : '<b>' + esc(name) + '.</b> ';
   if (!st) return own + '<span class="dhint">Checking…</span>';
+  const t = SVC_TOOL[name] || SVC_TOOL['GitHub'];
   if (st.gh === 'missing') {
-    return own + '<p class="dhint" style="margin:8px 0 0;"><b>To connect GitHub, this Mac needs the GitHub CLI, and it is not here yet.</b> '
-      + 'Install it from <a class="xlink" href="https://cli.github.com" target="_blank" rel="noopener">cli.github.com</a>, '
+    return own + '<p class="dhint" style="margin:8px 0 0;"><b>To connect ' + esc(name) + ', this Mac needs ' + esc(t.cli) + ', and it is not here yet.</b> '
+      + 'Install it from <a class="xlink" href="' + esc(t.install) + '" target="_blank" rel="noopener">' + esc(t.installText) + '</a>, '
       + 'then come back here and press Connect. A way that needs nothing installed is coming.</p>';
   }
   if (st.connected) {
     return own + '<p class="dhint" style="margin:8px 0 0;"><span class="acct-ok">Connected as ' + esc(st.login || 'you') + '.</span> '
-      + 'Your agents can use it now. The key stays with the GitHub CLI on this Mac.</p>';
+      + 'Your agents can use it now. The key stays with ' + esc(t.cli) + ' on this Mac.</p>';
   }
-  if (st.phase === 'starting') return own + '<p class="dhint" style="margin:8px 0 0;">Getting a code from GitHub…</p>';
+  if (st.phase === 'starting') return own + '<p class="dhint" style="margin:8px 0 0;">Getting a code from ' + esc(name) + '…</p>';
   if (st.phase === 'awaiting') {
-    return own + '<p class="dhint" style="margin:8px 0 0;">Type this code on the GitHub page that just opened, or at '
-      + '<a class="xlink" href="' + esc(st.url) + '" target="_blank" rel="noopener">github.com/login/device</a>:</p>'
+    return own + '<p class="dhint" style="margin:8px 0 0;">Type this code on ' + esc(t.page) + ' that just opened, or at '
+      + '<a class="xlink" href="' + esc(st.url) + '" target="_blank" rel="noopener">' + esc(t.device) + '</a>:</p>'
       + '<p class="match-code" style="margin:6px 0 0;font-size:1.5rem;letter-spacing:.12em;" aria-live="polite">' + esc(st.code) + '</p>'
       + '<p class="dhint" style="margin:8px 0 0;"><button class="linkish" type="button" data-svc-cancel="' + esc(name) + '">Stop this sign-in</button></p>';
   }
   const why = st.phase === 'failed' && st.because ? '<p class="dhint" style="margin:8px 0 0;">' + esc(st.because) + '</p>' : '';
   return own + why + '<p style="margin:8px 0 0;"><button class="btn" type="button" data-svc-connect="' + esc(name) + '">Connect</button></p>'
-    + '<p class="dhint" style="margin:6px 0 0;">You sign in on GitHub’s own page. This Mac keeps the key, and Kosmos never sees your password.</p>';
+    + '<p class="dhint" style="margin:6px 0 0;">You sign in on ' + esc(t.site) + '. This Mac keeps the key, and Kosmos never sees your password.</p>';
 }
 async function svcDoorLive(name, door) {
   const api = SVC_BUILT[name];

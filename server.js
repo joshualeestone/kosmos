@@ -106,6 +106,7 @@ const engmode = require('./engine/engmode');
 const accounts = require('./engine/accounts');
 const openaiAccounts = require('./engine/openaiaccounts');
 const github = require('./engine/github');
+const vercel = require('./engine/vercel');
 /* #553: this process's boot identity, for the update overlay to tell "the
    board went away and came back" from a client-side fetch failure. */
 const BOOTED_AT = new Date().toISOString();
@@ -2500,6 +2501,18 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/github/cancel' && req.method === 'POST') {
     github.cancel().then((st) => sendJson(res, 200, st));
+    return;
+  }
+  if (pathname === '/api/vercel' && (req.method === 'GET' || req.method === 'HEAD')) {
+    vercel.state().then((st) => sendJson(res, 200, st));
+    return;
+  }
+  if (pathname === '/api/vercel/start' && req.method === 'POST') {
+    vercel.start().then((st) => sendJson(res, st.refused ? 409 : 200, st));
+    return;
+  }
+  if (pathname === '/api/vercel/cancel' && req.method === 'POST') {
+    vercel.cancel().then((st) => sendJson(res, 200, st));
     return;
   }
   if (pathname === '/api/connect' && (req.method === 'GET' || req.method === 'HEAD')) {
