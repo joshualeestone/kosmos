@@ -6992,11 +6992,17 @@ test('the settings members wiring is real, not just extractable', () => {
   // The guard trio, pinned at source level (the say-box precedent):
   // these were fixes to fixes, the least-proven lines on the branch,
   // and the stubbed unit test cannot see any of them.
-  const handlerSrc = raw.slice(raw.indexOf("document.getElementById('pjs-members').addEventListener"));
+  /* #520 piece ten: the body moved out of the listener into dropMember(btn,
+     msg), which the settings rows AND the project page's hover minus both
+     call, so the claims below are pinned on the function and the listener is
+     pinned to call it. */
+  assert.ok(/getElementById\('pjs-members'\)\.addEventListener\('click', \(e\) => \{[\s\S]{0,200}dropMember\(btn, /.test(raw),
+    'the settings rows no longer route their click to dropMember');
+  const handlerSrc = raw.slice(raw.indexOf('async function dropMember(btn, msg) {'));
   // The terminator is the listener's own close at column 0: an inner
   // `});` (the fetch options literal) cut the first version of this
   // slice short and the pins below never saw the guard.
-  const handler = handlerSrc.slice(0, handlerSrc.indexOf('\n});') + 4);
+  const handler = handlerSrc.slice(0, handlerSrc.indexOf('\n}') + 2);
   assert.ok(handler.includes('const sentProject = PJ_CURRENT;'),
     'the in-flight cross-project guard lost its capture');
   assert.ok(handler.includes('if (PJ_CURRENT !== sentProject) return;'),
@@ -7494,8 +7500,14 @@ test('the search is wired: pack markup verbatim, instant repaint, reset on switc
 
 test("the removal announcement is her sentence, on both verdict arms", () => {
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  const handlerSrc = raw.slice(raw.indexOf("document.getElementById('pjs-members').addEventListener"));
-  const handler = handlerSrc.slice(0, handlerSrc.indexOf('\n});') + 4);
+  /* #520 piece ten: the body moved out of the listener into dropMember(btn,
+     msg), which the settings rows AND the project page's hover minus both
+     call, so the claims below are pinned on the function and the listener is
+     pinned to call it. */
+  assert.ok(/getElementById\('pjs-members'\)\.addEventListener\('click', \(e\) => \{[\s\S]{0,200}dropMember\(btn, /.test(raw),
+    'the settings rows no longer route their click to dropMember');
+  const handlerSrc = raw.slice(raw.indexOf('async function dropMember(btn, msg) {'));
+  const handler = handlerSrc.slice(0, handlerSrc.indexOf('\n}') + 2);
   /* 🔄 THE RULING CHANGED, 2026-08-22, and this assertion changed with it
      rather than being deleted. Both arms used to open with "is off this
      project and still on your computer." -- and on the COULD_NOT arm that
