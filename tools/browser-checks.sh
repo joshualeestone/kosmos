@@ -79,18 +79,25 @@ fi
 log "Playwright: $PW_NODE_PATH"
 
 # --- a sandbox per check, cleaned up on exit --------------------------------
-SANDBOXES=()
+# ⚠️ ONE RUN DIRECTORY, REMOVED WHOLE. The first version kept an array of
+# sandboxes and removed each on exit, and it never removed one: new_sandbox
+# is called as `sb="$(new_sandbox)"`, a subshell, so the append to the array
+# happened in a copy and cleanup saw an empty list. 200 leaked sandboxes,
+# 131 MB, in TMPDIR by 2026-08-24 18:20, and a "gates running" signal in
+# tools/run-tests.sh that counted them as 200 live gates (#708). Every sandbox
+# now lives under one per-run directory, and cleanup removes that directory.
+# Servers were never affected: boot_board appends to SERVER_PIDS directly.
+RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bc.XXXXXX")"
 SERVER_PIDS=()
 cleanup() {
-  local pid sb
+  local pid
   for pid in "${SERVER_PIDS[@]:-}"; do [ -n "$pid" ] && kill "$pid" 2>/dev/null; done
-  for sb in "${SANDBOXES[@]:-}"; do [ -n "$sb" ] && rm -rf "$sb"; done
+  rm -rf "$RUN_DIR"
 }
 trap cleanup EXIT
 
 new_sandbox() {
-  local sb; sb="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bc.XXXXXX")"
-  SANDBOXES+=("$sb")
+  local sb; sb="$(mktemp -d "$RUN_DIR/sb.XXXXXX")"
   printf '%s' "$sb"
 }
 
