@@ -2339,7 +2339,7 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
 .pj-msg.unsure { border-left: 2px solid var(--warn-ink); }
 .pj-msg.unsure .pj-msg-said { color: var(--label); }
 .pj-say { margin-top: var(--space-5); }
-#pj-say { flex: 1 1 auto; }
+/* #pj-say's own flex came with the bare row; .cinput carries it now (#385). */
 .pj-crumbs { font: var(--text-caption) var(--font-ui); color: var(--label-2); margin-bottom: var(--space-4); word-break: break-all; }
 .pj-browse { max-height: 260px; overflow-y: auto; border: 0.5px solid var(--separator);
   border-radius: var(--radius-control); }
@@ -5500,10 +5500,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            wrote it; the screen below is not. -->
       <div class="pj-msgs" id="pj-msgs"></div>
 
-      <div class="frow pj-say">
-        <input type="text" id="pj-say" maxlength="2000"
+      <!-- The room's box here too (#385, Josh 2026-08-22: "I don't want
+           there to be two different styles of dialog box"). The last of the
+           three composers to adopt it; ids and send logic untouched. -->
+      <div class="pj-say composerbox">
+        <input type="text" class="cinput" id="pj-say" maxlength="2000"
                placeholder="Type a message" aria-label="Type a message for this agent">
-        <button class="btn" id="pj-send" type="button">Send</button>
+        <button class="btn cpost" id="pj-send" type="button">Send</button>
       </div>
       <!-- ⚠️ NOT aria-live (round 30): the poll re-renders the verdict as
            it AGES, and a live region re-announced the whole sentence at
