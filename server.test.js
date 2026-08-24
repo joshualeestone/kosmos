@@ -9993,6 +9993,8 @@ test('skills over the wire: global lists and adds; the agent write carries the e
   assert.deepEqual(JSON.parse(r.body).skills.map((x) => x.key), ['file-an-expense']);
   // And it landed in the folder the runtime reads, nowhere else.
   assert.ok(fsx.existsSync(require('node:path').join(skillsEngine.agentDir(createEngine.workerDir('mara')), 'file-an-expense', 'SKILL.md')));
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The Plus routes (#464's engine behind the Settings tab)
 // ─────────────────────────────────────────────────────────────────────────────
