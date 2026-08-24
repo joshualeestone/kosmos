@@ -43,8 +43,10 @@ test('no pill is inert and no door holds a control for an unbuilt flow', () => {
   const built = fn.slice(fn.indexOf('const SVC_BUILT'), fn.indexOf('function svcDoorText'));
   assert.match(built, /'GitHub': '\/api\/github'/, 'GitHub is built and must be listed as such');
   assert.match(built, /'Vercel': '\/api\/vercel'/, 'Vercel is built and must be listed as such');
+  assert.match(built, /'Cloudflare': '\/api\/cloudflare'/, 'Cloudflare is built and must be listed as such');
   const list = built.slice(0, built.indexOf('};') + 2);
-  assert.ok(!/'Cloudflare'|'Gmail'/.test(list), 'a service without a flow is listed as built');
+  assert.ok(!/'Gmail'/.test(list), 'a service without a flow is listed as built');
+  assert.match(fn, /Kosmos holds this one/, 'the token door lost the sentence that says Kosmos holds the token');
   /* Mona Lisa's absent-CLI sentence is built from a per-service row now
      (#529, Vercel): the template and GitHub's row are pinned separately, so
      the sentence a person reads is still hers, for every built service. */

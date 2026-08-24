@@ -13441,7 +13441,7 @@ const SVC_DOORS = {
    svcDoorLive paints the door from the engine's state and may offer a
    control; every other door keeps the coming-soon sentence and no control,
    which web.svc-doors.test.js pins. */
-const SVC_BUILT = { 'GitHub': '/api/github', 'Vercel': '/api/vercel' };
+const SVC_BUILT = { 'GitHub': '/api/github', 'Vercel': '/api/vercel', 'Cloudflare': '/api/cloudflare' };
 /* The words that differ per built service (#529). GitHub's are Mona Lisa's
    sentences as she wrote them; a new service adds a row, never a branch. */
 const SVC_TOOL = {
@@ -13485,8 +13485,29 @@ function svcDoorLiveHtml(name, st) {
   return own + why + '<p style="margin:8px 0 0;"><button class="btn" type="button" data-svc-connect="' + esc(name) + '">Connect</button></p>'
     + '<p class="dhint" style="margin:6px 0 0;">You sign in on ' + esc(t.site) + '. This Mac keeps the key, and Kosmos never sees your password.</p>';
 }
+/* A token door (#529, Cloudflare): the service issues a scoped token from its
+   own dashboard, the person pastes it, Kosmos checks it with the service
+   before keeping it, and keeps it in one file on this Mac that agents are
+   handed at launch. Different promise from the CLI doors, said as such:
+   Kosmos holds this one. ⚠️ Placeholder copy until Mona Lisa says it. */
+function svcDoorTokenHtml(name, st) {
+  const own = SVC_DOORS[name] ? '<b>' + esc(name) + '.</b> ' + esc(SVC_DOORS[name]) + ' ' : '<b>' + esc(name) + '.</b> ';
+  if (!st) return own + '<span class="dhint">Checking…</span>';
+  if (st.connected) {
+    return own + '<p class="dhint" style="margin:8px 0 0;"><span class="acct-ok">Connected.</span> Cloudflare says the token is active. '
+      + 'It stays in one file on this Mac that your agents are handed when they start; Kosmos never shows it again.</p>'
+      + '<p class="dhint" style="margin:6px 0 0;"><button class="linkish" type="button" data-svc-forget="' + esc(name) + '">Forget this token</button></p>';
+  }
+  const why = st.because ? '<p class="dhint" style="margin:8px 0 0;">' + esc(st.because) + (st.held ? ' Paste a new one to replace it.' : '') + '</p>' : '';
+  return own + why + '<p class="dhint" style="margin:8px 0 0;">Make a token on <a class="xlink" href="' + esc(st.where) + '" target="_blank" rel="noopener">Cloudflare’s API Tokens page</a> '
+    + '(choose the zones your agents may touch), then paste it here.</p>'
+    + '<div class="frow" style="margin:6px 0 0;"><input type="password" autocomplete="off" spellcheck="false" aria-label="Cloudflare API token" placeholder="Paste the token" data-svc-token-field="' + esc(name) + '">'
+    + '<button class="btn" type="button" data-svc-token-go="' + esc(name) + '">Connect</button></div>'
+    + '<p class="dhint" style="margin:6px 0 0;">Kosmos checks it with Cloudflare first and keeps only a token Cloudflare accepts, in one file on this Mac.</p>';
+}
 async function svcDoorLive(name, door) {
   const api = SVC_BUILT[name];
+  if (name === 'Cloudflare') { return svcDoorToken(name, door, api); }
   door.innerHTML = svcDoorLiveHtml(name, null);
   const paint = async () => {
     let st = null;
@@ -13505,6 +13526,39 @@ async function svcDoorLive(name, door) {
     await paint();
     svcDoorLiveStop();
     SVC_LIVE_TIMER = setInterval(paint, 1500);
+  };
+}
+async function svcDoorToken(name, door, api) {
+  door.innerHTML = svcDoorTokenHtml(name, null);
+  const paint = async () => {
+    let st = null;
+    try { const r = await fetch(api, { cache: 'no-store' }); if (r.ok) st = await r.json(); } catch { st = null; }
+    if (door.hidden) return;
+    const field = door.querySelector('[data-svc-token-field]');
+    const typed = field ? field.value : '';
+    const html = svcDoorTokenHtml(name, st);
+    if (door.innerHTML !== html) { door.innerHTML = html; const f2 = door.querySelector('[data-svc-token-field]'); if (f2 && typed) f2.value = typed; }
+  };
+  await paint();
+  door.onclick = async (e) => {
+    const go = e.target.closest('[data-svc-token-go]'); const forget = e.target.closest('[data-svc-forget]');
+    if (!go && !forget) return;
+    e.preventDefault();
+    if (go) {
+      const field = door.querySelector('[data-svc-token-field]');
+      const token = field ? field.value : '';
+      go.disabled = true;
+      try {
+        const r = await fetch(api + '/token', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token }) });
+        const st = await r.json().catch(() => null);
+        if (field) field.value = '';   // the token leaves the field the moment it is sent, accepted or not
+        if (st && st.refused) { door.innerHTML = svcDoorTokenHtml(name, { ...st, because: st.refused }); return; }
+        if (st) door.innerHTML = svcDoorTokenHtml(name, st);
+      } catch { await paint(); }
+      return;
+    }
+    try { await fetch(api + '/forget', { method: 'POST' }); } catch { /* the paint says */ }
+    await paint();
   };
 }
 document.querySelectorAll('#s-sec-connect .boardrow').forEach((row) => {
