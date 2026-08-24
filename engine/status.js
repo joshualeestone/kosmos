@@ -19,6 +19,9 @@ const os = require('node:os');
 const path = require('node:path');
 const store = require('./store');
 const selfreport = require('./selfreport');
+/* For SESSION only: the sign-in flow's own tmux session name, defined once
+   where the session is created. No cycle: connect never requires status. */
+const connect = require('./connect');
 const { readWorkerFile } = require('./workerfile');
 
 const HOME = os.homedir();
@@ -434,6 +437,20 @@ function isUnambiguousClaude(command) {
 function isFleetSession(pane) {
   if (!pane) return false;
 
+  /* ⚠️ THE SIGN-IN SESSION IS NOT AN AGENT (#603, Josh met the card live:
+     "This weird Kosmos Connect thing popped up in my agents"). It is the
+     connect flow's own disposable tmux session, and it RUNS claude, so the
+     process arm below claims it for the fleet whatever it is called -- the
+     name refusal in create.js never touched this path. Refused here at the
+     TOP, before either arm, on the constant exported where the session is
+     created: anywhere later and the pane is already restartable and
+     typeable as an agent. EXACT match, so an agent someone really names
+     kosmos-connect2 keeps both arms. A LEFTOVER session (a mid-sign-in
+     server death, connect.js's own documented case) is exactly when a
+     person meets this, so the guard must not depend on the session being
+     short-lived. */
+  if (pane.session === connect.SESSION) return false;
+
   // ⚠️ EITHER a session we recognise by name, OR a pane visibly running Claude.
   //
   // This used to require `/-discord$/` and nothing else, which meant an agent
@@ -701,7 +718,17 @@ function parsePanes(out) {
       runner: raw.runner === 'codex' ? 'codex' : '',
       title: raw.title || '',
     };
-  });
+  /* ⚠️ AND THE ROW ITSELF (#603's other half, MEASURED before believed):
+     the isFleetSession guard above was applied alone first, and the board
+     still drew the card -- snapshot() maps every pane and consults fleet
+     membership for ACTIONS, not for row existence. So the sign-in session
+     is dropped here too, at the one parse both roster readers share, on
+     the same exported constant. Two questions, one constant: may this
+     pane act as fleet (the guard), and does it get a row at all (this).
+     The guard stays even though parse-fed flows can no longer reach it:
+     it is the defence for any caller handing a pane-shaped object that
+     did not come through this parse. */
+  }).filter((p) => p.session !== connect.SESSION);
 }
 
 /**

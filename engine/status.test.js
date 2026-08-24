@@ -2725,3 +2725,56 @@ test('reconcile: started with nothing after it renders idle -- alive and at rest
   assert.equal(got.state, STATE.IDLE);
   assert.equal(got.reported, true);
 });
+
+/* ------------------------------------------------------------------------- *
+ * #603: the sign-in flow's own session is not an agent. Josh met the card
+ * live ("This weird Kosmos Connect thing popped up in my agents"): the
+ * connect flow's disposable tmux session, drawn with avatar K, Unknown
+ * Model, Can't tell. Creation has refused the name since the flow shipped;
+ * these pin the roster's half of the pair, on the same exported constant,
+ * exact match -- so a leftover session from a mid-sign-in death never
+ * renders as a mystery agent, and an agent really named kosmos-connect2
+ * stays on the board.
+ * ------------------------------------------------------------------------- */
+
+test('#603: the sign-in session never reaches the roster, and its near-namesake still does', () => {
+  const connectSession = require('./connect').SESSION;
+  try {
+    setPaneSource(() => [
+      `${connectSession}\t0.0\t2.1.212\t0\t\t\t`,
+      'kosmos-connect2-discord\t0.0\t2.1.212\t0\t\t\t',
+      'leo-discord\t0.0\t2.1.212\t0\t\t\t',
+    ].join('\n'));
+    setPaneCapture(() => '> \n');
+    /* Both halves pinned separately, because the first was measured
+       necessary-but-not-sufficient: the fleet guard kills the ACTION gates
+       (restart, typing) even for a pane-shaped object that skipped the
+       parse, and the parse filter is what keeps the ROW off the board. */
+    assert.equal(isFleetSession({ session: connectSession, command: '2.1.212' }), false,
+      'a live sign-in session RUNNING claude still classifies as fleet: the process arm won');
+    assert.equal(isFleetSession({ session: 'kosmos-connect2-discord', command: '2.1.212' }), true,
+      'the guard is not exact: the near-namesake lost its fleet membership');
+    const board = snapshot();
+    assert.equal(board.agents.some((a) => a.session === connectSession), false,
+      'the board drew a card for the sign-in window');
+    assert.equal(board.agents.some((a) => a.sessionName === 'kosmos-connect2'), true,
+      'the near-namesake agent lost its card to the exclusion');
+    assert.equal(board.agents.some((a) => a.sessionName === 'leo'), true, 'control: an ordinary agent is on the board');
+  } finally {
+    setPaneSource(null);
+    setPaneCapture(null);
+  }
+});
+
+test('#603: creation and the roster refuse the SAME name, from the one exported constant', () => {
+  /* The pair drifted once: create.js refused the literal while the roster
+     enumerated the session, and the fifth half-pair of 2026-08-24 was born.
+     Pinning both ends to connect.SESSION makes the next drift a red test
+     rather than a mystery card. */
+  const src = require('node:fs').readFileSync(require.resolve('./create'), 'utf8');
+  assert.ok(src.includes("require('./connect').SESSION"),
+    'create.js stopped reading the constant and will drift from the roster again');
+  const statusSrc = require('node:fs').readFileSync(require.resolve('./status'), 'utf8');
+  assert.ok(statusSrc.includes('connect.SESSION'),
+    'status.js stopped reading the constant and will drift from creation again');
+});

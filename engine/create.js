@@ -249,7 +249,7 @@ function nameProblem(raw) {
    * would share one session name and the driver's send-keys, capture and
    * kill would all be aimed at a real agent's pane. Prefix-named agents
    * (kosmos-connect2) stay allowed; exactness is what matters. */
-  if (name === 'kosmos-connect') {
+  if (name === require('./connect').SESSION) {
     return 'that name is reserved: it is the window Kosmos signs Claude in through';
   }
   return null;
