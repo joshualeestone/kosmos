@@ -105,6 +105,7 @@ const limits = require('./engine/limits');
 const engmode = require('./engine/engmode');
 const accounts = require('./engine/accounts');
 const openaiAccounts = require('./engine/openaiaccounts');
+const github = require('./engine/github');
 /* #553: this process's boot identity, for the update overlay to tell "the
    board went away and came back" from a client-side fetch failure. */
 const BOOTED_AT = new Date().toISOString();
@@ -2486,6 +2487,21 @@ const server = http.createServer((req, res) => {
    * phase, including stuck, is an ANSWER. An error here would blank the one
    * screen whose job is telling somebody what is happening.
    */
+  /* GitHub, connected (#529): the state is read from gh every time; start
+     runs GitHub's own device flow; cancel kills it. The one-time code and
+     URL ride the state so the door can show them. Nothing here holds a key. */
+  if (pathname === '/api/github' && (req.method === 'GET' || req.method === 'HEAD')) {
+    github.state().then((st) => sendJson(res, 200, st));
+    return;
+  }
+  if (pathname === '/api/github/start' && req.method === 'POST') {
+    github.start().then((st) => sendJson(res, st.refused ? 409 : 200, st));
+    return;
+  }
+  if (pathname === '/api/github/cancel' && req.method === 'POST') {
+    github.cancel().then((st) => sendJson(res, 200, st));
+    return;
+  }
   if (pathname === '/api/connect' && (req.method === 'GET' || req.method === 'HEAD')) {
     let st;
     try { st = connect.state(); }

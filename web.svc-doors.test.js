@@ -34,6 +34,14 @@ test('no pill is inert and no door holds a control for an unbuilt flow', () => {
   assert.match(fn, /never sees a password/, 'the generic door lost the key promise');
   // No fake Connect: the door writer emits text only. If a Connect control
   // is ever added, it must be gated on a built flow, and this pin restated.
-  assert.ok(!/svcDoorText[\s\S]{0,800}<button/.test(fn),
-    'the door writer emits a control; nothing here is connectable yet');
+  /* #529: GitHub is the first built flow. The coming-soon writer
+     (svcDoorText) still emits no control; only svcDoorLiveHtml may, and only
+     for names in SVC_BUILT, whose list is the honest inventory of what
+     connects today. */
+  const plain = fn.slice(fn.indexOf('function svcDoorText'), fn.indexOf('function svcDoorLiveHtml'));
+  assert.ok(!/<button/.test(plain), 'the coming-soon door writer emits a control; an unbuilt service must not offer one');
+  const built = fn.slice(fn.indexOf('const SVC_BUILT'), fn.indexOf('function svcDoorText'));
+  assert.match(built, /'GitHub': '\/api\/github'/, 'GitHub is built and must be listed as such');
+  assert.ok(!/'Vercel'|'Cloudflare'|'Gmail'/.test(built), 'a service without a flow is listed as built');
+  assert.match(fn, /GitHub needs the GitHub CLI on this Mac today/, 'the absent-gh branch lost its plain sentence');
 });
