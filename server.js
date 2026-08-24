@@ -4316,8 +4316,32 @@ const server = http.createServer((req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}'); }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const roster = safeRoster();
+        /* Who is asking (#485, extending #327's shape verbatim): the header
+           is the browser's, not the body's, so the screen/process split
+           cannot be minted by a process lying in JSON; a process that
+           offered its pane gets named through the same roster the write
+           already trusts. */
+        const viaScreen = typeof req.headers['sec-fetch-site'] === 'string'
+          || (() => { try { const h = new URL(String(req.headers.origin || '')).hostname.replace(/\.$/, '').toLowerCase(); return LOOPBACK_HOSTS.has(h) || ALLOWED_HOSTS.has(h); } catch { return false; } })();
+        const paneCard = !viaScreen && typeof body.from_pane === 'string'
+          ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
+          : null;
+        /* The runaway bound, #327's twelve-an-hour extended here: a task
+           carries an assignee, so a looping process would not just litter,
+           it would command. Counted across ALL projects, and the SCREEN is
+           never valved -- the person is who this protects. */
+        if (!viaScreen) {
+          const hourAgo = Date.now() - 3600000;
+          const recent = projects.readAll().reduce((n, p) => n + ((p && p.tasks) || []).filter((t) => t && t.addedVia === 'process'
+            && Number.isFinite(Date.parse(t.createdAt)) && Date.parse(t.createdAt) >= hourAgo).length, 0);
+          if (recent >= 12) {
+            sendJson(res, 429, { error: 'agents have made ' + recent + ' tasks in the last hour, so Kosmos is pausing agent-made tasks; the person can still make them from the screen' });
+            return;
+          }
+        }
         try {
-          const made = tasks.create(id, { sentence: body.sentence, detail: body.detail, who: body.who }, roster);
+          const made = tasks.create(id, { sentence: body.sentence, detail: body.detail, who: body.who,
+            made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } }, roster);
           // The assignee's managed block now lists this task in the exact
           // spelling the join matches on, so the agent is TOLD, not merely
           // recorded. Non-gating, same as every tell: a task that could not

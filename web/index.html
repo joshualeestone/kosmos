@@ -17863,7 +17863,11 @@ function tkStateWord(t) {
  * task now (engine/tasks.js) precisely so this line does not have to assume.
  */
 function tkAdded(t) {
-  const who = t.addedBy === 'operator' ? 'You' : (t.addedBy || 'Somebody');
+  /* #485: a process task with no vouched pane is known to be agent-made,
+     so it says "An agent", never "Somebody" (that word is for records from
+     before the field existed). */
+  const who = t.addedBy === 'operator' ? 'You'
+    : (t.addedBy || (t.addedVia === 'process' ? 'An agent' : 'Somebody'));
   const at = t.createdAt ? new Date(t.createdAt) : null;
   if (!at || isNaN(at.getTime())) return who;
   const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();

@@ -10327,3 +10327,76 @@ test('the policy over the wire: absent, pasted and distributed, then removed', a
   assert.ok(!after.includes(policyEngine.START), 'removal left the block behind');
   assert.ok(after.includes('Do the work well'), 'removal ate the agent\'s own words');
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Agent-made tasks (#485: #327's recorded-and-valved shape, extended)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('a task records who added it and how, and agent-made tasks hit the twelve-an-hour valve', async () => {
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  const maraPane = (board.agents.find((a) => a.sessionName === 'mara') || {}).target;
+  assert.ok(maraPane, 'the fixture no longer exposes a pane target; restate this setup');
+
+  // A project with mara on it, made from the screen.
+  let r = await req('/api/projects', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+    body: JSON.stringify({ name: 'Valve Room', agents: ['mara'] }),
+  });
+  assert.equal(r.status, 200, r.body);
+  const pjId = JSON.parse(r.body).id;
+
+  // Screen-made: addedBy is the person, via screen.
+  r = await req('/api/project/' + pjId + '/tasks', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+    body: JSON.stringify({ sentence: 'From the screen' }),
+  });
+  assert.equal(r.status, 200, r.body);
+  let t = JSON.parse(r.body).task;
+  assert.equal(t.addedBy, 'operator');
+  assert.equal(t.addedVia, 'screen');
+
+  // Process-made with a vouched pane: named; without one: null, still process.
+  r = await req('/api/project/' + pjId + '/tasks', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sentence: 'From a pane', from_pane: maraPane }),
+  });
+  assert.equal(r.status, 200, r.body);
+  t = JSON.parse(r.body).task;
+  assert.equal(t.addedBy, 'mara', 'a vouched pane did not name its agent');
+  assert.equal(t.addedVia, 'process');
+
+  r = await req('/api/project/' + pjId + '/tasks', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sentence: 'From nowhere' }),
+  });
+  t = JSON.parse(r.body).task;
+  assert.equal(t.addedBy, null, 'an unvouched process was given a name');
+  assert.equal(t.addedVia, 'process');
+
+  // The valve: by the thirteenth process-made task in the hour, 429 with a
+  // sentence; the count spans projects, and two are already on the books.
+  let refused = null;
+  for (let i = 0; i < 14 && !refused; i += 1) {
+    const rr = await req('/api/project/' + pjId + '/tasks', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sentence: 'Loop ' + i }),
+    });
+    if (rr.status === 429) refused = rr;
+  }
+  assert.ok(refused, 'fourteen process-made tasks never hit the valve');
+  assert.match(JSON.parse(refused.body).error, /pausing agent-made tasks/);
+  assert.match(JSON.parse(refused.body).error, /from the screen/, 'the refusal does not tell the person their own path is open');
+
+  // The screen is never valved: the person can still add one right now.
+  r = await req('/api/project/' + pjId + '/tasks', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+    body: JSON.stringify({ sentence: 'Person, after the valve' }),
+  });
+  assert.equal(r.status, 200, 'the valve caught the person, which is the one participant it must never touch');
+});
