@@ -1760,7 +1760,23 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
     column-gap: 18px; align-content: start; }
   html[data-layout="consolidated"] body.consolidated > * { grid-column: 1 / -1; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 39; }
-  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 40; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 40; margin: 0; display: flex; flex-direction: column; gap: 6px;
+    max-height: calc(100vh - 230px); overflow-y: auto; }
+  /* The person, pinned under the list on a deeper ground so the row is not
+     lost among the faces (Josh, 14:14). Folded, the picture alone. */
+  html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 41; display: flex; align-items: center; gap: 6px;
+    margin: 8px 0 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-sunk, rgba(20,22,26,.05)); }
+  html[data-layout="consolidated"] body.consolidated .railme-go { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+  html[data-layout="consolidated"] body.consolidated .railme-face { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; overflow: hidden;
+    background: var(--k-surface); border: 1px solid var(--k-rule); font: 700 10px/1 var(--font-ui); color: var(--k-ink-2); }
+  html[data-layout="consolidated"] body.consolidated .railme-face img { width: 100%; height: 100%; object-fit: cover; }
+  html[data-layout="consolidated"] body.consolidated .railme-b { min-width: 0; }
+  html[data-layout="consolidated"] body.consolidated .railme-n { display: block; font-size: .8125rem; font-weight: 600; color: var(--k-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  html[data-layout="consolidated"] body.consolidated .railme-s { display: block; font-size: .6875rem; color: var(--k-ink-2); }
+  html[data-layout="consolidated"] body.consolidated .railme-theme { flex: none; }
+  html[data-layout="consolidated"] body.consolidated.fold-a > #rail-me { justify-content: center; padding-left: 0; padding-right: 0; }
+  html[data-layout="consolidated"] body.consolidated.fold-a .railme-b, html[data-layout="consolidated"] body.consolidated.fold-a .railme-theme { display: none; }
+  html[data-layout="consolidated"] body.consolidated.fold-a .railme-go { flex: none; }
   /* The rail heads: a name, a +, and the fold arrow. Folded, the arrow (and
      the +) stack and the name goes. */
   html[data-layout="consolidated"] body.consolidated .railhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 0 2px 8px 6px; min-height: 22px; }
@@ -7002,6 +7018,27 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   </span>
 </div>
 <div class="alist" id="alist" hidden></div>
+<!-- #520, piece three: the person, bottom left of the agents rail, in the
+     consolidated view only. Their picture and name (the same You record
+     the header and Settings paint), "Settings" as the way in, and the
+     light/dark pill: the header's own two buttons, verbatim, so the one
+     document-level handler and paintThemePicker serve both places. -->
+<div class="railme" id="rail-me" hidden>
+  <button class="railme-go" type="button" id="rail-me-go" aria-label="Open Settings">
+    <span class="railme-face" id="rail-me-face">You</span>
+    <span class="railme-b"><span class="railme-n" id="rail-me-name">You</span><span class="railme-s">Settings</span></span>
+  </button>
+  <span class="themepick railme-theme" role="radiogroup" aria-label="Appearance">
+      <button type="button" class="themeopt" data-theme-set="light" role="radio" aria-checked="false" title="Light">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.4 5.4l1.6 1.6M17 17l1.6 1.6M18.6 5.4L17 7M7 17l-1.6 1.6"/></svg>
+        <span class="vh">Light</span>
+      </button>
+      <button type="button" class="themeopt" data-theme-set="dark" role="radio" aria-checked="false" title="Dark">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.2 8.2 0 1 0 10.2 10.2z"/></svg>
+        <span class="vh">Dark</span>
+      </button>
+    </span>
+</div>
 <!-- ⚠️ THE ORG VIEW (#137), built from kosmos-org-view-2026-08-19.html. That
      file is a FORK of the 08-19 pack, so the DIAGRAM in it is live and the
      three `.acard` elements in it are two days stale (Mona Lisa measured the
@@ -9622,6 +9659,8 @@ function showTab(tab) {
   document.body.classList.toggle('consolidated', cons);
   document.getElementById('rail-agents').hidden = !cons;
   document.getElementById('rail-projects').hidden = !cons;
+  document.getElementById('rail-me').hidden = !cons;
+  if (cons) paintRailMe();
   railFoldsApply();
   if (cons) {
     document.getElementById('panel-projects').hidden = false;
@@ -14514,6 +14553,7 @@ async function refreshYouName() {
     const r = await fetch('/api/you', { cache: 'no-store' });
     const j = r.ok ? await r.json().catch(() => null) : null;
     YOU_NAME = (j && j.you && typeof j.you.name === 'string') ? j.you.name.trim() : '';
+    paintRailMe();
   } catch {
     /* Left as it was. A network failure here costs the menu your name and
        nothing else, and "You" is a true answer rather than a placeholder. */
@@ -14522,9 +14562,25 @@ async function refreshYouName() {
 let YOU_PIC = false;
 let YOU_PIC_V = 0;      // busted on save, so the browser cannot serve the old one
 function youPicUrl() { return '/api/you/avatar?v=' + YOU_PIC_V; }
+/* #520, piece three: the person's row in the agents rail reads the same
+   two facts as the header and Settings (YOU_NAME, YOU_PIC) and is painted
+   whenever either is. */
+function paintRailMe() {
+  const face = document.getElementById('rail-me-face');
+  const name = document.getElementById('rail-me-name');
+  if (!face || !name) return;
+  const who = YOU_NAME || 'You';
+  name.textContent = who;
+  face.innerHTML = YOU_PIC ? '<img src="' + youPicUrl() + '" alt="">' : esc(who.trim().charAt(0).toUpperCase() || 'Y');
+}
+document.getElementById('rail-me-go').addEventListener('click', () => {
+  const tab = document.querySelector('.tab[data-tab="settings"]');
+  if (tab) tab.click();
+});
 function paintYou() {
   const face = document.getElementById('you-face');
   const rm = document.getElementById('you-remove');
+  paintRailMe();
   if (!face) return;
   face.innerHTML = YOU_PIC ? '<img src="' + youPicUrl() + '" alt="">' : 'You';
   if (rm) rm.hidden = !YOU_PIC;
