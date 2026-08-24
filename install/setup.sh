@@ -1248,11 +1248,21 @@ check_claude_code() {
   # test convenience: an operator mirroring Anthropic's installer points
   # this at their mirror.
   _claude_install_url="${AGENT_WORKFORCE_CLAUDE_INSTALL_URL:-https://claude.ai/install.sh}"
-  info "Kosmos runs agents on Claude Code, and this Mac does not have it."
+  # ⚠️ THE SAME FACT IN THE SAME WORDS as the #133 refusal a person may
+  # have met yesterday (Mona Lisa's copy ruling): only what FOLLOWS it
+  # changed, from install-it-first to installing-it-now.
+  info "Kosmos needs Claude Code and this Mac does not have it."
   info "Installing it now with Anthropic's own installer ($_claude_install_url), into $_claude_bin."
+  # ⚠️ The landed binary is PROBED, not trusted: a truncated download
+  # passes -f and -x (measured under #133, Angel), so the carry succeeds
+  # only when the binary ANSWERS. Its version goes into the log in the
+  # same breath (Mona Lisa's breadcrumb: today's incident hinged on a log
+  # that could not say what a run actually installed).
   if curl -fsSL "$_claude_install_url" | sh >/tmp/kosmos-claude-install.$$.log 2>&1 \
-     && [ -f "$_claude_bin" ] && [ -x "$_claude_bin" ]; then
-    info "Claude Code installed at $_claude_bin"
+     && [ -f "$_claude_bin" ] && [ -x "$_claude_bin" ] \
+     && _claude_version="$("$_claude_bin" --version 2>/dev/null | head -1)" \
+     && [ -n "$_claude_version" ]; then
+    info "Claude Code installed at $_claude_bin ($_claude_version)"
     rm -f "/tmp/kosmos-claude-install.$$.log"
     return 0
   fi

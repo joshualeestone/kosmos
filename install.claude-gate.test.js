@@ -61,9 +61,12 @@ function run({ homeHasClaude, pathClaude, installer }) {
    */
   let installUrl = `file://${sb}/no-such-installer.sh`;
   if (installer === 'lands') {
+    // The stub claude ANSWERS --version, because the gate probes rather
+    // than trusts (a truncated binary passes -f/-x); a stub that only
+    // exits would fail the carry the way a truncated real one should.
     const inst = nodePath.join(sb, 'installer.sh');
     fs.writeFileSync(inst,
-      '#!/bin/sh\nmkdir -p "$HOME/.local/bin"\nprintf \'#!/bin/sh\\nexit 0\\n\' > "$HOME/.local/bin/claude"\nchmod 755 "$HOME/.local/bin/claude"\n');
+      '#!/bin/sh\nmkdir -p "$HOME/.local/bin"\nprintf \'#!/bin/sh\\necho 9.9.9-stub\\n\' > "$HOME/.local/bin/claude"\nchmod 755 "$HOME/.local/bin/claude"\n');
     installUrl = `file://${inst}`;
   } else if (installer === 'fails') {
     const inst = nodePath.join(sb, 'installer.sh');
