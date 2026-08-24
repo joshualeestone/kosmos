@@ -159,7 +159,28 @@ run_one() {
 }
 
 # free-ish ports, distinct per check
-P1=17341; P2=17342; P3=17343; P4=17344; P5=17345; P6=17346; P7=17347
+# Ports come from the OS, one per boot, chosen at the moment this run starts
+# (#633). They used to be fixed (17341 to 17347), and two runs of this script
+# on one Mac, the release gate and a person's own check, talked to each
+# other's boards and then lost them when the other run ended: a red that read
+# as a flaky check and was a collision. A port the kernel just handed out is
+# free for this run alone; the window between picking and binding is a few
+# milliseconds and two runs started seconds apart never share one. The
+# chosen ports are printed so a log can be read back against a boot.
+free_port() {
+  node -e 'const s=require("node:net").createServer();s.listen(0,"127.0.0.1",()=>{process.stdout.write(String(s.address().port));s.close()})'
+}
+pick_ports() {
+  local picked=() p n
+  while [ "${#picked[@]}" -lt 7 ]; do
+    p="$(free_port)"
+    for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
+    [ -n "$p" ] && picked+=("$p")
+  done
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"
+}
+pick_ports
+log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 (chosen by the OS, #633)"
 
 # --- 1. regress-a-night: a night's releases still COMPOSE --------------------
 # The one check that asserts the whole board still hangs together (three
