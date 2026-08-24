@@ -9960,3 +9960,57 @@ test('putting a running agent on a project types one line into its pane, once, a
     chatEngine.setRunner(null);
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The Plus routes (#464's engine behind the Settings tab)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('the Plus state route is honest unconfigured, and the flow gates travel with it', async () => {
+  /* No relay configured in the sandbox: the page's whole holding-place
+     gate is this field, so it must be false here and flip on the env
+     seam, never on wishful defaults. */
+  const bare = JSON.parse((await req('/api/remote')).body);
+  assert.equal(bare.configured, false, 'an unconfigured machine claims a relay');
+  assert.equal(bare.status.state, 'off');
+  assert.match(bare.status.because, /\w/, 'the off state carries no sentence');
+
+  const prev = process.env.AGENT_WORKFORCE_TUNNEL_RELAY;
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = 'relay.test:443';
+  try {
+    const conf = JSON.parse((await req('/api/remote')).body);
+    assert.equal(conf.configured, true, 'the env seam does not configure');
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_RELAY;
+    else process.env.AGENT_WORKFORCE_TUNNEL_RELAY = prev;
+  }
+});
+
+test('the Plus switch round-trips and the off state comes back honest', async () => {
+  const on = await req('/api/remote', {
+    method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ on: true }),
+  });
+  assert.equal(on.status, 200, on.body);
+  assert.equal(JSON.parse(on.body).on, true);
+  const off = await req('/api/remote', {
+    method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ on: false }),
+  });
+  assert.equal(JSON.parse(off.body).on, false);
+  assert.equal(JSON.parse(off.body).status.state, 'off');
+});
+
+test('the sign-up start refuses a non-email before anything spawns', async () => {
+  const r = await req('/api/remote/setup-start', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'not-an-email' }),
+  });
+  assert.equal(r.status, 400);
+  assert.match(JSON.parse(r.body).error, /does not look like an email/);
+  const empty = await req('/api/remote/setup-complete', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'a@b.co', code: '' }),
+  });
+  assert.equal(empty.status, 400);
+  assert.match(JSON.parse(empty.body).error, /code from the text/);
+});
