@@ -8797,13 +8797,17 @@ test('a body with no fence is exactly what it was before pjBody existed', () => 
   }
 });
 
-test('no figcaption is emitted, because nothing can name a source yet', () => {
+test('no figcaption is emitted, in any tier, by ruling (#121)', () => {
+  /* RESTATED 2026-08-23: the old reason was "nothing can name a source yet";
+     the mechanism exists now (the infostring). The assertion survives with
+     the RULED reason: a caption bar is Kosmos speaking, the source line is
+     the agent speaking in body text, and line numbers never render. */
   const body = bodyFn();
-  const out = body('```\nx\n```', new Set());
-  assert.ok(out.includes('<figure class="codeb">'), 'CONTROL: the block did not render at all');
-  assert.ok(!out.includes('figcaption'),
-    'a caption was invented; the pack draws one naming file and line, and nothing in this '
-    + 'product can produce that, so shipping it would assert what nobody computed');
+  for (const t of ['```\nx\n```', '```brief.md\nx\n```']) {
+    const out = body(t, new Set(['brief.md']));
+    assert.ok(out.includes('<figure class="codeb">'), 'CONTROL: the block did not render at all');
+    assert.ok(!out.includes('figcaption'), 'a caption bar was emitted; the label is body text, not chrome');
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -10399,4 +10403,31 @@ test('a task records who added it and how, and agent-made tasks hit the twelve-a
     body: JSON.stringify({ sentence: 'Person, after the valve' }),
   });
   assert.equal(r.status, 200, 'the valve caught the person, which is the one participant it must never touch');
+});
+
+test('the fence infostring becomes a source line when it is path-shaped (#121)', () => {
+  const body = bodyFn();
+  const names = new Set(['brief.md']);
+  // Path-shaped and known: a body-text line above the block, openable through
+  // the SAME machinery every citation uses. No figcaption, no line numbers.
+  let out = body('```brief.md\nquoted\n```', names);
+  const src = out.indexOf('class="codesrc"');
+  assert.ok(src > -1, 'a path-shaped infostring rendered no source line');
+  assert.ok(src < out.indexOf('codeb'), 'the source line is not above the block');
+  assert.match(out.slice(src, out.indexOf('codeb')), /refgo/, 'a known file is not openable from its source line');
+  // Path-shaped, unknown: plain text; we cannot even say the file exists.
+  out = body('```notes/other.md\nquoted\n```', names);
+  assert.ok(out.includes('codesrc') && out.includes('notes/other.md'), 'an unknown path lost its label');
+  assert.ok(!out.slice(0, out.indexOf('codeb')).includes('refgo'), 'an unknown path was offered as openable');
+  // Languages, save-as attributes, and walkers-up render nothing, as before.
+  for (const info of ['js', 'json', 'sh {1,3}', 'js title="foo.js"', '../etc/passwd']) {
+    out = body('```' + info + '\nquoted\n```', names);
+    assert.ok(!out.includes('codesrc'), JSON.stringify(info) + ' rendered a source line');
+  }
+  // The closing fence's infostring means nothing, even when path-shaped.
+  out = body('```\nquoted\n```brief.md', names);
+  assert.ok(!out.includes('codesrc'), 'a CLOSING fence infostring was read as a source');
+  // An unclosed fence still falls back to prose, whole.
+  out = body('```brief.md\nnever closes', names);
+  assert.ok(!out.includes('codeb') && out.includes('```'), 'an unclosed labelled fence was guessed into a block');
 });
