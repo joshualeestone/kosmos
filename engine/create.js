@@ -1394,7 +1394,7 @@ function createAgentInner(opts) {
   if (removedList.isRemoved(name)) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `${shown} is on your removed list. Put that one back from "Show removed agents" at the bottom of the Agents tab, or pick a different name.`,
+      because: `${shown} is on your removed list. Put that one back from "Show removed agents" at the bottom of the Agents tab, delete what was left of it there to free the name, or pick a different name.`,
       steps,
     };
   }
@@ -1419,21 +1419,21 @@ function createAgentInner(opts) {
   if (hasFolder && hasJob) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `there is already an agent called ${shown}. If it never came up, it is half made rather than missing. Pick another name. If you can see it under Agents, you can remove it there instead.`,
+      because: `there is already an agent called ${shown}. If it never came up, it is half made rather than missing. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
       steps,
     };
   }
   if (hasJob) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `something called ${shown} is still set to start on this computer, though there is no folder for it. Pick another name. If you can see it under Agents, you can remove it there instead.`,
+      because: `something called ${shown} is still set to start on this computer, though there is no folder for it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
       steps,
     };
   }
   if (hasFolder) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `there is already a folder for an agent called ${shown}. If you removed that agent, its folder was left behind. Pick another name. If you can see it under Agents, you can remove it there instead.`,
+      because: `there is already a folder for an agent called ${shown}. If you removed that agent, its folder was left behind. Pick another name, or delete what was left of it, from its page under Agents or from "Show removed agents" at the bottom of the Agents tab, which frees the name.`,
       steps,
     };
   }
@@ -1472,7 +1472,7 @@ function createAgentInner(opts) {
   if (loaded) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `something called ${shown} is already set to start on this computer, though there is nothing else left of it. Pick another name. If you can see it under Agents, you can remove it there instead.`,
+      because: `something called ${shown} is already set to start on this computer, though there is nothing else left of it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
       steps,
     };
   }
@@ -1782,13 +1782,18 @@ function createAgentInner(opts) {
     // turned a too-large file into a REFUSAL to create the agent at all.
     // Dropping the block is the right failure; refusing somebody their agent
     // because the product wanted to teach it something is not.
-    if (wantInstructions === undefined) {
-      try {
-        const withDefaults = require('./defaults').appendTo(text);
-        const { MAX_BYTES } = require('./instructions');
-        if (Buffer.byteLength(withDefaults, 'utf8') <= MAX_BYTES) text = withDefaults;
-      } catch { /* ships without the defaults */ }
-    }
+    /* #591: under a person's own words too. The block is not a job
+       description, it is how any agent behaves inside Kosmos, and a person
+       who pastes a job has taken authorship of the JOB, not opted out of the
+       product working. It goes under its own heading so the seam between
+       their words and ours is visible in the file, and the create form says
+       so before the write (told before the write is consent). The byte cap
+       is unchanged: drop the block, never refuse the agent. */
+    try {
+      const withDefaults = require('./defaults').appendTo(text);
+      const { MAX_BYTES } = require('./instructions');
+      if (Buffer.byteLength(withDefaults, 'utf8') <= MAX_BYTES) text = withDefaults;
+    } catch { /* ships without the defaults */ }
     // The projects block rides from birth too (#323). It used to arrive by
     // `projects.syncAgent` once the board could see the session, which is at
     // least one poll AFTER the session started, so every agent made onto a

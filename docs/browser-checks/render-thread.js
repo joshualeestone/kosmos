@@ -188,7 +188,18 @@ async function assertDrivenServerIsTheFixture(announcedFleet) {
   }
   const res = await fetch(BASE + '/api/status');
   const body = await res.json();
-  const served = (body.agents || []).map((a) => `${a.name}=${a.state}`).sort().join(' ');
+  /* ⚠️ PANE-BACKED ROWS ONLY (running !== false). The identity this gate
+     proves is "whose FLEET is this" -- the live panes a Send would type
+     into. Not-running rows are derived from records, and this check's own
+     first attempt CREATES one: the Henderson project it makes before the
+     goto lists MyBot as a member, and the server then serves a second
+     MyBot row (state stopped, running false, session null) built from
+     that membership. On a retry against the same fixture the strict
+     comparison refused the very server it had already seeded -- the gate
+     ate the check's own leftovers. A REAL server still cannot pass: its
+     PANE fleet is the operator's, which matches no fixture announcement. */
+  const served = (body.agents || []).filter((a) => a.running !== false)
+    .map((a) => `${a.name}=${a.state}`).sort().join(' ');
   const wanted = announcedFleet.split(/\s+/).sort().join(' ');
   if (served !== wanted) {
     throw new Error(
@@ -444,24 +455,31 @@ async function main() {
     check(offQuestion.teachShown === true, 'the number-answer teaching line renders in Off, where it is needed most');
     check(/Answer by sending the number/.test(offQuestion.teachText),
       'and it carries the ruled wording', offQuestion.teachText);
-    // The Off arm of the verdict pointer, DRIVEN: the ambiguous-send
-    // fixture produces the unconfirmed verdict, and in Off it must send
-    // the person to the agent, not "below" to a hidden screen.
+    /* ⚠️ RE-EXPRESSED, NOT LOOSENED (2026-08-24, #39). This arm used to
+       drive an ambiguous send to casey through #pj-say in Off and pin the
+       unconfirmed verdict's pointer. That PATH no longer exists: #370
+       (Josh, 08-23 19:30) folds the one-to-one box whole in Off -- one
+       composer, the room's -- EXCEPT while a question is open. Selecting
+       casey (no question) hides #pj-say by design, so the old fill read as
+       a flake and was actually a ruled supersession. The replacement pins
+       the fold itself, which nothing else pinned: mara's open question
+       holds the box on screen (asserted above), and switching to a
+       questionless agent folds it, leaving the room composer as the one
+       way to speak. The verdict-pointer property this arm held is not
+       lost: both arms read ONE derivation (pjScreenOnScreen) whose On side
+       is driven below, and the Off sentence is held by the source pins in
+       server.test.js until a fixture can reach it through the room's
+       directed send. */
+    const foldBefore = await page.evaluate(() => !document.getElementById('pj-thread').hidden);
+    check(foldBefore === true, 'the one-to-one box stays on screen while a question is open in Off (the #370 override)');
     await page.selectOption('#pj-thread-who', 'casey');
-    // In Off the screen label rightly claims nothing (the served window
-    // is gated), so there is no label to wait on: the settle is a plain
-    // beat for the thread refetch, the one timing-shaped wait in this
-    // file and named as such.
-    await page.waitForTimeout(600);
-    await page.fill('#pj-say', 'ambiguous while off');
-    await page.click('#pj-send');
-    await page.waitForFunction(() => /Could not confirm/i.test(
-      document.getElementById('pj-thread-msg').textContent || ''), null, { timeout: 10000 });
-    const offUnsure = await page.locator('#pj-thread-msg').textContent();
-    check(/check whether it already arrived/i.test(offUnsure),
-      'the Off verdict tells the person to check with the agent', offUnsure);
-    check(!/screen is below/i.test(offUnsure),
-      'and never points below at a screen the mode has hidden', offUnsure);
+    await page.waitForFunction(() => document.getElementById('pj-thread').hidden, null, { timeout: 10000 });
+    const offFold = await page.evaluate(() => ({
+      folded: document.getElementById('pj-thread').hidden,
+      roomComposer: (() => { const el = document.getElementById('pj-post'); const r = el && el.getBoundingClientRect(); return Boolean(r && r.height > 0); })(),
+    }));
+    check(offFold.folded === true, 'with no question open, Off folds the one-to-one box whole (#370: one composer, the room\u2019s)');
+    check(offFold.roomComposer === true, 'and the room composer is the one left standing');
     const flipped = await page.evaluate(async () => {
       const r = await fetch('/api/engmode', { method: 'PUT',
         headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: true }) });

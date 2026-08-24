@@ -2361,6 +2361,39 @@ test('the room serves a plain-text tail for `kosmos room`, and says so when it c
   });
 });
 
+test('#563: the text view carries the unanswered line the page shows, from the same computation, under the post it is about', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    messages.setUnansweredAfterForTests(1);
+    try {
+      const posted = await post(`/api/project/${project.id}/room`, { text: '@zeta where is the draft?' });
+      assert.equal(posted.status, 200, posted.body);
+      await new Promise((r) => setTimeout(r, 20));
+      const asJson = JSON.parse((await req(`/api/project/${project.id}/room`)).body);
+      const ids = Object.keys(asJson.unanswered || {});
+      assert.equal(ids.length, 1, 'the JSON arm does not carry the silence this test relies on; the fixture is wrong, not the text arm');
+      assert.deepEqual(asJson.unanswered[ids[0]], ['zeta']);
+      const text = (await req(`/api/project/${project.id}/room?as=text`)).body;
+      const lines = text.trim().split('\n');
+      const at = lines.findIndex((l) => /operator -> zeta: @zeta where is the draft\?$/.test(l));
+      assert.ok(at > -1, 'the post line is missing: ' + text);
+      assert.match(lines[at + 1] || '', /^\d\d:\d\d  \[kosmos\] zeta has not answered here yet\.$/,
+        'the text view omits the silence the page shows, or puts it somewhere other than under its post: ' + text);
+      /* Negative control: before the constant, not silence yet, and the text
+         view must not invent it either. Same computation, same absence. */
+      messages.setUnansweredAfterForTests(60 * 60 * 1000);
+      const fresh = (await req(`/api/project/${project.id}/room?as=text`)).body;
+      assert.doesNotMatch(fresh, /has not answered here yet/, 'the text view claims silence the record does not');
+      const freshJson = JSON.parse((await req(`/api/project/${project.id}/room`)).body);
+      assert.deepEqual(freshJson.unanswered, {}, 'the JSON arm disagrees with the text arm about the same record');
+    } finally {
+      messages.setUnansweredAfterForTests(null);
+      /* The record is shared across tests here; leave it as found. */
+      try { require('node:fs').rmSync(messages.LOG, { force: true }); } catch { /* fine */ }
+    }
+  });
+});
 test('the room serves a blocked agent\'s refusal as its own row, and the text tail says it too (#315)', async () => {
   reset();
   await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {

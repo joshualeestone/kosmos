@@ -587,6 +587,109 @@ function send({ fromPane, to, text, inReplyTo }, roster) {
  * (the route reads it off the project record): this module stays the
  * mechanism and owns no membership model.
  */
+/* ── quoted words (#460) ────────────────────────────────────────────────────
+   A blockquote asserts "these are not my words", which is a claim about
+   authorship, so it can never ride a sniffed leading `>` (shell redirects,
+   diff markers, arrows in prose; the failure wraps the author's OWN words in
+   someone else's voice). v1, from the design seat's comment on the card: the
+   room's own record is the only corpus there is, and a post whose text is
+   verbatim an EARLIER post by a DIFFERENT author in the same room (or
+   contains one) is certainly quoting it. Three properties fall out: it can
+   never mark the author's own novel words (the match requires another
+   author's earlier words); a paraphrase never qualifies, which is right
+   because a paraphrase IS the quoter's words; and the tag carries its
+   source, which is more than the styling asked for. The floor is both a
+   length and a word count on purpose: a shared file path or command line is
+   one long token, and two agents posting the same one are not quoting each
+   other. No renderer path reads text; it reads only this tag. External
+   quotes (a web page, a document) are NOT covered here and wait for
+   evidence that agents quote them into rooms at all. */
+const QUOTE_MIN_CHARS = 40;
+const QUOTE_MIN_WORDS = 6;
+
+function quoteWorthy(text) {
+  const t = String(text == null ? '' : text).trim();
+  if (t.length < QUOTE_MIN_CHARS) return false;
+  return t.split(/\s+/).filter((w) => /[A-Za-z]/.test(w)).length >= QUOTE_MIN_WORDS;
+}
+
+/**
+ * The segments of `text` that are verbatim another author's earlier post in
+ * this room, each with the row it quotes. Empty when nothing qualifies.
+ * `text` must already be cleaned (one line, whitespace collapsed), which is
+ * what sendPost hands in; earlier rows are cleaned the same way when read.
+ */
+function quotedSegments(text, from, projectId, rows) {
+  const body = String(text == null ? '' : text);
+  const found = [];
+  for (const m of rows) {
+    if (!m || m.kind !== 'post' || m.project !== projectId) continue;
+    if (!m.id || typeof m.text !== 'string') continue;
+    const author = m.operator === true ? 'you' : m.from;
+    if (author === from) continue;
+    const earlier = chat.cleanMessage(m.text);
+    if (quoteWorthy(earlier) && body !== earlier) {
+      // Their whole earlier post, inside this one (quote plus commentary).
+      let at = body.indexOf(earlier);
+      while (at !== -1) {
+        found.push({ of: m.id, from: author, start: at, end: at + earlier.length });
+        at = body.indexOf(earlier, at + earlier.length);
+      }
+    }
+    /* NOT a whole-post identity: two agents carrying the same role text are
+       unusually likely to emit the same long status line as their entire
+       post, and a match on the whole of both is exactly that shape. It is
+       also a plausible requote, so it is AMBIGUOUS, and the card's law is
+       that a false blockquote must be structurally impossible: ambiguity
+       resolves to no styling. Quote-plus-commentary (their whole post
+       inside a different one of mine) and fragment-of-longer (my whole
+       post is a piece of theirs) are the shapes boilerplate does not take. */
+    if (quoteWorthy(body) && body.length < earlier.length && earlier.includes(body)) {
+      // This whole post is a piece of their earlier one.
+      found.push({ of: m.id, from: author, start: 0, end: body.length });
+    }
+  }
+  /* Origin, not recency. Once leo has quoted mara, mara's own line lives in
+     leo's row too, and mara posting it again must not read as quoting leo:
+     the words are hers. So a segment's source is the EARLIEST row in the
+     room carrying those words, whoever that is, and when that row is the
+     poster's own, nothing is marked. Attribution follows: "quoting mara",
+     not "quoting the last person who quoted mara". */
+  const sourced = [];
+  for (const seg of found) {
+    const words = body.slice(seg.start, seg.end);
+    let origin = null;
+    for (const m of rows) {
+      if (!m || m.kind !== 'post' || m.project !== projectId || typeof m.text !== 'string') continue;
+      if (chat.cleanMessage(m.text).includes(words)) { origin = m; break; }
+    }
+    if (!origin) continue;
+    const author = origin.operator === true ? 'you' : origin.from;
+    if (author === from) continue;
+    /* Common speech in this room is not a quotation. If the words already
+       recur in an earlier row by a second author that was NOT itself tagged
+       as quoting the origin, two people have said them independently, and
+       a third saying them is boilerplate, not a quote. Tagged requotes do
+       not count against this: a line three agents quoted is still a quote. */
+    const independent = rows.some((m) => m && m !== origin && m.kind === 'post' && m.project === projectId
+      && typeof m.text === 'string' && (m.operator === true ? 'you' : m.from) !== author
+      && chat.cleanMessage(m.text).includes(words)
+      && !(Array.isArray(m.quotes) && m.quotes.some((q) => q.of === origin.id)));
+    if (independent) continue;
+    sourced.push({ of: origin.id, from: author, start: seg.start, end: seg.end });
+  }
+  // Longest first, then drop anything overlapping a kept segment; a run of
+  // words can only be one quote, and the longer match is the truer one.
+  sourced.sort((a, b) => (b.end - b.start) - (a.end - a.start) || a.start - b.start);
+  const kept = [];
+  for (const seg of sourced) {
+    if (kept.some((k) => seg.start < k.end && k.start < seg.end)) continue;
+    kept.push(seg);
+  }
+  kept.sort((a, b) => a.start - b.start);
+  return kept;
+}
+
 function sendPost({ fromPane, project, projectName, text, operator, attachment, attachments, trailer }, roster, members) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
@@ -934,7 +1037,11 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
     return failed;
   }
 
+  // #460: what in this post is another author's earlier words, decided once
+  // here against the record as it stood, and persisted; never re-derived.
+  const quotes = quotedSegments(cleaned, from, projectId, log);
   appendLog({ kind: 'post', id, project: projectId, from, to: recipients, text: cleaned, at, outcomes,
+    ...(quotes.length ? { quotes } : {}),
     /* #185: the tokenizer's verdict, persisted at the one moment it runs.
        The unanswered state keys on WHO WAS ASKED, and re-deriving that at
        render time would be a second tokenizer that can drift from this
@@ -1251,6 +1358,7 @@ function sweepUnanswered(roster, now) {
 }
 
 module.exports = {
+  quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   OPERATOR_DIRECT,
   START, END, blockBody,
   LOG,

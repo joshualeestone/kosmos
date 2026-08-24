@@ -498,6 +498,12 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* An empty hint keeps its margin box and leaves a band where a deleted sentence
    used to be. Same idiom this file already uses for `.removed-msg`. */
 .fhint:empty { display: none; }
+.instr-defaults { margin-top: var(--space-4); }
+.instr-defaults-fold { margin-top: 4px; }
+.instr-defaults-fold summary { cursor: pointer; list-style: none; display: inline; }
+.instr-defaults-fold summary::-webkit-details-marker { display: none; }
+.instr-defaults-text { margin: 8px 0 0; padding: 10px 12px; max-height: 18rem; overflow: auto; white-space: pre-wrap;
+  font: var(--text-callout) var(--font-ui); color: var(--label-2); background: var(--k-sunk, rgba(20,22,26,.05)); border-radius: 8px; }
 /* ⚠️ The PROJECTS panel's hints carry load-bearing sentences ("nothing sent
    here is kept", "it is not a transcript"), and --label-3 at this size is
    3.04:1 on the light ground -- under the 4.5 AA floor (round 20). Scoped
@@ -1692,14 +1698,21 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    ink because at callout size it rendered byte-identical to the machine
    path below it; at the pack's .9375rem the size split carries that
    distinction, so the pack's ink-2 stands. */
-p.pj-desc-empty { color: var(--label-3); font-style: italic; }
+/* .panel p.* on both, and three classes on the empty form: the same
+   specificity story as .panel p.shint (line 2828's lesson) -- .panel p's
+   font shorthand (0,1,1) beats a bare class, so the description computed
+   13px while declaring .9375rem (#39, found by matched-rules in the
+   harness, not by reading). The empty form outranks the base by CLASS
+   COUNT rather than by source order, because order is the same class of
+   defect deferred until someone moves a block (Mona Lisa's ruling). */
+.panel p.pj-desc.pj-desc-empty { color: var(--label-3); font-style: italic; }
 .skillrow { padding: 8px 2px; border-bottom: 0.5px solid var(--separator);
             display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .skillrm { border: 0; background: none; color: var(--danger, #b3261e); font: inherit;
            font-size: 13px; cursor: pointer; padding: 2px 4px; border-radius: 6px; flex: none; }
 .skillrm.armed { font-weight: 600; }
 .skillrow b { font: 600 var(--text-body) var(--font-ui); }
-.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
+.panel p.pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
   line-height: 1.45; color: var(--label-2); max-width: 62ch;
   /* --label-2, not k-ink-2: the detail sits on the legacy-token panel,
      and its ink stays in the same token system as that surface (the
@@ -2284,6 +2297,14 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
 .xlink { color: var(--k-ink); text-underline-offset: 3px; }
 /* The pack's quoted block, on this file's tokens. No figcaption rule: nothing
    can produce a source yet, so there is no caption to style. */
+/* #460: a quoted line, the pack's .quoteb. Drawn ONLY where the engine
+   attached a source row to a span of the text (`quotes[]` on the room row);
+   no rule here and no code below ever reads the text for a quote mark. A
+   blockquote is a claim about authorship, so it is never guessed. */
+.msg .quoteb { margin: 10px 0 0; padding: 2px 0 2px 13px; border-left: 3px solid var(--k-rule);
+  font-size: .9375rem; line-height: 1.5; color: var(--k-ink-2); overflow-wrap: anywhere; }
+.msg .quoteb + p, .msg p + .quoteb + p { margin-top: 10px; }
+.msg .quoteb-from { display: block; font-style: normal; font-size: .75rem; color: var(--label-3); margin-top: 2px; }
 .codeb { margin: 10px 0 0; border: 1px solid var(--k-rule); border-radius: 10px;
          overflow: hidden; background: var(--k-surface); }
 /* The block's source line (#121): body type, the agent's voice, above. */
@@ -2814,6 +2835,16 @@ svg { display: block; }
 .danger .flabel { color: var(--label); }
 .danger-btn { border-color: var(--warn-border); }
 .danger-btn:hover { background: var(--warn-bg); }
+/* #514: the delete's own button. It must not look like the Remove beside
+   it (a border) and must not be the calm one: filled with the warning
+   tint, and disabled until the typed name matches when the files cannot
+   come back. */
+.del-go { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn-ink); font-weight: 600; }
+.del-go:hover { background: var(--warn-bg); filter: brightness(.96); }
+.del-go:disabled { opacity: .5; cursor: default; filter: none; }
+.del-list { margin: 10px 0 4px; text-align: left; }
+.del-list li { border: 0; padding: 0 0 4px; margin: 0; }
+.removed-row .acts { display: flex; gap: 8px; }
 /* ⚠️ `--label-2`, NOT `--label-3`. Measured on the rendered panel: at
    `--label-3` this was 3.01:1 at 10px, which fails AA for normal text and is
    not close. It pre-dates this change, but this change is what made it matter:
@@ -4397,6 +4428,24 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          message here a person must not walk away without hearing. -->
     <div class="fmsg" id="d-remove-msg" role="alert" aria-live="assertive"></div>
   </div>
+  <!-- #514: the one act on this page that a person may not be able to take
+       back, offered only when the engine says there is something left and
+       nothing running. Remove above stops an agent and keeps its files; this
+       is what frees the name, and the words in its confirmation come from
+       the engine (`plan`), never from this file. When the Mac's Trash can
+       take the files it is where they go, so the act stays undoable by the
+       person alone; when it cannot, the confirmation says so and asks for
+       the name to be typed. -->
+  <div class="dremove danger" id="d-delete-leftover" hidden>
+    <div>
+    <label class="flabel"><b>Delete what was left behind</b></label>
+    <div class="fhint" id="d-delete-hint"></div>
+    </div>
+    <div class="frow">
+      <button class="btn danger-btn" id="d-delete-start" type="button">Delete its files…</button>
+    </div>
+    <div class="fmsg" id="d-delete-msg" role="alert" aria-live="assertive"></div>
+  </div>
   </section>
   </div>
   </div>
@@ -4535,6 +4584,27 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <button class="btn uprime" id="chg-go" type="button"></button>
     </div>
     <div class="fmsg" id="chg-msg" role="alert" aria-live="assertive"></div>
+  </div>
+</div>
+<!-- #514: the delete confirmation. Every sentence in it is the engine's
+     (`question`, `reassurance`, `loses`, `verb`): a screen that composes its
+     own description of a destructive act can drift from the act. Keep is
+     first and focused; the delete button is filled, not bordered, and is
+     disabled until the name is typed when the files cannot come back. -->
+<div class="rm-back" id="del-modal" hidden>
+  <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="del-title" aria-describedby="del-small">
+    <h2 class="rm-title" id="del-title"></h2>
+    <p class="rm-small" id="del-small"></p>
+    <ul class="rst-list del-list" id="del-list"></ul>
+    <div class="field" id="del-type-row" hidden>
+      <label class="flabel" for="del-typed" id="del-typed-label"></label>
+      <input class="tk-inp" id="del-typed" type="text" autocomplete="off" autocapitalize="none" spellcheck="false">
+    </div>
+    <div class="rm-acts">
+      <button class="btn" id="del-keep" type="button">Keep the files</button>
+      <button class="btn del-go" id="del-go" type="button"></button>
+    </div>
+    <div class="fmsg" id="del-msg" role="alert" aria-live="assertive"></div>
   </div>
 </div>
 <div class="rm-back" id="rm-modal" hidden>
@@ -5097,6 +5167,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <div class="fhint">Describe what this agent does and how it should work. You can edit this later.</div>
       <textarea id="create-instr" rows="10" spellcheck="false"></textarea>
       <div class="fmsg" id="create-instr-note" role="status" aria-live="polite"></div>
+      <!-- #591: told before the write. Whatever a person writes above, the
+           working rules follow it in the file under their own heading; this
+           says so, and shows them, before the agent exists. The words come
+           from the engine (/api/roles `defaults`), never a copy here. -->
+      <div class="fhint instr-defaults" id="create-instr-defaults">Whatever you write here, your agent also gets Kosmos's working rules: keep going until finished, report what happened, ask before anything it cannot take back.
+        <details class="instr-defaults-fold">
+          <summary class="linkish">Show them</summary>
+          <pre class="instr-defaults-text" id="create-instr-defaults-text"></pre>
+        </details>
+      </div>
     </div>
 
     <!-- ⚠️ NO BACK BUTTON (Josh, 2026-08-19), and the pack has none here either:
@@ -5144,11 +5224,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            zero. -->
       <!-- #238. Josh: "They will see a checkbox that says 'Let Kosmos know you
            created an agent' and they can uncheck it if they want."
-           ⚠️ THE LABEL IS ONE STRING IN ONE PLACE, because it is still being
-           worded: "Kosmos" is also the app on their own Mac, so "Let Kosmos know"
-           can be read as telling the local app, which it obviously already
-           knows. Mona Lisa and I raised that separately and it is Josh's to rule;
-           until he does, his exact words ship and the change is one edit. -->
+           RULED, Josh 2026-08-24 13:28 CDT, #chaoskosmos-design: "Let the
+           Kosmos team know you created an agent", his exact words, "as
+           simplified as possible". The receiver is still named (the team,
+           not the app on this Mac), which was the #331 concern; what is
+           sent stays spelled out in the Settings row's hint. One string in
+           one place, so a later ruling is still one edit. -->
       <!-- ⚠️ NOT `checked` IN THE MARKUP, WHICH IT WAS UNTIL 2026-08-22 (#258).
            Sending is TWO gates: this box for one agent, and the standing answer
            in Settings. A box hard-coded to checked showed a person consenting to
@@ -5168,7 +5249,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <div class="field" id="create-tell-wrap">
         <label class="tellrow" for="create-tell">
           <input type="checkbox" id="create-tell">
-          <span>Tell the Kosmos server you made an agent</span>
+          <span>Let the Kosmos team know you created an agent</span>
         </label>
         <div class="fhint" id="create-tell-note"></div>
       </div>
@@ -6496,9 +6577,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <!-- The standing answer for the same thing (#238). The box on the create
            page answers for one agent; this answers for good, and it wins. -->
       <div class="setrow" id="tell-row" style="margin-top:12px;">
-        <div><b>Send a note to the Kosmos server when you make an agent</b>
+        <div><b>Let the Kosmos team know when you create an agent</b>
           <p class="dhint" style="margin:2px 0 0;">One small message each time: that an agent was made, when, which Kosmos version and which macOS, and a random ID for this install, so we can count how many people use Kosmos. Nothing about the agent, and nothing it does.</p></div>
-        <button class="toggle" id="tell-toggle" role="switch" aria-label="Send a note to the Kosmos server when you make an agent" hidden><i></i></button>
+        <button class="toggle" id="tell-toggle" role="switch" aria-label="Let the Kosmos team know when you create an agent" hidden><i></i></button>
       </div>
       <p class="dhint" id="tell-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- The outbound "something happened" switch (engine/notify.js): the
@@ -6507,9 +6588,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            default, and the copy says exactly what leaves the Mac: who, what,
            when, never the words. Same row shape as the created ping above. -->
       <div class="setrow" id="notify-row" style="margin-top:12px;">
-        <div><b>Tell the Kosmos server when an agent posts or answers you</b>
+        <div><b>Let the Kosmos team know when an agent posts or answers you</b>
           <p class="dhint" style="margin:2px 0 0;">Off by default. One small message each time: which agent, whether it posted or answered, which project, when, and a random ID for this install. Never the words. This is what a phone notification will ride on once Kosmos can reach your phone.</p></div>
-        <button class="toggle" id="notify-toggle" role="switch" aria-label="Tell the Kosmos server when an agent posts or answers you" hidden><i></i></button>
+        <button class="toggle" id="notify-toggle" role="switch" aria-label="Let the Kosmos team know when an agent posts or answers you" hidden><i></i></button>
       </div>
       <p class="dhint" id="notify-msg" role="status" style="margin:8px 0 0;"></p>
 
@@ -13175,10 +13256,17 @@ async function newsbarCheck() {
     if (!res.ok) return;
     const got = await res.json();
     if (!got || typeof got.current !== 'string') return;
+    /* ⚠️ THE RESPONSE IS READ, AND NOT AS TIDINESS (#39, measured): a fetch
+       whose body nobody consumes leaves the connection counted as in-flight
+       until the Response is garbage-collected, so every FIRST page load on a
+       fresh install carried one request that never finished -- invisible to a
+       person, and a hang to anything that waits for the network to settle
+       (the browser checks' networkidle timed out 9 runs out of 9 on exactly
+       this, and passed on retry because `seen` was recorded by then). */
     const record = () => fetch('/api/whats-new/seen', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ version: got.current }),
-    }).catch(() => { /* tried again next load */ });
+    }).then((r) => r.text()).catch(() => { /* tried again next load */ });
     if (!got.seen) { record(); return; } // first sight: silent
     if (got.seen === got.current) return;
     document.getElementById('newsbar-text').textContent =
@@ -13954,6 +14042,9 @@ let REMOVE_ASK = null;
 let REMOVE_TOKEN = 0;
 
 async function loadRemoval(sessionName, { fromPoll = false } = {}) {
+  /* #514: whether anything is left to delete. Not on the poll: the plan
+     walks the folder to count it, and the answer only changes on an act. */
+  if (!fromPoll) loadLeftover(sessionName);
   const box = document.getElementById('d-remove-agent');
   const hint = document.getElementById('d-remove-hint');
   /**
@@ -14343,6 +14434,120 @@ document.getElementById('d-remove-start').addEventListener('click', () => {
 });
 
 document.getElementById('rm-keep').addEventListener('click', closeRemoveModal);
+
+/* ---- #514: delete what is left of an agent --------------------------------
+   Two doors onto one modal: the detail page of a leftover, and the removed
+   list. The modal paints the engine's words. After the act the name is free,
+   which the removed list and the roster both show on their next paint. */
+let DEL_FOR = null;
+let DEL_PLAN = null;
+let DEL_RETURN = null;
+let DEL_TOKEN = 0;
+async function fetchLeftoverPlan(name) {
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/leftover', { cache: 'no-store' });
+    return await res.json().catch(() => null);
+  } catch { return null; }
+}
+async function loadLeftover(sessionName) {
+  const box = document.getElementById('d-delete-leftover');
+  if (!box) return;
+  const mine = ++DEL_TOKEN;
+  const plan = await fetchLeftoverPlan(sessionName);
+  if (mine !== DEL_TOKEN || !CURRENT || CURRENT.sessionName !== sessionName) return;
+  /* A refusal here is not a message, it is the block staying hidden: the
+     Remove section above already says what state the agent is in. */
+  if (!plan || !plan.ok) { box.hidden = true; DEL_PLAN = null; return; }
+  DEL_PLAN = plan;
+  document.getElementById('d-delete-hint').textContent = plan.hint || '';
+  box.hidden = false;
+}
+function openDeleteModal(plan) {
+  DEL_FOR = plan.name;
+  DEL_PLAN = plan;
+  DEL_RETURN = document.activeElement;
+  document.getElementById('del-title').textContent = plan.question;
+  document.getElementById('del-small').textContent = plan.reassurance;
+  const ul = document.getElementById('del-list');
+  ul.innerHTML = '';
+  for (const t of (plan.loses || [])) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }
+  const row = document.getElementById('del-type-row');
+  const inp = document.getElementById('del-typed');
+  const go = document.getElementById('del-go');
+  go.textContent = plan.verb;
+  inp.value = '';
+  if (plan.typeToConfirm) {
+    row.hidden = false;
+    document.getElementById('del-typed-label').textContent = 'Type ' + plan.typeToConfirm + ' to confirm';
+    go.disabled = true;
+  } else {
+    row.hidden = true;
+    go.disabled = false;
+  }
+  document.getElementById('del-msg').textContent = '';
+  document.getElementById('del-modal').hidden = false;
+  document.getElementById('del-keep').focus();
+}
+function closeDeleteModal() {
+  document.getElementById('del-modal').hidden = true;
+  DEL_FOR = null;
+  if (DEL_RETURN && DEL_RETURN.focus) DEL_RETURN.focus();
+  DEL_RETURN = null;
+}
+document.getElementById('del-typed').addEventListener('input', (e) => {
+  document.getElementById('del-go').disabled = !(DEL_PLAN && DEL_PLAN.typeToConfirm && e.target.value.trim() === DEL_PLAN.typeToConfirm);
+});
+document.getElementById('d-delete-start').addEventListener('click', () => {
+  if (DEL_PLAN && DEL_PLAN.ok) openDeleteModal(DEL_PLAN);
+});
+document.getElementById('del-keep').addEventListener('click', closeDeleteModal);
+document.getElementById('del-modal').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDeleteModal(); });
+document.getElementById('del-go').addEventListener('click', async () => {
+  const go = document.getElementById('del-go');
+  const msg = document.getElementById('del-msg');
+  if (!DEL_FOR) return;
+  go.disabled = true;
+  msg.textContent = '';
+  let res = null;
+  let body = null;
+  try {
+    res = await fetch('/api/agent/' + encodeURIComponent(DEL_FOR) + '/leftover', {
+      method: 'DELETE', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ typed: document.getElementById('del-typed').value }),
+    });
+    body = await res.json().catch(() => null);
+  } catch { res = null; }
+  if (!res || !body || (!res.ok && body.outcome !== 'partial')) {
+    msg.textContent = (body && (body.because || body.error)) || 'We could not reach the board just now. Nothing was deleted.';
+    go.disabled = false;
+    return;
+  }
+  closeDeleteModal();
+  const say = body.said || body.because || '';
+  const dmsg = document.getElementById('d-delete-msg');
+  if (dmsg) dmsg.textContent = say;
+  const rmsg = document.getElementById('removed-msg');
+  const wrap = document.getElementById('removed-wrap');
+  if (rmsg && wrap && !wrap.hidden) rmsg.textContent = say;
+  const box = document.getElementById('d-delete-leftover');
+  if (box) box.hidden = true;
+  DEL_PLAN = null;
+  try { paintRemoved(); } catch { /* the next paint shows it */ }
+});
+/* The removed list's door: fetch the plan on the click, so a refusal is a
+   sentence on the list rather than a modal with nothing true in it. */
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-delete-leftover]');
+  if (!btn) return;
+  const name = btn.dataset.deleteLeftover;
+  btn.disabled = true;
+  const plan = await fetchLeftoverPlan(name);
+  btn.disabled = false;
+  const rmsg = document.getElementById('removed-msg');
+  if (!plan) { if (rmsg) rmsg.textContent = 'We could not reach the board just now.'; return; }
+  if (!plan.ok) { if (rmsg) rmsg.textContent = plan.because || 'We cannot delete that right now.'; return; }
+  openDeleteModal(plan);
+});
 
 // The backdrop and Escape both mean keep it. Every accidental dismissal lands
 // on the harmless answer, which is what makes the modal safe to make loud.
@@ -14967,12 +15172,17 @@ async function paintRemoved() {
        "Starting <name> again", and with only `data-restore` to read from it
        would have said `claudebot` for the agent every other surface calls
        Splinter — the exact unrecognisability this row was rebuilt to end. */
-    + '<button class="btn" type="button" data-restore="' + esc(a.name) + '"'
+    + '<div class="acts"><button class="btn" type="button" data-restore="' + esc(a.name) + '"'
     + ' data-shown-as="' + esc(a.shownAs || a.name) + '">Restore</button>'
+    /* #514: the way through for a removed agent whose name is still taken.
+       The plan is fetched on the click, so a row never promises a delete
+       the engine would refuse. */
+    + '<button class="btn danger-btn" type="button" data-delete-leftover="' + esc(a.name) + '"'
+    + ' data-shown-as="' + esc(a.shownAs || a.name) + '">Delete its files…</button></div>'
     + '</div>').join('')
     /* the hint rides INSIDE the list so it shows exactly when the rows do;
        it restates what makes the light Remove confirmation honest */
-    + '<p class="removed-hint">Nothing was deleted. Their folders and everything you wrote for them are still on this computer, so restoring puts them back as they were.</p>';
+    + '<p class="removed-hint">Nothing was deleted. Their folders and everything you wrote for them are still on this computer, so restoring puts them back as they were. A name stays taken while its files stay; delete them to use it again.</p>';
 
   /**
    * ⚠️ ONLY REWRITE WHEN THE ANSWER ACTUALLY CHANGED, and this is not an
@@ -16642,6 +16852,15 @@ async function loadRoles() {
     learnRoleTitles(ROLES);
     CREATE_MODELS = (data && data.models) || [];
     OWN_ROLE = (data && data.own) || null;
+    /* #591: the working rules, shown under the instructions box. Absent
+       from an older engine, the fold hides rather than showing an empty box. */
+    {
+      const pre = document.getElementById('create-instr-defaults-text');
+      const fold = pre && pre.closest('details');
+      const words = data && typeof data.defaults === 'string' ? data.defaults.trim() : '';
+      if (pre) pre.textContent = words;
+      if (fold) fold.hidden = !words;
+    }
     if (!ROLES.length) throw new Error('none came back');
     msg.textContent = '';
     buildPicker();
@@ -20330,6 +20549,41 @@ function pjSilences(allRows, p) {
   return out;
 }
 
+/* #460: the body of a room post, with quoted spans drawn as the pack's
+   .quoteb. The ONLY input that can produce a blockquote is the engine's
+   `quotes: [{of, from, start, end}]` on the row, offsets into `text`,
+   attached where the words are verbatim another author's earlier post in
+   this room. Nothing here reads the text for a `>` or anything else: a
+   blockquote asserts "these are not my words", and that is never inferred.
+   A tag this code cannot trust (offsets outside the text, overlapping, no
+   source row) is not "probably a quote", it is the flat paragraph. */
+function pjRoomBody(m, p) {
+  const words = pjWords(m);
+  if (!words) return '';
+  const flat = '<p>' + pjBody(words, PJ_DOC_NAMES) + '</p>';
+  const qs = Array.isArray(m.quotes) ? m.quotes.filter((q) => q && typeof q === 'object'
+    && typeof q.of === 'string' && q.of
+    && Number.isInteger(q.start) && Number.isInteger(q.end)
+    && q.start >= 0 && q.end > q.start && q.end <= words.length)
+    .slice().sort((a, b) => a.start - b.start) : [];
+  if (!qs.length || (Array.isArray(m.quotes) && qs.length !== m.quotes.length)) return flat;
+  for (let i = 1; i < qs.length; i += 1) if (qs[i].start < qs[i - 1].end) return flat;
+  /* Prose between quotes keeps the spacing the person typed inside it; only
+     the whitespace at its edges goes, since that only separated it from the
+     quote, so no empty paragraph or hanging indent is drawn beside the bar. */
+  const prose = (t) => { const k = t.replace(/^\s+|\s+$/g, ''); return k ? '<p>' + pjBody(k, PJ_DOC_NAMES) + '</p>' : ''; };
+  let out = '';
+  let at = 0;
+  for (const q of qs) {
+    out += prose(words.slice(at, q.start));
+    const who = q.from === 'you' ? 'You' : (pjNameOf(p, q.from) || q.from);
+    out += '<blockquote class="quoteb">' + pjBody(words.slice(q.start, q.end).replace(/^\n+|\n+$/g, ''), PJ_DOC_NAMES)
+      + '<cite class="quoteb-from">' + esc(who) + ', earlier</cite></blockquote>';
+    at = q.end;
+  }
+  out += prose(words.slice(at));
+  return out;
+}
 function pjRoomRow(m, p, silent) {
   /* A refusal the room can see (#315): Scarlett tried to answer, was stopped,
      and the only record was inside her own window, so from the outside she
@@ -20404,7 +20658,7 @@ function pjRoomRow(m, p, silent) {
   return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
     + '<div class="msg-b"><div class="msg-h"><b>' + esc(name) + '</b>'
     + '<span class="msg-t">' + esc(pjWhen(m.at) || '') + '</span></div>'
-    + (pjWords(m) ? '<p>' + pjBody(pjWords(m), PJ_DOC_NAMES) + '</p>' : '') + pjPreviewCard(m.preview) + pjAttachmentCards(m) + receipt + '</div></div>';
+    + pjRoomBody(m, p) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + receipt + '</div></div>';
 }
 
 /**

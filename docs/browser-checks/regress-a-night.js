@@ -150,13 +150,27 @@ function seed() {
     await pg.waitForTimeout(1600);
     await pg.click('#d-nav button[data-go="memory"]');
     await pg.waitForTimeout(300);
+    /* ⚠️ RE-EXPRESSED, NOT LOOSENED (2026-08-24). The original pins read an
+       .fhint INSIDE the restart box and its on-page consequence sentence --
+       a layout Josh retired at 19:57 on 08-23 for the pack's shape: three
+       fat stacked buttons (Compact / Clear / Restart) under one lede, with
+       the consequence moved to the confirmation dialog every press passes
+       through ("one copy, at the moment of choice", the markup's own
+       comment). Measuring the old shape crashed on a null .fhint, which
+       read as a fixture gap and was actually a design supersession. The
+       replacement pins the CURRENT design's own promises: the lede, all
+       three buttons drawn in the stack, and (below, on the open dialog)
+       the consequence sentence at its new home. */
     const rst = await pg.evaluate(() => {
       const box = document.getElementById('d-restart-agent');
       const rm = document.getElementById('d-remove-agent');
+      const lede = document.getElementById('d-fresh-lede');
       return {
         shown: box && !box.hidden && box.getBoundingClientRect().height > 0,
         removeOffscreen: rm && rm.getBoundingClientRect().height === 0,
-        hint: box && box.querySelector('.fhint').textContent,
+        freshLede: lede && lede.getBoundingClientRect().height > 0 ? lede.textContent : null,
+        stack: ['d-compact-go', 'd-clear-go', 'd-restart-start']
+          .map((id) => { const b = document.getElementById(id); return Boolean(b && b.getBoundingClientRect().height > 0); }),
         /* The lede is painted per agent now (#198), so it must not be the
            generic once a panel is open. */
         lede: (document.getElementById('d-instr-lede') || {}).textContent || '',
@@ -164,8 +178,12 @@ function seed() {
       };
     });
     chk(rst.shown && rst.removeOffscreen, theme + ': restart draws in the Memory section, and Remove is not on that screen');
-    chk(/anything it was part way through ends/.test(rst.hint),
-      theme + ': the restart hint names the work, not only the memory');
+    /* freshStartLabel paints the agent's NAME into the lede on open, so the
+       generic "it" appearing here would itself be a regression. */
+    chk(/^Three ways to get .{1,40} going again, whatever the reason\./.test(rst.freshLede || ''),
+      theme + ': the fresh-start lede is the pack’s sentence, named and drawn', String(rst.freshLede).slice(0, 60));
+    chk(rst.stack.every(Boolean),
+      theme + ': all three fresh-start buttons draw, stacked', JSON.stringify(rst.stack));
     chk(/the only thing that survives a restart/.test(rst.lede),
       theme + ': the instructions lede states the consequence', rst.lede.slice(0, 40));
     chk(!/^What this agent is for/.test(rst.lede), theme + ': the lede names the agent');
@@ -189,6 +207,12 @@ function seed() {
        never reported, so the dialog must NOT claim they are clear. */
     chk(!/is not part way through anything/.test(dlg.small),
       theme + ': an unreported agent is not called clear', dlg.small.slice(0, 60));
+    /* The consequence sentence's new home (the 08-23 pack match): the
+       dialog, which every press passes through. The fixture agents have
+       never reported, so restartCost's unknown arm speaks, and its closing
+       consequence is the one pinned. */
+    chk(/Restarting ends anything it had in flight/.test(dlg.small),
+      theme + ': the consequence lives in the dialog, at the moment of choice', dlg.small.slice(0, 80));
     chk(dlg.focused === 'rst-keep', theme + ': it opens on the harmless answer', String(dlg.focused));
     await pg.keyboard.press('Escape');
     await pg.waitForTimeout(300);

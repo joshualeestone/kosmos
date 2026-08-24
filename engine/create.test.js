@@ -1681,11 +1681,31 @@ test('custom instructions are written verbatim with a trailing newline, and the 
   const found = projects.findBlock(text, reports.START, reports.END);
   assert.ok(found && !found.ambiguous, 'the person\'s own agent did not get the reports-to block at birth');
   const without = projects.removeBlock(text, reports.START, reports.END);
-  assert.equal(without, mine + '\n', 'something other than a managed record block was added to the person\'s words');
+  /* #591 changed one premise here, stated rather than deleted: the operating
+     defaults DO follow a person's own words now, under their own heading,
+     because they are how any agent behaves in Kosmos rather than a job
+     description, and the form says so before the write. The person's words
+     stay verbatim and FIRST; the role template still never leaks. */
+  const defaults = require('./defaults');
+  assert.ok(without.startsWith(mine + '\n'), 'the person\'s own words were not written verbatim and first');
+  const rest = without.slice((mine + '\n').length);
+  assert.equal(rest.trim(), defaults.block().trim(),
+    'something other than the operating defaults, under their own heading, followed the person\'s words');
   assert.ok(!text.includes('project manager'),
     'the role template leaked into instructions the person replaced');
-  assert.ok(!text.includes('How you work, whatever the job'),
-    'the operating defaults were appended to words the person wrote without them');
+});
+
+test('#591: an agent made from pasted instructions carries the working rules under their own heading, and the words come first', () => {
+  recorder();
+  create.setDryRun(false);
+  const mine = 'You handle the invoices. Nothing else.';
+  const made = create.createAgent({ ...BINS, name: 'pasted', role: 'pm', instructions: mine });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  const text = fs.readFileSync(create.instructionFile('pasted'), 'utf8');
+  const heading = text.indexOf('## How you work, whatever the job');
+  assert.ok(heading > -1, 'a pasted agent got none of the working rules');
+  assert.ok(text.indexOf(mine) === 0 && text.indexOf(mine) < heading, 'the person\'s words are not first, before the heading');
+  assert.ok(text.includes('You keep working until the task is finished'), 'the heading is there but the rules under it are not');
 });
 
 /**
@@ -1731,27 +1751,25 @@ test('nothing in an agent boot file breaks the rule that boot file states', () =
   assert.equal(dashes, 0, 'the boot file contains ' + dashes + ' em dashes while instructing against them');
 });
 
-test('the defaults are not appended to a person\'s own words uninvited', () => {
+test('the defaults follow a person\'s own words, after them and under their own heading (#591)', () => {
   recorder();
   create.setDryRun(false);
   const mine = 'You are **Quill**, and I wrote this myself.\n';
   const made = create.createAgent({ ...BINS, name: 'ownwords-def', role: 'pm', instructions: mine });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
   const text = fs.readFileSync(create.instructionFile('ownwords-def'), 'utf8');
-  /* ⚠️ THIS PINS A STANDING RULING, NOT A PREFERENCE, and the ruling is older
-     than this feature: custom instructions are the person's own words, and the
-     colleagues block is gated on exactly the same condition for exactly the
-     same reason. It is worth stating that the ruling has a COST, since a test
-     asserting an absence reads like the absence is desirable: an agent whose
-     person wrote its file gets no operating defaults, which are the difference
-     between an agent that stops overnight and one that does not. That is the
-     operator's call to change, and until they change it this is the behaviour.
-     If it flips, this test flips with it rather than being deleted. */
-  assert.ok(!text.includes('How you work, whatever the job'),
-    'the defaults were appended to instructions the person wrote themselves');
-  assert.ok(text.startsWith(mine), 'the person\'s own words were rewritten');
+  /* ⚠️ THIS PINS A RULING THAT FLIPPED, and the earlier one is stated so the
+     flip is visible: until 2026-08-24 custom instructions got no operating
+     defaults, on the ground that they were the person's own words. #591
+     (Mona Lisa) ruled that a person who pastes a job has taken authorship of
+     the JOB, not opted out of the product working: the block is how any agent
+     behaves in Kosmos, not a job description. So it follows their words, under
+     its own heading (the seam is visible in the file), and the create form
+     says so before the write. Their words still come first and verbatim. */
+  assert.ok(text.startsWith(mine), 'the person\'s own words were rewritten or moved');
+  const heading = text.indexOf('## How you work, whatever the job');
+  assert.ok(heading > mine.length, 'the defaults did not follow the person\'s words under their own heading');
 });
-
 test('a role-made boot file is nowhere near the size its reader refuses', () => {
   const instructions = require('./instructions');
   recorder();
@@ -1930,15 +1948,17 @@ test('describe-it-yourself carries the operating defaults in its own body, once,
   const text = fs.readFileSync(create.instructionFile('own-edited'), 'utf8');
   assert.match(text, /a napkin wrangler/, 'the edit did not travel');
   assert.equal(count(text), 1, 'an edited own file lost the block, or gained a second copy');
-  // POSITIVE CONTROL for (b): strip the block from the edit and the custom
-  // path must NOT put it back. That is the standing rule at the create.js
-  // defaults splice (nothing appended to a person's own words uninvited), and
-  // it is what makes carrying the block in the template necessary at all.
+  // (d) stripped: a person who deletes the block from the editor gets it
+  // back, once, under its heading (#591: the block is how any agent behaves
+  // in Kosmos, not part of the job they authored; the form says so first).
+  // Before #591 this was the positive control for the opposite rule, and it
+  // is kept as a control for the new one: exactly one copy, never two.
   const stripped = edited.slice(0, edited.indexOf('## ' + HEADING)).trimEnd() + '\n';
   const bare = create.createAgent({ ...BINS, name: 'own-bare', role: 'own', label: 'Napkin Wrangler', instructions: stripped });
   assert.equal(bare.outcome, create.OUTCOME.CREATED, bare.because);
-  assert.equal(count(fs.readFileSync(create.instructionFile('own-bare'), 'utf8')), 0,
-    'the custom path appended defaults to words the person wrote without them; the standing rule moved and this test did not know');
+  const bareText = fs.readFileSync(create.instructionFile('own-bare'), 'utf8');
+  assert.equal(count(bareText), 1, 'a stripped own file booted without the block, or with two copies');
+  assert.ok(bareText.startsWith(stripped.trimEnd()), 'the person\'s stripped words were not kept first and verbatim');
 });
 
 test('an agent made onto a project is born with the block, so the later sync writes nothing (#323)', () => {

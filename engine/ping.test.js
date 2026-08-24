@@ -164,9 +164,12 @@ test('the disclosure lives at the point of the act, and agrees with the payload'
   const page = fs2.readFileSync(nodePath.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   const words = page.replace(/<!--[\s\S]*?-->/g, '');
 
-  // Reworded 2026-08-23 (#331): the receiver is named, because "let the team
-  // know" read as a courtesy and it is a network call to a server.
-  assert.match(words, /Tell the Kosmos server you made an agent/,
+  // Reworded 2026-08-23 (#331) to name the receiver, because "let the team
+  // know" read as a courtesy and it is a network call to a server. Reworded
+  // 2026-08-24 to Josh's exact words, "Let the Kosmos team know you created
+  // an agent": the receiver is still named, and Settings still says what is
+  // sent and what is not (asserted below).
+  assert.match(words, /Let the Kosmos team know you created an agent/,
     'the create screen no longer offers the choice at all');
   /* Settings carries the fuller explanation and the standing switch. */
   assert.match(words, /so we can count how many people use Kosmos/,

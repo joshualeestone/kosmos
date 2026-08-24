@@ -30,6 +30,7 @@ const {
   lastLookProblem,
 } = require('./engine/status');
 const removal = require('./engine/remove');
+const leftover = require('./engine/delete-leftover');
 const firstrun = require('./engine/firstrun');
 const discover = require('./engine/discover');
 const subscription = require('./engine/subscription');
@@ -1463,6 +1464,9 @@ const server = http.createServer((req, res) => {
       // The third radio's prefill, served whole so the screen and the
       // engine cannot hold two versions of the example. No label field:
       // that is the person's own words, gated at create.
+      /* #591: the working rules every agent gets, served whole so the create
+         form can show exactly what will follow a person's own words. */
+      defaults: require('./engine/defaults').block(),
       own: (() => {
         const o = roles.byKey('own');
         return o ? { key: o.key, blurb: o.blurb, firstAction: o.firstAction, instructions: o.instructions } : null;
@@ -1748,6 +1752,42 @@ const server = http.createServer((req, res) => {
   // cataloguing. It re-enables the SPECIFIC label that was disabled — read back
   // from the record, never re-derived — so a foreign agent goes back onto the
   // job that actually starts it.
+  /* #514: delete what is left of an agent, the separate verb that frees a
+     name. `remove` never deletes (its first rule), so a removed agent's name
+     stays taken by its folder or job file; this is the way through. GET
+     plans in the engine's words (the confirmation paints those, never its
+     own); DELETE acts, with the typed name when the plan asked for one. */
+  const lo = pathname.match(/^\/api\/agent\/([^/]+)\/leftover$/);
+  if (lo && (req.method === 'GET' || req.method === 'HEAD')) {
+    const name = decodeSegment(lo[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let plan;
+    try { plan = leftover.plan(name); }
+    catch (err) { sendJson(res, 500, { error: 'we could not work out what is left of this agent', detail: String(err && err.message || err) }); return; }
+    /* 200 whatever the plan says: every agent page asks this question, and
+       "not a leftover" is a true answer to it, not a failed request. A 400
+       here logged a console error on every living agent's page and turned
+       the release page gate red (Angel, 2026-08-24). The page reads
+       `plan.ok`, never the status. DELETE keeps 400 for a refusal. */
+    sendJson(res, 200, plan);
+    return;
+  }
+  if (lo && req.method === 'DELETE') {
+    const name = decodeSegment(lo[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body = {};
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        let done;
+        try { done = leftover.del(name, { typed: body.typed }); }
+        catch (err) { sendJson(res, 500, { error: 'the delete failed partway and we cannot tell you how far it got', detail: String(err && err.message || err) }); return; }
+        sendJson(res, done.outcome === leftover.OUTCOME.REFUSED ? 400 : 200, done);
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
   const rs = pathname.match(/^\/api\/agent\/([^/]+)\/restore$/);
   if (rs && req.method === 'POST') {
     const name = decodeSegment(rs[1]);
@@ -4437,6 +4477,8 @@ const server = http.createServer((req, res) => {
           : m.kind === 'post'
           ? { kind: 'post', id: m.id, from: m.from, to: m.to, operator: m.operator === true,
               text: m.text, at: m.at, outcomes: m.outcomes || {},
+              // #460: the only thing a renderer may style as quoted.
+              ...(Array.isArray(m.quotes) && m.quotes.length ? { quotes: m.quotes } : {}),
               ...(m.attachment && typeof m.attachment === 'object' ? { attachment: m.attachment } : {}),
               ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}) }
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
@@ -4447,15 +4489,26 @@ const server = http.createServer((req, res) => {
          unreadable case says so rather than printing an empty room. */
       let asText = false;
       try { asText = new URL(req.url, ROUTING_BASE).searchParams.get('as') === 'text'; } catch { asText = false; }
+      /* #185, #563: who still owes an answer, from the record alone, computed
+         ONCE here for both arms. The page draws its small line from this and
+         the text view prints the same line under the same post, so an agent
+         reading the room with `kosmos room` sees its own debt where the
+         person sees it. Neither arm re-derives it. Best-effort like the room. */
+      let silent = {};
+      try { silent = messages.unanswered(id, Date.now()); } catch { silent = {}; }
       if (asText) {
         const tail = rows.slice(-40);
-        const lines = tail.map((m) => {
+        const lines = tail.flatMap((m) => {
           const when = m.at ? String(m.at).slice(11, 16) : '--:--';
-          if (m.kind === 'valve') return when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.');
-          if (m.kind === 'refused') return when + '  [kosmos] ' + m.from + ' tried to post here and Kosmos stopped it: ' + (m.because || 'no reason recorded');
-          if (m.kind === 'note') return when + '  [kosmos] ' + String(m.text || '');
+          if (m.kind === 'valve') return [when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.')];
+          if (m.kind === 'refused') return [when + '  [kosmos] ' + m.from + ' tried to post here and Kosmos stopped it: ' + (m.because || 'no reason recorded')];
+          if (m.kind === 'note') return [when + '  [kosmos] ' + String(m.text || '')];
           const who = m.operator ? 'operator' : m.from;
-          return when + '  ' + who + ' -> ' + (Array.isArray(m.to) ? m.to.join(', ') : 'the room') + ': ' + String(m.text || '');
+          const line = when + '  ' + who + ' -> ' + (Array.isArray(m.to) ? m.to.join(', ') : 'the room') + ': ' + String(m.text || '');
+          /* The same sentence the page shows, one per silent name, right
+             under the post it is about (#563). */
+          const owed = Array.isArray(silent[m.id]) ? silent[m.id] : [];
+          return [line, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
         });
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
@@ -4467,8 +4520,6 @@ const server = http.createServer((req, res) => {
       /* #185: which addressed agents have not answered which posts, from
          the record alone; the page renders the small line from this and
          never re-derives it. Best-effort like the room itself. */
-      let silent = {};
-      try { silent = messages.unanswered(id, Date.now()); } catch { silent = {}; }
       sendJson(res, 200, { ok: rec.ok, rows: withPreviews(rows), unanswered: silent });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the room') });
