@@ -928,6 +928,11 @@ function removeInner(name, { tmuxBin } = {}) {
     try { rec = require('./trust').recordedWrite(clean); } catch { rec = null; }
     if (rec) {
       const gaveBack = step('took back the folder trust', () => {
+        /* 🛑 THE MODULE'S OWN DRY-RUN GATE, and its first draft lacked it:
+           a dry-run removal REALLY edited ~/.claude.json and REALLY burned
+           the retry record while reporting nothing was touched. Same idiom
+           as recordRemoval and restore's writer. */
+        if (DRY_RUN && !runner) return true;
         let got = null;
         try { got = require('./trust').forgetFolder(rec.key, 'displaced' in rec ? rec.displaced : undefined, rec.madeEntry === true); }
         catch { return false; }
@@ -935,8 +940,11 @@ function removeInner(name, { tmuxBin } = {}) {
       });
       /* The record goes only when the take-back succeeded (or found nothing
          ours left); a failed one keeps the record so the next removal or a
-         repair can retry, rather than stranding the line forever. */
-      if (gaveBack) { try { require('./trust').dropRecord(clean); } catch { /* retried next time */ } }
+         repair can retry, rather than stranding the line forever. Never in
+         a dry run, which must leave both artifacts exactly as found. */
+      if (gaveBack && !(DRY_RUN && !runner)) {
+        try { require('./trust').dropRecord(clean); } catch { /* retried next time */ }
+      }
     }
   }
 

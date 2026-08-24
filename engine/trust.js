@@ -394,37 +394,53 @@ function readRecord() {
     return err && err.code === 'ENOENT' ? {} : null;
   }
 }
+/* The same unique-name + wx discipline the config writer above documents:
+   a fixed tmp path shared by two racing processes is the lost-update and
+   torn-file pair, in the one file whose corruption silently disables
+   recording. */
+let recSeq = 0;
+function recTemp() {
+  recSeq += 1;
+  return RECORD() + '.' + process.pid + '.' + Date.now() + '.' + recSeq + '.tmp';
+}
+function writeRecordFile(data) {
+  fs.mkdirSync(path.dirname(RECORD()), { recursive: true });
+  const tmp = recTemp();
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { flag: 'wx' });
+  fs.renameSync(tmp, RECORD());
+}
 function recordWrite(name, wrote) {
-  const data = readRecord();
-  if (data === null) return false;
+  let data = readRecord();
+  if (data === null) {
+    /* A corrupt record must not disable recording forever and silently:
+       set the bytes aside (evidence for a repair, never destroyed) and
+       start fresh. Reads of a corrupt file still answer null, the
+       leave-the-line direction; only a WRITE heals, because a write is
+       the moment there is something true to put in its place. */
+    try { fs.renameSync(RECORD(), RECORD() + '.corrupt-' + Date.now()); } catch { return false; }
+    data = {};
+  }
   /* displaced is stored only when it existed: JSON has no undefined, and
      forgetFolder reads its absence as "we made the key". */
   const entry = { key: wrote.key, madeEntry: wrote.madeEntry === true, at: new Date().toISOString() };
   if (wrote.displaced !== undefined) entry.displaced = wrote.displaced;
   data[String(name)] = entry;
-  try {
-    fs.mkdirSync(path.dirname(RECORD()), { recursive: true });
-    const tmp = RECORD() + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-    fs.renameSync(tmp, RECORD());
-    return true;
-  } catch { return false; }
+  try { writeRecordFile(data); return true; } catch { return false; }
 }
 function recordedWrite(name) {
   const data = readRecord();
   if (data === null) return null;
   const e = data[String(name)];
-  return e && typeof e === 'object' && typeof e.key === 'string' ? e : null;
+  /* Absoluteness too: a malformed key is one forgetFolder would refuse
+     forever, so answering null (leave the line) instead of handing it over
+     spares every future removal a permanently red step. */
+  return e && typeof e === 'object' && typeof e.key === 'string' && path.isAbsolute(e.key) ? e : null;
 }
 function dropRecord(name) {
   const data = readRecord();
   if (data === null || !(String(name) in data)) return;
   delete data[String(name)];
-  try {
-    const tmp = RECORD() + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-    fs.renameSync(tmp, RECORD());
-  } catch { /* the record stays; a later removal retries */ }
+  try { writeRecordFile(data); } catch { /* the record stays; a later removal retries */ }
 }
 
 module.exports = { trustFolder, forgetFolder, KEY, recordWrite, recordedWrite, dropRecord };

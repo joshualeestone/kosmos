@@ -12,6 +12,11 @@ const nodePath = require('node:path');
 const SANDBOX = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'trust-test-')));
 const CONFIG = nodePath.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = CONFIG;
+// ⚠️ AND THE DATA ROOT, before any require can freeze store.ROOT: the
+// trust-writes record lives there, and without this the record tests rm,
+// write and CORRUPT the operator's live store (the exact class the
+// 93-entries comment in trust.js records for the config root).
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const { trustFolder, forgetFolder, KEY } = require('./trust');
@@ -658,7 +663,21 @@ test('the trust-writes record round-trips, keeps displaced-absent distinct, and 
      write refuses rather than clobbering what it could not read. */
   fs.writeFileSync(nodePath.join(store.ROOT, 'trust-writes.json'), '{corrupt');
   assert.equal(trust.recordedWrite('bob'), null, 'a corrupt record was read as an answer');
-  assert.equal(trust.recordWrite('cid', { key: '/w/cid', madeEntry: true }), false,
-    'a write over a corrupt record would destroy entries it could not read');
+  /* A WRITE heals: the corrupt bytes go aside as evidence (never merged,
+     never destroyed) and recording resumes, or every agent created after
+     one torn write would silently lose its take-back forever. */
+  assert.equal(trust.recordWrite('cid', { key: '/w/cid', madeEntry: true }), true,
+    'a corrupt record disabled recording forever, silently');
+  assert.ok(trust.recordedWrite('cid'), 'the healed record did not hold the new entry');
+  assert.equal(trust.recordedWrite('bob'), null, 'entries from the corrupt bytes were invented back');
+  const aside = fs.readdirSync(store.ROOT).filter((f) => f.startsWith('trust-writes.json.corrupt-'));
+  assert.equal(aside.length, 1, 'the corrupt bytes were destroyed instead of set aside');
+  assert.equal(fs.readFileSync(nodePath.join(store.ROOT, aside[0]), 'utf8'), '{corrupt',
+    'the aside is not the original bytes, so there is nothing to repair from');
+  /* And a malformed key answers null rather than handing forgetFolder a
+     refusal it would repeat forever. */
+  fs.writeFileSync(nodePath.join(store.ROOT, 'trust-writes.json'),
+    JSON.stringify({ eve: { key: 'relative/path', madeEntry: true } }));
+  assert.equal(trust.recordedWrite('eve'), null, 'a relative key was handed over to be refused forever');
   fs.rmSync(nodePath.join(store.ROOT, 'trust-writes.json'), { force: true });
 });

@@ -1710,11 +1710,23 @@ function createAgentInner(opts) {
      (already false), best-effort and non-gating: a creation whose record
      write failed leaves a line removal will not touch, which was the
      behavior for every agent before this record existed. */
-  if (started && trusted && trusted.ok === true && trusted.already === false && trusted.key) {
+  if (started && !DRY_RUN) {
     try {
-      require('./trust').recordWrite(name, {
-        key: trusted.key, displaced: trusted.displaced, madeEntry: trusted.madeEntry,
-      });
+      if (trusted && trusted.ok === true && trusted.already === false && trusted.key) {
+        require('./trust').recordWrite(name, {
+          key: trusted.key, displaced: trusted.displaced, madeEntry: trusted.madeEntry,
+        });
+      } else {
+        /* ⚠️ A NEW INCARNATION THAT DID NOT RECORD INVALIDATES THE OLD ONE.
+           A reused name whose fresh creation could not (or did not need to)
+           write trust must not leave the PREVIOUS incarnation's record
+           alive: the person may answer the prompt themselves for the new
+           agent, and the eventual removal would then delete THEIR answer on
+           the strength of a record about a different agent. Dropping fails
+           toward the stale-line world, which was every agent's world before
+           the record existed. */
+        require('./trust').dropRecord(name);
+      }
     } catch { /* the record is a courtesy to a future removal, never a gate */ }
   }
 
