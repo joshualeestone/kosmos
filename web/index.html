@@ -208,7 +208,15 @@
 /* Containers that are themselves elevated: a field on them takes the PAPER of
    the same token system, so it is never the identical colour as its own box. */
 .dbox, .pjcol { --field-fill: var(--k-bg); }
-.rm-box, .rolepick, #pj-settings-view, #pj-add-view { --field-fill: var(--bg); }
+.rm-box, .rolepick { --field-fill: var(--bg); }
+/* ⚠️ The project dialogs used to sit in the group above. Josh, 2026-08-23
+   19:58: "The dialog box on the projects has a gray area behind the input
+   text part. Can we make that white so that it will match what the dialog
+   box looks like on the agents' portion." So they take the root's white,
+   the same as the create-agent dialog; the never-identical rule above is
+   consciously overridden here on his call, and the field still reads
+   through its border. */
+#pj-settings-view, #pj-add-view { --field-fill: var(--k-surface); }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -1244,9 +1252,11 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
             font-variant-numeric: tabular-nums;
             color: #fff; background: #b3261e; border-radius: 100px;
             padding: .12rem .42rem; border: 2px solid var(--k-surface); }
-.ansgo { margin-left: auto; padding: 0 0 1px; font-size: .8125rem; font-weight: 600; color: var(--k-ink-2);
+.ansgo { margin-left: auto; font-size: .8125rem; font-weight: 600; color: var(--k-ink-2);
          border: 0; background: none;
-         padding: 0; font-family: inherit; cursor: pointer;
+         /* One padding declaration only: a second one in this same rule was
+            silently clobbering the pack's 1px baseline nudge (#179). */
+         padding: 0 0 1px; font-family: inherit; cursor: pointer;
          /* ⚠️ 24px minimum (WCAG 2.2 SC 2.5.8), the floor the retired
             .card-answer carried and .linkish duplicates: this is the one
             control on the card whose function nothing else duplicates
@@ -1631,7 +1641,11 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
    path below it; at the pack's .9375rem the size split carries that
    distinction, so the pack's ink-2 stands. */
 p.pj-desc-empty { color: var(--label-3); font-style: italic; }
-.skillrow { padding: 8px 2px; border-bottom: 0.5px solid var(--separator); }
+.skillrow { padding: 8px 2px; border-bottom: 0.5px solid var(--separator);
+            display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.skillrm { border: 0; background: none; color: var(--danger, #b3261e); font: inherit;
+           font-size: 13px; cursor: pointer; padding: 2px 4px; border-radius: 6px; flex: none; }
+.skillrm.armed { font-weight: 600; }
 .skillrow b { font: 600 var(--text-body) var(--font-ui); }
 .pj-desc { display: block; margin: 3px 0 2px; font-size: .9375rem;
   line-height: 1.45; color: var(--label-2); max-width: 62ch;
@@ -1681,11 +1695,11 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
 .tasknum { font: 600 11px var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
            letter-spacing: .06em; color: var(--label-2); text-transform: uppercase; margin: 0 0 4px; }
 .tmeta { display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-         padding: 7px 0; border-bottom: 1px solid var(--k-rule); font-size: .8125rem; }
+         padding: 8px 0; border-bottom: 1px solid var(--k-rule); font-size: .8125rem; }
 .tmeta:last-of-type { border-bottom: 0; }
 .tmeta > span { color: var(--label-2); }
 .tmeta > b { font-weight: 600; text-align: right; min-width: 0; }
-.tkstate { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.tkstate { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; } /* pack (#179) */
 /* The pack has `10px 0 0` and this had `10px 0 18px`. Mona Lisa: either is
    defensible, pick one. Picked the pack's: the note is about the button
    directly above it, and 18px of air below pushes it toward the columns
@@ -1803,7 +1817,7 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
                stadium, a wrapped verdict renders a small card instead of a
                blob with semicircular ends. */
             max-width: 36ch; text-align: left; line-height: 1.45;
-            padding: .18rem .6rem; border-radius: 1.1em; border: 1px solid var(--k-rule);
+            padding: .18rem .6rem; border-radius: 100px; border: 1px solid var(--k-rule);
             color: var(--k-ink-2); }
 .delivery.placed { border-color: rgba(47,125,90,.5); }
 .delivery.failed { border-color: rgba(179,38,30,.5); }
@@ -2272,6 +2286,17 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
    because four surfaces share that rule and only this one was ruled taller.
    A cap, not a height: a quiet agent still draws a short box. */
 #d-window { max-height: 560px; }
+/* The pack's Fresh start stack (Josh, 2026-08-23 19:57): three big
+   full-width buttons, one per line, matching his screenshot. */
+.freshstack .btn { display: block; width: 100%; margin-top: 10px;
+                   padding: 14px 16px; text-align: center;
+                   font-size: 17px; font-weight: 600; }
+.freshstack { margin-top: 2px; }
+/* The three read as ONE stack: the restart container joins at the stack's
+   own 10px rhythm, and the empty receipt slots between them take no height
+   until they hold a sentence. */
+.field.freshstack { margin-top: 0; }
+#d-fresh .fmsg:empty { display: none; margin: 0; }
 .pj-viewport { margin-top: var(--space-6); }
 .pj-msgs { display: flex; flex-direction: column; gap: var(--space-3); margin: var(--space-5) 0; }
 .pj-msg { padding: var(--space-4) var(--space-5); border: 0.5px solid var(--separator);
@@ -2392,7 +2417,7 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
               border: 0; padding: 0; margin: 0; min-width: 0; }
 .pick2 {
   display: grid; grid-template-columns: 18px auto 1fr; align-items: baseline;
-  gap: var(--space-2) var(--space-5);
+  gap: var(--space-2) 10px; /* the pack's column gap; 10 is not a scale step (#179) */
   width: 100%; text-align: left; font: inherit; color: var(--label); cursor: pointer;
   background: var(--bg-elevated); border: 1px solid var(--separator);
   border-radius: var(--radius-control); padding: 11px 14px;
@@ -2622,12 +2647,14 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
    under the role menu was removed outright, so the only place a caution is
    painted now is the last step. The treatment is unchanged. */
 .rolelimit {
-  display: block; margin-top: var(--space-3); padding-left: var(--space-4);
-  border-left: 2px solid var(--border-strong); color: var(--label);
+  /* The pack's values (#179): quieter ink, 14px lead; neither 14 nor the
+     18 below is a scale step, said plainly rather than rounded to one. */
+  display: block; margin-top: var(--space-3); padding-left: 14px;
+  border-left: 2px solid var(--border-strong); color: var(--label-2);
   font: var(--text-callout) var(--font-ui); }
 /* On the last step it is a block in its own right rather than a tail on a
    paragraph, so it gets the room a standalone sentence needs above the button. */
-.rolelimit { margin: var(--space-5) 0 0; }
+.rolelimit { margin: 18px 0 0; }
 .rolelimit[hidden] { display: none; }
 .pick small { font: var(--text-callout) var(--font-ui); color: var(--label-3); }
 .ticks { margin: var(--space-6) 0 0; }
@@ -2788,9 +2815,10 @@ svg { display: block; }
 /* A focus ring on the summary, because it IS the control and a disclosure
    somebody can reach by keyboard but cannot see focused fails AA (2.4.7). */
 .smore > summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-.smore ul { list-style: none; margin: 6px 0 0; padding: 0 0 0 4px; }
-.smore li { color: var(--k-ink-2); line-height: 1.7; }
-.smore-t { margin: 10px 0 0 4px; color: var(--k-ink-2); font-weight: 600; }
+.smore ul { list-style: none; margin: 8px 0 0; padding: 0 0 0 4px; color: var(--k-ink-2); }
+.smore li { color: var(--k-ink-2); line-height: 1.7; margin: 3px 0; }
+.smore-t { margin: 9px 0 0; color: var(--k-ink-2); font-weight: 600;
+           font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase; }
 code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          background: color-mix(in srgb, var(--k-ink) 7%, transparent); }
 
@@ -3955,35 +3983,34 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            with it; each button's dialog already says what it keeps and loses,
            and two copies of one explanation is one to keep current. Painted by
            resetLabels() on open and after a rename. -->
-      <div class="fhint" style="margin-bottom:12px;">Three ways to get it going again, and they differ. Each one says what it stands to lose before you choose.</div>
-      <div class="frow">
-        <button class="btn" id="d-compact-go" type="button">Compact its memory</button>
-        <button class="btn" id="d-clear-go" type="button">Clear its memory</button>
+      <!-- 🔑 THE PACK'S SHAPE, MATCHED EXACTLY (Josh, 2026-08-23 19:57: "make
+           this look like what the pack design looks like... nice big fat
+           buttons that are all three stacked"). His screenshot carries the
+           pack's colon labels, which SUPERSEDES the 08-22 long-form ruling
+           recorded below; tonight is later and he was pointing at the picture.
+           The lede and the footer are the pack's sentences verbatim; the cost
+           still lives in each button's dialog, which is what the footer
+           promises. -->
+      <div class="fhint" id="d-fresh-lede" style="margin-bottom:12px;">Three ways to get it going again, whatever the reason.</div>
+      <div class="freshstack">
+        <button class="btn" id="d-compact-go" type="button">Compact: summarise and keep going</button>
+        <button class="btn" id="d-clear-go" type="button">Clear: start over, loses what it is holding</button>
       </div>
       <div class="fmsg" id="d-compact-msg" role="status" aria-live="polite"></div>
       <div class="fmsg" id="d-clear-msg" role="status" aria-live="polite"></div>
     </div>
-    <div class="field" id="d-restart-agent" hidden>
-    <div>
-    <label class="flabel"><b>Restart this agent</b></label>
-    <!-- The consequence, named before the click rather than discovered after
-         it. Josh has twice read a restarted agent's empty memory as the
-         product being broken, which is why this sentence exists at all and why
-         it says what it says. -->
-    <!-- 🔑 IT DOES NOT OPEN WITH "it stops and starts", WHICH IS WHAT THE WORD
-         RESTART MEANS. Mona Lisa's ruling on #259, and the general form is
-         worth keeping: a button names the act and does not explain it, and a
-         hint spends itself on the clause the person did not already know. The
-         heading says restart and so does the button, so the only sentence left
-         to write is the consequence, which is the reason this line exists. -->
-    <div class="fhint">It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.</div>
-    </div>
-    <div class="frow">
+    <!-- ⚠️ THE "Restart this agent" HEADING AND THE ON-PAGE CONSEQUENCE
+         SENTENCE ARE GONE WITH THE PACK MATCH (Josh, 19:57): the restart
+         button joins the stack as the third of three, and the consequence
+         ("comes back with nothing in its memory...") lives where the footer
+         promises it, in the confirmation dialog (restartCost), which every
+         press passes through. One copy, at the moment of choice. -->
+    <div class="field freshstack" id="d-restart-agent" hidden>
       <button class="btn" id="d-restart-start" type="button"
               data-restart-agent="" data-restart-note="d-restart-msg">Restart it</button>
-    </div>
     <div class="fmsg" id="d-restart-msg" role="status" aria-live="polite"></div>
   </div>
+  <div class="fhint" id="d-fresh-foot" style="margin-top:12px;" hidden>Each one shows what it stands to lose before you choose.</div>
   </section>
   </section>
   <section class="dsec" id="d-sec-instr" data-sec="instr" tabindex="-1" aria-label="Instructions" hidden>
@@ -4352,6 +4379,25 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      not a removal. The machinery is the same on purpose (backdrop and Escape
      both mean keep, focus opens on the harmless answer, two-button trap),
      because a person should not have to learn two dialogs. -->
+<!-- The policy hand-out confirmation (Josh, 2026-08-23 20:02: "it wasn't
+     clear at all to me that that was about to happen"). It confirms the TRUE
+     thing: instructions are written, nothing restarts. The warning he asked
+     for ("this will restart all of your agents") would be false, so the
+     dialog says what actually happens instead. -->
+<div class="rm-back" id="pol-modal" hidden>
+  <div class="rm-box" role="alertdialog" aria-modal="true"
+       aria-labelledby="pol-m-title" aria-describedby="pol-m-small">
+    <h2 class="rm-title" id="pol-m-title">Hand this policy to every agent?</h2>
+    <p class="rm-small" id="pol-m-small">It goes into the instructions of every
+      agent on this Mac. Nothing restarts and nothing is interrupted; each agent
+      starts following it after its own next restart.</p>
+    <div class="rm-acts">
+      <button class="btn" id="pol-m-keep" type="button">Not yet</button>
+      <button class="btn" id="pol-m-go" type="button">Hand it out</button>
+    </div>
+  </div>
+</div>
+
 <div class="rm-back" id="rst-modal" hidden>
   <div class="rm-box" role="alertdialog" aria-modal="true"
        aria-labelledby="rst-title" aria-describedby="rst-small">
@@ -4361,6 +4407,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          of the three states and absent in the third, and an empty <ul> left in
          the box draws a gap that reads as something failing to load. -->
     <ul class="rst-list" id="rst-list" hidden></ul>
+    <!-- 🔑 THE MEMORY CONSEQUENCE MOVED HERE FROM THE PAGE (the pack match,
+         Josh 2026-08-23 19:57: the page block is three buttons and two pack
+         sentences, nothing else). This sentence exists because Josh has twice
+         read a restarted agent's empty memory as the product being broken; it
+         is static because it is true of every restart, and it sits in the
+         dialog because that is where the footer sends people to learn the
+         cost. rst-small above stays the per-agent part: what is in flight. -->
+    <p class="rm-small">It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.</p>
     <div class="rm-acts">
       <button class="btn" id="rst-keep" type="button">Leave it running</button>
       <button class="btn" id="rst-go" type="button">Restart it</button>
@@ -5857,12 +5911,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="you" aria-controls="s-sec-you" class="on" aria-current="true">You</button>
     <button type="button" data-go="accounts" aria-controls="s-sec-accounts">Accounts</button>
     <button type="button" data-go="connect" aria-controls="s-sec-connect">Connections</button>
-    <button type="button" data-go="gskills" aria-controls="s-sec-gskills">Global skills</button>
-    <button type="button" data-go="policy" aria-controls="s-sec-policy">AI policy</button>
-    <button type="button" data-go="talking" aria-controls="s-sec-talking">Agents talking</button>
+    <button type="button" data-go="gskills" aria-controls="s-sec-gskills">Global Skills</button>
+    <button type="button" data-go="policy" aria-controls="s-sec-policy">AI Policy</button>
+    <button type="button" data-go="talking" aria-controls="s-sec-talking">Agents Talking</button>
     <button type="button" data-go="mac" aria-controls="s-sec-mac">This Mac</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
     <button type="button" data-go="plus" aria-controls="s-sec-plus">Plus Account</button>
+    <button type="button" data-go="styles" aria-controls="s-sec-styles">Styles</button>
     <button type="button" data-go="advanced" aria-controls="s-sec-advanced">Advanced</button>
   </nav>
   <div class="dsecs">
@@ -6366,6 +6421,37 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     </div>
   </section>
 
+  <!-- ============ STYLES (#480, Josh 19:15) ============
+       Function and plain words, polish deferred by his own ruling. Two
+       ways in: a few named themes, and a pasted style an agent wrote.
+       Tokens only, never a stylesheet: a paste can recolor the page and
+       cannot make it do anything. Applied on the root element, so a
+       custom style shows in light and dark alike, said below in words. -->
+  <section class="dsec" id="s-sec-styles" data-sec="styles" tabindex="-1" aria-label="Styles" hidden>
+    <h2>Styles</h2>
+    <p class="fhint">How your Kosmos looks.</p>
+
+    <div class="field">
+      <label class="flabel" for="style-theme">Theme</label>
+      <select class="tk-inp" id="style-theme"></select>
+      <p class="fhint">Changes apply as soon as you pick one.</p>
+    </div>
+
+    <div class="field" style="margin-top:16px;">
+      <label class="flabel" for="style-custom">A style of your own</label>
+      <p class="fhint">Ask one of your agents to write you a style file:
+      lines of <code>--name: value;</code>, one color or size per line.
+      Paste it here and it applies on top of the theme, in light and dark
+      alike.</p>
+      <textarea class="tk-inp" id="style-custom" rows="6" spellcheck="false"></textarea>
+      <div class="frow" style="margin-top:8px;">
+        <button class="btn uprime" type="button" id="style-apply">Apply</button>
+        <button class="btn" type="button" id="style-clear" hidden>Remove my style</button>
+      </div>
+      <p class="fmsg" id="style-msg" role="alert" aria-live="assertive"></p>
+    </div>
+  </section>
+
   <section class="dsec" id="s-sec-advanced" data-sec="advanced" tabindex="-1" aria-label="Advanced" hidden>
     <section class="dbox">
       <!-- LIVE now (eng-mode): On reveals the raw session on the project
@@ -6762,34 +6848,57 @@ function taskLine(a) {
    * state means the agent cannot work at all. A title is a poor status source in
    * general (#209) and that is a bigger question than this line.
    */
-  return stateReason(a) || taskWords(a) || 'no task showing';
+  /**
+   * 🛑 #209 RESOLVED: THE FROZEN TITLE IS NEVER SHOWN AS STATUS, IN ANY STATE.
+   *
+   * `a.task` is `#{pane_title}`, which Claude Code writes once from a summary of
+   * the session's FIRST message and never refreshes. Two independent proofs it is
+   * a fossil, not just often stale:
+   *
+   *   1. Measured on the live fleet: an agent deep in one task shows the title of
+   *      a DIFFERENT one it started on hours earlier (this very agent's pane read
+   *      "Kosmos relay implementation" while it was on an unrelated card), and two
+   *      agents that both ran the same boot routine show the identical frozen
+   *      title. It never once tracked current work across the sampled fleet.
+   *   2. By construction: NOTHING in this repo writes a pane title. Kosmos only
+   *      reads it (status.js, `#{pane_title}`); there is no `rename-window`, no
+   *      `select-pane -T`, no title escape anywhere. So Kosmos cannot make the
+   *      value current even in principle, in any state. The fossil is guaranteed,
+   *      not merely observed, which is what makes suppressing it safe everywhere
+   *      rather than per-state.
+   *
+   * So no state borrows the title to describe work. The card already carries the
+   * honest, observed thing in `.astate` (the classifier's state and its
+   * evidence); an empty task slot beats a confident fossil. The empty slot is an
+   * already-shipped, graceful state (#222 emptied it for the "Claude Code"
+   * default and the layout holds).
+   *
+   * 📌 `needs_you` USED TO KEEP THE TITLE as the thing it needs you ABOUT
+   * ("Needs you · Mac"); that qualifier is a fossil too, and it misled worst
+   * exactly there, because a person deciding whether to answer read it as what
+   * the agent is stuck ON. Dropped with Mona Lisa's agreement (she wrote the
+   * original and asked for the by-construction check above before relying on
+   * "never"). `rate_limited` still speaks its own honest reason, which is not the
+   * title at all.
+   */
+  return stateReason(a);
 }
 
 /**
  * What a STATE says about itself, or nothing.
  *
- * 🛑 EXTRACTED SO THE CARD AND THE DETAIL HEADER CANNOT DISAGREE. Making the
- * reason outrank the frozen title fixed the card and the list and left the
- * header on `a.task` — so the same agent read "Paused · Its screen mentions a
- * usage limit" on the board and "Paused · Hello" on its own page, an inch from
- * the sentence explaining it. A correct fix that moved half of a pair, which is
- * the shape this codebase keeps paying for; caught by Mona Lisa reading the file
- * rather than the release note.
+ * 🛑 EXTRACTED SO THE CARD AND THE DETAIL HEADER CANNOT DISAGREE. Both surfaces
+ * derive their task line from `taskLine`, which calls this. The frozen pane
+ * title used to be the fallback here; #209 removed it entirely (a title Kosmos
+ * never writes and Claude Code freezes at first message is a fossil, not a
+ * status), so today only `rate_limited` speaks and every other state shows
+ * nothing rather than a stale summary.
  *
- * 📌 EMPTY FOR EVERY OTHER STATE ON PURPOSE. `needs_you` uses `a.task` as the
- * thing it needs you ABOUT ("Needs you · Mac"), which is a real qualifier and
- * not a fossil, so it keeps the title. Only `rate_limited` has a reason that
- * outranks one, because only it means the agent cannot work at all.
+ * 🛑 `taskWords` IS GONE. It stripped the "Claude Code" default out of the
+ * frozen title (#222) so a brand-new agent did not read as "doing Claude Code".
+ * With the title no longer shown in any state, that whole concern is subsumed by
+ * #209: there is no title on screen to strip.
  */
-/* The pane title, minus the one value that is not a task (#222, #209): on a
-   brand-new session the frozen title is just the application's name, so the
-   product told a person their agent was doing "Claude Code" -- on the exact
-   screen where they most need reassurance, right after a restart. The name of
-   the software is not work; an empty slot is honest and the header hides it. */
-function taskWords(a) {
-  const t = a && typeof a.task === 'string' ? a.task.trim() : '';
-  return t === 'Claude Code' ? '' : t;
-}
 function stateReason(a) {
   if (!a || a.state !== 'rate_limited') return '';
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
@@ -9634,6 +9743,22 @@ document.getElementById('eng-toggle').addEventListener('click', engToggleClick);
 function pjApplyEngMode() {
   const vp = document.querySelector('.pj-viewport');
   if (vp) vp.hidden = !ENG_ON;
+  /* #370, Josh 2026-08-23 19:30, verbatim: "Boxes, fold to one if
+     engineering mode is turned off in settings, leave it and the tmux
+     window if engineering mode is turned on." So in the DEFAULT (Off) the
+     page has ONE composer, the room's, and @name is how you hand one agent
+     a request; the one-to-one box appears only for engineers.
+     🛑 EXCEPT WHEN AN AGENT IS WAITING ON AN ANSWER. The question panel
+     lives inside this box and is needed in Off (the ruled line above it:
+     safety, not chrome), and the box's composer is how the number gets
+     typed. A waiting agent overrides the fold; the fold resumes when the
+     question clears. */
+  const box = document.getElementById('pj-thread');
+  if (box) {
+    const q = document.getElementById('pj-question');
+    const asking = Boolean(q) && !q.hidden;
+    box.hidden = !ENG_ON && !asking;
+  }
 }
 
 /* ⚠️ ONE derivation of "is the raw screen actually visible", for every
@@ -12089,15 +12214,18 @@ function openDetail(sessionName, section) {
   const dst = document.getElementById('d-state');
   dst.className = 'detail-state astate st-' + dm.st;
   dst.innerHTML = GLYPH[dm.st] + '<b>' + esc(copy.label) + '</b>';
-  /* ⚠️ HIDDEN WHEN THERE IS NO TASK, rather than the card's "no task showing".
-     Beside a badge that already says Idle, that sentence restates the badge;
-     on a card, where the badge is small and the row is the only line, it
-     carries. Same fact, different surface, and the pack shows nothing here. */
+  /* ⚠️ HIDDEN WHEN THERE IS NO TASK. Beside a badge that already says Idle,
+     a task line would restate the badge; this panel shows nothing rather than
+     that. Since #209 the card, too, shows nothing here rather than a frozen
+     title, so the two surfaces no longer diverge on what "no task" looks like. */
   const dtask = document.getElementById('d-task');
-  /* The same derivation the card uses, so the two cannot say different things
-     about one agent. Falls back to the title, and to nothing at all — the header
-     hides rather than printing "no task showing" beside a name. */
-  dtask.textContent = stateReason(a) || taskWords(a) || '';
+  /* THE SAME derivation the card uses, called not copied, so the two cannot say
+     different things about one agent (the split this whole area keeps paying
+     for). Since #209 that derivation no longer includes the frozen pane title,
+     so the header shows a state's own honest reason (only rate_limited has one)
+     and otherwise nothing, which this panel already prefers to a restated
+     badge. */
+  dtask.textContent = taskLine(a);
   dtask.hidden = !dtask.textContent;
   /* The lede names the AGENT rather than saying "this agent", which is the
      pack's wording and the same substitution the rest of this panel already
@@ -12440,7 +12568,7 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
    page resets to Talk because it opens a different agent each time; Settings
    is one page, and a person who left Updates to look at the board comes back
    to Updates). "Landing is You" is the first arrival. */
-const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'policy', 'talking', 'mac', 'updates', 'plus', 'advanced'];
+const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'policy', 'talking', 'mac', 'updates', 'plus', 'styles', 'advanced'];
 function settingsGo(section, opts) {
   if (!SETTINGS_SECTIONS.includes(section)) section = 'you';
   const nav = document.getElementById('s-nav');
@@ -12460,6 +12588,10 @@ function settingsGo(section, opts) {
      not the poll, and painting every poll for a hidden section would be
      traffic for nobody. */
   if (section === 'plus') paintPlus();
+  /* apply=true: if the one boot-time fetch failed, arriving here
+     heals it; applyStyle removes before re-adding, so a repaint of an
+     already-applied style is a no-op on screen. */
+  if (section === 'styles') paintStyles(true);
 }
 document.getElementById('s-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
@@ -12473,6 +12605,10 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
    The list is whatever the runtime's folder holds right now; painting from
    anything else would let the screen disagree with what a session loads. */
 async function loadSkills(url, listId, msgId) {
+  /* Header only, no body text (Josh, 2026-08-23 20:01: "this page could get
+     really gigantic... just have only the header"). Each row carries its
+     Remove, which asks once in place before it acts: the second click is
+     the consent, and looking away resets it. */
   const box = document.getElementById(listId);
   const msg = document.getElementById(msgId);
   msg.textContent = 'Looking\u2026';
@@ -12487,11 +12623,22 @@ async function loadSkills(url, listId, msgId) {
       const row = document.createElement('div');
       row.className = 'skillrow';
       const n = document.createElement('b'); n.textContent = sk.name;
-      row.append(n);
-      if (sk.description) {
-        const d = document.createElement('span'); d.className = 'fhint'; d.style.display = 'block';
-        d.textContent = sk.description; row.append(d);
-      }
+      const rm = document.createElement('button');
+      rm.type = 'button'; rm.className = 'skillrm'; rm.textContent = 'Remove';
+      rm.setAttribute('aria-label', 'Remove the skill ' + sk.name);
+      let armed = false;
+      rm.addEventListener('click', async () => {
+        if (!armed) { armed = true; rm.textContent = 'Remove it for good?'; rm.classList.add('armed'); return; }
+        rm.disabled = true;
+        try {
+          const res = await fetch(url + '/' + encodeURIComponent(sk.key), { method: 'DELETE' });
+          const out = await res.json();
+          if (!res.ok) { msg.textContent = pjSentence(out.because || 'we could not remove it'); rm.disabled = false; return; }
+          loadSkills(url, listId, msgId);
+        } catch { msg.textContent = 'We could not reach Kosmos to remove it.'; rm.disabled = false; }
+      });
+      rm.addEventListener('blur', () => { armed = false; rm.textContent = 'Remove'; rm.classList.remove('armed'); });
+      row.append(n, rm);
       box.append(row);
     }
   } catch { box.textContent = ''; msg.textContent = 'We could not reach Kosmos to list the skills.'; }
@@ -12584,29 +12731,56 @@ async function polSubmit(body, doing) {
     paintPolicy();
   } catch { msg.textContent = 'We could not reach Kosmos to save it.'; }
 }
+/* Both ways in pass through the confirmation: writing into every agent's
+   instructions is a fleet-wide act, so the click says what it is about to do
+   before it does it. */
+let POL_PENDING = null;
+function polConfirm(body, doing) {
+  POL_PENDING = { body, doing };
+  document.getElementById('pol-modal').hidden = false;
+  // Enter on an unaimed dialog lands on the harmless answer.
+  document.getElementById('pol-m-keep').focus();
+}
+document.getElementById('pol-m-keep').addEventListener('click', () => {
+  document.getElementById('pol-modal').hidden = true;
+  POL_PENDING = null;
+});
+document.getElementById('pol-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'pol-modal') { document.getElementById('pol-modal').hidden = true; POL_PENDING = null; }
+});
+document.getElementById('pol-m-go').addEventListener('click', () => {
+  const p = POL_PENDING;
+  document.getElementById('pol-modal').hidden = true;
+  POL_PENDING = null;
+  if (p) polSubmit(p.body, p.doing);
+});
 document.getElementById('pol-fetch').addEventListener('click', () => {
   const url = document.getElementById('pol-url').value.trim();
   if (!url) { document.getElementById('pol-msg').textContent = 'Paste the link first.'; return; }
-  polSubmit({ url }, 'Fetching the page\u2026');
+  polConfirm({ url }, 'Fetching the page\u2026');
 });
 document.getElementById('pol-save').addEventListener('click', () => {
   const text = document.getElementById('pol-text').value;
   if (!text.trim()) { document.getElementById('pol-msg').textContent = 'Paste the policy first.'; return; }
-  polSubmit({ text }, 'Saving\u2026');
+  polConfirm({ text }, 'Saving\u2026');
 });
 /* The Fresh start button's name, in one place: visible text in the mock's
    long form, and an accessible name that says which of this page's two
    restarts it is, because the confirmation dialog's own button is also
    "Restart <name>" and the page behind a dialog is not made inert. */
 function freshStartLabel(name) {
+  /* The pack's colon labels (Josh, 2026-08-23 19:57, superseding his 08-22
+     long-form ruling: he pointed at the picture and the picture says this).
+     Restart still carries the name, exactly as the pack draws it; the other
+     two explain themselves and the dialogs name the agent and the cost. */
   const n = (name || '').trim();
   const b = document.getElementById('d-restart-start');
-  b.textContent = n ? 'Restart ' + n : 'Restart it';
+  b.textContent = 'Restart: stop and start ' + (n || 'it');
   b.setAttribute('aria-label', 'Fresh start: ' + b.textContent);
-  /* The other two of the three, same ruling (#404): the agent's name on the
-     button, the possessive the dialog title already uses. */
-  document.getElementById('d-compact-go').textContent = n ? 'Compact ' + n + '\u2019s memory' : 'Compact its memory';
-  document.getElementById('d-clear-go').textContent = n ? 'Clear ' + n + '\u2019s memory' : 'Clear its memory';
+  document.getElementById('d-compact-go').textContent = 'Compact: summarise and keep going';
+  document.getElementById('d-clear-go').textContent = 'Clear: start over, loses what it is holding';
+  const lede = document.getElementById('d-fresh-lede');
+  if (lede) lede.textContent = 'Three ways to get ' + (n || 'it') + ' going again, whatever the reason.';
 }
 /* Two pills carry the agent's name. Painted from the same `a.name` the header
    paints, on open and after a rename, and never left holding the last agent's. */
@@ -13285,6 +13459,9 @@ async function loadRemoval(sessionName, { fromPoll = false } = {}) {
   // Compact and Clear show with Restart: all three act on a running session (#214).
   const reset = document.getElementById('d-reset-agent');
   if (reset) reset.hidden = false;
+  // The footer belongs to all three, so it follows the same visibility.
+  const foot = document.getElementById('d-fresh-foot');
+  if (foot) foot.hidden = false;
   if (!fromPoll) {
     document.getElementById('d-restart-msg').textContent = '';
     rstBtn.disabled = false;
@@ -15000,6 +15177,96 @@ let CREATE_MODELS = [];    // the engine's model list, from the same payload
 /* The one line under a model picker (#405): the engine's `why` for whatever is
    selected, nothing when nothing is. Same rule on the create form and the
    agent's Model tab, so the two pickers cannot describe one model differently. */
+/* ---- Styles (#480): tokens applied on the root, themes plus a paste ---
+   The apply is setProperty per token, so a pasted file can recolor and
+   cannot do anything else; it sits above the light/dark machinery and
+   the tab says so. Applied at boot so a saved style survives a reload. */
+let STYLE_APPLIED = [];
+let STYLE_STORE_MSG = false;
+/* Latest wins: a slow boot GET must not land on top of a fresh save.
+   Every painter takes a ticket; a response older than the newest
+   ticket is dropped whole. */
+let STYLE_REQ = 0;
+function applyStyle(tokens) {
+  const root = document.documentElement;
+  for (const name of STYLE_APPLIED) root.style.removeProperty(name);
+  STYLE_APPLIED = [];
+  for (const [name, value] of Object.entries(tokens || {})) {
+    root.style.setProperty(name, value);
+    STYLE_APPLIED.push(name);
+  }
+}
+async function paintStyles(apply) {
+  const ticket = ++STYLE_REQ;
+  let r = null;
+  try { r = await (await fetch('/api/style', { cache: 'no-store' })).json(); } catch { r = null; }
+  if (!r || ticket !== STYLE_REQ) return;
+  if (apply) applyStyle(r.tokens);
+  const sel = document.getElementById('style-theme');
+  if (sel) {
+    const html = (r.themes || []).map((t) => '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>').join('');
+    if (sel.innerHTML !== html) sel.innerHTML = html;
+    sel.value = r.theme;
+    document.getElementById('style-clear').hidden = !(r.customCount > 0);
+  }
+  /* A corrupt saved style falls back to the shipped look AND says so
+     here, the promise the engine's because field exists to keep. */
+  /* Keyed on the STATE, not the sentence's wording: the flag remembers
+     that the slot holds the store-read failure, so a healthy read clears
+     exactly that and never a fresh save verdict standing there. */
+  const smsg = document.getElementById('style-msg');
+  if (smsg) {
+    if (r.ok === false && r.because) { smsg.textContent = r.because; STYLE_STORE_MSG = true; }
+    else if (STYLE_STORE_MSG) { smsg.textContent = ''; STYLE_STORE_MSG = false; }
+  }
+}
+paintStyles(true);
+if (document.getElementById('style-theme')) document.getElementById('style-theme').addEventListener('change', async (e) => {
+  const msg = document.getElementById('style-msg');
+  msg.textContent = '';
+  try {
+    STYLE_REQ += 1;
+    const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ theme: e.target.value }) });
+    const body = await res.json().catch(() => null);
+    /* A failed save reverts the select: the control shows what is
+       standing, never a pick that neither saved nor applied. */
+    if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; paintStyles(false); return; }
+    applyStyle(body.tokens);
+    document.getElementById('style-clear').hidden = !(body.customCount > 0);
+  } catch { msg.textContent = 'we could not save the style'; paintStyles(false); }
+});
+if (document.getElementById('style-apply')) document.getElementById('style-apply').addEventListener('click', async () => {
+  const msg = document.getElementById('style-msg');
+  msg.textContent = '';
+  const text = document.getElementById('style-custom').value;
+  try {
+    STYLE_REQ += 1;
+    const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ customText: text }) });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; return; }
+    applyStyle(body.tokens);
+    document.getElementById('style-clear').hidden = !(body.customCount > 0);
+    STYLE_STORE_MSG = false;
+    msg.textContent = body.customCount === 1 ? 'Applied: 1 token.'
+      : body.customCount > 0 ? 'Applied: ' + body.customCount + ' tokens.' : 'Applied.';
+  } catch { msg.textContent = 'we could not save the style'; }
+});
+if (document.getElementById('style-clear')) document.getElementById('style-clear').addEventListener('click', async () => {
+  const msg = document.getElementById('style-msg');
+  msg.textContent = '';
+  try {
+    STYLE_REQ += 1;
+    const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ customText: '' }) });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; return; }
+    document.getElementById('style-custom').value = '';
+    applyStyle(body.tokens);
+    document.getElementById('style-clear').hidden = true;
+    STYLE_STORE_MSG = false;
+    msg.textContent = 'Your style is removed; the theme stays.';
+  } catch { msg.textContent = 'we could not save the style'; }
+});
+
 /* ---- Plus Account (the relay service's Settings home) -----------------
    The holding place is the RESTING state: the flow renders only when this
    machine actually has a relay configured, so nothing on the tab can look
@@ -18813,6 +19080,7 @@ function openProject(id) {
     document.getElementById('pj-question').hidden = true;
     document.getElementById('pj-screen').hidden = true;
     document.getElementById('pj-screen-hint').textContent = '';
+    pjApplyEngMode();
     // The heading too (round 22): it is written in exactly one place
     // (paintThread), so without this reset a project with no agents kept
     // "What Mara's screen shows right now" from the LAST thread over an
@@ -20009,6 +20277,7 @@ function paintThread(body) {
     pjSetScreen(qText, body.question.text);
     document.getElementById('pj-answer-how').hidden = false;
     qWrap.hidden = false;
+    pjApplyEngMode();
   } else if (body.asking) {
     /**
      * ⚠️ SAID, not hidden. A "Needs you" card over an empty question box is the
@@ -20050,11 +20319,13 @@ function paintThread(body) {
     }
     qText.hidden = true;
     qWrap.hidden = false;
+    pjApplyEngMode();
   } else {
     if (qWrap.contains(document.activeElement)) {
       document.getElementById('pj-say').focus();
     }
     qWrap.hidden = true;
+    pjApplyEngMode();
     qText.hidden = false;
   }
   // The un-hide for the question branch above (its qText.hidden = true is
@@ -20197,6 +20468,7 @@ async function loadThread() {
     document.getElementById('pj-question').hidden = true;
     document.getElementById('pj-screen').hidden = true;
     document.getElementById('pj-screen-hint').textContent = '';
+    pjApplyEngMode();
     // Same heading reset as openProject's clear (round 22): the poll takes
     // this branch within a tick of the last agent leaving the project, and
     // the heading otherwise keeps naming the departed agent.

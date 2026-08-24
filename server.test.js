@@ -1137,6 +1137,61 @@ test('GET reflects what was actually stored, not a fixed answer', async (t) => {
   assert.equal(JSON.parse((await req(`/api/agent/${name}/commitments`)).body).state, 'clear');
 });
 
+test('#18: an agent whose session name safeKey alters can report, under its sanitised name', async () => {
+  // The card (#18) described the old knownAgent, `a.sessionName === safeKey(name)`.
+  // Under it, an agent whose session name carries a character safeKey strips (a
+  // dot here) got a permanent 404 on every write route under EVERY spelling: the
+  // raw form is stripped by safeKey and the stripped form does not equal the raw
+  // session name. The agent could never report, and read `unknown` forever.
+  //
+  // knownAgent now routes through claimantFor, whose fallback compares
+  // safeKey-to-safeKey, so the gate admits the name. This reproduces the card's
+  // exact scenario and is the durable form of "we already fixed that": it fails
+  // against the old gate.
+  //
+  // Note the TWO layers, which the card's own "Related" paragraph anticipates:
+  // the GATE (knownAgent) admits the name, and the STORE (commitments.report)
+  // still refuses a non-canonical spelling to protect against collision
+  // overwrites. So the fix signature is 400-not-404 on the raw spelling (the
+  // gate passed, the store asks for the canonical name) and full success on the
+  // sanitised one. A permanent 404 was the defect; an actionable 400 is not.
+  const status = require('./engine/status');
+  // `my.bot` -> safeKey `mybot`: the dot is what safeKey strips. Tied by the
+  // `-discord` suffix, so isNamedOurs holds and the write gate is reachable.
+  status.setPaneSource(() => fleet.line({ session: 'my.bot-discord', title: 'x' }));
+  status.setPaneCapture(() => 'Worked for 1m\n> \n');
+  try {
+    // The raw spelling clears the GATE (not a 404) and is then asked, by the
+    // store's anti-aliasing guard, to use the canonical name. Under the old
+    // knownAgent this was a 404 and never reached the store at all.
+    const rawPut = await req('/api/agent/my.bot/commitments', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ commitments: [{ what: 'holding the lease' }] }),
+    });
+    assert.notEqual(rawPut.status, 404,
+      'the write gate refused a safeKey-altering session name outright (the #18 defect)');
+    assert.equal(rawPut.status, 400, 'the raw spelling should reach the store and be redirected');
+    assert.match(JSON.parse(rawPut.body).error, /mybot/,
+      'the refusal must name the canonical spelling to report under');
+
+    // The sanitised spelling works end to end: the agent CAN report, which is
+    // the "can never report" the card said was true.
+    const sani = await req('/api/agent/mybot/commitments', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ commitments: [{ what: 'holding the lease' }] }),
+    });
+    assert.equal(sani.status, 200, 'the agent still could not report under any spelling');
+
+    const got = await req(`/api/agent/mybot/commitments?t=${Date.now()}`);
+    const body = JSON.parse(got.body);
+    assert.equal(body.state, 'holding', 'the report did not round-trip');
+    assert.deepEqual(body.commitments.map((x) => x.what), ['holding the lease']);
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+});
+
 test('a null PUT body is refused with a readable message, not an exception name', async (t) => {
   // Previously answered 400 with the raw JS text "Cannot read properties of
   // null (reading 'commitments')", which names an exception rather than saying
@@ -7969,13 +8024,15 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   const tablesFrom = script.indexOf('const STATE_COPY = {');
   const cardStAt = script.indexOf('function cardStOf(a)');
   assert.ok(tablesFrom > -1 && cardStAt > tablesFrom, 'the shared state tables moved');
-  /* ⚠️ `stateReason` JOINS THE PRELUDE, sliced from the page like the tables
-     above and for the identical reason: the header painter calls it now, and a
-     stub here would let this test pass while the shipped helper said something
-     else. It exists so the card and this header cannot disagree about one
-     agent, so a copy of it in the test would defeat its whole purpose. */
+  /* ⚠️ `taskLine` (and the `stateReason` it calls) JOIN THE PRELUDE, sliced
+     from the page like the tables above and for the identical reason: the
+     header painter calls `taskLine` now, and a stub here would let this test
+     pass while the shipped helper said something else. It exists so the card
+     and this header cannot disagree about one agent, so a copy of it in the
+     test would defeat its whole purpose. (`taskWords` was removed by #209; the
+     header no longer shows the frozen pane title in any state.) */
   const tables = script.slice(tablesFrom, script.indexOf('\n', cardStAt) + 1)
-    + '\n' + pageFnSource('taskWords') + '\n' + pageFnSource('stateReason');
+    + '\n' + pageFnSource('stateReason') + '\n' + pageFnSource('taskLine');
 
   const dmAt = script.indexOf('  const dm = cardStOf(a);');
   assert.ok(dmAt > -1,
@@ -8011,33 +8068,38 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   assert.match(needs.state.className, /\bst-attn\b/,
     'the badge class does not track the state, so its colour cannot');
   assert.match(needs.state.innerHTML, /Needs you/, 'the badge lost its word');
-  assert.equal(needs.task.textContent, 'Mac', 'the task did not reach its own element');
+  // #209: needs_you no longer borrows the frozen title as its qualifier. The
+  // title is a boot fossil (Kosmos never writes it), and it misled worst here,
+  // because a person deciding whether to answer read it as what the agent is
+  // stuck ON. So the header shows the badge and nothing beside it.
+  assert.equal(needs.task.textContent, '', 'needs_you still showed the frozen title as its task');
+  assert.equal(needs.task.hidden, true, 'the empty task line was not hidden');
 
   /**
-   * 🛑 AND THE HEADER SAYS WHAT THE CARD SAYS. Making the blocking reason
-   * outrank the frozen pane title fixed the card and the list row and left this
-   * header on `a.task` — so one agent read "Paused · Its screen mentions a usage
-   * limit" on the board and "Paused · Hello" on its own page, an inch above the
-   * sentence explaining it. A correct fix that moved half of a pair.
-   *
-   * 📌 The `needs_you` case above is the control: its title is a real qualifier
-   * ("Needs you · Mac"), not a fossil, and it must keep coming through.
+   * 🛑 AND THE HEADER SAYS WHAT THE CARD SAYS. Both derive the task line from
+   * `taskLine`, so a state that shows a reason on the card shows the same reason
+   * here, and a state that shows nothing shows nothing on both. `rate_limited`
+   * is the one state whose task line still has content after #209, so it is the
+   * case that exercises "the task is a SEPARATE element from the badge".
    */
   const paused = drive({ state: 'rate_limited', stateConfidence: 'scraped', task: 'Hello' });
   assert.equal(paused.task.textContent, 'Looks like a usage limit',
     'the header still shows a summary of the first message instead of the reason it is stopped');
   assert.notEqual(paused.task.textContent, 'Hello',
-    'the header and the card disagree about the same agent');
-  assert.equal(needs.task.hidden, false, 'a real task was hidden');
+    'the header showed the frozen pane title instead of the reason it is stopped');
+  assert.equal(paused.task.hidden, false, 'a real reason was hidden');
   // ⚠️ The regression this change exists to prevent: the badge must NOT swallow
-  // the task. "Needs you: Mac" as one string is what Josh marked up.
-  assert.doesNotMatch(needs.state.innerHTML, /Mac/,
-    'the badge swallowed the task again, so the state and the thing it is about '
+  // the task into one unstyleable run. Shown on rate_limited, whose reason is
+  // the content that survives #209.
+  assert.doesNotMatch(paused.state.innerHTML, /Looks like a usage limit/,
+    'the badge swallowed the reason, so the state and the thing it is about '
     + 'are one unstyleable run');
 
   const working = drive({ state: 'working', task: 'Building the campaign calendar' });
   assert.match(working.state.className, /\bst-working\b/);
   assert.match(working.state.innerHTML, /Working/);
+  // #209: a working agent's frozen title is not shown as what it is doing.
+  assert.equal(working.task.hidden, true, 'a working agent showed its frozen pane title as its task');
 
   // ⚠️ CONTROL: no task means no line, not an empty one. Without this, a task
   // element that never hides would satisfy every assertion above.
@@ -10041,6 +10103,18 @@ test('skills over the wire: global lists and adds; the agent write carries the e
   assert.deepEqual(JSON.parse(r.body).skills.map((x) => x.key), ['file-an-expense']);
   // And it landed in the folder the runtime reads, nowhere else.
   assert.ok(fsx.existsSync(require('node:path').join(skillsEngine.agentDir(createEngine.workerDir('mara')), 'file-an-expense', 'SKILL.md')));
+  // Delete carries the same permit as the write, then genuinely removes.
+  r = await req('/api/agent/nobody-here/skills/file-an-expense', { method: 'DELETE' });
+  assert.equal(r.status, 409, 'a delete for an agent the roster cannot vouch for must be refused');
+  r = await req('/api/agent/mara/skills/file-an-expense', { method: 'DELETE' });
+  assert.equal(r.status, 200, r.body);
+  assert.deepEqual(JSON.parse((await req('/api/agent/mara/skills')).body).skills, []);
+  // Global delete: gone, and the second ask is a sentence, not a quiet yes.
+  r = await req('/api/skills/how-we-write-emails', { method: 'DELETE' });
+  assert.equal(r.status, 200, r.body);
+  r = await req('/api/skills/how-we-write-emails', { method: 'DELETE' });
+  assert.equal(r.status, 400);
+  assert.match(JSON.parse(r.body).because, /no skill by this name/);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -10161,6 +10235,53 @@ test('the sign-up start refuses a non-email before anything spawns', async () =>
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Styles (#480)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('the style routes round-trip a theme and a pasted file, and refuse behavior with the line named', async () => {
+  const got = JSON.parse((await req('/api/style')).body);
+  assert.ok(Array.isArray(got.themes) && got.themes.length >= 2, 'no themes offered');
+
+  const themed = await req('/api/style', {
+    method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ theme: 'slate' }),
+  });
+  assert.equal(themed.status, 200, themed.body);
+  assert.equal(JSON.parse(themed.body).theme, 'slate');
+
+  const pasted = await req('/api/style', {
+    method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ customText: '--k-bg: #101010' }),
+  });
+  assert.equal(pasted.status, 200, pasted.body);
+  assert.equal(JSON.parse(pasted.body).tokens['--k-bg'], '#101010');
+
+  const bad = await req('/api/style', {
+    method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ customText: '--x: url(http://x)' }),
+  });
+  assert.equal(bad.status, 400);
+
+  /* A present-but-mistyped field is refused by name, never a silent
+     no-change 200 a scripted client would read as saved (iteration 5). */
+  for (const wrong of [{ theme: 42 }, { customText: ['--x: red'] }]) {
+    const r = await req('/api/style', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(wrong),
+    });
+    assert.equal(r.status, 400, JSON.stringify(wrong));
+    assert.match(JSON.parse(r.body).error, /must be a string/, JSON.stringify(wrong));
+  }
+  assert.match(JSON.parse(bad.body).error, /uses url\(\)/);
+  /* A refused paste must not have half-applied: the last good custom set
+     survives. */
+  assert.equal(JSON.parse((await req('/api/style')).body).tokens['--k-bg'], '#101010',
+    'a refused paste destroyed the style that was standing');
+
+  // reset for later tests
+  await req('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ theme: 'kosmos', customText: '' }) });
+});
+
 // The AI policy routes (#479's record behind the Settings tab)
 // ─────────────────────────────────────────────────────────────────────────────
 

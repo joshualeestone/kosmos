@@ -338,6 +338,7 @@ function fetchFile(url, dest, onProgress, redirects, track) {
   const left = redirects === undefined ? 5 : redirects;
   return new Promise((resolve, reject) => {
     const lib = url.startsWith('http:') ? http : https;
+    let responded = false;
     const req = lib.get(url, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && left > 0) {
         res.resume();
@@ -356,10 +357,30 @@ function fetchFile(url, dest, onProgress, redirects, track) {
       const total = Number(res.headers['content-length']) || null;
       const hash = crypto.createHash('sha256');
       const out = fs.createWriteStream(dest);
-      // A cancel arrives via req.destroy(), whose rejection path did not
-      // close the write stream -- one leaked fd on the .part per cancelled
-      // download (the sweep unlinks the path, the fd lived on).
-      req.on('error', () => { try { out.destroy(); } catch { /* already closed */ } });
+      responded = true;
+      let settled = false;
+      /**
+       * ⚠️ A FAILED FETCH DOES NOT REJECT UNTIL THE WRITE STREAM HAS CLOSED,
+       * because until then "did a file land on disk" HAS NO ANSWER. The
+       * stream's open is an fs-thread-pool operation: under full-suite load
+       * it can still be QUEUED while data is already arriving (progress
+       * counts network bytes, not written ones) -- and a cancel in that
+       * window swept an empty directory, after which the open landed and
+       * created the .part POSTHUMOUSLY, with every cleanup already run
+       * (#458; the mechanism was reproduced with a saturated thread pool
+       * before this was written). Waiting for 'close' also closes the
+       * older leak this comment used to record: the rejection path once
+       * left the fd open entirely. 'close' fires whether or not the open
+       * ever completed, so this cannot hang the rejection.
+       */
+      const rejectAfterClose = (e) => {
+        if (settled) return;
+        settled = true;
+        try { out.destroy(); } catch { /* already closed */ }
+        if (out.closed) { reject(e); return; }
+        out.on('close', () => reject(e));
+      };
+      req.on('error', rejectAfterClose);
       let got = 0;
       res.on('data', (c) => {
         got += c.length;
@@ -374,12 +395,19 @@ function fetchFile(url, dest, onProgress, redirects, track) {
         if (onProgress) onProgress(got, total);
       });
       res.pipe(out);
-      out.on('finish', () => resolve({ sha256: hash.digest('hex'), bytes: got }));
-      res.on('error', (e) => { out.destroy(); reject(e); });
-      out.on('error', reject);
+      out.on('finish', () => {
+        if (settled) return;
+        settled = true;
+        resolve({ sha256: hash.digest('hex'), bytes: got });
+      });
+      res.on('error', rejectAfterClose);
+      out.on('error', rejectAfterClose);
     });
     req.setTimeout(600000, () => { req.destroy(new Error('the download stalled')); });
-    req.on('error', reject);
+    // Before the response arrives no write stream exists and no file can
+    // have been created, so a connection failure may reject immediately.
+    // After it, the delayed path above owns rejection.
+    req.on('error', (e) => { if (!responded) reject(e); });
     activeRequest = req;
     if (track) track(req);
   });
@@ -690,12 +718,19 @@ async function runFlow(owner, haveBinary) {
       // A death mid-stream leaves a .part behind, and a retry only sweeps the
       // SAME version's partial -- a version bump between attempts would
       // strand up to ~281MB that nothing else ever cleans. Sweep them all.
-      // ⚠️ ONLY IF THIS FLOW STILL OWNS THE DIR: a stale flow's late network
+      // ⚠️ ONLY IF NO SUCCESSOR OWNS THE DIR: a stale flow's late network
       // rejection must not delete the .part a successor flow is mid-writing
       // -- the same guard cancel's own sweep carries, for the same reason.
       // (This sweep shipped one iteration without the guard: the fix for the
       // stranded-partial NIT introduced the race, found on the next pass.)
-      if (driver === owner) {
+      // ⚠️ `driver === null` sweeps too, and it is load-bearing (#458): a
+      // CANCELLED flow's rejection arrives here after cancel's own sweep
+      // already ran, and since fetchFile rejects only once its write stream
+      // has closed, this is the first point where a .part created by a
+      // thread-pool-delayed open is guaranteed observable. With driver null
+      // there is no successor to protect, and the read of `driver` and the
+      // unlinks share one synchronous block, so none can appear mid-sweep.
+      if (driver === owner || driver === null) {
         try {
           const dir = path.join(store.ROOT, 'downloads');
           for (const f of fs.readdirSync(dir)) {

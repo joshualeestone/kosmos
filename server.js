@@ -107,6 +107,7 @@ const forget = require('./engine/forget');
 const ping = require('./engine/ping');
 const notify = require('./engine/notify');
 const remote = require('./engine/remote');
+const styles = require('./engine/styles');
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
@@ -890,6 +891,14 @@ const server = http.createServer((req, res) => {
            ⚠️ Only for agents we started: an untied pane borrowing a name has
            no startup file of ours, and answering for it would be answering for
            a stranger's session. */
+        /* #170: the agent's id, read-only, so screens and future
+           outside-agent reconciliation can tell two same-named agents
+           apart. `agentId` answers null for a profile minted under another
+           install (a restored agent is a different agent and gets a fresh
+           id on its first local write) and for an untied pane, which is not
+           ours to name. Nothing resolves BY id yet; the name remains the
+           operational key everywhere. */
+        id: a.isNamedOurs ? store.agentId(a.sessionName) : null,
         account: a.isNamedOurs ? accountOf(a.sessionName) : null,
         commitments: a.isNamedOurs
           ? commitments.read(a.sessionName)
@@ -981,8 +990,19 @@ const server = http.createServer((req, res) => {
           /* One launchd probe per poll, for #310's sentence below. Empty on
              any failure: could-not-look must never read as switched-off. */
           const switchedOff = create.disabledJobs();
+          /* 🛑 #127: A LEFTOVER JOB WITH NO FOLDER IS STILL A LEFTOVER, and it
+             was the one this list discarded. The gate used to be `k.folder`
+             alone, so an agent whose worker folder was deleted while its
+             launchd job survived (the shape Splinter's orphaned processes took
+             tonight: the directory gone, the work not) fell out of the roster
+             entirely -- invisible in the product, and therefore unremovable
+             from it, while `create.js` still refused the name because the job
+             exists (`:715`). `remove.js` can already clear it (`exists()` gates
+             on `jobFor`), so the only thing missing was the row that carries a
+             Remove control to it. A folder OR a job is enough to be a leftover
+             worth showing; both blocking states are now reachable. */
           return known.agents
-            .filter((k) => !k.removed && k.folder && !seen.has(k.name) && !gone.has(k.name))
+            .filter((k) => !k.removed && (k.folder || k.job) && !seen.has(k.name) && !gone.has(k.name))
             .map((k) => {
               const profile = store.readProfile(k.name) || {};
               return {
@@ -1009,9 +1029,17 @@ const server = http.createServer((req, res) => {
                    the one cause a person produced themselves with no screen
                    connecting the two. Said here, once, so every surface that
                    reads `because` says it. */
-                because: (!create.jobMissing(k.name) && switchedOff.has(k.name))
-                  ? 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again'
-                  : 'this agent is not running: nothing on this computer has a session for it',
+                because: (k.job && !k.folder)
+                  /* #127: the distinct, broken state this row now surfaces. A
+                     job with no folder cannot start (it has nothing to run) and
+                     fails on every launchd interval; the only cure is to remove
+                     it, which this row finally makes reachable. Said before the
+                     switched-off case because it is the stronger fact: a folder
+                     that is gone is gone whether or not the job is also off. */
+                  ? 'this agent cannot run: its folder is gone but a leftover startup job remains. Remove it here to free the name'
+                  : (!create.jobMissing(k.name) && switchedOff.has(k.name))
+                    ? 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again'
+                    : 'this agent is not running: nothing on this computer has a session for it',
                 hasAvatar: Boolean(safeAvatarFor(k.name)),
                 profile,
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
@@ -1024,6 +1052,11 @@ const server = http.createServer((req, res) => {
                    agent with a job that EXISTS and is overridden off; the
                    never-recorded case above wins when both could apply. */
                 jobSwitchedOff: !create.jobMissing(k.name) && switchedOff.has(k.name),
+                /* #170: same field, same meaning as the running rows. The
+                   embedded `profile` above may carry a foreign install's id
+                   inside it; THIS field is the one consumers read, and it is
+                   already filtered. */
+                id: store.agentId(k.name),
                 account: accountOf(k.name),
                 commitments: commitments.read(k.name),
                 instructions: instructions.staleness(k.name),
@@ -1292,6 +1325,33 @@ const server = http.createServer((req, res) => {
         sendJson(res, made.ok ? 200 : 400, made);
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  const globalSkillRm = pathname.match(/^\/api\/skills\/([^/]+)$/);
+  if (globalSkillRm && req.method === 'DELETE') {
+    const key = decodeSegment(globalSkillRm[1]);
+    if (key === null) { sendJson(res, 400, { ok: false, because: 'that is not a skill name we can read' }); return; }
+    const gone = skillsEngine.remove(skillsEngine.globalDir(), key);
+    sendJson(res, gone.ok ? 200 : 400, gone);
+    return;
+  }
+  /* The delete carries the same exact-match permit as the write: removing a
+     file from a worker folder is a write to it. */
+  const agentSkillRm = pathname.match(/^\/api\/agent\/([^/]+)\/skills\/([^/]+)$/);
+  if (agentSkillRm && req.method === 'DELETE') {
+    const name = decodeSegment(agentSkillRm[1]);
+    const key = decodeSegment(agentSkillRm[2]);
+    if (name === null || key === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    const roster = safeRoster();
+    if (!Array.isArray(roster) || !roster.some((a) => a && a.sessionName === name && a.isNamedOurs === true)) {
+      sendJson(res, 409, { ok: false,
+        because: !Array.isArray(roster)
+          ? 'we could not check which agents are running, so we will not write into a worker folder on a guess'
+          : 'we could not find an agent with exactly this name on this computer' });
+      return;
+    }
+    const gone = skillsEngine.remove(skillsEngine.agentDir(create.workerDir(name)), key);
+    sendJson(res, gone.ok ? 200 : 400, gone);
     return;
   }
   const agentSkills = pathname.match(/^\/api\/agent\/([^/]+)\/skills$/);
@@ -1839,6 +1899,36 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, { ok: true, status: remote.status() });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not finish the sign-up' }));
+    return;
+  }
+  /* ---- Styles (#480): named themes plus a pasted token file ---- */
+  if (pathname === '/api/style' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { sendJson(res, 200, { ...styles.effective(), themes: styles.themeList() }); }
+    catch { sendJson(res, 500, { error: 'we could not read the style' }); }
+    return;
+  }
+  if (pathname === '/api/style' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* A present-but-mistyped field is a 400 naming the field, never
+           a silent no-change 200 a scripted client reads as saved. */
+        if ('theme' in body && typeof body.theme !== 'string') { sendJson(res, 400, { error: 'theme must be a string' }); return; }
+        if ('customText' in body && typeof body.customText !== 'string') { sendJson(res, 400, { error: 'customText must be a string' }); return; }
+        /* One validated write for the whole request: sequential setters
+           left a half-applied theme behind a refused paste, and the 400
+           then named only the paste while the store had already moved. */
+        const saved = styles.set({
+          theme: typeof body.theme === 'string' ? body.theme : undefined,
+          customText: typeof body.customText === 'string' ? body.customText : undefined,
+        });
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        sendJson(res, 200, { ...styles.effective(), themes: styles.themeList() });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save the style' }));
     return;
   }
   if (pathname === '/api/notify-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
