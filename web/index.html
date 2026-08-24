@@ -695,6 +695,9 @@ html { scroll-padding-top: 132px; }
 .utoast .udot { width: 8px; height: 8px; border-radius: 50%; background: var(--utone); flex: 0 0 8px; }
 .utoast .utxt b { display: block; font-size: .8125rem; line-height: 1.3; color: var(--utone); }
 .utoast .utxt small { font-size: .6875rem; color: var(--label-2); }
+/* #655: the news line's link and dismiss, in the toast's own ink and on one line. */
+.utoast .utxt small a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.utoast .uacts button { white-space: nowrap; }
 .utoast .uacts { display: flex; gap: 6px; margin-left: 4px; }
 .utoast .uacts button { font: inherit; font-size: .75rem; font-weight: 600; cursor: pointer;
   border-radius: 8px; padding: .4em .7em; border: 1px solid var(--separator); background: var(--bg-elevated); color: var(--label); }
