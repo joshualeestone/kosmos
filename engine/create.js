@@ -2164,8 +2164,17 @@ function createAgentInner(opts) {
   };
 }
 
+/* 🔑 THE SELF-STARTING FACT, SAID ONCE (#671). A Kosmos-made agent's job has
+   RunAtLoad and KeepAlive, so "how do I start it?" has a real answer and it is
+   "you do not". remove.js's restart refusal and the board's offline sentence
+   both need the words; two spellings of one launch model drift the first time
+   either is edited, which is this codebase's named worst habit. No trailing
+   punctuation: each surface finishes its own sentence. */
+const SELF_STARTS = 'it starts itself when this Mac is on and it is not removed';
+
 module.exports = {
   MODELS,
+  SELF_STARTS,
   createdLog, createdLogFile, disabledJobs, runningJobs,
   /* ⚠️ Exported as the ONE machine-name rule. `slugFor` only lowercases — it
      is a converter, not a gate — so anything asking "is this a name we can
