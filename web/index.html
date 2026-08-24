@@ -14923,6 +14923,10 @@ let CREATE_MODELS = [];    // the engine's model list, from the same payload
    the tab says so. Applied at boot so a saved style survives a reload. */
 let STYLE_APPLIED = [];
 let STYLE_STORE_MSG = false;
+/* Latest wins: a slow boot GET must not land on top of a fresh save.
+   Every painter takes a ticket; a response older than the newest
+   ticket is dropped whole. */
+let STYLE_REQ = 0;
 function applyStyle(tokens) {
   const root = document.documentElement;
   for (const name of STYLE_APPLIED) root.style.removeProperty(name);
@@ -14933,9 +14937,10 @@ function applyStyle(tokens) {
   }
 }
 async function paintStyles(apply) {
+  const ticket = ++STYLE_REQ;
   let r = null;
   try { r = await (await fetch('/api/style', { cache: 'no-store' })).json(); } catch { r = null; }
-  if (!r) return;
+  if (!r || ticket !== STYLE_REQ) return;
   if (apply) applyStyle(r.tokens);
   const sel = document.getElementById('style-theme');
   if (sel) {
@@ -14960,6 +14965,7 @@ if (document.getElementById('style-theme')) document.getElementById('style-theme
   const msg = document.getElementById('style-msg');
   msg.textContent = '';
   try {
+    STYLE_REQ += 1;
     const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ theme: e.target.value }) });
     const body = await res.json().catch(() => null);
     /* A failed save reverts the select: the control shows what is
@@ -14974,6 +14980,7 @@ if (document.getElementById('style-apply')) document.getElementById('style-apply
   msg.textContent = '';
   const text = document.getElementById('style-custom').value;
   try {
+    STYLE_REQ += 1;
     const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ customText: text }) });
     const body = await res.json().catch(() => null);
     if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; return; }
@@ -14988,6 +14995,7 @@ if (document.getElementById('style-clear')) document.getElementById('style-clear
   const msg = document.getElementById('style-msg');
   msg.textContent = '';
   try {
+    STYLE_REQ += 1;
     const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ customText: '' }) });
     const body = await res.json().catch(() => null);
     if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; return; }

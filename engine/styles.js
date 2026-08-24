@@ -65,7 +65,7 @@ const LINE = /^\s*(--[a-z0-9-]{1,40})\s*:\s*([^;{}<>]{1,120}?)\s*;?\s*$/i;
    all pure value math, none can fetch or behave. */
 const FN_ALLOWED = new Set(['rgb', 'rgba', 'hsl', 'hsla', 'hwb', 'lab', 'lch',
   'oklab', 'oklch', 'color', 'color-mix', 'light-dark',
-  'calc', 'clamp', 'min', 'max', 'var']);
+  'calc', 'clamp', 'min', 'max', 'var', 'env']);
 
 function valueProblem(value) {
   if (/\\/.test(value)) return 'has a backslash, which a color or size never needs';
@@ -117,6 +117,9 @@ function parseTokens(text) {
         return { ok: false, because: 'line ' + (i + 1) + ' sets a value longer than 120 characters' };
       }
       return { ok: false, because: 'line ' + (i + 1) + ' is not a token line; every line looks like --name: value;' };
+    }
+    if (!m[2].trim()) {
+      return { ok: false, because: 'line ' + (i + 1) + ' sets no value' };
     }
     const bad = valueProblem(m[2]);
     if (bad) return { ok: false, because: 'line ' + (i + 1) + ' ' + bad };

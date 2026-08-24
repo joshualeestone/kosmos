@@ -105,9 +105,17 @@ test('the allowlist speaks current CSS: modern color spaces and calc siblings pa
 });
 
 test('a theme name off the prototype chain is refused, not persisted (iteration 4)', () => {
+  const before = styles.read().theme;
   for (const bad of ['__proto__', 'constructor', 'hasOwnProperty']) {
     assert.equal(styles.set({ theme: bad }).ok, false, bad);
   }
+  assert.equal(styles.read().theme, before, 'a refused theme name reached the store');
+});
+
+test('a token with no value is refused with its own sentence (iteration 6)', () => {
+  assert.match(styles.parseTokens('--a: ;').because, /sets no value/);
+  assert.match(styles.parseTokens('--a:').because, /sets no value|not a token line/);
+  assert.equal(styles.parseTokens('--pad: env(safe-area-inset-top)').ok, true);
 });
 
 test('a duplicate name counts once, the last value winning as it would in a sheet (iteration 3)', () => {
