@@ -98,6 +98,34 @@ if ! git -C "$REPO" diff --quiet -- package.json; then
 fi
 [ -z "$(git -C "$REPO" status --porcelain)" ] || {
   echo "the tree is dirty after the bump; the bundle would ship as -DIRTY"; exit 1; }
+# ⚠️ CAPTURED HERE, the instant the tree is known clean, so the frozen sha is
+# HEAD-with-the-bump and everything downstream (tested == built == served ==
+# named) keys off this one value. It is HEAD, not literally the bump commit:
+# a fast-forward pull between the bump and this line would fold other agents'
+# commits in, and that is fine -- the bump cannot be lost (a failed push
+# leaves the pull non-ff, so HEAD never moves past the local bump), and the
+# invariant holds whatever HEAD is. Reading it INSIDE 2b, later, was the only
+# real hazard: a pull there could move the tree after some steps had run.
+SHA="$(git -C "$REPO" rev-parse HEAD)"
+
+echo "== 2b. the tree that ships, frozen at one sha (#597) =="
+# 🛑 FROM HERE ON, $REPO IS A DETACHED WORKTREE AT THE BUMP SHA, NOT THE
+# SHARED CHECKOUT. The checkout this script lives in is pulled by every agent
+# on the Mac; on 2026-08-24 two cuts in a row were fast-forwarded mid-run, so
+# the suite and the page gate ran on one sha and the bundle shipped another.
+# Steps 3 through 6 run in the frozen tree, and so does step 9:
+# verify-served.sh reads $REPO/install/setup.sh and $REPO/package.json, and
+# its baked-in default REPO is the shared checkout, so the REPO="$REPO" pass
+# below is load-bearing, not redundant. Step 9b compares what is SERVED
+# against the frozen tree; only step 10 (the board on this Mac runs from the
+# shared checkout) goes back to MAIN_REPO. The worktree is removed on every exit.
+. "$REPO/tools/lib/release-freeze.sh"
+MAIN_REPO="$REPO"
+BUILD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-release.XXXXXX")" || { echo "no temp dir for the frozen tree"; exit 1; }
+BUILD="$(release_freeze "$MAIN_REPO" "$SHA" "$BUILD_ROOT")" || { rm -rf "$BUILD_ROOT"; echo "could not freeze the tree at $SHA"; exit 1; }
+trap 'release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
+REPO="$BUILD"
+echo "   building ${SHA:0:12} in $BUILD; a pull into $MAIN_REPO from now on changes nothing below"
 
 echo "== 3. the whole suite, on the tree that ships =="
 # ⚠️ CORRECTED CLAIM: the old `yarn test | grep` gate DID refuse a red
@@ -250,7 +278,7 @@ echo "== 9. verify what is SERVED, from the code that fetches it =="
 # read cannot tell "not published" from "not yet".
 SERVED_OK=0
 for i in 1 2 3 4 5 6; do
-  if SITE="$SITE" bash "$REPO/tools/verify-served.sh"; then SERVED_OK=1; break; fi
+  if SITE="$SITE" REPO="$REPO" bash "$REPO/tools/verify-served.sh"; then SERVED_OK=1; break; fi
   echo "   (attempt $i did not match; waiting)"
   sleep 10
 done
@@ -259,9 +287,33 @@ if [ "$SERVED_OK" != 1 ]; then
   exit 1
 fi
 
+echo "== 9b. the served bundle is the frozen tree, file by file (#597) =="
+# The log's "built <sha>" is measured here rather than remembered: every
+# tree-derived file in the versioned tarball people download (app/ and the
+# top-level bin/kosmos) equals the frozen tree, web/index.html after the one
+# substitution the build makes.
+# ⚠️ RETRIED like step 9, and for the same reason: step 9 hit one edge; the
+# edge THIS fetch lands on can still be a beat behind, and a single try would
+# raise "not the tree that was tested" as a false alarm on cache lag rather
+# than a real mismatch. Six reads, then it is real.
+_served_tgz="$(mktemp)"
+_bundle_ok=0
+for i in 1 2 3 4 5 6; do
+  if curl -fsSL -m 120 "${HOST:-https://installkosmos.com}/dist/kosmos-$V-arm64.tar.gz" -o "$_served_tgz" \
+     && release_bundle_matches_tree "$_served_tgz" "$BUILD"; then _bundle_ok=1; break; fi
+  echo "   (attempt $i did not match the frozen tree; waiting)"
+  sleep 10
+done
+rm -f "$_served_tgz"
+if [ "$_bundle_ok" = 1 ]; then
+  echo "   the served kosmos-$V-arm64.tar.gz is ${SHA:0:12}: every tree file (app/ and bin/kosmos) matches"
+else
+  echo "THE SERVED BUNDLE IS NOT THE TREE THAT WAS TESTED (${SHA:0:12}) AFTER SIX READS"; exit 1
+fi
+
 echo "== 10. the board on THIS Mac, if it runs from this repo =="
 # 🛑 Installs update themselves from what step 9 verified; the developer's own
 # board runs the repo under launchd and never did, so every release left it
 # serving the previous code until somebody noticed (#360). Gated on the job
 # existing AND running from this repo; it says which case it found.
-bash "$REPO/tools/restart-local-board.sh"
+bash "$MAIN_REPO/tools/restart-local-board.sh"
