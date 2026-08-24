@@ -131,13 +131,15 @@ else say "/dist/Kosmos.pkg.inputs" "MISSING -- the served pkg predates the guard
 ptmp="$pdir/Kosmos.pkg"
 if curl -fsS "$HOST/dist/Kosmos.pkg" -o "$ptmp"; then
   preal=$(_pkg_hash < "$ptmp" | awk '{print $1}')
-  ppub=$(curl -fsS "$HOST/dist/Kosmos.pkg.sha256" | awk '{print $1}')
-  if [ "$preal" = "$ppub" ]; then say "/dist/Kosmos.pkg" "$(wc -c < "$ptmp" | tr -d ' ') bytes, checksum matches"
+  ppub=$(curl -fsS "$HOST/dist/Kosmos.pkg.sha256" 2>/dev/null | awk '{print $1}')
+  if [ -z "$ppub" ]; then say "/dist/Kosmos.pkg.sha256" "could not be fetched"; fail=1
+  elif [ "$preal" = "$ppub" ]; then say "/dist/Kosmos.pkg" "$(wc -c < "$ptmp" | tr -d ' ') bytes, checksum matches"
   else say "/dist/Kosmos.pkg" "CHECKSUM MISMATCH -- the pair a person downloads disagrees with itself"; fail=1; fi
   # The sidecar must vouch for THESE bytes: a new sidecar beside the prior
   # pkg pair (each self-consistent) is the mixed edge state this line catches.
-  if [ -n "$pvouch" ]; then
-    if [ "$pvouch" = "$preal" ]; then say "/dist/Kosmos.pkg.inputs vouches for" "these bytes"
+  if [ -s "$pdir/inputs" ]; then
+    if [ -z "$pvouch" ]; then say "/dist/Kosmos.pkg.inputs vouches for" "NO bytes (no pkg: line) -- a hand-written or truncated sidecar"; fail=1
+    elif [ "$pvouch" = "$preal" ]; then say "/dist/Kosmos.pkg.inputs vouches for" "these bytes"
     else say "/dist/Kosmos.pkg.inputs vouches for" "OTHER bytes (${pvouch:0:12}) than the served pkg (${preal:0:12})"; fail=1; fi
   fi
   # The signature and the staple, from the downloaded bytes, on a Mac only

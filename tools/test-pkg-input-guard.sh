@@ -23,6 +23,14 @@ printf '#!/bin/sh\necho hello world\n' > "$T/install/pkg-scripts/postinstall"
 c="$(pkg_input_sha "$T")"
 [ "$c" != "$a" ] && ok "CONTROL: editing the postinstall changes the sha (divergence is detectable)" || bad "editing the postinstall did NOT change the sha -- the guard is blind"
 
+# CONTROL AGAINST A LENGTH-ONLY HASHER: every edit above changes a file's
+# length, so a hasher reading path + byte count passed the whole suite
+# (measured by a reviewer with a wc -c stand-in). Same length, different
+# bytes, the sha MUST move: a flipped flag in the postinstall is this shape.
+printf '#!/bin/sh\necho hello WORLD\n' > "$T/install/pkg-scripts/postinstall"
+c2="$(pkg_input_sha "$T")"
+[ "$c2" != "$c" ] && ok "CONTROL: a same-length edit (bytes, not length) changes the sha" || bad "a same-length edit did NOT change the sha -- the hasher reads length, not bytes"
+printf '#!/bin/sh\necho hello world\n' > "$T/install/pkg-scripts/postinstall"
 # a NEW pkg-scripts file also changes the sha (an added script is an input).
 printf 'x\n' > "$T/install/pkg-scripts/preinstall"
 d="$(pkg_input_sha "$T")"
@@ -41,10 +49,19 @@ printf '#!/bin/bash\n# build, with a changed distribution template\n' > "$T/tool
 g="$(pkg_input_sha "$T")"
 [ "$g" != "$f" ] && ok "CONTROL: editing the build script (the distribution template lives in it) changes the sha" || bad "editing build-installer-pkg.sh did NOT change the sha"
 # moving bytes between sections is a change too (a screen is not a script).
-h1="$(pkg_input_sha "$T")"; mv "$T/install/pkg-resources/welcome.html" "$T/install/pkg-scripts/welcome.html"
-h2="$(pkg_input_sha "$T")"; mv "$T/install/pkg-scripts/welcome.html" "$T/install/pkg-resources/welcome.html"
-[ "$h1" != "$h2" ] && ok "a file moving between sections changes the sha" || bad "a file moved between sections was not seen"
+# ⚠️ THE FILE IS NAMED SO THE CONTROL CAN FAIL: "z" sorts after everything in
+# pkg-scripts and before everything in pkg-resources, so without the section
+# labels the concatenation is byte-identical before and after the move (a
+# reviewer measured a sectionless hasher passing the earlier welcome.html
+# version of this control, because that move also changed the order).
+printf 'zed\n' > "$T/install/pkg-resources/aaa-z"
+h1="$(pkg_input_sha "$T")"; mv "$T/install/pkg-resources/aaa-z" "$T/install/pkg-scripts/zzz-z"
+printf 'zed\n' > "$T/install/pkg-scripts/zzz-z"
+h2="$(pkg_input_sha "$T")"
+[ "$h1" != "$h2" ] && ok "a file moving between sections changes the sha (order-neutral move)" || bad "a file moved between sections was not seen -- the section labels are not doing their job"
+mv "$T/install/pkg-scripts/zzz-z" "$T/install/pkg-resources/aaa-z"
 [ "$(pkg_input_sha "$T")" = "$h1" ] && ok "and moving it back restores the sha (determinism across sections)" || bad "sha did not restore after moving the file back"
+rm -f "$T/install/pkg-resources/aaa-z"
 
 # CONTROLS THE OTHER WAY: things that are NOT inputs must leave the sha alone,
 # or the release rebuilds + notarises every cut from a fresh worktree. An

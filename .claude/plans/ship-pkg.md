@@ -2,14 +2,22 @@
 
 ## Finished looks like
 1. `pkg_input_sha` covers everything Baron's build consumes: pkg-scripts, pkg-resources
-   (Welcome/Conclusion), the build script (the distribution.xml template lives in it),
-   and the identifier. Editing any of them changes the sha (controls in
-   tools/test-pkg-input-guard.sh); a missing input refuses rather than hashing less.
-2. release.sh builds, signs, notarises and publishes Kosmos.pkg (+ .sha256 + .inputs)
-   whenever the served pkg's inputs differ from source or the sidecar is missing, BEFORE
-   the site commit/deploy, and step 9c reds if the served sidecar does not match source
-   after the deploy. verify-served.sh checks the served pkg against its own sha256 and
-   its inputs sidecar against source. Baron's hand-publish of 16:36 is the last one.
+   (Welcome/Conclusion) and the build script (the distribution.xml template and the
+   identifier live in it). Editing any of them changes the sha, and a same-length edit,
+   an mtime touch, a version bump and a dotfile are each proven to do what they should
+   (controls in tools/test-pkg-input-guard.sh); a missing or unreadable input refuses
+   rather than hashing less.
+2. release.sh (step 7c, after the cheap versions-page checks, before the deploy) builds,
+   signs, notarises and publishes Kosmos.pkg + .sha256 + .inputs whenever the SITE DIST's
+   copy (what the next deploy will serve) is missing, has no sidecar, was built from
+   other inputs, disagrees with its checksum, or has a sidecar vouching for other bytes;
+   otherwise it says why not. Step 9c then reads the SERVED host, six reads, and names
+   the fact that failed. verify-served.sh checks the served pkg's inputs, checksum,
+   signature, staple, and that the sidecar vouches for the served bytes. The sidecar is
+   two lines: the input sha and the pkg's own sha256. Baron's hand-publishes are the last.
+   Until the next release publishes the first sidecar, `verify-served` is red on the
+   pkg lines by design (the served pkg predates the guard); that first red is not an
+   outage.
 
 ## Why
 The pkg is payload-free and rebuilt only when its inputs change, so it goes stale

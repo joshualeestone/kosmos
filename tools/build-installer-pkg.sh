@@ -46,7 +46,9 @@ if ! security find-identity -v | grep -qF "$INSTALLER_CERT"; then
 fi
 
 mkdir -p "$OUT_DIR"
-rm -f "$PKG" "$UNSIGNED"
+# All three outputs go, not only the pkg: a build that dies after productsign
+# must not leave a fresh pkg beside a STALE sidecar and checksum.
+rm -f "$PKG" "$UNSIGNED" "$OUT_DIR/Kosmos.pkg.inputs" "$OUT_DIR/Kosmos.pkg.sha256"
 
 BUILD="$(mktemp -d)"
 trap 'rm -rf "$BUILD"' EXIT

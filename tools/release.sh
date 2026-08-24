@@ -206,38 +206,6 @@ diff -q "$SITE/setup" "$REPO/install/setup.sh" >/dev/null || { echo "the emitted
 sh -n "$SITE/setup" || { echo "the installer about to be published does not parse"; exit 1; }
 echo "   /setup copied and parses"
 
-echo "== 5b. the installer .pkg, rebuilt and published only when its inputs changed (#555, #638 B) =="
-# 🛑 THE DOWNLOAD BUTTON SERVES THIS FILE AND NO RELEASE STEP EVER TOUCHED IT.
-# Baron built and hand-copied the first Kosmos.pkg (2026-08-24 16:36); every
-# installer fix after that reached nobody until someone remembered. This step
-# is the remembering. It is NOT a rebuild every cut: the pkg is payload-free
-# (a postinstall that runs the served /setup), so it changes only when its
-# INPUTS change (pkg-scripts, pkg-resources, the build script, the identifier;
-# tools/lib/pkg-inputs.sh is the one definition). A rebuild costs a
-# sign + notarise round trip, minutes, and only when one of those moved.
-# ⚠️ NAMED HAZARD, SAME AS THE TARBALLS: the site gitignores dist/*.pkg,
-# dist/*.pkg.sha256 and dist/*.pkg.inputs (build output; .vercelignore
-# carries them to the deploy), so all three go live from the site's WORKING
-# TREE with no commit behind them, which is #649's shape. Step 9c and
-# verify-served.sh check what is actually served, and this step says out loud
-# whether it published, so a stale pkg is a red line, never a quiet skip.
-. "$REPO/tools/lib/pkg-inputs.sh"
-_pkg_want="$(pkg_input_sha "$REPO")" || { echo "could not compute the pkg input sha from the frozen tree"; exit 1; }
-if _pkg_why="$(pkg_publish_needed "$SITE/dist" "$_pkg_want")"; then
-  echo "   rebuilding Kosmos.pkg: $_pkg_why"
-  # Built FROM THE FROZEN TREE (REPO is the detached worktree from 2b), signed,
-  # notarised, stapled; the script refuses to build unsigned. It writes
-  # Kosmos.pkg + .sha256 + .inputs into $REPO/dist.
-  ( cd "$REPO" && OUT_DIR="$REPO/dist" bash tools/build-installer-pkg.sh "$V" )
-  [ "$(pkg_sidecar_inputs "$REPO/dist/Kosmos.pkg.inputs")" = "$_pkg_want" ] || { echo "the built pkg's input sidecar is not the sha this step computed; the build script and the guard disagree"; exit 1; }
-  cp "$REPO/dist/Kosmos.pkg" "$REPO/dist/Kosmos.pkg.sha256" "$REPO/dist/Kosmos.pkg.inputs" "$SITE/dist/"
-  PKG_PUBLISHED=1
-  echo "   published to the site dist: Kosmos.pkg $(awk '{print substr($1,1,12)}' < "$SITE/dist/Kosmos.pkg.sha256"), inputs ${_pkg_want:0:12}"
-else
-  PKG_PUBLISHED=0
-  echo "   Kosmos.pkg not rebuilt: $_pkg_why"
-fi
-
 echo "== 6. what we are about to publish says $V =="
 tar -xzOf "$SITE/dist/kosmos-arm64.tar.gz" app/package.json | node -e "
 let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
@@ -318,6 +286,47 @@ git -C "$SITE" push -q origin HEAD || {
 [ -z "$(git -C "$SITE" status --porcelain -- $_site_paths)" ] || { echo "release files still dirty after the commit"; exit 1; }
 echo "   site committed and pushed: $(git -C "$SITE" log --oneline -1)"
 
+echo "== 7c. the installer .pkg, rebuilt and published only when its inputs changed (#555, #638 B) =="
+# 🛑 THE DOWNLOAD BUTTON SERVES THIS FILE AND NO RELEASE STEP EVER TOUCHED IT.
+# Baron built and hand-copied the first Kosmos.pkg (2026-08-24 16:36); every
+# installer fix after that reached nobody until someone remembered. This step
+# is the remembering. It is NOT a rebuild every cut: the pkg is payload-free
+# (a postinstall that runs the served /setup), so it changes only when its
+# INPUTS change (pkg-scripts, pkg-resources, the build script, which carries
+# the identifier; tools/lib/pkg-inputs.sh is the one definition). A rebuild
+# costs a sign + notarise round trip, minutes, and only when one of those
+# moved, which is why this step sits AFTER the cheap versions-page checks in
+# 7 and 7b that a cut most often aborts on, and right before the deploy.
+# ⚠️ NAMED HAZARD, SAME AS THE TARBALLS: the site gitignores dist/*.pkg,
+# dist/*.pkg.sha256 and dist/*.pkg.inputs (build output; .vercelignore
+# carries them to the deploy), so all three go live from the site's WORKING
+# TREE with no commit behind them, which is #649's shape. Step 9c and
+# verify-served.sh check what is actually served, and this step says out loud
+# whether it published, so a stale pkg is a red line, never a quiet skip.
+. "$REPO/tools/lib/pkg-inputs.sh"
+_pkg_want="$(pkg_input_sha "$REPO")" || { echo "could not compute the pkg input sha from the frozen tree"; exit 1; }
+if _pkg_why="$(pkg_publish_needed "$SITE/dist" "$_pkg_want")"; then
+  echo "   rebuilding Kosmos.pkg: $_pkg_why"
+  # Built FROM THE FROZEN TREE (REPO is the detached worktree from 2b), signed,
+  # notarised, stapled; the script refuses to build unsigned. It writes
+  # Kosmos.pkg + .sha256 + .inputs into $REPO/dist.
+  ( cd "$REPO" && OUT_DIR="$REPO/dist" bash tools/build-installer-pkg.sh "$V" )
+  [ "$(pkg_sidecar_inputs "$REPO/dist/Kosmos.pkg.inputs")" = "$_pkg_want" ] || { echo "the built pkg's input sidecar is not the sha this step computed; the build script and the guard disagree"; exit 1; }
+  cp "$REPO/dist/Kosmos.pkg" "$REPO/dist/Kosmos.pkg.sha256" "$REPO/dist/Kosmos.pkg.inputs" "$SITE/dist/"
+  PKG_PUBLISHED=1
+  echo "   published to the site dist: Kosmos.pkg $(awk '{print substr($1,1,12)}' < "$SITE/dist/Kosmos.pkg.sha256"), inputs ${_pkg_want:0:12}"
+else
+  PKG_PUBLISHED=0
+  echo "   Kosmos.pkg not rebuilt: $_pkg_why"
+fi
+# The upload filter must carry the triple, or 9c reds after a ten-minute wait
+# for a reason a one-line read could have given now.
+if grep -qE '^dist/?\*?\.?pkg|^dist/\*$|^dist/?$' "$SITE/.vercelignore" 2>/dev/null; then
+  echo "the site's .vercelignore excludes dist/*.pkg files; the deploy would not carry Kosmos.pkg"; exit 1
+fi
+echo "   .vercelignore carries dist/Kosmos.pkg*"
+
+
 echo "== 8. deploy =="
 ( cd "$SITE" && vercel deploy --prod --yes )
 
@@ -359,8 +368,8 @@ else
   echo "THE SERVED BUNDLE IS NOT THE TREE THAT WAS TESTED (${SHA:0:12}) AFTER SIX READS"; exit 1
 fi
 
-echo "== 9c. the served installer .pkg is the one step 5b left in the site dist (#638, B guard) =="
-# Step 5b decided from the site's working copy; this reads the SERVED host,
+echo "== 9c. the served installer .pkg is the one step 7c left in the site dist (#638, B guard) =="
+# Step 7c decided from the site's working copy; this reads the SERVED host,
 # because the deploy carries the pkg from the working tree (the named hazard
 # above) and an edge can serve the prior pair (Kosmos.pkg and its .sha256
 # share one cache). Four facts, all from the wire, and the red names the one
@@ -373,7 +382,9 @@ echo "== 9c. the served installer .pkg is the one step 5b left in the site dist 
 # would kill the script before the loop retried, and the six-read message
 # would never print. Every fetch lands in a file inside the if chain, the
 # same shape as step 4's tar guard and step 9b.
-_pkg_ok=0; _pkg_dir="$(mktemp -d)"; _pkg_fact="the inputs sidecar was not fetched"
+# The temp dir lives under BUILD_ROOT so the EXIT trap from 2b removes it on
+# an errexit inside the loop.
+_pkg_ok=0; _pkg_dir="$(mktemp -d "$BUILD_ROOT/pkg9c.XXXXXX")"; _pkg_fact=""
 for i in 1 2 3 4 5 6; do
   _pkg_fact="the served inputs sidecar could not be fetched"
   if curl -fsSL -m 30 "${HOST:-https://installkosmos.com}/dist/Kosmos.pkg.inputs" -o "$_pkg_dir/inputs"; then
@@ -399,11 +410,12 @@ for i in 1 2 3 4 5 6; do
 done
 rm -rf "$_pkg_dir"
 if [ "$_pkg_ok" = 1 ]; then
-  if [ "${PKG_PUBLISHED:-0}" = 1 ]; then echo "   the served Kosmos.pkg is the one published in 5b: inputs ${_pkg_want:0:12}, checksum agrees, sidecar vouches for these bytes"
+  if [ "${PKG_PUBLISHED:-0}" = 1 ]; then echo "   the served Kosmos.pkg is the one published in 7c: inputs ${_pkg_want:0:12}, checksum agrees, sidecar vouches for these bytes"
   else echo "   the served Kosmos.pkg is current: inputs ${_pkg_want:0:12} match source, checksum agrees, sidecar vouches for these bytes"; fi
 else
-  echo "THE SERVED INSTALLER PKG IS NOT THE PUBLISHED ONE AFTER SIX READS: $_pkg_fact."
-  echo "   Either the deploy did not carry dist/Kosmos.pkg* (check .vercelignore) or an edge is holding the prior pair."; exit 1
+  if [ "${PKG_PUBLISHED:-0}" = 1 ]; then echo "THE SERVED INSTALLER PKG IS NOT THE ONE 7c PUBLISHED, AFTER SIX READS: $_pkg_fact."
+  else echo "THE SERVED INSTALLER PKG IS NOT THE SITE DIST'S (nothing was rebuilt this cut), AFTER SIX READS: $_pkg_fact."; fi
+  echo "   Either the deploy did not carry dist/Kosmos.pkg* or an edge is holding the prior pair."; exit 1
 fi
 
 echo "== 10. the board on THIS Mac, if it runs from this repo =="

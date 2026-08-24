@@ -13,7 +13,7 @@
 # pkg's inputs against what the CURRENT source would build.
 #
 # The input identity is the sha256 of everything the build consumes that
-# decides the pkg's BEHAVIOUR, and since #665 that is four things, not one:
+# decides the pkg's BEHAVIOUR, and since #665 that is three paths, not one:
 #   install/pkg-scripts/**        the postinstall (what runs)
 #   install/pkg-resources/**      the Welcome and Conclusion screens (what the
 #                                 person is told; #662/#663 live here)
@@ -43,18 +43,26 @@ pkg_input_sha() {
   [ -f "$build" ]     || { echo "pkg_input_sha: no build script at $build" >&2; return 1; }
   # Deterministic: each input's path and bytes, in sorted order, under a
   # section label so a file moving between sections changes the sha too.
-  # ⚠️ DOTFILES EXCLUDED. verify-served.sh runs this on the SHARED checkout's
-  # working tree, where a .DS_Store from opening the folder in Finder, or an
-  # editor's swap file, would report the served pkg as stale against a sha
-  # nobody built. pkgbuild ships them too, but a hidden file has never been a
-  # deliberate input here; if one ever is, name it and drop this filter.
+  # ⚠️ DOTFILES AND DOT-DIRECTORIES EXCLUDED. verify-served.sh runs this on the
+  # SHARED checkout's working tree, where a .DS_Store from opening the folder
+  # in Finder, or an editor's swap file, would report the served pkg as stale
+  # against a sha nobody built. pkgbuild ships them too, but a hidden file has
+  # never been a deliberate input here; if one ever is, name it and drop this.
+  # ⚠️ EVERY INPUT READABLE FIRST: a `cat` failing inside the pipeline below
+  # would hash the file as absent (the group's status is its last command),
+  # which is "hashing less", the thing this function refuses to do.
+  local f
+  for f in $(cd "$scripts" && find . -type f ! -path '*/.*' | LC_ALL=C sort | sed "s|^|$scripts/|") \
+           $(cd "$resources" && find . -type f ! -path '*/.*' | LC_ALL=C sort | sed "s|^|$resources/|") "$build"; do
+    [ -r "$f" ] || { echo "pkg_input_sha: cannot read input $f" >&2; return 1; }
+  done
   {
     printf 'section:pkg-scripts\n'
-    ( cd "$scripts" && find . -type f ! -name '.*' | LC_ALL=C sort | while IFS= read -r f; do
+    ( cd "$scripts" && find . -type f ! -path '*/.*' | LC_ALL=C sort | while IFS= read -r f; do
         printf '%s\n' "$f"; cat "$f"
       done )
     printf 'section:pkg-resources\n'
-    ( cd "$resources" && find . -type f ! -name '.*' | LC_ALL=C sort | while IFS= read -r f; do
+    ( cd "$resources" && find . -type f ! -path '*/.*' | LC_ALL=C sort | while IFS= read -r f; do
         printf '%s\n' "$f"; cat "$f"
       done )
     printf 'section:build-script\n'
