@@ -1,6 +1,6 @@
 'use strict';
 /**
- * The GitHub, Vercel and Cloudflare doors on the Connections tab (#529), driven in a real browser: absent gh is the
+ * The GitHub, Vercel and Cloudflare doors on the Connections tab (#529), driven in a real browser: absent gh offers the no-install road (#620) first, the install road beside it; present gh
  * plain main road with nothing to press; present gh offers Connect with the promise; Connect
  * puts GitHub's one-time code and device URL on the door with Stop; finishing on GitHub reads
  * back as Connected as the account gh names. Runs against TWO boards booted by
@@ -28,16 +28,18 @@ let failed = 0;
     await p.goto(base + '/?tab=settings', { waitUntil: 'networkidle' });
     await p.evaluate(() => settingsGo('connect'));
     await p.waitForTimeout(400);
-    await p.evaluate(() => { document.querySelectorAll('#s-sec-connect details').forEach((d) => { d.open = true; }); const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.textContent.trim() === 'GitHub'); pill.click(); });
+    await p.evaluate(() => { document.querySelectorAll('#s-sec-connect details').forEach((d) => { d.open = true; }); const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'GitHub'); pill.click(); });
     await p.waitForTimeout(900);
-    return p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.textContent.trim() === 'GitHub'); const door = pill.closest('.boardrow').nextElementSibling; return { hidden: door.hidden, text: door.textContent.replace(/\s+/g, ' ').trim(), buttons: [...door.querySelectorAll('button')].map((x) => x.textContent.trim()), links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
+    return p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'GitHub'); const door = pill.closest('.boardrow').nextElementSibling; return { hidden: door.hidden, text: door.innerText.replace(/\s+/g, ' ').trim(), drawn: door.getBoundingClientRect().height > 0, buttons: [...door.querySelectorAll('button')].map((x) => x.innerText.trim()), links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
   };
   // A: gh absent
   let p = await b.newPage(); let d = await openDoor(p, ABSENT);
-  say('absent gh: the door opens', !d.hidden);
-  say('absent gh: the plain sentence is the main road, with the install link', /this Mac needs the GitHub CLI, and it is not here yet/.test(d.text) && d.links.some((l) => /cli\.github\.com/.test(l)), d.text.slice(0, 140));
-  say('absent gh: nothing to press', d.buttons.length === 0, JSON.stringify(d.buttons));
-  say('absent gh, engine off: the door says why the no-install way is not on, naming the id only Josh can make (#620)', /app id that only Josh can make/.test(d.text), d.text.slice(-160));
+  say('absent gh: the door opens, with a size on screen', !d.hidden && d.drawn);
+  // #680: the client id ships in the build, so the no-install road is on from
+  // the first boot and the install-the-CLI sentence sits beneath it as the
+  // second road. The engine-off door still exists in the code for a build
+  // with no shipped id; it is pinned by the doors test, not walked here.
+  say('absent gh: the no-install road is offered first, and the install road is beside it with its link', d.buttons.some((x) => /Connect without installing/.test(x)) && d.links.some((l) => /cli\.github\.com/.test(l)), d.text.slice(-160));
   await p.close();
   // #620: the same absent-gh board, with Kosmos's own device flow switched on (the
   // harness set a client id and pointed the engine at this stub GitHub).
@@ -54,12 +56,12 @@ let failed = 0;
     });
   });
   await new Promise((r) => gh.listen(GHDEV_PORT, '127.0.0.1', r));
-  const readGh = () => p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.textContent.trim() === 'GitHub'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.textContent.replace(/\s+/g, ' ').trim(), buttons: [...door.querySelectorAll('button')].map((x) => x.textContent.trim()), links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
-  // The board was booted with NO client id, so the legs above saw the engine-off
-  // door. Switching it on goes through the product's own route, the line Josh's
-  // value lands on; the id is public by design.
+  const readGh = () => p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'GitHub'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.innerText.replace(/\s+/g, ' ').trim(), drawn: door.getBoundingClientRect().height > 0, buttons: [...door.querySelectorAll('button')].map((x) => x.innerText.trim()), links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
+  // A per-install id can still be pasted through the product's own route, for
+  // anyone running their own GitHub app; the walk uses it so the stub GitHub
+  // sees a known id rather than the shipped one.
   const appRes = await fetch(ABSENT + '/api/github-device/app', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clientId: 'walk-client-id' }) });
-  say('the engine is switched on through /api/github-device/app', appRes.ok, String(appRes.status));
+  say('a per-install id is accepted through /api/github-device/app', appRes.ok, String(appRes.status));
   p = await b.newPage(); d = await openDoor(p, ABSENT);
   say('absent gh, engine on: the no-install road is offered, says Kosmos holds the key, and the install road stays beside it', d.buttons.some((x) => /Connect without installing/.test(x)) && /This is a key Kosmos holds for you/.test(d.text) && d.links.some((l) => /cli\.github\.com/.test(l)), d.text.slice(-200));
   await p.evaluate(() => { document.querySelector('[data-svc-connect="GitHub"]').click(); });
@@ -77,18 +79,18 @@ let failed = 0;
   say('present gh: Connect is offered with the promise beneath it', d.buttons.includes('Connect') && /never sees (a|your) password/.test(d.text), d.text.slice(-120));
   await p.evaluate(() => { document.querySelector('[data-svc-connect="GitHub"]').click(); });
   await p.waitForTimeout(2500);
-  d = await p.evaluate(() => { const door = document.querySelector('[data-svc-cancel]') ? document.querySelector('[data-svc-cancel]').closest('.svc-door') : null; return door ? { text: door.textContent.replace(/\s+/g, ' ').trim(), links: [...door.querySelectorAll('a')].map((a) => a.href) } : null; });
+  d = await p.evaluate(() => { const door = document.querySelector('[data-svc-cancel]') ? document.querySelector('[data-svc-cancel]').closest('.svc-door') : null; return door ? { text: door.innerText.replace(/\s+/g, ' ').trim(), drawn: door.getBoundingClientRect().height > 0, links: [...door.querySelectorAll('a')].map((a) => a.href) } : null; });
   say('after Connect: the one-time code and the GitHub device URL are on the door, with Stop', !!d && /WALK-1234/.test(d.text) && d.links.some((l) => /github\.com\/login\/device/.test(l)) && /Stop this sign-in/.test(d.text), d ? d.text.slice(0, 160) : 'no door');
   // the person finishes on GitHub: the fake gh exits 0 when the marker appears
   fs.writeFileSync(MARK, '1');
   await p.waitForTimeout(3500);
-  d = await p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.textContent.trim() === 'GitHub'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.textContent.replace(/\s+/g, ' ').trim(), buttons: [...door.querySelectorAll('button')].map((x) => x.textContent.trim()) }; });
+  d = await p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'GitHub'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.innerText.replace(/\s+/g, ' ').trim(), drawn: door.getBoundingClientRect().height > 0, buttons: [...door.querySelectorAll('button')].map((x) => x.innerText.trim()) }; });
   say('finished on GitHub: the door reads Connected as the account gh names, no code, no Connect', /Connected as walker/.test(d.text) && !/WALK-1234/.test(d.text) && !d.buttons.includes('Connect'), d.text.slice(0, 140));
   // Vercel, same door shape, same board (#529): its stand-in signs in on its own marker.
   const openVercel = async () => {
-    await p.evaluate(() => { document.querySelectorAll('#s-sec-connect details').forEach((x) => { x.open = true; }); const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.textContent.trim() === 'Vercel'); pill.click(); });
+    await p.evaluate(() => { document.querySelectorAll('#s-sec-connect details').forEach((x) => { x.open = true; }); const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'Vercel'); pill.click(); });
     await p.waitForTimeout(900);
-    return p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.textContent.trim() === 'Vercel'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.textContent.replace(/\s+/g, ' ').trim(), buttons: [...door.querySelectorAll('button')].map((x) => x.textContent.trim()), links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
+    return p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'Vercel'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.innerText.replace(/\s+/g, ' ').trim(), drawn: door.getBoundingClientRect().height > 0, buttons: [...door.querySelectorAll('button')].map((x) => x.innerText.trim()), links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
   };
   d = await openVercel();
   say('Vercel: Connect is offered, with Vercel’s own words and the GitHub-first sentence', d.buttons.includes('Connect') && /Vercel’s own page/.test(d.text) && /needs GitHub connected first/.test(d.text), d.text.slice(-160));
@@ -96,11 +98,11 @@ let failed = 0;
   await p.waitForTimeout(2500);
   // Do not click the pill again here: a click on an open pill closes the door
   // and stops its paint loop, which is the very state this leg reads.
-  d = await p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.textContent.trim() === 'Vercel'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.textContent.replace(/\s+/g, ' ').trim(), links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
+  d = await p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'Vercel'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.innerText.replace(/\s+/g, ' ').trim(), drawn: door.getBoundingClientRect().height > 0, links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
   say('Vercel after Connect: the code and vercel.com/oauth/device are on the door', /VRCL-5678/.test(d.text) && d.links.some((l) => /vercel\.com\/oauth\/device/.test(l)), d.text.slice(0, 160));
   fs.writeFileSync(VMARK, '1');
   await p.waitForTimeout(3500);
-  d = await p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.textContent.trim() === 'Vercel'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.textContent.replace(/\s+/g, ' ').trim(), buttons: [...door.querySelectorAll('button')].map((x) => x.textContent.trim()) }; });
+  d = await p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'Vercel'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.innerText.replace(/\s+/g, ' ').trim(), drawn: door.getBoundingClientRect().height > 0, buttons: [...door.querySelectorAll('button')].map((x) => x.innerText.trim()) }; });
   say('Vercel finished: Connected as the account vercel names', /Connected as vwalker/.test(d.text) && !d.buttons.includes('Connect'), d.text.slice(0, 140));
   // Cloudflare (#529): a pasted token, checked with a stand-in for Cloudflare's verify endpoint
   // that answers active for one token and rejects every other, so no real Cloudflare is involved.
@@ -111,10 +113,10 @@ let failed = 0;
   });
   await new Promise((r) => stub.listen(VERIFY_PORT, '127.0.0.1', r));
   const openCf = async () => {
-    await p.evaluate(() => { document.querySelectorAll('#s-sec-connect details').forEach((x) => { x.open = true; }); const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.textContent.trim() === 'Cloudflare'); pill.click(); });
+    await p.evaluate(() => { document.querySelectorAll('#s-sec-connect details').forEach((x) => { x.open = true; }); const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'Cloudflare'); pill.click(); });
     await p.waitForTimeout(900);
   };
-  const readCf = () => p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.textContent.trim() === 'Cloudflare'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.textContent.replace(/\s+/g, ' ').trim(), buttons: [...door.querySelectorAll('button')].map((x) => x.textContent.trim()), field: !!door.querySelector('[data-svc-token-field]'), fieldType: (door.querySelector('[data-svc-token-field]') || {}).type || null, links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
+  const readCf = () => p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'Cloudflare'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.innerText.replace(/\s+/g, ' ').trim(), drawn: door.getBoundingClientRect().height > 0, buttons: [...door.querySelectorAll('button')].map((x) => x.innerText.trim()), field: !!door.querySelector('[data-svc-token-field]'), fieldType: (door.querySelector('[data-svc-token-field]') || {}).type || null, links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
   await openCf(); d = await readCf();
   say('Cloudflare: a paste field (password type), the link to Cloudflare’s token page, and Connect', d.field && d.fieldType === 'password' && d.links.some((l) => /dash\.cloudflare\.com\/profile\/api-tokens/.test(l)) && d.buttons.includes('Connect'), d.text.slice(-140));
   await p.fill('[data-svc-token-field="Cloudflare"]', 'cf_bad_token_abcdefghijklmnopqrstuvwxyz');

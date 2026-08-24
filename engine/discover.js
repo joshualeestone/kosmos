@@ -33,6 +33,28 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const status = require('./status');
+const store = require('./store');
+
+/* "Dismiss this forever" (Josh, 2026-08-24 17:06): the board's found-agents
+   block can be sent away for good. The flag lives on disk beside the app's
+   other remembered answers (seen-version.json, first-run.json), not in the
+   browser, because "forever" has to survive a new browser, a new port and
+   the next version. A missing file is the only "not dismissed"; a file we
+   cannot read is one that exists, so the person's answer stands. */
+const DISMISS_FILE = path.join(process.env.AGENT_WORKFORCE_DATA || store.ROOT, 'found-agents-dismissed.json');
+
+function dismissed() {
+  try { fs.statSync(DISMISS_FILE); return true; } catch (err) {
+    return !(err && err.code === 'ENOENT');
+  }
+}
+
+function dismiss() {
+  fs.mkdirSync(path.dirname(DISMISS_FILE), { recursive: true });
+  const tmp = DISMISS_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify({ dismissedAt: new Date().toISOString() }) + '\n');
+  fs.renameSync(tmp, DISMISS_FILE);
+}
 
 /**
  * Is this folder's agent already one Kosmos looks after?
@@ -374,4 +396,4 @@ function disconnect(name) {
 }
 
 module.exports = { alreadyIn,
-  runningUnderName, found, connect, disconnect };
+  runningUnderName, found, connect, disconnect, dismissed, dismiss, DISMISS_FILE };

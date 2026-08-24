@@ -157,7 +157,14 @@ const OPERATOR_DIRECT = '[message from your operator \u00b7 to answer, run: kosm
    session is this pane in". */
 let runner = null;
 function setRunner(fn) { runner = fn; }
-function resetForTests() { runner = null; }
+function resetForTests() {
+  runner = null;
+  /* #562: the reader's memory goes too. A test that rewrites the log file
+     in place -- same size, same millisecond -- is the one writer the
+     inode/size/mtime invalidation cannot see; production never does that
+     (the product only appends), and tests reset. */
+  READ_CACHE = null;
+}
 
 function tmuxBin() {
   return process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux';
@@ -240,15 +247,50 @@ function roomNote(projectId, text) {
   } catch { return false; }
 }
 
-function record() {
-  let raw;
-  try { raw = fs.readFileSync(LOG, 'utf8'); } catch (err) {
-    if (err && err.code === 'ENOENT') return { ok: true, rows: [], parsed: [] };
-    return { ok: false, rows: [], parsed: [] };
-  }
-  const rows = [];
-  const parsed = [];
-  for (const line of raw.split('\n')) {
+/**
+ * The reader's memory of the file, so an append-only log is not re-parsed
+ * whole on every look (#562).
+ *
+ * 🔑 WHY THIS EXISTS: the #185 nudge sweep runs every minute and derives
+ * from `record()` N+1 times per sweep (once itself, once per project).
+ * Each of those was a full read and a full JSON.parse of every line ever
+ * written, forever -- the log's no-retention debt with its first
+ * steadily-compounding customer. Retention itself would CHANGE the sweep
+ * (an ancient never-answered ask is re-derived for the life of the
+ * install BY DESIGN, and a dropped `nudge` row would re-fire an
+ * at-most-once), so the reader got cheaper instead: parse once, then
+ * parse only what was appended since. Same rows out, byte for byte.
+ *
+ * ⚠️ INVALIDATION IS BY THE FILE'S OWN FACTS, never by trust in callers:
+ * a different inode (replaced file), a smaller size (truncated), or a
+ * changed mtime at the same size (rewritten in place) each throw the
+ * memory away and re-parse from zero. Appends -- the only thing the
+ * product ever does to this file, from this process or a CLI's -- land
+ * as a tail read from the recorded offset.
+ *
+ * ⚠️ THE LAST LINE MAY BE HALF AN APPEND from another process. Complete
+ * lines (through the final newline) are parsed once and kept; a trailing
+ * fragment is parsed for THIS answer when it happens to be whole (the
+ * pre-#562 reader accepted a valid unterminated last line, and behavior
+ * is pinned) but is never absorbed into the memory -- the next look
+ * re-reads from the fragment's first byte, so a line completed later is
+ * seen completed, and never twice.
+ */
+let READ_CACHE = null; // { ino, mtimeMs, size, offset, seam, fragment, rows, parsed }
+
+/* How many bytes of already-parsed tail are re-read on every look to prove
+   the file still ends the way the memory remembers. The one rewrite the
+   stat facts cannot see is in-place with a LARGER size (same inode, mtime
+   moves exactly as an append would): without this check, the memory's head
+   rows would be silently mixed with the rewrite's tail. 64 bytes is longer
+   than any coincidental suffix a different history plausibly shares, and
+   the check is a positioned read, not a parse. A rewrite that leaves every
+   byte before the offset identical IS an append by content, whatever tool
+   made it. */
+const SEAM_BYTES = 64;
+
+function parseLinesInto(text, rows, parsed) {
+  for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     // One bad line must not eat the record: skip it, keep reading. The
     // screens' list is best-effort history, not a ledger we halt on.
@@ -262,11 +304,81 @@ function record() {
     // the record lying by subtraction.
     if (rowShaped(row)) rows.push(row);
   }
+}
+
+function readBytes(from, to) {
+  const fd = fs.openSync(LOG, 'r');
+  try {
+    const buf = Buffer.alloc(to - from);
+    let got = 0;
+    while (got < buf.length) {
+      const n = fs.readSync(fd, buf, got, buf.length - got, from + got);
+      if (n === 0) break;
+      got += n;
+    }
+    return buf.slice(0, got);
+  } finally {
+    try { fs.closeSync(fd); } catch { /* the read is what mattered */ }
+  }
+}
+
+function record() {
+  let st;
+  try { st = fs.statSync(LOG); } catch (err) {
+    if (err && err.code === 'ENOENT') { READ_CACHE = null; return { ok: true, rows: [], parsed: [] }; }
+    return { ok: false, rows: [], parsed: [] };
+  }
+  let cache = READ_CACHE;
+  if (cache && (cache.ino !== st.ino || st.size < cache.offset
+    || (st.size === cache.size && st.mtimeMs !== cache.mtimeMs))) {
+    cache = null;
+  }
+  try {
+    if (cache && cache.offset > 0 && (st.size !== cache.size || st.mtimeMs !== cache.mtimeMs)) {
+      /* The seam proof, before any tail is trusted: the bytes just before
+         the offset must still be the bytes that were parsed. Compared as
+         BYTES, never as decoded text -- a multibyte character straddling
+         the seam boundary decodes differently from either side, and a
+         text compare would quietly demote every look on a log with a
+         non-ASCII tail back to the full parse this reader exists to end. */
+      const seamAt = Math.max(0, cache.offset - SEAM_BYTES);
+      if (!readBytes(seamAt, cache.offset).equals(cache.seam)) cache = null;
+    }
+    if (!cache) {
+      cache = {
+        ino: st.ino, mtimeMs: 0, size: -1, offset: 0,
+        seam: Buffer.alloc(0), fragment: '', rows: [], parsed: [],
+      };
+    }
+    if (st.size !== cache.size || st.mtimeMs !== cache.mtimeMs) {
+      const tailBuf = readBytes(cache.offset, st.size);
+      const tail = tailBuf.toString('utf8');
+      const lastNl = tail.lastIndexOf('\n');
+      const settled = tail.slice(0, lastNl + 1);
+      const settledBytes = Buffer.byteLength(settled, 'utf8');
+      parseLinesInto(settled, cache.rows, cache.parsed);
+      cache.offset += settledBytes;
+      cache.fragment = lastNl + 1 < tail.length ? tail.slice(lastNl + 1) : '';
+      cache.seam = Buffer.concat([cache.seam, tailBuf.slice(0, settledBytes)]).slice(-SEAM_BYTES);
+      cache.size = st.size;
+      cache.mtimeMs = st.mtimeMs;
+    }
+  } catch {
+    READ_CACHE = null;
+    return { ok: false, rows: [], parsed: [] };
+  }
+  READ_CACHE = cache;
   // `parsed` (shape-agnostic) exists for ID RESERVATION alone: a foreign
   // append that fails shape must still burn the id it names, or the next
   // send re-mints an id a recipient may already have seen -- and would
   // silently overwrite that id's spill file.
-  return { ok: true, rows, parsed };
+  /* The concat is the caller's own copy: the memory is never handed out,
+     so a screen that sorts or splices what it was given cannot corrupt
+     what the next reader is answered with. */
+  const fragRows = [];
+  const fragParsed = [];
+  if (cache.fragment) parseLinesInto(cache.fragment, fragRows, fragParsed);
+  return { ok: true, rows: cache.rows.concat(fragRows), parsed: cache.parsed.concat(fragParsed) };
 }
 
 /** The fields each kind demands. An unknown kind is KEPT -- dropping what
@@ -1322,10 +1434,14 @@ function sweepUnanswered(roster, now) {
      both type the line. One board per data dir is the product's shape
      (the same assumption the state file and the log itself rest on),
      so the trade is recorded rather than locked away.
-     ⚠️ And the sweep re-parses the whole record each minute; an ancient
-     never-answered ask is re-derived for the life of the install. The
-     log's size bound covers today; when retention lands, this reader
-     is the first customer. Both trades stated, per the house rule. */
+     ⚠️ An ancient never-answered ask is re-derived for the life of the
+     install, BY DESIGN (it is still unanswered). The whole-record
+     re-parse this used to cost each minute is gone: record() remembers
+     what it has parsed and reads only the appended tail (#562), so the
+     sweep's N+1 derivations are cache answers. Retention itself was
+     deliberately NOT built -- dropping old rows would change this
+     sweep (a dropped nudge row re-fires an at-most-once), and the
+     card's own condition was the sweep pinned unchanged. */
   const rec = record();
   if (!rec.ok) return { ok: false, nudged: [] };
   const projects = new Set(rec.rows.filter((m) => m && m.kind === 'post' && m.operator === true

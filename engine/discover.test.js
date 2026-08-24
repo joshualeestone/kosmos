@@ -7,6 +7,9 @@ const path = require('node:path');
 
 const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-discover-'));
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SB, 'claude');
+// The dismiss flag is a data-dir file; without this the test below would write
+// the operator's real "never show found agents again" answer.
+process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 
 const discover = require('./discover');
 
@@ -25,6 +28,16 @@ function seed(folderKey, cwdName, claudeMd, { at } = {}) {
   if (at) fs.utimesSync(t, new Date(at), new Date(at));
   return cwd;
 }
+
+test('dismiss is kept on disk in the sandbox and read back; only a missing file means not dismissed', () => {
+  assert.ok(discover.DISMISS_FILE.startsWith(SB), `flag would land outside the sandbox: ${discover.DISMISS_FILE}`);
+  assert.equal(discover.dismissed(), false);
+  discover.dismiss();
+  assert.equal(discover.dismissed(), true);
+  assert.ok(fs.existsSync(discover.DISMISS_FILE));
+  fs.unlinkSync(discover.DISMISS_FILE);
+  assert.equal(discover.dismissed(), false);
+});
 
 test('an agent is found from its files, with nothing running', () => {
   /**

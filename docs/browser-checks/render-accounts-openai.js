@@ -49,7 +49,7 @@ let failed = 0;
   say('the button has a size and is on top at its centre', geo.rect[2] > 0 && geo.rect[3] > 0 && /acct-add-openai/.test(geo.onTop || ''), JSON.stringify(geo));
   await p.click('#acct-add-openai', { timeout: 5000 }).catch(async () => { console.log('NOTE  normal click failed; clicking by force to continue the flow'); await p.click('#acct-add-openai', { force: true }); });
   // The pair reads as two acts (Angel's ruling, #607): each button names its provider.
-  const labels = await p.evaluate(() => [document.getElementById('acct-add').textContent.trim(), document.getElementById('acct-add-openai').textContent.trim()]);
+  const labels = await p.evaluate(() => [document.getElementById('acct-add').innerText.trim(), document.getElementById('acct-add-openai').innerText.trim()]);
   say('the two add buttons each name their provider', /Claude/.test(labels[0]) && /OpenAI/.test(labels[1]) && !/^Add another account/.test(labels[0]), JSON.stringify(labels));
   say('add-by-key form reveals on the button', await p.isVisible('#acct-openai-flow'));
   say('the key field is a password field', (await p.getAttribute('#acct-openai-key', 'type')) === 'password');
@@ -57,10 +57,10 @@ let failed = 0;
   await p.fill('#acct-openai-label', 'Walk Test');
   await p.click('#acct-openai-go');
   await p.waitForTimeout(1200);
-  const msg = await p.textContent('#acct-openai-msg');
+  const msg = await p.innerText('#acct-openai-msg');
   say('adding answers with the tail, never the key', /API key ending WALK/.test(msg) && !/walkwalk/.test(msg), msg);
   say('the key field is emptied after the add', (await p.inputValue('#acct-openai-key')) === '');
-  const rows = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-row')].map((r) => r.textContent.replace(/\s+/g, ' ').trim()));
+  const rows = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-row')].filter((r) => r.getBoundingClientRect().height > 0).map((r) => r.innerText.replace(/\s+/g, ' ').trim()));
   say('the row lists by provider with the key tail', rows.some((r) => /OpenAI/.test(r) && !/Codex/.test(r) && /API key ending WALK/.test(r)), JSON.stringify(rows));
   say('no OpenAI row carries the history arm', !rows.some((r) => /OpenAI/.test(r) && /history/.test(r)));
   // Create form: OpenAI provider -> account menu offers the new account

@@ -2383,17 +2383,20 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    dashed border is the shape of a slot waiting to be filled; "we could not
    read this" is not an empty slot, it is an unanswered question. */
 .pj-empty.boardfail { border-style: solid; border-color: var(--border-strong); }
-/* 🛑 THE FOUND PANEL IS LEFT-ALIGNED AND FULL WIDTH, and both are overrides
-   rather than the shared shape. `.pj-empty` is centred because it is normally a
-   sentence and a button; this one is a sentence and a LIST, and a centred
-   heading over left-aligned rows reads as a layout that did not finish. The
-   36rem cap on `.fr-found` is right inside setup's card and leaves the rows
-   stopping halfway across a board-width panel. Measured on the board at 1200px:
-   the rows ended at 620 inside a 1150 panel. */
-/* The fold's list is as wide as the board rather than the 34rem its neighbour
-   uses: these rows carry a name, a title and a button, where a removed row
-   carries a name and a date. */
-#found-list.found-list { max-width: none; }
+/* 🛑 THE FOUND PANEL IS LEFT-ALIGNED AND CAPPED, NOT BOARD-WIDE. An earlier
+   ruling widened the rows to the board (measured at 1200px: rows ending at 620
+   inside a 1150 panel read as unfinished). Josh reversed it on sight,
+   2026-08-24 17:06: "lets not make their buttons 100% width, lets shorten it a
+   lot." A row that spans the board reads as one enormous button with its real
+   button pushed to the far edge. The section is capped at the width setup's
+   card uses, and the dismiss control sits at that right edge. The cap is on
+   the content, not the wrap, so the rule above it still runs the board's
+   width like its neighbour's. */
+.found-head, #found-list.found-list { max-width: 36rem; }
+.found-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-4); }
+.found-dismiss { color: var(--label-2); font-weight: 500; flex: none; }
+.found-dismiss.armed { font-weight: 600; color: var(--danger, #b3261e); }
+.found-dismiss:disabled { cursor: default; text-decoration: none; }
 #found-list .fr-found { max-width: none; margin: 0; }
 #found-list .fr-foundnote { margin: 0 0 var(--space-5); font: var(--text-callout) var(--font-ui);
   color: var(--label-2); line-height: 1.5; max-width: 46rem; }
@@ -7216,8 +7219,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      board loads is a list that has to be dismissed, and this one can be long.
      Absent entirely when there is nothing to add. -->
 <div class="removed-wrap" id="found-wrap" hidden>
-  <button class="linkish" id="found-toggle" type="button"
-          aria-expanded="false" aria-controls="found-list"></button>
+  <!-- Josh, 2026-08-24 17:06: "add a button that says Dismiss this forever at
+       the top right of the small section so you can just make it disappear and
+       go away." It asks once in place (the second click is the consent) and the
+       answer is kept on disk, so the block stays gone across browsers, ports
+       and versions. -->
+  <div class="found-head">
+    <button class="linkish" id="found-toggle" type="button"
+            aria-expanded="false" aria-controls="found-list"></button>
+    <button class="linkish found-dismiss" id="found-dismiss" type="button">Dismiss this forever</button>
+  </div>
   <div class="removed-list found-list" id="found-list" hidden></div>
 </div>
 
@@ -15702,6 +15713,9 @@ async function paintFoundBoard() {
     body = await res.json().catch(() => null);
   } catch { return; }
   if (!body || body.ok !== true || !Array.isArray(body.agents)) return;
+  /* Sent away for good (Josh, 2026-08-24 17:06). Hidden before the list is
+     even filtered: a dismissed block must not flash on a poll. */
+  if (body.dismissed === true) { wrap.hidden = true; list.innerHTML = ''; return; }
 
   const missing = body.agents.filter((a) => a && a.already !== true);
   const sig = missing.map((a) => a.dir).sort().join('\u0000');
@@ -16045,6 +16059,30 @@ document.getElementById('removed-toggle').addEventListener('click', () => {
   REMOVED_OPEN = !REMOVED_OPEN;
   paintRemoved();
 });
+
+/* "Dismiss this forever" asks once, in place, the way a skill's Remove does:
+   the second click is the consent and looking away resets it. The armed label
+   is a question because the same control answers it; a separate Yes button
+   would be a second thing to aim at for a one-word decision. */
+{
+  const dis = document.getElementById('found-dismiss');
+  const REST = 'Dismiss this forever';
+  let armed = false;
+  const reset = () => { armed = false; dis.disabled = false; dis.textContent = REST; dis.classList.remove('armed'); };
+  dis.addEventListener('click', async () => {
+    if (!armed) { armed = true; dis.textContent = 'Dismiss it for good?'; dis.classList.add('armed'); return; }
+    dis.disabled = true;
+    try {
+      const res = await fetch('/api/found-agents/dismiss', { method: 'POST' });
+      const out = await res.json().catch(() => null);
+      if (!res.ok || !out || out.ok !== true) { reset(); dis.textContent = 'We could not remember that. Try again'; return; }
+      document.getElementById('found-wrap').hidden = true;
+      document.getElementById('found-list').innerHTML = '';
+      FOUND_SIG = null;
+    } catch { reset(); dis.textContent = 'We could not reach Kosmos. Try again'; }
+  });
+  dis.addEventListener('blur', () => { if (!dis.disabled) reset(); });
+}
 
 document.getElementById('found-toggle').addEventListener('click', () => {
   FOUND_OPEN = !FOUND_OPEN;

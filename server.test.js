@@ -10418,6 +10418,59 @@ test('the policy over the wire: absent, pasted and distributed, then removed', a
   assert.ok(after.includes('Do the work well'), 'removal ate the agent\'s own words');
 });
 
+test('policies over the wire, plural (#685): named adds, refused collisions, rename, ordered list, remove by id', async () => {
+  const policyEngine = require('./engine/policy');
+  // Two named policies, in order; the response carries the fresh list.
+  let r = await req('/api/policy', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'Legal', text: 'The legal words.' }) });
+  assert.equal(r.status, 200, r.body);
+  r = await req('/api/policy', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'Branding', text: 'The branding words.' }) });
+  assert.equal(r.status, 200, r.body);
+  const listed = JSON.parse(r.body);
+  assert.deepEqual(listed.policies.map((p) => p.name), ['Legal', 'Branding'], 'mutations do not answer the ordered list');
+  assert.ok(listed.policies.every((p) => p.id && typeof p.chars === 'number' && typeof p.opening === 'string'),
+    'a summary is missing the fields the screen renders');
+
+  // Add never overwrites: the collision is refused in the engine's sentence.
+  r = await req('/api/policy', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'legal', text: 'A second legal.' }) });
+  assert.equal(r.status, 400);
+  assert.match(JSON.parse(r.body).error, /already have a policy called Legal/);
+
+  // The nameless save (the shipped screen's POST) is refused once several exist.
+  r = await req('/api/policy', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'Whose?' }) });
+  assert.equal(r.status, 400);
+  assert.match(JSON.parse(r.body).error, /give this policy a name/);
+
+  // Rename by id; the list keeps its order.
+  const legalId = listed.policies[0].id;
+  r = await req('/api/policy/rename', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: legalId, name: 'Legal & Compliance' }) });
+  assert.equal(r.status, 200, r.body);
+  assert.deepEqual(JSON.parse(r.body).policies.map((p) => p.name), ['Legal & Compliance', 'Branding']);
+
+  // A no-id remove with several standing is refused; by id it takes one.
+  r = await req('/api/policy/remove', { method: 'POST' });
+  assert.equal(r.status, 400);
+  assert.match(JSON.parse(r.body).error, /say which policy to remove/);
+  r = await req('/api/policy/remove', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: legalId }) });
+  assert.equal(r.status, 200, r.body);
+  const left = JSON.parse(r.body);
+  assert.equal(left.state, 'saved');
+  assert.deepEqual(left.policies.map((p) => p.name), ['Branding']);
+  // GET agrees, and still carries the compat singular for the shipped screen.
+  const got = JSON.parse((await req('/api/policy')).body);
+  assert.deepEqual(got.policies.map((p) => p.name), ['Branding']);
+  assert.equal(got.policy.chars, 'The branding words.'.length);
+  // The last no-id remove is the shipped screen's clear, and is honoured.
+  r = await req('/api/policy/remove', { method: 'POST' });
+  assert.equal(r.status, 200);
+  assert.equal(JSON.parse((await req('/api/policy')).body).state, 'absent');
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Agent-made tasks (#485: #327's recorded-and-valved shape, extended)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -10783,4 +10836,18 @@ test('with a newer version installed than the open page, Check for Update says r
   } finally {
     delete global.document;
   }
+});
+
+test('the found-agents block can be dismissed forever, and every answer carries it', async () => {
+  let r = await req('/api/found-agents');
+  assert.equal(r.status, 200);
+  const before = JSON.parse(r.body);
+  if (before.ok === true) assert.equal(before.dismissed, false);
+  r = await req('/api/found-agents/dismiss', { method: 'POST' });
+  assert.equal(r.status, 200);
+  assert.equal(JSON.parse(r.body).dismissed, true);
+  r = await req('/api/found-agents');
+  const after = JSON.parse(r.body);
+  if (after.ok === true) assert.equal(after.dismissed, true);
+  assert.ok(require('node:fs').existsSync(require('./engine/discover').DISMISS_FILE));
 });

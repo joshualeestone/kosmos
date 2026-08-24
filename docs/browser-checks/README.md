@@ -118,6 +118,27 @@ one invented by somebody who did not write them.
 | `render-update-toast.js` | **no header sentence.** Read it before running it, and give it one. |
 | `thread-server.js` | A server for looking at the project thread, with NOTHING pointed at the real |
 
+## Two rules for writing one, learned on 2026-08-24
+
+**Assert rendered text, not DOM text.** `textContent` includes visually hidden
+children (an accessibility span, a `.vh` label, anything `display:none`). A check
+that asserts a sentence IS present by `textContent` cannot fail on a sentence
+nobody can see, and that is a false PASS in the page gate, which ships. Read the
+sentence with `innerText` (or Playwright's `innerText()` / `toBeVisible`), which
+honour CSS display and visibility, and guard the element with a size. Use
+`textContent` only where the DOM text is the thing under test: accessible names
+(`named-controls.js`), `<option>` labels, data attributes. The reads still to
+convert are listed on #687 with line numbers; do not sweep them blind, exact
+matches like `=== 'Saved.'` change under `innerText`.
+
+**If an assertion is only true until we do better, say so in the check.** A check
+pinned to a temporary state ("Windows is still coming soon", "the no-install road
+is not switched on yet") turns into a false alarm at the moment of success, and it
+fires looking exactly like a regression. Three of those happened in one day
+(#650, #612, and the engine-off legs of `render-github-door.js` the hour #680
+shipped the client id). Put the sentence "true until <the improvement>" beside the
+assertion, so the person who meets the red knows it is the feature arriving.
+
 ## Running them
 
 ```sh
