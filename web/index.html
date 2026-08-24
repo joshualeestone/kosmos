@@ -15211,9 +15211,16 @@ async function paintAccountPicker(a) {
      and says why; the picker does not offer them at all, because an option that
      always fails is worse than an option that is not there. */
   const movable = ACCOUNTS.filter((x) => x.memoryShared);
-  const html = ['<option value="">Move to&hellip;</option>'].concat(
-    movable.map((x) => '<option value="' + esc(x.dir) + '">'
-      + esc(x.email || x.label || x.dir) + '</option>'),
+  /* Josh, 2026-08-23 19:56: the dropdown shows the account it is on (the
+     email), not a Move-to placeholder; picking a DIFFERENT one is what
+     arms Move. The current account is the empty-value option, so Move
+     stays quiet while you are where you already are. */
+  const here = acct ? '<option value="">' + esc(acct.email || acct.label || acct.dir) + '</option>'
+    : '<option value="">Move to&hellip;</option>';
+  const html = [here].concat(
+    movable.filter((x) => !acct || x.dir !== acct.dir)
+      .map((x) => '<option value="' + esc(x.dir) + '">'
+        + esc(x.email || x.label || x.dir) + '</option>'),
   ).join('');
   if (sel.innerHTML !== html) sel.innerHTML = html;
 
@@ -15223,15 +15230,14 @@ async function paintAccountPicker(a) {
      the engine would then refuse. An option that always fails is worse than an
      option that is not there. */
   const ours = !!acct;
-  /* One movable account means there is nowhere to move TO, and a working
-     dropdown whose only entry is where you already are is a control that
-     cannot do anything. */
-  const somewhere = movable.length > 1;
-  sel.disabled = !ours || !somewhere;
-  go.disabled = !ours || !somewhere || !sel.value;
-  if (msg && !msg.textContent) {
-    if (!ours) msg.textContent = 'Kosmos did not start this one, so it cannot move it.';
-    else if (!somewhere) msg.textContent = 'Only one Claude account is signed in on this computer.';
+  /* The dropdown stays live whenever we know the account: opening it and
+     seeing only where you are IS the answer to "can I move this", so the
+     one-account sentence that used to say so is gone (Josh, 19:56). Move
+     arms only when a different account is picked. */
+  sel.disabled = !ours;
+  go.disabled = !ours || !sel.value;
+  if (msg && !msg.textContent && !ours) {
+    msg.textContent = 'Kosmos did not start this one, so it cannot move it.';
   }
 }
 
