@@ -1740,7 +1740,7 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        const saved = remote.setOn(body.on === true);
+        const saved = remote.setOn(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
         sendJson(res, 200, { status: remote.status(), on: remote.read().on === true });
@@ -1772,10 +1772,13 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        const email = String(body.email || '').trim();
         const code = String(body.code || '').trim();
-        if (!code) { sendJson(res, 400, { error: 'type the code from the text message' }); return; }
-        const got = await remote.setupComplete(email, code);
+        const name = String(body.name || '').trim();
+        if (!code) { sendJson(res, 400, { error: 'type the code from the email' }); return; }
+        /* The engine's order and its second argument, read from source this
+           time: setupComplete(code, name), the email already held by the
+           settings the start step wrote. */
+        const got = await remote.setupComplete(code, name);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
         sendJson(res, 200, { ok: true, status: remote.status() });
@@ -4844,6 +4847,11 @@ function start(port = PORT) {
       server.on('error', (err) => {
         process.stderr.write(`Kosmos server error: ${String(err && err.message)}\n`);
       });
+      /* The engine's own contract: the server calls ensure at boot with
+         the board's port, and until somebody does, a configured, enrolled,
+         switched-on machine rests forever at "the board has not started
+         the tunnel". The bound port, not the requested one. */
+      try { remote.ensure(server.address().port); } catch { /* status says what happened */ }
       resolve(server);
     };
     server.once('error', onError);

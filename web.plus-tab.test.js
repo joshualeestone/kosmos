@@ -33,7 +33,10 @@ test('no hostname or price appears in the Plus copy: the domain is temporary and
 
 test('the flow gates on configured, and the section paints on arrival, never on the poll', () => {
   const SCRIPT = PAGE.slice(PAGE.lastIndexOf('<script>'));
-  const paint = SCRIPT.slice(SCRIPT.indexOf('async function paintPlus('), SCRIPT.indexOf('\ndocument.getElementById(\'plus-switch\')'));
+  const pStart = SCRIPT.indexOf('async function paintPlus(');
+  const pEnd = SCRIPT.indexOf("document.getElementById('plus-switch')", pStart);
+  assert.ok(pStart > -1 && pEnd > pStart, 'the paintPlus region moved; re-anchor (an open-ended slice would pass against the whole script)');
+  const paint = SCRIPT.slice(pStart, pEnd);
   assert.match(paint, /configured !== true/, 'the flow no longer gates on the machine being configured');
   assert.match(paint, /holding\.hidden = false;\s*\n\s*flow\.hidden = true;/,
     'the unconfigured state does not rest on the holding place');

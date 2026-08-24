@@ -6250,9 +6250,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       connection is end-to-end encrypted, and the service cannot read
       what passes through it.</p>
       <p><b>Sign-up is not open yet.</b> When it opens, this is where it
-      happens: your email and a code texted to your phone, and this Mac
-      gets an address of its own. Nothing to install and nothing to
-      configure on your router.</p>
+      happens: your email, a code to confirm it, and this Mac gets an
+      address of its own. Nothing to install and nothing to configure on
+      your router.</p>
     </div>
 
     <div id="plus-flow" hidden>
@@ -6269,11 +6269,18 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
           <input class="tk-inp" id="plus-email" type="email" maxlength="120" autocomplete="email">
         </div>
         <div class="frow">
-          <button class="btn" type="button" id="plus-send-code">Text me a code</button>
+          <button class="btn" type="button" id="plus-send-code">Email me a code</button>
         </div>
-        <div class="field" id="plus-code-row" hidden>
-          <label class="flabel" for="plus-code">The code from the text</label>
-          <input class="tk-inp" id="plus-code" type="text" inputmode="numeric" maxlength="12">
+        <div id="plus-code-row" hidden>
+          <div class="field">
+            <label class="flabel" for="plus-code">The code from the email</label>
+            <input class="tk-inp" id="plus-code" type="text" inputmode="numeric" maxlength="6">
+          </div>
+          <div class="field">
+            <label class="flabel" for="plus-name">A name for your address</label>
+            <p class="fhint">3 to 32 characters: lowercase letters, digits and hyphens.</p>
+            <input class="tk-inp" id="plus-name" type="text" maxlength="32" autocomplete="off" autocapitalize="none">
+          </div>
           <div class="frow" style="margin-top:8px;">
             <button class="btn uprime" type="button" id="plus-confirm">Confirm</button>
           </div>
@@ -14787,22 +14794,31 @@ async function paintPlus() {
   sw.textContent = r.on ? 'Turn off' : 'Turn on';
   const st = document.getElementById('plus-status');
   const stat = r.status || {};
+  const because = plusWords(stat.because || '');
   st.textContent = stat.state === 'up'
     ? ('Connected. Your address: ' + (stat.address || 'is on its way.'))
-    : (stat.because ? stat.because.charAt(0).toUpperCase() + stat.because.slice(1) + '.' : '');
+    : (because ? because.charAt(0).toUpperCase() + because.slice(1) + '.' : '');
   /* The enrol steps show only when the switch is on and nothing is
      enrolled yet: the state the engine calls waiting-for-the-sign-in. */
   document.getElementById('plus-enrol').hidden = !(r.on && r.enrolled !== true);
 }
+/* The engine's honest-but-technical sentence for a missing binary, said
+   the way this page speaks. Everything else relays verbatim. */
+function plusWords(text) {
+  return /ENOENT/.test(String(text || ''))
+    ? 'the Plus connector is not installed on this Mac yet'
+    : String(text || '');
+}
 document.getElementById('plus-switch').addEventListener('click', async () => {
   const msg = document.getElementById('plus-msg');
   msg.textContent = '';
-  let now = null;
-  try { now = await (await fetch('/api/remote', { cache: 'no-store' })).json(); } catch { now = null; }
-  if (!now) { msg.textContent = 'we could not read the Plus state'; return; }
+  /* The click means what the BUTTON said, not what a re-fetch says now:
+     acting on re-read state lets a stale label do the opposite of its own
+     words, and a double click land twice at one value. */
+  const wantOn = document.getElementById('plus-switch').textContent === 'Turn on';
   try {
-    const res = await fetch('/api/remote', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: !now.on }) });
-    if (!res.ok) msg.textContent = ((await res.json().catch(() => null)) || {}).error || 'we could not change that';
+    const res = await fetch('/api/remote', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: wantOn }) });
+    if (!res.ok) msg.textContent = plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not change that');
   } catch { msg.textContent = 'we could not change that'; }
   paintPlus();
 });
@@ -14812,7 +14828,7 @@ document.getElementById('plus-send-code').addEventListener('click', async () => 
   const email = document.getElementById('plus-email').value.trim();
   try {
     const res = await fetch('/api/remote/setup-start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email }) });
-    if (!res.ok) { msg.textContent = ((await res.json().catch(() => null)) || {}).error || 'we could not start the sign-up'; return; }
+    if (!res.ok) { msg.textContent = plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not start the sign-up'); return; }
     document.getElementById('plus-code-row').hidden = false;
     document.getElementById('plus-code').focus();
   } catch { msg.textContent = 'we could not start the sign-up'; }
@@ -14820,11 +14836,11 @@ document.getElementById('plus-send-code').addEventListener('click', async () => 
 document.getElementById('plus-confirm').addEventListener('click', async () => {
   const msg = document.getElementById('plus-msg');
   msg.textContent = '';
-  const email = document.getElementById('plus-email').value.trim();
   const code = document.getElementById('plus-code').value.trim();
+  const name = document.getElementById('plus-name').value.trim();
   try {
-    const res = await fetch('/api/remote/setup-complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, code }) });
-    if (!res.ok) { msg.textContent = ((await res.json().catch(() => null)) || {}).error || 'we could not finish the sign-up'; return; }
+    const res = await fetch('/api/remote/setup-complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, name }) });
+    if (!res.ok) { msg.textContent = plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not finish the sign-up'); return; }
   } catch { msg.textContent = 'we could not finish the sign-up'; }
   paintPlus();
 });
