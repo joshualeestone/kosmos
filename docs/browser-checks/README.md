@@ -164,6 +164,20 @@ historical set from the PRs that introduced them, not a reference a check
 compares against; when a screenshot belongs in a PR, copy it out of `SHOT_DIR`
 on purpose.
 
+## Adding or removing a check
+
+The row in the table above and the script move in the same commit. The suite's
+`browser-checks-indexed.test.js` asserts it, but that test only fires on a full
+`yarn test`, and a PR that ran a subset has merged green and left main red
+(#606, #607). So the repo ships a pre-commit hook that runs that one guard
+whenever a commit touches `docs/browser-checks/`. Wire it once per clone; every
+worktree of the clone inherits it:
+
+    git config core.hooksPath .githooks
+
+With it wired, adding a check without its row refuses the commit and names the
+file, and deleting a check that still has a row does the same.
+
 ## Running them
 
 ```sh
