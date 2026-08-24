@@ -63,12 +63,30 @@ const NO_APP = 'The no-install way is not switched on yet. It needs a GitHub app
 let fetcher = null; // test seam: (url, opts) => Promise<{ok, status, body}>
 function setFetcher(fn) { fetcher = typeof fn === 'function' ? fn : null; }
 
+/* 🔑 KOSMOS'S OWN APP, SHIPPED IN THE BUILD. The client id identifies the
+   APP, not the person -- public by design (GitHub sends it in the device-flow
+   URL a person visits) and the same for every install, which is why it is a
+   constant here rather than a per-install value. Without it every single
+   install needed this pasted in by hand before the no-install road existed at
+   all, which made the door's advice worse than "install the CLI" for anyone
+   who is not Josh. Josh registered it 2026-08-24 (device flow on, token
+   expiry OFF -- this module stores only access_token and has no refresh, so
+   expiring tokens would have silently killed every connection in hours).
+   There is deliberately NO client secret anywhere: the device flow does not
+   use one, and the one Josh generated anyway is revoked. */
+const SHIPPED_CLIENT_ID = 'Ov23liHg5dCNgoNsIOWh';
+
 function clientId() {
+  /* Overrides first, in the order a person reaches for them: the env var
+     (one shell, one test), then the per-install paste (the door's road,
+     kept for anyone running their own GitHub app), then the build's own. */
   if (process.env.KOSMOS_GITHUB_CLIENT_ID) return process.env.KOSMOS_GITHUB_CLIENT_ID;
   try {
     const got = JSON.parse(fs.readFileSync(APP_FILE, 'utf8'));
-    return (got && typeof got.clientId === 'string' && got.clientId.trim()) || null;
-  } catch { return null; }
+    const pasted = got && typeof got.clientId === 'string' && got.clientId.trim();
+    if (pasted) return pasted;
+  } catch { /* fall through to the shipped id */ }
+  return SHIPPED_CLIENT_ID;
 }
 
 /** The one value Josh hands over. Not a secret (a device-flow client_id is
