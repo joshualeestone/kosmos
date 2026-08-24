@@ -8701,8 +8701,21 @@ function paintUpdateCard(running, offer, look) {
        the control; the verdict appears when it has been asked for.
        ⚠️ THE OTHER ARMS ARE UNTOUCHED. An offer, an unreadable answer and an
        unreachable host are all things a person needs to know WITHOUT asking,
-       and suppressing those would be hiding news rather than removing noise. */
-    put(UPD_ASKED ? 'Up to date.' : '');
+       and suppressing those would be hiding news rather than removing noise.
+       🛑 "UP TO DATE" NEXT TO "RELOAD FOR 0.5.23" (Josh, 2026-08-24 16:50,
+       screenshot, #691). Both halves were true: nothing newer than the served
+       version exists to fetch, and the page he was reading was the older one.
+       Together they read as broken, because the verdict answered a narrower
+       question than the one the button asks. The verdict now asks the SAME
+       staleness question the build line and the toast ask, through the one
+       definition (`pageIsStale`), so the three surfaces cannot disagree. It
+       stays gated on the ask: at rest the build line's "reload for" already
+       carries the news, and the toast carries the button. */
+    if (UPD_ASKED && pageIsStale(running)) {
+      put(running + ' is installed. Reload this page to use it.');
+    } else {
+      put(UPD_ASKED ? 'Up to date.' : '');
+    }
     putBtn('Check for Update');
     btn.dataset.act = 'check';
   } else if (look && look.reached && !look.readable) {

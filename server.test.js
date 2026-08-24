@@ -2243,6 +2243,19 @@ function pageFunction(name, prelude = '') {
   return new Function(`${prelude}\n${pageFnSource(name)}\nreturn ${name};`)();
 }
 
+/**
+ * What `paintUpdateCard` closes over besides its own globals (#691): the page's
+ * own `bakedVersion` and `pageIsStale`, because the verdict arm now asks the
+ * same staleness question the build line and the toast ask. Supplied as the
+ * page's SOURCE rather than a stub, so a harness cannot quietly answer the
+ * question differently from the product. `bakedVersion` reads
+ * `document.querySelector` only when the stub offers one, so every existing
+ * harness (no querySelector) runs as a source checkout: never stale.
+ */
+function updateCardDeps() {
+  return pageFnSource('bakedVersion') + '\n' + pageFnSource('pageIsStale') + '\n';
+}
+
 test('the creation screen only calls an agent made when the board can see it running', async () => {
   const boardCanSeeIt = pageFunction('boardCanSeeIt');
 
@@ -7135,7 +7148,7 @@ test("the update card's states are mutually exclusive, and the line is blank onl
      the button has been pressed. Every OTHER arm still refuses to be blank —
      an offer, an unreadable answer and an unreachable host are news a person
      needs without asking, and this pins that the exemption is the one arm. */
-  const paint = pageFunction('paintUpdateCard', 'let UPD_CHECKING = false;\nlet UPD_ASKED = true;\n');
+  const paint = pageFunction('paintUpdateCard', updateCardDeps() + 'let UPD_CHECKING = false;\nlet UPD_ASKED = true;\n');
   const mk = () => {
     const els = {
       'upd-line': { textContent: '' },
@@ -7245,7 +7258,7 @@ test('the check route is POST-only, and Check now clears the Later note before a
   // eslint-disable-next-line no-new-func
   const run = new Function('localStorage', 'fetch', 'document', 'renderUpdateToast', 'LAST_VERSION',
     'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null;\n'
-    + pageFnSource('paintUpdateCard') + '\n' + src + '\nreturn updCheckNowClick();');
+    + updateCardDeps() + pageFnSource('paintUpdateCard') + '\n' + src + '\nreturn updCheckNowClick();');
   await run(sandbox.localStorage, sandbox.fetch, sandbox.document, sandbox.renderUpdateToast, '0.1.9');
   assert.ok(calls.indexOf('clear:kosmos-update-later') > -1, 'Check now never cleared the Later note');
   assert.ok(calls.indexOf('clear:kosmos-update-later') < calls.indexOf('fetch'),
@@ -7266,7 +7279,7 @@ test('the check route is POST-only, and Check now clears the Later note before a
   };
   const run2 = new Function('localStorage', 'fetch', 'document', 'renderUpdateToast', 'LAST_VERSION',
     'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null;\n'
-    + pageFnSource('paintUpdateCard') + '\n' + pageFnSource('updCheckNowClick') + '\nreturn updCheckNowClick();');
+    + updateCardDeps() + pageFnSource('paintUpdateCard') + '\n' + pageFnSource('updCheckNowClick') + '\nreturn updCheckNowClick();');
   await run2(
     { removeItem: () => { calls2.push('clear'); } },
     async () => { throw new Error('board down'); },
@@ -7284,7 +7297,7 @@ test('the check route is POST-only, and Check now clears the Later note before a
 test('the card standoff, the confirm focus fallback, and the identical-write guard hold', () => {
   try {
   // (a) UPD_CHECKING owns the card: a poll paint during a check changes nothing.
-  const paintBusy = pageFunction('paintUpdateCard', 'let UPD_CHECKING = true;\n');
+  const paintBusy = pageFunction('paintUpdateCard', updateCardDeps() + 'let UPD_CHECKING = true;\n');
   const busy = { 'upd-line': { textContent: 'held' }, 'upd-btn': { textContent: 'held', hidden: true, disabled: true, dataset: {} } };
   global.document = { getElementById: (id) => busy[id] };
   paintBusy('9.9.9', { version: '9.9.9' }, { reached: true, readable: true });
@@ -7313,7 +7326,7 @@ test('the card standoff, the confirm focus fallback, and the identical-write gua
   const line = { _t: '', get textContent() { return this._t; }, set textContent(v) { this._t = v; writes += 1; } };
   const quiet = { 'upd-line': line, 'upd-btn': { textContent: '', hidden: false, disabled: false, dataset: {} } };
   global.document = { getElementById: (id) => quiet[id] };
-  const paint = pageFunction('paintUpdateCard', 'let UPD_CHECKING = false;\n');
+  const paint = pageFunction('paintUpdateCard', updateCardDeps() + 'let UPD_CHECKING = false;\n');
   paint('0.1.9', null, { reached: true, readable: true });
   const after = writes;
   paint('0.1.9', null, { reached: true, readable: true });
@@ -7339,7 +7352,7 @@ test("the card's Update arm opens the one shared confirm and records itself as o
   // eslint-disable-next-line no-new-func
   const opener = await new Function('document', 'localStorage', 'fetch', 'renderUpdateToast', 'LAST_VERSION',
     'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null;\n'
-    + pageFnSource('paintUpdateCard') + '\n' + pageFnSource('updCheckNowClick')
+    + updateCardDeps() + pageFnSource('paintUpdateCard') + '\n' + pageFnSource('updCheckNowClick')
     + '\nreturn updCheckNowClick().then(() => UPD_CONFIRM_OPENER);')(
     doc,
     { removeItem: () => calls.push('clear') },
@@ -9069,7 +9082,7 @@ test('the footer answers only a question that was asked, and never sits on news'
    * news a person needs WITHOUT asking; suppressing that would be hiding news
    * rather than removing noise, which is the opposite of what was ruled.
    */
-  const unasked = pageFunction('paintUpdateCard', 'let UPD_CHECKING = false;\nlet UPD_ASKED = false;\n');
+  const unasked = pageFunction('paintUpdateCard', updateCardDeps() + 'let UPD_CHECKING = false;\nlet UPD_ASKED = false;\n');
   const mk = () => {
     const els = {
       'upd-line': { textContent: '' },
@@ -10699,5 +10712,73 @@ test('the doctrine routes: plan, consent-by-hash, not-now, and the fleet list', 
     fsx.rmSync(dir, { recursive: true, force: true });
     try { fsx.rmSync(storeEngine.PROFILES + '/doctest.json', { force: true }); } catch { }
     board.restore();
+  }
+});
+
+test('with a newer version installed than the open page, Check for Update says reload, not "Up to date" (#691)', async () => {
+  /* Josh, 2026-08-24 16:50, screenshot: "version 0.5.22 · reload for 0.5.23"
+     and, beside it, "Up to date." Both halves true, together a contradiction.
+     The verdict now asks the page's own staleness question. */
+  const mk = (baked) => {
+    const els = {
+      'upd-line': { textContent: '' },
+      'upd-btn': { textContent: '', hidden: true, disabled: false, dataset: {}, focus: () => {} },
+    };
+    const meta = baked === undefined ? null : { getAttribute: () => baked };
+    global.document = {
+      getElementById: (id) => els[id] || null,
+      querySelector: (sel) => (sel === 'meta[name="kosmos-version"]' ? meta : null),
+    };
+    return els;
+  };
+  try {
+    const asked = pageFunction('paintUpdateCard', updateCardDeps() + 'let UPD_CHECKING = false;\nlet UPD_ASKED = true;\n');
+    // The screenshot: page baked 0.5.22, server running 0.5.23, button pressed.
+    let els = mk('0.5.22');
+    asked('0.5.23', null, { reached: true, readable: true, looked: true });
+    assert.equal(els['upd-line'].textContent, '0.5.23 is installed. Reload this page to use it.',
+      'a stale page was told it is up to date');
+    assert.equal(els['upd-btn'].textContent, 'Check for Update', 'the control changed with the sentence');
+    // CONTROL: the same press on a current page still gets the verdict. Without
+    // this the assert above could pass on a card that never says "Up to date".
+    els = mk('0.5.23');
+    asked('0.5.23', null, { reached: true, readable: true, looked: true });
+    assert.equal(els['upd-line'].textContent, 'Up to date.', 'a current page lost its verdict');
+    // A source checkout (marker untouched) is never stale: the pre-#691 behaviour.
+    els = mk('__KOSMOS_VERSION__');
+    asked('0.5.23', null, { reached: true, readable: true, looked: true });
+    assert.equal(els['upd-line'].textContent, 'Up to date.');
+    // Unasked and stale: the line stays quiet. The build line beside it already
+    // says "reload for", and the toast carries the button; this arm answers a
+    // question, and nobody asked it yet.
+    const unasked = pageFunction('paintUpdateCard', updateCardDeps() + 'let UPD_CHECKING = false;\nlet UPD_ASKED = false;\n');
+    els = mk('0.5.22');
+    unasked('0.5.23', null, { reached: true, readable: true, looked: true });
+    assert.equal(els['upd-line'].textContent, '', 'the resting line answered a question nobody asked');
+    // The stale sentence never hides real news: an offer still wins the arm.
+    els = mk('0.5.22');
+    asked('0.5.23', { version: '0.5.24' }, { reached: true, readable: true, looked: true });
+    assert.equal(els['upd-line'].textContent, 'Version 0.5.24 is ready.');
+
+    // The press itself, end to end through the page's own click handler: the
+    // fetch answers with the server's running version, the page is older.
+    const press = async (baked, running) => {
+      const pressed = mk(baked);
+      pressed['upd-btn'].hidden = false; pressed['upd-btn'].dataset.act = 'check';
+      // eslint-disable-next-line no-new-func
+      const run = new Function('localStorage', 'fetch', 'document', 'renderUpdateToast', 'LAST_VERSION',
+        'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null; let UPD_ASKED = false;\n'
+        + updateCardDeps() + pageFnSource('paintUpdateCard') + '\n' + pageFnSource('updCheckNowClick')
+        + '\nreturn updCheckNowClick();');
+      await run({ removeItem: () => {} },
+        async () => ({ ok: true, json: async () => ({ running, latest: running, reached: true, readable: true, offer: null }) }),
+        global.document, () => {}, baked);
+      return pressed['upd-line'].textContent;
+    };
+    assert.equal(await press('0.5.22', '0.5.23'), '0.5.23 is installed. Reload this page to use it.',
+      'the real press on a stale page did not say reload');
+    assert.equal(await press('0.5.23', '0.5.23'), 'Up to date.', 'CONTROL: the real press on a current page lost its verdict');
+  } finally {
+    delete global.document;
   }
 });
