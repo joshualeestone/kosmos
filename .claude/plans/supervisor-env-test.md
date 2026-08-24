@@ -23,5 +23,11 @@ suite was green throughout the bug it now claims to guard.
 3. `tools/witness-pane-env.sh`: the live witness, real tmux, private socket,
    exit 1 on the wrong account.
 
+## Measured
+2026-08-24 13:00 CDT, tmux 3.6a, isolated socket: `tools/witness-pane-env.sh`
+against the pre-#586 supervisor (70eddf3) printed "the pane saw: /acct/A" and
+exited 1; against this branch's supervisor it printed "/acct/B" and exited 0.
+`prove-it-fails` with the `-e` dropped: the new test red, restored clean.
+
 ## Not in this change
 The #586 feature itself, the accounts UI, anything in engine/.

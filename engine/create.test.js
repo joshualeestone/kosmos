@@ -89,8 +89,8 @@ function supervisorText() {
  * every real agent with its working directory as its session name, and every
  * assertion here would still pass.
  */
-function jobArguments(name) {
-  const plist = create.plistFor(name, '/bin/echo', '/opt/homebrew/bin/tmux');
+function jobArguments(name, { model = null, runner = undefined } = {}) {
+  const plist = create.plistFor(name, '/bin/echo', '/opt/homebrew/bin/tmux', model, null, runner);
   const block = plist.slice(plist.indexOf('<array>'), plist.indexOf('</array>'));
   return [...block.matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]).slice(1);
 }
@@ -913,7 +913,7 @@ test('a length problem says it is a length problem', () => {
  * The fake records every call and answers from a scripted world. `has-session`
  * answers yes once and no afterwards, so every loop in the script terminates.
  */
-function runLauncher({ claim, paneCommands, env }) {
+function runLauncher({ claim, paneCommands, env, model, runner }) {
   const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'launcher-'));
   const log = nodePath.join(dir, 'calls.log');
   const fake = nodePath.join(dir, 'tmux');
@@ -947,7 +947,7 @@ esac
   // file having created an agent. It ran the INSTALLED copy while every textual
   // assertion read the repo file, which worked only by order.
   create.installSupervisor();
-  const argv = jobArguments('probe').map((a) => {
+  const argv = jobArguments('probe', { model, runner }).map((a) => {
     if (a === create.workerDir('probe')) return nodePath.join(dir, 'work');
     if (a === '/opt/homebrew/bin/tmux') return fake;
     return a;
@@ -965,8 +965,12 @@ esac
   require('node:child_process').execFileSync('/bin/bash', argv, { timeout: 20000, stdio: 'pipe', env: spawnEnv });
   const calls = fs.readFileSync(log, 'utf8').trim().split('\n');
   const argvFile = nodePath.join(dir, 'new-session.argv');
-  // The launch's argument vector with boundaries intact, or null when nothing
-  // was launched (the adopt path), so a test can tell "not passed" from "not run".
+  // ⚠️ `calls` is the space-joined call log every test above reads, and it
+  // also CARRIES the launch's argument vector with boundaries intact as
+  // `calls.newSession` (null when nothing was launched, the adopt path, so a
+  // test can tell "not passed" from "not run"). A property on the array
+  // rather than a new return shape, so the callers reading `calls.some(...)`
+  // stay as they are.
   calls.newSession = fs.existsSync(argvFile)
     ? fs.readFileSync(argvFile, 'utf8').replace(/\n$/, '').split('\n')
     : null;
@@ -1075,11 +1079,24 @@ test('the startup script, actually run, hands the pane its account and its board
   const claudeDir = '/Users/somebody/Library/Application Support/kosmos/.claude-team';
   const codexDir = '/Users/somebody/.codex-team';
   const launchdEnv = { CLAUDE_CONFIG_DIR: claudeDir, CODEX_HOME: codexDir, KOSMOS_PORT: '16245' };
-  const set = runLauncher({ claim: 'probe', paneCommands: ['-zsh', 'bash'], env: launchdEnv });
-  assert.ok(set.newSession, 'nothing was launched, so the assertions below never ran');
-  const passed = set.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e').sort();
-  assert.deepEqual(passed, [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245'],
-    'the pane was not handed exactly the account and the board: ' + JSON.stringify(set.newSession));
+  // ⚠️ ALL FOUR LAUNCH LINES, not the one a default job happens to take. The
+  // supervisor has a line per runner with and without a model, and a fix on
+  // one of them (an unquoted expansion, a dropped -e) leaves the other three
+  // exactly as broken while a single-branch test stays green.
+  const branches = [
+    { runner: undefined, model: null }, { runner: undefined, model: 'claude-sonnet-5' },
+    { runner: 'codex', model: null }, { runner: 'codex', model: 'gpt-5' },
+  ];
+  for (const b of branches) {
+    const label = `${b.runner || 'claude'}${b.model ? '+model' : ''}`;
+    const set = runLauncher({ claim: 'probe', paneCommands: ['-zsh', 'bash'], env: launchdEnv, ...b });
+    assert.ok(set.newSession, `${label}: nothing was launched, so the assertions below never ran`);
+    const passed = set.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e').sort();
+    assert.deepEqual(passed, [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245'],
+      `${label}: the pane was not handed exactly the account and the board: ` + JSON.stringify(set.newSession));
+    if (b.model) assert.ok(set.newSession.includes(b.model), `${label}: the model did not reach the launch, so this is not the branch it claims to test`);
+    if (b.runner === 'codex') assert.ok(set.newSession.some((a) => a.startsWith('notify=')), `${label}: the codex notify config did not reach the launch, so this is not the codex branch`);
+  }
 
   // Unset means absent, the plist's own rule. A pane must not be handed an
   // empty directory as if it were one.
