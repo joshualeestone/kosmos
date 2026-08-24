@@ -836,7 +836,7 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 @media (max-width: 40rem) { .themepick { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#utoast-slot:empty, #unote-slot:empty, #uoffline-slot:empty { display: none; }
+#utoast-slot:empty, #unote-slot:empty, #unews-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* 🔑 8px BECAUSE THE ELEMENT ALREADY CHOSE 8px, not because somebody picked a
    number: `.klink:focus-visible` below sets that radius, and an outline follows
@@ -3807,7 +3807,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          update-available notice and wears its shape, so it sits with the
          header instead of pushing the board down. The slot's :empty rule
          does not apply while this child exists, so the line hides itself. -->
-    <div id="unote-slot">
+    <div id="unote-slot"></div>
+    <div id="unews-slot">
       <div class="utoast stale" id="newsbar" role="status" hidden>
         <span class="udot" aria-hidden="true"></span>
         <div class="utxt"><b id="newsbar-text"></b><small><a id="newsbar-link" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">What changed</a></small></div>

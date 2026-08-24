@@ -2865,7 +2865,6 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
      not touch its old ids; the stub keeps them so a regression that writes
      them again is caught here rather than as a null dereference. */
   assert.equal(live['st-off'].textContent, '', 'the painter wrote the Not-running tile Josh removed');
-  assert.equal(some['st-off'].textContent, '', 'the painter wrote the Not-running tile Josh removed');
   /* 🔑 THE FOURTH TILE, and it is what makes the row add up: working plus idle
      plus not-running is the agents total, which a person can check. */
   const some = drive(fleet, { total: 9, needsYou: 1, notRunning: 2 });
@@ -2880,6 +2879,7 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
      there claims none of your agents are stopped on the one poll where that is
      unknowable, and hiding the tile is the same claim in another form
      (Mona Lisa, #294). */
+  assert.equal(some['st-off'].textContent, '', 'the painter wrote the Not-running tile Josh removed');
   const murky = drive(fleet, { total: 7, needsYou: 1, notRunning: null });
 
   const calm = drive(fleet.filter((a) => a.state !== 'needs_you'), { total: 6, needsYou: 0 });
