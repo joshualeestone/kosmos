@@ -1684,6 +1684,10 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
 .pj3 { display: grid; grid-template-columns: minmax(0, 20%) minmax(0, 1fr) minmax(0, 20%); gap: 16px; align-items: start; }
 @media (max-width: 68rem) { .pj3 { grid-template-columns: minmax(0, 1fr); } }
 .pjcol { border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface); padding: 14px 16px 16px; }
+/* #534: the split left column is chrome-free; its two cards wear the look. */
+.pjcol.pjsplit { border: 0; background: none; padding: 0; display: grid; gap: 14px; align-content: start; }
+.ficon { flex: 0 0 18px; margin-right: 2px; align-self: center; }
+.pjcard { border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface); padding: 14px 16px 16px; }
 .pjcol > .flabel { display: block; margin-bottom: 10px; }
 /* Inside a pjcol the card IS the boundary: the .field separator rule
    drew a stray line above Tasks. */
@@ -5295,7 +5299,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     </div>
 
     <div class="pj3">
-    <aside class="pjcol">
+    <!-- #534 (Josh, 2026-08-24 10:34): members and files are TWO containers,
+         not two headings in one. The aside keeps the layout column; the
+         cards carry the chrome. -->
+    <aside class="pjcol pjsplit">
+      <div class="pjcard">
       <h3 class="dlab">Project members</h3>
       <div id="pj-one-agents" class="pj-members"></div>
       <!-- ⚠️ The picker hides behind the button, not the other way round: the
@@ -5359,7 +5367,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            comment that removes it leaves the row red about its own fix. Fifth
            time tonight a comment naming its subject broke the check that reads
            for it. -->
-      <div class="field" style="margin-top: var(--space-6)">
+      </div>
+      <div class="pjcard">
         <!-- 🛑 "Project documents" WAS THE ONLY THING ON THIS SECTION THAT
              LIED. Every sentence under it is already honest that it reads the
              project FOLDER; the heading promised something else. Josh, on what
@@ -5375,7 +5384,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              view-all that opens a SCREEN listing everything. That screen is a
              later slice; this control does something real and says exactly what
              it does instead of wearing the label of the thing not built yet. -->
-        <button class="linkish" id="pj-docs-all" type="button" hidden>Show them all in Finder</button>
+        <!-- The door's label finally matches its handler (#535): it has
+             opened the in-app Documents view since #134 landed, while the
+             words still promised Finder. Finder lives INSIDE that view. -->
+        <button class="linkish" id="pj-docs-all" type="button" hidden>View all</button>
       </div>
     </aside>
 
@@ -5678,6 +5690,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <h3 class="dlab" id="docs-folder-head" hidden>In the project folder</h3>
     <p class="dhint" id="docs-count" style="margin:0 0 8px;" hidden></p>
     <div id="docs-list" class="pj-docs"></div>
+    <div class="frow" id="docs-pager" hidden style="margin:10px 0 0; gap:8px;">
+      <button class="btn" id="docs-prev" type="button">Previous</button>
+      <button class="btn" id="docs-next" type="button">Next</button>
+    </div>
     <p class="fmsg" id="docs-msg" aria-live="polite"></p>
   </div>
   <div id="pj-newtask-view" hidden>
@@ -18828,6 +18844,39 @@ function paintOneProject() {
    button per file, opened through the same delegated open-file handler), fed
    by the same route at a bounded higher limit, so the two lists cannot
    disagree about what a document is. */
+let PJ_DOCS_FILES = [];
+let PJ_DOCS_TOTAL = 0;
+let PJ_DOCS_PAGE = 0;
+const PJ_DOCS_PER = 50;
+function pjDocsPaintPage() {
+  const box = document.getElementById('docs-list');
+  const count = document.getElementById('docs-count');
+  const pager = document.getElementById('docs-pager');
+  const pages = Math.max(1, Math.ceil(PJ_DOCS_FILES.length / PJ_DOCS_PER));
+  if (PJ_DOCS_PAGE >= pages) PJ_DOCS_PAGE = pages - 1;
+  box.textContent = '';
+  const start = PJ_DOCS_PAGE * PJ_DOCS_PER;
+  for (const f of PJ_DOCS_FILES.slice(start, start + PJ_DOCS_PER)) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'pj-doc'; b.dataset.doc = f.name;
+    b.insertAdjacentHTML('afterbegin', fileIcon(f.name));
+    const n = document.createElement('span'); n.className = 'pj-doc-n'; n.textContent = f.name;
+    const w = document.createElement('span'); w.className = 'pj-doc-w';
+    w.textContent = pjSize(f.size) + (f.modified ? ' · ' + new Date(f.modified).toLocaleDateString() : '');
+    b.append(n, w); box.append(b);
+  }
+  const floor = PJ_DOCS_TOTAL > PJ_DOCS_FILES.length
+    ? '; showing the first ' + PJ_DOCS_FILES.length + ', the rest are in the folder itself' : '';
+  count.textContent = (PJ_DOCS_TOTAL + (PJ_DOCS_TOTAL === 1 ? ' file' : ' files'))
+    + (pages > 1 ? ' · page ' + (PJ_DOCS_PAGE + 1) + ' of ' + pages : '') + floor;
+  count.hidden = false;
+  pager.hidden = pages <= 1;
+  document.getElementById('docs-prev').disabled = PJ_DOCS_PAGE === 0;
+  document.getElementById('docs-next').disabled = PJ_DOCS_PAGE >= pages - 1;
+}
+document.getElementById('docs-prev').addEventListener('click', () => { PJ_DOCS_PAGE -= 1; pjDocsPaintPage(); document.getElementById('docs-list').scrollIntoView({ block: 'start' }); });
+document.getElementById('docs-next').addEventListener('click', () => { PJ_DOCS_PAGE += 1; pjDocsPaintPage(); document.getElementById('docs-list').scrollIntoView({ block: 'start' }); });
+
 async function openDocsView() {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
@@ -18864,6 +18913,7 @@ async function openDocsView() {
       for (const a of atts) {
         const b = document.createElement('a');
         b.className = 'pj-doc'; b.href = a.url; b.target = '_blank'; b.rel = 'noopener';
+        b.insertAdjacentHTML('afterbegin', fileIcon(a.name || ''));
         const n = document.createElement('span'); n.className = 'pj-doc-n'; n.textContent = a.name || 'a file';
         const w = document.createElement('span'); w.className = 'pj-doc-w'; w.textContent = pjSize(a.size);
         b.append(n, w); convo.append(b);
@@ -18880,19 +18930,13 @@ async function openDocsView() {
     const files = Array.isArray(body.files) ? body.files : [];
     if (!files.length) { msg.textContent = 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.'; return; }
     msg.textContent = '';
-    for (const f of files) {
-      const b = document.createElement('button');
-      b.type = 'button'; b.className = 'pj-doc'; b.dataset.doc = f.name;
-      const n = document.createElement('span'); n.className = 'pj-doc-n'; n.textContent = f.name;
-      const w = document.createElement('span'); w.className = 'pj-doc-w';
-      w.textContent = pjSize(f.size) + (f.modified ? ' \u00b7 ' + new Date(f.modified).toLocaleDateString() : '');
-      b.append(n, w); box.append(b);
-    }
-    /* More files than the bound is a floor and says so, the tiles' own rule. */
-    count.textContent = Number(body.total) > files.length
-      ? files.length + ' of ' + body.total + ' files; the rest are in the folder itself'
-      : files.length + (files.length === 1 ? ' file' : ' files');
-    count.hidden = false;
+    /* Paginated (#535, Josh: 'a paginated list of project files'). Fifty a
+       page: enough to scan, never a wall. The floor sentence survives at the
+       END of the last page, because the route's 500 cap is still a cap. */
+    PJ_DOCS_FILES = files;
+    PJ_DOCS_TOTAL = Number(body.total) || files.length;
+    PJ_DOCS_PAGE = 0;
+    pjDocsPaintPage();
   } catch {
     if (PJ_CURRENT === forProject && PJ_VIEW === 'docs') msg.textContent = 'We could not reach Kosmos to list the documents.';
   }
@@ -18917,6 +18961,36 @@ document.getElementById('docs-list').addEventListener('click', async (e) => {
     if (!res.ok) { const b = await res.json().catch(() => null); msg.textContent = pjSentence((b && (b.error || b.because)) || 'we could not open that file'); }
   } catch { msg.textContent = 'We could not reach Kosmos to open that file.'; }
 });
+
+/* #536 (Josh, 2026-08-24 10:34): a small file-type icon on every file row.
+   One drawn document shape; the type is a coloured tag ON the shape, keyed
+   by extension. THE FALLBACK IS THE DEFAULT: an unknown type gets the blank
+   document, so nothing can render brokenly. Inline SVG, no fonts, no
+   fetches (the homepage's Apple-mark lesson). */
+const FILE_TYPES = {
+  pdf: ['PDF', '#b3261e'],
+  doc: ['DOC', '#2b579a'], docx: ['DOC', '#2b579a'],
+  ppt: ['PPT', '#d24726'], pptx: ['PPT', '#d24726'], key: ['KEY', '#d24726'],
+  xls: ['XLS', '#217346'], xlsx: ['XLS', '#217346'], csv: ['CSV', '#217346'], numbers: ['NUM', '#217346'],
+  md: ['MD', '#14161a'], markdown: ['MD', '#14161a'],
+  txt: ['TXT', '#4a4f57'],
+  png: ['IMG', '#6b4fa0'], jpg: ['IMG', '#6b4fa0'], jpeg: ['IMG', '#6b4fa0'], gif: ['IMG', '#6b4fa0'],
+  webp: ['IMG', '#6b4fa0'], svg: ['IMG', '#6b4fa0'], heic: ['IMG', '#6b4fa0'],
+  mp4: ['VID', '#6b4fa0'], mov: ['VID', '#6b4fa0'],
+  mp3: ['AUD', '#6b4fa0'], wav: ['AUD', '#6b4fa0'], m4a: ['AUD', '#6b4fa0'],
+  zip: ['ZIP', '#4a4f57'],
+};
+function fileIcon(name) {
+  const ext = String(name || '').toLowerCase().split('.').pop();
+  const t = Object.prototype.hasOwnProperty.call(FILE_TYPES, ext) ? FILE_TYPES[ext] : null;
+  const tag = t ? ('<rect x="1" y="11" width="16" height="7" rx="1.5" fill="' + t[1] + '"/>' +
+    '<text x="9" y="16.4" text-anchor="middle" font-size="5.4" font-weight="700" ' +
+    'font-family="-apple-system, sans-serif" fill="#ffffff">' + esc(t[0]) + '</text>') : '';
+  return '<svg class="ficon" viewBox="0 0 18 20" width="18" height="20" aria-hidden="true" focusable="false">' +
+    '<path d="M3.5 1.5h7L15 5v13a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1z" ' +
+    'fill="#fff" stroke="#9aa0a6" stroke-width="1"/>' +
+    '<path d="M10.5 1.5V5H15" fill="none" stroke="#9aa0a6" stroke-width="1"/>' + tag + '</svg>';
+}
 
 async function pjLoadDocs(id) {
   const box = document.getElementById('pj-docs');
@@ -18958,6 +19032,7 @@ async function pjLoadDocs(id) {
        that cannot be reached from the keyboard is not an action for everyone. */
     const b = document.createElement('button');
     b.type = 'button';
+    b.insertAdjacentHTML('afterbegin', fileIcon(f.name));
     b.className = 'pj-doc';
     b.dataset.doc = f.name;
     const n = document.createElement('span');
