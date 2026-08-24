@@ -118,16 +118,38 @@ run_setup() {
   sh "$SB/setup" "$@" > "$SB/out.$_label.log" 2>&1
 }
 
-say "== REFUSAL: a clean HOME has no Claude Code =="
-if run_setup refusal; then
-  fail "the installer FINISHED on a Mac with no Claude Code, the exact #133 failure"
-else
-  if grep -q "needs Claude Code and this Mac does not have it" "$SB/out.refusal.log"; then
-    pass "refused, in the named sentence"
-  else
-    fail "refused, but not with the named sentence; tail: $(tail -2 "$SB/out.refusal.log" | tr '\n' ' ')"
-  fi
+# ⚠️ RESTATED, NOT DELETED (#548, Josh's carry ruling 2026-08-24 11:06).
+# This phase asserted #133's refusal while Claude Code was the only engine;
+# carry inverts the assertion: a clean HOME gets Claude Code INSTALLED, in
+# a sentence that names what is happening, and the install continues. The
+# CONTROL that proves the no-Claude arm was genuinely exercised is kept
+# explicit: the sandbox HOME is asserted claude-less BEFORE the run, and
+# the pass demands the carry sentence AND a real executable landing at the
+# exact path -- a run that quietly took the found-it arm can produce
+# neither.
+say "== CARRY: a clean HOME has no Claude Code, so the installer installs it =="
+if [ -e "$SBHOME/.local/bin/claude" ]; then
+  fail "the control is broken: the sandbox HOME already has a claude, so this leg would prove nothing"
 fi
+if run_setup carry; then
+  if grep -q "Installing it now with Anthropic's own installer" "$SB/out.carry.log"; then
+    pass "said what it was doing, in the named sentence"
+  else
+    fail "carried, but never said so; tail: $(tail -2 "$SB/out.carry.log" | tr '\n' ' ')"
+  fi
+  if [ -f "$SBHOME/.local/bin/claude" ] && [ -x "$SBHOME/.local/bin/claude" ]; then
+    pass "Claude Code genuinely landed at the path Kosmos launches from"
+  else
+    fail "the carry sentence appeared but nothing runnable landed at $SBHOME/.local/bin/claude"
+  fi
+else
+  fail "the installer DIED on a Mac with no Claude Code, the pre-#548 behavior; tail: $(tail -2 "$SB/out.carry.log" | tr '\n' ' ')"
+fi
+# The carry leg ran a COMPLETE install (that is the point), so a sandbox
+# board may now be listening. WALK must start from a stopped state or its
+# run exercises the update-in-place and port-collision arms instead of the
+# fresh path it asserts.
+kill_sandbox
 
 say "== WALK: Claude Code present, the whole served path =="
 mkdir -p "$SBHOME/.local/bin"

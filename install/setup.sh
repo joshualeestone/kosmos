@@ -1224,10 +1224,52 @@ check_claude_code() {
   fi
   _claude_elsewhere="$(command -v claude 2>/dev/null || true)"
   if [ -n "$_claude_elsewhere" ]; then
-    die "Claude Code is installed at $_claude_elsewhere, but Kosmos starts agents from $_claude_bin and there is nothing there. Link it and run this again:
+    # Carry's spirit applied to the near-miss (#548): the fix is one
+    # symlink into the exact path Kosmos launches from, so make it, and
+    # say so first. Nothing is installed; a link is named as a link.
+    info "Claude Code is installed at $_claude_elsewhere, but Kosmos starts agents from $_claude_bin. Linking it there now."
+    mkdir -p "$(dirname "$_claude_bin")" \
+      && ln -s "$_claude_elsewhere" "$_claude_bin" \
+      && [ -f "$_claude_bin" ] && [ -x "$_claude_bin" ] \
+      && { info "Claude Code linked at $_claude_bin"; return 0; }
+    die "We could not link it. Link it yourself and run this again:
   mkdir -p \"\$(dirname \"$_claude_bin\")\" && ln -s \"$_claude_elsewhere\" \"$_claude_bin\""
   fi
-  die "Kosmos needs Claude Code and this Mac does not have it. Install it first (https://claude.com/claude-code puts it at $_claude_bin), then run this install again."
+  # 🔑 CARRY (#548, Josh's ruling 2026-08-24 11:06: "let's carry and just
+  # install now"). This used to refuse the whole install (#133), which was
+  # right when Claude Code was the only engine and expired when it stopped
+  # being one. Now the installer installs it, using Anthropic's own
+  # installer into the exact path Kosmos launches from, and SAYS SO FIRST:
+  # nothing is installed beyond what this sentence names. Neutral -- no
+  # engine until first-run picks a provider -- remains the destination and
+  # stacks on top of this unchanged.
+  #
+  # The URL is overridable for sandboxed installs of Kosmos itself, not a
+  # test convenience: an operator mirroring Anthropic's installer points
+  # this at their mirror.
+  _claude_install_url="${AGENT_WORKFORCE_CLAUDE_INSTALL_URL:-https://claude.ai/install.sh}"
+  # ⚠️ THE SAME FACT IN THE SAME WORDS as the #133 refusal a person may
+  # have met yesterday (Mona Lisa's copy ruling): only what FOLLOWS it
+  # changed, from install-it-first to installing-it-now.
+  info "Kosmos needs Claude Code and this Mac does not have it."
+  info "Installing it now with Anthropic's own installer ($_claude_install_url), into $_claude_bin."
+  # ⚠️ The landed binary is PROBED, not trusted: a truncated download
+  # passes -f and -x (measured under #133, Angel), so the carry succeeds
+  # only when the binary ANSWERS. Its version goes into the log in the
+  # same breath (Mona Lisa's breadcrumb: today's incident hinged on a log
+  # that could not say what a run actually installed).
+  if curl -fsSL "$_claude_install_url" | sh >/tmp/kosmos-claude-install.$$.log 2>&1 \
+     && [ -f "$_claude_bin" ] && [ -x "$_claude_bin" ] \
+     && _claude_version="$("$_claude_bin" --version 2>/dev/null | head -1)" \
+     && [ -n "$_claude_version" ]; then
+    info "Claude Code installed at $_claude_bin ($_claude_version)"
+    rm -f "/tmp/kosmos-claude-install.$$.log"
+    return 0
+  fi
+  # ⚠️ A FAILED CARRY DIES THE WAY THE OLD GATE DID, in a named sentence
+  # with the self-remedy: finishing here would build the exact
+  # agents-that-never-start machine #133 existed to prevent.
+  die "We tried to install Claude Code and it did not work (the log is at /tmp/kosmos-claude-install.$$.log). Install it yourself (https://claude.com/claude-code puts it at $_claude_bin), then run this install again."
 }
 check_claude_code
 ok
