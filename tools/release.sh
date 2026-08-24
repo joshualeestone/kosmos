@@ -215,12 +215,12 @@ echo "== 5b. the installer .pkg, rebuilt and published only when its inputs chan
 # INPUTS change (pkg-scripts, pkg-resources, the build script, the identifier;
 # tools/lib/pkg-inputs.sh is the one definition). A rebuild costs a
 # sign + notarise round trip, minutes, and only when one of those moved.
-# ⚠️ NAMED HAZARD, SAME AS THE TARBALLS: the site gitignores dist/*.pkg and
-# dist/*.pkg.sha256 (build output; .vercelignore carries them to the deploy),
-# so the pkg goes live from the site's WORKING TREE, which is #649's shape.
-# Step 9c and verify-served.sh check what is actually served, and this step
-# says out loud whether it published, so a stale pkg is a red line, never a
-# quiet skip.
+# ⚠️ NAMED HAZARD, SAME AS THE TARBALLS: the site gitignores dist/*.pkg,
+# dist/*.pkg.sha256 and dist/*.pkg.inputs (build output; .vercelignore
+# carries them to the deploy), so all three go live from the site's WORKING
+# TREE with no commit behind them, which is #649's shape. Step 9c and
+# verify-served.sh check what is actually served, and this step says out loud
+# whether it published, so a stale pkg is a red line, never a quiet skip.
 . "$REPO/tools/lib/pkg-inputs.sh"
 _pkg_want="$(pkg_input_sha "$REPO")" || { echo "could not compute the pkg input sha from the frozen tree"; exit 1; }
 if _pkg_why="$(pkg_publish_needed "$SITE/dist" "$_pkg_want")"; then
@@ -229,7 +229,7 @@ if _pkg_why="$(pkg_publish_needed "$SITE/dist" "$_pkg_want")"; then
   # notarised, stapled; the script refuses to build unsigned. It writes
   # Kosmos.pkg + .sha256 + .inputs into $REPO/dist.
   ( cd "$REPO" && OUT_DIR="$REPO/dist" bash tools/build-installer-pkg.sh "$V" )
-  [ "$(tr -d '[:space:]' < "$REPO/dist/Kosmos.pkg.inputs")" = "$_pkg_want" ] || { echo "the built pkg's input sidecar is not the sha this step computed; the build script and the guard disagree"; exit 1; }
+  [ "$(pkg_sidecar_inputs "$REPO/dist/Kosmos.pkg.inputs")" = "$_pkg_want" ] || { echo "the built pkg's input sidecar is not the sha this step computed; the build script and the guard disagree"; exit 1; }
   cp "$REPO/dist/Kosmos.pkg" "$REPO/dist/Kosmos.pkg.sha256" "$REPO/dist/Kosmos.pkg.inputs" "$SITE/dist/"
   PKG_PUBLISHED=1
   echo "   published to the site dist: Kosmos.pkg $(awk '{print substr($1,1,12)}' < "$SITE/dist/Kosmos.pkg.sha256"), inputs ${_pkg_want:0:12}"
@@ -363,27 +363,46 @@ echo "== 9c. the served installer .pkg is the one step 5b left in the site dist 
 # Step 5b decided from the site's working copy; this reads the SERVED host,
 # because the deploy carries the pkg from the working tree (the named hazard
 # above) and an edge can serve the prior pair (Kosmos.pkg and its .sha256
-# share one cache). Three facts, all from the wire: the served inputs sidecar
-# is the source's, the served pkg's bytes are the served checksum's, and
+# share one cache). Four facts, all from the wire, and the red names the one
+# that failed: the served inputs sidecar is the source's, the served pkg's
+# bytes are the served checksum's, the sidecar vouches for those bytes, and
 # those bytes are the site dist's. Retried like 9 and 9b: cache lag is not
 # staleness until six reads agree.
-_pkg_ok=0; _pkg_tmp="$(mktemp)"
+# ⚠️ NO BARE `x="$(curl ...)"` CAPTURES: under set -e a 404 on the first read
+# (a path that has never existed on the edge, exactly this step's first run)
+# would kill the script before the loop retried, and the six-read message
+# would never print. Every fetch lands in a file inside the if chain, the
+# same shape as step 4's tar guard and step 9b.
+_pkg_ok=0; _pkg_dir="$(mktemp -d)"; _pkg_fact="the inputs sidecar was not fetched"
 for i in 1 2 3 4 5 6; do
-  _pkg_served="$(curl -fsSL -m 30 "${HOST:-https://installkosmos.com}/dist/Kosmos.pkg.inputs" 2>/dev/null | tr -d '[:space:]')"
-  _pkg_sum="$(curl -fsSL -m 30 "${HOST:-https://installkosmos.com}/dist/Kosmos.pkg.sha256" 2>/dev/null | awk '{print $1}')"
-  if [ "$_pkg_served" = "$_pkg_want" ] \
-     && curl -fsSL -m 120 "${HOST:-https://installkosmos.com}/dist/Kosmos.pkg" -o "$_pkg_tmp" \
-     && [ "$(shasum -a 256 "$_pkg_tmp" | awk '{print $1}')" = "$_pkg_sum" ] \
-     && cmp -s "$_pkg_tmp" "$SITE/dist/Kosmos.pkg"; then _pkg_ok=1; break; fi
-  echo "   (attempt $i: the served pkg is not yet the published one; waiting)"
+  _pkg_fact="the served inputs sidecar could not be fetched"
+  if curl -fsSL -m 30 "${HOST:-https://installkosmos.com}/dist/Kosmos.pkg.inputs" -o "$_pkg_dir/inputs"; then
+    _pkg_fact="the served inputs ($(pkg_sidecar_inputs "$_pkg_dir/inputs" | cut -c1-12)) are not the source's (${_pkg_want:0:12})"
+    if [ "$(pkg_sidecar_inputs "$_pkg_dir/inputs")" = "$_pkg_want" ]; then
+      _pkg_fact="the served Kosmos.pkg or its .sha256 could not be fetched"
+      if curl -fsSL -m 120 "${HOST:-https://installkosmos.com}/dist/Kosmos.pkg" -o "$_pkg_dir/Kosmos.pkg" \
+         && curl -fsSL -m 30 "${HOST:-https://installkosmos.com}/dist/Kosmos.pkg.sha256" -o "$_pkg_dir/sha256"; then
+        _pkg_real="$(_pkg_hash < "$_pkg_dir/Kosmos.pkg" | awk '{print $1}')"
+        _pkg_fact="the served Kosmos.pkg's bytes (${_pkg_real:0:12}) are not its served checksum's ($(awk '{print substr($1,1,12)}' "$_pkg_dir/sha256"))"
+        if [ "$_pkg_real" = "$(awk '{print $1}' "$_pkg_dir/sha256")" ]; then
+          _pkg_fact="the served sidecar vouches for other bytes ($(pkg_sidecar_pkgsha "$_pkg_dir/inputs" | cut -c1-12)) than the served pkg's (${_pkg_real:0:12})"
+          if [ "$(pkg_sidecar_pkgsha "$_pkg_dir/inputs")" = "$_pkg_real" ]; then
+            _pkg_fact="the served Kosmos.pkg is not the one in the site dist (an edge is holding the prior pair)"
+            if cmp -s "$_pkg_dir/Kosmos.pkg" "$SITE/dist/Kosmos.pkg"; then _pkg_ok=1; break; fi
+          fi
+        fi
+      fi
+    fi
+  fi
+  echo "   (attempt $i: $_pkg_fact; waiting)"
   sleep 10
 done
-rm -f "$_pkg_tmp"
+rm -rf "$_pkg_dir"
 if [ "$_pkg_ok" = 1 ]; then
-  if [ "${PKG_PUBLISHED:-0}" = 1 ]; then echo "   the served Kosmos.pkg is the one published in 5b: inputs ${_pkg_want:0:12}, checksum agrees"
-  else echo "   the served Kosmos.pkg is current: inputs ${_pkg_want:0:12} match source, checksum agrees"; fi
+  if [ "${PKG_PUBLISHED:-0}" = 1 ]; then echo "   the served Kosmos.pkg is the one published in 5b: inputs ${_pkg_want:0:12}, checksum agrees, sidecar vouches for these bytes"
+  else echo "   the served Kosmos.pkg is current: inputs ${_pkg_want:0:12} match source, checksum agrees, sidecar vouches for these bytes"; fi
 else
-  echo "THE SERVED INSTALLER PKG IS NOT THE PUBLISHED ONE AFTER SIX READS: served inputs ${_pkg_served:-<none>} vs source ${_pkg_want:0:12}."
+  echo "THE SERVED INSTALLER PKG IS NOT THE PUBLISHED ONE AFTER SIX READS: $_pkg_fact."
   echo "   Either the deploy did not carry dist/Kosmos.pkg* (check .vercelignore) or an edge is holding the prior pair."; exit 1
 fi
 

@@ -52,6 +52,14 @@ BUILD="$(mktemp -d)"
 trap 'rm -rf "$BUILD"' EXIT
 RESOURCES="$REPO/install/pkg-resources"
 
+# The input identity is taken NOW, before pkgbuild reads a byte, and written
+# at the end: this script is also run by hand from a checkout other agents
+# fast-forward, and a pull during the minutes of notarytool's wait would
+# otherwise produce a sidecar naming inputs this pkg was not built from.
+. "$REPO/tools/lib/pkg-inputs.sh"
+_insha="$(pkg_input_sha "$REPO")" || { echo "could not compute the pkg input sha" >&2; exit 1; }
+echo "==> inputs: $_insha"
+
 echo "==> pkgbuild (payload-free component, scripts only)"
 pkgbuild --nopayload \
   --identifier "$IDENTIFIER" \
@@ -103,14 +111,13 @@ echo "-- spctl -a -t install --";       spctl -a -vvv -t install "$PKG" 2>&1 || 
 echo "-- stapler validate --";          xcrun stapler validate "$PKG"
 
 echo
-# The input sidecar (#638, B guard): the sha of the pkg's inputs THIS build was
-# made from, published beside the pkg so a later release can prove the served
-# pkg is not stale against source. Written from the SAME shared function the
-# release verifies with, so the two cannot drift.
-. "$REPO/tools/lib/pkg-inputs.sh"
-_insha="$(pkg_input_sha "$REPO")" || { echo "could not compute the pkg input sha" >&2; exit 1; }
-printf '%s\n' "$_insha" > "$OUT_DIR/Kosmos.pkg.inputs"
-echo "==> input sidecar: Kosmos.pkg.inputs = $_insha"
+# The input sidecar (#638, B guard): the sha of the inputs THIS build was made
+# from (taken before pkgbuild, above) and the sha of the bytes it produced,
+# published beside the pkg so a later release can prove the served pkg is not
+# stale against source AND that the sidecar belongs to these bytes. Written by
+# the SAME shared functions the release verifies with, so they cannot drift.
+pkg_sidecar_write "$PKG" "$_insha" "$OUT_DIR/Kosmos.pkg.inputs"
+echo "==> input sidecar: $(tr '\n' ' ' < "$OUT_DIR/Kosmos.pkg.inputs")"
 # The checksum the site serves beside the pkg, in the shape every other served
 # pair uses ("<sha>  Kosmos.pkg"), written HERE so build and publish cannot
 # drift: the first served pair was made by hand.

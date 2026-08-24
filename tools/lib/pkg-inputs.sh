@@ -20,9 +20,11 @@
 #   tools/build-installer-pkg.sh  the build itself, because the
 #                                 distribution.xml (title, screens, arch,
 #                                 choices) is a template INSIDE it
-#   the bundle identifier         baked into the component and the distribution
+# (The bundle identifier is baked in by the build script, which is hashed, so
+# it is not listed a second time here; a copy could drift from the real one.)
 # NOT the version (metadata, and the pkg is version-independent) and NOT the
-# signature/timestamp (those change every build and are not source).
+# signature/timestamp (those change every build and are not source), and NOT
+# mtimes: bytes only, so a fresh worktree hashes the same as the one it froze.
 # ⚠️ Hashing the whole build script means a comment edit there also asks for a
 # rebuild + notarise + publish. That over-asks by minutes; the alternative
 # under-asks by silently shipping an old Conclusion screen, which is the hole
@@ -41,14 +43,18 @@ pkg_input_sha() {
   [ -f "$build" ]     || { echo "pkg_input_sha: no build script at $build" >&2; return 1; }
   # Deterministic: each input's path and bytes, in sorted order, under a
   # section label so a file moving between sections changes the sha too.
+  # ⚠️ DOTFILES EXCLUDED. verify-served.sh runs this on the SHARED checkout's
+  # working tree, where a .DS_Store from opening the folder in Finder, or an
+  # editor's swap file, would report the served pkg as stale against a sha
+  # nobody built. pkgbuild ships them too, but a hidden file has never been a
+  # deliberate input here; if one ever is, name it and drop this filter.
   {
-    printf 'identifier:com.stonesyndicate.kosmos.installer\n'
     printf 'section:pkg-scripts\n'
-    ( cd "$scripts" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do
+    ( cd "$scripts" && find . -type f ! -name '.*' | LC_ALL=C sort | while IFS= read -r f; do
         printf '%s\n' "$f"; cat "$f"
       done )
     printf 'section:pkg-resources\n'
-    ( cd "$resources" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do
+    ( cd "$resources" && find . -type f ! -name '.*' | LC_ALL=C sort | while IFS= read -r f; do
         printf '%s\n' "$f"; cat "$f"
       done )
     printf 'section:build-script\n'
@@ -61,31 +67,48 @@ _pkg_hash() {
   if command -v shasum >/dev/null 2>&1; then shasum -a 256; else sha256sum; fi
 }
 
+# The sidecar, Kosmos.pkg.inputs, is TWO lines and vouches for bytes, not
+# only for inputs:
+#   line 1   the input sha (pkg_input_sha) the pkg was built from
+#   line 2   pkg:<sha256 of the Kosmos.pkg bytes>
+# Without line 2 a mixed edge state (a new sidecar beside the PRIOR pkg pair,
+# each self-consistent) passed every served check. With it, the sidecar names
+# the bytes it describes, and any reader can bind the three files together.
+pkg_sidecar_write() {   # <pkg-file> <input-sha> <sidecar-file>
+  local pkg="${1:?}" insha="${2:?}" out="${3:?}"
+  printf '%s\npkg:%s\n' "$insha" "$(_pkg_hash < "$pkg" | awk '{print $1}')" > "$out"
+}
+pkg_sidecar_inputs() { sed -n '1p' "${1:?}" | tr -d '[:space:]'; }             # <sidecar-file>
+pkg_sidecar_pkgsha() { sed -n '2p' "${1:?}" | sed 's/^pkg://' | tr -d '[:space:]'; }
+
 # Does the site's copy of the pkg need rebuilding + republishing? Prints ONE
 # reason line and returns 0 (needed) or 1 (current). The decision reads the
 # SITE checkout's dist (what the next deploy will serve), never the served
 # host: the served host is what step 9c confirms AFTER the deploy.
 #
-# Four ways to need it, each named, because "rebuild" without a reason is the
+# Five ways to need it, each named, because "rebuild" without a reason is the
 # re-run-instead-of-read habit #708 is about:
 #   no pkg          nothing to serve
 #   no sidecar      the pkg predates the guard, its inputs are unknown
 #   inputs differ   someone changed a postinstall, a screen or the build
 #   pair broken     Kosmos.pkg and Kosmos.pkg.sha256 disagree (the one-cache
 #                   wedge shape, or a half-copied publish)
+#   sidecar orphan  the sidecar vouches for different bytes than the pkg's
 pkg_publish_needed() {
   local dist="${1:?pkg_publish_needed needs the site dist dir}"
   local want="${2:?pkg_publish_needed needs the source input sha}"
   local pkg="$dist/Kosmos.pkg" side="$dist/Kosmos.pkg.inputs" sum="$dist/Kosmos.pkg.sha256"
-  local have real pub
+  local have real pub vouch
   [ -f "$pkg" ]  || { echo "no Kosmos.pkg in the site dist"; return 0; }
   [ -f "$side" ] || { echo "Kosmos.pkg has no input sidecar (it predates the guard)"; return 0; }
-  have="$(tr -d '[:space:]' < "$side")"
+  have="$(pkg_sidecar_inputs "$side")"
   [ "$have" = "$want" ] || { echo "the pkg's inputs (${have:0:12}) differ from source (${want:0:12})"; return 0; }
   [ -f "$sum" ] || { echo "Kosmos.pkg has no .sha256 beside it"; return 0; }
   real="$(_pkg_hash < "$pkg" | awk '{print $1}')"
   pub="$(awk '{print $1}' < "$sum")"
   [ "$real" = "$pub" ] || { echo "Kosmos.pkg and Kosmos.pkg.sha256 disagree"; return 0; }
-  echo "current: inputs match source (${want:0:12}) and the pair agrees"
+  vouch="$(pkg_sidecar_pkgsha "$side")"
+  [ "$vouch" = "$real" ] || { echo "the sidecar vouches for other bytes (${vouch:0:12}) than Kosmos.pkg's (${real:0:12})"; return 0; }
+  echo "current: inputs match source (${want:0:12}), the pair agrees, the sidecar vouches for these bytes"
   return 1
 }

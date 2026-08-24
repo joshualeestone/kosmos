@@ -46,10 +46,17 @@ h2="$(pkg_input_sha "$T")"; mv "$T/install/pkg-scripts/welcome.html" "$T/install
 [ "$h1" != "$h2" ] && ok "a file moving between sections changes the sha" || bad "a file moved between sections was not seen"
 [ "$(pkg_input_sha "$T")" = "$h1" ] && ok "and moving it back restores the sha (determinism across sections)" || bad "sha did not restore after moving the file back"
 
-# the compare semantics release.sh uses: equal passes, differ/absent red.
-served="$c"; want="$c"; [ "$served" = "$want" ] && ok "compare: matching served and source pass" || bad "matching compare failed"
-served="$a"; want="$c"; [ "$served" != "$want" ] && ok "compare: a stale served sha differs from source (release reds)" || bad "stale compare not caught"
-served="";  [ -z "$served" ] && ok "compare: an absent sidecar is empty (release reds)" || bad "absent sidecar not caught"
+# CONTROLS THE OTHER WAY: things that are NOT inputs must leave the sha alone,
+# or the release rebuilds + notarises every cut from a fresh worktree. An
+# mtime-based hasher passes every edit control above and fails these.
+base="$(pkg_input_sha "$T")"
+touch "$T/install/pkg-scripts/postinstall" "$T/install/pkg-resources/conclusion.html" "$T/tools/build-installer-pkg.sh"
+[ "$(pkg_input_sha "$T")" = "$base" ] && ok "CONTROL: touching every input (mtime only) leaves the sha alone" || bad "an mtime change moved the sha -- the hasher reads stat, not bytes"
+printf '{"version":"9.9.9"}\n' > "$T/package.json"
+[ "$(pkg_input_sha "$T")" = "$base" ] && ok "CONTROL: the version (package.json) is not an input" || bad "package.json moved the sha"
+printf 'junk\n' > "$T/install/pkg-resources/.DS_Store"
+[ "$(pkg_input_sha "$T")" = "$base" ] && ok "CONTROL: a dotfile in an input dir (.DS_Store) is not an input" || bad "a dotfile moved the sha -- the shared checkout would read stale"
+rm -f "$T/install/pkg-resources/.DS_Store"
 
 # missing pkg-scripts dir refuses rather than emitting an empty sha.
 if pkg_input_sha "$T/nope" >/dev/null 2>&1; then bad "a missing pkg-scripts dir did not refuse"; else ok "a missing pkg-scripts dir refuses, not a blank sha"; fi
@@ -67,12 +74,18 @@ printf 'PKGBYTES\n' > "$D/Kosmos.pkg"
 why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"no input sidecar"*) ok "publish: pkg without a sidecar -> needed ($why)";; *) bad "no-sidecar reason wrong: $why";; esac || bad "a pkg with no sidecar was judged current"
 printf 'deadbeef\n' > "$D/Kosmos.pkg.inputs"
 why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"differ from source"*) ok "publish: inputs differ -> needed ($why)";; *) bad "differ reason wrong: $why";; esac || bad "differing inputs were judged current"
-printf '%s\n' "$want" > "$D/Kosmos.pkg.inputs"
+pkg_sidecar_write "$D/Kosmos.pkg" "$want" "$D/Kosmos.pkg.inputs"
+[ "$(pkg_sidecar_inputs "$D/Kosmos.pkg.inputs")" = "$want" ] && ok "sidecar: line 1 reads back the input sha" || bad "sidecar line 1 wrong"
+[ "$(pkg_sidecar_pkgsha "$D/Kosmos.pkg.inputs")" = "$(shasum -a 256 "$D/Kosmos.pkg" | awk '{print $1}')" ] && ok "sidecar: line 2 names the pkg's own bytes" || bad "sidecar line 2 wrong"
 why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"no .sha256"*) ok "publish: no checksum beside the pkg -> needed ($why)";; *) bad "no-sha256 reason wrong: $why";; esac || bad "a pkg with no checksum was judged current"
 printf '%s  Kosmos.pkg\n' "0000000000000000000000000000000000000000000000000000000000000000" > "$D/Kosmos.pkg.sha256"
 why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"disagree"*) ok "publish: pkg and checksum disagree -> needed ($why)";; *) bad "disagree reason wrong: $why";; esac || bad "a broken pair was judged current"
 ( cd "$D" && shasum -a 256 Kosmos.pkg > Kosmos.pkg.sha256 )
-if why="$(pkg_publish_needed "$D" "$want")"; then bad "CONTROL: a current pair was judged as needing a publish ($why)"; else ok "CONTROL: a current pair (inputs match, checksum agrees) -> not needed ($why)"; fi
+if why="$(pkg_publish_needed "$D" "$want")"; then bad "CONTROL: a current pair was judged as needing a publish ($why)"; else ok "CONTROL: a current triple (inputs match, checksum agrees, sidecar vouches) -> not needed ($why)"; fi
+# the mixed state: a sidecar that vouches for OTHER bytes beside a self-consistent pair.
+printf 'OTHERBYTES\n' > "$D/other.pkg"; pkg_sidecar_write "$D/other.pkg" "$want" "$D/Kosmos.pkg.inputs"; rm -f "$D/other.pkg"
+why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"vouches for other bytes"*) ok "publish: a sidecar for other bytes beside a good pair -> needed ($why)";; *) bad "orphan-sidecar reason wrong: $why";; esac || bad "an orphan sidecar was judged current"
+pkg_sidecar_write "$D/Kosmos.pkg" "$want" "$D/Kosmos.pkg.inputs"
 # and the control's control: touch one input in source, the current pair is stale again.
 printf '#!/bin/sh\necho changed again\n' > "$T/install/pkg-scripts/postinstall"; want2="$(pkg_input_sha "$T")"
 if pkg_publish_needed "$D" "$want2" >/dev/null; then ok "CONTROL: after a source edit the same pair is stale again"; else bad "a source edit did not make the pair stale"; fi

@@ -117,21 +117,29 @@ echo "== what the Download button serves =="
 # person double-clicks, so each is its own line.
 . "$REPO/tools/lib/pkg-inputs.sh"
 pwant=$(pkg_input_sha "$REPO") || { say "/dist/Kosmos.pkg inputs" "could not compute the source input sha"; fail=1; pwant=; }
-pside=$(curl -fsS -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos.pkg.inputs" 2>/dev/null | tr -d '[:space:]')
-if [ -z "$pside" ]; then say "/dist/Kosmos.pkg.inputs" "MISSING -- the served pkg predates the guard, its inputs are unknown"; fail=1
-elif [ -n "$pwant" ] && [ "$pside" = "$pwant" ]; then say "/dist/Kosmos.pkg.inputs" "matches source (${pwant:0:12})"
-else say "/dist/Kosmos.pkg.inputs" "STALE -- served ${pside:0:12}, source ${pwant:0:12}"; fail=1; fi
+pdir=$(mktemp -d); pvouch=
+if curl -fsS -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos.pkg.inputs" -o "$pdir/inputs" 2>/dev/null && [ -s "$pdir/inputs" ]; then
+  pside=$(pkg_sidecar_inputs "$pdir/inputs"); pvouch=$(pkg_sidecar_pkgsha "$pdir/inputs")
+  if [ -n "$pwant" ] && [ "$pside" = "$pwant" ]; then say "/dist/Kosmos.pkg.inputs" "matches source (${pwant:0:12})"
+  else say "/dist/Kosmos.pkg.inputs" "STALE -- served ${pside:0:12}, source ${pwant:0:12}"; fail=1; fi
+else say "/dist/Kosmos.pkg.inputs" "MISSING -- the served pkg predates the guard, its inputs are unknown"; fail=1; fi
 # ⚠️ NAMED Kosmos.pkg ON DISK, not a bare mktemp: `stapler validate` decides
 # the file type from the extension and reports "no valid staple" on a stapled
-# pkg with none. Measured on the served pkg itself: rc 1 as `mktemp` output,
+# pkg with none. Measured on the served pkg itself: rc 66 as `mktemp` output,
 # rc 0 as served.pkg, same bytes. A check that cannot reach the state it
 # tests reads as the defect it was built to catch.
-pdir=$(mktemp -d); ptmp="$pdir/Kosmos.pkg"
+ptmp="$pdir/Kosmos.pkg"
 if curl -fsS "$HOST/dist/Kosmos.pkg" -o "$ptmp"; then
-  preal=$(shasum -a 256 "$ptmp" | awk '{print $1}')
+  preal=$(_pkg_hash < "$ptmp" | awk '{print $1}')
   ppub=$(curl -fsS "$HOST/dist/Kosmos.pkg.sha256" | awk '{print $1}')
   if [ "$preal" = "$ppub" ]; then say "/dist/Kosmos.pkg" "$(wc -c < "$ptmp" | tr -d ' ') bytes, checksum matches"
   else say "/dist/Kosmos.pkg" "CHECKSUM MISMATCH -- the pair a person downloads disagrees with itself"; fail=1; fi
+  # The sidecar must vouch for THESE bytes: a new sidecar beside the prior
+  # pkg pair (each self-consistent) is the mixed edge state this line catches.
+  if [ -n "$pvouch" ]; then
+    if [ "$pvouch" = "$preal" ]; then say "/dist/Kosmos.pkg.inputs vouches for" "these bytes"
+    else say "/dist/Kosmos.pkg.inputs vouches for" "OTHER bytes (${pvouch:0:12}) than the served pkg (${preal:0:12})"; fail=1; fi
+  fi
   # The signature and the staple, from the downloaded bytes, on a Mac only
   # (elsewhere the tools do not exist and their absence is said, not passed).
   if command -v pkgutil >/dev/null 2>&1; then
