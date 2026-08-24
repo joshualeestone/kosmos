@@ -2499,6 +2499,12 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
   # Named before it happens, per the header's every-step rule: a browser
   # window appearing unannounced reads as "something went wrong", and on
   # a cold browser start the prompt returns seconds before the window.
+  # Under the .pkg, postinstall may already have the "Installing Kosmos" page
+  # open in the browser (#662); that page becomes the dashboard on its own the
+  # moment the board answers, so a second open here would be a second tab.
+  if [ "${KOSMOS_INSTALL_PAGE:-}" = "1" ]; then
+    printf '  Your browser is already showing the install page; it becomes your dashboard now.\n\n'
+  else
   printf '  Opening your dashboard in the browser...\n\n'
   # 🛑 UNDER THE .PKG, NOT A BARE `open` (#663). Installer's postinstall runs
   # as root and drops to the person with `launchctl asuser` + `sudo -u`; the
@@ -2555,6 +2561,7 @@ PLIST
     # the same class as cmd_start's measured never-returning install.
     "$OPEN_CMD" "http://127.0.0.1:$PORT" </dev/null >/dev/null 2>&1 \
       || printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'
+  fi
   fi
 fi
 }
