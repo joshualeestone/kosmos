@@ -1001,6 +1001,14 @@ const server = http.createServer((req, res) => {
           /* One launchd probe per poll, for #310's sentence below. Empty on
              any failure: could-not-look must never read as switched-off. */
           const switchedOff = create.disabledJobs();
+          /* And one for #668's sentence: the jobs launchd says are RUNNING.
+             An offline row whose job holds a live process is not a stopped
+             agent -- it is an agent running somewhere this board cannot see
+             (the board and the supervisor resolved different tmux servers),
+             and publishing "not running" about it is the confident negative
+             this roster already refuses elsewhere. Empty on any failure:
+             could-not-look must never dress a stopped agent in running. */
+          const runningNow = create.runningJobs();
           /* 🛑 #127: A LEFTOVER JOB WITH NO FOLDER IS STILL A LEFTOVER, and it
              was the one this list discarded. The gate used to be `k.folder`
              alone, so an agent whose worker folder was deleted while its
@@ -1017,6 +1025,16 @@ const server = http.createServer((req, res) => {
             .map((k) => {
               try {
               const profile = store.readProfile(k.name) || {};
+              /* #668: launchd holds a live process for this job, and this
+                 board can see no session for it. Two true facts that
+                 disagree, and the disagreement is the story -- so the row
+                 refuses the confident "stopped" (state unknown, confidence
+                 none) and its sentence names both facts. Gated on the job
+                 EXISTING the same way the switched-off sentence is: a
+                 running pid for a label whose plist is gone is #127's
+                 leftover shape and keeps that sentence. */
+              const unseen = !create.jobMissing(k.name) && k.folder
+                && runningNow.has(k.name);
               return {
                 name: k.shownAs || k.name,
                 sessionName: k.name,
@@ -1030,12 +1048,18 @@ const server = http.createServer((req, res) => {
                 isAgentSession: false,
                 isFleetSession: false,
                 isNamedOurs: true,
-                state: 'stopped',
+                /* #668: "stopped" is a claim, and for the running-unseen row
+                   it is a false one -- launchd says otherwise. Unknown at
+                   confidence none is the honest pair: we tried to read it and
+                   could not, which is exactly what those two values mean. */
+                state: unseen ? 'unknown' : 'stopped',
                 /* ⚠️ THE FLAG THE SCREEN BRANCHES ON, and it is not derivable
                    from the state: a pane running something that is not Claude
-                   is also stopped, and that agent IS up. */
+                   is also stopped, and that agent IS up. Stays false on the
+                   #668 row too: it answers "is there a pane here to act on",
+                   and there is not. */
                 running: false,
-                stateConfidence: 'structured',
+                stateConfidence: unseen ? 'none' : 'structured',
                 /* #310: when the job exists and launchd holds an override
                    against it, the Login Items switch is the story, and it is
                    the one cause a person produced themselves with no screen
@@ -1075,6 +1099,14 @@ const server = http.createServer((req, res) => {
                      switched-off case because it is the stronger fact: a folder
                      that is gone is gone whether or not the job is also off. */
                   ? 'this agent cannot run: its folder is gone but a leftover startup job remains. Remove it here to stop that job for good'
+                  : unseen
+                  /* #668: both halves are facts we hold right now, and the
+                     sentence claims nothing past them -- not why, not what to
+                     do, because this board cannot reach what it cannot see
+                     and a promised cure here would be false. No terminal
+                     words (Mona Lisa's ruling: a person who installed Kosmos
+                     has no reason to have heard "tmux"). */
+                  ? 'something is off about this agent: this computer says its background job is running, but no session for it is visible from here, so Kosmos cannot show or reach whatever that job started'
                   : (!create.jobMissing(k.name) && switchedOff.has(k.name))
                     ? 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again'
                     : 'this agent is not running: nothing on this computer has a session for it',
@@ -1099,6 +1131,11 @@ const server = http.createServer((req, res) => {
                    agent with a job that EXISTS and is overridden off; the
                    never-recorded case above wins when both could apply. */
                 jobSwitchedOff: !create.jobMissing(k.name) && switchedOff.has(k.name),
+                /* #668: the card branches on this the way it branches on
+                   nothing else in the offline shape -- the one row whose
+                   "Not running" pill would be a lie gets the could-not-check
+                   treatment instead. */
+                jobRunningUnseen: unseen,
                 /* #170: same field, same meaning as the running rows. The
                    embedded `profile` above may carry a foreign install's id
                    inside it; THIS field is the one consumers read, and it is
