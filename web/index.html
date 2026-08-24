@@ -6199,6 +6199,24 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            variable or a shell command. -->
       <div class="frow" style="margin:12px 0 0;">
         <button class="btn" id="acct-add" type="button">Add another account&hellip;</button>
+        <button class="btn" id="acct-add-openai" type="button">Add an OpenAI account&hellip;</button>
+      </div>
+      <!-- #540: an OpenAI account is a directory and one pasted key. No
+           terminal, no browser. The key goes to codex's own login on stdin
+           and lives in codex's own file on this Mac; Kosmos never echoes
+           it, never logs it, never puts it in a URL. The field is a
+           password field so the screen does not show it either. ⚠️ Every
+           sentence here is placeholder copy until Mona Lisa says it. -->
+      <div id="acct-openai-flow" hidden style="margin:10px 0 0;">
+        <p class="dhint" style="margin:0 0 8px;">Paste an OpenAI API key. It stays on this Mac with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
+        <div class="frow">
+          <input type="password" id="acct-openai-key" autocomplete="off" spellcheck="false"
+                 aria-label="OpenAI API key" placeholder="sk-…">
+          <input type="text" id="acct-openai-label" autocomplete="off" maxlength="40"
+                 aria-label="A name for this account (optional)" placeholder="A name, if you want one">
+          <button class="btn" id="acct-openai-go" type="button">Add</button>
+        </div>
+        <p class="dhint" id="acct-openai-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
       </div>
       <div id="acct-flow" hidden style="margin:10px 0 0;">
         <p class="dhint" id="acct-flow-say" role="status" aria-live="polite" style="margin:0;"></p>
@@ -9716,19 +9734,28 @@ async function paintAccounts() {
   ACCOUNTS = list;
   if (msg) msg.textContent = '';
   box.innerHTML = list.map((a) => {
-    const who = esc(a.email || a.label || a.dir);
+    /* #540: an OpenAI account signed in with a key has no email; codex's
+       own `login status` names it by the key's last characters, so the row
+       does the same. Never the key. */
+    const isOpenai = a.provider === 'openai';
+    const who = esc(a.email || (isOpenai && a.keyTail ? 'API key ending ' + a.keyTail : '') || a.label || a.dir);
     const org = a.organization && a.organization !== a.email
       ? '<span class="acct-org">' + esc(a.organization) + '</span>' : '';
     /* Both arms in the reader's world (run-through 2026-08-23): what happens
        to an agent MOVED to this account, which is the only moment the fact
        matters. "History follows agents here" named the mechanism and nobody
        outside the team could say what it meant. */
-    const shared = a.memoryShared
+    /* #540: the history arm is a Claude fact with a Claude ruling behind it.
+       Whether codex history is shared across accounts is Josh's call and has
+       not been made, so an OpenAI row says nothing about it rather than
+       guessing either way. */
+    const shared = isOpenai ? ''
+      : a.memoryShared
       ? '<span class="acct-ok">An agent moved here keeps its conversation history</span>'
       : '<button class="linkish" type="button" data-share="' + esc(a.dir) + '">An agent moved here would start with no history. Fix this</button>';
     // The provider, on every row (#382): today every account is Anthropic's,
     // and the row says so rather than the heading assuming it.
-    const provider = '<span class="acct-org">' + esc(a.provider || 'Anthropic / Claude') + '</span>';
+    const provider = '<span class="acct-org">' + esc(a.providerName || 'Anthropic / Claude') + '</span>';
     return '<div class="acct-row"><div class="acct-who"><b>' + who
       // No "your first account" tag (#394): the email is the answer, whole.
       + '</b>' + provider + org + '</div>'
@@ -9851,6 +9878,41 @@ document.getElementById('acct-add').addEventListener('click', async () => {
   } catch {
     btn.disabled = false;
     note.textContent = 'We could not reach Kosmos to start the sign-in.';
+  }
+});
+/* #540: add an OpenAI account from a pasted key. */
+document.getElementById('acct-add-openai').addEventListener('click', () => {
+  const flow = document.getElementById('acct-openai-flow');
+  flow.hidden = !flow.hidden;
+  if (!flow.hidden) document.getElementById('acct-openai-key').focus();
+});
+document.getElementById('acct-openai-go').addEventListener('click', async () => {
+  const keyField = document.getElementById('acct-openai-key');
+  const labelField = document.getElementById('acct-openai-label');
+  const go = document.getElementById('acct-openai-go');
+  const msg = document.getElementById('acct-openai-msg');
+  const key = keyField.value;
+  if (!key.trim()) { msg.textContent = 'Paste the key first.'; keyField.focus(); return; }
+  go.disabled = true;
+  msg.textContent = 'Adding…';
+  try {
+    const res = await fetch('/api/accounts/openai', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key, label: labelField.value.trim() || undefined }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not add that account');
+    // The key leaves the field the moment it is stored: nothing on screen keeps it.
+    keyField.value = '';
+    labelField.value = '';
+    const a = out && out.account;
+    msg.textContent = 'Added' + (a && a.keyTail ? ': API key ending ' + a.keyTail : '') + '.';
+    await paintAccounts();
+  } catch (err) {
+    msg.textContent = String((err && err.message) || 'We could not add that account.');
+  } finally {
+    go.disabled = false;
   }
 });
 document.getElementById('acct-code-go').addEventListener('click', async () => {
@@ -16743,15 +16805,35 @@ document.getElementById('create-model').addEventListener('change', () => paintMo
    accounts, so both disable WITH WORDS rather than sitting enabled and
    ignored -- a control that accepts a choice the request then drops is the
    offer-that-cannot-work shape this file keeps removing. */
+/* #540: the account menu is filled BY PROVIDER from one list. Claude rows
+   keep their memory-shared narrowing; OpenAI rows have no such ruling yet
+   and are offered whole. When the list has no OpenAI sign-in the option
+   names what the agent will actually use, the same rule as the Claude arm. */
+let CREATE_ACCOUNTS = [];
+function fillCreateAccounts() {
+  const asel = document.getElementById('create-account');
+  if (!asel) return;
+  const openai = document.getElementById('create-provider').value === 'openai';
+  const list = CREATE_ACCOUNTS.filter((x) => openai ? x.provider === 'openai' : x.provider !== 'openai');
+  const movable = openai ? list : list.filter((x) => x.memoryShared);
+  const usable = movable.length ? movable : list;
+  const nameOf = (x) => x.email || (x.provider === 'openai' && x.keyTail ? 'API key ending ' + x.keyTail : '') || x.label || x.dir;
+  asel.innerHTML = usable.length
+    ? usable.map((x) =>
+      `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${esc(nameOf(x))}</option>`).join('')
+    : (openai ? '<option value="">The OpenAI sign-in on this Mac</option>' : '<option value="">Your Claude account</option>');
+}
 document.getElementById('create-provider').addEventListener('change', () => {
   const openai = document.getElementById('create-provider').value === 'openai';
   const model = document.getElementById('create-model');
   const acct = document.getElementById('create-account');
   model.disabled = openai;
-  acct.disabled = openai;
+  // #540: the account menu no longer parks for OpenAI; it fills with OpenAI accounts.
+  acct.disabled = false;
+  fillCreateAccounts();
   const why = document.getElementById('create-model-why');
   if (openai) {
-    if (why) why.textContent = 'OpenAI picks its own model for now, and the agent runs on this computer’s OpenAI sign-in.';
+    if (why) why.textContent = 'OpenAI picks its own model for now.';
   } else {
     if (why) why.textContent = '';
     paintModelWhy('create-model', 'create-model-why');
@@ -17581,22 +17663,8 @@ async function loadCreateExtras() {
       if (r.ok) list = ((await r.json()) || {}).accounts || [];
     } catch { /* the field stays hidden, which is the one-account shape */ }
     if (gen !== EXTRAS_GEN) return;
-    const movable = list.filter((x) => x.memoryShared);
-    /* 🔑 ALWAYS FILLED, NEVER HIDDEN. This rung used to disappear below two
-       accounts, on the argument that a one-entry menu asks somebody to make a
-       decision they do not have. As the middle step of a narrowing it reads
-       differently: the rung missing is what looks broken, not the rung with one
-       answer in it.
-       ⚠️ AND IT HAS TO SAY SOMETHING WHEN THE ROUTE ANSWERS NOTHING, which it
-       does on a machine that is not signed in and whenever the fetch above
-       fails. An empty menu under a filled one is the same broken diagram by a
-       different route, so it names the account the agent will actually use
-       rather than rendering a blank. */
-    const usable = movable.length ? movable : list;
-    asel.innerHTML = usable.length
-      ? usable.map((x) =>
-        `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${esc(x.email || x.label || x.dir)}</option>`).join('')
-      : '<option value="">Your Claude account</option>';
+    CREATE_ACCOUNTS = list;
+    fillCreateAccounts();
   })();
   /* 🛑 THE PROJECTS PICKER IS GONE (Josh, 2026-08-22). What was here fetched
      /api/projects, filled a row of chips, and kept `CREATE_PROJECTS` in step
@@ -17689,7 +17757,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
            for exactly that reason. So an unanswerable account is empty and is not
            sent, which is what the hidden flag used to stand for. */
         const acct = document.getElementById('create-account').value;
-        if (acct && prov !== 'openai') b.account = acct;
+        if (acct) b.account = acct;
         /* Empty means you, which is the default and is not a reporting line the
            engine needs to record: the org chart draws an agent with no manager to
            the hub already. */

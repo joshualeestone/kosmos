@@ -159,7 +159,7 @@ run_one() {
 }
 
 # free-ish ports, distinct per check
-P1=17341; P2=17342; P3=17343
+P1=17341; P2=17342; P3=17343; P4=17344
 
 # --- 1. regress-a-night: a night's releases still COMPOSE --------------------
 # The one check that asserts the whole board still hangs together (three
@@ -192,6 +192,30 @@ else
 fi
 
 # --- 3. render-thread: the send-capable thread, on the fixture server --------
+# #540: a board with a stand-in codex, so the add-an-OpenAI-account flow can
+# run for real with no real key. HOME is the sandbox too, so the account it
+# makes lands under $sb4/home/.codex-<label>, never beside the operator's.
+sb4="$(new_sandbox)"
+mkdir -p "$sb4/home"
+cat > "$sb4/fake-codex" <<'FAKE'
+#!/bin/bash
+[ "$1" = login ] && [ "$2" = --with-api-key ] || exit 2
+key=$(cat); mkdir -p "$CODEX_HOME"; printf '{"auth_mode":"apikey","OPENAI_API_KEY":"%s"}' "$key" > "$CODEX_HOME/auth.json"
+FAKE
+chmod +x "$sb4/fake-codex"
+write_fleet "$sb4"
+AGENT_WORKFORCE_HOME="$sb4/home" AGENT_WORKFORCE_CODEX_BIN="$sb4/fake-codex" \
+  AGENT_WORKFORCE_DATA="$sb4/data" AGENT_WORKFORCE_WORKERS="$sb4/workers" \
+  AGENT_WORKFORCE_LAUNCH="$sb4/launch" AGENT_WORKFORCE_PROJECTS="$sb4/projects" \
+  AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb4/panes.txt" \
+  AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
+  PORT="$P4" node server.js > "$sb4/server.log" 2>&1 &
+SERVER_PIDS+=("$!")
+if wait_up "$P4" "$sb4/server.log"; then
+  run_one "render-accounts-openai" node docs/browser-checks/render-accounts-openai.js "http://127.0.0.1:$P4"
+else
+  FAILED+=("render-accounts-openai (server did not boot)")
+fi
 sb3="$(new_sandbox)"
 if boot_thread_server "$sb3" "$P3"; then
   run_one "render-thread" node docs/browser-checks/render-thread.js \
