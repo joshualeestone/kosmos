@@ -52,6 +52,11 @@ test('a token file parses; anything shaped like behavior is refused with the lin
        silently dropped. */
     ['/* a note */ --x: red', /not a token line/],
     ['--a: ' + '1'.repeat(140), /longer than 120 characters/],
+    /* Iteration 4: a carriage return is a line break the naked eye
+       cannot see, and !important never belongs in a pasted color. */
+    ['--x: red\rextra', /hidden line break/],
+    ['--x: red !important', /!important/],
+    ['/* an unclosed comment\n--a: red', /opens a comment it does not close/],
   ]) {
     const r = styles.parseTokens(text);
     assert.equal(r.ok, false, text.slice(0, 30));
@@ -92,6 +97,19 @@ test('a tampered store cannot smuggle what the paste path refuses (#480 review)'
   fs.rmSync(styles.FILE(), { force: true });
 });
 
+test('the allowlist speaks current CSS: modern color spaces and calc siblings pass (iteration 4)', () => {
+  for (const good of ['--a: oklch(0.7 0.1 200)', '--a: color-mix(in oklab, red, blue)',
+    '--a: light-dark(#fff, #000)', '--w: clamp(1rem, 2vw, 2rem)', '--w: min(10px, 2vw)']) {
+    assert.equal(styles.parseTokens(good).ok, true, good);
+  }
+});
+
+test('a theme name off the prototype chain is refused, not persisted (iteration 4)', () => {
+  for (const bad of ['__proto__', 'constructor', 'hasOwnProperty']) {
+    assert.equal(styles.set({ theme: bad }).ok, false, bad);
+  }
+});
+
 test('a duplicate name counts once, the last value winning as it would in a sheet (iteration 3)', () => {
   const r = styles.parseTokens('--a: red\n--a: blue\n--b: #fff');
   assert.equal(r.ok, true);
@@ -112,12 +130,17 @@ test('a store token judges name and value as separate fields, and read mirrors t
     /* a raw newline in a stored value: the paste path can never make
        one, so the read path refuses it too (iteration 3) */
     { name: '--k-sneak', value: 'red\nblue' },
+    /* the same name twice: read dedupes last-wins, so the count shown
+       is the count in force (iteration 4) */
+    { name: '--k-dup', value: '#111' },
+    { name: '--k-dup', value: '#222' },
   ].concat(many) }));
   const eff = styles.effective();
   assert.equal(Object.keys(eff.tokens).some((k) => k.includes(':')), false,
     'a store name smuggling a colon reached the page');
   assert.equal(eff.tokens['--k-bg'], '#123456', 'read did not lowercase the stored name');
   assert.equal(eff.tokens['--k-sneak'], undefined, 'a stored multi-line value reached the page');
+  assert.equal(eff.tokens['--k-dup'], '#222', 'last-wins did not hold on read');
   assert.ok(eff.customCount <= 60, 'read applied more tokens than the paste path allows: ' + eff.customCount);
   fs.rmSync(styles.FILE(), { force: true });
 });

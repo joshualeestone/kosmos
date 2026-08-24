@@ -14919,6 +14919,7 @@ let CREATE_MODELS = [];    // the engine's model list, from the same payload
    cannot do anything else; it sits above the light/dark machinery and
    the tab says so. Applied at boot so a saved style survives a reload. */
 let STYLE_APPLIED = [];
+let STYLE_STORE_MSG = false;
 function applyStyle(tokens) {
   const root = document.documentElement;
   for (const name of STYLE_APPLIED) root.style.removeProperty(name);
@@ -14942,8 +14943,14 @@ async function paintStyles(apply) {
   }
   /* A corrupt saved style falls back to the shipped look AND says so
      here, the promise the engine's because field exists to keep. */
+  /* Keyed on the STATE, not the sentence's wording: the flag remembers
+     that the slot holds the store-read failure, so a healthy read clears
+     exactly that and never a fresh save verdict standing there. */
   const smsg = document.getElementById('style-msg');
-  if (smsg && r.ok === false && r.because) smsg.textContent = r.because;
+  if (smsg) {
+    if (r.ok === false && r.because) { smsg.textContent = r.because; STYLE_STORE_MSG = true; }
+    else if (STYLE_STORE_MSG) { smsg.textContent = ''; STYLE_STORE_MSG = false; }
+  }
 }
 paintStyles(true);
 if (document.getElementById('style-theme')) document.getElementById('style-theme').addEventListener('change', async (e) => {

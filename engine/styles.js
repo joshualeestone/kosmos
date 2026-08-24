@@ -60,11 +60,18 @@ const THEMES = {
    Blank lines and full-line comments are allowed so an agent can
    annotate what it wrote. */
 const LINE = /^\s*(--[a-z0-9-]{1,40})\s*:\s*([^;{}<>]{1,120}?)\s*;?\s*$/i;
-const FN_ALLOWED = new Set(['rgb', 'rgba', 'hsl', 'hsla', 'calc', 'var']);
+/* Every function a color or size legitimately uses, including the
+   modern color spaces and calc siblings an asked agent would emit;
+   all pure value math, none can fetch or behave. */
+const FN_ALLOWED = new Set(['rgb', 'rgba', 'hsl', 'hsla', 'hwb', 'lab', 'lch',
+  'oklab', 'oklch', 'color', 'color-mix', 'light-dark',
+  'calc', 'clamp', 'min', 'max', 'var']);
 
 function valueProblem(value) {
   if (/\\/.test(value)) return 'has a backslash, which a color or size never needs';
   if (value.includes('/*') || value.includes('*/')) return 'has a comment inside a value, which a color or size never needs';
+  if (/\r/.test(value)) return 'has a hidden line break, which a color or size never needs';
+  if (value.includes('!')) return 'has an !important, which a pasted style never needs';
   if (/@/.test(value)) return 'has an @-rule, and a style may only set colors and sizes';
   /* Every open paren is judged by the ident TOUCHING it, the way the
      CSS tokenizer builds a function token: ident adjacent to its paren.
@@ -100,6 +107,9 @@ function parseTokens(text) {
        comment is not a comment line, and falls through to be refused by
        name rather than silently dropped. */
     if (!line.trim() || /^\s*\/\*.*?\*\/\s*$/.test(line)) continue;
+    if (/^\s*\/\*/.test(line) && !line.includes('*/')) {
+      return { ok: false, because: 'line ' + (i + 1) + ' opens a comment it does not close on the same line' };
+    }
     const m = LINE.exec(line);
     if (!m) {
       const nm = /^\s*--[a-z0-9-]{1,40}\s*:\s*(.*)$/i.exec(line);
@@ -124,7 +134,7 @@ function parseTokens(text) {
 function read() {
   try {
     const data = JSON.parse(fs.readFileSync(FILE(), 'utf8'));
-    const theme = typeof data.theme === 'string' && THEMES[data.theme] ? data.theme : 'kosmos';
+    const theme = typeof data.theme === 'string' && Object.hasOwn(THEMES, data.theme) ? data.theme : 'kosmos';
     /* The FULL rules on read, not a partial check: a tampered or
        hand-edited file carrying a literal url() (or its escape) must not
        round-trip into applyStyle just because the paste path would have
@@ -140,8 +150,10 @@ function read() {
           && /^--[a-z0-9-]{1,40}$/i.test(t.name)
           && /^[^;{}<>\r\n]{1,120}$/.test(t.value) && valueProblem(t.value) === null)
       .slice(0, 60)
-      .map((t) => ({ name: t.name.toLowerCase(), value: t.value }));
-    return { ok: true, theme, custom };
+      .map((t) => ({ name: t.name.toLowerCase(), value: t.value }))
+      /* last wins, as in the paste path, so customCount is what is in force */
+      .reduce((m, t) => m.set(t.name, t), new Map());
+    return { ok: true, theme, custom: [...custom.values()] };
   } catch (err) {
     if (err && err.code === 'ENOENT') return { ok: true, theme: 'kosmos', custom: [] };
     return { ok: false, theme: 'kosmos', custom: [], because: 'we could not read the saved style' };
@@ -163,7 +175,9 @@ function set({ theme, customText }) {
   const now = read();
   let nextTheme = now.theme;
   if (theme !== undefined) {
-    if (typeof theme !== 'string' || !THEMES[theme]) return { ok: false, because: 'pick a theme from the list' };
+    /* Own properties only: 'constructor' and '__proto__' are strings
+       the plain lookup would bless and persist. */
+    if (typeof theme !== 'string' || !Object.hasOwn(THEMES, theme)) return { ok: false, because: 'pick a theme from the list' };
     nextTheme = theme;
   }
   let nextCustom = now.custom;
