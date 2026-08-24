@@ -4265,6 +4265,7 @@ const server = http.createServer((req, res) => {
           : m.kind === 'post'
           ? { kind: 'post', id: m.id, from: m.from, to: m.to, operator: m.operator === true,
               text: m.text, at: m.at, outcomes: m.outcomes || {},
+              ...(Array.isArray(m.mentioned) ? { mentioned: m.mentioned } : {}),
               ...(m.attachment && typeof m.attachment === 'object' ? { attachment: m.attachment } : {}),
               ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}) }
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
@@ -4292,7 +4293,12 @@ const server = http.createServer((req, res) => {
         res.end(head + lines.join('\n') + (lines.length ? '\n' : ''));
         return;
       }
-      sendJson(res, 200, { ok: rec.ok, rows: withPreviews(rows) });
+      /* #185: which addressed agents have not answered which posts, from
+         the record alone; the page renders the small line from this and
+         never re-derives it. Best-effort like the room itself. */
+      let silent = {};
+      try { silent = messages.unanswered(id, Date.now()); } catch { silent = {}; }
+      sendJson(res, 200, { ok: rec.ok, rows: withPreviews(rows), unanswered: silent });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the room') });
     }
@@ -5232,6 +5238,15 @@ function start(port = PORT) {
          switched-on machine rests forever at "the board has not started
          the tunnel". The bound port, not the requested one. */
       try { remote.ensure(server.address().port); } catch { /* status says what happened */ }
+      /* #185: the nudge sweep. Its own timer, never the status GET (a
+         read must stay a read); once a minute is far inside the
+         ten-minute constant it serves. unref'd so it never holds the
+         process open, and every run is best-effort: the room's own
+         unanswered line is the person-facing surface either way. */
+      const sweep = setInterval(() => {
+        try { messages.sweepUnanswered(paneRoster()); } catch { /* the line still shows */ }
+      }, 60 * 1000);
+      if (sweep && typeof sweep.unref === 'function') sweep.unref();
       resolve(server);
     };
     server.once('error', onError);
