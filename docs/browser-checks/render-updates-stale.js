@@ -20,8 +20,10 @@
  * (reached, readable, nothing newer) and, in the poll's /api/status, only the
  * `updateLook`/`update` fields (same answer) and `engine` (the engine-stale
  * notice, pinned off), with everything else passed through from the real
- * server. The two PNGs under docs/browser-checks/shots/ (updates-stale.png,
- * updates-current.png) are emitted by this check; a rerun overwrites them. Without the second stub the poll repaints the
+ * server. The screenshots are written into the directory you pass (argv[2]);
+ * the two under docs/browser-checks/shots/ (updates-stale.png,
+ * updates-current.png) are copies of one run, and a rerun does NOT touch them:
+ * copy them over when they are what you want in the PR. Without the second stub the poll repaints the
  * card "Could not reach the update server" within five seconds of the press
  * and a read that lands after it looks like a regression. The press, the
  * fetch, the paint and the poll that repaints the build line are the page's
@@ -94,6 +96,7 @@ function chk(ok, label, extra) {
     await pg.evaluate(([v]) => {
       document.querySelector('meta[name="kosmos-version"]').setAttribute('content', v);
     }, [baked]);
+    let pollNote = '';
     /* The build line is painted by the poll (every five seconds). In the stale
        state, wait for the poll to see the new meta so the line and the verdict
        are read from the same world; in the current state the condition already
@@ -101,10 +104,10 @@ function chk(ok, label, extra) {
     await pg.waitForFunction(([s, v]) => {
       const t = (document.getElementById('build') || {}).textContent || '';
       return s === 'stale' ? /reload for/.test(t) : (t.indexOf(v) > -1 && !/reload for/.test(t));
-    }, [state, served], { timeout: 12000 }).catch((e) => { console.log('note  ' + state + ': the poll did not repaint the build line in time (' + e.message.split('\n')[0] + ')'); });
+    }, [state, served], { timeout: 12000 }).catch((e) => { pollNote = ' (the poll did not repaint the build line in time: ' + e.message.split('\n')[0] + ')'; });
     const build = await pg.$eval('#build', (el) => el.textContent);
     chk(state === 'stale' ? /reload for/.test(build) : !/reload for/.test(build),
-      state + ': the build line says ' + (state === 'stale' ? '"reload for"' : 'no reload'), build);
+      state + ': the build line says ' + (state === 'stale' ? '"reload for"' : 'no reload'), build + pollNote);
 
     /* At rest, before the press, the verdict has not been given: the line is
        quiet, in both states. */
@@ -127,7 +130,6 @@ function chk(ok, label, extra) {
     if (state === 'stale') {
       chk(line === 'This page is older than the Kosmos running it. Reload the page to get the newer one.',
         'stale: the press says reload, not "Up to date"', JSON.stringify(line));
-      chk(!/Up to date/.test(line), 'stale: "Up to date" is not on the card', JSON.stringify(line));
     } else {
       chk(line === 'Up to date.', 'CONTROL current: the press still says "Up to date."', JSON.stringify(line));
     }

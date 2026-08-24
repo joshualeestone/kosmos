@@ -100,7 +100,7 @@ one invented by somebody who did not write them.
 | `render-projects.js` | Render every state of the Projects screens in a real browser, light and dark |
 | `render-rename-say.js` | What the agent page says after you rename an agent |
 | `render-reload-toast.js` | The reload toast in both tones, beside the shipped offer toast it must not look like (#270) |
-| `render-updates-stale.js` | Settings > Updates pressed on a page older than the Kosmos running it: reload, never "Up to date", and the current-page control (#691). Emits `shots/updates-stale.png` and `shots/updates-current.png`; a rerun overwrites them |
+| `render-updates-stale.js` | Settings > Updates pressed on a page older than the Kosmos running it: reload, never "Up to date", and the current-page control (#691). `shots/updates-stale.png` and `shots/updates-current.png` are copies of one run (the check writes into the directory you pass; copy over when they are what you want in the PR) |
 | `render-sleep-button.js` | **no header sentence.** Read it before running it, and give it one. |
 | `render-special-purpose.js` | **no header sentence.** Read it before running it, and give it one. |
 | `render-talk-search.js` | The search box above the agent thread: filter by text and by who, the no-match sentence, reset on switching agent |

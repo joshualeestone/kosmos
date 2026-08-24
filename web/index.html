@@ -8719,8 +8719,11 @@ function paintUpdateCard(running, offer, look) {
        Together they read as broken, because the verdict answered a narrower
        question than the one the button asks. The verdict now asks the SAME
        staleness question the build line and the toast ask, through the one
-       definition (`pageIsStale`), so the three surfaces agree on staleness
-       (an offer beside a stale page is still the card's offer arm, above). It
+       definition (`pageIsStale`), so the three surfaces agree on staleness.
+       ⚠️ ONE EXCEPTION, KEPT ON PURPOSE: an offer beside a stale page is still
+       the card's offer arm (above), while the toast prefers the stale state at
+       that moment; the card offers Update, the toast offers Reload. Both are
+       true and the 409 arm of the press covers the page that is behind. It
        stays gated on the ask: at rest the build line's "reload for" already
        carries the news, and the toast carries the button.
        ⚠️ NO VERSION IN THIS SENTENCE, same rule as the prefix above: the row
