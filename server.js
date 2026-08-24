@@ -1464,6 +1464,9 @@ const server = http.createServer((req, res) => {
       // The third radio's prefill, served whole so the screen and the
       // engine cannot hold two versions of the example. No label field:
       // that is the person's own words, gated at create.
+      /* #591: the working rules every agent gets, served whole so the create
+         form can show exactly what will follow a person's own words. */
+      defaults: require('./engine/defaults').block(),
       own: (() => {
         const o = roles.byKey('own');
         return o ? { key: o.key, blurb: o.blurb, firstAction: o.firstAction, instructions: o.instructions } : null;

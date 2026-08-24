@@ -1782,13 +1782,18 @@ function createAgentInner(opts) {
     // turned a too-large file into a REFUSAL to create the agent at all.
     // Dropping the block is the right failure; refusing somebody their agent
     // because the product wanted to teach it something is not.
-    if (wantInstructions === undefined) {
-      try {
-        const withDefaults = require('./defaults').appendTo(text);
-        const { MAX_BYTES } = require('./instructions');
-        if (Buffer.byteLength(withDefaults, 'utf8') <= MAX_BYTES) text = withDefaults;
-      } catch { /* ships without the defaults */ }
-    }
+    /* #591: under a person's own words too. The block is not a job
+       description, it is how any agent behaves inside Kosmos, and a person
+       who pastes a job has taken authorship of the JOB, not opted out of the
+       product working. It goes under its own heading so the seam between
+       their words and ours is visible in the file, and the create form says
+       so before the write (told before the write is consent). The byte cap
+       is unchanged: drop the block, never refuse the agent. */
+    try {
+      const withDefaults = require('./defaults').appendTo(text);
+      const { MAX_BYTES } = require('./instructions');
+      if (Buffer.byteLength(withDefaults, 'utf8') <= MAX_BYTES) text = withDefaults;
+    } catch { /* ships without the defaults */ }
     // The projects block rides from birth too (#323). It used to arrive by
     // `projects.syncAgent` once the board could see the session, which is at
     // least one poll AFTER the session started, so every agent made onto a

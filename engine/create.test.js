@@ -1595,11 +1595,31 @@ test('custom instructions are written verbatim with a trailing newline, and the 
   const found = projects.findBlock(text, reports.START, reports.END);
   assert.ok(found && !found.ambiguous, 'the person\'s own agent did not get the reports-to block at birth');
   const without = projects.removeBlock(text, reports.START, reports.END);
-  assert.equal(without, mine + '\n', 'something other than a managed record block was added to the person\'s words');
+  /* #591 changed one premise here, stated rather than deleted: the operating
+     defaults DO follow a person's own words now, under their own heading,
+     because they are how any agent behaves in Kosmos rather than a job
+     description, and the form says so before the write. The person's words
+     stay verbatim and FIRST; the role template still never leaks. */
+  const defaults = require('./defaults');
+  assert.ok(without.startsWith(mine + '\n'), 'the person\'s own words were not written verbatim and first');
+  const rest = without.slice((mine + '\n').length);
+  assert.equal(rest.trim(), defaults.block().trim(),
+    'something other than the operating defaults, under their own heading, followed the person\'s words');
   assert.ok(!text.includes('project manager'),
     'the role template leaked into instructions the person replaced');
-  assert.ok(!text.includes('How you work, whatever the job'),
-    'the operating defaults were appended to words the person wrote without them');
+});
+
+test('#591: an agent made from pasted instructions carries the working rules under their own heading, and the words come first', () => {
+  recorder();
+  create.setDryRun(false);
+  const mine = 'You handle the invoices. Nothing else.';
+  const made = create.createAgent({ ...BINS, name: 'pasted', role: 'pm', instructions: mine });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  const text = fs.readFileSync(create.instructionFile('pasted'), 'utf8');
+  const heading = text.indexOf('## How you work, whatever the job');
+  assert.ok(heading > -1, 'a pasted agent got none of the working rules');
+  assert.ok(text.indexOf(mine) === 0 && text.indexOf(mine) < heading, 'the person\'s words are not first, before the heading');
+  assert.ok(text.includes('You keep working until the task is finished'), 'the heading is there but the rules under it are not');
 });
 
 /**
