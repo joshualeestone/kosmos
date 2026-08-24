@@ -116,6 +116,7 @@ const ping = require('./engine/ping');
 const notify = require('./engine/notify');
 const selfreport = require('./engine/selfreport');
 const doctrine = require('./engine/doctrine');
+const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
 const styles = require('./engine/styles');
 const autoupdate = require('./engine/autoupdate');
@@ -2600,6 +2601,41 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/github/cancel' && req.method === 'POST') {
     github.cancel().then((st) => sendJson(res, 200, st));
+    return;
+  }
+  /* GitHub with nothing installed (#620): Kosmos's own device flow, the
+     road for a Mac with no gh. Same verbs as the gh door plus forget (the
+     token is HELD here, Cloudflare's shape) and the one Josh-line setting.
+     No route ever answers the token. */
+  if (pathname === '/api/github-device' && (req.method === 'GET' || req.method === 'HEAD')) {
+    githubdevice.state().then((st) => sendJson(res, 200, st));
+    return;
+  }
+  if (pathname === '/api/github-device/start' && req.method === 'POST') {
+    githubdevice.start().then((st) => sendJson(res, st.refused ? 409 : 200, st));
+    return;
+  }
+  if (pathname === '/api/github-device/cancel' && req.method === 'POST') {
+    githubdevice.cancel().then((st) => sendJson(res, 200, st));
+    return;
+  }
+  if (pathname === '/api/github-device/forget' && req.method === 'POST') {
+    githubdevice.forget().then((st) => sendJson(res, 200, st));
+    return;
+  }
+  if (pathname === '/api/github-device/app' && req.method === 'POST') {
+    /* The Josh-line's landing spot: the client_id he hands over, pasted
+       once. Public by design (a device-flow client id), so it may ride a
+       route; the TOKEN never does. */
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
+        const got = githubdevice.setClientId(body.clientId);
+        if (!got.ok) { sendJson(res, 400, got); return; }
+        githubdevice.state().then((st) => sendJson(res, 200, st));
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
   }
   if (pathname === '/api/vercel' && (req.method === 'GET' || req.method === 'HEAD')) {

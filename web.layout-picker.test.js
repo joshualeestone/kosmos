@@ -98,3 +98,15 @@ test('piece four: the row draws its ring only with a known memory and its warnin
   assert.match(PAGE, /\.lav \.lring, \.lav \.lwarn \{ display: none; \}/, 'the ring or warning shows in the tabs\' list layout');
   assert.match(PAGE, /body\.consolidated \.lrow > \.lav > \.lwarn \{ display: block/);
 });
+
+test('piece five: the header folds to its notice slots, the K mark is the header\'s own image at the rail top, and the rails go flat', () => {
+  const start = PAGE.indexOf('@media (min-width: 1280px) {\n  html[data-layout="consolidated"]');
+  const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
+  assert.match(block, /> \.apphead \.klink, [^{]*> \.apphead h1,\n[^{]*> \.apphead \.tabs, [^{]*> \.apphead \.headright \{ display: none; \}/, 'the header does not fold to its slots');
+  assert.doesNotMatch(block, /> \.apphead \{[^}]*display: none/, 'the whole header is hidden, and with it the update and offline notices');
+  assert.doesNotMatch(block, /#utoast-slot|#unote-slot|#uoffline-slot/, 'a notice slot is styled away');
+  assert.match(PAGE, /<button class="railk" id="rail-k" type="button" aria-label="Go to your agents"><img id="rail-k-img"/);
+  assert.match(SCRIPT, /k\.src = src\.src/, 'the rail K is not the header\'s own image');
+  assert.match(SCRIPT, /getElementById\('rail-k'\)\.addEventListener\('click', \(\) => document\.getElementById\('klink'\)\.click\(\)\)/);
+  assert.match(block, /body\.consolidated \.lrow \{ border: 0; background: none;/);
+});

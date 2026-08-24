@@ -303,12 +303,6 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
     background: var(--attn-bg); color: var(--label);
     font: var(--text-callout) var(--font-ui);
   }
-  /* #541: news, not a problem: quiet card tones, never the warning tint. */
-  .newsbar { display: flex; align-items: baseline; gap: 10px; margin: 10px 24px 0;
-             padding: 9px 14px; border: 1px solid var(--k-rule); border-radius: 10px;
-             background: var(--k-surface); font-size: .875rem; color: var(--k-ink-2); }
-  .newsbar a { color: var(--k-ink); }
-  .newsbar .linkish { margin-left: auto; }
   /* #567: the Allow moment. A device asking sits where the news line sits,
      on every view, with the gold edge (attention) and never the warning
      tint: the common case is the person's own phone, in their hand. */
@@ -701,6 +695,9 @@ html { scroll-padding-top: 132px; }
 .utoast .udot { width: 8px; height: 8px; border-radius: 50%; background: var(--utone); flex: 0 0 8px; }
 .utoast .utxt b { display: block; font-size: .8125rem; line-height: 1.3; color: var(--utone); }
 .utoast .utxt small { font-size: .6875rem; color: var(--label-2); }
+/* #655: the news line's link and dismiss, in the toast's own ink and on one line. */
+.utoast .utxt small a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.utoast .uacts button { white-space: nowrap; }
 .utoast .uacts { display: flex; gap: 6px; margin-left: 4px; }
 .utoast .uacts button { font: inherit; font-size: .75rem; font-weight: 600; cursor: pointer;
   border-radius: 8px; padding: .4em .7em; border: 1px solid var(--separator); background: var(--bg-elevated); color: var(--label); }
@@ -839,7 +836,7 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 @media (max-width: 40rem) { .themepick { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#utoast-slot:empty, #unote-slot:empty, #uoffline-slot:empty { display: none; }
+#utoast-slot:empty, #unote-slot:empty, #unews-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* 🔑 8px BECAUSE THE ELEMENT ALREADY CHOSE 8px, not because somebody picked a
    number: `.klink:focus-visible` below sets that radius, and an outline follows
@@ -1779,6 +1776,30 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated.fold-a > #rail-me { justify-content: center; padding-left: 0; padding-right: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a .railme-b, html[data-layout="consolidated"] body.consolidated.fold-a .railme-theme { display: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a .railme-go { flex: none; }
+  /* The header gives way (Josh, 15:32: "header gone is what I'm going
+     for"). Its notice slots stay in the flow, so an update note or the
+     offline warning still has somewhere to appear; the tabs, the K link,
+     the status line and the theme pill are elsewhere in this view. */
+  html[data-layout="consolidated"] body.consolidated > .apphead { position: static; padding: 0; border: 0; min-height: 0; }
+  html[data-layout="consolidated"] body.consolidated > .apphead header { padding: 0; min-height: 0; }
+  html[data-layout="consolidated"] body.consolidated > .apphead .klink, html[data-layout="consolidated"] body.consolidated > .apphead h1,
+  html[data-layout="consolidated"] body.consolidated > .apphead .tabs, html[data-layout="consolidated"] body.consolidated > .apphead .headright { display: none; }
+  html[data-layout="consolidated"] body.consolidated .railhead .lead { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  html[data-layout="consolidated"] body.consolidated .railk { border: 0; background: none; padding: 0; cursor: pointer; line-height: 0; flex: none; }
+  html[data-layout="consolidated"] body.consolidated .railk img { width: 22px; height: 22px; border-radius: 6px; display: block; }
+  html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents .lead { flex-direction: column; }
+  /* The rails on a deeper ground than the conversation, and their rows flat
+     and quiet, the way the mock draws them. */
+  html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated #pj-list-view { background: var(--k-sunk, rgba(20,22,26,.05)); border-radius: 12px; padding: 8px; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents { background: var(--k-sunk, rgba(20,22,26,.05)); border-radius: 12px 12px 0 0; padding: 8px 8px 0; margin: 0; }
+  html[data-layout="consolidated"] body.consolidated > #alist { border-radius: 0 0 12px 12px; padding-top: 0; }
+  html[data-layout="consolidated"] body.consolidated .lrow { border: 0; background: none; box-shadow: none; border-radius: 9px; padding: 6px 6px; }
+  html[data-layout="consolidated"] body.consolidated .lrow:hover { background: var(--k-surface); }
+  html[data-layout="consolidated"] body.consolidated .lrow.attn { border: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj-row { border: 0; background: none; box-shadow: none; border-radius: 9px; padding: 7px 8px; }
+  html[data-layout="consolidated"] body.consolidated .pj-row:hover { background: var(--k-surface); box-shadow: none; }
+  html[data-layout="consolidated"] body.consolidated #pj-list { gap: 2px; }
+  html[data-layout="consolidated"] body.consolidated #rail-projects { margin: 0 2px 6px 2px; }
   /* The rail heads: a name, a +, and the fold arrow. Folded, the arrow (and
      the +) stack and the name goes. */
   html[data-layout="consolidated"] body.consolidated .railhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 0 2px 8px 6px; min-height: 22px; }
@@ -3781,7 +3802,19 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          reasoning, drawn 2e4e100). Renders only when a newer version is
          published; role=status per the pack. -->
     <div id="utoast-slot"></div>
+    <!-- #541, moved here for #655 (Josh, 2026-08-24 15:50): the "updated itself
+         while you were away" line lives in the same container as the
+         update-available notice and wears its shape, so it sits with the
+         header instead of pushing the board down. The slot's :empty rule
+         does not apply while this child exists, so the line hides itself. -->
     <div id="unote-slot"></div>
+    <div id="unews-slot">
+      <div class="utoast stale" id="newsbar" role="status" hidden>
+        <span class="udot" aria-hidden="true"></span>
+        <div class="utxt"><b id="newsbar-text"></b><small><a id="newsbar-link" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">What changed</a></small></div>
+        <div class="uacts"><button type="button" id="newsbar-ok" aria-label="Dismiss this update note">Got it</button></div>
+      </div>
+    </div>
     <!-- ⚠️ ITS OWN SLOT RATHER THAN SHARING `#unote-slot`, and the reason is a
          state that really happens: a person updates and then loses the server.
          Both notes are true at once and they belong in that order, because the
@@ -3916,6 +3949,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            state is this codebase's named worst habit, and it would be free to
            disagree with the badge the day the wording moves. -->
       <div id="d-instr-stale" class="stale-note" role="status" aria-live="polite" hidden></div>
+      <!-- #539: made before the working rules. A sibling of the update note,
+           QUIET on purpose (Mona Lisa's ruling: never the warning tint; the
+           agent is not behind, it is missing a block). Painted by
+           loadDoctrine on panel open; "Not now" is remembered server-side
+           per agent until the rules themselves change. -->
+      <div class="fhint" id="d-doctrine-note" hidden>
+        <span id="d-doctrine-text"></span>
+        <button class="btn" id="d-doctrine-add" type="button" style="margin-left:8px;">Add them&hellip;</button>
+        <button class="linkish" id="d-doctrine-later" type="button" style="margin-left:6px;">Not now</button>
+      </div>
       <div class="detail-meta" id="d-meta"></div>
       <div class="detail-why" id="d-why" hidden></div>
       <!-- 🔑 WHAT THE SCREEN SAID, not what we concluded from it (Josh,
@@ -4655,6 +4698,47 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <button class="btn" id="pol-m-keep" type="button">Not yet</button>
       <button class="btn" id="pol-m-go" type="button">Hand it out</button>
     </div>
+  </div>
+</div>
+
+<!-- #539: the consent dialog. It SHOWS the change before the click (the
+     headings, and the full text behind the create form's own fold), because
+     showing the change is what makes the click authorship. "Keep as it is"
+     is first and focused; this is not destructive, so no modal-sized red.
+     The hash rides the Add click so the write is provably the composition
+     this dialog showed, and a file that moved refuses with look-again. -->
+<div class="rm-back" id="doc-modal" hidden>
+  <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="doc-title" aria-describedby="doc-body">
+    <h2 class="rm-title" id="doc-title"></h2>
+    <p class="rm-small" id="doc-body">Your words stay exactly as they are. These go underneath, under their own heading, so you can see where yours end and ours begin.</p>
+    <ul class="rst-list" id="doc-list"></ul>
+    <details class="instr-defaults-fold">
+      <summary class="linkish" id="doc-fold-sum">Show them</summary>
+      <pre class="instr-defaults-text" id="doc-fold-text"></pre>
+    </details>
+    <div class="rm-acts">
+      <button class="btn" id="doc-keep" type="button">Keep as it is</button>
+      <button class="btn" id="doc-go" type="button">Add them</button>
+    </div>
+    <div class="fmsg" id="doc-msg" role="alert" aria-live="assertive"></div>
+  </div>
+</div>
+
+<!-- #539: the fleet consent dialog. It LISTS, before the click, exactly
+     which agents will change by name and which will not and why; the click
+     is consent for the listed names only, and a fleet click never
+     overrides a per-agent Not now (those names show here so the person can
+     change their mind on the agent's own page). -->
+<div class="rm-back" id="docf-modal" hidden>
+  <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="docf-title" aria-describedby="docf-changing">
+    <h2 class="rm-title" id="docf-title">Add the working rules to every agent that is missing them?</h2>
+    <ul class="rst-list" id="docf-changing"></ul>
+    <ul class="rst-list" id="docf-staying"></ul>
+    <div class="rm-acts">
+      <button class="btn" id="docf-keep" type="button">Keep as it is</button>
+      <button class="btn" id="docf-go" type="button">Add them</button>
+    </div>
+    <div class="fmsg" id="docf-msg" role="status" aria-live="polite"></div>
   </div>
 </div>
 
@@ -6932,6 +7016,22 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     </div>
     <button class="btn-quiet" type="button" id="hist-go">Delete history&hellip;</button>
   </div>
+  <!-- #539: the fleet-wide consented refresh, in Advanced (Mona Lisa's
+       your-call-where, Splinter's front-load case: get the current working
+       rules into every agent that predates them, one consent, per-agent
+       verdicts, and never past a per-agent Not now. -->
+  <div class="boardrow">
+    <div>
+      <b>The working rules</b>
+      <p class="dhint" style="margin:4px 0 0;max-width:60ch;">
+        Agents made before the current working rules can have them added,
+        with your OK, under their own heading. Your own words in each
+        agent&rsquo;s instructions are never touched.
+      </p>
+      <p class="dhint" id="docf-verdicts" style="margin:6px 0 0;"></p>
+    </div>
+    <button class="btn-quiet" type="button" id="set-doctrine-go">Add the working rules to every agent that is missing them&hellip;</button>
+  </div>
   </section>
   </div>
   </div>
@@ -6946,11 +7046,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      under a running board; dismiss records the seen version server-side so
      it survives restarts and never returns for a seen version. First sight
      of a machine records silently: the line only ever describes a CHANGE. -->
-<div class="newsbar" id="newsbar" role="status" hidden>
-  <span id="newsbar-text"></span>
-  <a id="newsbar-link" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">What changed</a>
-  <button class="linkish" id="newsbar-ok" type="button" aria-label="Dismiss this update note">Got it</button>
-</div>
 <div class="conn" id="conn" role="status" aria-live="polite" hidden></div>
 <!-- The pack's stats row: the New agent action as a dashed tile locked
      left, the counts on the true centre, the view toggle pinned right.
@@ -6980,10 +7075,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          🔑 AND IT IS WHAT MAKES THE ROW ADD UP. Working plus Idle plus this is
          Agents; without it a person doing the arithmetic finds cards on screen
          that no tile counts. -->
-    <div class="stat" id="st-off-tile" hidden>
-      <span class="stop" aria-hidden="true"></span>
-      <b id="st-off" data-count="notrunning">0</b><span class="slab">Not running</span>
-    </div>
+    <!-- #653 (Josh, 2026-08-24 15:50): the fourth tile, "Not running", is gone.
+         Its unknown arm ("?") is what he saw; the fact it carried stays in
+         two places, the could-not-read sentence under this row and each
+         stopped agent's own card and list row. So Working plus Idle no
+         longer sums to Agents when something is stopped, on purpose. -->
     <div class="stat alert" id="st-attn-tile" hidden>
       <span class="haz" aria-hidden="true">!</span>
       <b id="st-attn" data-count="attn">0</b><span class="slab">Needs you</span>
@@ -7022,7 +7118,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      view (showTab shows it with the mode). The + is the board's own New
      agent; the arrow folds the column to its letters. -->
 <div class="railhead" id="rail-agents" hidden>
-  <span class="railname">Agents</span>
+  <span class="lead"><button class="railk" id="rail-k" type="button" aria-label="Go to your agents"><img id="rail-k-img" alt="" width="22" height="22"></button><span class="railname">Agents</span></span>
   <span class="railacts">
     <button class="fold plus" type="button" id="rail-agents-new" aria-label="New agent" title="New agent">+</button>
     <button class="fold" type="button" id="rail-agents-fold" data-fold="a" aria-label="Fold the agents column" aria-expanded="true">&lsaquo;</button>
@@ -9383,9 +9479,8 @@ async function tick() {
        the one poll where that is unknowable. It shows the same question mark a
        blind poll does, and the tile STAYS UP: hiding it is the same claim in
        another form. */
-    const off = c.notRunning;
-    document.getElementById('st-off').textContent = off === null || off === undefined ? '?' : String(off);
-    document.getElementById('st-off-tile').hidden = off === 0;
+    /* #653: no Not-running tile; `c.notRunning` is still served for the list
+       and the cards, which is where a stopped agent is read. */
     document.getElementById('st-attn').textContent = String(c.needsYou || 0);
     document.getElementById('st-attn-tile').hidden = !c.needsYou;
     const bits = [];
@@ -9555,7 +9650,6 @@ async function tick() {
     document.getElementById('st-agents').textContent = '?';
     document.getElementById('st-working').textContent = '?';
     document.getElementById('st-idle').textContent = '?';
-    document.getElementById('st-off').textContent = '?';
     /* ⚠️ SHOWN AS UNKNOWN RATHER THAN HIDDEN, unlike the alert tile beside it,
        and the two differ for a reason. Red hides at zero because a red zero
        teaches people to ignore red. This one hiding would say "none of them
@@ -9566,7 +9660,6 @@ async function tick() {
        branch runs because the roster threw before either was assembled.
        Rendering it would mean a board that partly succeeds, which is a bigger
        change than this one (Mona Lisa raised it; recorded, not half-built). */
-    document.getElementById('st-off-tile').hidden = false;
     document.getElementById('st-attn').textContent = '?';
     document.getElementById('st-attn-tile').hidden = true;
     /* The residual summary is a claim from the last successful tick (or the
@@ -9670,6 +9763,11 @@ function showTab(tab) {
   // decides. Unhiding it on every tab switch put an empty box on screen.
   if (!agents) {
     document.getElementById('removed-wrap').hidden = true;
+    /* The found-agents block ("We found agents on your computer") is painted
+       only on the Agents tab and was never hidden on the way off it, so it
+       followed a person to Projects, a task, the create form and every
+       Settings screen (Josh, 2026-08-24 15:48, with screenshots). */
+    document.getElementById('found-wrap').hidden = true;
     // ⚠️ And the message with it. It deliberately lives outside the wrap so a
     // repaint cannot erase it -- which also means nothing else hides it, so a
     // sentence about the removed list would otherwise sit under Settings or
@@ -9692,7 +9790,14 @@ function showTab(tab) {
   document.getElementById('rail-agents').hidden = !cons;
   document.getElementById('rail-projects').hidden = !cons;
   document.getElementById('rail-me').hidden = !cons;
-  if (cons) paintRailMe();
+  if (cons) {
+    paintRailMe();
+    /* The K mark is the header's own image; in this view the header is
+       folded to its notice slots, so the mark lives at the rail's top. */
+    const k = document.getElementById('rail-k-img');
+    const src = document.getElementById('klink-img');
+    if (k && src && k.src !== src.src) k.src = src.src;
+  }
   railFoldsApply();
   if (cons) {
     document.getElementById('panel-projects').hidden = false;
@@ -14111,6 +14216,7 @@ async function loadInstructions(sessionName) {
       }
     }
     renderStale(data.staleness);
+    loadDoctrine(sessionName); // #539: fire-and-forget beside the staleness read; its own guard inside
   } catch (err) {
     if (mine !== INSTR_LOAD) return;
     // The load is finished and broken, which is a different state from "still
@@ -14167,6 +14273,177 @@ function setLive(el, html) {
   el.__lastLive = html;
   el.innerHTML = html;
 }
+
+/* ── #539: the consented working-rules refresh, this page's half ──────────
+   The GET is pure planning; only "Add them" writes, carrying the hash the
+   plan returned so the write is provably the composition this dialog
+   showed. Every sentence here is Mona Lisa's ruling verbatim. */
+let DOCTRINE_PLAN = null;
+async function loadDoctrine(sessionName) {
+  const note = document.getElementById('d-doctrine-note');
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/doctrine', { cache: 'no-store' });
+    if (!res.ok) { note.hidden = true; return; }
+    const got = await res.json();
+    if (!CURRENT || CURRENT.sessionName !== sessionName) return; // a newer agent is open
+    DOCTRINE_PLAN = { sessionName, ...got };
+    const show = got.state === 'refresh' && got.declined !== true;
+    if (show) {
+      const who = (CURRENT && CURRENT.name) || sessionName;
+      document.getElementById('d-doctrine-text').textContent = who + ' was made before Kosmos’s working rules.';
+    }
+    note.hidden = !show;
+  } catch { note.hidden = true; /* news can wait; the banner never guesses */ }
+}
+document.getElementById('d-doctrine-later').addEventListener('click', async () => {
+  const plan = DOCTRINE_PLAN;
+  document.getElementById('d-doctrine-note').hidden = true;
+  if (!plan) return;
+  try { await fetch('/api/agent/' + encodeURIComponent(plan.sessionName) + '/doctrine/not-now', { method: 'POST' }).then((r) => r.text()); }
+  catch { /* remembered next time it is answered; the banner is already quiet */ }
+});
+document.getElementById('d-doctrine-add').addEventListener('click', () => {
+  const plan = DOCTRINE_PLAN;
+  if (!plan) return;
+  const who = (CURRENT && CURRENT.name) || plan.sessionName;
+  document.getElementById('doc-title').textContent = 'Add the working rules to ' + who + '’s instructions?';
+  const list = document.getElementById('doc-list');
+  list.textContent = '';
+  for (const h of plan.sections || []) {
+    const li = document.createElement('li');
+    li.textContent = h.replace(/^#+\s*/, '');
+    list.appendChild(li);
+  }
+  document.getElementById('doc-fold-text').textContent = plan.span || '';
+  document.getElementById('doc-msg').textContent = '';
+  DOC_OPENER = document.getElementById('d-doctrine-add');
+  document.getElementById('doc-modal').hidden = false;
+  document.getElementById('doc-keep').focus(); // the harmless answer opens focused
+});
+/* ⚠️ THE SAME MODAL MACHINERY AS updconfirm, NOT ADJACENCY (Angel's review
+   of #643, and updconfirm's own words: a new sibling does not inherit a
+   guard by sitting beside one). aria-modal promises focus is held, Escape
+   leaves, the backdrop leaves, and closing returns the keyboard to the
+   button that opened it. The Tab trap rides the SHARED dialog machinery
+   below (the tuple list kept for exactly this), intercepting at the LAST
+   stop in the traversal direction; on a WRITE-CONSENT dialog, a leaked
+   keystroke lands on a live board control, the measured defect. */
+let DOC_OPENER = null;
+function closeDocModal() {
+  document.getElementById('doc-modal').hidden = true;
+  const back = (DOC_OPENER && document.contains(DOC_OPENER)) ? DOC_OPENER : document.getElementById('d-doctrine-add');
+  DOC_OPENER = null;
+  if (back) back.focus();
+}
+document.getElementById('doc-keep').addEventListener('click', closeDocModal);
+document.getElementById('doc-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'doc-modal') closeDocModal();
+});
+let DOCF_OPENER = null;
+function closeDocfModal() {
+  document.getElementById('docf-modal').hidden = true;
+  const back = (DOCF_OPENER && document.contains(DOCF_OPENER)) ? DOCF_OPENER : document.getElementById('set-doctrine-go');
+  DOCF_OPENER = null;
+  if (back) back.focus();
+}
+document.getElementById('docf-keep').addEventListener('click', closeDocfModal);
+document.getElementById('docf-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'docf-modal') closeDocfModal();
+});
+document.getElementById('doc-go').addEventListener('click', async () => {
+  const plan = DOCTRINE_PLAN;
+  const msg = document.getElementById('doc-msg');
+  if (!plan) return;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(plan.sessionName) + '/doctrine/refresh', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ hash: plan.hash }),
+    });
+    const got = await res.json();
+    if (got.state === 'added') {
+      msg.textContent = 'Added.';
+      document.getElementById('d-doctrine-note').hidden = true;
+      loadInstructions(plan.sessionName); // the box below shows the file that now exists
+    } else if (got.state === 'current') {
+      msg.textContent = 'Already has them.';
+      document.getElementById('d-doctrine-note').hidden = true;
+    } else {
+      msg.textContent = 'Left alone: ' + (got.because || 'we could not change them') + '.';
+    }
+  } catch {
+    msg.textContent = 'We could not reach Kosmos to do that.';
+  }
+});
+
+/* The fleet half: list before the click, consent for the listed names only,
+   verdict sentences after, one per agent, never silence. */
+let DOCF_NAMES = [];
+document.getElementById('set-doctrine-go').addEventListener('click', async () => {
+  const changing = document.getElementById('docf-changing');
+  const staying = document.getElementById('docf-staying');
+  const msg = document.getElementById('docf-msg');
+  changing.textContent = ''; staying.textContent = ''; msg.textContent = ''; DOCF_NAMES = [];
+  try {
+    const res = await fetch('/api/doctrine/fleet', { cache: 'no-store' });
+    /* An error renders an ERROR sentence, never the false all-clear
+       (Angel's review: got.agents||[] fell through to "Nobody is missing
+       them" on a failed read, a success nobody checked). */
+    if (!res.ok) throw new Error('no');
+    const got = await res.json();
+    if (got && got.ok === false) throw new Error('no');
+    for (const a of got.agents || []) {
+      const li = document.createElement('li');
+      if (a.state === 'refresh') {
+        DOCF_NAMES.push(a.sessionName);
+        li.textContent = a.name + ' will get the working rules.';
+        changing.appendChild(li);
+      } else {
+        li.textContent = a.state === 'current' ? a.name + ' already has them.'
+          : a.state === 'declined' ? a.name + ' stays: you said Not now. Change your mind on their page.'
+            : a.name + ' stays: ' + (a.because || 'we could not read their instructions') + '.';
+        staying.appendChild(li);
+      }
+    }
+    if (!DOCF_NAMES.length) {
+      const li = document.createElement('li');
+      li.textContent = 'Nobody is missing them.';
+      changing.appendChild(li);
+    }
+    document.getElementById('docf-go').disabled = DOCF_NAMES.length === 0;
+    DOCF_OPENER = document.getElementById('set-doctrine-go');
+    document.getElementById('docf-modal').hidden = false;
+    document.getElementById('docf-keep').focus();
+  } catch {
+    document.getElementById('docf-verdicts').textContent = 'We could not reach Kosmos to look.';
+  }
+});
+document.getElementById('docf-go').addEventListener('click', async () => {
+  const msg = document.getElementById('docf-msg');
+  if (!DOCF_NAMES.length) return;
+  try {
+    const res = await fetch('/api/doctrine/refresh-fleet', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ names: DOCF_NAMES }),
+    });
+    if (!res.ok) throw new Error('no');
+    const got = await res.json();
+    if (!Array.isArray(got.verdicts) || !got.verdicts.length) {
+      /* A result with no verdicts is a silent result, which this dialog's
+         whole copy contract forbids: sentences, never silence. */
+      msg.textContent = 'We could not tell what happened; nothing is confirmed changed. Look at an agent’s own page to check.';
+      return;
+    }
+    const lines = (got.verdicts || []).map((v) => v.name + ': '
+      + (v.state === 'added' ? 'Added.'
+        : v.state === 'current' ? 'Already has them.'
+          : v.state === 'declined' ? 'Left alone: you said Not now for ' + v.name + '.'
+            : 'Left alone: ' + (v.because || 'we could not read ' + v.name + '’s instructions, so we did not change them') + '.'));
+    msg.textContent = lines.join(' ');
+    document.getElementById('docf-verdicts').textContent = lines.join(' ');
+  } catch {
+    msg.textContent = 'We could not reach Kosmos to do that.';
+  }
+});
 
 function renderStale(s) {
   const el = document.getElementById('d-instr-stale');
@@ -16422,6 +16699,7 @@ document.querySelectorAll('[data-fold]').forEach((btn) => {
   });
 });
 document.getElementById('rail-agents-new').addEventListener('click', () => document.getElementById('new-agent').click());
+document.getElementById('rail-k').addEventListener('click', () => document.getElementById('klink').click());
 document.getElementById('rail-projects-new').addEventListener('click', () => document.getElementById('pj-new').click());
 /* Crossing 1280 either way re-lays the page; the setting itself is untouched. */
 window.addEventListener('resize', () => {
@@ -19818,6 +20096,9 @@ document.getElementById('nt-go').addEventListener('click', async () => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!document.getElementById('hist-modal').hidden) closeHistModal();
+  /* #539's two consent dialogs leave on Escape like every sibling. */
+  if (!document.getElementById('doc-modal').hidden) closeDocModal();
+  if (!document.getElementById('docf-modal').hidden) closeDocfModal();
   /* ⚠️ NEITHER TASK SURFACE IS AN ESCAPE TARGET ANY MORE (#206, then #383):
      Escape dismisses a thing that covers your work; it does not navigate.
      Both halves of tasks are pages now, and wiring Escape on either would
@@ -19828,8 +20109,13 @@ document.addEventListener('keydown', (e) => {
   for (const [backId, stopIds, home] of [
     /* ⚠️ NO TRAP ON EITHER TASK PAGE (#206, then #383). A focus trap is what
        makes a dialog modal; a page must let the keyboard reach the tab bar
-       and everything else on the screen. The list is kept, empty, so the
-       next dialog inherits working machinery rather than a deleted one. */
+       and everything else on the screen. The list was kept, empty, so the
+       next dialog would inherit working machinery rather than a deleted
+       one -- and #539's two consent dialogs are that next dialog. The
+       fold's summary is a REAL tab stop and is listed, or shift-Tab from
+       it would leak backwards off the dialog. */
+    ['doc-modal', ['doc-fold-sum', 'doc-keep', 'doc-go'], 'doc-keep'],
+    ['docf-modal', ['docf-keep', 'docf-go'], 'docf-keep'],
   ]) {
     const back = document.getElementById(backId);
     if (back.hidden) continue;
