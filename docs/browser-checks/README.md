@@ -145,6 +145,12 @@ fires looking exactly like a regression. Three of those happened in one day
 (#650, #612, and the engine-off legs of `render-github-door.js` the hour #680
 shipped the client id). Put the sentence "true until <the improvement>" beside the
 assertion, so the person who meets the red knows it is the feature arriving.
+Better still, **pin the invariant, not the moment**: assert the whole space of
+valid states and refuse only the half state between them. #650's fix is the
+shape: the Windows control is a Coming-soon button OR a real installer download,
+never a button without the corner or an anchor with it, and the check prints
+which it saw. That stays green the day the feature lands, still catches a broken
+control, and nobody has to read a comment at the moment they are annoyed by a red.
 
 ## Where the screenshots go
 
