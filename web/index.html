@@ -1781,7 +1781,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated.fold-p #panel-projects { grid-template-columns: 48px minmax(0, 1fr); }
   html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects { flex-direction: column; margin-left: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects .railacts { flex-direction: column; }
-  html[data-layout="consolidated"] body.consolidated.fold-p #pj-list, html[data-layout="consolidated"] body.consolidated.fold-p #pj-arch-wrap, html[data-layout="consolidated"] body.consolidated.fold-p #pj-list-msg { display: none; }
+  /* `#pj-list.asgrid` above carries one more class than this, so the fold
+     names the same class or its display:none loses the specificity contest
+     (the switch-specificity trap: two classes beat one, order irrelevant). */
+  html[data-layout="consolidated"] body.consolidated.fold-p #pj-list, html[data-layout="consolidated"] body.consolidated.fold-p #pj-list.asgrid, html[data-layout="consolidated"] body.consolidated.fold-p #pj-arch-wrap, html[data-layout="consolidated"] body.consolidated.fold-p #pj-list-msg { display: none; }
   html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 40; max-width: none; margin: 0; }
   /* The rail row: the face, then the name over the title over the state. */
   html[data-layout="consolidated"] body.consolidated .lrow { grid-template-columns: 34px minmax(0, 1fr); gap: 2px 10px; padding: 8px 10px; }

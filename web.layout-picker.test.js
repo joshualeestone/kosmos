@@ -72,4 +72,8 @@ test('piece two: the rail heads exist once, hidden until the mode, with a + on t
   assert.match(SCRIPT, /sessionStorage\.getItem\('rail-fold-' \+ k\)/, 'a fold is not per session');
   assert.match(PAGE, /body\.consolidated\.fold-a \{ grid-template-columns: 48px/);
   assert.match(PAGE, /body\.consolidated\.fold-p #panel-projects \{ grid-template-columns: 48px/);
+  /* The switch-specificity trap: `#pj-list.asgrid { display: flex }` carries
+     one more class than a `#pj-list { display: none }` fold, so the fold must
+     name `.asgrid` too or it loses regardless of order. Measured 2026-08-24. */
+  assert.match(PAGE, /body\.consolidated\.fold-p #pj-list\.asgrid[^{]*\{ display: none; \}/, 'the projects fold lost to #pj-list.asgrid again');
 });
