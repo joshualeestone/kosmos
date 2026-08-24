@@ -65,3 +65,19 @@ test('the refusals: no name, empty body, oversized body', () => {
   assert.match(skills.add(dir, { name: 'ok', body: 'x'.repeat(70 * 1024) }).because, /longer than a skill file/);
   assert.deepEqual(skills.list(dir).skills, [], 'a refusal left something on disk');
 });
+
+test('remove takes the folder, refuses a name that is not there, and says so', () => {
+  const os = require('node:os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-sk-rm-'));
+  skills.add(dir, { name: 'Meeting minutes', body: 'Decisions and owners.' });
+  assert.ok(fs.existsSync(path.join(dir, 'meeting-minutes', 'SKILL.md')));
+  const gone = skills.remove(dir, 'meeting-minutes');
+  assert.equal(gone.ok, true);
+  assert.ok(!fs.existsSync(path.join(dir, 'meeting-minutes')), 'the folder survived removal');
+  // The second click is a refusal with a sentence, never a quiet yes.
+  const again = skills.remove(dir, 'meeting-minutes');
+  assert.equal(again.ok, false);
+  assert.match(again.because, /no skill by this name/);
+  // A path-shaped key is refused before any filesystem look.
+  assert.equal(skills.remove(dir, '../escape').ok, false);
+});

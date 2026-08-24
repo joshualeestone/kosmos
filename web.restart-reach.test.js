@@ -122,33 +122,29 @@ test('a refusal stays in the dialog and a success reports on the control that op
 });
 
 
-test('the consequence is named before the click, not after it', () => {
+test('the consequence is named before the confirming click, in the dialog', () => {
   /* Josh has twice read a restarted agent's empty memory as the product being
-     broken. The sentence exists for that, and it belongs above the button. */
-  /* Anchored on the block's own last element rather than on the Remove block
-     that used to follow it: since the agent page grew sections (agent-page-nav,
-     2026-08-23) Restart lives under Memory as "Fresh start" and Remove has a
-     section of its own, so "adjacent" stopped being a property of the page. */
-  const block = PAGE.slice(PAGE.indexOf('id="d-restart-agent"'), PAGE.indexOf('id="d-restart-msg"'));
-  assert.ok(block.length > 0 && block.length < 4000, 'the restart block lost its own message element');
-  /* ⚠️ AND IT DOES NOT RESTATE THE VERB. "It stops and starts, so" is what the
-     word restart already means, and a hint that spends its opening clause on
-     the heading's own meaning buys nothing (Mona Lisa, #259). Asserted as an
-     absence with the presence beside it, so a rewrite that drops the whole
-     sentence fails rather than passing on the absence alone. */
-  assert.ok(!/It stops and starts/.test(block),
-    'the hint reopened with a restatement of what restart means');
-  const hintAt = block.indexOf('comes back with nothing in its memory');
-  const btnAt = block.indexOf('<button');
+     broken. The sentence exists for that. RESTATED 2026-08-23 (the pack match,
+     Josh 19:57): the page block is three stacked buttons and two pack
+     sentences, so the consequence moved into the restart DIALOG, which every
+     press passes through before anything restarts. The pinned claim is the
+     same: a person reads the memory cost before the click that spends it. The
+     page keeps the footer promise that sends them there. */
+  const dlg = PAGE.slice(PAGE.indexOf('id="rst-modal"'), PAGE.indexOf('id="rst-msg"'));
+  assert.ok(dlg.length > 0 && dlg.length < 4000, 'the restart dialog lost its own message element');
+  /* Not a restatement of the verb (Mona Lisa, #259): asserted as an absence
+     with the presence beside it, so a rewrite that drops the whole sentence
+     fails rather than passing on the absence alone. */
+  assert.ok(!/It stops and starts/.test(dlg),
+    'the dialog reopened with a restatement of what restart means');
+  const hintAt = dlg.indexOf('comes back with nothing in its memory');
+  const goAt = dlg.indexOf('id="rst-go"');
   assert.ok(hintAt > -1, 'the memory consequence is not stated');
-  assert.ok(hintAt < btnAt, 'the consequence is stated after the button rather than before it');
-  assert.match(block, /instructions and its files are untouched/,
+  assert.ok(goAt > -1 && hintAt < goAt, 'the consequence is stated after the confirming button rather than before it');
+  assert.match(dlg, /instructions and its files are untouched/,
     'the sentence names what is lost without naming what is kept');
-  /* ⚠️ MEMORY ALONE READS AS CONTEXT. What a person actually loses is anything
-     the agent agreed to and has not done, which they read as "the thing I
-     asked it to do". The clause is general and claims nothing about whether
-     there IS anything pending, which is the dialog's job; it exists so the
-     hint and the dialog use one vocabulary (Mona Lisa, #259). */
-  assert.match(block, /anything it was part way through ends/,
-    'the hint names only memory, which reads as losing context rather than losing work');
+  /* And the page's side of the bargain: the footer that points at the
+     dialogs, in the pack's words. */
+  assert.match(PAGE, /Each one shows what it stands to lose before you choose\./,
+    'the footer promise is gone, so nothing sends a person to the cost');
 });

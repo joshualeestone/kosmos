@@ -128,4 +128,24 @@ function add(dir, { name, body } = {}) {
   return { ok: true, key: slug };
 }
 
-module.exports = { globalDir, agentDir, list, add, slugFor };
+/**
+ * Take a skill out. The whole folder goes, because SKILL.md may sit beside
+ * assets the convention allows; a missing skill is a refusal with a sentence,
+ * not a silent success, so a double-click tells the truth twice.
+ */
+function remove(dir, key) {
+  const slug = String(key == null ? '' : key).trim();
+  if (!SLUG_RE.test(slug)) return { ok: false, because: 'that is not a skill name we can look up' };
+  const home = path.join(dir, slug);
+  if (!fs.existsSync(path.join(home, 'SKILL.md'))) {
+    return { ok: false, because: 'there is no skill by this name here' };
+  }
+  try {
+    fs.rmSync(home, { recursive: true });
+  } catch {
+    return { ok: false, because: 'we could not remove the skill folder' };
+  }
+  return { ok: true };
+}
+
+module.exports = { globalDir, agentDir, list, add, remove, slugFor };

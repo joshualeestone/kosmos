@@ -97,6 +97,7 @@ function safeAvatarFor(name) {
 const roles = require('./engine/roles');
 const commitments = require('./engine/commitments');
 const you = require('./engine/you');
+const policyEngine = require('./engine/policy');
 const skillsEngine = require('./engine/skills');
 const reports = require('./engine/reports');
 const limits = require('./engine/limits');
@@ -1292,6 +1293,33 @@ const server = http.createServer((req, res) => {
         sendJson(res, made.ok ? 200 : 400, made);
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  const globalSkillRm = pathname.match(/^\/api\/skills\/([^/]+)$/);
+  if (globalSkillRm && req.method === 'DELETE') {
+    const key = decodeSegment(globalSkillRm[1]);
+    if (key === null) { sendJson(res, 400, { ok: false, because: 'that is not a skill name we can read' }); return; }
+    const gone = skillsEngine.remove(skillsEngine.globalDir(), key);
+    sendJson(res, gone.ok ? 200 : 400, gone);
+    return;
+  }
+  /* The delete carries the same exact-match permit as the write: removing a
+     file from a worker folder is a write to it. */
+  const agentSkillRm = pathname.match(/^\/api\/agent\/([^/]+)\/skills\/([^/]+)$/);
+  if (agentSkillRm && req.method === 'DELETE') {
+    const name = decodeSegment(agentSkillRm[1]);
+    const key = decodeSegment(agentSkillRm[2]);
+    if (name === null || key === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    const roster = safeRoster();
+    if (!Array.isArray(roster) || !roster.some((a) => a && a.sessionName === name && a.isNamedOurs === true)) {
+      sendJson(res, 409, { ok: false,
+        because: !Array.isArray(roster)
+          ? 'we could not check which agents are running, so we will not write into a worker folder on a guess'
+          : 'we could not find an agent with exactly this name on this computer' });
+      return;
+    }
+    const gone = skillsEngine.remove(skillsEngine.agentDir(create.workerDir(name)), key);
+    sendJson(res, gone.ok ? 200 : 400, gone);
     return;
   }
   const agentSkills = pathname.match(/^\/api\/agent\/([^/]+)\/skills$/);
@@ -3437,6 +3465,70 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, { ...limits.read(), tiers: limits.TIERS });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+
+  // --- the company AI policy: held once, handed to every agent (#479) ------
+  if (pathname === '/api/policy' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = policyEngine.read();
+      // The full text stays on disk; the screen gets what it shows.
+      sendJson(res, 200, r.state === 'saved'
+        ? { state: 'saved', policy: { source: r.policy.source, savedAt: r.policy.savedAt, chars: r.policy.text.length, opening: r.policy.text.slice(0, 240) } }
+        : { state: r.state, policy: null, because: r.because });
+    } catch { sendJson(res, 500, { error: 'that record could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/policy' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        let text; let source;
+        if (typeof body.url === 'string' && body.url.trim()) {
+          // The BOARD fetches, through the same gate every link preview
+          // uses: private addresses refused, redirects gated, size capped.
+          const got = await unfurl.pageText(body.url.trim());
+          if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+          if (got.text.length > policyEngine.TEXT_MAX) {
+            sendJson(res, 400, { error: 'that page is too long to hand to every agent; paste the part that applies instead' });
+            return;
+          }
+          text = got.text; source = got.url;
+        } else if (typeof body.text === 'string' && body.text.trim()) {
+          text = body.text; source = 'pasted';
+        } else {
+          sendJson(res, 400, { error: 'give us a link to the policy, or paste the policy itself' });
+          return;
+        }
+        let saved;
+        try { saved = policyEngine.save({ text, source }); }
+        catch (err) { sendJson(res, 400, { error: String((err && err.message) || 'we could not save that') }); return; }
+        // Non-gating, same as every tell: a policy that could not be
+        // announced everywhere is still saved, and each verdict is carried.
+        let told;
+        try {
+          const roster = safeRoster();
+          told = policyEngine.syncEveryone(roster).map((t) => {
+            const card = t && Array.isArray(roster) ? roster.find((c) => c && c.sessionName === t.agent) : null;
+            return card && card.name ? { ...t, shownAs: card.name } : t;
+          });
+        } catch (err2) { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not tell the agents') }]; }
+        sendJson(res, 200, { policy: { source: saved.source, savedAt: saved.savedAt, chars: saved.text.length, opening: saved.text.slice(0, 240) }, told });
+      })
+      .catch(() => sendJson(res, 500, { error: 'we could not save that record' }));
+    return;
+  }
+  if (pathname === '/api/policy/remove' && req.method === 'POST') {
+    try { policyEngine.clear(); }
+    catch (err) { sendJson(res, 500, { error: String((err && err.message) || 'we could not remove the saved policy') }); return; }
+    let told;
+    try {
+      const roster = safeRoster();
+      told = policyEngine.syncEveryone(roster);
+    } catch { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: 'we could not tell the agents' }]; }
+    sendJson(res, 200, { state: 'absent', told });
     return;
   }
 
