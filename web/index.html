@@ -5999,27 +5999,30 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            screen cannot disagree with what is actually there. -->
       <div id="set-accounts"></div>
       <p class="dhint" id="set-accounts-msg" role="status" style="margin:10px 0 0;"></p>
-      <!-- #248: the browser sign-in the first run already has, coming to this
-           button. DISABLED until the engine takes a per-account target
-           (connect.start({configDir}), Angel's contract 2026-08-23): wired
-           live tonight it would sign into the DEFAULT config and could log
-           the person's main account out, which is worse than a wait. The
-           sentence under it says which state this is; the terminal fallback
-           survives in small print because it is the one way that works
-           TODAY, and hiding the only working path behind a dead button is
-           the exact dishonesty the Connections page refuses. -->
+      <!-- #248, LIVE: the browser sign-in the first run already has, on this
+           button. POST /api/connect/start { another: true } (Angel's frozen
+           contract): the engine picks the next free work directory itself
+           and the flow carries it end to end, so this can never sign the
+           person's main account out. The terminal sentence is GONE per the
+           card's rule 2: no user-facing string names an environment
+           variable or a shell command. -->
       <div class="frow" style="margin:12px 0 0;">
-        <button class="btn" id="acct-add" type="button" disabled>Add another account&hellip;</button>
+        <button class="btn" id="acct-add" type="button">Add another account&hellip;</button>
+      </div>
+      <div id="acct-flow" hidden style="margin:10px 0 0;">
+        <p class="dhint" id="acct-flow-say" role="status" aria-live="polite" style="margin:0;"></p>
+        <div class="frow" id="acct-code-row" hidden style="margin:8px 0 0;">
+          <input type="text" id="acct-code" inputmode="numeric" autocomplete="one-time-code"
+                 aria-label="The code from your email" placeholder="The code from your email">
+          <button class="btn" id="acct-code-go" type="button">Continue</button>
+        </div>
+        <p class="dhint" style="margin:8px 0 0;">
+          <button class="linkish" id="acct-cancel" type="button">Stop this sign-in</button>
+        </p>
       </div>
       <p class="dhint" id="acct-add-note" style="margin:8px 0 0;">
-        Signing in here, in your browser, is almost ready; this button opens
-        the same sign-in the first run uses. Until it does, a second account
-        still takes the terminal: run
-        <code>CLAUDE_CONFIG_DIR=~/.claude-work claude</code> and log in, and
-        it shows up on this list.
-      </p>
-      <p class="dhint" style="margin:8px 0 0;">
-        Kosmos never sees your password and holds no account of its own.
+        Signing in happens in your browser. Kosmos never sees your password
+        and holds no account of its own.
       </p>
     </section>
   </section>
@@ -9411,6 +9414,138 @@ async function paintAccounts() {
     });
   }
 }
+
+/* --- #248: add another account, from here, no terminal ------------------- */
+/* A COMPACT renderer, deliberately not first-run's panel: that one teaches
+   (title, link, progress numbers); a person in Settings already knows the
+   product, so this renders one sentence per phase plus the code row. Both
+   read the SAME phase vocabulary: activity comes from frConnActive (the one
+   hand-copy of the engine's ACTIVE_PHASES on this page), so a phase added
+   there reaches this flow without a third list. Repaints key on
+   phase+because, the first-run lesson: a rebuild empties the code input
+   under the person's cursor, and the reason changing is the one time that
+   is right. */
+let ACCT_FLOW_TIMER = null;
+let ACCT_FLOW_LAST = null;
+const ACCT_FLOW_SAY = {
+  'downloading': 'Getting the sign-in ready…',
+  'installing': 'Getting the sign-in ready…',
+  'signin-launching': 'Opening the sign-in in your browser…',
+  'signin-browser-open': 'Finish signing in, in the browser window that just opened.',
+  'signin-awaiting-code': 'Enter the code from your email to finish.',
+  'signin-completing': 'Finishing…',
+};
+function acctFlowStop() {
+  if (ACCT_FLOW_TIMER) { clearInterval(ACCT_FLOW_TIMER); ACCT_FLOW_TIMER = null; }
+}
+function acctFlowPaint(st) {
+  const flow = document.getElementById('acct-flow');
+  const say = document.getElementById('acct-flow-say');
+  const codeRow = document.getElementById('acct-code-row');
+  const btn = document.getElementById('acct-add');
+  const note = document.getElementById('acct-add-note');
+  const phase = st && st.phase;
+  const key = phase + '|' + ((st && st.because) || '');
+  if (key === ACCT_FLOW_LAST) return;
+  ACCT_FLOW_LAST = key;
+  if (frConnActive(phase)) {
+    flow.hidden = false;
+    btn.disabled = true;
+    say.textContent = ACCT_FLOW_SAY[phase] || 'Working…';
+    const wantCode = phase === 'signin-awaiting-code';
+    // Angel's contract: a rejected code does NOT move the polled state (the
+    // POST answers alone, handled at the submit button). A because on this
+    // phase would come from the ENGINE's own path (e.g. a code expiring);
+    // honoured the same way if it ever arrives: say it, empty the field.
+    if (wantCode && st && st.because) {
+      say.textContent = st.because + ' Enter the code from your email to try again.';
+      document.getElementById('acct-code').value = '';
+    }
+    codeRow.hidden = !wantCode;
+    if (wantCode) document.getElementById('acct-code').focus();
+    return;
+  }
+  // The flow ended, one way or the other.
+  acctFlowStop();
+  flow.hidden = true;
+  codeRow.hidden = true;
+  btn.disabled = false;
+  if (phase === 'connected') {
+    note.textContent = 'Connected. The new account is on the list above.';
+    paintAccounts();
+  } else if (phase === 'stuck' || phase === 'interrupted' || phase === 'failed') {
+    note.textContent = (st && st.because)
+      ? pjSentence(st.because) : 'That sign-in did not finish. Nothing changed; you can try again.';
+  }
+}
+function acctFlowWatch() {
+  if (ACCT_FLOW_TIMER) return;
+  ACCT_FLOW_TIMER = setInterval(async () => {
+    try {
+      const res = await fetch('/api/connect', { cache: 'no-store' });
+      if (!res.ok) return; // a missed poll is not a verdict
+      acctFlowPaint(await res.json());
+    } catch { /* next tick */ }
+  }, 1000);
+}
+document.getElementById('acct-add').addEventListener('click', async () => {
+  const btn = document.getElementById('acct-add');
+  const note = document.getElementById('acct-add-note');
+  btn.disabled = true;
+  note.textContent = '';
+  ACCT_FLOW_LAST = null;
+  try {
+    const res = await fetch('/api/connect/start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ another: true }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) {
+      btn.disabled = false;
+      note.textContent = (out && (out.because || out.error)) || 'We could not start the sign-in.';
+      return;
+    }
+    acctFlowPaint(out && out.phase ? out : { phase: 'signin-launching' });
+    acctFlowWatch();
+  } catch {
+    btn.disabled = false;
+    note.textContent = 'We could not reach Kosmos to start the sign-in.';
+  }
+});
+document.getElementById('acct-code-go').addEventListener('click', async () => {
+  const code = document.getElementById('acct-code').value.trim();
+  if (!code) return;
+  const say = document.getElementById('acct-flow-say');
+  try {
+    const res = await fetch('/api/connect/code', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    /* ⚠️ A REJECTED CODE SPEAKS ONLY HERE (Angel, the contract): the flow
+       state keeps its phase AND its because on a 400/409, so waiting on the
+       poll renders nothing forever. The POST's own error is the verdict,
+       said beside the row, and the field empties because the code in it did
+       not work. An accepted code says nothing; the poll carries the hop. */
+    if (!res.ok) {
+      const out = await res.json().catch(() => null);
+      say.textContent = ((out && (out.error || out.because)) || 'That code did not work.')
+        + ' Enter the code from your email to try again.';
+      const field = document.getElementById('acct-code');
+      field.value = '';
+      field.focus();
+      return;
+    }
+    ACCT_FLOW_LAST = null; // the next poll repaints whatever the code caused
+  } catch {
+    say.textContent = 'We could not reach Kosmos to send that code. It is still waiting; try again.';
+  }
+});
+document.getElementById('acct-cancel').addEventListener('click', async () => {
+  try { await fetch('/api/connect/cancel', { method: 'POST' }); } catch { /* the poll sees it */ }
+  ACCT_FLOW_LAST = null;
+});
 
 /* The conversation limit card: painted from the engine's read, and the
    read carries its own honesty (ok:false means the file could not be
