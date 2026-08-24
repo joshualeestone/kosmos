@@ -125,8 +125,21 @@ case "$EVENT" in
       say_loudly "Kosmos reporting is OFF for this session: the kosmos CLI at $KOSMOS does not support the report verb (it is older than Kosmos 0.5.11). The board is falling back to reading the screen. Updating Kosmos fixes this."
       exit 0
     fi
+    # The DELIVERY check, the third quiet path and the one the two guards
+    # above cannot see: a CLI that exists and speaks `report` can still fail
+    # to land the line -- the board is down, or the server cannot tie this
+    # pane to an agent -- and everywhere else this script swallows that on
+    # purpose. Here, once per session, the `started` report is fired FOR
+    # REAL and its verdict is checked; a failure surfaces the CLI's own
+    # sentence, so the person reads the actual reason (not running / could
+    # not match) rather than a genericised one. Passing this check proves
+    # the whole chain: script, CLI, server, identity, record.
     rm -f "$MARK" 2>/dev/null || true
-    report started ;;
+    STARTED_OUT=$("$KOSMOS" report started 2>&1); STARTED_RC=$?
+    if [ "$STARTED_RC" -ne 0 ]; then
+      REASON=$(printf '%s' "$STARTED_OUT" | tr '\n\t\r' '   ' | tr -s ' ' | sed 's/^ *//; s/\\/\\\\/g; s/"/\\"/g' | head -c 300)
+      say_loudly "Kosmos reporting is OFF for this session: the report could not be recorded. ${REASON:-The CLI did not say why.} The board is falling back to reading the screen."
+    fi ;;
   UserPromptSubmit)
     date +%s > "$MARK" 2>/dev/null || true
     report working answering a prompt ;;
