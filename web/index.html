@@ -5224,11 +5224,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            zero. -->
       <!-- #238. Josh: "They will see a checkbox that says 'Let Kosmos know you
            created an agent' and they can uncheck it if they want."
-           ⚠️ THE LABEL IS ONE STRING IN ONE PLACE, because it is still being
-           worded: "Kosmos" is also the app on their own Mac, so "Let Kosmos know"
-           can be read as telling the local app, which it obviously already
-           knows. Mona Lisa and I raised that separately and it is Josh's to rule;
-           until he does, his exact words ship and the change is one edit. -->
+           RULED, Josh 2026-08-24 13:28 CDT, #chaoskosmos-design: "Let the
+           Kosmos team know you created an agent", his exact words, "as
+           simplified as possible". The receiver is still named (the team,
+           not the app on this Mac), which was the #331 concern; what is
+           sent stays spelled out in the Settings row's hint. One string in
+           one place, so a later ruling is still one edit. -->
       <!-- ⚠️ NOT `checked` IN THE MARKUP, WHICH IT WAS UNTIL 2026-08-22 (#258).
            Sending is TWO gates: this box for one agent, and the standing answer
            in Settings. A box hard-coded to checked showed a person consenting to
@@ -5248,7 +5249,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <div class="field" id="create-tell-wrap">
         <label class="tellrow" for="create-tell">
           <input type="checkbox" id="create-tell">
-          <span>Tell the Kosmos server you made an agent</span>
+          <span>Let the Kosmos team know you created an agent</span>
         </label>
         <div class="fhint" id="create-tell-note"></div>
       </div>
@@ -6576,9 +6577,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <!-- The standing answer for the same thing (#238). The box on the create
            page answers for one agent; this answers for good, and it wins. -->
       <div class="setrow" id="tell-row" style="margin-top:12px;">
-        <div><b>Send a note to the Kosmos server when you make an agent</b>
+        <div><b>Let the Kosmos team know when you create an agent</b>
           <p class="dhint" style="margin:2px 0 0;">One small message each time: that an agent was made, when, which Kosmos version and which macOS, and a random ID for this install, so we can count how many people use Kosmos. Nothing about the agent, and nothing it does.</p></div>
-        <button class="toggle" id="tell-toggle" role="switch" aria-label="Send a note to the Kosmos server when you make an agent" hidden><i></i></button>
+        <button class="toggle" id="tell-toggle" role="switch" aria-label="Let the Kosmos team know when you create an agent" hidden><i></i></button>
       </div>
       <p class="dhint" id="tell-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- The outbound "something happened" switch (engine/notify.js): the
@@ -6587,9 +6588,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            default, and the copy says exactly what leaves the Mac: who, what,
            when, never the words. Same row shape as the created ping above. -->
       <div class="setrow" id="notify-row" style="margin-top:12px;">
-        <div><b>Tell the Kosmos server when an agent posts or answers you</b>
+        <div><b>Let the Kosmos team know when an agent posts or answers you</b>
           <p class="dhint" style="margin:2px 0 0;">Off by default. One small message each time: which agent, whether it posted or answered, which project, when, and a random ID for this install. Never the words. This is what a phone notification will ride on once Kosmos can reach your phone.</p></div>
-        <button class="toggle" id="notify-toggle" role="switch" aria-label="Tell the Kosmos server when an agent posts or answers you" hidden><i></i></button>
+        <button class="toggle" id="notify-toggle" role="switch" aria-label="Let the Kosmos team know when an agent posts or answers you" hidden><i></i></button>
       </div>
       <p class="dhint" id="notify-msg" role="status" style="margin:8px 0 0;"></p>
 
