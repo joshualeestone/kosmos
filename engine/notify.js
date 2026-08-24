@@ -39,6 +39,15 @@ const KINDS = new Set(['posted', 'replied', 'needs_you']);
 let sender = null;
 const endpoint = () => process.env.AGENT_WORKFORCE_NOTIFY_URL || DEFAULT_ENDPOINT;
 
+/* The notify-only credential the coordinator mints per Mac (#462). Read from a
+   seam the client fills, exactly as the endpoint is (the launcher exports it,
+   wherever the client stored the minted value). Deliberately NOT the Mac's
+   identity key: one credential per power, so a leaked notify token can send
+   noisy events and never touch standing. Absent today, because the endpoint is
+   still our own /api/happened, which wants no token; present the day it points
+   at the relay's POST /v1/mac/notify, which requires x-kosmos-notify-token. */
+const notifyToken = () => process.env.AGENT_WORKFORCE_NOTIFY_TOKEN || '';
+
 /** Off until somebody turns it on: there is nothing on the other end yet. */
 function read() {
   let raw;
@@ -113,8 +122,16 @@ function happened(event) {
     const post = sender || ((url, init) => fetch(url, init));
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 3000);
+    /* #462: the notify-only token when the client has configured one, and
+       nothing extra when it has not. Today the endpoint is our own
+       /api/happened and no token is set, so this adds no header and the
+       request is byte-for-byte what it was; the header appears the day the
+       endpoint becomes the relay's POST /v1/mac/notify, which requires it. */
+    const headers = { 'content-type': 'application/json' };
+    const token = notifyToken();
+    if (token) headers['x-kosmos-notify-token'] = token;
     let p;
-    try { p = Promise.resolve(post(endpoint(), { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: ctl.signal })); }
+    try { p = Promise.resolve(post(endpoint(), { method: 'POST', headers, body, signal: ctl.signal })); }
     catch (err) { clearTimeout(timer); throw err; }
     p.catch(() => { /* fire and forget */ }).finally(() => clearTimeout(timer));
   } catch { /* nothing here may reach the caller */ }

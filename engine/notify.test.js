@@ -19,7 +19,42 @@ function capture() {
   notify.setSender(async (url, init) => { sent.push({ url, body: JSON.parse(init.body) }); return { ok: true }; });
   return sent;
 }
-test.afterEach(() => { notify.setSender(null); fs.rmSync(notify.FILE, { force: true }); });
+// Captures the whole init, headers included, for the #462 auth-header tests.
+function captureInit() {
+  const sent = [];
+  notify.setSender(async (url, init) => { sent.push({ url, init }); return { ok: true }; });
+  return sent;
+}
+test.afterEach(() => {
+  notify.setSender(null);
+  fs.rmSync(notify.FILE, { force: true });
+  delete process.env.AGENT_WORKFORCE_NOTIFY_TOKEN;
+});
+
+test('#462: the notify token rides as x-kosmos-notify-token when one is configured', async () => {
+  process.env.AGENT_WORKFORCE_NOTIFY_TOKEN = 'notif-abc123';
+  const sent = captureInit();
+  notify.setOn(true);
+  notify.happened({ kind: 'posted', agent: 'Leo', project: 'Lease' });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].init.headers['x-kosmos-notify-token'], 'notif-abc123',
+    'the notify token was not sent as its header');
+  assert.equal(sent[0].init.headers['content-type'], 'application/json',
+    'the content-type header was lost when the token was added');
+});
+
+test('#462: no token configured means no auth header, byte-for-byte as before', async () => {
+  const sent = captureInit();
+  notify.setOn(true);
+  notify.happened({ kind: 'replied', agent: 'April' });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(sent.length, 1);
+  assert.ok(!('x-kosmos-notify-token' in sent[0].init.headers),
+    'an auth header appeared with no token configured, which changes the request against our own endpoint');
+  assert.deepEqual(Object.keys(sent[0].init.headers), ['content-type'],
+    'a request with no token must carry exactly the header it carried before #462');
+});
 
 test('off by default: nothing is sent until somebody turns it on, and a bad value is refused in words', async () => {
   const sent = capture();
