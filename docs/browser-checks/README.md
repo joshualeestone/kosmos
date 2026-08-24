@@ -110,6 +110,7 @@ one invented by somebody who did not write them.
 | `render-tasks.js` | Drive-through of the tasks column: creating and viewing are both PAGES (#206, then #383) with no trap and Escape inert, the typed draft survives Back, the who chip is the status, the door reveals what the column hides. Fixture tmux only. |
 | `render-memory-controls.js` | The Memory tab's three controls (#214): Compact, Clear, Restart together, the chooser sentence, Compact's dialog and verdict. |
 | `render-model-change.js` | The Model section (#386): three chained menus, a change confirmed with its cost, the outcome reported in the dialog. |
+| `render-accounts-openai.js` | An OpenAI account added from the Accounts page with a pasted key, listed by provider and offered on the create form (#540); driven against a stand-in codex so no real key is involved. |
 | `render-org-drag.js` | The org chart's organic layer (#285): grab the hub, the rings follow, wires stay attached, a drag does not open an agent and a click does. |
 | `render-switch-states.js` | The four Settings switches come BACK once their settings read (#229) |
 | `render-theme-toggle.js` | The light and dark control: two options, gold active, same geometry as the view toggle (#284) |
