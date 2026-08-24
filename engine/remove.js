@@ -916,6 +916,38 @@ function removeInner(name, { tmuxBin } = {}) {
   }
 
   // Only now is it true that this agent is stopped and will stay stopped.
+  /* #169: take back the trust line, but ONLY the one creation recorded as
+     ours. No record means either the agent predates the record or the line
+     was the person's own answer, and both resolve the same way: leave it,
+     the inert direction. forgetFolder's own guards handle the gap since
+     creation (a value the person changed no longer says yes and is left;
+     already-gone answers ok). The step appears only when a record exists,
+     so the common no-record removal stays exactly as quiet as before. */
+  {
+    let rec = null;
+    try { rec = require('./trust').recordedWrite(clean); } catch { rec = null; }
+    if (rec) {
+      const gaveBack = step('took back the folder trust', () => {
+        /* 🛑 THE MODULE'S OWN DRY-RUN GATE, and its first draft lacked it:
+           a dry-run removal REALLY edited ~/.claude.json and REALLY burned
+           the retry record while reporting nothing was touched. Same idiom
+           as recordRemoval and restore's writer. */
+        if (DRY_RUN && !runner) return true;
+        let got = null;
+        try { got = require('./trust').forgetFolder(rec.key, 'displaced' in rec ? rec.displaced : undefined, rec.madeEntry === true); }
+        catch { return false; }
+        return Boolean(got && got.ok === true);
+      });
+      /* The record goes only when the take-back succeeded (or found nothing
+         ours left); a failed one keeps the record so the next removal or a
+         repair can retry, rather than stranding the line forever. Never in
+         a dry run, which must leave both artifacts exactly as found. */
+      if (gaveBack && !(DRY_RUN && !runner)) {
+        try { require('./trust').dropRecord(clean); } catch { /* retried next time */ }
+      }
+    }
+  }
+
   const recorded = step('took it off the board', () => recordRemoval(clean, job, true, shown));
   if (!recorded) {
     /**

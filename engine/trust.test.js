@@ -12,6 +12,11 @@ const nodePath = require('node:path');
 const SANDBOX = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'trust-test-')));
 const CONFIG = nodePath.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = CONFIG;
+// ⚠️ AND THE DATA ROOT, before any require can freeze store.ROOT: the
+// trust-writes record lives there, and without this the record tests rm,
+// write and CORRUPT the operator's live store (the exact class the
+// 93-entries comment in trust.js records for the config root).
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const { trustFolder, forgetFolder, KEY } = require('./trust');
@@ -630,4 +635,49 @@ test('two processes never choose the same temp path', () => {
   // and compared what was left, claiming that proved the start time was doing
   // work — it does not, because the pids differ too. Claiming only the
   // collision.
+});
+
+test('the trust-writes record round-trips, keeps displaced-absent distinct, and fails unreadable toward null (#169)', () => {
+  /* null is the caller's leave-the-line signal, the inert direction: a
+     record we cannot read must never authorize touching another tool's
+     config. ENOENT is the one absence that answers an empty record. */
+  const trust = require('./trust');
+  const store = require('./store');
+  fs.rmSync(nodePath.join(store.ROOT, 'trust-writes.json'), { force: true });
+
+  assert.equal(trust.recordedWrite('nobody'), null, 'an empty record invented an entry');
+  assert.equal(trust.recordWrite('ada', { key: '/w/ada', displaced: false, madeEntry: false }), true);
+  assert.equal(trust.recordWrite('bob', { key: '/w/bob', madeEntry: true }), true);
+  const ada = trust.recordedWrite('ada');
+  assert.equal(ada.key, '/w/ada');
+  assert.equal(ada.displaced, false, 'a displaced false was lost, so the restore would delete instead of putting false back');
+  const bob = trust.recordedWrite('bob');
+  assert.equal('displaced' in bob, false, 'an absent displaced grew a value, so the restore would write instead of deleting');
+  assert.equal(bob.madeEntry, true);
+
+  trust.dropRecord('ada');
+  assert.equal(trust.recordedWrite('ada'), null, 'a dropped record still answers');
+  assert.ok(trust.recordedWrite('bob'), 'dropping one name took another with it');
+
+  /* Unreadable: every reader answers the leave-the-line signal, and a
+     write refuses rather than clobbering what it could not read. */
+  fs.writeFileSync(nodePath.join(store.ROOT, 'trust-writes.json'), '{corrupt');
+  assert.equal(trust.recordedWrite('bob'), null, 'a corrupt record was read as an answer');
+  /* A WRITE heals: the corrupt bytes go aside as evidence (never merged,
+     never destroyed) and recording resumes, or every agent created after
+     one torn write would silently lose its take-back forever. */
+  assert.equal(trust.recordWrite('cid', { key: '/w/cid', madeEntry: true }), true,
+    'a corrupt record disabled recording forever, silently');
+  assert.ok(trust.recordedWrite('cid'), 'the healed record did not hold the new entry');
+  assert.equal(trust.recordedWrite('bob'), null, 'entries from the corrupt bytes were invented back');
+  const aside = fs.readdirSync(store.ROOT).filter((f) => f.startsWith('trust-writes.json.corrupt-'));
+  assert.equal(aside.length, 1, 'the corrupt bytes were destroyed instead of set aside');
+  assert.equal(fs.readFileSync(nodePath.join(store.ROOT, aside[0]), 'utf8'), '{corrupt',
+    'the aside is not the original bytes, so there is nothing to repair from');
+  /* And a malformed key answers null rather than handing forgetFolder a
+     refusal it would repeat forever. */
+  fs.writeFileSync(nodePath.join(store.ROOT, 'trust-writes.json'),
+    JSON.stringify({ eve: { key: 'relative/path', madeEntry: true } }));
+  assert.equal(trust.recordedWrite('eve'), null, 'a relative key was handed over to be refused forever');
+  fs.rmSync(nodePath.join(store.ROOT, 'trust-writes.json'), { force: true });
 });

@@ -1706,3 +1706,124 @@ test('restart refuses on a window it cannot tie to the agent, and on one that is
     status.setPaneSource(null);
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #169: removal takes back exactly the trust line creation recorded as ours
+// ─────────────────────────────────────────────────────────────────────────────
+
+const trust = require('./trust');
+const CLAUDE_CONFIG = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+/* trustFolder refuses on an absent config by design (a machine that never
+   ran Claude Code must not have one fabricated), so each fixture seeds the
+   minimal real shape first. */
+const seedClaudeConfig = () => fs.writeFileSync(CLAUDE_CONFIG, JSON.stringify({ projects: {} }));
+const readTrustValue = (name) => {
+  const data = JSON.parse(fs.readFileSync(CLAUDE_CONFIG, 'utf8'));
+  const key = Object.keys(data.projects || {}).find((k) => k.endsWith('/' + name));
+  return key === undefined ? undefined
+    : (data.projects[key] && data.projects[key][trust.KEY]);
+};
+
+test('removal restores the trust line creation wrote, and drops the record (#169)', () => {
+  seedClaudeConfig();
+  const name = madeAgent('trusted-gone');
+  assert.equal(readTrustValue(name), true, 'the fixture creation did not write the trust line at all');
+  assert.ok(trust.recordedWrite(name), 'creation did not record its write, so removal has nothing to act on');
+
+  boardShows(name, name);
+  world();
+  remove.setDryRun(false);
+  const r = remove.remove(name);
+  assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
+  assert.ok(r.steps.some((s) => s.label === 'took back the folder trust' && s.ok === true),
+    'the take-back is not in the steps, so nobody can see it happened');
+  /* The folder had no prior entry, so the restore is a delete: no key, and
+     the whole entry gone with it. */
+  assert.equal(readTrustValue(name), undefined,
+    'the line we wrote survived its own removal, the exact stale line #169 documents');
+  assert.equal(trust.recordedWrite(name), null, 'the record outlived the line it described');
+});
+
+test('no record means the line is left alone, which is the person-owned direction (#169)', () => {
+  seedClaudeConfig();
+  const name = madeAgent('trusted-stays');
+  trust.dropRecord(name);   // an agent from before the record existed
+  boardShows(name, name);
+  world();
+  remove.setDryRun(false);
+  const r = remove.remove(name);
+  assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
+  assert.ok(!r.steps.some((s) => s.label === 'took back the folder trust'),
+    'a removal with no record still touched another tool’s config');
+  assert.equal(readTrustValue(name), true,
+    'a line nothing recorded as ours was deleted; that is somebody’s answer');
+});
+
+test('a dry-run removal leaves the line AND the record exactly as found (#169)', () => {
+  /* The first draft really edited claude.json and really burned the retry
+     record during a dry run, while reporting nothing was touched. The pin
+     is the pair: both artifacts byte-identical after a dry remove. */
+  seedClaudeConfig();
+  const name = madeAgent('trusted-dry');
+  boardShows(name, name);
+  /* NO runner: dry-run is only dry when nothing injected a runner (the
+     module's own markDryRun gate), and world() installs one. */
+  remove.setRunner(null);
+  remove.setDryRun(true);
+  const before = fs.readFileSync(CLAUDE_CONFIG, 'utf8');
+  const r = remove.remove(name);
+  assert.equal(r.dryRun, true, 'the fixture did not actually dry-run');
+  assert.equal(fs.readFileSync(CLAUDE_CONFIG, 'utf8'), before,
+    'a dry-run removal edited another tool\u2019s config for real');
+  assert.ok(trust.recordedWrite(name), 'a dry-run removal burned the retry record for real');
+  /* Leaving dry-run demands a runner (the module refuses otherwise, so a
+     test cannot strand the suite pointing live); reinstall one first. */
+  world();
+  remove.setDryRun(false);
+});
+
+test('a creation that did not record drops a stale record for its name (#169)', () => {
+  /* The stale-record exposure: a record from a previous incarnation, plus
+     a fresh creation whose trust write records nothing because the person
+     already answered the prompt for that folder themselves (already=true).
+     The old record must not survive to delete THEIR answer at removal. */
+  const name = 'trusted-reborn';
+  /* The folder must NOT pre-exist (creation refuses a leftover folder),
+     so the key is predicted: the workers root's realpath plus the name is
+     exactly what trustFolder will resolve once creation makes the folder. */
+  fs.mkdirSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true });
+  const wdKey = nodePath.join(fs.realpathSync(process.env.AGENT_WORKFORCE_WORKERS), name);
+  /* The person's own answer, in place BEFORE the creation, and the ghost
+     of an earlier incarnation's record. */
+  fs.writeFileSync(CLAUDE_CONFIG, JSON.stringify({
+    projects: { [wdKey]: { [trust.KEY]: true } },
+  }));
+  trust.recordWrite(name, { key: wdKey, madeEntry: true });
+  assert.ok(trust.recordedWrite(name), 'the fixture ghost record did not take');
+
+  madeAgent(name);
+  assert.equal(trust.recordedWrite(name), null,
+    'a stale record survived a creation that did not write, and would delete the person\u2019s own answer at the next removal');
+  assert.equal(readTrustValue(name), true, 'the person\u2019s own answer did not survive the creation');
+});
+
+test('a value the person changed in the gap is left, and the record retires (#169)', () => {
+  seedClaudeConfig();
+  const name = madeAgent('trusted-changed');
+  /* The person answered the prompt themselves after us: the line is no
+     longer purely ours, and forgetFolder’s only-if-it-still-says-yes
+     guard is what this pins at the removal distance. */
+  const data = JSON.parse(fs.readFileSync(CLAUDE_CONFIG, 'utf8'));
+  const key = Object.keys(data.projects).find((k) => k.endsWith('/' + name));
+  data.projects[key][trust.KEY] = false;
+  fs.writeFileSync(CLAUDE_CONFIG, JSON.stringify(data));
+
+  boardShows(name, name);
+  world();
+  remove.setDryRun(false);
+  const r = remove.remove(name);
+  assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
+  assert.equal(readTrustValue(name), false, 'the person’s own later answer was overwritten');
+  assert.equal(trust.recordedWrite(name), null,
+    'the record survived although nothing ours remains, so a future removal would act again');
+});
