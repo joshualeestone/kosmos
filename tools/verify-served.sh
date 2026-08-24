@@ -121,7 +121,12 @@ pside=$(curl -fsS -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos.pkg.inputs" 2>
 if [ -z "$pside" ]; then say "/dist/Kosmos.pkg.inputs" "MISSING -- the served pkg predates the guard, its inputs are unknown"; fail=1
 elif [ -n "$pwant" ] && [ "$pside" = "$pwant" ]; then say "/dist/Kosmos.pkg.inputs" "matches source (${pwant:0:12})"
 else say "/dist/Kosmos.pkg.inputs" "STALE -- served ${pside:0:12}, source ${pwant:0:12}"; fail=1; fi
-ptmp=$(mktemp)
+# ⚠️ NAMED Kosmos.pkg ON DISK, not a bare mktemp: `stapler validate` decides
+# the file type from the extension and reports "no valid staple" on a stapled
+# pkg with none. Measured on the served pkg itself: rc 1 as `mktemp` output,
+# rc 0 as served.pkg, same bytes. A check that cannot reach the state it
+# tests reads as the defect it was built to catch.
+pdir=$(mktemp -d); ptmp="$pdir/Kosmos.pkg"
 if curl -fsS "$HOST/dist/Kosmos.pkg" -o "$ptmp"; then
   preal=$(shasum -a 256 "$ptmp" | awk '{print $1}')
   ppub=$(curl -fsS "$HOST/dist/Kosmos.pkg.sha256" | awk '{print $1}')
@@ -138,7 +143,7 @@ if curl -fsS "$HOST/dist/Kosmos.pkg" -o "$ptmp"; then
     else say "/dist/Kosmos.pkg staple" "NO valid staple -- a fresh Mac shows the warning"; fail=1; fi
   else say "/dist/Kosmos.pkg staple" "not checked here (no stapler on this machine)"; fi
 else say "/dist/Kosmos.pkg" "could not be fetched"; fail=1; fi
-rm -f "$ptmp"
+rm -rf "$pdir"
 
 echo
 [ "$fail" = "0" ] && echo "every artifact a user can receive matches the repo" || { echo "SOMETHING A USER RECEIVES IS WRONG"; exit 1; }
