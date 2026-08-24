@@ -11995,6 +11995,7 @@ async function sendTalk(text, chose, attachment) {
 function openDetail(sessionName, section) {
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
+  const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
   URL_TAB = 'detail';
   syncUrl();
@@ -12016,7 +12017,10 @@ function openDetail(sessionName, section) {
      disabled controls, so a lingering wrong-agent sentence would
      both misattribute and suppress. Cleared together. */
   { const mm = document.getElementById('d-model-msg'); if (mm) mm.textContent = ''; }
-  { const am = document.getElementById('d-account-msg'); if (am) am.textContent = ''; }
+  /* On a SWITCH only: a same-agent reopen keeps the Move verdict,
+     which is the one sentence naming the saved-but-not-restarted
+     window until the restart happens. */
+  if (cameFrom !== a.sessionName) { const am = document.getElementById('d-account-msg'); if (am) am.textContent = ''; }
   TALK_SCROLL = null;
   /* The name for the Reports-to menu's first option. Fire and forget: the poll
      repaints this panel every five seconds, and until it lands the menu says
@@ -15212,13 +15216,13 @@ async function paintAccountPicker(a) {
       const res = await fetch('/api/accounts', { cache: 'no-store' });
       if (res.ok) ACCOUNTS = ((await res.json()) || {}).accounts || [];
     } catch { /* the control stays empty and disabled, which is honest */ }
-    if (CURRENT && CURRENT.sessionName !== forAgent) return;
+    if (!CURRENT || CURRENT.sessionName !== forAgent) return;
   }
   const acct = a && a.account;
-  /* The comments below predate the Signed-in-as line's removal. What
-     survives them is the refusal to guess: acct null means we could
-     not read the launch file, and nothing here may answer for it. The
-     msg sentence below says the not-ours case in its own words. */
+  /* The comments below predate the Signed-in-as line's removal. The
+     msg sentence below now carries their hedge itself: acct null means
+     we could not read the launch file, whoever started the agent, and
+     the sentence claims no more than that. */
   /* ⚠️ "We cannot tell" is a THIRD state and gets its own sentence. An agent
      Kosmos did not start has no startup file of ours to read, and saying "the
      default account" about it would be answering for a stranger's session. */
@@ -15264,7 +15268,7 @@ async function paintAccountPicker(a) {
   sel.disabled = !ours;
   go.disabled = !ours || !sel.value;
   if (msg && !msg.textContent && !ours) {
-    msg.textContent = 'Kosmos did not start this one, so it cannot move it.';
+    msg.textContent = 'We cannot tell which account this one uses, so it cannot be moved from here.';
   }
 }
 

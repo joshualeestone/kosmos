@@ -3086,6 +3086,15 @@ test('the runs-on box says model and account in one line, and the Signed-in-as s
   /* The email is escaped on its way into innerHTML. */
   assert.equal(drive({ account: { email: '<img>' } }, runs),
     'Runs on <b>Claude Opus 5</b> (&lt;img&gt;)');
+
+  /* The branch's two safety additions, pinned the way the sibling
+     d-model-msg clear is pinned, so neither can quietly revert. */
+  const od = script.slice(script.indexOf('function openDetail('), script.indexOf('function openDetail(') + 4200);
+  assert.ok(/getElementById\('d-account-msg'\)[\s\S]{0,60}?\.textContent = ''/.test(od),
+    'openDetail no longer clears the account message on a switch');
+  const pap = script.slice(script.indexOf('async function paintAccountPicker('), script.indexOf('async function paintAccountPicker(') + 2400);
+  assert.ok(/!CURRENT \|\| CURRENT\.sessionName !== forAgent/.test(pap),
+    'the accounts-fetch continuation lost its capture-and-recheck');
 });
 
 test('the detail meta line keeps the machine-name disclosure the card gave up', () => {
