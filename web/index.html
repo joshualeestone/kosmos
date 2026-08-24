@@ -15010,7 +15010,7 @@ function paintYou() {
 async function refreshYou() {
   try {
     const r = await fetch('/api/you/avatar', { method: 'HEAD', cache: 'no-store' });
-    YOU_PIC = r.ok;
+    YOU_PIC = r.status === 200;   // 204 means no picture yet (#617); ok would be true for both
   } catch { /* keep the last honest answer */ }
   paintYou();
 }

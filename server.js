@@ -1239,12 +1239,16 @@ const server = http.createServer((req, res) => {
    */
   if (pathname === '/api/you/avatar' && (req.method === 'GET' || req.method === 'HEAD')) {
     const file = you.picturePath();
-    if (!file) { sendJson(res, 404, { error: 'no picture yet' }); return; }
+    /* #617: "no picture yet" is not an error, and a 404 here logged a console
+       failure on EVERY first-run screen (the page probes this with HEAD on
+       each paint). 204, no body: the page keys on status 200 for "there is
+       a picture", so nothing draws an image that is not there. */
+    if (!file) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
     fs.readFile(file, (err, buf) => {
       /* Size as well as existence: the write is not atomic, so an interrupted
          save leaves a zero-byte file that is a perfectly good file and a
          perfectly useless picture. Same reasoning as the agent branch. */
-      if (err || !buf || !buf.length) { sendJson(res, 404, { error: 'no picture yet' }); return; }
+      if (err || !buf || !buf.length) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
       const ext = path.extname(file);
       const type = Object.keys(you.PIC_TYPES).find((k) => you.PIC_TYPES[k] === ext) || 'application/octet-stream';
       if (res.destroyed || res.writableEnded) return;
