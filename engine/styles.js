@@ -156,10 +156,13 @@ function read() {
       .map((t) => ({ name: t.name.toLowerCase(), value: t.value }))
       /* last wins, as in the paste path, so customCount is what is in force */
       .reduce((m, t) => m.set(t.name, t), new Map());
-    return { ok: true, theme, custom: [...custom.values()] };
+    /* #520: how the app is laid out. Anything but the consolidated view is
+       the tabs, so a missing or odd value is the default, never a refusal. */
+    const layout = data.layout === 'consolidated' ? 'consolidated' : 'tabs';
+    return { ok: true, theme, custom: [...custom.values()], layout };
   } catch (err) {
-    if (err && err.code === 'ENOENT') return { ok: true, theme: 'kosmos', custom: [] };
-    return { ok: false, theme: 'kosmos', custom: [], because: 'we could not read the saved style' };
+    if (err && err.code === 'ENOENT') return { ok: true, theme: 'kosmos', custom: [], layout: 'tabs' };
+    return { ok: false, theme: 'kosmos', custom: [], layout: 'tabs', because: 'we could not read the saved style' };
   }
 }
 
@@ -174,7 +177,7 @@ function write(next) {
 
 /* One request, one write: both halves validated BEFORE anything lands,
    so a refused paste can never leave a half-applied theme behind it. */
-function set({ theme, customText }) {
+function set({ theme, customText, layout }) {
   const now = read();
   let nextTheme = now.theme;
   if (theme !== undefined) {
@@ -189,7 +192,12 @@ function set({ theme, customText }) {
     if (!parsed.ok) return parsed;
     nextCustom = parsed.tokens;
   }
-  try { write({ theme: nextTheme, custom: nextCustom }); return { ok: true }; }
+  let nextLayout = now.layout;
+  if (layout !== undefined) {
+    if (layout !== 'tabs' && layout !== 'consolidated') return { ok: false, because: 'the layout is tabs or consolidated' };
+    nextLayout = layout;
+  }
+  try { write({ theme: nextTheme, custom: nextCustom, layout: nextLayout }); return { ok: true }; }
   catch { return { ok: false, because: 'we could not save the style' }; }
 }
 
@@ -200,7 +208,7 @@ function effective() {
   const now = read();
   const out = { ...THEMES[now.theme].tokens };
   for (const t of now.custom) out[t.name] = t.value;
-  return { theme: now.theme, tokens: out, customCount: now.custom.length, ok: now.ok, because: now.because || null };
+  return { theme: now.theme, tokens: out, customCount: now.custom.length, layout: now.layout || 'tabs', ok: now.ok, because: now.because || null };
 }
 
 function themeList() {

@@ -1737,6 +1737,66 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pjtitle h2 { font-size: 1.375rem; margin: 0; }
 .pj3 { display: grid; grid-template-columns: minmax(0, 20%) minmax(0, 1fr) minmax(0, 20%); gap: 16px; align-items: start; }
 @media (max-width: 68rem) { .pj3 { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---- #520: the consolidated view -----------------------------------------
+   One option in Settings > Styles, tabs by default. Nothing is re-rendered
+   for it: the agents LIST (the board's own list layout) becomes the left
+   rail, the projects panel shows its list as the second rail and the open
+   project as the centre and right, and the rest of the page is untouched.
+   It is a body-level grid that exists only while the root carries
+   data-layout="consolidated" AND the window is at least 1280px wide; under
+   that the tabs come back on their own (the picker says so). The mock this
+   was drawn from is installkosmos.com/consolidated-mock. */
+.laytiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: var(--space-4); }
+.laytile { text-align: left; border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface);
+  padding: 12px; cursor: pointer; font: inherit; color: var(--k-ink); }
+.laytile:hover { border-color: var(--label-3); }
+.laytile[aria-checked="true"] { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold-bright); }
+.laytile svg { width: 100%; height: auto; display: block; border-radius: 8px; margin-bottom: 8px; }
+.laytile b { display: block; font-size: .9375rem; }
+.laytile small { display: block; font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: 2px; }
+@media (min-width: 1280px) {
+  html[data-layout="consolidated"] body.consolidated { display: grid; grid-template-columns: minmax(200px, 15%) minmax(0, 1fr);
+    column-gap: 18px; align-content: start; }
+  html[data-layout="consolidated"] body.consolidated > * { grid-column: 1 / -1; }
+  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 40; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 40; max-width: none; margin: 0; }
+  /* The rail row: the face, then the name over the title over the state. */
+  html[data-layout="consolidated"] body.consolidated .lrow { grid-template-columns: 34px minmax(0, 1fr); gap: 2px 10px; padding: 8px 10px; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lav { grid-row: 1 / span 2; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lname { grid-column: 2; grid-row: 1; min-width: 0; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lname b, html[data-layout="consolidated"] body.consolidated .lrow > .lname small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lname small { font-size: .625rem; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate { grid-column: 2; grid-row: 2; font-size: .625rem; }
+  html[data-layout="consolidated"] body.consolidated .lrow > :not(.lav):not(.lname):not(.lstate) { display: none; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lname > small:not(:first-of-type) { display: none; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate .lsaid { display: none; }
+  /* The board's stats row and summary belong to the tab, not the rail; the
+     list rows say each agent's state, and the + at the rail's top (a later
+     piece) is where New agent moves. */
+  html[data-layout="consolidated"] body.consolidated > #boardbar, html[data-layout="consolidated"] body.consolidated > #summary { display: none; }
+  /* The projects list head: only New project survives in the rail; the
+     count, the sort and the view toggle are for the full-width tab. */
+  html[data-layout="consolidated"] body.consolidated #pj-list-view .statsrow > .stats, html[data-layout="consolidated"] body.consolidated #pj-list-view .statsrow > .viewctl { display: none; }
+  html[data-layout="consolidated"] body.consolidated #pj-list-view .statsrow { margin: 0 0 8px; }
+  html[data-layout="consolidated"] body.consolidated #pj-list.asgrid { display: flex; flex-direction: column; }
+  html[data-layout="consolidated"] body.consolidated .pj-row { padding: 8px 10px; box-shadow: none; }
+  html[data-layout="consolidated"] body.consolidated .pjcard-h b { font-size: .875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  html[data-layout="consolidated"] body.consolidated .pj-row .pc-t, html[data-layout="consolidated"] body.consolidated .pj-row .pj-who, html[data-layout="consolidated"] body.consolidated .pj-row .pjcount { display: none; }
+  /* The projects panel: its list is the second rail, everything else the rest. */
+  html[data-layout="consolidated"] body.consolidated #panel-projects { display: grid; grid-template-columns: minmax(180px, 17%) minmax(0, 1fr); column-gap: 18px; align-items: start; }
+  html[data-layout="consolidated"] body.consolidated #pj-list-view { grid-column: 1; }
+  html[data-layout="consolidated"] body.consolidated #panel-projects > :not(#pj-list-view) { grid-column: 2; }
+  html[data-layout="consolidated"] body.consolidated #pj-list { gap: 8px; }
+  html[data-layout="consolidated"] body.consolidated .pj-row { padding: 8px 10px; }
+  html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces, html[data-layout="consolidated"] body.consolidated .pj-row .pjslug { display: none; }
+  html[data-layout="consolidated"] body.consolidated #pj-back { display: none; }
+  /* The open project: the conversation in the centre, its cards down the right. */
+  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 2; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit { grid-column: 2; grid-row: 1; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { grid-column: 2; grid-row: 2; }
+}
 .pjcol { border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface); padding: 14px 16px 16px; }
 /* #534: the split left column is chrome-free; its two cards wear the look. */
 .pjcol.pjsplit { border: 0; background: none; padding: 0; display: grid; gap: 14px; align-content: start; }
@@ -6713,6 +6773,29 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <h2>Styles</h2>
     <p class="fhint">How your Kosmos looks.</p>
 
+    <!-- #520: how Kosmos is laid out. Two tiles, tabs by default (Josh,
+         2026-08-24 13:39: easier and less overwhelming; the consolidated
+         view is for people who want the whole thing on one screen). The
+         choice is saved with the style (/api/style `layout`) and painted
+         from what the engine says, never from a click alone. -->
+    <div class="field" id="layout-field">
+      <span class="flabel">How Kosmos is laid out</span>
+      <p class="fhint">Two ways to see the same agents and projects. You can switch back any time.</p>
+      <div class="laytiles" role="radiogroup" aria-label="How Kosmos is laid out">
+        <button class="laytile" type="button" role="radio" aria-checked="true" data-layout-pick="tabs">
+          <svg viewBox="0 0 220 132" aria-hidden="true"><rect x="0" y="0" width="220" height="132" rx="6" fill="var(--k-bg)" stroke="var(--k-rule)"/><rect x="70" y="10" width="26" height="10" rx="2" fill="var(--gold)"/><rect x="102" y="10" width="26" height="10" rx="2" fill="var(--k-rule)"/><rect x="134" y="10" width="26" height="10" rx="2" fill="var(--k-rule)"/><g fill="var(--k-surface)" stroke="var(--k-rule)"><rect x="12" y="32" width="60" height="42" rx="5"/><rect x="80" y="32" width="60" height="42" rx="5"/><rect x="148" y="32" width="60" height="42" rx="5"/><rect x="12" y="80" width="60" height="42" rx="5"/><rect x="80" y="80" width="60" height="42" rx="5"/><rect x="148" y="80" width="60" height="42" rx="5"/></g><g fill="var(--k-rule)"><circle cx="42" cy="46" r="7"/><circle cx="110" cy="46" r="7"/><circle cx="178" cy="46" r="7"/><circle cx="42" cy="94" r="7"/><circle cx="110" cy="94" r="7"/><circle cx="178" cy="94" r="7"/></g></svg>
+          <b>Tab view</b>
+          <small>Agents, Projects and Settings, one at a time. Easier to start with.</small>
+        </button>
+        <button class="laytile" type="button" role="radio" aria-checked="false" data-layout-pick="consolidated">
+          <svg viewBox="0 0 220 132" aria-hidden="true"><rect x="0" y="0" width="220" height="132" rx="6" fill="var(--k-bg)" stroke="var(--k-rule)"/><rect x="8" y="8" width="28" height="116" rx="4" fill="var(--k-surface)" stroke="var(--k-rule)"/><g fill="var(--k-rule)"><circle cx="22" cy="22" r="6"/><circle cx="22" cy="40" r="6"/><circle cx="22" cy="58" r="6"/><circle cx="22" cy="76" r="6"/><circle cx="22" cy="94" r="6"/></g><rect x="42" y="8" width="34" height="116" rx="4" fill="var(--k-surface)" stroke="var(--k-rule)"/><g fill="var(--k-rule)"><rect x="48" y="16" width="22" height="6" rx="2"/><rect x="48" y="30" width="22" height="6" rx="2"/><rect x="48" y="44" width="22" height="6" rx="2"/></g><rect x="82" y="8" width="84" height="116" rx="4" fill="var(--k-surface)" stroke="var(--k-rule)"/><g fill="var(--k-rule)"><rect x="90" y="18" width="60" height="5" rx="2"/><rect x="90" y="30" width="48" height="5" rx="2"/><rect x="90" y="42" width="56" height="5" rx="2"/></g><rect x="90" y="106" width="68" height="10" rx="3" fill="var(--k-bg)" stroke="var(--k-rule)"/><rect x="140" y="108" width="16" height="6" rx="2" fill="var(--gold)"/><rect x="172" y="8" width="40" height="116" rx="4" fill="var(--k-surface)" stroke="var(--k-rule)"/><g fill="var(--k-rule)"><rect x="178" y="16" width="28" height="26" rx="3"/><rect x="178" y="48" width="28" height="26" rx="3"/><rect x="178" y="80" width="28" height="26" rx="3"/></g></svg>
+          <b>Consolidated view</b>
+          <small>Everything on one screen: agents, projects, the conversation and its tasks. Needs a window at least 1280 pixels wide; narrower than that, the tabs come back.</small>
+        </button>
+      </div>
+      <p class="fmsg" id="layout-msg" role="status" aria-live="polite"></p>
+    </div>
+
     <div class="field">
       <label class="flabel" for="style-theme">Theme</label>
       <select class="tk-inp" id="style-theme"></select>
@@ -9487,6 +9570,18 @@ function showTab(tab) {
     SURVIVAL_HELD = false;
   } else { paintRemoved(); paintSurvival(); paintFoundBoard(); }
   PANELS.forEach((p) => { document.getElementById('panel-' + p).hidden = (p !== tab); });
+  /* #520: in the consolidated view the Agents and Projects tabs are one
+     screen: the board's list is the left rail and the projects panel is
+     the rest. Settings and the others stay whole pages. */
+  const cons = layoutConsolidated() && (tab === 'agents' || tab === 'projects');
+  document.body.classList.toggle('consolidated', cons);
+  if (cons) {
+    document.getElementById('panel-projects').hidden = false;
+    document.getElementById('boardbar').hidden = false;
+    boardApplyVisibility(true);
+    pjView(PJ_CURRENT ? 'one' : 'list');
+    loadProjects();
+  }
   // ⚠️ Re-read on every arrival rather than once at boot. A project's folder can
   // be moved or deleted while this page sits open, and its members' states
   // change constantly — a list painted once would go on asserting a world that
@@ -11026,8 +11121,11 @@ function boardApplyVisibility(onAgents) {
      while there are exactly two layouts: adding a third made "not list" true
      for the org layout and the grid stayed on underneath it. Naming the layout
      each container belongs to cannot break when a fourth arrives. */
-  document.getElementById('grid').hidden = !onAgents || BOARD_LAYOUT !== 'grid';
-  document.getElementById('alist').hidden = !onAgents || BOARD_LAYOUT !== 'list';
+  /* #520: the consolidated view always shows the list; the saved board
+     layout is left alone for when the tabs come back. */
+  const lay = document.body.classList.contains('consolidated') ? 'list' : BOARD_LAYOUT;
+  document.getElementById('grid').hidden = !onAgents || lay !== 'grid';
+  document.getElementById('alist').hidden = !onAgents || lay !== 'list';
   const org = document.getElementById('orgview');
   const show = onAgents && BOARD_LAYOUT === 'org';
   org.hidden = !show;
@@ -16081,6 +16179,39 @@ let STYLE_STORE_MSG = false;
    Every painter takes a ticket; a response older than the newest
    ticket is dropped whole. */
 let STYLE_REQ = 0;
+/* #520: the layout, from the engine. The root attribute is the only thing
+   the CSS reads; the tiles say which is chosen; showTab re-lays the page. */
+function layoutConsolidated() {
+  return document.documentElement.getAttribute('data-layout') === 'consolidated' && window.innerWidth >= 1280;
+}
+function applyLayout(layout, apply) {
+  const want = layout === 'consolidated' ? 'consolidated' : 'tabs';
+  document.querySelectorAll('[data-layout-pick]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.layoutPick === want)));
+  if (!apply) return;
+  const was = document.documentElement.getAttribute('data-layout') || 'tabs';
+  document.documentElement.setAttribute('data-layout', want);
+  if (was !== want && typeof URL_TAB === 'string') showTab(URL_TAB);
+}
+document.querySelectorAll('[data-layout-pick]').forEach((b) => {
+  b.addEventListener('click', async () => {
+    const msg = document.getElementById('layout-msg');
+    msg.textContent = '';
+    try {
+      const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: b.dataset.layoutPick }) });
+      if (!res.ok) { msg.textContent = ((await res.json().catch(() => null)) || {}).error || 'we could not save that'; return; }
+      const r = await res.json();
+      applyLayout(r.layout, true);
+      msg.textContent = r.layout === 'consolidated'
+        ? (window.innerWidth >= 1280 ? 'Saved. Agents and Projects now share one screen.' : 'Saved. This window is narrower than 1280 pixels, so the tabs stay until it is wider.')
+        : 'Saved. Kosmos opens in the tab view.';
+    } catch { msg.textContent = 'we could not save that'; }
+  });
+});
+/* Crossing 1280 either way re-lays the page; the setting itself is untouched. */
+window.addEventListener('resize', () => {
+  const want = layoutConsolidated() && (URL_TAB === 'agents' || URL_TAB === 'projects');
+  if (document.body.classList.contains('consolidated') !== want && typeof URL_TAB === 'string') showTab(URL_TAB);
+});
 function applyStyle(tokens) {
   const root = document.documentElement;
   for (const name of STYLE_APPLIED) root.style.removeProperty(name);
@@ -16096,6 +16227,7 @@ async function paintStyles(apply) {
   try { r = await (await fetch('/api/style', { cache: 'no-store' })).json(); } catch { r = null; }
   if (!r || ticket !== STYLE_REQ) return;
   if (apply) applyStyle(r.tokens);
+  applyLayout(r.layout, apply);
   const sel = document.getElementById('style-theme');
   if (sel) {
     const html = (r.themes || []).map((t) => '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>').join('');
@@ -18295,6 +18427,9 @@ function pjView(which) {
   for (const v of ['list', 'one', 'add', 'settings', 'task', 'newtask', 'docs']) {
     document.getElementById('pj-' + v + '-view').hidden = (v !== which);
   }
+  /* #520: the list is the projects rail in the consolidated view, so it
+     stays beside whichever project view is open. */
+  if (document.body.classList.contains('consolidated') && which !== 'list') document.getElementById('pj-list-view').hidden = false;
   PJ_VIEW = which;
   syncUrl();
   // Arriving at a project resets the member picker to its resting state (the
