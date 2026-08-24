@@ -2,7 +2,10 @@
 # The pkg-input freshness guard, with its control: prove the input sha CHANGES
 # when the postinstall changes, so a stale served pkg would be caught (#638).
 # A guard shipped without a control is the defect this whole day was about.
-set -u
+# pipefail, so a pipe into a filter inside a helper reports the helper's own
+# failure (and so the pre-commit hook's $?-after-a-pipe check, which exempts
+# pipefail files, does not misread the rc captures below as pipe statuses).
+set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . tools/lib/pkg-inputs.sh
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
