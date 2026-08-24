@@ -1443,7 +1443,14 @@ test('#185: a thin roster (the paneRoster shape) never burns a pair\'s one nudge
       /* The thin shape the status poller hands out: sessionName only, no
          target. The first shipped call site passed exactly this, and
          every nudge burned as could_not with zero keystrokes, forever. */
-      const thin = board.agents.map((a) => ({ sessionName: a.sessionName, session: a.session, isNamedOurs: a.isNamedOurs }));
+      /* Projected from REAL cards, never hand-built (the fixture rule):
+         the thin shape is exactly paneRoster's three fields and nothing
+         invented. */
+      const thin = board.agents.map((a) => {
+        const row = {};
+        for (const k of ['sessionName', 'session', 'isNamedOurs']) row[k] = a[k];
+        return row;
+      });
       const first = messages.sweepUnanswered(thin);
       assert.deepEqual(first.nudged, [], 'a thin roster produced a nudge attempt');
       assert.equal(messages.record().rows.filter((m) => m.kind === 'nudge').length, 0,
