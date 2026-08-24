@@ -10039,6 +10039,13 @@ test('the sign-up succeeds end to end through the routes, with the fake binary (
     }
     const remoteEngine = require('./engine/remote');
     try { remoteEngine.setOn(false); } catch { /* leave the sandbox off */ }
+    /* And the email the start step wrote: residue in the shared fixture
+       would leak into any later status sentence. */
+    try {
+      const rj = JSON.parse(fs.readFileSync(remoteEngine.FILE, 'utf8'));
+      rj.email = '';
+      fs.writeFileSync(remoteEngine.FILE, JSON.stringify(rj));
+    } catch { /* nothing written means nothing to clear */ }
   }
 });
 
@@ -10048,7 +10055,10 @@ test('the server tells the engine its port at boot, or the tunnel can never star
      BOUND port. Without it, a configured, enrolled, switched-on machine
      rests forever at "the board has not started the tunnel". */
   const src = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
-  const listening = src.slice(src.indexOf('const onListening'), src.indexOf('resolve(server);'));
+  const bStart = src.indexOf('const onListening');
+  const bEnd = src.indexOf('resolve(server);', bStart);
+  assert.ok(bStart > -1 && bEnd > bStart, 'the listening block moved; re-anchor this pin');
+  const listening = src.slice(bStart, bEnd);
   assert.match(listening, /remote\.ensure\(server\.address\(\)\.port\)/,
     'nothing tells the engine the board\u2019s port at boot, so the switch is a dead control');
 });

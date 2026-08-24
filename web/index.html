@@ -6274,7 +6274,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <div id="plus-code-row" hidden>
           <div class="field">
             <label class="flabel" for="plus-code">The code from the email</label>
-            <input class="tk-inp" id="plus-code" type="text" inputmode="numeric" maxlength="6">
+            <input class="tk-inp" id="plus-code" type="text" inputmode="numeric" maxlength="12">
           </div>
           <div class="field">
             <label class="flabel" for="plus-name">A name for your address</label>
@@ -14805,10 +14805,19 @@ async function paintPlus() {
 /* The engine's honest-but-technical sentence for a missing binary, said
    the way this page speaks. Everything else relays verbatim. */
 function plusWords(text) {
-  return /ENOENT/.test(String(text || ''))
+  /* Only the engine's own spawn-failure shape means the binary is
+     missing; a bare ENOENT about some other file must relay as itself. */
+  return /could not be started:.*ENOENT/.test(String(text || ''))
     ? 'the Plus connector is not installed on this Mac yet'
     : String(text || '');
 }
+/* Codes arrive by paste, with the email's whitespace riding along; a
+   maxlength alone truncates BEFORE any trim can run, so the field
+   normalizes itself: digits only, six at most. */
+document.getElementById('plus-code').addEventListener('input', (e) => {
+  const clean = e.target.value.replace(/\D/g, '').slice(0, 6);
+  if (e.target.value !== clean) e.target.value = clean;
+});
 document.getElementById('plus-switch').addEventListener('click', async () => {
   const msg = document.getElementById('plus-msg');
   msg.textContent = '';
@@ -14836,8 +14845,14 @@ document.getElementById('plus-send-code').addEventListener('click', async () => 
 document.getElementById('plus-confirm').addEventListener('click', async () => {
   const msg = document.getElementById('plus-msg');
   msg.textContent = '';
-  const code = document.getElementById('plus-code').value.trim();
+  const code = document.getElementById('plus-code').value.replace(/\D/g, '');
   const name = document.getElementById('plus-name').value.trim();
+  /* The engine validates before spawning too; saying it here saves the
+     round trip, in the engine's own sentence so the two cannot drift. */
+  if (name && !/^[a-z0-9-]{3,32}$/.test(name)) {
+    msg.textContent = 'the name is 3 to 32 lowercase letters, digits or hyphens';
+    return;
+  }
   try {
     const res = await fetch('/api/remote/setup-complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, name }) });
     if (!res.ok) { msg.textContent = plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not finish the sign-up'); return; }
