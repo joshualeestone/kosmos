@@ -6198,7 +6198,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            card's rule 2: no user-facing string names an environment
            variable or a shell command. -->
       <div class="frow" style="margin:12px 0 0;">
-        <button class="btn" id="acct-add" type="button">Add another account&hellip;</button>
+        <!-- "Claude" named (Angel, #540): beside "Add an OpenAI account…" the unnamed
+             button read as the same act twice. -->
+        <button class="btn" id="acct-add" type="button">Add another Claude account&hellip;</button>
         <button class="btn" id="acct-add-openai" type="button">Add an OpenAI account&hellip;</button>
       </div>
       <!-- #540: an OpenAI account is a directory and one pasted key. No
