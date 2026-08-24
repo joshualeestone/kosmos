@@ -1,0 +1,32 @@
+'use strict';
+
+/**
+ * The connect tab's summary line is computed, never asserted (the
+ * connections taxonomy doc, 2026-08-24): the static page said "Nothing is
+ * connected yet" while the account thinking for every agent was live one
+ * tab away.
+ *
+ *   node --test web.conn-live.test.js
+ */
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+
+const PAGE = fs.readFileSync('web/index.html', 'utf8');
+
+test('the static markup makes no connected-or-not claim; the painter owns all three arms', () => {
+  const at = PAGE.indexOf('id="s-sec-connect"');
+  const end = PAGE.indexOf('id="s-sec-gskills"') > at ? PAGE.length : PAGE.indexOf('</section>', at);
+  const sec = PAGE.slice(at, PAGE.indexOf('id="conn-live"') + 4000).replace(/<!--[\s\S]*?-->/g, '');
+  assert.ok(!/Nothing is connected yet/.test(sec.slice(0, 3000)),
+    'the static copy asserts nothing-connected; that sentence is the painter’s none-arm only');
+  assert.match(PAGE, /id="conn-live"/, 'the computed line’s element is gone');
+
+  const fn = PAGE.slice(PAGE.indexOf('async function paintConnLive'), PAGE.indexOf('async function paintPolicy'));
+  assert.ok(fn.length > 0, 'the painter moved; restate this pin');
+  assert.match(fn, /Nothing is connected yet\./, 'the none-arm lost its sentence');
+  assert.match(fn, /could not check your accounts/, 'could-not-check collapsed into nothing-connected');
+  assert.match(fn, /connected and thinking for your agents/, 'the connected arm lost its sentence');
+  assert.match(fn, /settingsGo\('accounts'\)/, 'the connected arm does not link to the Accounts tab');
+});

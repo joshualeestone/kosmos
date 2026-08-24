@@ -6030,10 +6030,20 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          names are passive pills until each connection is really built. Task
          boards go first. <details>, not a hand-rolled toggle: the keyboard
          and screen-reader behaviour come with the element. -->
+    <!-- 🛑 THE SUMMARY LINE IS COMPUTED, NOT ASSERTED (the connections
+         taxonomy doc, 2026-08-24): this page opened with "Nothing is
+         connected yet" while the most important connection in the product,
+         the account that thinks for every agent, was live one tab away.
+         A page whose summary line is wrong is worse than a page with fewer
+         features, because the summary is the only part most people read.
+         Three arms, painted from /api/accounts on section open: connected
+         (n named), none (the old sentence, now only when true), and
+         could-not-check, which is not the same claim as none. -->
+    <p class="dhint" id="conn-live" style="margin:0 0 6px;">Checking what is connected&hellip;</p>
     <p class="dhint" style="margin:0 0 6px;">
-      The services your agents reach: where your code lives, where your team
-      talks, where your tasks are. Nothing is connected yet; connections open
-      up here one at a time, starting with task boards.
+      Below are the other services your agents will reach: where your code
+      lives, where your team talks, where your tasks are. They open up here
+      one at a time, starting with task boards.
     </p>
     <p class="dhint" style="margin:0 0 14px;">
       When one opens up, you sign in on the service&rsquo;s own page and this Mac
@@ -12609,6 +12619,7 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
   settingsGo(b.dataset.go);
   if (b.dataset.go === 'gskills') loadSkills('/api/skills', 'g-skills-list', 'g-skills-msg');
   if (b.dataset.go === 'policy') paintPolicy();
+  if (b.dataset.go === 'connect') paintConnLive();
 });
 
 /* ── skills, both surfaces, one painter (#477, #478) ─────────────────────
@@ -12680,6 +12691,34 @@ wireSkillAdd('d-skill-add', 'd-skill-name', 'd-skill-body', 'd-skill-add-msg',
   () => 'Added. ' + ((CURRENT && CURRENT.name) || 'This agent') + ' picks it up at its next restart.');
 
 /* --- the company AI policy (#479): one record, every agent told -------- */
+/* The connect tab's one computed sentence (the taxonomy doc's defect half). */
+async function paintConnLive() {
+  const el = document.getElementById('conn-live');
+  if (!el) return;
+  try {
+    const res = await fetch('/api/accounts', { cache: 'no-store' });
+    if (!res.ok) throw new Error('no');
+    const list = ((await res.json()) || {}).accounts || [];
+    el.textContent = '';
+    if (!list.length) {
+      el.textContent = 'Nothing is connected yet.';
+      return;
+    }
+    const what = list.length === 1
+      ? 'One account is connected and thinking for your agents'
+      : list.length + ' accounts are connected and thinking for your agents';
+    el.append(what + ': ');
+    const go = document.createElement('button');
+    go.type = 'button'; go.className = 'linkish';
+    go.textContent = 'see them on the Accounts tab';
+    go.addEventListener('click', () => settingsGo('accounts'));
+    el.append(go, document.createTextNode('.'));
+  } catch {
+    // Could-not-check is not the same claim as nothing-connected.
+    el.textContent = 'We could not check your accounts just now.';
+  }
+}
+
 async function paintPolicy() {
   const box = document.getElementById('pol-state');
   box.textContent = '';
