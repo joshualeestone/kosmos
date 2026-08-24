@@ -43,7 +43,9 @@ version the run set out to install.
 
 - Publishes the versioned artifact names beside the unversioned ones
   (both tarballs and both .sha256), so old installers keep working and
-  new installers can pin. verify-served checks the versioned pair too.
+  new installers can pin; republishing the same version with different
+  bytes refuses (a versioned name is a promise of immutability).
+  verify-served checks the versioned pair too.
 
 ## Review bound (stated before the loop)
 
