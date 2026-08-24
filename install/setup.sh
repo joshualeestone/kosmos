@@ -2261,6 +2261,14 @@ _board_plist="$_launch_dir/$_board_label.plist"
 # order that keeps `&` from eating the escapes it introduces.
 _xmlq() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'; }
 _board_ok=no
+# 🛑 THIS HEREDOC IS UNQUOTED, so every $(...) and every backtick in its body
+# RUNS while the plist is written. That is REQUIRED for the $(_xmlq ...) escaping
+# below, but it means a backtick or a $ in a COMMENT here executes too: a comment
+# containing `kosmos start` literally RAN kosmos start on every update (mid-swap,
+# with kosmos on PATH) and "kosmos: command not found" on a fresh Mac (#666/#667).
+# RULE: nothing in this heredoc body may use a backtick or a bare $word; the only
+# expansions allowed are the intended $(_xmlq ...) and $_board_label. Guarded by
+# tools/test-plist-heredoc-clean.sh.
 if mkdir -p "$_launch_dir" 2>/dev/null && cat > "$_board_plist.new" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -2287,7 +2295,8 @@ if mkdir -p "$_launch_dir" 2>/dev/null && cat > "$_board_plist.new" <<PLIST
   <array><string>com.chaoskosmos.kosmos</string></array>
   <key>RunAtLoad</key><true/>
   <!-- 🔑 THE SAME FILE THE BOARD ITSELF WRITES TO, and it was a second one.
-       `kosmos start` sends the server's own output to logs/board.log; this job
+       "kosmos start" (de-backticked on purpose, see the heredoc warning above)
+       sends the server's own output to logs/board.log; this job
        captures the narration of the SCRIPT that starts it. Two destinations,
        nothing on the machine saying which, and the person debugging is the
        least likely to know: Josh tailed board.log on 2026-08-22 looking for the
