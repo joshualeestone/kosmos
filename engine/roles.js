@@ -1043,6 +1043,39 @@ const ROLES = [
   },
 ];
 
+/* ⚠️ TWO RHYTHMS, APPENDED TO EVERY ROLE AT CONSTRUCTION (#518, #519; Josh,
+   2026-08-24 10:03), HERE and not inside fourteen literals: one clause
+   hand-copied per role is the drift this file's marker-registry sibling
+   exists to kill. And at construction rather than in instructionsFor,
+   because the routes serve `role.instructions` raw for the create-form
+   preview -- composed any later, the text a person READS and the text the
+   agent BOOTS FROM would be two different files. */
+const SUMMARY_RHYTHM = [
+  '',
+  '## Your running record',
+  '',
+  '- Every four hours while you are working, write a short summary file:',
+  '  summaries/YYYY-MM-DD-HH.md inside your own folder. A few lines: what',
+  '  moved, what is blocked, what you decided. Small is right; if it takes',
+  '  more than a minute to write, it is too long.',
+].join('\n');
+const OVERSIGHT_RHYTHM = [
+  '',
+  '- About every fifteen minutes while you are working, read the open tasks',
+  '  on every project you are part of. A task with nobody on it gets an',
+  '  owner or a reason; an assigned task that is not moving gets a nudge to',
+  '  its owner; and you tell the person when a queue is empty or stuck.',
+  '  Use the task list itself, never a tracker of your own.',
+  '- Check that the agents on your projects are keeping their summary',
+  '  files current. A missing or stale one is a finding to raise, never',
+  '  silence.',
+].join('\n');
+/* pm and director, exactly (#519): the two roles Josh named. */
+const OVERSEERS = new Set(['pm', 'director']);
+for (const r of ROLES) {
+  r.instructions += SUMMARY_RHYTHM + (OVERSEERS.has(r.key) ? OVERSIGHT_RHYTHM : '') + '\n';
+}
+
 function byKey(key) {
   return ROLES.find((r) => r.key === String(key || '')) || null;
 }
