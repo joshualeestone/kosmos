@@ -1070,7 +1070,8 @@ test('the startup script, actually run, hands the pane its account and its board
   // (KOSMOS_PORT) reach the pane only as new-session -e arguments. The first
   // guard for this was a match against the script's own source, green on any
   // build containing the loop line whatever the loop did. This runs the script
-  // under a launchd-shaped environment and reads the argv the fake tmux got.
+  // with the three variables the plist would carry set, unset or empty on top of
+  // this process's environment, and reads the argv the fake tmux got.
   // What the fake cannot see, that real tmux drops the client's environment,
   // is tools/witness-pane-env.sh's job.
   //
@@ -1094,6 +1095,14 @@ test('the startup script, actually run, hands the pane its account and its board
     const passed = set.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e').sort();
     assert.deepEqual(passed, [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245'],
       `${label}: the pane was not handed exactly the account and the board: ` + JSON.stringify(set.newSession));
+    // And they sit BEFORE the runner binary. After it they are the runner's
+    // own arguments, tmux never sees them, and the same three pairs are still
+    // in the argv, so the assertion above alone would stay green.
+    const runnerAt = set.newSession.indexOf('/bin/echo');
+    assert.ok(runnerAt > 0, `${label}: the runner binary is not in the launch: ` + JSON.stringify(set.newSession));
+    set.newSession.forEach((a, i) => {
+      if (a === '-e') assert.ok(i < runnerAt, `${label}: a -e sits after the runner, where tmux cannot see it: ` + JSON.stringify(set.newSession));
+    });
     // Each branch's identity, both ways: a default that started writing a
     // model or a runner would fold four lines into two while staying green.
     const hasModel = set.newSession.includes('--model') || set.newSession.includes('-m');

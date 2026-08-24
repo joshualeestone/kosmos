@@ -68,9 +68,14 @@ sleep 1
 env CLAUDE_CONFIG_DIR=/acct/B "$TMUX_PATH" -L "$SOCK" -f /dev/null new-session -d -s control \
   "printenv CLAUDE_CONFIG_DIR > '$D/control-saw'; echo done >> '$D/control-saw'" || exit 2
 for _ in 1 2 3 4 5; do grep -q '^done' "$D/control-saw" 2>/dev/null && break; sleep 1; done
-CONTROL="$(head -1 "$D/control-saw" 2>/dev/null)"
+if ! grep -q '^done' "$D/control-saw" 2>/dev/null; then
+  echo "the control pane never ran, so nothing about this tmux was measured; supervisor untouched"
+  exit 2
+fi
+CONTROL="$(head -1 "$D/control-saw")"
+case "$CONTROL" in done) CONTROL="<unset>" ;; esac
 if [ "$CONTROL" != /acct/A ]; then
-  echo "control: a plain session under /acct/B saw '${CONTROL:-<unset>}', not /acct/A."
+  echo "control: a plain session under /acct/B saw '$CONTROL', not /acct/A."
   echo "this tmux hands the client environment to a session on its own; the witness cannot see the bug here"
   exit 2
 fi
