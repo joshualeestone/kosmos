@@ -3704,7 +3704,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   <nav class="snav" id="d-nav" aria-label="Sections of this page">
     <button type="button" data-go="talk" aria-controls="d-sec-talk" class="on" aria-current="true"><span id="d-nav-talk">Talk to this agent</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
     <button type="button" data-go="model" aria-controls="d-sec-model">Model</button>
-    <button type="button" data-go="memory" aria-controls="d-sec-memory">Room</button>
+    <button type="button" data-go="memory" aria-controls="d-sec-memory">Memory</button>
     <button type="button" data-go="instr" aria-controls="d-sec-instr"><span>Instructions</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
     <button type="button" data-go="profile" aria-controls="d-sec-profile">Profile</button>
     <button type="button" data-go="term" aria-controls="d-sec-term">Terminal</button>
@@ -3903,16 +3903,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <p class="dhint" style="margin:8px 0 0;">Moving it to another account takes everything it has done with it. Moving is how you take an agent off an account that is running out.</p>
   </section>
   </section>
-  <section class="dsec" id="d-sec-memory" data-sec="memory" tabindex="-1" aria-label="Room" hidden>
+  <section class="dsec" id="d-sec-memory" data-sec="memory" tabindex="-1" aria-label="Memory" hidden>
   <section class="dbox">
-    <!-- 🔑 ROOM, NOT MEMORY (#223, the word ruled by Josh 2026-08-23 19:26).
-         Two things wore one word: this ring, which is how much SPACE the
-         session has left and does NOT survive a restart, and what the agent
-         KNOWS. The box already said "Room to spare" in its healthy state,
-         one line under a heading that said Memory; the heading now agrees
-         with the sentence and names the resource. "Memory" is kept for what
-         the agent knows. -->
-    <h3 class="dlab">Room</h3>
+    <h3 class="dlab">Memory</h3>
     <div id="d-memory"><p class="dhint" style="margin:0;">Opening&hellip;</p></div>
   </section>
   <!-- 🔑 "FRESH START" IS THE MOCK'S BLOCK UNDER MEMORY, and Restart is the
@@ -6922,8 +6915,8 @@ function memUnknown(ctx) {
   if (ctx && ctx.neverRecorded === true) {
     return { notYet: false,
       word: 'Unknown',
-      aria: ('The session was never recorded. ' + memWhy(ctx)).trim(),
-      lead: 'session was never recorded.',
+      aria: ('Memory was never recorded. ' + memWhy(ctx)).trim(),
+      lead: 'memory was never recorded.',
       note: (memWhy(ctx) || '') + 'Nothing here can tell you how much room is left.' };
   }
   /* 🛑 A THIRD CASE, AND IT WAS SHIPPING A FALSE SENTENCE ON THE SURFACE THIS
@@ -6956,8 +6949,8 @@ function memUnknown(ctx) {
        about a reading we took — and the sentence is what this branch changes. */
     return { notYet: false,
              word: 'Unknown',
-             aria: 'The session was read; this model’s size is not known here.',
-             lead: 'session was read, but we do not know what this model can hold.',
+             aria: 'Memory was read; this model’s size is not known here.',
+             lead: 'memory was read, but we do not know what this model can hold.',
              note: 'The reading is real. Turning it into a percentage needs the model’s size, which we do not have.' };
   }
   const notYet = !!(ctx && ctx.notYet);
@@ -6986,7 +6979,7 @@ function memUnknown(ctx) {
     ? { notYet: true,
         word: 'Not yet read',
         aria: 'Nothing has been recorded for it so far. It fills once the agent has done something.',
-        lead: 'session has nothing recorded yet.',
+        lead: 'memory has nothing recorded yet.',
         /**
          * 🔑 IT SAYS WHAT FILLS IT. Josh, 2026-08-22, having just watched a
          * correct sentence leave him nowhere: *"she came up after i had to
@@ -7028,8 +7021,8 @@ function memUnknown(ctx) {
          * disclaimer; the `notYet` branch above already ships exactly this
          * shorter shape for the same reason.
          */
-        aria: ('The session could not be read. ' + memWhy(ctx)).trim(),
-        lead: 'session could not be read.',
+        aria: ('Memory could not be read. ' + memWhy(ctx)).trim(),
+        lead: 'memory could not be read.',
         /* ⚠️ THE OLD HEDGE IS THE FALLBACK, NOT DELETED, and a test caught why:
            with no `because` at all, dropping it made this note IDENTICAL to the
            `notYet` note above — two different states saying the same sentence,
@@ -7257,7 +7250,7 @@ function ring(a) {
   const band = memBand(pct);
   const near = band === 'high';
   return `<svg viewBox="0 0 72 72" role="img"
-       aria-label="${esc(a.name)}. Room: ${pct} percent used${near ? ', nearly full' : ''}.">
+       aria-label="${esc(a.name)}. Memory: ${pct} percent used${near ? ', nearly full' : ''}.">
     <circle class="gt" cx="36" cy="36" r="${R}" fill="none" stroke-width="4"/>
     <circle class="gf ${band}" cx="36" cy="36" r="${R}" fill="none" stroke-width="4"
             stroke-dasharray="${dash} ${C - dash}" transform="rotate(-90 36 36)"/>
@@ -10506,7 +10499,7 @@ function memoryBox(a) {
   return '<div class="memrow"><span class="bar"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
     + '<span class="pct">' + memPrint(a.context, pct) + '</span></div>'
     + (pct >= NEARLY_FULL
-      ? '<p class="dhint" style="margin:12px 0 0;"><b>Nearly full.</b> ' + esc(a.name)
+      ? '<p class="dhint" style="margin:12px 0 0;"><b>Memory nearly full.</b> ' + esc(a.name)
         + ' will soon summarise its older context to keep working, and fine detail from earlier in the session may be compressed.'
         + assumedCeilingNote(a.context) + '</p>'
       : '<p class="dhint" style="margin:12px 0 0;">Room to spare. ' + esc(a.name)
