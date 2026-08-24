@@ -657,9 +657,14 @@ async function start(opts) {
      * established no live flow owns it.
      */
     await killSession();
-    /* Re-asserted after the await: a concurrent start may have re-aimed
-       flowDir while the kill ran, and this verdict is about THIS call's
-       account. */
+    /* ⚠️ BOTH HALVES OF THE RACE, mirroring finishConnected: a concurrent
+       start may have CLAIMED THE DRIVER during the kill (writeState would
+       then stamp this verdict with that flow's dir and clobber its live
+       record), or may merely have re-aimed flowDir pre-claim. A claimed
+       driver wins outright: this call reports the live flow instead of
+       writing anything. The driverless half is answered by re-asserting
+       flowDir, because this verdict is about THIS call's account. */
+    if (driver) return state();
     flowDir = configDir;
     return publicView(writeState({ phase: PHASE.CONNECTED, plan: sub.plan, startedOnce: true }));
   }
@@ -1418,7 +1423,11 @@ async function cancel() {
   const d = driver;
   driver = null;
   /* The idle record cancel writes below is nobody's flow; a lingering
-     account name on it would be a label with no referent. */
+     account name on it would be a label with no referent. (A successor
+     start parked pre-claim during the kill below can re-aim flowDir
+     before that write lands; the stamp is then transient and the
+     successor's own first write corrects it, while a successor that has
+     CLAIMED the driver stops the write entirely via the guard below.) */
   flowDir = null;
   if (d && d.timer) clearInterval(d.timer);
   if (activeRequest) { try { activeRequest.destroy(); } catch { /* already ended */ } activeRequest = null; }

@@ -108,17 +108,26 @@ function readConfig(file) {
 function check(opts) {
   const file = opts && typeof opts.configDir === 'string' && opts.configDir
     ? path.join(opts.configDir, '.claude.json') : null;
+  const scoped = Boolean(file);
   const got = readConfig(file);
 
   if (got.kind === 'absent') {
     return {
       state: STATE.NONE,
       plan: null,
-      because: 'Claude has not been set up on this computer yet.',
+      /* A scoped check reads ONE embryonic account on a machine whose
+         main account may be fine; its sentences must not claim facts
+         about the whole computer. */
+      because: scoped ? 'nobody has signed in to this account yet.'
+        : 'Claude has not been set up on this computer yet.',
     };
   }
   if (got.kind === 'unreadable') {
-    return { state: STATE.UNKNOWN, plan: null, because: got.because };
+    return {
+      state: STATE.UNKNOWN,
+      plan: null,
+      because: scoped ? 'we could not read this account\'s settings' : got.because,
+    };
   }
 
   const acct = got.data && got.data.oauthAccount;
@@ -135,7 +144,8 @@ function check(opts) {
     return {
       state: STATE.UNKNOWN,
       plan: null,
-      because: 'we could not find a Claude account in the settings on this computer',
+      because: scoped ? 'nobody has finished signing in to this account yet'
+        : 'we could not find a Claude account in the settings on this computer',
     };
   }
 

@@ -2393,6 +2393,7 @@ const server = http.createServer((req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return null; }
         if (typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return null; }
+        if ('another' in body && typeof body.another !== 'boolean') { sendJson(res, 400, { error: 'another must be true or false' }); return null; }
         /* { another: true } asks for a SECOND account (#248/#324): pick the
            first free work spot, prepare it (idempotent; the shared-memory
            symlink is wired before the sign-in so the account is right from

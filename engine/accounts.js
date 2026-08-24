@@ -248,29 +248,48 @@ function prepare(label) {
  * to it. The reuse arm is deliberate: a cancelled add-another-account
  * attempt leaves a prepared, unclaimed directory behind, and without reuse
  * every retry would litter work2, work3, ... while work1 sat empty. A dir
- * whose config file exists AT ALL (readable or not) may be somebody's
- * account and is skipped, and a dir carrying a real projects tree is
- * somebody's history and is skipped too; only a spot with neither is free.
+ * with an account block in its config, or whose config cannot be read,
+ * may be somebody's account and is skipped; a config with no account
+ * block is the shape a cancelled launch leaves and is reused; and the
+ * projects entry must be absent or already the shared-tree link, the
+ * same thing prepare demands, so a spot is never offered that prepare
+ * would then refuse forever.
  */
 function nextWorkDir() {
   for (let n = 1; n <= 500; n += 1) {
     const label = `work${n}`;
     const dir = path.join(HOME, `.claude-${label}`);
     if (!fs.existsSync(dir)) return { label, dir };
-    /* ⚠️ PRESENT-BUT-UNREADABLE IS NOT ABSENT. identityOf answers null for
-       a damaged or unreadable .claude.json too, and offering that dir
-       would hand the next sign-in an account somebody may be signed in
-       to. Free demands the config FILE be genuinely missing. And a dir
-       carrying a real (non-symlink) projects tree is somebody's history,
-       not a spot: prepare would rightly refuse to wire it, so it is not
-       offered either. */
-    let cfgAbsent = false;
-    try { fs.statSync(path.join(dir, '.claude.json')); }
-    catch (err) { cfgAbsent = Boolean(err && err.code === 'ENOENT'); }
-    if (!cfgAbsent) continue;
-    let projectsOk = true;
-    try { projectsOk = fs.lstatSync(path.join(dir, 'projects')).isSymbolicLink(); }
-    catch (err) { projectsOk = Boolean(err && err.code === 'ENOENT'); }
+    /* ⚠️ THREE GRADES OF CONFIG, three answers. Missing: free. Present
+       and readable with NO account block: free, and this is the arm the
+       contract's anti-litter promise lives in, because the CLI writes a
+       theme-and-onboarding .claude.json the moment it launches, so the
+       COMMON cancel leaves exactly this shape behind. Present with an
+       account block, or unreadable, or unparseable: NOT free, because it
+       may be somebody's signed-in account and a wrong guess overwrites
+       their credentials. */
+    let cfgFree = false;
+    try {
+      const raw = fs.readFileSync(path.join(dir, '.claude.json'), 'utf8');
+      try {
+        const parsed = JSON.parse(raw);
+        const acct = parsed && parsed.oauthAccount;
+        cfgFree = !acct || typeof acct !== 'object';
+      } catch { cfgFree = false; }
+    } catch (err) { cfgFree = Boolean(err && err.code === 'ENOENT'); }
+    if (!cfgFree) continue;
+    /* And freeness demands exactly what preparability demands, or a
+       half-formed spot is offered forever while prepare refuses it
+       forever: the projects entry must be absent, or a symlink that
+       RESOLVES to the shared tree. A symlink pointing elsewhere, a
+       broken one, and a real directory are all somebody's state. */
+    let projectsOk = false;
+    const projects = path.join(dir, 'projects');
+    try {
+      const st = fs.lstatSync(projects);
+      projectsOk = st.isSymbolicLink()
+        && fs.realpathSync(projects) === fs.realpathSync(path.join(HOME, '.claude', 'projects'));
+    } catch (err) { projectsOk = Boolean(err && err.code === 'ENOENT'); }
     if (projectsOk) return { label, dir };
   }
   /* 500 signed-in work accounts is not a real machine; say so rather than
