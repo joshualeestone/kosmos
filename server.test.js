@@ -7257,7 +7257,7 @@ test('the check route is POST-only, and Check now clears the Later note before a
   };
   // eslint-disable-next-line no-new-func
   const run = new Function('localStorage', 'fetch', 'document', 'renderUpdateToast', 'LAST_VERSION',
-    'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null;\n'
+    'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null; let UPD_ASKED = false;\n'
     + updateCardDeps() + pageFnSource('paintUpdateCard') + '\n' + src + '\nreturn updCheckNowClick();');
   await run(sandbox.localStorage, sandbox.fetch, sandbox.document, sandbox.renderUpdateToast, '0.1.9');
   assert.ok(calls.indexOf('clear:kosmos-update-later') > -1, 'Check now never cleared the Later note');
@@ -7278,7 +7278,7 @@ test('the check route is POST-only, and Check now clears the Later note before a
     'upd-btn': { textContent: '', hidden: false, disabled: false, dataset: { act: 'check' }, focus: () => { calls2.push('focus'); } },
   };
   const run2 = new Function('localStorage', 'fetch', 'document', 'renderUpdateToast', 'LAST_VERSION',
-    'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null;\n'
+    'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null; let UPD_ASKED = false;\n'
     + updateCardDeps() + pageFnSource('paintUpdateCard') + '\n' + pageFnSource('updCheckNowClick') + '\nreturn updCheckNowClick();');
   await run2(
     { removeItem: () => { calls2.push('clear'); } },
@@ -7353,7 +7353,7 @@ test("the card's Update arm opens the one shared confirm and records itself as o
   const doc = { getElementById: (id) => els[id] };
   // eslint-disable-next-line no-new-func
   const opener = await new Function('document', 'localStorage', 'fetch', 'renderUpdateToast', 'LAST_VERSION',
-    'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null;\n'
+    'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null; let UPD_ASKED = false;\n'
     + updateCardDeps() + pageFnSource('paintUpdateCard') + '\n' + pageFnSource('updCheckNowClick')
     + '\nreturn updCheckNowClick().then(() => UPD_CONFIRM_OPENER);')(
     doc,
@@ -10738,7 +10738,7 @@ test('with a newer version installed than the open page, Check for Update says r
     // The screenshot: page baked 0.5.22, server running 0.5.23, button pressed.
     let els = mk('0.5.22');
     asked('0.5.23', null, { reached: true, readable: true, looked: true });
-    assert.equal(els['upd-line'].textContent, 'This page is the older one. Reload from the top left to get the newer one.',
+    assert.equal(els['upd-line'].textContent, 'This page is the older one. Reload it to get the newer one.',
       'a stale page was told it is up to date');
     assert.equal(els['upd-btn'].textContent, 'Check for Update', 'the control changed with the sentence');
     // CONTROL: the same press on a current page still gets the verdict. Without
@@ -10777,7 +10777,7 @@ test('with a newer version installed than the open page, Check for Update says r
         global.document, () => {}, running);
       return pressed['upd-line'].textContent;
     };
-    assert.equal(await press('0.5.22', '0.5.23'), 'This page is the older one. Reload from the top left to get the newer one.',
+    assert.equal(await press('0.5.22', '0.5.23'), 'This page is the older one. Reload it to get the newer one.',
       'the real press on a stale page did not say reload');
     assert.equal(await press('0.5.23', '0.5.23'), 'Up to date.', 'CONTROL: the real press on a current page lost its verdict');
   } finally {

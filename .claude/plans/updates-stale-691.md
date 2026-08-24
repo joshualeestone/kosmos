@@ -3,9 +3,10 @@
 ## Finished looks like
 With a newer version installed than the page that is open (server on 0.5.23, page
 baked 0.5.22), pressing Check for Update writes "This page is the older one. Reload
-from the top left to get the newer one." on the card line, never "Up to date." (No
-version in the sentence: the row above it already says "reload for 0.5.23"; it names
-where the Reload control is because the live region is what a screen reader hears.)
+it to get the newer one." on the card line, never "Up to date." (No version in the
+sentence: the row above it already says "reload for 0.5.23". No pointer to the toast's
+Reload button: when the engine is also stale that slot shows the restart notice
+instead, and the browser's own reload is always there.)
 With the page current, the same press still writes "Up to date." Nothing else on the
 card changes.
 

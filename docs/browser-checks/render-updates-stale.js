@@ -92,7 +92,7 @@ function chk(ok, label, extra) {
     await pg.waitForFunction(([s, v]) => {
       const t = (document.getElementById('build') || {}).textContent || '';
       return s === 'stale' ? /reload for/.test(t) : (t.indexOf(v) > -1 && !/reload for/.test(t));
-    }, [state, served], { timeout: 12000 }).catch(() => {});
+    }, [state, served], { timeout: 12000 }).catch((e) => { console.log('note  ' + state + ': the poll did not repaint the build line in time (' + e.message.split('\n')[0] + ')'); });
     const build = await pg.$eval('#build', (el) => el.textContent);
     chk(state === 'stale' ? /reload for/.test(build) : !/reload for/.test(build),
       state + ': the build line says ' + (state === 'stale' ? '"reload for"' : 'no reload'), build);
@@ -112,7 +112,7 @@ function chk(ok, label, extra) {
     await pg.waitForFunction(() => !/Checking\.$/.test(document.getElementById('upd-line').textContent), null, { timeout: 12000 });
     const line = await pg.$eval('#upd-line', (el) => el.textContent);
     if (state === 'stale') {
-      chk(line === 'This page is the older one. Reload from the top left to get the newer one.',
+      chk(line === 'This page is the older one. Reload it to get the newer one.',
         'stale: the press says reload, not "Up to date"', JSON.stringify(line));
       chk(!/Up to date/.test(line), 'stale: "Up to date" is not on the card', JSON.stringify(line));
     } else {

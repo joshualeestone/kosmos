@@ -8715,11 +8715,14 @@ function paintUpdateCard(running, offer, look) {
        ⚠️ NO VERSION IN THIS SENTENCE, same rule as the prefix above: the row
        immediately over it already says "reload for 0.5.23", and a verdict that
        repeated the number and the word would say it twice in adjacent rows.
-       The sentence names WHERE the control is, because this live region is
-       what a screen reader hears and the Reload button is in the toast, not
-       beside the sentence. */
+       ⚠️ AND NO POINTER TO A CONTROL. An earlier draft said "from the top
+       left", where the toast's Reload lives; but that slot belongs to the
+       engine-stale notice when the code on disk is newer than the process
+       (no Reload there), so the sentence would send a person to a button
+       that is not on screen. The browser's own reload is the remedy and is
+       always there; the toast offers the same when it is drawn. */
     if (UPD_ASKED && pageIsStale(running)) {
-      put('This page is the older one. Reload from the top left to get the newer one.');
+      put('This page is the older one. Reload it to get the newer one.');
     } else {
       put(UPD_ASKED ? 'Up to date.' : '');
     }
