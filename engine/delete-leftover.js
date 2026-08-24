@@ -155,7 +155,7 @@ function plan(name, opts) {
     if (lst.isSymbolicLink()) {
       return { ok: false, because: `${shown}'s folder is a link to somewhere else, so Kosmos will not delete it. Remove the link yourself if you are sure.` };
     }
-    if (!lst.isDirectory() || !insideDir(fs.realpathSync(folderPath), fs.realpathSync(create.WORKERS))) {
+    if (!lst.isDirectory() || !insideDir(fs.realpathSync(folderPath), fs.realpathSync(create.WORKERS_DIR))) {
       return { ok: false, because: `${shown}'s folder is not where Kosmos keeps agents, so Kosmos will not delete it.` };
     }
     const m = measure(folderPath);
