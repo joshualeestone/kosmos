@@ -36,6 +36,9 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+/* Safe to require from here: reporthook has zero engine dependencies, on
+   purpose, because THIS module is one of its two callers (#561). */
+const reporthook = require('./reporthook');
 
 const HOME = process.env.AGENT_WORKFORCE_HOME || os.homedir();
 
@@ -251,7 +254,18 @@ function prepare(label) {
       memoryShared = true;
     } catch { memoryShared = false; }
   }
-  return { ok: true, dir, label: clean, memoryShared };
+  /* Born with its reporting hooks (#561), the same born-correct-or-not-born
+     rule as the memory symlink above: an account dir Kosmos makes carries
+     the Layer 1 wiring from its first moment, so an agent moved onto it
+     reports itself the way every default-account agent does. Merge-only
+     (reporthook keeps this function's own never-clobber posture), and fail
+     SOFT: an account that could not get its hooks is still an account --
+     the board falls back to scraping it, which is honest and visible,
+     while a refused prepare would be a worse failure for a smaller cause.
+     The field in the return is what lets a screen say which happened.
+     Reused spots get this free: the connect route re-runs prepare. */
+  const hooks = reporthook.ensureWired(path.join(dir, 'settings.json'), reporthook.hookScriptPath());
+  return { ok: true, dir, label: clean, memoryShared, hooksWired: hooks.wired === true };
 }
 
 /**
