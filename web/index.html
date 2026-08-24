@@ -3905,6 +3905,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            state is this codebase's named worst habit, and it would be free to
            disagree with the badge the day the wording moves. -->
       <div id="d-instr-stale" class="stale-note" role="status" aria-live="polite" hidden></div>
+      <!-- #539: made before the working rules. A sibling of the update note,
+           QUIET on purpose (Mona Lisa's ruling: never the warning tint; the
+           agent is not behind, it is missing a block). Painted by
+           loadDoctrine on panel open; "Not now" is remembered server-side
+           per agent until the rules themselves change. -->
+      <div class="fhint" id="d-doctrine-note" hidden>
+        <span id="d-doctrine-text"></span>
+        <button class="btn" id="d-doctrine-add" type="button" style="margin-left:8px;">Add them&hellip;</button>
+        <button class="linkish" id="d-doctrine-later" type="button" style="margin-left:6px;">Not now</button>
+      </div>
       <div class="detail-meta" id="d-meta"></div>
       <div class="detail-why" id="d-why" hidden></div>
       <!-- 🔑 WHAT THE SCREEN SAID, not what we concluded from it (Josh,
@@ -4644,6 +4654,47 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <button class="btn" id="pol-m-keep" type="button">Not yet</button>
       <button class="btn" id="pol-m-go" type="button">Hand it out</button>
     </div>
+  </div>
+</div>
+
+<!-- #539: the consent dialog. It SHOWS the change before the click (the
+     headings, and the full text behind the create form's own fold), because
+     showing the change is what makes the click authorship. "Keep as it is"
+     is first and focused; this is not destructive, so no modal-sized red.
+     The hash rides the Add click so the write is provably the composition
+     this dialog showed, and a file that moved refuses with look-again. -->
+<div class="rm-back" id="doc-modal" hidden>
+  <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="doc-title" aria-describedby="doc-body">
+    <h2 class="rm-title" id="doc-title"></h2>
+    <p class="rm-small" id="doc-body">Your words stay exactly as they are. These go underneath, under their own heading, so you can see where yours end and ours begin.</p>
+    <ul class="rst-list" id="doc-list"></ul>
+    <details class="instr-defaults-fold">
+      <summary class="linkish">Show them</summary>
+      <pre class="instr-defaults-text" id="doc-fold-text"></pre>
+    </details>
+    <div class="rm-acts">
+      <button class="btn" id="doc-keep" type="button">Keep as it is</button>
+      <button class="btn" id="doc-go" type="button">Add them</button>
+    </div>
+    <div class="fmsg" id="doc-msg" role="alert" aria-live="assertive"></div>
+  </div>
+</div>
+
+<!-- #539: the fleet consent dialog. It LISTS, before the click, exactly
+     which agents will change by name and which will not and why; the click
+     is consent for the listed names only, and a fleet click never
+     overrides a per-agent Not now (those names show here so the person can
+     change their mind on the agent's own page). -->
+<div class="rm-back" id="docf-modal" hidden>
+  <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="docf-title" aria-describedby="docf-changing">
+    <h2 class="rm-title" id="docf-title">Add the working rules to every agent that is missing them?</h2>
+    <ul class="rst-list" id="docf-changing"></ul>
+    <ul class="rst-list" id="docf-staying"></ul>
+    <div class="rm-acts">
+      <button class="btn" id="docf-keep" type="button">Keep as it is</button>
+      <button class="btn" id="docf-go" type="button">Add them</button>
+    </div>
+    <div class="fmsg" id="docf-msg" role="status" aria-live="polite"></div>
   </div>
 </div>
 
@@ -6920,6 +6971,22 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <p class="dhint" id="hist-count" style="margin:6px 0 0;"></p>
     </div>
     <button class="btn-quiet" type="button" id="hist-go">Delete history&hellip;</button>
+  </div>
+  <!-- #539: the fleet-wide consented refresh, in Advanced (Mona Lisa's
+       your-call-where, Splinter's front-load case: get the current working
+       rules into every agent that predates them, one consent, per-agent
+       verdicts, and never past a per-agent Not now. -->
+  <div class="boardrow">
+    <div>
+      <b>The working rules</b>
+      <p class="dhint" style="margin:4px 0 0;max-width:60ch;">
+        Agents made before the current working rules can have them added,
+        with your OK, under their own heading. Your own words in each
+        agent&rsquo;s instructions are never touched.
+      </p>
+      <p class="dhint" id="docf-verdicts" style="margin:6px 0 0;"></p>
+    </div>
+    <button class="btn-quiet" type="button" id="set-doctrine-go">Add the working rules to every agent that is missing them&hellip;</button>
   </div>
   </section>
   </div>
@@ -14079,6 +14146,7 @@ async function loadInstructions(sessionName) {
       }
     }
     renderStale(data.staleness);
+    loadDoctrine(sessionName); // #539: fire-and-forget beside the staleness read; its own guard inside
   } catch (err) {
     if (mine !== INSTR_LOAD) return;
     // The load is finished and broken, which is a different state from "still
@@ -14135,6 +14203,139 @@ function setLive(el, html) {
   el.__lastLive = html;
   el.innerHTML = html;
 }
+
+/* ── #539: the consented working-rules refresh, this page's half ──────────
+   The GET is pure planning; only "Add them" writes, carrying the hash the
+   plan returned so the write is provably the composition this dialog
+   showed. Every sentence here is Mona Lisa's ruling verbatim. */
+let DOCTRINE_PLAN = null;
+async function loadDoctrine(sessionName) {
+  const note = document.getElementById('d-doctrine-note');
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/doctrine', { cache: 'no-store' });
+    if (!res.ok) { note.hidden = true; return; }
+    const got = await res.json();
+    if (!CURRENT || CURRENT.sessionName !== sessionName) return; // a newer agent is open
+    DOCTRINE_PLAN = { sessionName, ...got };
+    const show = got.state === 'refresh' && got.declined !== true;
+    if (show) {
+      const who = (CURRENT && CURRENT.name) || sessionName;
+      document.getElementById('d-doctrine-text').textContent = who + ' was made before Kosmos’s working rules.';
+    }
+    note.hidden = !show;
+  } catch { note.hidden = true; /* news can wait; the banner never guesses */ }
+}
+document.getElementById('d-doctrine-later').addEventListener('click', async () => {
+  const plan = DOCTRINE_PLAN;
+  document.getElementById('d-doctrine-note').hidden = true;
+  if (!plan) return;
+  try { await fetch('/api/agent/' + encodeURIComponent(plan.sessionName) + '/doctrine/not-now', { method: 'POST' }).then((r) => r.text()); }
+  catch { /* remembered next time it is answered; the banner is already quiet */ }
+});
+document.getElementById('d-doctrine-add').addEventListener('click', () => {
+  const plan = DOCTRINE_PLAN;
+  if (!plan) return;
+  const who = (CURRENT && CURRENT.name) || plan.sessionName;
+  document.getElementById('doc-title').textContent = 'Add the working rules to ' + who + '’s instructions?';
+  const list = document.getElementById('doc-list');
+  list.textContent = '';
+  for (const h of plan.sections || []) {
+    const li = document.createElement('li');
+    li.textContent = h.replace(/^#+\s*/, '');
+    list.appendChild(li);
+  }
+  document.getElementById('doc-fold-text').textContent = plan.span || '';
+  document.getElementById('doc-msg').textContent = '';
+  document.getElementById('doc-modal').hidden = false;
+  document.getElementById('doc-keep').focus(); // the harmless answer opens focused
+});
+document.getElementById('doc-keep').addEventListener('click', () => {
+  document.getElementById('doc-modal').hidden = true;
+});
+document.getElementById('doc-go').addEventListener('click', async () => {
+  const plan = DOCTRINE_PLAN;
+  const msg = document.getElementById('doc-msg');
+  if (!plan) return;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(plan.sessionName) + '/doctrine/refresh', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ hash: plan.hash }),
+    });
+    const got = await res.json();
+    if (got.state === 'added') {
+      msg.textContent = 'Added.';
+      document.getElementById('d-doctrine-note').hidden = true;
+      loadInstructions(plan.sessionName); // the box below shows the file that now exists
+    } else if (got.state === 'current') {
+      msg.textContent = 'Already has them.';
+      document.getElementById('d-doctrine-note').hidden = true;
+    } else {
+      msg.textContent = 'Left alone: ' + (got.because || 'we could not change them') + '.';
+    }
+  } catch {
+    msg.textContent = 'We could not reach Kosmos to do that.';
+  }
+});
+
+/* The fleet half: list before the click, consent for the listed names only,
+   verdict sentences after, one per agent, never silence. */
+let DOCF_NAMES = [];
+document.getElementById('set-doctrine-go').addEventListener('click', async () => {
+  const changing = document.getElementById('docf-changing');
+  const staying = document.getElementById('docf-staying');
+  const msg = document.getElementById('docf-msg');
+  changing.textContent = ''; staying.textContent = ''; msg.textContent = ''; DOCF_NAMES = [];
+  try {
+    const res = await fetch('/api/doctrine/fleet', { cache: 'no-store' });
+    const got = await res.json();
+    for (const a of got.agents || []) {
+      const li = document.createElement('li');
+      if (a.state === 'refresh') {
+        DOCF_NAMES.push(a.sessionName);
+        li.textContent = a.name + ' will get the working rules.';
+        changing.appendChild(li);
+      } else {
+        li.textContent = a.state === 'current' ? a.name + ' already has them.'
+          : a.state === 'declined' ? a.name + ' stays: you said Not now. Change your mind on their page.'
+            : a.name + ' stays: ' + (a.because || 'we could not read their instructions') + '.';
+        staying.appendChild(li);
+      }
+    }
+    if (!DOCF_NAMES.length) {
+      const li = document.createElement('li');
+      li.textContent = 'Nobody is missing them.';
+      changing.appendChild(li);
+    }
+    document.getElementById('docf-go').disabled = DOCF_NAMES.length === 0;
+    document.getElementById('docf-modal').hidden = false;
+    document.getElementById('docf-keep').focus();
+  } catch {
+    document.getElementById('docf-verdicts').textContent = 'We could not reach Kosmos to look.';
+  }
+});
+document.getElementById('docf-keep').addEventListener('click', () => {
+  document.getElementById('docf-modal').hidden = true;
+});
+document.getElementById('docf-go').addEventListener('click', async () => {
+  const msg = document.getElementById('docf-msg');
+  if (!DOCF_NAMES.length) return;
+  try {
+    const res = await fetch('/api/doctrine/refresh-fleet', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ names: DOCF_NAMES }),
+    });
+    const got = await res.json();
+    const lines = (got.verdicts || []).map((v) => v.name + ': '
+      + (v.state === 'added' ? 'Added.'
+        : v.state === 'current' ? 'Already has them.'
+          : v.state === 'declined' ? 'Left alone: you said Not now for ' + v.name + '.'
+            : 'Left alone: ' + (v.because || 'we could not read ' + v.name + '’s instructions, so we did not change them') + '.'));
+    msg.textContent = lines.join(' ');
+    document.getElementById('docf-verdicts').textContent = lines.join(' ');
+  } catch {
+    msg.textContent = 'We could not reach Kosmos to do that.';
+  }
+});
 
 function renderStale(s) {
   const el = document.getElementById('d-instr-stale');
