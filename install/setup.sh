@@ -1403,14 +1403,23 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
   # tries cover an honest shutdown still letting go; a survivor is named
   # by pid. No lsof on this Mac degrades to the probe above.
   if command -v lsof >/dev/null 2>&1; then
-    _tries=0 _pids=""
-    while [ "$_tries" -lt 3 ]; do
-      _pids="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ')"
-      [ -z "${_pids% }" ] && break
+    # Ten seconds of grace: a node board draining on a busy Mac can hold
+    # the listener a few seconds past the stop, and a die here on an
+    # honest shutdown would be this guard crying wolf.
+    # ⚠️ EVERY lsof CALL WEARS AN || true: this script runs under set -e,
+    # and lsof answers exit 1 for the GOOD case (nothing listening), so
+    # the bare substitution killed the run silently at "pausing" (found
+    # by the harness's update pass going from green to a log that just
+    # stops). The good case must never be the fatal one.
+    _tries=0; _pids=""
+    while [ "$_tries" -lt 10 ]; do
+      _pids="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)"
+      if [ -z "$_pids" ]; then break; fi
       _tries=$((_tries + 1)); sleep 1
     done
-    if [ -n "${_pids% }" ]; then
-      die "A process is still holding port $PORT after the pause (pid ${_pids% }). Quit it (or run 'kill ${_pids% }'), then paste the install line again."
+    if [ -n "$_pids" ]; then
+      _pids="$(printf '%s' "$_pids" | tr '\n' ' ')"
+      die "A process is still holding port $PORT after the pause (pid $_pids). Quit it (or run 'kill $_pids'), then paste the install line again."
     fi
   fi
 fi
