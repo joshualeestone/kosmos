@@ -16,6 +16,12 @@ const nodePath = require('node:path');
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'connect-test-'));
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
+/* Both sandbox knobs travel together (#527): the scoped check resolves
+   the DEFAULT account's record through accounts, whose HOME is its own
+   seam; without this, a future default-dir scoped check in this file
+   would read the operator's real ~/.claude.json while believing itself
+   sandboxed. */
+process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 // The two sandbox seams travel together (launchSignin warns loudly otherwise,
 // and a warning that fires on every green run trains people to ignore it).
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = nodePath.join(SANDBOX, 'claude-config-dir');

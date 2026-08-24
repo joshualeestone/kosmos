@@ -53,9 +53,21 @@ const HOME = process.env.AGENT_WORKFORCE_HOME || os.homedir();
  * always read the HOME-level file, which is why the product has been right about
  * one account and would have been wrong about the first thing it said about two.
  */
+/**
+ * 🔑 EXPORTED AS THE ONE ANSWER for where an account directory keeps its
+ * record: the DEFAULT account's sits BESIDE ~/.claude (at ~/.claude.json),
+ * every other account's sits inside its directory. Anything resolving that
+ * path by hand grows a second copy that misses the default (#527 was
+ * exactly that, in subscription's scoped check). Keyed on the canonical
+ * spelling of the default dir, same as every caller passes.
+ */
 function configFile(dir) {
-  const isDefault = dir === path.join(HOME, '.claude');
-  return isDefault ? path.join(HOME, '.claude.json') : path.join(dir, '.claude.json');
+  /* Resolved first: a trailing slash or unnormalized spelling of the
+     default dir must not silently fall to the inside-the-dir branch,
+     which is the wrong-path bug this helper exists to prevent. */
+  const clean = path.resolve(String(dir || ''));
+  const isDefault = clean === path.join(HOME, '.claude');
+  return isDefault ? path.join(HOME, '.claude.json') : path.join(clean, '.claude.json');
 }
 
 /**
@@ -270,7 +282,7 @@ function nextWorkDir() {
        their credentials. */
     let cfgFree = false;
     try {
-      const raw = fs.readFileSync(path.join(dir, '.claude.json'), 'utf8');
+      const raw = fs.readFileSync(configFile(dir), 'utf8');
       try {
         const parsed = JSON.parse(raw);
         const acct = parsed && parsed.oauthAccount;
@@ -307,4 +319,4 @@ function nextWorkDir() {
   return null;
 }
 
-module.exports = { list, identityOf, prepare, share, sharesMemory, nextWorkDir, HOME_FOR_TEST: HOME };
+module.exports = { list, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, HOME_FOR_TEST: HOME };

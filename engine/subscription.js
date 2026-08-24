@@ -106,8 +106,11 @@ function readConfig(file) {
  * resolution is exactly what it always was.
  */
 function check(opts) {
+  /* Through accounts.configFile, the one answer: the DEFAULT account's
+     record sits BESIDE its directory, and a hand-joined path here told a
+     future default-dir caller that nobody had signed in (#527). */
   const file = opts && typeof opts.configDir === 'string' && opts.configDir
-    ? path.join(opts.configDir, '.claude.json') : null;
+    ? require('./accounts').configFile(opts.configDir) : null;
   const scoped = Boolean(file);
   const got = readConfig(file);
 
