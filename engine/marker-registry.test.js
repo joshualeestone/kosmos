@@ -85,7 +85,11 @@ test('the scan recognises a marker the registry does not know', () => {
      empty list is also what a broken regex produces. This proves the pattern
      matches a well-formed marker it has never seen, so the zero above means
      the engine is clean rather than the scan being dead. */
-  const invented = '<!-- kosmos:policy:start -->';
+  /* 'policy' was this control's invented example until #479 made it a real,
+     registered pair, which failed this test exactly as designed. The control
+     moves to a name no block uses; if 'invented' ever joins the registry,
+     move it again. */
+  const invented = '<!-- kosmos:invented:start -->';
   assert.match(invented, new RegExp(MARKER.source), 'the pattern does not match a valid new marker');
   const known = new Set(require('./projects').ALL_MARKERS());
   assert.ok(!known.has(invented), 'the invented marker is somehow already registered');

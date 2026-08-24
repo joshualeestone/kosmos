@@ -5859,6 +5859,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="accounts" aria-controls="s-sec-accounts">Accounts</button>
     <button type="button" data-go="connect" aria-controls="s-sec-connect">Connections</button>
     <button type="button" data-go="gskills" aria-controls="s-sec-gskills">Global skills</button>
+    <button type="button" data-go="policy" aria-controls="s-sec-policy">AI policy</button>
     <button type="button" data-go="talking" aria-controls="s-sec-talking">Agents talking</button>
     <button type="button" data-go="mac" aria-controls="s-sec-mac">This Mac</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
@@ -6110,6 +6111,29 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <div class="frow" style="margin-top:8px;"><button class="btn" id="g-skill-add" type="button">Add skill</button></div>
         <p class="fmsg" id="g-skill-add-msg" role="status" aria-live="polite"></p>
       </div>
+    </section>
+  </section>
+  <section class="dsec" id="s-sec-policy" data-sec="policy" tabindex="-1" aria-label="AI policy" hidden>
+    <section class="dbox">
+      <h3 class="dlab">AI policy</h3>
+      <p class="dhint" style="margin:0 0 12px;">
+        If your company has rules for how AI gets used, put them here and
+        every agent on this Mac will follow them. Paste a link to the
+        policy, or paste the policy itself.
+      </p>
+      <div id="pol-state"></div>
+      <div class="field" id="pol-add" style="margin-top:16px;">
+        <label class="flabel" for="pol-url">Add it from a link</label>
+        <div class="fhint">We fetch the page and hand its words to your agents. Your agents never visit the site themselves.</div>
+        <div class="frow">
+          <input type="text" id="pol-url" maxlength="2000" placeholder="https://yourcompany.com/ai-policy" inputmode="url">
+          <button class="btn" id="pol-fetch" type="button">Fetch it</button>
+        </div>
+        <label class="flabel" for="pol-text" style="margin-top:14px;">Or paste it</label>
+        <textarea class="tk-inp" id="pol-text" rows="6" maxlength="16384" placeholder="Paste your company&rsquo;s AI policy here."></textarea>
+        <div class="frow" style="margin-top:8px;"><button class="btn" id="pol-save" type="button">Hand it to every agent</button></div>
+      </div>
+      <p class="fmsg" id="pol-msg" role="status" aria-live="polite"></p>
     </section>
   </section>
   <section class="dsec" id="s-sec-talking" data-sec="talking" tabindex="-1" aria-label="Agents talking" hidden>
@@ -12395,7 +12419,7 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
    page resets to Talk because it opens a different agent each time; Settings
    is one page, and a person who left Updates to look at the board comes back
    to Updates). "Landing is You" is the first arrival. */
-const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'talking', 'mac', 'updates', 'plus', 'advanced'];
+const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'policy', 'talking', 'mac', 'updates', 'plus', 'advanced'];
 function settingsGo(section, opts) {
   if (!SETTINGS_SECTIONS.includes(section)) section = 'you';
   const nav = document.getElementById('s-nav');
@@ -12421,6 +12445,7 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
   if (!b) return;
   settingsGo(b.dataset.go);
   if (b.dataset.go === 'gskills') loadSkills('/api/skills', 'g-skills-list', 'g-skills-msg');
+  if (b.dataset.go === 'policy') paintPolicy();
 });
 
 /* ── skills, both surfaces, one painter (#477, #478) ─────────────────────
@@ -12475,6 +12500,79 @@ wireSkillAdd('g-skill-add', 'g-skill-name', 'g-skill-body', 'g-skill-add-msg',
 wireSkillAdd('d-skill-add', 'd-skill-name', 'd-skill-body', 'd-skill-add-msg',
   () => '/api/agent/' + encodeURIComponent(CURRENT ? CURRENT.sessionName : '') + '/skills',
   () => 'Added. ' + ((CURRENT && CURRENT.name) || 'This agent') + ' picks it up at its next restart.');
+
+/* --- the company AI policy (#479): one record, every agent told -------- */
+async function paintPolicy() {
+  const box = document.getElementById('pol-state');
+  box.textContent = '';
+  try {
+    const got = await (await fetch('/api/policy', { cache: 'no-store' })).json();
+    if (got.state !== 'saved') {
+      const p = document.createElement('p'); p.className = 'fhint';
+      p.textContent = got.state === 'unknown'
+        ? pjSentence(got.because || 'we could not read the saved policy')
+        : 'No policy here yet.';
+      box.append(p);
+      return;
+    }
+    const card = document.createElement('div'); card.className = 'skillrow';
+    const n = document.createElement('b');
+    n.textContent = got.policy.source === 'pasted' ? 'Your AI policy' : got.policy.source;
+    const d = document.createElement('span'); d.className = 'fhint'; d.style.display = 'block';
+    d.textContent = 'Added ' + (got.policy.savedAt ? new Date(got.policy.savedAt).toLocaleDateString() : '') +
+      '. Every agent gets it; each one starts following it at its next restart.';
+    const o = document.createElement('span'); o.className = 'fhint'; o.style.display = 'block'; o.style.marginTop = '6px';
+    o.textContent = got.policy.opening + (got.policy.chars > 240 ? '\u2026' : '');
+    const rm = document.createElement('button'); rm.className = 'btn'; rm.type = 'button';
+    rm.style.marginTop = '10px'; rm.textContent = 'Remove it';
+    rm.addEventListener('click', async () => {
+      const msg = document.getElementById('pol-msg');
+      msg.textContent = 'Removing\u2026';
+      try {
+        await (await fetch('/api/policy/remove', { method: 'POST' })).json();
+        msg.textContent = 'Removed. Each agent lets go of it at its next restart.';
+        paintPolicy();
+      } catch { msg.textContent = 'We could not reach Kosmos to remove it.'; }
+    });
+    card.append(n, d, o, rm);
+    box.append(card);
+  } catch {
+    const p = document.createElement('p'); p.className = 'fhint';
+    p.textContent = 'We could not reach Kosmos to check for a policy.';
+    box.append(p);
+  }
+}
+function polSaid(got) {
+  const told = got.told || [];
+  const misses = told.filter((t) => t.state !== 'told');
+  if (!told.length) return 'Saved. No agents are running yet; each one gets it when it exists.';
+  if (!misses.length) return 'Handed to every agent. Each one starts following it at its next restart.';
+  const who = misses.map((m) => (m.shownAs || m.agent || 'one agent') + ' (' + pjSentence(m.because || 'could not be told') + ')').join('; ');
+  return 'Saved. ' + (told.length - misses.length) + ' of ' + told.length + ' agents have it. Not yet: ' + who;
+}
+async function polSubmit(body, doing) {
+  const msg = document.getElementById('pol-msg');
+  msg.textContent = doing;
+  try {
+    const res = await fetch('/api/policy', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const got = await res.json();
+    if (!res.ok) { msg.textContent = pjSentence(got.error || 'we could not save that'); return; }
+    msg.textContent = polSaid(got);
+    document.getElementById('pol-url').value = '';
+    document.getElementById('pol-text').value = '';
+    paintPolicy();
+  } catch { msg.textContent = 'We could not reach Kosmos to save it.'; }
+}
+document.getElementById('pol-fetch').addEventListener('click', () => {
+  const url = document.getElementById('pol-url').value.trim();
+  if (!url) { document.getElementById('pol-msg').textContent = 'Paste the link first.'; return; }
+  polSubmit({ url }, 'Fetching the page\u2026');
+});
+document.getElementById('pol-save').addEventListener('click', () => {
+  const text = document.getElementById('pol-text').value;
+  if (!text.trim()) { document.getElementById('pol-msg').textContent = 'Paste the policy first.'; return; }
+  polSubmit({ text }, 'Saving\u2026');
+});
 /* The Fresh start button's name, in one place: visible text in the mock's
    long form, and an accessible name that says which of this page's two
    restarts it is, because the confirmation dialog's own button is also
