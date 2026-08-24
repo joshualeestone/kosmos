@@ -931,6 +931,22 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
      look like an account change in every diff of these files. */
   const configKey = isCodex ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR';
   const configLine = configDir ? `\n    <key>${configKey}</key><string>${xml(configDir)}</string>` : '';
+  /* 🔑 WHICH TMUX SERVER THE JOB'S SESSIONS LAND ON (#668). The board and the
+     supervisor each resolve the session socket from their OWN environment, and
+     nothing tied them together: a board running with TMUX_TMPDIR set made jobs
+     whose supervisor used the default socket, so creation reported "started
+     it" while the board said "Not running" forever, and a full-permission
+     agent ran where nothing could see, reach, or stop it. The job now carries
+     the creating server's TMUX_TMPDIR, so the supervisor's sessions land on
+     the server the board actually reads.
+     ⚠️ ABSENT MEANS THE DEFAULT SOCKET, same rule as KOSMOS_PORT above: every
+     plist on every standard machine has no such key, and stamping the default
+     would make every rewrite look like a change. $TMUX is NOT carried: it
+     names one client's pane on one server and would be a lie inside a launchd
+     job; TMUX_TMPDIR is the directory-level fact and the one this module's
+     own reader (status.js) resolves. */
+  const tmuxSock = typeof process.env.TMUX_TMPDIR === 'string' ? process.env.TMUX_TMPDIR : '';
+  const tmuxSockLine = tmuxSock ? `\n    <key>TMUX_TMPDIR</key><string>${xml(tmuxSock)}</string>` : '';
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -951,7 +967,7 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
   <dict>
     <key>HOME</key><string>${xml(HOME)}</string>
     <key>PATH</key><string>${xml(`${path.dirname(claudeBin)}:${path.dirname(tmuxBin)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`)}</string>
-    <key>LANG</key><string>en_US.UTF-8</string>${configLine}${portLine}
+    <key>LANG</key><string>en_US.UTF-8</string>${configLine}${portLine}${tmuxSockLine}
   </dict>
   <!-- Whose background item this is. See the note above plistFor. -->
   <key>AssociatedBundleIdentifiers</key>
@@ -1064,6 +1080,29 @@ function disabledJobs() {
     const names = new Set();
     for (const m of text.matchAll(/"com\.kosmos\.agent\.([^"]+)"\s*=>\s*(?:true|disabled)/g)) {
       names.add(m[1]);
+    }
+    return names;
+  } catch { return new Set(); }
+}
+
+/* ── the job launchd says is running (#668) ──────────────────────────────
+   The split this answers: the board sees sessions on ITS tmux server, launchd
+   runs the job wherever the job's own environment points, and when the two
+   disagree the board published "not running" about an agent whose supervisor
+   was alive the whole time -- a confident negative manufactured from a socket
+   assumption, the exact inversion status.js forbids. launchd knows which of
+   our jobs hold a live process, readable without mutation: `launchctl list`
+   prints one row per job, PID first, `-` when nothing runs (MEASURED on this
+   fleet's Mac, tab-separated). One probe for the whole fleet, same shape as
+   disabledJobs above; fail-soft to an empty set, because "we could not look"
+   must never dress a stopped agent in "running unseen". */
+function runningJobs() {
+  try {
+    const out = run('/bin/launchctl', ['list']);
+    const text = String((out && out.stdout) || '');
+    const names = new Set();
+    for (const m of text.matchAll(/^(\d+)\t\S+\tcom\.kosmos\.agent\.(.+)$/gm)) {
+      if (Number(m[1]) > 0) names.add(m[2]);
     }
     return names;
   } catch { return new Set(); }
@@ -2127,7 +2166,7 @@ function createAgentInner(opts) {
 
 module.exports = {
   MODELS,
-  createdLog, createdLogFile, disabledJobs,
+  createdLog, createdLogFile, disabledJobs, runningJobs,
   /* ⚠️ Exported as the ONE machine-name rule. `slugFor` only lowercases — it
      is a converter, not a gate — so anything asking "is this a name we can
      act on" has to reach this, or it grows a weaker second copy. */
