@@ -3872,7 +3872,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          than pressing. -->
     <p class="runnow" id="d-runson"></p>
     <p class="dhint" id="d-runson-why" hidden></p>
-    <p class="runnow" id="d-account-now"></p>
     <div class="msteps" role="group" aria-label="Change what this agent runs on" style="margin-top:12px;">
       <div class="frow">
         <select id="d-provider" aria-label="Provider">
@@ -12152,7 +12151,14 @@ function openDetail(sessionName, section) {
   dbadge.hidden = !(dpct === null || dpct >= NEARLY_FULL);
   document.getElementById('d-memory').innerHTML = memoryBox(a);
   const drun = document.getElementById('d-runson');
-  drun.innerHTML = esc(runs.lead) + '<b>' + esc(runs.name) + '</b>';
+  /* The design's one line: model and account together, "Claude Opus 5
+     (josh@stuff.io)". The email rides here since #491 put it in the
+     account dropdown too; the separate Signed-in-as sentence below was
+     the fourth explains-the-visible line Josh cut tonight, and it went
+     with this change. */
+  const acctEmail = a && a.account && (a.account.email || a.account.label);
+  drun.innerHTML = esc(runs.lead) + '<b>' + esc(runs.name) + '</b>'
+    + (acctEmail ? ' (' + esc(acctEmail) + ')' : '');
   /* #149/#150: the sentence alone says WHAT, this says WHY and the way in.
      The migration path is real (a stopped agent appears under Found agents
      and Add records it); while it runs Kosmos will not write a launch file
@@ -15183,9 +15189,8 @@ let ACCOUNTS = [];
 async function paintAccountPicker(a) {
   const sel = document.getElementById('d-account');
   const go = document.getElementById('d-account-go');
-  const now = document.getElementById('d-account-now');
   const msg = document.getElementById('d-account-msg');
-  if (!sel || !go || !now) return;
+  if (!sel || !go) return;
   if (!ACCOUNTS.length) {
     try {
       const res = await fetch('/api/accounts', { cache: 'no-store' });
@@ -15202,10 +15207,11 @@ async function paintAccountPicker(a) {
      "your first account" for any agent of ours rendered that sentence about an
      agent Kosmos never started -- a confident claim about somebody else's
      session, from a screen guessing at what a null meant. */
-  now.innerHTML = acct
-    ? 'Signed in as <b>' + esc(acct.email || acct.label || acct.dir) + '</b>'
-
-    : 'We cannot tell which account this one uses, so we cannot move it.';
+  /* The Signed-in-as line is gone (Josh, 19:56 family: the dropdown and
+     the runs-on line both say the account now, and a sentence restating
+     the visible was the pattern he cut three times tonight). The
+     cannot-tell state keeps its words below, on the msg the disabled
+     controls already explain themselves with. */
 
   /* Only accounts whose history is the shared one. The engine refuses the rest
      and says why; the picker does not offer them at all, because an option that
