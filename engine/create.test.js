@@ -913,12 +913,15 @@ test('a length problem says it is a length problem', () => {
  * The fake records every call and answers from a scripted world. `has-session`
  * answers yes once and no afterwards, so every loop in the script terminates.
  */
-function runLauncher({ claim, paneCommands }) {
+function runLauncher({ claim, paneCommands, env }) {
   const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'launcher-'));
   const log = nodePath.join(dir, 'calls.log');
   const fake = nodePath.join(dir, 'tmux');
   fs.writeFileSync(fake, `#!/bin/bash
 echo "$@" >> ${JSON.stringify(log)}
+# new-session's argv, one per line, so a value with a space is seen as ONE
+# argument (calls.log joins with spaces and cannot tell).
+[ "$1" = new-session ] && printf '%s\\n' "$@" > ${JSON.stringify(nodePath.join(dir, 'new-session.argv'))}
 case "$1" in
   has-session)
     # Present the first time only, so both loops terminate.
@@ -949,8 +952,24 @@ esac
     if (a === '/opt/homebrew/bin/tmux') return fake;
     return a;
   });
-  require('node:child_process').execFileSync('/bin/bash', argv, { timeout: 20000, stdio: 'pipe' });
+  // ⚠️ THE JOB'S ENVIRONMENT IS PASSED, NOT INHERITED. launchd hands the
+  // supervisor CLAUDE_CONFIG_DIR / CODEX_HOME / KOSMOS_PORT through the plist;
+  // here the caller says which are set. A key given as `undefined` is REMOVED
+  // rather than left to whatever this test process happens to carry (a
+  // developer's own CLAUDE_CONFIG_DIR would otherwise make the unset case
+  // untestable, and pass).
+  const spawnEnv = { ...process.env };
+  for (const [k, v] of Object.entries(env || {})) {
+    if (v === undefined) delete spawnEnv[k]; else spawnEnv[k] = v;
+  }
+  require('node:child_process').execFileSync('/bin/bash', argv, { timeout: 20000, stdio: 'pipe', env: spawnEnv });
   const calls = fs.readFileSync(log, 'utf8').trim().split('\n');
+  const argvFile = nodePath.join(dir, 'new-session.argv');
+  // The launch's argument vector with boundaries intact, or null when nothing
+  // was launched (the adopt path), so a test can tell "not passed" from "not run".
+  calls.newSession = fs.existsSync(argvFile)
+    ? fs.readFileSync(argvFile, 'utf8').replace(/\n$/, '').split('\n')
+    : null;
   fs.rmSync(dir, { recursive: true, force: true });
   return calls;
 }
@@ -1038,6 +1057,41 @@ test('the startup script, actually run, adopts a healthy agent instead of restar
   const blind = runLauncher({ claim: 'probe', paneCommands: [] });
   assert.ok(!blind.some((c) => c.startsWith('kill-session')),
     'a session was killed because tmux would not say what was running in it');
+});
+
+test('the startup script, actually run, hands the pane its account and its board, and nothing when they are unset (#587)', () => {
+  // ⚠️ ASSERTED FROM THE LAUNCH, NOT FROM THE SCRIPT'S TEXT (#586, #587). tmux
+  // does not hand a client's environment to a session it makes on a running
+  // server, so the account (CLAUDE_CONFIG_DIR / CODEX_HOME) and the board
+  // (KOSMOS_PORT) reach the pane only as new-session -e arguments. The first
+  // guard for this was a match against the script's own source, green on any
+  // build containing the loop line whatever the loop did. This runs the script
+  // under a launchd-shaped environment and reads the argv the fake tmux got.
+  // What the fake cannot see, that real tmux drops the client's environment,
+  // is tools/witness-pane-env.sh's job.
+  //
+  // A path with a space, because the real one lives under Application Support:
+  // it has to arrive as ONE argument or the pane gets half a directory.
+  const claudeDir = '/Users/somebody/Library/Application Support/kosmos/.claude-team';
+  const codexDir = '/Users/somebody/.codex-team';
+  const launchdEnv = { CLAUDE_CONFIG_DIR: claudeDir, CODEX_HOME: codexDir, KOSMOS_PORT: '16245' };
+  const set = runLauncher({ claim: 'probe', paneCommands: ['-zsh', 'bash'], env: launchdEnv });
+  assert.ok(set.newSession, 'nothing was launched, so the assertions below never ran');
+  const passed = set.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e').sort();
+  assert.deepEqual(passed, [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245'],
+    'the pane was not handed exactly the account and the board: ' + JSON.stringify(set.newSession));
+
+  // Unset means absent, the plist's own rule. A pane must not be handed an
+  // empty directory as if it were one.
+  for (const [label, envCase] of [
+    ['unset', { CLAUDE_CONFIG_DIR: undefined, CODEX_HOME: undefined, KOSMOS_PORT: undefined }],
+    ['empty', { CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', KOSMOS_PORT: '' }],
+  ]) {
+    const r = runLauncher({ claim: 'probe', paneCommands: ['-zsh', 'bash'], env: envCase });
+    assert.ok(r.newSession, `${label}: nothing was launched, so the assertion below never ran`);
+    assert.ok(!r.newSession.includes('-e'),
+      `${label}: a variable that is not set was still passed into the pane: ` + JSON.stringify(r.newSession));
+  }
 });
 
 test('every name this module accepts is one the rest of the system can address', () => {
@@ -2546,10 +2600,12 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   const script = supervisorText();
   const launches = script.split('\n').filter((l) => /new-session -d -s "\$SESSION"/.test(l));
   assert.equal(launches.length, 4, 'the supervisor launch lines moved; update this test with them');
-  for (const l of launches) assert.match(l, /PORT_ENV/, 'a launch line does not pass KOSMOS_PORT into the pane: ' + l);
-  // The three the pane must have, by name, so a new one cannot be forgotten
-  // silently: the board, the Claude account, the codex account.
-  assert.match(script, /for _var in KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME; do/);
+  for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch line does not pass the pane environment: ' + l);
+  // Which variables ride, and that they ride as values rather than as a
+  // sentence in this file, is asserted by running the script: see
+  // 'the startup script, actually run, hands the pane its account and its
+  // board' beside runLauncher. A text match on the loop line passed on any
+  // build that contained the line, whatever the loop did (#587).
 });
 
 test('a job made by the default board carries no KOSMOS_PORT: absent means the default, so old plists do not change (#577)', () => {
