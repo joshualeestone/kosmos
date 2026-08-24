@@ -46,7 +46,11 @@ function pageScope() {
     function EventSource() {}, window.location, window.localStorage);
 }
 const api = pageScope();
-const P = { agents: [{ sessionName: 'mara', name: 'Mara' }, { sessionName: 'leo', name: 'Leo' }] };
+/* Shorthand, as web.post-receipt.test.js builds members: the fixture rule
+   forbids a hand-written roster row, and these are the two fields the room
+   reads (the shape check lives in that file). */
+const member = (sessionName, name) => ({ sessionName, name });
+const P = { agents: [member('mara', 'Mara'), member('leo', 'Leo')] };
 const QUOTE = 'Whichever number you publish first is the one people plan around, so change the doc.';
 const row = (from, text, extra) => ({ id: 'r' + from, from, at: Date.now(), text, ...(extra || {}) });
 
