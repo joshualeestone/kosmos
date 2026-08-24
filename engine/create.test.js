@@ -2663,6 +2663,9 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   const launches = script.split('\n').filter((l) => /new-session -d -s "\$SESSION"/.test(l));
   assert.equal(launches.length, 4, 'the supervisor launch lines moved; update this test with them');
   for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch line does not pass the pane environment: ' + l);
+  // The names handed into the pane, pinned as a list so a new one cannot be forgotten silently (#577, #540, #529).
+  assert.match(script, /for _var in KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME CLOUDFLARE_API_TOKEN; do/);
+  assert.match(script, /secrets\/cloudflare\.token/, 'the supervisor no longer reads the held Cloudflare token from the store beside it (#529)');
   // Which variables ride, and that they ride as values rather than as a
   // sentence in this file, is asserted by running the script: see
   // 'the startup script, actually run, hands the pane its account and its

@@ -229,7 +229,14 @@ if [ -z "$adopt" ]; then
   # runs on (CLAUDE_CONFIG_DIR for claude, CODEX_HOME for codex). Absent
   # means the default, the plist's own rule, so nothing is passed for it.
   PANE_ENV=()
-  for _var in KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME; do
+  # A token Kosmos holds for the person (#529, Cloudflare) lives in the store
+  # beside this script, mode 600, never in the plist. Read here, handed into
+  # the pane, so an agent's wrangler or curl finds CLOUDFLARE_API_TOKEN set.
+  _cf="$(cd "$(dirname "$0")/.." && pwd)/secrets/cloudflare.token"
+  if [ -s "$_cf" ]; then
+    CLOUDFLARE_API_TOKEN="$(head -1 "$_cf")"; export CLOUDFLARE_API_TOKEN
+  fi
+  for _var in KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME CLOUDFLARE_API_TOKEN; do
     if [ -n "$(eval "printf '%s' \"\${$_var:-}\"")" ]; then
       PANE_ENV+=(-e "$_var=$(eval "printf '%s' \"\$$_var\"")")
     fi

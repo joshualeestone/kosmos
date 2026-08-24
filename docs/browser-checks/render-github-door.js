@@ -1,6 +1,6 @@
 'use strict';
 /**
- * The GitHub and Vercel doors on the Connections tab (#529), driven in a real browser: absent gh is the
+ * The GitHub, Vercel and Cloudflare doors on the Connections tab (#529), driven in a real browser: absent gh is the
  * plain main road with nothing to press; present gh offers Connect with the promise; Connect
  * puts GitHub's one-time code and device URL on the door with Stop; finishing on GitHub reads
  * back as Connected as the account gh names. Runs against TWO boards booted by
@@ -14,6 +14,8 @@ const ABSENT = process.argv[2] || 'http://127.0.0.1:17601';
 const PRESENT = process.argv[3] || 'http://127.0.0.1:17602';
 const MARK = process.argv[4] || '/tmp/fake-gh-mark';
 const VMARK = process.argv[5] || '/tmp/fake-vercel-mark';
+const VERIFY_PORT = Number(process.argv[6] || 17347); // the board was booted with AGENT_WORKFORCE_CLOUDFLARE_VERIFY_URL pointing here
+const http = require('node:http');
 let failed = 0;
 (async () => {
   // A retry must start signed out: the stand-ins sign in on these markers, and
@@ -65,6 +67,30 @@ let failed = 0;
   await p.waitForTimeout(3500);
   d = await p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.textContent.trim() === 'Vercel'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.textContent.replace(/\s+/g, ' ').trim(), buttons: [...door.querySelectorAll('button')].map((x) => x.textContent.trim()) }; });
   say('Vercel finished: Connected as the account vercel names', /Connected as vwalker/.test(d.text) && !d.buttons.includes('Connect'), d.text.slice(0, 140));
+  // Cloudflare (#529): a pasted token, checked with a stand-in for Cloudflare's verify endpoint
+  // that answers active for one token and rejects every other, so no real Cloudflare is involved.
+  const stub = http.createServer((req, res) => {
+    const ok = (req.headers.authorization || '') === 'Bearer cf_walk_token_abcdefghijklmnopqrstuvwxyz';
+    res.writeHead(ok ? 200 : 401, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(ok ? { success: true, result: { id: 'walkwalkwalkwalkwalkwalkwalkwalk', status: 'active' } } : { success: false, errors: [{ message: 'Invalid API Token' }], result: null }));
+  });
+  await new Promise((r) => stub.listen(VERIFY_PORT, '127.0.0.1', r));
+  const openCf = async () => {
+    await p.evaluate(() => { document.querySelectorAll('#s-sec-connect details').forEach((x) => { x.open = true; }); const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.textContent.trim() === 'Cloudflare'); pill.click(); });
+    await p.waitForTimeout(900);
+  };
+  const readCf = () => p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.textContent.trim() === 'Cloudflare'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.textContent.replace(/\s+/g, ' ').trim(), buttons: [...door.querySelectorAll('button')].map((x) => x.textContent.trim()), field: !!door.querySelector('[data-svc-token-field]'), fieldType: (door.querySelector('[data-svc-token-field]') || {}).type || null, links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
+  await openCf(); d = await readCf();
+  say('Cloudflare: a paste field (password type), the link to Cloudflare’s token page, and Connect', d.field && d.fieldType === 'password' && d.links.some((l) => /dash\.cloudflare\.com\/profile\/api-tokens/.test(l)) && d.buttons.includes('Connect'), d.text.slice(-140));
+  await p.fill('[data-svc-token-field="Cloudflare"]', 'cf_bad_token_abcdefghijklmnopqrstuvwxyz');
+  await p.click('[data-svc-token-go="Cloudflare"]'); await p.waitForTimeout(900); d = await readCf();
+  say('Cloudflare rejects: the reason is on the door, the field is emptied, nothing kept', /did not accept that token/.test(d.text) && d.field && !/Connected\./.test(d.text), d.text.slice(-160));
+  await p.fill('[data-svc-token-field="Cloudflare"]', 'cf_walk_token_abcdefghijklmnopqrstuvwxyz');
+  await p.click('[data-svc-token-go="Cloudflare"]'); await p.waitForTimeout(900); d = await readCf();
+  say('Cloudflare accepts: Connected, says Kosmos keeps it in one file, offers Forget, never shows the token', /Connected\./.test(d.text) && /one file on this Mac/.test(d.text) && d.buttons.some((x) => /Forget/.test(x)) && !/cf_walk/.test(d.text), d.text.slice(-160));
+  await p.click('[data-svc-forget="Cloudflare"]'); await p.waitForTimeout(900); d = await readCf();
+  say('Cloudflare forgotten: back to the paste field', d.field && !/Connected\./.test(d.text), d.text.slice(-100));
+  stub.close();
   await b.close();
   console.log(failed ? failed + ' check(s) failed' : 'all checks passed');
   process.exit(failed ? 1 : 0);

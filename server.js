@@ -107,6 +107,7 @@ const accounts = require('./engine/accounts');
 const openaiAccounts = require('./engine/openaiaccounts');
 const github = require('./engine/github');
 const vercel = require('./engine/vercel');
+const cloudflare = require('./engine/cloudflare');
 /* #553: this process's boot identity, for the update overlay to tell "the
    board went away and came back" from a client-side fetch failure. */
 const BOOTED_AT = new Date().toISOString();
@@ -2515,6 +2516,28 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/vercel/cancel' && req.method === 'POST') {
     vercel.cancel().then((st) => sendJson(res, 200, st));
+    return;
+  }
+  /* Cloudflare, connected (#529): a pasted scoped token, checked with
+     Cloudflare before it is kept, kept in one mode-600 file under the store,
+     never answered back. */
+  if (pathname === '/api/cloudflare' && (req.method === 'GET' || req.method === 'HEAD')) {
+    cloudflare.state().then((st) => sendJson(res, 200, st));
+    return;
+  }
+  if (pathname === '/api/cloudflare/token' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return null; }
+        return cloudflare.connect(body.token).then((st) => sendJson(res, st.refused ? 400 : 200, st));
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+  if (pathname === '/api/cloudflare/forget' && req.method === 'POST') {
+    cloudflare.forget().then((st) => sendJson(res, 200, st));
     return;
   }
   if (pathname === '/api/connect' && (req.method === 'GET' || req.method === 'HEAD')) {
