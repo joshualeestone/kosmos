@@ -3459,6 +3459,35 @@ const server = http.createServer((req, res) => {
      one preference, GET to learn it, PUT to set it, and the READ is echoed
      back after a write rather than the request body -- so the screen paints
      what is stored, never what was asked for. */
+  // --- what changed under a running board (#541) ---------------------------
+  /* The seen-version record: one tiny file, so dismissed stays dismissed
+     across restarts and browsers. First sight of a machine records the
+     current version silently; the line only ever describes a CHANGE. */
+  if (pathname === '/api/whats-new' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let seen = null;
+    try { seen = JSON.parse(fs.readFileSync(path.join(process.env.AGENT_WORKFORCE_DATA || store.ROOT, 'seen-version.json'), 'utf8')).version || null; } catch { seen = null; }
+    sendJson(res, 200, { current: version, seen });
+    return;
+  }
+  if (pathname === '/api/whats-new/seen' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const v = String(body.version || '');
+        if (!/^\d+\.\d+\.\d+$/.test(v)) { sendJson(res, 400, { error: 'that is not a version we can record' }); return; }
+        try {
+          fs.mkdirSync(process.env.AGENT_WORKFORCE_DATA || store.ROOT, { recursive: true });
+          const tmp = path.join(process.env.AGENT_WORKFORCE_DATA || store.ROOT, 'seen-version.json.tmp');
+          fs.writeFileSync(tmp, JSON.stringify({ version: v }) + '\n');
+          fs.renameSync(tmp, path.join(process.env.AGENT_WORKFORCE_DATA || store.ROOT, 'seen-version.json'));
+          sendJson(res, 200, { seen: v });
+        } catch { sendJson(res, 500, { error: 'we could not record that' }); }
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
   if (pathname === '/api/autoupdate' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, autoupdate.read()); }
     catch { sendJson(res, 500, { error: 'that setting could not be read' }); }

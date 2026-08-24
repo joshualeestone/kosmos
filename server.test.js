@@ -10537,3 +10537,24 @@ test('a reported needs_you reaches the phone seam in the same word, with zero tr
     board.restore();
   }
 });
+
+test('whats-new: first sight is silent-recordable, a change is reported, garbage refused (#541)', async () => {
+  let r = await req('/api/whats-new');
+  assert.equal(r.status, 200);
+  let out = JSON.parse(r.body);
+  assert.equal(out.seen, null, 'a machine never seen claims a seen version');
+  assert.match(out.current, /^\d+\.\d+\.\d+$/, 'the current version is not served');
+
+  r = await req('/api/whats-new/seen', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ version: '0.5.09' }) });
+  assert.equal(r.status, 200, r.body);
+  out = JSON.parse((await req('/api/whats-new')).body);
+  assert.equal(out.seen, '0.5.09', 'the recorded version did not persist');
+
+  // A version-shaped string only: the record is compared, never rendered,
+  // but garbage in it would wedge the bar permanently open.
+  r = await req('/api/whats-new/seen', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ version: '<script>' }) });
+  assert.equal(r.status, 400);
+  assert.equal(JSON.parse((await req('/api/whats-new')).body).seen, '0.5.09', 'a refused write still changed the record');
+});

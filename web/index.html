@@ -303,6 +303,12 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
     background: var(--attn-bg); color: var(--label);
     font: var(--text-callout) var(--font-ui);
   }
+  /* #541: news, not a problem: quiet card tones, never the warning tint. */
+  .newsbar { display: flex; align-items: baseline; gap: 10px; margin: 10px 24px 0;
+             padding: 9px 14px; border: 1px solid var(--k-rule); border-radius: 10px;
+             background: var(--k-surface); font-size: .875rem; color: var(--k-ink-2); }
+  .newsbar a { color: var(--k-ink); }
+  .newsbar .linkish { margin-left: auto; }
   .conn[hidden] { display: none; }   /* an author rule would beat the UA hidden */
   .conn-bad { background: var(--warn-bg); border-color: var(--warn-border); }
   .conn-unsure { background: var(--attn-bg); border-color: var(--separator); }
@@ -6581,6 +6587,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      the whole board looks asleep.
      `role="status"` and not `alert`: it is a condition, announced when it
      appears, not an interruption. -->
+<!-- #541: ship-day made visible. One quiet line after an update installs
+     under a running board; dismiss records the seen version server-side so
+     it survives restarts and never returns for a seen version. First sight
+     of a machine records silently: the line only ever describes a CHANGE. -->
+<div class="newsbar" id="newsbar" role="status" hidden>
+  <span id="newsbar-text"></span>
+  <a id="newsbar-link" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">What changed</a>
+  <button class="linkish" id="newsbar-ok" type="button" aria-label="Dismiss this update note">Got it</button>
+</div>
 <div class="conn" id="conn" role="status" aria-live="polite" hidden></div>
 <!-- The pack's stats row: the New agent action as a dashed tile locked
      left, the counts on the true centre, the view toggle pinned right.
@@ -12911,6 +12926,33 @@ document.querySelectorAll('#s-sec-connect .boardrow').forEach((row) => {
 });
 
 /* The connect tab's one computed sentence (the taxonomy doc's defect half). */
+/* #541: the one line that makes ship-day visible. */
+async function newsbarCheck() {
+  try {
+    const res = await fetch('/api/whats-new', { cache: 'no-store' });
+    if (!res.ok) return;
+    const got = await res.json();
+    if (!got || typeof got.current !== 'string') return;
+    const record = () => fetch('/api/whats-new/seen', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ version: got.current }),
+    }).catch(() => { /* tried again next load */ });
+    if (!got.seen) { record(); return; } // first sight: silent
+    if (got.seen === got.current) return;
+    document.getElementById('newsbar-text').textContent =
+      'Kosmos updated itself to ' + got.current + ' while you were away.';
+    document.getElementById('newsbar-link').href =
+      'https://installkosmos.com/versions#v' + got.current.replace(/\./g, '-');
+    const bar = document.getElementById('newsbar');
+    bar.hidden = false;
+    document.getElementById('newsbar-ok').addEventListener('click', () => {
+      bar.hidden = true;
+      record();
+    }, { once: true });
+  } catch { /* news can wait */ }
+}
+newsbarCheck();
+
 async function paintConnLive() {
   const el = document.getElementById('conn-live');
   if (!el) return;
