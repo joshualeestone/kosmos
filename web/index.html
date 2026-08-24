@@ -13642,9 +13642,37 @@ function svcDoorLiveHtml(name, st) {
   if (!st) return own + '<span class="dhint">Checking…</span>';
   const t = SVC_TOOL[name] || SVC_TOOL['GitHub'];
   if (st.gh === 'missing') {
-    return own + '<p class="dhint" style="margin:8px 0 0;"><b>To connect ' + esc(name) + ', this Mac needs ' + esc(t.cli) + ', and it is not here yet.</b> '
+    /* #620: when the CLI is absent, GitHub has a second road: Kosmos runs
+       GitHub's own device flow itself. It is offered only when the engine
+       says it is switched on (an OAuth App id only Josh can make); until
+       then the engine's own sentence replaces "coming", so the door never
+       promises what it cannot do. On this road Kosmos holds the key, and the
+       door says so in the Cloudflare door's words rather than borrowing the
+       CLI road's promise. ⚠️ Placeholder copy until Mona Lisa says it. */
+    const dev = st.device || null;
+    const cliRoad = '<p class="dhint" style="margin:8px 0 0;"><b>To connect ' + esc(name) + ', this Mac needs ' + esc(t.cli) + ', and it is not here yet.</b> '
       + 'Install it from <a class="xlink" href="' + esc(t.install) + '" target="_blank" rel="noopener">' + esc(t.installText) + '</a>, '
-      + 'then come back here and press Connect. A way that needs nothing installed is coming.</p>';
+      + 'then come back here and press Connect.';
+    if (!dev || !dev.ready) {
+      const why = dev && dev.because ? esc(dev.because) : 'A way that needs nothing installed is coming.';
+      return own + cliRoad + ' ' + why + '</p>';
+    }
+    if (dev.connected) {
+      return own + '<p class="dhint" style="margin:8px 0 0;"><span class="acct-ok">Connected as ' + esc(dev.login || 'you') + '.</span> '
+        + 'Your agents can use it now. This is a key Kosmos holds for you, in one file on this Mac; Kosmos will not show it again.</p>'
+        + '<p class="dhint" style="margin:6px 0 0;"><button class="linkish" type="button" data-svc-forget="' + esc(name) + '">Forget this sign-in</button></p>';
+    }
+    if (dev.phase === 'starting') return own + '<p class="dhint" style="margin:8px 0 0;">Getting a code from GitHub…</p>';
+    if (dev.phase === 'awaiting') {
+      return own + '<p class="dhint" style="margin:8px 0 0;">Type this code at '
+        + '<a class="xlink" href="' + esc(dev.url) + '" target="_blank" rel="noopener">github.com/login/device</a>:</p>'
+        + '<p class="match-code" style="margin:6px 0 0;font-size:1.5rem;letter-spacing:.12em;" aria-live="polite">' + esc(dev.code) + '</p>'
+        + '<p class="dhint" style="margin:8px 0 0;"><button class="linkish" type="button" data-svc-cancel="' + esc(name) + '">Stop this sign-in</button></p>';
+    }
+    const why = dev.phase === 'failed' && dev.because ? '<p class="dhint" style="margin:8px 0 0;">' + esc(dev.because) + '</p>' : '';
+    return own + why + '<p style="margin:8px 0 0;"><button class="btn" type="button" data-svc-connect="' + esc(name) + '">Connect without installing anything</button></p>'
+      + '<p class="dhint" style="margin:6px 0 0;">You sign in on GitHub’s own page. Kosmos keeps the key in one file on this Mac and hands it to your agents when they start. This is a key Kosmos holds for you.</p>'
+      + '<p class="dhint" style="margin:6px 0 0;">Or install ' + esc(t.cli) + ' from <a class="xlink" href="' + esc(t.install) + '" target="_blank" rel="noopener">' + esc(t.installText) + '</a>, then come back and press Connect.</p>';
   }
   if (st.connected) {
     return own + '<p class="dhint" style="margin:8px 0 0;"><span class="acct-ok">Connected as ' + esc(st.login || 'you') + '.</span> '
@@ -13685,20 +13713,31 @@ async function svcDoorLive(name, door) {
   const api = SVC_BUILT[name];
   if (name === 'Cloudflare') { return svcDoorToken(name, door, api); }
   door.innerHTML = svcDoorLiveHtml(name, null);
+  // #620: GitHub has a second engine for the no-install road; the door reads
+  // both and the writer decides which it is on. `road` remembers which one
+  // the person's click belongs to, so Stop and Forget reach the right engine.
+  const devApi = name === 'GitHub' ? '/api/github-device' : null;
+  let road = api;
   const paint = async () => {
     let st = null;
     try { const r = await fetch(api, { cache: 'no-store' }); if (r.ok) st = await r.json(); } catch { st = null; }
+    if (st && devApi && st.gh === 'missing') {
+      try { const r2 = await fetch(devApi, { cache: 'no-store' }); if (r2.ok) st.device = await r2.json(); } catch { st.device = null; }
+      road = devApi;
+    } else { road = api; }
     if (door.hidden) { svcDoorLiveStop(); return; }
     const html = svcDoorLiveHtml(name, st);
     if (door.innerHTML !== html) door.innerHTML = html;
-    if (!st || (st.phase !== 'starting' && st.phase !== 'awaiting' && st.phase !== 'completing')) svcDoorLiveStop();
+    const live = st && ((st.phase === 'starting' || st.phase === 'awaiting' || st.phase === 'completing')
+      || (st.device && (st.device.phase === 'starting' || st.device.phase === 'awaiting' || st.device.phase === 'completing')));
+    if (!live) svcDoorLiveStop();
   };
   await paint();
   door.onclick = async (e) => {
-    const go = e.target.closest('[data-svc-connect]'); const stop = e.target.closest('[data-svc-cancel]');
-    if (!go && !stop) return;
+    const go = e.target.closest('[data-svc-connect]'); const stop = e.target.closest('[data-svc-cancel]'); const forget = e.target.closest('[data-svc-forget]');
+    if (!go && !stop && !forget) return;
     e.preventDefault();
-    try { await fetch(api + (go ? '/start' : '/cancel'), { method: 'POST' }); } catch { /* the next paint says what happened */ }
+    try { await fetch(road + (go ? '/start' : stop ? '/cancel' : '/forget'), { method: 'POST' }); } catch { /* the next paint says what happened */ }
     await paint();
     svcDoorLiveStop();
     SVC_LIVE_TIMER = setInterval(paint, 1500);

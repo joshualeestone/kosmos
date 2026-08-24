@@ -53,4 +53,7 @@ test('no pill is inert and no door holds a control for an unbuilt flow', () => {
   assert.match(fn, /<b>To connect ' \+ esc\(name\) \+ ', this Mac needs ' \+ esc\(t\.cli\) \+ ', and it is not here yet\.<\/b> '/, 'the absent-CLI sentence lost its shape');
   assert.match(fn, /'GitHub': \{ cli: 'the GitHub CLI', install: 'https:\/\/cli\.github\.com'/, 'GitHub lost its tool words');
   assert.match(fn, /'Vercel': \{ cli: 'the Vercel CLI', install: 'https:\/\/vercel\.com\/docs\/cli'/, 'Vercel lost its tool words');
+  // #620: the no-install road is offered only when the device engine says it is switched on, and says who holds the key.
+  assert.match(fn, /if \(!dev \|\| !dev\.ready\)/, 'the no-install road is offered without the engine saying it is ready');
+  assert.match(fn, /This is a key Kosmos holds for you/, 'the no-install road lost the sentence that says Kosmos holds the key');
 });

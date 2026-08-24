@@ -15,6 +15,7 @@ const PRESENT = process.argv[3] || 'http://127.0.0.1:17602';
 const MARK = process.argv[4] || '/tmp/fake-gh-mark';
 const VMARK = process.argv[5] || '/tmp/fake-vercel-mark';
 const VERIFY_PORT = Number(process.argv[6] || 17347); // the board was booted with AGENT_WORKFORCE_CLOUDFLARE_VERIFY_URL pointing here
+const GHDEV_PORT = Number(process.argv[7] || 17348); // the absent-gh board was booted with AGENT_WORKFORCE_GITHUB_{DEVICE,TOKEN,VERIFY}_URL pointing here and a client id set (#620)
 const http = require('node:http');
 let failed = 0;
 (async () => {
@@ -36,6 +37,40 @@ let failed = 0;
   say('absent gh: the door opens', !d.hidden);
   say('absent gh: the plain sentence is the main road, with the install link', /this Mac needs the GitHub CLI, and it is not here yet/.test(d.text) && d.links.some((l) => /cli\.github\.com/.test(l)), d.text.slice(0, 140));
   say('absent gh: nothing to press', d.buttons.length === 0, JSON.stringify(d.buttons));
+  say('absent gh, engine off: the door says why the no-install way is not on, naming the id only Josh can make (#620)', /app id that only Josh can make/.test(d.text), d.text.slice(-160));
+  await p.close();
+  // #620: the same absent-gh board, with Kosmos's own device flow switched on (the
+  // harness set a client id and pointed the engine at this stub GitHub).
+  let pending = 4; // the token endpoint says pending four times at a one-second interval, so the code is on screen long enough to be read
+  const gh = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
+      if (req.url.startsWith('/device')) { send(200, { device_code: 'dev-walk', user_code: 'WALK-9876', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 1 }); return; }
+      if (req.url.startsWith('/token')) { if (pending > 0) { pending -= 1; send(200, { error: 'authorization_pending' }); } else { send(200, { access_token: 'tok-walk', token_type: 'bearer', scope: 'repo' }); } return; }
+      if (req.url.startsWith('/user')) { send((req.headers.authorization || '') === 'Bearer tok-walk' ? 200 : 401, { login: 'devwalker' }); return; }
+      send(404, {});
+    });
+  });
+  await new Promise((r) => gh.listen(GHDEV_PORT, '127.0.0.1', r));
+  const readGh = () => p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.textContent.trim() === 'GitHub'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.textContent.replace(/\s+/g, ' ').trim(), buttons: [...door.querySelectorAll('button')].map((x) => x.textContent.trim()), links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
+  // The board was booted with NO client id, so the legs above saw the engine-off
+  // door. Switching it on goes through the product's own route, the line Josh's
+  // value lands on; the id is public by design.
+  const appRes = await fetch(ABSENT + '/api/github-device/app', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clientId: 'walk-client-id' }) });
+  say('the engine is switched on through /api/github-device/app', appRes.ok, String(appRes.status));
+  p = await b.newPage(); d = await openDoor(p, ABSENT);
+  say('absent gh, engine on: the no-install road is offered, says Kosmos holds the key, and the install road stays beside it', d.buttons.some((x) => /Connect without installing/.test(x)) && /This is a key Kosmos holds for you/.test(d.text) && d.links.some((l) => /cli\.github\.com/.test(l)), d.text.slice(-200));
+  await p.evaluate(() => { document.querySelector('[data-svc-connect="GitHub"]').click(); });
+  await p.waitForTimeout(2500); d = await readGh();
+  say('no-install road after Connect: GitHub’s code and device link, with Stop', /WALK-9876/.test(d.text) && d.links.some((l) => /github\.com\/login\/device/.test(l)) && /Stop this sign-in/.test(d.text), d.text.slice(0, 160));
+  await p.waitForTimeout(7000); d = await readGh();
+  say('no-install road finished: Connected as the account GitHub names, with Forget, no code', /Connected as devwalker/.test(d.text) && d.buttons.some((x) => /Forget/.test(x)) && !/WALK-9876/.test(d.text), d.text.slice(0, 160));
+  await p.evaluate(() => { document.querySelector('[data-svc-forget="GitHub"]').click(); });
+  await p.waitForTimeout(1500); d = await readGh();
+  say('no-install road forgotten: back to Connect without installing', d.buttons.some((x) => /Connect without installing/.test(x)) && !/Connected as/.test(d.text), d.text.slice(-120));
+  gh.close();
   await p.close();
   // B: gh present, signed out
   p = await b.newPage(); d = await openDoor(p, PRESENT);
