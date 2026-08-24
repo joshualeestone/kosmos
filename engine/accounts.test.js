@@ -221,4 +221,15 @@ test('#248: nextWorkDir finds the first free spot, reuses unclaimed leftovers, s
      identity) is reused, so retries do not litter work3, work4, ... */
   fs.mkdirSync(nodePath.join(home, '.claude-work2'), { recursive: true });
   assert.equal(accounts.nextWorkDir().label, 'work2');
+
+  /* Present-but-unreadable is NOT absent: a damaged config may be
+     somebody's signed-in account, and offering it would overwrite their
+     credentials. Skipped. */
+  fs.writeFileSync(nodePath.join(home, '.claude-work2', '.claude.json'), '{not json');
+  assert.equal(accounts.nextWorkDir().label, 'work3');
+
+  /* And a dir carrying a REAL projects tree is somebody's history, not a
+     spot; prepare would refuse to wire it, so it is never offered. */
+  fs.mkdirSync(nodePath.join(home, '.claude-work3', 'projects'), { recursive: true });
+  assert.equal(accounts.nextWorkDir().label, 'work4');
 });
