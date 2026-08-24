@@ -298,11 +298,12 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-role-limit"   node docs/browser-checks/render-role-limit.js "$B8"
   run_one "render-role-order"   node docs/browser-checks/render-role-order.js "$B8"
   run_one "render-reload-toast"  env KOSMOS_URL="$B8" node docs/browser-checks/render-reload-toast.js "$sb7/shots-reload"
+  run_one "render-updates-stale" env KOSMOS_URL="$B8" node docs/browser-checks/render-updates-stale.js "$sb7/shots-updates"
   run_one "render-switch-states" env KOSMOS_URL="$B8" node docs/browser-checks/render-switch-states.js
   run_one "render-theme-toggle"  env KOSMOS_URL="$B8" node docs/browser-checks/render-theme-toggle.js "$sb7/shots-toggle"
   run_one "render-offline-note"  env KOSMOS_URL="$B8" node docs/browser-checks/render-offline-note.js "$sb7/shots-offline"
 else
-  for n in contrast named-controls render-create-form render-found-undo render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-switch-states render-theme-toggle render-offline-note; do FAILED+=("$n (server did not boot)"); done
+  for n in contrast named-controls render-create-form render-found-undo render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-theme-toggle render-offline-note; do FAILED+=("$n (server did not boot)"); done
 fi
 for n in live-connect render-agent-nav render-busy-line render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state; do
   run_one "$n" node "docs/browser-checks/$n.js"

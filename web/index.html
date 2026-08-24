@@ -8777,8 +8777,40 @@ function paintUpdateCard(running, offer, look) {
        the control; the verdict appears when it has been asked for.
        ⚠️ THE OTHER ARMS ARE UNTOUCHED. An offer, an unreadable answer and an
        unreachable host are all things a person needs to know WITHOUT asking,
-       and suppressing those would be hiding news rather than removing noise. */
-    put(UPD_ASKED ? 'Up to date.' : '');
+       and suppressing those would be hiding news rather than removing noise.
+       🛑 "UP TO DATE" NEXT TO "RELOAD FOR 0.5.23" (Josh, 2026-08-24 16:50,
+       screenshot, #691). Both halves were true: nothing newer than the served
+       version exists to fetch, and the page he was reading was the older one.
+       Together they read as broken, because the verdict answered a narrower
+       question than the one the button asks. The verdict now asks the SAME
+       staleness question the build line and the toast ask, through the one
+       definition (`pageIsStale`), so the three surfaces agree on staleness.
+       ⚠️ TWO EXCEPTIONS, KEPT ON PURPOSE. (1) An offer beside a stale page is
+       still the card's offer arm (above), while the toast prefers the stale
+       state at that moment; the card offers Update, the toast offers Reload.
+       Both are true: Update installs the offer on the board side, whatever
+       page asked, and the Install confirm's 409 arm covers an offer the board
+       has already applied. (2) The toast alone stands down under UPDATING_NOW,
+       behind the inert update overlay, where this card is not reachable. It
+       stays gated on the ask: at rest the build line's "reload for" already
+       carries the news, and the toast carries the button.
+       ⚠️ NO VERSION IN THIS SENTENCE, same rule as the prefix above: the row
+       immediately over it already says "reload for 0.5.23", and a verdict that
+       repeated the number and the word would say it twice in adjacent rows.
+       ⚠️ AND NO POINTER TO A CONTROL. An earlier draft said "from the top
+       left", where the toast's Reload lives; but that slot belongs to the
+       engine-stale notice when the code on disk is newer than the process
+       (no Reload there), so the sentence would send a person to a button
+       that is not on screen. The browser's own reload is the remedy and is
+       always there; the toast offers the same when it is drawn.
+       ⚠️ AND IT STANDS ALONE. This node is the role="status" live region, so a
+       screen reader hears only this sentence, never the build line beside it:
+       "older" has to say older than what inside the sentence itself. */
+    if (UPD_ASKED && pageIsStale(running)) {
+      put('This page is older than the Kosmos running it. Reload the page to get the newer one.');
+    } else {
+      put(UPD_ASKED ? 'Up to date.' : '');
+    }
     putBtn('Check for Update');
     btn.dataset.act = 'check';
   } else if (look && look.reached && !look.readable) {
