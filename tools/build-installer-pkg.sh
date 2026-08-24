@@ -103,4 +103,13 @@ echo "-- spctl -a -t install --";       spctl -a -vvv -t install "$PKG" 2>&1 || 
 echo "-- stapler validate --";          xcrun stapler validate "$PKG"
 
 echo
+# The input sidecar (#638, B guard): the sha of the pkg's inputs THIS build was
+# made from, published beside the pkg so a later release can prove the served
+# pkg is not stale against source. Written from the SAME shared function the
+# release verifies with, so the two cannot drift.
+. "$REPO/tools/lib/pkg-inputs.sh"
+_insha="$(pkg_input_sha "$REPO")" || { echo "could not compute the pkg input sha" >&2; exit 1; }
+printf '%s\n' "$_insha" > "$OUT_DIR/Kosmos.pkg.inputs"
+echo "==> input sidecar: Kosmos.pkg.inputs = $_insha"
+
 echo "built + notarised + stapled: $PKG"

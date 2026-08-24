@@ -327,6 +327,26 @@ else
   echo "THE SERVED BUNDLE IS NOT THE TREE THAT WAS TESTED (${SHA:0:12}) AFTER SIX READS"; exit 1
 fi
 
+echo "== 9c. the installer .pkg is not stale against source (#638, B guard) =="
+# The .pkg is payload-free and rebuilt only when its inputs change, NOT every
+# cut, so it can go stale SILENTLY. Do not skip it: compare the SERVED pkg's
+# input sidecar against what the CURRENT source (the frozen tree) would build.
+# Divergence means someone edited the postinstall and did not rebuild+publish
+# the pkg; a missing sidecar means the published pkg predates this guard. Both
+# red: a stale served pkg runs an old postinstall while every other check
+# passes. The check is fast and offline (one small fetch + a local hash).
+. "$REPO/tools/lib/pkg-inputs.sh"
+_pkg_want="$(pkg_input_sha "$REPO")" || { echo "could not compute the pkg input sha from source"; exit 1; }
+_pkg_served="$(curl -fsSL -m 30 "${HOST:-https://installkosmos.com}/dist/Kosmos.pkg.inputs" 2>/dev/null | tr -d '[:space:]')"
+if [ -z "$_pkg_served" ]; then
+  echo "THE SERVED INSTALLER PKG HAS NO INPUT SIDECAR (Kosmos.pkg.inputs). It predates the freshness guard; rebuild with tools/build-installer-pkg.sh and publish Kosmos.pkg + Kosmos.pkg.inputs, then re-run."; exit 1
+elif [ "$_pkg_served" = "$_pkg_want" ]; then
+  echo "   the served Kosmos.pkg is current: its inputs match source (${_pkg_want:0:12})"
+else
+  echo "THE SERVED INSTALLER PKG IS STALE: its inputs (${_pkg_served:0:12}) do not match source (${_pkg_want:0:12})."
+  echo "   Someone changed install/pkg-scripts since the pkg was built. Rebuild with tools/build-installer-pkg.sh and publish Kosmos.pkg + Kosmos.pkg.inputs, then re-run."; exit 1
+fi
+
 echo "== 10. the board on THIS Mac, if it runs from this repo =="
 # 🛑 Installs update themselves from what step 9 verified; the developer's own
 # board runs the repo under launchd and never did, so every release left it
