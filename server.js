@@ -97,6 +97,7 @@ function safeAvatarFor(name) {
 const roles = require('./engine/roles');
 const commitments = require('./engine/commitments');
 const you = require('./engine/you');
+const policyEngine = require('./engine/policy');
 const skillsEngine = require('./engine/skills');
 const reports = require('./engine/reports');
 const limits = require('./engine/limits');
@@ -3406,6 +3407,70 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, { ...limits.read(), tiers: limits.TIERS });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+
+  // --- the company AI policy: held once, handed to every agent (#479) ------
+  if (pathname === '/api/policy' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = policyEngine.read();
+      // The full text stays on disk; the screen gets what it shows.
+      sendJson(res, 200, r.state === 'saved'
+        ? { state: 'saved', policy: { source: r.policy.source, savedAt: r.policy.savedAt, chars: r.policy.text.length, opening: r.policy.text.slice(0, 240) } }
+        : { state: r.state, policy: null, because: r.because });
+    } catch { sendJson(res, 500, { error: 'that record could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/policy' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        let text; let source;
+        if (typeof body.url === 'string' && body.url.trim()) {
+          // The BOARD fetches, through the same gate every link preview
+          // uses: private addresses refused, redirects gated, size capped.
+          const got = await unfurl.pageText(body.url.trim());
+          if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+          if (got.text.length > policyEngine.TEXT_MAX) {
+            sendJson(res, 400, { error: 'that page is too long to hand to every agent; paste the part that applies instead' });
+            return;
+          }
+          text = got.text; source = got.url;
+        } else if (typeof body.text === 'string' && body.text.trim()) {
+          text = body.text; source = 'pasted';
+        } else {
+          sendJson(res, 400, { error: 'give us a link to the policy, or paste the policy itself' });
+          return;
+        }
+        let saved;
+        try { saved = policyEngine.save({ text, source }); }
+        catch (err) { sendJson(res, 400, { error: String((err && err.message) || 'we could not save that') }); return; }
+        // Non-gating, same as every tell: a policy that could not be
+        // announced everywhere is still saved, and each verdict is carried.
+        let told;
+        try {
+          const roster = safeRoster();
+          told = policyEngine.syncEveryone(roster).map((t) => {
+            const card = t && Array.isArray(roster) ? roster.find((c) => c && c.sessionName === t.agent) : null;
+            return card && card.name ? { ...t, shownAs: card.name } : t;
+          });
+        } catch (err2) { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not tell the agents') }]; }
+        sendJson(res, 200, { policy: { source: saved.source, savedAt: saved.savedAt, chars: saved.text.length, opening: saved.text.slice(0, 240) }, told });
+      })
+      .catch(() => sendJson(res, 500, { error: 'we could not save that record' }));
+    return;
+  }
+  if (pathname === '/api/policy/remove' && req.method === 'POST') {
+    try { policyEngine.clear(); }
+    catch (err) { sendJson(res, 500, { error: String((err && err.message) || 'we could not remove the saved policy') }); return; }
+    let told;
+    try {
+      const roster = safeRoster();
+      told = policyEngine.syncEveryone(roster);
+    } catch { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: 'we could not tell the agents' }]; }
+    sendJson(res, 200, { state: 'absent', told });
     return;
   }
 

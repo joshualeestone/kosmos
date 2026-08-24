@@ -10111,3 +10111,50 @@ test('the sign-up start refuses a non-email before anything spawns', async () =>
   assert.equal(empty.status, 400);
   assert.match(JSON.parse(empty.body).error, /code from the email/);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The AI policy routes (#479's record behind the Settings tab)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('the policy over the wire: absent, pasted and distributed, then removed', async () => {
+  const policyEngine = require('./engine/policy');
+  let r = await req('/api/policy');
+  assert.equal(r.status, 200);
+  assert.equal(JSON.parse(r.body).state, 'absent', 'a machine with no policy claims one');
+
+  // Neither a link nor text is a request we can act on.
+  r = await req('/api/policy', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  assert.equal(r.status, 400);
+  assert.match(JSON.parse(r.body).error, /link.*paste|paste the policy/i);
+
+  // Pasted: saved, distributed to the roster, provenance carried.
+  const board = fleet.install([fleet.agent('casey', { state: 'idle' })]);
+  const createEngine = require('./engine/create');
+  const fsx = require('node:fs');
+  const pathx = require('node:path');
+  fsx.mkdirSync(createEngine.workerDir('casey'), { recursive: true });
+  fsx.writeFileSync(pathx.join(createEngine.workerDir('casey'), 'CLAUDE.md'), 'You are **Casey**.\n\nDo the work well, and say what you did.\n');
+  r = await req('/api/policy', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'Never paste customer data into a chat.' }) });
+  assert.equal(r.status, 200, r.body);
+  const out = JSON.parse(r.body);
+  assert.equal(out.policy.source, 'pasted');
+  assert.ok(Array.isArray(out.told));
+  const boot = fsx.readFileSync(pathx.join(createEngine.workerDir('casey'), 'CLAUDE.md'), 'utf8');
+  assert.ok(boot.includes(policyEngine.START) && boot.includes('customer data'), 'the block did not reach the instruction file');
+  assert.match(boot, /Added by the person you work for/, 'the block lost its provenance');
+
+  // The GET answers what the screen shows, never the whole text by accident.
+  r = await req('/api/policy');
+  const got = JSON.parse(r.body);
+  assert.equal(got.state, 'saved');
+  assert.equal(got.policy.chars, 'Never paste customer data into a chat.'.length);
+
+  // Removed: record gone, block gone, the agent's own words survive.
+  r = await req('/api/policy/remove', { method: 'POST' });
+  assert.equal(r.status, 200);
+  assert.equal(JSON.parse((await req('/api/policy')).body).state, 'absent');
+  const after = fsx.readFileSync(pathx.join(createEngine.workerDir('casey'), 'CLAUDE.md'), 'utf8');
+  assert.ok(!after.includes(policyEngine.START), 'removal left the block behind');
+  assert.ok(after.includes('Do the work well'), 'removal ate the agent\'s own words');
+});

@@ -325,6 +325,42 @@ async function image(raw) {
   }
 }
 
+/**
+ * The page behind a URL as plain words, for the AI-policy ingest (#479).
+ * Same gate, caps, timeout and redirect rules as preview -- and the same
+ * privacy shape: the BOARD fetches, so no agent's or reader's traffic ever
+ * touches the company's site. HTML is stripped to its words; plain text
+ * passes as-is; anything else is refused with a sentence. Uncached: a
+ * policy fetch is a deliberate act, not a hover.
+ */
+async function pageText(raw) {
+  const got = await guardedFetch(raw, 'text/html,application/xhtml+xml,text/plain');
+  if (!got.ok) return got;
+  try {
+    const type = (got.res.headers.get('content-type') || '').toLowerCase().split(';')[0].trim();
+    if (type && !type.includes('html') && type !== 'text/plain') {
+      discard(got.res);
+      return { ok: false, because: 'that link is not a page of words we can read' };
+    }
+    const body = await readCapped(got.res, PAGE_MAX, true);
+    const s = body ? body.toString('utf8') : '';
+    const text = type.includes('html')
+      ? decodeEntities(
+        s.replace(/<!--[\s\S]*?-->/g, ' ')
+          .replace(/<(script|style|noscript)\b[\s\S]*?<\/\1>/gi, ' ')
+          .replace(/<(?:br|\/p|\/div|\/li|\/h[1-6]|\/tr|\/section|\/article)[^>]*>/gi, '\n')
+          .replace(/<[^>]+>/g, ' '),
+      ).replace(/[ \t]+/g, ' ').replace(/ ?\n ?/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+      : s.trim();
+    if (!text) return { ok: false, because: 'that page had no words we could read' };
+    return { ok: true, text, url: got.url };
+  } catch {
+    return { ok: false, because: 'we could not read that page' };
+  } finally {
+    clearTimeout(got.timer);
+  }
+}
+
 /** The first http(s) link in a message's text, or null. Exported for the
     payload helper and its test. */
 const LINK_RE = /https?:\/\/[^\s<>"')\]]+/i;
@@ -352,4 +388,4 @@ function warm(raw) {
   preview(key).catch(() => {}).finally(() => inflight.delete(key));
 }
 
-module.exports = { firstLink, peek, warm, preview, image, allowed, privateAddress, parseTags, setFetcher, setResolver, resetForTests, PAGE_MAX, IMAGE_MAX, REDIRECTS };
+module.exports = { firstLink, peek, warm, preview, image, pageText, allowed, privateAddress, parseTags, setFetcher, setResolver, resetForTests, PAGE_MAX, IMAGE_MAX, REDIRECTS };

@@ -183,6 +183,10 @@ const YOU_END = '<!-- kosmos:you:end -->';
 // the neutralisers derive from the list and the registry test reads it.
 const REPORTS_START = '<!-- kosmos:reports:start -->';
 const REPORTS_END = '<!-- kosmos:reports:end -->';
+// The AI-policy pair (#479), defined beside the others for the same reason:
+// the neutralisers derive from the list and the registry test reads it.
+const POLICY_START = '<!-- kosmos:policy:start -->';
+const POLICY_END = '<!-- kosmos:policy:end -->';
 
 /**
  * Every managed-block marker in the product, in one list.
@@ -209,7 +213,7 @@ const REPORTS_END = '<!-- kosmos:reports:end -->';
  */
 function ALL_MARKERS() {
   const mm = require('./messages');
-  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, mm.START, mm.END];
+  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, POLICY_START, POLICY_END, mm.START, mm.END];
 }
 
 /**
@@ -1953,7 +1957,7 @@ function syncAgent(sessionName, roster) {
 }
 
 module.exports = {
-  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, ALL_MARKERS, neutralise,
+  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, POLICY_START, POLICY_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe,
   list, get, projectsFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
