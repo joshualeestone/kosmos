@@ -13291,11 +13291,68 @@ const SVC_DOORS = {
   'Cloudflare': 'Your domains and DNS. Connect it and your agents can point a domain at a site when you ask them to.',
   'Gmail': 'Connect an address you choose and your agents can send and read the email you approve, never your personal inbox unless you say so.',
 };
+/* The services with a REAL flow behind their door (#529). A name here means
+   svcDoorLive paints the door from the engine's state and may offer a
+   control; every other door keeps the coming-soon sentence and no control,
+   which web.svc-doors.test.js pins. */
+const SVC_BUILT = { 'GitHub': '/api/github' };
 function svcDoorText(name) {
   const own = SVC_DOORS[name];
   const how = 'Coming soon. When it opens up here, you sign in on ' + name
     + '’s own page, this Mac holds the key, and Kosmos never sees a password.';
   return (own ? '<b>' + esc(name) + '.</b> ' + esc(own) + ' ' : '<b>' + esc(name) + '.</b> ') + esc(how);
+}
+/* GitHub's door, painted from what gh says (#529). Four states a person can
+   meet, and the ABSENT one is written as the main road, because on a clean
+   Mac it is the only one they will ever see: GitHub needs the GitHub CLI on
+   this Mac today, and the no-install way is a card, not a promise made here.
+   ⚠️ Every sentence is placeholder until Mona Lisa says it. */
+let SVC_LIVE_TIMER = null;
+function svcDoorLiveStop() { if (SVC_LIVE_TIMER) { clearInterval(SVC_LIVE_TIMER); SVC_LIVE_TIMER = null; } }
+function svcDoorLiveHtml(name, st) {
+  const own = SVC_DOORS[name] ? '<b>' + esc(name) + '.</b> ' + esc(SVC_DOORS[name]) + ' ' : '<b>' + esc(name) + '.</b> ';
+  if (!st) return own + '<span class="dhint">Checking…</span>';
+  if (st.gh === 'missing') {
+    return own + '<p class="dhint" style="margin:8px 0 0;"><b>GitHub needs the GitHub CLI on this Mac today, and it is not here.</b> '
+      + 'To connect today: install GitHub CLI from <a class="xlink" href="https://cli.github.com" target="_blank" rel="noopener">cli.github.com</a>, '
+      + 'then come back here and press Connect. A way that needs nothing installed is coming.</p>';
+  }
+  if (st.connected) {
+    return own + '<p class="dhint" style="margin:8px 0 0;"><span class="acct-ok">Connected as ' + esc(st.login || 'you') + '.</span> '
+      + 'Your agents can use it now; the key stays in the GitHub CLI on this Mac.</p>';
+  }
+  if (st.phase === 'starting') return own + '<p class="dhint" style="margin:8px 0 0;">Getting a code from GitHub…</p>';
+  if (st.phase === 'awaiting') {
+    return own + '<p class="dhint" style="margin:8px 0 0;">Enter this code on GitHub’s page, in the window that just opened, or at '
+      + '<a class="xlink" href="' + esc(st.url) + '" target="_blank" rel="noopener">github.com/login/device</a>:</p>'
+      + '<p class="match-code" style="margin:6px 0 0;font-size:1.5rem;letter-spacing:.12em;" aria-live="polite">' + esc(st.code) + '</p>'
+      + '<p class="dhint" style="margin:8px 0 0;"><button class="linkish" type="button" data-svc-cancel="' + esc(name) + '">Stop this sign-in</button></p>';
+  }
+  const why = st.phase === 'failed' && st.because ? '<p class="dhint" style="margin:8px 0 0;">' + esc(st.because) + '</p>' : '';
+  return own + why + '<p style="margin:8px 0 0;"><button class="btn" type="button" data-svc-connect="' + esc(name) + '">Connect</button></p>'
+    + '<p class="dhint" style="margin:6px 0 0;">You sign in on GitHub’s own page; this Mac holds the key; Kosmos never sees a password.</p>';
+}
+async function svcDoorLive(name, door) {
+  const api = SVC_BUILT[name];
+  door.innerHTML = svcDoorLiveHtml(name, null);
+  const paint = async () => {
+    let st = null;
+    try { const r = await fetch(api, { cache: 'no-store' }); if (r.ok) st = await r.json(); } catch { st = null; }
+    if (door.hidden) { svcDoorLiveStop(); return; }
+    const html = svcDoorLiveHtml(name, st);
+    if (door.innerHTML !== html) door.innerHTML = html;
+    if (!st || (st.phase !== 'starting' && st.phase !== 'awaiting' && st.phase !== 'completing')) svcDoorLiveStop();
+  };
+  await paint();
+  door.onclick = async (e) => {
+    const go = e.target.closest('[data-svc-connect]'); const stop = e.target.closest('[data-svc-cancel]');
+    if (!go && !stop) return;
+    e.preventDefault();
+    try { await fetch(api + (go ? '/start' : '/cancel'), { method: 'POST' }); } catch { /* the next paint says what happened */ }
+    await paint();
+    svcDoorLiveStop();
+    SVC_LIVE_TIMER = setInterval(paint, 1500);
+  };
 }
 document.querySelectorAll('#s-sec-connect .boardrow').forEach((row) => {
   const door = row.nextElementSibling;
@@ -13307,7 +13364,11 @@ document.querySelectorAll('#s-sec-connect .boardrow').forEach((row) => {
     row.querySelectorAll('button.boardname').forEach((b) => b.setAttribute('aria-expanded', 'false'));
     if (open) { door.hidden = true; return; }
     pill.setAttribute('aria-expanded', 'true');
-    door.innerHTML = svcDoorText(pill.textContent.trim());
+    const name = pill.textContent.trim();
+    svcDoorLiveStop();
+    door.onclick = null;
+    if (SVC_BUILT[name]) { door.hidden = false; svcDoorLive(name, door); return; }
+    door.innerHTML = svcDoorText(name);
     door.hidden = false;
   });
 });
