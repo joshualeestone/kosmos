@@ -117,9 +117,16 @@ function known() {
  * ⚠️ THE ROOTS THEMSELVES, not workerDir(): that helper consults
  * recorded folders and would resolve a recorded name right out of the
  * root being walked. And names are gated through `create.NAME_RE`, the
- * writer's own rule, same as known() gates profile files: a directory
- * whose name fails the rule cannot collide with any creatable name, so
- * it holds nothing hostage and is not ours to show.
+ * writer's own rule, same as known() gates profile files.
+ *
+ * ⚠️ KNOWN LIMIT, deliberate: on the default case-insensitive macOS
+ * filesystem a case-variant directory ("Casey") makes create's
+ * existsSync refusal fire for "casey" while failing NAME_RE here, so
+ * that hostage class stays invisible. Surfacing it under the slug would
+ * draw a row whose removal then refuses (remove acts by EXACT spelling,
+ * existsExactly, and rightly so), and a row whose control cannot work
+ * is worse than the blindness. The class belongs to #514, where a
+ * delete that names exact spellings can carry it.
  *
  * 🛑 A FOLDER IS OURS ONLY IF THE BIRTH RECORD SAYS SO. The workers root
  * is a plain directory: on this fleet's own Mac it holds worker
@@ -134,17 +141,32 @@ function known() {
  * OUR label namespace (com.kosmos.agent.*) is ours by construction and
  * needs no second witness.
  */
+/* A root that has never been written is an empty contribution, the same
+   split known() makes: ENOENT is a fresh machine, anything else is
+   could-not-look and sets the failed flag. */
+function readRoot(dir) {
+  try { return fs.readdirSync(dir); }
+  catch (err) { if (err && err.code === 'ENOENT') return []; throw err; }
+}
+
 function strays(profileNames) {
+  let failed = false;
   const have = new Set(profileNames);
-  const born = new Set();
+  const born = new Map();
   try {
     for (const e of create.createdLog()) {
       if (e.outcome === create.OUTCOME.CREATED || e.outcome === create.OUTCOME.PARTIAL) {
         /* ⚠️ THE SLUG, not the name as typed: the birth line records the
            spelling the person used ("Casey"), the folder is made under
            slugFor ("casey"), and the tie must speak the folder's own
-           language or capitalized creations never match their remains. */
-        born.add(create.slugFor(String(e.name || '')));
+           language or capitalized creations never match their remains.
+           The value is the LATEST such line's time: a line vouches for
+           the folder its creation made, not for the name forever, so a
+           directory that appeared long after every line (a checkout
+           dropped under a once-used name) is not what any line made. */
+        const slug = create.slugFor(String(e.name || ''));
+        const at = Date.parse(e.at || '') || 0;
+        if (!born.has(slug) || born.get(slug) < at) born.set(slug, at);
       }
     }
   } catch { /* no receipts, no folder ties; jobs still speak for themselves */ }
@@ -156,22 +178,33 @@ function strays(profileNames) {
     found.set(name, cur);
   };
   try {
-    for (const d of fs.readdirSync(create.WORKERS_DIR)) {
+    for (const d of readRoot(create.WORKERS_DIR)) {
       try {
-        if (born.has(d) && fs.statSync(path.join(create.WORKERS_DIR, d)).isDirectory()) note(d, 'folder');
+        if (!born.has(d)) continue;
+        const st = fs.statSync(path.join(create.WORKERS_DIR, d));
+        /* A day of slack covers clock skew and a slow creation; a
+           directory born long after every line for its name is a later
+           tenant, not the remains the line vouched for. birthtimeMs is
+           0 on filesystems that cannot answer, and 0 passes: absence of
+           the witness must not hide a genuine stray. */
+        const bound = born.get(d) + 24 * 60 * 60 * 1000;
+        if (st.isDirectory() && (st.birthtimeMs || 0) <= bound) note(d, 'folder');
       } catch { /* a vanished entry is not a stray */ }
     }
-  } catch { /* nothing contributed; see the fail-soft note above */ }
+  } catch (err) { failed = failed || (err && err.code !== 'ENOENT'); }
   try {
-    for (const f of fs.readdirSync(create.AGENTS_DIR)) {
+    for (const f of readRoot(create.AGENTS_DIR)) {
       const m = /^com\.kosmos\.agent\.(.+)\.plist$/.exec(f);
       if (!m) continue;
       try {
         if (fs.statSync(path.join(create.AGENTS_DIR, f)).isFile()) note(m[1], 'job');
       } catch { /* a vanished entry is not a stray */ }
     }
-  } catch { /* nothing contributed; see the fail-soft note above */ }
-  return found;
+  } catch (err) { failed = failed || (err && err.code !== 'ENOENT'); }
+  /* found-nothing and could-not-look are different facts; the flag keeps
+     the soft direction without manufacturing a confident absence. No
+     screen reads it yet; #514's surface is where it lands. */
+  return { found, failed };
 }
 
 function survey() {
@@ -202,7 +235,8 @@ function survey() {
     profile: true,
   }));
   /* #500: what the disk holds that no profile accounts for. */
-  for (const [name, on] of strays(k.names)) {
+  const sweep = strays(k.names);
+  for (const [name, on] of sweep.found) {
     agents.push({
       name,
       shownAs: shownName(name),
@@ -215,6 +249,7 @@ function survey() {
   return {
     ok: true,
     because: null,
+    straySweepFailed: sweep.failed,
     agents,
     /* The ones a repair would act on: known, not removed, on disk, no job.
        Machine names, because this is the list a repair ACTS on; the sentence

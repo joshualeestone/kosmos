@@ -55,7 +55,7 @@ function boardWithStrays() {
   // The stray folder: a directory plus the birth receipt, and NO profile.
   fs.mkdirSync(nodePath.join(workers, 'strayfolder'), { recursive: true });
   fs.writeFileSync(nodePath.join(sb, 'data', 'AgentWorkforce', 'created.jsonl'),
-    JSON.stringify({ at: '2026-08-01T00:00:00Z', name: 'strayfolder', outcome: 'created' }) + '\n');
+    JSON.stringify({ at: new Date().toISOString(), name: 'strayfolder', outcome: 'created' }) + '\n');
 
   // The stranger's checkout: a directory, a valid name, and no birth line.
   fs.mkdirSync(nodePath.join(workers, 'checkout'), { recursive: true });
@@ -111,8 +111,10 @@ test('#500: both profile-less strays are visible, with the no-record sentence', 
   const rows = new Map(BOARD.status.agents.map((a) => [a.sessionName, a]));
   const sf = rows.get('strayfolder');
   assert.ok(sf, 'the birth-recorded stray folder is absent: the survey still enumerates from profiles only');
-  assert.match(sf.because, /no record of this agent/, sf.because);
-  assert.match(sf.because, /its folder was/, sf.because);
+  /* The folder arm speaks through the birth receipt, which IS a record;
+     "no record" belongs to the job arm alone. */
+  assert.match(sf.because, /made this agent once/, sf.because);
+  assert.match(sf.because, /only its folder remains/, sf.because);
   assert.doesNotMatch(sf.because, /free the name/,
     'the sentence promises name-freeing, which remove (not delete, ever) cannot deliver');
   assert.equal(sf.running, false);
@@ -120,7 +122,8 @@ test('#500: both profile-less strays are visible, with the no-record sentence', 
   const sj = rows.get('strayjob');
   assert.ok(sj, 'the label-namespace stray job is absent: the survey still enumerates from profiles only');
   assert.match(sj.because, /no record of this agent/, sj.because);
-  assert.match(sj.because, /a startup job was/, sj.because);
+  assert.match(sj.because, /a startup job was found/, sj.because);
+  assert.doesNotMatch(sj.because, /free the name/, sj.because);
 });
 
 test('#500: the stranger\'s checkout stays invisible, and the control is a normal row', () => {
@@ -129,8 +132,8 @@ test('#500: the stranger\'s checkout stays invisible, and the control is a norma
     'a directory with no birth record reached the board: the roster-from-records ruling is broken');
   const control = rows.get('control');
   assert.ok(control, 'the profile-backed control is absent, so the stray assertions above prove nothing');
-  assert.doesNotMatch(control.because || '', /no record/,
-    'the control wears the stray sentence');
+  assert.doesNotMatch(control.because || '', /no record|made this agent once/,
+    'the control wears a stray sentence');
 });
 
 test('#500: both strays have viable removal plans, the road to clearing them off the board', () => {

@@ -1004,6 +1004,7 @@ const server = http.createServer((req, res) => {
           return known.agents
             .filter((k) => !k.removed && (k.folder || k.job) && !seen.has(k.name) && !gone.has(k.name))
             .map((k) => {
+              try {
               const profile = store.readProfile(k.name) || {};
               return {
                 name: k.shownAs || k.name,
@@ -1041,10 +1042,17 @@ const server = http.createServer((req, res) => {
                      and it was false; freeing a name held by files needs a
                      delete-leftover feature this product does not have yet,
                      carded as the follow-up. */
-                  ? ('Kosmos has no record of this agent: ' + (k.folder && k.job
-                      ? 'its folder and a startup job were'
-                      : k.folder ? 'its folder was' : 'a startup job was')
-                      + ' found on disk. Removing it clears it off the board; its files are never deleted')
+                  ? (k.folder
+                      /* The folder arm is only reachable through the birth
+                         receipt, which IS Kosmos's own record; saying "no
+                         record" there would be contradicted by the row's
+                         own existence. The job arm has no receipt: the
+                         label namespace is the tie, and no-record is
+                         exactly true. */
+                      ? ('Kosmos made this agent once, but only its folder'
+                          + (k.job ? ' and a startup job remain' : ' remains')
+                          + ' on disk. Removing it clears it off the board; its files are never deleted')
+                      : 'Kosmos has no record of this agent: a startup job was found on disk. Removing it stops that job and clears it off the board')
                   : (k.job && !k.folder)
                   /* #127: the distinct, broken state this row now surfaces. A
                      job with no folder cannot start (it has nothing to run) and
@@ -1086,7 +1094,16 @@ const server = http.createServer((req, res) => {
                 commitments: commitments.read(k.name),
                 instructions: instructions.staleness(k.name),
               };
-            });
+              } catch {
+                /* Per ROW: one uncomposable leftover (#500 widened what
+                   flows here to names with no profile at all) must not
+                   take every profile-backed row off the board with it.
+                   The outer catch keeps its job for known()-level
+                   failures. */
+                return null;
+              }
+            })
+            .filter(Boolean);
         } catch {
           /* ⚠️ A roster we could not extend is the roster we already had. This
              must never be able to take the running agents off the board. */

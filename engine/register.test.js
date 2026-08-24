@@ -256,13 +256,13 @@ test('#500: a folder or job with no profile is surveyed as a stray, and repair n
   fs.rmSync(create.createdLogFile(), { force: true });
   fs.mkdirSync(path.dirname(create.createdLogFile()), { recursive: true });
   fs.appendFileSync(create.createdLogFile(),
-    JSON.stringify({ at: '2026-08-01T00:00:00Z', name: 'stray-folder', outcome: 'created' }) + '\n', 'utf8');
+    JSON.stringify({ at: new Date().toISOString(), name: 'stray-folder', outcome: 'created' }) + '\n', 'utf8');
   /* The birth line records the spelling the person TYPED; the folder is
      made under the slug. The tie must match "Casey" to casey or every
      capitalized creation's remains stay invisible. */
   agent('casey', { profile: false });
   fs.appendFileSync(create.createdLogFile(),
-    JSON.stringify({ at: '2026-08-02T00:00:00Z', name: 'Casey', outcome: 'partial' }) + '\n', 'utf8');
+    JSON.stringify({ at: new Date().toISOString(), name: 'Casey', outcome: 'partial' }) + '\n', 'utf8');
   fs.mkdirSync(path.join(SB, 'workers', 'somebody-elses-checkout'), { recursive: true });
   /* A directory whose name fails NAME_RE cannot collide with any creatable
      name; it holds nothing hostage and is not ours to show. */
@@ -305,7 +305,7 @@ test('#500: a removed name with stray remains is carried as removed and never qu
   agent('ghost', { profile: false });
   fs.mkdirSync(path.dirname(create.createdLogFile()), { recursive: true });
   fs.appendFileSync(create.createdLogFile(),
-    JSON.stringify({ at: '2026-08-01T00:00:00Z', name: 'ghost', outcome: 'created' }) + '\n', 'utf8');
+    JSON.stringify({ at: new Date().toISOString(), name: 'ghost', outcome: 'created' }) + '\n', 'utf8');
   fs.mkdirSync(store.ROOT, { recursive: true });
   fs.writeFileSync(path.join(store.ROOT, 'removed.json'), JSON.stringify([{ name: 'ghost' }]), 'utf8');
   const s = register.survey();
@@ -316,11 +316,45 @@ test('#500: a removed name with stray remains is carried as removed and never qu
   assert.deepEqual(s.missing, [], 'a removed stray was queued to be repaired');
 });
 
+test('#500: a directory born long after every line for its name is a later tenant, not a stray', () => {
+  reset();
+  fs.rmSync(create.createdLogFile(), { force: true });
+  /* The line predates the directory by years: whatever this folder is,
+     it is not what that creation made. It stays invisible, and the
+     control right beside it (a line YOUNGER than its folder) shows. */
+  agent('old-name', { profile: false });
+  agent('young-name', { profile: false });
+  fs.mkdirSync(path.dirname(create.createdLogFile()), { recursive: true });
+  fs.appendFileSync(create.createdLogFile(),
+    JSON.stringify({ at: '2001-01-01T00:00:00Z', name: 'old-name', outcome: 'created' }) + '\n'
+    + JSON.stringify({ at: '2099-01-01T00:00:00Z', name: 'young-name', outcome: 'created' }) + '\n', 'utf8');
+  const s = register.survey();
+  const names = s.agents.map((a) => a.name);
+  assert.ok(names.includes('young-name'), 'the control stray is absent, so the later-tenant assert proves nothing');
+  assert.ok(!names.includes('old-name'), 'a directory born after its only line was shown as that line\'s remains');
+});
+
+test('#500: an unreadable root reports the sweep failed rather than a confident absence', () => {
+  reset();
+  agent('solo');
+  fs.chmodSync(path.join(SB, 'workers'), 0o000);
+  try {
+    const s = register.survey();
+    assert.equal(s.ok, true, 'an unreadable stray root took the whole survey down');
+    assert.equal(s.straySweepFailed, true, 'could-not-look was reported as found-nothing');
+  } finally {
+    fs.chmodSync(path.join(SB, 'workers'), 0o755);
+  }
+  const healthy = register.survey();
+  assert.equal(healthy.straySweepFailed, false, 'the flag stuck after the root came back');
+});
+
 test('#500: both walks fail soft on a machine with neither root', () => {
   reset();
-  /* An unreadable or absent root contributes nothing rather than failing
-     the survey: the profile-backed roster must survive a fresh machine
-     with neither directory. */
+  /* An ABSENT root contributes nothing rather than failing the survey:
+     the profile-backed roster must survive a fresh machine with neither
+     directory. (The unreadable arm is driven by its own test above,
+     through the straySweepFailed flag.) */
   fs.rmSync(create.createdLogFile(), { force: true });
   fs.rmSync(path.join(SB, 'workers'), { recursive: true, force: true });
   fs.rmSync(path.join(SB, 'launch'), { recursive: true, force: true });
