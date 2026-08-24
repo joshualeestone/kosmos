@@ -2514,8 +2514,9 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
   # asuser promises. The one mechanism Apple supports for an installer reaching
   # the person's desktop is a LaunchAgent bootstrapped into gui/<uid>: launchd
   # runs it INSIDE the login session, where `open` is ordinary. So in pkg mode
-  # the open is a one-shot agent that opens the dashboard, deletes its own
-  # plist and boots itself out. The BOARD_OURS gate above still decides whether
+  # the open is a one-shot agent that opens the dashboard and deletes its own
+  # plist (a RunAtLoad job that has exited stays idle until logout; with the
+  # plist gone it never runs again). The BOARD_OURS gate above still decides whether
   # this runs at all; only the delivery changes. Everything else (paste
   # install, harness stub, sandbox) keeps the direct call.
   if [ "${KOSMOS_INSTALL_VIA:-}" = "pkg" ] && [ -z "${KOSMOS_OPEN_CMD:-}" ] && [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ]; then
@@ -2524,7 +2525,11 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
     _open_dir="$HOME/Library/LaunchAgents"
     _open_plist="$_open_dir/$_open_label.plist"
     _open_url="http://127.0.0.1:$PORT"
-    /bin/launchctl bootout "gui/$_open_uid/$_open_label" >/dev/null 2>&1 || true
+    # No pre-emptive removal of a stale open-once job here: the agent removes
+    # itself, and if one is somehow still loaded the bootstrap below fails and
+    # we fall back to a direct open. The install path must never contain a
+    # removal of any launchd job (install.board-job.test.js: the update that
+    # runs this installer is itself a launchd job).
     if mkdir -p "$_open_dir" 2>/dev/null && cat > "$_open_plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -2536,7 +2541,7 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>/usr/bin/open "\$0"; rm -f "\$1"; /bin/launchctl bootout "gui/\$(/usr/bin/id -u)/$_open_label"</string>
+    <string>/usr/bin/open "\$0"; rm -f "\$1"</string>
     <string>$_open_url</string>
     <string>$_open_plist</string>
   </array>
@@ -2544,6 +2549,11 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
 </plist>
 PLIST
     then
+      # The sandbox gate, restated within reach of the call (the sweep test
+      # reads 12 lines above every launchctl): gui/<uid> is always the REAL
+      # domain, so a harness must never get here. The enclosing if already
+      # requires AGENT_WORKFORCE_LAUNCH unset; this is the belt.
+      [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] || _open_plist=/dev/null/never
       if /bin/launchctl bootstrap "gui/$_open_uid" "$_open_plist" 2>/dev/null; then
         printf '  (handed to your login session as %s)\n\n' "$_open_label"
       else
