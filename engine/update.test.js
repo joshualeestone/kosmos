@@ -321,8 +321,13 @@ test('the installer URL is a positional parameter, never interpolated into the s
      their own argv elements after the `sh` argv[0] filler (#553 added the
      two trailing positionals so the installer's exit code and start stamp
      land in logs/install.status whatever happens to this server). */
-  assert.match(call, /'-c',\s*'curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s\\n" "\$code" "\$3" > "\$2"',\s*'sh',\s*setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt/,
+  assert.match(call, /'-c',\s*'curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s\\n" "\$code" "\$3" > "\$2"',\s*'sh',\s*setupUrl\(\)/,
     'the installer command is no longer the reviewed shape: ' + call);
+  /* The two trailing positionals, asserted on the wider source since the
+     slice above stops at the URL: the status file is $2, the stamp is $3,
+     neither interpolated. */
+  assert.ok(/setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt\]/.test(SRC),
+    'the status file and the start stamp no longer ride as positionals');
 
   /* And the unsafe shapes, by name. A template literal or a concatenation
      inside the `-c` string is the whole failure: it turns a release base into
