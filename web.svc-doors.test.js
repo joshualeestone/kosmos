@@ -42,6 +42,13 @@ test('no pill is inert and no door holds a control for an unbuilt flow', () => {
   assert.ok(!/<button/.test(plain), 'the coming-soon door writer emits a control; an unbuilt service must not offer one');
   const built = fn.slice(fn.indexOf('const SVC_BUILT'), fn.indexOf('function svcDoorText'));
   assert.match(built, /'GitHub': '\/api\/github'/, 'GitHub is built and must be listed as such');
-  assert.ok(!/'Vercel'|'Cloudflare'|'Gmail'/.test(built), 'a service without a flow is listed as built');
-  assert.match(fn, /To connect GitHub, this Mac needs the GitHub CLI, and it is not here yet/, 'the absent-gh branch lost its plain sentence');
+  assert.match(built, /'Vercel': '\/api\/vercel'/, 'Vercel is built and must be listed as such');
+  const list = built.slice(0, built.indexOf('};') + 2);
+  assert.ok(!/'Cloudflare'|'Gmail'/.test(list), 'a service without a flow is listed as built');
+  /* Mona Lisa's absent-CLI sentence is built from a per-service row now
+     (#529, Vercel): the template and GitHub's row are pinned separately, so
+     the sentence a person reads is still hers, for every built service. */
+  assert.match(fn, /<b>To connect ' \+ esc\(name\) \+ ', this Mac needs ' \+ esc\(t\.cli\) \+ ', and it is not here yet\.<\/b> '/, 'the absent-CLI sentence lost its shape');
+  assert.match(fn, /'GitHub': \{ cli: 'the GitHub CLI', install: 'https:\/\/cli\.github\.com'/, 'GitHub lost its tool words');
+  assert.match(fn, /'Vercel': \{ cli: 'the Vercel CLI', install: 'https:\/\/vercel\.com\/docs\/cli'/, 'Vercel lost its tool words');
 });
