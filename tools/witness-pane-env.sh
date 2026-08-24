@@ -21,7 +21,16 @@
 # the pre-#586 supervisor (70eddf3) FAILS with "the pane saw: /acct/A", the
 # #587 supervisor passes.
 #
-# Touches nothing shared: its own socket (-L), its own temp dir, killed at exit.
+# Touches nothing shared: its own socket (-L), its own temp dir, no reading of
+# the operator's tmux.conf (-f /dev/null: a -L socket isolates the socket, not
+# the config, and a config that extends update-environment would hide the
+# mechanism). The supervisor and everything it started are killed at exit.
+#
+# ⚠️ THE CONTROL IS IN THE SCRIPT, NOT LEFT TO THE OPERATOR. Before the
+# supervisor runs, one plain session is made on the seeded server under
+# account B WITHOUT -e and must see A. If it sees B, this tmux forwards the
+# client's environment on its own and the witness cannot see the bug here:
+# exit 2, never "ok".
 set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 SUP="${1:-$HERE/bin/agent-supervisor.sh}"
@@ -34,14 +43,14 @@ SOCK="paneenv-$$"
 D="$(mktemp -d "${TMPDIR:-/tmp}/witness-pane-env.XXXXXX")" || { echo "could not make a temp dir"; exit 2; }
 cleanup() {
   "$TMUX_PATH" -L "$SOCK" kill-server 2>/dev/null
-  if [ -n "${SUPPID:-}" ]; then kill "$SUPPID" 2>/dev/null; wait "$SUPPID" 2>/dev/null; fi
+  if [ -n "${SUPPID:-}" ]; then kill -- "-$SUPPID" 2>/dev/null || kill "$SUPPID" 2>/dev/null; wait "$SUPPID" 2>/dev/null; fi
   rm -rf "$D"
 }
 trap cleanup EXIT
 
 cat > "$D/tmux" <<W
 #!/bin/bash
-exec "$TMUX_PATH" -L "$SOCK" "\$@"
+exec "$TMUX_PATH" -L "$SOCK" -f /dev/null "\$@"
 W
 cat > "$D/claude" <<W
 #!/bin/bash
@@ -53,11 +62,26 @@ mkdir -p "$D/work"
 
 # The server exists before the agent's job runs, and it was started by
 # somebody on account A (a first agent, or a person's terminal).
-env CLAUDE_CONFIG_DIR=/acct/A "$TMUX_PATH" -L "$SOCK" new-session -d -s seed 'sleep 60' || exit 2
+env CLAUDE_CONFIG_DIR=/acct/A "$TMUX_PATH" -L "$SOCK" -f /dev/null new-session -d -s seed 'sleep 60' || exit 2
 sleep 1
+# The control: a plain session under B, no -e, on the running server.
+env CLAUDE_CONFIG_DIR=/acct/B "$TMUX_PATH" -L "$SOCK" -f /dev/null new-session -d -s control \
+  "printenv CLAUDE_CONFIG_DIR > '$D/control-saw'; echo done >> '$D/control-saw'" || exit 2
+for _ in 1 2 3 4 5; do grep -q '^done' "$D/control-saw" 2>/dev/null && break; sleep 1; done
+CONTROL="$(head -1 "$D/control-saw" 2>/dev/null)"
+if [ "$CONTROL" != /acct/A ]; then
+  echo "control: a plain session under /acct/B saw '${CONTROL:-<unset>}', not /acct/A."
+  echo "this tmux hands the client environment to a session on its own; the witness cannot see the bug here"
+  exit 2
+fi
 # The job, as launchd runs it: account B in its environment.
+# In its own process group (job control gives a background job one; macOS has
+# no setsid), so the kill at exit takes the supervisor's sleep with it rather
+# than leaving it to run out after the temp dir is gone.
+set -m
 env CLAUDE_CONFIG_DIR=/acct/B bash "$SUP" witness "$D/work" "$D/claude" "$D/tmux" >"$D/sup.log" 2>&1 &
 SUPPID=$!
+set +m
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$D/pane-saw" ] && break; sleep 1; done
 [ -s "$D/pane-saw" ] || { echo "the pane never ran claude; supervisor said:"; cat "$D/sup.log"; exit 2; }
 # printenv writes nothing for an unset variable, so the file is "rc=1" alone;

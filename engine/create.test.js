@@ -1094,8 +1094,12 @@ test('the startup script, actually run, hands the pane its account and its board
     const passed = set.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e').sort();
     assert.deepEqual(passed, [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245'],
       `${label}: the pane was not handed exactly the account and the board: ` + JSON.stringify(set.newSession));
-    if (b.model) assert.ok(set.newSession.includes(b.model), `${label}: the model did not reach the launch, so this is not the branch it claims to test`);
-    if (b.runner === 'codex') assert.ok(set.newSession.some((a) => a.startsWith('notify=')), `${label}: the codex notify config did not reach the launch, so this is not the codex branch`);
+    // Each branch's identity, both ways: a default that started writing a
+    // model or a runner would fold four lines into two while staying green.
+    const hasModel = set.newSession.includes('--model') || set.newSession.includes('-m');
+    const isCodex = set.newSession.some((a) => a.startsWith('notify='));
+    assert.equal(hasModel, Boolean(b.model), `${label}: the launch ${hasModel ? 'carries' : 'lacks'} a model flag, so this is not the branch it claims to test`);
+    assert.equal(isCodex, b.runner === 'codex', `${label}: the launch ${isCodex ? 'carries' : 'lacks'} the codex notify config, so this is not the branch it claims to test`);
   }
 
   // Unset means absent, the plist's own rule. A pane must not be handed an
