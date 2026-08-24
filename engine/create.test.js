@@ -2689,6 +2689,67 @@ test('a job made by the default board carries no KOSMOS_PORT: absent means the d
   assert.doesNotMatch(plist, /KOSMOS_PORT/);
 });
 
+test('a job made by a server with TMUX_TMPDIR set carries it, so its sessions land where the board looks (#668)', () => {
+  recorder();
+  create.setDryRun(false);
+  const before = process.env.TMUX_TMPDIR;
+  process.env.TMUX_TMPDIR = '/socket/dir & <odd>';
+  try {
+    const made = create.createAgent({ ...BINS, name: 'pinned', role: 'pm' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  } finally {
+    if (before === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = before;
+  }
+  const plist = fs.readFileSync(create.plistPath('pinned'), 'utf8');
+  assert.match(plist, /<key>TMUX_TMPDIR<\/key><string>\/socket\/dir &amp; &lt;odd&gt;<\/string>/,
+    'the job does not carry the creating server\'s socket directory, so the supervisor '
+    + 'starts sessions on the default server while the board reads a different one: '
+    + 'creation says "started it" and the board says "Not running" forever (#668)');
+});
+
+test('a job made with no TMUX_TMPDIR carries none: absent means the default socket, so old plists do not change (#668)', () => {
+  recorder();
+  create.setDryRun(false);
+  const before = process.env.TMUX_TMPDIR;
+  delete process.env.TMUX_TMPDIR;
+  try {
+    const made = create.createAgent({ ...BINS, name: 'unpinned', role: 'pm' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  } finally {
+    if (before !== undefined) process.env.TMUX_TMPDIR = before;
+  }
+  const plist = fs.readFileSync(create.plistPath('unpinned'), 'utf8');
+  assert.doesNotMatch(plist, /TMUX_TMPDIR/);
+});
+
+test('runningJobs reads which of our jobs launchd holds a live process for, and fails soft to an empty set (#668)', () => {
+  const asked = [];
+  create.setRunner((file, args) => {
+    asked.push([file, ...(args || [])].join(' '));
+    /* The measured shape: PID, tab, last-exit, tab, label; `-` for a job
+       with no process. A zero PID and a foreign label are the traps. */
+    return { ok: true, stdout: 'PID\tStatus\tLabel\n941\t0\tcom.kosmos.agent.alive\n-\t0\tcom.kosmos.agent.parked\n0\t0\tcom.kosmos.agent.zeropid\n512\t-15\tcom.other.thing\n' };
+  });
+  create.setDryRun(false);
+  try {
+    const up = create.runningJobs();
+    assert.deepEqual([...up].sort(), ['alive'],
+      'the parse claimed a parked, zero-pid or foreign job as running, or missed the live one');
+    assert.ok(asked.some((c) => /launchctl list$/.test(c)), 'the probe is not the non-mutating fleet read');
+    assert.ok(!asked.some((c) => /enable|disable |bootout|bootstrap/.test(c)), 'the probe mutates launchd state');
+  } finally {
+    create.setRunner(null);
+  }
+  /* Fail-soft: a runner that throws yields an empty set, never a claim. */
+  create.setRunner(() => { throw new Error('no launchctl here'); });
+  create.setDryRun(false);
+  try {
+    assert.equal(create.runningJobs().size, 0, 'a failed look dressed a stopped agent in running-unseen');
+  } finally {
+    create.setRunner(null);
+  }
+});
+
 test('an OpenAI agent made on a non-default OpenAI account carries CODEX_HOME, and its folder is trusted in THAT home (#540)', () => {
   recorder();
   create.setDryRun(false);

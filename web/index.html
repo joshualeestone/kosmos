@@ -8207,8 +8207,15 @@ function card(a) {
    * 📌 The `off` modifier on the card and the row is a different thing and stays.
    */
   if (a.running === false) {
+    /* #668: the one offline row whose "Not running" would be a lie. The board
+       can see no session, but launchd says the agent's background job holds a
+       live process -- so the pill says the could-not-check word instead of a
+       confident negative, and the detail page's why-line carries the two
+       disagreeing facts. Everything else about the card stays the offline
+       shape: there is still no pane to act on. */
+    const split = a.jobRunningUnseen === true;
     return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}">
-    <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Not running.">${face(a)}</svg>
+    <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. ${split ? 'Could not check.' : 'Not running.'}">${face(a)}</svg>
       <!-- ⚠️ THE DOT IS DECORATIVE HERE, unlike on a running card. Its hidden
            text is PRESSAY.off, which is the same words as the pill two rows
            down, so a screen reader announced "Not running" twice per card. The
@@ -8216,7 +8223,7 @@ function card(a) {
       <span class="pres off" aria-hidden="true"></span></div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
     <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
-    <div class="astate st-stopped">${GLYPH.stopped}<b>Not running</b></div>
+    <div class="astate ${split ? 'st-unknown' : 'st-stopped'}">${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b></div>
   </div>`;
   }
   /* ⚠️ THE PACK'S CARD (stage 3). Column order: gauge -> name -> state pill
@@ -8352,7 +8359,7 @@ function lrow(a) {
     return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}">
       <div class="lav">${off}</div>
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b><small>${esc(roleLine(a, ROLE_TITLES))}</small></div>
-      <div class="lstate st-stopped">${GLYPH.stopped}Not running</div>
+      <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
       <div class="ltask"></div>
       <div class="lmem"></div>
     </div>`;
