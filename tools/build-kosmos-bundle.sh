@@ -99,6 +99,8 @@ cp "$REPO/install/kosmos" "$STAGE/bin/kosmos"
 # app/, never bin/) carries fixes to it, while the path settings.json points
 # at -- $KOSMOS_HOME/app/bin/kosmos-report-hook.sh -- stays constant. Its CLI
 # is resolved from its own location, so the pair can never version-skew.
+# ⚠️ A relocation: tools/lib/release-freeze.sh names it too (release_bundle_source_path),
+# so the served bundle can be compared file for file against the tree it came from.
 cp "$REPO/install/kosmos-report-hook.sh" "$STAGE/app/bin/kosmos-report-hook.sh"
 chmod +x "$STAGE/app/bin/kosmos-report-hook.sh"
 chmod +x "$STAGE/bin/kosmos"

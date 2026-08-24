@@ -99,6 +99,23 @@ fi
 [ -z "$(git -C "$REPO" status --porcelain)" ] || {
   echo "the tree is dirty after the bump; the bundle would ship as -DIRTY"; exit 1; }
 
+echo "== 2b. the tree that ships, frozen at one sha (#597) =="
+# 🛑 FROM HERE ON, $REPO IS A DETACHED WORKTREE AT THE BUMP SHA, NOT THE
+# SHARED CHECKOUT. The checkout this script lives in is pulled by every agent
+# on the Mac; on 2026-08-24 two cuts in a row were fast-forwarded mid-run, so
+# the suite and the page gate ran on one sha and the bundle shipped another.
+# Steps 3 through 6 run in the frozen tree; step 9b compares what is SERVED
+# against it; only step 10 (the board on this Mac runs from the shared
+# checkout) goes back to MAIN_REPO. The worktree is removed on every exit.
+. "$REPO/tools/lib/release-freeze.sh"
+MAIN_REPO="$REPO"
+SHA="$(git -C "$MAIN_REPO" rev-parse HEAD)"
+BUILD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-release.XXXXXX")" || { echo "no temp dir for the frozen tree"; exit 1; }
+BUILD="$(release_freeze "$MAIN_REPO" "$SHA" "$BUILD_ROOT")" || { rm -rf "$BUILD_ROOT"; echo "could not freeze the tree at $SHA"; exit 1; }
+trap 'release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
+REPO="$BUILD"
+echo "   building ${SHA:0:12} in $BUILD; a pull into $MAIN_REPO from now on changes nothing below"
+
 echo "== 3. the whole suite, on the tree that ships =="
 # ⚠️ CORRECTED CLAIM: the old `yarn test | grep` gate DID refuse a red
 # suite (pipefail makes the pipeline's status yarn's, and errexit
@@ -250,7 +267,7 @@ echo "== 9. verify what is SERVED, from the code that fetches it =="
 # read cannot tell "not published" from "not yet".
 SERVED_OK=0
 for i in 1 2 3 4 5 6; do
-  if SITE="$SITE" bash "$REPO/tools/verify-served.sh"; then SERVED_OK=1; break; fi
+  if SITE="$SITE" REPO="$REPO" bash "$REPO/tools/verify-served.sh"; then SERVED_OK=1; break; fi
   echo "   (attempt $i did not match; waiting)"
   sleep 10
 done
@@ -259,9 +276,22 @@ if [ "$SERVED_OK" != 1 ]; then
   exit 1
 fi
 
+echo "== 9b. the served bundle is the frozen tree, file by file (#597) =="
+# The log's "built <sha>" is measured here rather than remembered: every
+# app/ file in the versioned tarball people download equals the frozen tree,
+# web/index.html after the one substitution the build makes.
+_served_tgz="$(mktemp)"
+if curl -fsSL -m 120 "${HOST:-https://installkosmos.com}/dist/kosmos-$V-arm64.tar.gz" -o "$_served_tgz" \
+   && release_bundle_matches_tree "$_served_tgz" "$BUILD"; then
+  echo "   the served kosmos-$V-arm64.tar.gz is ${SHA:0:12}, file for file"
+else
+  rm -f "$_served_tgz"; echo "THE SERVED BUNDLE IS NOT THE TREE THAT WAS TESTED (${SHA:0:12})"; exit 1
+fi
+rm -f "$_served_tgz"
+
 echo "== 10. the board on THIS Mac, if it runs from this repo =="
 # 🛑 Installs update themselves from what step 9 verified; the developer's own
 # board runs the repo under launchd and never did, so every release left it
 # serving the previous code until somebody noticed (#360). Gated on the job
 # existing AND running from this repo; it says which case it found.
-bash "$REPO/tools/restart-local-board.sh"
+bash "$MAIN_REPO/tools/restart-local-board.sh"
