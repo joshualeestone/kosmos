@@ -9712,6 +9712,22 @@ document.getElementById('eng-toggle').addEventListener('click', engToggleClick);
 function pjApplyEngMode() {
   const vp = document.querySelector('.pj-viewport');
   if (vp) vp.hidden = !ENG_ON;
+  /* #370, Josh 2026-08-23 19:30, verbatim: "Boxes, fold to one if
+     engineering mode is turned off in settings, leave it and the tmux
+     window if engineering mode is turned on." So in the DEFAULT (Off) the
+     page has ONE composer, the room's, and @name is how you hand one agent
+     a request; the one-to-one box appears only for engineers.
+     🛑 EXCEPT WHEN AN AGENT IS WAITING ON AN ANSWER. The question panel
+     lives inside this box and is needed in Off (the ruled line above it:
+     safety, not chrome), and the box's composer is how the number gets
+     typed. A waiting agent overrides the fold; the fold resumes when the
+     question clears. */
+  const box = document.getElementById('pj-thread');
+  if (box) {
+    const q = document.getElementById('pj-question');
+    const asking = Boolean(q) && !q.hidden;
+    box.hidden = !ENG_ON && !asking;
+  }
 }
 
 /* ⚠️ ONE derivation of "is the raw screen actually visible", for every
@@ -18907,6 +18923,7 @@ function openProject(id) {
     document.getElementById('pj-question').hidden = true;
     document.getElementById('pj-screen').hidden = true;
     document.getElementById('pj-screen-hint').textContent = '';
+    pjApplyEngMode();
     // The heading too (round 22): it is written in exactly one place
     // (paintThread), so without this reset a project with no agents kept
     // "What Mara's screen shows right now" from the LAST thread over an
@@ -20103,6 +20120,7 @@ function paintThread(body) {
     pjSetScreen(qText, body.question.text);
     document.getElementById('pj-answer-how').hidden = false;
     qWrap.hidden = false;
+    pjApplyEngMode();
   } else if (body.asking) {
     /**
      * ⚠️ SAID, not hidden. A "Needs you" card over an empty question box is the
@@ -20144,11 +20162,13 @@ function paintThread(body) {
     }
     qText.hidden = true;
     qWrap.hidden = false;
+    pjApplyEngMode();
   } else {
     if (qWrap.contains(document.activeElement)) {
       document.getElementById('pj-say').focus();
     }
     qWrap.hidden = true;
+    pjApplyEngMode();
     qText.hidden = false;
   }
   // The un-hide for the question branch above (its qText.hidden = true is
@@ -20291,6 +20311,7 @@ async function loadThread() {
     document.getElementById('pj-question').hidden = true;
     document.getElementById('pj-screen').hidden = true;
     document.getElementById('pj-screen-hint').textContent = '';
+    pjApplyEngMode();
     // Same heading reset as openProject's clear (round 22): the poll takes
     // this branch within a tick of the last agent leaving the project, and
     // the heading otherwise keeps naming the departed agent.
