@@ -194,6 +194,89 @@ test('a version string in the pane is not mistaken for a shell', () => {
   assert.notEqual(r.state, STATE.STOPPED);
 });
 
+// ---------------------------------------------------------------------------
+// A Codex pane (#249). FIXTURE-DISCIPLINE: every screen below is CAPTURED
+// text from a real codex-cli 0.149.0 pane driven in tmux on this machine,
+// 2026-08-23 -- not typed from memory. If Codex's wording changes,
+// re-capture; do not hand-edit these into what the new version "probably"
+// says.
+// ---------------------------------------------------------------------------
+
+const CODEX_TRUST_PROMPT = `  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt
+  injection. Trusting the directory allows project-local config, hooks, and exec policies to load.
+› 1. Yes, continue
+  2. No, quit
+  Press enter to continue`;
+
+const CODEX_IDLE = `╭────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.149.0)                     │
+│                                                │
+│ model:     gpt-5.6-sol   /model to change      │
+│ directory: /private/tmp/…/scratchpad/codex-obs │
+╰────────────────────────────────────────────────╯
+› Ask Codex to do anything
+  gpt-5.6-sol default · /private/tmp/somewhere`;
+
+const CODEX_WORKING = `• Reconnecting... 4/5 (4s • esc to interrupt)
+  └ Unexpected status 401 Unauthorized`;
+
+test('#249: a Codex agent asking a question is needs_you, the red that could never appear', () => {
+  const r = classify(pane({ command: 'codex' }), CODEX_TRUST_PROMPT);
+  assert.equal(r.state, STATE.NEEDS_YOU);
+  assert.equal(r.confidence, CONFIDENCE.SCRAPED);
+});
+
+test('#249: the defect itself, pinned: no Claude marker matches the Codex prompt', () => {
+  // The selector glyph is › (U+203A), not Claude's ❯ (U+276F), and the words
+  // differ. This is WHY the card exists; if a future edit widens the Claude
+  // list until this matches, the union below stops being load-bearing and
+  // someone should re-read #249 before simplifying it away.
+  const status = require('./status');
+  const lines = CODEX_TRUST_PROMPT.split('\n');
+  assert.equal(
+    lines.some((l) => status.NEEDS_YOU_MARKERS.some((re) => re.test(l))),
+    false,
+    'a Claude marker now matches the Codex prompt; re-read #249 before relying on that'
+  );
+  // And the union carries it, which is what chat.js's question finder reads.
+  assert.equal(
+    lines.some((l) => status.ALL_NEEDS_YOU_MARKERS.some((re) => re.test(l))),
+    true
+  );
+});
+
+test('#249: a Codex pane mid-task is working, and a live one is never "stopped"', () => {
+  const r = classify(pane({ command: 'codex' }), CODEX_WORKING);
+  assert.equal(r.state, STATE.WORKING);
+  // The pre-fix behaviour: STOPPED with "Claude is not running for this one",
+  // true words assembling a false sentence about a running agent.
+  for (const text of [CODEX_TRUST_PROMPT, CODEX_IDLE, CODEX_WORKING, 'unrecognisable']) {
+    assert.notEqual(classify(pane({ command: 'codex' }), text).state, STATE.STOPPED);
+  }
+});
+
+test('#249: a Codex agent at its empty composer is idle, sitting at its prompt', () => {
+  const r = classify(pane({ command: 'codex' }), CODEX_IDLE);
+  assert.equal(r.state, STATE.IDLE);
+});
+
+test('#249: a Codex screen we have not observed is unknown, never something healthy', () => {
+  // The card's own fallback: "we could not look" must never render as
+  // "nothing is happening". Only observed shapes classify; the rest is honest.
+  const r = classify(pane({ command: 'codex' }), 'some codex output nobody has captured yet\n');
+  assert.equal(r.state, STATE.UNKNOWN);
+  assert.equal(r.confidence, CONFIDENCE.NONE);
+  const unread = classify(pane({ command: 'codex' }), null);
+  assert.equal(unread.state, STATE.UNKNOWN);
+});
+
+test('#249: a Codex question is findable by the chat question finder', () => {
+  const chat = require('./chat');
+  const found = chat.questionIn(`some scrollback\n${CODEX_TRUST_PROMPT}\n`);
+  assert.ok(found, 'the question finder could not find the Codex trust prompt');
+  assert.match(found.text, /Do you trust the contents/);
+});
+
 test('a waiting question outranks a finished-work line', () => {
   // Panes often contain both. "Needs you" must win: a blocked agent shown as
   // idle is the single most expensive misread in the product.

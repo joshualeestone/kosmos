@@ -889,7 +889,9 @@ function questionIn(text) {
   // that has already been answered may still be on screen above the live one.
   let at = -1;
   for (let i = 0; i < lines.length; i += 1) {
-    if (status.NEEDS_YOU_MARKERS.some((re) => re.test(lines[i]))) at = i;
+    /* ALL runners' markers (#249): this reads a pane without knowing which
+       runner drew it, and a Codex question must be findable too. */
+    if (status.ALL_NEEDS_YOU_MARKERS.some((re) => re.test(lines[i]))) at = i;
   }
   if (at < 0) return null;
   // A few lines of run-up, because a Claude permission prompt states what it is
@@ -1190,7 +1192,7 @@ function optionsIn(questionText) {
      is the label's words rather than a newer question, and there is a test for
      exactly it. */
   for (let i = lastRun.at + 1; i < lines.length; i += 1) {
-    if (status.NEEDS_YOU_MARKERS.some((re) => re.test(lines[i]))) return null;
+    if (status.ALL_NEEDS_YOU_MARKERS.some((re) => re.test(lines[i]))) return null;
   }
 
   /**

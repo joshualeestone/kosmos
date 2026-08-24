@@ -1055,6 +1055,18 @@ function isClaudeRunning(command) {
 }
 
 /**
+ * Codex, with no other plausible reading (#249): the binary installs as
+ * `codex` and nothing else common shares the name. Kept as strict as
+ * `isUnambiguousClaude`, and deliberately NOT folded into isClaudeCommand:
+ * the classifier dispatches per runner, it does not pretend one runner is
+ * the other.
+ */
+function isCodexCommand(command) {
+  const c = String(command || '').trim();
+  return c === 'codex' || c === 'codex.exe';
+}
+
+/**
  * Braille spinner frames. Claude Code animates these in the pane title while
  * it is actively producing output, so their presence is a live "working"
  * signal. Their absence is NOT evidence of idleness -- we may simply have
@@ -1073,6 +1085,37 @@ const NEEDS_YOU_MARKERS = Object.freeze([
   /permission to/i,
   /❯\s*1\.\s*Yes/,
 ]);
+
+/**
+ * Codex's needs-you shapes (#249). OBSERVED, per this file's own rule that
+ * guessed wordings are 0 for 1 against reality: captured from a live
+ * codex-cli 0.149.0 pane on this machine, 2026-08-23. Its selection dialog
+ * draws
+ *
+ *   › 1. Yes, continue
+ *     2. No, quit
+ *
+ * and the selector glyph is › (U+203A), NOT Claude's ❯ (U+276F), which is
+ * the whole reason this card exists: to a byte-for-byte matcher those are
+ * different prompts, so a Codex agent asking a question matched nothing and
+ * the board's one red state was structurally unreachable for it.
+ *
+ * ⚠️ ONE OBSERVED SHAPE, DELIBERATELY. The command-approval dialog could
+ * not be observed tonight (this machine's Codex API key answers 401, a
+ * finding reported on its own), so it is not guessed at here. Add to this
+ * list by OBSERVING, exactly as the rate-limit markers demand.
+ */
+const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
+  /›\s*1\.\s*Yes/,
+]);
+
+/**
+ * Every runner's needs-you shapes, for consumers that read a PANE without
+ * knowing which runner drew it (chat.js's question finder). The per-runner
+ * classifiers keep using their own lists; this union exists so a question
+ * on any runner's screen can be found and sliced for display.
+ */
+const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEEDS_YOU_MARKERS]);
 
 /**
  * 🛑 THE FIRST FOUR WERE GUESSES AT WORDING AND CLAUDE CODE SAYS SOMETHING ELSE.
@@ -1176,6 +1219,39 @@ function classify(pane, paneText) {
       confidence: CONFIDENCE.NONE,
       because: 'this is not one of your agents, so we cannot say what it is doing',
     };
+  }
+  /**
+   * A pane running Codex is a RUNNING agent on another runner, not a
+   * stopped one (#249). Before this branch it fell through to STOPPED with
+   * "Claude is not running for this one" -- true words assembling a false
+   * sentence, about an agent that was up and possibly asking for help. It
+   * gets its own classifier, built ONLY from observed shapes; anything its
+   * screen shows that we have not observed classifies unknown, because "we
+   * could not look" must never render as "nothing is happening". The
+   * sentences are shared with the Claude path on purpose: a reason is about
+   * the AGENT, never the runtime underneath it (codexsession.js's rule).
+   */
+  if (isCodexCommand(pane.command)) {
+    if (paneText === null) {
+      return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its screen' };
+    }
+    const codexTail = paneText.split('\n').slice(-25).join('\n');
+    if (CODEX_NEEDS_YOU_MARKERS.some((re) => re.test(codexTail))) {
+      return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is asking you something' };
+    }
+    // Observed: codex draws "(4s • esc to interrupt)" on its live progress
+    // line, the same phrase Claude's older UI used. Vocabulary coincidence,
+    // matched deliberately: it was captured from a real pane, not assumed.
+    if (/esc to interrupt/i.test(codexTail)) {
+      return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task' };
+    }
+    // Observed: the empty composer, codex's equivalent of sitting at the
+    // prompt. Like Claude's footer rule this sits below the checks above:
+    // reaching it means nothing said working and nothing said it needs you.
+    if (/›\s*Ask Codex to do anything/.test(codexTail)) {
+      return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it is sitting at its prompt' };
+    }
+    return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'nothing on its screen says what it is doing' };
   }
   if (!isClaudeRunning(pane.command)) {
     return { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'Claude is not running for this one' };
@@ -2743,6 +2819,9 @@ module.exports = {
   // first time a marker is added here. The card that says "Needs you" and the
   // thread that shows the question must never be able to disagree.
   NEEDS_YOU_MARKERS,
+  CODEX_NEEDS_YOU_MARKERS,
+  ALL_NEEDS_YOU_MARKERS,
+  isCodexCommand,
 };
 
 if (require.main === module) {
