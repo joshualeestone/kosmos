@@ -797,9 +797,19 @@ test('the startup script will not kill a session it cannot prove is ours', () =>
   // And it WAITS rather than exiting: exiting would have launchd restart it
   // every thirty seconds against a session it must not touch. The poll is short
   // because the screen only waits thirty seconds in total, so a name that frees
-  // up must not cost more than that before the agent starts.
-  assert.match(script, /sleep 5\n/, 'nothing waits for the other session to end');
+  // up must not cost more than that before the agent starts. Since #579 the
+  // interval rides a test seam, so the pin holds the DEFAULT (the thing the
+  // thirty-second reasoning depends on) rather than a literal sleep line;
+  // tools/test-supervisor-wait.sh runs the loop for the behaviour.
+  assert.match(script, /WAIT_POLL_SECS:-5\}/, 'the short poll default moved; the screen’s thirty-second wait depends on it');
+  assert.match(script, /sleep "\$POLL_SECS"/, 'nothing waits for the other session to end');
   assert.match(script, /waiting rather than killing it/, 'nothing says why the agent has not started');
+  // #579's own pins: the not-ours wait must be able to SAY it is failing --
+  // an escalation that names the blockage and repeats -- and must never
+  // quietly give up (no exit on the not-ours path; the loop's only ends are
+  // the holder ending or an ours-branch).
+  assert.match(script, /STILL WAITING/, 'the not-ours wait went silent again after the first warning');
+  assert.match(script, /held by a session we did not create/, 'the escalation stopped naming the failure');
 });
 
 test('the startup script names its session exactly, not by prefix', () => {
