@@ -890,6 +890,14 @@ const server = http.createServer((req, res) => {
            ⚠️ Only for agents we started: an untied pane borrowing a name has
            no startup file of ours, and answering for it would be answering for
            a stranger's session. */
+        /* #170: the agent's id, read-only, so screens and future
+           outside-agent reconciliation can tell two same-named agents
+           apart. `agentId` answers null for a profile minted under another
+           install (a restored agent is a different agent and gets a fresh
+           id on its first local write) and for an untied pane, which is not
+           ours to name. Nothing resolves BY id yet; the name remains the
+           operational key everywhere. */
+        id: a.isNamedOurs ? store.agentId(a.sessionName) : null,
         account: a.isNamedOurs ? accountOf(a.sessionName) : null,
         commitments: a.isNamedOurs
           ? commitments.read(a.sessionName)
@@ -1043,6 +1051,11 @@ const server = http.createServer((req, res) => {
                    agent with a job that EXISTS and is overridden off; the
                    never-recorded case above wins when both could apply. */
                 jobSwitchedOff: !create.jobMissing(k.name) && switchedOff.has(k.name),
+                /* #170: same field, same meaning as the running rows. The
+                   embedded `profile` above may carry a foreign install's id
+                   inside it; THIS field is the one consumers read, and it is
+                   already filtered. */
+                id: store.agentId(k.name),
                 account: accountOf(k.name),
                 commitments: commitments.read(k.name),
                 instructions: instructions.staleness(k.name),
