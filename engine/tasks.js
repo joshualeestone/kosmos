@@ -58,7 +58,7 @@ function taskProblem({ sentence, detail, who } = {}) {
  * write; the number is issued inside the same atomic mutate that stores
  * the task, so two concurrent creates cannot share one.
  */
-function create(projectId, { sentence, detail, who } = {}, roster) {
+function create(projectId, { sentence, detail, who, made: origin } = {}, roster) {
   const problem = taskProblem({ sentence, detail, who });
   if (problem) throw new Error(problem);
   const whoKey = typeof who === 'string' && who.trim() ? who.trim() : null;
@@ -86,15 +86,14 @@ function create(projectId, { sentence, detail, who } = {}, roster) {
       // undefined when unassigned (nothing to have seen); null when assigned
       // with no roster to check against; boolean when checked.
       whoSeen: seen,
-      /* 🔑 WHO PUT IT THERE, STORED NOW WHILE THE ANSWER IS TRIVIAL. Only the
-         operator can make a task today, so the page could hardcode "You" and
-         be right -- and would go wrong silently the day an agent can add one,
-         because nothing would have recorded the difference. Mona Lisa's note
-         on the pack's "Added: You, yesterday": the field costs nothing while
-         the answer is free and cannot be recovered afterwards.
-         'operator' rather than a name: Kosmos has no accounts, so the only
-         honest identity here is the person at the machine. */
-      addedBy: 'operator',
+      /* 🔑 WHO PUT IT THERE. The day this field was seeded for arrived
+         (#485, Josh 19:26: agents can create tasks too): 'operator' for the
+         screen, the agent's session name when a pane resolved, null for a
+         process nothing vouched for -- the screen says "an agent" then,
+         never "You". addedVia carries HOW separately, because who and how
+         are different facts and the valve counts the second. */
+      addedBy: (origin && origin.via === 'process') ? (origin.by || null) : 'operator',
+      addedVia: (origin && origin.via === 'process') ? 'process' : 'screen',
       createdAt: new Date().toISOString(),
       closedAt: null,
     };
