@@ -15,6 +15,7 @@
 #   install/setup.sh:30   runs https://installkosmos.com/setup   (new installs)
 #   install/setup.sh:373  GET  <base>/tmux-$ARCH.tar.gz  + .sha256
 #   install/setup.sh:~390 GET  <base>/kosmos-$ARCH.tar.gz + .sha256
+#   site index.html (the macOS Download button)  GET <base>/Kosmos.pkg (+ .sha256, .inputs)
 set -uo pipefail
 REPO=${REPO:-/Users/agent1/work/agent-workforce}
 HOST=${HOST:-https://installkosmos.com}
@@ -107,6 +108,54 @@ if curl -fsS "$vurl" -o "$vtmp"; then
   else say "/dist/kosmos-$want-arm64.tar.gz" "CHECKSUM MISMATCH on the versioned pair"; fail=1; fi
 else say "/dist/kosmos-$want-arm64.tar.gz" "MISSING -- installers fall back to the cacheable plain name"; fail=1; fi
 rm -f "$vtmp"
+
+echo "== what the Download button serves =="
+# The homepage's macOS button points at /dist/Kosmos.pkg (#555). The pkg is
+# payload-free and rebuilt only when its inputs change, so "current" here means
+# its INPUTS sidecar matches the source (tools/lib/pkg-inputs.sh, the one
+# definition), its bytes match the checksum served beside it, and the
+# signature and staple are real. A pkg that fails any of these is what a
+# person double-clicks, so each is its own line.
+. "$REPO/tools/lib/pkg-inputs.sh"
+pwant=$(pkg_input_sha "$REPO") || { say "/dist/Kosmos.pkg inputs" "could not compute the source input sha"; fail=1; pwant=; }
+pdir=$(mktemp -d); pvouch=
+if curl -fsS -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos.pkg.inputs" -o "$pdir/inputs" 2>/dev/null && [ -s "$pdir/inputs" ]; then
+  pside=$(pkg_sidecar_inputs "$pdir/inputs"); pvouch=$(pkg_sidecar_pkgsha "$pdir/inputs")
+  if [ -n "$pwant" ] && [ "$pside" = "$pwant" ]; then say "/dist/Kosmos.pkg.inputs" "matches source (${pwant:0:12})"
+  else say "/dist/Kosmos.pkg.inputs" "STALE -- served ${pside:0:12}, source ${pwant:0:12}"; fail=1; fi
+else say "/dist/Kosmos.pkg.inputs" "MISSING -- the served pkg predates the guard, its inputs are unknown"; fail=1; fi
+# ⚠️ NAMED Kosmos.pkg ON DISK, not a bare mktemp: `stapler validate` decides
+# the file type from the extension and reports "no valid staple" on a stapled
+# pkg with none. Measured on the served pkg itself: rc 66 as `mktemp` output,
+# rc 0 as served.pkg, same bytes. A check that cannot reach the state it
+# tests reads as the defect it was built to catch.
+ptmp="$pdir/Kosmos.pkg"
+if curl -fsS "$HOST/dist/Kosmos.pkg" -o "$ptmp"; then
+  preal=$(_pkg_hash < "$ptmp" | awk '{print $1}')
+  ppub=$(curl -fsS "$HOST/dist/Kosmos.pkg.sha256" 2>/dev/null | awk '{print $1}')
+  if [ -z "$ppub" ]; then say "/dist/Kosmos.pkg.sha256" "could not be fetched"; fail=1
+  elif [ "$preal" = "$ppub" ]; then say "/dist/Kosmos.pkg" "$(wc -c < "$ptmp" | tr -d ' ') bytes, checksum matches"
+  else say "/dist/Kosmos.pkg" "CHECKSUM MISMATCH -- the pair a person downloads disagrees with itself"; fail=1; fi
+  # The sidecar must vouch for THESE bytes: a new sidecar beside the prior
+  # pkg pair (each self-consistent) is the mixed edge state this line catches.
+  if [ -s "$pdir/inputs" ]; then
+    if [ -z "$pvouch" ]; then say "/dist/Kosmos.pkg.inputs vouches for" "NO bytes (no pkg: line) -- a hand-written or truncated sidecar"; fail=1
+    elif [ "$pvouch" = "$preal" ]; then say "/dist/Kosmos.pkg.inputs vouches for" "these bytes"
+    else say "/dist/Kosmos.pkg.inputs vouches for" "OTHER bytes (${pvouch:0:12}) than the served pkg (${preal:0:12})"; fail=1; fi
+  fi
+  # The signature and the staple, from the downloaded bytes, on a Mac only
+  # (elsewhere the tools do not exist and their absence is said, not passed).
+  if command -v pkgutil >/dev/null 2>&1; then
+    # OUR identity, by team id, not any Developer ID Installer's.
+    if pkgutil --check-signature "$ptmp" 2>/dev/null | grep -q "Developer ID Installer: Stone Syndicate LLC (864QZ69GF2)"; then say "/dist/Kosmos.pkg signature" "Developer ID Installer, Stone Syndicate LLC (864QZ69GF2)"
+    else say "/dist/Kosmos.pkg signature" "NOT signed by Stone Syndicate's Developer ID Installer (864QZ69GF2)"; fail=1; fi
+  else say "/dist/Kosmos.pkg signature" "not checked here (no pkgutil on this machine)"; fi
+  if command -v xcrun >/dev/null 2>&1 && xcrun --find stapler >/dev/null 2>&1; then
+    if xcrun stapler validate "$ptmp" >/dev/null 2>&1; then say "/dist/Kosmos.pkg staple" "notarisation ticket stapled"
+    else say "/dist/Kosmos.pkg staple" "NO valid staple -- a fresh Mac shows the warning"; fail=1; fi
+  else say "/dist/Kosmos.pkg staple" "not checked here (no stapler on this machine)"; fi
+else say "/dist/Kosmos.pkg" "could not be fetched"; fail=1; fi
+rm -rf "$pdir"
 
 echo
 [ "$fail" = "0" ] && echo "every artifact a user can receive matches the repo" || { echo "SOMETHING A USER RECEIVES IS WRONG"; exit 1; }
