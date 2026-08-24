@@ -1779,6 +1779,30 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated.fold-a > #rail-me { justify-content: center; padding-left: 0; padding-right: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a .railme-b, html[data-layout="consolidated"] body.consolidated.fold-a .railme-theme { display: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a .railme-go { flex: none; }
+  /* The header gives way (Josh, 15:32: "header gone is what I'm going
+     for"). Its notice slots stay in the flow, so an update note or the
+     offline warning still has somewhere to appear; the tabs, the K link,
+     the status line and the theme pill are elsewhere in this view. */
+  html[data-layout="consolidated"] body.consolidated > .apphead { position: static; padding: 0; border: 0; min-height: 0; }
+  html[data-layout="consolidated"] body.consolidated > .apphead header { padding: 0; min-height: 0; }
+  html[data-layout="consolidated"] body.consolidated > .apphead .klink, html[data-layout="consolidated"] body.consolidated > .apphead h1,
+  html[data-layout="consolidated"] body.consolidated > .apphead .tabs, html[data-layout="consolidated"] body.consolidated > .apphead .headright { display: none; }
+  html[data-layout="consolidated"] body.consolidated .railhead .lead { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  html[data-layout="consolidated"] body.consolidated .railk { border: 0; background: none; padding: 0; cursor: pointer; line-height: 0; flex: none; }
+  html[data-layout="consolidated"] body.consolidated .railk img { width: 22px; height: 22px; border-radius: 6px; display: block; }
+  html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents .lead { flex-direction: column; }
+  /* The rails on a deeper ground than the conversation, and their rows flat
+     and quiet, the way the mock draws them. */
+  html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated #pj-list-view { background: var(--k-sunk, rgba(20,22,26,.05)); border-radius: 12px; padding: 8px; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents { background: var(--k-sunk, rgba(20,22,26,.05)); border-radius: 12px 12px 0 0; padding: 8px 8px 0; margin: 0; }
+  html[data-layout="consolidated"] body.consolidated > #alist { border-radius: 0 0 12px 12px; padding-top: 0; }
+  html[data-layout="consolidated"] body.consolidated .lrow { border: 0; background: none; box-shadow: none; border-radius: 9px; padding: 6px 6px; }
+  html[data-layout="consolidated"] body.consolidated .lrow:hover { background: var(--k-surface); }
+  html[data-layout="consolidated"] body.consolidated .lrow.attn { border: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj-row { border: 0; background: none; box-shadow: none; border-radius: 9px; padding: 7px 8px; }
+  html[data-layout="consolidated"] body.consolidated .pj-row:hover { background: var(--k-surface); box-shadow: none; }
+  html[data-layout="consolidated"] body.consolidated #pj-list { gap: 2px; }
+  html[data-layout="consolidated"] body.consolidated #rail-projects { margin: 0 2px 6px 2px; }
   /* The rail heads: a name, a +, and the fold arrow. Folded, the arrow (and
      the +) stack and the name goes. */
   html[data-layout="consolidated"] body.consolidated .railhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 0 2px 8px 6px; min-height: 22px; }
@@ -7022,7 +7046,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      view (showTab shows it with the mode). The + is the board's own New
      agent; the arrow folds the column to its letters. -->
 <div class="railhead" id="rail-agents" hidden>
-  <span class="railname">Agents</span>
+  <span class="lead"><button class="railk" id="rail-k" type="button" aria-label="Go to your agents"><img id="rail-k-img" alt="" width="22" height="22"></button><span class="railname">Agents</span></span>
   <span class="railacts">
     <button class="fold plus" type="button" id="rail-agents-new" aria-label="New agent" title="New agent">+</button>
     <button class="fold" type="button" id="rail-agents-fold" data-fold="a" aria-label="Fold the agents column" aria-expanded="true">&lsaquo;</button>
@@ -9692,7 +9716,14 @@ function showTab(tab) {
   document.getElementById('rail-agents').hidden = !cons;
   document.getElementById('rail-projects').hidden = !cons;
   document.getElementById('rail-me').hidden = !cons;
-  if (cons) paintRailMe();
+  if (cons) {
+    paintRailMe();
+    /* The K mark is the header's own image; in this view the header is
+       folded to its notice slots, so the mark lives at the rail's top. */
+    const k = document.getElementById('rail-k-img');
+    const src = document.getElementById('klink-img');
+    if (k && src && k.src !== src.src) k.src = src.src;
+  }
   railFoldsApply();
   if (cons) {
     document.getElementById('panel-projects').hidden = false;
@@ -16422,6 +16453,7 @@ document.querySelectorAll('[data-fold]').forEach((btn) => {
   });
 });
 document.getElementById('rail-agents-new').addEventListener('click', () => document.getElementById('new-agent').click());
+document.getElementById('rail-k').addEventListener('click', () => document.getElementById('klink').click());
 document.getElementById('rail-projects-new').addEventListener('click', () => document.getElementById('pj-new').click());
 /* Crossing 1280 either way re-lays the page; the setting itself is untouched. */
 window.addEventListener('resize', () => {
