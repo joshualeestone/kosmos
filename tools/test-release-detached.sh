@@ -76,6 +76,17 @@ release_bundle_matches_tree "$T/binbad.tgz" "$BUILD" >/dev/null && bad "a stale 
 echo 'other' > "$T/bundle/app/bin/kosmos-report-hook.sh"; bundle relocbad.tgz; cp "$BUILD/install/kosmos-report-hook.sh" "$T/bundle/app/bin/kosmos-report-hook.sh"
 release_bundle_matches_tree "$T/relocbad.tgz" "$BUILD" >/dev/null && bad "a changed relocated hook was called matching" || ok "a changed relocated hook is caught (compared against install/)"
 
+# The Plus connector (#583): verified against a checksum, never the tree.
+mkdir -p "$T/bundle/app/bin"; printf 'connector-v1' > "$T/bundle/app/bin/kosmos-tunnel"
+_tsha="$(shasum -a 256 "$T/bundle/app/bin/kosmos-tunnel" | awk '{print $1}')"
+bundle tun.tgz
+release_bundle_matches_tree "$T/tun.tgz" "$BUILD" "$_tsha" >/dev/null && ok "a connector matching the expected checksum passes, and is not sought in the tree" || bad "a matching connector was rejected"
+release_bundle_matches_tree "$T/tun.tgz" "$BUILD" "deadbeef" >/dev/null && bad "a connector with the wrong checksum was called matching" || ok "a connector with the wrong checksum is caught"
+release_bundle_matches_tree "$T/tun.tgz" "$BUILD" "" >/dev/null && bad "a connector with no expected checksum was passed (skipped)" || ok "a connector with no expected checksum is refused, not skipped"
+printf 'connector-v2' > "$T/bundle/app/bin/kosmos-tunnel"; bundle tun2.tgz
+release_bundle_matches_tree "$T/tun2.tgz" "$BUILD" "$_tsha" >/dev/null && bad "a changed connector still matched the old checksum" || ok "a changed connector no longer matches the old checksum"
+rm -f "$T/bundle/app/bin/kosmos-tunnel"
+
 # A tarball missing a whole tree (no bin member) is a setup failure (2), not a pass.
 tar -czf "$T/nobin.tgz" -C "$T/bundle" app
 release_bundle_matches_tree "$T/nobin.tgz" "$BUILD" >/dev/null; [ "$?" = 2 ] && ok "a bundle missing bin/ is refused as malformed (2), not passed" || bad "a bundle missing bin/ was not refused as malformed"

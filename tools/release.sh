@@ -160,6 +160,13 @@ rm -f "$_page_log"
 
 echo "== 4. build =="
 ( cd "$REPO" && bash tools/build-kosmos-bundle.sh dist )
+# The connector's checksum, from the tarball THIS build just produced, so step
+# 9b can prove the SERVED tunnel is byte-for-byte the one tested here (#583).
+# The connector is not a tree file (kosmos-relay builds it), so this is its
+# source of truth, the analog of the app/ files' tree comparison.
+TUNNEL_SHA="$(tar -xzOf "$REPO/dist/kosmos-arm64.tar.gz" app/bin/kosmos-tunnel 2>/dev/null | shasum -a 256 | awk '{print $1}')"
+[ -n "$TUNNEL_SHA" ] && [ "$TUNNEL_SHA" != "$(printf '' | shasum -a 256 | awk '{print $1}')" ] || { echo "the built bundle carries no Plus connector (app/bin/kosmos-tunnel); build-kosmos-bundle.sh should have refused"; exit 1; }
+echo "   connector: kosmos-tunnel $TUNNEL_SHA"
 cp "$REPO/dist/kosmos-arm64.tar.gz" "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/"
 # ⚠️ THE VERSIONED NAME IS THE ONE A CACHE CANNOT LIE ABOUT. The plain
 # name is one URL across every release, and an edge cache satisfied an
@@ -300,13 +307,13 @@ _served_tgz="$(mktemp)"
 _bundle_ok=0
 for i in 1 2 3 4 5 6; do
   if curl -fsSL -m 120 "${HOST:-https://installkosmos.com}/dist/kosmos-$V-arm64.tar.gz" -o "$_served_tgz" \
-     && release_bundle_matches_tree "$_served_tgz" "$BUILD"; then _bundle_ok=1; break; fi
+     && release_bundle_matches_tree "$_served_tgz" "$BUILD" "$TUNNEL_SHA"; then _bundle_ok=1; break; fi
   echo "   (attempt $i did not match the frozen tree; waiting)"
   sleep 10
 done
 rm -f "$_served_tgz"
 if [ "$_bundle_ok" = 1 ]; then
-  echo "   the served kosmos-$V-arm64.tar.gz is ${SHA:0:12}: every tree file (app/ and bin/kosmos) matches"
+  echo "   the served kosmos-$V-arm64.tar.gz is ${SHA:0:12}: every tree file (app/ and bin/kosmos) matches, and the connector is ${TUNNEL_SHA:0:12}"
 else
   echo "THE SERVED BUNDLE IS NOT THE TREE THAT WAS TESTED (${SHA:0:12}) AFTER SIX READS"; exit 1
 fi

@@ -77,8 +77,13 @@ release_bundle_source_path() {
 # runs). runtime/** (a downloaded Node) and VERSION (a build stamp) are not
 # tree files and are deliberately not extracted, so they cannot be compared.
 # app/web/index.html is compared after the one substitution the build makes.
+# $3 (optional): the expected sha256 of app/bin/kosmos-tunnel. The connector
+# is NOT a tree file (kosmos-relay builds it), so it is verified against this
+# checksum -- the sha of the tunnel THIS release built -- rather than skipped.
+# Passing it empty means no bundle is expected to carry a tunnel, and a tunnel
+# appearing anyway is a failure (a file the comparison has no source for).
 release_bundle_matches_tree() {
-  local tar="$1" tree="$2" tmp ver rel src cmpfile bad=0
+  local tar="$1" tree="$2" want_tunnel_sha="${3:-}" tmp ver rel src cmpfile got_tunnel_sha bad=0
   [ -f "$tar" ] && [ -d "$tree" ] || { echo "release_bundle_matches_tree: need a tarball and a tree" >&2; return 2; }
   ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tree/package.json" | head -1)"
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bundle-cmp.XXXXXX")" || return 2
@@ -88,6 +93,13 @@ release_bundle_matches_tree() {
   local n=0
   while IFS= read -r rel; do
     n=$((n+1))
+    if [ "$rel" = app/bin/kosmos-tunnel ]; then
+      # The connector: verified against the built tunnel's checksum, not the tree.
+      if [ -z "$want_tunnel_sha" ]; then echo "   the bundle carries a connector but no expected checksum was given: $rel"; bad=1; continue; fi
+      got_tunnel_sha="$(shasum -a 256 "$tmp/$rel" | awk '{print $1}')"
+      [ "$got_tunnel_sha" = "$want_tunnel_sha" ] || { echo "   the served connector is not the one this release built ($got_tunnel_sha != $want_tunnel_sha): $rel"; bad=1; }
+      continue
+    fi
     src="$(release_bundle_source_path "$rel")"
     cmpfile="$tmp/$rel"
     if [ ! -f "$tree/$src" ]; then echo "   not in the tree: $rel"; bad=1

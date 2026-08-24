@@ -45,7 +45,21 @@ const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
 const FILE = path.join(BASE, 'remote.json');
 const STATE_DIR = () => process.env.AGENT_WORKFORCE_TUNNEL_STATE || path.join(BASE, 'remote');
 const STATUS_FILE = () => path.join(BASE, 'remote-status.json');
-const BIN = () => process.env.AGENT_WORKFORCE_TUNNEL_BIN || 'kosmos-tunnel';
+/* Where the connector lives. An explicit AGENT_WORKFORCE_TUNNEL_BIN wins (the
+ * test seam, and any operator override). Otherwise prefer the copy this app
+ * ships beside itself -- installed, remote.js sits at
+ * $KOSMOS_HOME/app/engine/remote.js and the tunnel at
+ * $KOSMOS_HOME/app/bin/kosmos-tunnel (#583), and the board runs under launchd
+ * with a minimal PATH that a bare name would not resolve. Fall back to the
+ * bare name (PATH) only when no bundled copy is present, which is the source
+ * checkout: there the tunnel is not staged, so a developer sets the env var
+ * or puts it on PATH, exactly as before. */
+const BIN = () => {
+  if (process.env.AGENT_WORKFORCE_TUNNEL_BIN) return process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  const bundled = path.join(__dirname, '..', 'bin', 'kosmos-tunnel');
+  try { if (fs.existsSync(bundled)) return bundled; } catch { /* fall through to PATH */ }
+  return 'kosmos-tunnel';
+};
 const RELAY = () => process.env.AGENT_WORKFORCE_TUNNEL_RELAY || read().relay || '';
 const COORDINATOR = () =>
   process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR || 'http://127.0.0.1:8380';

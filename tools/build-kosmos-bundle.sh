@@ -107,6 +107,44 @@ cp "$REPO/install/kosmos" "$STAGE/bin/kosmos"
 cp "$REPO/install/kosmos-report-hook.sh" "$STAGE/app/bin/kosmos-report-hook.sh"
 chmod +x "$STAGE/app/bin/kosmos-report-hook.sh"
 chmod +x "$STAGE/bin/kosmos"
+# ---- the Plus connector (#583) ---------------------------------------------
+# The tunnel binary engine/remote.js SPAWNS for every Plus verb (setup, the
+# running tunnel, the Allow verbs). It rides in app/bin, versioned WITH the
+# app, for the report-hook's reason: remote.js drives specific verbs of it, so
+# the two must never version-skew, and an UPDATE swaps app/ as one unit.
+#
+# ⚠️ NOT BUILT HERE AND NOT IN THIS REPO. It is a universal (x86_64 + arm64)
+# Mach-O built by kosmos-relay's tools/build-tunnel-release.sh (a different
+# repo). This step takes it as an INPUT, the same way the Node runtime is a
+# downloaded input rather than a tree file. Provide it at KOSMOS_TUNNEL_BIN;
+# the default is kosmos-relay's release output beside this checkout.
+#
+# ⚠️ THE INPUT IS EXPECTED IN ITS FINAL, SIGNED FORM. Signing rewrites the
+# Mach-O, so it must happen BEFORE this copy or the served bytes would not
+# match what a later checksum captured. Whether that signature is ad-hoc (the
+# tmux path: the tunnel is spawned, not launched, so Gatekeeper's
+# notarisation check does not apply) or Developer ID is the Apple lane's call;
+# either way the binary arrives here already signed and this step does not
+# re-sign it.
+TUNNEL_BIN="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
+[ -f "$TUNNEL_BIN" ] || { echo "the Plus connector is missing: no kosmos-tunnel at $TUNNEL_BIN (build it with kosmos-relay tools/build-tunnel-release.sh, or set KOSMOS_TUNNEL_BIN)" >&2; exit 1; }
+# Refuse anything but a universal Mach-O carrying BOTH arches: a per-arch or
+# wrong file would install and then fail Plus on the other arch, silently.
+_tunnel_arch="$(file -b "$TUNNEL_BIN" 2>/dev/null || echo '?')"
+case "$_tunnel_arch" in
+  *"universal binary"*"x86_64"*"arm64"*|*"universal binary"*"arm64"*"x86_64"*) : ;;
+  *) echo "the Plus connector at $TUNNEL_BIN is not a universal x86_64+arm64 Mach-O (file says: $_tunnel_arch)" >&2; exit 1 ;;
+esac
+cp "$TUNNEL_BIN" "$STAGE/app/bin/kosmos-tunnel"
+chmod +x "$STAGE/app/bin/kosmos-tunnel"
+# Provenance, logged not baked: the input's own checksum, and which
+# kosmos-relay commit produced it when the input sits in a checkout. This is
+# what a human (or a follow-up automated check) compares against Baron's build
+# to confirm the connector is not stale; the release's 9b then proves the
+# SERVED tunnel is byte-for-byte the one THIS build packed.
+_tunnel_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}')"
+_tunnel_src="$(cd "$(dirname "$TUNNEL_BIN")" 2>/dev/null && git describe --always --dirty 2>/dev/null || echo 'no git provenance')"
+echo "==> Plus connector: kosmos-tunnel $_tunnel_sha (from $TUNNEL_BIN, $_tunnel_src)"
 
 # ---- the runtime ------------------------------------------------------------
 node_arch() {
