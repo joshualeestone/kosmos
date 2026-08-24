@@ -416,6 +416,59 @@ function resolveReal(given) {
   return fs.realpathSync(given);
 }
 
+/**
+ * Canonical form of a path for comparison: resolved through symlinks when it
+ * exists, and with a leading `/private` stripped so macOS's firmlinked temp
+ * roots compare equal (`os.tmpdir()` reports `/var/folders/…` but `realpath`
+ * returns `/private/var/folders/…`, and `/tmp` is `/private/tmp`). A path that
+ * does not exist yet (a store root written lazily) still normalises, via
+ * `path.resolve`, so the comparison holds before the first write.
+ */
+function canonicalPath(p) {
+  const raw = path.resolve(String(p == null ? '' : p));
+  let real = raw;
+  try { real = resolveReal(raw); } catch { /* may not exist on disk yet */ }
+  return real === '/private' ? real : real.replace(/^\/private(\/|$)/, '/');
+}
+
+/**
+ * Is `folder` the system temp directory or inside it? Compared on canonical
+ * paths and on a PATH BOUNDARY, so `/var/folders/…/T` does not match a sibling
+ * `…/Tea`, and a folder symlinked into temp is caught by its resolved target.
+ * `os.tmpdir()` plus `/tmp` cover the roots a fixture or sandbox actually uses.
+ */
+function isUnderTmpDir(folder) {
+  const target = canonicalPath(folder);
+  if (!target) return false;
+  const roots = new Set([os.tmpdir(), '/tmp'].map(canonicalPath).filter(Boolean));
+  for (const root of roots) {
+    if (target === root) return true;
+    const withSep = root.endsWith('/') ? root : root + '/';
+    if (target.startsWith(withSep)) return true;
+  }
+  return false;
+}
+
+/**
+ * The registration refusal (#525): a project folder under `os.tmpdir()` is
+ * refused, because a real project is never in a temp directory — the OS clears
+ * it, so a row pointing there is dirt that renders as healthy while the folder
+ * still exists. 109 such rows once leaked into a live store from a test that
+ * wrote fixtures under `T/`, and were invisible because they statused as real.
+ *
+ * The refusal is conditional on ONE thing, and it is the honest one: a temp
+ * folder is a leak only when the store it would enter is a REAL location. When
+ * the store ITSELF lives in a temp dir we are inside a test or a sandbox whose
+ * whole world is temporary, and a temp project there is expected, not a leak —
+ * which is exactly how the suite creates its fixtures. So: refuse a temp folder
+ * only when the store root is not itself temp. This needs no test opt-out and
+ * cannot be forgotten by a future test, and it still fires for a production
+ * store pointed at a custom real directory, not only the default one.
+ */
+function tmpFolderRefused(folder, storeRoot) {
+  return isUnderTmpDir(folder) && !isUnderTmpDir(storeRoot);
+}
+
 function folderState(folder) {
   const given = String(folder || '');
   if (!given) return { state: FOLDER.MISSING, because: 'no folder was recorded for this project', real: null };
@@ -1362,6 +1415,15 @@ function create({ name, folder, agents, roster, description, made } = {}) {
   if (state.state === FOLDER.NOT_A_FOLDER) throw new Error('that is a file, not a folder');
   if (state.state === FOLDER.UNREADABLE) throw new Error('we cannot read that folder');
 
+  // A real project is never in a temp directory (#525). Refuse it at
+  // registration so a fixture or sandbox that writes under os.tmpdir() can
+  // never become a live project row. Checked on the RESOLVED path, so a
+  // symlink into temp is caught; skipped when the store is itself temp (a
+  // test/sandbox), which is where temp project folders are legitimate.
+  if (tmpFolderRefused(state.real || given, store.ROOT)) {
+    throw new Error('that folder is inside a temporary directory, which the system clears; point Kosmos at a folder you keep your work in');
+  }
+
   const all = readAll();
   const already = all.find((p) => folderState(p.folder).real === state.real);
   if (already) throw new Error(`that folder is already the project "${already.name}"`);
@@ -1963,4 +2025,5 @@ module.exports = {
   findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, setRevealRunner, listFiles, openFile,
+  isUnderTmpDir, tmpFolderRefused,
 };
