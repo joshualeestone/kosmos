@@ -145,8 +145,9 @@ if curl -fsS "$HOST/dist/Kosmos.pkg" -o "$ptmp"; then
   # The signature and the staple, from the downloaded bytes, on a Mac only
   # (elsewhere the tools do not exist and their absence is said, not passed).
   if command -v pkgutil >/dev/null 2>&1; then
-    if pkgutil --check-signature "$ptmp" 2>/dev/null | grep -q "Developer ID Installer"; then say "/dist/Kosmos.pkg signature" "Developer ID Installer"
-    else say "/dist/Kosmos.pkg signature" "NOT a Developer ID Installer signature"; fail=1; fi
+    # OUR identity, by team id, not any Developer ID Installer's.
+    if pkgutil --check-signature "$ptmp" 2>/dev/null | grep -q "Developer ID Installer: Stone Syndicate LLC (864QZ69GF2)"; then say "/dist/Kosmos.pkg signature" "Developer ID Installer, Stone Syndicate LLC (864QZ69GF2)"
+    else say "/dist/Kosmos.pkg signature" "NOT signed by Stone Syndicate's Developer ID Installer (864QZ69GF2)"; fail=1; fi
   else say "/dist/Kosmos.pkg signature" "not checked here (no pkgutil on this machine)"; fi
   if command -v xcrun >/dev/null 2>&1 && xcrun --find stapler >/dev/null 2>&1; then
     if xcrun stapler validate "$ptmp" >/dev/null 2>&1; then say "/dist/Kosmos.pkg staple" "notarisation ticket stapled"

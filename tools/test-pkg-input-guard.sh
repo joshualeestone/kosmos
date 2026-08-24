@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.." || exit 1
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 T="$(mktemp -d "${TMPDIR:-/tmp}/pkg-input-guard.XXXXXX")"; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/install/pkg-scripts" "$T/install/pkg-resources" "$T/tools"
-printf '#!/bin/sh\necho hello\n' > "$T/install/pkg-scripts/postinstall"
+printf '#!/bin/sh\necho hello\n' > "$T/install/pkg-scripts/postinstall"; chmod +x "$T/install/pkg-scripts/postinstall"
 printf '<p>welcome</p>\n' > "$T/install/pkg-resources/welcome.html"
 printf '<p>done</p>\n' > "$T/install/pkg-resources/conclusion.html"
 printf '#!/bin/bash\n# build\n' > "$T/tools/build-installer-pkg.sh"
@@ -75,6 +75,10 @@ touch "$T/install/pkg-scripts/postinstall" "$T/install/pkg-resources/conclusion.
 [ "$(pkg_input_sha "$T")" = "$base" ] && ok "CONTROL: touching every input (mtime only) leaves the sha alone" || bad "an mtime change moved the sha -- the hasher reads stat, not bytes"
 printf '{"version":"9.9.9"}\n' > "$T/package.json"
 [ "$(pkg_input_sha "$T")" = "$base" ] && ok "CONTROL: the version (package.json) is not an input" || bad "package.json moved the sha"
+# the executable bit IS an input: a postinstall without x is a pkg that runs nothing.
+chmod -x "$T/install/pkg-scripts/postinstall"
+[ "$(pkg_input_sha "$T")" != "$base" ] && ok "CONTROL: dropping the postinstall's x bit changes the sha" || bad "chmod -x on the postinstall left the sha alone -- a pkg that runs nothing reads as current"
+chmod +x "$T/install/pkg-scripts/postinstall"; base="$(pkg_input_sha "$T")"
 printf 'junk\n' > "$T/install/pkg-resources/.DS_Store"
 [ "$(pkg_input_sha "$T")" = "$base" ] && ok "CONTROL: a dotfile in an input dir (.DS_Store) is not an input" || bad "a dotfile moved the sha -- the shared checkout would read stale"
 rm -f "$T/install/pkg-resources/.DS_Store"
@@ -88,7 +92,8 @@ mkdir -p "$U/install/pkg-resources"; rm "$U/tools/build-installer-pkg.sh"
 if pkg_input_sha "$U" >/dev/null 2>&1; then bad "a missing build script did not refuse"; else ok "a missing build script refuses, not a sha over less"; fi
 rm -rf "$U"
 
-# The publish decision release.sh step 5b makes, every arm named.
+# The publish decision release.sh step 3c makes, every arm named, and the
+# verdict is the EXIT CODE: 0 needed, 2 current, anything else an error.
 D="$(mktemp -d "${TMPDIR:-/tmp}/pkg-publish.XXXXXX")"; want="$(pkg_input_sha "$T")"
 why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"no Kosmos.pkg"*) ok "publish: no pkg in the site dist -> needed ($why)";; *) bad "no-pkg reason wrong: $why";; esac || bad "no pkg was judged current"
 printf 'PKGBYTES\n' > "$D/Kosmos.pkg"
@@ -97,12 +102,17 @@ printf 'deadbeef\n' > "$D/Kosmos.pkg.inputs"
 why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"differ from source"*) ok "publish: inputs differ -> needed ($why)";; *) bad "differ reason wrong: $why";; esac || bad "differing inputs were judged current"
 pkg_sidecar_write "$D/Kosmos.pkg" "$want" "$D/Kosmos.pkg.inputs"
 [ "$(pkg_sidecar_inputs "$D/Kosmos.pkg.inputs")" = "$want" ] && ok "sidecar: line 1 reads back the input sha" || bad "sidecar line 1 wrong"
-[ "$(pkg_sidecar_pkgsha "$D/Kosmos.pkg.inputs")" = "$(shasum -a 256 "$D/Kosmos.pkg" | awk '{print $1}')" ] && ok "sidecar: line 2 names the pkg's own bytes" || bad "sidecar line 2 wrong"
+[ "$(pkg_sidecar_pkgsha "$D/Kosmos.pkg.inputs")" = "$(_pkg_hash < "$D/Kosmos.pkg" | awk '{print $1}')" ] && ok "sidecar: line 2 names the pkg's own bytes" || bad "sidecar line 2 wrong"
 why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"no .sha256"*) ok "publish: no checksum beside the pkg -> needed ($why)";; *) bad "no-sha256 reason wrong: $why";; esac || bad "a pkg with no checksum was judged current"
 printf '%s  Kosmos.pkg\n' "0000000000000000000000000000000000000000000000000000000000000000" > "$D/Kosmos.pkg.sha256"
 why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"disagree"*) ok "publish: pkg and checksum disagree -> needed ($why)";; *) bad "disagree reason wrong: $why";; esac || bad "a broken pair was judged current"
-( cd "$D" && shasum -a 256 Kosmos.pkg > Kosmos.pkg.sha256 )
-if why="$(pkg_publish_needed "$D" "$want")"; then bad "CONTROL: a current pair was judged as needing a publish ($why)"; else ok "CONTROL: a current triple (inputs match, checksum agrees, sidecar vouches) -> not needed ($why)"; fi
+( cd "$D" && _pkg_hash < Kosmos.pkg | awk '{print $1"  Kosmos.pkg"}' > Kosmos.pkg.sha256 )
+why="$(pkg_publish_needed "$D" "$want")"; rc=$?
+if [ "$rc" = 2 ] && case "$why" in current:*) true;; *) false;; esac; then ok "CONTROL: a current triple (inputs match, checksum agrees, sidecar vouches) -> rc 2 and a current: reason ($why)"
+else bad "CONTROL: a current triple did not come back as rc 2 + current: (rc=$rc, $why)"; fi
+# and an ERROR is neither: a missing argument must not read as current (rc 1 != 2).
+( pkg_publish_needed "$D" >/dev/null 2>&1 ); rc=$?
+[ "$rc" != 0 ] && [ "$rc" != 2 ] && ok "an error (missing argument) is rc $rc, neither needed nor current" || bad "an error came back as a verdict (rc=$rc)"
 # the mixed state: a sidecar that vouches for OTHER bytes beside a self-consistent pair.
 printf 'OTHERBYTES\n' > "$D/other.pkg"; pkg_sidecar_write "$D/other.pkg" "$want" "$D/Kosmos.pkg.inputs"; rm -f "$D/other.pkg"
 why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"vouches for other bytes"*) ok "publish: a sidecar for other bytes beside a good pair -> needed ($why)";; *) bad "orphan-sidecar reason wrong: $why";; esac || bad "an orphan sidecar was judged current"
@@ -111,5 +121,23 @@ pkg_sidecar_write "$D/Kosmos.pkg" "$want" "$D/Kosmos.pkg.inputs"
 printf '#!/bin/sh\necho changed again\n' > "$T/install/pkg-scripts/postinstall"; want2="$(pkg_input_sha "$T")"
 if pkg_publish_needed "$D" "$want2" >/dev/null; then ok "CONTROL: after a source edit the same pair is stale again"; else bad "a source edit did not make the pair stale"; fi
 rm -rf "$D"
+
+# a name with a space is one input, checked and hashed as one.
+mkdir -p "$T/install/pkg-resources"; printf 'logo\n' > "$T/install/pkg-resources/welcome logo.txt"
+sp="$(pkg_input_sha "$T")" && [ -n "$sp" ] && ok "an input named with a space is hashed, not split" || bad "a name with a space broke the hash"
+chmod -r "$T/install/pkg-resources/welcome logo.txt"
+if pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "an unreadable input (with a space) did not refuse"; else grep -q "welcome logo.txt" "$T/err" && ok "an unreadable input refuses and names the real file, space and all" || bad "the refusal misnamed the file: $(cat "$T/err")"; fi
+chmod +r "$T/install/pkg-resources/welcome logo.txt"; rm -f "$T/install/pkg-resources/welcome logo.txt"
+
+# the upload filter, evaluated by git, not grepped.
+F="$(mktemp -d "${TMPDIR:-/tmp}/pkg-filter.XXXXXX")"
+printf 'docs/\ntools/\n' > "$F/ok"
+[ -z "$(pkg_upload_filter_excludes "$F/ok")" ] && ok "filter: a .vercelignore that names no dist files lets the triple through" || bad "a clean filter was read as excluding"
+for line in 'dist/*.pkg' '*.pkg' '**/*.pkg' 'dist/**' 'dist/Kosmos.pkg' 'Kosmos.pkg' 'dist/*.pkg.inputs'; do
+  printf 'docs/\n%s\n' "$line" > "$F/bad"
+  [ -n "$(pkg_upload_filter_excludes "$F/bad")" ] && ok "filter: '$line' is seen to drop part of the triple" || bad "filter: '$line' was NOT seen to exclude"
+done
+if pkg_upload_filter_excludes "$F/missing" >/dev/null; then bad "a MISSING filter file read as fine (Vercel would fall back to .gitignore)"; else ok "filter: a missing .vercelignore is refused, not passed"; fi
+rm -rf "$F"
 
 echo "pkg-input-guard: $FAILS failures"; [ "$FAILS" -eq 0 ]

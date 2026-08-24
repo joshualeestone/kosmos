@@ -7,7 +7,8 @@
    an mtime touch, a version bump and a dotfile are each proven to do what they should
    (controls in tools/test-pkg-input-guard.sh); a missing or unreadable input refuses
    rather than hashing less.
-2. release.sh (step 7c, after the cheap versions-page checks, before the deploy) builds,
+2. release.sh (step 3c, after the suite and page gate, BEFORE step 4 copies the cache-immutable
+   versioned tarball, so a notarisation flake never costs a version bump) builds,
    signs, notarises and publishes Kosmos.pkg + .sha256 + .inputs whenever the SITE DIST's
    copy (what the next deploy will serve) is missing, has no sidecar, was built from
    other inputs, disagrees with its checksum, or has a sidecar vouching for other bytes;
@@ -29,7 +30,8 @@ all: Baron's installer fixes reach nobody unless someone hand-publishes.
 ## Changes
 - tools/lib/pkg-inputs.sh: four inputs, sectioned, all-or-nothing.
 - tools/test-pkg-input-guard.sh: controls for each new input and each refusal.
-- tools/release.sh: a pkg step between the bundle build and the site commit; 9c verifies.
+- tools/release.sh: step 3c (before the bundle build) publishes the triple into the site dist when
+  needed and evaluates .vercelignore with git; 9c verifies the served host after the deploy.
 - tools/verify-served.sh: the served pkg's sha256 and inputs.
 - tools/build-installer-pkg.sh: emits Kosmos.pkg.inputs from the shared function (already
   on this branch).

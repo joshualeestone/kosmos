@@ -4,7 +4,7 @@
 # the pkg per Splinter's B ruling, #638).
 #
 # ⚠️ WHY THIS EXISTS. The .pkg is payload-free and version-independent: it is
-# rebuilt only when its own inputs change (the postinstall), NOT every cut. A
+# rebuilt only when its own inputs change, NOT every cut. A
 # slowly-changing artifact goes stale SILENTLY -- someone edits the postinstall,
 # does not rebuild the pkg, and the served pkg runs an OLD postinstall while
 # every test passes. And Kosmos.pkg + its .sha256 share one cache, so a stale
@@ -24,7 +24,9 @@
 # it is not listed a second time here; a copy could drift from the real one.)
 # NOT the version (metadata, and the pkg is version-independent) and NOT the
 # signature/timestamp (those change every build and are not source), and NOT
-# mtimes: bytes only, so a fresh worktree hashes the same as the one it froze.
+# mtimes: bytes plus the executable bit (pkgbuild ships modes, and a postinstall
+# without x is a pkg that runs nothing), so a fresh worktree hashes the same as
+# the one it froze (git carries the x bit across worktrees, not mtimes).
 # ⚠️ Hashing the whole build script means a comment edit there also asks for a
 # rebuild + notarise + publish. That over-asks by minutes; the alternative
 # under-asks by silently shipping an old Conclusion screen, which is the hole
@@ -50,24 +52,46 @@ pkg_input_sha() {
   # never been a deliberate input here; if one ever is, name it and drop this.
   # ⚠️ EVERY INPUT READABLE FIRST: a `cat` failing inside the pipeline below
   # would hash the file as absent (the group's status is its last command),
-  # which is "hashing less", the thing this function refuses to do.
-  local f
-  for f in $(cd "$scripts" && find . -type f ! -path '*/.*' | LC_ALL=C sort | sed "s|^|$scripts/|") \
-           $(cd "$resources" && find . -type f ! -path '*/.*' | LC_ALL=C sort | sed "s|^|$resources/|") "$build"; do
-    [ -r "$f" ] || { echo "pkg_input_sha: cannot read input $f" >&2; return 1; }
-  done
+  # which is "hashing less", the thing this function refuses to do. NUL-
+  # delimited, so a name with a space is checked, not split into two names
+  # that do not exist.
+  local unreadable
+  unreadable="$( _pkg_first_unreadable "$scripts" "$resources" "$build" )"
+  [ -z "$unreadable" ] || { echo "pkg_input_sha: cannot read input $unreadable" >&2; return 1; }
+  # Each entry is framed: path, executable bit, byte count, then the bytes, so
+  # a file with no trailing newline cannot run into the next path line.
   {
     printf 'section:pkg-scripts\n'
-    ( cd "$scripts" && find . -type f ! -path '*/.*' | LC_ALL=C sort | while IFS= read -r f; do
-        printf '%s\n' "$f"; cat "$f"
-      done )
+    ( cd "$scripts" && _pkg_stream_dir )
     printf 'section:pkg-resources\n'
-    ( cd "$resources" && find . -type f ! -path '*/.*' | LC_ALL=C sort | while IFS= read -r f; do
-        printf '%s\n' "$f"; cat "$f"
-      done )
+    ( cd "$resources" && _pkg_stream_dir )
     printf 'section:build-script\n'
-    cat "$build"
+    _pkg_stream_file "$build"
   } | _pkg_hash | awk '{print $1}'
+}
+# The framed stream of one file: path, x or -, byte count, bytes.
+_pkg_stream_file() {
+  local f="${1:?}" x='-'
+  [ -x "$f" ] && x='x'
+  printf '%s\n%s\n%s\n' "$f" "$x" "$(wc -c < "$f" | tr -d ' ')"
+  cat "$f"
+}
+# Every non-hidden regular file under the cwd, sorted, framed.
+_pkg_stream_dir() {
+  find . -type f ! -path '*/.*' | LC_ALL=C sort | while IFS= read -r f; do _pkg_stream_file "$f"; done
+}
+# The first unreadable input among the two dirs and the build script, or
+# nothing. NUL-delimited so a name with a space is one name.
+_pkg_first_unreadable() {
+  local d f
+  for d in "$1" "$2"; do
+    f="$(cd "$d" && find . -type f ! -path '*/.*' -print0 | while IFS= read -r -d '' f; do
+           [ -r "$f" ] || { printf '%s/%s' "$d" "${f#./}"; break; }
+         done)"
+    [ -z "$f" ] || { printf '%s' "$f"; return 0; }
+  done
+  [ -r "$3" ] || printf '%s' "$3"
+  return 0
 }
 
 # A hasher that is a real command, never a string run as one.
@@ -94,14 +118,20 @@ pkg_sidecar_pkgsha() { sed -n '2p' "${1:?}" | sed 's/^pkg://' | tr -d '[:space:]
 # SITE checkout's dist (what the next deploy will serve), never the served
 # host: the served host is what step 9c confirms AFTER the deploy.
 #
-# Five ways to need it, each named, because "rebuild" without a reason is the
+# Six ways to need it, each named, because "rebuild" without a reason is the
 # re-run-instead-of-read habit #708 is about:
 #   no pkg          nothing to serve
 #   no sidecar      the pkg predates the guard, its inputs are unknown
 #   inputs differ   someone changed a postinstall, a screen or the build
+#   no checksum     Kosmos.pkg.sha256 is missing beside the pkg
 #   pair broken     Kosmos.pkg and Kosmos.pkg.sha256 disagree (the one-cache
 #                   wedge shape, or a half-copied publish)
 #   sidecar orphan  the sidecar vouches for different bytes than the pkg's
+# ⚠️ EXIT CODES ARE THE VERDICT, and "current" is 2, not 1: bash's own errors
+# (an unbound variable under set -u, a ${x:?} guard, a failing hasher) exit 1,
+# and a caller that read "non-zero" as "current" would skip the publish on an
+# ERROR, the fail-open direction (a reviewer measured it with a stub that
+# returned 3). 0 = needed, 2 = current, anything else = could not decide.
 pkg_publish_needed() {
   local dist="${1:?pkg_publish_needed needs the site dist dir}"
   local want="${2:?pkg_publish_needed needs the source input sha}"
@@ -118,5 +148,24 @@ pkg_publish_needed() {
   vouch="$(pkg_sidecar_pkgsha "$side")"
   [ "$vouch" = "$real" ] || { echo "the sidecar vouches for other bytes (${vouch:0:12}) than Kosmos.pkg's (${real:0:12})"; return 0; }
   echo "current: inputs match source (${want:0:12}), the pair agrees, the sidecar vouches for these bytes"
-  return 1
+  return 2
+}
+
+# Does a gitignore-style upload filter (Vercel's .vercelignore) let the pkg
+# triple through? Evaluated by git itself on a scratch repo with the filter
+# as its .gitignore, because a grep for four spellings is a spot check that
+# also passes on a MISSING file, and a missing .vercelignore makes Vercel fall
+# back to the site's .gitignore, which excludes dist/*.pkg. Prints the first
+# excluded path, or nothing; returns 1 if the filter file does not exist.
+pkg_upload_filter_excludes() {   # <filter-file>
+  local filter="${1:?}" t f
+  [ -f "$filter" ] || return 1
+  t="$(mktemp -d "${TMPDIR:-/tmp}/pkg-upload-filter.XXXXXX")"
+  ( cd "$t" && git init -q . && cp "$filter" .gitignore && mkdir -p dist \
+    && : > dist/Kosmos.pkg && : > dist/Kosmos.pkg.sha256 && : > dist/Kosmos.pkg.inputs \
+    && for f in dist/Kosmos.pkg dist/Kosmos.pkg.sha256 dist/Kosmos.pkg.inputs; do
+         if git check-ignore -q "$f"; then printf '%s' "$f"; break; fi
+       done )
+  rm -rf "$t"
+  return 0
 }
