@@ -160,3 +160,24 @@ test('piece nine: the project head moves into the conversation header in the con
   assert.match(block, /body\.consolidated \.pjmidhead > \.dlab \{ display: none; \}/);
   assert.match(block, /body\.consolidated \.pjmidhead \{[^}]*border-bottom: 1px solid var\(--k-rule\)/);
 });
+
+test('piece ten: the + sits at the card heads and the minus on the member rows, in the consolidated view only', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  // The minus is drawn only when the project page asks for it, and carries the settings row's own data-drop.
+  assert.match(src, /function pjMember\(m, suppressTold, withMinus\)/);
+  assert.match(src, /withMinus\n\s+\? '<button class="pj-minus" type="button" data-drop="' \+ esc\(m\.sessionName\)/);
+  assert.match(src, /roster\.map\(\(m\) => pjMember\(m, !!sharedTold, true\)\)/, 'the project page asks for it');
+  assert.equal((src.match(/pjMember\([^)]*, true\)/g) || []).length, 1, 'nowhere else does');
+  // One drop for both lists.
+  assert.match(src, /async function dropMember\(btn, msg\)/);
+  assert.match(src, /getElementById\('pjs-members'\)\.addEventListener\('click', \(e\) => \{\n\s+const btn = e\.target\.closest\('\[data-drop\]'\);[\s\S]{0,80}dropMember\(btn, document\.getElementById\('pjs-members-msg'\)\)/);
+  assert.match(src, /getElementById\('pj-one-agents'\)\.addEventListener\('click', \(e\) => \{\n\s+const btn = e\.target\.closest\('\.pj-minus\[data-drop\]'\);[\s\S]{0,120}dropMember\(btn, document\.getElementById\('pj-one-msg'\)\)/);
+  // Hidden outside the mode; on hover inside it. The Remove door steps aside there.
+  assert.match(src, /\n\.pj-minus \{ display: none; \}/);
+  const block = src.slice(src.indexOf('html[data-layout="consolidated"]'));
+  assert.match(block, /body\.consolidated \.pj-member:hover \.pj-minus, [^{]*\.pj-minus:focus-visible \{ opacity: 1; \}/);
+  assert.match(block, /body\.consolidated #pj-remove-member \{ display: none; \}/);
+  // The + is the wired button, moved to the head row and shrunk; its words stay for the accessible name (font-size: 0, not display: none).
+  assert.match(block, /\.pjsplit \.pjcard:first-child > \.pj-addmem, [^{]*\.pj3 #pj-newtask \{ grid-column: 2; grid-row: 1; width: 22px; height: 22px;[^}]*font-size: 0;/, 'the + rule outranks the card\'s span-all rule (it lost once, and sat over the label)');
+  assert.doesNotMatch(src, /id="pj-newtask" type="button" style=/, 'the inline margin moved to CSS so the mode can restyle it');
+});

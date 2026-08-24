@@ -1935,7 +1935,24 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pj-members { gap: 2px; }
   html[data-layout="consolidated"] body.consolidated .pj-member .lav.pj-face { width: 28px; height: 28px; }
   html[data-layout="consolidated"] body.consolidated .pj-addmem { font-size: .8125rem; padding: 6px 10px; margin-top: 4px; }
-  html[data-layout="consolidated"] body.consolidated #pj-remove-member { font-size: .75rem; }
+  /* #520 piece ten (the mock's controls; Josh, 14:10 and 14:14): the small +
+     at the head of Members and Tasks, the same 22px control the rail heads
+     use, instead of a full button under the list; and a minus at each
+     member row's end that appears on hover (or keyboard focus), instead of
+     the "Remove a member" door. The buttons are the ones already wired
+     (#pj-add-member, #pj-newtask); only their place and their size change,
+     and the accessible name keeps the words. */
+  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard:first-child, html[data-layout="consolidated"] body.consolidated #pj-tasks-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; }
+  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard:first-child > *, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > * { grid-column: 1 / -1; }
+  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard:first-child > .dlab, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .dlab { grid-column: 1; grid-row: 1; margin-bottom: 0; }
+  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard:first-child > .pj-addmem, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask { grid-column: 2; grid-row: 1; width: 22px; height: 22px; padding: 0; margin: 0 0 6px; border: 1px solid var(--k-rule); border-radius: 7px; background: var(--k-surface); color: var(--k-ink-2); font-size: 0; line-height: 0; display: grid; place-items: center; }
+  html[data-layout="consolidated"] body.consolidated .pj3 .pj-addmem > span, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask > span { font: 600 15px/1 var(--font-ui); }
+  html[data-layout="consolidated"] body.consolidated .pj3 .pj-addmem:hover, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask:hover { color: var(--k-ink); }
+  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard:first-child > .pj-members, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .tkcards { margin-top: 6px; }
+  html[data-layout="consolidated"] body.consolidated #pj-remove-member { display: none; }
+  html[data-layout="consolidated"] body.consolidated .pj-minus { display: grid; place-items: center; margin-left: auto; width: 20px; height: 20px; flex: none; border: 1px solid var(--k-rule); border-radius: 6px; background: var(--k-surface); color: var(--k-ink-2); font: 600 14px/1 var(--font-ui); padding: 0; cursor: pointer; opacity: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj-member:hover .pj-minus, html[data-layout="consolidated"] body.consolidated .pj-minus:focus-visible { opacity: 1; }
+  html[data-layout="consolidated"] body.consolidated .pj-minus:hover { color: var(--k-ink); background: var(--k-hover-2, var(--k-sunk)); }
 }
 .pjcol { border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface); padding: 14px 16px 16px; }
 /* #534: the split left column is chrome-free; its two cards wear the look. */
@@ -2476,6 +2493,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    arrived. Column, because the name, the state and the told line were three
    siblings of a wrapping flex row and are now one block beside the disc. */
 .pj-member-b { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* The row's minus exists for the consolidated view only (#520 piece ten). */
+.pj-minus { display: none; }
 .pj-face { flex: 0 0 34px; }
 /* The pack's inline sizing for this one button, as a rule rather than a style
    attribute: full column width, its own smaller type and tighter padding. The
@@ -3172,6 +3191,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    nothing here says otherwise. Loud about WHICH agent, quiet about danger. */
 /* ---- task cards (the pack's .task, in this app's tokens) ---- */
 .tkcards { display: flex; flex-direction: column; gap: var(--space-4); }
+#pj-newtask { margin-bottom: var(--space-5); }
 .tkcard { display: block; width: 100%; text-align: left; cursor: pointer;
         background: var(--bg-elevated); border: 1px solid var(--border-strong);
         border-radius: var(--radius-card); padding: var(--space-5); font: inherit; color: var(--label); }
@@ -6021,7 +6041,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          to scroll to find). -->
     <div class="field" id="pj-tasks-field">
       <h3 class="dlab">Tasks</h3>
-      <button class="btn" id="pj-newtask" type="button" style="margin-bottom: var(--space-5)"><span aria-hidden="true">+</span> New task</button>
+      <button class="btn" id="pj-newtask" type="button"><span aria-hidden="true">+</span> New task</button>
       <div class="tkcards" id="pj-tasklist"></div>
       <!-- The door, pack rule: the column is a task with somebody on it that
            is not finished; finished and unpicked are both real and both
@@ -19331,7 +19351,7 @@ function pjToldGroupLine(told) {
  * The board's rule one level up: an agent we cannot read is shown as unknown,
  * never as something healthy, and never as nothing at all.
  */
-function pjMember(m, suppressTold) {
+function pjMember(m, suppressTold, withMinus) {
   // suppressTold: the roster's identical verdicts are being said ONCE below
   // the list (pjSharedTold), so the per-member span would triple-state it.
   const toldLine = suppressTold ? '' : pjToldLine(m.told || {});
@@ -19382,6 +19402,14 @@ function pjMember(m, suppressTold) {
     + (toldLine ? '<span class="pj-told">' + toldLine + '</span>' : '')
     + pjMemberHasIt(m)
     + '</span>'
+    /* #520 piece ten: the mock's minus, at the row's end, shown on hover in
+       the consolidated view (CSS hides it everywhere else; the settings page
+       has its own Remove). It carries the same data-drop the settings row
+       carries, so one handler serves both. Only the project page asks for it. */
+    + (withMinus
+      ? '<button class="pj-minus" type="button" data-drop="' + esc(m.sessionName) + '"'
+        + ' aria-label="Remove ' + esc(m.name) + ' from this project" title="Remove from this project">\u2212</button>'
+      : '')
     + '</div>';
 }
 
@@ -20683,7 +20711,7 @@ function paintOneProject() {
   paintRoomBusy(roster.map((a) => (a && a.sessionName) || a));
   const sharedTold = pjSharedTold(roster);
   setIfChanged(document.getElementById('pj-one-agents'), roster.length
-    ? roster.map((m) => pjMember(m, !!sharedTold)).join('')
+    ? roster.map((m) => pjMember(m, !!sharedTold, true)).join('')
       + (sharedTold ? '<p class="pj-told-group">' + sharedTold + '</p>' : '')
     : '<p class="fhint">No agents on this project yet.</p>');
 
@@ -23864,10 +23892,7 @@ document.getElementById('pj-one-add-go').addEventListener('click', async () => {
 /* The removal listener lives on the SETTINGS rows now (the column lost
    its buttons; Josh's ruling). Same DELETE, same verdict-read: only the
    home and the message element moved. */
-document.getElementById('pjs-members').addEventListener('click', async (e) => {
-  const btn = e.target.closest('[data-drop]');
-  if (!btn || !PJ_CURRENT) return;
-  const msg = document.getElementById('pjs-members-msg');
+async function dropMember(btn, msg) {
   msg.textContent = '';
   // The say-box guard (its pattern): the verdict lands only on the
   // project it belongs to. Without this, clicking Back mid-DELETE and
@@ -23945,6 +23970,19 @@ document.getElementById('pjs-members').addEventListener('click', async (e) => {
     // focus moves only if it had already fallen to body.
     if (document.activeElement === document.body && target === msg) msg.focus();
   }
+}
+document.getElementById('pjs-members').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-drop]');
+  if (!btn || !PJ_CURRENT) return;
+  dropMember(btn, document.getElementById('pjs-members-msg'));
+});
+/* The project page's own minus (#520 piece ten): the same drop, its receipt
+   on the page's own message line. */
+document.getElementById('pj-one-agents').addEventListener('click', (e) => {
+  const btn = e.target.closest('.pj-minus[data-drop]');
+  if (!btn || !PJ_CURRENT) return;
+  btn.disabled = true;
+  dropMember(btn, document.getElementById('pj-one-msg'));
 });
 
 function pjCloseConfirm() {
