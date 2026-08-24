@@ -2382,8 +2382,31 @@ const server = http.createServer((req, res) => {
   // reality and skips whatever is already true). POST, so it inherits the
   // cross-site guard: this one downloads and runs software.
   if (pathname === '/api/connect/start' && req.method === 'POST') {
-    connect.start()
-      .then((st) => sendJson(res, 200, st))
+    readBody(req)
+      .then((buf) => {
+        let body = {};
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        /* { another: true } asks for a SECOND account (#248/#324): pick the
+           first free work spot, prepare it (idempotent; the shared-memory
+           symlink is wired before the sign-in so the account is right from
+           birth), and run the same flow pointed at that directory. Anything
+           else is exactly the call this route has always made. */
+        if (body && body.another === true) {
+          const spot = accounts.nextWorkDir();
+          if (!spot) {
+            sendJson(res, 500, { error: 'we could not find a free spot for another account' });
+            return null;
+          }
+          const prep = accounts.prepare(spot.label);
+          if (!prep.ok) {
+            sendJson(res, 500, { error: prep.because });
+            return null;
+          }
+          return connect.start({ configDir: prep.dir });
+        }
+        return connect.start();
+      })
+      .then((st) => { if (st) sendJson(res, 200, st); })
       .catch((err) => sendJson(res, 500, {
         error: 'we could not start connecting',
         detail: String((err && err.message) || err),

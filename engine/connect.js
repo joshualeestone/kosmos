@@ -165,8 +165,17 @@ let activeChild = null;
  */
 let mem = { phase: PHASE.IDLE };
 
+/**
+ * Which account directory the CURRENT flow is for (#248/#324), null for
+ * the global one. Module-level like the driver singleton and for the same
+ * reason: one flow at a time by design, and every record that flow writes
+ * must say which account it is about, so an interrupted record and the
+ * terminal CONNECTED/STUCK verdicts carry their account with them.
+ */
+let flowDir = null;
+
 function writeState(next) {
-  mem = { ...next, pid: process.pid, updatedAt: new Date().toISOString() };
+  mem = { ...next, configDir: flowDir, pid: process.pid, updatedAt: new Date().toISOString() };
   try {
     fs.mkdirSync(path.dirname(STATE_FILE()), { recursive: true });
     const tmp = `${STATE_FILE()}.${process.pid}.new`;
@@ -270,6 +279,7 @@ function state() {
 
 function publicView(s) {
   return {
+    configDir: s.configDir || null,
     phase: s.phase,
     before: s.before || null,
     progress: s.progress || null,
@@ -584,7 +594,14 @@ function validCode(code) {
   return typeof code === 'string' && /^[A-Za-z0-9#_.~/+=-]{6,512}$/.test(code);
 }
 
-async function start() {
+async function start(opts) {
+  const configDir = opts && typeof opts.configDir === 'string' && opts.configDir ? opts.configDir : null;
+  /* A relative path here is a caller bug, and quietly resolving it against
+     an unknowable cwd would sign somebody in to a directory nobody can
+     name. Loud, before any state moves. */
+  if (configDir && !path.isAbsolute(configDir)) {
+    throw new Error('configDir must be an absolute path');
+  }
   if (driver) return state();
 
   /**
@@ -596,6 +613,9 @@ async function start() {
    */
   const disk = readPersisted();
   if (foreignLiveFlow(disk)) return publicView(disk);
+  /* Adopted only after the foreign guard: a refused start must not
+     re-label a record that belongs to a flow somebody else is living. */
+  flowDir = configDir;
   // (Residual, accepted like cancel's: this is check-then-act, so two
   // servers starting in the SAME instant both pass and one flow's session
   // kill costs the other an honest "the sign-in window closed" -- a failure
@@ -614,7 +634,10 @@ async function start() {
    * also what makes `start` safely idempotent across interruptions: every
    * resume walks the same checks and skips what is already true.
    */
-  const sub = subscription.check();
+  /* The flow's OWN account decides, never the global one: with the main
+     account connected and a fresh directory requested, an unscoped check
+     would early-exit every add-another-account attempt as already done. */
+  const sub = subscription.check(configDir ? { configDir } : undefined);
   if (sub.state === subscription.STATE.CONNECTED) {
     /**
      * ⚠️ KILL ANY LEFTOVER SIGN-IN SESSION FIRST. A mid-sign-in server death
@@ -659,7 +682,7 @@ async function start() {
    * then saw "a driver exists" and tore down the healthy new flow. `!driver`
    * cannot distinguish "cancelled" from "replaced"; `driver !== owner` can.
    */
-  const owner = { pendingCode: null, lastActed: null, acted: null, unknownTicks: 0 };
+  const owner = { pendingCode: null, lastActed: null, acted: null, unknownTicks: 0, configDir };
   driver = owner;
 
   runFlow(owner, haveBinary).catch((err) => {
@@ -823,8 +846,13 @@ async function launchSignin(owner) {
    * claude path containing a space survives on both.
    */
   const cmd = ['env'];
-  if (process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR) {
-    cmd.push(`CLAUDE_CONFIG_DIR=${process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR}`);
+  /* The flow's own dir outranks the env seam (#248/#324): the env pair is
+     the whole-process sandbox, the flow dir is THIS sign-in's account, and
+     the CLI must write where the flow's checker reads or a successful
+     login ends in "we cannot see the connection yet". */
+  const launchDir = owner.configDir || process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
+  if (launchDir) {
+    cmd.push(`CLAUDE_CONFIG_DIR=${launchDir}`);
   }
   cmd.push(claudeBinPath());
 
@@ -922,7 +950,7 @@ async function tickBody(owner) {
        * connected. Never a false connected (the config decides, as always);
        * this only prevents the false failure.
        */
-      const sub = subscription.check();
+      const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
       if (sub.state === subscription.STATE.CONNECTED) {
         finishConnected(owner, sub);
         return;
@@ -1143,7 +1171,7 @@ async function tickBody(owner) {
        * here a stale `none` would hold the screen at "completing" after the
        * login already landed.
        */
-      const sub = subscription.check();
+      const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
       /**
        * ⚠️ "ASKS FOR ENTER" IS A PROPERTY OF THE TEXT, NOT OF THE VERDICT.
        * The real post-login screen says BOTH "Login successful" and "Press

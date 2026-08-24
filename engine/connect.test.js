@@ -1035,3 +1035,61 @@ test('a mid-flight record from a dead process reads as interrupted, not as progr
   assert.equal(st.before, connect.PHASE.DOWNLOADING);
   fs.rmSync(file, { force: true });
 });
+
+driverTest('#248: a flow with its own account directory reads and writes only that account', async () => {
+  const flowDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'connect-dir-'));
+  /* THE DIFFERENTIAL THE CONTRACT EXISTS FOR: the global (sandboxed)
+     config is CONNECTED, the flow's directory is empty. An unscoped check
+     would early-exit this start as already done; the scoped flow must
+     walk the whole sign-in instead. */
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.resetCache();
+
+  const term = fakeTerminal();
+  /* A login in THIS flow lands in the flow's own directory, exactly the
+     side effect a real login under CLAUDE_CONFIG_DIR has. */
+  term.onCode = () => {
+    fs.writeFileSync(nodePath.join(flowDir, '.claude.json'), JSON.stringify(CONNECTED_CONFIG));
+    term.screen = SCREEN_LOGIN_DONE;
+  };
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+
+  await connect.start({ configDir: flowDir });
+  await until(() => connect.state().phase === connect.PHASE.SIGNIN_AWAITING_CODE, 5000);
+  assert.notEqual(connect.state().phase, connect.PHASE.CONNECTED,
+    'the flow early-exited on the GLOBAL account: the scoped check is not scoped');
+
+  /* The launch carries the FLOW's dir, outranking the env seam (which this
+     suite sets globally): the CLI must write where the checker reads. */
+  const launch = term.all.find((a) => a[0] === 'new-session');
+  assert.ok(launch, 'no sign-in session was ever launched');
+  assert.ok(launch.some((arg) => arg === `CLAUDE_CONFIG_DIR=${flowDir}`),
+    `the launch does not carry the flow dir: ${launch.join(' ')}`);
+
+  /* The record and the view say which account the flow is about. */
+  assert.equal(connect.state().configDir, flowDir, 'the view does not name the account directory');
+
+  const put = connect.submitCode('abCD1234#efGH5678');
+  assert.equal(put.ok, true, put.because);
+  await until(() => connect.state().phase === connect.PHASE.CONNECTED, 5000);
+  assert.equal(connect.state().configDir, flowDir, 'the terminal verdict lost its account directory');
+  fs.rmSync(flowDir, { recursive: true, force: true });
+});
+
+driverTest('#248: a plain start still reads the global account and reports no directory', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.resetCache();
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  /* The absent-arg behavior is the contract's other half: byte for byte
+     what it was, including the already-connected early exit. */
+  const st = await connect.start();
+  assert.equal(st.phase, connect.PHASE.CONNECTED);
+  assert.equal(st.configDir, null);
+});
+
+test('#248: a relative configDir is refused loudly before any state moves', async () => {
+  await assert.rejects(() => connect.start({ configDir: 'relative/place' }), /absolute/);
+});

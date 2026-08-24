@@ -203,3 +203,22 @@ test('share() points an existing account at the one tree, and refuses to delete 
   // and sharing something already shared is a no-op that says so
   assert.deepEqual(accounts.share(empty), { ok: true, already: true });
 });
+
+test('#248: nextWorkDir finds the first free spot, reuses unclaimed leftovers, skips signed-in accounts', () => {
+  const home = accounts.HOME_FOR_TEST;
+  /* Fresh: nothing named work-anything exists yet, so the first spot. */
+  const first = accounts.nextWorkDir();
+  assert.equal(first.label, 'work1');
+  assert.equal(first.dir, nodePath.join(home, '.claude-work1'));
+
+  /* A signed-in work1 is somebody's account: skipped, never offered. */
+  fs.mkdirSync(nodePath.join(home, '.claude-work1'), { recursive: true });
+  fs.writeFileSync(nodePath.join(home, '.claude-work1', '.claude.json'),
+    JSON.stringify({ oauthAccount: { emailAddress: 'w1@example.com' } }));
+  assert.equal(accounts.nextWorkDir().label, 'work2');
+
+  /* An UNCLAIMED work2 (a cancelled attempt's leftover: directory, no
+     identity) is reused, so retries do not litter work3, work4, ... */
+  fs.mkdirSync(nodePath.join(home, '.claude-work2'), { recursive: true });
+  assert.equal(accounts.nextWorkDir().label, 'work2');
+});

@@ -67,10 +67,10 @@ const SUBSCRIBED_ORG_TYPES = ['claude_max', 'claude_pro', 'claude_team', 'claude
  */
 const UNSUBSCRIBED_ORG_TYPES = ['claude_free', 'free'];
 
-function readConfig() {
+function readConfig(file) {
   let raw;
   try {
-    raw = fs.readFileSync(CONFIG, 'utf8');
+    raw = fs.readFileSync(file || CONFIG, 'utf8');
   } catch (err) {
     // ⚠️ NO FILE is a real answer: Claude Code has never run here, so there is
     // nothing connected. Anything else — a permissions error, an unreadable
@@ -98,8 +98,17 @@ function readConfig() {
 /**
  * @returns {{state: string, plan: string|null, because: string}}
  */
-function check() {
-  const got = readConfig();
+/**
+ * ⚠️ `opts.configDir` points the check at ANOTHER account's settings file
+ * (#248/#324: a connect flow for a second account must read the account it
+ * is creating, never the global one, or a machine whose main account is
+ * connected early-exits every add-another-account attempt). Absent, the
+ * resolution is exactly what it always was.
+ */
+function check(opts) {
+  const file = opts && typeof opts.configDir === 'string' && opts.configDir
+    ? path.join(opts.configDir, '.claude.json') : null;
+  const got = readConfig(file);
 
   if (got.kind === 'absent') {
     return {

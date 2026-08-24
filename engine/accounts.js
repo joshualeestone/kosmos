@@ -242,4 +242,25 @@ function prepare(label) {
   return { ok: true, dir, label: clean, memoryShared };
 }
 
-module.exports = { list, identityOf, prepare, share, sharesMemory, HOME_FOR_TEST: HOME };
+/**
+ * The first free work-account spot (#248/#324): ~/.claude-workN where free
+ * means the directory does not exist, or exists with no identity signed in
+ * to it. The reuse arm is deliberate: a cancelled add-another-account
+ * attempt leaves a prepared, unclaimed directory behind, and without reuse
+ * every retry would litter work2, work3, ... while work1 sat empty. A dir
+ * with ANY identity is somebody's account and is skipped, so nothing that
+ * has been signed in to is ever offered as a fresh spot.
+ */
+function nextWorkDir() {
+  for (let n = 1; n <= 500; n += 1) {
+    const label = `work${n}`;
+    const dir = path.join(HOME, `.claude-${label}`);
+    if (!fs.existsSync(dir)) return { label, dir };
+    if (identityOf(dir) === null) return { label, dir };
+  }
+  /* 500 signed-in work accounts is not a real machine; say so rather than
+     loop forever. */
+  return null;
+}
+
+module.exports = { list, identityOf, prepare, share, sharesMemory, nextWorkDir, HOME_FOR_TEST: HOME };
