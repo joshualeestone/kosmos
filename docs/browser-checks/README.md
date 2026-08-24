@@ -544,3 +544,22 @@ rectangle, leads with a control (six sections at zero height before any click),
 and reads the pills' names, the needs-you dot, and the ungated terminal box.
 It found the first defect of its own branch: the client's box was ungated
 while the server route still refused with the switch off.
+
+## Hunting a winning CSS rule (the #39 method, and its one trap)
+
+When a computed value disagrees with a declared one, ask the ENGINE which
+declarations match the element rather than reading the stylesheet (the
+lesson written at web/index.html's shint precedent): in a check or a
+throwaway probe, walk `document.styleSheets`, test `el.matches(sel)` per
+selector, and compare specificities of the rules that carry the property.
+A `font:` shorthand riding `var()` serializes its longhands EMPTY in
+cssText, so filter on rule matching first and read `cssText` whole.
+
+🛑 **The trap, hit 2026-08-24 and worth not rediscovering: Chromium now
+puts a `cssRules` property on EVERY style rule (CSS nesting), so a walker
+that branches "has `cssRules` → recurse and continue" skips every rule's
+own declarations and reports ZERO matches** — a false zero that reads as
+"no rule touches this element" while the override sits in plain sight.
+Check `selectorText` first, recurse after. The same shape as
+test-support/page.js's brace-walk lesson: verify the instrument before
+believing its silence.
