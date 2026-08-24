@@ -12,7 +12,10 @@ const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', '
 const fail = [];
 const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fail.push(label); };
 (async () => {
-  const browser = await chromium.launch({ headless: process.env.HEADED !== '1' });
+  // Convention polarity: headed unless HEADED=0. This line used to read
+  // HEADED !== '1', which ran headless on every machine that never set the
+  // variable, silently opting this one check out of the real compositor.
+  const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
   const page = await browser.newPage({ viewport: { width: 1300, height: 1000 } });
   const errs = []; page.on('pageerror', (e) => errs.push(e.message));
   await page.addInitScript(() => {

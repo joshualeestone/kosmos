@@ -48,7 +48,10 @@ const LIVE = `(el) => {
 
 (async () => {
   for (const engine of ENGINES) {
-    const browser = await playwright[engine].launch({ headless: true });
+    // Headed by default like every check here (HEADED=0 for a no-console
+    // machine): this script asserts painted-ness before position, and
+    // headless SwiftShader is exactly where painted-ness false-passes.
+    const browser = await playwright[engine].launch({ headless: process.env.HEADED === '0' });
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 1400 } });
     const page = await ctx.newPage();
     const errors = [];
