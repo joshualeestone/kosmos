@@ -48,13 +48,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cat > "$D/tmux" <<W
+# ⚠️ The wrappers READ their values from exported variables; nothing from the
+# environment (TMUX_BIN, TMPDIR) is written into shell source, so a quote or
+# a dollar in either cannot become code the supervisor then runs.
+export WITNESS_TMUX="$TMUX_PATH" WITNESS_SOCK="$SOCK" WITNESS_DIR="$D"
+cat > "$D/tmux" <<'W'
 #!/bin/bash
-exec "$TMUX_PATH" -L "$SOCK" -f /dev/null "\$@"
+exec "$WITNESS_TMUX" -L "$WITNESS_SOCK" -f /dev/null "$@"
 W
-cat > "$D/claude" <<W
+cat > "$D/claude" <<'W'
 #!/bin/bash
-printenv CLAUDE_CONFIG_DIR > "$D/pane-saw"; echo "rc=\$?" >> "$D/pane-saw"
+printenv CLAUDE_CONFIG_DIR > "$WITNESS_DIR/pane-saw"; echo "rc=$?" >> "$WITNESS_DIR/pane-saw"
 sleep 30
 W
 chmod +x "$D/tmux" "$D/claude"
@@ -66,7 +70,7 @@ env CLAUDE_CONFIG_DIR=/acct/A "$TMUX_PATH" -L "$SOCK" -f /dev/null new-session -
 sleep 1
 # The control: a plain session under B, no -e, on the running server.
 env CLAUDE_CONFIG_DIR=/acct/B "$TMUX_PATH" -L "$SOCK" -f /dev/null new-session -d -s control \
-  "printenv CLAUDE_CONFIG_DIR > '$D/control-saw'; echo done >> '$D/control-saw'" || exit 2
+  'printenv CLAUDE_CONFIG_DIR > "$WITNESS_DIR/control-saw"; echo done >> "$WITNESS_DIR/control-saw"' || exit 2
 for _ in 1 2 3 4 5; do grep -q '^done' "$D/control-saw" 2>/dev/null && break; sleep 1; done
 if ! grep -q '^done' "$D/control-saw" 2>/dev/null; then
   echo "the control pane never ran, so nothing about this tmux was measured; supervisor untouched"
@@ -74,9 +78,13 @@ if ! grep -q '^done' "$D/control-saw" 2>/dev/null; then
 fi
 CONTROL="$(head -1 "$D/control-saw")"
 case "$CONTROL" in done) CONTROL="<unset>" ;; esac
-if [ "$CONTROL" != /acct/A ]; then
-  echo "control: a plain session under /acct/B saw '$CONTROL', not /acct/A."
+if [ "$CONTROL" = /acct/B ]; then
+  echo "control: a plain session under /acct/B saw /acct/B without -e."
   echo "this tmux hands the client environment to a session on its own; the witness cannot see the bug here"
+  exit 2
+elif [ "$CONTROL" != /acct/A ]; then
+  echo "control: a plain session under /acct/B saw '$CONTROL', neither the server's /acct/A nor the client's /acct/B."
+  echo "this tmux's environment handling is not the one the witness models; nothing about the supervisor was measured"
   exit 2
 fi
 # The job, as launchd runs it: account B in its environment.

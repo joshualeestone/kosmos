@@ -89,7 +89,7 @@ function supervisorText() {
  * every real agent with its working directory as its session name, and every
  * assertion here would still pass.
  */
-function jobArguments(name, { model = null, runner = undefined } = {}) {
+function jobArguments(name, { model = null, runner } = {}) {
   const plist = create.plistFor(name, '/bin/echo', '/opt/homebrew/bin/tmux', model, null, runner);
   const block = plist.slice(plist.indexOf('<array>'), plist.indexOf('</array>'));
   return [...block.matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]).slice(1);
@@ -900,7 +900,7 @@ test('a length problem says it is a length problem', () => {
 });
 
 /**
- * Run the generated startup script for real, against a fake tmux.
+ * Run the shipped startup script for real, against a fake tmux.
  *
  * ⚠️ The tests above assert the script's TEXT — that a check appears before a
  * kill, that a `sleep 5` exists somewhere. That is not the same as asserting
@@ -1070,8 +1070,10 @@ test('the startup script, actually run, hands the pane its account and its board
   // (KOSMOS_PORT) reach the pane only as new-session -e arguments. The first
   // guard for this was a match against the script's own source, green on any
   // build containing the loop line whatever the loop did. This runs the script
-  // with the three variables the plist would carry set, unset or empty on top of
-  // this process's environment, and reads the argv the fake tmux got.
+  // with the three variables set, unset or empty on top of this process's
+  // environment (a real plist carries at most two, one account variable by
+  // runner plus the port; the supervisor forwards whatever is set, independent
+  // of the plist), and reads the argv the fake tmux got.
   // What the fake cannot see, that real tmux drops the client's environment,
   // is tools/witness-pane-env.sh's job.
   //
