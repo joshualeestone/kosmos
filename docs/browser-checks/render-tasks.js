@@ -17,6 +17,10 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { chromium } = require('playwright');
+/* Rendered text, not DOM text (#687): `innerText` honours CSS display and
+   visibility, and an element with no box has no rendered text at all, so a
+   sentence nobody can see reads as '' here and the assertion fails. */
+const shown = async (loc) => ((await loc.boundingBox()) ? loc.innerText() : '');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const PORT = 4671;
@@ -100,7 +104,7 @@ const MEMBER = 'taskmate';
     await p.click('#pj-newtask');
     await p.waitForSelector('#pj-newtask-view', { state: 'visible' });
     if (await p.isVisible('#pj-one-view')) die('the project view is still on screen under the new-task page');
-    const hint = await p.evaluate(() => document.querySelector('#pj-newtask-view .fhint').textContent.trim());
+    const hint = await p.evaluate(() => { const h = document.querySelector('#pj-newtask-view .fhint'); return h.getBoundingClientRect().height > 0 ? h.innerText.trim() : ''; });
     if (hint !== 'You can give it to somebody later.') die('the default-to-nobody hint drifted: ' + hint);
     if (!(await p.locator('#nt-go').isDisabled())) die('Create task is live with no sentence');
     await p.screenshot({ path: path.join(REPO, 'docs/browser-checks/shots/tasks-new-page.png') });
@@ -140,16 +144,16 @@ const MEMBER = 'taskmate';
     // The column shows ONLY the assigned open task; the door counts both.
     const cards = await p.locator('.tkcard').count();
     if (cards !== 1) die('the column shows ' + cards + ' cards; the unassigned one belongs behind the door');
-    const doorTxt = (await p.locator('#pj-alltasks').textContent()).trim();
+    const doorTxt = (await shown(p.locator('#pj-alltasks'))).trim();
     if (!/View all tasks \(2\)/.test(doorTxt)) die('door text: ' + doorTxt);
-    const chip = (await p.locator('.tkcard-who').textContent()).trim();
+    const chip = (await shown(p.locator('.tkcard-who'))).trim();
     if (!chip.includes(MEMBER)) die('the who chip does not name the member: ' + chip);
     await p.screenshot({ path: path.join(REPO, 'docs/browser-checks/shots/tasks-column.png') });
 
     // Behind the door: the unassigned card says the only allowed state word.
     await p.click('#pj-alltasks');
     if ((await p.locator('.tkcard').count()) !== 2) die('the door did not reveal the whole list');
-    const nobody = await p.locator('.tkcard').nth(1).locator('.tkcard-who').textContent();
+    const nobody = await shown(p.locator('.tkcard').nth(1).locator('.tkcard-who'));
     if (nobody.trim() !== 'Nobody yet') die('unassigned state word: ' + nobody);
 
     // THE JOIN: the assignee reports holding "task 1" in the taught
@@ -165,14 +169,14 @@ const MEMBER = 'taskmate';
       if (!r.ok) throw new Error('report failed ' + r.status);
     }, MEMBER);
     await p.waitForSelector('.tksay', { timeout: 15000 });
-    const say = (await p.locator('.tksay').textContent()).trim();
+    const say = (await shown(p.locator('.tksay'))).trim();
     if (!/says it is on this/.test(say)) die('says-line text: ' + say);
     if ((await p.locator('.tksay').count()) !== 1) die('the says-line leaked onto unclaimed cards');
 
     // The view PAGE (#206): meta, the blessed close-note naming the agent.
     await p.locator('.tkcard').first().click();
     await p.waitForSelector('#pj-task-view', { state: 'visible' });
-    const note = (await p.locator('#tk-note').textContent()).replace(/\s+/g, ' ').trim();
+    const note = (await shown(p.locator('#tk-note'))).replace(/\s+/g, ' ').trim();
     if (!note.startsWith(MEMBER + ' says it is on this. Marking it done closes it here. It does not stop ')
         || !note.includes(MEMBER)) die('the joined close-note drifted: ' + note);
     await p.screenshot({ path: path.join(REPO, 'docs/browser-checks/shots/tasks-view-page.png') });
@@ -183,7 +187,7 @@ const MEMBER = 'taskmate';
     await p.click('#tk-done');
     /* A page is not dismissed by succeeding (#206's own ruling): it stays,
        repainted; the button flips to Reopen. Back is the navigation. */
-    await p.waitForFunction(() => document.getElementById('tk-done').textContent.trim() === 'Reopen', null, { timeout: 10000 });
+    await p.waitForFunction(() => { const b = document.getElementById('tk-done'); return b.getBoundingClientRect().height > 0 && b.innerText.trim() === 'Reopen'; }, null, { timeout: 10000 });
     await p.click('#tk-back');
     await p.waitForSelector('#pj-one-view', { state: 'visible', timeout: 10000 });
     await p.waitForSelector('.tkcard.closed', { timeout: 10000 });
@@ -199,16 +203,17 @@ const MEMBER = 'taskmate';
     await p.locator('#pj-list').getByText('Task Drive').first().click();
     await p.waitForSelector('#pj-tasks-field', { state: 'visible', timeout: 10000 });
     if ((await p.locator('.tkcard').count()) !== 0) die('a done or unassigned task sits in the fresh column');
-    const doorAfter = (await p.locator('#pj-alltasks').textContent()).trim();
+    const doorAfter = (await shown(p.locator('#pj-alltasks'))).trim();
     if (!/View all tasks \(2\)/.test(doorAfter)) die('door after done: ' + doorAfter);
     await p.click('#pj-alltasks');
     const doneCard = p.locator('.tkcard.closed').first();
     if (!(await doneCard.count())) die('the done task is not behind the door');
     await doneCard.click();
     await p.waitForSelector('#pj-task-view', { state: 'visible' });
-    if ((await p.locator('#tk-done').textContent()).trim() !== 'Reopen') die('a done task does not offer Reopen');
+    if ((await shown(p.locator('#tk-done'))).trim() !== 'Reopen') die('a done task does not offer Reopen');
     if (!(await p.locator('#tk-note').isHidden())) die('the close-note shows on a done task');
     await p.click('#tk-done');
+    // An absence wait: DOM text is the stricter read here, hidden text included.
     await p.waitForFunction(() => document.getElementById('tk-done').textContent.trim() !== 'Reopen', null, { timeout: 10000 });
 
     if (errs.length) die('page errors: ' + errs.join(' | '));

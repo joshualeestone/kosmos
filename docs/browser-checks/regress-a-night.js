@@ -98,7 +98,7 @@ function seed() {
       theme + ': the accounts list is read, not asserted');
     await pg.click('#s-nav button[data-go="advanced"]');
     await pg.waitForTimeout(200);
-    const hist = await pg.evaluate(() => document.getElementById('hist-count').textContent);
+    const hist = await pg.evaluate(() => { const el = document.getElementById('hist-count'); return el.getBoundingClientRect().height > 0 ? el.innerText : ''; });
     chk(/nothing here to delete|Right now/.test(hist), theme + ': delete-history says what is there', hist);
 
     await pg.click('.tab:has-text("Projects")'); await pg.waitForTimeout(500);
@@ -108,7 +108,7 @@ function seed() {
     await pg.click('.tkcard'); await pg.waitForTimeout(700);
     const tk = await pg.evaluate(() => ({
       parts: document.querySelectorAll('.tkpart').length,
-      state: document.getElementById('tk-state').textContent,
+      state: (document.getElementById('tk-state').getBoundingClientRect().height > 0 ? document.getElementById('tk-state').innerText : '').trim(),
       pickable: document.querySelectorAll('[data-pick-part]').length,
       tops: [...document.querySelectorAll('.tkpart')]
         .map((r) => Math.round(parseFloat(getComputedStyle(r).borderTopWidth) || 0)),
@@ -148,6 +148,20 @@ function seed() {
     await pg.waitForTimeout(600);
     await pg.locator('.acard .namego').first().click();
     await pg.waitForTimeout(1600);
+    /* The instructions lede is read on ITS screen (#687). This check used
+       to read it from the Memory screen by textContent, where it is not
+       drawn, and passed on a sentence nobody was looking at. The lede is
+       painted per agent now (#198), so it must not be the generic once a
+       panel is open. */
+    await pg.click('#d-nav button[data-go="instr"]');
+    await pg.waitForTimeout(300);
+    const instrLede = await pg.evaluate(() => {
+      const el = document.getElementById('d-instr-lede');
+      return el && el.getBoundingClientRect().height > 0 ? el.innerText : '';
+    });
+    chk(/the only thing that survives a restart/.test(instrLede),
+      theme + ': the instructions lede states the consequence, on screen', instrLede.slice(0, 40));
+    chk(!/^What this agent is for/.test(instrLede), theme + ': the lede names the agent');
     await pg.click('#d-nav button[data-go="memory"]');
     await pg.waitForTimeout(300);
     /* ⚠️ RE-EXPRESSED, NOT LOOSENED (2026-08-24). The original pins read an
@@ -168,12 +182,9 @@ function seed() {
       return {
         shown: box && !box.hidden && box.getBoundingClientRect().height > 0,
         removeOffscreen: rm && rm.getBoundingClientRect().height === 0,
-        freshLede: lede && lede.getBoundingClientRect().height > 0 ? lede.textContent : null,
+        freshLede: lede && lede.getBoundingClientRect().height > 0 ? lede.innerText : null,
         stack: ['d-compact-go', 'd-clear-go', 'd-restart-start']
           .map((id) => { const b = document.getElementById(id); return Boolean(b && b.getBoundingClientRect().height > 0); }),
-        /* The lede is painted per agent now (#198), so it must not be the
-           generic once a panel is open. */
-        lede: (document.getElementById('d-instr-lede') || {}).textContent || '',
         saves: [...document.querySelectorAll('#d-instr-save, #d-save')].map((b) => b.getAttribute('aria-label')),
       };
     });
@@ -184,9 +195,6 @@ function seed() {
       theme + ': the fresh-start lede is the pack’s sentence, named and drawn', String(rst.freshLede).slice(0, 60));
     chk(rst.stack.every(Boolean),
       theme + ': all three fresh-start buttons draw, stacked', JSON.stringify(rst.stack));
-    chk(/the only thing that survives a restart/.test(rst.lede),
-      theme + ': the instructions lede states the consequence', rst.lede.slice(0, 40));
-    chk(!/^What this agent is for/.test(rst.lede), theme + ': the lede names the agent');
     /* 🔑 TWO SAVES, TWO NAMES. A screen reader heard one word for both. */
     chk(new Set(rst.saves.filter(Boolean)).size === 2,
       theme + ': the two Save buttons answer to different names', JSON.stringify(rst.saves));
@@ -197,8 +205,8 @@ function seed() {
       const m = document.getElementById('rst-modal');
       const box = m.querySelector('.rm-box');
       return { open: !m.hidden, h: Math.round(box.getBoundingClientRect().height),
-        title: document.getElementById('rst-title').textContent,
-        small: document.getElementById('rst-small').textContent,
+        title: (() => { const el = document.getElementById('rst-title'); return el.getBoundingClientRect().height > 0 ? el.innerText : ''; })(),
+        small: (() => { const el = document.getElementById('rst-small'); return el.getBoundingClientRect().height > 0 ? el.innerText : ''; })(),
         focused: document.activeElement && document.activeElement.id };
     });
     chk(dlg.open && dlg.h > 100, theme + ': the restart confirmation opens and is drawn', String(dlg.h));
@@ -242,12 +250,13 @@ function seed() {
       const sel = (id) => document.getElementById(id);
       const tell = sel('create-tell');
       const model = sel('create-model');
-      return { hint: (document.querySelector('#cstep-name p.shint') || {}).textContent,
+      const shown = (el) => (el && el.getBoundingClientRect().height > 0 ? el.innerText : ''); // rendered text (#687)
+      return { hint: shown(document.querySelector('#cstep-name p.shint')),
         provider: sel('create-provider') ? sel('create-provider').value : null,
         account: !!sel('create-account'),
         models: model ? model.querySelectorAll('option').length : 0,
         tellDisabled: tell.disabled, tellChecked: tell.checked,
-        note: (sel('create-tell-note') || {}).textContent };
+        note: shown(sel('create-tell-note')) };
     });
     chk(/You can change this later/.test(create.hint || ''), theme + ': the model hint is there');
     chk(create.provider !== null && create.account && create.models >= 2,

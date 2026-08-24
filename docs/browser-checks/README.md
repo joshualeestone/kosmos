@@ -126,9 +126,12 @@ nobody can see, and that is a false PASS in the page gate, which ships. Read the
 sentence with `innerText` (or Playwright's `innerText()` / `toBeVisible`), which
 honour CSS display and visibility, and guard the element with a size. Use
 `textContent` only where the DOM text is the thing under test: accessible names
-(`named-controls.js`), `<option>` labels, data attributes. The reads still to
-convert are listed on #687 with line numbers; do not sweep them blind, exact
-matches like `=== 'Saved.'` change under `innerText`.
+(`named-controls.js`), `<option>` labels, data attributes, and where the read
+is an absence control (`=== ''`, `!/.../.test`), which hidden text should fail
+too. Every read that stays on `textContent` in a wired check carries a comment
+saying which of those it is (#687). Do not sweep a `textContent` blind: an exact
+match like `=== 'Saved.'` changes under `innerText` when the element wears
+`text-transform`, so check the CSS on the element first.
 
 **If an assertion is only true until we do better, say so in the check.** A check
 pinned to a temporary state ("Windows is still coming soon", "the no-install road

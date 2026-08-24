@@ -10,6 +10,10 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { chromium } = require('playwright');
+/* Rendered text, not DOM text (#687): `innerText` honours CSS display and
+   visibility, and an element with no box has no rendered text at all, so a
+   sentence nobody can see reads as '' here and the assertion fails. */
+const shown = async (loc) => ((await loc.boundingBox()) ? loc.innerText() : '');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const PORT = 4679;
@@ -52,9 +56,9 @@ const PORT = 4679;
     await p.click('#pj-settings-link');
     await p.waitForSelector('#pj-settings-view', { state: 'visible' });
     if ((await p.inputValue('#pjs-name')) !== 'Settings Drive') die('name did not paint');
-    const folderName = (await p.locator('#pjs-folder-name').textContent()).trim();
+    const folderName = (await shown(p.locator('#pjs-folder-name'))).trim();
     if (folderName !== 'Settings Drive') die('folder name line: ' + folderName);
-    const where = (await p.locator('#pjs-folder-where').textContent()).trim();
+    const where = (await shown(p.locator('#pjs-folder-where'))).trim();
     // Sandboxed root is a temp dir, not the Kosmos folder: the parent rule
     // must produce "In your <tempdirname> folder." — assert the SHAPE.
     if (!/^In (your .+ folder\.|a folder you chose\.)$/.test(where)) die('location sentence shape: ' + where);
@@ -66,17 +70,17 @@ const PORT = 4679;
     // Save round trip: rename, verify it lands everywhere.
     await p.fill('#pjs-name', 'Settings Drive Renamed');
     await p.click('#pjs-save');
-    await p.waitForFunction(() => document.getElementById('pjs-msg').textContent === 'Saved.', { timeout: 10000 });
-    const back = (await p.locator('#pj-settings-backname').textContent()).trim();
+    await p.waitForFunction(() => { const m = document.getElementById('pjs-msg'); return m.getBoundingClientRect().height > 0 && m.innerText.trim() === 'Saved.'; }, { timeout: 10000 });
+    const back = (await shown(p.locator('#pj-settings-backname'))).trim();
     if (back !== 'Settings Drive Renamed') die('the back link did not pick up the rename');
     await p.click('#pj-settings-back');
     await p.waitForSelector('#pj-one-view', { state: 'visible' });
-    if ((await p.locator('#pj-one-name').textContent()).trim() !== 'Settings Drive Renamed') die('the project page missed the rename');
+    if ((await shown(p.locator('#pj-one-name'))).trim() !== 'Settings Drive Renamed') die('the project page missed the rename');
 
     // And a no-change save says so instead of lying "Saved."
     await p.click('#pj-settings-link');
     await p.click('#pjs-save');
-    await p.waitForFunction(() => document.getElementById('pjs-msg').textContent === 'Nothing has changed.', { timeout: 5000 });
+    await p.waitForFunction(() => { const m = document.getElementById('pjs-msg'); return m.getBoundingClientRect().height > 0 && m.innerText.trim() === 'Nothing has changed.'; }, { timeout: 5000 });
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
     console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, save round trip, honest no-op, relocated blocks present, no path on the project page, 0 page errors');
