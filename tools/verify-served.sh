@@ -64,5 +64,20 @@ for a in kosmos tmux; do
   rm -f "$tmp"
 done
 
+# The VERSIONED pair is the name new installers prefer (the plain name
+# is one URL across releases and a cache can serve it stale); a deploy
+# that dropped it would silently demote every installer to the weaker
+# cache-busted fallback, on exactly the artifact the 0.5.13 wedge was
+# about.
+vurl="$HOST/dist/kosmos-$want-arm64.tar.gz"
+vtmp=$(mktemp)
+if curl -fsS "$vurl" -o "$vtmp"; then
+  vreal=$(shasum -a 256 "$vtmp" | awk '{print $1}')
+  vpub=$(curl -fsS "$vurl.sha256" | awk '{print $1}')
+  if [ "$vreal" = "$vpub" ]; then say "/dist/kosmos-$want-arm64.tar.gz" "versioned pair present, checksum matches"
+  else say "/dist/kosmos-$want-arm64.tar.gz" "CHECKSUM MISMATCH on the versioned pair"; fail=1; fi
+else say "/dist/kosmos-$want-arm64.tar.gz" "MISSING -- installers fall back to the cacheable plain name"; fail=1; fi
+rm -f "$vtmp"
+
 echo
 [ "$fail" = "0" ] && echo "every artifact a user can receive matches the repo" || { echo "SOMETHING A USER RECEIVES IS WRONG"; exit 1; }

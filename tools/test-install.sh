@@ -378,6 +378,40 @@ if cp "$HERE/dist/tmux-arm64.tar.gz" "$HERE/dist/tmux-arm64.tar.gz.sha256" \
   chk "tampered download refuses" "[ $RC -ne 0 ]"
   chk "tamper refusal speaks a sentence" "grep -q 'did not arrive intact' \"$SB/tamper.log\""
   chk "no stage residue after refusal" "[ -z \"\$(ls -d \"$SB/home\"/.kosmos.stage.* 2>/dev/null)\" ]"
+
+  echo "== the pointer pins the bytes (the 0.5.13 wedge, 2026-08-24) =="
+  # Repair the tarball the tamper pass above flipped a byte in.
+  cp "$HERE/dist/kosmos-arm64.tar.gz" "$SB/dist/kosmos-arm64.tar.gz"
+  BUNDLE_V="$(tar -xzOf "$SB/dist/kosmos-arm64.tar.gz" app/package.json | sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+  if [ -n "$BUNDLE_V" ]; then
+    # (a) With the pointer naming the bundle and versioned artifacts
+    # published, the installer prefers the versioned name and the
+    # read-back confirms what landed.
+    printf '{"version":"%s"}\n' "$BUNDLE_V" > "$SB/dist/latest.json"
+    cp "$SB/dist/kosmos-arm64.tar.gz" "$SB/dist/kosmos-$BUNDLE_V-arm64.tar.gz"
+    cp "$SB/dist/kosmos-arm64.tar.gz.sha256" "$SB/dist/kosmos-$BUNDLE_V-arm64.tar.gz.sha256"
+    RC=0; cat "$SETUP" | sh > "$SB/pinned.log" 2>&1 || RC=$?
+    chk "pinned install exits 0" "[ $RC -eq 0 ]"
+    chk "the run names its target version" "grep -q \"installs Kosmos $BUNDLE_V\" \"$SB/pinned.log\""
+    chk "the versioned artifact name was fetched" "grep -q \"kosmos-$BUNDLE_V-arm64.tar.gz\" \"$SB/pinned.log\""
+    chk "the read-back states what is on disk" "grep -q \"on disk now: Kosmos $BUNDLE_V\" \"$SB/pinned.log\""
+    "$SB/bin/kosmos" stop > /dev/null 2>&1 || true
+    sh -s -- --uninstall < "$SETUP" > /dev/null 2>&1 || true
+    # (b) THE WEDGE ITSELF: the pointer moves ahead while the only bytes
+    # reachable are the previous release (a stale cache in miniature:
+    # no versioned artifact for the new version, the plain name still
+    # holding old bytes). The installer must refuse in a sentence and
+    # exit non-zero, never print done over the old version.
+    printf '{"version":"9.9.9-wedge"}\n' > "$SB/dist/latest.json"
+    RC=0; cat "$SETUP" | sh > "$SB/stale.log" 2>&1 || RC=$?
+    chk "stale-bytes install refuses (exit non-zero)" "[ $RC -ne 0 ]"
+    chk "the refusal names both versions" "grep -q 'release pointer says 9.9.9-wedge' \"$SB/stale.log\" && grep -q \"files that landed are $BUNDLE_V\" \"$SB/stale.log\""
+    chk "no false installed-done over old bytes" "! grep -q 'on disk now: Kosmos' \"$SB/stale.log\""
+    rm -f "$SB/dist/latest.json" "$SB/dist/kosmos-$BUNDLE_V-arm64.tar.gz" "$SB/dist/kosmos-$BUNDLE_V-arm64.tar.gz.sha256"
+  else
+    echo "SKIP pointer-pins passes: could not read the bundle version"
+    SKIPS=$((SKIPS + 1))
+  fi
 else
   echo "SKIP download-path passes: packed tarballs missing from dist/ (later passes still run)"
   SKIPS=$((SKIPS + 1))
