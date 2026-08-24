@@ -2,19 +2,21 @@
 pre_challenge: true
 method: challenge-loop
 branch: updates-stale-691
-diff_hash: c0083a92247ed4aab8f81b3359c36349c5f6be9b74593dfbc39d2e52f564240c
+diff_hash: 5c52e1a52bdd5dc367f6c4fa4d7354d2a0a0a7776d3d556aa5e732f2c924c2a9
 subdir_audit: passed
-timestamp: 2026-08-24T22:28:12Z
-iterations: 5
-converged: true
+timestamp: 2026-08-24T22:48:03Z
+iterations: 8
+converged: false
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 5
-**Converged:** Yes
-**Total findings:** 20 (0 BLOCKERs, 7 WARNINGs, 0 CONVENTIONs, 13 NITs)
-**Fixed:** 7 WARNINGs + 9 NITs | **Deferred:** 0 WARNINGs, 4 NITs (recorded, out of scope or pre-existing)
+**Iterations:** 8 (5 before the PR; a merge with newer main, then 3 more on the merged tree)
+**Converged:** No (stopped at the bound after iteration 8; see below)
+**Total findings:** 33 (0 BLOCKERs, 10 WARNINGs, 2 CONVENTIONs, 21 NITs)
+**Fixed:** 10 WARNINGs + 2 CONVENTIONs + 15 NITs | **Deferred:** 0 WARNINGs, 6 NITs (recorded, out of scope or pre-existing)
+
+**Why stopped rather than converged:** the code under review (paintUpdateCard, the test, the check) has been unchanged since iteration 4. Iterations 5 and 7 returned no warning. Iterations 6 and 8 each returned warnings only in the WORDS the previous iteration's fix added (a doc claim about screenshot overwrite; a comment crediting the wrong 409 arm), and every such word has been fixed. Iteration 8's fixes are comments, a plan paragraph, a README paragraph's position and two presence reads switched to innerText; validation after them: 1944/1944, exit 0, audit clean; browser check 10/10. Continuing would review the words that explain the previous words. Bounded on purpose (Angel).
 
 Validation (~/.claude/scripts/lib/validation-log.sh) ran after every iteration and as the final gate: yarn test 1931/1931, exit 0, subdir audit clean each time. The browser check render-updates-stale.js was re-run headed on a fresh sandboxed board after every iteration (all green). Mutation control before iteration 1: with the fix reversed in place the new test went red on exactly the sentence (actual: 'Up to date.'); restored, green.
 
@@ -65,6 +67,28 @@ Validation (~/.claude/scripts/lib/validation-log.sh) ran after every iteration a
 - [NIT] .claude/plans/updates-stale-691.md:34 — board-failed arm not named as out of scope --> FIXED (f915dd7)
 - [NIT] docs/browser-checks/shots/updates-stale.png — undated, unreferenced --> FIXED (f915dd7): README row and header say the check emits them
 
+#### Iteration 6 (merged tree, after origin/main moved under the PR)
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 3 NITs
+- [WARNING] render-updates-stale.js:23 + README:103 — claimed a rerun overwrites the committed PNGs; it writes where it is told --> FIXED (8baab95)
+- [WARNING] web/index.html:8738 — the offer + stale disagreement not named beside "agree on staleness" --> FIXED (8baab95)
+- [NIT] server.test.js:10777 — unreachable `baked === undefined` branch in the fixture --> DEFERRED: harmless, explicit
+- [NIT] render-updates-stale.js:130 — redundant "Up to date" assertion after exact equality --> FIXED (8baab95): dropped
+- [NIT] render-updates-stale.js:104 — poll timeout logged as a note, not in the failing line --> FIXED (8baab95): folded into the chk's extra
+
+#### Iteration 7
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 1 CONVENTION, 2 NITs
+- [CONVENTION] README:103 — the row must be the script's own opening sentence, verbatim --> FIXED (9b3b1d3); shots note moved to prose
+- [NIT] render-updates-stale.js:23-28 — screenshot sentence spliced into the stub explanation --> FIXED (9b3b1d3)
+- [NIT] plan:36-40 — two exclusions in one paragraph, a verbless fragment --> FIXED (9b3b1d3): a list
+
+#### Iteration 8
+**New findings:** 0 BLOCKERs, 1 WARNING, 1 CONVENTION, 3 NITs
+- [WARNING] web/index.html:8724 + plan:40 — the comment credited "the 409 arm of the press"; the only 409 arm is the Install confirm's, and it fires only for an offer already applied --> FIXED (8aa59da): names the Install confirm, narrows the claim
+- [CONVENTION] render-updates-stale.js — build-line presence reads used textContent; the README rule says innerText --> FIXED (8aa59da)
+- [NIT] render-updates-stale.js:28 — "unreachable on a sandboxed board" was not the reason the stub is needed --> FIXED (8aa59da): the real reason
+- [NIT] README:543 — the shots paragraph sat under the wrong H2 --> FIXED (8aa59da): beside the per-script sections
+- [NIT] web/index.html:8720 — a second unstated exception (UPDATING_NOW) --> FIXED (8aa59da): both named
+
 ### Final Ledger
 | # | Iter | Category | File:Line | Description | Status | Resolution |
 |---|------|----------|-----------|-------------|--------|------------|
@@ -75,9 +99,15 @@ Validation (~/.claude/scripts/lib/validation-log.sh) ran after every iteration a
 | 5 | 3 | WARNING | web/index.html:8721 | pointer to an absent control | FIXED | a0f54be |
 | 6 | 4 | WARNING | render-updates-stale.js:105 | assertion on a retired premise | FIXED | 5b7717c |
 | 7 | 4 | WARNING | web/index.html:8725 | no antecedent when heard alone | FIXED | 5b7717c |
+| 8 | 6 | WARNING | render-updates-stale.js:23 | false claim: rerun overwrites the PNGs | FIXED | 8baab95 |
+| 9 | 6 | WARNING | web/index.html:8738 | offer + stale exception unnamed | FIXED | 8baab95 |
+| 10 | 7 | CONVENTION | README:103 | row not the script's own sentence | FIXED | 9b3b1d3 |
+| 11 | 8 | WARNING | web/index.html:8724 | comment credits the wrong 409 arm | FIXED | 8aa59da |
+| 12 | 8 | CONVENTION | render-updates-stale.js | presence reads not innerText | FIXED | 8aa59da |
 
 ### NITs (non-blocking, across all iterations)
-- Deferred: stub field name tied to the route only by the header (iteration 1); offline + stale wording (iteration 2, in the plan); the pre-existing "Kosmos X. Checking." mid-check line (iteration 4); offer + stale cross-surface disagreement (iteration 5, in the plan).
+- Deferred: stub field name tied to the route only by the header (iteration 1); offline + stale wording (iteration 2, in the plan); the pre-existing "Kosmos X. Checking." mid-check line (iteration 4); offer + stale cross-surface disagreement (iteration 5, in the plan); the fixture's unreachable no-meta branch (iteration 6).
+- Also on the board from this loop: #704, a load flake in server.agent-id.test.js seen once during a gate run (3/3 green alone; unrelated to this branch).
 
 ### Strengths (across all iterations)
 - One definition of staleness (pageIsStale) shared by the build line, the toast and the card (every iteration).
