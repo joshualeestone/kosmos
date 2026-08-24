@@ -48,6 +48,9 @@ let failed = 0;
   const geo = await p.evaluate(() => { const b = document.getElementById('acct-add-openai'); const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return { rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)], vw: [innerWidth, innerHeight], onTop: top ? top.tagName + '#' + top.id + '.' + String(top.className).split(' ')[0] : null }; });
   say('the button has a size and is on top at its centre', geo.rect[2] > 0 && geo.rect[3] > 0 && /acct-add-openai/.test(geo.onTop || ''), JSON.stringify(geo));
   await p.click('#acct-add-openai', { timeout: 5000 }).catch(async () => { console.log('NOTE  normal click failed; clicking by force to continue the flow'); await p.click('#acct-add-openai', { force: true }); });
+  // The pair reads as two acts (Angel's ruling, #607): each button names its provider.
+  const labels = await p.evaluate(() => [document.getElementById('acct-add').textContent.trim(), document.getElementById('acct-add-openai').textContent.trim()]);
+  say('the two add buttons each name their provider', /Claude/.test(labels[0]) && /OpenAI/.test(labels[1]) && !/^Add another account/.test(labels[0]), JSON.stringify(labels));
   say('add-by-key form reveals on the button', await p.isVisible('#acct-openai-flow'));
   say('the key field is a password field', (await p.getAttribute('#acct-openai-key', 'type')) === 'password');
   await p.fill('#acct-openai-key', 'sk-proj-walkwalkwalkwalkwalkWALK');
