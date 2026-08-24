@@ -407,7 +407,10 @@ function writeRecordFile(data) {
   fs.mkdirSync(path.dirname(RECORD()), { recursive: true });
   const tmp = recTemp();
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { flag: 'wx' });
-  fs.renameSync(tmp, RECORD());
+  /* The other half of the config writer's discipline: a failed rename
+     must not strand its uniquely named tmp forever. */
+  try { fs.renameSync(tmp, RECORD()); }
+  catch (err) { try { fs.unlinkSync(tmp); } catch { /* the write failed louder */ } throw err; }
 }
 function recordWrite(name, wrote) {
   let data = readRecord();
