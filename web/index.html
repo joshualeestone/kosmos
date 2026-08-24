@@ -1516,6 +1516,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
        background: rgba(20,22,26,.06); font-size: .875rem; font-weight: 600;
        color: var(--k-ink-2); overflow: hidden; }
 .lav img { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* #520: drawn into every list row, shown only by the consolidated rail. */
+.lav .lring, .lav .lwarn { display: none; }
 /* The tinted disc fallback fills its chip (the tint rides the inner span
    because the row builds the chip's INSIDE, not the chip). */
 .lavtint { width: 100%; height: 100%; display: grid; place-items: center; border-radius: 50%; }
@@ -1811,6 +1813,15 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate { grid-column: 2; grid-row: 2; font-size: .625rem; }
   html[data-layout="consolidated"] body.consolidated .lrow > :not(.lav):not(.lname):not(.lstate) { display: none; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lname > small:not(:first-of-type) { display: none; }
+  /* The face shrinks to 24px inside its 34px cell so the ring sits OUTSIDE
+     it with a gap of ground (an inside-edge ring vanished on Josh's screen);
+     the warning sits over the face. Both stay inside the 34px cell, so the
+     folded 48px column never clips them. */
+  html[data-layout="consolidated"] body.consolidated .lrow > .lav { position: relative; overflow: visible; background: none; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lav > img, html[data-layout="consolidated"] body.consolidated .lrow > .lav > .lavtint { position: absolute; left: 5px; top: 5px; width: 24px; height: 24px; font-size: 10px; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lav > .lring { display: block; position: absolute; inset: 0; width: 34px; height: 34px; }
+  html[data-layout="consolidated"] body.consolidated .lring .gf.warn, html[data-layout="consolidated"] body.consolidated .lring .gf.high { stroke-width: 2.5; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lav > .lwarn { display: block; position: absolute; left: 50%; top: 50%; width: 18px; height: 16px; transform: translate(-50%, -52%); }
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate .lsaid { display: none; }
   /* The board's stats row and summary belong to the tab, not the rail; the
      list rows say each agent's state, and the + at the rail's top (a later
@@ -8169,6 +8180,24 @@ function card(a) {
  * Memory here is a BAR (the row has no room for a ring); unknown memory is
  * the dashed bar with no number, never a guessed figure.
  */
+/* #520, piece four: the rail row's ring and warning. Both are drawn into
+   every list row and shown only in the consolidated view (the tabs' list
+   layout keeps its red border and memory cell). The ring is the card's
+   gauge in small, on the same .gt/.gf classes so the colours and the dark
+   theme are the app's own; nothing is drawn when the memory is unknown.
+   The warning is the mock's red triangle over the face of anyone who needs
+   you, so it reads in the folded rail where the state words are gone. */
+const LROW_WARN = '<svg class="lwarn" viewBox="0 0 22 20" role="img" aria-label="Needs you"><path d="M11 1.5 20.5 18h-19z" fill="#b3261e" stroke="var(--k-bg)" stroke-width="1.5" stroke-linejoin="round"/><rect x="10" y="6.5" width="2" height="6" rx="1" fill="#fff"/><circle cx="11" cy="15" r="1.2" fill="#fff"/></svg>';
+function lrowRing(a) {
+  const pct = pctOf(a.context);
+  if (pct === null) return '';
+  const R = 15.5, C = 2 * Math.PI * R;
+  const band = memBand(pct);
+  return `<svg class="lring" viewBox="0 0 34 34" aria-hidden="true">
+    <circle class="gt" cx="17" cy="17" r="${R}" fill="none" stroke-width="2.5"/>
+    <circle class="gf ${band}" cx="17" cy="17" r="${R}" fill="none" stroke-width="2.5" stroke-dasharray="${(pct / 100) * C} ${C}" transform="rotate(-90 17 17)"/>
+  </svg>`;
+}
 function lrow(a) {
   /**
    * 🛑 THE LIST IS HALF THE BOARD, and the card branch alone is how this file
@@ -8207,7 +8236,7 @@ function lrow(a) {
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
     return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}">
-      <div class="lav">${off}</div>
+      <div class="lav">${off}${lrowRing(a)}</div>
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b><small>${esc(roleLine(a, ROLE_TITLES))}</small></div>
       <div class="lstate st-stopped">${GLYPH.stopped}Not running</div>
       <div class="ltask"></div>
@@ -8264,7 +8293,7 @@ function lrow(a) {
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
   return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}">
-    <div class="lav">${av}</div>
+    <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b><small>${esc(roleLine(a, ROLE_TITLES))}</small><em>${esc(modelLine(a))}</em></div>
     <!-- #569: the said line stacks INSIDE the state cell -- the five-slot
          rule above forbids a sixth child, and lname already stacks lines
