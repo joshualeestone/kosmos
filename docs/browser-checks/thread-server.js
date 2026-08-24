@@ -34,6 +34,12 @@ const fs = require('node:fs');
 // MAKES folders: creating a project with no folder puts a real directory under
 // `~/Kosmos/Projects`. A check that leaves fixture directories in the
 // operator's home is not sandboxed, whatever the other three say.
+/* The board refuses a half-sandboxed environment (#634), and tmux counts:
+   this server stubs the tmux runners in-process below, but that happens after
+   server.js has audited its environment, so it also names the fake tmux here.
+   The in-process runners still take precedence over the binary. */
+process.env.AGENT_WORKFORCE_TMUX_BIN = process.env.AGENT_WORKFORCE_TMUX_BIN
+  || path.join(__dirname, '..', '..', 'test-support', 'fake-tmux.sh');
 for (const key of ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_WORKERS', 'AGENT_WORKFORCE_LAUNCH', 'AGENT_WORKFORCE_PROJECTS']) {
   const set = process.env[key];
   if (!set) {

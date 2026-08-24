@@ -30,6 +30,9 @@ const path = require('node:path');
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-nav-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-nav-workers-'));
+// Sandboxed whole or the board refuses to start (#634): the four dirs and an inert tmux.
+process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-nav-projects-'));
+process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-nav-launch-'));
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-nav-config-'));
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';

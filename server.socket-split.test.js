@@ -90,6 +90,7 @@ function boardWithUnseenAgent(launchctlListStdout) {
       AGENT_WORKFORCE_DATA: nodePath.join(sb, 'data'),
       AGENT_WORKFORCE_WORKERS: nodePath.join(sb, 'workers'),
       AGENT_WORKFORCE_LAUNCH: launch,
+      AGENT_WORKFORCE_PROJECTS: nodePath.join(sb, 'projects'), // sandboxed whole (#634)
     },
   });
   fs.rmSync(sb, { recursive: true, force: true });

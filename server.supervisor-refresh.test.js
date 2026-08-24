@@ -34,6 +34,7 @@ function boot(sandbox, extraEnv) {
       AGENT_WORKFORCE_DATA: path.join(sandbox, 'data'),
       AGENT_WORKFORCE_WORKERS: path.join(sandbox, 'workers'),
       AGENT_WORKFORCE_LAUNCH: path.join(sandbox, 'launch'),
+      AGENT_WORKFORCE_PROJECTS: path.join(sandbox, 'projects'), // sandboxed whole (#634)
       AGENT_WORKFORCE_DRY_RUN: '1',
       ...extraEnv,
     },
@@ -101,6 +102,7 @@ test('requiring the module writes nothing', () => {
       AGENT_WORKFORCE_DATA: path.join(sb, 'data'),
       AGENT_WORKFORCE_WORKERS: path.join(sb, 'workers'),
       AGENT_WORKFORCE_LAUNCH: path.join(sb, 'launch'),
+      AGENT_WORKFORCE_PROJECTS: path.join(sb, 'projects'), // sandboxed whole (#634)
       AGENT_WORKFORCE_DRY_RUN: '1',
     },
     encoding: 'utf8',

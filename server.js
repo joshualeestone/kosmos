@@ -91,6 +91,18 @@ function engineFreshness() {
   return { startedAt: ENGINE_STARTED_AT.toISOString(), staleSince: engineLook.staleSince };
 }
 const store = require('./engine/store');
+/* Sandboxed whole or not at all (#634): refused before anything listens or
+   writes. In-process (a test requiring this file) it throws; as the program it
+   says the sentence and exits 2. */
+{
+  const sandbox = require('./engine/sandbox');
+  const a = sandbox.audit(process.env);
+  if (a.partial) {
+    const msg = sandbox.sentence(a);
+    if (require.main === module) { process.stderr.write(msg + '\n'); process.exit(2); }
+    throw new Error(msg);
+  }
+}
 const create = require('./engine/create');
 const register = require('./engine/register');
 /* ⚠️ For the not-running rows only. `engine/status.js` reads the same store for

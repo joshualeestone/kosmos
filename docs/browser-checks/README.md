@@ -178,6 +178,17 @@ worktree of the clone inherits it:
 With it wired, adding a check without its row refuses the commit and names the
 file, and deleting a check that still has a row does the same.
 
+## Sandboxed whole, or not at all
+
+The board refuses to start half-sandboxed (#634): if any of `AGENT_WORKFORCE_DATA`,
+`AGENT_WORKFORCE_PROJECTS`, `AGENT_WORKFORCE_WORKERS`, `AGENT_WORKFORCE_LAUNCH` is
+set, all four must be, and tmux must be inert (`AGENT_WORKFORCE_TMUX_BIN` pointed
+at `test-support/fake-tmux.sh`, or `AGENT_WORKFORCE_DRY_RUN=1`). The refusal names
+what is still live. This exists because a fixture board with two knobs sandboxed
+and three live typed a test message into two real agents' panes and rewrote their
+`CLAUDE.md` files; the recipe below used to leave tmux real in exactly that way.
+`AGENT_WORKFORCE_HALF_SANDBOX_OK=1` overrides, for somebody who has read this.
+
 ## Running them
 
 ```sh
@@ -188,6 +199,7 @@ PORT=4399 \
   AGENT_WORKFORCE_WORKERS="$SB/workers" \
   AGENT_WORKFORCE_LAUNCH="$SB/launch" \
   AGENT_WORKFORCE_PROJECTS="$SB/projects" \
+  AGENT_WORKFORCE_TMUX_BIN="$PWD/test-support/fake-tmux.sh" \
   node server.js &
 
 # 2. playwright, installed OUTSIDE this repo
