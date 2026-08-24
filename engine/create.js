@@ -1549,7 +1549,11 @@ function createAgentInner(opts) {
         return {
           outcome: OUTCOME.REFUSED,
           steps,
-          because: 'we could not find Claude Code on this computer, so an agent made now would never start. '
+          /* "could not", not "would never" (Mona Lisa's copy ruling on this
+             PR): a person who installs Claude Code an hour later watches
+             the agent start, so "never" is false on a real path.
+             Present-tense truth, same weight, no forever claim. */
+          because: 'we could not find Claude Code on this computer, so an agent made now could not start. '
             + 'Install it first (https://claude.com/claude-code)'
             + (codexConnected ? ', or create this agent on OpenAI instead' : ''),
           alternative: codexConnected
