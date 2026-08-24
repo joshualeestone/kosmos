@@ -236,7 +236,14 @@ if [ -z "$adopt" ]; then
   if [ -s "$_cf" ]; then
     CLOUDFLARE_API_TOKEN="$(head -1 "$_cf")"; export CLOUDFLARE_API_TOKEN
   fi
-  for _var in KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME CLOUDFLARE_API_TOKEN; do
+  # GitHub's token rides the same way when the no-install door holds one
+  # (#620): gh and the GitHub API read GH_TOKEN, so an agent on a Mac with
+  # no keyring can still read a private repo.
+  _gh="$(cd "$(dirname "$0")/.." && pwd)/secrets/github.token"
+  if [ -s "$_gh" ]; then
+    GH_TOKEN="$(head -1 "$_gh")"; export GH_TOKEN
+  fi
+  for _var in KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do
     if [ -n "$(eval "printf '%s' \"\${$_var:-}\"")" ]; then
       PANE_ENV+=(-e "$_var=$(eval "printf '%s' \"\$$_var\"")")
     fi
