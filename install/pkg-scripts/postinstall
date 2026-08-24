@@ -1,0 +1,53 @@
+#!/bin/sh
+#
+# Kosmos installer package — postinstall (#546 / #555).
+#
+# macOS runs this as ROOT when the person double-clicks the .pkg and clicks
+# Install. It does exactly what the published one-line install does — fetch
+# the current installer and run it — but with NO Terminal, NO paste, and NO
+# "Possible Malware, Paste Blocked" dialog, because macOS opened its own
+# verified-developer Installer for a signed, notarised package.
+#
+# Two properties this preserves from `curl -fsSL https://installkosmos.com/setup | sh`:
+#
+#   1. NEVER STALE. The package carries no app of its own; it fetches the
+#      CURRENT installer at install time, which fetches the current bundle.
+#      So the .pkg on the download page can never serve an old Kosmos.
+#   2. USER-LEVEL. install/setup.sh installs into the person's home and their
+#      own launchd session, with no sudo. A pkg postinstall runs as root, so
+#      we must drop to the CONSOLE USER (the person clicking) and run inside
+#      their GUI session, or the board's user LaunchAgent cannot be loaded and
+#      the files land under the wrong owner.
+#
+set -u
+
+# What the paste command fetches. Overridable for the clean-machine harness
+# and for testing against a local server; defaults to the real site.
+SETUP_URL="${KOSMOS_SETUP_URL:-https://installkosmos.com/setup}"
+
+# The person double-clicking is the console user, not root.
+CONSOLE_USER="$(/usr/bin/stat -f '%Su' /dev/console 2>/dev/null)"
+if [ -z "$CONSOLE_USER" ] || [ "$CONSOLE_USER" = "root" ] || [ "$CONSOLE_USER" = "loginwindow" ]; then
+  echo "Kosmos: no one is signed in to install for. Sign in, then open this again." >&2
+  exit 1
+fi
+CONSOLE_UID="$(/usr/bin/id -u "$CONSOLE_USER" 2>/dev/null)"
+if [ -z "$CONSOLE_UID" ]; then
+  echo "Kosmos: could not resolve the signed-in user." >&2
+  exit 1
+fi
+
+# Run the current installer as that user, inside their Aqua/GUI launchd
+# session. `launchctl asuser` supplies the session (so `launchctl bootstrap
+# gui/<uid>` in setup.sh works); `sudo -u -H` drops from root to the user and
+# sets HOME. The URL is passed as $0 so the pipe stays inside the user shell.
+/bin/launchctl asuser "$CONSOLE_UID" \
+  /usr/bin/sudo -u "$CONSOLE_USER" -H /bin/sh -c \
+  'exec /usr/bin/curl -fsSL "$0" | /bin/sh' "$SETUP_URL"
+rc=$?
+
+if [ "$rc" -ne 0 ]; then
+  echo "Kosmos: the install did not complete (exit $rc)." >&2
+  exit "$rc"
+fi
+exit 0
