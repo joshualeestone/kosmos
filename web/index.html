@@ -2226,6 +2226,8 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
    can produce a source yet, so there is no caption to style. */
 .codeb { margin: 10px 0 0; border: 1px solid var(--k-rule); border-radius: 10px;
          overflow: hidden; background: var(--k-surface); }
+/* The block's source line (#121): body type, the agent's voice, above. */
+.codesrc { margin: 6px 0 2px; }
 .codeb pre { margin: 0; padding: 11px 12px; font: 12.5px/1.6 var(--font-mono);
              overflow-x: auto; white-space: pre; }.pj-member b { font: 600 var(--text-body) var(--font-ui); }/* ⚠️ `--label-2`, measured (round 37): `--label-3` at this 10px caption size
    reads 3.04:1 light / 3.76:1 dark on the page ground -- under the 4.5:1 AA
@@ -18804,21 +18806,48 @@ function pjLinkPaths(text, names) {
  * "Show me" would offer to open a file the message was only quoting. Same for
  * URLs. Inside the fence the only treatment is `esc()`.
  *
- * 📌 NO figcaption YET, and its absence is the honest half. The pack draws
- * `.codeb` with a caption naming the source ("docs/trial.md, line 12"), and
- * nothing in this product can produce that: an agent has no way to say which
- * file and which line a block came from. A caption we invented would be the
- * first thing on this screen asserting something nobody computed. The box
- * ships; the caption waits for a mechanism.
+ * 📌 STILL NO figcaption, and now for the ruled reason rather than a missing
+ * mechanism (#121, the ruling in kosmos-code-block-source-2026-08-20.md):
+ * the mechanism EXISTS -- the fence's own infostring, the standard markdown
+ * way, which the old split discarded -- but a caption bar is Kosmos speaking
+ * and the label is the AGENT speaking. So a path-shaped infostring renders as
+ * a line of body text ABOVE the block (an offer of what is coming, not a
+ * verdict on what was), through the exact treatment the body already has:
+ * pjLinkPaths decides openable-vs-plain by the same `names` every citation
+ * uses, so "Show me" rests entirely on the computed half. Line numbers never
+ * render, in any tier. Language infostrings (`js`), whitespace-carrying ones
+ * (`js title="x.js"` -- a save-as name, not an origin) and anything with
+ * `..` fall through to nothing, which is what shipped before.
  */
 function pjBody(text, names) {
   const raw = String(text == null ? '' : text);
-  const parts = raw.split(/^```[^\n]*$/m);
-  /* Even count of segments means an odd number of fences: one is unclosed. */
-  if (parts.length < 3 || parts.length % 2 === 0) return pjLinkPaths(raw, names);
-  return parts.map((seg, i) => (i % 2
-    ? '<figure class="codeb"><pre>' + esc(seg.replace(/^\n|\n$/g, '')) + '</pre></figure>'
-    : pjLinkPaths(seg, names))).join('');
+  /* The capture keeps each fence line's infostring; the old pattern ate it.
+     With the capture, k closed blocks yield 4k+1 segments:
+     [prose, openInfo, code, closeInfo, prose, ...]. Any other count means an
+     unclosed fence, and an uncertain reading stays the flat paragraph. */
+  const parts = raw.split(/^```([^\n]*)$/m);
+  if (parts.length < 5 || (parts.length - 1) % 4 !== 0) return pjLinkPaths(raw, names);
+  let out = '';
+  for (let i = 0; i < parts.length; i += 1) {
+    const at = i % 4;
+    if (at === 0) { out += pjLinkPaths(parts[i], names); continue; }
+    if (at === 1) {
+      const label = String(parts[i] || '').trim();
+      /* Path-shaped: no whitespace (a save-as attribute is not an origin),
+         no `..` (walking up is not a file of this project), and a dot or a
+         slash (what separates `trial.md` from `js`). */
+      if (/^[^\s]+$/.test(label) && !label.includes('..') && /[./]/.test(label)) {
+        out += '<div class="codesrc">' + pjLinkPaths(label, names) + '</div>';
+      }
+      continue;
+    }
+    if (at === 2) {
+      out += '<figure class="codeb"><pre>' + esc(parts[i].replace(/^\n|\n$/g, '')) + '</pre></figure>';
+    }
+    /* at === 3 is the closing fence's infostring: markdown gives it no
+       meaning, and we compute nothing from it. */
+  }
+  return out;
 }
 
 /* 🔑 EVERY PLACE A PERSON'S MESSAGE IS DRAWN GOES THROUGH THIS (#355). It was
