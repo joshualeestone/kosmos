@@ -112,13 +112,15 @@ test('#500: both profile-less strays are visible, with the no-record sentence', 
   const sf = rows.get('strayfolder');
   assert.ok(sf, 'the birth-recorded stray folder is absent: the survey still enumerates from profiles only');
   assert.match(sf.because, /no record of this agent/, sf.because);
-  assert.match(sf.because, /only its folder was/, sf.because);
+  assert.match(sf.because, /its folder was/, sf.because);
+  assert.doesNotMatch(sf.because, /free the name/,
+    'the sentence promises name-freeing, which remove (not delete, ever) cannot deliver');
   assert.equal(sf.running, false);
   assert.equal(sf.id, null, 'a profile-less stray carried an id from nowhere');
   const sj = rows.get('strayjob');
   assert.ok(sj, 'the label-namespace stray job is absent: the survey still enumerates from profiles only');
   assert.match(sj.because, /no record of this agent/, sj.because);
-  assert.match(sj.because, /only a startup job was/, sj.because);
+  assert.match(sj.because, /a startup job was/, sj.because);
 });
 
 test('#500: the stranger\'s checkout stays invisible, and the control is a normal row', () => {
@@ -131,7 +133,7 @@ test('#500: the stranger\'s checkout stays invisible, and the control is a norma
     'the control wears the stray sentence');
 });
 
-test('#500: both strays have viable removal plans, which is what frees their names', () => {
+test('#500: both strays have viable removal plans, the road to clearing them off the board', () => {
   for (const [label, plan] of [['folder', BOARD.folderPlan], ['job', BOARD.jobPlan]]) {
     assert.equal(plan.ok, true, label + ' plan: ' + JSON.stringify(plan));
   }

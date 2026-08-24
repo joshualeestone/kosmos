@@ -1032,14 +1032,19 @@ const server = http.createServer((req, res) => {
                 because: k.profile === false
                   /* #500: the profile-less stray this row now surfaces. The
                      survey found it on disk with no record behind it, so the
-                     one true sentence is that Kosmos does not know it, and
-                     the one useful fact is that removing it frees the name
-                     create.js is refusing. Said first: no record outranks
-                     every state a record would be needed to explain. */
+                     one true sentence is that Kosmos does not know it. The
+                     promise stops at what removal DOES: remove is not delete
+                     (remove.js's own first rule), so removing a stray stops
+                     its job and takes it off the board while its files stay,
+                     and the name stays taken until those files are gone.
+                     "Remove it here to free the name" was the first draft
+                     and it was false; freeing a name held by files needs a
+                     delete-leftover feature this product does not have yet,
+                     carded as the follow-up. */
                   ? ('Kosmos has no record of this agent: ' + (k.folder && k.job
                       ? 'its folder and a startup job were'
-                      : k.folder ? 'only its folder was' : 'only a startup job was')
-                      + ' found on disk. Remove it here to free the name')
+                      : k.folder ? 'its folder was' : 'a startup job was')
+                      + ' found on disk. Removing it clears it off the board; its files are never deleted')
                   : (k.job && !k.folder)
                   /* #127: the distinct, broken state this row now surfaces. A
                      job with no folder cannot start (it has nothing to run) and
@@ -1047,7 +1052,7 @@ const server = http.createServer((req, res) => {
                      it, which this row finally makes reachable. Said before the
                      switched-off case because it is the stronger fact: a folder
                      that is gone is gone whether or not the job is also off. */
-                  ? 'this agent cannot run: its folder is gone but a leftover startup job remains. Remove it here to free the name'
+                  ? 'this agent cannot run: its folder is gone but a leftover startup job remains. Remove it here to stop that job for good'
                   : (!create.jobMissing(k.name) && switchedOff.has(k.name))
                     ? 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again'
                     : 'this agent is not running: nothing on this computer has a session for it',
@@ -1058,6 +1063,15 @@ const server = http.createServer((req, res) => {
                    A stopped agent with no launch file is exactly the state
                    the sentence exists for: nothing will start it, and no
                    restart fills the record in. */
+                /* #500 note, deliberate: a stray folder-only row carries
+                   true here, so its model panel says Kosmos has no record
+                   of how it starts (true: no plist, no profile) and points
+                   at Found agents, the legitimate way to adopt it back.
+                   The card label that renders from this field reads "Made
+                   before Kosmos recorded this", which for a birth-recorded
+                   stray is loose about provenance; re-labeling that card
+                   state belongs with #514's delete-leftover surface work,
+                   not a midnight re-plumb of the model panel. */
                 neverRecorded: create.jobMissing(k.name),
                 /* #310: the Login Items switch. Only meaningful on a stopped
                    agent with a job that EXISTS and is overridden off; the

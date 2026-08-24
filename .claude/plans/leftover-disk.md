@@ -5,9 +5,18 @@
 A directory in the workers root, or a com.kosmos.agent.<name>.plist in the
 LaunchAgents directory, whose name has NO profile, appears in the roster as
 a not-running leftover with an honest sentence saying Kosmos has no record
-of it, can be removed from the product, and its name becomes usable again.
-A test fails against enumeration-from-profiles-only. repair() never writes
-a job for a profile-less stray.
+of it, and can be removed from the board. A test fails against
+enumeration-from-profiles-only. repair() never writes a job for a
+profile-less stray.
+
+SCOPE CORRECTION (iteration 1): the card's "its name becomes usable again"
+cannot be met by removal, because remove is not delete (remove.js's first
+rule: nothing on disk is deleted, ever) and create refuses a name whose
+folder or job file still exists. Freeing a name held by files needs a
+delete-leftover feature the product deliberately does not have. This
+branch ships visibility, honest sentences that promise only what removal
+does, and the follow-up card for delete-leftover; it does not quietly
+build a destructive delete the night before the demo.
 
 ## Why (from the card)
 
@@ -49,7 +58,7 @@ enumeration reconciled against what is known.
 
 ## Done when
 
-The card's done-when, plus: the survey unit pins live in
-engine/register.test.js, the route-level roster and removal-plan pins in
-server.test.js, and the missing/repair guard has its own failing-direction
-assertion.
+The card's done-when as corrected above, plus: the survey unit pins live
+in engine/register.test.js, the route-level roster and removal-plan pins
+in server.stray-removable.test.js, and the missing/repair guard has its
+own failing-direction assertion.

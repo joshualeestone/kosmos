@@ -140,7 +140,11 @@ function strays(profileNames) {
   try {
     for (const e of create.createdLog()) {
       if (e.outcome === create.OUTCOME.CREATED || e.outcome === create.OUTCOME.PARTIAL) {
-        born.add(create.cleanName(String(e.name || '')));
+        /* ⚠️ THE SLUG, not the name as typed: the birth line records the
+           spelling the person used ("Casey"), the folder is made under
+           slugFor ("casey"), and the tie must speak the folder's own
+           language or capitalized creations never match their remains. */
+        born.add(create.slugFor(String(e.name || '')));
       }
     }
   } catch { /* no receipts, no folder ties; jobs still speak for themselves */ }
@@ -161,7 +165,10 @@ function strays(profileNames) {
   try {
     for (const f of fs.readdirSync(create.AGENTS_DIR)) {
       const m = /^com\.kosmos\.agent\.(.+)\.plist$/.exec(f);
-      if (m) note(m[1], 'job');
+      if (!m) continue;
+      try {
+        if (fs.statSync(path.join(create.AGENTS_DIR, f)).isFile()) note(m[1], 'job');
+      } catch { /* a vanished entry is not a stray */ }
     }
   } catch { /* nothing contributed; see the fail-soft note above */ }
   return found;
