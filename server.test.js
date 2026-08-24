@@ -10131,6 +10131,7 @@ test('the style routes round-trip a theme and a pasted file, and refuse behavior
     method: 'PUT', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ customText: '--k-bg: #101010' }),
   });
+  assert.equal(pasted.status, 200, pasted.body);
   assert.equal(JSON.parse(pasted.body).tokens['--k-bg'], '#101010');
 
   const bad = await req('/api/style', {

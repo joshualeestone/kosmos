@@ -14940,6 +14940,10 @@ async function paintStyles(apply) {
     sel.value = r.theme;
     document.getElementById('style-clear').hidden = !(r.customCount > 0);
   }
+  /* A corrupt saved style falls back to the shipped look AND says so
+     here, the promise the engine's because field exists to keep. */
+  const smsg = document.getElementById('style-msg');
+  if (smsg && r.ok === false && r.because) smsg.textContent = r.because;
 }
 paintStyles(true);
 if (document.getElementById('style-theme')) document.getElementById('style-theme').addEventListener('change', async (e) => {
@@ -14948,10 +14952,12 @@ if (document.getElementById('style-theme')) document.getElementById('style-theme
   try {
     const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ theme: e.target.value }) });
     const body = await res.json().catch(() => null);
-    if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; return; }
+    /* A failed save reverts the select: the control shows what is
+       standing, never a pick that neither saved nor applied. */
+    if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; paintStyles(false); return; }
     applyStyle(body.tokens);
     document.getElementById('style-clear').hidden = !(body.customCount > 0);
-  } catch { msg.textContent = 'we could not save the style'; }
+  } catch { msg.textContent = 'we could not save the style'; paintStyles(false); }
 });
 if (document.getElementById('style-apply')) document.getElementById('style-apply').addEventListener('click', async () => {
   const msg = document.getElementById('style-msg');
@@ -14963,7 +14969,8 @@ if (document.getElementById('style-apply')) document.getElementById('style-apply
     if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; return; }
     applyStyle(body.tokens);
     document.getElementById('style-clear').hidden = !(body.customCount > 0);
-    msg.textContent = body.customCount > 0 ? 'Applied: ' + body.customCount + ' tokens.' : 'Applied.';
+    msg.textContent = body.customCount === 1 ? 'Applied: 1 token.'
+      : body.customCount > 0 ? 'Applied: ' + body.customCount + ' tokens.' : 'Applied.';
   } catch { msg.textContent = 'we could not save the style'; }
 });
 if (document.getElementById('style-clear')) document.getElementById('style-clear').addEventListener('click', async () => {

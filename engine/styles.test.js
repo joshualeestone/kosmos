@@ -44,6 +44,14 @@ test('a token file parses; anything shaped like behavior is refused with the lin
        the value-level comment refusal is what turns them away now. */
     ['--k-bg: url/**' + '*'.repeat(0) + '/("http://evil/x")', /comment inside a value/],
     ['--k-bg: image-set/**' + '/(url/**' + '/("http://e/x.png"))', /comment inside a value/],
+    /* Iteration 3: the paren is judged by the ident TOUCHING it, so a
+       function name a letters-only scan walks past still fails closed. */
+    ['--a: foo3(1)', /uses foo3\(\)/],
+    ['--a: foo_(1)', /uses foo_\(\)/],
+    /* A declaration hiding behind a full-line comment is refused, not
+       silently dropped. */
+    ['/* a note */ --x: red', /not a token line/],
+    ['--a: ' + '1'.repeat(140), /longer than 120 characters/],
   ]) {
     const r = styles.parseTokens(text);
     assert.equal(r.ok, false, text.slice(0, 30));
@@ -84,6 +92,14 @@ test('a tampered store cannot smuggle what the paste path refuses (#480 review)'
   fs.rmSync(styles.FILE(), { force: true });
 });
 
+test('a duplicate name counts once, the last value winning as it would in a sheet (iteration 3)', () => {
+  const r = styles.parseTokens('--a: red\n--a: blue\n--b: #fff');
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.tokens, [{ name: '--a', value: 'blue' }, { name: '--b', value: '#fff' }]);
+  /* And calc grouping parens survive the adjacency rule. */
+  assert.equal(styles.parseTokens('--w: calc((100% - 10px) / 2)').ok, true);
+});
+
 test('a store token judges name and value as separate fields, and read mirrors the paste caps (iteration 2)', () => {
   fs.mkdirSync(nodePath.dirname(styles.FILE()), { recursive: true });
   const many = [];
@@ -93,11 +109,15 @@ test('a store token judges name and value as separate fields, and read mirrors t
        one valid LINE before the fields were judged separately */
     { name: '--a: red', value: '#fff' },
     { name: '--K-Bg', value: '#123456' },
+    /* a raw newline in a stored value: the paste path can never make
+       one, so the read path refuses it too (iteration 3) */
+    { name: '--k-sneak', value: 'red\nblue' },
   ].concat(many) }));
   const eff = styles.effective();
   assert.equal(Object.keys(eff.tokens).some((k) => k.includes(':')), false,
     'a store name smuggling a colon reached the page');
   assert.equal(eff.tokens['--k-bg'], '#123456', 'read did not lowercase the stored name');
+  assert.equal(eff.tokens['--k-sneak'], undefined, 'a stored multi-line value reached the page');
   assert.ok(eff.customCount <= 60, 'read applied more tokens than the paste path allows: ' + eff.customCount);
   fs.rmSync(styles.FILE(), { force: true });
 });

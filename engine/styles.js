@@ -66,7 +66,22 @@ function valueProblem(value) {
   if (/\\/.test(value)) return 'has a backslash, which a color or size never needs';
   if (value.includes('/*') || value.includes('*/')) return 'has a comment inside a value, which a color or size never needs';
   if (/@/.test(value)) return 'has an @-rule, and a style may only set colors and sizes';
-  for (const m of value.matchAll(/([a-z-]+)\s*\(/gi) || []) {
+  /* Every open paren is judged by the ident TOUCHING it, the way the
+     CSS tokenizer builds a function token: ident adjacent to its paren.
+     An ident may carry digits, underscores, or non-ASCII letters, which
+     a letters-only scan walks past and fails OPEN on. A paren with no
+     touching ident is a calc() group and carries no call. The older
+     space-tolerant scan stays below it: stricter twice is still strict. */
+  for (let i = 0; i < value.length; i += 1) {
+    if (value[i] !== '(') continue;
+    let j = i;
+    while (j > 0 && (/[a-z0-9_-]/i.test(value[j - 1]) || value.charCodeAt(j - 1) > 127)) j -= 1;
+    const ident = value.slice(j, i);
+    if (ident && !FN_ALLOWED.has(ident.toLowerCase())) {
+      return 'uses ' + ident + '(), which a style file does not need';
+    }
+  }
+  for (const m of value.matchAll(/([a-z-]+)\s*\(/gi)) {
     if (!FN_ALLOWED.has(m[1].toLowerCase())) {
       return 'uses ' + m[1] + '(), which a style file does not need';
     }
@@ -77,21 +92,33 @@ function valueProblem(value) {
 function parseTokens(text) {
   const raw = String(text == null ? '' : text);
   if (raw.length > 8000) return { ok: false, because: 'that style is too long; keep it under 8000 characters' };
-  const tokens = [];
+  const byName = new Map();
   const lines = raw.split('\n');
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
-    if (!line.trim() || /^\s*\/\*.*\*\/\s*$/.test(line)) continue;
+    /* Lazy, then end-anchored: a line carrying a declaration AFTER its
+       comment is not a comment line, and falls through to be refused by
+       name rather than silently dropped. */
+    if (!line.trim() || /^\s*\/\*.*?\*\/\s*$/.test(line)) continue;
     const m = LINE.exec(line);
     if (!m) {
+      const nm = /^\s*--[a-z0-9-]{1,40}\s*:\s*(.*)$/i.exec(line);
+      if (nm && nm[1].replace(/;\s*$/, '').trim().length > 120) {
+        return { ok: false, because: 'line ' + (i + 1) + ' sets a value longer than 120 characters' };
+      }
       return { ok: false, because: 'line ' + (i + 1) + ' is not a token line; every line looks like --name: value;' };
     }
     const bad = valueProblem(m[2]);
     if (bad) return { ok: false, because: 'line ' + (i + 1) + ' ' + bad };
-    tokens.push({ name: m[1].toLowerCase(), value: m[2] });
-    if (tokens.length > 60) return { ok: false, because: 'that style sets more than 60 tokens, which is more than the whole page uses' };
+    /* Lowercased deliberately: custom properties are case-sensitive in
+       CSS, but every token this page ships is lowercase, so one casing
+       means a paste always hits the token it names. Last value wins,
+       as it would in a real style sheet, so the count reported is the
+       count actually in force. */
+    byName.set(m[1].toLowerCase(), m[2]);
+    if (byName.size > 60) return { ok: false, because: 'that style sets more than 60 tokens, which is more than the whole page uses' };
   }
-  return { ok: true, tokens };
+  return { ok: true, tokens: [...byName].map(([name, value]) => ({ name, value })) };
 }
 
 function read() {
@@ -111,7 +138,7 @@ function read() {
     const custom = (Array.isArray(data.custom) ? data.custom : [])
       .filter((t) => t && typeof t.name === 'string' && typeof t.value === 'string'
           && /^--[a-z0-9-]{1,40}$/i.test(t.name)
-          && /^[^;{}<>]{1,120}$/.test(t.value) && valueProblem(t.value) === null)
+          && /^[^;{}<>\r\n]{1,120}$/.test(t.value) && valueProblem(t.value) === null)
       .slice(0, 60)
       .map((t) => ({ name: t.name.toLowerCase(), value: t.value }));
     return { ok: true, theme, custom };
