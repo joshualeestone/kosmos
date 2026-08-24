@@ -703,6 +703,13 @@ function supervisorPath() {
 /* The codex notify bridge (#245): installed beside the supervisor, by the
    same refresh, for the same reason — one copy, every agent, every fix
    reaching agents made long ago at their next start. */
+/** The one CODEX_HOME resolution, shared by the trust write and the
+    connected-check so the two cannot look in different homes. */
+function codexHomeDir() {
+  return process.env.AGENT_WORKFORCE_CODEX_HOME
+    || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.codex');
+}
+
 /**
  * Trust an agent's folder for the codex runner, the way the Yes button on
  * codex's own trust dialog would. MEASURED (#245): the bypass flag does
@@ -711,8 +718,7 @@ function supervisorPath() {
  * the provider switch, one definition.
  */
 function trustCodexFolder(dir) {
-  const codexHome = process.env.AGENT_WORKFORCE_CODEX_HOME
-    || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.codex');
+  const codexHome = codexHomeDir();
   const cfg = path.join(codexHome, 'config.toml');
   let text = '';
   try { text = fs.readFileSync(cfg, 'utf8'); } catch { /* first entry ever */ }
@@ -1514,12 +1520,43 @@ function createAgentInner(opts) {
   // one argument. Kept for the same reason as the binaries above: a path
   // carrying a quote or a newline is one nothing good comes of passing
   // anywhere, and the guard that matters for the plist is the XML escaping.
-  for (const [what, bin] of [['Claude', claudeBin], ['tmux', tmuxBin], ['the agents folder', workerDir(name)]]) {
+  /**
+   * ⚠️ THE RUNNER CHECKED IS THE ONE THIS AGENT WILL RUN (#548). This loop
+   * checked Claude for every creation, which was right when Claude was the
+   * only engine and became false with #530: an OpenAI-only Mac -- exactly
+   * the fresh machine Josh installed on -- was refused an OPENAI agent for
+   * Claude's absence. Wrong by supersession, the same expiry as the
+   * installer's gate, found by probing the engine rather than reading it.
+   *
+   * And when Claude IS the missing one, the refusal now carries the remedy
+   * and, ONLY WHEN IT IS REAL ON THIS MACHINE, the other path (Mona Lisa's
+   * rule, the pill-door law applied to a sentence): "or create this agent
+   * on OpenAI instead" is said only with the codex runner present AND an
+   * OpenAI sign-in on the machine, because an alternative that dead-ends
+   * is a dead click in words. Which condition suppressed it rides the
+   * engine-side `alternative`, never the person's sentence.
+   */
+  const runnerLabel = runner === 'codex' ? 'the OpenAI runner' : 'Claude Code';
+  for (const [what, bin] of [[runnerLabel, runnerBin], ['tmux', tmuxBin], ['the agents folder', workerDir(name)]]) {
     if (unusablePath(bin)) {
       return { outcome: OUTCOME.REFUSED, because: `we cannot use that path for ${what}`, steps };
     }
     if (what === 'the agents folder') continue;
     if (!fs.existsSync(bin)) {
+      if (what === runnerLabel && runner === 'claude') {
+        const codexPresent = fs.existsSync(codexBin);
+        const codexConnected = codexPresent && fs.existsSync(path.join(codexHomeDir(), 'auth.json'));
+        return {
+          outcome: OUTCOME.REFUSED,
+          steps,
+          because: 'we could not find Claude Code on this computer, so an agent made now would never start. '
+            + 'Install it first (https://claude.com/claude-code)'
+            + (codexConnected ? ', or create this agent on OpenAI instead' : ''),
+          alternative: codexConnected
+            ? { offered: true }
+            : { offered: false, because: codexPresent ? 'no OpenAI sign-in on this computer' : 'the codex runner is not on this computer' },
+        };
+      }
       return {
         outcome: OUTCOME.REFUSED,
         because: `we could not find ${what} on this computer, so an agent made now would never start`,
