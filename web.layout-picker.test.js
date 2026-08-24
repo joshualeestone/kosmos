@@ -57,3 +57,16 @@ test('no em dash in what a person reads', () => {
   const at = PAGE.indexOf('id="layout-field"');
   assert.doesNotMatch(PAGE.slice(at, at + 4000), /—/);
 });
+
+test('piece two: the rail heads exist once, hidden until the mode, with a + on the board\'s own actions and a fold per rail', () => {
+  assert.equal((PAGE.match(/id="rail-agents"/g) || []).length, 1);
+  assert.equal((PAGE.match(/id="rail-projects"/g) || []).length, 1);
+  assert.match(PAGE, /<div class="railhead" id="rail-agents" hidden>/);
+  assert.match(PAGE, /<div class="railhead" id="rail-projects" hidden>/);
+  assert.match(SCRIPT, /getElementById\('rail-agents'\)\.hidden = !cons/);
+  assert.match(SCRIPT, /getElementById\('rail-agents-new'\)\.addEventListener\('click', \(\) => document\.getElementById\('new-agent'\)\.click\(\)\)/, 'the rail + is not the board\'s own New agent');
+  assert.match(SCRIPT, /getElementById\('rail-projects-new'\)\.addEventListener\('click', \(\) => document\.getElementById\('pj-new'\)\.click\(\)\)/, 'the rail + is not the list\'s own New project');
+  assert.match(SCRIPT, /sessionStorage\.getItem\('rail-fold-' \+ k\)/, 'a fold is not per session');
+  assert.match(PAGE, /body\.consolidated\.fold-a \{ grid-template-columns: 48px/);
+  assert.match(PAGE, /body\.consolidated\.fold-p #panel-projects \{ grid-template-columns: 48px/);
+});

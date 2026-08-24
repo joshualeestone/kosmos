@@ -1759,7 +1759,29 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated { display: grid; grid-template-columns: minmax(200px, 15%) minmax(0, 1fr);
     column-gap: 18px; align-content: start; }
   html[data-layout="consolidated"] body.consolidated > * { grid-column: 1 / -1; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 39; }
   html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 40; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+  /* The rail heads: a name, a +, and the fold arrow. Folded, the arrow (and
+     the +) stack and the name goes. */
+  html[data-layout="consolidated"] body.consolidated .railhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 0 2px 8px 6px; min-height: 22px; }
+  html[data-layout="consolidated"] body.consolidated .railname { font: 600 .6875rem var(--font-ui); letter-spacing: .1em; text-transform: uppercase; color: var(--k-ink-2); }
+  html[data-layout="consolidated"] body.consolidated .railacts { display: flex; gap: 4px; flex: none; }
+  html[data-layout="consolidated"] body.consolidated .fold { width: 22px; height: 22px; border: 1px solid var(--k-rule); border-radius: 7px; background: var(--k-surface); color: var(--k-ink-2); font: 12px/1 var(--font-ui); cursor: pointer; padding: 0; }
+  html[data-layout="consolidated"] body.consolidated .fold.plus { font-size: 15px; font-weight: 600; }
+  html[data-layout="consolidated"] body.consolidated .fold:hover { color: var(--k-ink); }
+  html[data-layout="consolidated"] body.consolidated #pj-list-view .statsrow { display: none; }
+  /* Folded agents: 48px, the letters in their rings, nothing else. */
+  html[data-layout="consolidated"] body.consolidated.fold-a { grid-template-columns: 48px minmax(0, 1fr); }
+  html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents { flex-direction: column; margin-left: 0; }
+  html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents .railacts { flex-direction: column; }
+  html[data-layout="consolidated"] body.consolidated.fold-a .railname { display: none; }
+  html[data-layout="consolidated"] body.consolidated.fold-a .lrow { grid-template-columns: 34px; justify-content: center; padding: 4px 0; border: 0; background: none; }
+  html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lname, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lstate { display: none; }
+  /* Folded projects: the arrow alone, the list gone. */
+  html[data-layout="consolidated"] body.consolidated.fold-p #panel-projects { grid-template-columns: 48px minmax(0, 1fr); }
+  html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects { flex-direction: column; margin-left: 0; }
+  html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects .railacts { flex-direction: column; }
+  html[data-layout="consolidated"] body.consolidated.fold-p #pj-list, html[data-layout="consolidated"] body.consolidated.fold-p #pj-arch-wrap, html[data-layout="consolidated"] body.consolidated.fold-p #pj-list-msg { display: none; }
   html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 40; max-width: none; margin: 0; }
   /* The rail row: the face, then the name over the title over the state. */
   html[data-layout="consolidated"] body.consolidated .lrow { grid-template-columns: 34px minmax(0, 1fr); gap: 2px 10px; padding: 8px 10px; }
@@ -5427,6 +5449,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 
   <!-- The list, and the empty state, which is the screen first-run hands you. -->
   <div id="pj-list-view">
+    <!-- #520, piece two: the projects rail's head, consolidated view only.
+         The + is the list's own New project; the arrow folds the list away
+         and leaves the arrow. -->
+    <div class="railhead" id="rail-projects" hidden>
+      <span class="railname">Projects</span>
+      <span class="railacts">
+        <button class="fold plus" type="button" id="rail-projects-new" aria-label="New project" title="New project">+</button>
+        <button class="fold" type="button" id="rail-projects-fold" data-fold="p" aria-label="Fold the projects column" aria-expanded="true">&lsaquo;</button>
+      </span>
+    </div>
     <!-- ⚠️ The pack's stats row (view C), the same grammar as the agents
          board: the New-project action as a dashed tile locked left, the
          two counts on the centre (the pack deliberately dropped the other
@@ -6956,6 +6988,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      which is the ordinary case and must not carry a banner. -->
 <div id="restart-wrap" hidden></div>
 <div class="cards" id="grid"></div>
+<!-- #520, piece two: the agents rail's head. Exists only in the consolidated
+     view (showTab shows it with the mode). The + is the board's own New
+     agent; the arrow folds the column to its letters. -->
+<div class="railhead" id="rail-agents" hidden>
+  <span class="railname">Agents</span>
+  <span class="railacts">
+    <button class="fold plus" type="button" id="rail-agents-new" aria-label="New agent" title="New agent">+</button>
+    <button class="fold" type="button" id="rail-agents-fold" data-fold="a" aria-label="Fold the agents column" aria-expanded="true">&lsaquo;</button>
+  </span>
+</div>
 <div class="alist" id="alist" hidden></div>
 <!-- ⚠️ THE ORG VIEW (#137), built from kosmos-org-view-2026-08-19.html. That
      file is a FORK of the 08-19 pack, so the DIAGRAM in it is live and the
@@ -9575,6 +9617,9 @@ function showTab(tab) {
      the rest. Settings and the others stay whole pages. */
   const cons = layoutConsolidated() && (tab === 'agents' || tab === 'projects');
   document.body.classList.toggle('consolidated', cons);
+  document.getElementById('rail-agents').hidden = !cons;
+  document.getElementById('rail-projects').hidden = !cons;
+  railFoldsApply();
   if (cons) {
     document.getElementById('panel-projects').hidden = false;
     document.getElementById('boardbar').hidden = false;
@@ -16207,6 +16252,32 @@ document.querySelectorAll('[data-layout-pick]').forEach((b) => {
     } catch { msg.textContent = 'we could not save that'; }
   });
 });
+/* #520, piece two: the folds. Per rail, per browser session (a fold is a
+   reading posture, not a setting); the + buttons are the board's own New
+   agent and New project, reached from the rail's top. */
+function railFoldsApply() {
+  for (const k of ['a', 'p']) {
+    let on = false;
+    try { on = sessionStorage.getItem('rail-fold-' + k) === '1'; } catch { on = false; }
+    document.body.classList.toggle('fold-' + k, on);
+    const btn = document.querySelector('[data-fold="' + k + '"]');
+    if (btn) {
+      btn.innerHTML = on ? '&rsaquo;' : '&lsaquo;';
+      btn.setAttribute('aria-expanded', String(!on));
+      btn.setAttribute('aria-label', (on ? 'Open' : 'Fold') + ' the ' + (k === 'a' ? 'agents' : 'projects') + ' column');
+    }
+  }
+}
+document.querySelectorAll('[data-fold]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const k = btn.dataset.fold;
+    const on = !document.body.classList.contains('fold-' + k);
+    try { if (on) sessionStorage.setItem('rail-fold-' + k, '1'); else sessionStorage.removeItem('rail-fold-' + k); } catch { /* fine */ }
+    railFoldsApply();
+  });
+});
+document.getElementById('rail-agents-new').addEventListener('click', () => document.getElementById('new-agent').click());
+document.getElementById('rail-projects-new').addEventListener('click', () => document.getElementById('pj-new').click());
 /* Crossing 1280 either way re-lays the page; the setting itself is untouched. */
 window.addEventListener('resize', () => {
   const want = layoutConsolidated() && (URL_TAB === 'agents' || URL_TAB === 'projects');
