@@ -8422,14 +8422,17 @@ document.getElementById('uc-go').addEventListener('click', async () => {
     const logAt = attempt && attempt.log ? attempt.log : '~/.local/share/kosmos/logs/install.log';
     const still = versionNow ? ' Kosmos is still on ' + esc(versionNow) + '.' : '';
     const text = verdict === 'failed'
-      ? '<b>The update did not take.</b> The installer stopped' + (attempt && attempt.code != null ? ' (code ' + esc(String(attempt.code)) + ')' : '') + '.' + still
+      ? '<b>The update did not take.</b>The installer stopped' + (attempt && attempt.code != null ? ' (code ' + esc(String(attempt.code)) + ')' : '') + '.' + still
         + ' Its own notes are at <code>' + esc(logAt) + '</code>.'
       : verdict === 'did-not-take'
-        ? '<b>The update did not take.</b> Kosmos came back on the same version.' + still
+        ? '<b>The update did not take.</b>Kosmos came back on the same version.' + still
           + ' The installer\'s notes are at <code>' + esc(logAt) + '</code>.'
-        : '<b>This is taking longer than expected.</b>' + still
+        : '<b>This is taking longer than expected.</b>' + still.replace(/^ /, '')
           + ' If Kosmos does not come back on its own, open it again from Applications; the installer\'s notes are at <code>' + esc(logAt) + '</code>.';
-    msg.innerHTML = text
+    /* One span for the sentence: .upd-msg is a flex column, so bare
+       inline children (the <code> path, the closing period) would each
+       become their own row. */
+    msg.innerHTML = '<span>' + text + '</span>'
       + '<div class="frow" style="margin-top:12px;justify-content:center;">'
       + '<button class="btn" type="button" id="upd-again">Try again</button>'
       + '<button class="btn uprime" type="button" id="upd-reload">Reload</button></div>';
