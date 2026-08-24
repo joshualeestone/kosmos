@@ -1843,6 +1843,10 @@ module.exports = {
      is a converter, not a gate — so anything asking "is this a name we can
      act on" has to reach this, or it grows a weaker second copy. */
   NAME_RE,
+  /* The disk roots themselves, for #500's stray walk: the walk must read
+     these directly, because workerDir() consults recorded folders and
+     would resolve a recorded name right out of the root being walked. */
+  WORKERS_DIR, AGENTS_DIR,
   setModel,
   installJob,
   nameUsable,

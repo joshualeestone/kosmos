@@ -1029,7 +1029,18 @@ const server = http.createServer((req, res) => {
                    the one cause a person produced themselves with no screen
                    connecting the two. Said here, once, so every surface that
                    reads `because` says it. */
-                because: (k.job && !k.folder)
+                because: k.profile === false
+                  /* #500: the profile-less stray this row now surfaces. The
+                     survey found it on disk with no record behind it, so the
+                     one true sentence is that Kosmos does not know it, and
+                     the one useful fact is that removing it frees the name
+                     create.js is refusing. Said first: no record outranks
+                     every state a record would be needed to explain. */
+                  ? ('Kosmos has no record of this agent: ' + (k.folder && k.job
+                      ? 'its folder and a startup job were'
+                      : k.folder ? 'only its folder was' : 'only a startup job was')
+                      + ' found on disk. Remove it here to free the name')
+                  : (k.job && !k.folder)
                   /* #127: the distinct, broken state this row now surfaces. A
                      job with no folder cannot start (it has nothing to run) and
                      fails on every launchd interval; the only cure is to remove

@@ -101,6 +101,72 @@ function known() {
  * every thirty seconds forever; and a removed agent is neither, it is somebody's
  * decision. A single "healthy" boolean would hide which of the three you have.
  */
+/**
+ * The names holding a folder or a startup job ON DISK with no profile
+ * behind them (#500). The survey enumerates from profiles, so without
+ * this walk a profile-less leftover is not merely stale in the roster,
+ * it is absent from the enumeration entirely, while create.js still
+ * refuses its name: the name is unusable and nothing on any screen says
+ * why.
+ *
+ * ⚠️ FAIL SOFT TO NOTHING, per root. An unreadable stray sweep must not
+ * take the profile-backed roster down with it; contributing nothing
+ * leaves exactly the blindness the product has today, which is the
+ * inert direction. ENOENT is a fresh machine, not an error.
+ *
+ * ⚠️ THE ROOTS THEMSELVES, not workerDir(): that helper consults
+ * recorded folders and would resolve a recorded name right out of the
+ * root being walked. And names are gated through `create.NAME_RE`, the
+ * writer's own rule, same as known() gates profile files: a directory
+ * whose name fails the rule cannot collide with any creatable name, so
+ * it holds nothing hostage and is not ours to show.
+ *
+ * 🛑 A FOLDER IS OURS ONLY IF THE BIRTH RECORD SAYS SO. The workers root
+ * is a plain directory: on this fleet's own Mac it holds worker
+ * checkouts that are not Kosmos agents at all, and a walk that showed
+ * every directory would put a Remove control under each of them. The
+ * roster-from-records ruling stands; what #500 adds is the one case the
+ * records DO vouch for with the state gone: `created.jsonl` is the
+ * append-only receipt that answers "did Kosmos ever create this name"
+ * after every deletable file is deleted (#157), and #170 put the id on
+ * that line for exactly this kind of reconciliation. A `created` or
+ * `partial` line is the tie; a stranger's checkout has none. A plist in
+ * OUR label namespace (com.kosmos.agent.*) is ours by construction and
+ * needs no second witness.
+ */
+function strays(profileNames) {
+  const have = new Set(profileNames);
+  const born = new Set();
+  try {
+    for (const e of create.createdLog()) {
+      if (e.outcome === create.OUTCOME.CREATED || e.outcome === create.OUTCOME.PARTIAL) {
+        born.add(create.cleanName(String(e.name || '')));
+      }
+    }
+  } catch { /* no receipts, no folder ties; jobs still speak for themselves */ }
+  const found = new Map();
+  const note = (name, what) => {
+    if (have.has(name) || !create.NAME_RE.test(name)) return;
+    const cur = found.get(name) || { folder: false, job: false };
+    cur[what] = true;
+    found.set(name, cur);
+  };
+  try {
+    for (const d of fs.readdirSync(create.WORKERS_DIR)) {
+      try {
+        if (born.has(d) && fs.statSync(path.join(create.WORKERS_DIR, d)).isDirectory()) note(d, 'folder');
+      } catch { /* a vanished entry is not a stray */ }
+    }
+  } catch { /* nothing contributed; see the fail-soft note above */ }
+  try {
+    for (const f of fs.readdirSync(create.AGENTS_DIR)) {
+      const m = /^com\.kosmos\.agent\.(.+)\.plist$/.exec(f);
+      if (m) note(m[1], 'job');
+    }
+  } catch { /* nothing contributed; see the fail-soft note above */ }
+  return found;
+}
+
 function survey() {
   const k = known();
   const rem = remove.removedNames();
@@ -123,15 +189,33 @@ function survey() {
     removed: removed.has(name),
     folder: fs.existsSync(create.workerDir(name)),
     job: fs.existsSync(create.plistPath(name)),
+    /* #500: whether a profile stands behind the name. The stray rows
+       below carry false, and everything that ACTS on a name (repair's
+       `missing` here, and nothing else today) must require true. */
+    profile: true,
   }));
+  /* #500: what the disk holds that no profile accounts for. */
+  for (const [name, on] of strays(k.names)) {
+    agents.push({
+      name,
+      shownAs: shownName(name),
+      removed: removed.has(name),
+      folder: on.folder,
+      job: on.job,
+      profile: false,
+    });
+  }
   return {
     ok: true,
     because: null,
     agents,
     /* The ones a repair would act on: known, not removed, on disk, no job.
        Machine names, because this is the list a repair ACTS on; the sentence
-       naming them reads `shownAs` off `agents`. */
-    missing: agents.filter((x) => !x.removed && x.folder && !x.job).map((x) => x.name),
+       naming them reads `shownAs` off `agents`.
+       ⚠️ AND PROFILE-BACKED ONLY (#500). A stray folder with no profile
+       must never be "repaired" into a launchd job: repair would resurrect
+       an agent nobody registered, from nothing but a directory name. */
+    missing: agents.filter((x) => !x.removed && x.folder && !x.job && x.profile).map((x) => x.name),
   };
 }
 
