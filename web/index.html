@@ -1181,6 +1181,15 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
    Lisa, whose comparison instrument had itself been pinned to a two-day-old
    pack and was calling the pack's own progress a disagreement.) */
 .atask { font-size: .875rem; color: var(--k-ink-2); margin-top: 6px; }
+/* #569: where the state came from, never how (Mona Lisa's ruling): "Said so
+   itself" under a reported state, "Read from its screen" under a scraped one,
+   a small secondary line and never words inside the state word itself. The
+   list's copy stacks inside the state CELL (the five-slot rule forbids a
+   sixth child); the detail's sits under the badge. All three read the same
+   derivation (saidLine), so the surfaces cannot disagree about provenance. */
+.asaid { font-size: .75rem; color: var(--k-ink-2); margin-top: 2px; }
+.lstate .lsaid { display: block; font-size: .75rem; font-weight: 400; color: var(--k-ink-2); }
+.dsaid { display: block; font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
 /* `.acut` is retired: the pack dropped the rule AND the divs together, and a
    surviving rule would still draw a line under markup that no longer exists. */
 /* The role sits directly under the name as one unit (Josh's regroup). */
@@ -3705,6 +3714,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              beside it the way the pack draws it. -->
         <span class="dtask" id="d-task" hidden></span>
       </div>
+      <!-- #569: where the state came from, under the badge, in Mona Lisa's
+           words ("Said so itself" / "Read from its screen"); and the two
+           witnesses disagreeing, as the engine's own sentence in a note.
+           Both filled by the painter beside d-state, both hidden when they
+           have nothing to say, which is almost always for the conflict. -->
+      <span class="dsaid" id="d-said" hidden></span>
+      <div class="note" id="d-conflict" hidden></div>
       <!-- 🛑 MOVED HERE FROM THE INSTRUCTIONS SECTION (Josh, 2026-08-21). The
            card puts a ⚠️ beside the agent's name; the sentence explaining it was
            at the BOTTOM of this page, under Instructions, below the conversation
@@ -7018,6 +7034,16 @@ function taskLine(a) {
  * #209: there is no title on screen to strip.
  */
 function stateReason(a) {
+  /* #569: A REPORTED STATE SPEAKS IN THE AGENT'S OWN SENTENCE, quoted. The
+     quotation marks are the point, not decoration: they are the plain-words
+     mark for "in its own words", so a statement and a guess cannot render
+     alike (the engine's whole distinction, kept visible). This is the live
+     version of what this slot always wanted -- #209 emptied it because the
+     pane title was a fossil; a report is current by construction, and a
+     stale one already decayed to unknown server-side before reaching here. */
+  if (a && a.stateReported === true && a.because) {
+    return '“' + a.because + '”';
+  }
   if (!a || a.state !== 'rate_limited') return '';
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
      "the screen of a terminal is not something a white-collar person thinks
@@ -7030,6 +7056,40 @@ function stateReason(a) {
   return a.stateConfidence === 'scraped'
     ? 'Looks like a usage limit'
     : 'Usage limit reached';
+}
+
+/**
+ * Where the state came from, never how (#569, Mona Lisa's ruling): a person
+ * does not know what "reported" or "scraped" means and does not need to.
+ * "Said so itself" is an agent speaking for itself through the report record;
+ * "Read from its screen" is the pane reader. The other two provenances stay
+ * silent on purpose: a structural stop ("Not running") is neither of these
+ * and already says itself plainly, and an unknown card carries its own
+ * honesty payload -- claiming we read a screen we could not read would be
+ * the lie this whole area exists to avoid.
+ *
+ * ONE derivation for the card, the list row and the detail panel, extracted
+ * for the same reason taskLine was: surfaces that disagree about one agent
+ * are worse than either being wrong.
+ */
+function saidLine(a) {
+  if (!a) return '';
+  if (a.stateReported === true) return 'Said so itself';
+  if (a.stateConfidence === 'scraped') return 'Read from its screen';
+  return '';
+}
+
+/**
+ * The two witnesses disagreeing, as a sentence the person sees (#569). The
+ * ENGINE composes the sentence (status.reconcileReport surfaces it instead of
+ * silently resolving, and its wording already names both witnesses); this
+ * only dresses it as a card note: capitalized, one full stop. Empty when the
+ * witnesses agree, which is almost always.
+ */
+function conflictNote(a) {
+  const s = a && typeof a.stateConflict === 'string' ? a.stateConflict.trim() : '';
+  if (!s) return '';
+  return s.charAt(0).toUpperCase() + s.slice(1) + (/[.!?]$/.test(s) ? '' : '.');
 }
 function modelLine(a) {
   /* Provider-first ("Claude Opus 5"), guarded so a modelName that already
@@ -7766,7 +7826,9 @@ function card(a) {
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
     <div class="astate st-${m.st}">${GLYPH[m.st]}<b>${esc(copy.label)}</b>${answer}</div>
+    ${saidLine(a) ? `<div class="asaid">${esc(saidLine(a))}</div>` : ''}
     <div class="atask">${esc(taskLine(a))}</div>
+    ${conflictNote(a) ? `<div class="note">${esc(conflictNote(a))}</div>` : ''}
     ${unknownNote}
     <div class="amodel">${esc(modelLine(a))}</div>
   </div>`;
@@ -7876,7 +7938,11 @@ function lrow(a) {
   return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}">
     <div class="lav">${av}</div>
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b><small>${esc(roleLine(a, ROLE_TITLES))}</small><em>${esc(modelLine(a))}</em></div>
-    <div class="lstate">${GLYPH[m.st]}${esc(copy.label)}${answerBtn(a)}</div>
+    <!-- #569: the said line stacks INSIDE the state cell -- the five-slot
+         rule above forbids a sixth child, and lname already stacks lines
+         within one cell, so this is the sanctioned shape. Same derivation
+         as the card's .asaid; the two halves of the board cannot disagree. -->
+    <div class="lstate">${GLYPH[m.st]}${esc(copy.label)}${answerBtn(a)}${saidLine(a) ? `<small class="lsaid">${esc(saidLine(a))}</small>` : ''}</div>
     <div class="ltask">${esc(taskLine(a))}</div>
     <div class="lmem">${mem}</div>
   </div>`;
@@ -12470,6 +12536,19 @@ function openDetail(sessionName, section) {
   const dst = document.getElementById('d-state');
   dst.className = 'detail-state astate st-' + dm.st;
   dst.innerHTML = GLYPH[dm.st] + '<b>' + esc(copy.label) + '</b>';
+  /* #569: the same derivations the card reads (saidLine, conflictNote),
+     called not copied, so the panel and the card cannot disagree about
+     where a state came from or whether the witnesses do. */
+  const dsaid = document.getElementById('d-said');
+  if (dsaid) {
+    dsaid.textContent = saidLine(a);
+    dsaid.hidden = !dsaid.textContent;
+  }
+  const dconf = document.getElementById('d-conflict');
+  if (dconf) {
+    dconf.textContent = conflictNote(a);
+    dconf.hidden = !dconf.textContent;
+  }
   /* ⚠️ HIDDEN WHEN THERE IS NO TASK. Beside a badge that already says Idle,
      a task line would restate the badge; this panel shows nothing rather than
      that. Since #209 the card, too, shows nothing here rather than a frozen

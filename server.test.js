@@ -8032,7 +8032,12 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
      test would defeat its whole purpose. (`taskWords` was removed by #209; the
      header no longer shows the frozen pane title in any state.) */
   const tables = script.slice(tablesFrom, script.indexOf('\n', cardStAt) + 1)
-    + '\n' + pageFnSource('stateReason') + '\n' + pageFnSource('taskLine');
+    + '\n' + pageFnSource('stateReason') + '\n' + pageFnSource('taskLine')
+    /* #569: the painter fills the provenance and conflict slots beside the
+       badge, through the same shared derivations the card reads. They join
+       the prelude for the rule stated above: a stub would let this pass
+       while the shipped helpers said something else. */
+    + '\n' + pageFnSource('saidLine') + '\n' + pageFnSource('conflictNote');
 
   const dmAt = script.indexOf('  const dm = cardStOf(a);');
   assert.ok(dmAt > -1,
