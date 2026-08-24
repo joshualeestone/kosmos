@@ -13,9 +13,14 @@
  * already expect.
  */
 
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+// ⚠️ `ping.js` requires THIS module at its top (for ROOT), so the identity
+// stamp below requires ping at CALL time, never at load: a top-level
+// require here would hand ping a half-built exports object and ROOT would
+// be undefined at its BASE line. Same pattern discover.js uses for create.
 
 const APP = 'AgentWorkforce';
 // ⚠️ Honours `AGENT_WORKFORCE_DATA` so tests can sandbox it, which they could
@@ -171,13 +176,55 @@ function readProfile(name) {
 
 function writeProfile(name, patch) {
   ensure(PROFILES);
-  const next = { ...readProfile(name), ...patch, updatedAt: new Date().toISOString() };
+  const had = readProfile(name);
+  const next = { ...had, ...patch, updatedAt: new Date().toISOString() };
+  /**
+   * The agent's identity (#170): a random id minted ON THE FIRST WRITE and
+   * never rewritten, so creation and the lazy backfill of existing agents
+   * are one code path rather than two that can disagree. Random and not
+   * derived, per the card: anything derived rekeys when its source changes,
+   * and the whole point is an anchor that survives renames.
+   *
+   * ⚠️ A PATCH CANNOT TOUCH IDENTITY. `id` and `idInstall` are restored
+   * from the existing record before the stamp runs, so no caller can set,
+   * clear, or transplant an id through this door.
+   *
+   * ⚠️ AN ID MINTED UNDER ANOTHER INSTALL IS REMINTED, and this is the
+   * decided restore semantics, not housekeeping: a restored agent is a
+   * SEPARATE agent with its own fresh id (Josh ruled the screen, 19:26:
+   * nobody is ever asked same-or-copy; the mechanism that needs no warning
+   * is fresh id). The install id is the created ping's, the same one-Mac-
+   * one-install anchor notify.js already reuses. Its known limit rides
+   * along: on a machine whose ping file cannot be written, installId is
+   * fresh per process and ids would remint per restart -- which degrades
+   * in the SAFE direction (a new id is a separate agent, never a warning).
+   */
+  next.id = had.id;
+  next.idInstall = had.idInstall;
+  const install = require('./ping').installId();
+  if (!next.id || next.idInstall !== install) {
+    next.id = crypto.randomBytes(6).toString('hex');
+    next.idInstall = install;
+  }
   // Write-then-rename, so an interrupted write cannot leave a half-written
   // file that parses as an empty profile and silently loses someone's edits.
   const tmp = profilePath(name) + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
   fs.renameSync(tmp, profilePath(name));
   return next;
+}
+
+/**
+ * The id the BOARD may speak (#170): the profile's id, but only when it was
+ * minted under THIS install. A profile copied in from another machine
+ * carries that machine's agent's id, and answering with it would name a
+ * different agent; null here means "no identity yet", which the first
+ * local write resolves by minting fresh. Read-only, no side effects: a
+ * poll must never write.
+ */
+function agentId(name) {
+  const p = readProfile(name);
+  return (p.id && p.idInstall === require('./ping').installId()) ? p.id : null;
 }
 
 /**
@@ -192,4 +239,4 @@ function writeProfile(name, patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { ROOT, AVATARS, PROFILES, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, saveAvatar, removeAvatar, readProfile, writeProfile };
+module.exports = { ROOT, AVATARS, PROFILES, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, saveAvatar, removeAvatar, readProfile, writeProfile, agentId };

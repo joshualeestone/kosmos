@@ -2711,6 +2711,60 @@ test('every creation attempt leaves one line in the birth record, refusals inclu
   assert.equal(log.length, before + 2, 'a torn line took the readable records with it');
 });
 
+/* ── the agent id (#170) ─────────────────────────────────────────────────── */
+
+test('an agent gets a random id at birth: in its profile, in the birth record, and never rewritten', () => {
+  recorder();
+  create.setDryRun(false);
+  const name = 'id-at-birth';
+  const out = create.createAgent({ ...BINS, name, role: 'pm' });
+  assert.equal(out.outcome, create.OUTCOME.CREATED);
+  const profile = store.readProfile(name);
+  assert.match(String(profile.id), /^[0-9a-f]{12}$/, 'no id was minted at creation');
+  /* The birth record carries the SAME id, so "was this agent ever created"
+     and "which agent was it" are one lookup after every file is wiped. */
+  const log = create.createdLog();
+  assert.equal(log[log.length - 1].id, profile.id,
+    'the birth record and the profile disagree about who was born');
+  /* Never rewritten, and a patch cannot touch identity: even a write that
+     TRIES to set id leaves the minted one standing. */
+  store.writeProfile(name, { role: 'researcher', id: 'attacker-chosen', idInstall: 'x' });
+  assert.equal(store.readProfile(name).id, profile.id, 'a patch rewrote the id');
+  assert.equal(store.agentId(name), profile.id);
+});
+
+test('a refused creation records no id, because nothing was born', () => {
+  recorder();
+  create.setDryRun(false);
+  const out = create.createAgent({ name: '###', role: 'pm' });
+  assert.equal(out.outcome, create.OUTCOME.REFUSED);
+  const last = create.createdLog().slice(-1)[0];
+  assert.equal(last.id, null);
+});
+
+test('an existing agent is backfilled on first write, and a restored profile is a different agent (#170)', () => {
+  const name = 'old-timer';
+  const file = nodePath.join(store.PROFILES, store.safeKey(name) + '.json');
+  // A pre-#170 profile, written directly so no mint has ever run.
+  fs.mkdirSync(store.PROFILES, { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ role: 'pm' }));
+  assert.equal(store.agentId(name), null, 'an unminted profile answered an id');
+  // Lazy backfill: the first write stamps, later writes keep.
+  const first = store.writeProfile(name, {});
+  assert.match(String(first.id), /^[0-9a-f]{12}$/);
+  assert.equal(store.writeProfile(name, { role: 'x' }).id, first.id, 'backfill reminted');
+  /* Restore: the same profile arrives minted under ANOTHER install. The
+     decided semantics (the card, from Josh's no-warning ruling): a restored
+     agent is a SEPARATE agent with its own fresh id. So the board speaks no
+     id for it until its first local write, and that write mints fresh. */
+  fs.writeFileSync(file, JSON.stringify({ role: 'pm', id: first.id, idInstall: 'another-install' }));
+  assert.equal(store.agentId(name), null, "the board spoke another install's id");
+  const restored = store.writeProfile(name, {});
+  assert.match(String(restored.id), /^[0-9a-f]{12}$/);
+  assert.notEqual(restored.id, first.id,
+    'a restored agent kept the other install\'s id, recreating the same-or-copy question Josh ruled off the screen');
+});
+
 test('jobMissing counts only a proven absence: EACCES answers false, never "never recorded" (#149/#150)', () => {
   /* The function's whole reason to exist over !hasJob(): existsSync swallows
      EACCES into false, so the negation would stamp a provenance claim on
