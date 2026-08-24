@@ -5330,7 +5330,15 @@ function start(port = PORT) {
          process open, and every run is best-effort: the room's own
          unanswered line is the person-facing surface either way. */
       const sweep = setInterval(() => {
-        try { messages.sweepUnanswered(paneRoster()); } catch { /* the line still shows */ }
+        /* ⚠️ safeRoster(), NEVER paneRoster(): the sweep delivers, and
+           delivery needs full snapshot-shaped cards (target and all).
+           paneRoster's thin rows fail addressable() before anything is
+           typed, and the first call site shipped exactly that, burning
+           every pair's one nudge as could_not with zero send-keys,
+           invisibly, while the suite's full-card fixture passed. The
+           paneRoster-vs-snapshot confusion this file's own docblock
+           warns about, one more time. */
+        try { messages.sweepUnanswered(safeRoster()); } catch { /* the line still shows */ }
       }, 60 * 1000);
       if (sweep && typeof sweep.unref === 'function') sweep.unref();
       resolve(server);

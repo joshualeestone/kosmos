@@ -1175,6 +1175,11 @@ function unanswered(projectId, now) {
     const age = at - Date.parse(p.at);
     if (!Number.isFinite(age) || age < UNANSWERED_AFTER_MS) continue;
     const silent = p.mentioned.filter((name) => {
+      /* UNCONFIRMED counts as typed on purpose: chat's own semantics say
+         the text may well have landed, and treating maybe-delivered as
+         not-delivered would hide real silence behind a shaky tmux
+         answer. Only COULD_NOT, where nothing reached the pane, is
+         non-delivery rather than silence. */
       const typed = p.outcomes && p.outcomes[name] && p.outcomes[name] !== chat.DELIVERY.COULD_NOT;
       if (!typed) return false;
       /* >= rather than >: an answer landing in the same millisecond as
@@ -1225,6 +1230,14 @@ function sweepUnanswered(roster, now) {
       for (const name of names) {
         const already = rec.rows.some((m) => m && m.kind === 'nudge' && m.post === postId && m.to === name);
         if (already) continue;
+        /* ⚠️ ONLY AN ADDRESSABLE CARD MAY SPEND THE PAIR'S ONE NUDGE.
+           A roster row with no target is OUR caller handing thin rows
+           (the paneRoster shape), not the agent being gone; burning the
+           at-most-once on our own bad input would silence the pair
+           forever with zero keystrokes ever typed. Skipped without a
+           row, so a later sweep with a full roster still fires. */
+        const card = (roster || []).find((c) => c && c.sessionName === name);
+        if (!card || !card.target) continue;
         const line = '[the room has not seen an answer to ' + postId
           + '; to answer, run: kosmos post ' + projectId + ']';
         const sent = chat.deliver(name, line, roster);

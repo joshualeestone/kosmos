@@ -1432,6 +1432,34 @@ test('#185: the undelivered arm never becomes unanswered (a COULD_NOT is non-del
   });
 });
 
+test('#185: a thin roster (the paneRoster shape) never burns a pair\'s one nudge', () => {
+  withFleet(room3(), (board) => {
+    fs.rmSync(messages.LOG, { force: true });
+    messages.setUnansweredAfterForTests(0);
+    try {
+      const tmux = arm([]);
+      const sent = messages.sendPost({ operator: true, project: 'henderson-lease', projectName: 'Henderson Lease', text: '@mara still there?' }, board.agents, MEMBERS);
+      assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+      /* The thin shape the status poller hands out: sessionName only, no
+         target. The first shipped call site passed exactly this, and
+         every nudge burned as could_not with zero keystrokes, forever. */
+      const thin = board.agents.map((a) => ({ sessionName: a.sessionName, session: a.session, isNamedOurs: a.isNamedOurs }));
+      const first = messages.sweepUnanswered(thin);
+      assert.deepEqual(first.nudged, [], 'a thin roster produced a nudge attempt');
+      assert.equal(messages.record().rows.filter((m) => m.kind === 'nudge').length, 0,
+        'the pair\'s one nudge was burned on our own bad input');
+      /* The full roster afterwards still fires: the pair was not spent. */
+      const second = messages.sweepUnanswered(board.agents);
+      assert.deepEqual(second.nudged.map((n) => n.to), ['mara'],
+        'the pair was silently spent by the thin sweep');
+      const typed = tmux.sends().map((a) => a[a.length - 1]).filter((t) => typeof t === 'string' && t.includes('has not seen an answer'));
+      assert.equal(typed.length, 1, 'the recovered nudge never reached the pane');
+    } finally {
+      messages.setUnansweredAfterForTests(null);
+    }
+  });
+});
+
 test('#185: the room store refuses an agent-authored row with no command provenance', () => {
   withFleet(room3(), (board) => {
     fs.rmSync(messages.LOG, { force: true });
