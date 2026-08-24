@@ -76,10 +76,13 @@ function chk(ok, label, extra) {
     await page.waitForSelector('[data-agent="rick"]', { timeout: 8000 });
 
     // The card: Rick wears the sentence, Bob does not.
-    const cards = await page.evaluate(() => ({
-      rick: document.querySelector('[data-agent="rick"] .amodel').textContent,
-      bob: document.querySelector('[data-agent="bob"] .amodel').textContent,
-    }));
+    const cards = await page.evaluate(() => {
+      const shown = (el) => (el && el.getBoundingClientRect().height > 0 ? el.innerText : ''); // rendered text (#687)
+      return {
+        rick: shown(document.querySelector('[data-agent="rick"] .amodel')),
+        bob: shown(document.querySelector('[data-agent="bob"] .amodel')),
+      };
+    });
     chk(cards.rick === 'Made before Kosmos recorded this', 'the no-plist card wears the sentence', cards.rick);
     chk(cards.bob !== 'Made before Kosmos recorded this', 'CONTROL: the with-plist card does not', cards.bob);
     /* The sentence is 2.5x the old label; a text-equality pin cannot see an
@@ -95,12 +98,15 @@ function chk(ok, label, extra) {
     await page.waitForSelector('#panel-detail:not([hidden])');
     await page.click('#d-nav button[data-go="model"]');
     await page.waitForTimeout(400);
-    const rick = await page.evaluate(() => ({
-      whyText: document.getElementById('d-runson-why').textContent,
-      whyH: document.getElementById('d-runson-why').getBoundingClientRect().height,
-      msg: document.getElementById('d-model-msg').textContent,
-      disabled: document.getElementById('d-model').disabled,
-    }));
+    const rick = await page.evaluate(() => {
+      const shown = (el) => (el && el.getBoundingClientRect().height > 0 ? el.innerText : ''); // rendered text (#687)
+      return {
+        whyText: shown(document.getElementById('d-runson-why')),
+        whyH: document.getElementById('d-runson-why').getBoundingClientRect().height,
+        msg: shown(document.getElementById('d-model-msg')),
+        disabled: document.getElementById('d-model').disabled,
+      };
+    });
     chk(rick.whyH > 0 && /To bring it in/.test(rick.whyText), 'the explainer is on screen and names the way in', rick.whyText);
     chk(rick.disabled === true, 'the picker is refused before any click');
     chk(/no launch file to change/.test(rick.msg), 'the refusal says why in the state’s own words', rick.msg);
@@ -115,6 +121,7 @@ function chk(ok, label, extra) {
     await page.waitForTimeout(400);
     const bob = await page.evaluate(() => ({
       whyH: document.getElementById('d-runson-why').getBoundingClientRect().height,
+      // A control for absence: DOM text is the stricter read, hidden text included.
       msg: document.getElementById('d-model-msg').textContent,
       disabled: document.getElementById('d-model').disabled,
     }));
@@ -134,17 +141,20 @@ function chk(ok, label, extra) {
     await page.waitForSelector('#panel-detail:not([hidden])');
     await page.click('#d-nav button[data-go="model"]');
     await page.waitForTimeout(400);
-    const gone = await page.evaluate(() => ({
-      why: document.getElementById('d-runson-why').textContent,
-      msg: document.getElementById('d-model-msg').textContent,
-    }));
+    const gone = await page.evaluate(() => {
+      const shown = (el) => (el && el.getBoundingClientRect().height > 0 ? el.innerText : ''); // rendered text (#687)
+      return {
+        why: shown(document.getElementById('d-runson-why')),
+        msg: shown(document.getElementById('d-model-msg')),
+      };
+    });
     chk(/To bring it in: add it from Found agents/.test(gone.why) && !/stop it/.test(gone.why),
       'the stopped explainer names the way in without telling anyone to stop a stopped agent', gone.why);
     chk(/Add it from Found agents/.test(gone.msg) && !/Stop it/.test(gone.msg),
       'the stopped picker refusal matches', gone.msg);
     await page.click('#d-nav button[data-go="memory"]');
     await page.waitForTimeout(300);
-    const mem = await page.evaluate(() => document.getElementById('d-memory').textContent);
+    const mem = await page.evaluate(() => { const el = document.getElementById('d-memory'); return el.getBoundingClientRect().height > 0 ? el.innerText : ''; });
     chk(/memory was never recorded/.test(mem), 'the stopped memory box says never recorded', mem.slice(0, 120));
     await page.screenshot({ path: path.join(OUT, 'made-before-gone-stopped.png'), fullPage: false });
 

@@ -526,13 +526,18 @@ function unreachableStates() {
           optCount: el('d-qopts').querySelectorAll('.qopt').length,
           bubbleBg: cs ? cs.backgroundColor : null,
           offVisible: vis(el('d-dmoff')),
-          offText: el('d-dmoff').textContent,
+          // Rendered text (#687): textContent would carry CSS-hidden children.
+          offText: el('d-dmoff').innerText,
           sayDisabled: el('d-say').disabled,
+          // textContent on purpose: this is compared between two states below,
+          // never asserted present, so the DOM text is the fair comparison.
           threadText: el('d-dmthread').textContent.trim().slice(0, 220),
           // Per ROW, because a verdict belongs to one message and the thread's
-          // whole textContent cannot say which.
+          // whole text cannot say which. Rendered text of drawn rows only
+          // (#687): a "sent as" nobody can see must not satisfy the control.
           rows: Array.from(document.querySelectorAll('#d-dmthread .dm'))
-            .map((r) => r.textContent.replace(/\s+/g, ' ').trim()),
+            .filter((r) => r.getBoundingClientRect().height > 0)
+            .map((r) => r.innerText.replace(/\s+/g, ' ').trim()),
           sendDisabled: el('d-send').disabled,
           /* ⚠️ THE PROMISE, PER STATE. The persistence line was read by nothing
              in this sweep, and one state contradicts it outright: with
@@ -615,9 +620,15 @@ function unreachableStates() {
             const w = row && row.querySelector('.dm-w');
             return w ? getComputedStyle(w).textAlign : null;
           })(),
-          label: el('d-talk-label').textContent,
+          label: el('d-talk-label').innerText,
+          // textContent on purpose: qlab is an ABSENCE control (a sentence
+          // loaded while nothing asks), so hidden text counts as a leak.
           qlab: el('d-qask-lab').textContent,
-          qfail: el('d-qask-fail').hidden ? '' : el('d-qask-fail').textContent,
+          // qfail is asserted PRESENT in state 4, so it is rendered text of a
+          // drawn element (#687); qfailDom is the absence control elsewhere.
+          qfail: el('d-qask-fail').hidden || !el('d-qask-fail').getBoundingClientRect().height
+            ? '' : el('d-qask-fail').innerText,
+          qfailDom: el('d-qask-fail').hidden ? '' : el('d-qask-fail').textContent,
           /* ⚠️ AND WHAT IT IS WEARING. This line is a recovery instruction --
              its whole job is to say the buttons still work -- and it shipped in
              `.delivery.failed`, a red pill, INSIDE the question's own box. The
@@ -680,8 +691,8 @@ function unreachableStates() {
       if (name === '4-failed' && !/buttons still work/.test(m.qfail)) {
         problems.push(`${tag}: state 4 is missing its own sentence (qfail: ${JSON.stringify(m.qfail)})`);
       }
-      if (name !== '4-failed' && m.qfail) {
-        problems.push(`${tag}: the failure sentence is showing where nothing failed: ${JSON.stringify(m.qfail)}`);
+      if (name !== '4-failed' && m.qfailDom) {
+        problems.push(`${tag}: the failure sentence is showing where nothing failed: ${JSON.stringify(m.qfailDom)}`);
       }
       // ⚠️ The question's own two elements are read DIRECTLY, hidden or not:
       // they were holding the last question's sentence on every idle state,
@@ -937,6 +948,7 @@ function unreachableStates() {
       const threadAfterReopen = card ? await page.evaluate(async (f) => {
         window.__fx = f;
         await paintTalk('april', 'April');
+        // textContent on purpose: a before/after change detection, not a presence read.
         const before = document.getElementById('d-dmthread').textContent.slice(0, 40);
         LAST = [window.__card];
         openDetail('april');
@@ -1049,7 +1061,9 @@ function unreachableStates() {
       await page.evaluate(() => paintTalk('april', 'April'));
       const afterFail = await page.evaluate(() => ({
         dis: Array.from(document.querySelectorAll('#d-qopts .qopt')).map((b) => b.disabled),
-        said: document.getElementById('d-qask-fail').textContent,
+        // Rendered text of a drawn element (#687): the sentence has to be seen.
+        said: document.getElementById('d-qask-fail').getBoundingClientRect().height > 0
+          ? document.getElementById('d-qask-fail').innerText : '',
       }));
       if (afterFail.dis.some(Boolean)) {
         problems.push(`[${theme}] press: the buttons are dead after a failed send (${JSON.stringify(afterFail.dis)})`
@@ -1266,7 +1280,9 @@ function unreachableStates() {
           question: { text: 'Would you like me to update the README too?' } };
         await paintTalk('april', 'April');
         out.freeTextQaskHidden = document.getElementById('d-qask').hidden;
-        out.freeTextShown = document.getElementById('d-qask-text').textContent;
+        // Rendered text of a drawn element (#687).
+        out.freeTextShown = document.getElementById('d-qask-text').getBoundingClientRect().height > 0
+          ? document.getElementById('d-qask-text').innerText : '';
         /* ⚠️ AND THE UNKEYABLE TICK MUST NOT FORGET THE ANSWER. Showing the
            panel and spending the hold are two different acts, and the first
            version of that fix did both with one boolean: one indented line
@@ -1362,6 +1378,7 @@ function unreachableStates() {
          here on every message. Then the same send against a mid-task agent,
          which owes the one sentence about what happens next. Both halves,
          because silence alone is also what a broken line looks like. */
+      // textContent on purpose: an ABSENCE control, so hidden text counts too.
       const quiet = await page.evaluate(() => document.getElementById('d-say-msg').textContent);
       if (quiet.trim() !== '') {
         problems.push(`[${theme}] receipt: a healthy send still prints "${quiet}" under the composer`);
@@ -1379,7 +1396,8 @@ function unreachableStates() {
       await page.evaluate(() => paintTalk('april', 'April'));
       await page.click('#d-send');
       await page.waitForFunction(() => window.__posted.length > 0 && !TALK_SENDING, null, { timeout: 4000 });
-      const busyLine = await page.evaluate(() => { const t = document.getElementById('d-say-msg').textContent; delete window.__postAnswer; return t; });
+      // Rendered text of a drawn element (#687): the consequence must be seen.
+      const busyLine = await page.evaluate(() => { const m = document.getElementById('d-say-msg'); const t = m.getBoundingClientRect().height > 0 ? m.innerText : ''; delete window.__postAnswer; return t; });
       if (!/^It was mid-task, so it will not read this until it finishes\.$/.test(busyLine.trim())) {
         problems.push(`[${theme}] receipt: a mid-task send should say the consequence, got "${busyLine}"`);
       }
@@ -1525,7 +1543,8 @@ function unreachableStates() {
       const persistence = await page.evaluate(async (f) => {
         const line = () => {
           const el = document.getElementById('d-persist');
-          return { hidden: el.hidden, text: el.textContent.trim() };
+          // Rendered text (#687); `hidden` alone misses CSS-hidden children.
+          return { hidden: el.hidden || !el.getBoundingClientRect().height, text: el.innerText.trim() };
         };
         window.__fx = f;
         await paintTalk('april', 'April');
@@ -1613,7 +1632,7 @@ function unreachableStates() {
         const scrolls = q.scrollWidth > q.clientWidth + 1;
         q.scrollLeft = q.scrollWidth;               // the far end of a cut line
         const stood = Math.round(q.scrollLeft);
-        const before = q.textContent;
+        const before = q.textContent;   // change detection, not presence: textContent on purpose
         // The pane prints one more line: a real change, not a re-render.
         window.__fx = { ...f, question: { text: f.question.text + '\n│ ✳ Thinking… (3s · 41% context left)' } };
         await paintTalk('april', 'April');

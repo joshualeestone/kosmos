@@ -444,12 +444,14 @@ async function main() {
     await page.selectOption('#pj-thread-who', 'mara');
     await page.waitForFunction(() => {
       const q = document.getElementById('pj-question');
-      return q && !q.hidden && (document.getElementById('pj-question-text').textContent || '').length > 0;
+      const t = document.getElementById('pj-question-text');
+      return q && !q.hidden && t.getBoundingClientRect().height > 0 && (t.innerText || '').length > 0;
     }, null, { timeout: 10000 });
     const offQuestion = await page.evaluate(() => ({
       vpHidden: document.querySelector('.pj-viewport').hidden,
-      teachShown: !document.getElementById('pj-answer-how').hidden,
-      teachText: document.getElementById('pj-answer-how').textContent,
+      teachShown: !document.getElementById('pj-answer-how').hidden
+        && document.getElementById('pj-answer-how').getBoundingClientRect().height > 0,
+      teachText: document.getElementById('pj-answer-how').innerText,
     }));
     check(offQuestion.vpHidden === true, 'the raw screen stays hidden while a question is open in Off');
     check(offQuestion.teachShown === true, 'the number-answer teaching line renders in Off, where it is needed most');
@@ -547,6 +549,7 @@ async function main() {
     await page.waitForTimeout(700);
     const rookWindow = await page.evaluate(() => ({
       boxHidden: document.getElementById('d-window-box').hidden,
+      // textContent on purpose: reported in the detail, never asserted (#687).
       msgText: document.getElementById('d-window-msg').textContent,
       emptyNote: document.getElementById('d-term-empty').getBoundingClientRect().height,
     }));
@@ -605,9 +608,10 @@ async function main() {
     await page.waitForSelector('#panel-detail:not([hidden])', { timeout: 10000 });
     await page.waitForFunction(() => {
       const q = document.getElementById('d-qask');
-      return q && !q.hidden && (document.getElementById('d-qask-text').textContent || '').length > 0;
+      const t = document.getElementById('d-qask-text');
+      return q && !q.hidden && t.getBoundingClientRect().height > 0 && (t.innerText || '').length > 0;
     }, null, { timeout: 10000 });
-    check(await page.evaluate(() => (document.getElementById('d-qask-text').textContent || '')).then((t) => /Do you want to proceed\?/.test(t)),
+    check(await page.evaluate(() => (document.getElementById('d-qask-text').innerText || '')).then((t) => /Do you want to proceed\?/.test(t)),
       'the agent’s own page shows the question the button was pressed for');
     /* ⚠️ AND FOCUS FOLLOWS, ON THE SCREEN THE BUTTON NOW OPENS. This assertion
        used to live against the project room and it was RIGHT: the card carrying
@@ -632,11 +636,13 @@ async function main() {
     await page.selectOption('#pj-thread-who', 'mara');
     await page.waitForFunction(() => {
       const q = document.getElementById('pj-question');
-      return q && !q.hidden && (document.getElementById('pj-question-text').textContent || '').length > 0;
+      const t = document.getElementById('pj-question-text');
+      return q && !q.hidden && t.getBoundingClientRect().height > 0 && (t.innerText || '').length > 0;
     }, null, { timeout: 10000 });
     await page.screenshot({ path: path.join(OUT, 'thread-1-question.png'), fullPage: true });
 
-    const question = await page.locator('#pj-question-text').textContent();
+    if (!(await page.locator('#pj-question-text').boundingBox())) check(false, 'the question text has no size on screen');
+    const question = await page.locator('#pj-question-text').innerText();
     check(/Do you want to proceed\?/.test(question), 'one click lands on the question itself, not on a panel about it');
     check(await page.evaluate(() => !document.getElementById('pj-answer-how').hidden),
       'the teaching line renders in On too: mode-independent, like the panel it serves');
@@ -666,11 +672,16 @@ async function main() {
       'and they are named the way the rest of the app names them');
 
     /* ── 3. the agent's side is a screen, and says so ───────────────────── */
-    const screen = await page.locator('#pj-screen').textContent();
+    for (const sel of ['#pj-screen', '#pj-screen-label', '#pj-screen-hint']) {
+      if (!(await page.locator(sel).boundingBox())) check(false, sel + ' has no size on screen');
+    }
+    const screen = await page.locator('#pj-screen').innerText();
     check(/Wrote 41 lines/.test(screen), 'the viewport shows what the pane is really displaying');
-    const screenLabel = await page.locator('#pj-screen-label').textContent();
+    // innerText is safe here: the uppercase `.flabel` rules are scoped to
+    // `.detail .dbox` and `#panel-settings .dbox`, and this label is in #panel-projects.
+    const screenLabel = await page.locator('#pj-screen-label').innerText();
     check(/screen shows right now/.test(screenLabel), `the viewport is labelled as a screen: "${screenLabel}"`);
-    const hint = await page.locator('#pj-screen-hint').textContent();
+    const hint = await page.locator('#pj-screen-hint').innerText();
     check(/not a transcript/.test(hint) && /not what the agent said/.test(hint),
       'and it says outright that it is not the agent talking');
 
@@ -709,7 +720,8 @@ async function main() {
       `and it was aimed at the exact pinned pane (${keys[0] && keys[0][2]})`);
     check(keys[1] && keys[1][keys[1].length - 1] === 'Enter', 'and Enter was a separate call');
 
-    const said = await page.locator('.pj-msg .pj-msg-said').first().textContent();
+    if (!(await page.locator('.pj-msg .pj-msg-said').first().boundingBox())) check(false, 'the says-line has no size on screen');
+    const said = await page.locator('.pj-msg .pj-msg-said').first().innerText();
     /* 🔑 THE RECEIPT WENT QUIET ON AN ORDINARY SUCCESS IN 0.3.0 and this used to
        require "Placed into Mara's session" on every message. Josh asked for that
        clause gone; what survives is the part that says what happens NEXT, which
@@ -727,6 +739,7 @@ async function main() {
     // ⚠️ THE CLAIM CHECK. This whole feature's discipline is what the screen is
     // allowed to say. A tick, or the words "received"/"read", would be a claim
     // about a program's understanding that a keystroke cannot support.
+    // textContent on purpose: an ABSENCE check, so hidden text must count too (#687).
     const panelText = await page.locator('#pj-thread').textContent();
     check(!/\breceived\b|\bhas read\b|\bread it\b|\bgot it\b/i.test(panelText),
       'nothing on this screen says the agent received or read anything');
@@ -758,18 +771,18 @@ async function main() {
     // one simulated inside the page. The happy path alone would photograph half
     // a feature.
     await page.selectOption('#pj-thread-who', 'nils');
-    await page.waitForFunction(() => /Nils/.test(
-      document.getElementById('pj-screen-label').textContent || ''), null, { timeout: 10000 });
+    await page.waitForFunction(() => document.getElementById('pj-screen-label').getBoundingClientRect().height > 0 && /Nils/.test(
+      document.getElementById('pj-screen-label').innerText || ''), null, { timeout: 10000 });
     // The count BEFORE this send: the comment below promises a delta and the
     // assertion was an absolute, which is the sibling's exact lesson unapplied.
     const failedBefore = await page.locator('.pj-msg.failed').count();
     await page.fill('#pj-say', 'and this one cannot get through');
     await page.click('#pj-send');
-    await page.waitForFunction(() => /Could not deliver/i.test(
-      document.getElementById('pj-thread-msg').textContent || ''), null, { timeout: 10000 });
+    await page.waitForFunction(() => document.getElementById('pj-thread-msg').getBoundingClientRect().height > 0 && /Could not deliver/i.test(
+      document.getElementById('pj-thread-msg').innerText || ''), null, { timeout: 10000 });
     await page.screenshot({ path: path.join(OUT, 'thread-3-could-not-deliver.png'), fullPage: true });
 
-    const failedSaid = await page.locator('#pj-thread-msg').textContent();
+    const failedSaid = await page.locator('#pj-thread-msg').innerText();
     check(/can't find pane/.test(failedSaid), `the refusal carries what tmux said: "${failedSaid}"`);
     const kept = await page.locator('#pj-say').inputValue();
     check(kept === 'and this one cannot get through',
@@ -797,18 +810,18 @@ async function main() {
      * live agent now has the message twice.
      */
     await page.selectOption('#pj-thread-who', 'casey');
-    await page.waitForFunction(() => /Casey/.test(
-      document.getElementById('pj-screen-label').textContent || ''), null, { timeout: 10000 });
+    await page.waitForFunction(() => document.getElementById('pj-screen-label').getBoundingClientRect().height > 0 && /Casey/.test(
+      document.getElementById('pj-screen-label').innerText || ''), null, { timeout: 10000 });
     // The count BEFORE this send — see the note on the failed row above for why
     // an absolute count here measures the check's own history.
     const unsureBefore = await page.locator('.pj-msg.unsure').count();
     await page.fill('#pj-say', 'this one is ambiguous');
     await page.click('#pj-send');
-    await page.waitForFunction(() => /Could not confirm/i.test(
-      document.getElementById('pj-thread-msg').textContent || ''), null, { timeout: 10000 });
+    await page.waitForFunction(() => document.getElementById('pj-thread-msg').getBoundingClientRect().height > 0 && /Could not confirm/i.test(
+      document.getElementById('pj-thread-msg').innerText || ''), null, { timeout: 10000 });
     await page.screenshot({ path: path.join(OUT, 'thread-4-could-not-confirm.png'), fullPage: true });
 
-    const unsure = await page.locator('#pj-thread-msg').textContent();
+    const unsure = await page.locator('#pj-thread-msg').innerText();
     check(!/could not deliver/i.test(unsure),
       `an ambiguous send is not reported as a failure: "${unsure}"`);
     check(/may be sitting in its composer/.test(unsure), 'and it says where the words might be');
@@ -831,6 +844,7 @@ async function main() {
     // ⚠️ AND THE MESSAGE LIST, not only the live line. The lower-case-clause
     // defect reappeared in #pj-msgs at a call site that skipped pjSentence, so
     // the assertion follows it there.
+    // textContent on purpose: absence checks, so hidden text must count too (#687).
     const msgsText = (await page.locator('#pj-msgs').textContent()) || '';
     check(!/\.\s+[a-z]/.test(msgsText), `no sentence in the thread starts lower case: "${msgsText.slice(0, 160)}"`);
     check(!/\.\./.test(msgsText), 'no sentence in the thread is double-stopped');
@@ -868,7 +882,7 @@ async function main() {
      */
     const aged = await page.evaluate(async () => {
       const line = document.getElementById('pj-thread-msg');
-      const before = line.textContent;
+      const before = line.textContent; // change detection on one element, not presence (#687)
       // Ten minutes ago, which pjWhen renders as a wall-clock time.
       PJ_SENT_LINE.at = new Date(Date.now() - 600000).toISOString();
       await loadThread();
@@ -922,19 +936,19 @@ async function main() {
     if (store) {
       const chat = fixtureChat(store);
       await page.selectOption('#pj-thread-who', 'casey');
-      await page.waitForFunction(() => /Casey/.test(
-        document.getElementById('pj-screen-label').textContent || ''), null, { timeout: 10000 });
+      await page.waitForFunction(() => document.getElementById('pj-screen-label').getBoundingClientRect().height > 0 && /Casey/.test(
+        document.getElementById('pj-screen-label').innerText || ''), null, { timeout: 10000 });
 
       const lock = chat.threadFile(id, 'casey') + '.lock';
       fs.mkdirSync(lock, { recursive: true });
       try {
         await page.fill('#pj-say', 'this one cannot be written down');
         await page.click('#pj-send');
-        await page.waitForFunction(() => /Could not confirm/i.test(
-          document.getElementById('pj-thread-msg').textContent || ''), null, { timeout: 15000 });
+        await page.waitForFunction(() => document.getElementById('pj-thread-msg').getBoundingClientRect().height > 0 && /Could not confirm/i.test(
+          document.getElementById('pj-thread-msg').innerText || ''), null, { timeout: 15000 });
         await page.screenshot({ path: path.join(OUT, 'thread-7-unrecorded.png'), fullPage: true });
 
-        const said = await page.locator('#pj-thread-msg').textContent();
+        const said = await page.locator('#pj-thread-msg').innerText();
         check(/could not add it to this conversation/i.test(said),
           'the page says the message was not recorded');
         check(!/kept above/.test(said),
@@ -968,11 +982,11 @@ async function main() {
 
       await page.goto(`${BASE}?tab=projects`, { waitUntil: 'networkidle' });
       await page.click(`[data-project="${reusedId}"]`);
-      await page.waitForFunction(() => /anything from this project/.test(
-        document.getElementById('pj-msgs').textContent || ''), null, { timeout: 10000 });
+      await page.waitForFunction(() => document.getElementById('pj-msgs').getBoundingClientRect().height > 0 && /anything from this project/.test(
+        document.getElementById('pj-msgs').innerText || ''), null, { timeout: 10000 });
       await page.screenshot({ path: path.join(OUT, 'thread-6-reused-name.png'), fullPage: true });
 
-      const reused = await page.locator('#pj-msgs').textContent();
+      const reused = await page.locator('#pj-msgs').innerText();
       check(!/cannot read what you have sent/i.test(reused),
         'the withheld state does not claim we could not read what we read and chose not to show');
       check(!/not saying you have sent nothing/i.test(reused),
@@ -1006,19 +1020,19 @@ async function main() {
      * `thread-8-unfilable.png` check-emitted rather than hand-captured.
      */
     await page.selectOption('#pj-thread-who', 'MyBot');
-    await page.waitForFunction(() => /MyBot/.test(
-      document.getElementById('pj-screen-label').textContent || ''), null, { timeout: 10000 });
-    await page.waitForFunction(() => /cannot keep a conversation/.test(
-      document.getElementById('pj-msgs').textContent || ''), null, { timeout: 10000 });
+    await page.waitForFunction(() => document.getElementById('pj-screen-label').getBoundingClientRect().height > 0 && /MyBot/.test(
+      document.getElementById('pj-screen-label').innerText || ''), null, { timeout: 10000 });
+    await page.waitForFunction(() => document.getElementById('pj-msgs').getBoundingClientRect().height > 0 && /cannot keep a conversation/.test(
+      document.getElementById('pj-msgs').innerText || ''), null, { timeout: 10000 });
     await page.screenshot({ path: path.join(OUT, 'thread-8-unfilable.png'), fullPage: true });
 
-    const unfilable = (await page.locator('#pj-msgs').textContent()) || '';
+    const unfilable = (await page.locator('#pj-msgs').innerText()) || '';
     check(/nothing sent here is kept/.test(unfilable),
       `the unfilable state says what it knows: "${unfilable.trim()}"`);
     // ⚠️ THE STRING THAT WAS THE DEFECT. Asserted against the whole thread
     // block, not just the one paragraph, because the promise could return
     // anywhere in it.
-    const unfilableBlock = (await page.locator('#pj-thread').textContent()) || '';
+    const unfilableBlock = (await page.locator('#pj-thread').textContent()) || ''; // absence: hidden text counts (#687)
     check(!/delivered/i.test(unfilableBlock),
       'the unfilable screen promises no delivery it cannot know about');
     // Sending is still offered, because sending still works — only keeping does not.
@@ -1040,10 +1054,10 @@ async function main() {
       const hadMode = fs.statSync(cfile).mode;
       fs.chmodSync(cfile, 0o000);
       try {
-        await page.waitForFunction(() => /cannot read what you have sent/i.test(
-          document.getElementById('pj-msgs').textContent || ''), null, { timeout: 15000 });
+        await page.waitForFunction(() => document.getElementById('pj-msgs').getBoundingClientRect().height > 0 && /cannot read what you have sent/i.test(
+          document.getElementById('pj-msgs').innerText || ''), null, { timeout: 15000 });
         await page.screenshot({ path: path.join(OUT, 'thread-10-history-unreadable.png'), fullPage: true });
-        const unread = (await page.locator('#pj-msgs').textContent()) || '';
+        const unread = (await page.locator('#pj-msgs').innerText()) || '';
         check(/not saying you have sent nothing/i.test(unread),
           `the unreadable state refuses the empty-list reading: "${unread.trim()}"`);
         check(!/have not sent .* anything/i.test(unread),
@@ -1054,6 +1068,7 @@ async function main() {
         fs.chmodSync(cfile, hadMode);
       }
       // Recovery is part of the state: readable again, the rows return.
+      // (textContent: waiting for a sentence to be GONE, so hidden text counts.)
       await page.waitForFunction(() => !/cannot read what you have sent/i.test(
         document.getElementById('pj-msgs').textContent || ''), null, { timeout: 15000 });
     } else {
@@ -1092,7 +1107,8 @@ async function main() {
       await page.waitForSelector(`.pj-row[data-project="${id}"]`, { timeout: 10000 });
       await page.click(`.pj-row[data-project="${id}"]`);
       await page.waitForSelector('#pj-screen', { timeout: 10000 });
-      await page.waitForFunction(() => (document.getElementById('pj-screen').textContent || '').length > 0,
+      await page.waitForFunction(() => document.getElementById('pj-screen').getBoundingClientRect().height > 0
+        && (document.getElementById('pj-screen').innerText || '').length > 0,
         null, { timeout: 10000 });
       await page.screenshot({ path: path.join(OUT, `thread-5-${scheme}.png`), fullPage: true });
 
@@ -1195,14 +1211,15 @@ async function main() {
     // sentence about a screen nobody read, in the ordinary gone-agent
     // state, and nothing tested or photographed it.
     await page.selectOption('#pj-thread-who', 'stopped');
-    await page.waitForFunction(() => /cannot see its screen/.test(
-      document.getElementById('pj-screen-hint').textContent || ''), null, { timeout: 10000 });
+    await page.waitForFunction(() => document.getElementById('pj-screen-hint').getBoundingClientRect().height > 0 && /cannot see its screen/.test(
+      document.getElementById('pj-screen-hint').innerText || ''), null, { timeout: 10000 });
     const failedState = await page.evaluate(() => ({
-      label: document.getElementById('pj-screen-label').textContent,
+      labelDrawn: document.getElementById('pj-screen-label').getBoundingClientRect().height > 0,
+      label: document.getElementById('pj-screen-label').innerText, // no uppercase rule reaches #panel-projects
       hidden: document.getElementById('pj-screen').hidden,
     }));
     check(failedState.hidden === true, 'a member with no readable agent shows no terminal box');
-    check(failedState.label === 'Its screen',
+    check(failedState.labelDrawn && failedState.label === 'Its screen',
       'and the heading over the absent screen claims nothing ("Its screen", no name, no "shows right now")',
       `label reads: ${failedState.label}`);
     await page.screenshot({ path: path.join(OUT, 'thread-9-screen-unread.png'), fullPage: true });
