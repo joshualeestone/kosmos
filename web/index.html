@@ -2272,6 +2272,17 @@ p.pj-desc-empty { color: var(--label-3); font-style: italic; }
    because four surfaces share that rule and only this one was ruled taller.
    A cap, not a height: a quiet agent still draws a short box. */
 #d-window { max-height: 560px; }
+/* The pack's Fresh start stack (Josh, 2026-08-23 19:57): three big
+   full-width buttons, one per line, matching his screenshot. */
+.freshstack .btn { display: block; width: 100%; margin-top: 10px;
+                   padding: 14px 16px; text-align: center;
+                   font-size: 17px; font-weight: 600; }
+.freshstack { margin-top: 2px; }
+/* The three read as ONE stack: the restart container joins at the stack's
+   own 10px rhythm, and the empty receipt slots between them take no height
+   until they hold a sentence. */
+.field.freshstack { margin-top: 0; }
+#d-fresh .fmsg:empty { display: none; margin: 0; }
 .pj-viewport { margin-top: var(--space-6); }
 .pj-msgs { display: flex; flex-direction: column; gap: var(--space-3); margin: var(--space-5) 0; }
 .pj-msg { padding: var(--space-4) var(--space-5); border: 0.5px solid var(--separator);
@@ -3956,35 +3967,34 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            with it; each button's dialog already says what it keeps and loses,
            and two copies of one explanation is one to keep current. Painted by
            resetLabels() on open and after a rename. -->
-      <div class="fhint" style="margin-bottom:12px;">Three ways to get it going again, and they differ. Each one says what it stands to lose before you choose.</div>
-      <div class="frow">
-        <button class="btn" id="d-compact-go" type="button">Compact its memory</button>
-        <button class="btn" id="d-clear-go" type="button">Clear its memory</button>
+      <!-- 🔑 THE PACK'S SHAPE, MATCHED EXACTLY (Josh, 2026-08-23 19:57: "make
+           this look like what the pack design looks like... nice big fat
+           buttons that are all three stacked"). His screenshot carries the
+           pack's colon labels, which SUPERSEDES the 08-22 long-form ruling
+           recorded below; tonight is later and he was pointing at the picture.
+           The lede and the footer are the pack's sentences verbatim; the cost
+           still lives in each button's dialog, which is what the footer
+           promises. -->
+      <div class="fhint" id="d-fresh-lede" style="margin-bottom:12px;">Three ways to get it going again, whatever the reason.</div>
+      <div class="freshstack">
+        <button class="btn" id="d-compact-go" type="button">Compact: summarise and keep going</button>
+        <button class="btn" id="d-clear-go" type="button">Clear: start over, loses what it is holding</button>
       </div>
       <div class="fmsg" id="d-compact-msg" role="status" aria-live="polite"></div>
       <div class="fmsg" id="d-clear-msg" role="status" aria-live="polite"></div>
     </div>
-    <div class="field" id="d-restart-agent" hidden>
-    <div>
-    <label class="flabel"><b>Restart this agent</b></label>
-    <!-- The consequence, named before the click rather than discovered after
-         it. Josh has twice read a restarted agent's empty memory as the
-         product being broken, which is why this sentence exists at all and why
-         it says what it says. -->
-    <!-- 🔑 IT DOES NOT OPEN WITH "it stops and starts", WHICH IS WHAT THE WORD
-         RESTART MEANS. Mona Lisa's ruling on #259, and the general form is
-         worth keeping: a button names the act and does not explain it, and a
-         hint spends itself on the clause the person did not already know. The
-         heading says restart and so does the button, so the only sentence left
-         to write is the consequence, which is the reason this line exists. -->
-    <div class="fhint">It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.</div>
-    </div>
-    <div class="frow">
+    <!-- ⚠️ THE "Restart this agent" HEADING AND THE ON-PAGE CONSEQUENCE
+         SENTENCE ARE GONE WITH THE PACK MATCH (Josh, 19:57): the restart
+         button joins the stack as the third of three, and the consequence
+         ("comes back with nothing in its memory...") lives where the footer
+         promises it, in the confirmation dialog (restartCost), which every
+         press passes through. One copy, at the moment of choice. -->
+    <div class="field freshstack" id="d-restart-agent" hidden>
       <button class="btn" id="d-restart-start" type="button"
               data-restart-agent="" data-restart-note="d-restart-msg">Restart it</button>
-    </div>
     <div class="fmsg" id="d-restart-msg" role="status" aria-live="polite"></div>
   </div>
+  <div class="fhint" id="d-fresh-foot" style="margin-top:12px;" hidden>Each one shows what it stands to lose before you choose.</div>
   </section>
   </section>
   <section class="dsec" id="d-sec-instr" data-sec="instr" tabindex="-1" aria-label="Instructions" hidden>
@@ -4362,6 +4372,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          of the three states and absent in the third, and an empty <ul> left in
          the box draws a gap that reads as something failing to load. -->
     <ul class="rst-list" id="rst-list" hidden></ul>
+    <!-- 🔑 THE MEMORY CONSEQUENCE MOVED HERE FROM THE PAGE (the pack match,
+         Josh 2026-08-23 19:57: the page block is three buttons and two pack
+         sentences, nothing else). This sentence exists because Josh has twice
+         read a restarted agent's empty memory as the product being broken; it
+         is static because it is true of every restart, and it sits in the
+         dialog because that is where the footer sends people to learn the
+         cost. rst-small above stays the per-agent part: what is in flight. -->
+    <p class="rm-small">It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.</p>
     <div class="rm-acts">
       <button class="btn" id="rst-keep" type="button">Leave it running</button>
       <button class="btn" id="rst-go" type="button">Restart it</button>
@@ -12578,14 +12596,18 @@ document.getElementById('pol-save').addEventListener('click', () => {
    restarts it is, because the confirmation dialog's own button is also
    "Restart <name>" and the page behind a dialog is not made inert. */
 function freshStartLabel(name) {
+  /* The pack's colon labels (Josh, 2026-08-23 19:57, superseding his 08-22
+     long-form ruling: he pointed at the picture and the picture says this).
+     Restart still carries the name, exactly as the pack draws it; the other
+     two explain themselves and the dialogs name the agent and the cost. */
   const n = (name || '').trim();
   const b = document.getElementById('d-restart-start');
-  b.textContent = n ? 'Restart ' + n : 'Restart it';
+  b.textContent = 'Restart: stop and start ' + (n || 'it');
   b.setAttribute('aria-label', 'Fresh start: ' + b.textContent);
-  /* The other two of the three, same ruling (#404): the agent's name on the
-     button, the possessive the dialog title already uses. */
-  document.getElementById('d-compact-go').textContent = n ? 'Compact ' + n + '\u2019s memory' : 'Compact its memory';
-  document.getElementById('d-clear-go').textContent = n ? 'Clear ' + n + '\u2019s memory' : 'Clear its memory';
+  document.getElementById('d-compact-go').textContent = 'Compact: summarise and keep going';
+  document.getElementById('d-clear-go').textContent = 'Clear: start over, loses what it is holding';
+  const lede = document.getElementById('d-fresh-lede');
+  if (lede) lede.textContent = 'Three ways to get ' + (n || 'it') + ' going again, whatever the reason.';
 }
 /* Two pills carry the agent's name. Painted from the same `a.name` the header
    paints, on open and after a rename, and never left holding the last agent's. */
@@ -13264,6 +13286,9 @@ async function loadRemoval(sessionName, { fromPoll = false } = {}) {
   // Compact and Clear show with Restart: all three act on a running session (#214).
   const reset = document.getElementById('d-reset-agent');
   if (reset) reset.hidden = false;
+  // The footer belongs to all three, so it follows the same visibility.
+  const foot = document.getElementById('d-fresh-foot');
+  if (foot) foot.hidden = false;
   if (!fromPoll) {
     document.getElementById('d-restart-msg').textContent = '';
     rstBtn.disabled = false;

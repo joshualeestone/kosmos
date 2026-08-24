@@ -153,10 +153,14 @@ test('the Restart confirmation names the promises a restart drops, not only the 
      control was the more honest one. A person reads "memory" as context and
      "agreed to and has not done yet" as promises, and the second is what they
      want to know before pressing. */
+  /* RESTATED 2026-08-23 (the pack match, Josh 19:57): the sentence moved
+     from the page hint into the restart dialog itself, before the confirming
+     button, which is where every press now reads it. Comments stripped so a
+     comment cannot satisfy a copy pin. */
   const words = PAGE.replace(/<!--[\s\S]*?-->/g, '');
-  const at = words.indexOf('id="d-restart-start"');
-  assert.ok(at > -1, 'the Restart control moved');
-  const before = words.slice(Math.max(0, at - 1200), at);
+  const at = words.indexOf('id="rst-go"');
+  assert.ok(at > -1, 'the Restart confirm button moved');
+  const before = words.slice(Math.max(0, words.indexOf('id="rst-modal"')), at);
   assert.match(before, /anything it was part way through ends, including anything it agreed to and has not done yet\./,
     'the confirmation no longer names the promises a restart drops');
 });
