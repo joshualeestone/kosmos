@@ -11,6 +11,11 @@ const nodePath = require('node:path');
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'sub-test-'));
 const CONFIG = nodePath.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = CONFIG;
+/* And the accounts module's HOME too, set before ANY require pulls it in:
+   the scoped check resolves the default account's record through
+   accounts.configFile, and without this the #527 test below would read
+   the operator's real ~/.claude.json. */
+process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const sub = require('./subscription');
@@ -355,4 +360,27 @@ test('#248: check({configDir}) reads that account and only that account', () => 
   const scoped = sub.check({ configDir: dir });
   assert.equal(scoped.state, sub.STATE.CONNECTED);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('#527: the scoped check answers for the DEFAULT account from its real record', () => {
+  const accounts = require('./accounts');
+  const home = accounts.HOME_FOR_TEST;
+  /* The default account's record sits BESIDE its directory. A hand-joined
+     <dir>/.claude.json is exactly the file that does not exist here, and
+     the pre-fix answer was "nobody has signed in to this account yet" on
+     a signed-in machine. */
+  fs.mkdirSync(nodePath.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(nodePath.join(home, '.claude.json'),
+    JSON.stringify({ oauthAccount: { organizationType: 'claude_max', emailAddress: 'main@example.com' } }));
+  const got = sub.check({ configDir: nodePath.join(home, '.claude') });
+  assert.equal(got.state, sub.STATE.CONNECTED,
+    'the scoped check at the default dir could not see the signed-in default account');
+  /* Control: a non-default dir still reads INSIDE itself, so the two
+     shapes cannot have been collapsed into one path. */
+  const other = nodePath.join(home, '.claude-elsewhere');
+  fs.mkdirSync(other, { recursive: true });
+  assert.equal(sub.check({ configDir: other }).state, sub.STATE.NONE);
+  fs.writeFileSync(nodePath.join(other, '.claude.json'),
+    JSON.stringify({ oauthAccount: { organizationType: 'claude_pro', emailAddress: 'o@example.com' } }));
+  assert.equal(sub.check({ configDir: other }).state, sub.STATE.CONNECTED);
 });

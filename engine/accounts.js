@@ -53,6 +53,14 @@ const HOME = process.env.AGENT_WORKFORCE_HOME || os.homedir();
  * always read the HOME-level file, which is why the product has been right about
  * one account and would have been wrong about the first thing it said about two.
  */
+/**
+ * 🔑 EXPORTED AS THE ONE ANSWER for where an account directory keeps its
+ * record: the DEFAULT account's sits BESIDE ~/.claude (at ~/.claude.json),
+ * every other account's sits inside its directory. Anything resolving that
+ * path by hand grows a second copy that misses the default (#527 was
+ * exactly that, in subscription's scoped check). Keyed on the canonical
+ * spelling of the default dir, same as every caller passes.
+ */
 function configFile(dir) {
   const isDefault = dir === path.join(HOME, '.claude');
   return isDefault ? path.join(HOME, '.claude.json') : path.join(dir, '.claude.json');
@@ -307,4 +315,4 @@ function nextWorkDir() {
   return null;
 }
 
-module.exports = { list, identityOf, prepare, share, sharesMemory, nextWorkDir, HOME_FOR_TEST: HOME };
+module.exports = { list, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, HOME_FOR_TEST: HOME };
