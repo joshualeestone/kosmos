@@ -15,6 +15,7 @@
 #   install/setup.sh:30   runs https://installkosmos.com/setup   (new installs)
 #   install/setup.sh:373  GET  <base>/tmux-$ARCH.tar.gz  + .sha256
 #   install/setup.sh:~390 GET  <base>/kosmos-$ARCH.tar.gz + .sha256
+#   site index.html (the macOS Download button)  GET <base>/Kosmos.pkg (+ .sha256, .inputs)
 set -uo pipefail
 REPO=${REPO:-/Users/agent1/work/agent-workforce}
 HOST=${HOST:-https://installkosmos.com}

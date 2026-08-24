@@ -128,7 +128,7 @@ echo "==> input sidecar: $(tr '\n' ' ' < "$OUT_DIR/Kosmos.pkg.inputs")"
 # The checksum the site serves beside the pkg, in the shape every other served
 # pair uses ("<sha>  Kosmos.pkg"), written HERE so build and publish cannot
 # drift: the first served pair was made by hand.
-( cd "$OUT_DIR" && shasum -a 256 Kosmos.pkg > Kosmos.pkg.sha256 )
+( cd "$OUT_DIR" && _pkg_hash < Kosmos.pkg | awk '{print $1"  Kosmos.pkg"}' > Kosmos.pkg.sha256 )
 echo "==> checksum: $(cat "$OUT_DIR/Kosmos.pkg.sha256")"
 
 echo "built + notarised + stapled: $PKG"

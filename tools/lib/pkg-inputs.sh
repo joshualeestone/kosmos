@@ -25,8 +25,9 @@
 # NOT the version (metadata, and the pkg is version-independent) and NOT the
 # signature/timestamp (those change every build and are not source), and NOT
 # mtimes: bytes plus the executable bit (pkgbuild ships modes, and a postinstall
-# without x is a pkg that runs nothing), so a fresh worktree hashes the same as
-# the one it froze (git carries the x bit across worktrees, not mtimes).
+# without x is a pkg that runs nothing), and every path repo-relative, so a
+# fresh worktree at any root hashes the same as the one it froze (git carries
+# the x bit across worktrees, not mtimes; the two-root control proves it).
 # ⚠️ Hashing the whole build script means a comment edit there also asks for a
 # rebuild + notarise + publish. That over-asks by minutes; the alternative
 # under-asks by silently shipping an old Conclusion screen, which is the hole
@@ -60,13 +61,22 @@ pkg_input_sha() {
   [ -z "$unreadable" ] || { echo "pkg_input_sha: cannot hash input as it is: $unreadable" >&2; return 1; }
   # Each entry is framed: path, executable bit, byte count, then the bytes, so
   # a file with no trailing newline cannot run into the next path line.
+  # 🛑 EVERY PATH IN THE STREAM IS REPO-RELATIVE (the dirs are entered, the
+  # build script is named ./tools/...). The first version framed the build
+  # script by its ABSOLUTE path, so the sha depended on the repo root: the
+  # release freezes into a fresh mktemp worktree every cut, so cut N's
+  # sidecar never matched cut N+1's source, and it would have rebuilt and
+  # re-notarised every release while verify-served from the shared checkout
+  # read STALE forever. Three real builds passed because "source" and
+  # "built" were computed in the same directory. The two-root control in the
+  # guard test is what sees this.
   {
     printf 'section:pkg-scripts\n'
     ( cd "$scripts" && _pkg_stream_dir )
     printf 'section:pkg-resources\n'
     ( cd "$resources" && _pkg_stream_dir )
     printf 'section:build-script\n'
-    _pkg_stream_file "$build"
+    ( cd "$repo" && _pkg_stream_file ./tools/build-installer-pkg.sh )
   } | _pkg_hash | awk '{print $1}'
 }
 # The framed stream of one file: path, x or -, byte count, bytes.
@@ -95,6 +105,10 @@ _pkg_stream_dir() {
 _pkg_first_unreadable() {
   local d f
   for d in "$1" "$2"; do
+    # The ROOT itself first: cd into a mode-000 dir fails inside the
+    # substitution below, which would report nothing and stream an empty
+    # section (measured), the sha-over-less this function exists to refuse.
+    [ -r "$d" ] && [ -x "$d" ] || { printf 'unsearchable directory %s' "$d"; return 0; }
     f="$(cd "$d" && find . ! -path '*/.*' \( -type f -o -type d -o -type l \) -print0 | while IFS= read -r -d '' f; do
            if [ -L "$f" ]; then printf 'symlink %s/%s' "$d" "${f#./}"; break; fi
            if [ -d "$f" ]; then [ -r "$f" ] && [ -x "$f" ] || { printf 'unsearchable directory %s/%s' "$d" "${f#./}"; break; }
@@ -126,7 +140,7 @@ pkg_sidecar_inputs() { sed -n '1p' "${1:?}" | tr -d '[:space:]'; }             #
 pkg_sidecar_pkgsha() { sed -n '2p' "${1:?}" | sed 's/^pkg://' | tr -d '[:space:]'; }
 
 # Does the site's copy of the pkg need rebuilding + republishing? Prints ONE
-# reason line and returns 0 (needed) or 1 (current). The decision reads the
+# reason line and returns 0 (needed) or 2 (current); see the exit-code note. The decision reads the
 # SITE checkout's dist (what the next deploy will serve), never the served
 # host: the served host is what step 9c confirms AFTER the deploy.
 #

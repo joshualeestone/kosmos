@@ -186,6 +186,21 @@ echo "== 3c. the installer .pkg, rebuilt and published only when its inputs chan
 # verify-served.sh check what is actually served, and this step says out loud
 # whether it published, so a stale pkg is a red line, never a quiet skip.
 . "$REPO/tools/lib/pkg-inputs.sh"
+# The upload filter must carry the triple, or 9c reds after a ten-minute wait
+# for a reason a read can give now, BEFORE any sign + notarise minutes are
+# spent (it depends on nothing the build produces). Evaluated by git on the filter's own
+# patterns (the same semantics Vercel applies), and a MISSING filter is a
+# refusal: without one Vercel falls back to the site's .gitignore, which
+# excludes dist/*.pkg, which is the exact hole the site's .gitignore warns of.
+set +e; _pkg_dropped="$(pkg_upload_filter_excludes "$SITE/.vercelignore")"; _pkg_frc=$?; set -e
+if [ "$_pkg_frc" = 1 ]; then
+  echo "the site has no .vercelignore; Vercel would fall back to .gitignore and drop dist/Kosmos.pkg from the upload"; exit 1
+elif [ "$_pkg_frc" != 0 ]; then
+  echo "could not evaluate the site's .vercelignore (rc=$_pkg_frc); refusing to assume the deploy carries the pkg"; exit 1
+elif [ -n "$_pkg_dropped" ]; then
+  echo "the site's .vercelignore excludes $_pkg_dropped; the deploy would not carry the pkg triple"; exit 1
+fi
+echo "   .vercelignore carries dist/Kosmos.pkg, .sha256 and .inputs (evaluated by git)"
 _pkg_want="$(pkg_input_sha "$REPO")" || { echo "could not compute the pkg input sha from the frozen tree"; exit 1; }
 # ⚠️ THE VERDICT IS THE EXIT CODE (0 needed, 2 current), read under set +e so
 # an ERROR inside the decision (exit 1, or anything else) stops the cut instead
@@ -207,20 +222,6 @@ elif [ "$_pkg_rc" = 2 ] && case "$_pkg_why" in current:*) true;; *) false;; esac
 else
   echo "could not decide whether the pkg needs publishing (rc=$_pkg_rc: ${_pkg_why:-no reason printed}); refusing to guess"; exit 1
 fi
-# The upload filter must carry the triple, or 9c reds after a ten-minute wait
-# for a reason a read could give now. Evaluated by git on the filter's own
-# patterns (the same semantics Vercel applies), and a MISSING filter is a
-# refusal: without one Vercel falls back to the site's .gitignore, which
-# excludes dist/*.pkg, which is the exact hole the site's .gitignore warns of.
-set +e; _pkg_dropped="$(pkg_upload_filter_excludes "$SITE/.vercelignore")"; _pkg_frc=$?; set -e
-if [ "$_pkg_frc" = 1 ]; then
-  echo "the site has no .vercelignore; Vercel would fall back to .gitignore and drop dist/Kosmos.pkg from the upload"; exit 1
-elif [ "$_pkg_frc" != 0 ]; then
-  echo "could not evaluate the site's .vercelignore (rc=$_pkg_frc); refusing to assume the deploy carries the pkg"; exit 1
-elif [ -n "$_pkg_dropped" ]; then
-  echo "the site's .vercelignore excludes $_pkg_dropped; the deploy would not carry the pkg triple"; exit 1
-fi
-echo "   .vercelignore carries dist/Kosmos.pkg, .sha256 and .inputs (evaluated by git)"
 
 
 echo "== 4. build =="

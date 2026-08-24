@@ -17,6 +17,15 @@ a="$(pkg_input_sha "$T")"
 [ -n "$a" ] && ok "computes an input sha" || bad "no sha computed"
 b="$(pkg_input_sha "$T")"
 [ "$a" = "$b" ] && ok "deterministic: same inputs give the same sha" || bad "non-deterministic ($a != $b)"
+# 🛑 THE SAME INPUTS AT A DIFFERENT ROOT give the same sha. The release hashes
+# a fresh mktemp worktree every cut and verify-served hashes the shared
+# checkout; a sha that depended on the root (the first version framed the
+# build script by its absolute path) made every cut rebuild and every
+# verify read stale, and this file could not see it because every control
+# shared one root.
+T2R="$(mktemp -d "${TMPDIR:-/tmp}/pkg-input-guard-root2.XXXXXX")"; cp -R "$T/." "$T2R/"
+[ "$(pkg_input_sha "$T2R")" = "$a" ] && ok "CONTROL: the same inputs at a second root give the same sha (root-independent)" || bad "the sha depends on the repo root ($a vs $(pkg_input_sha "$T2R")) -- every cut would rebuild and verify-served would read stale"
+rm -rf "$T2R"
 
 # CONTROL: change the postinstall, the sha MUST change (a stale pkg is caught).
 printf '#!/bin/sh\necho hello world\n' > "$T/install/pkg-scripts/postinstall"
@@ -95,17 +104,17 @@ rm -rf "$U"
 # The publish decision release.sh step 3c makes, every arm named, and the
 # verdict is the EXIT CODE: 0 needed, 2 current, anything else an error.
 D="$(mktemp -d "${TMPDIR:-/tmp}/pkg-publish.XXXXXX")"; want="$(pkg_input_sha "$T")"
-why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"no Kosmos.pkg"*) ok "publish: no pkg in the site dist -> needed ($why)";; *) bad "no-pkg reason wrong: $why";; esac || bad "no pkg was judged current"
+why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"no Kosmos.pkg"*) ok "publish: no pkg in the site dist -> needed ($why)";; *) bad "no-pkg reason wrong: $why";; esac || { rc=$?; [ "$rc" = 2 ] && bad "no pkg was judged current" || bad "no pkg was judged current (rc $rc: an error, not a verdict)"; }
 printf 'PKGBYTES\n' > "$D/Kosmos.pkg"
-why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"no input sidecar"*) ok "publish: pkg without a sidecar -> needed ($why)";; *) bad "no-sidecar reason wrong: $why";; esac || bad "a pkg with no sidecar was judged current"
+why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"no input sidecar"*) ok "publish: pkg without a sidecar -> needed ($why)";; *) bad "no-sidecar reason wrong: $why";; esac || { rc=$?; [ "$rc" = 2 ] && bad "a pkg with no sidecar was judged current" || bad "a pkg with no sidecar was judged current (rc $rc: an error, not a verdict)"; }
 printf 'deadbeef\n' > "$D/Kosmos.pkg.inputs"
-why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"differ from source"*) ok "publish: inputs differ -> needed ($why)";; *) bad "differ reason wrong: $why";; esac || bad "differing inputs were judged current"
+why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"differ from source"*) ok "publish: inputs differ -> needed ($why)";; *) bad "differ reason wrong: $why";; esac || { rc=$?; [ "$rc" = 2 ] && bad "differing inputs were judged current" || bad "differing inputs were judged current (rc $rc: an error, not a verdict)"; }
 pkg_sidecar_write "$D/Kosmos.pkg" "$want" "$D/Kosmos.pkg.inputs"
 [ "$(pkg_sidecar_inputs "$D/Kosmos.pkg.inputs")" = "$want" ] && ok "sidecar: line 1 reads back the input sha" || bad "sidecar line 1 wrong"
 [ "$(pkg_sidecar_pkgsha "$D/Kosmos.pkg.inputs")" = "$(_pkg_hash < "$D/Kosmos.pkg" | awk '{print $1}')" ] && ok "sidecar: line 2 names the pkg's own bytes" || bad "sidecar line 2 wrong"
-why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"no .sha256"*) ok "publish: no checksum beside the pkg -> needed ($why)";; *) bad "no-sha256 reason wrong: $why";; esac || bad "a pkg with no checksum was judged current"
+why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"no .sha256"*) ok "publish: no checksum beside the pkg -> needed ($why)";; *) bad "no-sha256 reason wrong: $why";; esac || { rc=$?; [ "$rc" = 2 ] && bad "a pkg with no checksum was judged current" || bad "a pkg with no checksum was judged current (rc $rc: an error, not a verdict)"; }
 printf '%s  Kosmos.pkg\n' "0000000000000000000000000000000000000000000000000000000000000000" > "$D/Kosmos.pkg.sha256"
-why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"disagree"*) ok "publish: pkg and checksum disagree -> needed ($why)";; *) bad "disagree reason wrong: $why";; esac || bad "a broken pair was judged current"
+why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"disagree"*) ok "publish: pkg and checksum disagree -> needed ($why)";; *) bad "disagree reason wrong: $why";; esac || { rc=$?; [ "$rc" = 2 ] && bad "a broken pair was judged current" || bad "a broken pair was judged current (rc $rc: an error, not a verdict)"; }
 ( cd "$D" && _pkg_hash < Kosmos.pkg | awk '{print $1"  Kosmos.pkg"}' > Kosmos.pkg.sha256 )
 why="$(pkg_publish_needed "$D" "$want")"; rc=$?
 if [ "$rc" = 2 ] && case "$why" in current:*) true;; *) false;; esac; then ok "CONTROL: a current triple (inputs match, checksum agrees, sidecar vouches) -> rc 2 and a current: reason ($why)"
@@ -115,7 +124,7 @@ else bad "CONTROL: a current triple did not come back as rc 2 + current: (rc=$rc
 [ "$rc" != 0 ] && [ "$rc" != 2 ] && ok "an error (missing argument) is rc $rc, neither needed nor current" || bad "an error came back as a verdict (rc=$rc)"
 # the mixed state: a sidecar that vouches for OTHER bytes beside a self-consistent pair.
 printf 'OTHERBYTES\n' > "$D/other.pkg"; pkg_sidecar_write "$D/other.pkg" "$want" "$D/Kosmos.pkg.inputs"; rm -f "$D/other.pkg"
-why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"vouches for other bytes"*) ok "publish: a sidecar for other bytes beside a good pair -> needed ($why)";; *) bad "orphan-sidecar reason wrong: $why";; esac || bad "an orphan sidecar was judged current"
+why="$(pkg_publish_needed "$D" "$want")" && case "$why" in *"vouches for other bytes"*) ok "publish: a sidecar for other bytes beside a good pair -> needed ($why)";; *) bad "orphan-sidecar reason wrong: $why";; esac || { rc=$?; [ "$rc" = 2 ] && bad "an orphan sidecar was judged current" || bad "an orphan sidecar was judged current (rc $rc: an error, not a verdict)"; }
 pkg_sidecar_write "$D/Kosmos.pkg" "$want" "$D/Kosmos.pkg.inputs"
 # and the control's control: touch one input in source, the current pair is stale again.
 printf '#!/bin/sh\necho changed again\n' > "$T/install/pkg-scripts/postinstall"; want2="$(pkg_input_sha "$T")"
@@ -137,6 +146,10 @@ if pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "an unsearchable input dir
 chmod 755 "$T/install/pkg-resources/sub"
 [ "$(pkg_input_sha "$T")" = "$withsub" ] && ok "and restoring the directory restores the sha" || bad "sha changed after restoring the directory"
 rm -rf "$T/install/pkg-resources/sub"
+# the ROOT itself unsearchable (cd fails inside the check) must refuse too, never stream an empty section.
+chmod 000 "$T/install/pkg-resources"
+if pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "an unsearchable input ROOT did not refuse (an empty section was hashed)"; else grep -q "unsearchable directory" "$T/err" && ok "an unsearchable input root refuses and says so" || bad "the refusal did not name the root: $(cat "$T/err")"; fi
+chmod 755 "$T/install/pkg-resources"
 ln -s welcome.html "$T/install/pkg-resources/link.html"
 if pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "a symlinked input did not refuse (it would hash as absent)"; else grep -q "symlink" "$T/err" && ok "a symlink among the inputs refuses and says so" || bad "the refusal did not name the symlink: $(cat "$T/err")"; fi
 rm -f "$T/install/pkg-resources/link.html"
