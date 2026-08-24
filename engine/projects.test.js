@@ -2094,3 +2094,59 @@ test('tellAgent reports whether the projects half changed, so a colleagues heal 
   assert.equal(again.state, projects.TOLD.TOLD);
   assert.equal(again.changed, false, 'an identical re-sync claims the block changed, so the pane line would repeat');
 });
+
+// ---------------------------------------------------------------------------
+// #525: refuse to register a project whose folder is inside a temp directory.
+// A real project is never in os.tmpdir(); a row that points there is a leak
+// that renders as healthy while the temp folder still exists.
+// ---------------------------------------------------------------------------
+
+test('the temp-folder refusal fires for a real store and not for a temp store', () => {
+  const realStore = path.join(os.homedir(), 'Library', 'Application Support', 'agent-workforce');
+  const tmpStore = path.join(os.tmpdir(), 'kosmos-store', 'data');
+  const tmpFolder = path.join(os.tmpdir(), 'aw-tasks-abc', 'proj');
+  const realFolder = path.join(os.homedir(), 'work', 'proj');
+
+  // A temp folder entering a REAL store is refused: this is the leak.
+  assert.equal(projects.tmpFolderRefused(tmpFolder, realStore), true);
+  // /tmp is a temp root too.
+  assert.equal(projects.tmpFolderRefused('/tmp/anything', realStore), true);
+  // A real folder entering a real store is fine.
+  assert.equal(projects.tmpFolderRefused(realFolder, realStore), false);
+  // A temp folder is expected when the STORE is itself temp (a test/sandbox):
+  // this is what keeps the suite's own fixtures working with no opt-out.
+  assert.equal(projects.tmpFolderRefused(tmpFolder, tmpStore), false);
+});
+
+test('os.tmpdir itself and a sibling that merely shares its prefix', () => {
+  const realStore = path.join(os.homedir(), 'Library', 'Application Support', 'agent-workforce');
+  // The temp root itself is under it.
+  assert.equal(projects.isUnderTmpDir(os.tmpdir()), true);
+  // A path boundary, not a string prefix: a sibling named like the root but
+  // longer is NOT inside it.
+  assert.equal(projects.isUnderTmpDir(os.tmpdir() + 'x-not-inside'), false);
+  assert.equal(projects.tmpFolderRefused(os.tmpdir() + 'x-not-inside', realStore), false);
+  // Home is not temp.
+  assert.equal(projects.isUnderTmpDir(os.homedir()), false);
+});
+
+test('a folder symlinked INTO temp is caught by its resolved target', () => {
+  // The link lives outside temp; its target is inside. The refusal must see
+  // the target, the way create() does via the resolved real path.
+  const realTarget = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-real-'));
+  const linkHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-link-'));
+  const link = path.join(linkHome, 'looks-normal');
+  fs.symlinkSync(realTarget, link);
+  // isUnderTmpDir resolves the link, so both the link and its target read temp.
+  assert.equal(projects.isUnderTmpDir(link), true);
+});
+
+test('in the test store (itself temp) a temp-folder project is still accepted', () => {
+  // Documents the escape by construction: this whole suite's WORK dir is under
+  // os.tmpdir(), and creation works precisely because the store is temp too.
+  reset();
+  const dir = folder('temp-store-ok');
+  assert.ok(projects.isUnderTmpDir(dir), 'the fixture folder is under os.tmpdir()');
+  const p = projects.create({ name: 'Temp store ok', folder: dir });
+  assert.equal(p.folder, dir, 'a temp project is fine when the store is temp');
+});

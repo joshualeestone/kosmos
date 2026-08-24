@@ -241,6 +241,60 @@ function setupUrl() {
  * are separate process trees).
  */
 let installStarted = false;
+/* #553: the last install ATTEMPT this server saw end, so the page can say
+   a true sentence instead of spinning. A failed install never kills this
+   server, so the child's non-zero exit (or a spawn error) is observable
+   here and nowhere else; a SUCCESSFUL install kills us before it could be
+   recorded, which is the right shape: success is the server coming back
+   changed, and only failure needs a record. Cleared at the next press so
+   an old failure can never fail a new attempt. */
+let lastAttempt = null;
+function installLog() { return installedRoot() ? path.join(installedRoot(), 'logs', 'install.log') : null; }
+/* 🛑 THE DURABLE CHANNEL. On an UPDATE the installer runs `kosmos stop`
+   before it downloads a byte, so this server is dead for every real
+   failure (a 404, a dropped download, a checksum refusal, a failed
+   swap): the in-memory exit listener below only ever sees preflight
+   refusals and spawn errors. So the spawned shell writes the installer's
+   exit code and the attempt's start stamp to logs/install.status when
+   it finishes, and whichever server answers next (the reopened old
+   board after a failure, or the new board after a success) reads it.
+   A successful install rewrites the file with code 0, which seeds
+   nothing: success is the board coming back changed. */
+function installStatusFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'install.status') : null; }
+function noteAttemptEnd(owner, code, why) {
+  /* ⚠️ IDENTITY, not existence. A child's exit/error listener stays bound
+     for that child's life; only the record its OWN press created may be
+     ended by it, or a superseded attempt's late exit would overwrite the
+     current one (single-flight makes this rare in production; a fake
+     timer leaking across tests makes it certain, which is how it was
+     found). And the first, more specific sentence for one owner wins. */
+  if (owner !== lastAttempt) return;
+  if (lastAttempt && lastAttempt.endedAt) return;
+  lastAttempt = {
+    startedAt: lastAttempt && lastAttempt.startedAt ? lastAttempt.startedAt : new Date().toISOString(),
+    endedAt: new Date().toISOString(),
+    code: Number.isInteger(code) ? code : null,
+    because: why || null,
+    log: installLog(),
+  };
+}
+function seedFromStatusFile() {
+  const file = installStatusFile();
+  if (!file) return;
+  let raw = '';
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { return; }
+  const m = /^(-?\d+)\s+(\S+)/.exec(raw.trim());
+  if (!m) return;
+  const code = Number(m[1]);
+  if (code === 0) return;
+  let endedAt = null;
+  try { endedAt = fs.statSync(file).mtime.toISOString(); } catch { endedAt = new Date().toISOString(); }
+  lastAttempt = { startedAt: m[2], endedAt, code, because: 'the installer stopped before it could restart the board', log: installLog() };
+}
+function lastAttemptView() {
+  if (!lastAttempt) seedFromStatusFile();
+  return lastAttempt ? { ...lastAttempt } : null;
+}
 
 /**
  * The two things that must happen when an installer child fails, wherever the
@@ -254,8 +308,10 @@ function wireChild(child, opts) {
   // installer running to bring it back -- while the single-flight flag,
   // stranded true, answered every retry "already updating". Log, release
   // the flag, and the person's retry gets a real attempt.
+  const owner = lastAttempt;
   child.on('error', (err) => {
     installStarted = false;
+    noteAttemptEnd(owner, null, 'the installer could not be started: ' + String((err && err.message) || err));
     /* Only the unattended path is held back. A person pressing Install is
        present, is watching, and gets an immediate attempt every time. */
     if (opts && opts.auto) autoFailedAt = Date.now();
@@ -273,6 +329,7 @@ function wireChild(child, opts) {
   child.on('exit', (code) => {
     if (code !== 0) {
       installStarted = false;
+      noteAttemptEnd(owner, code, 'the installer stopped before it could restart the board');
       if (opts && opts.auto) autoFailedAt = Date.now();
       process.stderr.write(`Kosmos update failed before it could restart the board (exit ${code}); Install can be tried again\n`);
     }
@@ -287,6 +344,9 @@ function beginInstall(opts) {
   // lifetime; the flag dies with the process the installer restarts.
   if (installStarted) return;
   installStarted = true;
+  /* A fresh press starts a fresh record: the previous attempt's failure
+     is history, not a verdict on this one. */
+  lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null };
   /* 🛑 AN INJECTED RUNNER GOES THROUGH THE SAME WIRING, and it did not before.
      This returned immediately on `installRunner`, so the two handlers below --
      the ones that release the single-flight flag and stamp the automatic
@@ -307,7 +367,12 @@ function beginInstall(opts) {
   // rides along so the installer stages its tarballs from the SAME host the
   // script came from (the app's env override and the installer's default
   // could otherwise split-brain a staging deployment).
-  const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh', 'sh', setupUrl()], {
+  /* The exit code and the start stamp land in install.status whatever
+     happens to this server; the file is the only witness a failed update
+     leaves for the next board. Positional parameters, never interpolated
+     into the one command in this product that ends in `| sh`. */
+  const statusFile = installStatusFile() || '/dev/null';
+  const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; code=$?; printf "%s %s\n" "$code" "$3" > "$2"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt], {
     detached: true,
     stdio: 'ignore',
     env: { ...process.env, KOSMOS_RELEASE_BASE: base },
@@ -322,10 +387,10 @@ function setInstallRunner(f) { installRunner = f; }
 function setAutoPref(f) { autoPrefFn = f; }
 function setInstalledRoot(f) { installedRootFn = f; }
 function setFetcher(f) { fetcher = f; }
-function resetCache() { cache = { at: 0, latest: null, reached: false, readable: false }; inFlight = null; installStarted = false; autoFailedAt = 0; }
+function resetCache() { cache = { at: 0, latest: null, reached: false, readable: false }; inFlight = null; installStarted = false; autoFailedAt = 0; lastAttempt = null; }
 
 module.exports = {
-  available, poke, refresh, newer, installedRoot, setupUrl, beginInstall,
+  available, poke, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,
   resetCache, RUNNING, TTL, lastLook, checkNow,
 };
