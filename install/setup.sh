@@ -1828,19 +1828,21 @@ KOSMOS_HOME="\${KOSMOS_HOME:-$KOSMOS_HOME}"
 # click time. On a Mac with several accounts, the shared Applications icon
 # would otherwise start (or fail to start) the INSTALLING account's
 # private tree for whoever clicks it; the other account gets a sentence
-# pointing at the install line instead. A uid compare, not an
+# pointing at the DOWNLOAD instead (install your own per-user copy), never
+# at the terminal -- a graphical dead-end whose only escape is Terminal is
+# the Paste-Blocked wall the .pkg exists to remove (#546). A uid compare, not an
 # is-KOSMOS_HOME-under-HOME proxy: the proxy false-alarmed on the
 # installing account itself whenever KOSMOS_HOME was overridden outside
 # the home folder, and degenerated to match-anything when HOME was empty.
 if [ "\$(/usr/bin/id -u)" != "$owner_uid" ]; then
-  /usr/bin/osascript -e 'display alert "Kosmos was installed by a different account" message "This Kosmos belongs to another user of this Mac. To use Kosmos from this account, paste the install line from installkosmos.com into Terminal." as critical' >/dev/null 2>&1
+  /usr/bin/osascript -e 'display alert "Kosmos belongs to another account on this Mac" message "This copy was installed by someone else'\''s account on this computer, so it runs for them. To use Kosmos yourself, get your own copy: open installkosmos.com and click Download for macOS." as critical' >/dev/null 2>&1
   exit 1
 fi
 # The port this install chose travels with the icon; without it, an install
 # on a non-default port produced an icon that opened the default one.
 export KOSMOS_PORT="\${KOSMOS_PORT:-$PORT}"
 if ! "\$KOSMOS_HOME/bin/kosmos" open >/dev/null 2>&1; then
-  /usr/bin/osascript -e 'display alert "Kosmos could not start" message "Something went wrong bringing Kosmos up. Reinstalling usually fixes it: paste the install line into Terminal again." as critical' >/dev/null 2>&1
+  /usr/bin/osascript -e 'display alert "Kosmos could not start" message "Something went wrong while Kosmos was starting. Installing it again usually fixes this: open installkosmos.com and click Download for macOS. Your agents and settings stay on this Mac; installing again does not remove them." as critical' >/dev/null 2>&1
   exit 1
 fi
 LAUNCH

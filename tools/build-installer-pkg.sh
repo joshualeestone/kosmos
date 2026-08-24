@@ -13,6 +13,14 @@
 # that is the app-bundle path (#555's recipe), and this deliberately avoids it
 # by shipping nothing to sign but a shell script.
 #
+# It is a DISTRIBUTION package (productbuild), not a bare component, so it
+# carries a Welcome and a Conclusion screen (#546/#662/#663 fresh-account
+# test): the Welcome sets expectations for the minutes-long silent download
+# bar (a named wait is not a hang), and the Conclusion tells the person where
+# Kosmos went and how to open it (installing is not the finish line; opening
+# it is). In a .pkg, setup.sh's own stdout guidance is SWALLOWED by Installer,
+# so that guidance has to live in the package UI, which the person sees.
+#
 # Requires: the Developer ID Installer identity in the keychain (partition
 # list set for unattended signing), and the notarytool key via the secrets
 # map. FAILS LOUD if the identity is missing — never falls back to unsigned,
@@ -40,11 +48,40 @@ fi
 mkdir -p "$OUT_DIR"
 rm -f "$PKG" "$UNSIGNED"
 
-echo "==> pkgbuild (payload-free, scripts only)"
+BUILD="$(mktemp -d)"
+trap 'rm -rf "$BUILD"' EXIT
+RESOURCES="$REPO/install/pkg-resources"
+
+echo "==> pkgbuild (payload-free component, scripts only)"
 pkgbuild --nopayload \
   --identifier "$IDENTIFIER" \
   --version "$VERSION" \
   --scripts "$SCRIPTS" \
+  "$BUILD/component.pkg"
+
+echo "==> distribution.xml (Welcome + Conclusion UI)"
+cat > "$BUILD/distribution.xml" <<XML
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+  <title>Kosmos</title>
+  <welcome file="welcome.html" mime-type="text/html"/>
+  <conclusion file="conclusion.html" mime-type="text/html"/>
+  <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
+  <choices-outline>
+    <line choice="default"><line choice="$IDENTIFIER"/></line>
+  </choices-outline>
+  <choice id="default"/>
+  <choice id="$IDENTIFIER" visible="false">
+    <pkg-ref id="$IDENTIFIER"/>
+  </choice>
+  <pkg-ref id="$IDENTIFIER" version="$VERSION" onConclusion="none">component.pkg</pkg-ref>
+</installer-gui-script>
+XML
+
+echo "==> productbuild (distribution package)"
+productbuild --distribution "$BUILD/distribution.xml" \
+  --package-path "$BUILD" \
+  --resources "$RESOURCES" \
   "$UNSIGNED"
 
 echo "==> productsign (Developer ID Installer)"
