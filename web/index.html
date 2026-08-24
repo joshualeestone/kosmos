@@ -12011,9 +12011,12 @@ function openDetail(sessionName, section) {
      Two different sentences now compete for the slot (never-recorded vs
      not-ours), which turns the stale line into a wrong-agent provenance
      claim. Cleared here, at the one moment the agent changes.
-     ⚠️ d-account-msg shares this only-when-empty shape and its single
-     sentence can equally linger; pre-existing, carded separately. */
+     d-account-msg shares the shape, and since the Signed-in-as line
+     went it is the ONLY place the cannot-tell state explains its
+     disabled controls, so a lingering wrong-agent sentence would
+     both misattribute and suppress. Cleared together. */
   { const mm = document.getElementById('d-model-msg'); if (mm) mm.textContent = ''; }
+  { const am = document.getElementById('d-account-msg'); if (am) am.textContent = ''; }
   TALK_SCROLL = null;
   /* The name for the Reports-to menu's first option. Fire and forget: the poll
      repaints this panel every five seconds, and until it lands the menu says
@@ -12156,6 +12159,14 @@ function openDetail(sessionName, section) {
      account dropdown too; the separate Signed-in-as sentence below was
      the fourth explains-the-visible line Josh cut tonight, and it went
      with this change. */
+  /* email, then label, and DELIBERATELY not the dir rung the picker
+     keeps: a raw filesystem path does not belong in the headline, and
+     the dropdown below still shows it for the configured-but-unknown
+     account state. And the parenthetical reads from the launch file,
+     the same source the dropdown shows; in the saved-but-not-restarted
+     window after a Move both therefore name the account the agent will
+     use, not the one the live session still runs on, and the Move
+     verdict sentence is what names that window on screen. */
   const acctEmail = a && a.account && (a.account.email || a.account.label);
   drun.innerHTML = esc(runs.lead) + '<b>' + esc(runs.name) + '</b>'
     + (acctEmail ? ' (' + esc(acctEmail) + ')' : '');
@@ -15198,6 +15209,8 @@ async function paintAccountPicker(a) {
     } catch { /* the control stays empty and disabled, which is honest */ }
   }
   const acct = a && a.account;
+  /* The comments below predate the Signed-in-as line's removal; they
+     now govern the msg wording and the picker's refusal to guess. */
   /* ⚠️ "We cannot tell" is a THIRD state and gets its own sentence. An agent
      Kosmos did not start has no startup file of ours to read, and saying "the
      default account" about it would be answering for a stranger's session. */
