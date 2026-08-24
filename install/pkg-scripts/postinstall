@@ -37,13 +37,71 @@ if [ -z "$CONSOLE_UID" ]; then
   exit 1
 fi
 
+# ---- Show life FIRST (#662 / #663). Installer's own progress bar cannot be
+# moved by a package script: it sits still for the whole download, and a bar
+# that does not move reads as dead no matter what a welcome pane promised
+# (Josh counted 36 seconds and concluded it was broken, twice). So before the
+# install starts, open a page in the person's browser that shows a spinner,
+# counts, and becomes the dashboard the moment the board answers. It is
+# opened through a one-shot LaunchAgent in the person's gui session, the one
+# mechanism Apple supports for an installer reaching the desktop; a bare
+# /usr/bin/open from this root context is not that session (#663's bug).
+# Best-effort: if any step fails the install proceeds exactly as before and
+# setup.sh keeps its own conclusion-time open.
+PAGE_OPENED=0
+USER_HOME="$(/usr/bin/dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory 2>/dev/null | /usr/bin/awk '{print $2}')"
+[ -n "$USER_HOME" ] || USER_HOME="/Users/$CONSOLE_USER"
+PAGE_SRC="$(dirname "$0")/installing.html"
+PAGE_DIR="$USER_HOME/Library/Caches/Kosmos"
+PAGE="$PAGE_DIR/installing.html"
+AGENT_LABEL=com.kosmos.installing
+AGENT_PLIST="$USER_HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
+if [ -f "$PAGE_SRC" ] && [ -d "$USER_HOME" ]; then
+  /usr/bin/sudo -u "$CONSOLE_USER" -H /bin/sh -c '
+    set -e
+    mkdir -p "$1" "$(dirname "$3")"
+    sed "s/__KOSMOS_PORT__/${KOSMOS_PORT:-16180}/" "$0" > "$2"
+    /bin/launchctl bootout "gui/$(/usr/bin/id -u)/$4" >/dev/null 2>&1 || true
+    cat > "$3" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$4</string>
+  <key>RunAtLoad</key><true/>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>/usr/bin/open "\$0"; rm -f "\$1"; /bin/launchctl bootout "gui/\$(/usr/bin/id -u)/$4"</string>
+    <string>$2</string>
+    <string>$3</string>
+  </array>
+</dict>
+</plist>
+PLIST
+  ' "$PAGE_SRC" "$PAGE_DIR" "$PAGE" "$AGENT_PLIST" "$AGENT_LABEL" \
+  && /bin/launchctl bootstrap "gui/$CONSOLE_UID" "$AGENT_PLIST" 2>/dev/null \
+  && PAGE_OPENED=1
+fi
+echo "Kosmos: install page opened=$PAGE_OPENED"
+
 # Run the current installer as that user, inside their Aqua/GUI launchd
 # session. `launchctl asuser` supplies the session (so `launchctl bootstrap
 # gui/<uid>` in setup.sh works); `sudo -u -H` drops from root to the user and
 # sets HOME. The URL is passed as $0 so the pipe stays inside the user shell.
+#
+# KOSMOS_INSTALL_VIA=pkg tells setup.sh it is running under Installer: its
+# stdout is swallowed (Installer keeps it in /var/log/install.log, which is
+# where to look when a run is disputed), and a bare /usr/bin/open from this
+# root-descended shell is not a reliable way to reach the person's browser
+# (#663: the first real fresh-account run printed "Opening your dashboard"
+# and nothing opened). setup.sh opens through the person's own gui launchd
+# session instead when it sees this. Set INSIDE the user shell: sudo does
+# not carry the caller's environment across.
 /bin/launchctl asuser "$CONSOLE_UID" \
   /usr/bin/sudo -u "$CONSOLE_USER" -H /bin/sh -c \
-  'exec /usr/bin/curl -fsSL "$0" | /bin/sh' "$SETUP_URL"
+  'KOSMOS_INSTALL_VIA=pkg; KOSMOS_INSTALL_PAGE="$1"; export KOSMOS_INSTALL_VIA KOSMOS_INSTALL_PAGE; exec /usr/bin/curl -fsSL "$0" | /bin/sh' "$SETUP_URL" "$PAGE_OPENED"
 rc=$?
 
 if [ "$rc" -ne 0 ]; then
