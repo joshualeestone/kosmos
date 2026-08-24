@@ -2291,7 +2291,7 @@ if [ "$_board_ok" = yes ]; then
     # T/kosmos-clean-*/. The plist WRITE above stays sandboxed and asserted
     # by the suite; the launchd registration is real-machine-only.
     if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ]; then
-      : # sandboxed run: the file is the deliverable, the domain is not ours
+      _board_ok=sandbox # unreachable inside the -z arm above; the belt the gate scan reads
     elif /bin/launchctl print "gui/$_uid/$_board_label" >/dev/null 2>&1; then
       : # already registered; the rewritten file is picked up at the next login
     else
@@ -2306,8 +2306,16 @@ if [ "$_board_ok" = yes ]; then
         _board_ok=later
       fi
     fi
+  else
+    # The file is the deliverable; the domain is not ours. Said in its own
+    # sentence below (#513): a transcript narrating a registration it
+    # skipped cannot be used as evidence of anything, and this guard was
+    # earned twice, so its transcript must be able to PROVE it held.
+    _board_ok=sandbox
   fi
-  if [ "$_board_ok" = later ]; then
+  if [ "$_board_ok" = sandbox ]; then
+    info "sandboxed run: the login job file was written; registering it with launchd was skipped on purpose (the real machine's domain is not this run's to touch)"
+  elif [ "$_board_ok" = later ]; then
     info "note: macOS did not accept the background item just now; it is written and loads at your next login"
   else
     info "Kosmos will start itself when you log in"

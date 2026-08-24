@@ -224,6 +224,14 @@ chk "VERSION record installed" "[ -f \"$SB/home/VERSION\" ]"
 # and the browser's cached page then reported six separate "we could not check
 # this computer" panels for one dead process.
 BOARD_PLIST="$SB/launch/com.kosmos.board.plist"
+# #513: THE TRANSCRIPT MUST PROVE THE GUARD HELD. Under the sandbox the
+# registration is skipped on purpose; a transcript that still promised
+# "Kosmos will start itself" could not tell a working guard from a broken
+# one, so the sentence pair is pinned both ways: the skip said, the
+# promise absent. A regression that registers for real (or narrates as if
+# it did) prints the promise and fails here.
+chk "the sandboxed transcript says the registration was skipped" "grep -q 'registering it with launchd was skipped on purpose' \"$SB/install.log\""
+chk "the sandboxed transcript does not promise a login start it never registered" "! grep -q 'Kosmos will start itself when you log in' \"$SB/install.log\""
 chk "the board gets a login job" "[ -f \"$BOARD_PLIST\" ]"
 chk "the login job starts THIS install's command" "grep -qF \"$SB/home/bin/kosmos\" \"$BOARD_PLIST\" && grep -q '<string>start</string>' \"$BOARD_PLIST\""
 chk "the login job runs at login" "grep -q '<key>RunAtLoad</key><true/>' \"$BOARD_PLIST\""
