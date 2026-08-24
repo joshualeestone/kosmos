@@ -196,16 +196,20 @@ if [ -z "$adopt" ]; then
   # there to answer it. codex's spelling of claude's
   # --dangerously-skip-permissions is --dangerously-bypass-approvals-and-
   # sandbox; its model flag is -m.
-  # Which board this agent belongs to (#577). The launchd job carries
-  # KOSMOS_PORT only when the creating server is not on the default port,
-  # and tmux does NOT hand a client's environment to a session it makes on
-  # an already-running server, so the value has to ride new-session's -e or
-  # the pane never sees it. `kosmos reply`, `kosmos report` and the codex
-  # bridge all read KOSMOS_PORT; with it absent they use the default board.
+  # What the launchd job knows that the pane must too (#577, #540). tmux
+  # does NOT hand a client's environment to a session it makes on an
+  # already-running server (probed: 0 of 1 variables arrive), and when THIS
+  # job is what starts the server, every later session inherits this
+  # agent's values. So each of these rides new-session's -e or the pane
+  # never sees it: the board it belongs to (KOSMOS_PORT), and the account it
+  # runs on (CLAUDE_CONFIG_DIR for claude, CODEX_HOME for codex). Absent
+  # means the default, the plist's own rule, so nothing is passed for it.
   PORT_ENV=()
-  if [ -n "${KOSMOS_PORT:-}" ]; then
-    PORT_ENV=(-e "KOSMOS_PORT=$KOSMOS_PORT")
-  fi
+  for _var in KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME; do
+    if [ -n "$(eval "printf '%s' \"\${$_var:-}\"")" ]; then
+      PORT_ENV+=(-e "$_var=$(eval "printf '%s' \"\$$_var\"")")
+    fi
+  done
   if [ "$RUNNER" = codex ]; then
     # Self-reporting (#245 on #526): codex's notify hook runs the bridge
     # with one JSON argument per event, from INSIDE the agent's pane, so

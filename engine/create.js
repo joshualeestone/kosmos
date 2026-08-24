@@ -466,7 +466,10 @@ function readJob(name) {
      place this key is ever written; the value is read back verbatim, and an
      absent key is `null` rather than the default path, so "unset" and "set to
      the default" stay distinguishable in the one direction that matters. */
-  const cfg = text.match(/<key>CLAUDE_CONFIG_DIR<\/key>\s*<string>([\s\S]*?)<\/string>/);
+  const cfg = text.match(/<key>CLAUDE_CONFIG_DIR<\/key>\s*<string>([\s\S]*?)<\/string>/)
+    // A codex agent's account rides CODEX_HOME instead (#540); one field,
+    // because to everything above the launch it is "the account's directory".
+    || text.match(/<key>CODEX_HOME<\/key>\s*<string>([\s\S]*?)<\/string>/);
   return {
     claude: args[4],
     tmux: args[5],
@@ -717,8 +720,11 @@ function codexHomeDir() {
  * into the same CODEX_HOME codexsession.js reads. Shared by creation and
  * the provider switch, one definition.
  */
-function trustCodexFolder(dir) {
-  const codexHome = codexHomeDir();
+function trustCodexFolder(dir, home) {
+  // The account's own home when the agent runs on one (#540): codex reads
+  // config.toml from CODEX_HOME, so the trust must be written where the
+  // agent will look, not where the default account keeps its list.
+  const codexHome = home || codexHomeDir();
   const cfg = path.join(codexHome, 'config.toml');
   let text = '';
   try { text = fs.readFileSync(cfg, 'utf8'); } catch { /* first entry ever */ }
@@ -923,7 +929,8 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
      so an absent key has to keep meaning what it already means -- and a
      rewrite that started stamping the default would make an unrelated edit
      look like an account change in every diff of these files. */
-  const configLine = configDir ? `\n    <key>CLAUDE_CONFIG_DIR</key><string>${xml(configDir)}</string>` : '';
+  const configKey = isCodex ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR';
+  const configLine = configDir ? `\n    <key>${configKey}</key><string>${xml(configDir)}</string>` : '';
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -1242,9 +1249,6 @@ function createAgentInner(opts) {
     if (opts && opts.model !== undefined) {
       return { outcome: OUTCOME.REFUSED, because: 'an OpenAI agent picks its own model for now, so leave the model unchosen', steps };
     }
-    if (wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
-      return { outcome: OUTCOME.REFUSED, because: "an OpenAI agent runs on this computer's OpenAI sign-in for now, so leave the account unchosen", steps };
-    }
     if (!DRY_RUN && !fs.existsSync(codexBin)) {
       return { outcome: OUTCOME.REFUSED, because: 'we could not find the OpenAI runner on this computer, so an agent made now would never start', steps };
     }
@@ -1363,7 +1367,14 @@ function createAgentInner(opts) {
   }
 
   let configDir = null;
-  if (wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
+  if (provider === 'openai' && wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
+    /* An OpenAI account (#540): a directory with codex's own sign-in in it.
+       Memory-sharing has no ruling for codex yet, so no memoryShared gate
+       here; the row's absence is the only refusal. */
+    const acct = require('./openaiaccounts').list().find((a) => a.dir === String(wantAccountDir));
+    if (!acct) return { outcome: OUTCOME.REFUSED, because: 'we do not know that OpenAI account on this computer', steps };
+    configDir = acct.isDefault ? null : acct.dir;
+  } else if (wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
     const accountsMod = require('./accounts');
     const acct = accountsMod.list().find((a) => a.dir === String(wantAccountDir));
     if (!acct) return { outcome: OUTCOME.REFUSED, because: 'we do not know that account on this computer', steps };
@@ -1879,7 +1890,7 @@ function createAgentInner(opts) {
   const trustedFolder = provider !== 'openai'
     || ((wroteInstructions && installedSupervisor) && step('let the OpenAI runner work in its folder', () => {
       if (DRY_RUN) return true;
-      trustCodexFolder(workerDir(name));
+      trustCodexFolder(workerDir(name), configDir);
       return true;
     }));
 

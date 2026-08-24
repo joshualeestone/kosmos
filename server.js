@@ -103,6 +103,7 @@ const reports = require('./engine/reports');
 const limits = require('./engine/limits');
 const engmode = require('./engine/engmode');
 const accounts = require('./engine/accounts');
+const openaiAccounts = require('./engine/openaiaccounts');
 /* #553: this process's boot identity, for the update overlay to tell "the
    board went away and came back" from a client-side fetch failure. */
 const BOOTED_AT = new Date().toISOString();
@@ -2147,8 +2148,32 @@ const server = http.createServer((req, res) => {
   }
 
   if (pathname === '/api/accounts' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { sendJson(res, 200, { accounts: accounts.list() }); }
-    catch { sendJson(res, 500, { error: 'we could not read the accounts on this computer' }); }
+    /* Every provider's accounts in one list (#540), each row saying which
+       provider it belongs to. The Claude rows are accounts.list() verbatim
+       plus the provider fields; the OpenAI rows come from their own module. */
+    try {
+      const claude = accounts.list().map((a) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', ...a }));
+      sendJson(res, 200, { accounts: [...claude, ...openaiAccounts.list()] });
+    } catch { sendJson(res, 500, { error: 'we could not read the accounts on this computer' }); }
+    return;
+  }
+  /* Add an OpenAI account from a pasted key (#540). The key goes to codex's
+     own login on stdin and is never echoed, logged, or answered back. */
+  if (pathname === '/api/accounts/openai' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const out = openaiAccounts.addWithKey({
+          key: body.key,
+          label: body.label,
+          codexBin: process.env.AGENT_WORKFORCE_CODEX_BIN || '/opt/homebrew/bin/codex',
+        });
+        if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
+        sendJson(res, 200, { account: out.account });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
