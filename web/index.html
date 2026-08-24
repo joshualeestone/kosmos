@@ -498,6 +498,12 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* An empty hint keeps its margin box and leaves a band where a deleted sentence
    used to be. Same idiom this file already uses for `.removed-msg`. */
 .fhint:empty { display: none; }
+.instr-defaults { margin-top: var(--space-4); }
+.instr-defaults-fold { margin-top: 4px; }
+.instr-defaults-fold summary { cursor: pointer; list-style: none; display: inline; }
+.instr-defaults-fold summary::-webkit-details-marker { display: none; }
+.instr-defaults-text { margin: 8px 0 0; padding: 10px 12px; max-height: 18rem; overflow: auto; white-space: pre-wrap;
+  font: var(--text-callout) var(--font-ui); color: var(--label-2); background: var(--k-sunk, rgba(20,22,26,.05)); border-radius: 8px; }
 /* ⚠️ The PROJECTS panel's hints carry load-bearing sentences ("nothing sent
    here is kept", "it is not a transcript"), and --label-3 at this size is
    3.04:1 on the light ground -- under the 4.5 AA floor (round 20). Scoped
@@ -5161,6 +5167,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <div class="fhint">Describe what this agent does and how it should work. You can edit this later.</div>
       <textarea id="create-instr" rows="10" spellcheck="false"></textarea>
       <div class="fmsg" id="create-instr-note" role="status" aria-live="polite"></div>
+      <!-- #591: told before the write. Whatever a person writes above, the
+           working rules follow it in the file under their own heading; this
+           says so, and shows them, before the agent exists. The words come
+           from the engine (/api/roles `defaults`), never a copy here. -->
+      <div class="fhint instr-defaults" id="create-instr-defaults">Whatever you write here, your agent also gets Kosmos's working rules: keep going until finished, report what happened, ask before anything it cannot take back.
+        <details class="instr-defaults-fold">
+          <summary class="linkish">Show them</summary>
+          <pre class="instr-defaults-text" id="create-instr-defaults-text"></pre>
+        </details>
+      </div>
     </div>
 
     <!-- ⚠️ NO BACK BUTTON (Josh, 2026-08-19), and the pack has none here either:
@@ -16835,6 +16851,15 @@ async function loadRoles() {
     learnRoleTitles(ROLES);
     CREATE_MODELS = (data && data.models) || [];
     OWN_ROLE = (data && data.own) || null;
+    /* #591: the working rules, shown under the instructions box. Absent
+       from an older engine, the fold hides rather than showing an empty box. */
+    {
+      const pre = document.getElementById('create-instr-defaults-text');
+      const fold = pre && pre.closest('details');
+      const words = data && typeof data.defaults === 'string' ? data.defaults.trim() : '';
+      if (pre) pre.textContent = words;
+      if (fold) fold.hidden = !words;
+    }
     if (!ROLES.length) throw new Error('none came back');
     msg.textContent = '';
     buildPicker();
