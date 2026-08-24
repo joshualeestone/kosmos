@@ -192,6 +192,24 @@ if [ "$STAMP_OK" != "ok" ]; then
 fi
 echo "   its timestamp agrees with the clock"
 
+echo "== 7b. the site's release files are committed and pushed BEFORE they deploy =="
+# 🛑 SERVED FROM THE WORKING TREE MEANS SERVED FROM NOBODY'S HISTORY. This
+# script committed and pushed $REPO but only COPIED into $SITE, and Vercel
+# deploys the working tree, so eleven releases' installers went live with
+# no commit behind them (#568): the swap-proof installer that ended the
+# 0.5.13 wedge was serving and unrecorded, and the "error line numbers
+# match no revision" tell that diagnosed that wedge is confounded while
+# the served script matches no revision at all. Named paths only, never
+# add -A: the site checkout carries other people's in-progress page work.
+[ "$(git -C "$SITE" rev-parse --abbrev-ref HEAD)" = main ] || { echo "the site checkout is not on main"; exit 1; }
+git -C "$SITE" add dist/latest.json setup setup.sha256 versions.html
+if ! git -C "$SITE" diff --cached --quiet; then
+  git -C "$SITE" commit -q -m "$V: the served installer, pointer and versions entry"
+fi
+git -C "$SITE" push -q origin HEAD || { echo "could not push the site; the release files are committed locally, push before deploying"; exit 1; }
+[ -z "$(git -C "$SITE" status --porcelain -- dist/latest.json setup setup.sha256 versions.html)" ] || { echo "release files still dirty after the commit"; exit 1; }
+echo "   site committed and pushed: $(git -C "$SITE" log --oneline -1 | cat)"
+
 echo "== 8. deploy =="
 ( cd "$SITE" && vercel deploy --prod --yes )
 

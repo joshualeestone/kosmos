@@ -45,6 +45,20 @@ check_200() {     # url  label
 echo "== what a NEW install runs, and what an UPDATE re-runs =="
 check_bytes "$HOST/setup" "$REPO/install/setup.sh" "/setup"
 check_200   "$HOST/setup.sha256" "/setup.sha256"
+# #568: the served installer must be a COMMITTED revision of the site, not
+# whatever the working tree held at deploy time; a script matching no
+# revision confounds the line-number diagnostic that found the 0.5.13
+# wedge, and leaves the thing every install runs outside anybody's history.
+SITE=${SITE:-$HOME/work/chaoskosmos-site}
+if [ -d "$SITE/.git" ]; then
+  git -C "$SITE" fetch -q origin 2>/dev/null || true
+  served_sha=$(curl -fsS "$HOST/setup" | shasum -a 256 | awk '{print $1}')
+  committed_sha=$(git -C "$SITE" show origin/main:setup 2>/dev/null | shasum -a 256 | awk '{print $1}')
+  if [ -n "$served_sha" ] && [ "$served_sha" = "$committed_sha" ]; then say "/setup (history)" "matches origin/main of the site"
+  else say "/setup (history)" "SERVED SCRIPT IS NOT THE COMMITTED ONE (origin/main of the site)"; fail=1; fi
+else
+  say "/setup (history)" "no site checkout at $SITE; could not check the served script against history"
+fi
 
 echo "== what an existing install polls =="
 served=$(curl -fsS -H 'Cache-Control: no-cache' "$HOST/dist/latest.json")
