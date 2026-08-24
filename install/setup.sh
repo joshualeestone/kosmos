@@ -2500,10 +2500,62 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
   # window appearing unannounced reads as "something went wrong", and on
   # a cold browser start the prompt returns seconds before the window.
   printf '  Opening your dashboard in the browser...\n\n'
-  # </dev/null: the spawned process must not inherit the curl|sh pipe --
-  # the same class as cmd_start's measured never-returning install.
-  "$OPEN_CMD" "http://127.0.0.1:$PORT" </dev/null >/dev/null 2>&1 \
-    || printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'
+  # 🛑 UNDER THE .PKG, NOT A BARE `open` (#663). Installer's postinstall runs
+  # as root and drops to the person with `launchctl asuser` + `sudo -u`; the
+  # first real fresh-account run (Josh, 2026-08-24) reached this line, said
+  # "Opening your dashboard", and the browser stayed where it was. LaunchServices
+  # from a root-descended shell is not the person's GUI session, whatever
+  # asuser promises. The one mechanism Apple supports for an installer reaching
+  # the person's desktop is a LaunchAgent bootstrapped into gui/<uid>: launchd
+  # runs it INSIDE the login session, where `open` is ordinary. So in pkg mode
+  # the open is a one-shot agent that opens the dashboard, deletes its own
+  # plist and boots itself out. The BOARD_OURS gate above still decides whether
+  # this runs at all; only the delivery changes. Everything else (paste
+  # install, harness stub, sandbox) keeps the direct call.
+  if [ "${KOSMOS_INSTALL_VIA:-}" = "pkg" ] && [ -z "${KOSMOS_OPEN_CMD:-}" ] && [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ]; then
+    _open_uid="$(/usr/bin/id -u)"
+    _open_label=com.kosmos.open-once
+    _open_dir="$HOME/Library/LaunchAgents"
+    _open_plist="$_open_dir/$_open_label.plist"
+    _open_url="http://127.0.0.1:$PORT"
+    /bin/launchctl bootout "gui/$_open_uid/$_open_label" >/dev/null 2>&1 || true
+    if mkdir -p "$_open_dir" 2>/dev/null && cat > "$_open_plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$_open_label</string>
+  <key>RunAtLoad</key><true/>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>/usr/bin/open "\$0"; rm -f "\$1"; /bin/launchctl bootout "gui/\$(/usr/bin/id -u)/$_open_label"</string>
+    <string>$_open_url</string>
+    <string>$_open_plist</string>
+  </array>
+</dict>
+</plist>
+PLIST
+    then
+      if /bin/launchctl bootstrap "gui/$_open_uid" "$_open_plist" 2>/dev/null; then
+        printf '  (handed to your login session as %s)\n\n' "$_open_label"
+      else
+        rm -f "$_open_plist"
+        printf '  note: could not hand the open to your login session; trying directly.\n'
+        "$OPEN_CMD" "$_open_url" </dev/null >/dev/null 2>&1 \
+          || printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'
+      fi
+    else
+      "$OPEN_CMD" "$_open_url" </dev/null >/dev/null 2>&1 \
+        || printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'
+    fi
+  else
+    # </dev/null: the spawned process must not inherit the curl|sh pipe --
+    # the same class as cmd_start's measured never-returning install.
+    "$OPEN_CMD" "http://127.0.0.1:$PORT" </dev/null >/dev/null 2>&1 \
+      || printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'
+  fi
 fi
 }
 
