@@ -87,7 +87,16 @@ async function api(p, options) {
 
 const post = (p, body) => api(p, {
   method: 'POST',
-  headers: { 'content-type': 'application/json' },
+  /* ⚠️ THE LOOPBACK Origin IS THE SCREEN'S OWN DOOR, not a bypass invented
+     for the test. The #327 runaway valve pauses PROCESS-made projects at
+     twelve an hour and exempts the screen, keyed on browser headers a body
+     cannot mint; this check drives the person-facing surface (its scroll
+     stage alone seeds twelve fillers), so its creates are the screen's
+     kind, and they say so the same way the page's own fetches do. Without
+     this the valve correctly fired on the check's own seeding and the run
+     died at 429 mid-stage -- the valve working as designed against the
+     wrong kind of caller. */
+  headers: { 'content-type': 'application/json', origin: BASE },
   body: JSON.stringify(body || {}),
 });
 
@@ -226,7 +235,18 @@ async function main() {
       const ctx = await browser.newContext({ colorScheme: scheme, viewport: { width: 1280, height: 900 } });
       const page = await ctx.newPage();
       const errors = [];
-      page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+      page.on('console', (m) => {
+        if (m.type() !== 'error') return;
+        const url = (m.location() || {}).url || '';
+        /* The operator's own picture, which a fresh machine does not have:
+           the route answers 404 for "no picture is set" and the page reads
+           exactly that. render-thread carries this same exemption with the
+           full reasoning; the URL is pinned, so a 404 on anything else
+           still fails, and the URL rides the message so a new offender
+           names itself instead of hiding behind this comment. */
+        if (/Failed to load resource.*404/.test(m.text()) && /\/api\/you\/avatar(\?|$)/.test(url)) return;
+        errors.push(m.text() + (url ? ' [' + url + ']' : ''));
+      });
       page.on('pageerror', (e) => errors.push(String(e)));
 
       await page.goto(BASE + '/?tab=projects', { waitUntil: 'networkidle' });
@@ -426,24 +446,36 @@ async function main() {
         const el = document.getElementById('pj-one-desc');
         if (!el) return { present: false };
         const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
         return {
           present: true,
           hidden: el.hidden,
-          display: getComputedStyle(el).display,
-          w: r.width, h: r.height,
+          empty: el.classList.contains('pj-desc-empty'),
+          h: r.height,
           text: el.textContent,
+          fontStyle: cs.fontStyle,
+          fontSize: cs.fontSize,
         };
       });
-      // ⚠️ RENDERED absence, not the attribute: `p.pj-desc { display: block }`
-      // is exactly the author rule that beats the UA [hidden], and only the
-      // global [hidden]{display:none !important} keeps the empty grey line
-      // off this screen. The attribute check passed either way; this one
-      // reds if that global rule ever weakens.
+      /* ⚠️ RE-EXPRESSED, NOT LOOSENED (2026-08-24, #39). This arm pinned
+         hide-when-empty, and the page's own comment says Josh superseded that
+         on 08-20: "the empty slot SHOWS ... default text would say project
+         description is blank" -- a placeholder, muted and italic,
+         "unmistakably not content". So the pin moves to the ruling: the
+         placeholder is ON screen, in the empty styling, at the pack size.
+         The italic and the 15px together also hold the #39 cascade fix:
+         .panel p.pj-desc.pj-desc-empty must outrank both .panel p's font
+         shorthand AND the base description rule, order-independent. */
       if (!bareDetail.present) {
         throw new Error('#pj-one-desc vanished from the markup entirely');
       }
-      if (bareDetail.hidden !== true || bareDetail.display !== 'none' || bareDetail.w > 0 || bareDetail.h > 0) {
-        throw new Error('an undescribed project\u2019s detail description is ON SCREEN (attribute vs rendering): ' + JSON.stringify(bareDetail));
+      if (bareDetail.hidden !== false || bareDetail.h <= 0
+        || !/^This project has no description yet\./.test(bareDetail.text)
+        || bareDetail.empty !== true) {
+        throw new Error('an undescribed project\u2019s detail must SHOW the placeholder in the empty styling (Josh, 08-20): ' + JSON.stringify(bareDetail));
+      }
+      if (bareDetail.fontStyle !== 'italic' || bareDetail.fontSize !== '15px') {
+        throw new Error('the placeholder lost its unmistakably-not-content styling (italic at the pack size): ' + JSON.stringify(bareDetail));
       }
       // A description AT THE CAP wraps FULLY on the pack card (the one-line
       // ellipsis retired with the pj-cards restyle): the claim is that the
