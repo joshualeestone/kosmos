@@ -4669,7 +4669,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <p class="rm-small" id="doc-body">Your words stay exactly as they are. These go underneath, under their own heading, so you can see where yours end and ours begin.</p>
     <ul class="rst-list" id="doc-list"></ul>
     <details class="instr-defaults-fold">
-      <summary class="linkish">Show them</summary>
+      <summary class="linkish" id="doc-fold-sum">Show them</summary>
       <pre class="instr-defaults-text" id="doc-fold-text"></pre>
     </details>
     <div class="rm-acts">
@@ -14246,11 +14246,39 @@ document.getElementById('d-doctrine-add').addEventListener('click', () => {
   }
   document.getElementById('doc-fold-text').textContent = plan.span || '';
   document.getElementById('doc-msg').textContent = '';
+  DOC_OPENER = document.getElementById('d-doctrine-add');
   document.getElementById('doc-modal').hidden = false;
   document.getElementById('doc-keep').focus(); // the harmless answer opens focused
 });
-document.getElementById('doc-keep').addEventListener('click', () => {
+/* ⚠️ THE SAME MODAL MACHINERY AS updconfirm, NOT ADJACENCY (Angel's review
+   of #643, and updconfirm's own words: a new sibling does not inherit a
+   guard by sitting beside one). aria-modal promises focus is held, Escape
+   leaves, the backdrop leaves, and closing returns the keyboard to the
+   button that opened it. The Tab trap rides the SHARED dialog machinery
+   below (the tuple list kept for exactly this), intercepting at the LAST
+   stop in the traversal direction; on a WRITE-CONSENT dialog, a leaked
+   keystroke lands on a live board control, the measured defect. */
+let DOC_OPENER = null;
+function closeDocModal() {
   document.getElementById('doc-modal').hidden = true;
+  const back = (DOC_OPENER && document.contains(DOC_OPENER)) ? DOC_OPENER : document.getElementById('d-doctrine-add');
+  DOC_OPENER = null;
+  if (back) back.focus();
+}
+document.getElementById('doc-keep').addEventListener('click', closeDocModal);
+document.getElementById('doc-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'doc-modal') closeDocModal();
+});
+let DOCF_OPENER = null;
+function closeDocfModal() {
+  document.getElementById('docf-modal').hidden = true;
+  const back = (DOCF_OPENER && document.contains(DOCF_OPENER)) ? DOCF_OPENER : document.getElementById('set-doctrine-go');
+  DOCF_OPENER = null;
+  if (back) back.focus();
+}
+document.getElementById('docf-keep').addEventListener('click', closeDocfModal);
+document.getElementById('docf-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'docf-modal') closeDocfModal();
 });
 document.getElementById('doc-go').addEventListener('click', async () => {
   const plan = DOCTRINE_PLAN;
@@ -14287,7 +14315,12 @@ document.getElementById('set-doctrine-go').addEventListener('click', async () =>
   changing.textContent = ''; staying.textContent = ''; msg.textContent = ''; DOCF_NAMES = [];
   try {
     const res = await fetch('/api/doctrine/fleet', { cache: 'no-store' });
+    /* An error renders an ERROR sentence, never the false all-clear
+       (Angel's review: got.agents||[] fell through to "Nobody is missing
+       them" on a failed read, a success nobody checked). */
+    if (!res.ok) throw new Error('no');
     const got = await res.json();
+    if (got && got.ok === false) throw new Error('no');
     for (const a of got.agents || []) {
       const li = document.createElement('li');
       if (a.state === 'refresh') {
@@ -14307,14 +14340,12 @@ document.getElementById('set-doctrine-go').addEventListener('click', async () =>
       changing.appendChild(li);
     }
     document.getElementById('docf-go').disabled = DOCF_NAMES.length === 0;
+    DOCF_OPENER = document.getElementById('set-doctrine-go');
     document.getElementById('docf-modal').hidden = false;
     document.getElementById('docf-keep').focus();
   } catch {
     document.getElementById('docf-verdicts').textContent = 'We could not reach Kosmos to look.';
   }
-});
-document.getElementById('docf-keep').addEventListener('click', () => {
-  document.getElementById('docf-modal').hidden = true;
 });
 document.getElementById('docf-go').addEventListener('click', async () => {
   const msg = document.getElementById('docf-msg');
@@ -14324,7 +14355,14 @@ document.getElementById('docf-go').addEventListener('click', async () => {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ names: DOCF_NAMES }),
     });
+    if (!res.ok) throw new Error('no');
     const got = await res.json();
+    if (!Array.isArray(got.verdicts) || !got.verdicts.length) {
+      /* A result with no verdicts is a silent result, which this dialog's
+         whole copy contract forbids: sentences, never silence. */
+      msg.textContent = 'We could not tell what happened; nothing is confirmed changed. Look at an agent’s own page to check.';
+      return;
+    }
     const lines = (got.verdicts || []).map((v) => v.name + ': '
       + (v.state === 'added' ? 'Added.'
         : v.state === 'current' ? 'Already has them.'
@@ -19987,6 +20025,9 @@ document.getElementById('nt-go').addEventListener('click', async () => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!document.getElementById('hist-modal').hidden) closeHistModal();
+  /* #539's two consent dialogs leave on Escape like every sibling. */
+  if (!document.getElementById('doc-modal').hidden) closeDocModal();
+  if (!document.getElementById('docf-modal').hidden) closeDocfModal();
   /* ⚠️ NEITHER TASK SURFACE IS AN ESCAPE TARGET ANY MORE (#206, then #383):
      Escape dismisses a thing that covers your work; it does not navigate.
      Both halves of tasks are pages now, and wiring Escape on either would
@@ -19997,8 +20038,13 @@ document.addEventListener('keydown', (e) => {
   for (const [backId, stopIds, home] of [
     /* ⚠️ NO TRAP ON EITHER TASK PAGE (#206, then #383). A focus trap is what
        makes a dialog modal; a page must let the keyboard reach the tab bar
-       and everything else on the screen. The list is kept, empty, so the
-       next dialog inherits working machinery rather than a deleted one. */
+       and everything else on the screen. The list was kept, empty, so the
+       next dialog would inherit working machinery rather than a deleted
+       one -- and #539's two consent dialogs are that next dialog. The
+       fold's summary is a REAL tab stop and is listed, or shift-Tab from
+       it would leak backwards off the dialog. */
+    ['doc-modal', ['doc-fold-sum', 'doc-keep', 'doc-go'], 'doc-keep'],
+    ['docf-modal', ['docf-keep', 'docf-go'], 'docf-keep'],
   ]) {
     const back = document.getElementById(backId);
     if (back.hidden) continue;
