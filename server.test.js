@@ -3724,10 +3724,10 @@ test('update awareness: the status tick carries the verdict, and the install rou
        THIS attempt's verdict from any older one by exact equality. */
     const stamp = JSON.parse(go.body).startedAt;
     assert.ok(stamp, 'the press did not answer with its attempt stamp');
-    const st = JSON.parse((await req('/api/status')).body);
-    assert.ok(st.updateAttempt && st.updateAttempt.startedAt === stamp,
+    const stAfter = JSON.parse((await req('/api/status')).body);
+    assert.ok(stAfter.updateAttempt && stAfter.updateAttempt.startedAt === stamp,
       'the status payload does not carry the attempt the press started');
-    assert.equal(st.updateAttempt.endedAt, null, 'an attempt that has not ended reads as ended');
+    assert.equal(stAfter.updateAttempt.endedAt, null, 'an attempt that has not ended reads as ended');
 
     // And with nothing newer published, a stray POST changes nothing.
     updates.resetCache();
