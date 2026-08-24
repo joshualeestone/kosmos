@@ -1438,6 +1438,15 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 .boardname.on { color: var(--k-ink); border-color: var(--k-ink-2); }
 .boardname.off { opacity: .55; }
 .boardname.off::after { content: " · coming"; font-weight: 500; }
+/* #529: a pill is a DOOR, not a terminus. Buttons now (keyboard, reader),
+   same look; the door under the row says what connecting will do, in the
+   reader's words, and never dead-clicks. */
+button.boardname { font: inherit; font-size: .875rem; cursor: pointer; text-align: left; }
+button.boardname:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; opacity: 1; }
+button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border-color: var(--k-ink-2); }
+.svc-door { margin: 10px 2px 2px; padding: 10px 12px; border-left: 2px solid var(--k-rule);
+            font-size: .875rem; color: var(--k-ink-2); }
+.svc-door b { color: var(--k-ink); }
 .dremove {
   display: flex; align-items: center; justify-content: space-between; gap: 20px;
   flex-wrap: wrap; margin-top: 26px; padding-top: 22px;
@@ -6056,103 +6065,119 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <summary><b>Tasks and issues</b><span class="con-state">Being built first</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
         <div class="con-body">
           <p class="dhint" style="margin:0 0 8px;">Kosmos gives you a simple task list to start with, and it is the one on your projects. Connecting a board you already use means your tasks stay where they are: Kosmos reads them and does not copy them, so nothing here can disagree with your board. Trello is the one being built first.</p>
-          <div class="boardrow"><span class="boardname off">Trello</span><span class="boardname off">Jira</span><span class="boardname off">Linear</span><span class="boardname off">Asana</span><span class="boardname off">Notion</span><span class="boardname off">monday.com</span><span class="boardname off">ClickUp</span><span class="boardname off">Airtable</span></div>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">Trello</button><button type="button" class="boardname off" aria-expanded="false">Jira</button><button type="button" class="boardname off" aria-expanded="false">Linear</button><button type="button" class="boardname off" aria-expanded="false">Asana</button><button type="button" class="boardname off" aria-expanded="false">Notion</button><button type="button" class="boardname off" aria-expanded="false">monday.com</button><button type="button" class="boardname off" aria-expanded="false">ClickUp</button><button type="button" class="boardname off" aria-expanded="false">Airtable</button></div>
+          <div class="svc-door" hidden></div>
         </div>
       </details>
       <details class="con-cat" data-cat="code">
         <summary><b>Code</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
         <div class="con-body">
           <p class="dhint" style="margin:0 0 8px;">Where your code lives. Agents read it, open pull requests, and watch the checks.</p>
-          <div class="boardrow"><span class="boardname off">GitHub</span><span class="boardname off">GitLab</span><span class="boardname off">Bitbucket</span></div>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">GitHub</button><button type="button" class="boardname off" aria-expanded="false">GitLab</button><button type="button" class="boardname off" aria-expanded="false">Bitbucket</button></div>
+          <div class="svc-door" hidden></div>
         </div>
       </details>
       <details class="con-cat" data-cat="chat">
         <summary><b>Team chat</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
         <div class="con-body">
           <p class="dhint" style="margin:0 0 8px;">Where your team already talks, so agents can answer where the question was asked.</p>
-          <div class="boardrow"><span class="boardname off">Slack</span><span class="boardname off">Discord</span><span class="boardname off">Microsoft Teams</span></div>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">Slack</button><button type="button" class="boardname off" aria-expanded="false">Discord</button><button type="button" class="boardname off" aria-expanded="false">Microsoft Teams</button></div>
+          <div class="svc-door" hidden></div>
         </div>
       </details>
       <details class="con-cat" data-cat="search">
         <summary><b>Web search</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
         <div class="con-body">
           <p class="dhint" style="margin:0 0 8px;">How agents look things up on the open web.</p>
-          <div class="boardrow"><span class="boardname off">Brave Search</span><span class="boardname off">Tavily</span><span class="boardname off">Exa</span><span class="boardname off">Serper</span></div>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">Brave Search</button><button type="button" class="boardname off" aria-expanded="false">Tavily</button><button type="button" class="boardname off" aria-expanded="false">Exa</button><button type="button" class="boardname off" aria-expanded="false">Serper</button></div>
+          <div class="svc-door" hidden></div>
         </div>
       </details>
       <details class="con-cat" data-cat="google">
         <summary><b>Google</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
         <div class="con-body">
           <p class="dhint" style="margin:0 0 8px;">Mail, files and calendar, read and written on your behalf.</p>
-          <div class="boardrow"><span class="boardname off">Gmail</span><span class="boardname off">Google Drive</span><span class="boardname off">Google Calendar</span><span class="boardname off">Microsoft 365</span></div>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">Gmail</button><button type="button" class="boardname off" aria-expanded="false">Google Drive</button><button type="button" class="boardname off" aria-expanded="false">Google Calendar</button><button type="button" class="boardname off" aria-expanded="false">Microsoft 365</button></div>
+          <div class="svc-door" hidden></div>
         </div>
       </details>
       <details class="con-cat" data-cat="email">
         <summary><b>Sending email</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
         <div class="con-body">
           <p class="dhint" style="margin:0 0 8px;">How an agent sends mail to other people for you.</p>
-          <div class="boardrow"><span class="boardname off">Resend</span><span class="boardname off">Postmark</span><span class="boardname off">SendGrid</span><span class="boardname off">Mailgun</span><span class="boardname off">Amazon SES</span></div>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">Resend</button><button type="button" class="boardname off" aria-expanded="false">Postmark</button><button type="button" class="boardname off" aria-expanded="false">SendGrid</button><button type="button" class="boardname off" aria-expanded="false">Mailgun</button><button type="button" class="boardname off" aria-expanded="false">Amazon SES</button></div>
+          <div class="svc-door" hidden></div>
         </div>
       </details>
     <h4 class="con-group">Set up once, rarely touched after</h4>
       <details class="con-cat" data-cat="deploy">
         <summary><b>Deploy and hosting</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
         <div class="con-body">
-          <div class="boardrow"><span class="boardname off">Vercel</span><span class="boardname off">Netlify</span><span class="boardname off">Cloudflare Pages</span><span class="boardname off">Render</span><span class="boardname off">Fly.io</span><span class="boardname off">Railway</span></div>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">Vercel</button><button type="button" class="boardname off" aria-expanded="false">Netlify</button><button type="button" class="boardname off" aria-expanded="false">Cloudflare Pages</button><button type="button" class="boardname off" aria-expanded="false">Render</button><button type="button" class="boardname off" aria-expanded="false">Fly.io</button><button type="button" class="boardname off" aria-expanded="false">Railway</button></div>
+          <div class="svc-door" hidden></div>
         </div>
       </details>
       <details class="con-cat" data-cat="dns">
         <summary><b>Domains and DNS</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
         <div class="con-body">
-          <div class="boardrow"><span class="boardname off">Cloudflare</span><span class="boardname off">Namecheap</span><span class="boardname off">Route 53</span><span class="boardname off">Porkbun</span></div>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">Cloudflare</button><button type="button" class="boardname off" aria-expanded="false">Namecheap</button><button type="button" class="boardname off" aria-expanded="false">Route 53</button><button type="button" class="boardname off" aria-expanded="false">Porkbun</button></div>
+          <div class="svc-door" hidden></div>
         </div>
       </details>
       <details class="con-cat" data-cat="storage">
         <summary><b>File storage</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
         <div class="con-body">
-          <div class="boardrow"><span class="boardname off">Amazon S3</span><span class="boardname off">Cloudflare R2</span><span class="boardname off">Backblaze B2</span><span class="boardname off">Wasabi</span></div>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">Amazon S3</button><button type="button" class="boardname off" aria-expanded="false">Cloudflare R2</button><button type="button" class="boardname off" aria-expanded="false">Backblaze B2</button><button type="button" class="boardname off" aria-expanded="false">Wasabi</button></div>
+          <div class="svc-door" hidden></div>
         </div>
       </details>
       <details class="con-cat" data-cat="db">
         <summary><b>Database</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
         <div class="con-body">
-          <div class="boardrow"><span class="boardname off">Supabase</span><span class="boardname off">Neon</span><span class="boardname off">PlanetScale</span><span class="boardname off">Turso</span></div>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">Supabase</button><button type="button" class="boardname off" aria-expanded="false">Neon</button><button type="button" class="boardname off" aria-expanded="false">PlanetScale</button><button type="button" class="boardname off" aria-expanded="false">Turso</button></div>
+          <div class="svc-door" hidden></div>
         </div>
       </details>
       <details class="con-cat" data-cat="payments">
         <summary><b>Payments</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
         <div class="con-body">
-          <div class="boardrow"><span class="boardname off">Stripe</span><span class="boardname off">Paddle</span><span class="boardname off">Lemon Squeezy</span></div>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">Stripe</button><button type="button" class="boardname off" aria-expanded="false">Paddle</button><button type="button" class="boardname off" aria-expanded="false">Lemon Squeezy</button></div>
+          <div class="svc-door" hidden></div>
         </div>
       </details>
       <details class="con-cat" data-cat="sms">
         <summary><b>Texts and calls</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
         <div class="con-body">
-          <div class="boardrow"><span class="boardname off">Twilio</span><span class="boardname off">Vonage</span></div>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">Twilio</button><button type="button" class="boardname off" aria-expanded="false">Vonage</button></div>
+          <div class="svc-door" hidden></div>
         </div>
       </details>
       <details class="con-cat" data-cat="uptime">
         <summary><b>Uptime and monitoring</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
         <div class="con-body">
-          <div class="boardrow"><span class="boardname off">UptimeRobot</span><span class="boardname off">Better Stack</span><span class="boardname off">Pingdom</span><span class="boardname off">Checkly</span></div>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">UptimeRobot</button><button type="button" class="boardname off" aria-expanded="false">Better Stack</button><button type="button" class="boardname off" aria-expanded="false">Pingdom</button><button type="button" class="boardname off" aria-expanded="false">Checkly</button></div>
+          <div class="svc-door" hidden></div>
         </div>
       </details>
       <details class="con-cat" data-cat="servers">
         <summary><b>Servers</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
         <div class="con-body">
-          <div class="boardrow"><span class="boardname off">DigitalOcean</span><span class="boardname off">Hetzner</span><span class="boardname off">Linode</span><span class="boardname off">AWS</span></div>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">DigitalOcean</button><button type="button" class="boardname off" aria-expanded="false">Hetzner</button><button type="button" class="boardname off" aria-expanded="false">Linode</button><button type="button" class="boardname off" aria-expanded="false">AWS</button></div>
+          <div class="svc-door" hidden></div>
         </div>
       </details>
       <details class="con-cat" data-cat="appstores">
         <summary><b>App stores</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
         <div class="con-body">
-          <div class="boardrow"><span class="boardname off">Apple App Store Connect</span><span class="boardname off">Google Play</span></div>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">Apple App Store Connect</button><button type="button" class="boardname off" aria-expanded="false">Google Play</button></div>
+          <div class="svc-door" hidden></div>
         </div>
       </details>
       <details class="con-cat" data-cat="social">
         <summary><b>Social</b><span class="con-state">Nothing connected</span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
         <div class="con-body">
-          <div class="boardrow"><span class="boardname off">X</span><span class="boardname off">Reddit</span><span class="boardname off">LinkedIn</span><span class="boardname off">Bluesky</span><span class="boardname off">Mastodon</span><span class="boardname off">Farcaster</span></div>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">X</button><button type="button" class="boardname off" aria-expanded="false">Reddit</button><button type="button" class="boardname off" aria-expanded="false">LinkedIn</button><button type="button" class="boardname off" aria-expanded="false">Bluesky</button><button type="button" class="boardname off" aria-expanded="false">Mastodon</button><button type="button" class="boardname off" aria-expanded="false">Farcaster</button></div>
+          <div class="svc-door" hidden></div>
         </div>
       </details>
     <p class="dhint" style="margin:14px 0 0;">
@@ -12699,6 +12724,41 @@ wireSkillAdd('d-skill-add', 'd-skill-name', 'd-skill-body', 'd-skill-add-msg',
   () => 'Added. ' + ((CURRENT && CURRENT.name) || 'This agent') + ' picks it up at its next restart.');
 
 /* --- the company AI policy (#479): one record, every agent told -------- */
+/* #529: every pill opens to a door (Josh, 10:25: "I need to be able to
+   click on GitHub and it tells me... whatever dumb white-collar
+   instructions need to exist"). The no-fake-buttons rule stands: nothing
+   here renders a Connect control until a service's flow is BUILT (add
+   connect: true to its entry the day that is real). Until then the door
+   says what connecting WILL do and how it will work, which is an answer,
+   not a dead click. Named services get their own sentence; the rest share
+   the honest generic one. */
+const SVC_DOORS = {
+  'GitHub': 'Where your code lives. Connect it and your agents can read your repositories, open pull requests, and watch the checks, working as you.',
+  'Vercel': 'Where your sites deploy. Connect it and your agents can ship a site and tell you when it is live. It needs GitHub connected first.',
+  'Cloudflare': 'Your domains and DNS. Connect it and your agents can point a domain at a site when you ask them to.',
+  'Gmail': 'Connect an address you choose and your agents can send and read the email you approve, never your personal inbox unless you say so.',
+};
+function svcDoorText(name) {
+  const own = SVC_DOORS[name];
+  const how = 'Coming soon. When it opens up here, you sign in on ' + name
+    + '’s own page, this Mac holds the key, and Kosmos never sees a password.';
+  return (own ? '<b>' + esc(name) + '.</b> ' + esc(own) + ' ' : '<b>' + esc(name) + '.</b> ') + esc(how);
+}
+document.querySelectorAll('#s-sec-connect .boardrow').forEach((row) => {
+  const door = row.nextElementSibling;
+  if (!door || !door.classList.contains('svc-door')) return;
+  row.addEventListener('click', (e) => {
+    const pill = e.target.closest('button.boardname');
+    if (!pill) return;
+    const open = pill.getAttribute('aria-expanded') === 'true';
+    row.querySelectorAll('button.boardname').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+    if (open) { door.hidden = true; return; }
+    pill.setAttribute('aria-expanded', 'true');
+    door.innerHTML = svcDoorText(pill.textContent.trim());
+    door.hidden = false;
+  });
+});
+
 /* The connect tab's one computed sentence (the taxonomy doc's defect half). */
 async function paintConnLive() {
   const el = document.getElementById('conn-live');
