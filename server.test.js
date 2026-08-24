@@ -1137,6 +1137,61 @@ test('GET reflects what was actually stored, not a fixed answer', async (t) => {
   assert.equal(JSON.parse((await req(`/api/agent/${name}/commitments`)).body).state, 'clear');
 });
 
+test('#18: an agent whose session name safeKey alters can report, under its sanitised name', async () => {
+  // The card (#18) described the old knownAgent, `a.sessionName === safeKey(name)`.
+  // Under it, an agent whose session name carries a character safeKey strips (a
+  // dot here) got a permanent 404 on every write route under EVERY spelling: the
+  // raw form is stripped by safeKey and the stripped form does not equal the raw
+  // session name. The agent could never report, and read `unknown` forever.
+  //
+  // knownAgent now routes through claimantFor, whose fallback compares
+  // safeKey-to-safeKey, so the gate admits the name. This reproduces the card's
+  // exact scenario and is the durable form of "we already fixed that": it fails
+  // against the old gate.
+  //
+  // Note the TWO layers, which the card's own "Related" paragraph anticipates:
+  // the GATE (knownAgent) admits the name, and the STORE (commitments.report)
+  // still refuses a non-canonical spelling to protect against collision
+  // overwrites. So the fix signature is 400-not-404 on the raw spelling (the
+  // gate passed, the store asks for the canonical name) and full success on the
+  // sanitised one. A permanent 404 was the defect; an actionable 400 is not.
+  const status = require('./engine/status');
+  // `my.bot` -> safeKey `mybot`: the dot is what safeKey strips. Tied by the
+  // `-discord` suffix, so isNamedOurs holds and the write gate is reachable.
+  status.setPaneSource(() => fleet.line({ session: 'my.bot-discord', title: 'x' }));
+  status.setPaneCapture(() => 'Worked for 1m\n> \n');
+  try {
+    // The raw spelling clears the GATE (not a 404) and is then asked, by the
+    // store's anti-aliasing guard, to use the canonical name. Under the old
+    // knownAgent this was a 404 and never reached the store at all.
+    const rawPut = await req('/api/agent/my.bot/commitments', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ commitments: [{ what: 'holding the lease' }] }),
+    });
+    assert.notEqual(rawPut.status, 404,
+      'the write gate refused a safeKey-altering session name outright (the #18 defect)');
+    assert.equal(rawPut.status, 400, 'the raw spelling should reach the store and be redirected');
+    assert.match(JSON.parse(rawPut.body).error, /mybot/,
+      'the refusal must name the canonical spelling to report under');
+
+    // The sanitised spelling works end to end: the agent CAN report, which is
+    // the "can never report" the card said was true.
+    const sani = await req('/api/agent/mybot/commitments', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ commitments: [{ what: 'holding the lease' }] }),
+    });
+    assert.equal(sani.status, 200, 'the agent still could not report under any spelling');
+
+    const got = await req(`/api/agent/mybot/commitments?t=${Date.now()}`);
+    const body = JSON.parse(got.body);
+    assert.equal(body.state, 'holding', 'the report did not round-trip');
+    assert.deepEqual(body.commitments.map((x) => x.what), ['holding the lease']);
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+});
+
 test('a null PUT body is refused with a readable message, not an exception name', async (t) => {
   // Previously answered 400 with the raw JS text "Cannot read properties of
   // null (reading 'commitments')", which names an exception rather than saying
