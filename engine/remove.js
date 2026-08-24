@@ -1225,8 +1225,10 @@ function restartInner(name) {
     return {
       outcome: OUTCOME.REFUSED,
       steps: [],
+      /* The launch model in create's words (#671): one spelling of the
+         self-starting fact, shared with the board's offline sentence. */
       because: `${shown} is not running, so there is nothing to restart. `
-        + 'It starts itself when this Mac is on and it is not removed.',
+        + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1) + '.',
     };
   }
   if (found.kind !== FOUND.OURS) {

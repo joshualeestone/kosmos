@@ -695,6 +695,9 @@ html { scroll-padding-top: 132px; }
 .utoast .udot { width: 8px; height: 8px; border-radius: 50%; background: var(--utone); flex: 0 0 8px; }
 .utoast .utxt b { display: block; font-size: .8125rem; line-height: 1.3; color: var(--utone); }
 .utoast .utxt small { font-size: .6875rem; color: var(--label-2); }
+.utoast .newsupd { color: inherit; text-decoration: none; }
+.utoast .newsupd:hover b { text-decoration: underline; text-underline-offset: 2px; }
+.utoast .uacts .newsx { font-size: 1.1rem; line-height: 1; }
 /* #655: the news line's link and dismiss, in the toast's own ink and on one line. */
 .utoast .utxt small a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .utoast .uacts button { white-space: nowrap; }
@@ -1894,6 +1897,15 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated #pj-one-view .dname { font-size: 1.25rem; }
   html[data-layout="consolidated"] body.consolidated #pj-one-name + .pj-desc, html[data-layout="consolidated"] body.consolidated #pj-one-made { margin-top: 1px; }
   html[data-layout="consolidated"] body.consolidated #rail-agents, html[data-layout="consolidated"] body.consolidated > #panel-projects, html[data-layout="consolidated"] body.consolidated > #alist { padding-top: 6px; }
+  /* #520 piece eight (Josh, toward the mock): the member rows lose their box
+     and go flat and quiet like the agents rail, and the add/remove controls
+     quiet down. Files and Tasks already flattened in piece six. */
+  html[data-layout="consolidated"] body.consolidated .pj-member { border: 0; padding: 6px 8px; border-radius: 9px; gap: 8px; }
+  html[data-layout="consolidated"] body.consolidated .pj-member:hover { background: var(--k-surface); }
+  html[data-layout="consolidated"] body.consolidated .pj-members { gap: 2px; }
+  html[data-layout="consolidated"] body.consolidated .pj-member .lav.pj-face { width: 28px; height: 28px; }
+  html[data-layout="consolidated"] body.consolidated .pj-addmem { font-size: .8125rem; padding: 6px 10px; margin-top: 4px; }
+  html[data-layout="consolidated"] body.consolidated #pj-remove-member { font-size: .75rem; }
 }
 .pjcol { border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface); padding: 14px 16px 16px; }
 /* #534: the split left column is chrome-free; its two cards wear the look. */
@@ -3836,8 +3848,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <div id="unews-slot">
       <div class="utoast stale" id="newsbar" role="status" hidden>
         <span class="udot" aria-hidden="true"></span>
-        <div class="utxt"><b id="newsbar-text"></b><small><a id="newsbar-link" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">What changed</a></small></div>
-        <div class="uacts"><button type="button" id="newsbar-ok" aria-label="Dismiss this update note">Got it</button></div>
+        <div class="utxt"><a id="newsbar-link" class="newsupd" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener"><b id="newsbar-text"></b></a></div>
+        <div class="uacts"><button type="button" id="newsbar-ok" class="newsx" aria-label="Close this note">&times;</button></div>
       </div>
     </div>
     <!-- ⚠️ ITS OWN SLOT RATHER THAN SHARING `#unote-slot`, and the reason is a
@@ -12760,8 +12772,7 @@ async function paintTalk(sessionName, agentName) {
        it is there, and the wrapper states the consequence.
        ⚠️ Only the copy-mode arm has a fixture (`6-off`), so the other three are
        drawn by nothing in the render check. */
-    off.textContent = name + ' cannot be handed a message: '
-      + pjSentence(body.presenceBecause || 'we cannot reach its window');
+    off.textContent = dmOffLine(name, body, CURRENT);
     off.hidden = false;
   } else if (body.presence === 'unsure') {
     off.textContent = 'We could not check whether ' + name + ' is running. '
@@ -13149,9 +13160,13 @@ function openDetail(sessionName, section) {
      differently is precisely what this branch exists to stop. It takes the name
      the box resolved rather than deriving a second one. */
   const runs = runsOnLine(a);   // one evaluation, read by the meta line and the box
+  /* #684: "shown by its machine name" only read as English to someone who had
+     read the code (the first-run journey walk hit it in minute two). The fact
+     it carries -- nobody chose a name, so the one on screen is the internal
+     one -- now says itself in the stranger's words. */
   document.getElementById('d-meta').textContent =
     [roleLine(a, ROLE_TITLES), runs.name,
-     a.nameDerived ? null : 'shown by its machine name'].filter(Boolean).join(' · ');
+     a.nameDerived ? null : 'no name was chosen for it, so this is the one it runs under'].filter(Boolean).join(' · ');
   const copy = STATE_COPY[a.state] || STATE_COPY.unknown;
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
      class, `GLYPH` the mark, `STATE_COPY` the word. A card and its detail page
@@ -13848,8 +13863,9 @@ async function newsbarCheck() {
     }).then((r) => r.text()).catch(() => { /* tried again next load */ });
     if (!got.seen) { record(); return; } // first sight: silent
     if (got.seen === got.current) return;
-    document.getElementById('newsbar-text').textContent =
-      'Kosmos updated itself to ' + got.current + ' while you were away.';
+    // Josh, 2026-08-24 16:50: short. The whole line is the link (click to
+    // see what changed); the X closes it. No "while you were away".
+    document.getElementById('newsbar-text').textContent = 'Kosmos updated to ' + got.current;
     document.getElementById('newsbar-link').href =
       'https://installkosmos.com/versions#v' + got.current.replace(/\./g, '-');
     const bar = document.getElementById('newsbar');
@@ -22264,6 +22280,35 @@ function pjSentence(because) {
 }
 
 /**
+ * The closed-composer line: why this agent cannot be handed a message.
+ *
+ * #671: THE VERDICT CARRIES THE NEXT MOVE FOR ITS CAUSE. For an agent with no
+ * session at all, the engine's reason ("we cannot see an agent by exactly
+ * this name...") is true and a full stop: a stranger at this box has nothing
+ * to do next (witnessed on the first-run journey walk). The board's offline
+ * row already carries the cause-specific story -- switched off in Login
+ * Items, the folder-gone leftover, #668's running-unseen, or the
+ * self-starting launch model -- so the ONE derivation of it is spoken here,
+ * at the decision point, rather than re-diagnosed. It REPLACES the engine's
+ * sentence rather than following it: for a `running === false` row the only
+ * reachable engine reason is the no-card one, which the row's own sentence
+ * subsumes, and saying the failure twice in one line is the noise this page
+ * keeps removing. Deliberately a repeat of the why-line at the top of the
+ * page: the person at this box should not have to scroll to learn their next
+ * move.
+ *
+ * ⚠️ Gated on `running === false`, because that flag answers "is there a pane
+ * here": a reachability failure on a LIVE pane (scrolled back, a shell in the
+ * window) is fully told by the engine's own sentence, and the row's why-line
+ * for a live pane is about its state, not about reachability.
+ */
+function dmOffLine(name, body, current) {
+  const rowSaysWhy = current && current.running === false && current.because;
+  return name + ' cannot be handed a message: '
+    + pjSentence(rowSaysWhy ? current.because : (body.presenceBecause || 'we cannot reach its window'));
+}
+
+/**
  * Speak a NEW thread sentence once, without making the visible line live.
  * The visible #pj-thread-msg ages its verdict on every poll (round 30):
  * making IT the live region re-announced the unchanged verdict at every
@@ -24120,7 +24165,13 @@ async function frPaintYou() {
     // will not advance (SC 3.3.2); the fields carry aria-required too.
     '<p class="vh">The first two answers are needed before Continue.</p>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-name">What should your agents call you?</label>' +
-    '<input class="inp" type="text" id="fr-you-name" maxlength="80" placeholder="Josh" aria-required="true"></div>' +
+    /* #683: an example name, and NOT the author's. The pack's mock carried
+       "Josh" because Josh drew it about himself, and on anyone else's machine
+       a real first name in the box reads as a previous owner -- the
+       co-founder's install would literally show the name of the person who
+       sent them the app. The sibling placeholders are examples, so this stays
+       one; it just stops being a person connected to the product. */
+    '<input class="inp" type="text" id="fr-you-name" maxlength="80" placeholder="Alex" aria-required="true"></div>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-do">What do you do?</label>' +
     '<input class="inp" type="text" id="fr-you-do" maxlength="200" placeholder="I run a company that builds AI tools" aria-required="true"></div>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-know">Anything they should always know?</label>' +

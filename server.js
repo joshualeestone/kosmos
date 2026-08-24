@@ -28,6 +28,10 @@ const {
   snapshot, paneRoster, countAgents, STATE, modelDisplayName,
   /* What tmux said the last time a look failed, for the 500 below to carry. */
   lastLookProblem,
+  /* #684: the ONE derivation of "did anyone actually name this agent", for
+     the offline rows below. `register.survey`'s shownAs cannot answer it --
+     shownName falls back to the machine name, so it is never empty. */
+  readIdentity,
 } = require('./engine/status');
 const removal = require('./engine/remove');
 const leftover = require('./engine/delete-leftover');
@@ -1039,7 +1043,16 @@ const server = http.createServer((req, res) => {
                 name: k.shownAs || k.name,
                 sessionName: k.name,
                 session: null,
-                nameDerived: false,
+                /* #684: TRUE WHEN A RECORD SUPPLIED THE NAME -- readIdentity's
+                   own `derived`, not a re-derivation (shownAs cannot answer
+                   this: it falls back to the machine name, so it is never
+                   empty). This was hardcoded false, so every offline agent
+                   WITH a chosen name wore the panel's no-name disclosure
+                   about a name somebody chose (witnessed on the first-run
+                   journey walk: a just-created agent's panel said it was
+                   shown by its machine name). Fail toward false: an identity
+                   we could not read keeps the honest disclosure. */
+                nameDerived: (() => { try { return readIdentity(k.name).derived === true; } catch { return false; } })(),
                 role: profile.role || null,
                 /* Nothing to act ON: there is no pane to type into, no session
                    to capture, and every gate downstream reads these. */
@@ -1109,6 +1122,18 @@ const server = http.createServer((req, res) => {
                   ? 'something is off about this agent: this computer says its background job is running, but no session for it is visible from here, so Kosmos cannot show or reach whatever that job started'
                   : (!create.jobMissing(k.name) && switchedOff.has(k.name))
                     ? 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again'
+                    : !create.jobMissing(k.name)
+                    /* #671: the one offline cause whose sentence ended at the
+                       diagnosis. The agent has a job, is not removed (filtered
+                       above) and is not switched off (the branch above), so
+                       the launch model is the true next move: nothing to
+                       press, it comes back on its own -- and when it does
+                       not, this computer holds no reason, and saying THAT is
+                       still more than a full stop. Sentence shared with
+                       remove.js's restart refusal via create.SELF_STARTS. */
+                    ? 'this agent is not running: nothing on this computer has a session for it. '
+                      + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1)
+                      + '; if it stays off, this computer is not saying why'
                     : 'this agent is not running: nothing on this computer has a session for it',
                 hasAvatar: Boolean(safeAvatarFor(k.name)),
                 profile,
