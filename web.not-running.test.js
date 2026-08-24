@@ -92,6 +92,7 @@ function board({ mangle = false } = {}) {
       AGENT_WORKFORCE_DATA: nodePath.join(sb, 'data'),
       AGENT_WORKFORCE_WORKERS: nodePath.join(sb, 'workers'),
       AGENT_WORKFORCE_LAUNCH: nodePath.join(sb, 'launch'),
+      AGENT_WORKFORCE_PROJECTS: nodePath.join(sb, 'projects'), // sandboxed whole (#634)
     },
   });
   fs.rmSync(sb, { recursive: true, force: true });

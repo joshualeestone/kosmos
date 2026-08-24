@@ -27,6 +27,7 @@ process.env.HOME = HOME;
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects'); // sandboxed whole (#634)
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 /* Both sandbox knobs travel together (#527): the scoped check resolves
    the DEFAULT account's record through accounts, whose HOME is its own
