@@ -9,6 +9,38 @@
 # Wire it once per clone (worktrees inherit it, and the path resolves inside
 # each worktree):   git config core.hooksPath .githooks
 set -eu
+
+# --- $? after a pipe is the LAST command's status (#632) ----------------------
+# `yarn test | tail -5; [ $? -eq 0 ]` reads tail's status, which is always 0,
+# so a failing suite reads as green. Five of us shipped or nearly shipped on
+# that in one day; every instance failed toward green, and a wrong green
+# ships. This refuses a staged shell file where a pipe into a filter is
+# followed within two lines by `$?`, and the `grep -c ... || echo 0` variant
+# (it prints "0\n0" when grep finds nothing, and breaks the arithmetic after
+# it). A file that has turned on `pipefail` above the line is not flagged:
+# under pipefail `$?` is the rightmost failing status, which is the point.
+# Want the left side's status without pipefail? Read `${PIPESTATUS[0]}` on
+# the very next line, or write to a file, check the status, then read it.
+shape_reds=0
+for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bash)$|^install/kosmos$|^\.githooks/' || true); do
+  [ -f "$f" ] || continue
+  hits="$(git show ":$f" | awk '
+    /^[^#]*set -o pipefail|^[^#]*set -[a-zA-Z]*o pipefail/ { pf = 1 }
+    /^[^#]*\| *(tail|head|grep|cut|sed|awk|wc|sort|tr|tee)([[:space:]]|$)/ { p = NR; line = $0 }
+    !pf && p && NR - p <= 2 && /\$\?/ && !/PIPESTATUS|pipestatus/ { printf "  line %d: $? after a pipe reads the filter'"'"'s status, not the command'"'"'s: %s\n", NR, line; p = 0 }
+    /^[^#]*grep -c[^|]*\|\| *echo 0/ { printf "  line %d: grep -c ... || echo 0 prints two lines when nothing matches: %s\n", NR, $0 }
+  ')"
+  if [ -n "$hits" ]; then
+    echo "pre-commit: $f reads the wrong exit status (#632):" >&2
+    echo "$hits" >&2
+    shape_reds=1
+  fi
+done
+if [ "$shape_reds" -ne 0 ]; then
+  echo "  turn on pipefail, read \${PIPESTATUS[0]} on the next line, or redirect to a file and test the command's own status." >&2
+  exit 1
+fi
+
 if git diff --cached --name-only --diff-filter=ACDMR | grep -q '^docs/browser-checks/'; then
   # The test reads the working tree, so check what is STAGED: stash nothing,
   # just refuse if an unstaged edit would mask the staged state.
