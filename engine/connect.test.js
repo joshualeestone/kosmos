@@ -312,6 +312,99 @@ test('cancel mid-download aborts the stream and leaves nothing behind', async (t
   assert.deepEqual(leftovers, [], `the cancelled download left: ${leftovers.join(', ')}`);
 });
 
+test('cancel while the part-file open is still queued leaves nothing behind (#458)', async (t) => {
+  /**
+   * ⚠️ THE FULL-SUITE-LOAD FLAKE, MADE DETERMINISTIC. Progress counts
+   * NETWORK bytes; the .part's open is an fs-thread-pool operation. Under
+   * load the open can still be queued when got > 0, and a cancel in that
+   * window swept an EMPTY directory -- after which the open landed and
+   * created the .part posthumously, with every cleanup already run. Here
+   * the pool is saturated before start(), so the open is pinned behind
+   * four busy threads and the race window is held open on purpose instead
+   * of hoped into existence. The fix under test: fetchFile rejects only
+   * after its stream has closed (when "did a file land" has an answer),
+   * and the rejection's sweep also runs when driver is null.
+   */
+  connect.resetForTests();
+  clearClaudeConfig();
+  subscription.resetCache();
+  const binary = crypto.randomBytes(400 * 1024);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  const paths = {
+    '/latest': () => Buffer.from('9.9.4'),
+    '/9.9.4/manifest.json': () => Buffer.from(JSON.stringify({ platforms: { [connect.platformKey()]: { checksum } } })),
+  };
+  const server = http.createServer((req, res) => {
+    if (paths[req.url]) {
+      const body = paths[req.url]();
+      res.writeHead(200, { 'content-length': body.length });
+      res.end(body);
+      return;
+    }
+    res.writeHead(200, { 'content-length': binary.length });
+    let sent = 0;
+    const drip = setInterval(() => {
+      if (sent >= binary.length) { clearInterval(drip); res.end(); return; }
+      res.write(binary.subarray(sent, sent + 16 * 1024));
+      sent += 16 * 1024;
+    }, 30);
+    res.on('close', () => clearInterval(drip));
+  });
+  await new Promise((r) => { server.listen(0, '127.0.0.1', r); });
+  t.after(() => server.close());
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = nodePath.join(SANDBOX, 'no-such-claude-3');
+  connect.setRunner(() => ({ ok: true, stdout: '' }));
+  connect.setDryRun(false);
+  t.after(async () => {
+    await connect.cancel().catch(() => {});
+    connect.resetForTests();
+    connect.setRunner(null);
+    delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+    delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  });
+
+  // Saturate the libuv pool (default four threads; crypto and fs share it)
+  // BEFORE the flow starts, so the .part open queues behind all of them.
+  // Held as promises: "every job finished" is the proof the queued open
+  // has landed, which is the only moment the final assertion is meaningful.
+  const saturation = Promise.all(Array.from({ length: 8 }, () =>
+    new Promise((r) => { crypto.pbkdf2('load', 'salt', 800_000, 64, 'sha512', r); })));
+
+  await connect.start();
+  await until(() => {
+    const st = connect.state();
+    return st.phase === connect.PHASE.DOWNLOADING && st.progress && st.progress.got > 0;
+  }, 10000);
+
+  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'downloads');
+  const listing = () => {
+    try { return fs.readdirSync(dir); } catch { return []; }
+  };
+  // The race precondition, asserted rather than assumed: bytes have
+  // arrived but the file does not exist yet, because its open is queued.
+  assert.deepEqual(listing(), [],
+    'the .part open was expected to still be queued behind the saturated pool');
+
+  const st = await connect.cancel();
+  assert.equal(st.phase, connect.PHASE.IDLE);
+  // ⚠️ THE DIRECTORY IS EMPTY RIGHT NOW AND THAT PROVES NOTHING: the open
+  // is still queued, and the whole bug is that the file appears AFTER every
+  // cleanup has run. An eventually-empty wait started here resolves on that
+  // vacuous emptiness instantly (this test's first version did exactly
+  // that, and passed against the unfixed engine in 96ms). Wait for the
+  // saturation jobs instead: the open was queued behind them, so all of
+  // them finishing means the open has landed and the file either exists
+  // (unfixed) or was created and swept (fixed).
+  await saturation;
+  await until(() => listing().length === 0 && connect.state().phase === connect.PHASE.IDLE, 5000)
+    .catch(() => {
+      assert.deepEqual(listing(), [], `the posthumously created file survived: ${listing().join(', ')}`);
+      assert.equal(connect.state().phase, connect.PHASE.IDLE, 'something overwrote the cancel after the fact');
+      throw new Error('the wait timed out with a clean dir and IDLE phase, which should be impossible');
+    });
+});
+
 test('a fresh download sweeps other versions\' leftovers', async (t) => {
   /**
    * ⚠️ A server death between a download's rename and its install strands a
