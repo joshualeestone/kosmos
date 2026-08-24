@@ -303,12 +303,6 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
     background: var(--attn-bg); color: var(--label);
     font: var(--text-callout) var(--font-ui);
   }
-  /* #541: news, not a problem: quiet card tones, never the warning tint. */
-  .newsbar { display: flex; align-items: baseline; gap: 10px; margin: 10px 24px 0;
-             padding: 9px 14px; border: 1px solid var(--k-rule); border-radius: 10px;
-             background: var(--k-surface); font-size: .875rem; color: var(--k-ink-2); }
-  .newsbar a { color: var(--k-ink); }
-  .newsbar .linkish { margin-left: auto; }
   /* #567: the Allow moment. A device asking sits where the news line sits,
      on every view, with the gold edge (attention) and never the warning
      tint: the common case is the person's own phone, in their hand. */
@@ -701,6 +695,9 @@ html { scroll-padding-top: 132px; }
 .utoast .udot { width: 8px; height: 8px; border-radius: 50%; background: var(--utone); flex: 0 0 8px; }
 .utoast .utxt b { display: block; font-size: .8125rem; line-height: 1.3; color: var(--utone); }
 .utoast .utxt small { font-size: .6875rem; color: var(--label-2); }
+/* #655: the news line's link and dismiss, in the toast's own ink and on one line. */
+.utoast .utxt small a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.utoast .uacts button { white-space: nowrap; }
 .utoast .uacts { display: flex; gap: 6px; margin-left: 4px; }
 .utoast .uacts button { font: inherit; font-size: .75rem; font-weight: 600; cursor: pointer;
   border-radius: 8px; padding: .4em .7em; border: 1px solid var(--separator); background: var(--bg-elevated); color: var(--label); }
@@ -839,7 +836,7 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 @media (max-width: 40rem) { .themepick { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#utoast-slot:empty, #unote-slot:empty, #uoffline-slot:empty { display: none; }
+#utoast-slot:empty, #unote-slot:empty, #unews-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* 🔑 8px BECAUSE THE ELEMENT ALREADY CHOSE 8px, not because somebody picked a
    number: `.klink:focus-visible` below sets that radius, and an outline follows
@@ -3805,7 +3802,19 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          reasoning, drawn 2e4e100). Renders only when a newer version is
          published; role=status per the pack. -->
     <div id="utoast-slot"></div>
+    <!-- #541, moved here for #655 (Josh, 2026-08-24 15:50): the "updated itself
+         while you were away" line lives in the same container as the
+         update-available notice and wears its shape, so it sits with the
+         header instead of pushing the board down. The slot's :empty rule
+         does not apply while this child exists, so the line hides itself. -->
     <div id="unote-slot"></div>
+    <div id="unews-slot">
+      <div class="utoast stale" id="newsbar" role="status" hidden>
+        <span class="udot" aria-hidden="true"></span>
+        <div class="utxt"><b id="newsbar-text"></b><small><a id="newsbar-link" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">What changed</a></small></div>
+        <div class="uacts"><button type="button" id="newsbar-ok" aria-label="Dismiss this update note">Got it</button></div>
+      </div>
+    </div>
     <!-- ⚠️ ITS OWN SLOT RATHER THAN SHARING `#unote-slot`, and the reason is a
          state that really happens: a person updates and then loses the server.
          Both notes are true at once and they belong in that order, because the
@@ -7037,11 +7046,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      under a running board; dismiss records the seen version server-side so
      it survives restarts and never returns for a seen version. First sight
      of a machine records silently: the line only ever describes a CHANGE. -->
-<div class="newsbar" id="newsbar" role="status" hidden>
-  <span id="newsbar-text"></span>
-  <a id="newsbar-link" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">What changed</a>
-  <button class="linkish" id="newsbar-ok" type="button" aria-label="Dismiss this update note">Got it</button>
-</div>
 <div class="conn" id="conn" role="status" aria-live="polite" hidden></div>
 <!-- The pack's stats row: the New agent action as a dashed tile locked
      left, the counts on the true centre, the view toggle pinned right.
@@ -7071,10 +7075,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          🔑 AND IT IS WHAT MAKES THE ROW ADD UP. Working plus Idle plus this is
          Agents; without it a person doing the arithmetic finds cards on screen
          that no tile counts. -->
-    <div class="stat" id="st-off-tile" hidden>
-      <span class="stop" aria-hidden="true"></span>
-      <b id="st-off" data-count="notrunning">0</b><span class="slab">Not running</span>
-    </div>
+    <!-- #653 (Josh, 2026-08-24 15:50): the fourth tile, "Not running", is gone.
+         Its unknown arm ("?") is what he saw; the fact it carried stays in
+         two places, the could-not-read sentence under this row and each
+         stopped agent's own card and list row. So Working plus Idle no
+         longer sums to Agents when something is stopped, on purpose. -->
     <div class="stat alert" id="st-attn-tile" hidden>
       <span class="haz" aria-hidden="true">!</span>
       <b id="st-attn" data-count="attn">0</b><span class="slab">Needs you</span>
@@ -9474,9 +9479,8 @@ async function tick() {
        the one poll where that is unknowable. It shows the same question mark a
        blind poll does, and the tile STAYS UP: hiding it is the same claim in
        another form. */
-    const off = c.notRunning;
-    document.getElementById('st-off').textContent = off === null || off === undefined ? '?' : String(off);
-    document.getElementById('st-off-tile').hidden = off === 0;
+    /* #653: no Not-running tile; `c.notRunning` is still served for the list
+       and the cards, which is where a stopped agent is read. */
     document.getElementById('st-attn').textContent = String(c.needsYou || 0);
     document.getElementById('st-attn-tile').hidden = !c.needsYou;
     const bits = [];
@@ -9646,7 +9650,6 @@ async function tick() {
     document.getElementById('st-agents').textContent = '?';
     document.getElementById('st-working').textContent = '?';
     document.getElementById('st-idle').textContent = '?';
-    document.getElementById('st-off').textContent = '?';
     /* ⚠️ SHOWN AS UNKNOWN RATHER THAN HIDDEN, unlike the alert tile beside it,
        and the two differ for a reason. Red hides at zero because a red zero
        teaches people to ignore red. This one hiding would say "none of them
@@ -9657,7 +9660,6 @@ async function tick() {
        branch runs because the roster threw before either was assembled.
        Rendering it would mean a board that partly succeeds, which is a bigger
        change than this one (Mona Lisa raised it; recorded, not half-built). */
-    document.getElementById('st-off-tile').hidden = false;
     document.getElementById('st-attn').textContent = '?';
     document.getElementById('st-attn-tile').hidden = true;
     /* The residual summary is a claim from the last successful tick (or the
