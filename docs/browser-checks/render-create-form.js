@@ -161,6 +161,18 @@ function check(name, pass, detail) {
            connector is for. Reported rather than asserted to a pixel: the number
            is half a control's height and would move with the control. */
         armOffCentre: (() => {
+          /**
+           * 🛑 RENDERED MSTEPS ONLY (#531). This measured every .mstep on
+           * the PAGE, and #390 gave the (hidden) detail panel the same
+           * three-dropdown shape as this form -- from that commit, the two
+           * hidden msteps measured as CSS constants over zero-height rects
+           * (::before top+height = 17 against a centre of 0) and the check
+           * went permanently red while the VISIBLE arms sat at a perfect
+           * 0. Bisected: green at 0cfd745^, red at 0cfd745, layout correct
+           * throughout; the assertion is re-expressed, not loosened -- a
+           * hidden element's rectangle is a non-measurement, and skipping
+           * it is what lets the ±2 bound keep meaning something.
+           */
           const steps = [...document.querySelectorAll('.msteps .mstep')];
           return steps.map((st) => {
             const r = st.getBoundingClientRect();
@@ -169,6 +181,7 @@ function check(name, pass, detail) {
             const c = st.querySelector('select');
             if (!c) return null;
             const cr = c.getBoundingClientRect();
+            if (cr.height === 0 || r.height === 0) return null;
             return Math.round(bottom - (cr.top + cr.height / 2));
           }).filter((n) => n !== null);
         })(),
@@ -233,8 +246,11 @@ function check(name, pass, detail) {
     check(`[${engine}] no elbow is drawn through a menu (#322)`,
       Array.isArray(seen.clashes) && seen.clashes.length === 0,
       JSON.stringify(seen.clashes));
+    /* Two RENDERED arms exactly, or the guard against hidden pollution has
+       itself gone vacuous: this form draws two msteps, and a count of zero
+       would mean the visible-only filter silently ate everything. */
     check(`[${engine}] each elbow's arm lands on the middle of its menu`,
-      Array.isArray(seen.armOffCentre) && seen.armOffCentre.length > 0
+      Array.isArray(seen.armOffCentre) && seen.armOffCentre.length === 2
         && seen.armOffCentre.every((n) => Math.abs(n) <= 2),
       JSON.stringify(seen.armOffCentre));
     check(`[${engine}] and an elbow is drawn into the gutter`,
