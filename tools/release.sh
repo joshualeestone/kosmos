@@ -100,13 +100,18 @@ fi
   echo "the tree is dirty after the bump; the bundle would ship as -DIRTY"; exit 1; }
 
 echo "== 3. the whole suite, on the tree that ships =="
-# ⚠️ NO PIPE ON A VERDICT. `yarn test | grep` reports grep's exit, so a
-# red suite released; the code is read from the file and the summary
-# printed after.
+# ⚠️ CORRECTED CLAIM: the old `yarn test | grep` gate DID refuse a red
+# suite (pipefail makes the pipeline's status yarn's, and errexit
+# stops the script), measured by the PM against my first reading of it,
+# which said otherwise from the shape alone. What the old gate did
+# wrong was refuse SILENTLY, with the reason invisible. This form
+# captures the exit before errexit can eat it, prints the suite's own
+# summary lines, and names the log a red run's detail lives in.
 _suite_log="$(mktemp)"
-( cd "$REPO" && yarn test >"$_suite_log" 2>&1 ); _suite_exit=$?
+_suite_exit=0
+( cd "$REPO" && yarn test >"$_suite_log" 2>&1 ) || _suite_exit=$?
 grep -E '^ℹ (tests|pass|fail)' "$_suite_log" || true
-[ "$_suite_exit" -eq 0 ] || { echo "the suite is red (exit $_suite_exit); see $_suite_log"; exit 1; }
+[ "$_suite_exit" -eq 0 ] || { echo "the suite is red (exit $_suite_exit); full output: $_suite_log"; exit 1; }
 rm -f "$_suite_log"
 
 echo "== 4. build =="
@@ -117,6 +122,13 @@ cp "$REPO/dist/kosmos-arm64.tar.gz" "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SI
 # update from it with the PRIOR release's bytes and matching checksum
 # (Josh's machine, 2026-08-24). The installer prefers this name; the
 # plain pair stays for installers older than this change.
+# 🛑 A VERSIONED NAME IS A PROMISE OF IMMUTABILITY. Republishing the
+# same version with different bytes recreates the incident one level
+# up: an edge cache holding the first attempt serves an internally
+# consistent old pair that passes every new guard. Bump instead.
+if [ -f "$SITE/dist/kosmos-$V-arm64.tar.gz" ] && ! cmp -s "$REPO/dist/kosmos-arm64.tar.gz" "$SITE/dist/kosmos-$V-arm64.tar.gz"; then
+  echo "refusing to republish $V with different bytes (the versioned name is cache-immutable); bump the version"; exit 1
+fi
 cp "$REPO/dist/kosmos-arm64.tar.gz" "$SITE/dist/kosmos-$V-arm64.tar.gz"
 cp "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256"
 node -e "require('node:fs').writeFileSync('$SITE/dist/latest.json', JSON.stringify({version:'$V'})+'\n')"

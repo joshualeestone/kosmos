@@ -1210,7 +1210,12 @@ if [ -n "$BUST" ]; then
 else
   _ptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/latest.json" 2>/dev/null)" || _ptr=""
 fi
-TARGET_VERSION="$(printf '%s' "$_ptr" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+# ⚠️ The || guard is load-bearing under set -euo pipefail: a giant 200
+# page full of version keys makes head close the pipe early, sed takes
+# SIGPIPE, and the bare assignment would kill the run with no sentence
+# (exit 141, measured). Every pointer shape must degrade to the
+# versionless run, never to silence.
+TARGET_VERSION="$(printf '%s' "$_ptr" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)" || TARGET_VERSION=""
 if [ -n "$TARGET_VERSION" ]; then
   printf '  This run installs Kosmos %s.\n' "$TARGET_VERSION"
 else
@@ -1399,9 +1404,8 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
   # HTTP) still holds the port, and the final start would then find a
   # healthy-looking board and quietly leave the OLD process serving
   # (the exact after-state found on Josh's machine, 2026-08-24: a board
-  # outside launchd's supervision on the prior version). Three short
-  # tries cover an honest shutdown still letting go; a survivor is named
-  # by pid. No lsof on this Mac degrades to the probe above.
+  # outside launchd's supervision on the prior version). A survivor is
+  # named by pid. No lsof on this Mac degrades to the probe above.
   if command -v lsof >/dev/null 2>&1; then
     # Ten seconds of grace: a node board draining on a busy Mac can hold
     # the listener a few seconds past the stop, and a die here on an
@@ -1418,7 +1422,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
       _tries=$((_tries + 1)); sleep 1
     done
     if [ -n "$_pids" ]; then
-      _pids="$(printf '%s' "$_pids" | tr '\n' ' ')"
+      _pids="$(printf '%s' "$_pids" | tr '\n' ' ' | sed 's/ *$//')"
       die "A process is still holding port $PORT after the pause (pid $_pids). Quit it (or run 'kill $_pids'), then paste the install line again."
     fi
   fi
