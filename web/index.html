@@ -15203,14 +15203,22 @@ async function paintAccountPicker(a) {
   const msg = document.getElementById('d-account-msg');
   if (!sel || !go) return;
   if (!ACCOUNTS.length) {
+    /* The same capture-and-recheck as moveAccountNow: an agent switch
+       while this fetch is in flight must not let the OLD agent's
+       continuation paint its sentence onto the NEW agent's panel,
+       which the switch-time clear had just emptied for it. */
+    const forAgent = a && a.sessionName;
     try {
       const res = await fetch('/api/accounts', { cache: 'no-store' });
       if (res.ok) ACCOUNTS = ((await res.json()) || {}).accounts || [];
     } catch { /* the control stays empty and disabled, which is honest */ }
+    if (CURRENT && CURRENT.sessionName !== forAgent) return;
   }
   const acct = a && a.account;
-  /* The comments below predate the Signed-in-as line's removal; they
-     now govern the msg wording and the picker's refusal to guess. */
+  /* The comments below predate the Signed-in-as line's removal. What
+     survives them is the refusal to guess: acct null means we could
+     not read the launch file, and nothing here may answer for it. The
+     msg sentence below says the not-ours case in its own words. */
   /* ⚠️ "We cannot tell" is a THIRD state and gets its own sentence. An agent
      Kosmos did not start has no startup file of ours to read, and saying "the
      default account" about it would be answering for a stranger's session. */

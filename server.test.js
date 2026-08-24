@@ -3057,7 +3057,9 @@ test('the runs-on box says model and account in one line, and the Signed-in-as s
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   assert.ok(!raw.includes('d-account-now'), 'the removed element is back');
   assert.ok(!raw.includes('Signed in as'), 'the removed sentence is back');
-  const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const scriptMatch = raw.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(scriptMatch, 'the page lost its script block');
+  const script = scriptMatch[1];
   const esc = pageFunction('esc');
   const from = script.indexOf('const acctEmail =');
   const mid = script.indexOf("drun.innerHTML", from);
