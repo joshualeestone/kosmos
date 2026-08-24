@@ -2526,6 +2526,45 @@ const cfgOf = (text) => {
   return m ? m[1] : null;
 };
 
+test('a job made by a server on another port carries KOSMOS_PORT, so the agent answers the board that made it (#577)', () => {
+  recorder();
+  create.setDryRun(false);
+  const before = process.env.PORT;
+  process.env.PORT = '16245';
+  try {
+    const made = create.createAgent({ ...BINS, name: 'sandboxed', role: 'pm' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  } finally {
+    if (before === undefined) delete process.env.PORT; else process.env.PORT = before;
+  }
+  const plist = fs.readFileSync(create.plistPath('sandboxed'), 'utf8');
+  assert.match(plist, /<key>KOSMOS_PORT<\/key><string>16245<\/string>/,
+    'the job does not tell the agent which board made it, so its replies go to :16180');
+  // And the supervisor hands it INTO the pane: tmux gives a session made on
+  // a running server the server\'s environment, not the client\'s, so the
+  // launchd environment alone never reaches the agent.
+  const script = supervisorText();
+  const launches = script.split('\n').filter((l) => /new-session -d -s "\$SESSION"/.test(l));
+  assert.equal(launches.length, 4, 'the supervisor launch lines moved; update this test with them');
+  for (const l of launches) assert.match(l, /PORT_ENV/, 'a launch line does not pass KOSMOS_PORT into the pane: ' + l);
+  assert.match(script, /PORT_ENV=\(-e "KOSMOS_PORT=\$KOSMOS_PORT"\)/);
+});
+
+test('a job made by the default board carries no KOSMOS_PORT: absent means the default, so old plists do not change (#577)', () => {
+  recorder();
+  create.setDryRun(false);
+  const before = process.env.PORT;
+  delete process.env.PORT;
+  try {
+    const made = create.createAgent({ ...BINS, name: 'ordinary', role: 'pm' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  } finally {
+    if (before !== undefined) process.env.PORT = before;
+  }
+  const plist = fs.readFileSync(create.plistPath('ordinary'), 'utf8');
+  assert.doesNotMatch(plist, /KOSMOS_PORT/);
+});
+
 test('an agent can be moved to another account, and the model comes with it', () => {
   const { home } = seedAccounts();
   const name = 'mover';
