@@ -10877,3 +10877,52 @@ test('#734: the status route carries the lines it could not read, beside the cou
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'server.js'), 'utf8');
   assert.match(src, /countAgents\(agents, snap\.counts && snap\.counts\.unreadableLines, snap\.counts && snap\.counts\.unreadableSamples\)/);
 });
+
+/* #761: an assignee is TOLD (its instructions, for its next start) and HEARD
+   (a line typed into its pane now), and the answer says which. */
+test('#761: giving a task to an agent types the assignment into its pane, and the answer says it was placed', async () => {
+  const chatEngine = require('./engine/chat');
+  const projectsEngine761 = require('./engine/projects');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  const sends = [];
+  try {
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    const pdir = nodePath.join(SANDBOX, 'p761-tell'); fs.mkdirSync(pdir, { recursive: true });
+    const p = projectsEngine761.create({ name: 'Christmas plan', folder: pdir, agents: ['mara'], roster: board.agents });
+
+    const r = await req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ sentence: 'Book the venue', who: 'mara' }),
+    });
+    assert.equal(r.status, 200, r.body);
+    const out = JSON.parse(r.body);
+    assert.equal(out.heard && out.heard.who, 'mara');
+    assert.equal(out.heard.state, 'placed', 'the assignment was not typed: ' + ((out.heard && out.heard.because) || r.body));
+    const typed = sends.map((a) => a.join(' ')).join('\n');
+    assert.match(typed, /you were given task 1 in "Christmas plan": Book the venue/, 'the line names the task, the project and the sentence');
+    assert.match(typed, /include "task 1" in what you report/, 'and teaches the spelling the join depends on');
+    assert.match(typed, new RegExp('kosmos post ' + p.id), 'and names the room');
+    assert.ok(out.told, 'told (the instructions) is still answered beside heard');
+
+    /* CONTROL: no assignee, nothing typed; closing, nothing typed. */
+    const before = sends.length;
+    const r2 = await req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ sentence: 'Order the cake' }),
+    });
+    assert.equal(r2.status, 200, r2.body);
+    assert.equal(JSON.parse(r2.body).heard, undefined, 'a task with no assignee has nobody to tell');
+    const r3 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/close', { method: 'POST' });
+    assert.equal(r3.status, 200, r3.body);
+    assert.equal(JSON.parse(r3.body).heard, undefined, 'closing types nothing');
+    assert.equal(sends.length, before, 'CONTROL: no line was typed for the unassigned task or the close');
+  } finally {
+    chatEngine.setRunner(null);
+    board.restore();
+  }
+});

@@ -1147,6 +1147,12 @@ function listFiles(folder, limit) {
     files.push({ name: ent.name, size: st.size, modified: st.mtime.toISOString() });
   }
   files.sort((a, b) => (a.modified < b.modified ? 1 : a.modified > b.modified ? -1 : 0));
+  /* #761: a stamp that changes whenever the list would, so a page can ask every
+     few seconds and repaint only on change (Josh had to hard-refresh to see a
+     file arrive). Names, sizes and times of every file, not only the capped
+     page, hashed: a file added past the cap still moves the total. */
+  const stamp = require('node:crypto').createHash('sha1')
+    .update(files.map((f) => f.name + '\0' + f.size + '\0' + f.modified).join('\n')).digest('hex').slice(0, 16);
   /* ⚠️ `names` IS EVERY FILE, not the capped view, and it is here rather than
      behind a second route because the two answers must come from ONE read of
      the folder. A message body's path citations are matched against this list,
@@ -1155,7 +1161,7 @@ function listFiles(folder, limit) {
      decided by sort order. It carries no sizes or times: the matcher needs
      identity, and shipping more than that would invite a second, divergent
      documents list built off the wrong field. */
-  return { ok: true, total: files.length, files: files.slice(0, cap), names: files.map((f) => f.name) };
+  return { ok: true, total: files.length, files: files.slice(0, cap), names: files.map((f) => f.name), stamp };
 }
 
 /**

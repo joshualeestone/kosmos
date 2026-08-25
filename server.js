@@ -5116,7 +5116,7 @@ const server = http.createServer((req, res) => {
             try { told = projects.syncAgent(made.who, roster); }
             catch (err2) { told = { state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
           }
-          sendJson(res, 200, { task: made, told });
+          sendJson(res, 200, { task: made, told, heard: heardBy(id, made, made.who) });
         } catch (err) {
           // Three answers for three facts, same split as the member route:
           // our unreadable store (500), a project that is not there (404),
@@ -5141,6 +5141,26 @@ const server = http.createServer((req, res) => {
    * ⚠️ Non-gating in every case: failing to update an agent's instructions must
    * not fail the edit that already landed.
    */
+  /* #761 (Josh, 2026-08-24 21:56: "I created three new tasks and assigned them
+     but I don't know that the agent was notified"): being written into an
+     agent's instructions (`told`, above) reaches it at its NEXT start; a running
+     agent hears nothing. So an assignment is also typed into the assignee's
+     pane, one line, the way the room's nudge is, and the answer says whether it
+     was placed. Only on assignment (create with a who, a part given a who):
+     closing or reopening a task types nothing. */
+  function heardBy(projectId, t, who) {
+    const name = typeof who === 'string' && who.trim() ? who.trim() : null;
+    if (!name || !t || typeof t.number !== 'number') return undefined;
+    let title = projectId;
+    try { const rec = projects.readAll().find((x) => x && x.id === projectId); if (rec && rec.name) title = rec.name; } catch { /* the id will do */ }
+    const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
+      + String(t.sentence || '').replace(/[\r\n]/g, ' ') + '. When you take it up, include "task ' + t.number
+      + '" in what you report; the room is: kosmos post ' + projectId + ']';
+    let sent;
+    try { sent = chat.deliver(name, line, safeRoster()); }
+    catch (err2) { sent = { state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
+    return { who: name, state: sent.state, because: sent.because || null };
+  }
   const tellEveryoneOn = (t) => {
     const named = tasks.whoOf(t);
     if (!named.length) return undefined;
@@ -5192,7 +5212,7 @@ const server = http.createServer((req, res) => {
       try {
         const out = tasks.addPart(id, partMake[2], { sentence: body && body.sentence, who: body && body.who });
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
-        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task) });
+        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task), heard: heardBy(id, out.task, body && body.who) });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
@@ -5215,7 +5235,7 @@ const server = http.createServer((req, res) => {
           ? tasks.assignPart(id, partAct[2], partAct[3], body && body.who)
           : tasks.setPartClosed(id, partAct[2], partAct[3], verb === 'close' ? new Date().toISOString() : null);
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
-        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task) });
+        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task), heard: verb === 'who' ? heardBy(id, out.task, body && body.who) : undefined });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
