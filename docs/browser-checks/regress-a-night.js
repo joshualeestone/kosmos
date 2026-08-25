@@ -263,7 +263,7 @@ function seed() {
         tellDisabled: tell.disabled, tellChecked: tell.checked,
         note: shown(sel('create-tell-note')) };
     });
-    chk(/You can change this later/.test(create.hint || ''), theme + ': the model hint is there');
+    chk(/Model \(you can change this later\)/.test(create.hint || ''), theme + ': the model hint is there', create.hint);
     chk(create.provider !== null && create.account && create.models >= 2,
       theme + ': provider, account and model menus, with models to pick from', JSON.stringify(create));
     /* The setting is on by default on a fresh board, so the box is usable and
