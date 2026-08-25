@@ -36,11 +36,17 @@ test('the picked list shows only the agents put on the project, with a way off e
   // Minimal card shapes for a painter, built the way web.url-state does (the fixture-discipline rule is about hand-built cards standing in for the fleet; these stand in for nothing but two fields).
   const LAST = ['anna', 'ava', 'june'].map((k) => Object.fromEntries([['sessionName', k], ['name', k[0].toUpperCase() + k.slice(1)]]));
   const esc = (s) => String(s); const roleLine = (a) => (a.sessionName === 'ava' ? 'Process Designer' : '');
+  // #859: addAgentsHtml now draws each row's face, the same way every other
+  // member surface does (pjMember, the card, ...) -- stand-ins here for the
+  // same reason esc/roleLine are stand-ins above, nothing but a return shape.
+  const discTint = () => '#000'; const discInk = () => '#fff'; const initials = (n) => String(n).slice(0, 1);
   // eslint-disable-next-line no-new-func
-  const html = new Function('LAST', 'PJ_ADD_AGENTS', 'esc', 'roleLine', 'ROLE_TITLES', lift('addAgentsHtml') + '\nreturn addAgentsHtml();');
-  assert.match(html(LAST, [], esc, roleLine, {}), /No agents on it yet\./);
-  const two = html(LAST, ['ava', 'anna'], esc, roleLine, {});
+  const html = new Function('LAST', 'PJ_ADD_AGENTS', 'esc', 'roleLine', 'ROLE_TITLES', 'discTint', 'discInk', 'initials',
+    lift('addAgentsHtml') + '\nreturn addAgentsHtml();');
+  assert.match(html(LAST, [], esc, roleLine, {}, discTint, discInk, initials), /No agents on it yet\./);
+  const two = html(LAST, ['ava', 'anna'], esc, roleLine, {}, discTint, discInk, initials);
   assert.equal((two.match(/class="pj-picked"/g) || []).length, 2);
+  assert.equal((two.match(/class="lav pj-face"/g) || []).length, 2, 'each picked row draws its face');
   assert.doesNotMatch(two, /June/, 'an agent not picked is listed');
   assert.match(two, /data-unpick="ava" aria-label="Take Ava off this project"/);
   assert.ok(two.indexOf('Ava') < two.indexOf('Anna'), 'the list is in the order they were added');
