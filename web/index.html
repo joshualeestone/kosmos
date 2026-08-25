@@ -2738,7 +2738,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   gap: var(--space-2) 10px; /* the pack's column gap; 10 is not a scale step (#179) */
   width: 100%; text-align: left; font: inherit; color: var(--label); cursor: pointer;
   background: var(--bg-elevated); border: 1px solid var(--separator);
-  border-radius: var(--radius-control); padding: 11px 14px;
+  /* #737: "much fatter, like twice as fat, so they feel bigger and more
+     clickable" (Josh, 2026-08-24 21:12). 11px 14px measured 38px tall; this
+     lands near 76. A check mark when chosen, not a radio dot: the radio is
+     kept for the keyboard and the screen reader and drawn as nothing. */
+  border-radius: var(--radius-control); padding: 24px 18px; position: relative;
 }
 .pick2:hover { border-color: var(--border-strong); }
 /* 🔑 THE RING IS DRAWN AROUND THE LABEL, FROM THE INPUT'S OWN FOCUS. The
@@ -2753,16 +2757,17 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pick2:has(input:checked) { border-color: var(--label); box-shadow: inset 0 0 0 1px var(--label); }
 /* The radio itself, in the column the checkmark glyph used to occupy. */
 .pick2 > input[type="radio"] {
-  margin: 0; width: 15px; height: 15px; accent-color: var(--label);
-  justify-self: center; align-self: center; cursor: pointer;
+  position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none;
 }
+.pickmark { color: transparent; font-weight: 700; font-size: 1.0625rem; line-height: 1; align-self: center; }
+.pick2:has(input:checked) .pickmark { color: var(--label); }
 /* ⚠️ NO nowrap AND min-width: 0 ON THE FLEX COLUMN -- the reflow rules.
    The first cut copied the pack's `white-space: nowrap` name column, and at
    375px the description rendered OUTSIDE the row border one word per line
    while 320px scrolled the whole document sideways (SC 1.4.10, measured
    scrollWidth-clientWidth in review). A grid column whose floor is its own
    min-content cannot shrink; these two lines are what let it. */
-.p2n { font: 600 var(--text-body) var(--font-ui); }
+.p2n { font: 600 1rem var(--font-ui); }
 .p2d { font: var(--text-callout) var(--font-ui); color: var(--label-2); min-width: 0; }
 /* Below the width where name + description share a line honestly, the
    description drops under the name (same grid, second row). */
@@ -5180,6 +5185,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 
   <div id="cstep-role">
     <h2>What should this agent do?</h2>
+    <!-- #737: the pack's line under the heading (Josh, 2026-08-24 21:12,
+         "match up the design to the pack design"). -->
+    <p class="dhint" style="margin:-6px 0 14px;">You can change any of this later.</p>
 
     <!-- ⚠️ THREE CHOICES IN THE PACK, TWO SHIPPED HERE. The pack's rule
          (2026-08-15): a radio for the recommended role and a radio that
@@ -5227,7 +5235,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <legend class="vh">What this agent is for</legend>
       <label class="pick2" hidden id="pick-pm">
         <input type="radio" name="rmode" value="pm">
+        <span class="pickmark" aria-hidden="true">&#10003;</span>
         <span class="p2n" id="pick-pm-name"></span>
+        <!-- #737 (Josh, 2026-08-24 21:12): the short description, with
+             Recommended AFTER it (updateRecPill). Taken off this row at his
+             own ask on 2026-08-22 ("less is more"); tonight, looking at the
+             pack beside the app, he asked for it back. The later ruling wins. -->
+        <span class="p2d" id="pick-pm-desc"></span>
       </label>
       <!-- ⚠️ SECOND, AND THE MENU IS THE NEXT ELEMENT. Josh, 2026-08-22, asked
            for exactly this reading order: the recommended role, then "pick
@@ -5237,6 +5251,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            is the trade the native grouping above removes. -->
       <label class="pick2" hidden id="pick-list">
         <input type="radio" name="rmode" value="list">
+        <span class="pickmark" aria-hidden="true">&#10003;</span>
         <span class="p2n">Pick another role</span>
         <span class="p2d" id="pick-list-desc"></span>
       </label>
@@ -5273,6 +5288,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            so their order carries no ranking to read into. -->
       <label class="pick2 own" hidden id="pick-own">
         <input type="radio" name="rmode" value="own">
+        <span class="pickmark" aria-hidden="true">&#10003;</span>
         <span class="p2n">Describe it yourself</span>
         <span class="p2d">Write the job in your own words</span>
         <span class="p2full">We will start you off with an example you can change, rather than an empty page.</span>
@@ -18130,6 +18146,7 @@ async function loadRoles() {
 function buildPicker() {
   const pm = roleByKey('pm') || ROLES[0];
   document.getElementById('pick-pm-name').textContent = pm.label;
+  document.getElementById('pick-pm-desc').textContent = pm.blurb || '';
   /* 🛑 NO DESCRIPTION AT ALL ON THIS SCREEN NOW. It carried the blurb, and
      before that the blurb plus the caution. Josh, 2026-08-22: "People know
      what a project manager is. I just don't want to put it in there right now
@@ -18173,7 +18190,10 @@ function buildPicker() {
  * empty, and this re-runs on every panel open and every status tick.
  */
 function updateRecPill() {
-  const name = document.getElementById('pick-pm-name');
+  /* #737: the pill sits AFTER the short description, in the description
+     span, the way the pack draws it ("Somehow Recommended took over. I want
+     it after the short text"). */
+  const name = document.getElementById('pick-pm-desc');
   if (!name || !ROLES || !ROLES.length) return;
   /* 🛑 UNCONDITIONAL NOW, AND THAT OVERRIDES A RECORDED PACK RULE. It read
      "shown only when the board has been seen and seen empty", on the pack's
