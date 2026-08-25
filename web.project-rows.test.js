@@ -57,3 +57,24 @@ test('the list row truncates a long title or description instead of wrapping it,
   assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \.pjfaces \{[^}]*min-width: 0; overflow: hidden; \}/,
     'the agents column has no shrink/clip guard -- a grid item’s default min-width:auto is exactly what let it bleed into the status pill');
 });
+
+// #861 (Josh, 2026-08-25 10:37): "these need to be more like the agents
+// grid... Title centered, status underneath, the same kind of status
+// bubble... the icons of the agents... underneath that, the number of
+// agents." Description deliberately absent -- not in Josh's four-item
+// list, and no equivalent on .acard either.
+test('the grid tile stacks and centers title, then a status bubble, then the agent icons with the count beneath, and drops the description', () => {
+  assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pjcard-h \{ display: contents; \}/,
+    'the grid tile no longer dissolves pjcard-h, so title and status cannot be ordered independently');
+  assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pjname \{ order: 1; justify-content: center; \}/);
+  assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pjpill \{ order: 2;[^}]*border-radius: 100px;/,
+    'the status pill lost its bubble shape (border-radius: 100px)');
+  assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pc-t \{ display: none; \}/,
+    'the grid tile is showing the description again; #861 asked for this stack, not this field');
+  assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pjfaces \{ order: 3; flex-direction: column;/,
+    'the agent icons and their count are not stacked (icon row, then caption)');
+  // The grid tile's own description rule (the pack's wrap-not-truncate
+  // behaviour, and its pinned fixture) is untouched by hiding it here.
+  assert.match(PAGE, /^\.pc-t \{ display: block;[^}]*overflow-wrap: anywhere; \}/m,
+    'the base .pc-t rule (used by the list view and the detail page) was disturbed');
+});
