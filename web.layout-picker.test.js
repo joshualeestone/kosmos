@@ -3,9 +3,12 @@
  * #520: the consolidated view is one option in Settings > Styles, tabs by
  * default. What this pins: the picker's two tiles with tabs checked in the
  * markup; the page writes data-layout only from what the engine answered
- * (never from a click alone); the mode exists only at 1280px and up; and the
+ * (never from a click alone); the mode exists at 960px and up, with both
+ * rails auto-folding below 1280px rather than the view dropping straight
+ * to tabs (2026-08-25, Josh: "thats perfect, lets try that"); and the
  * consolidated CSS never removes the board's grid or list from the page, it
- * re-lays them.
+ * re-lays them. The fold-first behavior itself is pinned in
+ * web.consolidated-breakpoint.test.js.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -21,7 +24,7 @@ test('the picker sits at the top of Styles with two tiles, tabs checked in the m
   assert.match(sec, /id="layout-field"/, 'the picker is not in Styles, above the theme');
   assert.match(sec, /role="radio" aria-checked="true" data-layout-pick="tabs"/);
   assert.match(sec, /role="radio" aria-checked="false" data-layout-pick="consolidated"/);
-  assert.match(sec, /Needs a window at least 1280 pixels wide; narrower than that, the tabs come back\./);
+  assert.match(sec, /Needs a window at least 960 pixels wide; the side columns fold to icons as it narrows, and narrower than 960, the tabs come back\./);
   assert.equal((PAGE.match(/data-layout-pick="/g) || []).length, 2);
 });
 
@@ -37,11 +40,13 @@ test('the root attribute is written from the engine\'s answer, and a click only 
 });
 
 test('the mode is gated on width and on the two tabs it merges; Settings stays a whole page', () => {
-  assert.match(SCRIPT, /window\.innerWidth >= 1280/);
+  assert.match(SCRIPT, /const CONSOLIDATED_MIN_WIDTH = 960;/, 'the floor moved or lost its name');
+  assert.match(SCRIPT, /const CONSOLIDATED_FOLD_WIDTH = 1280;/, 'the auto-fold width moved or lost its name');
+  assert.match(SCRIPT, /window\.innerWidth >= CONSOLIDATED_MIN_WIDTH/);
   const st = SCRIPT.slice(SCRIPT.indexOf('function showTab('), SCRIPT.indexOf('function showTab(') + 4000);
   assert.match(st, /const cons = layoutConsolidated\(\) && \(tab === 'agents' \|\| tab === 'projects'\)/);
   assert.match(st, /document\.body\.classList\.toggle\('consolidated', cons\)/);
-  assert.match(PAGE, /@media \(min-width: 1280px\) \{\s*html\[data-layout="consolidated"\] body\.consolidated \{ display: grid/);
+  assert.match(PAGE, /@media \(min-width: 960px\) \{\s*html\[data-layout="consolidated"\] body\.consolidated \{ display: grid/);
 });
 
 test('the consolidated CSS re-lays the board list and the projects panel; it hides nothing a person needs', () => {
@@ -49,7 +54,7 @@ test('the consolidated CSS re-lays the board list and the projects panel; it hid
   assert.ok(css.length > 200, 'the CSS block moved; re-anchor');
   /* The whole media block, to its closing brace, so an added rule can never
      push the ones asserted on out of the window. */
-  const start = PAGE.indexOf('@media (min-width: 1280px) {\n  html[data-layout="consolidated"]');
+  const start = PAGE.indexOf('@media (min-width: 960px) {\n  html[data-layout="consolidated"]');
   const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
   assert.match(block, /> #alist \{ grid-column: 1/);
   assert.match(block, /> #panel-projects \{ grid-column: 2/);
@@ -100,7 +105,7 @@ test('piece four: the row draws its ring only with a known memory and its warnin
 });
 
 test('piece five: the header folds to its notice slots, the K mark is the header\'s own image at the rail top, and the rails go flat', () => {
-  const start = PAGE.indexOf('@media (min-width: 1280px) {\n  html[data-layout="consolidated"]');
+  const start = PAGE.indexOf('@media (min-width: 960px) {\n  html[data-layout="consolidated"]');
   const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
   assert.match(block, /> \.apphead \.klink, [^{]*> \.apphead h1,\n[^{]*> \.apphead \.tabs, [^{]*> \.apphead \.headright \{ display: none; \}/, 'the header does not fold to its slots');
   assert.doesNotMatch(block, /> \.apphead \{[^}]*display: none/, 'the whole header is hidden, and with it the update and offline notices');
@@ -112,7 +117,7 @@ test('piece five: the header folds to its notice slots, the K mark is the header
 });
 
 test('piece six: the board notice bars do not sit over the consolidated grid', () => {
-  const start = PAGE.indexOf('@media (min-width: 1280px) {\n  html[data-layout="consolidated"]');
+  const start = PAGE.indexOf('@media (min-width: 960px) {\n  html[data-layout="consolidated"]');
   const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
   assert.match(block, /> #found-wrap, [^{]*> #removed-wrap, [^{]*> #restart-wrap \{ display: none; \}/, 'the found/removed/restart bars still stack over the grid');
   /* Control: the news line is NOT hidden here; it has a home in the header slot. */
@@ -131,14 +136,14 @@ test('piece six: the board notice bars do not sit over the consolidated grid', (
  */
 
 test('piece seven: the projects panel drops its box padding in the consolidated view, so the title sits flush with the rail top', () => {
-  const start = PAGE.indexOf('@media (min-width: 1280px) {\n  html[data-layout="consolidated"]');
+  const start = PAGE.indexOf('@media (min-width: 960px) {\n  html[data-layout="consolidated"]');
   const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
   assert.match(block, /> #panel-projects \{ padding: 0; border: 0; background: none;/, 'the projects panel keeps its box padding, which sits the title below the agents rail');
   assert.match(block, /body\.consolidated \.pjhead \{ margin-bottom: 10px; padding: 0; \}/);
 });
 
 test('piece eight: the member rows go flat in the consolidated view, not boxed', () => {
-  const start = PAGE.indexOf('@media (min-width: 1280px) {\n  html[data-layout="consolidated"]');
+  const start = PAGE.indexOf('@media (min-width: 960px) {\n  html[data-layout="consolidated"]');
   const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
   assert.match(block, /body\.consolidated \.pj-member \{ border: 0; padding: 6px 8px;/, 'the member rows keep their box border in the consolidated view');
   assert.match(block, /body\.consolidated \.pj-member:hover \{ background: var\(--k-surface\); \}/);

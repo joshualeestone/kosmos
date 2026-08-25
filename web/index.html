@@ -1941,9 +1941,16 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    rail, the projects panel shows its list as the second rail and the open
    project as the centre and right, and the rest of the page is untouched.
    It is a body-level grid that exists only while the root carries
-   data-layout="consolidated" AND the window is at least 1280px wide; under
+   data-layout="consolidated" AND the window is at least 960px wide; under
    that the tabs come back on their own (the picker says so). The mock this
-   was drawn from is installkosmos.com/consolidated-mock. */
+   was drawn from is installkosmos.com/consolidated-mock, at 1280px --
+   below that width, BOTH rails auto-fold to icon-only (the same treatment
+   the fold buttons already give one rail at a time) to buy the centre and
+   right columns room, rather than the view snapping straight to tabs.
+   Josh, 2026-08-25 17:58, after being asked which shape he wanted: "thats
+   perfect, lets try that." See railFoldsApply() for the auto-fold logic;
+   the CSS below needs no new rules for it, since .fold-a/.fold-p already
+   exist for the manual case and this reuses them exactly. */
 .laytiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: var(--space-4); }
 .laytile { text-align: left; border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface);
   padding: 12px; cursor: pointer; font: inherit; color: var(--k-ink); }
@@ -1952,7 +1959,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .laytile svg { width: 100%; height: auto; display: block; border-radius: 8px; margin-bottom: 8px; }
 .laytile b { display: block; font-size: .9375rem; }
 .laytile small { display: block; font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: 2px; }
-@media (min-width: 1280px) {
+@media (min-width: 960px) {
   html[data-layout="consolidated"] body.consolidated { display: grid; grid-template-columns: minmax(200px, 15%) minmax(0, 1fr);
     column-gap: 18px; align-content: start; }
   html[data-layout="consolidated"] body.consolidated > * { grid-column: 1 / -1; }
@@ -2354,7 +2361,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
 .pjmidhead:has(.pjhead) .tsearch { flex: 0 1 min(320px, 40%); }
 /* Below 60rem there is not enough room for a title, a description and a
-   search box on one line (tab view has no 1280px floor the way
+   search box on one line (tab view has no 960px floor the way
    consolidated does, so this has to hold at phone width too, not just
    handle a already-generous minimum): title and search stack, the
    description keeps to its own line beneath the title, matching how the
@@ -7568,7 +7575,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <button class="laytile" type="button" role="radio" aria-checked="false" data-layout-pick="consolidated">
           <svg viewBox="0 0 220 132" aria-hidden="true"><rect x="0" y="0" width="220" height="132" rx="6" fill="var(--k-bg)" stroke="var(--k-rule)"/><rect x="8" y="8" width="28" height="116" rx="4" fill="var(--k-surface)" stroke="var(--k-rule)"/><g fill="var(--k-rule)"><circle cx="22" cy="22" r="6"/><circle cx="22" cy="40" r="6"/><circle cx="22" cy="58" r="6"/><circle cx="22" cy="76" r="6"/><circle cx="22" cy="94" r="6"/></g><rect x="42" y="8" width="34" height="116" rx="4" fill="var(--k-surface)" stroke="var(--k-rule)"/><g fill="var(--k-rule)"><rect x="48" y="16" width="22" height="6" rx="2"/><rect x="48" y="30" width="22" height="6" rx="2"/><rect x="48" y="44" width="22" height="6" rx="2"/></g><rect x="82" y="8" width="84" height="116" rx="4" fill="var(--k-surface)" stroke="var(--k-rule)"/><g fill="var(--k-rule)"><rect x="90" y="18" width="60" height="5" rx="2"/><rect x="90" y="30" width="48" height="5" rx="2"/><rect x="90" y="42" width="56" height="5" rx="2"/></g><rect x="90" y="106" width="68" height="10" rx="3" fill="var(--k-bg)" stroke="var(--k-rule)"/><rect x="140" y="108" width="16" height="6" rx="2" fill="var(--gold)"/><rect x="172" y="8" width="40" height="116" rx="4" fill="var(--k-surface)" stroke="var(--k-rule)"/><g fill="var(--k-rule)"><rect x="178" y="16" width="28" height="26" rx="3"/><rect x="178" y="48" width="28" height="26" rx="3"/><rect x="178" y="80" width="28" height="26" rx="3"/></g></svg>
           <b>Consolidated view</b>
-          <small>Everything on one screen: agents, projects, the conversation and its tasks. Needs a window at least 1280 pixels wide; narrower than that, the tabs come back.</small>
+          <small>Everything on one screen: agents, projects, the conversation and its tasks. Needs a window at least 960 pixels wide; the side columns fold to icons as it narrows, and narrower than 960, the tabs come back.</small>
         </button>
       </div>
       <p class="fmsg" id="layout-msg" role="status" aria-live="polite"></p>
@@ -17800,9 +17807,15 @@ let STYLE_STORE_MSG = false;
    ticket is dropped whole. */
 let STYLE_REQ = 0;
 /* #520: the layout, from the engine. The root attribute is the only thing
-   the CSS reads; the tiles say which is chosen; showTab re-lays the page. */
+   the CSS reads; the tiles say which is chosen; showTab re-lays the page.
+   Two widths, not one, since the 2026-08-25 fold-first change: below
+   CONSOLIDATED_FOLD_WIDTH both rails auto-fold (railFoldsApply); below
+   CONSOLIDATED_MIN_WIDTH the view is not offered at all and the tabs come
+   back, same as the old single 1280 floor used to. */
+const CONSOLIDATED_MIN_WIDTH = 960;
+const CONSOLIDATED_FOLD_WIDTH = 1280;
 function layoutConsolidated() {
-  return document.documentElement.getAttribute('data-layout') === 'consolidated' && window.innerWidth >= 1280;
+  return document.documentElement.getAttribute('data-layout') === 'consolidated' && window.innerWidth >= CONSOLIDATED_MIN_WIDTH;
 }
 function applyLayout(layout, apply) {
   const want = layout === 'consolidated' ? 'consolidated' : 'tabs';
@@ -17842,7 +17855,7 @@ document.querySelectorAll('[data-layout-pick]').forEach((b) => {
       const r = await res.json();
       applyLayout(r.layout, true);
       msg.textContent = r.layout === 'consolidated'
-        ? (window.innerWidth >= 1280 ? 'Saved. Agents and Projects now share one screen.' : 'Saved. This window is narrower than 1280 pixels, so the tabs stay until it is wider.')
+        ? (window.innerWidth >= CONSOLIDATED_MIN_WIDTH ? 'Saved. Agents and Projects now share one screen.' : 'Saved. This window is narrower than ' + CONSOLIDATED_MIN_WIDTH + ' pixels, so the tabs stay until it is wider.')
         : 'Saved. Kosmos opens in the tab view.';
     } catch { msg.textContent = 'we could not save that'; }
   });
@@ -17895,11 +17908,23 @@ function paintPjNone(which) {
 }
 /* #520, piece two: the folds. Per rail, per browser session (a fold is a
    reading posture, not a setting); the + buttons are the board's own New
-   agent and New project, reached from the rail's top. */
+   agent and New project, reached from the rail's top.
+   ⚠️ 2026-08-25: a THIRD state joined the stored '1'/absent pair -- '0',
+   an explicit "stay open". Below CONSOLIDATED_FOLD_WIDTH both rails now
+   auto-fold on their own (buying the centre and right columns room
+   instead of the view snapping to tabs), so "never explicitly touched"
+   can no longer just mean "open": it means "follow the width." Only a
+   real click pins a rail one way regardless of width, which is why the
+   click handler below always writes '1' or '0' now, never removes the
+   key -- an untouched rail has to stay reactive to resize AFTER a wide
+   session where the person never touched it, not freeze at whatever it
+   happened to render on the one tick they clicked something else. */
 function railFoldsApply() {
+  const narrow = layoutConsolidated() && window.innerWidth < CONSOLIDATED_FOLD_WIDTH;
   for (const k of ['a', 'p']) {
-    let on = false;
-    try { on = sessionStorage.getItem('rail-fold-' + k) === '1'; } catch { on = false; }
+    let stored = null;
+    try { stored = sessionStorage.getItem('rail-fold-' + k); } catch { stored = null; }
+    const on = stored === '1' ? true : stored === '0' ? false : narrow;
     document.body.classList.toggle('fold-' + k, on);
     const btn = document.querySelector('[data-fold="' + k + '"]');
     if (btn) {
@@ -17914,17 +17939,21 @@ document.querySelectorAll('[data-fold]').forEach((btn) => {
   btn.addEventListener('click', () => {
     const k = btn.dataset.fold;
     const on = !document.body.classList.contains('fold-' + k);
-    try { if (on) sessionStorage.setItem('rail-fold-' + k, '1'); else sessionStorage.removeItem('rail-fold-' + k); } catch { /* fine */ }
+    try { sessionStorage.setItem('rail-fold-' + k, on ? '1' : '0'); } catch { /* fine */ }
     railFoldsApply();
   });
 });
 document.getElementById('rail-agents-new').addEventListener('click', () => document.getElementById('new-agent').click());
 document.getElementById('rail-k').addEventListener('click', () => document.getElementById('klink').click());
 document.getElementById('rail-projects-new').addEventListener('click', () => document.getElementById('pj-new').click());
-/* Crossing 1280 either way re-lays the page; the setting itself is untouched. */
+/* Crossing CONSOLIDATED_MIN_WIDTH either way re-lays the page (showTab
+   itself calls railFoldsApply); crossing CONSOLIDATED_FOLD_WIDTH alone,
+   while staying consolidated the whole time, only needs the fold state
+   re-read, since nothing else about the page changes at that width. */
 window.addEventListener('resize', () => {
   const want = layoutConsolidated() && (URL_TAB === 'agents' || URL_TAB === 'projects');
   if (document.body.classList.contains('consolidated') !== want && typeof URL_TAB === 'string') showTab(URL_TAB);
+  else if (document.body.classList.contains('consolidated')) railFoldsApply();
 });
 function applyStyle(tokens) {
   const root = document.documentElement;
