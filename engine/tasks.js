@@ -407,7 +407,29 @@ function columnTasks(p) {
  *                              render as either of the others
  * Unassigned and closed tasks have no claim to compute (null, no because).
  */
-function claimFor(task, reading) {
+/* The qualified spelling (#779): "task N of <project>" (also on/in/for, the
+   name or the id, any case; the name ends where it ends, so "Midnight
+   Inventory 2" is not "Midnight Inventory"). A bare "task N" stays enough when the number
+   names one thing to this agent; when it names two (a task 1 on each of
+   two projects), only the qualified form is a claim, and a bare one is
+   could-not-tell with the reason. Accepting the spelling costs nothing
+   before agents are taught it; teaching it is a wording change (#763's
+   rule: Splinter, then Josh) and is not in this file. */
+function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function claimPatterns(n, project) {
+  const bare = new RegExp('\\btask\\s+' + n + '(?!\\d)(?!\\.\\d)', 'i');
+  const names = [];
+  if (project && typeof project.name === 'string' && project.name.trim()) names.push(escapeRe(project.name.trim()));
+  if (project && project.id !== undefined && project.id !== null && String(project.id).trim()) names.push(escapeRe(String(project.id).trim()));
+  const qualified = names.length
+    ? new RegExp('\\btask\\s+' + n + '\\s+(?:of|on|in|for)\\s+["“\'‘]?(?:' + names.join('|') + ')(?![a-z0-9])(?!\\s+\\d)', 'i')
+    : null;
+  return { bare, qualified };
+}
+
+function claimFor(task, reading, opts) {
+  const project = opts && opts.project ? opts.project : null;
+  const ambiguous = !!(opts && opts.ambiguous);
   /* ⚠️ Same correction as columnTasks: a task with parts has no `who`, so this
      returned null for every assigned multi-part task and the card lost its
      says-it-is-on-this line with nothing saying why. The claim is still asked
@@ -437,13 +459,22 @@ function claimFor(task, reading) {
   // "1" and ".", so "task 1.5" in a report would join task 1. Not-a-digit
   // blocks "task 12"; not-a-dot-then-digit blocks "task 1.5" while still
   // matching a sentence that simply ends "task 1."
-  const re = new RegExp('\\btask\\s+' + n + '(?!\\d)(?!\\.\\d)', 'i');
-  const named = (reading.commitments || []).some(
-    (c) => c && typeof c.what === 'string' && re.test(c.what));
-  return { claimed: named, because: null };
+  const { bare, qualified } = claimPatterns(n, project);
+  const whats = (reading.commitments || []).filter((c) => c && typeof c.what === 'string').map((c) => c.what);
+  const saysQualified = !!qualified && whats.some((w) => qualified.test(w));
+  const saysBare = whats.some((w) => bare.test(w));
+  if (ambiguous) {
+    if (saysQualified) return { claimed: true, because: null };
+    if (saysBare) {
+      return { claimed: null, because: '"task ' + n + '" names more than one of this agent\'s open tasks: it has a task '
+        + n + ' in two projects and has not said which' + (project && project.name ? ' (say "task ' + n + ' of ' + String(project.name).trim() + '")' : '') };
+    }
+    return { claimed: false, because: null };
+  }
+  return { claimed: saysBare || saysQualified, because: null };
 }
 
-module.exports = { create, close, reopen, byNumber, columnTasks, claimFor, taskProblem,
+module.exports = { create, close, reopen, byNumber, columnTasks, claimFor, claimPatterns, taskProblem,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
   SENTENCE_MAX, DETAIL_MAX, WHO_MAX };
