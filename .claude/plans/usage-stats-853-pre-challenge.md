@@ -2,12 +2,14 @@
 pre_challenge: true
 method: challenge-loop
 branch: usage-stats-853
-diff_hash: 83f808ded34f8c6490d515a0e57daeb734b366875cec6d4e5099ff7bd8b8a932
+diff_hash: a7893b8c5ba61d7ccd872299e499b655e742aaee9f2f5dc8d03a34d6cb6df728
 subdir_audit: passed
-timestamp: 2026-08-25T15:31:00Z
+timestamp: 2026-08-25T15:40:00Z
 iterations: 3
 converged: true
 ---
+
+**Note on this hash**: recomputed after the loop converged, because a post-convergence pass caught that iteration 2's NIT ("the plan's stale test-count prose") had been marked FIXED in this ledger without the plan file actually being edited -- a real gap, caught before it shipped rather than after. The plan fix (commit b2db5c8) is a documentation-only change with no new code and no new review needed, but it changes the diff, so the hash below is recomputed against the final committed state rather than left stale.
 
 ## [CHALLENGE-LOOP] Summary
 
@@ -61,6 +63,6 @@ converged: true
 
 - `node --test engine/usage.test.js server.usage.test.js` — 14/14 pass.
 - `node --test engine/*.test.js *.test.js` (full suite) — 2091/2091 pass, 0 failures.
-- `validation_log_run_or_skip` (canonical helper) — PASSED (hash 83f808ded34f8c6490d515a0e57daeb734b366875cec6d4e5099ff7bd8b8a932, matching the diff hash below).
+- `validation_log_run_or_skip` (canonical helper) — PASSED (hash a7893b8c5ba61d7ccd872299e499b655e742aaee9f2f5dc8d03a34d6cb6df728, matching the diff hash above, recomputed after the post-convergence plan-file correction).
 - `audit_subdir_claudemd_changed_paths` — PASSED.
 - Cross-checked against Splinter's own independent manual sweep of the real, live transcripts: `claude-opus-4-8` matched his reported output-token total exactly (1,057,095); the other three models were plausibly higher (more real work in the intervening hours); `rootsRead` named all three real config directories unprompted.
