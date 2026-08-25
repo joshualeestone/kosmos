@@ -1728,8 +1728,15 @@ test('#670: unread is every post after the person last opened the room, agent ch
     assert.equal(messages.unread('some-other-room'), 0, 'another room is untouched');
     // Opening the room reads it; a later post is unread again.
     const last = messages.record().rows.filter((m) => m.kind === 'post').pop();
-    messages.markSeen('henderson-lease', Date.parse(last.at));
+    const seenAt = Date.parse(last.at);
+    messages.markSeen('henderson-lease', seenAt);
     assert.equal(messages.unread('henderson-lease'), 0, 'a post at the seen moment is read');
+    /* The next post has to land AFTER the seen moment, and under load the
+       clock can still read the same millisecond here (Ice Cream Kitty's
+       run, 2026-08-24 20:51: 0 instead of 1, two of three runs alone).
+       A same-millisecond post reading as read is the product's rule, not
+       a defect, so the test moves the clock rather than the rule. */
+    while (Date.now() <= seenAt) { /* spin: at most a millisecond */ }
     assert.equal(messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'and done' }, board.agents, MEMBERS).state, chat.DELIVERY.PLACED);
     assert.equal(messages.unread('henderson-lease'), 1);
     assert.ok(fs.existsSync(messages.SEEN) && messages.SEEN.startsWith(SANDBOX), 'the cursor lives in the sandbox');
