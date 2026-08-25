@@ -97,6 +97,12 @@
         // must not jump onto a stranger's board on its own -- but a link the
         // person clicks themselves is a different, safe act (#867).
         settle();
+        // #steps still reads "Setting up..." by default -- true only for
+        // the ordinary wait. On the taken branch it sits directly above
+        // "Something is already running", promising an install that was
+        // never actually happening. Clear it so the two sentences stop
+        // contradicting each other (Pigeon Pete, screenshotting 0.5.33).
+        document.getElementById("steps").textContent = "";
         document.getElementById("hint").style.display = "none";
         document.getElementById("go").href = base + "/";
         show("taken");
