@@ -91,6 +91,12 @@ function heardBudgetAllows() {
 function heardBudgetRecord() {
   heardBudgetLog.push(Date.now());
 }
+// Test-only, same shape as chatEngine.resetForTests()/messagesEngine.resetForTests():
+// heardBudgetLog is in-memory and module-scoped, so without this, one test's
+// spent budget silently carries into the next test in the same file.
+function resetHeardBudgetForTests() {
+  heardBudgetLog.length = 0;
+}
 function engineFreshness() {
   const now = Date.now();
   if (now - engineLook.at > 5000) {
@@ -5134,7 +5140,19 @@ const server = http.createServer((req, res) => {
             try { told = projects.syncAgent(made.who, roster); }
             catch (err2) { told = { state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
           }
-          sendJson(res, 200, { task: made, told, heard: heardBy(id, made, made.who, made.sentence) });
+          // heardBy shares its budget with the part routes' valve (below):
+          // a process at the part routes' 12/hour cap must not ALSO get a
+          // separate 12/hour allowance here -- one shared count of "how many
+          // times a process paged a live pane this hour", not two 12/hour
+          // caps that combine to 24. Task CREATION keeps its own, stronger,
+          // persisted refusal above (429s the whole request); this only
+          // gates whether the creation also gets to page a pane.
+          let heard;
+          if (viaScreen || heardBudgetAllows()) {
+            heard = heardBy(id, made, made.who, made.sentence);
+            if (heard && !viaScreen) heardBudgetRecord();
+          }
+          sendJson(res, 200, { task: made, told, heard });
         } catch (err) {
           // Three answers for three facts, same split as the member route:
           // our unreadable store (500), a project that is not there (404),
@@ -6010,4 +6028,4 @@ if (require.main === module) {
 // re-implementation of it. Testing the path helper in isolation would not have
 // caught the routing bug, because the helper was never the broken part -- the
 // routes reading `req.url` around it were.
-module.exports = { server, start, pathOf, decodeSegment };
+module.exports = { server, start, pathOf, decodeSegment, resetHeardBudgetForTests };

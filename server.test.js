@@ -173,7 +173,7 @@ require('./engine/remove').setRunner(null);
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, pathOf, decodeSegment } = require('./server');
+const { start, server, pathOf, decodeSegment, resetHeardBudgetForTests } = require('./server');
 const fleet = require('./test-support/fleet');
 
 let base;
@@ -11018,6 +11018,7 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
   const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
   const sends = [];
   try {
+    resetHeardBudgetForTests(); // module-scope, in-memory: does not reset itself between tests
     chatEngine.setRunner((args) => {
       sends.push(args);
       if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };

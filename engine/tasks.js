@@ -166,10 +166,12 @@ function assignPart(projectId, n, partId, who) {
   const whoKey = typeof who === 'string' && who.trim() ? who.trim() : null;
   if (whoKey && whoKey.length > WHO_MAX) return { ok: false, because: 'who is on it has to be an agent\'s name' };
   let found = false;
-  // `changed` is false when `who` is set to what it already was -- the caller
+  // `moved` is false when `who` is set to what it already was -- the caller
   // uses it to skip re-typing the same pane line for the same fact (#304's
-  // rule, extended here to parts).
-  let changed = false;
+  // rule, extended here to parts). Named apart from writeParts's own local
+  // `changed` (the merged task record it returns) -- same word, unrelated
+  // meaning, easy to conflate on a re-read.
+  let moved = false;
   // The membership check runs only for a part that actually exists (inside
   // the id match below) -- checked unconditionally up front, a nonexistent
   // partId with an unrecognised who threw the membership error instead of
@@ -181,12 +183,12 @@ function assignPart(projectId, n, partId, who) {
       if (whoKey && !(p.agents || []).includes(whoKey)) {
         throw new Error('that agent is not on this project, so the part cannot be given to it');
       }
-      changed = (x.who || null) !== whoKey;
+      moved = (x.who || null) !== whoKey;
       return { ...x, who: whoKey };
     });
   });
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
-  return { ok: true, task, changed };
+  return { ok: true, task, changed: moved };
 }
 
 /** Finish a part, or put it back. The parent's state follows from its parts. */

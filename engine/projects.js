@@ -1151,7 +1151,12 @@ function listFiles(folder, limit) {
   /* #761: a stamp that changes whenever the list would, so a page can ask every
      few seconds and repaint only on change (Josh had to hard-refresh to see a
      file arrive). Names, sizes and times of every file, not only the capped
-     page, hashed: a file added past the cap still moves the total. */
+     page, hashed: a file added past the cap still moves the total.
+     ⚠️ `\0`/`\n` separators, not collision-proof: a POSIX filename can legally
+     contain `\n` (not `\0`), so two distinct real folder states could in
+     principle hash equal. A change-detection cache key, not a security
+     boundary, and considered acceptable on that basis -- worst case is a
+     stale repaint, never a wrong file served. */
   const stamp = crypto.createHash('sha1')
     .update(files.map((f) => f.name + '\0' + f.size + '\0' + f.modified).join('\n')).digest('hex').slice(0, 16);
   /* ⚠️ `names` IS EVERY FILE, not the capped view, and it is here rather than
