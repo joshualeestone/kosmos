@@ -10085,12 +10085,16 @@ test('skills over the wire: global lists and adds; the agent write carries the e
 // The Plus routes (#464's engine behind the Settings tab)
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('the Plus state route is honest unconfigured, and the flow gates travel with it', async () => {
-  /* No relay configured in the sandbox: the page's whole holding-place
-     gate is this field, so it must be false here and flip on the env
-     seam, never on wishful defaults. */
+test('the Plus state route says configured through the production default, and the env seam still wins (#790)', async () => {
+  /* Until #722 this asserted false on a bare sandbox: the relay's domain was
+     undecided and a default would have been wishful. The domain is ruled and
+     the box serves it, so the default IS the real place, the connector dials
+     it (engine/remote.test.js), and the page's gate must agree: served 0.5.24
+     said "Sign-up is not open yet" to every stranger because this route
+     re-derived "configured" from saved-or-env and missed the default (#790).
+     The answer now comes from the engine, one derivation. */
   const bare = JSON.parse((await req('/api/remote')).body);
-  assert.equal(bare.configured, false, 'an unconfigured machine claims a relay');
+  assert.equal(bare.configured, true, 'the page gate disagrees with the connector about whether a relay is configured');
   assert.equal(bare.status.state, 'off');
   assert.match(bare.status.because, /\w/, 'the off state carries no sentence');
 
