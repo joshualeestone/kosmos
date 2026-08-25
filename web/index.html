@@ -280,7 +280,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   /* ⚠️ A SENTENCE, so it keeps a measure while the chrome around it stops
      having one. A line of body text the width of a 1760px window loses the
      eye on the return sweep. */
-  .summary { max-width: var(--k-measure); margin-left: auto; margin-right: auto; font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-bottom: var(--space-7); }
+  .board-msg { max-width: var(--k-measure); margin: 0 auto var(--space-7); text-align: center; }
 
   /* ---- the connection notice ---------------------------------------------
      ⚠️ TWO VISUALLY DISTINCT STATES, BECAUSE THEY ARE DIFFERENT CLAIMS, and
@@ -633,6 +633,9 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .fmsg { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: var(--space-4); min-height: 1em; }
 /* #727: the provider choice on Accounts; the pressed one reads pressed. */
 .acct-pick .btn[aria-pressed="true"] { background: var(--attn-bg); border-color: var(--border-strong); font-weight: 600; }
+/* #734: a floored Agents count is a way to This Mac. */
+.stat.floor { cursor: pointer; }
+.stat.floor:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 /* ⚠️ The card pencil retired with the pack rebuild: editing lives on the
    detail page (the pack's avedit/nameedit), and the card's one action is
    itself. */
@@ -6825,6 +6828,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <h3 class="dlab">Keeping agents running</h3>
       <div id="set-machine"><p class="dhint">Checking this computer…</p></div>
       <p class="dhint" id="set-machine-msg" role="status" hidden></p>
+      <!-- #734: the board's honesty line, at home. When the machine's window
+           list has lines the board cannot read, the Agents count is a floor
+           (the + on it) and THIS is where the fact is said in full, with the
+           line itself, so the pane can be found rather than guessed at. -->
+      <p class="dhint" id="set-unreadable" role="status" tabindex="-1" hidden style="margin:12px 0 0;"></p>
       <!-- 🔑 MOVED OUT OF THE UPDATES BOX (Mona Lisa, 2026-08-21). When the
            version line came back to Settings this sentence came with it, and
            landed directly beneath `#build`, so a fact about how Kosmos RUNS
@@ -7224,7 +7232,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 <!-- The residual honesty line: the tiles carry total/working/idle/attn;
      what stays here is what has no tile home -- unknowns, unknown memory
      limits, and the part-of-the-fleet-is-missing clause. Empty hides. -->
-<div class="summary" id="summary">Loading…</div>
+<!-- #734: not a general slot. One sentence lives here, the "could not open" receipt below; nothing else writes to it. -->
+<p class="fmsg board-msg" id="board-msg" role="status" aria-live="polite" hidden></p>
 <!-- ⚠️ WHICH OF YOUR AGENTS SURVIVE A RESTART, which had no answer anywhere on
      this screen. An agent with a login job and one without draw the same card,
      so the only way to find out was to restart the computer. Josh did, on
@@ -9652,47 +9661,42 @@ async function tick() {
        and the cards, which is where a stopped agent is read. */
     document.getElementById('st-attn').textContent = String(c.needsYou || 0);
     document.getElementById('st-attn-tile').hidden = !c.needsYou;
-    const bits = [];
-    if (c.unknown) bits.push(`${c.unknown} we cannot read`);
-    /* ⚠️ THE UNKNOWN-MEMORY COUNT IS NOT SUMMARISED HERE (Josh, 2026-08-19),
-       and this removes the only VISIBLE statement of that fact on the screen.
-       Said plainly rather than justified away: the dashed ring distinguishes
-       those cards, and the words "memory unknown" exist only in the ring's
-       `aria-label` (in `ring()`) and a `.vh` span (in `lrow()`). So a screen-reader
-       user keeps the information and a sighted person is left with dashed rings
-       and nothing naming what dashed means.
-       ✅ THE SECOND HALF IS PAID ON BOTH LAYOUTS: `.membadge unk` carries
-       the visible word on the card, and the list row's percent
-       slot carries the same word instead of a blank. Per the pack's own section
-       10 ("shape distinguishes, words identify"), ported from
-       FROZEN-2026-08-19.
-       ⚠️ An earlier version of this note said the debt was paid and named
-       `ring()` and `card()` as carrying the words. `card()` had no such span and
-       the LIST had no visible statement at all -- a comment asserting a debt is
-       settled when it was settled for one of two renderers, which is how the
-       gap stayed invisible. The tally was doing that job by accident, for the
-       whole fleet at once, which is why removing it looked free and was not.
-       ⚠️ This comment previously said the caption was still owed, while the
-       code three hundred lines up already drew it. Two comments in one change
-       disagreeing about whether a debt is paid is how it gets paid twice.
-       The line above it, "N we cannot read", STAYS: that one is about agents
-       missing from this board entirely, which is a different and louder fact. */
-    // ⚠️ Part of the fleet is MISSING FROM THIS BOARD. tmux said something we
-    // could not read, and the agents behind those lines are not below — so this
-    // has to be on screen, or the board is presenting what it managed to parse
-    // as the whole machine. That is the shape of the failure that had it
-    // reporting zero agents for fourteen hours: nothing was wrong on screen,
-    // and everything was missing.
-    if (c.unreadableLines) {
-      bits.push(`${c.unreadableLines} we could not read at all, so some agents may be missing`);
+    /* #734 (Josh, 2026-08-24 21:08: "remove this text at the top and make
+       sure that it's not open for other things to populate into"): the loose
+       line under the counts is gone and so is its slot. The facts it carried
+       live where they are read: "Can't tell" on each card whose state we
+       cannot read, and the + on the count pills for a window list we could
+       not fully read, which the Agents pill explains on hover. */
+    const unreadSay = floor
+      ? 'At least ' + c.total + '. ' + (c.unreadableLines === 1 ? 'One line' : c.unreadableLines + ' lines')
+        + ' of this Mac\u2019s window list could not be read, so an agent may be missing.'
+      : '';
+    /* The pill carries the sentence on hover, and on touch (no hover on an
+       iPad, #733) it is a tap: the pill becomes a button that opens
+       Settings > This Mac, where the sentence and the line itself are. */
+    const agTile = document.getElementById('st-agents').closest('.stat');
+    agTile.title = unreadSay;
+    agTile.classList.toggle('floor', floor);
+    if (floor) {
+      agTile.setAttribute('role', 'button'); agTile.setAttribute('tabindex', '0');
+      agTile.setAttribute('aria-label', unreadSay + ' Opens This Mac, which shows the line.');
+    } else {
+      agTile.removeAttribute('role'); agTile.removeAttribute('tabindex'); agTile.removeAttribute('aria-label');
     }
-    const sumEl = document.getElementById('summary');
-    sumEl.textContent = bits.join(' · ');
-    /* ⚠️ Tab-gated like paintRemoved: the poll runs on every tab, and an
-       unhidden residual notice floats beside Settings within five seconds
-       of leaving the board (round 1 reproduced it). showTab re-runs the
-       visibility when the person returns. */
-    sumEl.hidden = bits.length === 0 || !onAgentsTab();
+    /* Said in full on Settings > This Mac, with the line itself. */
+    const unreadEl = document.getElementById('set-unreadable');
+    if (unreadEl) {
+      unreadEl.textContent = '';
+      if (floor) {
+        unreadEl.append(unreadSay + ' The board could not read:');
+        for (const raw of (c.unreadableSamples || [])) {
+          const code = document.createElement('code'); code.className = 't'; code.style.display = 'block'; code.style.marginTop = '6px';
+          code.textContent = raw;
+          unreadEl.append(code);
+        }
+      }
+      unreadEl.hidden = !floor;
+    }
     renderConnection(data.connection, data.agents);
     // Says "early" out loud. For a product whose whole thesis is not
     // overstating what it knows, admitting its own maturity is on-brand.
@@ -9835,9 +9839,6 @@ async function tick() {
        boot "Loading…"): "N we could not read" beside the failure card is a
        count this poll cannot stand behind -- the same rule as the tiles
        above. The failure card already says the whole board is blind. */
-    const sumFail = document.getElementById('summary');
-    sumFail.textContent = '';
-    sumFail.hidden = true;
   }
 }
 
@@ -9926,7 +9927,7 @@ function showTab(tab) {
        content-gated as well as tab-gated (its own test asserts an empty
        summary hides itself; this path was the way around that). The boot
        "Loading…" text counts as content and still shows. */
-    const sum = document.getElementById('summary');
+    const sum = document.getElementById('board-msg');
     sum.hidden = !agents || sum.textContent === '';
   }
   /* The version moved into Settings (Josh, 2026-08-21), so there is no
@@ -13725,6 +13726,14 @@ function settingsGo(section, opts) {
      already-applied style is a no-op on screen. */
   if (section === 'styles') paintStyles(true);
   syncUrl();
+}
+/* #734: the Agents count, while it is a floor, opens This Mac on a tap or
+   Enter, so a screen with no hover still has a way to the sentence. */
+{
+  const agTile = document.getElementById('st-agents').closest('.stat');
+  const go = () => { if (!agTile.classList.contains('floor')) return; showTab('settings'); settingsOpen('mac', { focus: false }); document.getElementById('set-unreadable').focus(); };
+  agTile.addEventListener('click', go);
+  agTile.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && agTile.classList.contains('floor')) { e.preventDefault(); go(); } });
 }
 /* One door for opening a Settings section by name: the nav click and the
    boot-time address (#725) both come through here, so a section's painter
@@ -23559,7 +23568,7 @@ async function pjAnswerFrom(sessionName, displayName) {
    */
   if (!CURRENT || CURRENT.sessionName !== sessionName) {
     showTab('agents');
-    const msg = document.getElementById('summary');
+    const msg = document.getElementById('board-msg');
     if (msg) {
       msg.textContent = 'We could not open ' + spoken + '. It was on the board a moment ago and is not now, '
         + 'so it may have stopped or been removed.';

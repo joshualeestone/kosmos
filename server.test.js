@@ -2730,87 +2730,48 @@ test('the suggested default role is the project manager, by name and not by posi
 });
 
 test('the board SAYS part of the fleet could not be read, in words on the screen', () => {
-  // ⚠️ BEHAVIOURAL, not source-shape, and the first version of this test was
-  // the latter: it asserted that `c.unreadableLines` appears in the script.
-  // Mutation-proved that this was worthless -- emptying the `if` body, or
-  // trimming the notice back off the joined summary, left the suite green while
-  // removing the half of this change that the fourteen-hour outage is about.
-  // This file already carries that lesson 150 lines above, with the harness to
-  // avoid it.
+  // ⚠️ BEHAVIOURAL, not source-shape (the lesson 150 lines above stands).
+  // #734 moved the words: the loose line under the counts is gone, so the
+  // fact is said on the Agents pill (title, and an aria-label with a tap on
+  // touch) and in full on Settings > This Mac with the lines that could not
+  // be read. The block is run against fake elements, both arms.
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
-
-  // The summary block, run against a fake element, for a counts object that
-  // says one line was unreadable.
-  const summarise = (counts, onAgents = true) => {
-    const el = { textContent: '' };
-    const document = { getElementById: () => el };
-    // ⚠️ The slice INCLUDES the line that writes the summary. The first version
-    // stopped just before it and re-implemented the join in the harness -- so a
-    // mutation that trimmed the notice back off that very line stayed green,
-    // because the harness was joining its own way. A test harness that
-    // reconstructs the behaviour it is testing is the same defect as a
-    // source-shape assertion, one level in.
-    const from = script.indexOf('const bits = [');
-    /* stage 2 of the pack rebuild routed the write through `sumEl` (the
-       residual summary hides itself when empty), so the end anchor follows:
-       the slice still INCLUDES the write and the join, per the lesson above. */
-    const write = script.indexOf('sumEl.textContent = bits.join');
-    const end = script.indexOf('\n', script.indexOf('sumEl.hidden')) + 1;
-    // The write must sit INSIDE the slice: this is the guard the old end
-    // anchor gave for free, and without it a slice that stops short would
-    // re-create the reconstructed-join defect the comment above records.
-    assert.ok(write > from && write < end, 'the summary write fell outside the extracted slice');
-    const body = script.slice(from, end);
+  const say = (counts) => {
+    const attrs = {};
+    const tile = { title: undefined, classList: { on: new Set(), toggle(k, v) { if (v) this.on.add(k); else this.on.delete(k); }, contains(k) { return this.on.has(k); } },
+      setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: (k) => { delete attrs[k]; } };
+    const mac = { hidden: undefined, textContent: '', kids: [], append(...xs) { for (const x of xs) { if (typeof x === 'string') this.textContent += x; else { this.kids.push(x); this.textContent += x.textContent; } } } };
+    const document = {
+      getElementById: (id) => (id === 'st-agents' ? { closest: () => tile } : (id === 'set-unreadable' ? mac : null)),
+      createElement: () => ({ className: '', style: {}, textContent: '' }),
+    };
+    const from = script.indexOf('const unreadSay = floor');
+    const end = script.indexOf('\n', script.indexOf('unreadEl.hidden = !floor;')) + 1;
+    assert.ok(from > -1 && end > from, 'the block moved; restate this pin');
+    // The slice ends inside `if (unreadEl) {`, so it is closed here; the
+    // write to This Mac is INSIDE the slice, per the reconstructed-join lesson.
+    const body = script.slice(from, end) + '\n}';
+    const floor = (counts.unreadableLines || 0) > 0;
     // eslint-disable-next-line no-new-func
-    // onAgentsTab is injectable: the write is tab-gated (the residual
-    // notice must not float beside Settings on the poll), so the harness
-    // drives both sides of that gate.
-    new Function('document', 'c', 'onAgentsTab', body)(document, counts, () => onAgents);
-    return el;
+    new Function('document', 'c', 'floor', body)(document, counts, floor);
+    return { tile, attrs, mac };
   };
-
-  // ⚠️ Every other count is non-zero on purpose. With them at zero the notice is
-  // one of only two entries, so a mutation that trims the summary to its first
-  // few parts keeps it by accident and this test passes without meaning to. The
-  // notice has to be pinned where it actually sits: LAST, after everything else
-  // the line can carry.
-  // ⚠️ THIS PROTECTION IS NOW WEAKER THAN IT READS: the summary lost its
-  // unknown-memory clause on this branch, so only two bits remain and the notice
-  // cannot be placed anywhere but last. The `unknownFullness: 3` below is inert.
-  // Left rather than deleted because the engine still computes and ships the
-  // count; if a clause for it returns, the fixture is ready and so is the
-  // protection.
-  const partial = summarise({ total: 12, needsYou: 2, unknown: 1, unknownFullness: 3, unreadableLines: 1 });
-  assert.match(partial.textContent, /could not read/,
-    'the board shows what it managed to parse as the whole machine, with nothing '
-    + 'on screen saying agents are missing from it');
-  assert.match(partial.textContent, /1 /, 'the notice does not say how many lines were lost');
-  // The harness-proof (assert presence before absence) rides HERE now: a
-  // rendered notice above proves the extracted block really ran.
-  assert.equal(partial.hidden, false, 'a summary with residual notices must show itself');
-
-  // ⚠️ THE TAB GATE, both sides. The poll runs on every tab; without the
-  // gate a residual notice floats beside Settings within five seconds of
-  // leaving the board (found live on the stage-3 build). Same shape as
-  // paintRemoved's gate, and asserted with the same bits that just proved
-  // the notice renders -- so this cannot pass vacuously.
-  const elsewhere = summarise({ total: 12, needsYou: 2, unknown: 1, unknownFullness: 3, unreadableLines: 1 }, false);
-  assert.equal(elsewhere.hidden, true,
-    'the residual summary leaks onto other tabs: the poll re-reveals it off the agents tab');
-
-  /* ⚠️ THE CONTROL, updated with the stage-2 pack rebuild: the headline
-     counts moved to the stats tiles, so #summary is RESIDUAL-ONLY -- on a
-     clean board its correct output is EMPTY and it hides itself. The old
-     control asserted "12 agents" appears, which pinned the retired
-     sentence; the positive claim now is emptiness PLUS the self-hide, so a
-     mutation that leaves a permanent warning (or a permanently visible
-     empty box) still fails. */
-  const clean = summarise({ total: 12, needsYou: 0, unknown: 0, unknownFullness: 0, unreadableLines: 0 });
-  assert.doesNotMatch(clean.textContent, /could not read/,
-    'a healthy board carries a permanent warning about unreadable lines');
-  assert.equal(clean.textContent, '', 'the residual-only summary invented copy on a clean board');
-  assert.equal(clean.hidden, true, 'an empty summary must hide itself, not sit as a blank line');
+  // Presence first: a poll with one unreadable line says so, in words, in both places, and names the line.
+  const partial = say({ total: 12, unreadableLines: 1, unreadableSamples: ['anna_0.0_2.1.237_0___'] });
+  assert.match(partial.tile.title, /could not be read/, 'the pill says nothing about the count being a floor');
+  assert.match(partial.tile.title, /At least 12/, 'the pill does not say the count is a floor of what');
+  assert.equal(partial.attrs.role, 'button', 'on touch there is no hover: the pill must be a tap');
+  assert.match(partial.attrs['aria-label'], /could not be read/);
+  assert.equal(partial.mac.hidden, false, 'This Mac hides the fact');
+  assert.match(partial.mac.textContent, /could not be read/);
+  assert.match(partial.mac.textContent, /anna_0\.0_2\.1\.237_0___/, 'This Mac does not show the line itself, so the pane cannot be found');
+  // Then absence: a whole read says nothing anywhere, and the pill stops being a button.
+  const whole = say({ total: 12, unreadableLines: 0, unreadableSamples: [] });
+  assert.equal(whole.tile.title, '');
+  assert.equal(whole.attrs.role, undefined, 'a whole read leaves the pill a button');
+  assert.equal(whole.mac.hidden, true);
+  assert.equal(whole.mac.textContent, '');
 });
 
 test('the stats tiles count the real fleet, and the alert tile hides at zero', () => {
@@ -2934,10 +2895,11 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     'st-off': el('6'), 'st-off-tile': { textContent: '', hidden: true, innerHTML: '' },
     // The residual summary is seeded with a last-tick claim too: it sits
     // directly under the tiles and carries the same kind of number.
-    summary: { textContent: '2 we could not read at all, so some agents may be missing', hidden: false },
   };
   const from = script.indexOf("checked.className = 'checked stamp stale';");
-  const write = script.indexOf('sumFail.hidden = true;');
+  /* #734: the summary slot is gone, so the failure path ends at the last
+     tile it blanks; the slice still INCLUDES that write. */
+  const write = script.indexOf("getElementById('st-attn-tile').hidden = true;", from);
   const end = script.indexOf('\n', write) + 1;
   assert.ok(from > -1 && write > from && write < end,
     'the failure-path tile blanking fell outside the extracted slice');
@@ -2976,10 +2938,7 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
   }
   assert.equal(els['st-attn-tile'].hidden, true,
     'the alert tile must hide on a blind poll: red is reserved for a known alarm');
-  assert.equal(els.summary.textContent, '',
-    'the residual summary still asserts last-tick counts beside the failure card');
-  assert.equal(els.summary.hidden, true,
-    'a blanked summary must also hide, not sit as an empty line under the tiles');
+  // (#734) There is no summary slot any more, so nothing here can assert last-tick counts beside the failure card.
   assert.equal(els.orgmap.innerHTML, '',
     'the org view still draws the last fleet it saw beside "we cannot see them"');
   assert.match(els.orgnote.textContent, /not saying there are none/,
@@ -10923,4 +10882,15 @@ test('#670: the bubble draws nothing for none, the number otherwise, 99+ past th
   assert.match(src, /PJ_LAST_OPENED = id;\n  pjMarkSeen\(id\);/, 'opening a project moves the cursor');
   // The seen POST reads its body: an unread Response holds the page's network "in flight" (the release gate hung on it, 2026-08-24).
   assert.match(src, /\/seen', \{ method: 'POST' \}\)\n\s+\.then\(\(r\) => r\.text\(\)\)/);
+});
+
+test('#734: the status route carries the lines it could not read, beside the count', async () => {
+  const r = await req('/api/status');
+  assert.equal(r.status, 200);
+  const c = JSON.parse(r.body).counts;
+  assert.ok(Array.isArray(c.unreadableSamples), 'unreadableSamples is a list even when empty');
+  assert.equal(c.unreadableSamples.length <= 3, true);
+  // The route rebuilds counts with its own countAgents call; the samples must survive that (they did not, once).
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'server.js'), 'utf8');
+  assert.match(src, /countAgents\(agents, snap\.counts && snap\.counts\.unreadableLines, snap\.counts && snap\.counts\.unreadableSamples\)/);
 });

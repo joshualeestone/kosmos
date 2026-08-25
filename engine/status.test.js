@@ -2778,3 +2778,21 @@ test('#603: creation and the roster refuse the SAME name, from the one exported 
   assert.ok(statusSrc.includes('connect.SESSION'),
     'status.js stopped reading the constant and will drift from creation again');
 });
+
+
+test('#734: readPanes hands back the lines it could not read, bounded, so a screen can show which pane', () => {
+  const { readPanes, countAgents } = require('./status');
+  const good = 'anna-discord\t0.0\t2.1.212\t0\tanna\t\t✳ Claude Code';
+  const bad = 'this is not a pane line at all';
+  const r = readPanes(good + '\n' + bad + '\n');
+  assert.equal(r.panes.length, 1);
+  assert.equal(r.rejected, 1);
+  assert.deepEqual(r.rejectedLines, [bad]);
+  const many = readPanes([good, 'x1', 'x2', 'x3', 'x4', 'y'.repeat(500)].join('\n'));
+  assert.equal(many.rejected, 5);
+  assert.equal(many.rejectedLines.length, 3, 'bounded to three');
+  assert.ok(many.rejectedLines.every((l) => l.length <= 160), 'each one line, bounded');
+  assert.deepEqual(readPanes('').rejectedLines, []);
+  assert.deepEqual(countAgents([], 2, ['a', 'b']).unreadableSamples, ['a', 'b']);
+  assert.deepEqual(countAgents([], 0).unreadableSamples, [], 'absent samples are an empty list, never undefined');
+});

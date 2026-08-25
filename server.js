@@ -1230,7 +1230,7 @@ const server = http.createServer((req, res) => {
           return [];
         }
       })();
-      const counts = countAgents(agents, snap.counts && snap.counts.unreadableLines);
+      const counts = countAgents(agents, snap.counts && snap.counts.unreadableLines, snap.counts && snap.counts.unreadableSamples);
       /* ⚠️ COUNTED SEPARATELY, and the row still adds up: Working plus Idle
          plus the rest is what is RUNNING, and `notRunning` is the remainder of
          `total`. A single "Agents" number covering both would put a figure on
