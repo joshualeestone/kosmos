@@ -490,9 +490,6 @@ async function main() {
          header) is met by the size, .75rem, the merged header's own, not
          the split layout's .9375rem this line once asked for. So: present,
          on screen, the ruled sentence, the empty styling, italic, 12px. */
-      if (!bareDetail.present) {
-        throw new Error('#pj-one-desc vanished from the markup entirely');
-      }
       if (bareDetail.hidden !== false || bareDetail.h <= 0
         || !/^This project has no description yet\./.test(bareDetail.text)
         || bareDetail.empty !== true) {
