@@ -105,12 +105,13 @@ test('#743: a slower poll cannot revert a faster user click (or vice versa)', ()
     'plus-status': { textContent: '' },
     'plus-enrol': { hidden: false },
     'plus-devices': { hidden: false },
+    'plus-second': { hidden: false },
   };
   const pending = [];
   const fetchImpl = () => new Promise((resolve) => { pending.push(resolve); });
-  const run = new Function('document', 'fetch', 'plusWords', 'paintDevices',
+  const run = new Function('document', 'fetch', 'plusWords', 'paintDevices', 'plusSecondDisarm',
     'let PLUS_EPOCH = 0;\n' + src + '\nreturn paintPlus;')(
-    { getElementById: (id) => els[id] }, fetchImpl, (t) => t, () => {});
+    { getElementById: (id) => els[id] }, fetchImpl, (t) => t, () => {}, () => {});
 
   const callA = run();  // dispatched first: on
   const callB = run();  // dispatched second: off -- must win regardless of resolve order
