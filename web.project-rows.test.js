@@ -25,7 +25,12 @@ test('the painter emits the head (name with its bubble, status), then the descri
 });
 
 test('the list view lays the row across four columns with the status at the far right, and keeps a row without a description in shape', () => {
-  assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \{ display: grid;[^}]*grid-template-columns: minmax\(10rem, 1\.1fr\) minmax\(9rem, 1\.4fr\) minmax\(7rem, 9rem\) auto;/);
+  // #860 (Josh, 2026-08-25 10:35): "spread them out... in equal portions" --
+  // title and description now share the row roughly evenly instead of
+  // title-narrow/description-wide, and the agents column widened so five
+  // faces plus the count text (projectCard's own worst case) fit without
+  // spilling into the status column.
+  assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \{ display: grid;[^}]*grid-template-columns: minmax\(9rem, 1fr\) minmax\(9rem, 1fr\) minmax\(9rem, 12rem\) auto;/);
   assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \.pjcard-h \{ display: contents; \}/);
   for (const [sel, col] of [['.pjname', 1], ['.pc-t', 2], ['.pjfaces', 3], ['.pjpill', 4]]) {
     assert.match(PAGE, new RegExp('\\.pj-list:not\\(\\.asgrid\\) \\.pj-row \\' + sel + ' \\{ grid-column: ' + col + '; grid-row: 1;'), sel + ' is not pinned to column ' + col);
@@ -33,4 +38,22 @@ test('the list view lays the row across four columns with the status at the far 
   assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \.pjpill \{ grid-column: 4; grid-row: 1; justify-self: end; \}/);
   // Narrow screens stack the row rather than crushing four columns.
   assert.match(PAGE, /@media \(max-width: 52rem\) \{\n  \.pj-list:not\(\.asgrid\) \.pj-row \{ grid-template-columns: minmax\(0, 1fr\) auto; \}/);
+});
+
+// #860: "Project title (which could probably be truncated at some particular
+// length too)... Project description (which could probably be truncated at
+// some particular length too)". Truncate rather than wrap, list view only --
+// the grid tile keeps its own wrap/clamp behaviour and its own pinned checks
+// (the 200-char drive fixture named at .pc-t's base rule).
+test('the list row truncates a long title or description instead of wrapping it, and the agents column cannot bleed into the status pill', () => {
+  assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \.pjname b \{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/,
+    'the title is not truncated in the list row');
+  assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \.pc-t \{[^}]*overflow: hidden; text-overflow: ellipsis; white-space: nowrap;/,
+    'the description is not truncated in the list row');
+  // The grid tile's own description rule keeps overflow-wrap: anywhere
+  // (the pasted-URL fixture), untouched by the list-row override above.
+  assert.match(PAGE, /^\.pc-t \{ display: block;[^}]*overflow-wrap: anywhere; \}/m,
+    'the grid tile description lost its own wrap rule');
+  assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \.pjfaces \{[^}]*min-width: 0; overflow: hidden; \}/,
+    'the agents column has no shrink/clip guard -- a grid item’s default min-width:auto is exactly what let it bleed into the status pill');
 });
