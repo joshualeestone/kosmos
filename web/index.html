@@ -1361,7 +1361,12 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
    same width." Settings is the nav column and ONE content column of the
    create page's width (34rem), centred as a pair, so switching tabs moves
    nothing and no tab is full-width. Under 60rem the pair gives way to the
-   fluid column it had. */
+   fluid column it had.
+   ⚠️ ORDER-DEPENDENT: the 60rem rule below must stay ABOVE the 56rem block
+   further down, which restates `#panel-settings .dbody` at the same
+   specificity to stack the nav on a phone and wins by position. Regroup the
+   two Settings rules below that block and phones get the nav beside the
+   section again, and nothing but render-settings-nav.js would say so. */
 #panel-settings .dbody { grid-template-columns: 176px 34rem; justify-content: center; }
 @media (max-width: 60rem) { #panel-settings .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch; } }
 .snav { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 16px; }
@@ -1402,7 +1407,7 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 #d-fresh .flabel { text-transform: none; letter-spacing: 0; font-size: 1rem; }
 @media (max-width: 56rem) {
   .dbody { grid-template-columns: minmax(0, 1fr); }
-  /* #773 gave Settings its own id-selector column rule up to 60rem, which
+  /* #770 gave Settings its own id-selector column rule up to 60rem, which
      outranked this class rule at phone width and kept the nav beside the
      section (render-settings-nav caught it at 420px). Restated with the same
      specificity, later in the sheet, so the nav stacks above the section here. */

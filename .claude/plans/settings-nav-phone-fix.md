@@ -15,7 +15,11 @@ order, so the nav stayed beside the section.
 ## Finished looks like
 
 - render-settings-nav.js passes in full on the branch (it did: 94 pass).
-- render-full-width.js still passes (the centred 34rem pair above 60rem).
+- render-settings-nav.js also renders the 56 to 60rem band (a 920px step:
+  nav beside a fluid section wider than 544px), so the 60rem rule has an
+  on-screen check for the first time.
+- render-full-width.js is not wired into the runner and fails on the create
+  form since 08-19 (kosmos #778); not this branch's to fix.
 - web.settings-width.test.js pins that the 56rem block after the 60rem rule
   restates the Settings rule with the same specificity.
 

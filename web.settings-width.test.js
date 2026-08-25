@@ -18,7 +18,9 @@ test('the settings body is the nav and one 34rem column, centred; narrow windows
   const i60 = PAGE.indexOf('@media (max-width: 60rem) { #panel-settings .dbody');
   const i56 = PAGE.indexOf('@media (max-width: 56rem) {', i60); // the sheet has several 56rem blocks; the one that counts follows the 60rem rule
   assert.ok(i60 > 0 && i56 > i60, 'the 56rem block comes after the 60rem rule');
-  assert.match(PAGE.slice(i56, i56 + 900), /#panel-settings \.dbody \{ grid-template-columns: minmax\(0, 1fr\); justify-content: stretch; \}/);
+  const end56 = PAGE.indexOf('\n}', i56); // the block's closing brace: the window is the block, not a byte count
+  assert.ok(end56 > i56, 'the 56rem block closes');
+  assert.match(PAGE.slice(i56, end56), /#panel-settings \.dbody \{ grid-template-columns: minmax\(0, 1fr\); justify-content: stretch; \}/, 'the restatement sits inside the 56rem block, not after it');
 });
 
 test('You is Your Profile: one-size picture buttons, no disclaimer by default, a short name field, a yellow Save', () => {

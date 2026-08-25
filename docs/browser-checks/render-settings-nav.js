@@ -120,6 +120,21 @@ function chk(ok, label, extra) {
           `[${theme}] ${id} is on screen in ${WHERE[id]} with a real position`, JSON.stringify(sw));
       }
 
+      // The band between the phone rule (56rem) and the centred pair (60rem):
+      // the nav stays beside a FLUID section that starts at the gutter. This
+      // is the only place that width is rendered; the phone fix restated the
+      // Settings rule inside the 56rem block and must not reach up here.
+      await page.setViewportSize({ width: 920, height: 900 });
+      await page.waitForTimeout(300);
+      const band = await page.evaluate(() => {
+        const nav = document.getElementById('s-nav').getBoundingClientRect();
+        const sec = document.querySelector('#panel-settings .dsec:not([hidden])').getBoundingClientRect();
+        return { navRight: nav.right, secLeft: sec.left, secWidth: sec.width, overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth };
+      });
+      chk(band.navRight <= band.secLeft + 1, `[${theme}] at 920px the nav sits beside the section`, JSON.stringify(band));
+      chk(band.secWidth > 544 + 1, `[${theme}] at 920px the section is fluid, wider than the 34rem pair`, JSON.stringify(band));
+      chk(!band.overflow, `[${theme}] at 920px the page does not scroll sideways`);
+
       // Narrow: the nav becomes a row above the content, and nothing overflows.
       await page.setViewportSize({ width: 420, height: 900 });
       await page.waitForTimeout(300);
