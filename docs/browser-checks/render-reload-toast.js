@@ -72,6 +72,18 @@ function over(fg, bg) {
         SERVED_VERSION = s === 'stale' ? '9.9.9' : null;
         const meta = document.querySelector('meta[name="kosmos-version"]');
         if (meta && s === 'stale') meta.setAttribute('content', '0.0.1');
+        /* #758: ENGINE_STALE outranks both states this check drives (#338,
+           by design -- a server behind the code on disk makes an update
+           offer or a stale page moot). The page's own poll set it from a
+           REAL /api/status read against the booted board, which shares a
+           mutable checkout with everything else running on this machine --
+           a release or another agent's merge touching that checkout while
+           this board has been up flips it true, and every renderUpdateToast
+           call below would then draw the engine-changed toast instead of
+           the offer/stale pair this check exists to test. Pinned to null,
+           not inherited: this check is #270 (offer vs. reload), never #338. */
+        // eslint-disable-next-line no-undef
+        ENGINE_STALE = null;
         // eslint-disable-next-line no-undef
         document.getElementById('utoast-slot').innerHTML = '';
         // eslint-disable-next-line no-undef
