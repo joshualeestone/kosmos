@@ -123,6 +123,35 @@ bundle noconn.tgz
 release_bundle_matches_tree "$T/noconn.tgz" "$BUILD" "$_tsha" >/dev/null && bad "a bundle missing the connector passed with an expected sha" || ok "a bundle missing the connector is caught when one is expected"
 release_bundle_matches_tree "$T/noconn.tgz" "$BUILD" "" >/dev/null && ok "a bundle with no connector and no expectation passes" || bad "no-connector-no-expectation was wrongly failed"
 
+# The native launcher (#677): same shape as the connector above, verified
+# against a checksum, never the tree -- codesigning changes its bytes on
+# every build, so a plain tree comparison could never apply to it.
+mkdir -p "$T/bundle/app/bin"; printf 'native-app-v1' > "$T/bundle/app/bin/kosmos-app"
+_nasha="$(shasum -a 256 "$T/bundle/app/bin/kosmos-app" | awk '{print $1}')"
+bundle nat.tgz
+release_bundle_matches_tree "$T/nat.tgz" "$BUILD" "" "$_nasha" >/dev/null && ok "a native app matching the expected checksum passes, and is not sought in the tree" || bad "a matching native app was rejected"
+release_bundle_matches_tree "$T/nat.tgz" "$BUILD" "" "deadbeef" >/dev/null && bad "a native app with the wrong checksum was called matching" || ok "a native app with the wrong checksum is caught"
+release_bundle_matches_tree "$T/nat.tgz" "$BUILD" "" "" >/dev/null && bad "a native app with no expected checksum was passed (skipped)" || ok "a native app with no expected checksum is refused, not skipped"
+printf 'native-app-v2' > "$T/bundle/app/bin/kosmos-app"; bundle nat2.tgz
+release_bundle_matches_tree "$T/nat2.tgz" "$BUILD" "" "$_nasha" >/dev/null && bad "a changed native app still matched the old checksum" || ok "a changed native app no longer matches the old checksum"
+rm -f "$T/bundle/app/bin/kosmos-app"
+# Presence, not just checksum-if-present: with the native app now removed, a
+# bundle whose tree files match but which lacks it must fail when a checksum
+# is expected, and pass when none is expected.
+bundle nonat.tgz
+release_bundle_matches_tree "$T/nonat.tgz" "$BUILD" "" "$_nasha" >/dev/null && bad "a bundle missing the native app passed with an expected sha" || ok "a bundle missing the native app is caught when one is expected"
+release_bundle_matches_tree "$T/nonat.tgz" "$BUILD" "" "" >/dev/null && ok "a bundle with no native app and no expectation passes" || bad "no-native-app-no-expectation was wrongly failed"
+# Both together: a real cut expects both a connector and a native app, and
+# neither dimension's absence should hide behind the other's presence.
+mkdir -p "$T/bundle/app/bin"; printf 'connector-v3' > "$T/bundle/app/bin/kosmos-tunnel"; printf 'native-app-v3' > "$T/bundle/app/bin/kosmos-app"
+_tsha3="$(shasum -a 256 "$T/bundle/app/bin/kosmos-tunnel" | awk '{print $1}')"
+_nasha3="$(shasum -a 256 "$T/bundle/app/bin/kosmos-app" | awk '{print $1}')"
+bundle both.tgz
+release_bundle_matches_tree "$T/both.tgz" "$BUILD" "$_tsha3" "$_nasha3" >/dev/null && ok "a bundle with both a matching connector and a matching native app passes" || bad "a bundle with both matching was rejected"
+release_bundle_matches_tree "$T/both.tgz" "$BUILD" "$_tsha3" "deadbeef" >/dev/null && bad "a matching connector hid a wrong native app checksum" || ok "a matching connector does not hide a wrong native app checksum"
+release_bundle_matches_tree "$T/both.tgz" "$BUILD" "deadbeef" "$_nasha3" >/dev/null && bad "a matching native app hid a wrong connector checksum" || ok "a matching native app does not hide a wrong connector checksum"
+rm -f "$T/bundle/app/bin/kosmos-tunnel" "$T/bundle/app/bin/kosmos-app"
+
 # The derivation refuses rather than shrinking (#609 review): without node the
 # require walk (the only source for modules outside engine/) would go silent
 # and a bundle lacking one would pass; a tree without engine/ or web/ is not a
@@ -169,6 +198,14 @@ printf "const path = require('path'); module.exports = path.join(__dirname, '..'
 bundle tunnelref.tgz
 release_bundle_matches_tree "$T/tunnelref.tgz" "$BUILD" "" >/dev/null && ok "an engine file resolving app/bin/kosmos-tunnel by path does not make the tree demand it: the connector stays the checksum argument's" || bad "the tunnel exclusion is not working: the tree demanded the connector"
 rm -f "$BUILD/engine/paths3.js" "$T/bundle/app/engine/paths3.js"
+# Same exclusion, defensively, for the native app (#677) -- not load-bearing
+# today (nothing under engine/ actually resolves it this way), but if it
+# ever did, demanding it from the tree AND verifying it by checksum would
+# be an unresolvable contradiction.
+printf "const path = require('path'); module.exports = path.join(__dirname, '..', 'bin', 'kosmos-app');\n" > "$BUILD/engine/paths4.js"; cp "$BUILD/engine/paths4.js" "$T/bundle/app/engine/"
+bundle nativeref.tgz
+release_bundle_matches_tree "$T/nativeref.tgz" "$BUILD" "" "" >/dev/null && ok "an engine file resolving app/bin/kosmos-app by path does not make the tree demand it: the native app stays the checksum argument's" || bad "the native app exclusion is not working: the tree demanded it"
+rm -f "$BUILD/engine/paths4.js" "$T/bundle/app/engine/paths4.js"
 printf "module.exports = require('path').join(__dirname, '..', 'bin', 'only-in-a-test.sh');\n" > "$BUILD/engine/fake.test.js"
 bundle testref.tgz
 release_bundle_matches_tree "$T/testref.tgz" "$BUILD" >/dev/null && ok "a bin/ reference inside a *.test.js is not demanded (the bundle carries no tests)" || bad "a *.test.js reference was demanded of the bundle"
