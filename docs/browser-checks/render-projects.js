@@ -797,6 +797,12 @@ async function main() {
   await shot('7-folder-missing');
 
   // 7. Contrast, on the list where every text token on this screen appears.
+  // ⚠️ EXPLICITLY LIST, NOT WHATEVER '?tab=projects' DEFAULTS TO. That
+  // default is GRID, and #861 (2026-08-25) dropped .pc-t from the grid
+  // card's stack entirely -- measuring grid here silently lost the
+  // description's contrast coverage rather than failing loud, until the
+  // missing-selector guard below caught it. List is where every text
+  // token this pass names still actually renders.
   let contrastFails = 0;
   const surfacesByScheme = {};
   for (const scheme of ['light', 'dark']) {
@@ -804,6 +810,8 @@ async function main() {
     const page = await ctx.newPage();
     await page.goto(BASE + '/?tab=projects', { waitUntil: 'networkidle' });
     await page.waitForTimeout(600);
+    await page.click('.viewtoggle[data-scope="projects"] [data-layout="list"]');
+    await page.waitForTimeout(300);
     // ⚠️ ONE definition of the background walk, shared by every measuring
     // block on this page as `window.__kbg` -- four verbatim copies is how
     // helpers silently diverge. COMPOSITED, not the first painted color:
