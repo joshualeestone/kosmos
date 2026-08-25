@@ -111,14 +111,24 @@ test('piece five: the header folds to its notice slots, the K mark is the header
   assert.match(block, /body\.consolidated \.lrow \{ border: 0; background: none;/);
 });
 
-test('piece six: the board notice bars do not sit over the consolidated grid, and the project cards go flat', () => {
+test('piece six: the board notice bars do not sit over the consolidated grid', () => {
   const start = PAGE.indexOf('@media (min-width: 1280px) {\n  html[data-layout="consolidated"]');
   const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
   assert.match(block, /> #found-wrap, [^{]*> #removed-wrap, [^{]*> #restart-wrap \{ display: none; \}/, 'the found/removed/restart bars still stack over the grid');
-  assert.match(block, /\.pj3 > \.pjcol \.pjcard, [^{]*\.pj3 > aside\.pjcol \{ border: 0; background: none;/, 'the project cards keep their boxed look');
   /* Control: the news line is NOT hidden here; it has a home in the header slot. */
   assert.doesNotMatch(block, /#unews-slot|#newsbar[^-]/, 'the news line was hidden rather than relocated');
 });
+
+/**
+ * ⚠️ SUPERSEDES the old "project cards go flat" half of piece six, above.
+ * That assertion pinned a citation nobody had checked: the comment claimed
+ * the flat, borderless treatment matched "the mock", but the real mock
+ * (installkosmos.com/consolidated-mock, screenshotted and read from its
+ * own source 2026-08-25) draws Tasks/Members/Files as white, bordered,
+ * rounded cards on a tinted column background -- the opposite of flat.
+ * See web.consolidated-match-mock.test.js for the corrected behavior and
+ * the full account of the citation error.
+ */
 
 test('piece seven: the projects panel drops its box padding in the consolidated view, so the title sits flush with the rail top', () => {
   const start = PAGE.indexOf('@media (min-width: 1280px) {\n  html[data-layout="consolidated"]');

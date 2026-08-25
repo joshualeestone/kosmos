@@ -2081,7 +2081,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated #pj-list.asgrid { display: flex; flex-direction: column; }
   html[data-layout="consolidated"] body.consolidated .pj-row { padding: 8px 10px; box-shadow: none; }
   html[data-layout="consolidated"] body.consolidated .pjcard-h b { font-size: .875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pc-t, html[data-layout="consolidated"] body.consolidated .pj-row .pj-who, html[data-layout="consolidated"] body.consolidated .pj-row .pjcount { display: none; }
+  html[data-layout="consolidated"] body.consolidated .pj-row .pc-t, html[data-layout="consolidated"] body.consolidated .pj-row .pj-who { display: none; }
   /* The projects panel: its list is the second rail, everything else the rest. */
   html[data-layout="consolidated"] body.consolidated #panel-projects { display: grid; grid-template-columns: minmax(180px, 17%) minmax(0, 1fr); column-gap: 18px; align-items: start; }
   /* #867 (Josh, 2026-08-25 11:02): "push the title all the way up so
@@ -2094,7 +2094,15 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated #panel-projects > :not(#pj-list-view) { grid-column: 2; }
   html[data-layout="consolidated"] body.consolidated #pj-list { gap: 8px; }
   html[data-layout="consolidated"] body.consolidated .pj-row { padding: 8px 10px; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces, html[data-layout="consolidated"] body.consolidated .pj-row .pc-t { display: none; }
+  html[data-layout="consolidated"] body.consolidated .pj-row .pc-t { display: none; }
+  /* #867 (Josh, 2026-08-25 15:52, against the real consolidated-mock): each
+     project row names its own agent count as a subtitle under the title
+     ("4 agents"). The narrow rail has no room for the face icons the tab
+     view shows alongside that count, so those stay hidden; the count text
+     itself, previously hidden along with them, is what the mock draws. */
+  html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces { display: block; margin-top: 2px; }
+  html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces > [aria-hidden] { display: none; }
+  html[data-layout="consolidated"] body.consolidated .pj-row .pjcount { margin-left: 0; }
   html[data-layout="consolidated"] body.consolidated #pj-back { display: none; }
   /* The open project: the conversation in the centre, its cards down the
      right. #867 (Josh, 2026-08-25 11:02): "sort the tasks to be above
@@ -2103,21 +2111,33 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      one grid row down) needed .pjsplit dissolved into its own grid
      items rather than a DOM move: the same technique #860/#861 used to
      reorder shared markup without touching it. Three rows now instead
-     of two: members, tasks, files. */
+     of two.
+     ⚠️ RE-ORDERED AGAIN (Josh, 2026-08-25 15:52, against the real
+     installkosmos.com/consolidated-mock, not the citation below that
+     never actually checked it): tasks, members, files -- not members,
+     tasks, files. */
   html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); grid-template-rows: auto auto auto; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 3; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit { display: contents; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { grid-column: 2; grid-row: 1; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { grid-column: 2; grid-row: 2; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child { grid-column: 2; grid-row: 3; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { grid-column: 2; grid-row: 2; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { grid-column: 2; grid-row: 1; }
   /* #520 piece six (Josh, 2026-08-24 16:14: "missing a whole lot"): the
      board's full-width notice bars do not belong over the consolidated grid;
      the news line already lives in the header notice slot. found-wrap and
      removed-wrap are board-management chrome for the tab view. */
   html[data-layout="consolidated"] body.consolidated > #found-wrap, html[data-layout="consolidated"] body.consolidated > #removed-wrap, html[data-layout="consolidated"] body.consolidated > #restart-wrap { display: none; }
-  /* The right column's cards, and the project's own three cards, flat and
-     quiet on the deeper ground like the mock, not bordered boxes. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjcol .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol { border: 0; background: none; padding: 0; }
+  /* #867 shipped this as flat, borderless cards "like the mock" -- a
+     citation nobody actually checked. The real mock (installkosmos.com/
+     consolidated-mock) draws Tasks/Members/Files as white, bordered,
+     rounded cards (.rcard) sitting on a tinted column background
+     (.rcol), the same relationship .pjcard already has to the page
+     everywhere else in this app. So the fix is to STOP overriding
+     .pjcard here, not to override it differently: it already looks
+     like the mock without any consolidated-specific rule at all. What
+     needs to change is the ground behind it. */
+  html[data-layout="consolidated"] body.consolidated .pj3 { background: var(--k-sunk, rgba(20,22,26,.05)); border-radius: 12px; padding: 12px; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-surface); border-radius: 12px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .dlab { font-size: .6875rem; letter-spacing: .1em; margin-bottom: 8px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem, html[data-layout="consolidated"] body.consolidated .pj3 .fi, html[data-layout="consolidated"] body.consolidated .pj3 .tkrow { padding: 6px 8px; border-radius: 9px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem:hover, html[data-layout="consolidated"] body.consolidated .pj3 .fi:hover { background: var(--k-surface); }
@@ -2144,6 +2164,12 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      already uses at :1955) for .thread to flex-grow INTO. */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { height: calc(100vh - 63px); }
   html[data-layout="consolidated"] body.consolidated .pjmid .thread { min-height: 40vh; max-height: none; flex: 1 1 auto; }
+  /* #867 (Josh, 2026-08-25 15:52): "strip out the 'drop a file... type @'
+     hint for this view as well, because this is kind of the power user
+     mode. They're going to know what a + means or how to do an @ to
+     mention agents." Tab view keeps it; only the consolidated composer
+     drops it. */
+  html[data-layout="consolidated"] body.consolidated #pj-composerhint { display: none; }
   /* #520 piece seven (Josh, 2026-08-24 16:32: the project name and members
      "flush vertically with agents"): the projects panel keeps the .panel top
      padding, which sat the project title and its columns below the agents
