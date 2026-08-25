@@ -57,6 +57,21 @@ echo "== 1. main, clean, and carrying what you mean to ship =="
 # is the cut. A "started" with no matching step-3 line is a cut that died early.
 mkdir -p "$HOME/.claude/logs" 2>/dev/null || true
 printf '%s version=%s started pre_bump_head=%s\n' "$(date -u +%FT%TZ)" "$V" "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
+# The tail of the record, mirror of the head (Shredder, 2026-08-25): without a
+# completion line, "still running steps 4-9d" and "died at 4b, 8 or 9d" read
+# identically at the end. Written once, from the EXIT trap, with the exit
+# status, so a cut that dies anywhere after the started line still says so.
+_CUT_DONE_WRITTEN=0
+cut_record_done() {
+  [ "$_CUT_DONE_WRITTEN" = 1 ] && return 0
+  _CUT_DONE_WRITTEN=1
+  printf '%s version=%s completed exit=%s served=%s\n' "$(date -u +%FT%TZ)" "$V" "$1" "${DEPLOYED:-0}" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
+}
+# Installed HERE, before step 1 can refuse: the full trap below (site restore,
+# thaw) only exists after the freeze, so a death at step 1 or 2 would leave the
+# started line with no completion. The full trap replaces this one and calls
+# the same once-only writer, so exactly one completed line is written per cut.
+trap '_rc=$?; cut_record_done "$_rc"' EXIT
 git -C "$REPO" fetch origin -q
 [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD)" = main ] || { echo "not on main"; exit 1; }
 [ -z "$(git -C "$REPO" status --porcelain)" ] || { echo "main is dirty"; exit 1; }
@@ -139,7 +154,7 @@ DEPLOYED=0
 # On any exit before step 8 finished, the site checkout stops claiming $V
 # (#609 review, Splinter 23:05: a failed cut left latest.json and setup.sha256
 # uncommitted at the new version, and the pair that made cut 5 refuse).
-trap '[ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
+trap '_rc=$?; cut_record_done "$_rc"; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
 REPO="$BUILD"
 echo "   building ${SHA:0:12} in $BUILD; a pull into $MAIN_REPO from now on changes nothing below"
 
