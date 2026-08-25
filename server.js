@@ -996,7 +996,7 @@ const server = http.createServer((req, res) => {
           // card from one conversation while its other numbers come from
           // another. The fix reached two of the three readers and stopped one
           // short.
-          ? instructions.staleness(a.sessionName, undefined, a.session)
+          ? projects.toldOverride(instructions.staleness(a.sessionName, undefined, a.session), a.sessionName)
           : { state: 'unknown', editable: false, version: null, startedAt: null, because: 'we cannot tie this pane to an agent by name' },
       }));
       // ⚠️ THE COUNTS DESCRIBE THE CARDS THAT ARE LEFT. Computed over the
@@ -1235,7 +1235,7 @@ const server = http.createServer((req, res) => {
                 runner: (profile.provider === 'openai') ? 'codex' : 'claude',
                 account: accountOf(k.name),
                 commitments: commitments.read(k.name),
-                instructions: instructions.staleness(k.name),
+                instructions: projects.toldOverride(instructions.staleness(k.name), k.name),
               };
               } catch {
                 /* Per ROW: one uncomposable leftover (#500 widened what
@@ -1792,6 +1792,34 @@ const server = http.createServer((req, res) => {
           }
         }
 
+        /* 🔑 THE FIRST AGENT BRINGS ITS OWN HOME (#166), MADE BEFORE THE AGENT
+           IS (#732). It used to be created AFTER createAgent returned, i.e.
+           after the session was already running, so the home's block reached
+           the instruction file through the later sync, three seconds after
+           the session started: every first agent was born reading "Kosmos
+           put it on Getting started. Restart it so it knows" (Pete,
+           2026-08-24 21:04). Made here, its id rides `projects` into the
+           creation and the block is composed at birth, so the later sync finds
+           the same bytes and writes nothing. Once EVER, by flag (remove()
+           deletes the record outright, so an empty store cannot tell "never
+           had one" from "the person removed it"). If the creation then fails,
+           the seed is rolled back below and the flag is never written. */
+        const projectsToJoin = Array.isArray(wantProjects) ? wantProjects.slice() : [];
+        let home = null;
+        const seededFlag = path.join(require('./engine/store').ROOT, 'seeded-project.json');
+        try {
+          if (!fs.existsSync(seededFlag) && projects.readAll().length === 0) {
+            home = projects.create({
+              name: 'Getting started',
+              agents: [],
+              roster: safeRoster(),
+              description: 'Kosmos made this so your first agent has somewhere to work with you. '
+                + 'Post below and everyone on it answers here. It is only an example: remove it whenever you like.',
+              made: { via: 'kosmos' },
+            });
+            projectsToJoin.push(home.id);
+          }
+        } catch { home = null; /* a first screen a person fills themselves is the fallback, not a failure */ }
         const result = create.createAgent({
           name: body.name, role: body.role,
           label: body.label, instructions: body.instructions, model: body.model,
@@ -1805,7 +1833,7 @@ const server = http.createServer((req, res) => {
           reportsTo: body.reportsTo,
           // Validated above; composed into the file BEFORE the session starts
           // (#323), so the addAgent below finds the block already there.
-          projects: wantProjects,
+          projects: projectsToJoin,
         });
         /* #238. Only on a real creation, and never in a way that can affect
            one: `agentCreated` returns nothing, so this cannot be awaited, and
@@ -1818,7 +1846,7 @@ const server = http.createServer((req, res) => {
         // ours, and it is a 200 because the thing half-happened and the caller
         // needs the detail rather than an error.
         const code = result.outcome === create.OUTCOME.REFUSED ? 400 : 200;
-        if (result.outcome === create.OUTCOME.CREATED && wantProjects && wantProjects.length) {
+        if (result.outcome === create.OUTCOME.CREATED && projectsToJoin.length) {
           // One roster read for the whole request, same rule as the project
           // routes: syncAgent refuses to write without an exact match in it.
           const roster = safeRoster();
@@ -1828,10 +1856,10 @@ const server = http.createServer((req, res) => {
           // carried, so every attach refused with "choose an agent" while the
           // suite stayed green -- nothing exercised this route with projects.
           // The route test now creates through here and asserts added: true.
-          result.projects = wantProjects.map((id) => {
+          result.projects = projectsToJoin.map((id) => {
             try {
               projects.addAgent(id, result.name, roster, { via: isViaScreen(req) ? 'screen' : 'process' });
-              return { id, added: true };
+              return home && id === home.id ? { id, added: true, seeded: true } : { id, added: true };
             } catch (err) {
               return { id, added: false, because: String((err && err.message) || 'we could not put it on that project') };
             }
@@ -1849,52 +1877,27 @@ const server = http.createServer((req, res) => {
             if (p.added) p.told = { state: projects.TOLD.NOT_TRIED, because: null };
           }
         }
-        /* 🔑 THE FIRST AGENT BRINGS ITS OWN HOME (#166, Josh's idea with the
-           card's two constraints): a person's first screen after making their
-           first agent is otherwise a blank projects page. Created WITH the
-           first agent, never at install (a memberless default is the same
-           empty state in a different shape); its description says it is
-           Kosmos's and removable. Best-effort and non-gating; told rides the
-           same not-tried -> member-route re-fire path via result.projects.
-           Once EVER, held by a flag rather than store-emptiness: remove()
-           deletes the record outright, so an empty store cannot tell "never
-           had one" from "the person removed it", and a removed seed must
-           never regrow. */
-        if (result.outcome === create.OUTCOME.CREATED) {
-          try {
-            const seededFlag = path.join(require('./engine/store').ROOT, 'seeded-project.json');
-            if (!fs.existsSync(seededFlag) && projects.readAll().length === 0) {
-              const home = projects.create({
-                name: 'Getting started',
-                agents: [result.name],
-                roster: safeRoster(),
-                description: 'Kosmos made this so your first agent has somewhere to work with you. '
-                  + 'Post below and everyone on it answers here. It is only an example: remove it whenever you like.',
-                made: { via: 'kosmos' },
-              });
-              result.projects = (result.projects || []).concat([
-                { id: home.id, added: true, seeded: true, told: { state: projects.TOLD.NOT_TRIED, because: null } },
-              ]);
-              /* #167's rule, and it is the whole design: the room may carry a
-                 message from KOSMOS, in its own voice and band; it may never
-                 carry words attributed to an agent the agent did not write.
-                 Forward-looking content only: the three tasks are genuinely
-                 undone at this moment (the first agent is already a member,
-                 so none of them is 'add an agent', which birth just did). */
+        // The home's furniture, only once the agent exists (#166): the room
+        // note in Kosmos's own voice, three genuinely-undone tasks (unassigned
+        // on purpose: a task claimed FOR an agent is an assignment nobody
+        // made), and the once-ever flag. A failed creation rolls the seed back
+        // instead, so a store never carries a memberless home nobody made.
+        if (home) {
+          if (result.outcome === create.OUTCOME.CREATED) {
+            try {
               messages.roomNote(home.id,
                 'This is where you talk to everyone on a project at once. Whatever you write here, every agent on the project gets. Delete this project whenever you like, it is only here to show you around.');
-              try {
-                const tasksEngine = require('./engine/tasks');
-                // Unassigned on purpose: a task claimed FOR an agent is a
-                // record of an assignment nobody made. `null` roster is fine;
-                // nothing here keys on who.
-                tasksEngine.create(home.id, { sentence: 'Say hello to everyone in the conversation' }, null);
-                tasksEngine.create(home.id, { sentence: 'Give ' + (result.shown || result.name) + ' something small to do' }, null);
-                tasksEngine.create(home.id, { sentence: 'Put your next agent on this project too' }, null);
-              } catch { /* tasks are furniture the person can also make; the project stands without them */ }
-              fs.writeFileSync(seededFlag, JSON.stringify({ at: new Date().toISOString(), project: home.id }) + '\n', 'utf8');
-            }
-          } catch { /* a first screen a person fills themselves is the fallback, not a failure */ }
+            } catch { /* the note is furniture */ }
+            try {
+              const tasksEngine = require('./engine/tasks');
+              tasksEngine.create(home.id, { sentence: 'Say hello to everyone in the conversation' }, null);
+              tasksEngine.create(home.id, { sentence: 'Give ' + (result.shown || result.name) + ' something small to do' }, null);
+              tasksEngine.create(home.id, { sentence: 'Put your next agent on this project too' }, null);
+            } catch { /* tasks are furniture the person can also make; the project stands without them */ }
+            try { fs.writeFileSync(seededFlag, JSON.stringify({ at: new Date().toISOString(), project: home.id }) + '\n', 'utf8'); } catch { /* next first agent seeds again; harmless */ }
+          } else {
+            try { projects.remove(home.id); } catch { /* best effort; the store's own guards cover the rest */ }
+          }
         }
         sendJson(res, code, result);
       })

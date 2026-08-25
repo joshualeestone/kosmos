@@ -2510,3 +2510,51 @@ test('the first agent brings its own home, once, and never regrows a removed one
   assert.equal(projectsEngine.readAll().filter((p) => p.name === 'Getting started').length, 0,
     'the removed seed came back');
 });
+
+test('#732: the first agent is not born stale: its home exists before it does and rides into the creation, so the block is composed at birth', async () => {
+  reset();
+  const fsx = require('node:fs');
+  const projectsEngine = require('./engine/projects');
+  try { fsx.rmSync(path.join(require('./engine/store').ROOT, 'seeded-project.json'), { force: true }); } catch { /* fresh */ }
+  assert.equal(projectsEngine.readAll().length, 0, 'control: the sandbox starts with projects');
+  const res = await post('/api/agents', { name: 'born-fresh', role: 'pm' });
+  assert.equal(res.status, 200, res.body);
+  const made = json(res);
+  assert.equal(made.outcome, 'created', made.because);
+  const home = projectsEngine.readAll().find((p) => p.name === 'Getting started');
+  assert.ok(home, 'no home project was seeded');
+  assert.ok((home.agents || []).includes(made.name), 'the first agent is not a member of its home');
+  /* `seeded: true` is set over the SAME list that was handed to createAgent
+     as `projects`, so its presence proves the home's id rode into the
+     creation, where #323's path composes the block before the first write.
+     (The sandbox's creation writes no file, so the bytes are pinned by the
+     #323 tests, not here.) */
+  const seeded = (made.projects || []).find((p) => p.seeded === true);
+  assert.ok(seeded && seeded.id === home.id, 'the home was not in the list handed to the creation: ' + JSON.stringify(made.projects));
+  /* And the order in the source, so a refactor cannot move the seed back
+     below the creation: the seed runs before createAgent, and the creation
+     is handed the list the seed pushed into. */
+  const src = fsx.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const route = src.indexOf("pathname === '/api/agents' && req.method === 'POST'");
+  const seedAt = src.indexOf("name: 'Getting started'", route);
+  const callAt = src.indexOf('const result = create.createAgent({', route);
+  assert.ok(seedAt > -1 && callAt > -1 && seedAt < callAt, 'the home is seeded after the agent is created, so its block reaches the file after the session started');
+  assert.ok(src.slice(callAt, callAt + 1600).includes('projects: projectsToJoin,'), 'the creation is not handed the list the seed pushed into');
+});
+
+test('#732: a Kosmos-made edit that was told in the pane is `told`, not `stale`; a person\'s edit and an older tell are untouched', () => {
+  const projectsEngine = require('./engine/projects');
+  const editedAt = new Date(Date.now() - 5000).toISOString();
+  const stale = { state: 'stale', editedAt, startedAt: new Date(Date.now() - 60000).toISOString(), wroteBy: { who: 'kosmos', because: 'Kosmos put it on Midnight Inventory' } };
+  assert.equal(projectsEngine.toldOverride(stale, 'no-such-agent').state, 'stale', 'with no told record the verdict changed');
+  assert.equal(projectsEngine.toldOverride({ ...stale, wroteBy: { who: 'person', because: null } }, 'x').state, 'stale', 'a person\'s edit was overridden');
+  const p = projectsEngine.create({ name: 'Midnight Inventory', agents: [], roster: [], description: 'x', made: { via: 'test' } });
+  const all = projectsEngine.readAll();
+  for (const q of all) if (q.id === p.id) q.told = { 'told-agent': { state: projectsEngine.TOLD.TOLD, at: new Date().toISOString(), because: null } };
+  projectsEngine.writeAll(all);
+  const told = projectsEngine.toldOverride(stale, 'told-agent');
+  assert.equal(told.state, 'told', JSON.stringify(told));
+  assert.match(told.because, /told it in its pane/);
+  assert.equal(projectsEngine.toldOverride({ ...stale, editedAt: new Date(Date.now() + 5000).toISOString() }, 'told-agent').state, 'stale', 'a tell OLDER than the edit counted as knowing');
+  try { projectsEngine.remove(p.id); } catch { /* cleanup */ }
+});
