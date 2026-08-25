@@ -126,6 +126,8 @@ chmod +x "$STAGE/bin/kosmos"
 # repo). This step takes it as an INPUT, the same way the Node runtime is a
 # downloaded input rather than a tree file. Provide it at KOSMOS_TUNNEL_BIN;
 # the default is kosmos-relay's release output beside this checkout.
+# Its .commit and .sha256 sidecars must sit beside it (the relay's build writes
+# them); a copied binary needs its sidecars copied too (#621).
 #
 # ⚠️ THE INPUT IS UNSIGNED (kosmos-relay builds it, does not sign it). This
 # step signs it Developer ID below, in the build that produces the final bytes,
@@ -155,8 +157,14 @@ esac
 # not built from.
 . "$REPO/tools/lib/connector-provenance.sh"
 _tunnel_src="$(connector_provenance "$TUNNEL_BIN")" || exit 1
+_tunnel_in="$(connector_provenance_sha "$TUNNEL_BIN")" || exit 1
 cp "$TUNNEL_BIN" "$STAGE/app/bin/kosmos-tunnel"
 chmod +x "$STAGE/app/bin/kosmos-tunnel"
+# The bytes STAGED are the bytes the sidecar vouched for: a relay rebuild landing
+# between the check and the copy (rebuilt minutes before a cut is the shape
+# #621 is about) would otherwise ship bytes the check never saw.
+_tunnel_staged="$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}')"
+[ "$_tunnel_staged" = "$_tunnel_in" ] || { echo "the connector changed under its sidecars between the provenance check and the copy (sidecar $_tunnel_in, staged $_tunnel_staged); re-run the build" >&2; exit 1; }
 # ⚠️ SIGNED HERE, Developer ID, in the build that produces the final bytes, so
 # the checksum captured below IS what ships and nothing signs after (#583,
 # Splinter's Apple-lane ruling). The tunnel is spawned not launched, but a
@@ -180,13 +188,15 @@ codesign -v "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || { echo "the
 # proves the load. The x86_64 slice's own load is covered when an Intel install
 # runs it, not provable here on Apple silicon without emulation.
 "$STAGE/app/bin/kosmos-tunnel" --help >/dev/null 2>&1 || { echo "the signed connector does not run (--help failed); it may not load under hardened runtime" >&2; exit 1; }
-# Provenance, logged not baked: the input's own checksum, and which
-# kosmos-relay commit produced it, read from the sidecar the relay's build
-# wrote beside the binary (#621), so the logged commit is the bytes' own and
-# cannot name a checkout state the binary was not built from; the release's
-# 9b then proves the SERVED tunnel is byte-for-byte the one THIS build packed.
+# Provenance, logged not baked. Two checksums on purpose: the INPUT sha is the
+# one the relay build wrote beside the binary (what its sidecar names), the
+# SIGNED sha is the staged copy after Developer ID signing, which is what ships
+# and what the release's 9b compares the served bytes against. They never
+# match each other; a reader comparing the signed one with the sidecar would
+# read a fresh connector as stale. The commit is the sidecar's (#621), so it is
+# the bytes' own and cannot name a checkout state the binary was not built from.
 _tunnel_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}')"
-echo "==> Plus connector: kosmos-tunnel $_tunnel_sha (from $TUNNEL_BIN, built from kosmos-relay commit $_tunnel_src, per its sidecar)"
+echo "==> Plus connector: kosmos-tunnel signed $_tunnel_sha, input $_tunnel_in, built from kosmos-relay commit $_tunnel_src (per its sidecars beside $TUNNEL_BIN)"
 
 # ---- the runtime ------------------------------------------------------------
 node_arch() {
