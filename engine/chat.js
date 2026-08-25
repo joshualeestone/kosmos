@@ -605,8 +605,8 @@ function waitingNote(state, outcome) {
     // Claude sign-in had already failed.
     case status.STATE.AUTH_FAILED:
       return unsure
-        ? "its Claude sign-in was not working"
-        : "its Claude sign-in was not working, so it will not act on this until that is fixed";
+        ? 'its Claude sign-in was not working'
+        : 'its Claude sign-in was not working, so it will not act on this until that is fixed';
     case status.STATE.IDLE:
       return 'it was sitting at its prompt';
     default:

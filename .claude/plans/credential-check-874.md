@@ -34,8 +34,8 @@ Traced the whole chain: `web/index.html`'s `paintBusy`/`busyRow` render `"<name>
 
 ## Verification -- done, not just planned
 
-- `engine/status.test.js`: new case `#874: a rejected OAuth token reads as auth_failed, not working forever` -- the real captured pane text, the state/confidence/evidence assertions, a healthy-pane control, and an explicit pin that `#249`'s Codex 401 fixture is untouched. Full file: 113/113 pass (was 112).
-- `engine/chat.test.js`: new case for `waitingNote('auth_failed', ...)`, both delivery outcomes. Full file: 106/106 pass (unmodified count, one new test replacing headroom in an unrelated area is not what happened -- this is a net +1).
+- `engine/status.test.js`: new case `#874: a rejected OAuth token reads as auth_failed, not working forever` -- the real captured pane text, the state/confidence/evidence assertions, a healthy-pane control, and an explicit pin that `#249`'s Codex 401 fixture is untouched. Full file: 113/113 pass.
+- `engine/chat.test.js`: new case for `waitingNote('auth_failed', ...)`, both delivery outcomes, plus (added in challenge-loop iteration 1) `#874: test-support/fleet arranges an auth_failed agent for real, not just a hand-built card`, which routes an `auth_failed` fixture through the real classifier via `withFleet` rather than a hand-built card. Full file: 107/107 pass.
 - `web.pane-title-status.test.js`: new case for `stateReason`/`taskLine` on `auth_failed`, both confidence arms, executed via the real lifted source (`test-support/page.js`'s `lift`), not a paraphrase.
 - `web.reply-where.test.js`: extended the existing `paintBusy`/`busyRow` source-pattern tests (matching this file's own established style for testing those two functions without executing their full avatar-rendering dependency chain) to cover the new branch and its actual words.
-- Full suite: `node --test engine/*.test.js *.test.js` -- 2099 passed, 0 failed (was 2091 before this card, +8 new tests: net of the 12 individual assertions above spread across fewer `test()` blocks than files touched).
+- Full suite: `node --test engine/*.test.js *.test.js` -- 2100 passed, 0 failed on this branch (2095 passed on `main` for comparison: net +5, matching the 5 new `test()` blocks the diff adds).

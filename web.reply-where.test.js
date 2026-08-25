@@ -165,11 +165,11 @@ test('#874: the same slot also shows for auth_failed, not only for working', () 
    * nothing replacing it) go unquestioned.
    */
   assert.match(fn('paintBusy'), /fresh\.state === 'auth_failed'/,
-    'paintBusy no longer shows this slot for an auth-failed agent');
+    'paintBusy still only shows this slot for working, not for an auth-failed agent');
   assert.match(fn('busyRow'), /fresh\.state === 'auth_failed'/,
-    'busyRow no longer has a distinct line for an auth-failed agent');
+    'busyRow still has no distinct line for an auth-failed agent');
   assert.match(fn('busyRow'), /sign-in isn&rsquo;t working/,
-    'the auth-failed line lost its actual words');
+    'the auth-failed line is missing its actual words');
 });
 
 test('it is painted on open AND on the poll, off the poll’s existing lookup', () => {
