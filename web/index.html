@@ -1721,9 +1721,15 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* #750 (Josh, 2026-08-24 21:29): "stylized to be just like the new agent":
    no bounding box, the create page's width, fields at a normal width. */
 #pj-add-view { max-width: 34rem; margin: 0 auto; background: none; border: 0; box-shadow: none; padding: 0; }
-#pj-add-view .pj-picked { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3) 0; border-bottom: 0.5px solid var(--separator); }
+/* #859 (Josh, 2026-08-25 10:34): "space those out just a little bit
+   taller (so we get a nice little avatar and it looks like we're
+   adding people to this project)" -- padding bumped from --space-3 to
+   --space-4 to give the 34px face (the same .pj-face used everywhere
+   else a member's identity is drawn) room to breathe. */
+#pj-add-view .pj-picked { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) 0; border-bottom: 0.5px solid var(--separator); }
 #pj-add-view .pj-picked b { font: 600 var(--text-body) var(--font-ui); }
 #pj-add-view .pj-picked small { color: var(--label-2); }
+#pj-add-view .pj-picked .pj-picked-b { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 #pj-add-view .pj-picked .skillrm { margin-left: auto; }
 #pj-add-view .pj-add-doors .btn:disabled, #pj-settings-view .pj-add-doors .btn:disabled { opacity: .5; cursor: not-allowed; }
 /* The room page sits on the GROUND like the pack draws it: the three
@@ -24589,13 +24595,28 @@ function paintAddAgents() {
    round-34 quote-escaping mismatch is why setLive stores strings at all.) */
 /* #750: only the agents put on the project so far, each with a way off;
    the rest live in the dropdown behind "Add an agent". */
+/* #859 (Josh, 2026-08-25 10:34): "let's add in their avatars too ...
+   so we get a nice little avatar and it looks like we're adding people
+   to this project." The same face markup pjMember() draws everywhere
+   else a member's identity is shown -- the photograph when the agent
+   has one (gated on hasAvatar, tied in the engine), otherwise tinted
+   initials -- reused rather than re-derived, so this row's face agrees
+   with the card, the list and the room about the same agent. */
 function addAgentsHtml() {
   const picked = PJ_ADD_AGENTS.map((key) => LAST.find((a) => a.sessionName === key)).filter(Boolean);
   if (!picked.length) return '<p class="fhint" style="margin:0;">No agents on it yet.</p>';
-  return picked.map((a) => '<div class="pj-picked" data-agent="' + esc(a.sessionName) + '">'
-    + '<span><b>' + esc(a.name) + '</b> <small>' + esc(roleLine(a, ROLE_TITLES)) + '</small></span>'
-    + '<button class="skillrm" type="button" data-unpick="' + esc(a.sessionName) + '" aria-label="Take ' + esc(a.name) + ' off this project">Remove</button>'
-    + '</div>').join('');
+  return picked.map((a) => {
+    const face = a.hasAvatar
+      ? '<span class="lav pj-face" aria-hidden="true"><img src="/api/agent/'
+        + encodeURIComponent(a.sessionName) + '/avatar" alt=""></span>'
+      : '<span class="lav pj-face" aria-hidden="true" style="background:' + discTint(a.name)
+        + ';color:' + discInk(a.name) + '">' + esc(initials(a.name)) + '</span>';
+    return '<div class="pj-picked" data-agent="' + esc(a.sessionName) + '">'
+      + face
+      + '<span class="pj-picked-b"><b>' + esc(a.name) + '</b> <small>' + esc(roleLine(a, ROLE_TITLES)) + '</small></span>'
+      + '<button class="skillrm" type="button" data-unpick="' + esc(a.sessionName) + '" aria-label="Take ' + esc(a.name) + ' off this project">Remove</button>'
+      + '</div>';
+  }).join('');
 }
 function addPickOptions() {
   const sel = document.getElementById('pj-add-pick');
