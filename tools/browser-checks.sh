@@ -395,7 +395,14 @@ if boot_board "$sb7" "$P8"; then
 else
   for n in contrast named-controls render-create-form render-found-undo render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
 fi
-for n in live-connect render-agent-nav render-busy-line render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state; do
+# #812 batch 2 (retried after the first attempt found four checks that
+# assumed compatibility with B8's fixture instead of verifying it -- those
+# stay unwired until their own fixture needs are met). render-memory-controls
+# is genuinely self-contained (its own mktemp sandbox, its own fleet.install,
+# requires server.js in-process) and was proven standalone before being added
+# here, matching this loop's existing "boots its own fixture server, runs
+# bare" shape exactly.
+for n in live-connect render-agent-nav render-busy-line render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
 sb3="$(new_sandbox)"
