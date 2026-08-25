@@ -498,39 +498,63 @@ async function main() {
       if (bareDetail.fontStyle !== 'italic' || bareDetail.fontSize !== '12px') {
         throw new Error('the placeholder lost its unmistakably-not-content styling (italic at the merged header\u2019s .75rem): ' + JSON.stringify(bareDetail));
       }
-      // A description AT THE CAP wraps FULLY on the pack card (the one-line
-      // ellipsis retired with the pj-cards restyle): the claim is that the
-      // whole sentence is on screen, wrapped, not clipped.
+      /* ⚠️ RE-EXPRESSED AGAIN (2026-08-25, #860/#861; Mona Lisa). The old pin
+         here ("wraps FULLY... whole sentence on screen, wrapped, not
+         clipped") described the pj-cards-restyle shape, which two of
+         Josh's own asks that same afternoon superseded: #860 (10:35)
+         asked the LIST row to truncate a long description to one line
+         instead of wrapping it; #861 (10:37) asked the GRID card to drop
+         the description from its stack entirely (title, status bubble,
+         icons, count -- his own four-item list, no description in it).
+         So the description now behaves DIFFERENTLY per view, and this
+         check follows both views rather than picking one. */
       const cap = 'C'.repeat(200);
       await api('/api/project/' + encodeURIComponent('reedhandover'), {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ description: cap }),
       });
+      // GRID is the default view: the description is not merely clipped,
+      // it is not drawn at all (#861).
       await page.goto(BASE + '/?tab=projects', { waitUntil: 'networkidle' });
       await page.waitForTimeout(400);
-      const longRow = await page.evaluate(() => {
+      const gridRow = await page.evaluate(() => {
+        const row = [...document.querySelectorAll('.pj-row')]
+          .find((r) => r.textContent.includes('Reed handover'));
+        const el = row && row.querySelector('.pc-t');
+        return { present: Boolean(el), display: el ? getComputedStyle(el).display : null };
+      });
+      if (!gridRow.present) throw new Error('the .pc-t element itself is gone from the grid card -- #861 hides it with CSS, it does not remove it, and something removed it instead');
+      if (gridRow.display !== 'none') {
+        throw new Error('the grid card is drawing a description again; #861 asked for it gone from this view’s stack: ' + JSON.stringify(gridRow));
+      }
+      // LIST view: the description renders, truncated to one line (#860),
+      // not wrapped across two or more the way the old pin asked for.
+      await page.click('.viewtoggle[data-scope="projects"] [data-layout="list"]');
+      await page.waitForTimeout(300);
+      const listRow = await page.evaluate(() => {
         const row = [...document.querySelectorAll('.pj-row')]
           .find((r) => r.textContent.includes('Reed handover'));
         const el = row && row.querySelector('.pc-t');
         if (!el) return null;
         const cs = getComputedStyle(el);
         return {
+          display: cs.display,
           lines: Math.round(el.getBoundingClientRect().height / parseFloat(cs.lineHeight)),
           clippedX: el.scrollWidth > el.clientWidth + 1,
-          clippedY: el.scrollHeight > el.clientHeight + 1,
         };
       });
-      if (!longRow) throw new Error('the 200-char description never rendered on its card');
-      if (longRow.lines < 2 || longRow.clippedX || longRow.clippedY) {
-        throw new Error('a description at the cap should wrap fully on the pack card, unclipped: ' + JSON.stringify(longRow));
+      if (!listRow) throw new Error('the 200-char description never rendered on the list row');
+      if (listRow.display === 'none') throw new Error('the list row is hiding its description; #860 only ever asked to truncate it, not hide it');
+      if (listRow.lines !== 1 || !listRow.clippedX) {
+        throw new Error('a description at the cap should truncate to one clipped line on the list row (#860), not wrap or sit unclipped: ' + JSON.stringify(listRow));
       }
       await api('/api/project/' + encodeURIComponent('reedhandover'), {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ description: '' }),
       });
-      console.log('✔ 2b-description (row, both absence arms, detail, and the one-line cap)');
+      console.log('✔ 2b-description (row, both absence arms, detail, and the one-line cap, grid-absent + list-truncated)');
     } finally {
       await ctx.close();
     }
