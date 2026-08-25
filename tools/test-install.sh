@@ -87,7 +87,13 @@ DATA_FINGERPRINT="$(cd "$SB/data" && find . -type f -exec shasum {} \; | sort)"
 data_paths() { (cd "$SB/data" && find . -type f | sort); }
 data_hashes() { (cd "$SB/data" && find . -type f -exec shasum {} \; | sort); }
 DATA_PATHS_BEFORE="$(data_paths)"
-EXPECTED_ADDS="./AgentWorkforce/bin/agent-supervisor.sh"
+# Two files, not one, since #745: the board refreshes BOTH the supervisor and
+# the codex notify bridge into the person's bin/ at start (server.js ->
+# create.installSupervisor). Before #745 the bridge's source was missing from
+# every served bundle, so the copy threw and only the supervisor ever landed;
+# the release gate (#624) then read that broken state as the expectation and
+# refused the first bundle that carried the fix. Sorted, the way comm emits.
+EXPECTED_ADDS="$(printf '%s\n' ./AgentWorkforce/bin/agent-supervisor.sh ./AgentWorkforce/bin/codex-report-bridge.js)"
 
 # ⚠️ THE PRODUCT'S DEFAULT PORT, RECORDED BEFORE ANYTHING RUNS, and checked
 # again at the end. Found by Splinter, 2026-08-21: a test run left a board
