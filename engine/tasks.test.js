@@ -476,3 +476,59 @@ test('reassigning a part to its own current holder is a no-op, even after that a
   assert.throws(() => tasks.addPart(p.id, t2.number, { sentence: 'New part', who: 'gwen' }),
     /not on this project/, 'membership still gates an ACTUAL new assignment to a departed agent');
 });
+
+/* ── the parts valve (#803) ─────────────────────────────────────────────── */
+test('a part records how and when it was added; a move records how and when it moved; a resubmit records nothing', () => {
+  const p = freshProject('Parts provenance');
+  projects.addAgent(p.id, 'april');
+  projects.addAgent(p.id, 'mikey');
+  const t = tasks.create(p.id, { sentence: 'Ship it' });
+  const a = tasks.addPart(p.id, t.number, { sentence: 'By a process', made: { via: 'process' } });
+  const b = tasks.addPart(p.id, t.number, { sentence: 'By the screen' });
+  assert.equal(a.ok && b.ok, true);
+  // The task itself becomes part 1 when parts arrive; the two added follow.
+  const [, x, y] = tasks.partsOf(b.task);
+  assert.equal(x.addedVia, 'process');
+  assert.equal(y.addedVia, 'screen', 'no origin means the screen, as tasks.create treats it');
+  assert.ok(Number.isFinite(Date.parse(x.createdAt)) && Number.isFinite(Date.parse(y.createdAt)));
+  assert.equal(x.movedAt, undefined, 'an unmoved part carries a move');
+  const m = tasks.assignPart(p.id, t.number, x.id, 'april', { via: 'process' });
+  assert.equal(m.changed, true);
+  const moved = tasks.partsOf(m.task)[1];
+  assert.equal(moved.movedVia, 'process');
+  assert.ok(Number.isFinite(Date.parse(moved.movedAt)));
+  const again = tasks.assignPart(p.id, t.number, x.id, 'april', { via: 'process' });
+  assert.equal(again.changed, false);
+  assert.equal(tasks.partsOf(again.task)[1].movedAt, moved.movedAt, 'a resubmit of the same assignee re-stamped the move, which would count against the valve for nothing');
+});
+
+test('the valve counts process adds and moves across projects, says the number and when it lifts, ignores the screen, and ages through the seam', () => {
+  const p1 = freshProject('Valve one');
+  const p2 = freshProject('Valve two');
+  projects.addAgent(p1.id, 'april'); projects.addAgent(p2.id, 'april');
+  const t1 = tasks.create(p1.id, { sentence: 'A' });
+  const t2 = tasks.create(p2.id, { sentence: 'B' });
+  // The count spans every project on this Mac, by design, so build on what
+  // earlier tests already put on the books rather than assuming zero.
+  const before = tasks.processPartWrites().count;
+  assert.ok(before < 10, 'earlier tests left ' + before + ' process writes live; this test needs room');
+  for (let i = 0; i < 2; i += 1) tasks.addPart(p2.id, t2.number, { sentence: 'q' + i, made: { via: 'process' } });
+  for (let i = 0; i < 3; i += 1) tasks.addPart(p2.id, t2.number, { sentence: 's' + i });   // the screen: never counted
+  assert.equal(tasks.processPartWrites().count, before + 2, 'the screen was counted, or a project was not');
+  while (tasks.processPartWrites().count < tasks.PARTS_PER_HOUR - 1) tasks.addPart(p1.id, t1.number, { sentence: 'p' + tasks.processPartWrites().count, made: { via: 'process' } });
+  assert.equal(tasks.partValve().refused, false, 'refused under the cap');
+  const parts = tasks.partsOf(tasks.byNumber(projects.readAll().find((x) => x.id === p1.id), t1.number));
+  const m = tasks.assignPart(p1.id, t1.number, parts[parts.length - 1].id, 'april', { via: 'process' });
+  assert.equal(m.changed, true);
+  assert.equal(tasks.processPartWrites().count, tasks.PARTS_PER_HOUR, 'the move was not counted');
+  const v = tasks.partValve();
+  assert.equal(v.refused, true, 'twelve in the hour did not close the valve');
+  assert.match(v.because, /agents have made \d+ part changes in the last hour/);
+  assert.match(v.because, /pausing agent-made parts for \d+ minutes?/, 'the refusal does not say when it lifts');
+  assert.match(v.because, /from the screen/, 'the refusal does not tell the person their own path is open');
+  assert.ok(v.retryAfterSecs > 0 && v.retryAfterSecs <= 3600, String(v.retryAfterSecs));
+  // Age p1's writes past the hour; p2's two adds and the earlier books remain, so the valve opens.
+  tasks.agePartWritesForTests(p1.id, 3601);
+  assert.equal(tasks.processPartWrites().count, before + 2);
+  assert.equal(tasks.partValve().refused, false, 'the valve stayed shut after its writes aged out');
+});

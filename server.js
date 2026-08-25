@@ -5324,10 +5324,18 @@ const server = http.createServer((req, res) => {
     readBody(req).then((raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      const screen = isViaScreen(req);
+      /* The parts valve (#803): the WRITE is refused for a process past
+         twelve part changes an hour, counted across projects from the
+         records themselves; the screen is never valved. The sentence says
+         the number and when it lifts, and the header says it too. */
+      if (!screen) {
+        const v = tasks.partValve();
+        if (v.refused) { res.setHeader('retry-after', String(v.retryAfterSecs)); sendJson(res, 429, { error: v.because, retry_after_secs: v.retryAfterSecs }); return; }
+      }
       try {
-        const out = tasks.addPart(id, partMake[2], { sentence: body && body.sentence, who: body && body.who });
+        const out = tasks.addPart(id, partMake[2], { sentence: body && body.sentence, who: body && body.who, made: { via: screen ? 'screen' : 'process' } });
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
-        const screen = isViaScreen(req);
         // The STORED (trimmed) sentence, off the part addPart just appended
         // -- never the raw request body, which can carry whitespace addPart
         // itself strips before saving.
@@ -5355,16 +5363,23 @@ const server = http.createServer((req, res) => {
     readBody(req).then((raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      const screen = isViaScreen(req);
+      const verb = partAct[4];
+      /* The parts valve (#803), the move half: a process reassigning parts in
+         a loop is the same runaway as adding them. Close and reopen are not
+         valved: they change a state, not who is commanded. */
+      if (verb === 'who' && !screen) {
+        const v = tasks.partValve();
+        if (v.refused) { res.setHeader('retry-after', String(v.retryAfterSecs)); sendJson(res, 429, { error: v.because, retry_after_secs: v.retryAfterSecs }); return; }
+      }
       try {
-        const verb = partAct[4];
         const out = verb === 'who'
-          ? tasks.assignPart(id, partAct[2], partAct[3], body && body.who)
+          ? tasks.assignPart(id, partAct[2], partAct[3], body && body.who, { via: screen ? 'screen' : 'process' })
           : tasks.setPartClosed(id, partAct[2], partAct[3], verb === 'close' ? new Date().toISOString() : null);
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
         // `out.changed`: assignPart reports whether `who` actually moved, so
         // re-posting the same assignee does not re-type the same pane line
         // (#304's rule). The budget check mirrors partMake's.
-        const screen = isViaScreen(req);
         const roster = safeRoster();
         let heard;
         if (verb === 'who' && out.changed && (screen || heardBudgetAllows())) {

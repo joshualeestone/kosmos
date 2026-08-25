@@ -141,8 +141,59 @@ function nextPartId(parts) {
   return parts.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0) + 1;
 }
 
-/** Add a piece to a task. Its own sentence, and nobody on it until asked. */
-function addPart(projectId, n, { sentence, who } = {}) {
+/* The parts valve (#803). tasks.create and projects.create sit behind a
+   persisted twelve-an-hour refusal of process-originated writes; addPart and
+   assignPart did not, so a looping process could make unlimited parts and
+   reassign them without bound, each one rewriting instruction files through
+   tellEveryoneOn. It looked metered because its neighbours were. Persisted
+   the same way the task valve is: in the records themselves (a part carries
+   how and when it was added, and how and when it was last moved), so a
+   restart does not open the valve. The SCREEN is never valved. */
+const PARTS_PER_HOUR = 12;
+const HOUR_MS = 3600000;
+function viaOf(made) { return made && made.via === 'process' ? 'process' : 'screen'; }
+
+/** Every process-originated part write in the last hour, across all
+ * projects: parts added, and parts moved to somebody. Answers the count and
+ * when the oldest one ages out, so a refusal can say the number. */
+function processPartWrites(now = Date.now()) {
+  const since = now - HOUR_MS;
+  let count = 0; let oldest = null;
+  for (const p of projects.readAll()) {
+    for (const t of (p && p.tasks) || []) {
+      for (const x of (t && t.parts) || []) {
+        for (const [via, at] of [[x.addedVia, x.createdAt], [x.movedVia, x.movedAt]]) {
+          const ms = Date.parse(at);
+          if (via === 'process' && Number.isFinite(ms) && ms >= since) { count += 1; if (oldest === null || ms < oldest) oldest = ms; }
+        }
+      }
+    }
+  }
+  return { count, liftsInSecs: oldest === null ? 0 : Math.max(1, Math.ceil((oldest + HOUR_MS - now) / 1000)) };
+}
+
+/** The refusal, or not, for a process write right now. The sentence says the
+ * count and when it lifts, and that the person's own path is open. */
+function partValve(now = Date.now()) {
+  const w = processPartWrites(now);
+  if (w.count < PARTS_PER_HOUR) return { refused: false, count: w.count };
+  const mins = Math.max(1, Math.ceil(w.liftsInSecs / 60));
+  return { refused: true, count: w.count, retryAfterSecs: w.liftsInSecs,
+    because: 'agents have made ' + w.count + ' part changes in the last hour, so Kosmos is pausing agent-made parts for '
+      + mins + (mins === 1 ? ' minute' : ' minutes') + '; the person can still make them from the screen' };
+}
+
+/** Tests age the records through this rather than shortening the hour. */
+function agePartWritesForTests(projectId, secs) {
+  const shift = (at) => (Number.isFinite(Date.parse(at)) ? new Date(Date.parse(at) - secs * 1000).toISOString() : at);
+  projects.mutate(projectId, (p) => ({ ...p, tasks: (p.tasks || []).map((t) => ({ ...t,
+    parts: (t.parts || []).map((x) => ({ ...x, createdAt: shift(x.createdAt), movedAt: shift(x.movedAt) })) })) }));
+}
+
+/** Add a piece to a task. Its own sentence, and nobody on it until asked.
+ * `made` says how it arrived ({via: 'process'|'screen'}), as tasks.create's
+ * does; the part records it, which is what the valve counts. */
+function addPart(projectId, n, { sentence, who, made } = {}) {
   const said = typeof sentence === 'string' ? sentence.trim() : '';
   if (!said) return { ok: false, because: 'say what this part is' };
   if (said.length > SENTENCE_MAX) return { ok: false, because: `keep it under ${SENTENCE_MAX} characters` };
@@ -156,13 +207,16 @@ function addPart(projectId, n, { sentence, who } = {}) {
     if (whoKey && !(p.agents || []).includes(whoKey)) {
       throw new Error('that agent is not on this project, so the part cannot be given to it');
     }
-    return parts.concat([{ id: nextPartId(parts), who: whoKey, sentence: said, closedAt: null }]);
+    return parts.concat([{ id: nextPartId(parts), who: whoKey, sentence: said, closedAt: null,
+      addedVia: viaOf(made), createdAt: new Date().toISOString() }]);
   });
   return { ok: true, task };
 }
 
-/** Put somebody on a part, or take them off it (`who: null`). */
-function assignPart(projectId, n, partId, who) {
+/** Put somebody on a part, or take them off it (`who: null`). A move that
+ * changes `who` records how and when it arrived (`made`), which the valve
+ * counts; a resubmit of the current assignee records nothing. */
+function assignPart(projectId, n, partId, who, made) {
   const whoKey = typeof who === 'string' && who.trim() ? who.trim() : null;
   if (whoKey && whoKey.length > WHO_MAX) return { ok: false, because: 'who is on it has to be an agent\'s name' };
   let found = false;
@@ -189,7 +243,7 @@ function assignPart(projectId, n, partId, who) {
       if (moved && whoKey && !(p.agents || []).includes(whoKey)) {
         throw new Error('that agent is not on this project, so the part cannot be given to it');
       }
-      return { ...x, who: whoKey };
+      return moved ? { ...x, who: whoKey, movedVia: viaOf(made), movedAt: new Date().toISOString() } : x;
     });
   });
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
@@ -268,6 +322,14 @@ function partsOf(task) {
       sentence: (typeof part.sentence === 'string' && part.sentence.trim())
         ? part.sentence.trim() : task.sentence,
       closedAt: part.closedAt || null,
+      /* Provenance (#803): how and when a part was added or last moved,
+         carried through as stored, since writeParts stores what this
+         returns. Absent on parts from before it existed; the valve treats
+         absent as not-a-process-write, which is the safe direction. */
+      ...(part.addedVia ? { addedVia: part.addedVia } : {}),
+      ...(part.createdAt ? { createdAt: part.createdAt } : {}),
+      ...(part.movedVia ? { movedVia: part.movedVia } : {}),
+      ...(part.movedAt ? { movedAt: part.movedAt } : {}),
     }));
   }
   return [{
@@ -383,4 +445,5 @@ function claimFor(task, reading) {
 
 module.exports = { create, close, reopen, byNumber, columnTasks, claimFor, taskProblem,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed,
+  partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
   SENTENCE_MAX, DETAIL_MAX, WHO_MAX };
