@@ -3,13 +3,17 @@
  * The Settings page's left nav, on a screen (settings-nav, 2026-08-23).
  *
  * Same shape as render-agent-nav.js and for the same reason: the text tests
- * can prove the seven sections exist and which box is in which; only a
+ * can prove the eleven sections exist and which box is in which; only a
  * browser can prove a click puts that section on screen and takes the others
- * off it, in both themes and at phone width. Leads with a control (six
- * sections at zero height before any click), measures by rectangle.
+ * off it, in both themes, at phone width, and in the 56 to 60rem band where
+ * the nav sits beside a fluid section, with the centred pair measured above
+ * 60rem. Leads with a control (ten sections at zero height before any
+ * click), measures by rectangle.
  *
  * The server runs in this process against a fixture fleet with every state
- * root a temp dir; the check clicks pills and the theme toggle, nothing else.
+ * root a temp dir; the check clicks nav pills, saves the name field twice (a
+ * new name, then back), and resizes the window; the theme comes from the
+ * page's colorScheme.
  *
  *   node docs/browser-checks/render-settings-nav.js            # headed
  *   HEADED=0 node docs/browser-checks/render-settings-nav.js   # headless
@@ -88,14 +92,14 @@ function chk(ok, label, extra) {
       await page.fill('#you-name', 'Josh'); await page.click('#you-name-save');
       await page.waitForFunction(() => /^Saved\. Told/.test(document.getElementById('you-name-msg').textContent), null, { timeout: 8000 });
       chk(SECTIONS.filter((k) => k !== 'you').every((k) => r[k] === 0),
-        `[${theme}] control: the other six sections measure zero before any click`, JSON.stringify(r));
+        `[${theme}] control: the other ten sections measure zero before any click`, JSON.stringify(r));
 
       for (const k of SECTIONS) {
         await page.click('#s-nav button[data-go="' + k + '"]');
         await page.waitForTimeout(150);
         r = await rects();
         chk(SECTIONS.every((j) => (j === k ? r[j] > 0 : r[j] === 0)),
-          `[${theme}] click ${k}: that section is on screen and the six others are not`, JSON.stringify(r));
+          `[${theme}] click ${k}: that section is on screen and the ten others are not`, JSON.stringify(r));
         const pill = await page.evaluate((key) => {
           const b = document.querySelector('#s-nav button[data-go="' + key + '"]');
           const on = [...document.querySelectorAll('#s-nav button.on')].map((x) => x.dataset.go);
@@ -120,15 +124,44 @@ function chk(ok, label, extra) {
           `[${theme}] ${id} is on screen in ${WHERE[id]} with a real position`, JSON.stringify(sw));
       }
 
+      // Above 60rem (the page opened at 1400): the nav and a 34rem section as
+      // one centred pair, equal gutters either side. This is the regime the
+      // 60rem rule hands over to; without an assertion here only a
+      // screenshot would show it going.
+      const pair = await page.evaluate(() => {
+        const nav = document.getElementById('s-nav').getBoundingClientRect();
+        const sec = document.querySelector('#panel-settings .dsec:not([hidden])').getBoundingClientRect();
+        const vw = document.documentElement.clientWidth;
+        return { navWidth: nav.width, secWidth: sec.width, leftGutter: nav.left, rightGutter: vw - sec.right };
+      });
+      chk(pair.navWidth > 0 && Math.abs(pair.secWidth - 544) <= 1, `[${theme}] at 1400px the section is the 34rem measure`, JSON.stringify(pair));
+      chk(Math.abs(pair.leftGutter - pair.rightGutter) <= 4, `[${theme}] at 1400px the nav and section sit as one centred pair`, JSON.stringify(pair));
+
+      // The band between the phone rule (56rem) and the centred pair (60rem):
+      // the nav stays beside a FLUID section that starts at the gutter. This
+      // is the only place that width is rendered; the phone fix restated the
+      // Settings rule inside the 56rem block and must not reach up here.
+      await page.setViewportSize({ width: 920, height: 900 });
+      await page.waitForTimeout(300);
+      const band = await page.evaluate(() => {
+        const nav = document.getElementById('s-nav').getBoundingClientRect();
+        const sec = document.querySelector('#panel-settings .dsec:not([hidden])').getBoundingClientRect();
+        return { navWidth: nav.width, navRight: nav.right, secLeft: sec.left, secWidth: sec.width, overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth };
+      });
+      // navWidth > 0: a detached or display:none nav has a zero rect, and 0 <= anything
+      chk(band.navWidth > 0 && band.navRight <= band.secLeft + 1, `[${theme}] at 920px the nav sits beside the section`, JSON.stringify(band));
+      chk(band.secWidth > 544 + 1, `[${theme}] at 920px the section is fluid, wider than the 34rem pair`, JSON.stringify(band));
+      chk(!band.overflow, `[${theme}] at 920px the page does not scroll sideways`);
+
       // Narrow: the nav becomes a row above the content, and nothing overflows.
       await page.setViewportSize({ width: 420, height: 900 });
       await page.waitForTimeout(300);
       const narrow = await page.evaluate(() => {
         const nav = document.getElementById('s-nav').getBoundingClientRect();
         const sec = document.querySelector('#panel-settings .dsec:not([hidden])').getBoundingClientRect();
-        return { navBottom: nav.bottom, secTop: sec.top, overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth };
+        return { navHeight: nav.height, navBottom: nav.bottom, secTop: sec.top, overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth };
       });
-      chk(narrow.navBottom <= narrow.secTop + 1, `[${theme}] at 420px the nav sits above the section`, JSON.stringify(narrow));
+      chk(narrow.navHeight > 0 && narrow.navBottom <= narrow.secTop + 1, `[${theme}] at 420px the nav sits above the section`, JSON.stringify(narrow));
       chk(!narrow.overflow, `[${theme}] at 420px the page does not scroll sideways`);
       await page.screenshot({ path: path.join(OUT, `settings-${theme}-narrow.png`), fullPage: false });
 
