@@ -2027,7 +2027,6 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .dname { font-size: 1rem; font-weight: 650; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjtitle { display: grid; gap: 1px; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .pj-desc, html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 0; max-width: none; line-height: 1.35; }
-  html[data-layout="consolidated"] body.consolidated .pjmidhead .pj-desc.pj-desc-none { display: none; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .tsearch { flex: 0 1 min(320px, 40%); }
   html[data-layout="consolidated"] body.consolidated #pj-one-name + .pj-desc, html[data-layout="consolidated"] body.consolidated #pj-one-made { margin-top: 1px; }
@@ -2179,7 +2178,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pjmidhead .pjhead .pjtitle { display: grid; gap: 1px; }
 .pjmidhead .pjhead .dname { font-size: 1.25rem; }
 .pjmidhead .pjhead .pj-desc, .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 1px 0 0; max-width: none; line-height: 1.35; }
-.pjmidhead .pjhead .pj-desc.pj-desc-none { display: none; }
+/* #862 (Mona Lisa, 2026-08-25 11:40, option a): an undescribed project SHOWS its
+   placeholder in the merged header too, at the header's own size; Josh's 08-20
+   ruling stands in every layout, and his 10:12 ask (smaller, in this header)
+   is met by the size. The hide-when-empty rule that lived here from #520 is
+   gone; the check pins the placeholder on screen. */
 .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
 .pjmidhead:has(.pjhead) .tsearch { flex: 0 1 min(320px, 40%); }
 /* Below 60rem there is not enough room for a title, a description and a

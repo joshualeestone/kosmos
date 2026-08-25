@@ -482,22 +482,24 @@ async function main() {
       if (!bareDetail.present) {
         throw new Error('#pj-one-desc vanished from the markup entirely');
       }
-      /* RE-EXPRESSED AGAIN (2026-08-25, #862, Mona Lisa's ruling 11:25): the
-         detail description now lives in the conversation column's HEADER in
-         every layout (f731a69, Josh 10:12), and that header keeps one line so
-         it stays a header (#520): an EMPTY description is hidden there, not
-         shown as a sentence. That is a header-specific narrowing of the 08-20
-         ruling, not its supersession: the project list's rows and tiles still
-         show the placeholder, and their arms above are untouched. So the pin
-         here is: the element is present, carries the empty marker, still
-         holds the placeholder sentence (so any surface that shows it shows
-         the ruled words), and is NOT rendered (zero height); a page that
-         showed a full italic sentence inside a one-line header would be the
-         regression now. No styling leg: nothing is on screen to style. */
-      if (bareDetail.empty !== true
+      /* RE-EXPRESSED AGAIN (2026-08-25, #862; Mona Lisa's ruling 11:40, option a,
+         reversing her 11:25): the detail description lives in the conversation
+         column's header in every layout (f731a69, Josh 10:12) and an
+         undescribed project SHOWS its placeholder there too. Josh's 08-20
+         ruling stands in every layout; his 10:12 ask (smaller, in this
+         header) is met by the size, .75rem, the merged header's own, not
+         the split layout's .9375rem this line once asked for. So: present,
+         on screen, the ruled sentence, the empty styling, italic, 12px. */
+      if (!bareDetail.present) {
+        throw new Error('#pj-one-desc vanished from the markup entirely');
+      }
+      if (bareDetail.hidden !== false || bareDetail.h <= 0
         || !/^This project has no description yet\./.test(bareDetail.text)
-        || bareDetail.h > 0) {
-        throw new Error('an undescribed project\u2019s detail must be marked empty, carry the placeholder sentence, and stay hidden in the merged header (#520 kept one line; Mona Lisa, 2026-08-25): ' + JSON.stringify(bareDetail));
+        || bareDetail.empty !== true) {
+        throw new Error('an undescribed project\u2019s detail must SHOW the placeholder in the empty styling (Josh, 08-20; in the merged header too, Mona Lisa 2026-08-25): ' + JSON.stringify(bareDetail));
+      }
+      if (bareDetail.fontStyle !== 'italic' || bareDetail.fontSize !== '12px') {
+        throw new Error('the placeholder lost its unmistakably-not-content styling (italic at the merged header\u2019s .75rem): ' + JSON.stringify(bareDetail));
       }
       // A description AT THE CAP wraps FULLY on the pack card (the one-line
       // ellipsis retired with the pj-cards restyle): the claim is that the
