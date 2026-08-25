@@ -358,6 +358,28 @@ if wait_up "$P5" "$sb5/server.log" && wait_up "$P6" "$sb6/server.log"; then
 else
   FAILED+=("render-github-door (a server did not boot)")
 fi
+# #812: render-create-made presses the real Create button, so it refuses to
+# run without both a dry-run server (nothing is actually started or written)
+# and an explicit --yes-dry-run flag of its own -- neither is optional, and
+# it is why this check needed a dedicated board rather than joining B8 (which
+# runs without AGENT_WORKFORCE_DRY_RUN). Restated against 4bf7d95's real
+# ending by Ice Cream Kitty (#826) before this PR wired it in; proven
+# standalone (18/18) before this line was written, with exactly the env vars
+# below -- no tmux/fake-panes vars, because dry run never reaches tmux and
+# the standalone proof ran clean without them.
+sb8="$(new_sandbox)"
+P10="$(free_port)"
+AGENT_WORKFORCE_DATA="$sb8/data" AGENT_WORKFORCE_WORKERS="$sb8/workers" \
+  AGENT_WORKFORCE_LAUNCH="$sb8/launch" AGENT_WORKFORCE_PROJECTS="$sb8/projects" \
+  AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
+  PORT="$P10" node server.js > "$sb8/server.log" 2>&1 &
+SERVER_PIDS+=("$!")
+if wait_up "$P10" "$sb8/server.log"; then
+  curl -s -X POST "http://127.0.0.1:$P10/api/first-run/complete" >/dev/null
+  run_one "render-create-made" node docs/browser-checks/render-create-made.js "http://127.0.0.1:$P10" --yes-dry-run
+else
+  FAILED+=("render-create-made (a server did not boot)")
+fi
 # #616: every check that was green on a clean main in #545's count, and was
 # not wired, now runs here. Two groups. The first shares one board with
 # first run completed through the product's own route (on a fresh board the
