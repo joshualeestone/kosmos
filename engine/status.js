@@ -647,13 +647,19 @@ function isParseable(line) {
  * serving an empty fleet it cannot vouch for.
  */
 function readPanes(out) {
-  if (!out) return { panes: [], rejected: 0 };
+  if (!out) return { panes: [], rejected: 0, rejectedLines: [] };
   const lines = out.trim().split('\n').filter(Boolean);
   // ⚠️ Counted from what actually PARSED, not from a second application of the
   // filter. Two derivations of "how many did we lose" can drift the moment
   // `parsePanes` drops a line for any other reason.
   const panes = parsePanes(out);
-  return { panes, rejected: lines.length - panes.length };
+  /* #734: the lines themselves ride along (bounded: three, one line each,
+     160 chars), so the board can SHOW what it could not read rather than
+     only count it. A count says the fleet is short; the line says which
+     pane, which is the only way anyone finds it. A pane title is text an
+     agent wrote and this reaches a screen, hence the bound. */
+  const rejectedLines = lines.filter((l) => !isParseable(l)).slice(0, 3).map((l) => oneLine(l, 160));
+  return { panes, rejected: lines.length - panes.length, rejectedLines };
 }
 
 /**
@@ -771,7 +777,7 @@ function listPanes() {
   if (out === null || out === undefined) {
     throw new Error('we could not see what is running on this computer');
   }
-  const { panes, rejected } = readPanes(out);
+  const { panes, rejected, rejectedLines } = readPanes(out);
 
   /**
    * ⚠️ TMUX SPOKE AND WE UNDERSTOOD NONE OF IT. That is not an empty machine,
@@ -802,7 +808,7 @@ function listPanes() {
   // used a module-level variable and justified it as avoiding a second
   // derivation, which was not true: threading it costs one destructuring and
   // cannot go stale.
-  return { panes, rejected };
+  return { panes, rejected, rejectedLines };
 }
 
 /**
@@ -2712,7 +2718,7 @@ function reconcileReport(reported, scraped, nowMs) {
 }
 
 function snapshot() {
-  const { panes: read, rejected: unreadableLines } = listPanes();
+  const { panes: read, rejected: unreadableLines, rejectedLines: unreadableSamples } = listPanes();
   const panes = onePanePerSession(read);
   const agents = panes.map((pane) => {
     const text = capturePane(pane.target);
@@ -2839,7 +2845,7 @@ function snapshot() {
     // and silence from it reads as "all fine". If this poller dies, the UI can
     // show the stamp going stale instead of freezing on a happy picture.
     checkedAt: new Date().toISOString(),
-    counts: countAgents(agents, unreadableLines),
+    counts: countAgents(agents, unreadableLines, unreadableSamples),
     agents,
   };
 }
@@ -2856,7 +2862,7 @@ function snapshot() {
  * `unreadableLines` is passed in rather than derived: it is a fact about what
  * tmux returned, not about the cards, and it survives filtering unchanged.
  */
-function countAgents(agents, unreadableLines) {
+function countAgents(agents, unreadableLines, unreadableSamples) {
   return {
     total: agents.length,
     needsYou: agents.filter((a) => a.state === STATE.NEEDS_YOU).length,
@@ -2867,6 +2873,8 @@ function countAgents(agents, unreadableLines) {
     // anything else means part of the fleet is missing from this board and the
     // board has to say so rather than presenting what is left as all of it.
     unreadableLines,
+    // #734: the lines behind that count, so a screen can show which pane.
+    unreadableSamples: Array.isArray(unreadableSamples) ? unreadableSamples : [],
   };
 }
 
