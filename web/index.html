@@ -5276,6 +5276,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <div class="rolepick" id="rolepick" hidden>
         <label class="flabel" for="rolesel">Role</label>
         <select id="rolesel"></select>
+        <!-- The role's limit, said the moment it is chosen (engine/roles.js: the
+             condition of shipping Legal at all was that the caution is visible
+             WHILE CHOOSING). #739 took the step-two copy off at Josh's ask and
+             the record claimed this row still carried it; it did not. So it
+             lives here, under the choice, only for a role that has one. -->
+        <p class="rolelimit" id="pick-limit" hidden></p>
         <!-- 🛑 THE LINE UNDER THIS MENU IS GONE, and it is worth knowing what it
              was: the chosen role's blurb, plus the FULL caution sentence for the
              nine roles that carry one, as a polite live region so browsing the
@@ -18247,6 +18253,7 @@ function pickMode(mode) {
     PICKED = document.getElementById('rolesel').value;
   }
   document.getElementById('role-next').disabled = false;
+  paintPickLimit();
 }
 
 /* `sayRole` is deleted with the line it painted (Josh, 2026-08-22). */
@@ -18257,8 +18264,16 @@ function pickMode(mode) {
 document.getElementById('roles-list').addEventListener('change', (e) => {
   if (e.target.name === 'rmode') pickMode(e.target.value);
 });
+function paintPickLimit() {
+  const line = document.getElementById('pick-limit');
+  const role = PICKED && PICKED !== 'own' ? roleByKey(PICKED) : null;
+  const say = role && role.caution && !document.getElementById('rolepick').hidden ? role.caution : '';
+  line.textContent = say;
+  line.hidden = !say;
+}
 document.getElementById('rolesel').addEventListener('change', () => {
   PICKED = document.getElementById('rolesel').value;
+  paintPickLimit();
 });
 
 /* 🛑 THE ARROW-KEY HANDLER THAT WAS HERE IS DELETED, and nothing replaced it.

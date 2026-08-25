@@ -31,6 +31,7 @@ test('the rows carry a check mark and keep their radio for the keyboard; the des
 
 test('the Project Manager row says what the role does, and Recommended comes after the words', () => {
   assert.match(SCRIPT, /getElementById\('pick-pm-desc'\)\.textContent = pm\.blurb \|\| '';/);
+
   const at = SCRIPT.indexOf('function updateRecPill');
   const fn = SCRIPT.slice(at, SCRIPT.indexOf('\n}\n', at) + 3);
   assert.match(fn, /getElementById\('pick-pm-desc'\)/, 'the pill is not aimed at the description');
@@ -42,4 +43,25 @@ test('the Project Manager row says what the role does, and Recommended comes aft
   run(); run();
   assert.equal(kids.filter((k) => k.className === 'prec').length, 1, 'the pill was added twice');
   assert.equal(kids[kids.length - 1].textContent, 'Recommended');
+});
+
+
+test('a role\'s limit is said on step one, under the dropdown, the moment it is chosen; nothing for a role without one', () => {
+  const body = PAGE.replace(/<!--[\s\S]*?-->/g, '');
+  assert.match(body, /<select id="rolesel"><\/select>\s*<p class="rolelimit" id="pick-limit" hidden><\/p>/);
+  const at = SCRIPT.indexOf('function paintPickLimit'); const fn = SCRIPT.slice(at, SCRIPT.indexOf('\n}\n', at) + 3);
+  const run = (picked, hidden, caution) => {
+    const line = { textContent: '', hidden: undefined };
+    const document = { getElementById: (id) => (id === 'pick-limit' ? line : { hidden }) };
+    // eslint-disable-next-line no-new-func
+    new Function('document', 'PICKED', 'roleByKey', fn + '\npaintPickLimit();')(document, picked, () => ({ caution }));
+    return line;
+  };
+  const ea = run('ea', false, 'It never sends anything.');
+  assert.equal(ea.hidden, false); assert.equal(ea.textContent, 'It never sends anything.');
+  assert.equal(run('bk', false, null).hidden, true, 'a role with no limit draws a line');
+  assert.equal(run('ea', true, 'It never sends anything.').hidden, true, 'the line shows while the dropdown is closed');
+  assert.equal(run('own', false, 'x').hidden, true, 'describe-it-yourself has no limit to say');
+  assert.match(SCRIPT, /PICKED = document\.getElementById\('rolesel'\)\.value;\n  paintPickLimit\(\);/);
+  assert.match(SCRIPT, /getElementById\('role-next'\)\.disabled = false;\n  paintPickLimit\(\);\n\}/);
 });
