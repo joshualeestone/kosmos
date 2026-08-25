@@ -16,11 +16,12 @@ const SCRIPT = page.scriptOf(PAGE);
 
 function drive(state) {
   const writes = [];
-  const fn = new Function('history', 'location', 'URL_TAB', 'PJ_VIEW', 'CURRENT', 'PJ_CURRENT', 'TK_OPEN',
+  const fn = new Function('history', 'location', 'URL_TAB', 'PJ_VIEW', 'CURRENT', 'PJ_CURRENT', 'TK_OPEN', 'SETTINGS_SEC',
     page.lift(SCRIPT, 'syncUrl') + '\nsyncUrl();')(
     { replaceState: (_s, _t, url) => writes.push(url) },
     { search: state.search || '', pathname: '/' },
     state.tab || 'agents', state.view || 'list', state.current || null, state.project || null, state.task === undefined ? null : state.task,
+    state.sec || 'you',
   );
   void fn;
   return writes;
@@ -49,4 +50,17 @@ test('it does not write when the address bar already says it, and carries the de
   assert.deepEqual(drive({ tab: 'projects', search: '?tab=projects' }), [], 'a no-op rewrite on every paint');
   assert.deepEqual(drive({ tab: 'agents', search: '?tab=projects&limit=3' }), ['?limit=3'], 'the limit knob was dropped');
   assert.deepEqual(drive({ tab: 'detail', current: Object.fromEntries([['sessionName', 'a b']]), search: '?limit=3' }), ['?tab=detail&agent=a+b&limit=3']);
+});
+
+test('#725: the Settings section rides the address, You stays clean, and the section is read back once at boot', () => {
+  assert.deepEqual(drive({ tab: 'settings', sec: 'policy' }), ['?tab=settings&sec=policy']);
+  assert.deepEqual(drive({ tab: 'settings', sec: 'updates', search: '?tab=settings' }), ['?tab=settings&sec=updates'], 'moving sub-tab rewrites');
+  assert.deepEqual(drive({ tab: 'settings', sec: 'you' }), ['?tab=settings'], 'You is the default and writes no section');
+  assert.deepEqual(drive({ tab: 'settings', sec: 'policy', search: '?tab=settings&sec=policy' }), [], 'no rewrite when the address already says it');
+  assert.deepEqual(drive({ tab: 'projects', sec: 'policy' }), ['?tab=projects'], 'the section left behind does not leak onto another tab');
+  assert.deepEqual(drive({ tab: 'agents', sec: 'policy', search: '?tab=settings&sec=policy' }), ['/']);
+  assert.match(SCRIPT, /if \(BOOT_TAB === 'settings' && PARAMS\.get\('sec'\)\) settingsOpen\(PARAMS\.get\('sec'\), \{ focus: false \}\);/, 'boot reads it once, through the door the nav click uses');
+  assert.match(SCRIPT, /function settingsGo\(section, opts\) \{\n  if \(!SETTINGS_SECTIONS\.includes\(section\)\) section = 'you';\n  SETTINGS_SEC = section;/);
+  assert.match(SCRIPT, /if \(section === 'styles'\) paintStyles\(true\);\n  syncUrl\(\);\n\}/);
+  assert.match(SCRIPT, /settingsOpen\(b\.dataset\.go\);/, 'the nav click goes through the shared door');
 });
