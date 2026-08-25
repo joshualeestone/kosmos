@@ -11063,3 +11063,60 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     board.restore();
   }
 });
+
+/* #761 challenge-loop round 6: heardBudgetRecord() fired whenever heardBy
+   returned an object at all, including a FAILED delivery (could_not /
+   unconfirmed) to an unreachable agent -- so a run of failed attempts spent
+   the same shared budget a real placement does, and could exhaust it for
+   every other project's legitimate ones. Now only a real 'placed' spends it. */
+test('#761 round 6: failed deliveries do not spend the shared pane-notify budget', async () => {
+  const chatEngine = require('./engine/chat');
+  const projectsEngine761e = require('./engine/projects');
+  // Only 'mara' is a live pane; 'ghost' is a project member with nowhere real to type.
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  const sends = [];
+  try {
+    resetHeardBudgetForTests();
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    const pdir = nodePath.join(SANDBOX, 'p761-failed-not-spent'); fs.mkdirSync(pdir, { recursive: true });
+    const p = projectsEngine761e.create({ name: 'Failed delivery', folder: pdir, agents: ['ghost', 'mara'], roster: board.agents });
+    const r0 = await req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ sentence: 'Host it' }),
+    });
+    assert.equal(r0.status, 200, r0.body);
+
+    // Fifteen process-originated attempts at the unreachable 'ghost' -- past
+    // what would trip the cap if these counted.
+    let notPlaced = 0;
+    for (let i = 0; i < 15; i++) {
+      const rp = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sentence: 'Ghost part ' + i, who: 'ghost' }),
+      });
+      assert.equal(rp.status, 200, rp.body);
+      const h = JSON.parse(rp.body).heard;
+      assert.ok(h && h.state && h.state !== 'placed', 'an unreachable agent should not read as placed: ' + JSON.stringify(h));
+      notPlaced++;
+    }
+    assert.equal(notPlaced, 15, 'all fifteen failed attempts got a heard verdict (just not placed)');
+    assert.equal(sends.length, 0, 'nothing was ever really typed for an agent with no live pane');
+
+    // A REAL delivery, right after, still succeeds -- the budget was never spent.
+    const rReal = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sentence: 'Real part', who: 'mara' }),
+    });
+    assert.equal(rReal.status, 200, rReal.body);
+    assert.equal(JSON.parse(rReal.body).heard && JSON.parse(rReal.body).heard.state, 'placed',
+      'fifteen failed deliveries to a different agent must not exhaust the budget for a real one');
+  } finally {
+    chatEngine.setRunner(null);
+    board.restore();
+  }
+});

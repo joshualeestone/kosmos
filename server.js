@@ -5150,7 +5150,10 @@ const server = http.createServer((req, res) => {
           let heard;
           if (viaScreen || heardBudgetAllows()) {
             heard = heardBy(id, made, made.who, made.sentence, roster);
-            if (heard && !viaScreen) heardBudgetRecord();
+            // Only a REAL delivery spends the budget -- a run of failed
+            // attempts at an unreachable agent must not exhaust the shared
+            // hour for every other project's legitimate placements.
+            if (heard && heard.state === chat.DELIVERY.PLACED && !viaScreen) heardBudgetRecord();
           }
           sendJson(res, 200, { task: made, told, heard });
         } catch (err) {
@@ -5186,9 +5189,9 @@ const server = http.createServer((req, res) => {
      closing or reopening a task types nothing. */
   // #327's shape, factored out rather than copied a third time (taskMake
   // already had its own inline copy; #761 needs the same split for parts).
-  function isViaScreen(req2) {
-    return typeof req2.headers['sec-fetch-site'] === 'string'
-      || (() => { try { const h = new URL(String(req2.headers.origin || '')).hostname.replace(/\.$/, '').toLowerCase(); return LOOPBACK_HOSTS.has(h) || ALLOWED_HOSTS.has(h); } catch { return false; } })();
+  function isViaScreen(req) {
+    return typeof req.headers['sec-fetch-site'] === 'string'
+      || (() => { try { const h = new URL(String(req.headers.origin || '')).hostname.replace(/\.$/, '').toLowerCase(); return LOOPBACK_HOSTS.has(h) || ALLOWED_HOSTS.has(h); } catch { return false; } })();
   }
   // heardBudgetAllows/heardBudgetRecord: module scope, above, beside
   // ENGINE_STARTED_AT -- they must survive across requests, and every name
@@ -5277,7 +5280,7 @@ const server = http.createServer((req, res) => {
         let heard;
         if (screen || heardBudgetAllows()) {
           heard = heardBy(id, out.task, body && body.who, newPart && newPart.sentence, roster);
-          if (heard && !screen) heardBudgetRecord();
+          if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord();
         }
         sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task, roster), heard });
       } catch (err) {
@@ -5311,7 +5314,7 @@ const server = http.createServer((req, res) => {
         if (verb === 'who' && out.changed && (screen || heardBudgetAllows())) {
           const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partAct[3])) || {}).sentence;
           heard = heardBy(id, out.task, body && body.who, sentence, roster);
-          if (heard && !screen) heardBudgetRecord();
+          if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord();
         }
         sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task, roster), heard });
       } catch (err) {

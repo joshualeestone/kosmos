@@ -176,14 +176,19 @@ function assignPart(projectId, n, partId, who) {
   // the id match below) -- checked unconditionally up front, a nonexistent
   // partId with an unrecognised who threw the membership error instead of
   // "no part by that number" (caught by the existing refusal test).
+  // ⚠️ AND only when `moved` -- a resubmit of the CURRENT assignee must stay
+  // a harmless no-op even if that agent has since left the project (removal
+  // does not clear a part's `who`). Checking membership unconditionally
+  // turned every such resubmit into a hard refusal for a value nothing was
+  // asking to change.
   const task = writeParts(projectId, n, (parts, t, p) => {
     return parts.map((x) => {
       if (Number(x.id) !== Number(partId)) return x;
       found = true;
-      if (whoKey && !(p.agents || []).includes(whoKey)) {
+      moved = (x.who || null) !== whoKey;
+      if (moved && whoKey && !(p.agents || []).includes(whoKey)) {
         throw new Error('that agent is not on this project, so the part cannot be given to it');
       }
-      moved = (x.who || null) !== whoKey;
       return { ...x, who: whoKey };
     });
   });

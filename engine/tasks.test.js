@@ -450,3 +450,29 @@ test('a part cannot be given to, or reassigned to, an agent that is not on the p
   assert.equal(real.ok, true, real.because);
   assert.equal(tasks.partsOf(real.task).find((x) => x.id === partId).who, 'april');
 });
+
+/* #761 challenge-loop round 6: the membership check above ran unconditionally,
+   so resubmitting a part's CURRENT assignee -- a no-op -- started throwing the
+   moment that agent left the project (removeAgent never clears a part's
+   `who`). The check now runs only when `who` is actually MOVING. */
+test('reassigning a part to its own current holder is a no-op, even after that agent left the project', () => {
+  const p = freshProject('Stale holder');
+  projects.addAgent(p.id, 'gwen');
+  const t = tasks.create(p.id, { sentence: 'Something' });
+  const added = tasks.addPart(p.id, t.number, { sentence: 'Held by gwen', who: 'gwen' });
+  assert.equal(added.ok, true, added.because);
+  const partId = tasks.partsOf(added.task)[1].id;
+
+  projects.removeAgent(p.id, 'gwen');
+  // Resubmitting the SAME who -- nothing is moving -- must not throw.
+  const resubmit = tasks.assignPart(p.id, t.number, partId, 'gwen');
+  assert.equal(resubmit.ok, true, resubmit.because);
+  assert.equal(resubmit.changed, false, 'nothing moved, so nothing should read as changed');
+  assert.equal(tasks.partsOf(resubmit.task).find((x) => x.id === partId).who, 'gwen',
+    'the stale holder is unchanged by a no-op resubmit');
+
+  // A GENUINE new assignment to that same now-departed agent is still refused.
+  const t2 = tasks.create(p.id, { sentence: 'Something else' });
+  assert.throws(() => tasks.addPart(p.id, t2.number, { sentence: 'New part', who: 'gwen' }),
+    /not on this project/, 'membership still gates an ACTUAL new assignment to a departed agent');
+});
