@@ -1361,7 +1361,13 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
    same width." Settings is the nav column and ONE content column of the
    create page's width (34rem), centred as a pair, so switching tabs moves
    nothing and no tab is full-width. Under 60rem the pair gives way to the
-   fluid column it had. */
+   fluid column it had.
+   ⚠️ ORDER-DEPENDENT: the 60rem rule below must stay ABOVE the 56rem block
+   further down, which restates `#panel-settings .dbody` at the same
+   specificity to stack the nav on a phone and wins by position. Regroup the
+   two Settings rules below that block and phones get the nav beside the
+   section again. web.settings-width.test.js pins both rules' place above the
+   block; render-settings-nav.js renders the result at 420, 920 and 1400. */
 #panel-settings .dbody { grid-template-columns: 176px 34rem; justify-content: center; }
 @media (max-width: 60rem) { #panel-settings .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch; } }
 .snav { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 16px; }
@@ -1402,11 +1408,11 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 #d-fresh .flabel { text-transform: none; letter-spacing: 0; font-size: 1rem; }
 @media (max-width: 56rem) {
   .dbody { grid-template-columns: minmax(0, 1fr); }
-  /* #773 gave Settings its own id-selector column rule up to 60rem, which
+  /* #770 gave Settings its own id-selector column rule up to 60rem, which
      outranked this class rule at phone width and kept the nav beside the
      section (render-settings-nav caught it at 420px). Restated with the same
      specificity, later in the sheet, so the nav stacks above the section here. */
-  #panel-settings .dbody { grid-template-columns: minmax(0, 1fr); justify-content: stretch; }
+  #panel-settings .dbody { grid-template-columns: minmax(0, 1fr); }
   .snav { position: static; flex-direction: row; flex-wrap: wrap; }
   .snav button { width: auto; }
   .snav .sep { display: none; }
@@ -6559,7 +6565,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        reads as owned, so nobody looked (#123). Cite a card, never a PR, and
        say what is built rather than what is coming. -->
   <!-- ⚠️ THE LEFT NAV (Mona Lisa's settings mock, 2026-08-22; Josh 08-23, the
-       second of the two subpages). Seven sections against the eight boxes that
+       second of the two subpages). The sections (eleven as of #770) against the boxes that
        shipped; the mapping is the plan's, and it is a regrouping, not a
        rewrite: Opening Kosmos and Keeping agents running are both facts about
        this Mac, so they share a section; Engineering mode and Delete history
