@@ -9,19 +9,53 @@
   h1{font-size:1.5rem;margin:0 0 .75rem}
   p{margin:0 0 .75rem}
   .muted{color:#6b6862}
-  .ring{width:44px;height:44px;margin:0 auto 1.25rem;border-radius:50%;border:4px solid #e6e2da;border-top-color:#1c1b19;animation:spin 1s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
+  /* #867 (Josh, 2026-08-25 15:09, live-testing a fresh install): "Totally
+     dead stopped on this screen... Is it possible to put a progress bar
+     on this along with the animated K." The page already had a ring
+     spinner for the ordinary wait -- the actual dead spot was the "taken"
+     branch below, which hid the ring and every other visual and left
+     nothing on screen but static text. The mark and bar now stay up in
+     every state; only their MOTION changes, because a hung "still
+     working" animation over a state that has actually settled would be
+     the opposite lie. */
+  .mark{width:56px;height:56px;margin:0 auto 1.25rem;border-radius:14px;background:#d6a62e;color:#1c1b19;
+    display:flex;align-items:center;justify-content:center;font:700 28px/1 -apple-system,Helvetica,Arial,sans-serif;
+    animation:breathe 2.4s ease-in-out infinite}
+  @keyframes breathe{0%,100%{opacity:1}50%{opacity:.72}}
+  .mark.settled{animation:none;opacity:1}
+  .bar{width:100%;max-width:16rem;height:6px;margin:0 auto 1.25rem;border-radius:3px;background:#e6e2da;overflow:hidden}
+  .bar>i{display:block;height:100%;width:40%;border-radius:3px;background:#d6a62e;animation:slide 1.3s ease-in-out infinite}
+  @keyframes slide{0%{margin-left:-40%}100%{margin-left:100%}}
+  .bar.settled>i{animation:none;width:100%;margin-left:0}
   #steps{font-variant-numeric:tabular-nums}
   #late,#taken{display:none}
-  @media (prefers-color-scheme:dark){body{background:#151412;color:#ece9e2}.ring{border-color:#3a3833;border-top-color:#ece9e2}.muted{color:#a29e95}}
+  .go{display:inline-block;margin-top:.25rem;padding:.6em 1.4em;border-radius:8px;background:#d6a62e;color:#1c1b19;
+    font-weight:600;text-decoration:none}
+  .go:hover{background:#e3b341}
+  @media (prefers-color-scheme:dark){body{background:#151412;color:#ece9e2}.muted{color:#a29e95}.bar{background:#3a3833}}
+  @media (prefers-reduced-motion:reduce){.mark,.bar>i{animation:none}}
 </style></head>
 <body><main>
-  <div class="ring" id="ring"></div>
+  <div class="mark" id="mark" aria-hidden="true">K</div>
+  <div class="bar" id="bar" role="progressbar" aria-label="Installing"><i></i></div>
   <h1 id="title">Installing Kosmos</h1>
   <p id="steps">Setting up. This usually takes a minute or two.</p>
   <p class="muted" id="hint">Nothing to do. This page becomes your dashboard when Kosmos is ready.</p>
   <p id="late">Still going. A slow download can take a few minutes; the installer window will say if something went wrong.</p>
-  <p id="taken">Something is already running on this Mac at the address Kosmos uses, so this page will not jump to it on its own. When the installer finishes, open Kosmos from Applications.</p>
+  <div id="taken">
+    <!-- #867 (Josh, 2026-08-25 15:20): "the odds of something else actually
+         running on that Mac address are probably astronomically low... we
+         should put a link to go ahead and open Kosmos." The page still
+         never navigates there ON ITS OWN -- that refusal is the actual
+         safety property (the installer's BOARD_OURS gate makes the same
+         call, and an automated jump gives nobody a chance to notice before
+         landing there). A typed link the PERSON chooses to click is a
+         different, safe act: they see the address, they decide, they can
+         look at what opens and back out if it is wrong. -->
+    <p>Something is already running on this Mac at the address Kosmos uses, so this page will not jump to it on its own.</p>
+    <p><a class="go" id="go" href="#">Open Kosmos</a></p>
+    <p class="muted">If that is not what you expect, open Kosmos from Applications instead, or Finder &rsaquo; Applications.</p>
+  </div>
 </main>
 <script>
 (function(){
@@ -33,6 +67,13 @@
   var base = "http://127.0.0.1:" + PORT;
   var started = Date.now(), n = 0, first = true;
   function show(id){ document.getElementById(id).style.display = "block"; }
+  // Settles the mark and bar in place rather than hiding them: a state
+  // that has actually concluded (found something, or arrived) should
+  // read as REACHED, not as motion that was simply switched off mid-page.
+  function settle(){
+    document.getElementById("mark").classList.add("settled");
+    document.getElementById("bar").classList.add("settled");
+  }
   function tick(){
     n++;
     var img = new Image();
@@ -41,12 +82,15 @@
         // Answering BEFORE the install could have started it means the port
         // is someone else's (another account's Kosmos, or any other program).
         // The installer's own gate (BOARD_OURS) makes the same call; the page
-        // must not jump onto a stranger's board.
-        document.getElementById("ring").style.display = "none";
+        // must not jump onto a stranger's board on its own -- but a link the
+        // person clicks themselves is a different, safe act (#867).
+        settle();
         document.getElementById("hint").style.display = "none";
+        document.getElementById("go").href = base + "/";
         show("taken");
         return;
       }
+      settle();
       document.getElementById("title").textContent = "Kosmos is ready";
       document.getElementById("steps").textContent = "Opening your dashboard.";
       location.replace(base + "/");
