@@ -2106,7 +2106,36 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated #pj-list-view { grid-column: 1; padding-top: 0; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > :not(#pj-list-view) { grid-column: 2; }
   html[data-layout="consolidated"] body.consolidated #pj-list { gap: 8px; }
-  html[data-layout="consolidated"] body.consolidated .pj-row { padding: 8px 10px; }
+  /* #905: a long project name escaped the rail on both sides. Root cause --
+     the narrow rail reuses #pj-list's markup UNCHANGED whatever sub-layout
+     (list or the grid-of-tiles "asgrid") the person last left the full
+     projects panel on, and the state-carried-in-from-another-screen class
+     of bug (already documented above for the org chart) applies here too:
+     .asgrid's own rules give .pj-row a centered, flex-column TILE treatment
+     with .pjcard-h dissolved to `display: contents`, so .pjname becomes a
+     bare flex item with no bounded track to shrink into -- the ellipsis
+     rule on the name (below) was always correctly written, it just never
+     had a box small enough to clip. The list view's own #879 fix works
+     because THAT row is a real CSS grid with a `minmax(0, 1fr)` name
+     column, which is the one thing that actually constrains flex-basis
+     content sizing. Re-establishing exactly that for the rail, regardless
+     of #pj-list's own asgrid/list class, is the fix -- not a new
+     truncation rule, the existing one from :2096 was already right. */
+  html[data-layout="consolidated"] body.consolidated #pj-list.asgrid { display: flex; flex-direction: column; }
+  html[data-layout="consolidated"] body.consolidated .pj-row { height: auto; align-items: stretch; text-align: left; padding: 8px 10px; }
+  /* ⚠️ FIRST ATTEMPT put the name and pill side by side (matching the tab
+     view's own row, and how #879 solved this same class of bug there) --
+     measured wrong: at the rail's real width a short name ("Book Launch")
+     truncated too, because a verbose pill ("No agents yet") still claimed
+     most of the line before the 1fr name column ever got a turn. The rail
+     is narrower than a pill-and-a-name can share, not just narrower than
+     a long name alone. Stacking instead gives the name the FULL row width
+     to truncate against, which is the actual fix -- also closer to the
+     real mock, which never puts a status pill beside the title in this
+     rail at all. */
+  html[data-layout="consolidated"] body.consolidated .pj-row .pjcard-h { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+  html[data-layout="consolidated"] body.consolidated .pj-row .pjname { order: 0; justify-content: flex-start; min-width: 0; width: 100%; }
+  html[data-layout="consolidated"] body.consolidated .pj-row .pjpill { order: 1; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pc-t { display: none; }
   /* #867 (Josh, 2026-08-25 15:52, against the real consolidated-mock): each
      project row names its own agent count as a subtitle under the title
