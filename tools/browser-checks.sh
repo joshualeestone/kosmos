@@ -166,7 +166,17 @@ write_fleet() {
     > "$sb/panes.txt"
 }
 
-# Boot node server.js sandboxed on $port with the fixture fleet. Echoes nothing;
+# Every fixture server below is started as `node ./server.js`, never
+# `node server.js`. `pkill -f "node server.js"` is a substring match on the
+# command line, and agents on the build Mac run it to restart the board; at
+# 11:42 on 2026-08-25 one such sweep took seven fixture servers with it and
+# killed cut 0.5.28's page checks (11 checks refused, one cut lost). The
+# board itself survived because launchd starts it by absolute path, so the
+# string never occurs in its argv. `./` is the same protection here. It does
+# not protect against `pkill -f node` or `pkill -f server.js`; nothing can.
+# (Shredder's diagnosis; server.js reads no argv and resolves every path from
+# __dirname, so the form of the invocation changes nothing it does.)
+# Boot ./server.js sandboxed on $port with the fixture fleet. Echoes nothing;
 # records the pid. Waits until /api/status answers.
 boot_board() {
   local sb="$1" port="$2"
@@ -175,7 +185,7 @@ boot_board() {
     AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
     AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
-    PORT="$port" node server.js > "$sb/server.log" 2>&1 &
+    PORT="$port" node ./server.js > "$sb/server.log" 2>&1 &
   SERVER_PIDS+=("$!")
   wait_up "$port" "$sb/server.log"
 }
@@ -321,7 +331,7 @@ AGENT_WORKFORCE_HOME="$sb4/home" AGENT_WORKFORCE_CODEX_BIN="$sb4/fake-codex" \
   AGENT_WORKFORCE_LAUNCH="$sb4/launch" AGENT_WORKFORCE_PROJECTS="$sb4/projects" \
   AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb4/panes.txt" \
   AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
-  PORT="$P4" node server.js > "$sb4/server.log" 2>&1 &
+  PORT="$P4" node ./server.js > "$sb4/server.log" 2>&1 &
 SERVER_PIDS+=("$!")
 if wait_up "$P4" "$sb4/server.log"; then
   run_one "render-accounts-openai" node docs/browser-checks/render-accounts-openai.js "http://127.0.0.1:$P4"
@@ -348,9 +358,9 @@ exit 2
 FAKE
 chmod +x "$sb6/fake-vercel"; rm -f "$sb6/vmark"
 write_fleet "$sb5"; write_fleet "$sb6"
-AGENT_WORKFORCE_GH_BIN=/nonexistent/gh AGENT_WORKFORCE_VERCEL_BIN=/nonexistent/vercel AGENT_WORKFORCE_GITHUB_DEVICE_URL="http://127.0.0.1:$P9/device" AGENT_WORKFORCE_GITHUB_TOKEN_URL="http://127.0.0.1:$P9/token" AGENT_WORKFORCE_GITHUB_VERIFY_URL="http://127.0.0.1:$P9/user" AGENT_WORKFORCE_DATA="$sb5/data" AGENT_WORKFORCE_WORKERS="$sb5/workers" AGENT_WORKFORCE_LAUNCH="$sb5/launch" AGENT_WORKFORCE_PROJECTS="$sb5/projects" AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb5/panes.txt" AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 PORT="$P5" node server.js > "$sb5/server.log" 2>&1 &
+AGENT_WORKFORCE_GH_BIN=/nonexistent/gh AGENT_WORKFORCE_VERCEL_BIN=/nonexistent/vercel AGENT_WORKFORCE_GITHUB_DEVICE_URL="http://127.0.0.1:$P9/device" AGENT_WORKFORCE_GITHUB_TOKEN_URL="http://127.0.0.1:$P9/token" AGENT_WORKFORCE_GITHUB_VERIFY_URL="http://127.0.0.1:$P9/user" AGENT_WORKFORCE_DATA="$sb5/data" AGENT_WORKFORCE_WORKERS="$sb5/workers" AGENT_WORKFORCE_LAUNCH="$sb5/launch" AGENT_WORKFORCE_PROJECTS="$sb5/projects" AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb5/panes.txt" AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 PORT="$P5" node ./server.js > "$sb5/server.log" 2>&1 &
 SERVER_PIDS+=("$!")
-FAKE_GH_MARK="$sb6/mark" AGENT_WORKFORCE_GH_BIN="$sb6/fake-gh" FAKE_VERCEL_MARK="$sb6/vmark" AGENT_WORKFORCE_VERCEL_BIN="$sb6/fake-vercel" AGENT_WORKFORCE_CLOUDFLARE_VERIFY_URL="http://127.0.0.1:$P7/verify" AGENT_WORKFORCE_DATA="$sb6/data" AGENT_WORKFORCE_WORKERS="$sb6/workers" AGENT_WORKFORCE_LAUNCH="$sb6/launch" AGENT_WORKFORCE_PROJECTS="$sb6/projects" AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb6/panes.txt" AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 PORT="$P6" node server.js > "$sb6/server.log" 2>&1 &
+FAKE_GH_MARK="$sb6/mark" AGENT_WORKFORCE_GH_BIN="$sb6/fake-gh" FAKE_VERCEL_MARK="$sb6/vmark" AGENT_WORKFORCE_VERCEL_BIN="$sb6/fake-vercel" AGENT_WORKFORCE_CLOUDFLARE_VERIFY_URL="http://127.0.0.1:$P7/verify" AGENT_WORKFORCE_DATA="$sb6/data" AGENT_WORKFORCE_WORKERS="$sb6/workers" AGENT_WORKFORCE_LAUNCH="$sb6/launch" AGENT_WORKFORCE_PROJECTS="$sb6/projects" AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb6/panes.txt" AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 PORT="$P6" node ./server.js > "$sb6/server.log" 2>&1 &
 SERVER_PIDS+=("$!")
 if wait_up "$P5" "$sb5/server.log" && wait_up "$P6" "$sb6/server.log"; then
   curl -s -X POST "http://127.0.0.1:$P5/api/first-run/complete" >/dev/null; curl -s -X POST "http://127.0.0.1:$P6/api/first-run/complete" >/dev/null
@@ -375,7 +385,7 @@ sb8="$(new_sandbox)"
 AGENT_WORKFORCE_DATA="$sb8/data" AGENT_WORKFORCE_WORKERS="$sb8/workers" \
   AGENT_WORKFORCE_LAUNCH="$sb8/launch" AGENT_WORKFORCE_PROJECTS="$sb8/projects" \
   AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
-  PORT="$P10" node server.js > "$sb8/server.log" 2>&1 &
+  PORT="$P10" node ./server.js > "$sb8/server.log" 2>&1 &
 SERVER_PIDS+=("$!")
 if wait_up "$P10" "$sb8/server.log"; then
   curl -s -X POST "http://127.0.0.1:$P10/api/first-run/complete" >/dev/null

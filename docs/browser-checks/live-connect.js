@@ -11,6 +11,19 @@ const { execFile } = require('node:child_process');
 const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'connect-live-'));
 console.log('SANDBOX', SB);
 
+/* The sandbox is REMOVED when this process ends, on every path: pass, fail,
+   and a signal. It holds a whole Claude install (359M measured), and
+   browser-checks.sh runs this once per cut and once per full suite run, so
+   leaving it behind filled the build Mac's disk at 359M a run: 62 of them,
+   21GB, and cut 0.5.28 died on the install gate's space check (#872). Set
+   KOSMOS_KEEP_SANDBOX=1 to keep it for a look at a red run. */
+const KEEP = process.env.KOSMOS_KEEP_SANDBOX === '1';
+process.on('exit', () => {
+  if (KEEP) { console.log('sandbox kept (KOSMOS_KEEP_SANDBOX=1) at', SB); return; }
+  try { fs.rmSync(SB, { recursive: true, force: true }); } catch { /* nothing to do about it at exit */ }
+});
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => process.exit(1));
+
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SB, 'config', '.claude.json');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SB, 'config');
@@ -95,6 +108,6 @@ const pass = (m) => console.log('PASS', m);
   if (cfg && cfg.oauthAccount) fail('the sandboxed config gained an account -- something completed a login');
   pass('no credentials were created anywhere (sandboxed config has no account block)');
 
-  console.log('\nALL STAGES PASSED. Sandbox left at', SB, '(delete when done)');
+  console.log('\nALL STAGES PASSED.');
   process.exit(0);
 })().catch((e) => fail(e.stack || String(e)));
