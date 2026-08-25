@@ -725,8 +725,16 @@ uninstall() {
   # actually wrote, and leave it registered forever -- precisely the orphan
   # this whole block exists to prevent, just for the label instead of the
   # file. `_kosmos_home_default` matches the install path's own definition
-  # exactly (both compare against the real, unsandboxed default).
-  _kosmos_home_default="$HOME/.local/share/kosmos"
+  # exactly (both compare against the real, unsandboxed default), including
+  # the SAME slash-normalization $KOSMOS_HOME itself already went through a
+  # few lines up: a raw, un-normalized $HOME/.local/share/kosmos would not
+  # string-equal a normalized $KOSMOS_HOME on a $HOME carrying a trailing or
+  # doubled slash, which this file's own header already measured once
+  # ("a trailing slash on $HOME made every ownership and board proof in
+  # this file use //-flavored paths") -- the exact bug class, just for this
+  # new comparison instead of the ones that comment already fixed.
+  _kosmos_home_default="$(printf '%s' "$HOME/.local/share/kosmos" | /usr/bin/tr -s '/')"
+  _kosmos_home_default="${_kosmos_home_default%/}"
   _board_label=com.kosmos.board
   if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
     _board_label="com.kosmos.board.$(printf '%s' "$KOSMOS_HOME" | shasum -a 256 | cut -c1-8)"
@@ -2319,8 +2327,12 @@ fi
 # from the caller always wins, matching every other ${VAR:-default} in this
 # file. `_kosmos_home_default` is computed once here and reused at "Keeping
 # Kosmos running" so the two steps can never disagree about which case they
-# are in.
-_kosmos_home_default="$HOME/.local/share/kosmos"
+# are in. Slash-normalized the SAME WAY $KOSMOS_HOME itself already was a
+# few lines up top, or a $HOME carrying a trailing/doubled slash would make
+# a genuinely-default install compare as non-default -- the exact bug this
+# file's own header already measured once for a different comparison.
+_kosmos_home_default="$(printf '%s' "$HOME/.local/share/kosmos" | /usr/bin/tr -s '/')"
+_kosmos_home_default="${_kosmos_home_default%/}"
 if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
   [ -n "${AGENT_WORKFORCE_DATA:-}" ] || export AGENT_WORKFORCE_DATA="$KOSMOS_HOME/data"
   [ -n "${AGENT_WORKFORCE_PROJECTS:-}" ] || export AGENT_WORKFORCE_PROJECTS="$KOSMOS_HOME/projects"

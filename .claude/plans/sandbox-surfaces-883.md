@@ -51,9 +51,16 @@ existing real user's board is already registered under the literal label
 reinstall, or -- worse -- the NEXT AUTO-UPDATE, since `engine/update.js`
 re-runs this exact script) would orphan every existing user's login job and
 silently fail to survive their next reboot. That is a strictly worse
-regression than the bug this card fixes. Guarded with a dedicated test
-diffing the full plist body for the default-KOSMOS_HOME case against a
-captured pre-change reference.
+regression than the bug this card fixes. Guarded two ways, corrected here
+after challenge-loop iteration 1 pointed out this section overstated the
+first: the CODE PATH itself is structurally byte-identical for a default
+install (`_extra_env_kv` stays empty, so the heredoc line it sits on
+reduces to exactly what shipped before this change, confirmed by reading
+against `git show main:install/setup.sh`), and `tools/test-install.sh`
+asserts the observable half of that -- the bare label file exists, and none
+of the three new key names appear in it. Not a byte-for-byte diff against a
+captured reference, which is what an earlier draft of this section claimed;
+the four targeted assertions are what actually shipped.
 
 ## Design
 
@@ -97,11 +104,11 @@ until a fuller shape exists, and that stands.
 
 ## Verification plan
 
-- New test (shell-level, alongside `tools/test-plist-heredoc-clean.sh`'s
-  style, or extending `tools/test-install.sh` directly): a default-KOSMOS_HOME
-  install produces a plist with label `com.kosmos.board` and NO
-  `AGENT_WORKFORCE_*` keys beyond `KOSMOS_PORT` -- byte-for-byte regression
-  guard against the real-install invariant above.
+- New test (shell-level, extending `tools/test-install.sh` directly): a
+  default-KOSMOS_HOME install produces a plist with label `com.kosmos.board`
+  and NO `AGENT_WORKFORCE_*` keys beyond `KOSMOS_PORT` -- targeted
+  assertions against the specific bytes this card could add, not a full
+  diff against a captured reference.
 - A non-default-KOSMOS_HOME install (Pete's exact 3-var convention: KOSMOS_HOME
   + KOSMOS_HOME_APP_DIR + KOSMOS_PORT, deliberately NOT the fuller
   AGENT_WORKFORCE_* family) produces: a label distinct from `com.kosmos.board`,
