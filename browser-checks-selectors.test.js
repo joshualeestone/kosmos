@@ -35,7 +35,6 @@ const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
    Remove the entry when the check is restated; the test refuses an entry
    that is no longer stale, so the list cannot rot in the other direction. */
 const KNOWN_STALE = [
-  { check: 'render-create-made.js', id: 'made-done', since: '4bf7d95 (the two endings that are not success got true offers)' },
 ];
 
 /* The ids a check asks for. Comments are stripped first (a comment quoting
