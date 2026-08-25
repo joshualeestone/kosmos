@@ -91,3 +91,42 @@ is a load-bearing assumption. The tool holds it instead.
 - **The merge.** Josh's standing rule is that a ready PR gets merged without
   waiting for him, but *what* goes in a release is a judgement about what has
   been through review.
+
+## After a failed cut, before the next one
+
+Seven attempts were needed to serve 0.5.24 on 2026-08-24. Five stopped on true
+reds, and the gates were right every time. Two stopped on what the previous
+attempt had left behind, and those are the ones this section exists to end. A
+failed cut is not clean: it may have written into the site checkout before it
+died, and the next attempt trips on the leftovers with a message that describes
+a different problem.
+
+1. **The versions entry's stamp.** Step 7 refuses an entry whose `rel-d` is more
+   than 20 minutes from the clock. The entry is written once, by hand, so every
+   failed attempt ages it; attempt four died on a 40-minute gap after three
+   earlier attempts had burned the window. Before re-cutting, set the entry's
+   `rel-d` to about ten minutes AHEAD of launch (a cut takes ten to twelve
+   minutes to reach step 7), in the site's `versions.html`.
+2. **A versioned tarball from the dead attempt.** If the attempt got past 4b it
+   copied `dist/kosmos-<V>-arm64.tar.gz` into the site checkout. The next build
+   produces different bytes (builds are not byte-reproducible: codesign
+   timestamps, tar mtimes), and step 5 then refuses "different bytes for a
+   cache-immutable name". That guard is right when the file was SERVED. Check
+   the wire first: `curl -sI https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz`.
+   A 404 means it never left this Mac; remove the local pair
+   (`.tar.gz` and `.sha256`, both gitignored) and re-cut. A 200 means it was
+   served: bump the version instead, exactly as the guard says.
+3. **The site checkout's uncommitted state.** A dead attempt can leave
+   `dist/latest.json` and `setup.sha256` modified. The next successful cut makes
+   them consistent and commits them; until then, nobody should deploy the site
+   by hand (`vercel deploy` from the checkout publishes the working tree, #649).
+4. **The tree must hold still.** Every attempt freezes to the sha at its start
+   and takes ~25 minutes; a merge that lands mid-cut cannot be in it, and a page
+   check that reads the live checkout can go red on it. Attempt six died on a
+   Settings change that merged at minute three. When a cut has to land, call a
+   merge freeze for its duration, and lift it the moment `latest.json` flips.
+
+A red at any step is read, not retried. Of the seven, four found real defects
+(a caution that had vanished from the product, a bundle expectation frozen at
+the broken state, a phone layout stacking on itself, a bundle that could not
+install); a "retry the flake" would have shipped every one of them.
