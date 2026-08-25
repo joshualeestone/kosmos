@@ -63,6 +63,16 @@ test('the taken branch is honest that the board answering is often someone else\
   assert.match(HTML, /Your own copy of Kosmos is in Applications/, 'the Applications pointer for a wrong guess is gone');
 });
 
+test('the taken branch clears the ordinary-wait steps line so it stops contradicting the taken copy', () => {
+  // Pigeon Pete, screenshotting 0.5.33/0.5.34: #steps still read "Setting
+  // up. This usually takes a minute or two." directly above "Something is
+  // already running" -- one sentence promising an install, the other
+  // saying it never was one. #hint was already cleared on this branch;
+  // #steps was not.
+  const takenBranch = HTML.slice(HTML.indexOf('if (first) {'), HTML.indexOf('return;\n      }\n      settle();'));
+  assert.match(takenBranch, /getElementById\("steps"\)\.textContent = ""/, 'the taken branch no longer clears the ordinary-wait steps line');
+});
+
 test('the ordinary wait keeps its own copy: unreadable time, then a slow-download note', () => {
   assert.match(HTML, /Setting up\. This usually takes a minute or two\./);
   assert.match(HTML, /Still going\. A slow download can take a few minutes/);
