@@ -3,7 +3,7 @@ pre_challenge: true
 method: pre-challenge
 explicit_override: true
 branch: consolidated-avatar-crop
-diff_hash: ae54b3e2bc11d5e7de99e502b8ceb3ff3b15bf4029f034ca3778153ee78d9842
+diff_hash: b46d0582601da12a0b846b67ab9bd91f1483b22ac361f54385272f3ba81b7815
 timestamp: 2026-08-25T21:15:00Z
 iterations: 1
 converged: true
