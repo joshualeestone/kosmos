@@ -123,7 +123,14 @@ echo "== 2b. the tree that ships, frozen at one sha (#597) =="
 MAIN_REPO="$REPO"
 BUILD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-release.XXXXXX")" || { echo "no temp dir for the frozen tree"; exit 1; }
 BUILD="$(release_freeze "$MAIN_REPO" "$SHA" "$BUILD_ROOT")" || { rm -rf "$BUILD_ROOT"; echo "could not freeze the tree at $SHA"; exit 1; }
-trap 'release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
+# The versioned pair's presence BEFORE this cut, so a failure removes only what
+# this cut created (a pair from an earlier, served cut is not ours to touch).
+_pair_had=0; [ -f "$SITE/dist/kosmos-$V-arm64.tar.gz" ] && _pair_had=1
+DEPLOYED=0
+# On any exit before step 8 finished, the site checkout stops claiming $V
+# (#609 review, Splinter 23:05: a failed cut left latest.json and setup.sha256
+# uncommitted at the new version, and the pair that made cut 5 refuse).
+trap '[ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
 REPO="$BUILD"
 echo "   building ${SHA:0:12} in $BUILD; a pull into $MAIN_REPO from now on changes nothing below"
 
@@ -455,6 +462,7 @@ elif [ -n "$_dep_dropped" ]; then echo "the export's .vercelignore would drop $_
 fi
 ( cd "$_site_export" && vercel deploy --prod --yes )
 
+DEPLOYED=1   # step 8 finished: the site checkout now claims what is served, so the trap leaves it
 echo "== 9. verify what is SERVED, from the code that fetches it =="
 # ⚠️ Retried, because a deploy is live before every edge has it, and a single
 # read cannot tell "not published" from "not yet".

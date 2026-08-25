@@ -178,6 +178,23 @@ out="$(PATH="$T/nodeshim:$PATH" release_bundle_matches_tree "$T/withicon.tgz" "$
 hit=0; printf '%s' "$out" | grep -q "the require walk failed (node exit 3): boom" && hit=1
 [ "$rc" = 2 ] && [ "$hit" = 1 ] && ok "a node that runs but fails is a refusal (2) with node's own words, not a shorter set" || bad "failing node: rc $rc, '$out'"
 
+# ---- a failed cut leaves the site checkout claiming a version it never served (#609 review) ----
+SITE="$T/site"; git init -q --initial-branch=main "$SITE"; mkdir -p "$SITE/dist"
+echo '{"version":"1.0.0"}' > "$SITE/dist/latest.json"; echo 'oldsha  setup' > "$SITE/setup.sha256"; echo '<html>versions</html>' > "$SITE/versions.html"
+printf 'dist/*.tar.gz\ndist/*.tar.gz.sha256\n' > "$SITE/.gitignore"
+git -C "$SITE" add -A && git -C "$SITE" commit -q -m site
+echo '{"version":"1.0.1"}' > "$SITE/dist/latest.json"; echo 'newsha  setup' > "$SITE/setup.sha256"; echo '<html>versions + 1.0.1 entry</html>' > "$SITE/versions.html"
+printf 'tgz' > "$SITE/dist/kosmos-1.0.1-arm64.tar.gz"; printf 'sha' > "$SITE/dist/kosmos-1.0.1-arm64.tar.gz.sha256"
+out="$(release_site_restore "$SITE" "1.0.1" 0)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$SITE/dist/latest.json")" = '{"version":"1.0.0"}' ] && [ "$(cat "$SITE/setup.sha256")" = 'oldsha  setup' ] && ok "after a failed cut, latest.json and setup.sha256 are back at their committed bytes (the checkout no longer claims 1.0.1)" || bad "restore left the site claiming the new version (rc $rc): $(cat "$SITE/dist/latest.json") / $(cat "$SITE/setup.sha256")"
+[ ! -f "$SITE/dist/kosmos-1.0.1-arm64.tar.gz" ] && [ ! -f "$SITE/dist/kosmos-1.0.1-arm64.tar.gz.sha256" ] && ok "and the versioned pair this cut created is gone (the name is cache-immutable; cut 5 of 0.5.24 refused over a leftover)" || bad "the versioned pair lingered"
+[ "$(cat "$SITE/versions.html")" = '<html>versions + 1.0.1 entry</html>' ] && ok "and versions.html, hand-written for the re-cut, is left exactly as it was" || bad "restore touched versions.html"
+printf '%s' "$out" | grep -q "put back: dist/latest.json" && printf '%s' "$out" | grep -q "removed: dist/kosmos-1.0.1-arm64.tar.gz" && ok "and it says what it did" || bad "restore was silent: $out"
+printf 'served' > "$SITE/dist/kosmos-1.0.1-arm64.tar.gz"; printf 'sha' > "$SITE/dist/kosmos-1.0.1-arm64.tar.gz.sha256"
+release_site_restore "$SITE" "1.0.1" 1 >/dev/null
+[ "$(cat "$SITE/dist/kosmos-1.0.1-arm64.tar.gz")" = served ] && ok "CONTROL: a pair that existed before the cut (an earlier, served cut's) is not ours to remove" || bad "restore removed a pair it did not create"
+out="$(release_site_restore "$SITE" "1.0.1" 1)"; [ -z "$out" ] && ok "CONTROL: with nothing changed it does nothing and says nothing" || bad "restore acted on a clean checkout: $out"
+
 # A tarball missing a whole tree (no bin member) is a setup failure (2), not a pass.
 tar -czf "$T/noroot.tgz" -C "$T/bundle" app
 release_bundle_matches_tree "$T/noroot.tgz" "$BUILD" >/dev/null; [ "$?" = 2 ] && ok "a bundle missing bin/ is refused as malformed (2), not passed" || bad "a bundle missing bin/ was not refused as malformed"

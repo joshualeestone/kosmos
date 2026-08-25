@@ -210,3 +210,32 @@ EOS
   fi
   return $bad
 }
+
+# A cut that fails after it began writing into the site checkout leaves that
+# checkout claiming a version it never served: dist/latest.json naming the new
+# version, setup.sha256 for an installer nobody can download, and the versioned
+# tarball pair whose name is cache-immutable (cut 5 of 0.5.24 refused to
+# republish over the pair cut 4 left behind). A stray site deploy in that state
+# would publish a latest.json pointing at a version that does not exist.
+#   release_site_restore <site> <version> <pair-existed-before: 0|1>
+# puts the two tracked files back to their committed bytes and removes the
+# versioned pair when this cut created it. versions.html is NOT touched: its
+# entry is hand-written and the re-cut needs it. Prints what it did. 0 always
+# (it runs from a trap; a failure here must not mask the cut's own reason).
+release_site_restore() {
+  local site="$1" v="$2" had="$3" f
+  [ -n "$site" ] && [ -n "$v" ] && [ -d "$site" ] || { echo "release_site_restore: site and version are required" >&2; return 0; }
+  for f in dist/latest.json setup.sha256; do
+    if git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+      if ! git -C "$site" diff --quiet -- "$f"; then
+        git -C "$site" checkout -q -- "$f" && echo "   put back: $f (the cut had changed it; the site checkout no longer claims $v)"
+      fi
+    fi
+  done
+  if [ "$had" != 1 ]; then
+    for f in "dist/kosmos-$v-arm64.tar.gz" "dist/kosmos-$v-arm64.tar.gz.sha256"; do
+      [ -f "$site/$f" ] && rm -f "$site/$f" && echo "   removed: $f (this cut created it and never served it; the name is cache-immutable, so it must not linger)"
+    done
+  fi
+  return 0
+}
