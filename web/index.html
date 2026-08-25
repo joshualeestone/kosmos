@@ -1662,6 +1662,12 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pjpill { display: inline-flex; align-items: center; gap: 6px; flex: none;
           font-size: .8125rem; font-weight: 600; color: var(--k-ink-2); }
 .pjpill.attn { color: #b3261e; }
+/* #670: posts since the person last opened the project, white on red, the
+   springboard bubble Josh named (2026-08-24 16:32). Zero draws nothing,
+   never "0"; past 99 it says 99+. Same colour both themes: it is a signal,
+   not a surface. */
+.pj-unread { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: #d93a2f; color: #fff; font: 700 .6875rem/1 var(--font-ui); flex: none; align-self: center; margin-left: auto; }
 .pjpill .act, .pjpill .rest, .pjpill .haz { flex: none; }
 .pjslug { display: inline-block; font: 600 .75rem var(--k-mono); color: var(--k-ink-2);
           max-width: 100%; overflow-wrap: anywhere;
@@ -19669,6 +19675,14 @@ function pjPillOf(p, unreadable) {
   return { cls: '', glyph: '<span class="rest" aria-hidden="true"></span>', label: 'Nothing running' };
 }
 
+/* The bubble's text, in one place: nothing for none, 99+ past the cap. The
+   number comes from the engine (p.unread); this never counts. */
+function unreadBadge(n) {
+  const k = Number(n);
+  if (!Number.isFinite(k) || k <= 0) return '';
+  const s = k > 99 ? '99+' : String(k);
+  return '<span class="pj-unread" aria-label="' + s + ' unread">' + s + '</span>';
+}
 function projectCard(p, unreadable) {
   const s = p.summary || {};
   const folder = pjFolderLine(p);
@@ -19694,6 +19708,10 @@ function projectCard(p, unreadable) {
   if (unreadable && s.total) bits.push('we cannot see how they are doing right now');
   return '<button class="pj-row' + (pill.cls === 'attn' ? ' attn' : '') + '" type="button" data-project="' + esc(p.id) + '">'
     + '<span class="pjcard-h"><b>' + esc(p.name) + '</b>'
+    /* The room the person is looking at has no unread: the engine's cursor
+       moves when the room paints, and the poll between could otherwise flash
+       a bubble on the very project that is open. */
+    + unreadBadge(p.id === PJ_CURRENT ? 0 : p.unread)
     + '<span class="pjpill ' + pill.cls + '">' + pill.glyph + esc(pill.label) + '</span></span>'
     /* The slug chip shows the FOLDER'S real basename (what sits on their
        disk), not the engine's collapsed id -- the chip's job is naming
@@ -21351,6 +21369,7 @@ function openProject(id) {
      survives Back because nothing but this function writes it. */
   const switching = PJ_LAST_OPENED !== id;
   PJ_LAST_OPENED = id;
+  pjMarkSeen(id);
   if (switching) { TK_SHOW_ALL = false; TK_LIST_HTML = null; }
   // Every arrival is a move, including re-opening the same project: a verdict
   // from a send that took off before this navigation belongs to a thread view
@@ -21868,6 +21887,16 @@ function pjUnansweredLine(m, p, silent) {
   return silent[m.id].map((name) => '<div class="msg-valve">'
     + esc(pjNameOf(p, name) || name) + ' has not answered here yet.</div>').join('');
 }
+/* #670: opening the room reads it, and so does watching it while posts
+   arrive. Told to the engine (the count is server-derived) and reflected
+   on the row at once rather than on the next poll, so the bubble goes when
+   the person looks, not five seconds later. */
+function pjMarkSeen(id) {
+  if (!id) return;
+  const p = pjById(id);
+  if (p && p.unread) { p.unread = 0; try { paintProjects(); } catch { /* the poll repaints */ } }
+  fetch('/api/project/' + encodeURIComponent(id) + '/seen', { method: 'POST' }).catch(() => { /* the next open tells it again */ });
+}
 function paintRoom(body) {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
@@ -21897,6 +21926,10 @@ function paintRoom(body) {
         : '<p class="fhint" style="margin:0;">Put an agent on this project and the room opens.</p>'));
   const html = note + (rows || empty);
   if (box.__lastRoom !== html) {
+    /* New rows while the room is on screen are read as they land; a tab in
+       the background is not looking, so its cursor waits for the person. */
+    if (box.__lastRoom !== undefined && document.visibilityState === 'visible'
+      && !document.getElementById('pj-one-view').hidden) pjMarkSeen(PJ_CURRENT);
     box.__lastRoom = html;
     setLive(box, html);
     /* Scrolled only when the POSTS changed, not on a relabel: pjWhen
