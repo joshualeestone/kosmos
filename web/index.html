@@ -2437,6 +2437,14 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    The `+` and the drop sentence are DELIBERATELY ABSENT — see the markup. */
 .pjmid .composer { margin-top: 12px; padding: 0; background: none; border-top: 0;
   flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 6px; }
+/* #761 item 9 (Josh, 2026-08-24 21:56: "at some different screen sizes it
+   cuts off the input... if there's a way we can make it such that, no matter
+   what, the dialog box is always totally visible"): the composer sticks to
+   the bottom of the window while the room is on screen, on the column's own
+   ground so the thread scrolls under it, and it never leaves the viewport
+   whatever the window's height. */
+.pjmid .composer { position: sticky; bottom: 0; z-index: 2; background: var(--k-surface);
+  padding: 8px 0 4px; margin-top: 8px; }
 .composerbox { display: flex; align-items: center; gap: 6px;
   border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface);
   padding: 6px 6px 6px 4px; }

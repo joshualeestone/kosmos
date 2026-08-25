@@ -43,3 +43,7 @@ test('#764: a side column may shrink and wrap but never spill under the room', (
   assert.match(PAGE, /\.pjcol > \*, \.pj-member, \.pj-member-b \{ min-width: 0; \}/);
   assert.match(PAGE, /\.pj-member-b b, \.pj-member-b small, \.pj-told \{ overflow-wrap: anywhere; \}/);
 });
+
+test('#761 item 9: the composer sticks to the bottom of the window while the room is on screen', () => {
+  assert.match(PAGE, /\.pjmid \.composer \{ position: sticky; bottom: 0; z-index: 2; background: var\(--k-surface\);/);
+});
