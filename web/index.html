@@ -424,10 +424,10 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .tellrow input { width: 16px; height: 16px; flex: 0 0 16px; accent-color: var(--gold-deep, #b8860b); }
 /* #770 (Josh, 2026-08-24 22:31): "a nicer more organized box of what's
    connected... on the right of that box, a green connected thing... a
-   link at the bottom to disconnect." One box per account, stacked
-   (margin-bottom does the stacking, .llmrow's own shape). Green, not
-   the shared .settings-connected's gold -- his word this time, the same
-   kind of direct override #762's reveal-folder change made. */
+   link at the bottom to disconnect." One box per account, stacked.
+   Green rather than the app's usual gold for a connected mark -- his
+   word this time, the same kind of direct override #762's reveal-folder
+   change made. */
 .acct-box { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px;
             border: 1px solid var(--k-rule); border-radius: 12px; margin-bottom: 10px; background: var(--k-surface); }
 .acct-box-top { display: flex; align-items: center; gap: 12px; }
@@ -438,7 +438,19 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-ok { color: var(--label-2); white-space: nowrap; }
 .acct-connected { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: #2f7d5a; white-space: nowrap; }
-.acct-connected .dot { width: 8px; height: 8px; border-radius: 50%; background: #2f7d5a; flex: 0 0 8px; }
+/* #864 (Josh, 2026-08-25 11:54): "the dot, or both, pulsing kind of
+   green, like they're actively connected." The dot pulses; the word
+   stays still and legible, the same split the working-agent card
+   already makes (.acard.working pulses its ground, not its label). */
+.acct-connected .dot { width: 8px; height: 8px; border-radius: 50%; background: #2f7d5a; flex: 0 0 8px;
+  animation: acct-pulse 2.4s ease-in-out infinite; }
+@keyframes acct-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .acct-connected .dot { animation: none; }
+}
 .acct-disconnect { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: .8125rem;
   color: var(--label-2); text-decoration: underline; cursor: pointer; min-height: 24px; }
 .acct-disconnect[disabled] { cursor: not-allowed; text-decoration: none; opacity: .7; }
@@ -1530,16 +1542,11 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 .btn-quiet:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
 .btn-quiet[disabled] { opacity: .55; cursor: default; }
 .btn-quiet[disabled]:hover { background: transparent; }
-.llmrow { display: flex; align-items: center; gap: 14px; padding: 14px 16px;
-       border: 1px solid var(--k-rule); border-radius: 12px; margin-bottom: 10px; background: var(--k-surface); }
-.llmrow b { display: block; font-size: 1rem; }
-.llmrow small { color: var(--k-ink-2); font-size: .875rem; }
-.llmrow .llm-w { flex: 1; min-width: 0; }
+/* .llmrow / .settings-connected retired with #864's standalone
+   "Claude subscription" box -- both were exclusive to accountRow(),
+   which no longer exists. */
 .acctag { font-size: .6875rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
   color: var(--k-ink-2); border: 1px solid var(--k-rule); border-radius: 5px; padding: 2px 7px; }
-.settings-connected { display: inline-flex; align-items: center; gap: 6px; font-size: .875rem;
-  font-weight: 600; color: var(--k-ink-2); }
-.settings-connected span { color: var(--gold-deep); font-weight: 700; }
 /* Connections (#282): two groups, one quiet line per category. The summary
    row is the whole claim when nothing is connected; the options only exist
    once opened. Chevron rotates open, native details behaviour otherwise. */
@@ -6845,7 +6852,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   <div class="dbody">
   <nav class="snav" id="s-nav" aria-label="Sections of Settings">
     <button type="button" data-go="you" aria-controls="s-sec-you" class="on" aria-current="true">Your Profile</button>
-    <button type="button" data-go="accounts" aria-controls="s-sec-accounts">Accounts</button>
+    <!-- #864 (Josh, 2026-08-25 11:54): "let's title it AI models... that's
+         really what it will mean to a white-collar end user" -- "Accounts"
+         read as ambiguous (his own account vs. a connected provider), and
+         Your Profile already covers the person's own account. Internal
+         ids (data-go, aria-controls, id="s-sec-accounts") are untouched;
+         only the visible label and its aria-label changed. -->
+    <button type="button" data-go="accounts" aria-controls="s-sec-accounts">AI Models</button>
     <button type="button" data-go="connect" aria-controls="s-sec-connect">Connections</button>
     <button type="button" data-go="gskills" aria-controls="s-sec-gskills">Global Skills</button>
     <button type="button" data-go="policy" aria-controls="s-sec-policy">AI Policies</button>
@@ -6899,14 +6912,22 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       </div>
     </section>
   </section>
-  <section class="dsec" id="s-sec-accounts" data-sec="accounts" tabindex="-1" aria-label="Accounts" hidden>
+  <section class="dsec" id="s-sec-accounts" data-sec="accounts" tabindex="-1" aria-label="AI Models" hidden>
     <section class="dbox">
-      <!-- "Accounts", not "Claude accounts" (#382). The create form asks
-           provider, then account, then model; a person who picked a provider
-           there has no reason to look under one provider's name here. Each
-           row says which provider it belongs to instead. -->
-      <h3 class="dlab">Your accounts, by provider</h3>
-      <div id="set-account"><p class="dhint">Checking the connection…</p></div>
+      <!-- "AI Models", not "Accounts" (#864) -- "Accounts" read as
+           ambiguous (his own account vs. a connected provider) and Your
+           Profile already covers the person's own. Each row still says
+           which provider it belongs to. -->
+      <h3 class="dlab">Your AI models, by provider</h3>
+      <!-- #864 (Josh, 2026-08-25 11:54): the standalone "Claude
+           subscription" summary box removed entirely -- "both of those
+           accounts that it's listing are Claude Max subscriptions. This
+           top box really could just go away." It duplicated exactly what
+           the provider rows below already say, and removing it also
+           retires a real contradiction risk: this box and the rows below
+           read from two different checks (a subscription probe vs. the
+           accounts list) that could disagree, which is what happened on
+           his screen (#864's own filed finding). One list, one story. -->
       <!-- 🛑 "One account for now. Connecting another is not built yet." WAS
            HERE, under a greyed-out button, and it was wrong on this machine
            before it was ever built: three accounts were already signed in and
@@ -10499,24 +10520,6 @@ function machineRows(report) {
         + ' style="margin-top:10px;font-size:.875rem;padding:calc(.45em - 1px) calc(1em - 1px);">Open sleep settings</button>'
       : '')).join('');
 }
-function accountRow(conn) {
-  if (conn && conn.state === 'connected') {
-    return '<div class="llmrow"><div class="llm-w"><b>Claude subscription</b>'
-      + '<small>' + esc(conn.plan || 'plan unknown') + ' · connected on this computer</small></div>'
-      + '<span class="settings-connected"><span aria-hidden="true">✓</span> Connected</span></div>';
-  }
-  // Not connected and could-not-check are DIFFERENT claims and the engine
-  // keeps them apart; its own sentence carries which one this is. A MISSING
-  // report (the fetch failed, conn is null) is could-not-check too -- a
-  // definite "not connected" off a failed read is the sentence that sends
-  // somebody off to buy a subscription they already have.
-  const couldNotCheck = !conn || conn.state === 'unknown';
-  return chkRow({
-    state: couldNotCheck ? 'unknown' : 'attention',
-    title: couldNotCheck ? 'We could not check the connection' : 'No Claude subscription is connected',
-    detail: (conn && conn.because) || 'We could not read the connection state.',
-  });
-}
 /* The person's record, as last read, so a name-only save can carry the
    other two fields whole. Null until read; a save with no record is refused
    on screen rather than sent, because `you.save` needs all of it. */
@@ -10596,7 +10599,6 @@ async function paintSettings() {
   paintYouName();
   const loc = document.getElementById('set-applocation');
   const mach = document.getElementById('set-machine');
-  const acct = document.getElementById('set-account');
   try {
     const m = await (await fetch('/api/machine')).json();
     mach.innerHTML = machineRows(m);
@@ -10647,10 +10649,8 @@ async function paintSettings() {
   }
   try {
     const st = await (await fetch('/api/status')).json();
-    acct.innerHTML = accountRow(st.connection);
     paintUpdateCard(st.version, st.update, st.updateLook);
   } catch {
-    acct.innerHTML = accountRow(null);
     // The card keeps its last honest paint; the poll repaints it.
   }
   await paintAccounts();

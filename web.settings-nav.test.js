@@ -32,7 +32,9 @@ function sectionOf(id) {
 test('each settings box lives in the section the mock puts it in', () => {
   const want = {
     'you-file-btn': 'you', 'you-name': 'you', 'you-name-save': 'you',
-    'set-accounts': 'accounts', 'set-account': 'accounts',
+    // 'set-account' (the standalone subscription-summary box) is gone
+    // since #864 -- retired, not moved, so it has no section to check.
+    'set-accounts': 'accounts',
     'lim-toggle': 'talking', 'lim-tier': 'talking',
     'set-applocation': 'mac', 'set-reveal': 'mac', 'set-machine': 'mac',
     'upd-btn': 'updates', 'tell-toggle': 'updates', 'auto-toggle': 'updates',
@@ -82,4 +84,24 @@ test('a name-only save carries the other two fields whole', () => {
   assert.match(handler, /if \(!YOU_REC\)/, 'a save with no record read is sent and refused by the engine instead of on screen');
   assert.match(handler, /t\.shownAs \|\| t\.agent/, 'a miss is read out by machine name');
   assert.doesNotMatch(handler, /Your agents have been told/, 'the sentence claims every agent was told when only running ones were reached');
+});
+
+// #864 (Josh, 2026-08-25 11:54): renamed "Accounts" to "AI Models" (his
+// words: "that's really what it will mean to a white-collar end user"),
+// removed the standalone "Claude subscription" summary box (it duplicated
+// the provider rows below and could disagree with them), and made the
+// connected dot pulse.
+test('the accounts section is named AI Models, has no standalone subscription box, and the connected dot pulses', () => {
+  assert.match(BODY, /<button type="button" data-go="accounts" aria-controls="s-sec-accounts">AI Models<\/button>/,
+    'the nav label is not "AI Models"');
+  assert.match(BODY, /<h3 class="dlab">Your AI models, by provider<\/h3>/,
+    'the section heading is not "Your AI models, by provider"');
+  assert.doesNotMatch(BODY, /id="set-account"/,
+    'the standalone Claude-subscription summary box is still on the page');
+  assert.doesNotMatch(PAGE, /function accountRow\(/,
+    'accountRow still exists; #864 removed the box it drew, not just hid it');
+  assert.match(PAGE, /\.acct-connected \.dot \{[^}]*animation: acct-pulse/,
+    'the connected dot lost its pulse');
+  assert.match(PAGE, /@media \(prefers-reduced-motion: reduce\) \{\n  \.acct-connected \.dot \{ animation: none; \}/,
+    'the pulse has no reduced-motion guard');
 });
