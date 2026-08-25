@@ -211,8 +211,17 @@ bundle_is_ours() {
 # sweep looks at the real /Applications and the sandboxed icon is
 # orphaned.
 SYS_APP_DIR="${KOSMOS_SYS_APP_DIR:-/Applications}"
-# The home-folder Applications dir the icon-migration block may touch. Test-only
-# by contract, like SYS_APP_DIR: #226 made that block skip under EITHER app-dir
+# 🔑 THE ONE NAME FOR THE PERSON'S APPLICATIONS FOLDER (#721). Every reach the
+# installer makes into ~/Applications goes through this: the icon write when
+# the system folder is not writable, the retry, the migration block, the
+# uninstall sweep. A walk that must keep HOME real (a signed-in Claude lives
+# under it) sets KOSMOS_HOME_APP_DIR to a disposable folder and the operator's
+# real ~/Applications is never touched; a sandboxed install once decorated it
+# with a launcher into the sandbox (Pete, 2026-08-24 20:44). Third instance of
+# one shape tonight, with KOSMOS_HOME_APP_DIR (migration) and
+# KOSMOS_TMUX_BIN_PICKED (the picker): a seam named independently of the thing
+# a real machine is recognised by. install.home-apps-seam.test.js keeps the
+# class closed. Test-only by contract, like SYS_APP_DIR: #226 made that block skip under EITHER app-dir
 # override so a run sandboxed only by KOSMOS_SYS_APP_DIR could never rm the REAL
 # ~/Applications copy; the cost was that the harness could never exercise the
 # migration at all (seven checks red since #442, 2026-08-23). A harness that
@@ -226,7 +235,7 @@ HOME_APP_DIR="${KOSMOS_HOME_APP_DIR:-$HOME/Applications}"
 # refusals -- and a run that refuses to do anything must not mutate
 # /Applications. Until resolve_app_dir runs, APP_DIR carries the override
 # or the safe per-user default, which is all the uninstall path needs.
-APP_DIR="${KOSMOS_APP_DIR:-$HOME/Applications}"
+APP_DIR="${KOSMOS_APP_DIR:-$HOME_APP_DIR}"
 APP_OTHER_OWNER=no
 APP_SKIP_ICON=no
 APP_SKIP_REASON=""
@@ -236,7 +245,7 @@ APP_HOME_FOREIGN=no
 resolve_app_dir() {
   # The verbatim override is a sandbox: no probing, no fallback.
   [ -n "${KOSMOS_APP_DIR:-}" ] && { APP_DIR="$KOSMOS_APP_DIR"; return 0; }
-  APP_DIR="$HOME/Applications"
+  APP_DIR="$HOME_APP_DIR"
   # ⚠️ NEVER CLAIM A BUNDLE THIS INSTALL CANNOT PROVE IS ITS OWN. The
   # launcher bakes the installing user's KOSMOS_HOME as its default, so on
   # a Mac with two admin accounts, replacing the shared /Applications icon
@@ -277,8 +286,8 @@ resolve_app_dir() {
     # said honestly, fail closed. A home Applications folder that does not
     # exist yet cannot alias anything, so the divert proceeds and creates
     # it.
-    if [ -e "$HOME/Applications" ] || [ -L "$HOME/Applications" ]; then
-      _home_apps_phys="$(cd "$HOME/Applications" 2>/dev/null && pwd -P)" || _home_apps_phys=""
+    if [ -e "$HOME_APP_DIR" ] || [ -L "$HOME_APP_DIR" ]; then
+      _home_apps_phys="$(cd "$HOME_APP_DIR" 2>/dev/null && pwd -P)" || _home_apps_phys=""
       _sys_apps_phys="$(cd "$SYS_APP_DIR" 2>/dev/null && pwd -P)" || _sys_apps_phys=""
       # The two skip reasons get distinct sentences: "same folder" was
       # OBSERVED only on the equal-paths leg; the unresolvable legs know
@@ -977,7 +986,7 @@ KOSMOS_SWEEP_LIST
     # that side), and a prior reviewer proved the mistake is easy to make;
     # the sweep is at least named so a mis-driven run is visible.
     if [ -n "${KOSMOS_SYS_APP_DIR:-}" ]; then
-      info "note: the home-folder side of this sweep uses $HOME/Applications (KOSMOS_SYS_APP_DIR does not sandbox it; override HOME too in a test)"
+      info "note: the home-folder side of this sweep uses $HOME_APP_DIR (KOSMOS_SYS_APP_DIR does not sandbox it; override HOME too in a test)"
     fi
     _sys_swept=no
     # The SYSTEM folder is shared between accounts, so its icon is deleted
@@ -1023,7 +1032,7 @@ KOSMOS_SWEEP_LIST
     # its refusal through the symlink. FAIL CLOSED, the same shape as the
     # install-side guard: an unresolvable folder is a reason to leave the
     # bundle alone and say so, never a license to delete through it.
-    _home_apps_phys="$(cd "$HOME/Applications" 2>/dev/null && pwd -P)" || _home_apps_phys=""
+    _home_apps_phys="$(cd "$HOME_APP_DIR" 2>/dev/null && pwd -P)" || _home_apps_phys=""
     _sys_apps_phys="$(cd "$SYS_APP_DIR" 2>/dev/null && pwd -P)" || _sys_apps_phys=""
     # -e OR -L, the same shape as the system-folder gate above: -d follows
     # symlinks, so a dangling link named Kosmos.app here would survive
@@ -1033,8 +1042,8 @@ KOSMOS_SWEEP_LIST
     # would follow it onto whatever it points at): a link at the system
     # bundle this uninstall just swept is our residue and goes; any other
     # link was not made by this installer and is left, named.
-    if [ -L "$HOME/Applications/Kosmos.app" ]; then
-      _lnk_target="$(readlink "$HOME/Applications/Kosmos.app" 2>/dev/null)" || _lnk_target=""
+    if [ -L "$HOME_APP_DIR/Kosmos.app" ]; then
+      _lnk_target="$(readlink "$HOME_APP_DIR/Kosmos.app" 2>/dev/null)" || _lnk_target=""
       # BOTH conditions: pointing at our slot is not enough, because the
       # bundle there may have been foreign and refused two lines up (or
       # absent entirely), and "pointed at the removed Kosmos app" must
@@ -1042,20 +1051,20 @@ KOSMOS_SWEEP_LIST
       # the target-only version deleted a user's link to a refused
       # bundle, under two adjacent contradictory sentences.
       if [ "$_lnk_target" = "$SYS_APP_DIR/Kosmos.app" ] && [ "$_sys_swept" = "yes" ]; then
-        info "removing a link that pointed at the removed Kosmos app from $HOME/Applications"
-        rm -f "$HOME/Applications/Kosmos.app" 2>/dev/null || info "note: could not remove $HOME/Applications/Kosmos.app; drag it to the Trash to finish."
+        info "removing a link that pointed at the removed Kosmos app from $HOME_APP_DIR"
+        rm -f "$HOME_APP_DIR/Kosmos.app" 2>/dev/null || info "note: could not remove $HOME_APP_DIR/Kosmos.app; drag it to the Trash to finish."
       else
         info "note: the Kosmos.app in the Applications folder inside your home folder is a link this install did not create; it was left alone."
       fi
-    elif [ -e "$HOME/Applications/Kosmos.app" ]; then
+    elif [ -e "$HOME_APP_DIR/Kosmos.app" ]; then
       if [ -n "$_home_apps_phys" ] && [ -n "$_sys_apps_phys" ] && [ "$_home_apps_phys" != "$_sys_apps_phys" ]; then
         # The same ownership token as the system folder: uninstalling
         # Kosmos must not delete somebody's unrelated app that happens to
         # carry the name, even in the per-user folder.
-        if bundle_is_ours "$HOME/Applications/Kosmos.app"; then
-          info "removing the Kosmos app from $HOME/Applications"
-          _lsreg_u "$HOME/Applications/Kosmos.app"
-          rm -rf "$HOME/Applications/Kosmos.app" 2>/dev/null || { _lsreg_f "$HOME/Applications/Kosmos.app"; info "note: could not remove $HOME/Applications/Kosmos.app; drag it to the Trash to finish."; }
+        if bundle_is_ours "$HOME_APP_DIR/Kosmos.app"; then
+          info "removing the Kosmos app from $HOME_APP_DIR"
+          _lsreg_u "$HOME_APP_DIR/Kosmos.app"
+          rm -rf "$HOME_APP_DIR/Kosmos.app" 2>/dev/null || { _lsreg_f "$HOME_APP_DIR/Kosmos.app"; info "note: could not remove $HOME_APP_DIR/Kosmos.app; drag it to the Trash to finish."; }
         else
           info "note: the Kosmos.app in the Applications folder inside your home folder was not created by this install and was left alone."
         fi
@@ -1087,7 +1096,7 @@ KOSMOS_SWEEP_LIST
     # launcher is left and named rather than deleted, per the header's
     # stated bound.
     for _res in "$SYS_APP_DIR"/.Kosmos.app.stage.* "$SYS_APP_DIR"/.Kosmos.app.old.* \
-                "$HOME/Applications"/.Kosmos.app.stage.* "$HOME/Applications"/.Kosmos.app.old.*; do
+                "$HOME_APP_DIR"/.Kosmos.app.stage.* "$HOME_APP_DIR"/.Kosmos.app.old.*; do
       { [ -e "$_res" ] || [ -L "$_res" ]; } || continue
       if bundle_is_ours "$_res"; then
         rm -rf "$_res" 2>/dev/null || info "note: could not remove the leftover hidden folder $_res; drag it to the Trash to finish."
@@ -1961,10 +1970,10 @@ elif [ -z "${KOSMOS_APP_DIR:-}" ] && [ "$APP_DIR" = "$SYS_APP_DIR" ]; then
   # divert, because "retry in the home folder" is only a retry when the
   # home folder is a different folder.
   _retry_ok=no
-  if [ ! -e "$HOME/Applications" ] && [ ! -L "$HOME/Applications" ]; then
+  if [ ! -e "$HOME_APP_DIR" ] && [ ! -L "$HOME_APP_DIR" ]; then
     _retry_ok=yes
   else
-    _home_apps_phys="$(cd "$HOME/Applications" 2>/dev/null && pwd -P)" || _home_apps_phys=""
+    _home_apps_phys="$(cd "$HOME_APP_DIR" 2>/dev/null && pwd -P)" || _home_apps_phys=""
     _sys_apps_phys="$(cd "$SYS_APP_DIR" 2>/dev/null && pwd -P)" || _sys_apps_phys=""
     if [ -n "$_home_apps_phys" ] && [ -n "$_sys_apps_phys" ] && [ "$_home_apps_phys" != "$_sys_apps_phys" ]; then
       _retry_ok=yes
@@ -1982,7 +1991,7 @@ elif [ -z "${KOSMOS_APP_DIR:-}" ] && [ "$APP_DIR" = "$SYS_APP_DIR" ]; then
     APP_SYS_FAILED=yes
   fi
   if [ "$_retry_ok" = "yes" ]; then
-    APP_DIR="$HOME/Applications"
+    APP_DIR="$HOME_APP_DIR"
     # The same home-folder ownership gate as the direct path above: the
     # retry must not replace an occupant it cannot prove is ours either.
     if { [ -e "$APP_DIR/Kosmos.app" ] || [ -L "$APP_DIR/Kosmos.app" ]; } \
