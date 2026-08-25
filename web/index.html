@@ -17285,13 +17285,26 @@ document.querySelectorAll('[data-layout-pick]').forEach((b) => {
 function paintPjNone(which) {
   const el = document.getElementById('pj-none');
   if (!el) return;
-  const cons = document.body.classList.contains('consolidated');
-  const show = cons && (which === undefined ? !document.getElementById('pj-list-view').hidden && document.getElementById('pj-one-view').hidden : which === 'list');
+  /* The view is the record, never the DOM: in the consolidated layout the
+     list stays visible beside every other view, so "list visible and one-view
+     hidden" read as "nothing open" while the New project form was up. */
+  const view = which === undefined ? PJ_VIEW : which;
+  const show = document.body.classList.contains('consolidated') && view === 'list';
   el.hidden = !show;
   if (!show) return;
-  el.textContent = document.body.classList.contains('fold-p')
-    ? 'Nothing is open. The projects list is folded; press \u203a at the top of the narrow column to open it, then pick a project.'
-    : 'Nothing is open yet. Pick a project on the left, or press + to start one.';
+  const cls = document.body.classList;
+  const empty = PJ_LOADED_ONCE && PROJECTS.length === 0;
+  if (cls.contains('fold-p')) {
+    /* With both rails folded there are two narrow columns, each with a
+       \u203a at its top, and the first one opens the agents rail. */
+    el.textContent = 'Nothing is open. The projects list is folded; press \u203a at the top of the '
+      + (cls.contains('fold-a') ? 'second narrow column' : 'narrow column') + ' to open it, then '
+      + (empty ? 'press + to start a project.' : 'pick a project.');
+  } else if (empty) {
+    el.textContent = 'No projects yet. Press + at the top of the projects column to start one.';
+  } else {
+    el.textContent = 'Nothing is open yet. Pick a project on the left, or press + to start one.';
+  }
 }
 function railFoldsApply() {
   for (const k of ['a', 'p']) {
@@ -19488,6 +19501,7 @@ async function watchForAgent(name, result, attempt) {
  * ------------------------------------------------------------------------ */
 
 let PROJECTS = [];
+let PJ_LOADED_ONCE = false;  // #774: the empty-centre sentence may say "No projects yet" only after a read, never before one
 let PJ_AGENTS_UNREADABLE = false;
 // ⚠️ Whether the LAST projects read succeeded. PROJECTS is deliberately never
 // emptied on failure (see loadProjects), so the array alone cannot say "we
@@ -20148,6 +20162,8 @@ async function loadProjects() {
     // has projects we simply could not read.
     if (!res.ok || body.projectsUnreadable) throw new Error(body.error || 'we cannot read your projects right now');
     PROJECTS = body.projects || [];
+    PJ_LOADED_ONCE = true;
+    paintPjNone();
     /* The project deep link (#374), once: the first load that can see the
        project opens it, the way the first poll opens WANT_AGENT. A project
        that is not there lands on the list, which says so. */

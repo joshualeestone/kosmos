@@ -29,6 +29,7 @@ const { chromium } = require('playwright');
   const rect = (sel) => pg.$eval(sel, (el) => { if (el.hidden || getComputedStyle(el).display === 'none') return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; }).catch(() => null);
   const none = () => pg.$eval('#pj-none', (e) => (e.hidden ? null : e.textContent)).catch(() => '(no #pj-none on the page)');
 
+  try {
   await pg.goto(URL + '/?tab=projects', { waitUntil: 'networkidle' });
   if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
   await style('consolidated');
@@ -36,7 +37,7 @@ const { chromium } = require('playwright');
   for (const lay of ['grid', 'list', 'org']) {
     for (const tab of ['agents', 'projects']) {
       await pg.goto(URL + '/?tab=' + tab, { waitUntil: 'networkidle' });
-      await pg.evaluate((l) => { localStorage.setItem('kosmos.layout.agents', l); localStorage.removeItem('kosmos.fold.a'); localStorage.removeItem('kosmos.fold.p'); }, lay);
+      await pg.evaluate((l) => { localStorage.setItem('kosmos.layout.agents', l); sessionStorage.removeItem('rail-fold-a'); sessionStorage.removeItem('rail-fold-p'); }, lay);
       await pg.reload({ waitUntil: 'networkidle' });
       await pg.waitForTimeout(900);
       const tag = 'agents left on ' + lay + ', arriving on ' + tab;
@@ -45,18 +46,39 @@ const { chromium } = require('playwright');
       say((await rect('#grid')) === null, tag + ': the grid is not painted');
       const list = await rect('#alist'); const rail = await rect('#pj-list-view');
       say(!!list && !!rail, tag + ': the agents rail and the projects rail are both up', JSON.stringify({ list, rail }));
-      say(!!list && !!rail && Math.abs(list.y - rail.y) < 40, tag + ': the two rails start at the same height', list && rail ? list.y + ' vs ' + rail.y : '');
+      /* The two rails start within their own padding of each other (measured
+         8px apart on a correct page: the projects rail carries its 8px inset).
+         The sentence taking grid row 1 pushed the projects rail down 273px in
+         the first cut, so 12px is the whole tolerance and deleting its
+         grid-row rule fails this line. */
+      const ra = await rect('#rail-agents'); const rp = await rect('#rail-projects');
+      say(!!ra && !!rp && Math.abs(ra.y - rp.y) <= 12, tag + ': the two rails start at the same height', ra && rp ? ra.y + ' vs ' + rp.y : JSON.stringify({ ra, rp }));
       const said = await none();
       say(!!said && /Pick a project on the left/.test(said), tag + ': the empty centre says what to press', JSON.stringify(said));
     }
   }
 
-  // fold both rails: the sentence changes to say where the list went
-  await pg.click('#rail-agents-fold'); await pg.click('#rail-projects-fold'); await pg.waitForTimeout(300);
-  const folded = await none();
-  say(!!folded && /folded/.test(folded) && /›/.test(folded), 'both rails folded: the sentence names the fold button', JSON.stringify(folded));
+  // fold the projects rail alone, then both: the sentence says where the list went, and which column when there are two
   await pg.click('#rail-projects-fold'); await pg.waitForTimeout(300);
-  say(/Pick a project on the left/.test((await none()) || ''), 'projects rail open again: back to the plain sentence');
+  const foldedP = await none();
+  say(!!foldedP && /folded; press › at the top of the narrow column/.test(foldedP), 'projects rail folded: the sentence names the fold button', JSON.stringify(foldedP));
+  await pg.click('#rail-agents-fold'); await pg.waitForTimeout(300);
+  const folded = await none();
+  say(!!folded && /the second narrow column/.test(folded), 'both rails folded: the sentence says the second narrow column', JSON.stringify(folded));
+  await pg.click('#rail-projects-fold'); await pg.click('#rail-agents-fold'); await pg.waitForTimeout(300);
+  say(/Pick a project on the left/.test((await none()) || ''), 'rails open again: back to the plain sentence');
+
+  // the New project form open: the sentence is not painted over it by a fold press
+  await pg.click('#rail-projects-new'); await pg.waitForTimeout(400);
+  await pg.click('#rail-agents-fold'); await pg.waitForTimeout(300);
+  say((await none()) === null, 'New project form open, then a fold press: the sentence stays hidden');
+  await pg.click('#rail-agents-fold'); await pg.click('#pj-add-back'); await pg.waitForTimeout(400);
+
+  // a board with no projects: the sentence says so, but only after a read
+  const emptySaid = await pg.evaluate(() => { const keep = PROJECTS; PROJECTS = []; PJ_LOADED_ONCE = true; paintPjNone('list'); const t = document.getElementById('pj-none').textContent; PROJECTS = keep; paintPjNone('list'); return t; });
+  say(/^No projects yet\. Press \+/.test(emptySaid), 'no projects: the sentence says so', JSON.stringify(emptySaid));
+  const unreadSaid = await pg.evaluate(() => { const keep = PROJECTS; PROJECTS = []; PJ_LOADED_ONCE = false; paintPjNone('list'); const t = document.getElementById('pj-none').textContent; PROJECTS = keep; PJ_LOADED_ONCE = true; paintPjNone('list'); return t; });
+  say(/Pick a project on the left/.test(unreadSaid), 'before the first read: never "No projects yet"', JSON.stringify(unreadSaid));
 
   // open a project: the sentence goes
   const first = await pg.$('#pj-list [data-project]');
@@ -74,9 +96,17 @@ const { chromium } = require('playwright');
   say(!(await pg.evaluate(() => document.body.classList.contains('consolidated'))), 'tabs: the consolidated view is down');
   say((await rect('#orgview')) !== null, 'tabs, agents left on org: the org chart is painted');
   say((await none()) === null, 'tabs: the sentence is never shown');
-
-  await pg.close();
-  await b.close();
+  // positive control for the grid absence lines above: the grid does paint when asked for
+  await pg.evaluate(() => localStorage.setItem('kosmos.layout.agents', 'grid'));
+  await pg.reload({ waitUntil: 'networkidle' }); await pg.waitForTimeout(900);
+  say((await rect('#grid')) !== null, 'tabs, agents left on grid: the grid is painted (control)');
+  } finally {
+    /* Whatever happened, the sandbox's saved layout goes back to tabs and the
+       browser closes; a selector timeout must not leave the next check on a
+       consolidated board. */
+    try { await style('tabs'); } catch { /* the server may be gone */ }
+    await b.close();
+  }
   console.log(fails.length ? 'FAILED: ' + fails.join(', ') : 'all good');
   process.exit(fails.length ? 1 : 0);
 })();
