@@ -375,3 +375,21 @@ test('#793: forgetting a Mac that was never set up says so and retires nothing',
   assert.match(got.because, /not set up/);
   assert.deepEqual(recorded().filter((c) => (Array.isArray(c) ? c : c.args || []).includes('retire')), [], 'retire was called with no key to sign it');
 });
+
+test('#733: a second-factor reset is the enrolled Mac\'s own signed request, and an unenrolled Mac cannot ask', async () => {
+  fs.rmSync(RECORD, { force: true });
+  const no = await remote.secondReset();
+  assert.equal(no.ok, false);
+  assert.match(no.because, /not set up/);
+  assert.deepEqual(recorded(), [], 'an unenrolled Mac spawned a reset with no key to sign it');
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  await remote.setupComplete('123456', 'hers');
+  fs.rmSync(RECORD, { force: true });
+  const yes = await remote.secondReset();
+  assert.equal(yes.ok, true, yes.because);
+  const call = recorded().find((c) => { const a = Array.isArray(c) ? c : c.args || []; return a.includes('second') && a.includes('reset'); });
+  assert.ok(call, 'the reset never reached the connector: ' + JSON.stringify(recorded()));
+  remote.resetForTests();
+});
