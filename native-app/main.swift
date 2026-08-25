@@ -1,9 +1,11 @@
-// Kosmos native app prototype (#677).
+// Kosmos native app (#677) -- the compiled binary tools/build-kosmos-bundle.sh
+// stages at app/bin/kosmos-app and install/setup.sh's build_app_bundle()
+// places at Contents/MacOS/Kosmos, replacing the old bash-heredoc launcher.
 //
 // Phase 1 (done): the AppKit lifecycle mechanics (window, WKWebView, stay-
 // running-on-close, the quit dialog) proven against a real running board.
 //
-// Phase 2 (this pass): the board-resolution and starting logic, reusing
+// Phase 2 (done): the board-resolution and starting logic, reusing
 // `bin/kosmos start`'s existing health-check-and-start-if-needed rather
 // than reimplementing it -- this file stays DUMB about how a board comes
 // up (retries, pidfiles, log tails, the "another process already owns
@@ -11,9 +13,14 @@
 // its exit code, matching the app's whole reuse philosophy: the board
 // itself is unchanged, this is a window pointed at it.
 //
-// NOT the shipped shape yet -- no signing, no notarization, no install-time
-// config file wired from install/setup.sh yet (this reads one by hand for
-// testing; see KosmosInstallConfig below). Run directly:
+// Phase 3 (this pass): installer integration. build_app_bundle() writes
+// Contents/Resources/kosmos-install.json per install (KosmosInstallConfig
+// below reads it); the binary itself is identical across every install and
+// carries no baked values. See .claude/plans/native-app-677.md for why
+// ownership-proof (bundle_is_ours in install/setup.sh) had to move off the
+// executable and onto that config file for this to be safe to ship.
+//
+// For local iteration, run directly:
 //   swiftc main.swift -o kosmos-app-prototype && ./kosmos-app-prototype
 //
 // Env overrides for testing (mirror the real launcher's own contract):
@@ -386,6 +393,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
         NSApp.mainMenu = mainMenu
     }
+}
+
+// Build-time self-test (tools/build-kosmos-bundle.sh): proves the signed
+// binary loads and executes under hardened runtime -- the same purpose as
+// kosmos-tunnel's `--help` check in that build script -- without needing a
+// window server, which a build machine may not have. Exits before touching
+// NSApplication/app.run() below, so it never opens a window.
+if CommandLine.arguments.contains("--kosmos-app-selftest") {
+    print("kosmos-app selftest ok")
+    exit(0)
 }
 
 let app = NSApplication.shared

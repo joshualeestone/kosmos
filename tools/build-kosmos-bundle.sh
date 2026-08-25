@@ -201,6 +201,41 @@ codesign -v "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || { echo "the
 _tunnel_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}')"
 echo "==> Plus connector: kosmos-tunnel signed $_tunnel_sha, input $_tunnel_in (its .sha256), built from kosmos-relay commit $_tunnel_src (per its sidecars beside $TUNNEL_BIN)"
 
+# ---- the native app binary (#677) -------------------------------------------
+# Replaces the old bash-heredoc launcher install/setup.sh wrote into
+# Contents/MacOS/Kosmos. Unlike kosmos-tunnel this is NOT a separate-repo
+# input -- native-app/main.swift lives in this checkout, compiled fresh in
+# THIS build, not carried in as bytes. That makes this script's dirty-tree
+# refusal (below, near the version stamp) load-bearing for the app binary's
+# provenance, not just hygiene: it is the only thing standing in for the
+# tunnel's commit/sha256 sidecars, which exist only because the tunnel
+# crosses a repo boundary and this does not. Do not remove that guard as a
+# nuisance without knowing this leans on it.
+#
+# Arm64-only, matching the bundle's own LSArchitecturePriority arm64 /
+# LSRequiresNativeExecution (install/setup.sh's Info.plist). Unlike the
+# tunnel, which is spawned by whatever Mac is running Kosmos and so must run
+# on both architectures, this binary IS the app itself, and this repo does
+# not build or test on Intel.
+echo "==> compiling the native app (native-app/main.swift)"
+[ "$ARCH" = "arm64" ] || { echo "the native app is compiled arm64-only; this build machine is $ARCH (an Intel build is not part of this bundle's support)" >&2; exit 1; }
+swiftc -O "$REPO/native-app/main.swift" -o "$STAGE/app/bin/kosmos-app" 2>&1 | sed 's/^/    /'
+[ -x "$STAGE/app/bin/kosmos-app" ] || { echo "the native app failed to compile" >&2; exit 1; }
+# Signed here, Developer ID, same reasoning and the same cert as the
+# connector above (a nested ad-hoc binary makes the whole bundle's
+# notarisation Invalid) -- the checksum captured below is what ships.
+codesign --force --options runtime --timestamp -s "$_codesign_id" "$STAGE/app/bin/kosmos-app" 2>&1 | sed 's/^/    /' || {
+  printf '%s\n' "could not Developer ID sign the native app as \"$_codesign_id\" (is this the machine holding the cert? set KOSMOS_CODESIGN_ID to override). NOT falling back to ad-hoc." >&2; exit 1; }
+codesign -v "$STAGE/app/bin/kosmos-app" 2>&1 | sed 's/^/    /' || { echo "the native app's signature did not verify after signing" >&2; exit 1; }
+# Run it, not just verify the signature -- the same "prove it loads under
+# hardened runtime on this build machine" step as the tunnel's --help check.
+# --kosmos-app-selftest exits before touching NSApplication/app.run(), so it
+# proves the signed binary loads and executes without needing a window
+# server, which a build machine may not have.
+"$STAGE/app/bin/kosmos-app" --kosmos-app-selftest >/dev/null 2>&1 || { echo "the signed native app does not run (--kosmos-app-selftest failed); it may not load under hardened runtime" >&2; exit 1; }
+_app_bin_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')"
+echo "==> native app: kosmos-app signed $_app_bin_sha"
+
 # ---- the runtime ------------------------------------------------------------
 node_arch() {
   case "$ARCH" in
@@ -395,6 +430,7 @@ KM_SHA="$(awk '{print $1}' "$TARBALL_OUT.sha256")" \
 KM_APP_COMMIT="$_app_commit" KM_APP_DIRTY="$_app_dirty" \
 KM_NODE_VERSION="$("$STAGE/runtime/bin/node" --version)" KM_NODE_SHA="${NODE_SHA:-unknown}" \
 KM_TUNNEL_SIGNED="${_tunnel_sha:-unknown}" KM_TUNNEL_INPUT="${_tunnel_in:-unknown}" KM_TUNNEL_COMMIT="${_tunnel_src:-unknown}" \
+KM_NATIVE_APP_SIGNED="${_app_bin_sha:-unknown}" \
 KM_BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" KM_HOST="$(hostname -s 2>/dev/null || echo '?')" KM_MACOS="$(sw_vers -productVersion 2>/dev/null || echo '?')" \
 "$STAGE/runtime/bin/node" -e '
 const fs = require("fs"); const e = process.env;
@@ -406,6 +442,7 @@ const m = {
   app: { commit: e.KM_APP_COMMIT, dirty: e.KM_APP_DIRTY === "yes" },
   node: { version: e.KM_NODE_VERSION, download_sha256: e.KM_NODE_SHA },
   connector: { signed_sha256: e.KM_TUNNEL_SIGNED, input_sha256: e.KM_TUNNEL_INPUT, commit: e.KM_TUNNEL_COMMIT },
+  native_app: { signed_sha256: e.KM_NATIVE_APP_SIGNED },
   built: { at: e.KM_BUILT, host: e.KM_HOST, macos: e.KM_MACOS },
   files,
 };
