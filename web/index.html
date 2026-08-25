@@ -1987,7 +1987,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pj-member:hover .pj-minus, html[data-layout="consolidated"] body.consolidated .pj-minus:focus-visible { opacity: 1; }
   html[data-layout="consolidated"] body.consolidated .pj-minus:hover { color: var(--k-ink); background: var(--k-hover-2, var(--k-sunk)); }
 }
-.pjcol { border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface); padding: 14px 16px 16px; }
+.pjcol { border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface); padding: 14px 16px 16px; min-width: 0; }
+/* #764 (Josh, 2026-08-24 22:05: "the conversation box is overlapping the
+   agents and files"): a grid column's floor is its content unless told
+   otherwise, so one long member line pushed the whole side column under the
+   room. The columns and their rows may shrink and wrap; they may not spill. */
+.pjcol > *, .pj-member, .pj-member-b { min-width: 0; }
+.pj-member-b b, .pj-member-b small, .pj-told { overflow-wrap: anywhere; }
 /* #534: the split left column is chrome-free; its two cards wear the look. */
 .pjcol.pjsplit { border: 0; background: none; padding: 0; display: grid; gap: 14px; align-content: start; }
 .ficon { flex: 0 0 18px; margin-right: 2px; align-self: center; }
@@ -2170,30 +2176,40 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    deleted: when the agent's side lands, the drawing is already right and this
    is the rule it needs. (Distinct from the 18e `.pjthread` case, which was a
    rule that DID have an element and was silently outranked by another rule.) */
-/* The link preview card (#357): one quiet bordered block under the text, image
-   left when there is one, title as the link, host small, description clamped
-   to two lines. Tokens only, so both themes follow. */
-.lpv { display: flex; gap: 12px; align-items: stretch; margin-top: 8px; max-width: 32rem;
-  border: 0.5px solid var(--separator); border-radius: 10px; overflow: hidden; text-decoration: none;
+/* The link preview card (#357), laid down since #761 (Josh, 2026-08-24
+   21:56, with Discord's card beside ours: "a much, much larger OG image...
+   below the meta link information"): host small, title as the link,
+   description clamped to four lines, then the picture at the card's width,
+   about half the room. Tokens only, so both themes follow. */
+.lpv { display: flex; flex-direction: column; margin-top: 8px; width: min(100%, 34rem);
+  border: 0.5px solid var(--separator); border-left: 3px solid var(--separator); border-radius: 10px; overflow: hidden; text-decoration: none;
   color: var(--k-ink); background: var(--k-surface); }
 .lpv:hover { border-color: var(--k-ink-2); }
-.lpv-img { flex: 0 0 96px; background: var(--k-bg); }
-.lpv-img img { display: block; width: 96px; height: 100%; min-height: 64px; object-fit: cover; }
-.lpv-txt { display: flex; flex-direction: column; gap: 2px; padding: 9px 12px; min-width: 0; }
+.lpv-img { display: block; margin: 0 12px 12px; border-radius: 8px; overflow: hidden; background: var(--k-bg); }
+.lpv-img img { display: block; width: 100%; height: auto; max-height: 22rem; object-fit: cover; }
+.lpv-txt { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; min-width: 0; }
 .lpv-site { font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); text-transform: lowercase; }
-.lpv-title { font: 600 .9375rem var(--font-ui); color: var(--k-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lpv-desc { font: var(--text-callout) var(--font-ui); color: var(--k-ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.lpv-title { font: 600 1rem var(--font-ui); color: var(--k-ink); overflow-wrap: anywhere; }
+.lpv-desc { font: var(--text-callout) var(--font-ui); color: var(--k-ink-2); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 /* The attached document card (#358): a picture when the board made one,
    always a name, type and size; the whole card downloads. The + on each
    composer and the drop target on each thread are the pack's own. */
-.att { display: flex; gap: 12px; align-items: center; margin-top: 8px; max-width: 32rem;
+.att { display: flex; gap: 12px; align-items: center; margin-top: 8px; width: min(100%, 34rem);
   border: 0.5px solid var(--separator); border-radius: 10px; overflow: hidden; text-decoration: none;
   color: var(--k-ink); background: var(--k-surface); }
 .att:hover { border-color: var(--k-ink-2); }
 .att-pic { flex: 0 0 96px; background: var(--k-bg); align-self: stretch; }
 .att-pic img { display: block; width: 96px; height: 100%; min-height: 64px; object-fit: cover; }
-.att.att-image .att-pic { flex-basis: 160px; }
-.att.att-image .att-pic img { width: 160px; max-height: 200px; object-fit: contain; }
+/* #761 (Josh, 2026-08-24 21:56: "a nice big Christmas tree image, but when I
+   paste it in here all I get is this little tiny squatty thumbnail... show
+   it, 50% or something, and put the text either above or below it"): an
+   image attachment reads down, the picture at the card's width, the name
+   and size under it. A document keeps its row shape, a size up. */
+.att.att-image { flex-direction: column; align-items: stretch; gap: 0; }
+.att.att-image .att-pic { flex: none; align-self: stretch; background: var(--k-bg); }
+.att.att-image .att-pic img { width: 100%; height: auto; max-height: 24rem; min-height: 0; object-fit: contain; }
+.att:not(.att-image) .att-pic { flex: 0 0 128px; }
+.att:not(.att-image) .att-pic img { width: 128px; min-height: 84px; }
 .att-txt { display: flex; flex-direction: column; gap: 2px; padding: 9px 12px; min-width: 0; }
 .att-name { font: 600 .9375rem var(--font-ui); color: var(--k-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .att-meta { font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
@@ -2436,6 +2452,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .cinput::placeholder { color: var(--k-ink-2); }
 .cpost { flex: 0 0 auto; padding: .5em 1.05em; font-size: .9375rem; }
 .composerhint { margin: 0; font-size: .75rem; color: var(--k-ink-2); }
+/* #761 (Josh, 2026-08-24 21:56: "a little extra space below 'Drop a file
+   anywhere'... tighten up that space"): the room's status line sits under
+   the composer and, empty, still took its minimum height and margin (33px
+   measured). A status line that says nothing takes no room. */
+.pjmid #pj-room-msg:empty { display: none; }
 .composerhint b { font-family: var(--font-mono); font-weight: 700; color: var(--k-ink); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .msg-av { background: rgba(245,245,244,.10); }
@@ -3236,7 +3257,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    than decoration. It is deliberately NOT alarming: removal is reversible, so
    nothing here says otherwise. Loud about WHICH agent, quiet about danger. */
 /* ---- task cards (the pack's .task, in this app's tokens) ---- */
-.tkcards { display: flex; flex-direction: column; gap: var(--space-4); }
+.tkcards { display: flex; flex-direction: column; gap: var(--space-4); min-height: 14rem; }
+/* #761: the empty Tasks box is taller and says what it is for, centred and quiet. */
+.tk-empty { margin: auto 0; padding: var(--space-7) var(--space-5); text-align: center; font: var(--text-callout) var(--font-ui); color: var(--label-3); line-height: 1.5; }
 #pj-newtask { margin-bottom: var(--space-5); }
 .tkcard { display: block; width: 100%; text-align: left; cursor: pointer;
         background: var(--bg-elevated); border: 1px solid var(--border-strong);
@@ -20235,7 +20258,13 @@ function paintProjectTasks(p) {
   // destroys a keyboard user's focus on a card even when nothing changed.
   if (html !== TK_LIST_HTML) {
     TK_LIST_HTML = html;
-    list.innerHTML = html;
+    /* #761 (Josh, 2026-08-24 21:56): "some kind of centered light gray text
+       that just says something like 'Add a task' or 'Have your agent add a
+       task to start tracking your progress'... inviting." Only when there is
+       nothing in the column; a list behind the door is not an empty list. */
+    list.innerHTML = html || (all.length
+      ? ''
+      : '<p class="tk-empty">Add a task, or have an agent add one, to start tracking progress.</p>');
   }
   // The door: pack rule, the column is not the whole list and says so.
   if (!TK_SHOW_ALL && behind > 0) {
@@ -21388,13 +21417,18 @@ function pjPreviewCard(preview) {
   const image = typeof p.image === 'string' && /^\/api\//.test(p.image) ? p.image : null;
   let site = typeof p.site === 'string' && p.site.trim() ? p.site.trim() : '';
   if (!site) { try { site = new URL(p.url).host; } catch { site = ''; } }
+  /* #761 (Josh, 2026-08-24 21:56: "a much, much larger OG image... below the
+     meta link information... a bigger bolder kind of graphic way"): the
+     words first (site, title, description), the picture under them at the
+     card's own width, the way Discord lays it. */
   return '<a class="lpv" href="' + esc(p.url) + '" target="_blank" rel="noreferrer noopener">'
-    + (image ? '<span class="lpv-img"><img src="' + esc(image) + '" alt="" loading="lazy"></span>' : '')
     + '<span class="lpv-txt">'
     + (site ? '<span class="lpv-site">' + esc(site) + '</span>' : '')
     + '<span class="lpv-title">' + esc(title || p.url) + '</span>'
     + (desc ? '<span class="lpv-desc">' + esc(desc) + '</span>' : '')
-    + '</span></a>';
+    + '</span>'
+    + (image ? '<span class="lpv-img"><img src="' + esc(image) + '" alt="" loading="lazy"></span>' : '')
+    + '</a>';
 }
 
 /* The attached document card (#358), drawn under a message's text when the
