@@ -9592,6 +9592,13 @@ async function tick() {
       const openProject = pjById(PJ_CURRENT);
       if (openProject) paintRoomBusy((openProject.agents || []).map((a) => (a && a.sessionName) || a));
     }
+    /* #761 (Josh, 2026-08-24 21:56: "I have to hard refresh the page to get
+       files in this project to refresh"): the files card painted once, on
+       opening a project, and never again. Gated on the project view
+       actually being on screen, the same reasoning #743 gated the Plus
+       repaint on -- a hidden card still costs nobody a fetch. pjLoadDocs
+       itself now skips the repaint when the folder's stamp has not moved. */
+    if (PJ_CURRENT && !document.getElementById('pj-one-view').hidden) pjLoadDocs(PJ_CURRENT);
     /* #743 (Josh, night walk of served 0.5.24): "Starting the connection."
        sat for minutes after the tunnel was already up, because the Plus
        section painted only on arrival and nothing repainted it while it
@@ -20927,8 +20934,14 @@ async function tkPartPost(url, body) {
     });
     const out = await res.json().catch(() => null);
     if (!res.ok) { msg.textContent = (out && out.error) || 'we could not change that'; return false; }
-    msg.textContent = '';
     await pjReload();
+    // #761: set AFTER the reload, which repaints the task page but does not
+    // touch tk-msg itself (only openTaskPage's entry does) -- an earlier
+    // write here would have been the empty string the line above used to
+    // leave, which is exactly the silence the card is about. pjById fresh,
+    // not the `p` captured before the reload, for the same reason the New
+    // Task handler does: the name to speak needs the current roster.
+    msg.textContent = heardSentence(spokenHeard(pjById(PJ_CURRENT), out && out.heard));
     return true;
   } catch {
     msg.textContent = 'we could not change that';
@@ -21134,6 +21147,15 @@ document.getElementById('nt-go').addEventListener('click', async () => {
     document.getElementById('nt-detail').value = '';
     leaveNewTask();
     await pjReload();
+    // Set AFTER the reload and the dialog's own close, which both land on
+    // the project page too: an earlier write here would be gone before
+    // the person could read it (leaveNewTask moves focus, pjReload
+    // repaints, neither of them touches pj-one-msg, so this is safe last).
+    // pjById fresh, not the `p` captured before the reload: the name to
+    // speak comes from pjNameOf, which needs the CURRENT roster.
+    const freshP = pjById(PJ_CURRENT);
+    const heard = heardSentence(spokenHeard(freshP, body && body.heard));
+    if (heard) document.getElementById('pj-one-msg').textContent = heard;
   } catch {
     document.getElementById('nt-msg').textContent = 'we could not add that task';
     go.disabled = false;
@@ -21631,22 +21653,61 @@ function fileIcon(name) {
     '<path d="M10.5 1.5V5H15" fill="none" stroke="#9aa0a6" stroke-width="1"/>' + tag + '</svg>';
 }
 
+/* #761: the stamp the last PAINT used, per project (cleared on switch, a
+   few lines below where the rest of the docs state already resets). A
+   poll that finds the same stamp has nothing new to show and must not
+   repaint: `box.textContent = ''` below would otherwise blank the list
+   for a beat every 5 seconds.
+   ⚠️ THE STAMP ALONE IS NOT ENOUGH. A stamp match says the FILES have not
+   moved; it says nothing about whether the SCREEN currently agrees with
+   them. A transient failure between two identical successful reads
+   (network hiccup, or a because that came and went) paints the error
+   state without moving the stamp -- the next success then matches the
+   stamp from BEFORE the failure and, on the stamp check alone, would
+   skip repainting and leave the stale error on screen forever, the exact
+   "need a hard refresh" bug this card exists to remove. PJ_DOCS_OK tracks
+   what the SCREEN currently shows (a real list, or an error), not just
+   what the files last hashed to; the skip only fires when both agree. */
+let PJ_DOCS_STAMP = null;
+let PJ_DOCS_OK = false;
+/* Same reasoning as PLUS_EPOCH (#743): pjLoadDocs now has two callers
+   (openProject's own call and tick's 5s poll), so a slow fetch from the
+   first can resolve after a faster one from the second and overwrite
+   fresher data with stale -- the PJ_CURRENT check below only catches a
+   response arriving after a PROJECT switch, not two in-flight reads of
+   the SAME project settling out of order. */
+let PJ_DOCS_EPOCH = 0;
 async function pjLoadDocs(id) {
   const box = document.getElementById('pj-docs');
   const msg = document.getElementById('pj-docs-msg');
   const all = document.getElementById('pj-docs-all');
+  const epoch = (PJ_DOCS_EPOCH += 1);
   let body;
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(id) + '/documents');
     body = await res.json();
   } catch {
+    if (epoch !== PJ_DOCS_EPOCH) return;
     /* ⚠️ Only if this project is still the open one. Same capture-and-recheck
        every other async painter here carries: an answer that arrives after a
        switch would paint one project's failure under another's name. */
-    if (PJ_CURRENT === id) msg.textContent = 'We could not read this project\u2019s folder just now.';
+    if (PJ_CURRENT === id) { msg.textContent = 'We could not read this project\u2019s folder just now.'; PJ_DOCS_OK = false; }
     return;
   }
+  if (epoch !== PJ_DOCS_EPOCH) return;
   if (PJ_CURRENT !== id) return;
+  const nowOk = Boolean(body && body.ok === true);
+  // A could-not-read state (body.ok !== true) carries no stamp and must
+  // always repaint -- it can change (the folder came back, or a NEW
+  // because replaced the old one) without any stamp moving, since one was
+  // never produced. A stamp match is only meaningful when both reads
+  // succeeded AND the screen is already showing that success (PJ_DOCS_OK):
+  // a success landing right after a failure must repaint even when its
+  // stamp matches the LAST success, the one before the failure the screen
+  // never recovered from on its own.
+  if (nowOk && PJ_DOCS_OK && body.stamp === PJ_DOCS_STAMP) return;
+  if (nowOk) PJ_DOCS_STAMP = body.stamp;
+  PJ_DOCS_OK = nowOk;
   box.textContent = '';
   if (!body || body.ok !== true) {
     msg.textContent = (body && body.because) || 'We could not read this project\u2019s folder just now.';
@@ -22078,6 +22139,11 @@ function openProject(id) {
     document.getElementById('pj-docs-msg').textContent = '';
     document.getElementById('pj-docs-all').hidden = true;
     PJ_DOC_NAMES = null;
+    // #761: a stale stamp from the project just left would read as
+    // "nothing changed" against THIS project's own first read and skip
+    // painting it.
+    PJ_DOCS_STAMP = null;
+    PJ_DOCS_OK = false;
     pjLoadDocs(id);
     const roomBox = document.getElementById('pj-room');
     roomBox.__lastRoom = undefined;
@@ -23289,6 +23355,35 @@ function pjSentence(because) {
   const said = String(because || '').trim();
   if (!said) return '';
   return said.charAt(0).toUpperCase() + said.slice(1) + (/[.!?]$/.test(said) ? '' : '.');
+}
+
+/**
+ * #761 (Josh, 2026-08-24 21:56: "I created three new tasks and assigned
+ * them but I don't know that the agent was notified"): the engine's
+ * `heard` verdict, said in one sentence. Unlike `told` (written into the
+ * agent's instructions, said nowhere on success), this one speaks on
+ * success too, because silence is exactly the gap the card is about.
+ * Three states, three sentences (chat.DELIVERY): PLACED says so plainly;
+ * COULD_NOT and UNCONFIRMED both relay the engine's own fact clause
+ * (pjSentence), never collapsed into one generic failure -- an
+ * unconfirmed send may have landed, and telling someone it did not would
+ * be the over-claim chat.js's own comments warn against.
+ */
+function heardSentence(heard) {
+  if (!heard || !heard.who) return '';
+  if (heard.state === 'placed') return 'Told ' + heard.who + '.';
+  if (heard.state === 'could_not') return 'Could not tell ' + heard.who + ': ' + pjSentence(heard.because);
+  if (heard.state === 'unconfirmed') return 'Could not confirm ' + heard.who + ' saw it: ' + pjSentence(heard.because);
+  return '';
+}
+/* `heard.who` off the wire is the sessionName (heardBy, server.js), the
+   machine name -- act on that, speak pjNameOf's, the same split every
+   other member-facing sentence on this page already keeps (tkMemberName,
+   dropMember's `who`). Returns a NEW object; heardSentence never sees the
+   raw session name. */
+function spokenHeard(p, heard) {
+  if (!heard || !heard.who) return heard;
+  return Object.assign({}, heard, { who: p ? pjNameOf(p, heard.who) : heard.who });
 }
 
 /**
