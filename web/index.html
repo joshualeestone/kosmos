@@ -1612,7 +1612,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .lav { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
        background: rgba(20,22,26,.06); font-size: .875rem; font-weight: 600;
        color: var(--k-ink-2); overflow: hidden; }
-.lav img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.lav img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+/* #520/consolidated view: .lav switches to overflow:visible there (below)
+   so the memory ring can extend past the avatar's own box -- which also
+   drops the parent's clip, so a real photo rendered square over the
+   still-circular .lav background (Josh, 2026-08-25 15:52, screenshots).
+   The initials fallback (.lavtint) already carries its own border-radius
+   and was never affected; the img needed the same self-sufficiency. */
 /* #520: drawn into every list row, shown only by the consolidated rail. */
 .lav .lring, .lav .lwarn { display: none; }
 /* The tinted disc fallback fills its chip (the tint rides the inner span
