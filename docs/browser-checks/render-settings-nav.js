@@ -5,7 +5,8 @@
  * Same shape as render-agent-nav.js and for the same reason: the text tests
  * can prove the seven sections exist and which box is in which; only a
  * browser can prove a click puts that section on screen and takes the others
- * off it, in both themes and at phone width. Leads with a control (six
+ * off it, in both themes, at phone width, and in the 56 to 60rem band where
+ * the nav sits beside a fluid section. Leads with a control (six
  * sections at zero height before any click), measures by rectangle.
  *
  * The server runs in this process against a fixture fleet with every state

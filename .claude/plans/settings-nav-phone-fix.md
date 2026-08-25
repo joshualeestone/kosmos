@@ -6,7 +6,7 @@ sandboxed run against origin/main c5b3112: 92 pass, those 2 fail.
 
 ## Cause
 
-#773 gave Settings an id-selector column rule up to 60rem
+#770's first cut (PR #773) gave Settings an id-selector column rule up to 60rem
 (`#panel-settings .dbody { 176px minmax(0,1fr) }`). At phone width the older
 `@media (max-width: 56rem) { .dbody { minmax(0,1fr) } }` rule was meant to
 stack the nav, but a class selector loses to an id selector whatever the
