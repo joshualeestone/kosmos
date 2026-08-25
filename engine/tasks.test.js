@@ -253,13 +253,14 @@ test('the managed block teaches the join: tasks listed in the matching spelling,
   tasks.close(p.id, 3);
   const stored = projects.readAll().find((x) => x.id === p.id);
   const body = projects.blockBody([stored], 'teachee');
-  assert.match(body, /- Task 1: Mine to do/, 'the open task is not taught');
+  assert.match(body, /- task 1 of [^:\n]+: Mine to do/, 'the open task is not taught with its project (#779)');
   assert.ok(!/Somebody else/.test(body), 'another agent\'s task leaked into the block');
   assert.ok(!/Closed already/.test(body), 'a closed task is still taught');
-  assert.match(body, /include "task <number>" in the commitment/, 'the convention line is missing');
+  assert.match(body, /report it as "task <number> of <project>"/, 'the convention line is missing');
+  assert.match(body, /the number alone is ambiguous/, 'the why was cut; an agent that does not know it helpfully shortens to "task 1" (#779)');
   // One-arg compatibility: no session name, no task lines, no trailer.
   const bare = projects.blockBody([stored]);
-  assert.ok(!/Task 1:/.test(bare) && !/task <number>/.test(bare), 'task lines appear with no agent to scope them');
+  assert.ok(!/task 1 of /.test(bare) && !/task <number>/.test(bare), 'task lines appear with no agent to scope them');
 });
 
 test('a task records who added it, while the answer is still free', () => {
@@ -368,8 +369,8 @@ test('every reader treats a parts task exactly as it treats the legacy one', () 
     'the premise: the unreported legacy task joins as a definite no');
 
   const block = projects.blockBody([stored], 'onlyreader');
-  assert.match(block, new RegExp('Task ' + legacy.number), 'the premise: the legacy task is in the agent\'s instructions');
-  assert.match(block, new RegExp('Task ' + modern.number),
+  assert.match(block, new RegExp('task ' + legacy.number + ' of '), 'the premise: the legacy task is in the agent\'s instructions');
+  assert.match(block, new RegExp('task ' + modern.number + ' of '),
     'a task with parts vanished from the agent\'s own instructions, so it would never be told');
 });
 

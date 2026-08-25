@@ -1900,7 +1900,12 @@ function blockBody(projects, sessionName) {
       : [];
     if (!mine.length) return head;
     any = true;
-    return [head, ...mine.map((t) => `  - Task ${Number(t.number)}: ${oneLine(t.sentence)}`)].join('\n');
+    /* #779: the project name rides every task line, once per task, because
+       the agent needs the EXACT STRING to echo back and copies what it sees;
+       a heading two lines up is not something a reader copies from
+       (Splinter's ruling, held for Josh, 2026-08-25 02:01). Lower-case
+       "task" so the line and the instruction below agree. */
+    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(t.sentence)}`)].join('\n');
   });
   return [
     '## Your projects',
@@ -1911,8 +1916,8 @@ function blockBody(projects, sessionName) {
     ...(any ? [
       '',
       'The indented lines are tasks written down for you. When you take one up,',
-      'include "task <number>" in the commitment you report, so the board can',
-      'show you are on it.',
+      'report it as "task <number> of <project>": the number alone is ambiguous',
+      'when you are on two projects.',
     ] : []),
   ].join('\n');
 }
