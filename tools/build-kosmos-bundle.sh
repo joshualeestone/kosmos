@@ -83,6 +83,14 @@ grep -q "content=\"$_ver\"" "$STAGE/app/web/index.html" || {
 echo "==> baked version $_ver into the page"
 cp "$REPO/bin/agent-supervisor.sh" "$STAGE/app/bin/"
 chmod +x "$STAGE/app/bin/agent-supervisor.sh"
+# 🛑 EVERY runtime file engine/create.js resolves under bin/ ships, by name
+# (this file's explicit-list rule). The codex notify bridge was resolved by
+# create.js since #245 and never copied here: served 0.5.23 could not create a
+# single agent, and the refusal blamed the supervisor, which had shipped
+# (#731). bundle.contents.test.js now fails the moment the engine resolves a
+# bin/ file this list does not carry.
+cp "$REPO/bin/codex-report-bridge.js" "$STAGE/app/bin/"
+chmod +x "$STAGE/app/bin/codex-report-bridge.js"
 # The app icon artwork, when it exists: the installer looks for
 # app/assets/Kosmos.icns is the ONE asset that ships, named explicitly
 # per this file's own explicit-list rule: a wildcard copy of assets/

@@ -803,10 +803,15 @@ function installSupervisor() {
     // Leave nothing half-written beside the real one.
     try { fs.rmSync(`${supervisorPath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(`${bridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
+    // ⚠️ NAME THE FILE. Two files ride this step; when one is absent the
+    // sentence must say WHICH, or a person goes looking for a file that is
+    // present (#731: the bridge was missing from the served bundle and the
+    // refusal blamed the supervisor, which had shipped).
+    const absent = [supervisorSource(), bridgeSource()].filter((f) => !fs.existsSync(f)).map((f) => path.basename(f));
     return {
       ok: false,
-      missing: err && err.code === 'ENOENT'
-        && (!fs.existsSync(supervisorSource()) || !fs.existsSync(bridgeSource())),
+      missing: Boolean(err && err.code === 'ENOENT' && absent.length),
+      missingFile: absent.length ? absent.join(' and ') : null,
     };
   }
 }
@@ -1133,7 +1138,9 @@ function installJob(name, opts) {
   }
   const installed = DRY_RUN ? { ok: true } : installSupervisor();
   if (!installed.ok) {
-    return { ok: false, because: 'the startup script is missing from this installation, so the job would fail every time it ran' };
+    return { ok: false, because: installed.missingFile
+      ? `a file this app needs to start agents (${installed.missingFile}) is missing from this installation, so the job would fail every time it ran`
+      : 'the startup script could not be put in place, so the job would fail every time it ran' };
   }
   const modelArg = (opts && typeof opts.model === 'string' && opts.model.trim()) ? opts.model.trim() : null;
   const configDir = (opts && typeof opts.configDir === 'string' && opts.configDir) ? opts.configDir : null;
@@ -1898,10 +1905,12 @@ function createAgentInner(opts) {
   // exist, which is the respawn loop. The gate below stops before the job is
   // written at all.
   let supervisorMissing = false;
+  let supervisorMissingFile = null;
   const installedSupervisor = step('put the script that starts agents in place', () => {
     if (DRY_RUN) return true;
     const done = installSupervisor();
     supervisorMissing = done.missing === true;
+    supervisorMissingFile = done.missingFile || null;
     return done.ok;
   });
 
@@ -1969,7 +1978,7 @@ function createAgentInner(opts) {
       return {
         outcome: OUTCOME.PARTIAL,
         because: supervisorMissing
-          ? 'the script that starts agents is missing from this app, so we have not made it. Trying again will not help until that is fixed.'
+          ? `a file this app needs to start agents (${supervisorMissingFile || 'the start script'}) is missing from this app, so we have not made it. Trying again will not help until that is fixed; installing Kosmos again usually does.`
           : 'we could not put the script that starts agents in place, so we have not made it. You can try that name again.',
         steps,
       };
