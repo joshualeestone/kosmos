@@ -1,0 +1,7 @@
+# Build outputs -- the source (main.swift) is committed, compiled binaries
+# and .app bundles are not (not reproducible-as-a-diff, and the real
+# shipped binary is compiled and signed by tools/build-kosmos-bundle.sh,
+# never by hand).
+kosmos-app-prototype
+*.app
+*.app/

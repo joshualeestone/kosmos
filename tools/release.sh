@@ -326,13 +326,27 @@ else
 fi
 rm -f "$_tunnel_tmp"
 echo "   connector: kosmos-tunnel $TUNNEL_SHA"
+
+# The native launcher's checksum (#677), same shape and same reason as the
+# connector's above: it is compiled from a tree file (native-app/main.swift)
+# but codesigning changes its bytes on every build, so the plain tree
+# comparison that works for a .js file cannot apply to it -- this checksum,
+# from the tarball THIS build just produced, is its source of truth instead.
+_native_app_tmp="$(mktemp)"
+if tar -xzOf "$REPO/dist/kosmos-arm64.tar.gz" app/bin/kosmos-app > "$_native_app_tmp" 2>/dev/null && [ -s "$_native_app_tmp" ]; then
+  NATIVE_APP_SHA="$(shasum -a 256 "$_native_app_tmp" | awk '{print $1}')"
+else
+  rm -f "$_native_app_tmp"; echo "the built bundle carries no native app (app/bin/kosmos-app); build-kosmos-bundle.sh should have refused"; exit 1
+fi
+rm -f "$_native_app_tmp"
+echo "   native app: kosmos-app $NATIVE_APP_SHA"
 # 🛑 BEFORE THE FIRST COPY TOWARD THE SITE (#609): the bundle just built carries
 # every file the tree and the app need, and each present file equals the
 # tree's. The same comparator runs at 9b on the SERVED bytes; here it runs on
 # the built ones, so a file the build forgot (#731: the codex bridge, absent
 # from every served bundle for ten versions) stops the cut with nothing
 # published, instead of being caught after step 8 has deployed it.
-_cmp_rc=0; release_bundle_matches_tree "$REPO/dist/kosmos-arm64.tar.gz" "$BUILD" "$TUNNEL_SHA" || _cmp_rc=$?
+_cmp_rc=0; release_bundle_matches_tree "$REPO/dist/kosmos-arm64.tar.gz" "$BUILD" "$TUNNEL_SHA" "$NATIVE_APP_SHA" || _cmp_rc=$?
 if [ "$_cmp_rc" -eq 0 ]; then
   echo "   the built bundle carries everything the tree and the app need, and every file in it is the tree's"
 else
@@ -517,13 +531,13 @@ _served_tgz="$(mktemp)"
 _bundle_ok=0
 for i in 1 2 3 4 5 6; do
   if curl -fsSL -m 120 "${HOST:-https://installkosmos.com}/dist/kosmos-$V-arm64.tar.gz" -o "$_served_tgz" \
-     && release_bundle_matches_tree "$_served_tgz" "$BUILD" "$TUNNEL_SHA"; then _bundle_ok=1; break; fi
+     && release_bundle_matches_tree "$_served_tgz" "$BUILD" "$TUNNEL_SHA" "$NATIVE_APP_SHA"; then _bundle_ok=1; break; fi
   echo "   (attempt $i did not match the frozen tree; waiting)"
   sleep 10
 done
 rm -f "$_served_tgz"
 if [ "$_bundle_ok" = 1 ]; then
-  echo "   the served kosmos-$V-arm64.tar.gz is ${SHA:0:12}: every tree file (app/ and bin/kosmos) matches, and the connector is ${TUNNEL_SHA:0:12}"
+  echo "   the served kosmos-$V-arm64.tar.gz is ${SHA:0:12}: every tree file (app/ and bin/kosmos) matches, the connector is ${TUNNEL_SHA:0:12}, and the native app is ${NATIVE_APP_SHA:0:12}"
 else
   echo "THE SERVED BUNDLE IS NOT THE TREE THAT WAS TESTED (${SHA:0:12}) AFTER SIX READS"; exit 1
 fi

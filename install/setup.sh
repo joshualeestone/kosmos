@@ -182,12 +182,24 @@ PATH_LINE="export PATH=\"$BIN_DIR:\$PATH\""
 # had. It returns 0 only for a REAL directory bundle -- no symlink at
 # the root, at Contents, at MacOS, or at the launcher leaf, because a
 # link at any level would make the content check read a file the bundle
-# does not own -- whose launcher carries this install's anchored token
-# (`:-<home>}"`, closing brace and quote included, so prefix-related
-# homes cannot cross-match). /usr/bin/grep by absolute path: this answer
-# decides where rm -rf points, so it must not be answerable by whatever
-# a user's PATH puts in front of grep (the same argument the write
-# probe's /bin/mkdir records).
+# does not own.
+#
+# ⚠️ TWO LAUNCHER SHAPES SHIP NOW (#677). The OLD bash-heredoc launcher
+# carries this install's anchored token IN the executable itself
+# (`:-<home>}"`, closing brace and quote included, so a prefix-related
+# home cannot cross-match). The NEW compiled Swift binary is IDENTICAL
+# across every install -- it is never re-baked per install -- so its
+# anchor cannot live in the executable at all; it lives in the
+# per-install Contents/Resources/kosmos-install.json instead, written
+# with the same anchoring discipline (`"kosmosHome":"<home>"`, closing
+# quote included). The old check runs first (cheap, and every install on
+# disk before #677 is this shape); the new one is a fallback tried only
+# when the old one does not match, never the reverse -- an old bundle is
+# never asked to satisfy a proof it was never written to carry.
+# /usr/bin/grep by absolute path throughout: this answer decides where
+# rm -rf points, so it must not be answerable by whatever a user's PATH
+# puts in front of grep (the same argument the write probe's /bin/mkdir
+# records).
 bundle_is_ours() {
   [ -d "$1" ] || return 1
   [ ! -L "$1" ] || return 1
@@ -199,7 +211,14 @@ bundle_is_ours() {
   # this file is written against. Same hardening class and cost as the
   # stage's bare mkdir.
   [ -f "$1/Contents/MacOS/Kosmos" ] || return 1
-  /usr/bin/grep -qF ":-$KOSMOS_HOME}\"" "$1/Contents/MacOS/Kosmos" 2>/dev/null
+  /usr/bin/grep -qF ":-$KOSMOS_HOME}\"" "$1/Contents/MacOS/Kosmos" 2>/dev/null && return 0
+  # The new-shape fallback: same symlink and regular-file discipline as
+  # the executable above, applied to the config file instead, because a
+  # link at this leaf would make the fallback read a file the bundle does
+  # not own just as surely as a link at the executable would.
+  [ ! -L "$1/Contents/Resources/kosmos-install.json" ] || return 1
+  [ -f "$1/Contents/Resources/kosmos-install.json" ] || return 1
+  /usr/bin/grep -qF "\"kosmosHome\":\"$KOSMOS_HOME\"" "$1/Contents/Resources/kosmos-install.json" 2>/dev/null
 }
 
 # SYS_APP_DIR is overridable ONLY so the harness can drive the probe AND its
@@ -1846,63 +1865,38 @@ build_app_bundle() {
 </dict></plist>
 PLIST
 
-  # ⚠️ IT STARTS THE BOARD IF IT IS NOT RUNNING, rather than only opening a
-  # URL, and it does so through `kosmos open`, which is the one place that
-  # knows how to start, health-check and identify the board (a NON-Kosmos
-  # squatter on the port must not be opened and called Kosmos; another
-  # account's Kosmos is indistinguishable to that check, which is why the
-  # fresh-install open in this file demands the pidfile proof instead).
-  # If that fails, the icon
-  # says so in a dialog instead of opening a dead page: an icon that opens a
-  # browser error is how a person concludes the product broke, and they are
-  # not wrong to. osascript ships on every Mac; if even the dialog fails
-  # there is nothing left this launcher can do quietly, and it exits.
-  cat > "$target/MacOS/Kosmos" <<LAUNCH || return 1
-#!/bin/bash
-KOSMOS_HOME="\${KOSMOS_HOME:-$KOSMOS_HOME}"
-# The account that installed Kosmos, as a BAKED UID compared exactly at
-# click time. On a Mac with several accounts, the shared Applications icon
-# would otherwise start (or fail to start) the INSTALLING account's
-# private tree for whoever clicks it; the other account gets a sentence
-# pointing at the DOWNLOAD instead (install your own per-user copy), never
-# at the terminal -- a graphical dead-end whose only escape is Terminal is
-# the Paste-Blocked wall the .pkg exists to remove (#546). A uid compare, not an
-# is-KOSMOS_HOME-under-HOME proxy: the proxy false-alarmed on the
-# installing account itself whenever KOSMOS_HOME was overridden outside
-# the home folder, and degenerated to match-anything when HOME was empty.
-if [ "\$(/usr/bin/id -u)" != "$owner_uid" ]; then
-  # 🔑 ANOTHER ACCOUNT CLICKED THE SHARED ICON (#664). Josh hit this on a
-  # fresh account that had ALREADY installed its own Kosmos: the install went
-  # into that account's home and its icon into ~/Applications, but the icon a
-  # person sees in the Applications folder is the FIRST account's, and it told
-  # him to go and download Kosmos again. So: if the clicking account has its
-  # own copy at the default home, open THAT. The dialog is only for an
-  # account that has never installed, and it says the .pkg installs for them
-  # too; it never sends anyone to a terminal.
-  # An explicit KOSMOS_HOME in the environment names the copy to open (a
-  # self-host layout, or the harness pointing at a disposable tree); only
-  # a bare click, with no override, looks in the default home. Without this
-  # the harness's wrong-uid copy reached the OPERATOR'S real Kosmos.
-  if [ "\$KOSMOS_HOME" != "$KOSMOS_HOME" ]; then _own="\$KOSMOS_HOME"; else _own="\$HOME/.local/share/kosmos"; fi
-  if [ -x "\$_own/bin/kosmos" ]; then
-    KOSMOS_HOME="\$_own"; export KOSMOS_HOME
-    unset KOSMOS_PORT   # theirs, from their own install, not this icon's baked port
-    if "\$_own/bin/kosmos" open >/dev/null 2>&1; then exit 0; fi
-    /usr/bin/osascript -e 'display alert "Kosmos could not start" message "Something went wrong while your Kosmos was starting. Installing it again usually fixes this: open installkosmos.com and click Download for macOS. Your agents and settings stay on this Mac; installing again does not remove them." as critical' >/dev/null 2>&1
-    exit 1
-  fi
-  /usr/bin/osascript -e 'display alert "Kosmos is installed on this Mac for another user" message "It was set up by a different account on this computer, and it runs for that account. To use Kosmos here, install your own copy: open installkosmos.com and click Download for macOS. Yours will be separate, with your own agents and settings." as critical' >/dev/null 2>&1
-  exit 1
-fi
-# The port this install chose travels with the icon; without it, an install
-# on a non-default port produced an icon that opened the default one.
-export KOSMOS_PORT="\${KOSMOS_PORT:-$PORT}"
-if ! "\$KOSMOS_HOME/bin/kosmos" open >/dev/null 2>&1; then
-  /usr/bin/osascript -e 'display alert "Kosmos could not start" message "Something went wrong while Kosmos was starting. Installing it again usually fixes this: open installkosmos.com and click Download for macOS. Your agents and settings stay on this Mac; installing again does not remove them." as critical' >/dev/null 2>&1
-  exit 1
-fi
-LAUNCH
+  # ⚠️ A COMPILED BINARY NOW (#677), not a heredoc script -- built and
+  # Developer ID signed once, by tools/build-kosmos-bundle.sh, never
+  # per-install: it is byte-identical across every Mac it lands on. It
+  # starts the board if not running (native-app/main.swift's startBoard(),
+  # `bin/kosmos start` directly -- NOT `kosmos open`, which also pops a
+  # browser tab; this window IS what `open` would have opened), health-
+  # checked and identified the same way `kosmos start` always has. If that
+  # fails, or a different account clicked the shared icon (#664), the
+  # binary shows its own dialog instead of opening a dead page -- the
+  # same two sentences the old bash launcher's osascript calls used,
+  # verified verbatim, now native NSAlerts (native-app/main.swift's
+  # resolveInstall/startBoard/showStartupFailureAlert/
+  # showForeignAccountAlert; see .claude/plans/native-app-677.md phase 2).
+  # Existence and executability checked before the copy: a bundle that
+  # shipped app/ without it would otherwise fail silently here and
+  # produce an Info.plist naming an executable that does not exist.
+  [ -x "$KOSMOS_HOME/app/bin/kosmos-app" ] || return 1
+  cp "$KOSMOS_HOME/app/bin/kosmos-app" "$target/MacOS/Kosmos" || return 1
   chmod +x "$target/MacOS/Kosmos" || return 1
+
+  # ⚠️ THE PER-INSTALL VALUES the old heredoc baked into shell text now
+  # live here instead, because the binary itself never changes and reads
+  # them at launch (KosmosInstallConfig in native-app/main.swift). ONE
+  # LINE, no extra whitespace: bundle_is_ours greps this file for the
+  # anchored token `"kosmosHome":"<home>"` byte for byte, and a
+  # differently-formatted encoder output (a space after the colon, a
+  # trailing newline before the value ends) would silently break that
+  # ownership proof for every bundle built this way from now on.
+  # owner_uid was already validated non-empty and all-digits above; PORT
+  # is validated the same way earlier in this file.
+  printf '{"kosmosHome":"%s","ownerUid":%s,"port":%s}' \
+    "$KOSMOS_HOME" "$owner_uid" "$PORT" > "$target/Resources/kosmos-install.json" || return 1
 
   # The icon is optional so the installer never fails for the want of
   # artwork; it ships inside the bundle at app/assets/ (the gold-K

@@ -111,7 +111,13 @@ release_bundle_expected_files() {
   # join( and resolve( both (reporthook.js resolves the hook with path.resolve).
   # The connector is resolved by path too (engine/remote.js) but is not a tree
   # file: the comparator's checksum argument owns it, so it is left out here.
-  ( cd "$tree" && find engine -maxdepth 1 -name '*.js' ! -name '*.test.js' -exec grep -hoE "(join|resolve)\(__dirname, *'\.\.', *'bin', *'[^']*'\)" {} + 2>/dev/null | sed "s/.*'bin', *'\([^']*\)').*/app\/bin\/\1/" | grep -vx 'app/bin/kosmos-tunnel' || true )
+  # app/bin/kosmos-app (#677) is excluded the same way, defensively: nothing
+  # under engine/ resolves it today (install/setup.sh places it, not the
+  # Node engine), so this exclusion is not load-bearing yet -- but if an
+  # engine file ever did reference it this way, demanding it from the TREE
+  # as well as verifying it by checksum would be an unresolvable
+  # contradiction, the same one this line already prevents for the tunnel.
+  ( cd "$tree" && find engine -maxdepth 1 -name '*.js' ! -name '*.test.js' -exec grep -hoE "(join|resolve)\(__dirname, *'\.\.', *'bin', *'[^']*'\)" {} + 2>/dev/null | sed "s/.*'bin', *'\([^']*\)').*/app\/bin\/\1/" | grep -vx -e 'app/bin/kosmos-tunnel' -e 'app/bin/kosmos-app' || true )
   # The require walk needs node; without it the modules outside engine/ would
   # go unlisted and a bundle lacking one would pass, so no node is a refusal,
   # and a walk that throws is one too, with node's own words.
@@ -150,11 +156,20 @@ release_bundle_expected_files() {
 # appearing anyway is a failure (a file the comparison has no source for).
 # The expected set below (#609) leaves the tunnel out for that reason: its
 # presence and bytes are this checksum's to judge, never the tree's.
+# $4 (optional, #677): the expected sha256 of app/bin/kosmos-app, the native
+# launcher. Same shape and same reason as $3 -- it IS compiled from a tree
+# file (native-app/main.swift), but codesigning changes its bytes, so the
+# tree comparison that works for a plain .js file cannot apply to it either;
+# this checksum (computed by the caller from the bundle it just built) is its
+# source of truth instead. Unlike the tunnel it is not derived-set-excluded
+# by name (:114's grep -vx), because nothing under engine/ ever resolves it
+# the way engine/remote.js resolves the tunnel, so it never appears as a
+# derivation candidate in the first place.
 # Then THE OTHER DIRECTION (#609): every file the tree and the app say the
 # bundle must carry is in it; a missing one is named. 2 when the set could not
 # be derived (not a Kosmos tree, no node for the require walk).
 release_bundle_matches_tree() {
-  local tar="$1" tree="$2" want_tunnel_sha="${3:-}" tmp ver rel src cmpfile got_tunnel_sha saw_tunnel=0 bad=0 expected
+  local tar="$1" tree="$2" want_tunnel_sha="${3:-}" want_native_app_sha="${4:-}" tmp ver rel src cmpfile got_tunnel_sha saw_tunnel=0 got_native_app_sha saw_native_app=0 bad=0 expected
   [ -f "$tar" ] && [ -d "$tree" ] || { echo "release_bundle_matches_tree: need a tarball and a tree" >&2; return 2; }
   ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tree/package.json" | head -1)"
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bundle-cmp.XXXXXX")" || return 2
@@ -170,6 +185,15 @@ release_bundle_matches_tree() {
       saw_tunnel=1
       got_tunnel_sha="$(shasum -a 256 "$tmp/$rel" | awk '{print $1}')"
       [ "$got_tunnel_sha" = "$want_tunnel_sha" ] || { echo "   the served connector is not the one this release built ($got_tunnel_sha != $want_tunnel_sha): $rel"; bad=1; }
+      continue
+    fi
+    if [ "$rel" = app/bin/kosmos-app ]; then
+      # The native launcher: verified against the built app's checksum, not
+      # the tree, for the same codesigning reason as the connector.
+      if [ -z "$want_native_app_sha" ]; then echo "   the bundle carries a native app but no expected checksum was given: $rel"; bad=1; continue; fi
+      saw_native_app=1
+      got_native_app_sha="$(shasum -a 256 "$tmp/$rel" | awk '{print $1}')"
+      [ "$got_native_app_sha" = "$want_native_app_sha" ] || { echo "   the served native app is not the one this release built ($got_native_app_sha != $want_native_app_sha): $rel"; bad=1; }
       continue
     fi
     src="$(release_bundle_source_path "$rel")"
@@ -207,6 +231,11 @@ EOS
   # and its tree files would otherwise all match and pass here.
   if [ -n "$want_tunnel_sha" ] && [ "$saw_tunnel" -eq 0 ]; then
     echo "   the bundle carries no Plus connector (app/bin/kosmos-tunnel) but one was expected"; bad=1
+  fi
+  # Same presence requirement, same reason, for the native launcher (#677):
+  # a bundle that shipped WITHOUT it would otherwise pass on tree files alone.
+  if [ -n "$want_native_app_sha" ] && [ "$saw_native_app" -eq 0 ]; then
+    echo "   the bundle carries no native app (app/bin/kosmos-app) but one was expected"; bad=1
   fi
   return $bad
 }
