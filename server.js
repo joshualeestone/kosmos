@@ -41,6 +41,7 @@ const subscription = require('./engine/subscription');
 const connect = require('./engine/connect');
 const machine = require('./engine/machine');
 const updates = require('./engine/update');
+const usage = require('./engine/usage');
 
 // Single source of truth for the version. With no support function, "what
 // version are you on?" is the first question of every diagnosis, so the number
@@ -2412,6 +2413,27 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/history' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, forget.summary()); }
     catch { sendJson(res, 500, { error: 'we could not look at your history' }); }
+    return;
+  }
+  /**
+   * #853: real per-model, per-day token usage, not the point-in-time
+   * context-window reading `/api/status` answers per agent. `?days=N`
+   * (default 7) is clamped inside `dailyUsageByModel` itself, so a bad or
+   * hostile value cannot crash this route.
+   *
+   * ⚠️ FOUR BUCKETS, NEVER BLENDED -- the response carries
+   * input_tokens/output_tokens/cache_creation_input_tokens/
+   * cache_read_input_tokens separately per day per model, exactly as
+   * engine/usage.js produces them. This route does not sum them; a caller
+   * that wants one number has to choose how, and say what it chose.
+   * `rootsRead` travels too, so a caller can say which config directories
+   * were actually scanned rather than imply it saw everything.
+   */
+  if (pathname === '/api/usage' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let days = 7;
+    try { days = Number(new URL(req.url, ROUTING_BASE).searchParams.get('days')) || 7; } catch { days = 7; }
+    try { sendJson(res, 200, usage.dailyUsageByModel(days)); }
+    catch { sendJson(res, 500, { error: 'we could not read token usage' }); }
     return;
   }
   /**
