@@ -5899,13 +5899,30 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  /* The tab icons (#45, Josh 2026-08-17). An explicit allowlist of the four
-     shipped sizes, because everything else below falls through to the page:
+  /* The web app manifest (#718, the home-screen third): with it, Add to Home
+     Screen on a phone produces an app-shaped launch (its own icon, no
+     browser chrome, start_url the board). It is NOT the App Store third and
+     not iOS parity; Josh ruled push + icon + store, and this is one of the
+     three. Served as its own type so a browser reads it as a manifest and
+     not as the page. The name, short_name and colours in it appear under
+     the icon and paint the status bar: placeholders until Mona Lisa says
+     them (#815). */
+  if (apiPath === '/manifest.webmanifest' && (req.method === 'GET' || req.method === 'HEAD')) {
+    fs.readFile(path.join(__dirname, 'web', 'manifest.webmanifest'), (err, buf) => {
+      if (err) { sendJson(res, 404, { error: 'no manifest' }); return; }
+      res.writeHead(200, { 'content-type': 'application/manifest+json; charset=utf-8', 'cache-control': 'public, max-age=3600' });
+      res.end(req.method === 'HEAD' ? undefined : buf);
+    });
+    return;
+  }
+
+  /* The tab icons (#45, Josh 2026-08-17). An explicit allowlist of the six
+     shipped sizes (192 and 512 joined for the manifest, #718), because everything else below falls through to the page:
      without this route, /icons/kosmos-32.png would answer HTML at 200 with
      the wrong content type, the same silent-success signature the API guard
      above exists to stop. A name outside the allowlist 404s as JSON rather
      than serving the page as an image. */
-  const iconGet = pathname.match(/^\/icons\/(kosmos-(?:16|32|48|180)\.png)$/);
+  const iconGet = pathname.match(/^\/icons\/(kosmos-(?:16|32|48|180|192|512)\.png)$/);
   if (iconGet && (req.method === 'GET' || req.method === 'HEAD')) {
     fs.readFile(path.join(__dirname, 'web', 'icons', iconGet[1]), (err, buf) => {
       if (err) { sendJson(res, 404, { error: 'no such icon' }); return; }
