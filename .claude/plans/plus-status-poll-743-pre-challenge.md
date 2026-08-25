@@ -3,7 +3,7 @@ pre_challenge: true
 method: pre-challenge
 explicit_override: true
 branch: plus-status-poll-743
-diff_hash: 3e2029a795d6c5d485c4a93b0db9870e6bd54da59b29b60b8092210f3abbd8a5
+diff_hash: 06338fe3ce104d7963cbc737c6fd83822b20e373b7c6101b24d10200cf3818dc
 timestamp: 2026-08-25T06:52:00Z
 iterations: 2
 converged: true
@@ -68,3 +68,18 @@ fixes (one sequencing guard mirroring an existing pattern in the same
 file, one test-extraction technique already used elsewhere in the
 suite), independently traced and given a real behavioural test rather
 than only a source-text pin.
+
+### After a second rebase
+
+Rebasing onto latest main picked up #802 (the second-factor reset),
+which added a `plus-second` control and a `plusSecondDisarm()` call to
+`paintPlus()`. The behavioural race test's fixture did not stub either
+and threw. Fixed by adding both to the fixture -- no change to the
+fix itself, confirmed by the diff hash covering only that one test
+file. Also ran the full `tools/browser-checks.sh` page-gate: two
+failures (`render-reload-toast`, `render-offline-note`), both
+confirmed unrelated to this branch by rebase-isolation and
+independently by Splinter (this Mac's own board had just been
+restarted onto 0.5.25 mid-run by the 0.5.25 cut's own step 10, which
+flips `ENGINE_STALE` truthy for the fixture regardless of branch).
+Every other check passed.
