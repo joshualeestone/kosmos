@@ -232,6 +232,12 @@ summary_and_exit() {
   # An EXIT, not a test: as the script's last line the test's status was the
   # exit code; inside a function it was a return, and the gate printed its
   # summary and walked on into the probe blocks (measured).
+  # In gate mode a SKIPPED block is a red: the gate promises the download
+  # path (the artifact people receive), and a skipped pass is that promise
+  # not kept, not a pass.
+  if [ "${KOSMOS_INSTALL_GATE:-0}" = 1 ] && [ "$SKIPS" -gt 0 ]; then
+    echo "GATE: $SKIPS block(s) were SKIPPED; a skipped pass is not a passed one"; exit 1
+  fi
   if [ "$FAIL" -eq 0 ]; then exit 0; else exit 1; fi
 }
 

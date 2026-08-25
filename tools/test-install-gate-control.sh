@@ -22,6 +22,7 @@ mkdir -p "$C/repo"; cp -R install tools package.json "$C/repo/"; cp -R dist "$C/
 # before each run, and say how long it took.
 settle() {
   local i busy
+  command -v lsof >/dev/null 2>&1 || { echo "   (no lsof on this machine; cannot tell quiet from busy, running anyway)"; return 0; }
   for i in $(seq 1 40); do
     busy="$(lsof -nP -iTCP:4460-4499 -sTCP:LISTEN 2>/dev/null | awk 'NR>1' | wc -l | tr -d ' ')"
     [ "$busy" = 0 ] && { [ "$i" -gt 1 ] && echo "   (waited $((i-1))s for the harness's port range to go quiet)"; return 0; }
@@ -39,9 +40,14 @@ else bad "CONTROL: the untouched copy fails the gate, so nothing below discrimin
 # from the staged tree AND from the packed tarball, as a broken build would
 # leave it.
 rm -f "$C/repo/dist/kosmos-bundle/app/bin/kosmos-tunnel"
-( cd "$C/repo/dist" && mkdir -p repack && tar -xzf kosmos-arm64.tar.gz -C repack && rm -f repack/app/bin/kosmos-tunnel && tar -czf kosmos-arm64.tar.gz -C repack . && rm -rf repack && shasum -a 256 kosmos-arm64.tar.gz > kosmos-arm64.tar.gz.sha256 )
+# Repacked with the SAME member shape as the built tarball (top-level names,
+# no ./ prefix): the only difference from the shipped artifact must be the
+# missing file, or the red could be the repack's shape rather than the
+# defect this control names.
+( cd "$C/repo/dist" && mkdir -p repack && tar -xzf kosmos-arm64.tar.gz -C repack && rm -f repack/app/bin/kosmos-tunnel && ( cd repack && tar -czf ../kosmos-arm64.tar.gz -- * ) && rm -rf repack && shasum -a 256 kosmos-arm64.tar.gz > kosmos-arm64.tar.gz.sha256 )
+tar -tzf "$C/repo/dist/kosmos-arm64.tar.gz" | grep -q '^app/' && ok "the repacked tarball keeps the built tarball's member shape (app/..., no ./)" || bad "the repack changed the member shape"
 settle
 if ( cd "$C/repo" && KOSMOS_INSTALL_GATE=1 bash tools/test-install.sh ) > "$C/red.log" 2>&1; then bad "a bundle missing app/bin/kosmos-tunnel PASSED the gate (the gate is blind to the bundle's shape)"
-else ok "a bundle missing app/bin/kosmos-tunnel turns the gate red ($(grep -E ' passed, ' "$C/red.log" | tail -1))"; fi
+else ok "a bundle missing app/bin/kosmos-tunnel turns the gate red ($(grep -E ' passed, ' "$C/red.log" | tail -1 || true; [ -n "$(grep -E ' passed, ' "$C/red.log")" ] || echo "$(grep -c '^FAIL' "$C/red.log") FAIL line(s), no summary: the harness stopped at the broken install"))"; fi
 grep -q "^FAIL  install exits 0" "$C/red.log" && ok "and the red names the install itself, not a later check" || bad "the red did not name the install: $(grep -E '^FAIL' "$C/red.log" | head -2 | tr '\n' ' ')"
 echo "install-gate-control: $FAILS failures"; [ "$FAILS" -eq 0 ]

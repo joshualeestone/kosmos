@@ -232,6 +232,43 @@ fi
 
 echo "== 4. build =="
 ( cd "$REPO" && bash tools/build-kosmos-bundle.sh dist )
+
+echo "== 4b. a real install from the bundle just built, sandboxed, before anything is served (#624) =="
+# 🛑 EVERY EARLIER CHECK MEASURED THE BYTES. Step 3 ran the suite, 9b proves
+# served == built file by file, and neither ever INSTALLED the thing: a
+# change to the bundle's SHAPE (a file the installer's post-extract check
+# expects, a changed extract) passed all of them and could still fail on a
+# stranger's Mac. tools/test-install.sh is that install, sandboxed in every
+# root, run by hand before #583's cut and by nothing since; this runs it in
+# gate mode (the install, update, uninstall and download-path passes, then
+# the "nothing leaked" checks) on THIS build, and a red stops the cut here.
+# The kosmos bundle is the one step 4 just packed. The tmux bundle is the
+# site working tree's copy of the served pair (step 4 does not build it; the
+# wire is what 9 verifies), extracted into the frozen dist the way the harness expects.
+# 🛑 BEFORE ANY COPY INTO THE SITE DIST. The first placement of this step was
+# after step 4's copies, so a bundle that failed to install already sat under
+# the plain name in the site tree (the export carries dist/*.tar.gz by name,
+# so the next site deploy by anyone would have shipped it), and the re-run
+# after the fix hit the versioned-name refusal and cost a version bump.
+[ -f "$SITE/dist/tmux-arm64.tar.gz" ] && [ -f "$SITE/dist/tmux-arm64.tar.gz.sha256" ] || { echo "no tmux bundle pair in $SITE/dist (a fresh site checkout has none: fetch the served pair from ${HOST:-https://installkosmos.com}/dist/tmux-arm64.tar.gz and .sha256 into $SITE/dist, or build one with tools/build-tmux-bundle.sh); the install gate cannot run"; exit 1; }
+cp "$SITE/dist/tmux-arm64.tar.gz" "$SITE/dist/tmux-arm64.tar.gz.sha256" "$REPO/dist/"
+rm -rf "$REPO/dist/tmux-bundle"; mkdir -p "$REPO/dist/tmux-bundle"
+tar -xzf "$REPO/dist/tmux-arm64.tar.gz" -C "$REPO/dist/tmux-bundle" || { echo "the served tmux bundle does not extract"; exit 1; }
+# A bare mktemp, like step 3's suite log: the red branch exits, the 2b trap
+# removes BUILD_ROOT, and a log under it would be gone before anyone read it.
+_gate_log="$(mktemp "${TMPDIR:-/tmp}/kosmos-install-gate.XXXXXX")"
+if ( cd "$REPO" && KOSMOS_INSTALL_GATE=1 bash tools/test-install.sh ) > "$_gate_log" 2>&1; then
+  echo "   $(grep -E ' passed, ' "$_gate_log" | tail -1 || true): the bundle installs, updates, uninstalls and downloads-and-installs in a sandbox"
+  rm -f "$_gate_log"
+else
+  echo "THE BUNDLE JUST BUILT DOES NOT INSTALL. Nothing was copied to the site. The gate said:"
+  # || true: under set -e a log with no FAIL or summary line (the harness died
+  # before its first check, or refused at its staged-trees line) would abort
+  # here with the headline and no reason.
+  grep -E '^FAIL|passed, |SKIP' "$_gate_log" | sed 's/^/   /' || tail -15 "$_gate_log" | sed 's/^/   /'
+  echo "   (full log: $_gate_log)"; exit 1
+fi
+
 # The connector's checksum, from the tarball THIS build just produced, so step
 # 9b can prove the SERVED tunnel is byte-for-byte the one tested here (#583).
 # The connector is not a tree file (kosmos-relay builds it), so this is its
@@ -271,31 +308,6 @@ echo "   latest.json -> $(cat "$SITE/dist/latest.json")"
 # | sh`) and an existing one updating itself (engine/update.js re-runs
 # `setupUrl()`). It was stale on the site by a whole change before this step
 # existed, while three correct checks of the bundle passed.
-echo "== 4b. a real install from the bundle just built, sandboxed, before anything is served (#624) =="
-# 🛑 EVERY EARLIER CHECK MEASURED THE BYTES. Step 3 ran the suite, 9b proves
-# served == built file by file, and neither ever INSTALLED the thing: a
-# change to the bundle's SHAPE (a file the installer's post-extract check
-# expects, a changed extract) passed all of them and could still fail on a
-# stranger's Mac. tools/test-install.sh is that install, sandboxed in every
-# root, run by hand before #583's cut and by nothing since; this runs it in
-# gate mode (the install, update, uninstall and download-path passes, then
-# the "nothing leaked" checks) on THIS build, and a red stops the cut here.
-# The kosmos bundle is the one step 4 just packed. The tmux bundle is the
-# one installers download, taken from the site dist (step 4 does not build
-# it), extracted into the frozen dist the way the harness expects.
-[ -f "$SITE/dist/tmux-arm64.tar.gz" ] && [ -f "$SITE/dist/tmux-arm64.tar.gz.sha256" ] || { echo "no served tmux bundle pair in $SITE/dist; the install gate cannot run"; exit 1; }
-cp "$SITE/dist/tmux-arm64.tar.gz" "$SITE/dist/tmux-arm64.tar.gz.sha256" "$REPO/dist/"
-rm -rf "$REPO/dist/tmux-bundle"; mkdir -p "$REPO/dist/tmux-bundle"
-tar -xzf "$REPO/dist/tmux-arm64.tar.gz" -C "$REPO/dist/tmux-bundle" || { echo "the served tmux bundle does not extract"; exit 1; }
-_gate_log="$BUILD_ROOT/install-gate.log"
-if ( cd "$REPO" && KOSMOS_INSTALL_GATE=1 bash tools/test-install.sh ) > "$_gate_log" 2>&1; then
-  echo "   $(grep -E ' passed, ' "$_gate_log" | tail -1): the bundle installs, updates, uninstalls and downloads-and-installs in a sandbox"
-else
-  echo "THE BUNDLE JUST BUILT DOES NOT INSTALL. Nothing was served. The gate said:"
-  grep -E '^FAIL|passed, ' "$_gate_log" | sed 's/^/   /'
-  echo "   (full log: $_gate_log, until the frozen tree is removed on exit)"; exit 1
-fi
-
 echo "== 5. the installer =="
 cp "$REPO/dist/setup" "$SITE/setup"
 cp "$REPO/dist/setup.sha256" "$SITE/setup.sha256"
