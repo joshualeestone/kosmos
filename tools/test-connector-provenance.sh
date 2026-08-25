@@ -30,6 +30,9 @@ printf '%s  kosmos-tunnel\n' "$SHA" > "$B.sha256"; cp "$B" "$T/copied-tunnel"; c
 printf '%s\r\n' "$SHA" > "$B.sha256"; printf '%s\r\n' "$C" > "$B.commit"; out="$(connector_provenance "$B" 2>"$T/err")"; rc=$?
 [ "$rc" = 0 ] && [ "$out" = "$C" ] && ok "CRLF sidecars (a Windows editor, a paste) are read the same" || bad "CRLF sidecars refused or misread (rc $rc, '$out'): $(cat "$T/err")"
 printf '%s\n' "$C" > "$B.commit"; printf '%s\n' "$SHA" > "$B.sha256"
+# the build's own calling convention (round 3): a direct call under errexit, the globals read after "|| exit 1".
+if bash -c 'set -euo pipefail; . tools/lib/connector-provenance.sh; _connector_provenance_check "$1" || exit 1; [ "$CONNECTOR_COMMIT" = "$2" ] && [ "$CONNECTOR_SHA" = "$3" ]' _ "$B" "$C" "$SHA" 2>"$T/err"; then ok "a direct check under set -euo pipefail leaves both globals set for the caller (the build's convention)"; else bad "the direct-call convention failed: $(cat "$T/err")"; fi
+if bash -c 'set -euo pipefail; . tools/lib/connector-provenance.sh; _connector_provenance_check "$1" || exit 7; echo REACHED' _ "$T/nowhere/kosmos-tunnel" >"$T/out" 2>"$T/err"; then bad "a missing binary did not refuse"; else [ "$?" = 7 ] && ! grep -q REACHED "$T/out" && grep -q "no connector at" "$T/err" && ok "a missing binary refuses by name and the caller's || branch runs (no hard exit)" || bad "missing binary: $(cat "$T/err")"; fi
 # the real connector on this Mac, when it is there: an integration line, skipped honestly otherwise.
 R="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
 if [ -f "$R" ]; then
