@@ -59,7 +59,8 @@ printf '{"projectId":"p"}\n' > "$S/.vercel/project.json"
 # links made the carry step refuse, so the emptiness guard was never what failed)
 mkdir -p "$T/outfull"; printf 'x\n' > "$T/outfull/unrelated.txt"
 if site_deploy_export "$S" "$T/outfull" >/dev/null 2>"$T/err"; then bad "exporting into a non-empty dir did not refuse"; else grep -q "is not empty" "$T/err" && ok "a non-empty output dir refuses, by the emptiness guard" || bad "the non-empty dir refused for another reason: $(cat "$T/err")"; fi
-if site_deploy_export "$T" "$T/out3" >/dev/null 2>&1; then bad "a non-repo did not refuse"; else ok "a directory that is not a git checkout refuses"; fi
+# (GIT_CEILING_DIRECTORIES makes this independent of whether some ancestor of TMPDIR is a checkout)
+if GIT_CEILING_DIRECTORIES="$T" site_deploy_export "$T/notarepo" "$T/out3" >/dev/null 2>&1; then bad "a non-repo did not refuse"; else ok "a directory that is not a git checkout refuses"; fi
 
 # a partial pkg triple refuses (the pkg present, its sidecar missing).
 rm -rf "$T/out5"; rm "$S/dist/Kosmos.pkg.inputs"
@@ -94,6 +95,10 @@ mv "$T/pkg.aside" "$S/dist/Kosmos.pkg"; rm -f "$S/dist/.hidden.tar.gz"
 printf 'tracked\n' > "$S/dist/tmux-arm64.tar.gz.sha256"; git -C "$S" add -f dist/tmux-arm64.tar.gz.sha256 && git -C "$S" commit -qm "force-tracked artifact"
 rm -rf "$T/out12"; if site_deploy_export "$S" "$T/out12" >/dev/null 2>"$T/err12"; then bad "a tracked file matching a carry glob did not refuse"; else grep -q "tracked by git AND matches a carry pattern" "$T/err12" && ok "a tracked file matching a carry glob refuses and says why" || bad "the refusal did not say why: $(cat "$T/err12")"; fi
 git -C "$S" rm -q --cached dist/tmux-arm64.tar.gz.sha256 && git -C "$S" commit -qm "untrack it"
+# the same guard on the pkg triple.
+git -C "$S" add -f dist/Kosmos.pkg.inputs && git -C "$S" commit -qm "force-tracked sidecar"
+rm -rf "$T/out17"; if site_deploy_export "$S" "$T/out17" >/dev/null 2>"$T/err17"; then bad "a tracked sidecar in the pkg triple did not refuse"; else grep -q "dist/Kosmos.pkg.inputs is tracked by git" "$T/err17" && ok "a tracked file in the pkg triple refuses too" || bad "the triple refusal did not say why: $(cat "$T/err17")"; fi
+git -C "$S" rm -q --cached dist/Kosmos.pkg.inputs && git -C "$S" commit -qm "untrack the sidecar"
 # a tracked file deleted in the working tree says "deleted", and deploys as committed.
 rm "$S/vercel.json"; rm -rf "$T/out8"; man="$(site_deploy_export "$S" "$T/out8")"
 [ -f "$T/out8/vercel.json" ] && ok "a file deleted in the working tree still deploys as committed" || bad "a working-tree deletion reached the export"
@@ -107,6 +112,12 @@ printf '%s\n' "$man" | grep -q "renamed, not committed: vercel.json -> about.jso
 printf '%s\n' "$man" | grep -qE "(modified|untracked|ignored|deleted): +cel\.json" && bad "a truncated path leaked into the manifest: $man" || ok "no truncated path in the manifest"
 [ -f "$T/out13/vercel.json" ] && [ ! -e "$T/out13/about.json" ] && ok "the rename deploys as committed, under the old name" || bad "the rename reached the export"
 git -C "$S" mv about.json vercel.json
+# a WORK-TREE rename (intent-to-add) has the same two-record shape with the R in the other column.
+git -C "$S" mv vercel.json about.json && git -C "$S" reset -q -- vercel.json about.json && git -C "$S" add -N about.json
+rm -rf "$T/out16"; man="$(site_deploy_export "$S" "$T/out16")"
+printf '%s\n' "$man" | grep -q "renamed, not committed: vercel.json -> about.json" && ok "a work-tree rename (intent-to-add) is described with both names" || bad "the work-tree rename was mangled: $man"
+printf '%s\n' "$man" | grep -qE "(modified|untracked|ignored|deleted): +cel\.json" && bad "a truncated path leaked for the work-tree rename: $man" || ok "no truncated path for the work-tree rename"
+git -C "$S" reset -q -- about.json; mv "$S/about.json" "$S/vercel.json"; git -C "$S" checkout -q -- vercel.json 2>/dev/null || true
 # the status listing's failure is seen WITHOUT the caller's pipefail (a clean-tree claim came from tr's 0 before).
 rm -rf "$T/out14"; if ( set +o pipefail; PATH="$T/bin:$PATH" site_deploy_export "$S" "$T/out14" ) >"$T/man14" 2>"$T/err14"; then bad "a failing git status did not refuse without pipefail: $(cat "$T/man14")"; else grep -q "could not list the working tree" "$T/err14" && [ ! -e "$T/out14" ] && ok "a failing git status refuses without the caller's pipefail, and leaves nothing" || bad "wrong reason or dir remained: $(cat "$T/err14")"; fi
 # the pkg triple is COPIED, not linked: an in-place overwrite of the shared pkg must not change the export's copy.

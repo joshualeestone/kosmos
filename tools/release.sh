@@ -353,6 +353,11 @@ fi
 # The sha that deploys is the sha that is PUSHED, read before the push and
 # pushed by name: the checkout is shared and a commit can land between a
 # push of "HEAD" and the archive (#649).
+# ⚠️ ON MAIN, CHECKED HERE and not only at the top of 7b's block: the push
+# below names refs/heads/main as its target, so a site checkout left on some
+# branch would put that branch's tip (plus this commit) onto main, or be
+# rejected with a message that blames the wrong cause.
+[ "$(git -C "$SITE" rev-parse --abbrev-ref HEAD)" = main ] || { echo "the site checkout is on '$(git -C "$SITE" rev-parse --abbrev-ref HEAD)', not main; refusing to push its tip onto origin/main"; exit 1; }
 SITE_SHA="$(git -C "$SITE" rev-parse HEAD)"
 git -C "$SITE" push -q origin "$SITE_SHA:refs/heads/main" || {
   echo "could not push the site (origin/main moved, or no network). The $V site commit is local."

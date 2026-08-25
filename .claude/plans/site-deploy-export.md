@@ -19,6 +19,10 @@ Also changed on purpose: the Vercel dashboard shows no commit for these deploys 
 <cwd>/.git, and the export has none); the release log's manifest names the commit instead.
 The 3c upload-filter guard now reads the COMMITTED .vercelignore, the one the export ships.
 
+Expect on the FIRST cut after this merges: the site dist holds Kosmos.pkg and its checksum with
+no inputs sidecar, so 3c rebuilds (sign + notarise, minutes) and publishes the triple before step
+8; the export's whole-or-nothing triple rule then holds. By hand, a bare export refuses today.
+
 ## Not in this change
 Pruning old versioned tarballs from the deploy (a just-read latest.json can still ask
 for the version it named; carrying every pair on disk is today's behaviour, kept on

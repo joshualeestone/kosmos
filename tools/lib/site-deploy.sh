@@ -77,12 +77,7 @@ site_deploy_export() {
   n=0; bytes=0
   for f in "$site"/dist/*.tar.gz "$site"/dist/*.tar.gz.sha256; do
     [ -f "$f" ] || continue
-    # A TRACKED file matching a carry glob (someone's git add -f) would be
-    # overwritten by the working-tree copy and then hidden from the manifest
-    # as carried: a modified tracked artifact shipping silently. Refuse.
-    if git -C "$site" ls-files --error-unmatch "dist/${f##*/}" >/dev/null 2>&1; then
-      echo "site_deploy_export: dist/${f##*/} is tracked by git AND matches a carry pattern; the export would overwrite the committed copy with the working tree's. Untrack it or stop carrying it." >&2; rm -rf "$out"; return 1
-    fi
+    _site_carry_allowed "$site" "dist/${f##*/}" || { rm -rf "$out"; return 1; }
     _site_carry "$f" "$out/dist/" || { rm -rf "$out"; return 1; }
     _SITE_CARRIED="${_SITE_CARRIED}dist/${f##*/}${_SITE_NL}"
     n=$((n+1)); bytes=$((bytes + $(wc -c < "$f" | tr -d ' ')))
@@ -102,7 +97,10 @@ site_deploy_export() {
     # 9c at bytes this cut never deployed (measured: link count 2, new bytes
     # on both). The triple is 21 KB; the link only earns its keep on the
     # tarball set, whose served copy 9b compares against the frozen tree.
-    for f in Kosmos.pkg Kosmos.pkg.sha256 Kosmos.pkg.inputs; do cp "$site/dist/$f" "$out/dist/" || { rm -rf "$out"; return 1; }; _SITE_CARRIED="${_SITE_CARRIED}dist/$f${_SITE_NL}"; done
+    for f in Kosmos.pkg Kosmos.pkg.sha256 Kosmos.pkg.inputs; do
+      _site_carry_allowed "$site" "dist/$f" || { rm -rf "$out"; return 1; }
+      cp "$site/dist/$f" "$out/dist/" || { rm -rf "$out"; return 1; }; _SITE_CARRIED="${_SITE_CARRIED}dist/$f${_SITE_NL}"
+    done
     echo "   carried: the pkg triple (Kosmos.pkg, .sha256, .inputs)"
   else
     echo "   carried: no pkg (dist/Kosmos.pkg is not in the site dist)"
@@ -118,6 +116,20 @@ site_deploy_export() {
 
 _site_carry() {   # <file> <dir/>
   ln "$1" "$2" 2>/dev/null || cp "$1" "$2"
+}
+# May this working-tree file be carried? Two refusals, for every class:
+#   tracked by git   a `git add -f` artifact would be overwritten by the
+#                    working-tree copy and hidden from the manifest as carried
+#                    (a modified tracked artifact shipping silently)
+#   newline in name  the carried list is newline-delimited; such a name would
+#                    split it and could hide another entry from the manifest
+_site_carry_allowed() {   # <site> <relative-path>
+  local site="$1" rel="$2"
+  case "$rel" in *"$_SITE_NL"*) echo "site_deploy_export: $rel has a newline in its name; refusing to carry it" >&2; return 1;; esac
+  if git -C "$site" ls-files --error-unmatch "$rel" >/dev/null 2>&1; then
+    echo "site_deploy_export: $rel is tracked by git AND matches a carry pattern; the export would overwrite the committed copy with the working tree's. Untrack it or stop carrying it." >&2; return 1
+  fi
+  return 0
 }
 
 # Every working-tree entry that is not committed and was not CARRIED: modified,
@@ -153,12 +165,12 @@ _site_left_behind() {
     # porcelain: two status columns, a space, the path (the first column can
     # itself be a space, so this is a cut by position, not by word).
     kind="${line:0:2}"; path="${line:3}"
-    # With -z a rename or copy is TWO records: "R  new", then the bare old
-    # name. The old name is consumed here, not re-parsed as a record (that
+    # With -z a rename or copy is TWO records: "R  new" (index) or " R new"
+    # (work tree, an intent-to-add), then the bare old name. The old name is consumed here, not re-parsed as a record (that
     # cut its first three characters off and printed a file that does not
     # exist, measured).
     oldname=""
-    case "$kind" in R?|C?) IFS= read -r -d '' oldname || oldname="";; esac
+    case "$kind" in R?|C?|?R|?C) IFS= read -r -d '' oldname || oldname="";; esac
     case "$_SITE_CARRIED" in *"${_SITE_NL}${path}${_SITE_NL}"*) continue;; esac
     case "$path" in
       .vercel/|.vercel/*) continue;;
@@ -169,7 +181,7 @@ _site_left_behind() {
       '!!') echo "     ignored:   $path";;
       '??') echo "     untracked: $path";;
       A?)   echo "     staged, not committed: $path (does not deploy)";;
-      R?|C?) echo "     renamed, not committed: $oldname -> $path (deploys as committed, under the old name)";;
+      R?|C?|?R|?C) echo "     renamed, not committed: $oldname -> $path (deploys as committed, under the old name)";;
       ?D|D?) echo "     deleted:   $path (deploys as committed)";;
       *)    echo "     modified:  $path (deploys as committed)";;
     esac
