@@ -21945,7 +21945,14 @@ function pjMarkSeen(id) {
   if (!id) return;
   const p = pjById(id);
   if (p && p.unread) { p.unread = 0; try { paintProjects(); } catch { /* the poll repaints */ } }
-  fetch('/api/project/' + encodeURIComponent(id) + '/seen', { method: 'POST' }).catch(() => { /* the next open tells it again */ });
+  /* The body is read and dropped (#39's rule, the whats-new fetch has the
+     same line): a Response nobody consumes stays "in flight" to Chromium
+     until garbage collection, and networkidle never comes. Ice Cream Kitty
+     proved it on the release gate, 2026-08-24 21:12: 7 of 7 timeouts
+     without this line, 3 of 3 passes with it. */
+  fetch('/api/project/' + encodeURIComponent(id) + '/seen', { method: 'POST' })
+    .then((r) => r.text())
+    .catch(() => { /* the next open tells it again */ });
 }
 function paintRoom(body) {
   const p = pjById(PJ_CURRENT);
