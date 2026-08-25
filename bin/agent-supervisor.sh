@@ -248,6 +248,23 @@ if [ -z "$adopt" ]; then
       PANE_ENV+=(-e "$_var=$(eval "printf '%s' \"\$$_var\"")")
     fi
   done
+  # The token doors (#529, engine/tokendoors.js) keep each token the person
+  # pasted as ONE file under secrets/env/, named for the variable agents read
+  # (DISCORD_BOT_TOKEN, BRAVE_API_KEY, ...). Every such file rides into the
+  # pane by name, so a new door is a row in the engine and never an edit
+  # here. Only names that are variable names are taken; anything else in the
+  # directory is left alone rather than typed into a pane.
+  _envdir="$(cd "$(dirname "$0")/.." && pwd)/secrets/env"
+  if [ -d "$_envdir" ]; then
+    for _f in "$_envdir"/*; do
+      [ -s "$_f" ] || continue
+      _name="$(basename "$_f")"
+      case "$_name" in
+        *[!A-Z0-9_]*|[0-9]*) continue ;;
+      esac
+      PANE_ENV+=(-e "$_name=$(head -1 "$_f")")
+    done
+  fi
   if [ "$RUNNER" = codex ]; then
     # Self-reporting (#245 on #526): codex's notify hook runs the bridge
     # with one JSON argument per event, from INSIDE the agent's pane, so

@@ -24,7 +24,12 @@ let failed = 0;
   for (const m of [MARK, VMARK]) { try { fs.unlinkSync(m); } catch { /* not there */ } }
   const b = await pw.chromium.launch({ headless: true });
   const say = (k, v, d) => { if (!v) failed += 1; console.log((v ? 'PASS' : 'FAIL') + '  ' + k + (d ? '  ' + d : '')); };
-  const openDoor = async (p, base) => {
+  /* A door probes its service when it opens and says "Checking…" until the
+   probe answers; under load that outlives a fixed settle, and the first read
+   sees the probing door (retried in the gate twice on 2026-08-24, once per
+   pill). Every pill's opener waits, bounded, for the probe to settle. */
+const settled = (p, pillName) => p.waitForFunction((n) => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === n); const door = pill && pill.closest('.boardrow').nextElementSibling; return door && !/Checking…/.test(door.innerText); }, pillName, { timeout: 15000 }).catch(() => {});
+const openDoor = async (p, base) => {
     await p.goto(base + '/?tab=settings', { waitUntil: 'networkidle' });
     await p.evaluate(() => settingsGo('connect'));
     await p.waitForTimeout(400);
@@ -95,6 +100,7 @@ let failed = 0;
   // Vercel, same door shape, same board (#529): its stand-in signs in on its own marker.
   const openVercel = async () => {
     await p.evaluate(() => { document.querySelectorAll('#s-sec-connect details').forEach((x) => { x.open = true; }); const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'Vercel'); pill.click(); });
+    await settled(p, 'Vercel');
     await p.waitForTimeout(900);
     return p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'Vercel'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.innerText.replace(/\s+/g, ' ').trim(), drawn: door.getBoundingClientRect().height > 0, buttons: [...door.querySelectorAll('button')].map((x) => x.innerText.trim()), links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
   };
@@ -120,6 +126,7 @@ let failed = 0;
   await new Promise((r) => stub.listen(VERIFY_PORT, '127.0.0.1', r));
   const openCf = async () => {
     await p.evaluate(() => { document.querySelectorAll('#s-sec-connect details').forEach((x) => { x.open = true; }); const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'Cloudflare'); pill.click(); });
+    await settled(p, 'Cloudflare');
     await p.waitForTimeout(900);
   };
   const readCf = () => p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'Cloudflare'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.innerText.replace(/\s+/g, ' ').trim(), drawn: door.getBoundingClientRect().height > 0, buttons: [...door.querySelectorAll('button')].map((x) => x.innerText.trim()), field: !!door.querySelector('[data-svc-token-field]'), fieldType: (door.querySelector('[data-svc-token-field]') || {}).type || null, links: [...door.querySelectorAll('a')].map((a) => a.href) }; });

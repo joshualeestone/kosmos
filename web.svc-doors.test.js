@@ -47,6 +47,16 @@ test('no pill is inert and no door holds a control for an unbuilt flow', () => {
   const list = built.slice(0, built.indexOf('};') + 2);
   assert.ok(!/'Gmail'/.test(list), 'a service without a flow is listed as built');
   assert.match(fn, /Kosmos holds this one/, 'the token door lost the sentence that says Kosmos holds the token');
+  /* The token doors (#529): every '/api/svc/<slug>' row on the page is a
+     spec in engine/tokendoors.js with that exact name and slug, so a pill
+     can never point at a door the engine does not have. */
+  const specs = require('./engine/tokendoors').SPECS;
+  for (const [, name, slug] of list.matchAll(/'([^']+)': '\/api\/svc\/([a-z0-9-]+)'/g)) {
+    const spec = specs.find((x) => x.name === name);
+    assert.ok(spec, name + ' is listed as a token door but has no spec');
+    assert.equal(spec.slug, slug, name + ' points at a slug its spec does not have');
+  }
+  assert.ok((list.match(/\/api\/svc\//g) || []).length >= 10, 'the token doors are missing from the page');
   /* Mona Lisa's absent-CLI sentence is built from a per-service row now
      (#529, Vercel): the template and GitHub's row are pinned separately, so
      the sentence a person reads is still hers, for every built service. */
