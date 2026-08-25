@@ -24,7 +24,7 @@ test('an empty consolidated centre says what to press, and says it differently w
   assert.match(PAGE, /'Nothing is open yet\. Pick a project on the left, or press \+ above the project list to start one\.'/);
   assert.match(PAGE, /const col = cls\.contains\('fold-a'\) \? 'second narrow column' : 'narrow column';/, 'both rails folded: the sentence says which narrow column');
   assert.match(PAGE, /\? 'No projects yet\. Press \+ at the top of the ' \+ col \+ ' to start one\.'/, 'folded and empty: press +, no need to open the column first');
-  assert.match(PAGE, /: 'Nothing is open\. The projects list is folded; press \\u203a at the top of the ' \+ col \+ ' to open it, then pick a project\.'/);
+  assert.match(PAGE, /: 'Nothing is open yet\. The projects list is folded; press \\u203a at the top of the ' \+ col \+ ' to open it\.'/);
   // the open rail's own "No projects yet" card says it; the sentence stays out of its way
   assert.match(PAGE, /\} else if \(empty\) \{\n(?:[^\n]*\n){1,4}    say = '';/);
   // the view is the record, never the DOM (the list stays visible beside the New project form in the consolidated layout)
@@ -36,7 +36,8 @@ test('an empty consolidated centre says what to press, and says it differently w
   assert.match(PAGE, /PJ_READ_FAILED = false;\n(?:[^\n]*\n){0,4}    paintPjNone\(\);\n  \} catch \{/);
   assert.doesNotMatch(PAGE, /PJ_LOADED_ONCE = true;\n    paintPjNone\(\);/);
   // leaving the consolidated view without a reload repaints the board so the chosen layout comes back
-  assert.match(PAGE, /\n  if \(!cons\) boardApplyVisibility\(agents\);/);
+  assert.match(PAGE, /const wasCons = document\.body\.classList\.contains\('consolidated'\);\n  document\.body\.classList\.toggle\('consolidated', cons\);/);
+  assert.match(PAGE, /\n  if \(wasCons && !cons\) boardApplyVisibility\(agents\);/);
   // painted on every view change and every fold change, and only in the consolidated view
   assert.match(PAGE, /document\.getElementById\('pj-' \+ v \+ '-view'\)\.hidden = \(v !== which\);\n  \}\n  paintPjNone\(which\);/);
   assert.match(PAGE, /aria-label', \(on \? 'Open' : 'Fold'\)[^\n]*\n    \}\n  \}\n  paintPjNone\(\);\n\}/, 'railFoldsApply repaints the sentence after every fold change');
@@ -62,13 +63,13 @@ test('the sentence table: every state says one true thing or nothing', () => {
   assert.equal(paintWith({ classes: ['consolidated'], view: 'one', projects: one }), null, 'a project open: nothing');
   assert.equal(paintWith({ classes: ['consolidated'], view: 'add', projects: one }), null, 'the New project form open: nothing');
   assert.equal(paintWith({ classes: ['consolidated'], projects: one }), 'Nothing is open yet. Pick a project on the left, or press + above the project list to start one.');
-  assert.equal(paintWith({ classes: ['consolidated', 'fold-p'], projects: one }), 'Nothing is open. The projects list is folded; press \u203a at the top of the narrow column to open it, then pick a project.');
-  assert.equal(paintWith({ classes: ['consolidated', 'fold-p', 'fold-a'], projects: one }), 'Nothing is open. The projects list is folded; press \u203a at the top of the second narrow column to open it, then pick a project.');
+  assert.equal(paintWith({ classes: ['consolidated', 'fold-p'], projects: one }), 'Nothing is open yet. The projects list is folded; press \u203a at the top of the narrow column to open it.');
+  assert.equal(paintWith({ classes: ['consolidated', 'fold-p', 'fold-a'], projects: one }), 'Nothing is open yet. The projects list is folded; press \u203a at the top of the second narrow column to open it.');
   assert.equal(paintWith({ classes: ['consolidated'], projects: [] }), null, 'no projects, rail open: the rail card says it');
   assert.equal(paintWith({ classes: ['consolidated', 'fold-p'], projects: [] }), 'No projects yet. Press + at the top of the narrow column to start one.');
   assert.equal(paintWith({ classes: ['consolidated', 'fold-p', 'fold-a'], projects: [] }), 'No projects yet. Press + at the top of the second narrow column to start one.');
   assert.equal(paintWith({ classes: ['consolidated'], projects: [], loaded: false }), 'Nothing is open yet. Pick a project on the left, or press + above the project list to start one.', 'before the first read: never "no projects"');
   assert.equal(paintWith({ classes: ['consolidated'], projects: [], failed: true }), null, 'read failed, rail open: silence beside the rail\'s own message');
-  assert.equal(paintWith({ classes: ['consolidated', 'fold-p'], projects: [], failed: true }), 'Nothing is open. The projects list is folded; press \u203a at the top of the narrow column to open it, then pick a project.', 'read failed, rail folded: open the column and see');
+  assert.equal(paintWith({ classes: ['consolidated', 'fold-p'], projects: [], failed: true }), 'Nothing is open yet. The projects list is folded; press \u203a at the top of the narrow column to open it.', 'read failed, rail folded: open the column and see');
   assert.equal(paintWith({ classes: ['consolidated'], view: 'one', projects: one, which: 'list' }), 'Nothing is open yet. Pick a project on the left, or press + above the project list to start one.', 'an explicit which wins over the record');
 });

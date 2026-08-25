@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * The consolidated view under every Agents layout (#774).
+ * The consolidated view under each Agents layout: no org chart over the rails, and an empty centre that says what to press (#774).
  *
  * 🔑 THE BUG WAS STATE CARRIED IN FROM ANOTHER SCREEN. Josh: "depending on what
  * I left my agents on affects how the consolidated view renders." The org chart
@@ -13,9 +13,12 @@
  * and says it differently when the projects rail is folded, because a blank
  * centre with both rails folded read as "I have no way to get back".
  *
- *   node docs/browser-checks/render-consolidated-layouts.js <url>     (default http://127.0.0.1:17471)
+ *   node docs/browser-checks/render-consolidated-layouts.js <url> <sandbox-root>
  *
- * Needs a board with at least one project. Leaves the layout on tabs.
+ * Seeds one project of its own to open, inside the sandbox, and PROVES the
+ * server writes there before it touches anything (the seed lands in
+ * <sandbox>/data/AgentWorkforce/projects.json or the check refuses). Puts the
+ * board's saved layout back to what it was, and removes the seeded folder.
  */
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -23,6 +26,7 @@ const os = require('os');
 const path = require('path');
 (async () => {
   const URL = process.argv[2] || process.env.KOSMOS_URL || 'http://127.0.0.1:17471';
+  const SANDBOX = process.argv[3] || '';
   const b = await chromium.launch({ headless: process.env.HEADED === '0' });
   const fails = [];
   const say = (ok, l, x) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + l + (x ? '  ' + x : '')); if (!ok) fails.push(l); };
@@ -39,17 +43,24 @@ const path = require('path');
   const settled = async (cons) => { await pg.waitForFunction((c) => document.body.classList.contains('consolidated') === c, cons, { timeout: 15000 }); await pg.waitForTimeout(300); };
   const none = () => pg.$eval('#pj-none', (e) => (e.hidden ? null : e.textContent)).catch(() => '(no #pj-none on the page)');
 
+  let seedFolder = '';
+  let savedLayout = 'tabs';
   try {
   await pg.goto(URL + '/?tab=projects', { waitUntil: 'networkidle' });
   if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
-  /* This check needs one project to open. It seeds its own rather than
-     leaning on whatever ran before it on the same board. */
-  const have = await pg.evaluate(() => fetch('/api/projects').then((r) => r.json()).then((j) => (j.projects || []).length).catch(() => 0));
-  if (!have) {
-    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cons-774-'));
-    const made = await pg.evaluate((f) => fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Consolidated check', folder: f }) }).then((r) => r.status), folder);
-    say(made >= 200 && made < 300, 'seeded one project for the check', String(made));
+  /* This check writes to the board it is pointed at (a project, the saved
+     layout). It seeds one project of its own to open and, like
+     render-projects, proves the record landed inside the sandbox it was
+     handed before it goes on; pointed at a person's own Kosmos it refuses. */
+  if (!SANDBOX) throw new Error('pass the server\'s sandbox root as the 2nd argument; this check adds a project and rewrites the saved layout on the server it is pointed at');
+  seedFolder = fs.mkdtempSync(path.join(SANDBOX, 'cons-774-seed-'));
+  const made = await pg.evaluate((f) => fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Consolidated check', folder: f }) }).then((r) => r.status), seedFolder);
+  say(made >= 200 && made < 300, 'seeded one project for the check', String(made));
+  const store = path.join(SANDBOX, 'data', 'AgentWorkforce', 'projects.json');
+  if (!fs.existsSync(store) || !fs.readFileSync(store, 'utf8').includes('Consolidated check')) {
+    throw new Error('the server at ' + URL + ' did not write the seed to ' + store + ': it is NOT running against the sandbox passed. Refusing to touch it.');
   }
+  savedLayout = await pg.evaluate(() => fetch('/api/style').then((r) => r.json()).then((j) => (j && j.layout) || 'tabs').catch(() => 'tabs'));
   await style('consolidated');
 
   for (const lay of ['grid', 'list', 'org']) {
@@ -82,7 +93,7 @@ const path = require('path');
   // fold the projects rail alone, then both: the sentence says where the list went, and which column when there are two
   await pg.click('#rail-projects-fold'); await pg.waitForTimeout(300);
   const foldedP = await none();
-  say(!!foldedP && /folded; press › at the top of the narrow column/.test(foldedP), 'projects rail folded: the sentence names the fold button', JSON.stringify(foldedP));
+  say(!!foldedP && /^Nothing is open yet\. The projects list is folded; press › at the top of the narrow column to open it\.$/.test(foldedP), 'projects rail folded: the sentence names the fold button', JSON.stringify(foldedP));
   await pg.click('#rail-agents-fold'); await pg.waitForTimeout(300);
   const folded = await none();
   say(!!folded && /the second narrow column/.test(folded), 'both rails folded: the sentence says the second narrow column', JSON.stringify(folded));
@@ -113,7 +124,7 @@ const path = require('path');
   say(/folded; press ›/.test((await paintAs(true, true, true)) || ''), 'after a failed read, rail folded: open the column and see');
 
   // open a project: the sentence goes
-  const first = await pg.$('#pj-list [data-project]');
+  const first = await pg.$('#pj-list [data-project]'); // active rows only; the seed is active
   if (first) {
     await first.click(); await pg.waitForTimeout(700);
     say((await none()) === null, 'a project open: the sentence is gone');
@@ -140,10 +151,12 @@ const path = require('path');
   await pg.waitForTimeout(300);
   say(await up('#orgview'), 'to tabs without a reload: the chart is painted again on the same tick');
   } finally {
-    /* Whatever happened, the sandbox's saved layout goes back to tabs and the
-       browser closes; a selector timeout must not leave the next check on a
-       consolidated board. */
-    try { await style('tabs'); } catch { /* the server may be gone */ }
+    /* Whatever happened, the board's saved layout goes back to what it was,
+       the seeded folder goes, and the browser closes; a selector timeout must
+       not leave the next check on a consolidated board. The seeded record
+       dies with the sandbox. */
+    try { await style(savedLayout); } catch { /* the server may be gone */ }
+    if (seedFolder) { try { fs.rmSync(seedFolder, { recursive: true, force: true }); } catch { /* fine */ } }
     await b.close();
   }
   console.log(fails.length ? 'FAILED: ' + fails.join(', ') : 'all good');

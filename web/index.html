@@ -10112,6 +10112,7 @@ function showTab(tab) {
      screen: the board's list is the left rail and the projects panel is
      the rest. Settings and the others stay whole pages. */
   const cons = layoutConsolidated() && (tab === 'agents' || tab === 'projects');
+  const wasCons = document.body.classList.contains('consolidated');
   document.body.classList.toggle('consolidated', cons);
   document.getElementById('rail-agents').hidden = !cons;
   document.getElementById('rail-projects').hidden = !cons;
@@ -10132,11 +10133,13 @@ function showTab(tab) {
     pjView(PJ_CURRENT ? 'one' : 'list');
     loadProjects();
   }
-  /* #774: the board was painted above while the class still said
-     consolidated (the resize handler reaches here without a reload), which
-     hid the org chart; now that the class is gone, paint it once more so the
-     tab view shows the layout the person chose. */
-  if (!cons) boardApplyVisibility(agents);
+  /* #774: on any switch out of the consolidated view without a reload (the
+     Settings layout pick, the resize handler) the board was painted above
+     while the class still said consolidated, which hid the org chart; now
+     that the class is gone, paint it once more so the tab view shows the
+     layout the person chose. Only on that transition: every other arrival
+     was painted right the first time. */
+  if (wasCons && !cons) boardApplyVisibility(agents);
   // ⚠️ Re-read on every arrival rather than once at boot. A project's folder can
   // be moved or deleted while this page sits open, and its members' states
   // change constantly — a list painted once would go on asserting a world that
@@ -17312,9 +17315,11 @@ function paintPjNone(which) {
        + survives the fold, so an empty board is told to press it, not to
        open the column first. */
     const col = cls.contains('fold-a') ? 'second narrow column' : 'narrow column';
+    /* Ends at "open it": true whether the opened column then shows a list
+       to pick from or the rail's own cannot-read message. */
     say = empty
       ? 'No projects yet. Press + at the top of the ' + col + ' to start one.'
-      : 'Nothing is open. The projects list is folded; press \u203a at the top of the ' + col + ' to open it, then pick a project.';
+      : 'Nothing is open yet. The projects list is folded; press \u203a at the top of the ' + col + ' to open it.';
   } else if (empty) {
     /* The open rail already shows its own "No projects yet" card with the
        Add a project button; saying it twice, beside it, helps nobody. */

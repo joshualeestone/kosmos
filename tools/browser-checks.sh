@@ -225,10 +225,10 @@ if boot_board "$sb2" "$P2"; then
   run_one "render-projects" node docs/browser-checks/render-projects.js \
     "http://127.0.0.1:$P2" "$sb2/shots" "$sb2"
   # #774: the consolidated view under each Agents layout, on the same board.
-  # It seeds its own project when the board has none, so it stands alone if
-  # render-projects fails before seeding; leaves the layout on tabs.
+  # It seeds its own project inside $sb2 (and proves the server writes there),
+  # so it stands alone if render-projects fails; puts the layout back after.
   run_one "render-consolidated-layouts" node docs/browser-checks/render-consolidated-layouts.js \
-    "http://127.0.0.1:$P2"
+    "http://127.0.0.1:$P2" "$sb2"
 else
   FAILED+=("render-projects (server did not boot)")
 fi
