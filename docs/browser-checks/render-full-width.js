@@ -140,17 +140,22 @@ const say = (ok, label, extra) => {
       const p = document.getElementById('panel-create');
       if (!p || p.hidden) return null;
       const r = p.getBoundingClientRect();
-      return { left: Math.round(r.left), width: Math.round(r.width) };
+      return { left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width) };
     });
     say(Boolean(create), theme + ': the create form is on screen');
     if (create) {
-      /* Left against the same gutter as everything else, which is what the
-         old hand-rolled margin was faking with a centred column. */
-      say(create.left === edges.header.left, theme + ': the create form starts at the page gutter',
-        JSON.stringify(create));
+      /* The create form has been a centred 34rem column since 75316b6
+         (#panel-create: max-width 34rem; margin 0 auto), the same measure
+         the settings section above is held to; the gutter-left assertion
+         this replaced described the layout before that and was red from
+         then until #778 named it (Mona Lisa, 2026-08-24 22:53). Centred
+         means its centre sits on the header's, within a pixel or two. */
+      say(Math.abs((create.left + create.right) / 2 - (edges.header.left + edges.header.right) / 2) <= 2,
+        theme + ': the create form is centred on the page', JSON.stringify(create));
       /* ⚠️ AND IT KEEPS ITS MEASURE. A form stretched to 1712px is the literal
-         reading of full width and the one nobody asked for. */
-      say(create.width < 700, theme + ': and keeps a reading measure', String(create.width));
+         reading of full width and the one nobody asked for; 34rem is 544px
+         at the default 16px, the same band the settings section is held to. */
+      say(create.width >= 540 && create.width <= 548, theme + ': and is the 34rem measure', String(create.width));
       await pg.screenshot({ path: path.join(OUT, 'create-' + theme + '.png'), clip: { x: 0, y: 0, width: WIDE, height: 520 } });
     }
     say(errs.length === 0, theme + ': no console errors', errs.join(' | '));
