@@ -275,10 +275,8 @@ tar -xzf "$REPO/dist/tmux-arm64.tar.gz" -C "$REPO/dist/tmux-bundle" || { echo "t
 # but this Mac reached 288 MB free tonight, and an install failing on a
 # full disk reads as a broken bundle, not as a full disk. Refuse below 2 GB
 # and name the disk, so the red says what it is.
-_gate_free_mb="$(df -m "${TMPDIR:-/tmp}" | awk 'NR==2 {print $4}')"
-if [ "${_gate_free_mb:-0}" -lt 2048 ]; then
-  echo "only ${_gate_free_mb:-?} MB free on the disk that holds the sandbox; the install gate needs ~300 MB and a full disk would read as a bundle that does not install. Free space, then re-run."; exit 1
-fi
+. "$REPO/tools/lib/disk-guard.sh"
+kosmos_require_free_mb 2048 "${TMPDIR:-/tmp}" "the install gate (~300 MB transient)" || exit 1
 _gate_log="$(mktemp "${TMPDIR:-/tmp}/kosmos-install-gate.XXXXXX")"
 if ( cd "$REPO" && KOSMOS_INSTALL_GATE=1 bash tools/test-install.sh ) > "$_gate_log" 2>&1; then
   echo "   $(grep -E ' passed, ' "$_gate_log" | tail -1 || true): the bundle installs, updates, uninstalls and downloads-and-installs in a sandbox"
