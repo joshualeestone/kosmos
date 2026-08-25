@@ -181,6 +181,11 @@ function read(sessionName) {
     until: latest.until || null,
     at: latest.at || null,
     project,
+    /* Whether the latest report NAMED the project (stated) or it was carried
+       forward from an earlier one (inferred). A tile lit by an inference must
+       be tellable from one lit by a statement, or the first wrong carry-forward
+       is unexplainable (Splinter, 2026-08-24 23:05). */
+    projectInferred: project !== null && !(typeof latest.project === 'string' && latest.project),
   };
 }
 

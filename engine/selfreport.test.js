@@ -95,12 +95,16 @@ test('#763: a report names its project; a later report without one inherits it; 
   const q = selfreport.read(who);
   assert.equal(q.state, 'needs_you');
   assert.equal(q.project, 'p-christmas', 'a question that names no project is about the project the agent last said it was on');
+  assert.equal(q.projectInferred, true, 'and the reading admits the project was carried forward, not stated');
+  assert.equal(selfreport.read(who).projectInferred, true);
   assert.equal(selfreport.record(who, { state: 'needs_you', project: 'p-other' }).recorded, true);
   assert.equal(selfreport.read(who).project, 'p-other', 'a report that names a project moves the agent to it');
+  assert.equal(selfreport.read(who).projectInferred, false, 'stated by this report');
   assert.equal(selfreport.record(who, { state: 'stopped' }).recorded, true);
   assert.equal(selfreport.read(who).project, null, 'nothing from a previous run may leak into the next');
   assert.equal(selfreport.record(who, { state: 'needs_you' }).recorded, true);
   assert.equal(selfreport.read(who).project, null, 'after a stop, a question with no project is unattributed');
+  assert.equal(selfreport.read(who).projectInferred, false, 'nothing to infer from');
 });
 
 test('#763: a project id longer than the cap is cut, not refused', () => {

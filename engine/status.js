@@ -2708,7 +2708,7 @@ function reconcileReport(reported, scraped, nowMs) {
   if (reported.state === 'needs_you') {
     /* #763: the question's project rides on the state, so a project tile can
        light for its own question only. Null when the agent named none. */
-    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said('it is asking you something'), reported: true, conflict: null, project: (typeof reported.project === 'string' && reported.project) ? reported.project : null };
+    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said('it is asking you something'), reported: true, conflict: null, project: (typeof reported.project === 'string' && reported.project) ? reported.project : null, projectInferred: reported.projectInferred === true };
   }
   if (reported.state === 'blocked') {
     const what = reported.on ? 'it is waiting on ' + reported.on + (reported.owner ? ', which ' + reported.owner + ' owns' : '')
@@ -2805,6 +2805,9 @@ function snapshot() {
       /* #763: which project a reported needs_you is about; null for a scraped
          question and for a report that named no project. */
       stateProject: (typeof status.project === 'string' && status.project) ? status.project : null,
+      /* true when that project was carried forward from an earlier report
+         rather than named by this one: a lit tile that rests on an inference. */
+      stateProjectInferred: status.projectInferred === true,
       /* The line the classifier actually matched, when it has one. Null for
          every state that did not read a sentence off the screen. */
       stateEvidence: status.evidence || null,

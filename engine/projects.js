@@ -820,6 +820,7 @@ function describe(project, roster, all) {
       state: (card && card.isNamedOurs) ? card.state : 'unknown',
       /* #763: the project the member's question is about, when it said. */
       stateProject: (card && card.isNamedOurs && typeof card.stateProject === 'string' && card.stateProject) ? card.stateProject : null,
+      stateProjectInferred: Boolean(card && card.isNamedOurs && card.stateProjectInferred === true),
       // The face, gated on tied like every other card-read here: a
       // stranger's pane borrowing the name must not lend the row a
       // photograph of somebody it is not (the project cards draw member
@@ -949,6 +950,9 @@ function describe(project, roster, all) {
          else". */
       needsYou: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject === project.id).length,
       needsYouElsewhere: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject !== project.id).length,
+      /* Of needsYou, how many rest on a carried-forward project rather than a
+         stated one: a screen may render them alike, but the data can say. */
+      needsYouInferred: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject === project.id && m.stateProjectInferred).length,
       working: members.filter((m) => m.present && m.tied && m.state === 'working').length,
       unseen: members.filter((m) => !m.present || !m.tied || m.state === 'unknown').length,
     },

@@ -10565,6 +10565,8 @@ test('the report route derives the sender from the pane, records, and the board 
     assert.equal(JSON.parse(q2.body).recorded, true, q2.body);
     const rows2 = JSON.parse((await req('/api/projects')).body).projects;
     assert.equal(rows2.find((p) => p.id === pa.id).summary.needsYou, 1, 'a project-less question (the permission hook) inherits the project the agent last named');
+    assert.equal(rows2.find((p) => p.id === pa.id).summary.needsYouInferred, 1, 'and says the light rests on an inference');
+    assert.equal(rowA.summary.needsYouInferred, 0, 'the earlier, stated one did not');
     assert.equal(rows2.find((p) => p.id === pb.id).summary.needsYou, 0);
   } finally {
     fs.rmSync(selfreportEngine.fileFor('peteworker'), { force: true });
