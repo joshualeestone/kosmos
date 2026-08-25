@@ -14,7 +14,8 @@ order, so the nav stayed beside the section.
 
 ## Finished looks like
 
-- render-settings-nav.js passes in full on the branch (it did: 94 pass).
+- render-settings-nav.js passes in full on the branch (104 pass as committed,
+  52 per theme; 94 before the 920px and 1400px steps were added).
 - render-settings-nav.js also renders the 56 to 60rem band (a 920px step:
   nav beside a fluid section wider than 544px), so the 60rem rule has an
   on-screen check for the first time.

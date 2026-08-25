@@ -11,7 +11,8 @@
  * click), measures by rectangle.
  *
  * The server runs in this process against a fixture fleet with every state
- * root a temp dir; the check clicks pills and the theme toggle, nothing else.
+ * root a temp dir; the check clicks nav pills, fills and saves the name field
+ * once, and resizes the window; the theme comes from the page's colorScheme.
  *
  *   node docs/browser-checks/render-settings-nav.js            # headed
  *   HEADED=0 node docs/browser-checks/render-settings-nav.js   # headless
@@ -97,7 +98,7 @@ function chk(ok, label, extra) {
         await page.waitForTimeout(150);
         r = await rects();
         chk(SECTIONS.every((j) => (j === k ? r[j] > 0 : r[j] === 0)),
-          `[${theme}] click ${k}: that section is on screen and the six others are not`, JSON.stringify(r));
+          `[${theme}] click ${k}: that section is on screen and the ten others are not`, JSON.stringify(r));
         const pill = await page.evaluate((key) => {
           const b = document.querySelector('#s-nav button[data-go="' + key + '"]');
           const on = [...document.querySelectorAll('#s-nav button.on')].map((x) => x.dataset.go);
