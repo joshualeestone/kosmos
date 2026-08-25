@@ -156,9 +156,22 @@ run_one() {
   local cap; cap="$(mktemp "${TMPDIR:-/tmp}/kosmos-bc-out.XXXXXX")"
   RAN+=("$label")
   sec "$label"
-  if HEADED=0 NODE_PATH="$PW_NODE_PATH" "$@" 2>&1 | tee "$cap"; [ "${PIPESTATUS[0]}" -eq 0 ]; then
+  HEADED=0 NODE_PATH="$PW_NODE_PATH" "$@" 2>&1 | tee "$cap"; local rc="${PIPESTATUS[0]}"
+  if [ "$rc" -eq 0 ]; then
     log "PASS  $label"; rm -f "$cap"
     return 0
+  fi
+  # ⚠️ 126 AND 127 ARE NOT ASSERTIONS. They mean the thing could not be run
+  # at all (a binary missing, like `timeout` on macOS, or not executable),
+  # and they were read as four failed checks on 2026-08-24 by the person who
+  # wrote this line. A gate must still refuse on them, and it must not retry
+  # them (the binary will not appear), and it must say what they are.
+  if [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ]; then
+    log "COULD NOT RUN  $label (exit $rc: a program it needs is missing or not executable; this is not an assertion failing)"
+    FAILED+=("$label")
+    REASONS+=("$label:"$'\n'"           exit $rc: could not run, a program it needs is missing or not executable. Read the line above the exit, not the assertions.")
+    rm -f "$cap"
+    return 1
   fi
   log "⚠️  $label failed once, retrying (flaky-timeout guard). A retried pass is reported, not hidden."
   RETRIED+=("$label")
@@ -296,6 +309,7 @@ sb7="$(new_sandbox)"
 if boot_board "$sb7" "$P8"; then
   curl -s -X POST "http://127.0.0.1:$P8/api/first-run/complete" >/dev/null
   B8="http://127.0.0.1:$P8"
+  B8_PID="${SERVER_PIDS[${#SERVER_PIDS[@]}-1]}"   # the board just booted, for render-offline-note to take away by pid (#708)
   run_one "contrast"            env KOSMOS_URL="$B8" node docs/browser-checks/contrast.js
   run_one "named-controls"      env KOSMOS_URL="$B8" node docs/browser-checks/named-controls.js
   run_one "render-create-form"  node docs/browser-checks/render-create-form.js "$B8"
@@ -308,7 +322,7 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-updates-stale" env KOSMOS_URL="$B8" node docs/browser-checks/render-updates-stale.js "$sb7/shots-updates"
   run_one "render-switch-states" env KOSMOS_URL="$B8" node docs/browser-checks/render-switch-states.js
   run_one "render-theme-toggle"  env KOSMOS_URL="$B8" node docs/browser-checks/render-theme-toggle.js "$sb7/shots-toggle"
-  run_one "render-offline-note"  env KOSMOS_URL="$B8" node docs/browser-checks/render-offline-note.js "$sb7/shots-offline"
+  run_one "render-offline-note"  env KOSMOS_URL="$B8" node docs/browser-checks/render-offline-note.js "$sb7/shots-offline" "$B8_PID"
 else
   for n in contrast named-controls render-create-form render-found-undo render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-theme-toggle render-offline-note; do FAILED+=("$n (server did not boot)"); done
 fi

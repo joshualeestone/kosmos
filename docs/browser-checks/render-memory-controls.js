@@ -9,6 +9,10 @@ const fs = require('node:fs'); const os = require('node:os'); const path = requi
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-mem-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-mem-workers-'));
+// Sandboxed whole or the board refuses to start (#634): the four dirs and an inert tmux.
+process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-mem-projects-'));
+process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-mem-launch-'));
+process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-mem-config-'));
 const ROOT = path.join(__dirname, '..', '..');
@@ -32,13 +36,19 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
   await page.click('#d-nav [data-go="memory"]'); await page.waitForTimeout(600);
   const vis = await page.evaluate(() => {
     const v = (id) => { const e = document.getElementById(id); return !!e && !e.hidden && e.offsetParent !== null; };
-    return { compact: v('d-compact-go'), clear: v('d-clear-go'), restart: v('d-restart-start'), chooser: /Three ways to get it going again/.test(document.getElementById('d-sec-memory').textContent), names: ['d-compact-go', 'd-clear-go', 'd-restart-start'].map((id) => document.getElementById(id).textContent) };
+    return { compact: v('d-compact-go'), clear: v('d-clear-go'), restart: v('d-restart-start'), chooser: /Three ways to get .{1,40} going again/.test(document.getElementById('d-sec-memory').innerText), names: ['d-compact-go', 'd-clear-go', 'd-restart-start'].map((id) => document.getElementById(id).textContent) };
   });
   chk(vis.compact && vis.clear && vis.restart, 'Compact, Clear and Restart are all on the Memory tab', JSON.stringify(vis));
-  chk(vis.chooser, 'the sentence saying how the three differ is there');
-  /* #404: long form on all three, the agent's name on every button. The seeded
-     agent is named in the fixture, so a bare "Compact" here is a regression. */
-  chk(vis.names.every((t) => /^(Compact|Clear) \S.*\u2019s memory$|^Restart \S/.test(t)), 'all three buttons name the agent', JSON.stringify(vis.names));
+  chk(vis.chooser, 'the pack\u2019s lede is on the Memory tab and names the agent');
+  /* The pack's shape, ruled by Josh 2026-08-23 19:57 and pinned the same way
+     in regress-a-night.js: one lede that names the agent ("Three ways to get
+     Mara going again"), three fat stacked buttons with the pack's own words,
+     and only Restart names the agent. The older #404 assertion (the agent's
+     name on every button) asserted the design this replaced; it was red from
+     the moment the pack landed and nobody ran it. Restated to the ruling, not
+     to a guess: regress-a-night carries the same pins and is green. */
+  chk(vis.names[0] === 'Compact: summarise and keep going' && vis.names[1] === 'Clear: start over, loses what it is holding' && /^Restart: stop and start \S/.test(vis.names[2]),
+    'the three buttons carry the pack\u2019s words, and Restart names the agent', JSON.stringify(vis.names));
   await page.screenshot({ path: process.env.SHOT || path.join(os.tmpdir(), 'memory-controls.png') });
   await page.click('#d-compact-go'); await page.waitForTimeout(300);
   chk(!(await page.$eval('#chg-modal', (m) => m.hidden)), 'Compact opens a dialog rather than acting');

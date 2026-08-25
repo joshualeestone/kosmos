@@ -27,7 +27,11 @@ const REPO = path.resolve(__dirname, '..', '..');
    they differ byte for byte run to run and dirtied the shared checkout under
    every cut. The path is printed at the end so a person can find them. */
 const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'tasks-shots-'));
-const PORT = 4671;
+/* A free port, asked of the kernel, never a number (#708): the gate got this
+   in #633 and the self-booting checks still carried fixed ports, so two agents
+   running the same check collided exactly as before. */
+const freePort = () => Number(require('node:child_process').execFileSync(process.execPath, ['-e', "const s=require('node:net').createServer();s.listen(0,'127.0.0.1',()=>{process.stdout.write(String(s.address().port));s.close()})"], { encoding: 'utf8' }));
+const PORT = freePort();
 /* A FIXTURE member, never a live one (#383 review): this check used to name
    a real session here, and every run typed the membership tell into that
    agent's live pane, because sandboxing the store is not sandboxing
