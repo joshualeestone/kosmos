@@ -7207,6 +7207,20 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <p class="fhint" id="plus-devempty" hidden>None yet. The first time you sign in from a phone, it asks here.</p>
         <p class="fmsg" id="plus-devmsg" role="alert" aria-live="assertive"></p>
       </div>
+      <!-- #733 recovery: the second step at sign-in can be reset only from
+           this Mac, with its own signed request; a person at this keyboard
+           already holds what the step protects, and no support path or
+           server-side unlock exists on purpose (docs/second-factor.md in
+           kosmos-relay). Two clicks, so a stray one switches nothing off.
+           The words are Ice Cream Kitty's and Mona Lisa may replace them. -->
+      <div id="plus-second" hidden style="margin-top:16px;">
+        <p class="setname">I lost my phone</p>
+        <p class="fhint">Signing in from a phone asks for a second code after the email code. If the phone that gives that code is gone, this Mac can switch the second step off. Nobody else can, not even us. Sign in from your new phone afterwards and set it up again there.</p>
+        <div class="frow">
+          <button class="btn" type="button" id="plus-second-reset">Reset the second step</button>
+        </div>
+        <p class="dhint" id="plus-second-msg" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+      </div>
       <p class="fmsg" id="plus-msg" role="alert" aria-live="assertive"></p>
     </div>
   </section>
@@ -17692,6 +17706,10 @@ async function paintPlus() {
   document.getElementById('plus-enrol').hidden = !(r.on && r.enrolled !== true);
   /* #567: the list shows once enrolled, on or off (off says so above it). */
   document.getElementById('plus-devices').hidden = r.enrolled !== true;
+  /* #733 recovery: only an enrolled Mac can sign the reset, so the control
+     shows with the devices, and a fresh paint disarms a half-taken click. */
+  document.getElementById('plus-second').hidden = r.enrolled !== true;
+  plusSecondDisarm();
   paintDevices();
 }
 /* The engine's honest-but-technical sentence for a missing binary, said
@@ -17796,6 +17814,44 @@ document.getElementById('plus-confirm').addEventListener('click', async () => {
     if (!res.ok) { msg.textContent = plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not finish the sign-up'); return; }
   } catch { msg.textContent = 'we could not finish the sign-up'; }
   paintPlus();
+});
+
+/* I lost my phone (#733 recovery). The first click arms; the second asks
+   the engine, which runs the Mac's own signed request. The sentences are
+   the engine's when it refuses, and this page's when it worked, because
+   what happens next (sign in from the new phone, set it up again) is a
+   thing the coordinator does not know to say. One place for the words. */
+const PLUS_SECOND_WORDS = {
+  armed: 'This switches the second step off for your whole account until you set it up again. Press the button once more to do it.',
+  done: 'The second step is off. Sign in from your new phone with the email code, and set the second step up again there.',
+  failed: (why) => 'The second step was not reset: ' + why + '.',
+};
+let PLUS_SECOND_ARMED = false;
+function plusSecondDisarm() {
+  PLUS_SECOND_ARMED = false;
+  const btn = document.getElementById('plus-second-reset');
+  if (btn) { btn.textContent = 'Reset the second step'; btn.disabled = false; }
+}
+document.getElementById('plus-second-reset').addEventListener('click', async () => {
+  const btn = document.getElementById('plus-second-reset');
+  const msg = document.getElementById('plus-second-msg');
+  msg.hidden = false;
+  if (!PLUS_SECOND_ARMED) {
+    PLUS_SECOND_ARMED = true;
+    btn.textContent = 'Yes, reset it';
+    msg.textContent = PLUS_SECOND_WORDS.armed;
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/remote/second-reset', { method: 'POST' });
+    if (!res.ok) {
+      msg.textContent = PLUS_SECOND_WORDS.failed(plusWords(((await res.json().catch(() => null)) || {}).error || 'this Mac could not ask'));
+    } else {
+      msg.textContent = PLUS_SECOND_WORDS.done;
+    }
+  } catch { msg.textContent = PLUS_SECOND_WORDS.failed('this Mac could not reach its own engine'); }
+  plusSecondDisarm();
 });
 
 function paintModelWhy(selId, whyId) {

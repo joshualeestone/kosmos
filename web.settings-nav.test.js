@@ -13,8 +13,12 @@ const fs = require('node:fs');
 const nodePath = require('node:path');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-const PANEL = PAGE.slice(PAGE.indexOf('<section class="panel" id="panel-settings"'),
-                         PAGE.indexOf('<section class="panel" id="panel-settings"') + 60000);
+/* From the panel's open to its own close: the panel closes at column 0 and
+   the sections inside it close indented, so the first "\n</section>" is the
+   panel's. (A fixed 60,000-character window sat here until 2026-08-25,
+   when the Plus section's lost-phone box pushed Advanced past it and the
+   test reported hist-go gone from a page that still had it.) */
+const PANEL = PAGE.slice(PAGE.indexOf('<section class="panel" id="panel-settings"'));
 const END = PANEL.indexOf('\n</section>');
 const BODY = PANEL.slice(0, END);
 
