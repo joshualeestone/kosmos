@@ -258,15 +258,15 @@ free_port() {
 }
 pick_ports() {
   local picked=() p n
-  while [ "${#picked[@]}" -lt 9 ]; do
+  while [ "${#picked[@]}" -lt 10 ]; do
     p="$(free_port)"
     for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
     [ -n "$p" ] && picked+=("$p")
   done
-  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"
 }
 pick_ports
-log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 (chosen by the OS, #633)"
+log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 (chosen by the OS, #633)"
 
 # --- 1. regress-a-night: a night's releases still COMPOSE --------------------
 # The one check that asserts the whole board still hangs together (three
@@ -366,9 +366,12 @@ fi
 # ending by Ice Cream Kitty (#826) before this PR wired it in; proven
 # standalone (18/18) before this line was written, with exactly the env vars
 # below -- no tmux/fake-panes vars, because dry run never reaches tmux and
-# the standalone proof ran clean without them.
+# the standalone proof ran clean without them. P10 comes from pick_ports's
+# own dedup, not a standalone free_port() call: at this point in the script
+# P3 and P8 are already-picked but not-yet-bound "live reservations" with no
+# socket behind them, so a lone free_port() here could collide with either
+# and strand an unrelated check's boot later in the run (#633's own class).
 sb8="$(new_sandbox)"
-P10="$(free_port)"
 AGENT_WORKFORCE_DATA="$sb8/data" AGENT_WORKFORCE_WORKERS="$sb8/workers" \
   AGENT_WORKFORCE_LAUNCH="$sb8/launch" AGENT_WORKFORCE_PROJECTS="$sb8/projects" \
   AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
