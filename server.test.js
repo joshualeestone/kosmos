@@ -2981,13 +2981,14 @@ test('the detail panel carries the explanation the card gave up', () => {
   assert.equal(healthy.hidden, true, 'an empty explanation must hide its line, not sit as a grey gap');
 });
 
-test('the settings screen renders the engine\'s three answers, and offers only what can work', () => {
+test('the settings screen renders the engine\'s three answers', () => {
   /* Scrappy-pass pin (pack view K): the settings renderers are pure
-     functions like card()/lrow(), driven here without a server. Three
-     claims: the three-answer rule survives the trip to CSS classes, engine
-     text cannot break out of the markup, and the account row keeps
-     not-connected and could-not-check apart (different claims, per the
-     engine's own design). */
+     functions like card()/lrow(), driven here without a server. Two
+     claims survive #864's removal of the standalone accountRow() box
+     (its own three-answer test went with it -- that logic no longer
+     exists anywhere on the page, not moved, genuinely gone): the
+     three-answer rule survives the trip to CSS classes, and engine text
+     cannot break out of the markup. */
   // ⚠️ The const maps come from the PAGE, not a copy in this prelude: a
   // check containing a copy cannot fail when the page's mapping drifts
   // (the repo's own recorded lesson).
@@ -3016,38 +3017,6 @@ test('the settings screen renders the engine\'s three answers, and offers only w
   const hostile = chkRow({ state: 'ok', title: '<img src=x onerror=1>', detail: 'D' });
   assert.doesNotMatch(hostile, /<img src=x/, 'an engine title reached the settings DOM as a live tag');
   assert.match(hostile, /&lt;img/, 'CONTROL: the escaped title is absent, so the tag assertion proves nothing');
-
-  // accountRow closes over chkRow and esc; hand it their REAL page sources
-  // via the prelude (a stub would reconstruct the grammar under test).
-  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
-  const slice = (name) => {
-    let start = script.indexOf('function ' + name + '(');
-    assert.ok(start > -1, name + ' vanished from the page');
-    let depth = 0; let end = -1;
-    for (let k = script.indexOf('{', start); k < script.length; k += 1) {
-      if (script[k] === '{') depth += 1;
-      else if (script[k] === '}') { depth -= 1; if (depth === 0) { end = k + 1; break; } }
-    }
-    return script.slice(start, end);
-  };
-  const accountRow = pageFunction('accountRow',
-    constLine('CHK_CLASS') + constLine('CHK_MARK')
-    + slice('esc') + '\n' + slice('chkRow'));
-  assert.match(accountRow({ state: 'connected', plan: 'Claude Max 20x' }), /Claude Max 20x · connected/,
-    'a connected account does not show its plan');
-  assert.match(accountRow({ state: 'unknown', because: 'we could not read the file' }), /class="chk unk"/,
-    'could-not-check rendered as a definite not-connected, which is a different claim');
-  // `none` is the engine's real not-connected state (subscription.js STATE).
-  assert.match(accountRow({ state: 'none', because: 'no subscription found' }), /class="chk att"/,
-    'a real not-connected must draw attention, not the could-not-look grey');
-  // The null leg is the CATCH path (the /api/status fetch failed) and the
-  // one place a definite "not connected" would be a lie about a failed read.
-  const failed = accountRow(null);
-  assert.match(failed, /class="chk unk"/,
-    'a failed status read renders as a definite not-connected, which sends someone to buy a subscription they have');
-  assert.match(failed, /could not check the connection/i,
-    'CONTROL: the failed-read row lost its could-not-check sentence');
 });
 
 test('the detail memory box reads the same derivations as the board, and stays honest at unknown', () => {
