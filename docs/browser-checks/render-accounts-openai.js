@@ -46,19 +46,26 @@ let failed = 0;
   // the OpenAI key form is revealed by picking OpenAI; the old always-visible
   // #acct-add-openai button is gone. The 0.5.24 cut went red here because this
   // check still asked for it (2026-08-24 21:41).
-  const PICK = '[data-pick="openai"]';
+  // Scoped to the section: the project member picker paints data-pick on
+  // every agent button too, and an agent named openai would be found first.
+  const PICK = '#s-sec-accounts [data-pick="openai"]';
   const vis = await p.evaluate((sel) => { let el = document.querySelector(sel); const hid = []; if (!el) return ['(no ' + sel + ')']; while (el) { const cs = getComputedStyle(el); if (el.hidden || cs.display === 'none' || cs.visibility === 'hidden') hid.push(el.tagName + '#' + el.id + '.' + String(el.className).split(' ')[0]); el = el.parentElement; } return hid; }, PICK);
   say('nothing above the OpenAI picker button is hidden', vis.length === 0, JSON.stringify(vis));
   const sec = await p.evaluate(() => { const s = document.getElementById('s-sec-accounts'); return s ? !s.hidden : null; });
   say('accounts section opens', sec === true, String(sec));
-  const geo = await p.evaluate((sel) => { const b = document.querySelector(sel); if (!b) return { rect: [0, 0, 0, 0], vw: [innerWidth, innerHeight], onTop: null }; const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return { rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)], vw: [innerWidth, innerHeight], onTop: top ? top.tagName + '#' + top.id + '.' + String(top.className).split(' ')[0] + '[' + (top.getAttribute('data-pick') || '') + ']' : null }; }, PICK);
+  const geo = await p.evaluate((sel) => { const b = document.querySelector(sel); if (!b) return { rect: [0, 0, 0, 0], vw: [innerWidth, innerHeight], onTop: null }; const r = b.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); const top = hit && hit.closest(sel) === b ? b : hit; return { rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)], vw: [innerWidth, innerHeight], onTop: top ? top.tagName + '#' + top.id + '.' + String(top.className).split(' ')[0] + '[' + (top.getAttribute('data-pick') || '') + ']' : null }; }, PICK);
   say('the OpenAI picker button has a size and is on top at its centre', geo.rect[2] > 0 && geo.rect[3] > 0 && /\[openai\]/.test(geo.onTop || ''), JSON.stringify(geo));
+  // Before the pick: neither form is showing. Without this, "reveals on the
+  // pick" cannot be told from "always shown", the regression #730 exists to
+  // prevent.
+  say('before the pick, the OpenAI form is hidden', await p.isHidden('#acct-openai-flow'));
   // The pair reads as two acts (Angel's ruling, #607): each picker names its provider.
   const labels = await p.evaluate(() => [...document.querySelectorAll('#s-sec-accounts [data-pick]')].map((b) => b.getAttribute('data-pick') + ':' + b.innerText.trim()));
   say('the provider pickers each name their provider', labels.some((l) => /^claude:.*Claude/.test(l)) && labels.some((l) => /^openai:.*OpenAI/.test(l)), JSON.stringify(labels));
   await p.click(PICK, { timeout: 5000 }).catch(async () => { console.log('NOTE  normal click failed; clicking by force to continue the flow'); await p.click(PICK, { force: true }); });
   await p.waitForTimeout(300);
   say('add-by-key form reveals on picking OpenAI', await p.isVisible('#acct-openai-flow'));
+  say('and the Claude flow is closed (one provider at a time, #730)', await p.isHidden('#acct-claude-flow'));
   say('the key field is a password field', (await p.getAttribute('#acct-openai-key', 'type')) === 'password');
   await p.fill('#acct-openai-key', 'sk-proj-walkwalkwalkwalkwalkWALK');
   await p.fill('#acct-openai-label', 'Walk Test');
