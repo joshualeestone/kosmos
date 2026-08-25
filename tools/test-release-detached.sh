@@ -154,6 +154,30 @@ out="$(release_bundle_matches_tree "$T/complete3.tgz" "$T/emptyeng" 2>&1)"; rc=$
 hit=0; printf '%s' "$out" | grep -q "names no web/ file or no engine/ file" && hit=1
 [ "$rc" = 2 ] && [ "$hit" = 1 ] && ok "a tree whose engine/ is present but empty is refused (2): the derived set would name no engine file" || bad "empty engine/: rc $rc, '$out'"
 
+# Round 3: the web half of the derived-set guard, the icon pin, the tunnel
+# exclusion, and a node that runs but fails, each with its own case.
+rm -rf "$T/emptyweb"; cp -R "$BUILD" "$T/emptyweb"; rm -f "$T/emptyweb/web/"*
+out="$(release_bundle_matches_tree "$T/complete3.tgz" "$T/emptyweb" 2>&1)"; rc=$?
+hit=0; printf '%s' "$out" | grep -q "names no web/ file or no engine/ file" && hit=1
+[ "$rc" = 2 ] && [ "$hit" = 1 ] && ok "a tree whose web/ is present but empty is refused (2): the derived set would name no web file" || bad "empty web/: rc $rc, '$out'"
+mkdir -p "$BUILD/assets" "$T/bundle/app/assets"; printf 'icns' > "$BUILD/assets/Kosmos.icns"
+bundle noicon.tgz; cp "$BUILD/assets/Kosmos.icns" "$T/bundle/app/assets/Kosmos.icns"
+out="$(release_bundle_matches_tree "$T/noicon.tgz" "$BUILD")" && bad "a bundle without the icon the tree has was called matching" || { printf '%s' "$out" | grep -q "app/assets/Kosmos.icns" && ok "a bundle without the icon the tree carries is red and names it (pinned when the tree has it)" || bad "wrong words for a missing icon: $out"; }
+bundle withicon.tgz
+release_bundle_matches_tree "$T/withicon.tgz" "$BUILD" >/dev/null && ok "CONTROL: with the icon present it matches again" || bad "CONTROL: a bundle with the icon was called mismatching"
+printf "const path = require('path'); module.exports = path.join(__dirname, '..', 'bin', 'kosmos-tunnel');\n" > "$BUILD/engine/paths3.js"; cp "$BUILD/engine/paths3.js" "$T/bundle/app/engine/"
+bundle tunnelref.tgz
+release_bundle_matches_tree "$T/tunnelref.tgz" "$BUILD" "" >/dev/null && ok "an engine file resolving app/bin/kosmos-tunnel by path does not make the tree demand it: the connector stays the checksum argument's" || bad "the tunnel exclusion is not working: the tree demanded the connector"
+rm -f "$BUILD/engine/paths3.js" "$T/bundle/app/engine/paths3.js"
+printf "module.exports = require('path').join(__dirname, '..', 'bin', 'only-in-a-test.sh');\n" > "$BUILD/engine/fake.test.js"
+bundle testref.tgz
+release_bundle_matches_tree "$T/testref.tgz" "$BUILD" >/dev/null && ok "a bin/ reference inside a *.test.js is not demanded (the bundle carries no tests)" || bad "a *.test.js reference was demanded of the bundle"
+rm -f "$BUILD/engine/fake.test.js"
+mkdir -p "$T/nodeshim"; printf '#!/bin/sh\necho boom >&2; exit 3\n' > "$T/nodeshim/node"; chmod +x "$T/nodeshim/node"
+out="$(PATH="$T/nodeshim:$PATH" release_bundle_matches_tree "$T/withicon.tgz" "$BUILD" 2>&1)"; rc=$?
+hit=0; printf '%s' "$out" | grep -q "the require walk failed (node exit 3): boom" && hit=1
+[ "$rc" = 2 ] && [ "$hit" = 1 ] && ok "a node that runs but fails is a refusal (2) with node's own words, not a shorter set" || bad "failing node: rc $rc, '$out'"
+
 # A tarball missing a whole tree (no bin member) is a setup failure (2), not a pass.
 tar -czf "$T/noroot.tgz" -C "$T/bundle" app
 release_bundle_matches_tree "$T/noroot.tgz" "$BUILD" >/dev/null; [ "$?" = 2 ] && ok "a bundle missing bin/ is refused as malformed (2), not passed" || bad "a bundle missing bin/ was not refused as malformed"

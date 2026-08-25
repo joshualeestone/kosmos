@@ -111,7 +111,7 @@ release_bundle_expected_files() {
   # join( and resolve( both (reporthook.js resolves the hook with path.resolve).
   # The connector is resolved by path too (engine/remote.js) but is not a tree
   # file: the comparator's checksum argument owns it, so it is left out here.
-  ( cd "$tree" && grep -hoE "(join|resolve)\(__dirname, *'\.\.', *'bin', *'[^']*'\)" engine/*.js 2>/dev/null | sed "s/.*'bin', *'\([^']*\)').*/app\/bin\/\1/" | grep -vx 'app/bin/kosmos-tunnel' || true )
+  ( cd "$tree" && find engine -maxdepth 1 -name '*.js' ! -name '*.test.js' -exec grep -hoE "(join|resolve)\(__dirname, *'\.\.', *'bin', *'[^']*'\)" {} + 2>/dev/null | sed "s/.*'bin', *'\([^']*\)').*/app\/bin\/\1/" | grep -vx 'app/bin/kosmos-tunnel' || true )
   # The require walk needs node; without it the modules outside engine/ would
   # go unlisted and a bundle lacking one would pass, so no node is a refusal,
   # and a walk that throws is one too, with node's own words.
@@ -130,8 +130,9 @@ release_bundle_expected_files() {
         }
       }
       for (const f of seen) console.log("app/" + path.relative(process.cwd(), f));
-    ' 2>&1 )"; rc=$?
-    [ "$rc" -eq 0 ] || { echo "release_bundle_expected_files: the require walk failed (node exit $rc): $walk" >&2; return 2; }
+    ' 2>"$tree/.kosmos-walk-err" )"; rc=$?
+    [ "$rc" -eq 0 ] || { echo "release_bundle_expected_files: the require walk failed (node exit $rc): $(cat "$tree/.kosmos-walk-err" 2>/dev/null || true)" >&2; rm -f "$tree/.kosmos-walk-err"; return 2; }
+    rm -f "$tree/.kosmos-walk-err"
     printf '%s\n' "$walk"
   fi
   return 0

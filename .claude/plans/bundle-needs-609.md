@@ -37,3 +37,9 @@ should itself be derived (it stays explicit; this makes the omission visible at 
 - The "names a web/ and an engine/ file" guard gets a case: a tree whose `engine/` is present but empty is refused (2).
 - The cut's red at the early comparator distinguishes "could not be checked" (2) from "not the tree, or lacks a file" and prints the 3c pkg note when the pkg was already published, like the install gate's red.
 - Deferred: a case for the require walk throwing with node present (no fixture makes node exit non-zero); the em dashes in release.sh's header (pre-existing).
+
+## Review round 3 (blind), what changed
+
+- The web half of the "names a web/ and an engine/ file" guard has its case (a present-but-empty `web/`); the icon pin has a drop case and a control; the tunnel exclusion is proven (an engine file resolving the connector by path does not make the tree demand it); the bin scan skips `*.test.js` (a test asserting the literal pattern would have demanded a file the tree lacks at every cut); a node that runs but fails is a refusal with node's words (a `node` shim exiting 3); the walk's stderr is kept out of the derived set.
+- Mutation controls run by me after this round (`609-mutations.log` in the proof): each of the five new cases goes red with its guard removed from a copied lib. The loop is bounded here: three blind rounds, the last round's fixes covered by mutation controls rather than a fourth reading.
+- Deferred: 9b treats the comparator's 2 as "did not match" and retries (unreachable in practice: the early run on the same tree came first); the `printf | grep -q` under pipefail on a 64 KB pipe (the set is 1.4 KB).
