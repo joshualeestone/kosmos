@@ -147,6 +147,14 @@ case " $_tunnel_arches " in
   *" x86_64 "*) case " $_tunnel_arches " in *" arm64 "*) : ;; *) echo "the Plus connector at $TUNNEL_BIN lacks a plain arm64 slice (lipo: $_tunnel_arches)" >&2; exit 1 ;; esac ;;
   *) echo "the Plus connector at $TUNNEL_BIN is not a universal x86_64+arm64 Mach-O (lipo: ${_tunnel_arches:-not a Mach-O})" >&2; exit 1 ;;
 esac
+# 🛑 PROVENANCE FROM THE BINARY'S OWN SIDECARS, before a byte is staged (#621):
+# the commit it was compiled from and the sha256 it was written with, both
+# written by kosmos-relay's build beside it. Refused when missing, mismatched
+# (a stale or half-copied pair), dirty, or malformed. `git describe` in the
+# checkout used to stand in for this and could name a commit the bytes were
+# not built from.
+. "$REPO/tools/lib/connector-provenance.sh"
+_tunnel_src="$(connector_provenance "$TUNNEL_BIN")" || exit 1
 cp "$TUNNEL_BIN" "$STAGE/app/bin/kosmos-tunnel"
 chmod +x "$STAGE/app/bin/kosmos-tunnel"
 # ⚠️ SIGNED HERE, Developer ID, in the build that produces the final bytes, so
@@ -173,13 +181,12 @@ codesign -v "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || { echo "the
 # runs it, not provable here on Apple silicon without emulation.
 "$STAGE/app/bin/kosmos-tunnel" --help >/dev/null 2>&1 || { echo "the signed connector does not run (--help failed); it may not load under hardened runtime" >&2; exit 1; }
 # Provenance, logged not baked: the input's own checksum, and which
-# kosmos-relay commit produced it when the input sits in a checkout. This is
-# what a human (or a follow-up automated check) compares against Baron's build
-# to confirm the connector is not stale; the release's 9b then proves the
-# SERVED tunnel is byte-for-byte the one THIS build packed.
+# kosmos-relay commit produced it, read from the sidecar the relay's build
+# wrote beside the binary (#621), so the logged commit is the bytes' own and
+# cannot name a checkout state the binary was not built from; the release's
+# 9b then proves the SERVED tunnel is byte-for-byte the one THIS build packed.
 _tunnel_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}')"
-_tunnel_src="$(cd "$(dirname "$TUNNEL_BIN")" 2>/dev/null && git describe --always --dirty 2>/dev/null || echo 'no git provenance')"
-echo "==> Plus connector: kosmos-tunnel $_tunnel_sha (from $TUNNEL_BIN, $_tunnel_src)"
+echo "==> Plus connector: kosmos-tunnel $_tunnel_sha (from $TUNNEL_BIN, built from kosmos-relay commit $_tunnel_src, per its sidecar)"
 
 # ---- the runtime ------------------------------------------------------------
 node_arch() {
