@@ -10,7 +10,7 @@ Branch `project-engine-761`. Josh's project-page pass, 2026-08-24 21:56; the eng
 ## What changed (engine)
 
 - `engine/projects.js` `listFiles`: the answer carries `stamp`, a hash of every file's name, size and time (not only the capped page), so a page can ask every few seconds and repaint only when the stamp moves. The route passes it through unchanged.
-- `server.js`: on the three assignment routes (create a task with a `who`, add a part with a `who`, give a part a `who`) a line is typed into the assignee's pane through `chat.deliver`, the way the room's unanswered-post nudge is: `[Kosmos: you were given task N in "<project>": <sentence>. When you take it up, include "task N" in what you report; the room is: kosmos post <id>]`. The response carries `heard: { who, state, because }` beside `told`, with the delivery's own states (placed, unconfirmed, could_not). Closing or reopening types nothing.
+- `server.js`: on the three assignment routes (create a task with a `who`, add a part with a `who`, give a part a `who`) a line is typed into the assignee's pane through `chat.deliver`, the way the room's unanswered-post nudge is: `[Kosmos: you were given task N in "<project>": <sentence>. When you take it up, say "task N of <project>" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post <id>]`. Splinter, 23:33: the short form "task N" is exactly the string #779 shows colliding across projects, so the line teaches the long one; today's join still matches it, and #779's fix will require it. The response carries `heard: { who, state, because }` beside `told`, with the delivery's own states (placed, unconfirmed, could_not). Closing or reopening types nothing.
 
 ## Page contract (Mona Lisa)
 
