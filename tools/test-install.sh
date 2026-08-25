@@ -468,7 +468,7 @@ export KOSMOS_HOME="$SB/home2" KOSMOS_BIN_DIR="$SB/bin2"
 # override present (SYS_APP_DIR) and no profile named, the profile gate
 # must SKIP -- this is the arm that stops a harness run writing the
 # operator's real ~/.zprofile (leaked once, 2026-08-18, before the gate).
-RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_PROFILE_FILE= KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe1.log" 2>&1 || RC=$?
+RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_PROFILE_FILE= KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe1.log" 2>&1 || RC=$?
 chk "the profile gate skipped: no zprofile written under the sandbox HOME" "[ ! -e \"$SBH/.zprofile\" ]"
 chk "probe install exits 0" "[ $RC -eq 0 ]"
 chk "app landed in the system folder" "[ -x \"$SYS_OK/Kosmos.app/Contents/MacOS/Kosmos\" ]"
@@ -481,7 +481,7 @@ chk "the success closing line is pinned" "grep -q '^  Kosmos is running\\.\$' \"
 chk "fresh install opened the dashboard" "[ \"\$(wc -l < \"$SB/opened.log\" 2>/dev/null | tr -d ' ')\" = \"1\" ] && grep -q \"127.0.0.1:$PORT\" \"$SB/opened.log\""
 
 # The update run through the same probe env must NOT open the browser.
-RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe1b.log" 2>&1 || RC=$?
+RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe1b.log" 2>&1 || RC=$?
 chk "probe update exits 0" "[ $RC -eq 0 ]"
 chk "update did not open the dashboard" "[ \"\$(wc -l < \"$SB/opened.log\" | tr -d ' ')\" = \"1\" ]"
 KOSMOS_HOME="$SB/home2" "$SB/bin2/kosmos" stop > /dev/null 2>&1 || true
@@ -501,7 +501,7 @@ else
   chmod 555 "$SYS_RO"
   # KOSMOS_NO_OPEN stays exported here: a fresh install with the suppressor
   # set must stay quiet, which pins the suppressor itself.
-  RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_RO" KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe2.log" 2>&1 || RC=$?
+  RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_RO" KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe2.log" 2>&1 || RC=$?
   chk "fallback install exits 0" "[ $RC -eq 0 ]"
   chk "app fell back to the home folder" "[ -x \"$SBH/Applications/Kosmos.app/Contents/MacOS/Kosmos\" ]"
   chk "transcript names the home folder" "grep -q 'you will find it in the Applications folder inside your home folder' \"$SB/probe2.log\""
@@ -702,7 +702,7 @@ printf '#!/bin/bash\n# theirs\nKOSMOS_HOME="${KOSMOS_HOME:-/not/ours}"\n' > "$SB
 SYS_OK3="$SB/sysok3"
 mkdir -p "$SYS_OK3"
 export KOSMOS_HOME="$SB/home10" KOSMOS_BIN_DIR="$SB/bin10"
-RC=0; cat "$SETUP" | HOME="$SBH9" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK3" sh > "$SB/fhome.log" 2>&1 || RC=$?
+RC=0; cat "$SETUP" | HOME="$SBH9" KOSMOS_HOME_APP_DIR="$SBH9/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK3" sh > "$SB/fhome.log" 2>&1 || RC=$?
 chk "foreign-home install exits 0" "[ $RC -eq 0 ]"
 chk "foreign home bundle survives the cleanup" "grep -q 'theirs' \"$SBH9/Applications/Kosmos.app/Contents/MacOS/Kosmos\""
 chk "the foreign home bundle is named" "grep -q 'not created by this install is in the Applications folder inside your home folder' \"$SB/fhome.log\""
@@ -744,7 +744,7 @@ else
   SYS_OK4="$SB/sysok4"
   mkdir -p "$SYS_OK4"
   export KOSMOS_HOME="$SB/home12" KOSMOS_BIN_DIR="$SB/bin12"
-  RC=0; cat "$SETUP" | HOME="$SBH11" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK4" sh > "$SB/stale-locked.log" 2>&1 || RC=$?
+  RC=0; cat "$SETUP" | HOME="$SBH11" KOSMOS_HOME_APP_DIR="$SBH11/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK4" sh > "$SB/stale-locked.log" 2>&1 || RC=$?
   chk "locked-stale install exits 0" "[ $RC -eq 0 ]"
   chk "undeletable stale icon is named" "grep -q 'an older Kosmos icon is still' \"$SB/stale-locked.log\""
   KOSMOS_HOME="$SB/home12" "$SB/bin12/kosmos" stop > /dev/null 2>&1 || true
