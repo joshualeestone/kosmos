@@ -2,9 +2,9 @@
 pre_challenge: true
 method: challenge-loop
 branch: install-gate-624
-diff_hash: c369dbb3c28d7c1fdde8e5653ec7c17c31bc0cab74403c713d5d7b778a470179
+diff_hash: f53aee950f09b272dcabba32b1574dec98abc64cf3d2dba4959046b9c73fa1a5
 subdir_audit: passed
-timestamp: 2026-08-25T02:21:22Z
+timestamp: 2026-08-25T02:25:03Z
 iterations: 2
 converged: false
 ---
@@ -37,6 +37,7 @@ converged: false
 - [CONVENTION] plan — silent on the other-account launcher fix the diff ships --> FIXED
 - [NIT] comment said || true where the code tails --> FIXED; the no-summary fallback asserted "stopped at the broken install" before the check --> FIXED (count only)
 - Also this iteration: a disk guard (refuse under 2 GB free, name the disk) after Splinter's finding that the full harness's fresh homes each pull a 345 MB Claude Code install; measured that gate mode never reaches those blocks (277 MB peak).
+- After the rebase onto main (four commits, #738 among them): #738 makes an explicit KOSMOS_HOME at click time name the copy the launcher opens, which turned the two other-account legs red; they now run without the override, as a real click does --> FIXED (post-rebase commit), gate 75/75 again.
 **Stopped at the bound** (see the summary).
 
 ### Final Ledger
