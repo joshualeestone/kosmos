@@ -1951,12 +1951,32 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
     column-gap: 18px; align-content: start; }
   html[data-layout="consolidated"] body.consolidated > * { grid-column: 1 / -1; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 39; }
+  /* #867 (Josh, 2026-08-25 11:02): "hide that scrollbar inside of
+     agents." Still scrolls -- scrollbar-width/-ms-overflow-style hide
+     the track, not the ability to scroll it; content wheels and
+     touchpad gestures are untouched. He also guessed the same
+     treatment belongs on "projects, members, files, and tasks" -- none
+     of those four currently have their OWN independent scroll region
+     in this view (they grow with the page instead), so there is no
+     scrollbar on them yet to hide. Revisit if one of them gets a
+     max-height/overflow of its own later. */
   html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 40; margin: 0; display: flex; flex-direction: column; gap: 6px;
-    max-height: calc(100vh - 230px); overflow-y: auto; }
+    max-height: calc(100vh - 230px); overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated > #alist::-webkit-scrollbar { display: none; }
   /* The person, pinned under the list on a deeper ground so the row is not
-     lost among the faces (Josh, 14:14). Folded, the picture alone. */
+     lost among the faces (Josh, 14:14). Folded, the picture alone.
+     #863/#867 (Josh, 2026-08-25 11:02): "the user is scrolled off the
+     page... we need to make sure that's kind of locked to the bottom
+     left." #alist already caps its own height and scrolls internally,
+     but that only protects rail-me from a TALL AGENT LIST -- a tall
+     RIGHT column (an open project with many members, say) grows the
+     whole page and pushes every left-column row down with it, since
+     nothing here was pinned to the viewport itself. `position: sticky;
+     bottom: 0` is the same mechanism `.pjmid .composer` already uses to
+     stay on screen while its own column scrolls. */
   html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 41; display: flex; align-items: center; gap: 6px;
-    margin: 8px 0 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-sunk, rgba(20,22,26,.05)); }
+    margin: 8px 0 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-sunk, rgba(20,22,26,.05));
+    position: sticky; bottom: 8px; z-index: 5; }
   html[data-layout="consolidated"] body.consolidated .railme-go { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
   html[data-layout="consolidated"] body.consolidated .railme-face { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; overflow: hidden;
     background: var(--k-surface); border: 1px solid var(--k-rule); font: 700 10px/1 var(--font-ui); color: var(--k-ink-2); }
@@ -2064,16 +2084,31 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pj-row .pc-t, html[data-layout="consolidated"] body.consolidated .pj-row .pj-who, html[data-layout="consolidated"] body.consolidated .pj-row .pjcount { display: none; }
   /* The projects panel: its list is the second rail, everything else the rest. */
   html[data-layout="consolidated"] body.consolidated #panel-projects { display: grid; grid-template-columns: minmax(180px, 17%) minmax(0, 1fr); column-gap: 18px; align-items: start; }
-  html[data-layout="consolidated"] body.consolidated #pj-list-view { grid-column: 1; }
+  /* #867 (Josh, 2026-08-25 11:02): "push the title all the way up so
+     it's flush with projects and project members" -- measured 8px low
+     against #rail-agents, traced to #pj-list-view's own top padding
+     (shared with #alist at :1995, which needs it; the projects rail
+     does not, since #panel-projects already zeroes its own top padding
+     to sit flush with row 39). */
+  html[data-layout="consolidated"] body.consolidated #pj-list-view { grid-column: 1; padding-top: 0; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > :not(#pj-list-view) { grid-column: 2; }
   html[data-layout="consolidated"] body.consolidated #pj-list { gap: 8px; }
   html[data-layout="consolidated"] body.consolidated .pj-row { padding: 8px 10px; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces, html[data-layout="consolidated"] body.consolidated .pj-row .pc-t { display: none; }
   html[data-layout="consolidated"] body.consolidated #pj-back { display: none; }
-  /* The open project: the conversation in the centre, its cards down the right. */
-  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 2; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit { grid-column: 2; grid-row: 1; }
+  /* The open project: the conversation in the centre, its cards down the
+     right. #867 (Josh, 2026-08-25 11:02): "sort the tasks to be above
+     the files" -- Files sits in .pjsplit, stacked under Members in the
+     SAME element, so swapping it past Tasks (its own separate aside,
+     one grid row down) needed .pjsplit dissolved into its own grid
+     items rather than a DOM move: the same technique #860/#861 used to
+     reorder shared markup without touching it. Three rows now instead
+     of two: members, tasks, files. */
+  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); grid-template-rows: auto auto auto; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 3; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit { display: contents; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { grid-column: 2; grid-row: 1; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child { grid-column: 2; grid-row: 3; }
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { grid-column: 2; grid-row: 2; }
   /* #520 piece six (Josh, 2026-08-24 16:14: "missing a whole lot"): the
      board's full-width notice bars do not belong over the consolidated grid;
@@ -2089,7 +2124,26 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   /* The add/remove actions match the rail heads: a quiet + rather than a
      full button, so the panel reads like the mock. */
   html[data-layout="consolidated"] body.consolidated .pj3 .pj-addmem, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask { font-size: .8125rem; padding: 6px 10px; }
-  html[data-layout="consolidated"] body.consolidated .pjmid .thread { min-height: 40vh; }
+  /* #867 (Josh, 2026-08-25 11:02): "make the dialog box fit the height
+     of the page. Right now you can see it has a big empty gap... match
+     up with the design that we did yesterday" -- the 2026-08-19 pass
+     (:2310 below) that made the tab view's box "fill the page height",
+     the reference he could not recall the date of.
+     ⚠️ TWO THINGS TRIED AND MEASURED WRONG BEFORE THIS ONE, kept here
+     so the next reader does not retry them: (1) stretching .pjmid to
+     its GRID ROW's height did nothing, because `.pj3`'s rows are
+     `auto`-sized from the RIGHT column's own content -- on a short
+     project the row is short too, so it fed the box the same shortage
+     it was meant to fix. (2) `max-height: calc(100vh - Npx)` alone ALSO
+     did nothing, on a box with little or no conversation: max-height is
+     a ceiling on content that would otherwise be taller, not an
+     instruction to grow past a short natural size, so an empty thread
+     just sat at its min-height floor with the ceiling unused far above
+     it. What actually fills the box: a REAL height on the flex
+     container (.pjmid, sized off the viewport, the same idiom #alist
+     already uses at :1955) for .thread to flex-grow INTO. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { height: calc(100vh - 63px); }
+  html[data-layout="consolidated"] body.consolidated .pjmid .thread { min-height: 40vh; max-height: none; flex: 1 1 auto; }
   /* #520 piece seven (Josh, 2026-08-24 16:32: the project name and members
      "flush vertically with agents"): the projects panel keeps the .panel top
      padding, which sat the project title and its columns below the agents
@@ -20098,6 +20152,13 @@ async function watchForAgent(name, result, attempt) {
 
 let PROJECTS = [];
 let PJ_LOADED_ONCE = false;  // #774: the empty-centre sentence may say "No projects yet" only after a read, never before one
+/* #867 (Josh, 2026-08-25 11:02): "let's default to automatically opening
+   up a project when they come to this so that it's not just empty
+   nothingness." Same one-shot shape as WANT_PROJECT below (the first
+   load that can act, acts, once) so a person who deliberately presses
+   Back to the list is not immediately shoved back into a project on the
+   next poll. */
+let PJ_AUTO_OPENED_ONCE = false;
 let PJ_AGENTS_UNREADABLE = false;
 // ⚠️ Whether the LAST projects read succeeded. PROJECTS is deliberately never
 // emptied on failure (see loadProjects), so the array alone cannot say "we
@@ -20770,6 +20831,18 @@ async function loadProjects() {
         if (WANT_TASK) { const n = Number(WANT_TASK); if (Number.isFinite(n)) openTaskPage(n); }
         if (PARAMS.get('docs') === '1') openDocsView();
       }
+    }
+    /* #867: no deep link asked for a specific project, so the first load
+       in the consolidated view opens one itself rather than landing on
+       "Nothing is open yet." Which one is not otherwise specified;
+       PJ_SORT's own order (the person's own chosen sort, defaulting to
+       newest first) picks the first active project, the same ordering
+       the list itself renders in. */
+    if (!PJ_AUTO_OPENED_ONCE && !WANT_PROJECT && !PJ_CURRENT
+      && document.documentElement.getAttribute('data-layout') === 'consolidated') {
+      PJ_AUTO_OPENED_ONCE = true;
+      const first = sortProjects(PROJECTS.filter((p) => !p.archived), PJ_SORT)[0];
+      if (first) openProject(first.id);
     }
     PJ_AGENTS_UNREADABLE = body.agentsUnreadable === true;
     PJ_READ_FAILED = false;
