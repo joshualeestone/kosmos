@@ -41,7 +41,7 @@ async function ask(token) {
     } finally { clearTimeout(t); }
   });
   try { return await f(VERIFY_URL(), token); }
-  catch (err) { return { ok: false, status: 0, body: null, because: 'we could not reach Cloudflare: ' + String((err && err.message) || err) }; }
+  catch (err) { return { ok: false, status: 0, body: null, because: 'we could not reach Cloudflare: ' + String((err && err.message) || err), unreachable: true }; }
 }
 
 /** Checks a token WITHOUT storing it. Answers who/what it is, never the token. */
@@ -51,7 +51,7 @@ async function verify(token) {
   if (/\s/.test(t)) return { ok: false, because: 'that does not look like a token: a token has no spaces or line breaks in it' };
   if (t.length < 20) return { ok: false, because: 'that is too short to be a token' };
   const r = await ask(t);
-  if (r.because) return { ok: false, because: r.because };
+  if (r.because) return { ok: false, because: r.because, unreachable: r.unreachable === true };
   const res = r.body && r.body.result;
   if (r.ok && r.body && r.body.success === true && res && res.status === 'active') {
     return { ok: true, tokenId: String(res.id || ''), status: 'active' };
@@ -67,7 +67,7 @@ async function state() {
   if (!tok) return { kind: 'token', connected: false, held: false, tokenId: null, status: null, because: null, where: WHERE };
   const v = await verify(tok);
   if (v.ok) return { kind: 'token', connected: true, held: true, tokenId: v.tokenId, status: 'active', because: null, where: WHERE };
-  return { kind: 'token', connected: false, held: true, tokenId: null, status: null, because: v.because, where: WHERE };
+  return { kind: 'token', connected: false, held: true, tokenId: null, status: null, because: v.because, unreachable: v.unreachable === true, where: WHERE };
 }
 
 /** Verify first, store only what Cloudflare accepted. Answers the state, never the token. */
