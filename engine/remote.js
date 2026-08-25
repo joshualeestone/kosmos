@@ -27,14 +27,25 @@
  *
  * Env seams, each so tests can run a fake through this module:
  *   AGENT_WORKFORCE_TUNNEL_BIN          the kosmos-tunnel binary
- *   AGENT_WORKFORCE_TUNNEL_RELAY        relay host:port (no default: the
- *                                       real relay's domain is an open
- *                                       decision, and a wrong baked-in
- *                                       default would be an outbound call
- *                                       to somewhere nobody chose)
- *   AGENT_WORKFORCE_TUNNEL_COORDINATOR  coordinator URL for setup
+ *   AGENT_WORKFORCE_TUNNEL_RELAY        relay host:port. Default: the real
+ *                                       relay, relay.plus.installkosmos.com:8443
+ *                                       (the domain was decided 2026-08-23 and
+ *                                       the box has served it since 2026-08-24;
+ *                                       until then there was no default, so a
+ *                                       wrong baked-in one could not dial
+ *                                       somewhere nobody chose)
+ *   AGENT_WORKFORCE_TUNNEL_COORDINATOR  coordinator URL for setup. Default: the
+ *                                       real one, https://coordinator.plus.installkosmos.com
+ *                                       (deployed 2026-08-24, #622)
  *   AGENT_WORKFORCE_TUNNEL_STATE        the state dir (keys, certs)
  *   AGENT_WORKFORCE_TUNNEL_CA           extra CA for a dev/self-host relay
+ *                                       ONLY. The real relay serves a
+ *                                       Let's Encrypt cert that system roots
+ *                                       trust (proven with a stock dial, no
+ *                                       CA, #578/#648); nothing must bake
+ *                                       this for the production relay, and
+ *                                       a stale path here breaks the dial
+ *                                       for a reason nobody would suspect.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -60,9 +71,14 @@ const BIN = () => {
   try { if (fs.existsSync(bundled)) return bundled; } catch { /* fall through to PATH */ }
   return 'kosmos-tunnel';
 };
-const RELAY = () => process.env.AGENT_WORKFORCE_TUNNEL_RELAY || read().relay || '';
+/* The production addresses are the defaults (#648): a bundle needs nothing
+ * baked for a Mac to reach the real relay and coordinator. Precedence: env
+ * (tests, self-host), then the relay saved in remote.json, then production. */
+const DEFAULT_RELAY = 'relay.plus.installkosmos.com:8443';
+const DEFAULT_COORDINATOR = 'https://coordinator.plus.installkosmos.com';
+const RELAY = () => process.env.AGENT_WORKFORCE_TUNNEL_RELAY || read().relay || DEFAULT_RELAY;
 const COORDINATOR = () =>
-  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR || 'http://127.0.0.1:8380';
+  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR || DEFAULT_COORDINATOR;
 
 let child = null;
 let restartTimer = null;
@@ -479,7 +495,7 @@ async function deviceRemove(id) {
   return parseSaid(await setupRun(deviceArgs('remove', id, false)));
 }
 
-module.exports = {
+module.exports = { DEFAULT_RELAY, DEFAULT_COORDINATOR,
   FILE,
   read,
   setOn,

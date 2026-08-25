@@ -195,18 +195,25 @@ test('a crashing child renders restarting with a because, never fine', async () 
   assert.notEqual(s.state, 'up', 'a crashed child rendered as fine');
 });
 
-test('enrolled with no relay address set is off with the reason, not a spawn into nowhere', async () => {
+test('#648: enrolled with nothing set dials the REAL relay and coordinator, with no CA flag', async () => {
+  /* Until 2026-08-24 this asserted "no relay set is off with the reason, not
+     a spawn into nowhere": the relay's domain was undecided, so a default
+     would have been an outbound call to somewhere nobody chose. The domain
+     is decided and the box serves it, so the default IS the real place and
+     a bundle needs nothing baked. The old state is unreachable by design. */
+  delete process.env.AGENT_WORKFORCE_TUNNEL_CA;
   remote.setOn(true);
   await remote.setupStart('her@example.com');
   await remote.setupComplete('123456', 'hers');
   fs.rmSync(RECORD, { force: true });
   remote.ensure(4400);
-  assert.equal(remote.currentChildPid(), null, 'spawned with no relay configured');
-  await new Promise((r) => setTimeout(r, 30));
-  const s = remote.status();
-  assert.equal(s.state, 'off');
-  assert.match(s.because, /relay address/);
-  assert.deepEqual(recorded(), [], 'spawned with no relay configured');
+  await until(() => recorded().length > 0, 'the connector to be spawned against the default relay');
+  const args = recorded()[0];
+  const flat = Array.isArray(args) ? args.join(' ') : String(args);
+  assert.match(flat, /--relay relay\.plus\.installkosmos\.com:8443\b/);
+  assert.match(flat, /--coordinator https:\/\/coordinator\.plus\.installkosmos\.com\b/);
+  assert.ok(!/--tunnel-ca/.test(flat), 'a CA was baked for the production relay: ' + flat);
+  remote.resetForTests();
 });
 
 test('a missing binary renders restarting and retries, not a permanent false connecting', async () => {
@@ -322,4 +329,23 @@ test('list joins the sidecar for the screen, and unenrolled is an empty list wit
   assert.equal(got.ok, true, got.because);
   assert.equal(got.data.devices[0].name, 'iPhone');
   assert.equal(got.data.devices[0].code, 'K7-3M');
+});
+
+test('#648: with nothing set, the Mac dials the real relay and coordinator, and bakes no CA', () => {
+  const prev = { r: process.env.AGENT_WORKFORCE_TUNNEL_RELAY, c: process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR, ca: process.env.AGENT_WORKFORCE_TUNNEL_CA };
+  delete process.env.AGENT_WORKFORCE_TUNNEL_RELAY;
+  delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+  delete process.env.AGENT_WORKFORCE_TUNNEL_CA;
+  try {
+    assert.equal(remote.DEFAULT_RELAY, 'relay.plus.installkosmos.com:8443');
+    assert.equal(remote.DEFAULT_COORDINATOR, 'https://coordinator.plus.installkosmos.com');
+    /* The source, not a re-implementation: the CA flag is passed only when the env is set. */
+    const src = require('node:fs').readFileSync(require.resolve('./remote'), 'utf8');
+    assert.match(src, /if \(process\.env\.AGENT_WORKFORCE_TUNNEL_CA\) \{\s*args\.push\('--tunnel-ca'/);
+    assert.ok(!/AGENT_WORKFORCE_TUNNEL_CA\s*\|\|/.test(src), 'the CA env has grown a default; the production relay must get none');
+  } finally {
+    for (const [k, v] of [['AGENT_WORKFORCE_TUNNEL_RELAY', prev.r], ['AGENT_WORKFORCE_TUNNEL_COORDINATOR', prev.c], ['AGENT_WORKFORCE_TUNNEL_CA', prev.ca]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
 });
