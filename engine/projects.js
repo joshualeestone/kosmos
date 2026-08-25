@@ -2110,7 +2110,33 @@ function syncAgent(sessionName, roster) {
   return verdict;
 }
 
-module.exports = { memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR,
+/** The staleness verdict, with the pane's word in it (#732). A membership
+ * change rewrites the agent's instruction file (a real edit after its start)
+ * AND tells the agent in its pane; the page then said "Restart it so it knows"
+ * about an agent that had just been told. When the edit was Kosmos's own and a
+ * project's told record for this agent is TOLD at or after that edit, the
+ * verdict is `told`, not `stale`: it knows, and the restart button would be
+ * theatre. A person's own edit, or a tell that could not be delivered, stays
+ * exactly as it was. Pure over the verdict and the store; safe on any input. */
+function toldOverride(verdict, sessionName) {
+  try {
+    if (!verdict || verdict.state !== 'stale') return verdict;
+    if (!verdict.wroteBy || verdict.wroteBy.who !== 'kosmos') return verdict;
+    const editedAt = Date.parse(verdict.editedAt || '');
+    if (!Number.isFinite(editedAt)) return verdict;
+    const key = String(sessionName || '');
+    const told = readAll()
+      .map((p) => (p.told || {})[key])
+      .filter((t) => t && t.state === TOLD.TOLD && Number.isFinite(Date.parse(t.at || '')))
+      .map((t) => Date.parse(t.at))
+      .filter((at) => Math.floor(at / 1000) >= Math.floor(editedAt / 1000));
+    if (!told.length) return verdict;
+    return { ...verdict, state: 'told', toldAt: new Date(Math.max(...told)).toISOString(),
+      because: `${verdict.wroteBy.because || 'Kosmos changed its instructions'}, and told it in its pane` };
+  } catch { return verdict; }
+}
+
+module.exports = { memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe,
   list, get, projectsFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
