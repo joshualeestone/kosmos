@@ -512,6 +512,8 @@ test('the roles where being wrong is expensive carry their limit in BOTH places'
     books: /do not give financial or tax advice/i,
     ea: /draft, never send/i,
     email: /draft, never send/i,
+    personal: /draft, never send or book/i,
+    travel: /never book|do not book/i,
     social: /draft, never post/i,
     sales: /they send it, always/i,
     support: /draft, never send/i,
@@ -1893,7 +1895,12 @@ test('own is the last entry and no role is hidden but it', () => {
   // 30 since Email Assistant (Josh, 2026-08-25 in #chaoskosmos-design: "Let's
   // add an Email type of agent to the list of predefined roles"; shaped
   // against Vivienne's real account of the job, not a generic guess).
-  assert.equal(roles.ROLES.length, 30, 'the catalogue grew or shrank; say so here on purpose');
+  // 34 since the Personal and family group (Josh, same session: "I think we
+  // could also have 3-4 like personal or family type roles"; proposed four
+  // candidates, he confirmed all four -- "Family roles sound great" -- and
+  // asked for the group at the bottom of the list, which array order
+  // already gives it).
+  assert.equal(roles.ROLES.length, 34, 'the catalogue grew or shrank; say so here on purpose');
   const menu = roles.ROLES.filter((r) => r.menu !== false);
   assert.equal(menu.length, roles.ROLES.length - 1,
     'exactly one entry is meant to be hidden; own leaked into the picker, or a menu role got hidden');
