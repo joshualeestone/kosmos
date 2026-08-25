@@ -24,7 +24,10 @@ const fleet = require('./test-support/fleet');
    hand-written stand-in (this repo's own lint refuses one, rightly: a
    stand-in is free to carry fields the producer never emits). */
 function currentCard() {
-  const board = fleet.install([fleet.agent('mara', { state: 'idle', displayName: 'Mara' })]);
+  /* No displayName: that makes the fixture write an identity file under
+     AGENT_WORKFORCE_WORKERS, which this test does not sandbox and must not
+     write; the card's sessionName is all the dialog reads. */
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
   try {
     const card = board.agents.find((a) => a.name === 'mara');
     assert.ok(card, 'the fixture produced no card');
