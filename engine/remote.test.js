@@ -349,3 +349,29 @@ test('#648: with nothing set, the Mac dials the real relay and coordinator, and 
     }
   }
 });
+
+test('#793: forget retires the Mac while its key exists, then destroys the key and turns Plus off', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  await remote.setupComplete('123456', 'hers');
+  assert.equal(remote.enrolled(), true, 'the fixture did not enrol');
+  fs.rmSync(RECORD, { force: true });
+  const got = await remote.forget();
+  const calls = recorded();
+  const retireCall = calls.find((c) => (Array.isArray(c) ? c : c.args || []).includes('retire'));
+  assert.ok(retireCall, 'forget never told the coordinator; a name would stay held forever: ' + JSON.stringify(calls));
+  assert.equal(got.ok, true);
+  assert.equal(got.retired, true, 'the fake coordinator accepted retire but forget reports otherwise: ' + got.because);
+  assert.equal(remote.enrolled(), false, 'the key survived forget');
+  assert.equal(remote.read().on, false, 'Plus stayed on for a Mac that no longer has a key');
+  remote.resetForTests();
+});
+
+test('#793: forgetting a Mac that was never set up says so and retires nothing', async () => {
+  fs.rmSync(RECORD, { force: true });
+  const got = await remote.forget();
+  assert.equal(got.retired, false);
+  assert.match(got.because, /not set up/);
+  assert.deepEqual(recorded().filter((c) => (Array.isArray(c) ? c : c.args || []).includes('retire')), [], 'retire was called with no key to sign it');
+});

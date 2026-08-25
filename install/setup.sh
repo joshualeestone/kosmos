@@ -910,6 +910,24 @@ KOSMOS_SWEEP_LIST
     if [ -x "$KOSMOS_HOME/bin/kosmos" ] \
        || { [ -f "$KOSMOS_HOME/VERSION" ] && { [ -d "$KOSMOS_HOME/app" ] || [ -d "$KOSMOS_HOME/tmux" ]; }; }; then
       info "deleting $KOSMOS_HOME"
+      # 🔑 RETIRE THIS MAC AT THE COORDINATOR WHILE IT CAN STILL SPEAK (#793).
+      # The Mac's key lives in the support folder's remote/ dir and the
+      # connector in the app tree about to go; after either is gone only a
+      # signed-in phone can retire it. Best-effort with a short timeout, and
+      # the outcome is said either way: an uninstall that silently leaves an
+      # address on the account is how a name stays held forever.
+      _remote_state="${AGENT_WORKFORCE_DATA:-$HOME/Library/Application Support}/AgentWorkforce/remote"
+      _tunnel="$KOSMOS_HOME/app/bin/kosmos-tunnel"
+      if [ -f "$_remote_state/mac_key" ] && [ -x "$_tunnel" ]; then
+        info "telling the Plus service this Mac is going away"
+        if "$_tunnel" retire --state-dir "$_remote_state" --coordinator "${AGENT_WORKFORCE_TUNNEL_COORDINATOR:-https://coordinator.plus.installkosmos.com}" >/dev/null 2>&1; then
+          info "its Plus address is retired; the name is free again after a day"
+        else
+          info "note: the Plus service could not be told; its address may still show on your account page until you remove it there"
+        fi
+        info "removing this Mac's Plus key (its agents and their files are left alone)"
+        rm -rf "$_remote_state" 2>/dev/null || true
+      fi
       rm -rf "$KOSMOS_HOME"
     else
       info "note: $KOSMOS_HOME does not look like a Kosmos install, so it was left alone."
