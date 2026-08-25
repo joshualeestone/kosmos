@@ -10905,7 +10905,7 @@ test('#761: giving a task to an agent types the assignment into its pane, and th
     assert.equal(out.heard.state, 'placed', 'the assignment was not typed: ' + ((out.heard && out.heard.because) || r.body));
     const typed = sends.map((a) => a.join(' ')).join('\n');
     assert.match(typed, /you were given task 1 in "Christmas plan": Book the venue/, 'the line names the task, the project and the sentence');
-    assert.match(typed, /include "task 1" in what you report/, 'and teaches the spelling the join depends on');
+    assert.match(typed, /say "task 1 of Christmas plan" in what you report/, 'and teaches the long spelling (#779: a bare "task 1" collides across projects)');
     assert.match(typed, new RegExp('kosmos post ' + p.id), 'and names the room');
     assert.ok(out.told, 'told (the instructions) is still answered beside heard');
 

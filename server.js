@@ -5154,8 +5154,8 @@ const server = http.createServer((req, res) => {
     let title = projectId;
     try { const rec = projects.readAll().find((x) => x && x.id === projectId); if (rec && rec.name) title = rec.name; } catch { /* the id will do */ }
     const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
-      + String(t.sentence || '').replace(/[\r\n]/g, ' ') + '. When you take it up, include "task ' + t.number
-      + '" in what you report; the room is: kosmos post ' + projectId + ']';
+      + String(t.sentence || '').replace(/[\r\n]/g, ' ') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
+      + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
     let sent;
     try { sent = chat.deliver(name, line, safeRoster()); }
     catch (err2) { sent = { state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
