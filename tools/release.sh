@@ -325,6 +325,10 @@ else
   exit 1
 fi
 cp "$REPO/dist/kosmos-arm64.tar.gz" "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/"
+# The release manifest (#776) rides beside the versioned tarball, TRACKED: a
+# few KB per release that says what produced the served bytes. The tarballs
+# themselves stay untracked (48 MB each, and they prove only that bytes existed).
+cp "$REPO/dist/kosmos-arm64.manifest.json" "$SITE/dist/kosmos-$V-arm64.manifest.json"
 # ⚠️ THE VERSIONED NAME IS THE ONE A CACHE CANNOT LIE ABOUT. The plain
 # name is one URL across every release, and an edge cache satisfied an
 # update from it with the PRIOR release's bytes and matching checksum
@@ -418,7 +422,7 @@ echo "== 7b. the site's release files are committed and pushed BEFORE they deplo
 # `-- <paths>` on the commit leaves other staged work exactly as staged.
 # What the push DOES carry: any commits already on this checkout's main
 # that were not pushed yet, which the deploy would serve regardless.
-_site_paths="dist/latest.json setup setup.sha256 versions.html"
+_site_paths="dist/latest.json dist/kosmos-$V-arm64.manifest.json setup setup.sha256 versions.html"
 # shellcheck disable=SC2086
 git -C "$SITE" add $_site_paths
 # shellcheck disable=SC2086
