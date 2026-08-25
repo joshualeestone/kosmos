@@ -41,17 +41,24 @@ let failed = 0;
   // Settings > Accounts
   await p.evaluate(() => { try { settingsGo('accounts'); } catch (e) { try { showTab('settings'); } catch (e2) {} const b = document.querySelector('[data-go="accounts"]'); if (b) b.click(); } });
   await p.waitForTimeout(800);
-  const vis = await p.evaluate(() => { let el = document.getElementById('acct-add-openai'); const hid = []; while (el) { const cs = getComputedStyle(el); if (el.hidden || cs.display === 'none' || cs.visibility === 'hidden') hid.push(el.tagName + '#' + el.id + '.' + String(el.className).split(' ')[0]); el = el.parentElement; } return hid; });
-  say('nothing above the button is hidden', vis.length === 0, JSON.stringify(vis));
+  // Since #730 (Settings > Accounts, one provider at a time) the section opens
+  // on a provider picker (buttons carrying data-pick="claude" / "openai") and
+  // the OpenAI key form is revealed by picking OpenAI; the old always-visible
+  // #acct-add-openai button is gone. The 0.5.24 cut went red here because this
+  // check still asked for it (2026-08-24 21:41).
+  const PICK = '[data-pick="openai"]';
+  const vis = await p.evaluate((sel) => { let el = document.querySelector(sel); const hid = []; if (!el) return ['(no ' + sel + ')']; while (el) { const cs = getComputedStyle(el); if (el.hidden || cs.display === 'none' || cs.visibility === 'hidden') hid.push(el.tagName + '#' + el.id + '.' + String(el.className).split(' ')[0]); el = el.parentElement; } return hid; }, PICK);
+  say('nothing above the OpenAI picker button is hidden', vis.length === 0, JSON.stringify(vis));
   const sec = await p.evaluate(() => { const s = document.getElementById('s-sec-accounts'); return s ? !s.hidden : null; });
   say('accounts section opens', sec === true, String(sec));
-  const geo = await p.evaluate(() => { const b = document.getElementById('acct-add-openai'); const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return { rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)], vw: [innerWidth, innerHeight], onTop: top ? top.tagName + '#' + top.id + '.' + String(top.className).split(' ')[0] : null }; });
-  say('the button has a size and is on top at its centre', geo.rect[2] > 0 && geo.rect[3] > 0 && /acct-add-openai/.test(geo.onTop || ''), JSON.stringify(geo));
-  await p.click('#acct-add-openai', { timeout: 5000 }).catch(async () => { console.log('NOTE  normal click failed; clicking by force to continue the flow'); await p.click('#acct-add-openai', { force: true }); });
-  // The pair reads as two acts (Angel's ruling, #607): each button names its provider.
-  const labels = await p.evaluate(() => [document.getElementById('acct-add').innerText.trim(), document.getElementById('acct-add-openai').innerText.trim()]);
-  say('the two add buttons each name their provider', /Claude/.test(labels[0]) && /OpenAI/.test(labels[1]) && !/^Add another account/.test(labels[0]), JSON.stringify(labels));
-  say('add-by-key form reveals on the button', await p.isVisible('#acct-openai-flow'));
+  const geo = await p.evaluate((sel) => { const b = document.querySelector(sel); if (!b) return { rect: [0, 0, 0, 0], vw: [innerWidth, innerHeight], onTop: null }; const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return { rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)], vw: [innerWidth, innerHeight], onTop: top ? top.tagName + '#' + top.id + '.' + String(top.className).split(' ')[0] + '[' + (top.getAttribute('data-pick') || '') + ']' : null }; }, PICK);
+  say('the OpenAI picker button has a size and is on top at its centre', geo.rect[2] > 0 && geo.rect[3] > 0 && /\[openai\]/.test(geo.onTop || ''), JSON.stringify(geo));
+  // The pair reads as two acts (Angel's ruling, #607): each picker names its provider.
+  const labels = await p.evaluate(() => [...document.querySelectorAll('#s-sec-accounts [data-pick]')].map((b) => b.getAttribute('data-pick') + ':' + b.innerText.trim()));
+  say('the provider pickers each name their provider', labels.some((l) => /^claude:.*Claude/.test(l)) && labels.some((l) => /^openai:.*OpenAI/.test(l)), JSON.stringify(labels));
+  await p.click(PICK, { timeout: 5000 }).catch(async () => { console.log('NOTE  normal click failed; clicking by force to continue the flow'); await p.click(PICK, { force: true }); });
+  await p.waitForTimeout(300);
+  say('add-by-key form reveals on picking OpenAI', await p.isVisible('#acct-openai-flow'));
   say('the key field is a password field', (await p.getAttribute('#acct-openai-key', 'type')) === 'password');
   await p.fill('#acct-openai-key', 'sk-proj-walkwalkwalkwalkwalkWALK');
   await p.fill('#acct-openai-label', 'Walk Test');
