@@ -39,3 +39,15 @@ The screen (what a tile says with `needsYouElsewhere`); the number-only task joi
 - The route keeps `project` only when it is a string.
 - Screen consequence for Mona Lisa's half: with today's page, a project whose only member needs Josh about another project (or about none) shows the pill "Nothing running"; the engine ships the two counts for the sentence that replaces it.
 - Deferred: the phone notification (`notify.happened` for `needs_you`) does not carry the project yet; `--project` must precede the sentence, like the three existing flags.
+
+## The sandbox walk (23:11, before the PR; Splinter: "Josh found this by USING it")
+
+A real board process in a sandbox (all four roots and the tmux binary faked; the half-sandbox guard from #715 refused the first attempt, which left launchd real), one agent (`fixture`) on two projects, the real `install/kosmos report` CLI, `/api/projects` read after each step, the projects grid photographed headless (`docs/walks/763-walk-1-stated.png`, `763-walk-3-unattributed.png`).
+
+1. `report needs_you --project christmasmarketingplan "Which venue for the party?"`: Christmas needsYou 1 (stated), Older needsYou 0, elsewhere 1. Grid: Christmas "Needs you" and the header counts one; Older "Nothing running" (the pill consequence for the screen half).
+2. `report needs_you "asking permission to use Bash"` (the hook's shape): Christmas needsYou 1, inferred 1.
+3. `report started`, then the same question: both projects needsYou 0, unattributed 1. Grid: both "Nothing running", no Needs-you count on the projects page.
+4. `report working --project olderproject`, then `report needs_you "Which font?"`: Older needsYou 1 (inferred), Christmas 0, elsewhere 1.
+5. `/api/status`: the agent's card reads `needs_you`, `stateProject olderproject`, inferred, throughout.
+
+Josh's shape (one question lighting four of seven tiles) cannot recur through this path: a tile lights only for a question about it.
