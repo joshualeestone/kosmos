@@ -6932,11 +6932,17 @@ test('the settings members wiring is real, not just extractable', () => {
     'the in-flight cross-project guard lost its capture');
   assert.ok(handler.includes('if (PJ_CURRENT !== sentProject) return;'),
     'the in-flight cross-project guard lost its check');
-  // BOTH arms: the success path and the catch path each carry the
-  // visible-view targeting; a first-occurrence pin let either one revert
-  // alone.
-  assert.ok(handler.split("document.getElementById('pj-settings-view').hidden").length >= 3,
-    'an arm of the handler lost its visible-view targeting');
+  // BOTH arms: the success path and the catch path each resolve the
+  // target fresh through the shared dropMemberTarget() (#762 factored the
+  // ternary out, once it needed to redirect BOTH directions -- into
+  // settings mid-flight as well as out of it -- rather than duplicate the
+  // widened check at each call site); a first-occurrence pin let either
+  // arm revert to a stale capture alone.
+  assert.ok(handler.split('const target = dropMemberTarget();').length >= 3,
+    'an arm of the handler lost its fresh-target resolution');
+  assert.match(pageFnSource('dropMemberTarget'),
+    /document\.getElementById\('pj-settings-view'\)\.hidden\s*\n\s*\? document\.getElementById\('pj-one-msg'\)\s*\n\s*: document\.getElementById\('pjs-members-msg'\);/,
+    'dropMemberTarget lost the visible-view branch, or one of its two concrete targets');
   assert.ok(pageFnSource('paintProjectSettings').includes("getElementById('pjs-members-msg').textContent = ''"),
     'the entry-clear for the members verdict is gone (the persisted-half misattribution returns)');
 

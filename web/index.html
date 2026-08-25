@@ -2010,7 +2010,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pj3 .pj-addmem:hover, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask:hover { color: var(--k-ink); }
   html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard:first-child > .pj-members, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .tkcards { margin-top: 6px; }
   html[data-layout="consolidated"] body.consolidated #pj-remove-member { display: none; }
-  html[data-layout="consolidated"] body.consolidated .pj-minus { display: grid; place-items: center; margin-left: auto; width: 20px; height: 20px; flex: none; border: 1px solid var(--k-rule); border-radius: 6px; background: var(--k-surface); color: var(--k-ink-2); font: 600 14px/1 var(--font-ui); padding: 0; cursor: pointer; opacity: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj-minus { display: grid; place-items: center; margin-left: auto; width: 24px; height: 24px; flex: none; border: 1px solid var(--k-rule); border-radius: 6px; background: var(--k-surface); color: var(--k-ink-2); font: 600 14px/1 var(--font-ui); padding: 0; cursor: pointer; opacity: 0; }
   html[data-layout="consolidated"] body.consolidated .pj-member:hover .pj-minus, html[data-layout="consolidated"] body.consolidated .pj-minus:focus-visible { opacity: 1; }
   html[data-layout="consolidated"] body.consolidated .pj-minus:hover { color: var(--k-ink); background: var(--k-hover-2, var(--k-sunk)); }
 }
@@ -2582,11 +2582,14 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    arrived. Column, because the name, the state and the told line were three
    siblings of a wrapping flex row and are now one block beside the disc. */
 .pj-member-b { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-/* The row's minus, in BOTH views since #761 (Josh, 2026-08-24 21:56, looking
-   at the tab view: "when I mouse over it, it would give me an X. If I clicked
-   it, it would pop up a modal"). Shown on hover or keyboard focus; the
-   "Remove a member" door steps aside everywhere. */
-.pj-minus { display: grid; place-items: center; margin-left: auto; width: 20px; height: 20px; flex: none;
+/* The row's minus, in every view that draws a member row since #761/#762
+   (Josh, 2026-08-24 21:56, looking at the tab view: "when I mouse over it,
+   it would give me an X. If I clicked it, it would pop up a modal").
+   Shown on hover or keyboard focus; the "Remove a member" door steps aside
+   everywhere. 24x24, not 20x20: WCAG 2.2 SC 2.5.8 (Target Size Minimum) is
+   this project's floor for the only destructive control on the row -- the
+   same standard the settings rows' own retired button was built to. */
+.pj-minus { display: grid; place-items: center; margin-left: auto; width: 24px; height: 24px; flex: none;
   border: 1px solid var(--separator); border-radius: 6px; background: var(--bg-elevated); color: var(--label-2);
   font: 600 14px/1 var(--font-ui); padding: 0; cursor: pointer; opacity: 0; }
 .pj-member:hover .pj-minus, .pj-minus:focus-visible { opacity: 1; }
@@ -19811,10 +19814,11 @@ function pjMember(m, suppressTold, withMinus) {
     + (toldLine ? '<span class="pj-told">' + toldLine + '</span>' : '')
     + pjMemberHasIt(m)
     + '</span>'
-    /* #520 piece ten: the mock's minus, at the row's end, shown on hover in
-       the consolidated view (CSS hides it everywhere else; the settings page
-       has its own Remove). It carries the same data-drop the settings row
-       carries, so one handler serves both. Only the project page asks for it. */
+    /* #520 piece ten, then #762: the mock's minus, at the row's end, shown
+       on hover or keyboard focus wherever it is drawn. Project settings
+       asks for it too now, the same button and the same confirm modal,
+       not a second "Remove from project" control -- two call sites
+       (paintOneProject and paintSettingsMembers), one shared row. */
     + (withMinus
       ? '<button class="pj-minus" type="button" data-drop="' + esc(m.sessionName) + '"'
         + ' aria-label="Remove ' + esc(m.name) + ' from this project" title="Remove from this project">\u2212</button>'
@@ -24432,6 +24436,18 @@ document.getElementById('pjs-add-pick').addEventListener('change', async () => {
 /* The removal listener lives on the SETTINGS rows now (the column lost
    its buttons; Josh's ruling). Same DELETE, same verdict-read: only the
    home and the message element moved. */
+/* Where a removal's verdict belongs, read fresh rather than carried from
+   whenever the click happened (#762): the settings rows becoming a SECOND
+   possible source for `msg`, beside the tab view's, exposed the direction
+   this guard did not yet cover -- go INTO settings mid-flight and the
+   captured pj-one-msg is now the hidden one. Resolving by current
+   visibility, not by which element was passed in, covers both directions
+   the same way. */
+function dropMemberTarget() {
+  return document.getElementById('pj-settings-view').hidden
+    ? document.getElementById('pj-one-msg')
+    : document.getElementById('pjs-members-msg');
+}
 async function dropMember(btn, msg) {
   msg.textContent = '';
   // The say-box guard (its pattern): the verdict lands only on the
@@ -24462,8 +24478,7 @@ async function dropMember(btn, msg) {
     // the project view mid-flight (same project, so the guard passed),
     // and writing into the hidden settings view would be read by nobody
     // and wiped by the entry-clear -- told, and the answer dropped.
-    const target = document.getElementById('pj-settings-view').hidden
-      ? document.getElementById('pj-one-msg') : msg;
+    const target = dropMemberTarget();
     // Her ruled sentence (2026-08-18 10:07 PM), visible text and aria-live
     // in one element at one moment: names the agent, states the RESULTING
     // state, carries the survival fact -- which lives only here now that
@@ -24499,16 +24514,17 @@ async function dropMember(btn, msg) {
     // The clicked button died with the repaint; the keyboard lands on the
     // verdict element rather than <body> (the pjCloseConfirm pattern) --
     // but ONLY when focus actually fell to body: yanking it out of a
-    // field the person moved to mid-flight would be the draft-eater.
-    if (document.activeElement === document.body && target === msg) msg.focus();
+    // field the person moved to mid-flight would be the draft-eater. The
+    // target is always where the person IS now (dropMemberTarget), so
+    // there is no second "did we redirect" check to make here.
+    if (document.activeElement === document.body) target.focus();
   } catch (err) {
     if (PJ_CURRENT !== sentProject) return;
-    const target = document.getElementById('pj-settings-view').hidden
-      ? document.getElementById('pj-one-msg') : msg;
+    const target = dropMemberTarget();
     target.textContent = pjSentence(err.message) || 'We could not change that project.';
     // The error path repaints nothing, so the retry control survives;
     // focus moves only if it had already fallen to body.
-    if (document.activeElement === document.body && target === msg) msg.focus();
+    if (document.activeElement === document.body) target.focus();
   }
 }
 /* The project page's own minus (#520 piece ten), and the settings rows'
