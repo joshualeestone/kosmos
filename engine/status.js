@@ -2690,7 +2690,12 @@ function reconcileReport(reported, scraped, nowMs) {
        project (or inherited one) is about that project as far as anyone can
        tell: the same inference the hook's project-less needs_you gets, and
        marked as one. Null project when the reports named none. */
-    const p = (typeof reported.project === 'string' && reported.project) ? reported.project : null;
+    // Only from a report young enough to still describe what the agent is doing
+    // (the same decay rule 5 applies to a working report): a two-day-old naming
+    // must not attribute today's question. Fewer false lights.
+    const at3 = Date.parse(reported.at || '');
+    const fresh3 = Number.isFinite(at3) && (nowMs - at3) <= REPORT_WORKING_DECAY_MS;
+    const p = (fresh3 && typeof reported.project === 'string' && reported.project) ? reported.project : null;
     return { ...scraped, reported: false, conflict: 'its screen shows a question its reports do not mention', project: p, projectInferred: p !== null };
   }
 
@@ -2810,8 +2815,9 @@ function snapshot() {
       /* #763: which project a reported needs_you is about; null for a scraped
          question and for a report that named no project. */
       stateProject: (typeof status.project === 'string' && status.project) ? status.project : null,
-      /* true when that project was carried forward from an earlier report
-         rather than named by this one: a lit tile that rests on an inference. */
+      /* true when no report attributed THIS question to that project: the
+         project came from an earlier report (the hook's question, or a
+         question read off the screen). A lit tile that rests on an inference. */
       stateProjectInferred: status.projectInferred === true,
       /* The line the classifier actually matched, when it has one. Null for
          every state that did not read a sentence off the screen. */

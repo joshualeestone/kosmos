@@ -73,6 +73,9 @@ function folder(name) {
  * The seam is restored immediately: these tests pass the cards in as a VALUE,
  * they do not have the engine look at tmux itself.
  */
+// #763: a pane whose SCREEN says working while its REPORT says needs_you, so a
+// needs_you card can only have come from the report.
+const WORKING_SCREEN = 'Reading the lease\n· Working (esc to interrupt)\n';
 function cards(specs) {
   const board = fleet.install(specs);
   try {
@@ -458,7 +461,7 @@ test('the row summary counts what it can see AND says what it could not', () => 
      named one) lights no project; it is read on the Agents page. */
   assert.equal(selfreport.record('claudebot', { state: 'stopped' }).recorded, true);
   assert.equal(selfreport.record('claudebot', { state: 'needs_you', because: 'a question with no project' }).recorded, true);
-  const roster2 = cards([fleet.agent('mara', { state: 'working' }), fleet.agent('claudebot', { state: 'needs_you' })]);
+  const roster2 = cards([fleet.agent('mara', { state: 'working' }), fleet.agent('claudebot', { state: 'needs_you', screen: WORKING_SCREEN })]);
   const again = projects.list(roster2).find((p) => p.id === mixed.id);
   assert.equal(again.summary.needsYou, 0, 'unattributed: no project lights');
   assert.equal(again.summary.needsYouElsewhere, 0, 'about no project is not about another project');
@@ -473,7 +476,15 @@ test('the row summary counts what it can see AND says what it could not', () => 
   assert.equal(third.summary.needsYou, 1, 'lit by the carried-forward project');
   assert.equal(third.summary.needsYouInferred, 1, 'and the summary admits it is an inference');
   assert.equal(third.agents.find((a) => a.sessionName === 'claudebot').stateProjectInferred, true);
-  assert.equal(roster2.find((a) => a.sessionName === 'claudebot').state, 'needs_you', 'the agent itself still shows needs_you (the Agents page)');
+  assert.equal(roster2.find((a) => a.sessionName === 'claudebot').state, 'needs_you', 'the agent itself still shows needs_you (the Agents page); its screen says working, so this is the report');
+
+  /* An id no project owns (a name typed instead of an id) is nobody's question. */
+  assert.equal(selfreport.record('claudebot', { state: 'needs_you', project: 'Mixed' }).recorded, true);
+  const roster4 = cards([fleet.agent('mara', { state: 'working' }), fleet.agent('claudebot', { state: 'needs_you', screen: WORKING_SCREEN })]);
+  const fourth = projects.list(roster4).find((p) => p.id === mixed.id);
+  assert.equal(fourth.summary.needsYou, 0);
+  assert.equal(fourth.summary.needsYouElsewhere, 0, 'an unknown id is not "another project"');
+  assert.equal(fourth.summary.needsYouUnattributed, 1);
 });
 
 test('a member we can see but cannot READ is counted as unseen, not as fine', () => {

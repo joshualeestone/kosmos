@@ -782,6 +782,9 @@ function describe(project, roster, all) {
     } catch { /* a record we cannot update is not a reason to fail a read */ }
     project = { ...project, everSeen: { ...(project.everSeen || {}), ...upgraded } };
   }
+  // #763: a project id no project owns (a name typed instead of an id, a typo)
+  // is nobody's question, not everybody's "elsewhere".
+  const knownIds = Array.isArray(all) ? new Set(all.map((p) => p && p.id)) : null;
   const members = (project.agents || []).map((sessionName) => {
     const card = cards.find((a) => a && a.sessionName === sessionName) || null;
     return {
@@ -819,7 +822,7 @@ function describe(project, roster, all) {
       // have not established it is this agent doing it.
       state: (card && card.isNamedOurs) ? card.state : 'unknown',
       /* #763: the project the member's question is about, when it said. */
-      stateProject: (card && card.isNamedOurs && typeof card.stateProject === 'string' && card.stateProject) ? card.stateProject : null,
+      stateProject: (card && card.isNamedOurs && typeof card.stateProject === 'string' && card.stateProject && (knownIds === null || knownIds.has(card.stateProject))) ? card.stateProject : null,
       stateProjectInferred: Boolean(card && card.isNamedOurs && card.stateProjectInferred === true),
       // The face, gated on tied like every other card-read here: a
       // stranger's pane borrowing the name must not lend the row a

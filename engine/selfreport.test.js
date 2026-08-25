@@ -132,3 +132,13 @@ test('#763: a naming row that fell off the tail read fails safe: no project, not
   assert.equal(back.project, null, 'the naming row is outside the tail; the reading must not guess');
   assert.equal(back.projectInferred, false);
 });
+
+test('#763: started --project X begins the run on X (the clear runs first, then the row\'s own project)', () => {
+  const who = 'rae-discord';
+  assert.equal(selfreport.record(who, { state: 'working', project: 'p-old' }).recorded, true);
+  assert.equal(selfreport.record(who, { state: 'started', project: 'p-new' }).recorded, true);
+  assert.equal(selfreport.record(who, { state: 'needs_you' }).recorded, true);
+  const back = selfreport.read(who);
+  assert.equal(back.project, 'p-new', 'a start that names its project is not discarded');
+  assert.equal(back.projectInferred, true);
+});

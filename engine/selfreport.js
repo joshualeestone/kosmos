@@ -175,7 +175,8 @@ function read(sessionName) {
        unattributed until the agent names a project again. A missed light,
        never a wrong one (the direction ruled 2026-08-24 23:05). */
     if (row.state === 'stopped' || row.state === 'started') project = null;
-    else if (typeof row.project === 'string' && row.project) project = row.project;
+    // read AFTER the clear, so `started --project X` starts the run on X.
+    if (typeof row.project === 'string' && row.project) project = row.project;
   }
   if (!latest) return { found: false, because: NO_READING.NEVER_REPORTED };
   return {
@@ -187,8 +188,8 @@ function read(sessionName) {
     until: latest.until || null,
     at: latest.at || null,
     project,
-    /* Whether the latest report NAMED the project (stated) or it was carried
-       forward from an earlier one (inferred). A tile lit by an inference must
+    /* Whether the project came from the latest report itself (stated) or from
+       an earlier one (inferred: no report attributed THIS reading to it). A tile lit by an inference must
        be tellable from one lit by a statement, or the first wrong carry-forward
        is unexplainable (Splinter, 2026-08-24 23:05). */
     projectInferred: project !== null && !(typeof latest.project === 'string' && latest.project),

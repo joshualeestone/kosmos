@@ -511,7 +511,7 @@ cmd_post() {
   esac
 }
 
-# ---- kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [words…]
+# ---- kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [words…]
 # Say what you are DOING. Records rather than delivers (#188's third verb):
 # nothing is typed anywhere and nobody is interrupted; the board reads the
 # record instead of scraping your screen. The states are the six words from
@@ -524,8 +524,8 @@ cmd_report() {
   local state text body because on="" owner="" until="" project=""
   state="${1:-}"
   shift 2>/dev/null || true
-  # Bash 3.2 flag loop: the three optional fields blocked carries. Anything
-  # else is the sentence.
+  # Bash 3.2 flag loop: the three optional fields blocked carries, and the
+  # project a report is about (#763). Anything else is the sentence.
   while [ $# -gt 0 ]; do
     case "$1" in
       --on)    on="${2:-}";    shift 2 2>/dev/null || break ;;

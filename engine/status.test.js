@@ -2815,6 +2815,12 @@ test('#763: reconcile carries the reported project on a needs_you, and null when
   const screenQ0 = reconcileReport(rep('working'), scr(STATE.NEEDS_YOU, CONFIDENCE.SCRAPED, 'Do you want to proceed?'), T0);
   assert.equal(screenQ0.project, null);
   assert.equal(screenQ0.projectInferred, false);
+  const stale = reconcileReport(rep('working', { project: 'p-christmas', at: new Date(T0 - 2 * 24 * 3600 * 1000).toISOString() }), scr(STATE.NEEDS_YOU, CONFIDENCE.SCRAPED, 'Do you want to proceed?'), T0);
+  assert.equal(stale.state, STATE.NEEDS_YOU);
+  assert.equal(stale.project, null, 'a two-day-old naming must not attribute today\'s screen question (fewer false lights)');
+  const afterStart = reconcileReport(rep('started', { project: 'p-christmas' }), scr(STATE.NEEDS_YOU, CONFIDENCE.SCRAPED, 'Do you want to proceed?'), T0);
+  assert.equal(afterStart.project, 'p-christmas', 'a fresh started that names its project attributes a screen question to it');
+  assert.equal(afterStart.projectInferred, true);
   const unnamed = reconcileReport(rep('needs_you'), scraped, T0);
   assert.equal(unnamed.state, STATE.NEEDS_YOU);
   assert.equal(unnamed.project, null);

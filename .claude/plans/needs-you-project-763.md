@@ -51,3 +51,13 @@ A real board process in a sandbox (all four roots and the tmux binary faked; the
 5. `/api/status`: the agent's card reads `needs_you`, `stateProject olderproject`, inferred, throughout.
 
 Josh's shape (one question lighting four of seven tiles) cannot recur through this path: a tile lights only for a question about it.
+
+## Blind review round 2, what changed
+
+- `started --project X` was discarded (the clear ran after the row's own project was read); now the clear runs first and a start that names its project begins the run on it.
+- A screen question inherits a project only from a report young enough to still describe what the agent is doing (the same decay rule 5 applies to a working report); a two-day-old naming does not attribute today's question.
+- A `stateProject` no project owns (a name typed instead of an id, a typo) is unattributed, not "elsewhere" on every project.
+- The inferred flag's comments say what it means: no report attributed THIS question to that project (so a screen question after `working --project X` is inferred, by design).
+- Tests: `started --project X`; rule 3 with a stale `working` and with a fresh `started`; an unknown id; and the "agent still shows needs_you" line now hands the pane a working screen, so the state can only come from the report.
+- Screen half, added to Mona Lisa's brief: with today's page the same card can say "Nothing running" above a member row that says "Needs you".
+- The CLI's comments name the fourth flag.
