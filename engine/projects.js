@@ -1,5 +1,24 @@
 'use strict';
 
+/**
+ * #863 (Josh, 2026-08-25 10:41): a comma-joined project list with no "and"
+ * before the last item reads as a run-on list with no ending -- worse, the
+ * sentence this list sits inside (WROTE_WHY.on, below) is itself appended
+ * to with ", and told it in its pane" (projects.js:2131), so with no "and"
+ * of its own the last project name and "told it in its pane" read as the
+ * SAME kind of list item. One item: the name alone. Two: "A and B". Three
+ * or more: an Oxford comma before the final "and", the plainer of the two
+ * common English conventions and the one that keeps the last item visually
+ * distinct from a bare continuation.
+ */
+function andList(names) {
+  const n = names.length;
+  if (n === 0) return '';
+  if (n === 1) return names[0];
+  if (n === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')}, and ${names[n - 1]}`;
+}
+
 /* Why this module writes an agent's file, in the reader's words, for the
    stale marker (#323). Kept up here, away from the verdict sentences the
    group-map pin scans for: these are not verdicts. */
@@ -2005,7 +2024,7 @@ function tellAgent(sessionName, projects, roster) {
        changed, or only the colleagues list was healed. Never the two fused. */
     const why = withProjects !== (current.text || '')
       ? (projects.length
-        ? WROTE_WHY.on(projects.map((p) => oneLine(p.name)).join(', '))
+        ? WROTE_WHY.on(andList(projects.map((p) => oneLine(p.name))))
         : WROTE_WHY.off)
       : WROTE_WHY.colleagues;
     instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: why });

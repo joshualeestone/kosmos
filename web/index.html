@@ -15334,6 +15334,14 @@ document.getElementById('d-doctrine-add').addEventListener('click', () => {
   }
   document.getElementById('doc-fold-text').textContent = plan.span || '';
   document.getElementById('doc-msg').textContent = '';
+  /* #863: a fresh open always opens fresh, even reopened onto a DIFFERENT
+     agent right after a successful Add left the last one's post-success
+     state on these two controls. Reached through the modal container
+     rather than a second lookup of the Add button's own id, since a
+     test elsewhere anchors on the first such lookup in the whole
+     script to find its click handler, further down this file. */
+  document.getElementById('doc-modal').querySelector('#doc-go').disabled = false;
+  document.getElementById('doc-keep').textContent = 'Keep as it is';
   DOC_OPENER = document.getElementById('d-doctrine-add');
   document.getElementById('doc-modal').hidden = false;
   document.getElementById('doc-keep').focus(); // the harmless answer opens focused
@@ -15379,7 +15387,21 @@ document.getElementById('doc-go').addEventListener('click', async () => {
     });
     const got = await res.json();
     if (got.state === 'added') {
-      msg.textContent = 'Added.';
+      /* #863 (Josh, 2026-08-25 10:41): "It just sort of printed out text
+         that said 'Added' but then it just sat there on that screen...
+         'These were added. You can close this dialog.'" A bare "Added."
+         left both action buttons standing as though nothing had happened
+         -- "Add them" still inviting a second, redundant click, "Keep as
+         it is" now describing a state that no longer exists. The done
+         state disables the first and turns the second into the one
+         thing left to do, with focus following it so the next keystroke
+         (Enter, or a screen reader's next stop) closes the dialog rather
+         than firing the add again. */
+      msg.textContent = 'Added. You can close this dialog.';
+      document.getElementById('doc-go').disabled = true;
+      const keep = document.getElementById('doc-keep');
+      keep.textContent = 'Close';
+      keep.focus();
       document.getElementById('d-doctrine-note').hidden = true;
       loadInstructions(plan.sessionName); // the box below shows the file that now exists
     } else if (got.state === 'current') {

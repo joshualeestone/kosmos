@@ -42,6 +42,33 @@ test('the click writes what the dialog showed: the plan hash rides the refresh P
     'the consent no longer proves which composition it consented to');
 });
 
+/* #863 (Josh, 2026-08-25 10:41): "It just sort of printed out text that
+   said 'Added' but then it just sat there on that screen... 'These were
+   added. You can close this dialog.'" A bare "Added." left both buttons
+   standing as if nothing changed: "Add them" still inviting a redundant
+   second click, "Keep as it is" describing a state that no longer
+   existed. */
+test('a successful Add tells the person it is done and gives them the one thing left to do', () => {
+  const at = SCRIPT.lastIndexOf("getElementById('doc-go').addEventListener");
+  const handler = SCRIPT.slice(at, SCRIPT.indexOf('\n});', at));
+  assert.match(handler, /msg\.textContent = 'Added\. You can close this dialog\.'/,
+    'the bare "Added." dead-end is still there');
+  assert.match(handler, /getElementById\('doc-go'\)\.disabled = true/,
+    'Add them stays clickable after it already added them');
+  assert.match(handler, /keep\.textContent = 'Close'/,
+    'Keep as it is still describes a state that no longer exists once something was added');
+  assert.match(handler, /keep\.focus\(\)/,
+    'focus does not move to the one thing left to do');
+  // The open handler resets both controls, so a later open (even for a
+  // different agent) never inherits the last one's post-success state.
+  const openAt = SCRIPT.indexOf("getElementById('d-doctrine-add').addEventListener");
+  const openHandler = SCRIPT.slice(openAt, SCRIPT.indexOf('\n});', openAt));
+  assert.match(openHandler, /querySelector\('#doc-go'\)\.disabled = false/,
+    'a fresh open does not reset Add them back to enabled');
+  assert.match(openHandler, /getElementById\('doc-keep'\)\.textContent = 'Keep as it is'/,
+    'a fresh open does not reset Keep as it is back to its own label');
+});
+
 test('the fleet click is consent for the LISTED names only, and its verdicts are the ruled sentences', () => {
   const go = SCRIPT.slice(SCRIPT.indexOf("getElementById('docf-go')"), SCRIPT.indexOf("getElementById('docf-go')") + 1400);
   assert.ok(go.includes('names: DOCF_NAMES'), 'the fleet POST sends something other than the listed names');
