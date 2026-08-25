@@ -48,3 +48,27 @@ test('the code row appears only when the flow awaits a code, and a reason emptie
   assert.match(fn, /codeRow\.hidden = !wantCode/, 'the code row is not gated on the awaiting phase');
   assert.match(fn, /value = ''/, 'a rejected code does not empty the field (the one rebuild that is right)');
 });
+
+
+test('#727: one provider at a time, a key field the row sizes, an exit at button size, and a stopped receipt', () => {
+  const sec = accountsSection().replace(/<!--[\s\S]*?-->/g, '');
+  assert.match(sec, /class="frow acct-pick" role="group" aria-label="Add an account"/);
+  assert.match(sec, /data-pick="claude" aria-pressed="false"/); assert.match(sec, /data-pick="openai" aria-pressed="false"/);
+  assert.doesNotMatch(sec, /id="acct-add-openai"/, 'the old toggle would show the OpenAI form beside the Claude one');
+  assert.match(sec, /id="acct-claude-flow" hidden/); assert.match(sec, /id="acct-openai-flow" hidden/);
+  const claude = sec.slice(sec.indexOf('id="acct-claude-flow"'), sec.indexOf('id="acct-openai-flow"'));
+  assert.match(claude, /id="acct-add"/); assert.match(claude, /id="acct-flow"/); assert.match(claude, /id="acct-code-row"/);
+  const pick = PAGE.slice(PAGE.indexOf('function acctPick'), PAGE.indexOf("document.querySelectorAll('.acct-pick [data-pick]').forEach((b) => b.addEventListener"));
+  assert.match(pick, /getElementById\('acct-claude-flow'\)\.hidden = which !== 'claude'/);
+  assert.match(pick, /getElementById\('acct-openai-flow'\)\.hidden = which !== 'openai'/);
+  const paint = PAGE.slice(PAGE.indexOf('function acctFlowPaint'), PAGE.indexOf('function acctFlowWatch'));
+  assert.match(paint, /if \(!document\.querySelector\('\.acct-pick \[data-pick\]\[aria-pressed="true"\]'\)\) acctPick\('claude', \{ focus: false \}\)/, 'a sign-in in flight picks Claude on its own');
+  assert.match(PAGE, /\.frow input\[type=text\], \.frow input\[type=password\] \{ flex: 1; min-width: 220px;/, 'the key field is sized by the row (it was "the world\'s tiniest input")');
+  assert.match(sec, /id="acct-openai-show" type="button" aria-pressed="false">Show</);
+  const flow = sec.slice(sec.indexOf('id="acct-flow"'), sec.indexOf('id="acct-add-note"'));
+  assert.match(flow, /<button class="btn" id="acct-cancel" type="button">Stop this sign-in<\/button>/, 'the exit is a button at button size');
+  assert.doesNotMatch(flow, /class="linkish" id="acct-cancel"/);
+  assert.ok(flow.indexOf('id="acct-cancel"') > flow.indexOf('id="acct-code-row"'), 'the exit sits under the code row in its own row, shown whether or not a code is wanted');
+  const cancel = PAGE.slice(PAGE.indexOf("getElementById('acct-cancel').addEventListener"), PAGE.indexOf("getElementById('acct-cancel').addEventListener") + 700);
+  assert.match(cancel, /note\.textContent = 'Stopped\. Nothing changed; start the sign-in again whenever you like\.'/);
+});

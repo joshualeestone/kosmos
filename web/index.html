@@ -506,7 +506,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    not get to ship under it. --label-2 reads 5.74:1 light / 7+:1 dark. */
 #panel-projects .fhint { color: var(--label-2); }
 .frow { display: flex; gap: var(--space-4); align-items: center; flex-wrap: wrap; }
-.frow input[type=text] { flex: 1; min-width: 220px; font: var(--text-body) var(--font-ui);
+.frow input[type=text], .frow input[type=password] { flex: 1; min-width: 220px; font: var(--text-body) var(--font-ui);
                          padding: var(--space-4) var(--space-5); border-radius: var(--radius-control);
                          border: 0.5px solid var(--border-strong); background: var(--field-fill); color: var(--label); }
 /* EVERY select on the page, because four of the six carried no styling at all
@@ -631,6 +631,8 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn:disabled:hover { background: var(--bg); }
 .fmsg { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: var(--space-4); min-height: 1em; }
+/* #727: the provider choice on Accounts; the pressed one reads pressed. */
+.acct-pick .btn[aria-pressed="true"] { background: var(--attn-bg); border-color: var(--border-strong); font-weight: 600; }
 /* ⚠️ The card pencil retired with the pack rebuild: editing lives on the
    detail page (the pack's avedit/nameedit), and the card's one action is
    itself. */
@@ -6499,44 +6501,53 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            person's main account out. The terminal sentence is GONE per the
            card's rule 2: no user-facing string names an environment
            variable or a shell command. -->
-      <div class="frow" style="margin:12px 0 0;">
-        <!-- "Claude" named (Angel, #540): beside "Add an OpenAI account…" the unnamed
-             button read as the same act twice. -->
-        <button class="btn" id="acct-add" type="button">Add another Claude account&hellip;</button>
-        <button class="btn" id="acct-add-openai" type="button">Add an OpenAI account&hellip;</button>
+      <!-- #727 (Josh, 2026-08-24 20:57: "Add a Claude account / Add an OpenAI
+           account... It changes what's below it for that thing"): one provider
+           at a time. Choosing one shows its form and closes the other, so the
+           Claude code step can never sit under the OpenAI key field again.
+           Functional first, by his ruling; he adds the look afterwards. -->
+      <div class="frow acct-pick" role="group" aria-label="Add an account" style="margin:12px 0 0;">
+        <span class="dhint" style="margin:0;">Add an account:</span>
+        <button class="btn" type="button" data-pick="claude" aria-pressed="false">Claude</button>
+        <button class="btn" type="button" data-pick="openai" aria-pressed="false">OpenAI</button>
+      </div>
+      <div id="acct-claude-flow" hidden style="margin:10px 0 0;">
+        <p class="dhint" style="margin:0 0 8px;">Sign in to the other Claude account in your browser. Kosmos never sees your password, and the accounts above stay connected.</p>
+        <div class="frow"><button class="btn" id="acct-add" type="button">Start the sign-in</button></div>
+        <div id="acct-flow" hidden style="margin:10px 0 0;">
+          <p class="dhint" id="acct-flow-say" role="status" aria-live="polite" style="margin:0;"></p>
+          <div class="frow" id="acct-code-row" hidden style="margin:8px 0 0;">
+            <input type="text" id="acct-code" inputmode="numeric" autocomplete="one-time-code"
+                 aria-label="The code from your email" placeholder="The code from your email">
+            <button class="btn" id="acct-code-go" type="button">Continue</button>
+          </div>
+          <!-- The way out is a button, at button size, on every step of the
+               sign-in (Josh, 20:56: "I've refreshed several times but I can't
+               get out of this", while the exit sat under the field as small
+               grey link text). -->
+          <div class="frow" style="margin:8px 0 0;"><button class="btn" id="acct-cancel" type="button">Stop this sign-in</button></div>
+        </div>
+        <p class="dhint" id="acct-add-note" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
       </div>
       <!-- #540: an OpenAI account is a directory and one pasted key. No
            terminal, no browser. The key goes to codex's own login on stdin
            and lives in codex's own file on this Mac; Kosmos never echoes
            it, never logs it, never puts it in a URL. The field is a
-           password field so the screen does not show it either. ⚠️ Every
-           sentence here is placeholder copy until Mona Lisa says it. -->
+           password field so the screen does not show it unless asked. -->
       <div id="acct-openai-flow" hidden style="margin:10px 0 0;">
         <p class="dhint" style="margin:0 0 8px;">Paste an OpenAI API key. It stays on this Mac with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
         <div class="frow">
           <input type="password" id="acct-openai-key" autocomplete="off" spellcheck="false"
                  aria-label="OpenAI API key" placeholder="sk-…">
+          <button class="linkish" id="acct-openai-show" type="button" aria-pressed="false">Show</button>
+        </div>
+        <div class="frow" style="margin-top:8px;">
           <input type="text" id="acct-openai-label" autocomplete="off" maxlength="40"
                  aria-label="A name for this account (optional)" placeholder="A name, if you want one">
           <button class="btn" id="acct-openai-go" type="button">Add</button>
         </div>
         <p class="dhint" id="acct-openai-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
       </div>
-      <div id="acct-flow" hidden style="margin:10px 0 0;">
-        <p class="dhint" id="acct-flow-say" role="status" aria-live="polite" style="margin:0;"></p>
-        <div class="frow" id="acct-code-row" hidden style="margin:8px 0 0;">
-          <input type="text" id="acct-code" inputmode="numeric" autocomplete="one-time-code"
-                 aria-label="The code from your email" placeholder="The code from your email">
-          <button class="btn" id="acct-code-go" type="button">Continue</button>
-        </div>
-        <p class="dhint" style="margin:8px 0 0;">
-          <button class="linkish" id="acct-cancel" type="button">Stop this sign-in</button>
-        </p>
-      </div>
-      <p class="dhint" id="acct-add-note" style="margin:8px 0 0;">
-        Signing in happens in your browser. Kosmos never sees your password
-        and holds no account of its own.
-      </p>
     </section>
   </section>
   <section class="dsec" id="s-sec-connect" data-sec="connect" tabindex="-1" aria-label="Connections" hidden>
@@ -10301,6 +10312,7 @@ function acctFlowPaint(st) {
   if (key === ACCT_FLOW_LAST) return;
   ACCT_FLOW_LAST = key;
   if (frConnActive(phase)) {
+    if (!document.querySelector('.acct-pick [data-pick][aria-pressed="true"]')) acctPick('claude', { focus: false });
     flow.hidden = false;
     btn.disabled = true;
     say.textContent = ACCT_FLOW_SAY[phase] || 'Working…';
@@ -10366,10 +10378,27 @@ document.getElementById('acct-add').addEventListener('click', async () => {
   }
 });
 /* #540: add an OpenAI account from a pasted key. */
-document.getElementById('acct-add-openai').addEventListener('click', () => {
-  const flow = document.getElementById('acct-openai-flow');
-  flow.hidden = !flow.hidden;
-  if (!flow.hidden) document.getElementById('acct-openai-key').focus();
+/* #727: one provider at a time. The choice shows its form and hides the
+   other; nothing is shown until a choice is made, except that a Claude
+   sign-in already in flight picks Claude on its own (acctFlowPaint), so a
+   reload lands the person back on the step they were on. */
+function acctPick(which, opts) {
+  document.querySelectorAll('.acct-pick [data-pick]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pick === which)));
+  document.getElementById('acct-claude-flow').hidden = which !== 'claude';
+  document.getElementById('acct-openai-flow').hidden = which !== 'openai';
+  if (opts && opts.focus === false) return;
+  if (which === 'openai') document.getElementById('acct-openai-key').focus();
+  if (which === 'claude') document.getElementById('acct-add').focus();
+}
+document.querySelectorAll('.acct-pick [data-pick]').forEach((b) => b.addEventListener('click', () => acctPick(b.dataset.pick)));
+document.getElementById('acct-openai-show').addEventListener('click', () => {
+  const key = document.getElementById('acct-openai-key');
+  const show = document.getElementById('acct-openai-show');
+  const on = key.type === 'password';
+  key.type = on ? 'text' : 'password';
+  show.textContent = on ? 'Hide' : 'Show';
+  show.setAttribute('aria-pressed', String(on));
+  key.focus();
 });
 document.getElementById('acct-openai-go').addEventListener('click', async () => {
   const keyField = document.getElementById('acct-openai-key');
@@ -10430,7 +10459,14 @@ document.getElementById('acct-code-go').addEventListener('click', async () => {
   }
 });
 document.getElementById('acct-cancel').addEventListener('click', async () => {
-  try { await fetch('/api/connect/cancel', { method: 'POST' }); } catch { /* the poll sees it */ }
+  const note = document.getElementById('acct-add-note');
+  try {
+    await fetch('/api/connect/cancel', { method: 'POST' });
+    /* The receipt is said here, not left to the poll: cancel lands the
+       engine on idle, which paints nothing, and a person who just pressed
+       the one exit they could find needs to see that it worked. */
+    note.textContent = 'Stopped. Nothing changed; start the sign-in again whenever you like.';
+  } catch { note.textContent = 'We could not reach Kosmos to stop it. It is still waiting; try again.'; }
   ACCT_FLOW_LAST = null;
 });
 
