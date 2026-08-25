@@ -48,6 +48,13 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 [ -d "$SITE/dist" ] || { echo "no site checkout at $SITE (set KOSMOS_SITE)"; exit 1; }
 
 echo "== 1. main, clean, and carrying what you mean to ship =="
+# The cut's first line in the record, before anything can refuse (Shredder,
+# 2026-08-25): an absent step-3 line would otherwise mean either "no cut" or
+# "a cut died at step 1 or 2", and silence is not "no". This names the
+# checkout HEAD at launch; step 3's line names the FROZEN sha and the suite's
+# exit. A "started" with no matching step-3 line is a cut that died early.
+mkdir -p "$HOME/.claude/logs" 2>/dev/null || true
+printf '%s version=%s started head=%s\n' "$(date -u +%FT%TZ)" "$V" "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
 git -C "$REPO" fetch origin -q
 [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD)" = main ] || { echo "not on main"; exit 1; }
 [ -z "$(git -C "$REPO" status --porcelain)" ] || { echo "main is dirty"; exit 1; }
