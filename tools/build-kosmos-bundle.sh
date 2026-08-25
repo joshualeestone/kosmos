@@ -259,10 +259,10 @@ SMOKE_LOG="$(mktemp)"
 # ⚠️ Disposable roots for EVERY root the app has, and an inert tmux: without
 # these the staged server points at the BUILD MACHINE'S live store, projects
 # folder, workers folder, launchd directory, tmux fleet, claude config and
-# config-root scan. Today's server only reads on GET /, so nothing is
-# mutated -- but that is a property of the current server, not of this
-# test, and a future boot-time write must land in a throwaway, never in
-# the operator's real data.
+# config-root scan. And the boot WRITES: a start with this environment puts
+# the agent supervisor and the codex bridge into the data root (measured),
+# so the roots are not a courtesy, they are what keeps a build off the
+# operator's real data.
 # 🛑 THE APP ENFORCES THIS NOW (#634, engine/sandbox.js): a board with some
 # roots sandboxed and others live refuses to start. This smoke test set
 # three of the four directories and no tmux stub, so the build failed at

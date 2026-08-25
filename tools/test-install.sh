@@ -128,6 +128,13 @@ export SHELL=/bin/zsh
 printf '# the operator\047s own line\n' > "$SB/zprofile"
 export KOSMOS_TMUX_SRC="$TMUX_SRC" KOSMOS_SRC="$KOS_SRC" KOSMOS_PORT="$PORT"
 export AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_LAUNCH="$SB/launch"
+# 🛑 EVERY ROOT THE APP HAS, AND AN INERT TMUX, or the board this harness
+# installs refuses to start (#634): a sandbox with some roots live is the
+# exact thing the app now refuses, and it refused this harness at its first
+# install the evening the gate merged (2026-08-24). DRY_RUN makes the board's
+# tmux calls no-ops; the install's own tmux (bundled, sandboxed) is untouched.
+# tools/test-build-smoke-sandbox.sh audits these exports against the gate.
+export AGENT_WORKFORCE_PROJECTS="$SB/projects" AGENT_WORKFORCE_WORKERS="$SB/workers" AGENT_WORKFORCE_DRY_RUN=1
 # A test that steals the operator's browser is a test nobody runs twice:
 # every pass suppresses the fresh-install open unless it deliberately
 # substitutes the recording stub below to assert the open itself.
