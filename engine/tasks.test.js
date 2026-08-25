@@ -532,3 +532,34 @@ test('the valve counts process adds and moves across projects, says the number a
   assert.equal(tasks.processPartWrites().count, before + 2);
   assert.equal(tasks.partValve().refused, false, 'the valve stayed shut after its writes aged out');
 });
+
+/* ── the qualified spelling (#779) ─────────────────────────────────────── */
+test('a bare "task N" is a claim when the number is unambiguous; when it is not, only "task N of <project>" is, and a bare one says which spelling settles it', () => {
+  const { STATE } = require('./commitments');
+  const mk = (whats) => ({ state: STATE.HOLDING, commitments: whats.map((what) => ({ what })) });
+  const pj = { name: 'Midnight Inventory', id: 'midnight-inventory' };
+  const t = { number: 1, who: 'a' };
+  // Unambiguous: either spelling claims.
+  assert.equal(tasks.claimFor(t, mk(['on task 1 now']), { project: pj, ambiguous: false }).claimed, true);
+  assert.equal(tasks.claimFor(t, mk(['task 1 of Midnight Inventory: counting']), { project: pj }).claimed, true);
+  // Ambiguous: the qualified spelling claims, by name or by id, any case, quotes allowed.
+  for (const w of ['task 1 of Midnight Inventory', 'Task 1 on midnight-inventory', 'task 1 for "Midnight Inventory" tonight', 'task 1 in ‘Midnight Inventory’']) {
+    assert.equal(tasks.claimFor(t, mk([w]), { project: pj, ambiguous: true }).claimed, true, w);
+  }
+  // Ambiguous: a bare number is could-not-tell, with the card's sentence and the spelling that would settle it.
+  const bare = tasks.claimFor(t, mk(['working on task 1']), { project: pj, ambiguous: true });
+  assert.equal(bare.claimed, null);
+  assert.match(bare.because, /has a task 1 in two projects and has not said which/);
+  assert.match(bare.because, /say "task 1 of Midnight Inventory"/);
+  // Ambiguous: a different project's name is NOT a claim on this one, and neither is a different number.
+  assert.equal(tasks.claimFor(t, mk(['task 1 of Henderson lease']), { project: pj, ambiguous: true }).claimed, null, 'another project named still read as a bare claim');
+  assert.equal(tasks.claimFor(t, mk(['task 12 of Midnight Inventory']), { project: pj, ambiguous: true }).claimed, false);
+  // Ambiguous: a fresh report naming no task at all is "has not said", not could-not-tell.
+  assert.deepEqual(tasks.claimFor(t, mk(['reading the brief']), { project: pj, ambiguous: true }), { claimed: false, because: null });
+  // A project name with regex characters is matched as text.
+  const odd = { name: 'Q3 (west) + east', id: 'q3-west-east' };
+  assert.equal(tasks.claimFor(t, mk(['task 1 of Q3 (west) + east']), { project: odd, ambiguous: true }).claimed, true);
+  assert.equal(tasks.claimFor(t, mk(['task 1 of Q3 west east']), { project: odd, ambiguous: true }).claimed, null);
+  // The name must end where it ends: "Midnight Inventory 2" is another project.
+  assert.equal(tasks.claimFor(t, mk(['task 1 of Midnight Inventory 2']), { project: pj, ambiguous: true }).claimed, null);
+});

@@ -608,7 +608,7 @@ function ambiguityCounts(everyProject) {
 }
 
 const READINGS = new WeakMap();
-function joinTaskClaims(tasks, all, memberOf, roster) {
+function joinTaskClaims(tasks, all, memberOf, roster, project) {
   const tasksModEarly = require('./tasks');
   /* ⚠️ `whoOf`/`progressOf`, not `t.who`. A task that stores PARTS has no `who`
      at all, so this filter dropped every one of them and no claim was ever
@@ -728,16 +728,12 @@ function joinTaskClaims(tasks, all, memberOf, roster) {
         },
       };
     }
+    /* #779: an ambiguous number is not refused outright any more; the
+       matcher is asked for the qualified spelling ("task N of <project>"),
+       which alone is a claim here, and a bare "task N" is could-not-tell
+       with the reason and the spelling that would settle it. */
     if (ambiguous(t, who)) {
-      return {
-        ...withParts(t),
-        claim: {
-          claimed: null,
-          because: '"task ' + Number(t.number) + '" names more than one of this '
-            + 'agent\'s open tasks, so a report saying it cannot say which '
-            + 'one it means',
-        },
-      };
+      return { ...withParts(t), claim: tasksMod.claimFor(t, readFor(who), { project: project || null, ambiguous: true }) };
     }
     /* One reading, for the first agent named on the task. The claim is asked of
        the task as a whole, because "task 15" in a report is a claim about the
@@ -908,7 +904,7 @@ function describe(project, roster, all) {
     // Same normalization rule as description/archived above: the healed
     // shape has to hold for API readers too, so a legacy project reads as
     // "no tasks yet", never as fields that simply are not there.
-    tasks: joinTaskClaims(Array.isArray(project.tasks) ? project.tasks : [], all, project.agents || [], roster),
+    tasks: joinTaskClaims(Array.isArray(project.tasks) ? project.tasks : [], all, project.agents || [], roster, { name: project.name, id: project.id }),
     // Whether the folder lives under the Kosmos projects root: the settings
     // screen's location sentence branches on this (the pack's "In your
     // Kosmos folder." versus naming the real place), and the server is the
