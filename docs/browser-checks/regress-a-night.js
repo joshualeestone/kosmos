@@ -251,14 +251,19 @@ function seed() {
       const tell = sel('create-tell');
       const model = sel('create-model');
       const shown = (el) => (el && el.getBoundingClientRect().height > 0 ? el.innerText : ''); // rendered text (#687)
-      return { hint: shown(document.querySelector('#cstep-name p.shint')),
+      /* #857 (Josh, 2026-08-25 10:25): the standalone "You can change this
+         later." paragraph moved into the Model label itself, in
+         parentheses, regular weight ("Model (you can change this
+         later)") -- reading directly off the label the hint now lives
+         inside of, not a paragraph that no longer exists. */
+      return { hint: shown(sel('create-model-lab')),
         provider: sel('create-provider') ? sel('create-provider').value : null,
         account: !!sel('create-account'),
         models: model ? model.querySelectorAll('option').length : 0,
         tellDisabled: tell.disabled, tellChecked: tell.checked,
         note: shown(sel('create-tell-note')) };
     });
-    chk(/You can change this later/.test(create.hint || ''), theme + ': the model hint is there');
+    chk(/Model \(you can change this later\)/.test(create.hint || ''), theme + ': the model hint is there', create.hint);
     chk(create.provider !== null && create.account && create.models >= 2,
       theme + ': provider, account and model menus, with models to pick from', JSON.stringify(create));
     /* The setting is on by default on a fresh board, so the box is usable and

@@ -5674,10 +5674,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <input type="text" id="create-name" autocomplete="off" spellcheck="false"
                placeholder="Casey">
       </div>
-      <!-- #740: the machine name, said as they type, so the conversion is
-           visible rather than a surprise. Shown only when it differs from
-           what was typed (a capital, a space); silent for `casey`. -->
-      <div class="fhint" id="create-name-mac" aria-live="polite" hidden></div>
     </div>
 
       <!-- "Role", not "Role label" (Josh, 2026-08-22): the word `label` was
@@ -5743,7 +5739,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          path enables its option in the same change, because the failure direction
          is understating the product on the screen where somebody is choosing. -->
     <div class="field" id="create-model-field">
-      <span class="flabel" id="create-model-lab">Model</span>
+      <span class="flabel" id="create-model-lab">Model <span class="flabel-soft">(you can change this later)</span></span>
       <div class="msteps" role="group" aria-labelledby="create-model-lab">
         <div class="frow">
           <select id="create-provider" aria-label="Provider">
@@ -5784,11 +5780,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
           </div>
         </div>
       </div>
-      <!-- ⚠️ THIS SENTENCE WAS BLOCKED AND THE BLOCK WENT STALE. It was held back
-           because the agent's own page had no model control, so a promise made
-           here was one the next screen contradicted. That page now carries a model
-           picker with a Change button and the route behind it. -->
-      <p class="shint">You can change this later.</p>
     </div>
 
     <div class="field">
@@ -19330,21 +19321,6 @@ function refillDetails(resetDirty) {
 
 document.getElementById('create-instr').addEventListener('input', () => { INSTR_DIRTY = true; });
 document.getElementById('create-label').addEventListener('input', () => { LABEL_DIRTY = true; });
-/* The machine name the engine will derive (engine/create.js slugFor: lower
-   case, a run of whitespace to one hyphen, nothing else). The page mirrors
-   the rule so the line can be said as they type; a test holds the two equal. */
-function createSlugPreview(typed) {
-  return String(typed == null ? '' : typed).trim().toLowerCase().replace(/\s+/g, '-');
-}
-function paintCreateNameMac() {
-  const typed = document.getElementById('create-name').value.trim();
-  const mac = createSlugPreview(typed);
-  const el = document.getElementById('create-name-mac');
-  const show = !!typed && mac !== typed;
-  el.textContent = show ? 'On this Mac it will be ' + mac + '. You will see ' + typed + ' everywhere else.' : '';
-  el.hidden = !show;
-}
-document.getElementById('create-name').addEventListener('input', paintCreateNameMac);
 document.getElementById('create-name').addEventListener('input', () => {
   // The typed name flows into an UNTOUCHED editor live; an edited one is
   // theirs and stays exactly as they left it -- EXCEPT the identity
