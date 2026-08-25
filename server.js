@@ -2198,8 +2198,9 @@ const server = http.createServer((req, res) => {
      real but the page renders them only when a relay is configured,
      because sign-up cannot complete before DNS and certificates exist and
      a working-looking button that cannot work is the dead-button rule
-     broken (the domain is deliberately NOT known to this app: the relay
-     address arrives by configuration, never a baked-in name). */
+     broken. Since #722 the real relay is the DEFAULT (the domain is ruled
+     and the box serves it), so "configured" is true with nothing set; the
+     answer comes from the engine, never re-derived here (#790). */
   if (pathname === '/api/remote' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const r = remote.read();
@@ -2207,10 +2208,13 @@ const server = http.createServer((req, res) => {
         status: remote.status(),
         on: r.on === true,
         ok: r.ok !== false,
-        /* Configured is a FACT about this machine, not the service: the
-           relay address is present (stored or env). The page gates the
-           whole flow on it. */
-        configured: Boolean(r.relay || process.env.AGENT_WORKFORCE_TUNNEL_RELAY),
+        /* Configured is a FACT about this machine, asked of the ONE place
+           that decides which relay the connector dials (env, saved, or the
+           production default). The page gates the whole flow on it; on
+           served 0.5.24 this line re-derived it from saved-or-env, missed
+           the default, and told every stranger "Sign-up is not open yet"
+           while the connector dialed fine (#790). */
+        configured: remote.configured(),
         email: r.email || '',
         enrolled: remote.enrolled() === true,
       });

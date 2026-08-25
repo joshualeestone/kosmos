@@ -77,6 +77,13 @@ const BIN = () => {
 const DEFAULT_RELAY = 'relay.plus.installkosmos.com:8443';
 const DEFAULT_COORDINATOR = 'https://coordinator.plus.installkosmos.com';
 const RELAY = () => process.env.AGENT_WORKFORCE_TUNNEL_RELAY || read().relay || DEFAULT_RELAY;
+/* The ONE answer to "is a relay configured on this machine" (#790). The
+ * server's Plus route once re-derived it from the raw parts (saved relay or
+ * env) and missed the default this module had just learned (#722), so on
+ * served 0.5.24 the connector dialed the real relay while the Plus tab told
+ * every stranger "Sign-up is not open yet". Two derivations of one fact
+ * disagree the moment one of them learns something; there is one now. */
+const configured = () => Boolean(RELAY());
 const COORDINATOR = () =>
   process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR || DEFAULT_COORDINATOR;
 
@@ -495,7 +502,7 @@ async function deviceRemove(id) {
   return parseSaid(await setupRun(deviceArgs('remove', id, false)));
 }
 
-module.exports = { DEFAULT_RELAY, DEFAULT_COORDINATOR,
+module.exports = { DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   setOn,
