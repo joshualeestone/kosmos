@@ -9527,6 +9527,15 @@ async function tick() {
       const openProject = pjById(PJ_CURRENT);
       if (openProject) paintRoomBusy((openProject.agents || []).map((a) => (a && a.sessionName) || a));
     }
+    /* #743 (Josh, night walk of served 0.5.24): "Starting the connection."
+       sat for minutes after the tunnel was already up, because the Plus
+       section painted only on arrival and nothing repainted it while it
+       stayed open -- the device-ask list polls its own 5s timer and
+       updated live right beside it, which is how the gap was found.
+       Gated on the section actually being on screen, so a hidden Plus
+       section still costs nobody a fetch, the concern the arrival-only
+       design was protecting. */
+    if (URL_TAB === 'settings' && SETTINGS_SEC === 'plus') paintPlus();
     /* The restore sentence is retired by the ARRIVAL it predicted, never by a
        timer: a timeout would clear it while the agent was still coming up, and
        leave the same silence that made it necessary. */
@@ -13922,9 +13931,11 @@ function settingsGo(section, opts) {
     if (on) target = sec;
   });
   if (target && !(opts && opts.focus === false)) target.focus();
-  /* Plus paints on arrival: its truth is a fetch (the engine's state),
-     not the poll, and painting every poll for a hidden section would be
-     traffic for nobody. */
+  /* Plus paints on arrival immediately (its truth is a fetch, not the
+     poll, so a person should not wait for the next tick to see it), and
+     the status tick() (#743) keeps repainting it every 5s for as long as
+     this section stays the one on screen -- gated there, not here, so a
+     hidden Plus section still costs nobody a fetch. */
   if (section === 'plus') paintPlus();
   /* apply=true: if the one boot-time fetch failed, arriving here
      heals it; applyStyle removes before re-adding, so a repaint of an
@@ -17680,12 +17691,22 @@ document.getElementById('plus-devlist').addEventListener('click', async (e) => {
 });
 setInterval(pollAsk, 5000);
 pollAsk();
+/* #743: paintPlus gained a recurring caller (tick(), below) on top of its
+   gesture-triggered ones (the switch, setup-complete, arrival), so two
+   calls can now race -- the same shape INSTR_EPOCH guards for the status
+   poll (line 9458). A response from a call that is no longer the LATEST
+   one dispatched is stale and must not overwrite a fresher paint, however
+   the two fetches happen to resolve: a poll in flight when the person
+   clicks Turn On must not win the race back and revert their own click. */
+let PLUS_EPOCH = 0;
 async function paintPlus() {
   const holding = document.getElementById('plus-holding');
   const flow = document.getElementById('plus-flow');
   if (!holding || !flow) return;
+  const epoch = (PLUS_EPOCH += 1);
   let r = null;
   try { r = await (await fetch('/api/remote', { cache: 'no-store' })).json(); } catch { r = null; }
+  if (epoch !== PLUS_EPOCH) return;
   if (!r || r.configured !== true) {
     holding.hidden = false;
     flow.hidden = true;
