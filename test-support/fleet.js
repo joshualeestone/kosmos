@@ -108,6 +108,11 @@ const SCREEN = {
   needs_you: 'Do you want to proceed?\n❯ 1. Yes\n  2. No\n',
   idle: 'Worked for 1m 02s\n> \n',
   rate_limited: 'You have hit your usage limit. Try again later.\n',
+  // #874. The same marker text status.test.js's own #874 case uses,
+  // captured from a real pane -- kept in sync deliberately rather than
+  // invented separately here, for the same "install verifies it" reason
+  // every other entry in this map exists.
+  auth_failed: '401 {"type":"error","error":{"type":"authentication_error","message":"OAuth access token is invalid."},"request_id":null}\n',
 };
 
 /**
@@ -116,7 +121,8 @@ const SCREEN = {
  * @param {string} name        the board name (`claudebot`, not `claudebot-discord`)
  * @param {object} [opts]
  * @param {string} [opts.state]        'working' | 'needs_you' | 'idle' |
- *                                     'stopped' | 'unknown' | 'rate_limited'.
+ *                                     'stopped' | 'unknown' | 'rate_limited' |
+ *                                     'auth_failed'.
  *                                     VERIFIED against the real classifier.
  * @param {boolean|string} [opts.ours] true (default) ties the pane by session
  *                                     suffix; 'claim' ties it by the tmux claim

@@ -2470,6 +2470,50 @@ test('the wording Claude Code actually uses for a spent limit reads as paused, n
   }
 });
 
+test('#874: a rejected OAuth token reads as auth_failed, not working forever', () => {
+  /**
+   * 🛑 VERBATIM FROM THE LIVE PANE, kosmos#874, 2026-08-25. Josh's new agent
+   * "Roger" sent "hello" and the chat showed "Roger is working…" indefinitely;
+   * the real terminal told a different story:
+   *
+   *   401 {"type":"error","error":{"type":"authentication_error","message":
+   *   "OAuth access token is invalid."},"request_id":null}
+   *   Retrying in 30 seconds… (attempt 7/10)
+   *
+   * Confirmed persisting across two screenshots 17 seconds apart, same
+   * attempt count, countdown ticking. Before this change nothing matched
+   * this text: it still carries "esc to interrupt"-shaped retry chrome, so
+   * classify() called it WORKING, forever, exactly like the rate-limit gap
+   * before it (#582-era) that this file's own header calls the whole
+   * reason the module exists.
+   */
+  const REAL = '> [message from your operator · to answer, run: kosmos reply] hello\n'
+    + '  └ 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth access token is invalid."},"request_id":null}\n'
+    + '  └ Retrying in 30 seconds… (attempt 7/10)\n';
+  const r = classify(pane(), REAL);
+  assert.equal(r.state, STATE.AUTH_FAILED,
+    'an agent whose token Anthropic has rejected still reads as working forever');
+  assert.equal(r.confidence, CONFIDENCE.SCRAPED);
+  assert.match(r.evidence, /OAuth access token is invalid/,
+    'the matched line is not coming back, so the screen can only assert rather than show');
+  assert.doesNotMatch(r.evidence, /^[\s>│├└─*]/,
+    'the terminal drawing characters reached a product surface');
+
+  /* 🔑 THE CONTROL: an ordinary working pane must not trip it, or the fix is
+     just a board that calls everything auth-failed. */
+  const fine = classify(pane(), 'Worked for 1m\n> ready\n');
+  assert.notEqual(fine.state, STATE.AUTH_FAILED);
+
+  /* 🔑 AND CODEX'S OWN 401 (#249, CODEX_WORKING above, captured from a live
+     codex-cli pane on a completely different failure shape) MUST STAY
+     WORKING. It is on the Codex branch of classify(), which returns before
+     AUTH_FAILED_MARKERS is ever reached -- pinned here explicitly rather
+     than trusted to the branch split holding by construction. */
+  const codex401 = classify(pane({ command: 'codex' }), CODEX_WORKING);
+  assert.equal(codex401.state, STATE.WORKING,
+    '#249s pinned Codex 401 reconnect loop was reclassified by the new Claude-only marker');
+});
+
 test('a synthetic placeholder is not reported as the model an agent runs on', () => {
   /**
    * 🛑 JOSH, 2026-08-21, SECONDS AFTER SWITCHING AN AGENT FROM FABLE TO OPUS:

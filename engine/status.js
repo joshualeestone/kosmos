@@ -104,6 +104,15 @@ const STATE = {
   WORKING: 'working',
   NEEDS_YOU: 'needs_you',
   RATE_LIMITED: 'rate_limited',
+  /* #874: a bearer token that Anthropic has rejected outright -- revoked,
+     expired, or never valid. Distinct from RATE_LIMITED: a rate limit is a
+     real, working account that has used up its allowance and will work
+     again later; this is a token no API call will ever succeed with until
+     somebody reconnects the account. Claude Code's own retry loop still
+     draws "esc to interrupt"-shaped chrome while it fails, which is why
+     nothing caught this before -- classify() checked AUTH_FAILED_MARKERS
+     first, mirroring RATE_LIMIT_MARKERS's own precedent. */
+  AUTH_FAILED: 'auth_failed',
   IDLE: 'idle',
   STOPPED: 'stopped',
   /* Reported-only (#188's third verb): waiting on something that is NOT the
@@ -1211,6 +1220,35 @@ const RATE_LIMIT_MARKERS = [
   /\/usage-credits\b/,            // observed 2026-08-21
 ];
 
+/**
+ * #874. Captured from a live pane, 2026-08-25, an agent whose account's
+ * bearer token had been revoked or expired:
+ *
+ *   401 {"type":"error","error":{"type":"authentication_error","message":
+ *   "OAuth access token is invalid."},"request_id":null}
+ *   Retrying in 30 seconds… (attempt 7/10)
+ *
+ * `"OAuth access token is invalid"` is the specific message this exact
+ * failure printed; `"type":"authentication_error"` is Anthropic's own
+ * error-type field for the whole class (also observed directly in the
+ * same capture, not guessed at) -- an expired token or a token from a
+ * fully revoked account would carry a different message but the same
+ * type, so both are kept rather than only the narrower string.
+ *
+ * ⚠️ CHECKED IN THE CLAUDE BRANCH OF classify() ONLY. Codex's own
+ * 401-in-a-reconnect-loop (#249, this file's own CODEX_WORKING fixture in
+ * status.test.js, captured from a live codex-cli pane) is a DIFFERENT
+ * shape ("Unexpected status 401 Unauthorized" during a live reconnect,
+ * not this Anthropic-specific error envelope) on a completely separate
+ * branch of classify() that returns before this module is ever reached --
+ * that pinned test is deliberately left as WORKING and this change does
+ * not touch it.
+ */
+const AUTH_FAILED_MARKERS = [
+  /OAuth access token is invalid/i,
+  /"type":"authentication_error"/i,
+];
+
 /* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
    comment at its use site in classify(). Module-level like its sibling
    marker sets. Whitespace INSIDE the timer group is \s+ too, so a
@@ -1345,6 +1383,25 @@ function classify(pane, paneText) {
       confidence: CONFIDENCE.SCRAPED,
       because: 'its screen mentions a usage limit',
       evidence: limitLine,
+    };
+  }
+  /**
+   * #874. Checked before NEEDS_YOU/WORKING for the same reason the
+   * rate-limit check above is: an agent stuck retrying a rejected token
+   * still draws "esc to interrupt"-shaped chrome (the checks below would
+   * classify it WORKING forever), and this is a more certain, more
+   * specific read of the same lines. Kosmos cannot know the account is
+   * fully dead -- a person could reconnect it a second after this reads --
+   * but it can show what the screen actually says, the same "line rides
+   * along as evidence, not a paraphrase" rule the rate-limit case uses.
+   */
+  const authLine = matchedLine(tail, AUTH_FAILED_MARKERS);
+  if (authLine !== null) {
+    return {
+      state: STATE.AUTH_FAILED,
+      confidence: CONFIDENCE.SCRAPED,
+      because: 'its Claude sign-in is not working',
+      evidence: authLine,
     };
   }
   if (NEEDS_YOU_MARKERS.some((re) => re.test(tail))) {
