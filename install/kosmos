@@ -63,6 +63,12 @@ BOARD_LOG="$LOG_DIR/board.log"
 # Homebrew tmux the board must still read the same server the agents run in.
 # Two tmux BINARIES are fine so long as they share a socket directory; two
 # VERSIONS picked at random per process are not, so ours wins deterministically.
+# The PATH as the person had it, BEFORE ours goes first: the tmux picker below
+# resolves the system tmux against this, never against the PATH this line
+# rearranges (#728: probing `command -v tmux` after this export can only ever
+# find the bundle, so the picker could not fire on the one machine it was
+# written for).
+_KOSMOS_PATH_SYS="$PATH"
 export PATH="$KOSMOS_HOME/tmux/bin:$PATH"
 # ⚠️ TERMINFO IS PINNED HERE, NOT ONLY IN THE INSTALLER. The installer's export
 # dies with the installer's process; this is the process tree the app and its
@@ -128,22 +134,45 @@ export LANG="${LANG:-en_US.UTF-8}"
 # whenever the probe does not positively succeed, so a machine with no tmux, or
 # with a tmux that agrees with ours, is unchanged. An explicit
 # AGENT_WORKFORCE_TMUX_BIN still wins over both: the harness sets it.
+# 🛑 #728: THIS PROBE ONCE COULD NOT FIRE. It asked `command -v tmux` AFTER the
+# bundle had been put first on PATH, so the "system" tmux it probed WAS the
+# bundle, every time; on a machine with a newer real tmux server the bundle's
+# probe exits 1 ("server exited unexpectedly"), the fallback is the bundle, and
+# the system binary that can see the server is never asked. Measured by
+# walking on such a machine (Pete, 2026-08-24): bundled list-sessions 1,
+# /opt/homebrew/bin/tmux list-sessions 0. A guard that structurally cannot
+# go red. Now the candidates are the system tmux resolved against the PATH
+# from BEFORE our export, then the two places a Mac keeps one, never the
+# bundle itself; the first that can LIST the running server wins.
 _kosmos_pick_tmux() {
   # Already chosen for us (harness, or a person who knows what they are doing).
   [ -n "${AGENT_WORKFORCE_TMUX_BIN:-}" ] && return 0
-  _sys="$(command -v tmux 2>/dev/null || true)"
-  if [ -n "$_sys" ] && [ -x "$_sys" ]; then
+  _bundled="$KOSMOS_HOME/tmux/bin/tmux"
+  _sys="$(PATH="${_KOSMOS_PATH_SYS:-$PATH}" command -v tmux 2>/dev/null || true)"
+  # The two places a Mac keeps a tmux, for the board under launchd, whose PATH
+  # is minimal. KOSMOS_TMUX_KNOWN is a harness seam ONLY: a test that pretends
+  # to be a machine with no tmux must be able to hide this Mac's real one.
+  for _cand in "$_sys" ${KOSMOS_TMUX_KNOWN-/opt/homebrew/bin/tmux /usr/local/bin/tmux}; do
+    [ -n "$_cand" ] && [ -x "$_cand" ] || continue
+    [ "$_cand" = "$_bundled" ] && continue
     # `list-sessions`, not `-V`: the question is whether it can reach the
     # server, and a version string proves only that a binary exists.
-    if "$_sys" list-sessions >/dev/null 2>&1; then
-      AGENT_WORKFORCE_TMUX_BIN="$_sys"
+    if "$_cand" list-sessions >/dev/null 2>&1; then
+      AGENT_WORKFORCE_TMUX_BIN="$_cand"
       return 0
     fi
-  fi
-  AGENT_WORKFORCE_TMUX_BIN="$KOSMOS_HOME/tmux/bin/tmux"
+  done
+  AGENT_WORKFORCE_TMUX_BIN="$_bundled"
 }
 _kosmos_pick_tmux
 export AGENT_WORKFORCE_TMUX_BIN
+# The engine's bare `tmux` calls must agree with the choice: when a system tmux
+# won, its directory goes first, so two processes never read the same socket
+# through two versions.
+case "$AGENT_WORKFORCE_TMUX_BIN" in
+  "$KOSMOS_HOME/tmux/bin/tmux") ;;
+  *) export PATH="$(dirname "$AGENT_WORKFORCE_TMUX_BIN"):$PATH" ;;
+esac
 
 # The installer sets KOSMOS_SAY_INDENT so this command's narration nests as
 # detail under the installer's own step lines instead of reading as new
@@ -306,10 +335,28 @@ cmd_agents() {
     exit 1
   fi
   say "Sessions on this computer, as Kosmos's own tmux sees them ($AGENT_WORKFORCE_TMUX_BIN):"
-  if ! "$AGENT_WORKFORCE_TMUX_BIN" list-sessions 2>/dev/null; then
-    say "None. No tmux server is running for Kosmos's tmux, so no agent started by Kosmos is running."
-    exit 1
+  # 🛑 "None" ONLY WHEN THERE IS NO SERVER (#728). A tmux that cannot READ the
+  # server (an older binary on a newer server answers "server exited
+  # unexpectedly") is not an empty machine, and a confident None ends the
+  # search at exactly the moment a person is trying to find their agents.
+  # tmux says "no server running on <socket>" or "error connecting to
+  # <socket> (No such file or directory)" for a genuinely absent server; any
+  # other refusal is blindness, and is said as blindness.
+  _ls="$("$AGENT_WORKFORCE_TMUX_BIN" list-sessions 2>&1)"; _rc=$?
+  if [ "$_rc" -eq 0 ]; then
+    printf '%s\n' "$_ls"
+    return 0
   fi
+  case "$_ls" in
+    *"no server running"*|*"No such file or directory"*)
+      say "None. No tmux server is running for Kosmos's tmux, so no agent started by Kosmos is running."
+      exit 1 ;;
+    *)
+      say "Could not see. Kosmos's tmux ($AGENT_WORKFORCE_TMUX_BIN) could not read the tmux server on this Mac: $_ls"
+      say "A tmux of a different version is holding that server, so agents may well be running that this binary cannot list."
+      say "To look through the tmux that owns it:  AGENT_WORKFORCE_TMUX_BIN=/opt/homebrew/bin/tmux kosmos agents"
+      exit 2 ;;
+  esac
 }
 
 cmd_version() {
