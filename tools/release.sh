@@ -146,6 +146,15 @@ _suite_log="$(mktemp)"
 _suite_exit=0
 ( cd "$REPO" && yarn test >"$_suite_log" 2>&1 ) || _suite_exit=$?
 grep -E '^ℹ (tests|pass|fail)' "$_suite_log" || true
+# 🔑 THE RUN LEAVES AN ARTEFACT, RED OR GREEN (Shredder, 2026-08-25): a skipped
+# suite looks identical to a passed one in every artefact except somebody's
+# memory, and that fails toward green. One line per cut, naming the frozen
+# sha and the exit, appended before the refusal below so a red run is on the
+# record too. A cut with no matching line is VISIBLY unverified; a green
+# cannot be silently inherited by a later sha. A stopgap that makes the
+# manual gate auditable until CI on merge exists (#835), not a replacement.
+mkdir -p "$HOME/.claude/logs" 2>/dev/null || true
+printf '%s version=%s sha=%s suite_exit=%s\n' "$(date -u +%FT%TZ)" "$V" "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" "$_suite_exit" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
 # ⚠️ 126/127 IS NOT A RED SUITE. It means the suite could not be run at all
 # (yarn or node missing or not executable), and saying "red" about it sends
 # the person to read assertions that never ran (#785, three flavours of this
