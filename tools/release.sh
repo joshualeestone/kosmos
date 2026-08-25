@@ -113,7 +113,7 @@ echo "== 2b. the tree that ships, frozen at one sha (#597) =="
 # SHARED CHECKOUT. The checkout this script lives in is pulled by every agent
 # on the Mac; on 2026-08-24 two cuts in a row were fast-forwarded mid-run, so
 # the suite and the page gate ran on one sha and the bundle shipped another.
-# Steps 3 through 6 (3c's pkg build included) run in the frozen tree, and so does step 9:
+# Steps 3 through 6 (3c's pkg build and 4b's install gate included) run in the frozen tree, and so does step 9:
 # verify-served.sh reads $REPO/install/setup.sh and $REPO/package.json, and
 # its baked-in default REPO is the shared checkout, so the REPO="$REPO" pass
 # below is load-bearing, not redundant. Step 9b compares what is SERVED
@@ -232,6 +232,54 @@ fi
 
 echo "== 4. build =="
 ( cd "$REPO" && bash tools/build-kosmos-bundle.sh dist )
+
+echo "== 4b. a real install from the bundle just built, sandboxed, before anything is served (#624) =="
+# 🛑 EVERY EARLIER CHECK MEASURED THE BYTES. Step 3 ran the suite, 9b proves
+# served == built file by file, and neither ever INSTALLED the thing: a
+# change to the bundle's SHAPE (a file the installer's post-extract check
+# expects, a changed extract) passed all of them and could still fail on a
+# stranger's Mac. tools/test-install.sh is that install, sandboxed in every
+# root, run by hand before #583's cut and by nothing since; this runs it in
+# gate mode (the install, update, uninstall and download-path passes, then
+# the "nothing leaked" checks) on THIS build, and a red stops the cut here.
+# The kosmos bundle is the one step 4 just packed. The tmux bundle is the
+# site working tree's copy of the served pair (step 4 does not build it; the
+# wire is what 9 verifies), extracted into the frozen dist the way the harness expects.
+# 🛑 BEFORE ANY COPY INTO THE SITE DIST. The first placement of this step was
+# after step 4's copies, so a bundle that failed to install already sat under
+# the plain name in the site tree (the export carries dist/*.tar.gz by name,
+# so the next site deploy by anyone would have shipped it), and the re-run
+# after the fix hit the versioned-name refusal and cost a version bump.
+[ -f "$SITE/dist/tmux-arm64.tar.gz" ] && [ -f "$SITE/dist/tmux-arm64.tar.gz.sha256" ] || { echo "no tmux bundle pair in $SITE/dist (a fresh site checkout has none: fetch the served pair from ${HOST:-https://installkosmos.com}/dist/tmux-arm64.tar.gz and .sha256 into $SITE/dist, or build one with tools/build-tmux-bundle.sh); the install gate cannot run"; exit 1; }
+cp "$SITE/dist/tmux-arm64.tar.gz" "$SITE/dist/tmux-arm64.tar.gz.sha256" "$REPO/dist/"
+rm -rf "$REPO/dist/tmux-bundle"; mkdir -p "$REPO/dist/tmux-bundle"
+tar -xzf "$REPO/dist/tmux-arm64.tar.gz" -C "$REPO/dist/tmux-bundle" || { echo "the served tmux bundle does not extract"; exit 1; }
+# A bare mktemp, like step 3's suite log: the red branch exits, the 2b trap
+# removes BUILD_ROOT, and a log under it would be gone before anyone read it.
+# ⚠️ DISK, SAID BY NAME. A gate run uses ~300 MB transiently (measured
+# 2026-08-24: 277 MB peak, returned on exit; gate mode never reaches the
+# probe blocks whose fresh homes each pull a 345 MB Claude Code install),
+# but this Mac reached 288 MB free tonight, and an install failing on a
+# full disk reads as a broken bundle, not as a full disk. Refuse below 2 GB
+# and name the disk, so the red says what it is.
+_gate_free_mb="$(df -m "${TMPDIR:-/tmp}" | awk 'NR==2 {print $4}')"
+if [ "${_gate_free_mb:-0}" -lt 2048 ]; then
+  echo "only ${_gate_free_mb:-?} MB free on the disk that holds the sandbox; the install gate needs ~300 MB and a full disk would read as a bundle that does not install. Free space, then re-run."; exit 1
+fi
+_gate_log="$(mktemp "${TMPDIR:-/tmp}/kosmos-install-gate.XXXXXX")"
+if ( cd "$REPO" && KOSMOS_INSTALL_GATE=1 bash tools/test-install.sh ) > "$_gate_log" 2>&1; then
+  echo "   $(grep -E ' passed, ' "$_gate_log" | tail -1 || true): the bundle installs, updates, uninstalls and downloads-and-installs in a sandbox"
+  rm -f "$_gate_log"
+else
+  echo "THE BUNDLE JUST BUILT DOES NOT INSTALL. No bundle was copied to the site. The gate said:"
+  # The fallback: under set -e a log with no FAIL, summary or SKIP line (the
+  # harness died before its first check, or refused at its staged-trees line)
+  # would abort here with the headline and no reason; print its tail instead.
+  grep -E '^FAIL|passed, |SKIP' "$_gate_log" | sed 's/^/   /' || tail -15 "$_gate_log" | sed 's/^/   /'
+  [ "${PKG_PUBLISHED:-0}" = 1 ] && echo "   (3c already put a rebuilt Kosmos.pkg triple in $SITE/dist; a site deploy before the next cut would carry it; verify-served.sh is the check that applies)"
+  echo "   (full log: $_gate_log)"; exit 1
+fi
+
 # The connector's checksum, from the tarball THIS build just produced, so step
 # 9b can prove the SERVED tunnel is byte-for-byte the one tested here (#583).
 # The connector is not a tree file (kosmos-relay builds it), so this is its
