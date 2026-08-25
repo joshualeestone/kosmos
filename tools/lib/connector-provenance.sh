@@ -20,8 +20,14 @@
 #
 # Usage: source, then `connector_provenance <bin>` prints the commit (40 hex)
 # on stdout and returns 0, or prints why on stderr and returns 1.
-# The check itself, shared by the two accessors below. Sets CONNECTOR_COMMIT and
-# CONNECTOR_SHA on success; on refusal says why on stderr and returns 1.
+# Public surface: connector_provenance <bin> prints the 40-hex commit;
+# connector_provenance_sha <bin> prints the input sha; both run the check
+# below. A caller that needs BOTH values from ONE read of the sidecars (the
+# bundle build) calls _connector_provenance_check directly, in its own shell,
+# and reads CONNECTOR_COMMIT and CONNECTOR_SHA; through $( ) those globals die
+# with the subshell, which is why the accessors print instead.
+# The check itself. Sets CONNECTOR_COMMIT and CONNECTOR_SHA on success; on
+# refusal says why on stderr and returns 1.
 _connector_provenance_check() {
   local bin="${1:?connector_provenance needs the connector path}" cfile sfile commit want got
   CONNECTOR_COMMIT=''; CONNECTOR_SHA=''

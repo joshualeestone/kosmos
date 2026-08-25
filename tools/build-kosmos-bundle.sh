@@ -156,8 +156,11 @@ esac
 # checkout used to stand in for this and could name a commit the bytes were
 # not built from.
 . "$REPO/tools/lib/connector-provenance.sh"
-_tunnel_src="$(connector_provenance "$TUNNEL_BIN")" || exit 1
-_tunnel_in="$(connector_provenance_sha "$TUNNEL_BIN")" || exit 1
+# One check, read directly (not through $( ), which would run it in a subshell
+# and lose the values): two separate reads could straddle a relay rebuild and
+# log the old commit beside the new bytes, the very shape #621 closes.
+_connector_provenance_check "$TUNNEL_BIN" || exit 1
+_tunnel_src="$CONNECTOR_COMMIT"; _tunnel_in="$CONNECTOR_SHA"
 cp "$TUNNEL_BIN" "$STAGE/app/bin/kosmos-tunnel"
 chmod +x "$STAGE/app/bin/kosmos-tunnel"
 # The bytes STAGED are the bytes the sidecar vouched for: a relay rebuild landing
@@ -196,7 +199,7 @@ codesign -v "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || { echo "the
 # read a fresh connector as stale. The commit is the sidecar's (#621), so it is
 # the bytes' own and cannot name a checkout state the binary was not built from.
 _tunnel_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}')"
-echo "==> Plus connector: kosmos-tunnel signed $_tunnel_sha, input $_tunnel_in, built from kosmos-relay commit $_tunnel_src (per its sidecars beside $TUNNEL_BIN)"
+echo "==> Plus connector: kosmos-tunnel signed $_tunnel_sha, input $_tunnel_in (its .sha256), built from kosmos-relay commit $_tunnel_src (per its sidecars beside $TUNNEL_BIN)"
 
 # ---- the runtime ------------------------------------------------------------
 node_arch() {

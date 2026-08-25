@@ -18,7 +18,7 @@ printf '%s  kosmos-tunnel\n' "00000000000000000000000000000000000000000000000000
 printf '%s  kosmos-tunnel\n' "$SHA" > "$B.sha256"; printf '%s-dirty\n' "$C" > "$B.commit"; connector_provenance "$B" >/dev/null 2>"$T/err" && bad "a dirty commit did not refuse" || { grep -q "DIRTY tree" "$T/err" && ok "a -dirty stamp refuses (bytes from no commit anyone can name)" || bad "wrong reason for dirty: $(cat "$T/err")"; }
 printf 'not-a-sha\n' > "$B.commit"; connector_provenance "$B" >/dev/null 2>"$T/err" && bad "a malformed commit did not refuse" || { grep -q "40-hex" "$T/err" && ok "a malformed .commit refuses" || bad "wrong reason for malformed: $(cat "$T/err")"; }
 printf '%s\n' "$C" > "$B.commit"; printf 'x' >> "$B"; connector_provenance "$B" >/dev/null 2>"$T/err" && bad "a changed binary beside an old .sha256 did not refuse" || { grep -q "names other bytes" "$T/err" && ok "CONTROL: the binary changing under its sidecars refuses (the sidecars describe bytes, not a name)" || bad "wrong reason after the binary changed: $(cat "$T/err")"; }
-# the real connector on this Mac, when it is there: an integration line, skipped honestly otherwise.
+# round 1 additions: the relay's own bare-hex shape, the sha accessor, malformed and empty .sha256, a copied binary, CRLF.
 printf '%s\n' "$C" > "$B.commit"; SHA="$(shasum -a 256 "$B" | awk '{print $1}')"; printf '%s\n' "$SHA" > "$B.sha256"
 out="$(connector_provenance "$B" 2>"$T/err")"; rc=$?
 [ "$rc" = 0 ] && [ "$out" = "$C" ] && ok "the relay build's own shape (bare hex, no file name) is read the same" || bad "a bare-hex .sha256 (the shape kosmos-relay writes) was refused or misread (rc $rc, '$out'): $(cat "$T/err")"
@@ -27,6 +27,10 @@ out="$(connector_provenance_sha "$B" 2>"$T/err")"; rc=$?
 printf 'SHA256 (kosmos-tunnel) = %s\n' "$SHA" > "$B.sha256"; connector_provenance "$B" >/dev/null 2>"$T/err" && bad "a .sha256 in another tool's shape was accepted" || { grep -q "64-hex" "$T/err" && ok "a .sha256 that is not shasum's shape refuses as malformed, not as a mismatch" || bad "wrong reason for a malformed .sha256: $(cat "$T/err")"; }
 : > "$B.sha256"; connector_provenance "$B" >/dev/null 2>"$T/err" && bad "an empty .sha256 was accepted" || { grep -q "64-hex" "$T/err" && ok "an empty .sha256 refuses as malformed" || bad "wrong reason for an empty .sha256: $(cat "$T/err")"; }
 printf '%s  kosmos-tunnel\n' "$SHA" > "$B.sha256"; cp "$B" "$T/copied-tunnel"; connector_provenance "$T/copied-tunnel" >/dev/null 2>"$T/err" && bad "a copied binary without its sidecars was accepted" || { grep -q "copy the .commit and .sha256" "$T/err" && ok "a copied binary without sidecars refuses and says to copy the sidecars with it" || bad "the copied-binary remedy is missing: $(cat "$T/err")"; }
+printf '%s\r\n' "$SHA" > "$B.sha256"; printf '%s\r\n' "$C" > "$B.commit"; out="$(connector_provenance "$B" 2>"$T/err")"; rc=$?
+[ "$rc" = 0 ] && [ "$out" = "$C" ] && ok "CRLF sidecars (a Windows editor, a paste) are read the same" || bad "CRLF sidecars refused or misread (rc $rc, '$out'): $(cat "$T/err")"
+printf '%s\n' "$C" > "$B.commit"; printf '%s\n' "$SHA" > "$B.sha256"
+# the real connector on this Mac, when it is there: an integration line, skipped honestly otherwise.
 R="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
 if [ -f "$R" ]; then
   if out="$(connector_provenance "$R" 2>"$T/err")"; then ok "the connector on this Mac carries a clean stamp ($(printf '%s' "$out" | cut -c1-12))"; else echo "NOTE  the connector on this Mac has no clean stamp: $(cat "$T/err")"; fi
