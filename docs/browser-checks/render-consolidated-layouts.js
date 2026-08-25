@@ -27,7 +27,7 @@ const { chromium } = require('playwright');
   pg.on('pageerror', (e) => say(false, 'page error: ' + e.message));
   const style = (layout) => pg.evaluate((l) => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: l }) }).then((r) => r.text()), layout);
   const rect = (sel) => pg.$eval(sel, (el) => { if (el.hidden || getComputedStyle(el).display === 'none') return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; }).catch(() => null);
-  const none = () => pg.$eval('#pj-none', (e) => (e.hidden ? null : e.textContent));
+  const none = () => pg.$eval('#pj-none', (e) => (e.hidden ? null : e.textContent)).catch(() => '(no #pj-none on the page)');
 
   await pg.goto(URL + '/?tab=projects', { waitUntil: 'networkidle' });
   if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
