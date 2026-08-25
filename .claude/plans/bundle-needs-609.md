@@ -29,3 +29,11 @@ should itself be derived (it stays explicit; this makes the omission visible at 
 - The derivation control names a web file and an engine file (both derived), not the pinned `bin/kosmos`; the second `nobin.tgz` is `noroot.tgz`.
 - Deferred: a `join(__dirname,` wrapped across lines is not seen by the line-based grep (none in the tree; `bundle.contents.test.js` covers the multi-line shape); `require('./dir')` to an index file is not followed (none in the tree).
 - The real-build control (a `cp` line dropped from `tools/build-kosmos-bundle.sh` reds the early comparator on a real build) runs once the Mac is free of the 0.5.24 cut; its transcript goes in the proof.
+
+## Review round 2 (blind), what changed
+
+- Drop cases for the pinned relocations (`bin/kosmos`, the report hook): a derivation that forgot them had stayed green.
+- The bin scan keys on `join(` and `resolve(` (reporthook.js resolves the hook with `path.resolve`); a case with `path.resolve` proves it. `bundle.contents.test.js` keys on `path.join(` alone; noted for its owner, not changed here.
+- The "names a web/ and an engine/ file" guard gets a case: a tree whose `engine/` is present but empty is refused (2).
+- The cut's red at the early comparator distinguishes "could not be checked" (2) from "not the tree, or lacks a file" and prints the 3c pkg note when the pkg was already published, like the install gate's red.
+- Deferred: a case for the require walk throwing with node present (no fixture makes node exit non-zero); the em dashes in release.sh's header (pre-existing).

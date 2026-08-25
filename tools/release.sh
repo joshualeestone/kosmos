@@ -302,10 +302,14 @@ echo "   connector: kosmos-tunnel $TUNNEL_SHA"
 # the built ones, so a file the build forgot (#731: the codex bridge, absent
 # from every served bundle for ten versions) stops the cut with nothing
 # published, instead of being caught after step 8 has deployed it.
-if release_bundle_matches_tree "$REPO/dist/kosmos-arm64.tar.gz" "$BUILD" "$TUNNEL_SHA"; then
+_cmp_rc=0; release_bundle_matches_tree "$REPO/dist/kosmos-arm64.tar.gz" "$BUILD" "$TUNNEL_SHA" || _cmp_rc=$?
+if [ "$_cmp_rc" -eq 0 ]; then
   echo "   the built bundle carries everything the tree and the app need, and every file in it is the tree's"
 else
-  echo "THE BUNDLE JUST BUILT IS NOT THE TREE THAT WAS TESTED, OR LACKS A FILE THE APP NEEDS (the lines above name it). Nothing was copied to the site."; exit 1
+  if [ "$_cmp_rc" -eq 2 ]; then echo "THE BUNDLE JUST BUILT COULD NOT BE CHECKED AGAINST THE TREE (the lines above say why). No bundle was copied to the site."
+  else echo "THE BUNDLE JUST BUILT IS NOT THE TREE THAT WAS TESTED, OR LACKS A FILE THE APP NEEDS (the lines above name it). No bundle was copied to the site."; fi
+  [ "${PKG_PUBLISHED:-0}" = 1 ] && echo "   (3c already put a rebuilt Kosmos.pkg triple in $SITE/dist; a site deploy before the next cut would carry it; verify-served.sh is the check that applies)"
+  exit 1
 fi
 cp "$REPO/dist/kosmos-arm64.tar.gz" "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/"
 # ⚠️ THE VERSIONED NAME IS THE ONE A CACHE CANNOT LIE ABOUT. The plain

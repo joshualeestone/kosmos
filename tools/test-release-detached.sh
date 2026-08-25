@@ -136,6 +136,24 @@ out="$(release_bundle_matches_tree "$T/complete2.tgz" "$T/noeng" 2>&1)"; rc=$?
 hit=0; printf '%s' "$out" | grep -q "not a Kosmos tree" && hit=1
 [ "$rc" = 2 ] && [ "$hit" = 1 ] && ok "a tree without engine/ is refused (2) as not a Kosmos tree, not compared" || bad "tree without engine/: rc $rc, '$out'"
 
+# The pinned relocations each get a drop case too (round 2: they had none, so
+# a derivation that forgot them stayed green). And the "names a web/ and an
+# engine/ file" guard gets a tree with a present-but-empty engine/, the only
+# state past the directory guard that can reach it.
+rm -f "$T/bundle/bin/kosmos"; bundle nocmd.tgz; cp "$BUILD/install/kosmos" "$T/bundle/bin/kosmos"
+out="$(release_bundle_matches_tree "$T/nocmd.tgz" "$BUILD")" && bad "a bundle without bin/kosmos was called matching" || { printf '%s' "$out" | grep -q "missing from the bundle (the tree and the app need it): bin/kosmos" && ok "a bundle without the kosmos command is red and names bin/kosmos (pinned relocation)" || bad "wrong words for a missing bin/kosmos: $out"; }
+rm -f "$T/bundle/app/bin/kosmos-report-hook.sh"; bundle nohook.tgz; cp "$BUILD/install/kosmos-report-hook.sh" "$T/bundle/app/bin/kosmos-report-hook.sh"
+out="$(release_bundle_matches_tree "$T/nohook.tgz" "$BUILD")" && bad "a bundle without the report hook was called matching" || { printf '%s' "$out" | grep -q "missing from the bundle (the tree and the app need it): app/bin/kosmos-report-hook.sh" && ok "a bundle without the report hook is red and names it (pinned relocation)" || bad "wrong words for a missing hook: $out"; }
+printf "const path = require('path'); module.exports = path.resolve(__dirname, '..', 'bin', 'resolved.sh');\n" > "$BUILD/engine/paths2.js"; cp "$BUILD/engine/paths2.js" "$T/bundle/app/engine/"
+bundle noresolved.tgz
+out="$(release_bundle_matches_tree "$T/noresolved.tgz" "$BUILD")" && bad "a bin/ file the engine resolves with path.resolve was not demanded" || { printf '%s' "$out" | grep -q "app/bin/resolved.sh" && ok "a bin/ file resolved with path.resolve (not join) is demanded too" || bad "wrong words for the resolve( case: $out"; }
+rm -f "$BUILD/engine/paths2.js" "$T/bundle/app/engine/paths2.js"
+rm -rf "$T/emptyeng"; cp -R "$BUILD" "$T/emptyeng"; rm -f "$T/emptyeng/engine/"*
+bundle complete3.tgz
+out="$(release_bundle_matches_tree "$T/complete3.tgz" "$T/emptyeng" 2>&1)"; rc=$?
+hit=0; printf '%s' "$out" | grep -q "names no web/ file or no engine/ file" && hit=1
+[ "$rc" = 2 ] && [ "$hit" = 1 ] && ok "a tree whose engine/ is present but empty is refused (2): the derived set would name no engine file" || bad "empty engine/: rc $rc, '$out'"
+
 # A tarball missing a whole tree (no bin member) is a setup failure (2), not a pass.
 tar -czf "$T/noroot.tgz" -C "$T/bundle" app
 release_bundle_matches_tree "$T/noroot.tgz" "$BUILD" >/dev/null; [ "$?" = 2 ] && ok "a bundle missing bin/ is refused as malformed (2), not passed" || bad "a bundle missing bin/ was not refused as malformed"

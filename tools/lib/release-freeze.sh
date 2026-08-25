@@ -108,9 +108,10 @@ release_bundle_expected_files() {
   [ -f "$tree/assets/Kosmos.icns" ] && printf 'app/assets/Kosmos.icns\n'
   ( cd "$tree" && [ -d web ] && find web -type f ! -name '.*' | sed 's|^|app/|' )
   ( cd "$tree" && [ -d engine ] && find engine -maxdepth 1 -name '*.js' ! -name '*.test.js' | sed 's|^|app/|' )
+  # join( and resolve( both (reporthook.js resolves the hook with path.resolve).
   # The connector is resolved by path too (engine/remote.js) but is not a tree
   # file: the comparator's checksum argument owns it, so it is left out here.
-  ( cd "$tree" && grep -ho "join(__dirname, *'\.\.', *'bin', *'[^']*')" engine/*.js 2>/dev/null | sed "s/.*'bin', *'\([^']*\)').*/app\/bin\/\1/" | grep -vx 'app/bin/kosmos-tunnel' || true )
+  ( cd "$tree" && grep -hoE "(join|resolve)\(__dirname, *'\.\.', *'bin', *'[^']*'\)" engine/*.js 2>/dev/null | sed "s/.*'bin', *'\([^']*\)').*/app\/bin\/\1/" | grep -vx 'app/bin/kosmos-tunnel' || true )
   # The require walk needs node; without it the modules outside engine/ would
   # go unlisted and a bundle lacking one would pass, so no node is a refusal,
   # and a walk that throws is one too, with node's own words.
