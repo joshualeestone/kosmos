@@ -436,8 +436,17 @@ async function main() {
         row: getComputedStyle(document.querySelector('#pj-list .pc-t')).fontSize,
         detail: getComputedStyle(document.getElementById('pj-one-desc')).fontSize,
       }));
-      if (sizes.row !== '14px' || sizes.detail !== '15px') {
-        throw new Error('a description lost its pack size (card .875rem, detail .9375rem): ' + JSON.stringify(sizes));
+      /* The detail description lives in the conversation column's header in
+         EVERY layout since f731a69 (#862; Josh, 2026-08-25 10:12: move the
+         title and description to where the conversation title is, in the
+         tab view too), and that header has drawn it at .75rem since #520 in
+         consolidated. So 12px is the merged header's own size, not a lost
+         one; the .9375rem this line asked for belonged to the split layout
+         that no longer exists. The card keeps .875rem. Whether 12px is the
+         right size for a description is a design question (Mona Lisa), not
+         this check's; it pins what the design says. */
+      if (sizes.row !== '14px' || sizes.detail !== '12px') {
+        throw new Error('a description lost its size (card .875rem, merged-header detail .75rem): ' + JSON.stringify(sizes));
       }
       // The DETAIL's absence arm, exercised, not inferred from the row's: an
       // undescribed project's detail must hide the element (hidden === true),
