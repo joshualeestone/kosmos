@@ -86,9 +86,13 @@ printf '%s\n' "$man" | grep -q "ignored:   dist/Kosmos.pkg.sha256" && ok "and th
 printf '%s\n' "$man" | grep -q "ignored:   dist/.hidden.tar.gz" && ok "and the manifest lists the dotfile tarball as left behind" || bad "the dotfile tarball vanished from the manifest: $man"
 # names with a space or non-ASCII bytes are carried AND not listed as left behind (porcelain -z, never quoted).
 [ -f "$T/out7/dist/kosmos-1.0.0-arm64 copy.tar.gz" ] && ok "a tarball with a space in its name is carried" || bad "the spaced tarball was not carried"
-printf '%s\n' "$man" | grep -q "arm64 copy" && bad "the carried spaced tarball was listed as left behind (quoted path missed the carried list): $man" || ok "and it is not listed as left behind"
+printf '%s\n' "$man" | grep -q "arm64 copy\.tar\.gz" && bad "the carried spaced tarball was listed as left behind (quoted path missed the carried list): $man" || ok "and it is not listed as left behind"
 [ -f "$T/out7/dist/café.tar.gz" ] && ok "a non-ASCII tarball is carried" || bad "the non-ASCII tarball was not carried"
-printf '%s\n' "$man" | grep -q "caf" && bad "the carried non-ASCII tarball was listed as left behind: $man" || ok "and it is not listed as left behind"
+# ⚠️ The FILENAME, not three letters: `grep -q "caf"` also matched the site
+# COMMIT SHA in the manifest's "pages: commit …f63c2caf" line, so this check
+# went red whenever a commit hash happened to end in those hex letters and
+# green otherwise (#850: intermittent inside the chain, 40/40 green alone).
+printf '%s\n' "$man" | grep -q "café\.tar\.gz" && bad "the carried non-ASCII tarball was listed as left behind: $man" || ok "and it is not listed as left behind"
 rm -f "$S/dist/kosmos-1.0.0-arm64 copy.tar.gz" "$S/dist/café.tar.gz"
 mv "$T/pkg.aside" "$S/dist/Kosmos.pkg"; rm -f "$S/dist/.hidden.tar.gz"
 # a TRACKED file that matches a carry glob refuses (the export would overwrite the committed copy).
