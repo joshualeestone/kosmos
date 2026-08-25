@@ -224,6 +224,10 @@ sb2="$(new_sandbox)"
 if boot_board "$sb2" "$P2"; then
   run_one "render-projects" node docs/browser-checks/render-projects.js \
     "http://127.0.0.1:$P2" "$sb2/shots" "$sb2"
+  # #774: same board, after render-projects has left it with projects to open.
+  # The consolidated view under each Agents layout; leaves the layout on tabs.
+  run_one "render-consolidated-layouts" node docs/browser-checks/render-consolidated-layouts.js \
+    "http://127.0.0.1:$P2"
 else
   FAILED+=("render-projects (server did not boot)")
 fi
