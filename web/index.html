@@ -1402,6 +1402,11 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 #d-fresh .flabel { text-transform: none; letter-spacing: 0; font-size: 1rem; }
 @media (max-width: 56rem) {
   .dbody { grid-template-columns: minmax(0, 1fr); }
+  /* #773 gave Settings its own id-selector column rule up to 60rem, which
+     outranked this class rule at phone width and kept the nav beside the
+     section (render-settings-nav caught it at 420px). Restated with the same
+     specificity, later in the sheet, so the nav stacks above the section here. */
+  #panel-settings .dbody { grid-template-columns: minmax(0, 1fr); justify-content: stretch; }
   .snav { position: static; flex-direction: row; flex-wrap: wrap; }
   .snav button { width: auto; }
   .snav .sep { display: none; }
