@@ -774,6 +774,30 @@ test('an agent on two projects is told about both in one block', () => {
   assert.equal(written.split(projects.BLOCK_START).length - 1, 1, 'one block, not one per project');
 });
 
+/* #863 (Josh, 2026-08-25 10:41): a comma-joined project list with no "and"
+   before the last name read as a run-on list with no ending, and the
+   sentence itself is appended to with ", and told it in its pane" -- so
+   the last project name and "told it in its pane" read as the SAME kind
+   of list item. Pinned at two names (the plain "and") and three (the
+   Oxford comma before the final "and"), since those are the two shapes
+   the join can take beyond the untouched one-name case. */
+test('the staleness sentence names two or more projects with a real "and", not a bare comma list', () => {
+  reset();
+  agent('mara', '# Mara\n\nYou are the executive assistant.\n');
+  const one = projects.create({ name: 'One', folder: folder('proj-one'), agents: ['mara'] });
+  const two = projects.create({ name: 'Two', folder: folder('proj-two'), agents: ['mara'] });
+  projects.syncAgent('mara', ROSTER);
+  const twoNames = store.readProfile('mara').instructionsWrite;
+  assert.equal(twoNames.because, 'Kosmos put it on One and Two');
+
+  const three = projects.create({ name: 'Three', folder: folder('proj-three'), agents: ['mara'] });
+  projects.syncAgent('mara', ROSTER);
+  const threeNames = store.readProfile('mara').instructionsWrite;
+  assert.equal(threeNames.because, 'Kosmos put it on One, Two, and Three');
+  assert.notEqual(one.id, two.id);
+  assert.notEqual(two.id, three.id);
+});
+
 test('nothing is ever written into the user’s project folder', () => {
   reset();
   agent('mara', '# Mara\n\nYou are the executive assistant.\n');
