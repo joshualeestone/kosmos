@@ -404,6 +404,19 @@ async function forget() {
   };
 }
 
+/** Reset the account's second factor from this Mac (#733 recovery). A person
+ * at this keyboard already holds what the factor protects, so the Mac's own
+ * signed request clears it and nothing else can; the coordinator refuses it
+ * unsigned and for a stranger key. Only an enrolled Mac can ask. */
+async function secondReset() {
+  if (!enrolled()) {
+    return { ok: false, because: 'this Mac is not set up for Plus, so it cannot reset a second factor' };
+  }
+  const r = await setupRun(['second', 'reset', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()]);
+  if (!r.ok) return { ok: false, because: r.because };
+  return { ok: true, because: null };
+}
+
 /** The email step: ask the coordinator to send the code. */
 async function setupStart(email) {
   if (typeof email !== 'string' || !email.includes('@')) {
@@ -533,7 +546,7 @@ async function deviceRemove(id) {
   return parseSaid(await setupRun(deviceArgs('remove', id, false)));
 }
 
-module.exports = { forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { secondReset, forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   setOn,

@@ -2273,6 +2273,14 @@ const server = http.createServer((req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not finish the sign-up' }));
     return;
   }
+  /* ---- Second-factor reset (#733 recovery): the Mac's own signed request,
+     relayed. The control under Plus is the design queue's; this is the seam. */
+  if (pathname === '/api/remote/second-reset' && req.method === 'POST') {
+    remote.secondReset()
+      .then((got) => sendJson(res, got.ok ? 200 : 400, got.ok ? { ok: true } : { error: got.because }))
+      .catch((err) => sendJson(res, 500, { error: 'we could not reset the second factor: ' + (err && err.message) }));
+    return;
+  }
   /* ---- Forget this Mac (#793): retire at the coordinator while the key
      exists, then destroy the key. The engine owns the order; this route only
      relays the outcome, including the case where the coordinator could not
