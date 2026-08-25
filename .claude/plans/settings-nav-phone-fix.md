@@ -26,5 +26,7 @@ order, so the nav stayed beside the section.
 ## The change
 
 One rule inside the existing 56rem block, after the 60rem one:
-`#panel-settings .dbody { grid-template-columns: minmax(0, 1fr); justify-content: stretch; }`.
+`#panel-settings .dbody { grid-template-columns: minmax(0, 1fr); }` (no
+`justify-content`: a single fluid track leaves nothing to place, and the 60rem
+rule already sets stretch at every width the block covers).
 Same specificity, later in the sheet, so it wins where it should and nowhere else.

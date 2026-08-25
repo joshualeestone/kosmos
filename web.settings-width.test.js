@@ -20,7 +20,10 @@ test('the settings body is the nav and one 34rem column, centred; narrow windows
   assert.ok(i60 > 0 && i56 > i60, 'the 56rem block comes after the 60rem rule');
   const iBase = PAGE.indexOf('#panel-settings .dbody { grid-template-columns: 176px 34rem;');
   assert.ok(iBase > 0 && iBase < i56, 'the base Settings rule also sits above the 56rem block (same specificity; below it, it would win on phones)');
-  const end56 = PAGE.indexOf('\n}', i56); // the block's closing brace: the window is the block, not a byte count
+  // the block's closing brace: the window is the block, not a byte count. Assumes every
+  // line inside the block is indented (they are); a nested block closed at column 0 would
+  // shrink the window and the next assertion would then blame placement.
+  const end56 = PAGE.indexOf('\n}', i56);
   assert.ok(end56 > i56, 'the 56rem block closes');
   assert.match(PAGE.slice(i56, end56), /#panel-settings \.dbody \{ grid-template-columns: minmax\(0, 1fr\); \}/, 'the restatement sits inside the 56rem block, not after it');
 });
