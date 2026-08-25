@@ -143,7 +143,10 @@ async function makeAnna(page, { seen }) {
         ? null : document.getElementById('made-hello-say').textContent,
       btn: go.textContent,
       goesTo: go.dataset.agent,
-      doneHidden: document.getElementById('made-done').hidden,
+      /* 4bf7d95 removed the See-it-under-Agents button outright (the two
+         endings that are not success got true offers); the assertion is
+         now that no such button exists, not that a hidden one is hidden. */
+      noDoneButton: !document.getElementById('made-done'),
       ink: eval(inkSrc),
     };
   }, INK);
@@ -173,8 +176,8 @@ async function makeAnna(page, { seen }) {
     done.btn === 'Say Hello to Anna' && done.goesTo === 'anna', JSON.stringify(done.btn));
   /* One button on the success path: no "See it under Agents" sending somebody
      back to a list to find the agent they just made. */
-  check('the only way on is straight to the agent', done.doneHidden === true,
-    `See-it-under-Agents hidden=${done.doneHidden}`);
+  check('the only way on is straight to the agent: no See-it-under-Agents button exists', done.noDoneButton === true,
+    `a made-done element is on the page again`);
   /* The mark completed: same dots, now green. */
   check('the mark has turned into a green tick',
     done.ink.n > 200 && done.ink.g > done.ink.r + 20 && done.ink.g > done.ink.b + 20,
