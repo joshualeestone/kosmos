@@ -57,7 +57,7 @@ function makeTokenDoor(spec) {
       } finally { clearTimeout(t); }
     });
     try { return await f(req, token); }
-    catch (err) { return { ok: false, status: 0, body: null, because: 'we could not reach ' + spec.name + ': ' + String((err && err.message) || err) }; }
+    catch (err) { return { ok: false, status: 0, body: null, because: 'we could not reach ' + spec.name + ': ' + String((err && err.message) || err) , unreachable: true }; }
   }
 
   /** Checks a token WITHOUT storing it. Answers who it is, never the token. */
@@ -67,7 +67,7 @@ function makeTokenDoor(spec) {
     if (/\s/.test(t)) return { ok: false, because: 'that does not look like a token: a token has no spaces or line breaks in it' };
     if (t.length < (spec.minLength || 16)) return { ok: false, because: 'that is too short to be a token' };
     const r = await ask(t);
-    if (r.because) return { ok: false, because: r.because };
+    if (r.because) return { ok: false, because: r.because, unreachable: r.unreachable === true };
     let a;
     try { a = spec.accept(r.status, r.body); } catch { a = null; }
     if (a && a.ok) return { ok: true, who: a.who ? String(a.who) : null };
@@ -86,7 +86,7 @@ function makeTokenDoor(spec) {
     if (!tok) return shape({});
     const v = await verify(tok);
     if (v.ok) return shape({ connected: true, held: true, who: v.who });
-    return shape({ held: true, because: v.because });
+    return shape({ held: true, because: v.because, unreachable: v.unreachable === true });
   }
 
   /** Verify first, store only what the service accepted. Answers the state, never the token. */

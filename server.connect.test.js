@@ -763,3 +763,31 @@ test('every copy of the default port agrees, and none of them sits in the epheme
     'the default is in macOS’s ephemeral range (49152+), where the kernel hands out '
     + 'ports at random — a fixed listener there fails intermittently');
 });
+
+/* ---- the shelf's one read (#805) ---------------------------------------- */
+test('/api/connections answers every built door from the engines, and a connected token door is reported connected', async () => {
+  const tokendoors = require('./engine/tokendoors');
+  const hetzner = tokendoors.byName('Hetzner');
+  hetzner.setFetcher(async () => ({ ok: true, status: 200, body: { server: { id: 1 } } }));
+  try {
+    const before = json(await req('/api/connections'));
+    assert.ok(before.doors, 'no doors object');
+    for (const [route, st] of Object.entries(before.doors)) {
+      assert.ok(st.connected === true || st.connected === false || st.connected === null, route + ' answered a fourth thing: ' + JSON.stringify(st));
+    }
+    assert.equal(before.doors['/api/svc/hetzner'].connected, false, 'nothing is held yet');
+    assert.ok('/api/github' in before.doors && '/api/cloudflare' in before.doors && '/api/vercel' in before.doors, 'a named door is missing from the shelf');
+    assert.equal(Object.keys(before.doors).length, 3 + Object.keys(tokendoors.routes()).length, 'the shelf and the page inventory disagree on how many doors there are');
+    const c = await hetzner.connect('hetzner-token-long-enough-to-be-real-0123456789');
+    assert.equal(c.connected, true, JSON.stringify(c));
+    const after = json(await req('/api/connections'));
+    assert.equal(after.doors['/api/svc/hetzner'].connected, true, 'the door says Connected and the shelf does not');
+    /* A door whose check throws is could-not-check, not nothing. */
+    hetzner.setFetcher(async () => { throw new Error('the verifier died'); });
+    const broken = json(await req('/api/connections'));
+    assert.equal(broken.doors['/api/svc/hetzner'].connected, null);
+  } finally {
+    await hetzner.forget().catch(() => {});
+    hetzner.setFetcher(null);
+  }
+});

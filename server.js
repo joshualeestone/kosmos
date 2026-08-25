@@ -2815,6 +2815,40 @@ const server = http.createServer((req, res) => {
      token is checked with the service before it is kept, kept in one
      mode-600 file under secrets/env/<VAR>, handed to agents' panes by the
      supervisor, never answered back. */
+  /* The shelf (#805): every category row on the Connections page reads the
+     doors' own state from here, in one read, so the summary can never
+     disagree with the door under it. Pete connected Cloudflare and Hetzner,
+     came back, and every row said "Nothing connected" while each door said
+     Connected: the rows were static words. Keyed by the door's route, which
+     is what the page holds (SVC_BUILT). A door whose check threw answers
+     connected:null, which the page says as could-not-check, never as
+     nothing. GitHub is connected on either of its two roads (#620). */
+  if (pathname === '/api/connections' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const ask = (fn) => Promise.resolve().then(fn).then(
+      /* A held token whose service could not be reached is not "not connected":
+         the door says so in its own words, and the shelf must not say nothing. */
+      (st) => ({ connected: st && st.unreachable === true ? null : !!(st && st.connected === true), who: (st && (st.who || st.login)) || null }),
+      (err) => ({ connected: null, because: 'could not check: ' + (err && err.message) }),
+    );
+    const jobs = {
+      '/api/github': ask(async () => {
+        const st = await github.state();
+        if (st && st.connected) return st;
+        if (st && st.gh === 'missing') { const d = await githubdevice.state(); if (d && d.connected) return d; }
+        return st;
+      }),
+      '/api/vercel': ask(() => vercel.state()),
+      '/api/cloudflare': ask(() => cloudflare.state()),
+    };
+    for (const [name, route] of Object.entries(tokendoors.routes())) jobs[route] = ask(() => tokendoors.byName(name).state());
+    const keys = Object.keys(jobs);
+    Promise.all(keys.map((k) => jobs[k])).then((vals) => {
+      const doors = {};
+      keys.forEach((k, i) => { doors[k] = vals[i]; });
+      sendJson(res, 200, { doors });
+    });
+    return;
+  }
   {
     const m = /^\/api\/svc\/([a-z0-9-]+)(?:\/(token|forget))?$/.exec(pathname);
     if (m) {
