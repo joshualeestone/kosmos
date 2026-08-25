@@ -4087,7 +4087,17 @@ const server = http.createServer((req, res) => {
      current version silently; the line only ever describes a CHANGE. */
   if (pathname === '/api/whats-new' && (req.method === 'GET' || req.method === 'HEAD')) {
     let seen = null;
-    try { seen = JSON.parse(fs.readFileSync(path.join(process.env.AGENT_WORKFORCE_DATA || store.ROOT, 'seen-version.json'), 'utf8')).version || null; } catch { seen = null; }
+    // ⚠️ `store.ROOT` ALONE, #891: `store.ROOT` already resolves
+    // AGENT_WORKFORCE_DATA (engine/store.js joins it with the app's own
+    // 'AgentWorkforce' subfolder when the env var is set, and falls back
+    // to the real default otherwise). `process.env.AGENT_WORKFORCE_DATA ||
+    // store.ROOT` looked like the same fallback but is not: when the env
+    // var IS set it short-circuits PAST that join, landing this file one
+    // directory above every other file the app writes. Unnoticed with the
+    // env var unset (every real install), it is exactly the condition a
+    // sandboxed install gate sets -- and exactly why that gate caught this
+    // file surviving an uninstall that swept the correct directory.
+    try { seen = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'seen-version.json'), 'utf8')).version || null; } catch { seen = null; }
     sendJson(res, 200, { current: version, seen });
     return;
   }
@@ -4099,10 +4109,10 @@ const server = http.createServer((req, res) => {
         const v = String(body.version || '');
         if (!/^\d+\.\d+\.\d+$/.test(v)) { sendJson(res, 400, { error: 'that is not a version we can record' }); return; }
         try {
-          fs.mkdirSync(process.env.AGENT_WORKFORCE_DATA || store.ROOT, { recursive: true });
-          const tmp = path.join(process.env.AGENT_WORKFORCE_DATA || store.ROOT, 'seen-version.json.tmp');
+          fs.mkdirSync(store.ROOT, { recursive: true });
+          const tmp = path.join(store.ROOT, 'seen-version.json.tmp');
           fs.writeFileSync(tmp, JSON.stringify({ version: v }) + '\n');
-          fs.renameSync(tmp, path.join(process.env.AGENT_WORKFORCE_DATA || store.ROOT, 'seen-version.json'));
+          fs.renameSync(tmp, path.join(store.ROOT, 'seen-version.json'));
           sendJson(res, 200, { seen: v });
         } catch { sendJson(res, 500, { error: 'we could not record that' }); }
       })
