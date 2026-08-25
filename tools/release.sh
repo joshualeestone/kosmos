@@ -27,7 +27,9 @@ V="${1:-}"
 # Shredder 2026-08-25); step 3's line names the FROZEN sha (frozen_sha=), which
 # is the cut. A "started" with no matching step-3 line is a cut that died early.
 mkdir -p "$HOME/.claude/logs" 2>/dev/null || true
-# $REPO is not defined yet this early; the repo is this script's parent dir.
+# ⚠️ DELIBERATE, NOT UNTIDY: $REPO is not defined yet this early, so the repo is
+# resolved as this script's parent dir. Do not "simplify" it to $REPO; that
+# blanks pre_bump_head= on every cut (it did, once, until a control caught it).
 printf '%s version=%s started pre_bump_head=%s\n' "$(date -u +%FT%TZ)" "$V" "$(git -C "$(cd "$(dirname "$0")/.." && pwd)" rev-parse --short HEAD 2>/dev/null || echo unknown)" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
 # The tail of the record, mirror of the head (Shredder, 2026-08-25): without a
 # completion line, "still running steps 4-9d" and "died at 4b, 8 or 9d" read
