@@ -200,7 +200,7 @@ _vi_tmp="$(mktemp "$BUILD_ROOT/vercelignore.XXXXXX")"
 if git -C "$SITE" show HEAD:.vercelignore > "$_vi_tmp" 2>/dev/null; then :; else rm -f "$_vi_tmp"; _vi_tmp="$BUILD_ROOT/no-such-vercelignore"; fi
 set +e; _pkg_dropped="$(pkg_upload_filter_excludes "$_vi_tmp")"; _pkg_frc=$?; set -e
 if [ "$_pkg_frc" = 1 ]; then
-  echo "the site has no .vercelignore; Vercel would fall back to .gitignore and drop dist/Kosmos.pkg from the upload"; exit 1
+  echo "no committed .vercelignore at the site's HEAD (the export ships the committed one); Vercel would fall back to .gitignore and drop dist/Kosmos.pkg from the upload"; exit 1
 elif [ "$_pkg_frc" != 0 ]; then
   echo "could not evaluate the site's .vercelignore (rc=$_pkg_frc); refusing to assume the deploy carries the pkg"; exit 1
 elif [ -n "$_pkg_dropped" ]; then
@@ -358,6 +358,9 @@ git -C "$SITE" push -q origin HEAD || {
 # shellcheck disable=SC2086
 [ -z "$(git -C "$SITE" status --porcelain -- $_site_paths)" ] || { echo "release files still dirty after the commit"; exit 1; }
 echo "   site committed and pushed: $(git -C "$SITE" log --oneline -1)"
+# The sha that was pushed is the sha that deploys: the checkout is shared and
+# a commit can land between this push and step 8's archive (#649).
+SITE_SHA="$(git -C "$SITE" rev-parse HEAD)"
 
 echo "== 8. deploy, from an export of the COMMITTED site plus the named artifacts (#649) =="
 # 🛑 NEVER THE WORKING TREE. This deployed $SITE itself, so a cut published
@@ -373,7 +376,13 @@ echo "== 8. deploy, from an export of the COMMITTED site plus the named artifact
 # line below is the link from a deployment to its commit.
 . "$REPO/tools/lib/site-deploy.sh"
 _site_export="$BUILD_ROOT/site-export"
-site_deploy_export "$SITE" "$_site_export" || { echo "could not export the site for deploy; nothing was deployed"; exit 1; }
+site_deploy_export "$SITE" "$_site_export" "$SITE_SHA" || { echo "could not export the site for deploy; nothing was deployed"; exit 1; }
+# The filter that ACTUALLY ships is the export's; 3c read HEAD's early, and
+# the sha can have moved since. Same evaluator, same refusal, on the real file.
+set +e; _dep_dropped="$(pkg_upload_filter_excludes "$_site_export/.vercelignore")"; _dep_frc=$?; set -e
+if [ "$_dep_frc" != 0 ] || [ -n "$_dep_dropped" ]; then
+  echo "the export's .vercelignore would drop ${_dep_dropped:-the pkg triple} (rc=$_dep_frc); nothing was deployed"; exit 1
+fi
 ( cd "$_site_export" && vercel deploy --prod --yes )
 
 echo "== 9. verify what is SERVED, from the code that fetches it =="
@@ -416,9 +425,8 @@ fi
 
 echo "== 9c. the served installer .pkg is the one step 3c left in the site dist (#638, B guard) =="
 # Step 3c decided from the site's working copy; this reads the SERVED host,
-# because the deploy carries the pkg from the working tree (the named hazard
-# above) and an edge can serve the prior pair (Kosmos.pkg and its .sha256
-# share one cache). Four facts, all from the wire, and the red names the one
+# because the deploy carries the pkg by name from an export (step 8) and an
+# edge can serve the prior pair (Kosmos.pkg and its .sha256 share one cache). Four facts, all from the wire, and the red names the one
 # that failed: the served inputs sidecar is the source's, the served pkg's
 # bytes are the served checksum's, the sidecar vouches for those bytes, and
 # those bytes are the site dist's. Retried like 9 and 9b: cache lag is not

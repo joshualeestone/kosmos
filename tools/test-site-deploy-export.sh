@@ -40,6 +40,7 @@ git -C "$S" check-ignore -q dist/build.log && ok "CONTROL: the stray really is g
 [ -f "$O/.vercel/project.json" ] && ok "the Vercel project link ships" || bad "the project link is missing"
 [ -f "$O/dist/latest.json" ] && [ -f "$O/vercel.json" ] && [ -f "$O/.vercelignore" ] && ok "the committed release files and the upload filter ship from the commit" || bad "a committed file is missing"
 [ ! -e "$O/.git" ] && ok "no .git in the export" || bad ".git shipped"
+[ ! -e "$O/../site-archive."* ] 2>/dev/null; ls "${TMPDIR:-/tmp}"/site-archive.* >/dev/null 2>&1 && bad "the archive temp file was left behind" || ok "no archive temp file left in TMPDIR"
 printf '%s\n' "$man" | grep -q "untracked: notes.txt" && ok "the manifest names the untracked stray as left behind" || bad "the manifest did not name notes.txt: $man"
 printf '%s\n' "$man" | grep -q "ignored:   dist/build.log" && ok "the manifest names the ignored stray as left behind" || bad "the manifest did not name build.log: $man"
 printf '%s\n' "$man" | grep -q "modified:  index.html (deploys as committed)" && ok "the manifest names the half-edited page and says it deploys as committed" || bad "the manifest did not name index.html: $man"
@@ -54,7 +55,10 @@ printf '%s\n' "$man" | grep -q "untracked: dist/sub/kosmos-9.9.9-arm64.tar.gz" &
 rm -rf "$T/out2"; rm "$S/.vercel/project.json"
 if site_deploy_export "$S" "$T/out2" >/dev/null 2>&1; then bad "an export with no project link did not refuse"; else ok "no .vercel/project.json refuses"; fi
 printf '{"projectId":"p"}\n' > "$S/.vercel/project.json"
-if site_deploy_export "$S" "$O" >/dev/null 2>&1; then bad "exporting into a non-empty dir did not refuse"; else ok "a non-empty output dir refuses"; fi
+# (a fresh dir holding one unrelated file: the previous control reused $O, whose hard
+# links made the carry step refuse, so the emptiness guard was never what failed)
+mkdir -p "$T/outfull"; printf 'x\n' > "$T/outfull/unrelated.txt"
+if site_deploy_export "$S" "$T/outfull" >/dev/null 2>"$T/err"; then bad "exporting into a non-empty dir did not refuse"; else grep -q "is not empty" "$T/err" && ok "a non-empty output dir refuses, by the emptiness guard" || bad "the non-empty dir refused for another reason: $(cat "$T/err")"; fi
 if site_deploy_export "$T" "$T/out3" >/dev/null 2>&1; then bad "a non-repo did not refuse"; else ok "a directory that is not a git checkout refuses"; fi
 
 # a partial pkg triple refuses (the pkg present, its sidecar missing).
@@ -68,8 +72,31 @@ REALGIT="$(command -v git)"; mkdir -p "$T/bin"; printf '#!/bin/sh\ncase "$*" in 
 rm -rf "$T/out6"; if PATH="$T/bin:$PATH" site_deploy_export "$S" "$T/out6" >"$T/man6" 2>"$T/err6"; then bad "a failing git status did not refuse: $(cat "$T/man6")"; else grep -q "could not list the working tree" "$T/err6" && ok "a failing git status refuses instead of claiming a clean tree" || bad "the refusal did not say why: $(cat "$T/err6")"; fi
 grep -q "left behind: nothing" "$T/man6" && bad "the clean-tree claim was printed on a failed listing" || ok "no clean-tree claim on a failed listing"
 
-# a clean tree reports nothing left behind.
+# an orphan sidecar (no pkg beside it) and a dotfile tarball match the name patterns but are
+# NOT carried; the manifest must list them, keyed on what was carried, not on the pattern.
 git -C "$S" reset -q -- new.html; rm -f "$S/new.html"; rm -rf "$S/dist/sub"
+mv "$S/dist/Kosmos.pkg" "$T/pkg.aside"; printf 'DOT\n' > "$S/dist/.hidden.tar.gz"
+rm -rf "$T/out7"; man="$(site_deploy_export "$S" "$T/out7")"
+[ ! -e "$T/out7/dist/Kosmos.pkg.sha256" ] && ok "an orphan checksum (no pkg) is not carried" || bad "an orphan checksum was carried"
+printf '%s\n' "$man" | grep -q "ignored:   dist/Kosmos.pkg.sha256" && ok "and the manifest lists the orphan checksum as left behind" || bad "the orphan checksum vanished from the manifest: $man"
+[ ! -e "$T/out7/dist/.hidden.tar.gz" ] && ok "a dotfile tarball is not carried" || bad "a dotfile tarball was carried"
+printf '%s\n' "$man" | grep -q "ignored:   dist/.hidden.tar.gz" && ok "and the manifest lists the dotfile tarball as left behind" || bad "the dotfile tarball vanished from the manifest: $man"
+mv "$T/pkg.aside" "$S/dist/Kosmos.pkg"; rm -f "$S/dist/.hidden.tar.gz"
+# a tracked file deleted in the working tree says "deleted", and deploys as committed.
+rm "$S/vercel.json"; rm -rf "$T/out8"; man="$(site_deploy_export "$S" "$T/out8")"
+[ -f "$T/out8/vercel.json" ] && ok "a file deleted in the working tree still deploys as committed" || bad "a working-tree deletion reached the export"
+printf '%s\n' "$man" | grep -q "deleted:   vercel.json (deploys as committed)" && ok "and the manifest says deleted" || bad "the deletion was not described as deleted: $man"
+git -C "$S" checkout -q -- vercel.json
+# the archive's failure is seen WITHOUT the caller's pipefail (an empty site read as ready before).
+printf '#!/bin/sh\ncase "$*" in *archive*) exit 128;; esac\nexec %s "$@"\n' "$REALGIT" > "$T/bin/git-noarchive"; chmod +x "$T/bin/git-noarchive"
+mkdir -p "$T/bin2"; cp "$T/bin/git-noarchive" "$T/bin2/git"
+rm -rf "$T/out9"; if ( set +o pipefail; PATH="$T/bin2:$PATH" site_deploy_export "$S" "$T/out9" ) >/dev/null 2>"$T/err9"; then bad "a failing git archive did not refuse without pipefail (an empty site would deploy)"; else grep -q "git archive of" "$T/err9" && [ ! -e "$T/out9" ] && ok "a failing git archive refuses without the caller's pipefail, and leaves nothing" || bad "the archive failure was not the reason, or the dir remained: $(cat "$T/err9")"; fi
+# the export takes a commit: the FIRST commit's page, not HEAD's, when asked for it.
+FIRST="$(git -C "$S" rev-parse HEAD)"; printf '<h1>second</h1>\n' > "$S/index.html"; git -C "$S" commit -qam "second"
+rm -rf "$T/out10"; site_deploy_export "$S" "$T/out10" "$FIRST" >/dev/null
+[ "$(cat "$T/out10/index.html")" = "<h1>committed</h1>" ] && ok "the export archives the commit it is given, not HEAD" || bad "the export ignored the commit argument: $(cat "$T/out10/index.html")"
+rm -rf "$T/out11"; if site_deploy_export "$S" "$T/out11" "nosuchsha" >/dev/null 2>&1; then bad "a non-commit argument did not refuse"; else ok "a commit argument that is not a commit refuses"; fi
+git -C "$S" reset -q --hard "$FIRST"
 git -C "$S" checkout -q -- index.html; rm -f "$S/notes.txt" "$S/dist/build.log"
 man="$(site_deploy_export "$S" "$T/out4")"
 printf '%s\n' "$man" | grep -q "left behind: nothing" && ok "a clean tree reports nothing left behind" || bad "a clean tree reported strays: $man"
