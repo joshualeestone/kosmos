@@ -342,13 +342,16 @@ sed -e "s|!= \"[0-9][0-9]*\"|!= \"$WRONG_UID\"|" -e 's|/usr/bin/osascript|/usr/b
   "$SB/apps/Kosmos.app/Contents/MacOS/Kosmos" > "$SB/other-account-launcher"
 chmod +x "$SB/other-account-launcher"
 LNS_BEFORE="$(wc -l < "$SB/launcher.log" | tr -d ' ')"
-# 🛑 A SANDBOX HOME FOR THE OTHER ACCOUNT. Since #720 the launcher looks for
-# the clicking account's OWN Kosmos at $HOME/.local/share/kosmos and opens
+# 🛑 A SANDBOX HOME FOR THE OTHER ACCOUNT, AND NO KOSMOS_HOME OVERRIDE. Since
+# #720 the launcher looks for the clicking account's OWN Kosmos and opens
 # that; with the real HOME this ran the operator's real `kosmos open` from
 # inside the harness (agent1 has one) and the refusal never happened
-# (2026-08-24). An empty home is an account that never installed.
+# (2026-08-24). An empty home is an account that never installed. And since
+# #738 an explicit KOSMOS_HOME at click time NAMES the copy to open, so these
+# two legs run with the exported KOSMOS_HOME (the baked one, as a real click
+# has) and let the launcher consult $HOME, which is what they test.
 mkdir -p "$SB/otherhome"
-RC=0; HOME="$SB/otherhome" KOSMOS_HOME="$SB/fakehome" "$SB/other-account-launcher" > /dev/null 2>&1 || RC=$?
+RC=0; HOME="$SB/otherhome" "$SB/other-account-launcher" > /dev/null 2>&1 || RC=$?
 chk "launcher refuses a different account (that has no Kosmos of its own)" "[ $RC -eq 1 ] && [ \"\$(wc -l < \"$SB/launcher.log\" | tr -d ' ')\" = \"$LNS_BEFORE\" ]"
 # And #720's own branch, on a stub: an account that HAS its own copy gets that
 # copy opened (the stub records the call), never this icon's, and never
@@ -356,7 +359,7 @@ chk "launcher refuses a different account (that has no Kosmos of its own)" "[ $R
 mkdir -p "$SB/ownhome/.local/share/kosmos/bin"
 printf '#!/bin/sh\nprintf "%%s %%s\\n" "$1" "${KOSMOS_HOME:-}" >> "%s/own-open.log"\nexit 0\n' "$SB" > "$SB/ownhome/.local/share/kosmos/bin/kosmos"
 chmod +x "$SB/ownhome/.local/share/kosmos/bin/kosmos"
-RC=0; HOME="$SB/ownhome" KOSMOS_HOME="$SB/fakehome" "$SB/other-account-launcher" > /dev/null 2>&1 || RC=$?
+RC=0; HOME="$SB/ownhome" "$SB/other-account-launcher" > /dev/null 2>&1 || RC=$?
 chk "an account with its own Kosmos gets that one opened (exit 0)" "[ $RC -eq 0 ]"
 chk "and it was THEIR copy that was called, with their home baked" "grep -q \"^open $SB/ownhome/.local/share/kosmos\" \"$SB/own-open.log\""
 chk "and this icon's launcher log did not grow (nothing real was opened)" "[ \"\$(wc -l < \"$SB/launcher.log\" | tr -d ' ')\" = \"$LNS_BEFORE\" ]"
