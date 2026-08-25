@@ -50,6 +50,25 @@ if ! command -v node >/dev/null 2>&1; then
   echo "pre-commit: node is not on PATH, so the browser-checks index guard and the shell-shape scan cannot run. Not a violation: put node on PATH (on this Mac, /opt/homebrew/bin) and commit again." >&2
   exit 1
 fi
+# --- a screen change runs the guard its checks would fail on (#758) --------
+# The page gate is not in yarn test and 27 of its 46 checks are not in the
+# gate, so a change to web/index.html that removes an id a check asks for
+# merged green and stopped a cut at minute twenty-two, three times in one
+# night. browser-checks-selectors.test.js is the static, milliseconds half:
+# every id a check asks for must exist on the page, and the red names the
+# check, its line, the id it wanted and the nearest ids the page has. Run
+# here whenever the page or a check is staged, so the change that removes
+# the id is the change that hears about it.
+if git diff --cached --name-only --diff-filter=ACDMR | grep -qE '^web/index\.html$|^docs/browser-checks/'; then
+  if ! node --test browser-checks-selectors.test.js >/tmp/kosmos-selectors-hook.$$ 2>&1; then
+    echo "pre-commit: a browser check asks web/index.html for an id this change leaves it without (#758). It would go red in the next cut, not in yarn test:" >&2
+    grep -E "asks for #|KNOWN_STALE entry" /tmp/kosmos-selectors-hook.$$ | head -8 >&2
+    echo "  restate the check to the id that replaced it, or (a check that is stale by ruling) say so on a card and list it in KNOWN_STALE. run: node --test browser-checks-selectors.test.js" >&2
+    rm -f /tmp/kosmos-selectors-hook.$$
+    exit 1
+  fi
+  rm -f /tmp/kosmos-selectors-hook.$$
+fi
 if git diff --cached --name-only --diff-filter=ACDMR | grep -q '^docs/browser-checks/'; then
   # The test reads the working tree, so check what is STAGED: stash nothing,
   # just refuse if an unstaged edit would mask the staged state.

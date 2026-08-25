@@ -179,6 +179,18 @@ worktree of the clone inherits it:
 With it wired, adding a check without its row refuses the commit and names the
 file, and deleting a check that still has a row does the same.
 
+The same hook runs `browser-checks-selectors.test.js` whenever `web/index.html`
+or a check is staged (#758): every id a check asks for must exist on the page,
+and a change that removes one is refused with the check, its line, the id it
+wanted and the nearest ids the page has. That is the static half of the gap the
+card names; it catches a removed or renamed id in milliseconds, not a dialog
+whose words moved. A check that is stale by ruling is listed in that file's
+`KNOWN_STALE` with the commit, and the test refuses an entry that is no longer
+stale, so the list cannot outlive the rot it names. Two things it made visible
+the night it landed: `render-create-made.js` had asked for `#made-done` since
+4bf7d95, and 27 of the 46 checks here are not in the release gate at all (they
+run only when somebody remembers).
+
 ## Sandboxed whole, or not at all
 
 The board refuses to start half-sandboxed (#634): if any of `AGENT_WORKFORCE_DATA`,
