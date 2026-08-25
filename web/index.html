@@ -13837,7 +13837,14 @@ const SVC_DOORS = {
    svcDoorLive paints the door from the engine's state and may offer a
    control; every other door keeps the coming-soon sentence and no control,
    which web.svc-doors.test.js pins. */
-const SVC_BUILT = { 'GitHub': '/api/github', 'Vercel': '/api/vercel', 'Cloudflare': '/api/cloudflare' };
+const SVC_BUILT = { 'GitHub': '/api/github', 'Vercel': '/api/vercel', 'Cloudflare': '/api/cloudflare',
+  /* The token doors (#529): Cloudflare's shape for every service that issues
+     a token from its own page. Each row here is a spec in
+     engine/tokendoors.js (web.svc-doors.test.js pins that they match). */
+  'Discord': '/api/svc/discord', 'Brave Search': '/api/svc/brave-search', 'Exa': '/api/svc/exa', 'Tavily': '/api/svc/tavily', 'Serper': '/api/svc/serper',
+  'GitLab': '/api/svc/gitlab', 'Fly.io': '/api/svc/fly', 'DigitalOcean': '/api/svc/digitalocean', 'Hetzner': '/api/svc/hetzner', 'Netlify': '/api/svc/netlify',
+  'Render': '/api/svc/render', 'Notion': '/api/svc/notion', 'Linear': '/api/svc/linear', 'Airtable': '/api/svc/airtable', 'Neon': '/api/svc/neon',
+  'Postmark': '/api/svc/postmark', 'SendGrid': '/api/svc/sendgrid', 'Better Stack': '/api/svc/better-stack' };
 /* The words that differ per built service (#529). GitHub's are Mona Lisa's
    sentences as she wrote them; a new service adds a row, never a branch. */
 const SVC_TOOL = {
@@ -13918,20 +13925,20 @@ function svcDoorTokenHtml(name, st) {
   const own = SVC_DOORS[name] ? '<b>' + esc(name) + '.</b> ' + esc(SVC_DOORS[name]) + ' ' : '<b>' + esc(name) + '.</b> ';
   if (!st) return own + '<span class="dhint">Checking…</span>';
   if (st.connected) {
-    return own + '<p class="dhint" style="margin:8px 0 0;"><span class="acct-ok">Connected.</span> Cloudflare says this token is active. '
+    return own + '<p class="dhint" style="margin:8px 0 0;"><span class="acct-ok">Connected' + (st.who ? ' as ' + esc(st.who) : '') + '.</span> ' + esc(name) + ' says this token is active. '
       + 'It is kept in one file on this Mac and handed to your agents when they start; Kosmos will not show it again.</p>'
       + '<p class="dhint" style="margin:6px 0 0;"><button class="linkish" type="button" data-svc-forget="' + esc(name) + '">Forget this token</button></p>';
   }
   const why = st.because ? '<p class="dhint" style="margin:8px 0 0;">' + esc(st.because) + (st.held ? ' The one Kosmos has is unchanged. Paste a new one to replace it.' : '') + '</p>' : '';
-  return own + why + '<p class="dhint" style="margin:8px 0 0;">Make a token on <a class="xlink" href="' + esc(st.where) + '" target="_blank" rel="noopener">Cloudflare’s API Tokens page</a>, '
-    + 'choosing the zones your agents may touch, then paste it here.</p>'
-    + '<div class="frow" style="margin:6px 0 0;"><input type="password" autocomplete="off" spellcheck="false" aria-label="Cloudflare API token" placeholder="Paste the token" data-svc-token-field="' + esc(name) + '">'
+  return own + why + '<p class="dhint" style="margin:8px 0 0;">Make a token on <a class="xlink" href="' + esc(st.where) + '" target="_blank" rel="noopener">' + esc(st.whereText || (name + '’s API Tokens page')) + '</a>, '
+    + esc(st.hint || (name === 'Cloudflare' ? 'choosing the zones your agents may touch' : 'with only what your agents need')) + ', then paste it here.</p>'
+    + '<div class="frow" style="margin:6px 0 0;"><input type="password" autocomplete="off" spellcheck="false" aria-label="' + esc(name) + ' API token" placeholder="Paste the token" data-svc-token-field="' + esc(name) + '">'
     + '<button class="btn" type="button" data-svc-token-go="' + esc(name) + '">Connect</button></div>'
-    + '<p class="dhint" style="margin:6px 0 0;">Kosmos checks it with Cloudflare first. If Cloudflare accepts it, Kosmos keeps it in one file on this Mac and hands it to your agents when they start. This is the one key Kosmos holds for you.</p>';
+    + '<p class="dhint" style="margin:6px 0 0;">Kosmos checks it with ' + esc(name) + ' first. If ' + esc(name) + ' accepts it, Kosmos keeps it in one file on this Mac and hands it to your agents when they start. This is the one key Kosmos holds for you.</p>';
 }
 async function svcDoorLive(name, door) {
   const api = SVC_BUILT[name];
-  if (name === 'Cloudflare') { return svcDoorToken(name, door, api); }
+  if (name === 'Cloudflare' || api.startsWith('/api/svc/')) { return svcDoorToken(name, door, api); }
   door.innerHTML = svcDoorLiveHtml(name, null);
   // #620: GitHub has a second engine for the no-install road; the door reads
   // both and the writer decides which it is on. `road` remembers which one

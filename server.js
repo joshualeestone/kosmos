@@ -124,6 +124,7 @@ const openaiAccounts = require('./engine/openaiaccounts');
 const github = require('./engine/github');
 const vercel = require('./engine/vercel');
 const cloudflare = require('./engine/cloudflare');
+const tokendoors = require('./engine/tokendoors');
 /* #553: this process's boot identity, for the update overlay to tell "the
    board went away and came back" from a client-side fetch failure. */
 const BOOTED_AT = new Date().toISOString();
@@ -2785,6 +2786,32 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/cloudflare/forget' && req.method === 'POST') {
     cloudflare.forget().then((st) => sendJson(res, 200, st));
     return;
+  }
+  /* The token doors (#529): Cloudflare's shape for every service that
+     issues a token from its own page. One engine, a spec per service
+     (engine/tokendoors.js); the routes are the same three for each. The
+     token is checked with the service before it is kept, kept in one
+     mode-600 file under secrets/env/<VAR>, handed to agents' panes by the
+     supervisor, never answered back. */
+  {
+    const m = /^\/api\/svc\/([a-z0-9-]+)(?:\/(token|forget))?$/.exec(pathname);
+    if (m) {
+      const door = tokendoors.bySlug(m[1]);
+      if (!door) { sendJson(res, 404, { error: 'no such door' }); return; }
+      if (!m[2] && (req.method === 'GET' || req.method === 'HEAD')) { door.state().then((st) => sendJson(res, 200, st)); return; }
+      if (m[2] === 'token' && req.method === 'POST') {
+        readBody(req)
+          .then((raw) => {
+            let body = null;
+            try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+            if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return null; }
+            return door.connect(body.token).then((st) => sendJson(res, st.refused ? 400 : 200, st));
+          })
+          .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+        return;
+      }
+      if (m[2] === 'forget' && req.method === 'POST') { door.forget().then((st) => sendJson(res, 200, st)); return; }
+    }
   }
   if (pathname === '/api/connect' && (req.method === 'GET' || req.method === 'HEAD')) {
     let st;
