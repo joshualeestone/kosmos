@@ -60,6 +60,9 @@ function pick({ path: PATH, sysExit, preset }) {
     encoding: 'utf8',
     env: {
       PATH: PATH === undefined ? `${bin}:/usr/bin:/bin` : PATH,
+      /* This Mac has a real tmux at a known location that can list a real
+         server; a sandbox pretending to be a clean machine must hide it. */
+      KOSMOS_TMUX_KNOWN: '',
       ...(preset ? { AGENT_WORKFORCE_TMUX_BIN: preset } : {}),
     },
   });
@@ -98,4 +101,64 @@ test('an explicit choice beats both, because the harness makes one', () => {
   const r = pick({ sysExit: 0, preset: '/somewhere/else/tmux' });
   assert.equal(r.chose, '/somewhere/else/tmux');
   fs.rmSync(r.sb, { recursive: true, force: true });
+});
+
+/* #728: the inversion. The launcher puts the BUNDLED tmux first on PATH before
+   the picker runs, so a probe of `command -v tmux` found the bundle every time
+   and the system tmux that could see the server was never asked. The tests
+   above never saw it because they ran the picker with the bundle OFF PATH,
+   which the real launcher never does. This one runs it the way the launcher
+   does: bundle first, the pre-export PATH saved beside it. */
+function pickLikeTheLauncher({ sysExit }) {
+  const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'tmuxpick-'));
+  const home = nodePath.join(sb, 'home');
+  fs.mkdirSync(nodePath.join(home, 'tmux', 'bin'), { recursive: true });
+  const bundled = nodePath.join(home, 'tmux', 'bin', 'tmux');
+  fs.writeFileSync(bundled, '#!/bin/sh\necho "server exited unexpectedly" >&2\nexit 1\n'); fs.chmodSync(bundled, 0o755);
+  const bin = nodePath.join(sb, 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const sys = nodePath.join(bin, 'tmux');
+  fs.writeFileSync(sys, `#!/bin/sh\nexit ${sysExit}\n`); fs.chmodSync(sys, 0o755);
+  const script = `KOSMOS_HOME=${JSON.stringify(home)}\n_KOSMOS_PATH_SYS="$PATH"\nexport PATH="$KOSMOS_HOME/tmux/bin:$PATH"\n${picker()}\nprintf '%s' "$AGENT_WORKFORCE_TMUX_BIN"\n`;
+  const out = execFileSync('/bin/sh', ['-c', script], { encoding: 'utf8', env: { PATH: `${bin}:/usr/bin:/bin`, KOSMOS_TMUX_KNOWN: '' } });
+  return { chose: out, bundled, sys, sb };
+}
+test('#728: with the bundle first on PATH, a system tmux that can see the server is still found and chosen', () => {
+  const r = pickLikeTheLauncher({ sysExit: 0 });
+  assert.equal(r.chose, r.sys, 'the picker probed the bundle it had just put first on PATH and never asked the system tmux');
+  fs.rmSync(r.sb, { recursive: true, force: true });
+});
+test('#728: with the bundle first on PATH and no server anywhere, the bundle still stays', () => {
+  const r = pickLikeTheLauncher({ sysExit: 1 });
+  assert.equal(r.chose, r.bundled);
+  fs.rmSync(r.sb, { recursive: true, force: true });
+});
+
+/* #728, the other surface: `kosmos agents` must not say None through a binary
+   that could not see. Runs cmd_agents with a fake tmux for each stderr shape. */
+function agentsWith(stderrLine, exit) {
+  const at = LAUNCHER.indexOf('cmd_agents() {');
+  const end = LAUNCHER.indexOf('\n}\n', at);
+  const fn = LAUNCHER.slice(at, end + 3);
+  const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'tmuxagents-'));
+  const fake = nodePath.join(sb, 'tmux');
+  fs.writeFileSync(fake, `#!/bin/sh\necho ${JSON.stringify(stderrLine)} >&2\nexit ${exit}\n`); fs.chmodSync(fake, 0o755);
+  const script = `say() { printf '%s\\n' "$*"; }\nAGENT_WORKFORCE_TMUX_BIN=${JSON.stringify(fake)}\n${fn}\ncmd_agents\n`;
+  let out = '', code = 0;
+  try { out = execFileSync('/bin/sh', ['-c', script], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin' } }); }
+  catch (e) { out = String(e.stdout || ''); code = e.status; }
+  fs.rmSync(sb, { recursive: true, force: true });
+  return { out, code };
+}
+test('#728: a tmux that cannot read the server is said as blindness, never as None', () => {
+  const r = agentsWith('server exited unexpectedly', 1);
+  assert.ok(!/None\./.test(r.out), 'a confident None through a blind binary: ' + r.out);
+  assert.match(r.out, /Could not see/);
+  assert.match(r.out, /AGENT_WORKFORCE_TMUX_BIN=/);
+  assert.equal(r.code, 2);
+});
+test('#728: a genuinely absent server is still an honest None', () => {
+  const r = agentsWith('no server running on /private/tmp/tmux-501/default', 1);
+  assert.match(r.out, /None\./);
+  assert.equal(r.code, 1);
 });
