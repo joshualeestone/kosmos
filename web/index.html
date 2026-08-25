@@ -18580,6 +18580,15 @@ async function changeModelNow(say) {
        from "saved but still running the old one", and those are different facts
        a person acts on differently. */
     msg.textContent = out.because || 'Changed.';
+    /* The dialog that asked hears the answer too, success as well as failure,
+       the way moveAccountNow already does: without this the dialog sat on
+       "Working…" after a successful change, its only button hidden, and the
+       sentence landed on the section line behind it (#619 found it running
+       render-model-change to its end; the #788 family). Said before the tick,
+       so a slow status read cannot delay the verdict. `changed` is the
+       started-again outcome; `partial` is saved-but-not-restarted and is not
+       a success to call Done on. */
+    if (say) say(out.because || 'Changed.', out.outcome === 'changed');
     sel.value = '';
     await tick();
     /**
