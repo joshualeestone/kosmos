@@ -1413,6 +1413,26 @@ chk "default install's plist adds no AGENT_WORKFORCE_WORKERS key" "! grep -q AGE
 HOME="$SBH_DEF" "$SBH_DEF/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free before Pete's-convention scenario starts" "wait_port_free"
 
+echo "-- default KOSMOS_HOME, but \$HOME carries a trailing slash: still byte-identical --"
+# 🔑 THE REGRESSION TEST FOR CHALLENGE-LOOP ITERATION 1'S OWN FINDING. Without
+# normalizing _kosmos_home_default the same way KOSMOS_HOME itself already
+# is (install/setup.sh's own header: "a trailing slash on $HOME made every
+# ownership and board proof in this file use //-flavored paths"), a $HOME
+# like this one would make a genuinely-default install compare as
+# non-default -- suffixed label, extra env keys, the exact regression the
+# byte-identical invariant exists to prevent. The scenario above alone
+# cannot catch this: its $HOME never carries a trailing slash.
+SBH_SLASH="$SB/defaulthome-slash"
+mkdir -p "$SBH_SLASH"
+export KOSMOS_BIN_DIR="$SB/bindefslash"
+RC=0; cat "$SETUP" | env -u KOSMOS_HOME HOME="$SBH_SLASH/" AGENT_WORKFORCE_LAUNCH="$SB/launchdefslash" KOSMOS_APP_DIR="$SB/appsdefslash" sh > "$SB/defaulthome-slash-install.log" 2>&1 || RC=$?
+chk "trailing-slash-HOME default install exits 0" "rc_ok $RC"
+DEF_SLASH_PLIST="$SB/launchdefslash/com.kosmos.board.plist"
+chk "trailing-slash-HOME install still keeps the literal, unsuffixed label" "[ -f \"$DEF_SLASH_PLIST\" ]"
+chk "trailing-slash-HOME install still adds no AGENT_WORKFORCE_DATA key" "! grep -q AGENT_WORKFORCE_DATA \"$DEF_SLASH_PLIST\""
+HOME="$SBH_SLASH/" "$SBH_SLASH/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
+chk "the port is genuinely free before Pete's-convention scenario starts" "wait_port_free"
+
 echo "-- Pete's exact convention: unique label, all three roots under KOSMOS_HOME --"
 PETE_HOME="$SB/petehome"
 export KOSMOS_HOME="$PETE_HOME" KOSMOS_BIN_DIR="$SB/binpete"

@@ -145,6 +145,22 @@ path now writes, and leave the login job registered forever -- the exact
 orphan class #891 fixed for the app's remembered-answer files, reintroduced
 for the label if this had shipped without the matching uninstall fix.
 
+**Challenge-loop iteration 1 found a real, if narrow, hole in the
+byte-identical invariant itself:** `_kosmos_home_default` was built from raw
+`$HOME`, but `KOSMOS_HOME` (the thing it gets compared against) had already
+been slash-normalized (`tr -s '/'`, strip trailing `/`) a few lines above --
+this file's own header already measured that exact mismatch once, for a
+different comparison ("a trailing slash on $HOME made every ownership and
+board proof in this file use //-flavored paths"). A `$HOME` carrying a
+trailing or doubled slash would have made a genuinely-default install
+compare as non-default: suffixed label, extra env keys, the precise
+regression this whole card exists to prevent. Fixed by normalizing
+`_kosmos_home_default` the identical way, in both places it is computed
+(the install-path derivation and `uninstall()`'s independent copy). Pinned
+with a dedicated `tools/test-install.sh` scenario using a trailing-slash
+`$HOME`, added after iteration 2 flagged that the first fix shipped
+without one.
+
 Also confirmed, precisely rather than assumed, while building the
 verification tests: the same identity gap #910 was filed for (`healthy()`
 answering "is A Kosmos board here" rather than "is MY Kosmos board here")
