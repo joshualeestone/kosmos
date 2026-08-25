@@ -39,7 +39,24 @@ const RELPORT = freePort();
   for (const k of ['DATA', 'WORKERS', 'LAUNCH', 'PROJECTS']) {
     roots[k] = fs.mkdtempSync(path.join(os.tmpdir(), 'ut-drive-' + k.toLowerCase() + '-'));
   }
-  const srv = spawn('node', ['server.js'], {
+  /* ⚠️ HALF RESTATED, SAID PLAINLY. The first leg (the toast appears, its text,
+     its geometry) follows the product's ruling below and is green. The later
+     legs (the from-source refusal, the dialog's copy, Later per version) assert
+     a dialog the product no longer has and are red; carded rather than
+     restated to a guess. */
+  /* AN INSTALLED LAYOUT, NOT A SOURCE RUN. A board running from its source
+     never offers an update (Josh, 2026-08-23 13:03: the toast said Install and
+     pressing it met a refusal), so status serves `update: null` unless
+     engine/update.js's installedRoot() finds runtime/bin/node beside an app/
+     that holds server.js. This check was red from the moment that landed and
+     nobody ran it. The board here is booted from a throwaway install layout
+     whose app/ is a symlink to this checkout, with symlinks preserved so
+     __dirname stays inside the layout. That is the shipped case, exercised. */
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ut-drive-home-'));
+  fs.mkdirSync(path.join(home, 'runtime', 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'runtime', 'bin', 'node'), '#!/bin/sh\nexec node "$@"\n', { mode: 0o755 });
+  fs.symlinkSync(REPO, path.join(home, 'app'));
+  const srv = spawn('node', ['--preserve-symlinks', '--preserve-symlinks-main', path.join(home, 'app', 'server.js')], {
     cwd: REPO,
     env: {
       ...process.env,
@@ -65,14 +82,16 @@ const RELPORT = freePort();
     if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
 
     // The first status tick pokes the release host; the second renders the
-    // verdict. Wait for the toast.
-    await p.waitForSelector('.utoast', { state: 'visible', timeout: 20000 });
-    const txt = await p.locator('.utoast .utxt').textContent();
+    // verdict. Wait for the UPDATE toast: the page's stale notice shares the
+    // class (.utoast.stale) and sits beside it, so every read here names the
+    // update one.
+    await p.waitForSelector('.utoast:not(.stale)', { state: 'visible', timeout: 20000 });
+    const txt = await p.locator('.utoast:not(.stale) .utxt').textContent();
     if (!/Update available/.test(txt) || !/Kosmos 9\.9\.9/.test(txt)) die('toast text wrong: ' + txt);
 
     // In the flow beside the mark; the checks below prove no overlap with the header controls either way.
     const boxes = {};
-    for (const [k, sel] of [['toast', '.utoast'], ['newagent', '#new-agent'], ['checked', '#checked']]) {
+    for (const [k, sel] of [['toast', '.utoast:not(.stale)'], ['newagent', '#new-agent'], ['checked', '#checked']]) {
       boxes[k] = await p.locator(sel).boundingBox();
     }
     const overlap = (a, c) => a && c && a.x < c.x + c.width && c.x < a.x + a.width && a.y < c.y + c.height && c.y < a.y + a.height;
@@ -83,7 +102,7 @@ const RELPORT = freePort();
     // header's left group, in line beside the mark, not floating anywhere.
     // Without this pin, the clear-of-controls checks pass any placement.
     const placement = await p.evaluate(() => {
-      const t = document.querySelector('.utoast');
+      const t = document.querySelector('.utoast:not(.stale)');
       const k = document.getElementById('klink');
       const inLeft = !!t.closest('.headleft');
       const tb = t.getBoundingClientRect();
@@ -158,13 +177,13 @@ const RELPORT = freePort();
     await p.click('#uc-no');
     if (await p.isVisible('#updconfirm')) die('Not now did not close the confirm');
     await p.click('#ut-later');
-    if (await p.isVisible('.utoast')) die('Later did not hide the toast');
+    if (await p.isVisible('.utoast:not(.stale)')) die('Later did not hide the toast');
     const remembered = await p.evaluate(() => localStorage.getItem('kosmos-update-later'));
     if (remembered !== '9.9.9') die('Later did not remember the version: ' + remembered);
 
     // ...and it STAYS hidden across the next ticks.
     await p.waitForTimeout(6000);
-    if (await p.isVisible('.utoast')) die('the toast came back after Later');
+    if (await p.isVisible('.utoast:not(.stale)')) die('the toast came back after Later');
 
     // Mobile pass: at 375 the toast must still clear whatever header
     // controls are visible.
@@ -172,9 +191,9 @@ const RELPORT = freePort();
     await p.evaluate(() => localStorage.removeItem('kosmos-update-later'));
     await p.reload({ waitUntil: 'networkidle' });
     if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
-    await p.waitForSelector('.utoast', { state: 'visible', timeout: 20000 });
+    await p.waitForSelector('.utoast:not(.stale)', { state: 'visible', timeout: 20000 });
     const mboxes = {};
-    for (const [k, sel] of [['toast', '.utoast'], ['newagent', '#new-agent'], ['checked', '#checked'], ['burger', '.burger']]) {
+    for (const [k, sel] of [['toast', '.utoast:not(.stale)'], ['newagent', '#new-agent'], ['checked', '#checked'], ['burger', '.burger']]) {
       const loc = p.locator(sel).first();
       mboxes[k] = (await loc.count()) && await loc.isVisible() ? await loc.boundingBox() : null;
     }
