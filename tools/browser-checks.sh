@@ -63,7 +63,7 @@ if git -C "$REPO" symbolic-ref -q HEAD >/dev/null 2>&1; then
   if [ -n "$(git -C "$REPO" status --porcelain)" ]; then
     log "‼️  $REPO has uncommitted changes. This run freezes a detached copy of the LAST COMMIT (#758) -- uncommitted edits will not be reflected. Commit first to check them."
   fi
-  # shellcheck source=tools/lib/release-freeze.sh
+  # shellcheck source=lib/release-freeze.sh
   . "$REPO/tools/lib/release-freeze.sh"
   FREEZE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bc-freeze.XXXXXX")" || { log "no temp dir for the frozen tree"; exit 1; }
   FREEZE_BUILD="$(release_freeze "$REPO" "$(git -C "$REPO" rev-parse HEAD)" "$FREEZE_ROOT")" || { rm -rf "$FREEZE_ROOT"; log "could not freeze the tree (#758)"; exit 1; }
