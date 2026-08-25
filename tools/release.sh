@@ -113,7 +113,7 @@ echo "== 2b. the tree that ships, frozen at one sha (#597) =="
 # SHARED CHECKOUT. The checkout this script lives in is pulled by every agent
 # on the Mac; on 2026-08-24 two cuts in a row were fast-forwarded mid-run, so
 # the suite and the page gate ran on one sha and the bundle shipped another.
-# Steps 3 through 6 (3c's pkg build included) run in the frozen tree, and so does step 9:
+# Steps 3 through 6 (3c's pkg build and 4b's install gate included) run in the frozen tree, and so does step 9:
 # verify-served.sh reads $REPO/install/setup.sh and $REPO/package.json, and
 # its baked-in default REPO is the shared checkout, so the REPO="$REPO" pass
 # below is load-bearing, not redundant. Step 9b compares what is SERVED
@@ -271,6 +271,31 @@ echo "   latest.json -> $(cat "$SITE/dist/latest.json")"
 # | sh`) and an existing one updating itself (engine/update.js re-runs
 # `setupUrl()`). It was stale on the site by a whole change before this step
 # existed, while three correct checks of the bundle passed.
+echo "== 4b. a real install from the bundle just built, sandboxed, before anything is served (#624) =="
+# 🛑 EVERY EARLIER CHECK MEASURED THE BYTES. Step 3 ran the suite, 9b proves
+# served == built file by file, and neither ever INSTALLED the thing: a
+# change to the bundle's SHAPE (a file the installer's post-extract check
+# expects, a changed extract) passed all of them and could still fail on a
+# stranger's Mac. tools/test-install.sh is that install, sandboxed in every
+# root, run by hand before #583's cut and by nothing since; this runs it in
+# gate mode (the install, update, uninstall and download-path passes, then
+# the "nothing leaked" checks) on THIS build, and a red stops the cut here.
+# The kosmos bundle is the one step 4 just packed. The tmux bundle is the
+# one installers download, taken from the site dist (step 4 does not build
+# it), extracted into the frozen dist the way the harness expects.
+[ -f "$SITE/dist/tmux-arm64.tar.gz" ] && [ -f "$SITE/dist/tmux-arm64.tar.gz.sha256" ] || { echo "no served tmux bundle pair in $SITE/dist; the install gate cannot run"; exit 1; }
+cp "$SITE/dist/tmux-arm64.tar.gz" "$SITE/dist/tmux-arm64.tar.gz.sha256" "$REPO/dist/"
+rm -rf "$REPO/dist/tmux-bundle"; mkdir -p "$REPO/dist/tmux-bundle"
+tar -xzf "$REPO/dist/tmux-arm64.tar.gz" -C "$REPO/dist/tmux-bundle" || { echo "the served tmux bundle does not extract"; exit 1; }
+_gate_log="$BUILD_ROOT/install-gate.log"
+if ( cd "$REPO" && KOSMOS_INSTALL_GATE=1 bash tools/test-install.sh ) > "$_gate_log" 2>&1; then
+  echo "   $(grep -E ' passed, ' "$_gate_log" | tail -1): the bundle installs, updates, uninstalls and downloads-and-installs in a sandbox"
+else
+  echo "THE BUNDLE JUST BUILT DOES NOT INSTALL. Nothing was served. The gate said:"
+  grep -E '^FAIL|passed, ' "$_gate_log" | sed 's/^/   /'
+  echo "   (full log: $_gate_log, until the frozen tree is removed on exit)"; exit 1
+fi
+
 echo "== 5. the installer =="
 cp "$REPO/dist/setup" "$SITE/setup"
 cp "$REPO/dist/setup.sha256" "$SITE/setup.sha256"

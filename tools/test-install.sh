@@ -196,6 +196,45 @@ seed_residue() { # $1 = full residue path, $2 = the KOSMOS_HOME it bakes
   printf '#!/bin/bash\nKOSMOS_HOME="${KOSMOS_HOME:-%s}"\n' "$2" > "$1/Contents/MacOS/Kosmos"
 }
 
+# The closing "nothing leaked" checks and the summary, as functions: the
+# release gate (below, KOSMOS_INSTALL_GATE=1) runs them after the install
+# passes and exits before the probe blocks; the full run reaches them at the
+# end. Everything they read is set before the first install.
+closing_checks() {
+  echo "== no sandbox path entered LaunchServices =="
+  # The lsregister sandbox gate had only a comment behind it; this converts
+  # it into a fact. (The dump is a few seconds; it is the one machine-global
+  # database a sandboxed run used to pollute.)
+  LSDUMP="$SB/lsdump.txt"
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -dump > "$LSDUMP" 2>/dev/null || true
+  chk "the LaunchServices dump is non-empty (the control can see)" "[ -s \"$LSDUMP\" ]"
+  chk "no sandbox path registered with LaunchServices" "! grep -qF \"$SB\" \"$LSDUMP\""
+  chk "sysnever still untouched at the end" "[ \"\$(stat -f %Fm \"$SB/sysnever\")\" = \"$SYSNEVER_MTIME\" ] && [ -z \"\$(ls -A \"$SB/sysnever\")\" ]"
+
+  echo "== nothing was left answering on the product's default port =="
+  DEFAULT_PORT_AFTER=free
+  curl -s -m 1 -o /dev/null "http://127.0.0.1:$KOSMOS_DEFAULT_PORT/" 2>/dev/null && DEFAULT_PORT_AFTER=busy
+  # Same shape as the real-folders checks below: it reports the BEFORE state too,
+  # because a machine that already had a board there is not this run's doing.
+  chk "port $KOSMOS_DEFAULT_PORT is as we found it (was: $DEFAULT_PORT_BEFORE)" "[ \"$DEFAULT_PORT_AFTER\" = \"$DEFAULT_PORT_BEFORE\" ]"
+
+  echo "== the operator's real folders were never touched (top-level entries) =="
+  chk "real home Applications unchanged (a FAIL here can also mean something else changed it DURING the run; check before blaming the installer)" "[ \"\$(real_apps_fingerprint \"$HOME/Applications\")\" = \"$REAL_HOME_APPS_BEFORE\" ]"
+  chk "real /Applications unchanged (a FAIL here can also mean something else changed it DURING the run; check before blaming the installer)" "[ \"\$(real_apps_fingerprint /Applications)\" = \"$REAL_SYS_APPS_BEFORE\" ]"
+}
+summary_and_exit() {
+  echo
+  if [ "$SKIPS" -gt 0 ]; then
+    echo "$PASS passed, $FAIL failed, $SKIPS block(s) SKIPPED (a skipped run is NOT a full run)"
+  else
+    echo "$PASS passed, $FAIL failed"
+  fi
+  # An EXIT, not a test: as the script's last line the test's status was the
+  # exit code; inside a function it was a return, and the gate printed its
+  # summary and walked on into the probe blocks (measured).
+  if [ "$FAIL" -eq 0 ]; then exit 0; else exit 1; fi
+}
+
 echo "== install (piped into sh, local sources, port $PORT) =="
 RC=0; cat "$SETUP" | sh > "$SB/install.log" 2>&1 || RC=$?
 chk "install exits 0" "[ $RC -eq 0 ]"
@@ -297,8 +336,24 @@ sed -e "s|!= \"[0-9][0-9]*\"|!= \"$WRONG_UID\"|" -e 's|/usr/bin/osascript|/usr/b
   "$SB/apps/Kosmos.app/Contents/MacOS/Kosmos" > "$SB/other-account-launcher"
 chmod +x "$SB/other-account-launcher"
 LNS_BEFORE="$(wc -l < "$SB/launcher.log" | tr -d ' ')"
-RC=0; KOSMOS_HOME="$SB/fakehome" "$SB/other-account-launcher" > /dev/null 2>&1 || RC=$?
-chk "launcher refuses a different account" "[ $RC -eq 1 ] && [ \"\$(wc -l < \"$SB/launcher.log\" | tr -d ' ')\" = \"$LNS_BEFORE\" ]"
+# 🛑 A SANDBOX HOME FOR THE OTHER ACCOUNT. Since #720 the launcher looks for
+# the clicking account's OWN Kosmos at $HOME/.local/share/kosmos and opens
+# that; with the real HOME this ran the operator's real `kosmos open` from
+# inside the harness (agent1 has one) and the refusal never happened
+# (2026-08-24). An empty home is an account that never installed.
+mkdir -p "$SB/otherhome"
+RC=0; HOME="$SB/otherhome" KOSMOS_HOME="$SB/fakehome" "$SB/other-account-launcher" > /dev/null 2>&1 || RC=$?
+chk "launcher refuses a different account (that has no Kosmos of its own)" "[ $RC -eq 1 ] && [ \"\$(wc -l < \"$SB/launcher.log\" | tr -d ' ')\" = \"$LNS_BEFORE\" ]"
+# And #720's own branch, on a stub: an account that HAS its own copy gets that
+# copy opened (the stub records the call), never this icon's, and never
+# anything real on this machine.
+mkdir -p "$SB/ownhome/.local/share/kosmos/bin"
+printf '#!/bin/sh\nprintf "%%s %%s\\n" "$1" "${KOSMOS_HOME:-}" >> "%s/own-open.log"\nexit 0\n' "$SB" > "$SB/ownhome/.local/share/kosmos/bin/kosmos"
+chmod +x "$SB/ownhome/.local/share/kosmos/bin/kosmos"
+RC=0; HOME="$SB/ownhome" KOSMOS_HOME="$SB/fakehome" "$SB/other-account-launcher" > /dev/null 2>&1 || RC=$?
+chk "an account with its own Kosmos gets that one opened (exit 0)" "[ $RC -eq 0 ]"
+chk "and it was THEIR copy that was called, with their home baked" "grep -q \"^open $SB/ownhome/.local/share/kosmos\" \"$SB/own-open.log\""
+chk "and this icon's launcher log did not grow (nothing real was opened)" "[ \"\$(wc -l < \"$SB/launcher.log\" | tr -d ' ')\" = \"$LNS_BEFORE\" ]"
 
 echo "== update (stale file must not survive; board must restart) =="
 touch "$SB/home/app/engine/stale-marker.js"
@@ -440,6 +495,24 @@ if cp "$HERE/dist/tmux-arm64.tar.gz" "$HERE/dist/tmux-arm64.tar.gz.sha256" \
 else
   echo "SKIP download-path passes: packed tarballs missing from dist/ (later passes still run)"
   SKIPS=$((SKIPS + 1))
+fi
+
+# ---- the release gate stops here (#624) --------------------------------------
+# KOSMOS_INSTALL_GATE=1 is what release.sh step 4b runs on the bundle it just
+# built: the passes above prove the bundle INSTALLS (a real setup.sh run from
+# the staged trees, the update, the uninstalls, and the download path from the
+# packed tarballs, the artifact people actually receive), then the closing
+# checks that nothing leaked out of the sandbox, and the summary. The probe
+# blocks below exercise the installer's icon and ownership rules, which are
+# not what a cut is asking, and they carry fixtures of their own.
+# ⚠️ A gate that ran only bash -n on this file was the hole: a change to the
+# bundle SHAPE (a file the installer's post-extract check expects, a changed
+# extract) byte-compared served==built perfectly and could still not install.
+# tools/test-install-gate-control.sh proves the gate reds on such a bundle.
+if [ "${KOSMOS_INSTALL_GATE:-0}" = 1 ]; then
+  echo "== release gate: stopping before the probe blocks (KOSMOS_INSTALL_GATE=1) =="
+  closing_checks
+  summary_and_exit
 fi
 
 echo "== the Applications probe (system folder when writable, home when not) =="
@@ -1081,31 +1154,5 @@ else
   chmod 755 "$SYS_RO5"
 fi
 
-echo "== no sandbox path entered LaunchServices =="
-# The lsregister sandbox gate had only a comment behind it; this converts
-# it into a fact. (The dump is a few seconds; it is the one machine-global
-# database a sandboxed run used to pollute.)
-LSDUMP="$SB/lsdump.txt"
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -dump > "$LSDUMP" 2>/dev/null || true
-chk "the LaunchServices dump is non-empty (the control can see)" "[ -s \"$LSDUMP\" ]"
-chk "no sandbox path registered with LaunchServices" "! grep -qF \"$SB\" \"$LSDUMP\""
-chk "sysnever still untouched at the end" "[ \"\$(stat -f %Fm \"$SB/sysnever\")\" = \"$SYSNEVER_MTIME\" ] && [ -z \"\$(ls -A \"$SB/sysnever\")\" ]"
-
-echo "== nothing was left answering on the product's default port =="
-DEFAULT_PORT_AFTER=free
-curl -s -m 1 -o /dev/null "http://127.0.0.1:$KOSMOS_DEFAULT_PORT/" 2>/dev/null && DEFAULT_PORT_AFTER=busy
-# Same shape as the real-folders checks below: it reports the BEFORE state too,
-# because a machine that already had a board there is not this run's doing.
-chk "port $KOSMOS_DEFAULT_PORT is as we found it (was: $DEFAULT_PORT_BEFORE)" "[ \"$DEFAULT_PORT_AFTER\" = \"$DEFAULT_PORT_BEFORE\" ]"
-
-echo "== the operator's real folders were never touched (top-level entries) =="
-chk "real home Applications unchanged (a FAIL here can also mean something else changed it DURING the run; check before blaming the installer)" "[ \"\$(real_apps_fingerprint \"$HOME/Applications\")\" = \"$REAL_HOME_APPS_BEFORE\" ]"
-chk "real /Applications unchanged (a FAIL here can also mean something else changed it DURING the run; check before blaming the installer)" "[ \"\$(real_apps_fingerprint /Applications)\" = \"$REAL_SYS_APPS_BEFORE\" ]"
-
-echo
-if [ "$SKIPS" -gt 0 ]; then
-  echo "$PASS passed, $FAIL failed, $SKIPS block(s) SKIPPED (a skipped run is NOT a full run)"
-else
-  echo "$PASS passed, $FAIL failed"
-fi
-[ "$FAIL" -eq 0 ]
+closing_checks
+summary_and_exit
