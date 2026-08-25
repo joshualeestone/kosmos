@@ -211,6 +211,15 @@ bundle_is_ours() {
 # sweep looks at the real /Applications and the sandboxed icon is
 # orphaned.
 SYS_APP_DIR="${KOSMOS_SYS_APP_DIR:-/Applications}"
+# The home-folder Applications dir the icon-migration block may touch. Test-only
+# by contract, like SYS_APP_DIR: #226 made that block skip under EITHER app-dir
+# override so a run sandboxed only by KOSMOS_SYS_APP_DIR could never rm the REAL
+# ~/Applications copy; the cost was that the harness could never exercise the
+# migration at all (seven checks red since #442, 2026-08-23). A harness that
+# NAMES a disposable folder here gets the block back, and only ever on that
+# folder. Unset outside a harness: the block sees the real ~/Applications and
+# the #226 gate still applies exactly as before.
+HOME_APP_DIR="${KOSMOS_HOME_APP_DIR:-$HOME/Applications}"
 # ⚠️ APP_DIR IS RESOLVED LAZILY, by the install path only, right before the
 # icon is written. Resolving it here would run the write probe on EVERY
 # invocation -- --uninstall, the unrecognised-flag refusal, the platform
@@ -1843,7 +1852,11 @@ if [ "\$(/usr/bin/id -u)" != "$owner_uid" ]; then
   # own copy at the default home, open THAT. The dialog is only for an
   # account that has never installed, and it says the .pkg installs for them
   # too; it never sends anyone to a terminal.
-  _own="\$HOME/.local/share/kosmos"
+  # An explicit KOSMOS_HOME in the environment names the copy to open (a
+  # self-host layout, or the harness pointing at a disposable tree); only
+  # a bare click, with no override, looks in the default home. Without this
+  # the harness's wrong-uid copy reached the OPERATOR'S real Kosmos.
+  if [ "\$KOSMOS_HOME" != "$KOSMOS_HOME" ]; then _own="\$KOSMOS_HOME"; else _own="\$HOME/.local/share/kosmos"; fi
   if [ -x "\$_own/bin/kosmos" ]; then
     KOSMOS_HOME="\$_own"; export KOSMOS_HOME
     unset KOSMOS_PORT   # theirs, from their own install, not this icon's baked port
@@ -1994,8 +2007,10 @@ if [ "$APP_MADE" = "yes" ]; then
     # is a harness run", including the two lsregister brackets inside this very
     # block. A run sandboxed only by KOSMOS_SYS_APP_DIR would otherwise walk in
     # here and rm the REAL ~/Applications copy during a normal install step.
-    if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}" ] && [ -d "$HOME/Applications/Kosmos.app" ] && [ ! -L "$HOME/Applications/Kosmos.app" ]; then
-      _home_apps_phys="$(cd "$HOME/Applications" 2>/dev/null && pwd -P)" || _home_apps_phys=""
+    # Gate: never under the verbatim override; under the system-folder override
+    # ONLY when the harness has named a disposable home folder (HOME_APP_DIR).
+    if [ -z "${KOSMOS_APP_DIR:-}" ] && { [ -z "${KOSMOS_SYS_APP_DIR:-}" ] || [ -n "${KOSMOS_HOME_APP_DIR:-}" ]; } && [ -d "$HOME_APP_DIR/Kosmos.app" ] && [ ! -L "$HOME_APP_DIR/Kosmos.app" ]; then
+      _home_apps_phys="$(cd "$HOME_APP_DIR" 2>/dev/null && pwd -P)" || _home_apps_phys=""
       _app_dir_phys="$(cd "$APP_DIR" 2>/dev/null && pwd -P)" || _app_dir_phys=""
       if [ -n "$_home_apps_phys" ] && [ -n "$_app_dir_phys" ] && [ "$_home_apps_phys" != "$_app_dir_phys" ]; then
         # ⚠️ AND ONLY WITH PROOF OF OWNERSHIP, the same anchored token as
@@ -2004,7 +2019,7 @@ if [ "$APP_MADE" = "yes" ]; then
         # genuine one always carries the launcher line. Anything else
         # named Kosmos.app in the user's own folder is theirs, is left
         # alone, and is named.
-        if bundle_is_ours "$HOME/Applications/Kosmos.app"; then
+        if bundle_is_ours "$HOME_APP_DIR/Kosmos.app"; then
           # Unregister BEFORE the removal (lsregister searches paths for
           # applications, so -u on an already-deleted path is likely a
           # no-op and would leave the stale Spotlight record this call
@@ -2014,14 +2029,14 @@ if [ "$APP_MADE" = "yes" ]; then
           # both skipped in a sandbox.
           _lsreg=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
           if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}" ]; then
-            [ -x "$_lsreg" ] && "$_lsreg" -u "$HOME/Applications/Kosmos.app" >/dev/null 2>&1 || true
+            [ -x "$_lsreg" ] && "$_lsreg" -u "$HOME_APP_DIR/Kosmos.app" >/dev/null 2>&1 || true
           fi
-          if rm -rf "$HOME/Applications/Kosmos.app" 2>/dev/null; then
+          if rm -rf "$HOME_APP_DIR/Kosmos.app" 2>/dev/null; then
             info "note: the Kosmos icon moved here from the Applications folder inside your home folder."
             info "If Kosmos was in your Dock, remove it and drag the new one in."
           else
             if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}" ]; then
-              [ -x "$_lsreg" ] && "$_lsreg" -f "$HOME/Applications/Kosmos.app" >/dev/null 2>&1 || true
+              [ -x "$_lsreg" ] && "$_lsreg" -f "$HOME_APP_DIR/Kosmos.app" >/dev/null 2>&1 || true
             fi
             info "note: an older Kosmos icon is still in the Applications folder inside your home folder; drag it to the Trash."
           fi
