@@ -928,7 +928,7 @@ async function main() {
       // palette edit after it would regress silently. The disc initials
       // (.pjfaces .lav) measure the inline TINT/INK pair the renderer chose.
       for (const sel of ['#panel-projects .pj-warn', '#panel-projects .pj-row .pc-t',
-                         '#pj-list .pjcard-h b', '#pj-list .pjpill', '#pj-list .pjslug',
+                         '#pj-list .pjcard-h b', '#pj-list .pjpill', /* #747: the folder chip is gone */
                          '#pj-list .pjcount', '#pj-list .pjfaces .lav',
                          '#pj-list-view .viewtoggle .vt', '#pj-list-view .viewtoggle .vt.on']) {
         const el = document.querySelector(sel);
