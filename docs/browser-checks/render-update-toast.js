@@ -45,6 +45,7 @@ const RELPORT = 4654;
       AGENT_WORKFORCE_WORKERS: roots.WORKERS,
       AGENT_WORKFORCE_LAUNCH: roots.LAUNCH,
       AGENT_WORKFORCE_PROJECTS: roots.PROJECTS,
+      AGENT_WORKFORCE_TMUX_BIN: path.join(REPO, 'test-support', 'fake-tmux.sh'), // sandboxed whole (#634): the board refuses a real tmux beside sandboxed dirs
     },
     stdio: 'ignore',
   });
