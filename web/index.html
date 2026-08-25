@@ -10132,6 +10132,11 @@ function showTab(tab) {
     pjView(PJ_CURRENT ? 'one' : 'list');
     loadProjects();
   }
+  /* #774: the board was painted above while the class still said
+     consolidated (the resize handler reaches here without a reload), which
+     hid the org chart; now that the class is gone, paint it once more so the
+     tab view shows the layout the person chose. */
+  if (!cons) boardApplyVisibility(agents);
   // ⚠️ Re-read on every arrival rather than once at boot. A project's folder can
   // be moved or deleted while this page sits open, and its members' states
   // change constantly — a list painted once would go on asserting a world that
@@ -17278,9 +17283,6 @@ document.querySelectorAll('[data-layout-pick]').forEach((b) => {
     } catch { msg.textContent = 'we could not save that'; }
   });
 });
-/* #520, piece two: the folds. Per rail, per browser session (a fold is a
-   reading posture, not a setting); the + buttons are the board's own New
-   agent and New project, reached from the rail's top. */
 /* #774: the consolidated centre with nothing open says what to press. */
 function paintPjNone(which) {
   const el = document.getElementById('pj-none');
@@ -17298,7 +17300,13 @@ function paintPjNone(which) {
      sentence must not contradict it. */
   const empty = PJ_LOADED_ONCE && !PJ_READ_FAILED && PROJECTS.length === 0;
   let say;
-  if (cls.contains('fold-p')) {
+  if (PJ_READ_FAILED && !cls.contains('fold-p')) {
+    /* The rail beside it has just said it cannot read the projects and holds
+       nothing to pick; telling the person to pick from it contradicts that.
+       Folded, the rail's message is out of sight, so the fold sentence
+       stands and opening the column shows the message. */
+    say = '';
+  } else if (cls.contains('fold-p')) {
     /* With both rails folded there are two narrow columns, each with its
        buttons at the top, and the first one belongs to the agents rail. The
        + survives the fold, so an empty board is told to press it, not to
@@ -17312,11 +17320,16 @@ function paintPjNone(which) {
        Add a project button; saying it twice, beside it, helps nobody. */
     say = '';
   } else {
-    say = 'Nothing is open yet. Pick a project on the left, or press + to start one.';
+    /* Two + buttons sit at the same height with both rails open (New agent,
+       New project), so the sentence says which. */
+    say = 'Nothing is open yet. Pick a project on the left, or press + above the project list to start one.';
   }
   el.hidden = !say;
   if (el.textContent !== say) el.textContent = say;
 }
+/* #520, piece two: the folds. Per rail, per browser session (a fold is a
+   reading posture, not a setting); the + buttons are the board's own New
+   agent and New project, reached from the rail's top. */
 function railFoldsApply() {
   for (const k of ['a', 'p']) {
     let on = false;
@@ -20174,7 +20187,6 @@ async function loadProjects() {
     if (!res.ok || body.projectsUnreadable) throw new Error(body.error || 'we cannot read your projects right now');
     PROJECTS = body.projects || [];
     PJ_LOADED_ONCE = true;
-    paintPjNone();
     /* The project deep link (#374), once: the first load that can see the
        project opens it, the way the first poll opens WANT_AGENT. A project
        that is not there lands on the list, which says so. */
@@ -20188,6 +20200,10 @@ async function loadProjects() {
     }
     PJ_AGENTS_UNREADABLE = body.agentsUnreadable === true;
     PJ_READ_FAILED = false;
+    /* After the outcome is recorded, never before: the sentence's "no
+       projects" verdict reads PJ_READ_FAILED, and a read that recovers on an
+       empty board would otherwise paint one poll of the wrong sentence. */
+    paintPjNone();
   } catch {
     if (mine !== PJ_GEN) return false;
     PJ_READ_FAILED = true;

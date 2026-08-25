@@ -18,6 +18,9 @@
  * Needs a board with at least one project. Leaves the layout on tabs.
  */
 const { chromium } = require('playwright');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 (async () => {
   const URL = process.argv[2] || process.env.KOSMOS_URL || 'http://127.0.0.1:17471';
   const b = await chromium.launch({ headless: process.env.HEADED === '0' });
@@ -26,12 +29,27 @@ const { chromium } = require('playwright');
   const pg = await b.newPage({ viewport: { width: 1400, height: 950 } });
   pg.on('pageerror', (e) => say(false, 'page error: ' + e.message));
   const style = (layout) => pg.evaluate((l) => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: l }) }).then((r) => r.text()), layout);
-  const rect = (sel) => pg.$eval(sel, (el) => { if (el.hidden || getComputedStyle(el).display === 'none') return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; }).catch(() => null);
+  /* null means hidden; a selector that matches nothing is 'missing', so an
+     absence line cannot pass on a page that has lost the element. */
+  const rect = (sel) => pg.$eval(sel, (el) => { if (el.hidden || getComputedStyle(el).display === 'none') return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; }).catch(() => 'missing');
+  const up = (sel) => pg.$eval(sel, (el) => !(el.hidden || getComputedStyle(el).display === 'none')).catch(() => false);
+  /* The state, not a timer: the layout arrives by paintStyles -> applyLayout ->
+     showTab after the page loads, and a slow fixture would make a fixed wait
+     flaky. A short settle after it lands lets the rails finish their first paint. */
+  const settled = async (cons) => { await pg.waitForFunction((c) => document.body.classList.contains('consolidated') === c, cons, { timeout: 15000 }); await pg.waitForTimeout(300); };
   const none = () => pg.$eval('#pj-none', (e) => (e.hidden ? null : e.textContent)).catch(() => '(no #pj-none on the page)');
 
   try {
   await pg.goto(URL + '/?tab=projects', { waitUntil: 'networkidle' });
   if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+  /* This check needs one project to open. It seeds its own rather than
+     leaning on whatever ran before it on the same board. */
+  const have = await pg.evaluate(() => fetch('/api/projects').then((r) => r.json()).then((j) => (j.projects || []).length).catch(() => 0));
+  if (!have) {
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cons-774-'));
+    const made = await pg.evaluate((f) => fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Consolidated check', folder: f }) }).then((r) => r.status), folder);
+    say(made >= 200 && made < 300, 'seeded one project for the check', String(made));
+  }
   await style('consolidated');
 
   for (const lay of ['grid', 'list', 'org']) {
@@ -39,7 +57,7 @@ const { chromium } = require('playwright');
       await pg.goto(URL + '/?tab=' + tab, { waitUntil: 'networkidle' });
       await pg.evaluate((l) => { localStorage.setItem('kosmos.layout.agents', l); sessionStorage.removeItem('rail-fold-a'); sessionStorage.removeItem('rail-fold-p'); }, lay);
       await pg.reload({ waitUntil: 'networkidle' });
-      await pg.waitForTimeout(900);
+      await settled(true);
       const tag = 'agents left on ' + lay + ', arriving on ' + tab;
       say(await pg.evaluate(() => document.body.classList.contains('consolidated')), tag + ': the consolidated view is up');
       say((await rect('#orgview')) === null, tag + ': the org chart is not painted');
@@ -50,7 +68,10 @@ const { chromium } = require('playwright');
          8px apart on a correct page: the projects rail carries its 8px inset).
          The sentence taking grid row 1 pushed the projects rail down 273px in
          the first cut, so 12px is the whole tolerance and deleting its
-         grid-row rule fails this line. */
+         grid-row rule fails this line. Geometry, run headless: the runner's
+         caveat is about PAINT (compositor, scroll, screenshots); grid
+         placement is layout, which headless computes the same way, and this
+         line measures placement only. */
       const ra = await rect('#rail-agents'); const rp = await rect('#rail-projects');
       say(!!ra && !!rp && Math.abs(ra.y - rp.y) <= 12, tag + ': the two rails start at the same height', ra && rp ? ra.y + ' vs ' + rp.y : JSON.stringify({ ra, rp }));
       const said = await none();
@@ -88,28 +109,36 @@ const { chromium } = require('playwright');
   const foldedEmpty = await paintAs(true, false, true);
   say(/^No projects yet\. Press \+ at the top of the narrow column to start one\.$/.test(foldedEmpty || ''), 'no projects, rail folded: press +', JSON.stringify(foldedEmpty));
   say(/Pick a project on the left/.test((await paintAs(false, false, false)) || ''), 'before the first read: never "No projects yet"');
-  say(/Pick a project on the left/.test((await paintAs(true, true, false)) || ''), 'after a failed read: never "No projects yet"');
+  say((await paintAs(true, true, false)) === null, 'after a failed read, rail open: silence beside the rail\'s own message');
+  say(/folded; press ›/.test((await paintAs(true, true, true)) || ''), 'after a failed read, rail folded: open the column and see');
 
   // open a project: the sentence goes
   const first = await pg.$('#pj-list [data-project]');
   if (first) {
     await first.click(); await pg.waitForTimeout(700);
     say((await none()) === null, 'a project open: the sentence is gone');
-    say((await rect('#pj-one-view')) !== null, 'a project open: the project page is up');
+    say(await up('#pj-one-view'), 'a project open: the project page is up');
   } else {
     say(false, 'the board has a project to open (this check needs one)');
   }
 
   // the tab view keeps the person's org chart and never shows the sentence
   await style('tabs');
-  await pg.goto(URL + '/?tab=agents', { waitUntil: 'networkidle' }); await pg.waitForTimeout(900);
+  await pg.goto(URL + '/?tab=agents', { waitUntil: 'networkidle' }); await settled(false);
   say(!(await pg.evaluate(() => document.body.classList.contains('consolidated'))), 'tabs: the consolidated view is down');
-  say((await rect('#orgview')) !== null, 'tabs, agents left on org: the org chart is painted');
+  say(await up('#orgview'), 'tabs, agents left on org: the org chart is painted');
   say((await none()) === null, 'tabs: the sentence is never shown');
   // positive control for the grid absence lines above: the grid does paint when asked for
   await pg.evaluate(() => localStorage.setItem('kosmos.layout.agents', 'grid'));
-  await pg.reload({ waitUntil: 'networkidle' }); await pg.waitForTimeout(900);
-  say((await rect('#grid')) !== null, 'tabs, agents left on grid: the grid is painted (control)');
+  await pg.reload({ waitUntil: 'networkidle' }); await settled(false);
+  say(await up('#grid'), 'tabs, agents left on grid: the grid is painted (control)');
+  // leaving the consolidated view without a reload (the resize handler's path): the chart comes back
+  await pg.evaluate(() => localStorage.setItem('kosmos.layout.agents', 'org'));
+  await style('consolidated'); await pg.reload({ waitUntil: 'networkidle' }); await settled(true);
+  say((await rect('#orgview')) === null, 'back in the consolidated view: the chart is hidden again');
+  await pg.evaluate(() => { document.documentElement.setAttribute('data-layout', 'tabs'); showTab('agents'); });
+  await pg.waitForTimeout(300);
+  say(await up('#orgview'), 'to tabs without a reload: the chart is painted again on the same tick');
   } finally {
     /* Whatever happened, the sandbox's saved layout goes back to tabs and the
        browser closes; a selector timeout must not leave the next check on a
