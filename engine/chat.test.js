@@ -867,6 +867,22 @@ test('#874: an agent whose sign-in failed is told apart from "we could not tell"
   assert.equal(chat.waitingNote('auth_failed', chat.DELIVERY.UNCONFIRMED), 'its Claude sign-in was not working');
 });
 
+test('#874: test-support/fleet arranges an auth_failed agent for real, not just a hand-built card', () => {
+  // Found in challenge-loop review: SCREEN (test-support/fleet.js) had no
+  // entry for the new state, so `fleet.agent('x', { state: 'auth_failed' })`
+  // would have fed classify() a null screen (an unreadable pane) and
+  // install()'s own verify() step would throw loudly -- not silently wrong,
+  // but not usable either. This proves the fixture now works end to end,
+  // through the real classifier, the same way every other state in
+  // test-support/fleet.js's SCREEN map is proven.
+  withFleet([fleet.agent('roger', { state: 'auth_failed' })], (board) => {
+    const card = board.card('roger');
+    assert.equal(card.state, 'auth_failed');
+    assert.equal(card.stateConfidence, 'scraped');
+    assert.match(card.stateEvidence, /OAuth access token is invalid/);
+  });
+});
+
 test('the note is kept WITH the message, so "why did nothing happen" is answerable later', () => {
   const kept = chat.appendMessage('notes', 'casey', {
     text: 'have a look at the lease',
