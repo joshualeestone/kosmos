@@ -240,10 +240,15 @@ test('the page is a page: no Escape handler and no focus trap on it', () => {
      and the Escape are gone for BOTH task surfaces, on purpose. The old
      control here asserted the modal KEPT them, which was right while it
      was a modal and is the regression direction now. */
-  assert.equal(SCRIPT.includes("['nt-modal'"), false, 'the focus trap still lists the retired new-task modal');
-  assert.equal(PAGE.includes('id="nt-modal"'), false, 'the new-task modal markup is still in the page');
-  assert.ok(PAGE.includes('id="pj-newtask-view"'), 'the new-task page is gone with nothing in its place');
-  assert.ok(SCRIPT.includes('leaveNewTask'), 'the page has no leave, so Back is dead');
+  /* #766 (Josh, 2026-08-24 22:09) reversed #383 for the NEW-task half only:
+     it is a dialog again, because the page "has so much empty space". The
+     task page itself stays a page (no Escape, no trap). */
+  assert.ok(PAGE.includes('id="nt-modal"'), 'the new-task dialog is gone');
+  assert.equal(PAGE.includes('id="pj-newtask-view"'), false, 'the new-task page is still in the markup beside the dialog');
+  assert.match(SCRIPT, /if \(!document\.getElementById\('nt-modal'\)\.hidden\) leaveNewTask\(\);/, 'Escape does not leave the dialog');
+  assert.ok(SCRIPT.includes('leaveNewTask'), 'the dialog has no leave, so Cancel is dead');
+  assert.doesNotMatch(SCRIPT, /getElementById\('nt-back'\)\.textContent = /, 'the dialog\'s Cancel is relabelled with the project\'s name (the old page\'s Back)');
+  assert.match(PAGE, /<button class="btn" id="nt-back" type="button">Cancel<\/button>/);
 });
 
 test('the poll repaints the task page, not only the project under it', () => {
@@ -255,7 +260,7 @@ test('the poll repaints the task page, not only the project under it', () => {
 });
 
 test('the view is one of the project views, so opening it puts the others away', () => {
-  assert.match(SCRIPT, /for \(const v of \['list', 'one', 'add', 'settings', 'task', 'newtask', 'docs'\]\)/);
+  assert.match(SCRIPT, /for \(const v of \['list', 'one', 'add', 'settings', 'task', 'docs'\]\)/, 'newtask is a dialog, not a view (#766)');
 });
 
 test('the new-task page keeps typed words across Back, and never across projects (#383)', () => {
