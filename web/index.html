@@ -17293,18 +17293,29 @@ function paintPjNone(which) {
   el.hidden = !show;
   if (!show) return;
   const cls = document.body.classList;
-  const empty = PJ_LOADED_ONCE && PROJECTS.length === 0;
+  /* "No projects" is a claim: only after a read that succeeded and came back
+     empty. A failed read leaves the rail saying it cannot look, and this
+     sentence must not contradict it. */
+  const empty = PJ_LOADED_ONCE && !PJ_READ_FAILED && PROJECTS.length === 0;
+  let say;
   if (cls.contains('fold-p')) {
-    /* With both rails folded there are two narrow columns, each with a
-       \u203a at its top, and the first one opens the agents rail. */
-    el.textContent = 'Nothing is open. The projects list is folded; press \u203a at the top of the '
-      + (cls.contains('fold-a') ? 'second narrow column' : 'narrow column') + ' to open it, then '
-      + (empty ? 'press + to start a project.' : 'pick a project.');
+    /* With both rails folded there are two narrow columns, each with its
+       buttons at the top, and the first one belongs to the agents rail. The
+       + survives the fold, so an empty board is told to press it, not to
+       open the column first. */
+    const col = cls.contains('fold-a') ? 'second narrow column' : 'narrow column';
+    say = empty
+      ? 'No projects yet. Press + at the top of the ' + col + ' to start one.'
+      : 'Nothing is open. The projects list is folded; press \u203a at the top of the ' + col + ' to open it, then pick a project.';
   } else if (empty) {
-    el.textContent = 'No projects yet. Press + at the top of the projects column to start one.';
+    /* The open rail already shows its own "No projects yet" card with the
+       Add a project button; saying it twice, beside it, helps nobody. */
+    say = '';
   } else {
-    el.textContent = 'Nothing is open yet. Pick a project on the left, or press + to start one.';
+    say = 'Nothing is open yet. Pick a project on the left, or press + to start one.';
   }
+  el.hidden = !say;
+  if (el.textContent !== say) el.textContent = say;
 }
 function railFoldsApply() {
   for (const k of ['a', 'p']) {
@@ -20180,6 +20191,7 @@ async function loadProjects() {
   } catch {
     if (mine !== PJ_GEN) return false;
     PJ_READ_FAILED = true;
+    paintPjNone();
     // ⚠️ Reported where the person is LOOKING, not only into the list. Both the
     // add-member and remove-member paths call this from the one-project view,
     // where `#pj-list` is hidden -- so a failed refresh left the member list

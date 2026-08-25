@@ -13,7 +13,7 @@
  * and says it differently when the projects rail is folded, because a blank
  * centre with both rails folded read as "I have no way to get back".
  *
- *   node docs/browser-checks/render-consolidated-layouts.js http://127.0.0.1:17010
+ *   node docs/browser-checks/render-consolidated-layouts.js <url>     (default http://127.0.0.1:17471)
  *
  * Needs a board with at least one project. Leaves the layout on tabs.
  */
@@ -74,11 +74,21 @@ const { chromium } = require('playwright');
   say((await none()) === null, 'New project form open, then a fold press: the sentence stays hidden');
   await pg.click('#rail-agents-fold'); await pg.click('#pj-add-back'); await pg.waitForTimeout(400);
 
-  // a board with no projects: the sentence says so, but only after a read
-  const emptySaid = await pg.evaluate(() => { const keep = PROJECTS; PROJECTS = []; PJ_LOADED_ONCE = true; paintPjNone('list'); const t = document.getElementById('pj-none').textContent; PROJECTS = keep; paintPjNone('list'); return t; });
-  say(/^No projects yet\. Press \+/.test(emptySaid), 'no projects: the sentence says so', JSON.stringify(emptySaid));
-  const unreadSaid = await pg.evaluate(() => { const keep = PROJECTS; PROJECTS = []; PJ_LOADED_ONCE = false; paintPjNone('list'); const t = document.getElementById('pj-none').textContent; PROJECTS = keep; PJ_LOADED_ONCE = true; paintPjNone('list'); return t; });
-  say(/Pick a project on the left/.test(unreadSaid), 'before the first read: never "No projects yet"', JSON.stringify(unreadSaid));
+  // a board with no projects: the open rail's own card says it, so the sentence stays hidden;
+  // folded, the sentence says press + (the + survives the fold); a failed read never says "no projects"
+  const paintAs = (loaded, failed, foldP) => pg.evaluate(([l, f, p]) => {
+    const keep = { P: PROJECTS, L: PJ_LOADED_ONCE, F: PJ_READ_FAILED, fp: document.body.classList.contains('fold-p') };
+    PROJECTS = []; PJ_LOADED_ONCE = l; PJ_READ_FAILED = f; document.body.classList.toggle('fold-p', p);
+    paintPjNone('list');
+    const el = document.getElementById('pj-none'); const t = el.hidden ? null : el.textContent;
+    PROJECTS = keep.P; PJ_LOADED_ONCE = keep.L; PJ_READ_FAILED = keep.F; document.body.classList.toggle('fold-p', keep.fp); paintPjNone('list');
+    return t;
+  }, [loaded, failed, foldP]);
+  say((await paintAs(true, false, false)) === null, 'no projects, rail open: the sentence is hidden (the rail card says it)');
+  const foldedEmpty = await paintAs(true, false, true);
+  say(/^No projects yet\. Press \+ at the top of the narrow column to start one\.$/.test(foldedEmpty || ''), 'no projects, rail folded: press +', JSON.stringify(foldedEmpty));
+  say(/Pick a project on the left/.test((await paintAs(false, false, false)) || ''), 'before the first read: never "No projects yet"');
+  say(/Pick a project on the left/.test((await paintAs(true, true, false)) || ''), 'after a failed read: never "No projects yet"');
 
   // open a project: the sentence goes
   const first = await pg.$('#pj-list [data-project]');
