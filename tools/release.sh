@@ -368,7 +368,7 @@ echo "== 8. deploy, from an export of the COMMITTED site plus the named artifact
 # whatever anybody had uncommitted in the shared checkout (a half-edited
 # homepage twice during the 0.5.22 cut, caught by hand), and the gitignored
 # release artifacts reached production only through that accident. The
-# export is `git archive HEAD` (the pages as committed, which 7b just pushed)
+# export is `git archive` of the sha 7b pushed (the pages as committed)
 # plus each artifact class by name (tools/lib/site-deploy.sh says which and
 # why), and it prints what the working tree holds that does NOT ship. It
 # lives under BUILD_ROOT so the 2b trap removes it.
@@ -455,10 +455,10 @@ for i in 1 2 3 4 5 6; do
           _pkg_fact="the served sidecar vouches for other bytes ($(pkg_sidecar_pkgsha "$_pkg_dir/inputs" | cut -c1-12)) than the served pkg's (${_pkg_real:0:12})"
           if [ "$(pkg_sidecar_pkgsha "$_pkg_dir/inputs")" = "$_pkg_real" ]; then
             _pkg_fact="the served Kosmos.pkg is not the one the export deployed (an edge is holding the prior pair)"
-            # Against the EXPORT's copy (the file that deployed, still under
-            # BUILD_ROOT), not the shared working tree, which can be replaced
-            # during the ten-minute wait.
-            if cmp -s "$_pkg_dir/Kosmos.pkg" "${_site_export:-$SITE}/dist/Kosmos.pkg"; then _pkg_ok=1; break; fi
+            # Against the EXPORT's copy (the file that deployed; a real copy
+            # under BUILD_ROOT, not a link), not the shared working tree, which
+            # can be replaced in place during the ten-minute wait.
+            if cmp -s "$_pkg_dir/Kosmos.pkg" "$_site_export/dist/Kosmos.pkg"; then _pkg_ok=1; break; fi
           fi
         fi
       fi

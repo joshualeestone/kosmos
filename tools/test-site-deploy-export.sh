@@ -99,6 +99,20 @@ rm "$S/vercel.json"; rm -rf "$T/out8"; man="$(site_deploy_export "$S" "$T/out8")
 [ -f "$T/out8/vercel.json" ] && ok "a file deleted in the working tree still deploys as committed" || bad "a working-tree deletion reached the export"
 printf '%s\n' "$man" | grep -q "deleted:   vercel.json (deploys as committed)" && ok "and the manifest says deleted" || bad "the deletion was not described as deleted: $man"
 git -C "$S" checkout -q -- vercel.json
+# a staged rename is two records under -z; the old name must not be re-parsed as a path.
+git -C "$S" mv vercel.json about.json
+rm -rf "$T/out13"; man="$(site_deploy_export "$S" "$T/out13")"
+printf '%s\n' "$man" | grep -q "renamed, not committed: vercel.json -> about.json" && ok "a staged rename is described with both names" || bad "the rename was mangled: $man"
+# (the mangled form was a status word followed by the old name minus its first three characters)
+printf '%s\n' "$man" | grep -qE "(modified|untracked|ignored|deleted): +cel\.json" && bad "a truncated path leaked into the manifest: $man" || ok "no truncated path in the manifest"
+[ -f "$T/out13/vercel.json" ] && [ ! -e "$T/out13/about.json" ] && ok "the rename deploys as committed, under the old name" || bad "the rename reached the export"
+git -C "$S" mv about.json vercel.json
+# the status listing's failure is seen WITHOUT the caller's pipefail (a clean-tree claim came from tr's 0 before).
+rm -rf "$T/out14"; if ( set +o pipefail; PATH="$T/bin:$PATH" site_deploy_export "$S" "$T/out14" ) >"$T/man14" 2>"$T/err14"; then bad "a failing git status did not refuse without pipefail: $(cat "$T/man14")"; else grep -q "could not list the working tree" "$T/err14" && [ ! -e "$T/out14" ] && ok "a failing git status refuses without the caller's pipefail, and leaves nothing" || bad "wrong reason or dir remained: $(cat "$T/err14")"; fi
+# the pkg triple is COPIED, not linked: an in-place overwrite of the shared pkg must not change the export's copy.
+rm -rf "$T/out15"; site_deploy_export "$S" "$T/out15" >/dev/null; printf 'OVERWRITTEN\n' > "$S/dist/Kosmos.pkg"
+[ "$(cat "$T/out15/dist/Kosmos.pkg")" = "PKG" ] && ok "the export's pkg is a copy: an in-place overwrite of the shared dist does not reach it" || bad "the export's pkg followed an in-place overwrite (hard link)"
+printf 'PKG\n' > "$S/dist/Kosmos.pkg"
 # the archive's failure is seen WITHOUT the caller's pipefail (an empty site read as ready before).
 printf '#!/bin/bash\norig=("$@"); sub=""; while [ $# -gt 0 ]; do case "$1" in -C|-c) shift 2;; -*) shift;; *) sub="$1"; break;; esac; done\n[ "$sub" = archive ] && exit 128\nexec %s "${orig[@]}"\n' "$REALGIT" > "$T/bin/git-noarchive"; chmod +x "$T/bin/git-noarchive"
 mkdir -p "$T/bin2"; cp "$T/bin/git-noarchive" "$T/bin2/git"

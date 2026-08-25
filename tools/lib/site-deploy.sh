@@ -35,7 +35,8 @@
 #   in the release log is the link from a deployment to its commit.
 #
 # Usage: source, then `site_deploy_export <site-checkout> <out-dir> [commit]`.
-# The commit defaults to HEAD; the release passes the sha it pushed in 7b,
+# The commit defaults to HEAD; the release passes the sha it pushed in 7b (read
+# before the push, pushed by name),
 # because the site checkout is shared and a commit can land between the push
 # and the archive, and that one would ship unpushed.
 # Prints a manifest; returns 0 on an export ready to deploy, 1 on a refusal
@@ -93,9 +94,15 @@ site_deploy_export() {
   # a pkg in the site dist, and that is a refusal, not a carry.
   if [ -f "$site/dist/Kosmos.pkg" ]; then
     for f in Kosmos.pkg.sha256 Kosmos.pkg.inputs; do
-      [ -f "$site/dist/$f" ] || { echo "site_deploy_export: dist/Kosmos.pkg is present without dist/$f; the triple deploys whole or not at all (3c publishes all three)" >&2; rm -rf "$out"; return 1; }
+      [ -f "$site/dist/$f" ] || { echo "site_deploy_export: dist/Kosmos.pkg is present without dist/$f; the triple deploys whole or not at all. Inside a cut, 3c publishes all three before this runs; by hand, run the release or remove the orphan pair." >&2; rm -rf "$out"; return 1; }
     done
-    for f in Kosmos.pkg Kosmos.pkg.sha256 Kosmos.pkg.inputs; do _site_carry "$site/dist/$f" "$out/dist/" || { rm -rf "$out"; return 1; }; _SITE_CARRIED="${_SITE_CARRIED}dist/$f${_SITE_NL}"; done
+    # COPIED, not linked: 9c compares the served pkg to this copy after the
+    # deploy, and a hard link would follow an in-place overwrite of the
+    # shared dist (3c's own cp is one; a concurrent cut is another) and re-aim
+    # 9c at bytes this cut never deployed (measured: link count 2, new bytes
+    # on both). The triple is 21 KB; the link only earns its keep on the
+    # tarball set, whose served copy 9b compares against the frozen tree.
+    for f in Kosmos.pkg Kosmos.pkg.sha256 Kosmos.pkg.inputs; do cp "$site/dist/$f" "$out/dist/" || { rm -rf "$out"; return 1; }; _SITE_CARRIED="${_SITE_CARRIED}dist/$f${_SITE_NL}"; done
     echo "   carried: the pkg triple (Kosmos.pkg, .sha256, .inputs)"
   else
     echo "   carried: no pkg (dist/Kosmos.pkg is not in the site dist)"
@@ -105,7 +112,7 @@ site_deploy_export() {
   echo "   pages:   commit $head"
   # What the working tree holds that this export does NOT ship, named, so a
   # person who expected a file to go live sees why it did not.
-  _site_left_behind "$site" || { rm -rf "$out"; return 1; }
+  _site_left_behind "$site" "$out" || { rm -rf "$out"; return 1; }
   return 0
 }
 
@@ -126,21 +133,32 @@ _site_carry() {   # <file> <dir/>
 # answer from a failing git status used to print "left behind: nothing", a
 # positive clean-tree claim made from a tool failure.
 _site_left_behind() {
-  local site="${1:?}" line path kind any=0 listing errf
-  errf="$(mktemp "${TMPDIR:-/tmp}/site-status-err.XXXXXX")" || return 1
+  local site="${1:?}" out="${2:?}" line path kind any=0 listf errf oldname
+  listf="$(mktemp "$out.status.XXXXXX")" || return 1
+  errf="$(mktemp "$out.status-err.XXXXXX")" || { rm -f "$listf"; return 1; }
   # -z: NUL-delimited, NEVER quoted. Porcelain v1 without -z C-quotes a name
   # with a space (whatever core.quotePath says) and a non-ASCII name, so a
   # carried "x y.tar.gz" missed the carried list and was printed as left
   # behind while it shipped (measured).
-  listing="$(git -C "$site" status --porcelain -z --ignored --untracked-files=all 2>"$errf" | tr '\0' '\n')" || { echo "site_deploy_export: could not list the working tree of $site (git status failed: $(tr '\n' ' ' < "$errf"))" >&2; rm -f "$errf"; return 1; }
+  # ⚠️ WRITTEN TO A FILE AND GIT'S OWN STATUS TESTED, not piped through tr:
+  # in a caller without pipefail, tr's 0 hid a failing git status and the
+  # function printed "left behind: nothing" (measured). Same rule as the
+  # archive above: the promise holds on its own.
+  if ! git -C "$site" status --porcelain -z --ignored --untracked-files=all > "$listf" 2>"$errf"; then
+    echo "site_deploy_export: could not list the working tree of $site (git status failed: $(tr '\n' ' ' < "$errf"))" >&2; rm -f "$listf" "$errf"; return 1
+  fi
   rm -f "$errf"
-  while IFS= read -r line; do
+  while IFS= read -r -d '' line; do
     [ -n "$line" ] || continue
     # porcelain: two status columns, a space, the path (the first column can
-    # itself be a space, so this is a cut by position, not by word). With -z
-    # a rename is two records (new, then old); the old name is listed as a
-    # path of its own and reads as "renamed".
+    # itself be a space, so this is a cut by position, not by word).
     kind="${line:0:2}"; path="${line:3}"
+    # With -z a rename or copy is TWO records: "R  new", then the bare old
+    # name. The old name is consumed here, not re-parsed as a record (that
+    # cut its first three characters off and printed a file that does not
+    # exist, measured).
+    oldname=""
+    case "$kind" in R?|C?) IFS= read -r -d '' oldname || oldname="";; esac
     case "$_SITE_CARRIED" in *"${_SITE_NL}${path}${_SITE_NL}"*) continue;; esac
     case "$path" in
       .vercel/|.vercel/*) continue;;
@@ -151,13 +169,12 @@ _site_left_behind() {
       '!!') echo "     ignored:   $path";;
       '??') echo "     untracked: $path";;
       A?)   echo "     staged, not committed: $path (does not deploy)";;
-      R?)   echo "     renamed, not committed: $path (deploys as committed)";;
+      R?|C?) echo "     renamed, not committed: $oldname -> $path (deploys as committed, under the old name)";;
       ?D|D?) echo "     deleted:   $path (deploys as committed)";;
       *)    echo "     modified:  $path (deploys as committed)";;
     esac
-  done <<EOS
-$listing
-EOS
+  done < "$listf"
+  rm -f "$listf"
   [ "$any" = 1 ] || echo "   left behind: nothing (the working tree is the commit plus the named artifacts)"
   return 0
 }
