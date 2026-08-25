@@ -73,6 +73,9 @@ function folder(name) {
  * The seam is restored immediately: these tests pass the cards in as a VALUE,
  * they do not have the engine look at tmux itself.
  */
+// #763: a pane whose SCREEN says working while its REPORT says needs_you, so a
+// needs_you card can only have come from the report.
+const WORKING_SCREEN = 'Reading the lease\n· Working (esc to interrupt)\n';
 function cards(specs) {
   const board = fleet.install(specs);
   try {
@@ -433,13 +436,55 @@ test('a member we cannot see stays in the list, as unknown', () => {
 
 test('the row summary counts what it can see AND says what it could not', () => {
   reset();
-  projects.create({ name: 'Mixed', folder: folder('mixed'), agents: ['mara', 'claudebot', 'ghost'] });
-  const [described] = projects.list(ROSTER);
+  /* #763: Needs you is counted per project, from the report's project. The
+     roster is built by the real status engine from a recorded report, not from
+     an invented card, so this is the seam the tile actually reads. */
+  const selfreport = require('./selfreport');
+  const mixed = projects.create({ name: 'Mixed', folder: folder('mixed'), agents: ['mara', 'claudebot', 'ghost'] });
+  const other = projects.create({ name: 'Other', folder: folder('other'), agents: ['claudebot'] });
+  assert.equal(selfreport.record('claudebot', { state: 'needs_you', because: 'Which domain?', project: mixed.id }).recorded, true);
+  const roster = cards([fleet.agent('mara', { state: 'working' }), fleet.agent('claudebot', { state: 'needs_you' })]);
+  const described = projects.list(roster).find((p) => p.id === mixed.id);
+  const otherRow = projects.list(roster).find((p) => p.id === other.id);
 
   assert.equal(described.summary.total, 3);
   assert.equal(described.summary.working, 1);
-  assert.equal(described.summary.needsYou, 1);
+  assert.equal(described.summary.needsYou, 1, 'the question named this project');
+  assert.equal(described.summary.needsYouElsewhere, 0);
+  assert.equal(described.summary.needsYouInferred, 0, 'stated by the report itself');
   assert.equal(described.summary.unseen, 1, 'a summary that hides its own blind spot is the defect');
+  assert.equal(otherRow.summary.needsYou, 0, 'the same agent is on Other too, and its question was not about Other (#763: four of seven tiles lit)');
+  assert.equal(otherRow.summary.needsYouElsewhere, 1, 'a screen may still say someone here needs you about something else');
+  assert.equal(otherRow.summary.needsYouUnattributed, 0);
+
+  /* Unattributed: a question that names no project (and no earlier report
+     named one) lights no project; it is read on the Agents page. */
+  assert.equal(selfreport.record('claudebot', { state: 'stopped' }).recorded, true);
+  assert.equal(selfreport.record('claudebot', { state: 'needs_you', because: 'a question with no project' }).recorded, true);
+  const roster2 = cards([fleet.agent('mara', { state: 'working' }), fleet.agent('claudebot', { state: 'needs_you', screen: WORKING_SCREEN })]);
+  const again = projects.list(roster2).find((p) => p.id === mixed.id);
+  assert.equal(again.summary.needsYou, 0, 'unattributed: no project lights');
+  assert.equal(again.summary.needsYouElsewhere, 0, 'about no project is not about another project');
+  assert.equal(again.summary.needsYouUnattributed, 1);
+
+  /* Inferred: a report names the project, a later question names none. The
+     tile lights, and the data says it rests on a carried-forward project. */
+  assert.equal(selfreport.record('claudebot', { state: 'working', project: mixed.id }).recorded, true);
+  assert.equal(selfreport.record('claudebot', { state: 'needs_you', because: 'asking permission to use Bash' }).recorded, true);
+  const roster3 = cards([fleet.agent('mara', { state: 'working' }), fleet.agent('claudebot', { state: 'needs_you' })]);
+  const third = projects.list(roster3).find((p) => p.id === mixed.id);
+  assert.equal(third.summary.needsYou, 1, 'lit by the carried-forward project');
+  assert.equal(third.summary.needsYouInferred, 1, 'and the summary admits it is an inference');
+  assert.equal(third.agents.find((a) => a.sessionName === 'claudebot').stateProjectInferred, true);
+  assert.equal(roster2.find((a) => a.sessionName === 'claudebot').state, 'needs_you', 'the agent itself still shows needs_you (the Agents page); its screen says working, so this is the report');
+
+  /* An id no project owns (a name typed instead of an id) is nobody's question. */
+  assert.equal(selfreport.record('claudebot', { state: 'needs_you', project: 'Mixed' }).recorded, true);
+  const roster4 = cards([fleet.agent('mara', { state: 'working' }), fleet.agent('claudebot', { state: 'needs_you', screen: WORKING_SCREEN })]);
+  const fourth = projects.list(roster4).find((p) => p.id === mixed.id);
+  assert.equal(fourth.summary.needsYou, 0);
+  assert.equal(fourth.summary.needsYouElsewhere, 0, 'an unknown id is not "another project"');
+  assert.equal(fourth.summary.needsYouUnattributed, 1);
 });
 
 test('a member we can see but cannot READ is counted as unseen, not as fine', () => {

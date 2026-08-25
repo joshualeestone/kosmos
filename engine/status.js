@@ -2686,7 +2686,17 @@ function reconcileReport(reported, scraped, nowMs) {
   }
   // Rule 3: the red stands.
   if (scraped.state === STATE.NEEDS_YOU && reported.state !== 'needs_you') {
-    return { ...scraped, reported: false, conflict: 'its screen shows a question its reports do not mention' };
+    /* #763: a question read off the screen beside a report that named a
+       project (or inherited one) is about that project as far as anyone can
+       tell: the same inference the hook's project-less needs_you gets, and
+       marked as one. Null project when the reports named none. */
+    // Only from a report young enough to still describe what the agent is doing
+    // (the same decay rule 5 applies to a working report): a two-day-old naming
+    // must not attribute today's question. Fewer false lights.
+    const at3 = Date.parse(reported.at || '');
+    const fresh3 = Number.isFinite(at3) && (nowMs - at3) <= REPORT_WORKING_DECAY_MS;
+    const p = (fresh3 && typeof reported.project === 'string' && reported.project) ? reported.project : null;
+    return { ...scraped, reported: false, conflict: 'its screen shows a question its reports do not mention', project: p, projectInferred: p !== null };
   }
 
   if (reported.state === 'working') {
@@ -2706,7 +2716,9 @@ function reconcileReport(reported, scraped, nowMs) {
     };
   }
   if (reported.state === 'needs_you') {
-    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said('it is asking you something'), reported: true, conflict: null };
+    /* #763: the question's project rides on the state, so a project tile can
+       light for its own question only. Null when the agent named none. */
+    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said('it is asking you something'), reported: true, conflict: null, project: (typeof reported.project === 'string' && reported.project) ? reported.project : null, projectInferred: reported.projectInferred === true };
   }
   if (reported.state === 'blocked') {
     const what = reported.on ? 'it is waiting on ' + reported.on + (reported.owner ? ', which ' + reported.owner + ' owns' : '')
@@ -2800,6 +2812,13 @@ function snapshot() {
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,
+      /* #763: which project a reported needs_you is about; null for a scraped
+         question and for a report that named no project. */
+      stateProject: (typeof status.project === 'string' && status.project) ? status.project : null,
+      /* true when no report attributed THIS question to that project: the
+         project came from an earlier report (the hook's question, or a
+         question read off the screen). A lit tile that rests on an inference. */
+      stateProjectInferred: status.projectInferred === true,
       /* The line the classifier actually matched, when it has one. Null for
          every state that did not read a sentence off the screen. */
       stateEvidence: status.evidence || null,

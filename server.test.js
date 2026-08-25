@@ -10515,7 +10515,7 @@ test('the report route derives the sender from the pane, records, and the board 
     const r = await req('/api/report', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ state: 'working', text: 'wiring the report route', from_pane: '%7' }),
+      body: JSON.stringify({ state: 'working', text: 'wiring the report route', from_pane: '%7', project: 'p-763' }),
     });
     assert.equal(r.status, 200);
     assert.equal(JSON.parse(r.body).recorded, true, 'the report was not kept: ' + r.body);
@@ -10526,6 +10526,7 @@ test('the report route derives the sender from the pane, records, and the board 
     const kept = selfreportEngine.read('peteworker');
     assert.equal(kept.state, 'working');
     assert.equal(kept.because, 'wiring the report route');
+    assert.equal(kept.project, 'p-763', '#763: the project the report is about is kept with it');
 
     const st = await req('/api/status');
     const row = JSON.parse(st.body).agents.find((a) => a.sessionName === 'peteworker');
@@ -10534,6 +10535,39 @@ test('the report route derives the sender from the pane, records, and the board 
     assert.equal(row.stateReported, true);
     assert.equal(row.because, 'wiring the report route');
     assert.equal(row.stateConflict, null);
+
+    /* #763, end to end: a needs_you that names a project lights that project's
+       count and not another the agent is also on; the card carries the
+       project; a later question with no project inherits it. */
+    const projectsEngine763 = require('./engine/projects');
+    const pdirA = nodePath.join(SANDBOX, 'p763-a'); const pdirB = nodePath.join(SANDBOX, 'p763-b');
+    fs.mkdirSync(pdirA, { recursive: true }); fs.mkdirSync(pdirB, { recursive: true });
+    const pa = projectsEngine763.create({ name: 'Christmas plan', folder: pdirA, agents: ['peteworker'], roster: board.agents });
+    const pb = projectsEngine763.create({ name: 'Older project', folder: pdirB, agents: ['peteworker'], roster: board.agents });
+    const q = await req('/api/report', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ state: 'needs_you', text: 'Which venue?', from_pane: '%7', project: pa.id }),
+    });
+    assert.equal(JSON.parse(q.body).recorded, true, q.body);
+    const st2 = JSON.parse((await req('/api/status')).body);
+    const card = (st2.agents || []).find((a) => a.sessionName === 'peteworker');
+    assert.equal(card.state, 'needs_you');
+    assert.equal(card.stateProject, pa.id, 'the card carries the project the question is about');
+    const rows = JSON.parse((await req('/api/projects')).body).projects;
+    const rowA = rows.find((p) => p.id === pa.id); const rowB = rows.find((p) => p.id === pb.id);
+    assert.equal(rowA.summary.needsYou, 1, 'the project the question named lights');
+    assert.equal(rowB.summary.needsYou, 0, 'the other project the agent is on does not (#763: four of seven tiles lit)');
+    assert.equal(rowB.summary.needsYouElsewhere, 1);
+    const q2 = await req('/api/report', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ state: 'needs_you', text: 'asking permission to use Bash', from_pane: '%7' }),
+    });
+    assert.equal(JSON.parse(q2.body).recorded, true, q2.body);
+    const rows2 = JSON.parse((await req('/api/projects')).body).projects;
+    assert.equal(rows2.find((p) => p.id === pa.id).summary.needsYou, 1, 'a project-less question (the permission hook) inherits the project the agent last named');
+    assert.equal(rows2.find((p) => p.id === pa.id).summary.needsYouInferred, 1, 'and says the light rests on an inference');
+    assert.equal(rowA.summary.needsYouInferred, 0, 'the earlier, stated one did not');
+    assert.equal(rows2.find((p) => p.id === pb.id).summary.needsYou, 0);
   } finally {
     fs.rmSync(selfreportEngine.fileFor('peteworker'), { force: true });
     messagesEngine.resetForTests();

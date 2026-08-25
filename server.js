@@ -3287,6 +3287,7 @@ const server = http.createServer((req, res) => {
         const who = sender.card.sessionName;
         const kept = selfreport.record(who, {
           state: body.state,
+          project: typeof body.project === 'string' ? body.project : undefined,
           because: body.text,
           on: body.on,
           owner: body.owner,

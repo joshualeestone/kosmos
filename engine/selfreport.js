@@ -49,7 +49,7 @@ const TAIL_BYTES = 64 * 1024;
    `because` is a sentence, not a transcript: the words live on this Mac
    (unlike notify.js's payload, which strips them before anything leaves),
    but a report is still a claim about state, not a place to store output. */
-const CAPS = { because: 1000, on: 200, owner: 200, until: 100 };
+const CAPS = { because: 1000, on: 200, owner: 200, until: 100, project: 120 };
 
 const NO_READING = {
   NEVER_REPORTED: 'it has never reported',
@@ -92,6 +92,10 @@ function record(sessionName, entry) {
     on: capped(entry.on, CAPS.on),
     owner: capped(entry.owner, CAPS.owner),
     until: capped(entry.until, CAPS.until),
+    /* #763: the project this report is about (a project id), when the agent
+       says. A needs_you that names one lights that project alone; one that
+       names none lights no project and is read on the Agents page. */
+    project: capped(entry.project, CAPS.project),
     at,
   };
   try {
@@ -145,6 +149,12 @@ function read(sessionName) {
     try { fs.closeSync(fd); } catch { /* already gone */ }
   }
   let latest = null;
+  /* #763: the project carried forward. A report that names a project sets the
+     agent's current one; later reports that name none inherit it (the
+     permission hook reports needs_you with no project of its own); a stopped
+     report clears it, since nothing from a previous run may leak into this
+     one. */
+  let project = null;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let row;
@@ -158,6 +168,15 @@ function read(sessionName) {
        logic for "latest", but it matters that it REPLACES rather than
        merges: nothing from the previous run may leak into this one. */
     latest = row;
+    /* stopped ends a run; started begins one (a crash leaves no stopped row, so
+       a new run must not inherit the old run's project and light it on the
+       first question). The cost: the hook reports started on every session
+       start, compaction and resume included, so after each the questions go
+       unattributed until the agent names a project again. A missed light,
+       never a wrong one (the direction ruled 2026-08-24 23:05). */
+    if (row.state === 'stopped' || row.state === 'started') project = null;
+    // read AFTER the clear, so `started --project X` starts the run on X.
+    if (typeof row.project === 'string' && row.project) project = row.project;
   }
   if (!latest) return { found: false, because: NO_READING.NEVER_REPORTED };
   return {
@@ -168,6 +187,12 @@ function read(sessionName) {
     owner: latest.owner || null,
     until: latest.until || null,
     at: latest.at || null,
+    project,
+    /* Whether the project came from the latest report itself (stated) or from
+       an earlier one (inferred: no report attributed THIS reading to it). A tile lit by an inference must
+       be tellable from one lit by a statement, or the first wrong carry-forward
+       is unexplainable (Splinter, 2026-08-24 23:05). */
+    projectInferred: project !== null && !(typeof latest.project === 'string' && latest.project),
   };
 }
 
