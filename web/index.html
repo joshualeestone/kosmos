@@ -5484,16 +5484,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <div class="fhint">Describe what this agent does and how it should work. You can edit this later.</div>
       <textarea id="create-instr" rows="10" spellcheck="false"></textarea>
       <div class="fmsg" id="create-instr-note" role="status" aria-live="polite"></div>
-      <!-- #591: told before the write. Whatever a person writes above, the
-           working rules follow it in the file under their own heading; this
-           says so, and shows them, before the agent exists. The words come
-           from the engine (/api/roles `defaults`), never a copy here. -->
-      <div class="fhint instr-defaults" id="create-instr-defaults">Whatever you write here, your agent also gets Kosmos's working rules: keep going until finished, report what happened, ask before anything it cannot take back.
-        <details class="instr-defaults-fold">
-          <summary class="linkish">Show them</summary>
-          <pre class="instr-defaults-text" id="create-instr-defaults-text"></pre>
-        </details>
-      </div>
+      <!-- #739 (Josh, 2026-08-24 21:16): the block that explained the working
+           rules under this box ("Whatever you write here, your agent also gets
+           Kosmos's working rules... Show them") is gone from this step at his
+           ask: "I just want it to be our nice simple instruction box, the
+           checkbox, and the Create button." The rules themselves still reach
+           the agent's file exactly as before (engine/defaults.js); only the
+           explanation on this screen went. -->
     </div>
 
     <!-- ⚠️ NO BACK BUTTON (Josh, 2026-08-19), and the pack has none here either:
@@ -5523,7 +5520,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          ⚠️ ABOVE THE BUTTON, not below it: below is where a person has already
          decided, and a sentence they read after pressing is a sentence they read
          about something that has happened. -->
-    <p class="rolelimit" id="create-limit" hidden></p>
     <!-- 🔑 ONE ROW: the box on the left, the button on the right (Josh,
          2026-08-22). They were two stacked blocks with the notice between them.
          ⚠️ THE BOX KEEPS ITS OWN NOTE. Unchecking it can produce a sentence
@@ -18102,13 +18098,6 @@ async function loadRoles() {
     OWN_ROLE = (data && data.own) || null;
     /* #591: the working rules, shown under the instructions box. Absent
        from an older engine, the fold hides rather than showing an empty box. */
-    {
-      const pre = document.getElementById('create-instr-defaults-text');
-      const fold = pre && pre.closest('details');
-      const words = data && typeof data.defaults === 'string' ? data.defaults.trim() : '';
-      if (pre) pre.textContent = words;
-      if (fold) fold.hidden = !words;
-    }
     if (!ROLES.length) throw new Error('none came back');
     msg.textContent = '';
     buildPicker();
@@ -18402,9 +18391,6 @@ document.getElementById('role-next').addEventListener('click', () => {
      paragraph still draws a rule down the page. Nineteen of the twenty-eight
      roles take that branch, as does every agent described in the person's own
      words, so it is the common case rather than the edge. */
-  const limit = document.getElementById('create-limit');
-  limit.textContent = role.caution || '';
-  limit.hidden = !role.caution;
   cstep('name');
   document.getElementById('create-name').focus();
 });
