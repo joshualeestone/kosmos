@@ -2432,8 +2432,13 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/usage' && (req.method === 'GET' || req.method === 'HEAD')) {
     let days = 7;
     try { days = Number(new URL(req.url, ROUTING_BASE).searchParams.get('days')) || 7; } catch { days = 7; }
-    try { sendJson(res, 200, usage.dailyUsageByModel(days)); }
-    catch { sendJson(res, 500, { error: 'we could not read token usage' }); }
+    // Async, not a blocking call: usage.dailyUsageByModel reads potentially
+    // hundreds of transcripts (tens of MB) off disk, and a synchronous read
+    // there would stall every other route on this single-threaded server
+    // for the scan's duration -- found in review, fixed at the source.
+    usage.dailyUsageByModel(days)
+      .then((result) => sendJson(res, 200, result))
+      .catch(() => sendJson(res, 500, { error: 'we could not read token usage' }));
     return;
   }
   /**

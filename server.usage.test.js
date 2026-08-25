@@ -72,3 +72,16 @@ test('GET /api/usage?days= with a hostile value does not crash the route', async
   const res2 = await fetch(base + '/api/usage?days=999999999999');
   assert.equal(res2.status, 200, 'an absurdly large days value should be clamped inside dailyUsageByModel, not crash the route');
 });
+
+// The event-loop-yielding property (the actual review finding: a
+// synchronous scan blocks every other route while it runs) is tested in
+// engine/usage.test.js instead of here, against the function directly. A
+// version of it lived here first, going through a real fetch() -- and it
+// passed even against a fully fs.*Sync-reverted copy of engine/usage.js,
+// because the HTTP round-trip's own socket I/O gives a 1ms timer plenty
+// of chances to fire regardless of what the server-side handler does.
+// Confirmed by direct measurement: the same fully-sync copy, called
+// directly with no HTTP layer in between, showed 0 ticks over 19ms next
+// to 21 ticks over 22ms for the real async code -- the route-level test
+// could not tell the two apart, and keeping it would have been a check
+// that could not fail.

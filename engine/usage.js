@@ -36,6 +36,7 @@
  */
 
 const fs = require('node:fs');
+const fsp = fs.promises;
 const path = require('node:path');
 const { configRoots } = require('./status');
 const store = require('./store');
@@ -61,17 +62,26 @@ function emptyBuckets() {
  * nested under `projects/<dir>/<sessionId>/subagents/**\/*.jsonl` --
  * walked recursively, because a subagent's own `spawnDepth` field implies
  * a subagent can itself spawn a subagent, one directory deeper each time.
+ *
+ * ⚠️ ASYNC, NOT fs.*Sync. Directory listings are cheap, but this walk sits
+ * directly ahead of `scanUsage` reading potentially hundreds of files into
+ * the tens of MB each -- async here (and throughout the read path below)
+ * lets Node's event loop interleave other requests (agent status polling
+ * included) between reads, rather than a synchronous call blocking the
+ * ENTIRE single-threaded server for the walk's duration. Found in review:
+ * the first version used fs.*Sync throughout and would have stalled every
+ * other route on this server for as long as a scan took.
  */
-function walkTranscriptsUnder(root) {
+async function walkTranscriptsUnder(root) {
   const projects = path.join(root, 'projects');
   let projectDirs;
-  try { projectDirs = fs.readdirSync(projects, { withFileTypes: true }); } catch { return []; }
+  try { projectDirs = await fsp.readdir(projects, { withFileTypes: true }); } catch { return []; }
   const files = [];
   for (const projectDir of projectDirs) {
     if (!projectDir.isDirectory()) continue;
     const projectPath = path.join(projects, projectDir.name);
     let entries;
-    try { entries = fs.readdirSync(projectPath, { withFileTypes: true }); } catch { continue; }
+    try { entries = await fsp.readdir(projectPath, { withFileTypes: true }); } catch { continue; }
     for (const entry of entries) {
       const entryPath = path.join(projectPath, entry.name);
       if (entry.isFile() && entry.name.endsWith('.jsonl')) {
@@ -88,7 +98,7 @@ function walkTranscriptsUnder(root) {
         // looked usage-shaped. Only a subdirectory actually named
         // `subagents` is walked -- the one real shape a session directory
         // carries.
-        walkSubagentsTree(entryPath, files);
+        await walkSubagentsTree(entryPath, files);
       }
     }
   }
@@ -96,12 +106,12 @@ function walkTranscriptsUnder(root) {
 }
 
 /** Only the `subagents/` child of a session directory, never its other contents. */
-function walkSubagentsTree(sessionDir, out) {
+async function walkSubagentsTree(sessionDir, out) {
   let entries;
-  try { entries = fs.readdirSync(sessionDir, { withFileTypes: true }); } catch { return; }
+  try { entries = await fsp.readdir(sessionDir, { withFileTypes: true }); } catch { return; }
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name === 'subagents') {
-      walkJsonlRecursive(path.join(sessionDir, entry.name), out);
+      await walkJsonlRecursive(path.join(sessionDir, entry.name), out);
     }
   }
 }
@@ -113,12 +123,12 @@ function walkSubagentsTree(sessionDir, out) {
  * subagents/ tree (unlike walkSubagentsTree, which only enters one by
  * name at the session-directory level).
  */
-function walkJsonlRecursive(dir, out) {
+async function walkJsonlRecursive(dir, out) {
   let entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { return; }
   for (const entry of entries) {
     const entryPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) walkJsonlRecursive(entryPath, out);
+    if (entry.isDirectory()) await walkJsonlRecursive(entryPath, out);
     else if (entry.isFile() && entry.name.endsWith('.jsonl')) out.push(entryPath);
   }
 }
@@ -141,13 +151,13 @@ function utcDay(isoTimestamp) {
  * -- the roots list travels with the result so a caller can say "N of N
  * config roots read" rather than imply completeness it cannot back up.
  */
-function scanUsage({ sinceDay, untilDay }) {
+async function scanUsage({ sinceDay, untilDay }) {
   const roots = configRoots();
   const days = {};
   for (const root of roots) {
-    for (const file of walkTranscriptsUnder(root)) {
+    for (const file of await walkTranscriptsUnder(root)) {
       let text;
-      try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
+      try { text = await fsp.readFile(file, 'utf8'); } catch { continue; }
       for (const line of text.split('\n')) {
         if (!line || SYNTHETIC_ROW.test(line)) continue;
         let row;
@@ -171,8 +181,8 @@ function scanUsage({ sinceDay, untilDay }) {
   return { days, rootsRead: roots };
 }
 
-function ensureUsageDir() {
-  fs.mkdirSync(USAGE_DIR, { recursive: true });
+async function ensureUsageDir() {
+  await fsp.mkdir(USAGE_DIR, { recursive: true });
   return USAGE_DIR;
 }
 
@@ -199,13 +209,18 @@ function todayUtc() {
  * config root on every call that has ANY missing day (today always
  * qualifies, since it's never frozen). The freeze only saves the
  * ACCUMULATION work for days already on disk; it does not save the I/O.
- * A stats page polling this on a live schedule will re-read the whole
- * transcript corpus each time -- a real cost on this machine's volumes
- * (hundreds of transcripts, individual files into the tens of MB), and
- * out of scope for this card to solve (it would need a persistent, per-
- * file byte-offset cursor so an already-fully-read file only has its NEW
- * bytes reparsed on the next call -- a genuinely separate piece of work,
- * not a corner cut here).
+ * A stats page polling this on a live schedule will still cost real time
+ * and real disk I/O on this machine's volumes (hundreds of transcripts,
+ * individual files into the tens of MB) on every call. What this DOES
+ * avoid, because every read on this path is async (fs.promises, not
+ * fs.*Sync): it does not block Node's single event loop while doing so --
+ * without that, every OTHER route on this server (agent status polling
+ * included) would stall for the scan's full duration, found in review as
+ * a real, not hypothetical, consequence of the first synchronous version.
+ * A genuinely cheaper re-scan (a persistent per-file byte-offset cursor,
+ * so an already-fully-read file only has its NEW bytes reparsed next
+ * time) is out of scope for this card -- a separate piece of work, not a
+ * corner cut here, and distinct from the event-loop-blocking fix above.
  *
  * The scan range is narrowed to the missing days' own span (not the full
  * requested window), so at least the ACCUMULATION and per-day freeze work
@@ -227,7 +242,7 @@ function todayUtc() {
 // real "last N days" request.
 const MAX_DAYS = 3650;
 
-function dailyUsageByModel(days = 7) {
+async function dailyUsageByModel(days = 7) {
   const clampedDays = Math.min(MAX_DAYS, Math.max(1, Math.trunc(Number(days)) || 1));
   const today = todayUtc();
   const wanted = [];
@@ -242,7 +257,7 @@ function dailyUsageByModel(days = 7) {
   for (const day of wanted) {
     if (day === today) { missing.push(day); continue; }
     try {
-      byDay[day] = JSON.parse(fs.readFileSync(frozenDayPath(day), 'utf8'));
+      byDay[day] = JSON.parse(await fsp.readFile(frozenDayPath(day), 'utf8'));
     } catch {
       missing.push(day);
     }
@@ -259,15 +274,15 @@ function dailyUsageByModel(days = 7) {
     const missingSorted = [...missing].sort();
     const sinceDay = missingSorted[0];
     const untilDay = missingSorted[missingSorted.length - 1];
-    const scanResult = scanUsage({ sinceDay, untilDay });
+    const scanResult = await scanUsage({ sinceDay, untilDay });
     rootsRead = scanResult.rootsRead;
     for (const day of missing) {
       const byModel = scanResult.days[day] || {};
       byDay[day] = byModel;
       if (day !== today) {
         try {
-          ensureUsageDir();
-          fs.writeFileSync(frozenDayPath(day), JSON.stringify(byModel), 'utf8');
+          await ensureUsageDir();
+          await fsp.writeFile(frozenDayPath(day), JSON.stringify(byModel), 'utf8');
         } catch { /* best effort: a failed freeze just means this day rescans next time */ }
       }
     }
