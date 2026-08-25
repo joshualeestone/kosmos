@@ -1,6 +1,6 @@
 # render-reload-toast pins ENGINE_STALE, so it stops reading the machine's own file-freshness (#758-shaped, escalated by Splinter 01:00 CDT)
 
-Branch `toast-engine-pin-758`. Splinter's candidate, confirmed by reading the code rather than testing the theory directly (no reproduction attempted -- the mechanism is unambiguous from the source).
+Branch `toast-engine-pin-758`. Splinter's candidate. This section was written before the fix was implemented, from reading the code alone -- the mechanism below was unambiguous from the source without running anything. **It was then reproduced directly** (see "Finished when"): a real board booted, a required file's mtime bumped mid-run to flip `engineFreshness()` stale, the ORIGINAL unfixed check re-run against that same live board and confirmed to fail with the exact `buttons:0` shape Mona Lisa measured, then the fixed version re-run against the identical stale board and confirmed to pass. Both runs, and the cleanup, are in the commit message.
 
 ## What happened
 
@@ -20,11 +20,11 @@ This is a fixture blind spot, not a product bug: `renderUpdateToast`'s engine-ou
 
 `docs/browser-checks/render-reload-toast.js`: before driving each state, the check's `pg.evaluate` block now also sets `ENGINE_STALE = null` (pinned, not inherited), so a coincidentally-stale spawned server can never leak the engine-changed toast into a check whose whole point is the OTHER toast pair.
 
-## Finished when
+## Finished when (all verified by hand, not just planned)
 
-- A control proves the bug: with `ENGINE_STALE` forced non-null before driving a state (simulating the race), the CURRENT check would fail (or draw the wrong toast); after the fix, it passes regardless of `ENGINE_STALE`'s real value.
-- `render-reload-toast.js` passes against the shared-checkout board the same way it did before, and independently of whether the checkout was touched during the run.
-- Sibling checks that also call `renderUpdateToast` (there are none as of this pass -- `render-updates-stale.js` is a separate toast, driven by `bakedVersion`/`pageIsStale` directly, unaffected) are not touched.
+- ✅ A control proves the bug: booted a real board on port 17371, confirmed `render-reload-toast.js` passed clean, then `touch`ed `engine/projects.js` mid-run and confirmed `/api/status` flipped `engine.staleSince` non-null. Ran the ORIGINAL (pre-fix, `git show origin/main:...`) check against that same now-stale board: it failed six ways with the exact `buttons:0` shape Mona Lisa measured (`the shipped toast still has Later and Install: 0`, `one action and no dismiss: 0`, etc.). Ran the FIXED check against the identical stale board: `all good`, every assertion passed.
+- ✅ `render-reload-toast.js` passes against the shared-checkout board the same way it did before, and independently of whether the checkout was touched during the run (proven by the control above, not just argued).
+- ✅ Sibling checks that also call `renderUpdateToast` (there are none as of this pass -- `render-updates-stale.js` is a separate toast, driven by `bakedVersion`/`pageIsStale` directly, unaffected -- confirmed by grep) are not touched.
 
 ## Not in this change
 
