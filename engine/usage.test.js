@@ -91,6 +91,31 @@ test('a nested sub-subagent (spawnDepth 2) is found by the recursive walk', () =
   assert.equal(days['2026-08-22']['claude-fable-5'].input_tokens, 7, 'a sub-subagent nested two levels deep was not found');
 });
 
+test('a .jsonl in a sibling directory that is NOT named subagents/ is not walked', () => {
+  resetSandbox();
+  const dir = projectDir('proj-c2');
+  // A session directory with a subagents/ tree, exactly like real fixtures.
+  fs.mkdirSync(nodePath.join(dir, 'sessC2', 'subagents'), { recursive: true });
+  fs.writeFileSync(
+    nodePath.join(dir, 'sessC2', 'subagents', 'agent-real.jsonl'),
+    usageRow({ timestamp: '2026-08-22T10:00:00.000Z', model: 'claude-sonnet-5', usage: { input_tokens: 1, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } }) + '\n',
+    'utf8',
+  );
+  // A directory that sits at the SAME level as a session directory but is
+  // not one -- real machines carry these (e.g. `memory/`,
+  // `memory.pre-merge-.../`, per the challenge-loop review that found this).
+  // A stray usage-shaped .jsonl landing in one must not be silently folded in.
+  fs.mkdirSync(nodePath.join(dir, 'memory', 'nested'), { recursive: true });
+  fs.writeFileSync(
+    nodePath.join(dir, 'memory', 'nested', 'stray.jsonl'),
+    usageRow({ timestamp: '2026-08-22T10:00:01.000Z', model: 'claude-opus-5', usage: { input_tokens: 999999, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } }) + '\n',
+    'utf8',
+  );
+  const { days } = usage.scanUsage({ sinceDay: '2026-08-22', untilDay: '2026-08-22' });
+  assert.equal(days['2026-08-22']['claude-sonnet-5'].input_tokens, 1, 'the real subagents/ transcript was not found');
+  assert.equal(days['2026-08-22']['claude-opus-5'], undefined, 'a .jsonl in a non-subagents/ sibling directory was walked and counted');
+});
+
 test('a synthetic row (Claude Code\'s own placeholder usage) is excluded', () => {
   resetSandbox();
   const dir = projectDir('proj-d');

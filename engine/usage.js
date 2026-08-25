@@ -77,14 +77,42 @@ function walkTranscriptsUnder(root) {
       if (entry.isFile() && entry.name.endsWith('.jsonl')) {
         files.push(entryPath);
       } else if (entry.isDirectory()) {
-        // The subagents/ (and any deeper) tree for this session.
-        walkJsonlRecursive(entryPath, files);
+        // ⚠️ SCOPED TO subagents/ TREES SPECIFICALLY, not "any directory
+        // found here". `projects/` can hold entries that are not session
+        // directories at all -- confirmed on this machine: sibling
+        // directories named `memory`, `memory.pre-merge-...`, etc. sit at
+        // this same level. They carry no .jsonl today, so an unscoped
+        // recursive walk happened to come out right by accident; nothing
+        // enforced that boundary, and a future file landing in one of them
+        // would have been silently folded into a day's totals if it merely
+        // looked usage-shaped. Only a subdirectory actually named
+        // `subagents` is walked -- the one real shape a session directory
+        // carries.
+        walkSubagentsTree(entryPath, files);
       }
     }
   }
   return files;
 }
 
+/** Only the `subagents/` child of a session directory, never its other contents. */
+function walkSubagentsTree(sessionDir, out) {
+  let entries;
+  try { entries = fs.readdirSync(sessionDir, { withFileTypes: true }); } catch { return; }
+  for (const entry of entries) {
+    if (entry.isDirectory() && entry.name === 'subagents') {
+      walkJsonlRecursive(path.join(sessionDir, entry.name), out);
+    }
+  }
+}
+
+/**
+ * Everything under a subagents/ tree, recursively -- a nested sub-subagent
+ * (spawnDepth 2+) puts its own subagents/ directory one level deeper, so
+ * this keeps recursing into ANY directory once already inside a
+ * subagents/ tree (unlike walkSubagentsTree, which only enters one by
+ * name at the session-directory level).
+ */
 function walkJsonlRecursive(dir, out) {
   let entries;
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
@@ -162,10 +190,27 @@ function todayUtc() {
 /**
  * Per-day, per-model usage for the last `days` UTC calendar days
  * (including today). A day strictly before today is scanned once and
- * frozen to disk -- transcripts for a completed day do not grow, so
- * re-scanning it is wasted work every future call would otherwise repeat.
- * Today is always re-scanned live, never cached, since its transcripts are
- * still being appended to.
+ * frozen to disk, so a repeat request for that SAME day never re-sums it.
+ *
+ * ⚠️ THIS IS NOT A FULL-CORPUS CACHE, AND SAYING SO WOULD BE DISHONEST.
+ * Transcripts are not date-partitioned -- there is no way to know a file
+ * holds nothing for "today" without reading it -- so `scanUsage` still
+ * reads and JSON.parses every line of every transcript across every
+ * config root on every call that has ANY missing day (today always
+ * qualifies, since it's never frozen). The freeze only saves the
+ * ACCUMULATION work for days already on disk; it does not save the I/O.
+ * A stats page polling this on a live schedule will re-read the whole
+ * transcript corpus each time -- a real cost on this machine's volumes
+ * (hundreds of transcripts, individual files into the tens of MB), and
+ * out of scope for this card to solve (it would need a persistent, per-
+ * file byte-offset cursor so an already-fully-read file only has its NEW
+ * bytes reparsed on the next call -- a genuinely separate piece of work,
+ * not a corner cut here).
+ *
+ * The scan range is narrowed to the missing days' own span (not the full
+ * requested window), so at least the ACCUMULATION and per-day freeze work
+ * scoped to `wanted` isn't wasted on days already cached -- a real, if
+ * smaller, saving than skipping the read entirely would be.
  *
  * Returns `{ byDay: { [date]: { [model]: bucketed } }, rootsRead: [...] }`
  * -- `rootsRead` is always the CURRENT config roots (`configRoots()` is
@@ -191,7 +236,6 @@ function dailyUsageByModel(days = 7) {
     wanted.push(d);
   }
   wanted.sort();
-  const sinceDay = wanted[0];
 
   const byDay = {};
   const missing = [];
@@ -206,9 +250,15 @@ function dailyUsageByModel(days = 7) {
 
   let rootsRead = configRoots();
   if (missing.length) {
-    // One scan covers every missing day at once, rather than one full
-    // transcript walk per missing day.
-    const untilDay = wanted[wanted.length - 1];
+    // Narrowed to the MISSING days' own span, not the full requested
+    // window -- if only today is missing (the common case once a window
+    // has been scanned once), this is a one-day range, not `wanted`'s
+    // full length. Real transcript files still get read in full either
+    // way (see the function doc above); this at least keeps the
+    // accumulation and per-day freeze work scoped to what's actually new.
+    const missingSorted = [...missing].sort();
+    const sinceDay = missingSorted[0];
+    const untilDay = missingSorted[missingSorted.length - 1];
     const scanResult = scanUsage({ sinceDay, untilDay });
     rootsRead = scanResult.rootsRead;
     for (const day of missing) {
