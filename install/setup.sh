@@ -182,12 +182,24 @@ PATH_LINE="export PATH=\"$BIN_DIR:\$PATH\""
 # had. It returns 0 only for a REAL directory bundle -- no symlink at
 # the root, at Contents, at MacOS, or at the launcher leaf, because a
 # link at any level would make the content check read a file the bundle
-# does not own -- whose launcher carries this install's anchored token
-# (`:-<home>}"`, closing brace and quote included, so prefix-related
-# homes cannot cross-match). /usr/bin/grep by absolute path: this answer
-# decides where rm -rf points, so it must not be answerable by whatever
-# a user's PATH puts in front of grep (the same argument the write
-# probe's /bin/mkdir records).
+# does not own.
+#
+# ⚠️ TWO LAUNCHER SHAPES SHIP NOW (#677). The OLD bash-heredoc launcher
+# carries this install's anchored token IN the executable itself
+# (`:-<home>}"`, closing brace and quote included, so a prefix-related
+# home cannot cross-match). The NEW compiled Swift binary is IDENTICAL
+# across every install -- it is never re-baked per install -- so its
+# anchor cannot live in the executable at all; it lives in the
+# per-install Contents/Resources/kosmos-install.json instead, written
+# with the same anchoring discipline (`"kosmosHome":"<home>"`, closing
+# quote included). The old check runs first (cheap, and every install on
+# disk before #677 is this shape); the new one is a fallback tried only
+# when the old one does not match, never the reverse -- an old bundle is
+# never asked to satisfy a proof it was never written to carry.
+# /usr/bin/grep by absolute path throughout: this answer decides where
+# rm -rf points, so it must not be answerable by whatever a user's PATH
+# puts in front of grep (the same argument the write probe's /bin/mkdir
+# records).
 bundle_is_ours() {
   [ -d "$1" ] || return 1
   [ ! -L "$1" ] || return 1
@@ -199,7 +211,14 @@ bundle_is_ours() {
   # this file is written against. Same hardening class and cost as the
   # stage's bare mkdir.
   [ -f "$1/Contents/MacOS/Kosmos" ] || return 1
-  /usr/bin/grep -qF ":-$KOSMOS_HOME}\"" "$1/Contents/MacOS/Kosmos" 2>/dev/null
+  /usr/bin/grep -qF ":-$KOSMOS_HOME}\"" "$1/Contents/MacOS/Kosmos" 2>/dev/null && return 0
+  # The new-shape fallback: same symlink and regular-file discipline as
+  # the executable above, applied to the config file instead, because a
+  # link at this leaf would make the fallback read a file the bundle does
+  # not own just as surely as a link at the executable would.
+  [ ! -L "$1/Contents/Resources/kosmos-install.json" ] || return 1
+  [ -f "$1/Contents/Resources/kosmos-install.json" ] || return 1
+  /usr/bin/grep -qF "\"kosmosHome\":\"$KOSMOS_HOME\"" "$1/Contents/Resources/kosmos-install.json" 2>/dev/null
 }
 
 # SYS_APP_DIR is overridable ONLY so the harness can drive the probe AND its
