@@ -4395,8 +4395,11 @@ test('the browser-layer fixes on this branch cannot be undone silently', () => {
     // The pick toggle must keep setLive's memory in step with its in-place
     // aria-checked flip, or the next poll rebuilds the list under the
     // focused button (round 39).
-    [/__lastLive = addAgentsHtml\(\)/,
-     'the pick toggle no longer refreshes setLive\u2019s stored string, so the poll repaints over keyboard focus'],
+    /* #750: the every-agent roster and its in-place toggle are gone; the
+       picked list is repainted through paintAddAgents, whose setLive keeps
+       its own memory, so the poll cannot repaint over a fresh pick. */
+    [/closest\('\[data-unpick\]'\);[\s\S]{0,160}paintAddAgents\(\);/,
+     'a removal no longer repaints through paintAddAgents, so the poll can repaint over the list under the person\u2019s hand'],
     // The transport branch returns before pjSend's finally, so it carries
     // its own focus rescue (round 39).
     [/const sbtn = document\.getElementById\('pj-send'\);/,
