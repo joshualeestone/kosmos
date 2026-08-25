@@ -212,6 +212,7 @@ node_arch() {
 
 if [ -n "${NODE_SOURCE:-}" ]; then
   echo "==> using local node: $NODE_SOURCE (TEST BUILD, not for release)"
+  NODE_SHA="local:$(shasum -a 256 "$NODE_SOURCE" | awk '{print $1}')"
   [ -x "$NODE_SOURCE" ] || { echo "error: $NODE_SOURCE is not executable" >&2; exit 1; }
   cp "$NODE_SOURCE" "$STAGE/runtime/bin/node"
 else
@@ -233,6 +234,7 @@ else
     exit 1
   fi
   echo "    checksum ok"
+  NODE_SHA="$GOT"   # the bytes that were actually downloaded, for the manifest (#776)
   tar -xzf "$TMP/$TARBALL" -C "$TMP"
   cp "$TMP/node-v$NODE_VERSION-darwin-$NARCH/bin/node" "$STAGE/runtime/bin/node"
   # ⚠️ Node's LICENSE travels with the binary. It is the single file that
@@ -348,6 +350,18 @@ rm -rf "$SMOKE_ROOTS"
 # here: this is the half that pins the exact build (package.json is bumped
 # per release since 0.1.1, but the commit is what a user report must be
 # traceable to, and the stamp carries both).
+# 🛑 A -dirty STAMP DOES NOT SHIP (#776 instance 1). "e2d563c-dirty" admits that
+# what shipped was a commit plus an unrecorded delta nobody can reconstruct.
+# The release freezes to a sha, so this never fires on the frozen path; it is
+# the guard for every OTHER path (a hand build, a test build promoted by
+# mistake). KOSMOS_ALLOW_DIRTY=1 is for local test builds only.
+_app_commit="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo unknown)"
+_app_dirty=no
+(cd "$REPO" && git diff --quiet HEAD -- . 2>/dev/null) || _app_dirty=yes
+if [ "$_app_dirty" = yes ] && [ "${KOSMOS_ALLOW_DIRTY:-0}" != 1 ]; then
+  echo "refusing to package a -dirty tree: its bytes would come from no commit anyone can name (git status is not clean). Commit, or KOSMOS_ALLOW_DIRTY=1 for a local test build." >&2
+  exit 1
+fi
 {
   echo "app:    $(cd "$REPO" && git describe --always --dirty 2>/dev/null || echo unknown) (package.json $(KOSMOS_PKG="$STAGE/app/package.json" "$STAGE/runtime/bin/node" -p 'JSON.parse(require("fs").readFileSync(process.env.KOSMOS_PKG,"utf8")).version' 2>/dev/null || echo '?'))"
   echo "node:   $("$STAGE/runtime/bin/node" --version)"
@@ -361,7 +375,45 @@ tar -czf "$TARBALL_OUT" -C "$STAGE" bin app runtime VERSION
 # ⚠️ The .sha256 is what install/setup.sh verifies before extracting; a
 # tarball published without it refuses to install, on purpose.
 ( cd "$OUT" && shasum -a 256 "$(basename "$TARBALL_OUT")" > "$(basename "$TARBALL_OUT").sha256" )
-echo "==> ok: $(du -sh "$TARBALL_OUT" | cut -f1) at $TARBALL_OUT (+ .sha256)"
+# ---- the release manifest (#776) -------------------------------------------
+# Accountability, not reproducibility: codesign embeds a timestamp and binds
+# to this machine, tar and gzip embed mtimes, so these bytes cannot be rebuilt
+# byte for byte and nobody should try. What CAN be answered, cheaply, is
+# "given these served bytes, what produced them": the artifact's sha, the app
+# commit and whether the tree was clean, the Node version and the sha of the
+# runtime actually downloaded, the connector's signed and input shas and its
+# commit (its own sidecars, #621), every file in the tree with its sha, and
+# when and where. A few KB, committed beside the pointer by the release, so a
+# person who was not there can audit any release from the site repo alone
+# (tools/verify-manifest.sh). Everything here the build already knew.
+MANIFEST_OUT="$OUT/kosmos-$ARCH.manifest.json"
+_pkg_version="$(KOSMOS_PKG="$STAGE/app/package.json" "$STAGE/runtime/bin/node" -p 'JSON.parse(require("fs").readFileSync(process.env.KOSMOS_PKG,"utf8")).version')"
+( cd "$STAGE" && find bin app runtime VERSION -type f | LC_ALL=C sort | while read -r f; do printf '%s  %s\n' "$(shasum -a 256 "$f" | awk '{print $1}')" "$f"; done ) > "$OUT/.files.$$"
+KOSMOS_MANIFEST_OUT="$MANIFEST_OUT" KOSMOS_MANIFEST_FILES="$OUT/.files.$$" \
+KM_VERSION="$_pkg_version" KM_ARCH="$ARCH" KM_ARTIFACT="$(basename "$TARBALL_OUT")" \
+KM_SHA="$(awk '{print $1}' "$TARBALL_OUT.sha256")" \
+KM_APP_COMMIT="$_app_commit" KM_APP_DIRTY="$_app_dirty" \
+KM_NODE_VERSION="$("$STAGE/runtime/bin/node" --version)" KM_NODE_SHA="${NODE_SHA:-unknown}" \
+KM_TUNNEL_SIGNED="${_tunnel_sha:-unknown}" KM_TUNNEL_INPUT="${_tunnel_in:-unknown}" KM_TUNNEL_COMMIT="${_tunnel_src:-unknown}" \
+KM_BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" KM_HOST="$(hostname -s 2>/dev/null || echo '?')" KM_MACOS="$(sw_vers -productVersion 2>/dev/null || echo '?')" \
+"$STAGE/runtime/bin/node" -e '
+const fs = require("fs"); const e = process.env;
+const files = fs.readFileSync(e.KOSMOS_MANIFEST_FILES, "utf8").trim().split("\n").filter(Boolean)
+  .map((l) => { const [sha, ...p] = l.split(/\s+/); return { path: p.join(" "), sha256: sha }; });
+const m = {
+  manifest: 1,
+  version: e.KM_VERSION, arch: e.KM_ARCH, artifact: e.KM_ARTIFACT, sha256: e.KM_SHA,
+  app: { commit: e.KM_APP_COMMIT, dirty: e.KM_APP_DIRTY === "yes" },
+  node: { version: e.KM_NODE_VERSION, download_sha256: e.KM_NODE_SHA },
+  connector: { signed_sha256: e.KM_TUNNEL_SIGNED, input_sha256: e.KM_TUNNEL_INPUT, commit: e.KM_TUNNEL_COMMIT },
+  built: { at: e.KM_BUILT, host: e.KM_HOST, macos: e.KM_MACOS },
+  files,
+};
+fs.writeFileSync(e.KOSMOS_MANIFEST_OUT, JSON.stringify(m, null, 1) + "\n");
+'
+rm -f "$OUT/.files.$$"
+echo "==> manifest: $MANIFEST_OUT ($(wc -c < "$MANIFEST_OUT" | tr -d ' ') bytes, $(grep -c '"path"' "$MANIFEST_OUT") files)"
+echo "==> ok: $(du -sh "$TARBALL_OUT" | cut -f1) at $TARBALL_OUT (+ .sha256, + manifest)"
 echo "    contains: $(tar -tzf "$TARBALL_OUT" | wc -l | tr -d ' ') files"
 
 # ---- the installer travels WITH the release ---------------------------------
