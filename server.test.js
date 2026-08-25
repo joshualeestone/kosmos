@@ -11064,17 +11064,27 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     }
     assert.equal(placed, 12, 'all twelve under the cap were heard');
 
-    // The part still gets created past the cap (the write is never gated),
-    // but nothing is typed into mara's pane for it.
+    // Past the cap the WRITE itself is refused (#803: parts had no persisted
+    // write valve while tasks and projects did, so a process could make
+    // unlimited parts, just without the pane being paged past twelve). The
+    // thirteenth is a 429 that says the number, the part does not land, and
+    // nothing is typed into mara's pane for it.
     const before = sends.length;
     const r13 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ sentence: 'Course 13', who: 'mara' }),
     });
-    assert.equal(r13.status, 200, r13.body);
-    assert.equal(JSON.parse(r13.body).task.parts.some((x) => x.sentence === 'Course 13'), true, 'the write still lands over the cap');
-    assert.equal(JSON.parse(r13.body).heard, undefined, 'over the cap, the pane is not paged again');
+    assert.equal(r13.status, 429, r13.body);
+    assert.match(JSON.parse(r13.body).error, /pausing agent-made parts/);
+    const stored = require('./engine/projects').readAll().find((x) => x.id === p.id);
+    assert.equal((stored.tasks[0].parts || []).some((x) => x.sentence === 'Course 13'), false, 'the write landed over the cap');
     assert.equal(sends.length, before, 'CONTROL: nothing new was typed once the valve tripped');
+    // The screen is never valved: the person adds one right now, and it is heard.
+    const r14 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ sentence: 'Course 14', who: 'mara' }),
+    });
+    assert.equal(r14.status, 200, r14.body);
   } finally {
     chatEngine.setRunner(null);
     board.restore();
@@ -11107,11 +11117,17 @@ test('#761 round 6: failed deliveries do not spend the shared pane-notify budget
       body: JSON.stringify({ sentence: 'Host it' }),
     });
     assert.equal(r0.status, 200, r0.body);
+    // The parts WRITE valve (#803) is persisted across every project on this
+    // Mac, and round 2 above just spent all twelve; age the books through the
+    // seam so this test measures the pane-notify budget, not the write valve.
+    const tasksEngine761e = require('./engine/tasks');
+    for (const pj of projectsEngine761e.readAll()) tasksEngine761e.agePartWritesForTests(pj.id, 3601);
 
-    // Fifteen process-originated attempts at the unreachable 'ghost' -- past
-    // what would trip the cap if these counted.
+    // Eleven process-originated attempts at the unreachable 'ghost' -- past
+    // what would trip the pane-notify cap if these counted, and one under
+    // the write valve so the real delivery after them is still a write.
     let notPlaced = 0;
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 11; i++) {
       const rp = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ sentence: 'Ghost part ' + i, who: 'ghost' }),
@@ -11121,7 +11137,7 @@ test('#761 round 6: failed deliveries do not spend the shared pane-notify budget
       assert.ok(h && h.state && h.state !== 'placed', 'an unreachable agent should not read as placed: ' + JSON.stringify(h));
       notPlaced++;
     }
-    assert.equal(notPlaced, 15, 'all fifteen failed attempts got a heard verdict (just not placed)');
+    assert.equal(notPlaced, 11, 'all eleven failed attempts got a heard verdict (just not placed)');
     assert.equal(sends.length, 0, 'nothing was ever really typed for an agent with no live pane');
 
     // A REAL delivery, right after, still succeeds -- the budget was never spent.
@@ -11131,7 +11147,7 @@ test('#761 round 6: failed deliveries do not spend the shared pane-notify budget
     });
     assert.equal(rReal.status, 200, rReal.body);
     assert.equal(JSON.parse(rReal.body).heard && JSON.parse(rReal.body).heard.state, 'placed',
-      'fifteen failed deliveries to a different agent must not exhaust the budget for a real one');
+      'eleven failed deliveries to a different agent must not exhaust the budget for a real one');
   } finally {
     chatEngine.setRunner(null);
     board.restore();
