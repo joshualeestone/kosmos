@@ -171,9 +171,13 @@ test('piece ten: the + sits at the card heads and the minus on the member rows, 
   // One drop for both lists.
   assert.match(src, /async function dropMember\(btn, msg\)/);
   assert.match(src, /getElementById\('pjs-members'\)\.addEventListener\('click', \(e\) => \{\n\s+const btn = e\.target\.closest\('\[data-drop\]'\);[\s\S]{0,80}dropMember\(btn, document\.getElementById\('pjs-members-msg'\)\)/);
-  assert.match(src, /getElementById\('pj-one-agents'\)\.addEventListener\('click', \(e\) => \{\n\s+const btn = e\.target\.closest\('\.pj-minus\[data-drop\]'\);[\s\S]{0,120}dropMember\(btn, document\.getElementById\('pj-one-msg'\)\)/);
+  // #761: the minus asks first; the dialog's Remove is what calls dropMember.
+  assert.match(src, /getElementById\('pj-one-agents'\)\.addEventListener\('click', \(e\) => \{\n\s+const btn = e\.target\.closest\('\.pj-minus\[data-drop\]'\);[\s\S]{0,1600}getElementById\('mem-modal'\)\.hidden = false;/);
+  assert.match(src, /getElementById\('mem-go'\)\.addEventListener\('click', \(\) => \{[\s\S]{0,300}dropMember\(p\.btn, document\.getElementById\('pj-one-msg'\)\)/);
   // Hidden outside the mode; on hover inside it. The Remove door steps aside there.
-  assert.match(src, /\n\.pj-minus \{ display: none; \}/);
+  // #761: the minus is in both views now; the base rule draws it hidden-until-hover, and the door is gone everywhere.
+  assert.match(src, /\n\.pj-minus \{ display: grid;[^}]*opacity: 0; \}\n\.pj-member:hover \.pj-minus, \.pj-minus:focus-visible \{ opacity: 1; \}/);
+  assert.match(src, /\n#pj-remove-member \{ display: none; \}/);
   const block = src.slice(src.indexOf('html[data-layout="consolidated"]'));
   assert.match(block, /body\.consolidated \.pj-member:hover \.pj-minus, [^{]*\.pj-minus:focus-visible \{ opacity: 1; \}/);
   assert.match(block, /body\.consolidated #pj-remove-member \{ display: none; \}/);

@@ -6748,83 +6748,26 @@ test('a member row says when the agent has NOT picked the project up yet', () =>
   board.restore();
   assert.ok(fleetCard, 'the fleet produced no card, so the assertions below prove nothing');
 
-  assert.match(hasIt({ instructions: { state: 'stale' } }), /Has not picked this up yet/,
-    'a member running on instructions from before it was added says nothing about it');
+  /* #761 (Josh, 2026-08-24 21:56): "All of them automatically picked it up
+     and started working on it so I think we just take that off for now until
+     it becomes some type of a problem." The stale arm draws NOTHING now: no
+     "Has not picked this up yet", no "Bring it up to date" button. The
+     could-not arms still speak, because those are failures, not a wait. The
+     remedy-button assertions that stood here (its wiring, its accessible
+     name, its attribute escaping) went with the button; the markup is in git
+     under #761's date if the line ever comes back. */
+  assert.equal(hasIt({ instructions: { state: 'stale' } }), '',
+    'the stale row still draws the line Josh took off');
+  assert.equal(hasIt(Object.assign({ instructions: { state: 'stale' } }, fleetCard)), '',
+    'a real card on the stale arm still grew the button');
   assert.match(hasIt({ instructions: { state: 'unknown' } }), /cannot tell whether it has this yet/,
     'a member we cannot assess renders as fine, which is the one thing the staleness rule forbids');
   assert.equal(hasIt({ instructions: { state: 'current' } }), '',
     'the expected case announces itself, which trains people to stop reading the exceptional one');
   assert.equal(hasIt({}), '',
     'a member with no instructions verdict at all invented one');
-
-  // 🛑 NEITHER SENTENCE NAMES THE WORKAROUND. The detail panel carries the
-  // full "only a restart re-reads them"; this row carries what is TRUE.
-  /* ⚠️ THE GUARD NOW MEASURES WHAT A PERSON READS, and that is a real change to
-     what it checks rather than a loosening of it. It used to match the whole
-     markup, which passed only while the row had no controls; the remedy below
-     carries `data-restart-agent`, and an attribute is machinery rather than a
-     sentence. The rule's own words are that the ROW must not NAME the
-     workaround, and naming happens in the text. Mona Lisa believed the original
-     assertion would pass unchanged when she ruled the button in; it does not,
-     and narrowing it deliberately is the honest way to keep it rather than
-     discovering later that it had been deleted. */
-  /* ⚠️ IT READS THE ACCESSIBLE NAME TOO. An `aria-label` is words a person
-     reads, just not with their eyes, so a future "Restart Leo" hidden in one
-     would slip this guard exactly as `data-restart-agent` slipped the version
-     that matched raw markup. Same hole, other side of the same fix (Mona Lisa).
-     Everything else in a tag is machinery. */
-  const readable = (html) => {
-    const labels = [...String(html).matchAll(/aria-label="([^"]*)"/g)].map((m) => m[1]).join(' ');
-    return String(html).replace(/<[^>]*>/g, ' ') + ' ' + labels;
-  };
-  for (const st of ['stale', 'unknown']) {
-    assert.doesNotMatch(readable(hasIt({ instructions: { state: st } })), /restart/i,
-      'the ' + st + ' row names a workaround in words, which outlives the workaround');
-  }
-  /* CONTROL: the stripper really removes markup, so the assertions above are
-     not passing on an empty string. */
-  assert.match(readable('<b data-x="restart">hello</b>'), /hello/);
-  assert.doesNotMatch(readable('<b data-x="restart">hello</b>'), /restart/i);
-  /* And the other arm: an accessible name IS read, so it must not be stripped. */
-  assert.match(readable('<b aria-label="Restart Leo">x</b>'), /Restart Leo/);
-
-  /* 🛑 AND NOW IT CARRIES THE REMEDY, which the rule above still permits
-     because the rule's real target was naming OUR MECHANISM where the person
-     has an INTENT. "Bring it up to date" is what they want; it is true before
-     #143 lands and after it, and when an agent can be told in-band the same
-     button does the same thing with nothing edited. The mechanism is named in
-     the confirmation the button opens, where it costs something. (#144, Mona
-     Lisa ruling against her own earlier one, which sent the remedy to a panel
-     the person has no reason to visit.) */
-  /* The member's name comes from the REAL producer, per fixture-discipline: a
-     literal here is free to carry a shape `snapshot()` never emits, and the
-     attribute this row writes is keyed on that exact field. */
-  const realName = fleetCard.sessionName;
-  const withName = (state) => hasIt(Object.assign({ instructions: { state } }, fleetCard));
-  const stale = withName('stale');
-  assert.match(stale, /Bring it up to date/, 'the stale row states a problem with no way to act on it');
-  assert.match(stale, new RegExp('data-restart-agent="' + realName + '"'),
-    'the remedy is not wired to the shared restart path, so it opens no confirmation');
-  /* 🔑 AND IT SAYS WHICH AGENT. Six stale members otherwise announce six
-     identical buttons. The visible words survive verbatim inside it (SC 2.5.3),
-     so voice control still works for somebody saying what they can see. */
-  assert.match(stale, /aria-label="Bring it up to date: [^"]+"/,
-    'the remedy has no accessible name, so a list of them is unnavigable by ear');
-  const label = stale.match(/aria-label="([^"]*)"/)[1];
-  assert.ok(label.includes('Bring it up to date'),
-    'the accessible name does not contain the visible words: ' + label);
-  assert.ok(label.length > 'Bring it up to date'.length,
-    'the accessible name adds nothing, so it still does not say which agent');
-  /* ⚠️ ONLY THE ARM THAT KNOWS. "We cannot tell" is not evidence anything needs
-     fixing, and a button beside it turns a could-not-look into a diagnosis. */
-  assert.ok(!/Bring it up to date/.test(withName('unknown')),
+  assert.ok(!/Bring it up to date/.test(hasIt(Object.assign({ instructions: { state: 'unknown' } }, fleetCard))),
     'the unknown row offers a remedy for a problem it has not established');
-  assert.equal(withName('current'), '', 'the expected case grew a button');
-  /* The name reaches an ATTRIBUTE, so it is escaped. Built by mutating the real
-     card rather than by typing a shape. */
-  const evil = hasIt(Object.assign({}, fleetCard, { instructions: { state: 'stale' } },
-    JSON.parse('{"sessionName":"a\\"evil\\"b"}')));
-  assert.ok(!/"evil"/.test(evil), 'a session name breaks out of the attribute');
 });
 
 test('pjMember suppressTold removes the per-member verdict span, and only with it', () => {
