@@ -49,7 +49,7 @@ const TAIL_BYTES = 64 * 1024;
    `because` is a sentence, not a transcript: the words live on this Mac
    (unlike notify.js's payload, which strips them before anything leaves),
    but a report is still a claim about state, not a place to store output. */
-const CAPS = { because: 1000, on: 200, owner: 200, until: 100 };
+const CAPS = { because: 1000, on: 200, owner: 200, until: 100, project: 120 };
 
 const NO_READING = {
   NEVER_REPORTED: 'it has never reported',
@@ -92,6 +92,10 @@ function record(sessionName, entry) {
     on: capped(entry.on, CAPS.on),
     owner: capped(entry.owner, CAPS.owner),
     until: capped(entry.until, CAPS.until),
+    /* #763: the project this report is about (a project id), when the agent
+       says. A needs_you that names one lights that project alone; one that
+       names none lights no project and is read on the Agents page. */
+    project: capped(entry.project, CAPS.project),
     at,
   };
   try {
@@ -145,6 +149,12 @@ function read(sessionName) {
     try { fs.closeSync(fd); } catch { /* already gone */ }
   }
   let latest = null;
+  /* #763: the project carried forward. A report that names a project sets the
+     agent's current one; later reports that name none inherit it (the
+     permission hook reports needs_you with no project of its own); a stopped
+     report clears it, since nothing from a previous run may leak into this
+     one. */
+  let project = null;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let row;
@@ -158,6 +168,8 @@ function read(sessionName) {
        logic for "latest", but it matters that it REPLACES rather than
        merges: nothing from the previous run may leak into this one. */
     latest = row;
+    if (row.state === 'stopped') project = null;
+    else if (typeof row.project === 'string' && row.project) project = row.project;
   }
   if (!latest) return { found: false, because: NO_READING.NEVER_REPORTED };
   return {
@@ -168,6 +180,7 @@ function read(sessionName) {
     owner: latest.owner || null,
     until: latest.until || null,
     at: latest.at || null,
+    project,
   };
 }
 

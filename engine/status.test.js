@@ -2796,3 +2796,20 @@ test('#734: readPanes hands back the lines it could not read, bounded, so a scre
   assert.deepEqual(countAgents([], 2, ['a', 'b']).unreadableSamples, ['a', 'b']);
   assert.deepEqual(countAgents([], 0).unreadableSamples, [], 'absent samples are an empty list, never undefined');
 });
+
+/* #763: a reported needs_you carries the question's project onto the state,
+   so a project tile can light for its own question only. */
+test('#763: reconcile carries the reported project on a needs_you, and null when none was named or the question was scraped', () => {
+  const scraped = scr(STATE.WORKING, CONFIDENCE.SCRAPED, 'it is typing');
+  const named = reconcileReport(rep('needs_you', { project: 'p-christmas' }), scraped, T0);
+  assert.equal(named.state, STATE.NEEDS_YOU);
+  assert.equal(named.project, 'p-christmas');
+  const unnamed = reconcileReport(rep('needs_you'), scraped, T0);
+  assert.equal(unnamed.state, STATE.NEEDS_YOU);
+  assert.equal(unnamed.project, null);
+  const scrapedQ = reconcileReport({ found: false }, scr(STATE.NEEDS_YOU, CONFIDENCE.SCRAPED, 'Do you want to proceed?'), T0);
+  assert.equal(scrapedQ.state, STATE.NEEDS_YOU);
+  assert.equal(scrapedQ.project, undefined, 'a scraped question has no project field at all: the screen cannot say');
+  const working = reconcileReport(rep('working', { project: 'p-christmas' }), scraped, T0);
+  assert.equal(working.project, undefined, 'only a question carries a project onto the state');
+});

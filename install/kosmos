@@ -521,7 +521,7 @@ cmd_post() {
 # sender is read from TMUX_PANE, so an agent can only ever report as itself.
 # That is what makes the record evidence rather than typing.
 cmd_report() {
-  local state text body because on="" owner="" until=""
+  local state text body because on="" owner="" until="" project=""
   state="${1:-}"
   shift 2>/dev/null || true
   # Bash 3.2 flag loop: the three optional fields blocked carries. Anything
@@ -531,12 +531,13 @@ cmd_report() {
       --on)    on="${2:-}";    shift 2 2>/dev/null || break ;;
       --owner) owner="${2:-}"; shift 2 2>/dev/null || break ;;
       --until) until="${2:-}"; shift 2 2>/dev/null || break ;;
+      --project) project="${2:-}"; shift 2 2>/dev/null || break ;;
       *) break ;;
     esac
   done
   text="$*"
   if [ -z "$state" ]; then
-    say "Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [what you want to say about it]"
+    say "Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [what you want to say about it]"
     exit 2
   fi
   if ! healthy; then
@@ -550,10 +551,11 @@ cmd_report() {
   esc_on=$(printf '%s' "$on" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   esc_owner=$(printf '%s' "$owner" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   esc_until=$(printf '%s' "$until" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  esc_project=$(printf '%s' "$project" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   body=$(curl -sS -m 15 -X POST "$URL/api/report" \
     -H 'content-type: application/json' \
-    --data "{\"state\":\"$esc_state\",\"text\":\"$esc_text\",\"on\":\"$esc_on\",\"owner\":\"$esc_owner\",\"until\":\"$esc_until\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
+    --data "{\"state\":\"$esc_state\",\"text\":\"$esc_text\",\"on\":\"$esc_on\",\"owner\":\"$esc_owner\",\"until\":\"$esc_until\",\"project\":\"$esc_project\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
     say "We could not reach Kosmos to record that. Is it running at $URL?"
     exit 1
   }

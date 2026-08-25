@@ -433,13 +433,34 @@ test('a member we cannot see stays in the list, as unknown', () => {
 
 test('the row summary counts what it can see AND says what it could not', () => {
   reset();
-  projects.create({ name: 'Mixed', folder: folder('mixed'), agents: ['mara', 'claudebot', 'ghost'] });
-  const [described] = projects.list(ROSTER);
+  /* #763: Needs you is counted per project, from the report's project. The
+     roster is built by the real status engine from a recorded report, not from
+     an invented card, so this is the seam the tile actually reads. */
+  const selfreport = require('./selfreport');
+  const mixed = projects.create({ name: 'Mixed', folder: folder('mixed'), agents: ['mara', 'claudebot', 'ghost'] });
+  const other = projects.create({ name: 'Other', folder: folder('other'), agents: ['claudebot'] });
+  assert.equal(selfreport.record('claudebot', { state: 'needs_you', because: 'Which domain?', project: mixed.id }).recorded, true);
+  const roster = cards([fleet.agent('mara', { state: 'working' }), fleet.agent('claudebot', { state: 'needs_you' })]);
+  const described = projects.list(roster).find((p) => p.id === mixed.id);
+  const otherRow = projects.list(roster).find((p) => p.id === other.id);
 
   assert.equal(described.summary.total, 3);
   assert.equal(described.summary.working, 1);
-  assert.equal(described.summary.needsYou, 1);
+  assert.equal(described.summary.needsYou, 1, 'the question named this project');
+  assert.equal(described.summary.needsYouElsewhere, 0);
   assert.equal(described.summary.unseen, 1, 'a summary that hides its own blind spot is the defect');
+  assert.equal(otherRow.summary.needsYou, 0, 'the same agent is on Other too, and its question was not about Other (#763: four of seven tiles lit)');
+  assert.equal(otherRow.summary.needsYouElsewhere, 1, 'a screen may still say someone here needs you about something else');
+
+  /* Unattributed: a question that names no project (and no earlier report
+     named one) lights no project; it is read on the Agents page. */
+  assert.equal(selfreport.record('claudebot', { state: 'stopped' }).recorded, true);
+  assert.equal(selfreport.record('claudebot', { state: 'needs_you', because: 'a question with no project' }).recorded, true);
+  const roster2 = cards([fleet.agent('mara', { state: 'working' }), fleet.agent('claudebot', { state: 'needs_you' })]);
+  const again = projects.list(roster2).find((p) => p.id === mixed.id);
+  assert.equal(again.summary.needsYou, 0, 'unattributed: no project lights');
+  assert.equal(again.summary.needsYouElsewhere, 1);
+  assert.equal(roster2.find((a) => a.sessionName === 'claudebot').state, 'needs_you', 'the agent itself still shows needs_you (the Agents page)');
 });
 
 test('a member we can see but cannot READ is counted as unseen, not as fine', () => {

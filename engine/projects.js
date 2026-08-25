@@ -818,6 +818,8 @@ function describe(project, roster, all) {
       // to read its model or its transcript: whatever that pane is doing, we
       // have not established it is this agent doing it.
       state: (card && card.isNamedOurs) ? card.state : 'unknown',
+      /* #763: the project the member's question is about, when it said. */
+      stateProject: (card && card.isNamedOurs && typeof card.stateProject === 'string' && card.stateProject) ? card.stateProject : null,
       // The face, gated on tied like every other card-read here: a
       // stranger's pane borrowing the name must not lend the row a
       // photograph of somebody it is not (the project cards draw member
@@ -937,7 +939,16 @@ function describe(project, roster, all) {
       // ⚠️ `tied` on both, because a state read off a pane we cannot tie to
       // this name is somebody else's state. Counting it here is how a stranger
       // would have put "1 needs you" on another person's project row.
-      needsYou: members.filter((m) => m.present && m.tied && m.state === 'needs_you').length,
+      /* #763 (Josh, 2026-08-24 22:05; Splinter's ruling 22:47): a member's state is
+         one value per agent, so counting every member whose state is needs_you
+         lit every project the agent belonged to when it asked about one. Needs
+         you now counts the questions ABOUT THIS PROJECT (the report carries the
+         project); a question that names no project lights no project and is
+         read on the Agents page. needsYouElsewhere is the rest, for a screen
+         that wants to say "someone on this project needs you about something
+         else". */
+      needsYou: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject === project.id).length,
+      needsYouElsewhere: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject !== project.id).length,
       working: members.filter((m) => m.present && m.tied && m.state === 'working').length,
       unseen: members.filter((m) => !m.present || !m.tied || m.state === 'unknown').length,
     },

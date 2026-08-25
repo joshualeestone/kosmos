@@ -84,3 +84,27 @@ test('the reader reads the TAIL: a record longer than the window still answers f
   assert.equal(back.state, 'idle');
   assert.equal(back.because, 'finished, nothing needed');
 });
+
+/* #763: the project a report is about rides on the record, and is carried
+   forward so the permission hook's project-less needs_you inherits it. */
+test('#763: a report names its project; a later report without one inherits it; stopped clears it', () => {
+  const who = 'nora-discord';
+  assert.equal(selfreport.record(who, { state: 'working', project: 'p-christmas' }).recorded, true);
+  assert.equal(selfreport.read(who).project, 'p-christmas');
+  assert.equal(selfreport.record(who, { state: 'needs_you', because: 'asking permission to use Bash' }).recorded, true);
+  const q = selfreport.read(who);
+  assert.equal(q.state, 'needs_you');
+  assert.equal(q.project, 'p-christmas', 'a question that names no project is about the project the agent last said it was on');
+  assert.equal(selfreport.record(who, { state: 'needs_you', project: 'p-other' }).recorded, true);
+  assert.equal(selfreport.read(who).project, 'p-other', 'a report that names a project moves the agent to it');
+  assert.equal(selfreport.record(who, { state: 'stopped' }).recorded, true);
+  assert.equal(selfreport.read(who).project, null, 'nothing from a previous run may leak into the next');
+  assert.equal(selfreport.record(who, { state: 'needs_you' }).recorded, true);
+  assert.equal(selfreport.read(who).project, null, 'after a stop, a question with no project is unattributed');
+});
+
+test('#763: a project id longer than the cap is cut, not refused', () => {
+  const who = 'olga-discord';
+  assert.equal(selfreport.record(who, { state: 'working', project: 'x'.repeat(500) }).recorded, true);
+  assert.equal(selfreport.read(who).project.length <= 120, true);
+});
