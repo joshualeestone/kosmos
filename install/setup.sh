@@ -1835,7 +1835,23 @@ KOSMOS_HOME="\${KOSMOS_HOME:-$KOSMOS_HOME}"
 # installing account itself whenever KOSMOS_HOME was overridden outside
 # the home folder, and degenerated to match-anything when HOME was empty.
 if [ "\$(/usr/bin/id -u)" != "$owner_uid" ]; then
-  /usr/bin/osascript -e 'display alert "Kosmos belongs to another account on this Mac" message "This copy was installed by someone else'\''s account on this computer, so it runs for them. To use Kosmos yourself, get your own copy: open installkosmos.com and click Download for macOS." as critical' >/dev/null 2>&1
+  # 🔑 ANOTHER ACCOUNT CLICKED THE SHARED ICON (#664). Josh hit this on a
+  # fresh account that had ALREADY installed its own Kosmos: the install went
+  # into that account's home and its icon into ~/Applications, but the icon a
+  # person sees in the Applications folder is the FIRST account's, and it told
+  # him to go and download Kosmos again. So: if the clicking account has its
+  # own copy at the default home, open THAT. The dialog is only for an
+  # account that has never installed, and it says the .pkg installs for them
+  # too; it never sends anyone to a terminal.
+  _own="\$HOME/.local/share/kosmos"
+  if [ -x "\$_own/bin/kosmos" ]; then
+    KOSMOS_HOME="\$_own"; export KOSMOS_HOME
+    unset KOSMOS_PORT   # theirs, from their own install, not this icon's baked port
+    if "\$_own/bin/kosmos" open >/dev/null 2>&1; then exit 0; fi
+    /usr/bin/osascript -e 'display alert "Kosmos could not start" message "Something went wrong while your Kosmos was starting. Installing it again usually fixes this: open installkosmos.com and click Download for macOS. Your agents and settings stay on this Mac; installing again does not remove them." as critical' >/dev/null 2>&1
+    exit 1
+  fi
+  /usr/bin/osascript -e 'display alert "Kosmos is installed on this Mac for another user" message "It was set up by a different account on this computer, and it runs for that account. To use Kosmos here, install your own copy: open installkosmos.com and click Download for macOS. Yours will be separate, with your own agents and settings." as critical' >/dev/null 2>&1
   exit 1
 fi
 # The port this install chose travels with the icon; without it, an install
