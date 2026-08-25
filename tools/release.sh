@@ -179,12 +179,13 @@ echo "== 3c. the installer .pkg, rebuilt and published only when its inputs chan
 # anyone publishes it with no 9c behind it. verify-served.sh is the check
 # that then applies; run it after any site deploy that follows an abandoned
 # cut.
-# ⚠️ NAMED HAZARD, SAME AS THE TARBALLS: the site gitignores dist/*.pkg,
-# dist/*.pkg.sha256 and dist/*.pkg.inputs (build output; .vercelignore
-# carries them to the deploy), so all three go live from the site's WORKING
-# TREE with no commit behind them, which is #649's shape. Step 9c and
-# verify-served.sh check what is actually served, and this step says out loud
-# whether it published, so a stale pkg is a red line, never a quiet skip.
+# ⚠️ NOT COMMITTED, CARRIED BY NAME: the site gitignores dist/*.pkg,
+# dist/*.pkg.sha256 and dist/*.pkg.inputs (build output), so the triple has
+# no commit behind it; step 8's export carries it as a named artifact class
+# (tools/lib/site-deploy.sh), which is how #649's working-tree accident became
+# a decision. Step 9c and verify-served.sh check what is actually served, and
+# this step says out loud whether it published, so a stale pkg is a red line,
+# never a quiet skip.
 . "$REPO/tools/lib/pkg-inputs.sh"
 # The upload filter must carry the triple, or 9c reds after a ten-minute wait
 # for a reason a read can give now, BEFORE any sign + notarise minutes are
@@ -192,7 +193,12 @@ echo "== 3c. the installer .pkg, rebuilt and published only when its inputs chan
 # patterns (the same semantics Vercel applies), and a MISSING filter is a
 # refusal: without one Vercel falls back to the site's .gitignore, which
 # excludes dist/*.pkg, which is the exact hole the site's .gitignore warns of.
-set +e; _pkg_dropped="$(pkg_upload_filter_excludes "$SITE/.vercelignore")"; _pkg_frc=$?; set -e
+# The COMMITTED filter, because the deploy ships the export of HEAD (#649),
+# not the working tree: an uncommitted edit to .vercelignore is not what the
+# deploy applies, so it is not what this guard may vouch for.
+_vi_tmp="$(mktemp "$BUILD_ROOT/vercelignore.XXXXXX")"
+if git -C "$SITE" show HEAD:.vercelignore > "$_vi_tmp" 2>/dev/null; then :; else rm -f "$_vi_tmp"; _vi_tmp="$BUILD_ROOT/no-such-vercelignore"; fi
+set +e; _pkg_dropped="$(pkg_upload_filter_excludes "$_vi_tmp")"; _pkg_frc=$?; set -e
 if [ "$_pkg_frc" = 1 ]; then
   echo "the site has no .vercelignore; Vercel would fall back to .gitignore and drop dist/Kosmos.pkg from the upload"; exit 1
 elif [ "$_pkg_frc" != 0 ]; then
@@ -320,9 +326,10 @@ echo "   its timestamp agrees with the clock"
 
 echo "== 7b. the site's release files are committed and pushed BEFORE they deploy =="
 # 🛑 SERVED FROM THE WORKING TREE MEANS SERVED FROM NOBODY'S HISTORY. This
-# script committed and pushed $REPO but only COPIED into $SITE, and Vercel
-# deploys the working tree, so eleven releases' installers went live with
-# no commit behind them (#568): the swap-proof installer that ended the
+# script committed and pushed $REPO but only COPIED into $SITE, and the deploy
+# then shipped the working tree, so eleven releases' installers went live with
+# no commit behind them (#568; step 8 now deploys an export of HEAD, so what
+# is committed here is what ships): the swap-proof installer that ended the
 # 0.5.13 wedge was serving and unrecorded, and the "error line numbers
 # match no revision" tell that diagnosed that wedge is confounded while
 # the served script matches no revision at all. Named paths only, never
@@ -361,6 +368,9 @@ echo "== 8. deploy, from an export of the COMMITTED site plus the named artifact
 # plus each artifact class by name (tools/lib/site-deploy.sh says which and
 # why), and it prints what the working tree holds that does NOT ship. It
 # lives under BUILD_ROOT so the 2b trap removes it.
+# ⚠️ The export has no .git, so the Vercel dashboard shows no commit for these
+# deploys (the CLI reads <cwd>/.git for that); the manifest's "pages: commit"
+# line below is the link from a deployment to its commit.
 . "$REPO/tools/lib/site-deploy.sh"
 _site_export="$BUILD_ROOT/site-export"
 site_deploy_export "$SITE" "$_site_export" || { echo "could not export the site for deploy; nothing was deployed"; exit 1; }

@@ -15,6 +15,10 @@ the 0.5.22 cut. Baron's comment on #649: the pkg reached production only through
 accident, so the fix is "make the accident a decision": an explicit publish step per
 artifact. The pkg half landed in #716 (3c); this is the deploy half.
 
+Also changed on purpose: the Vercel dashboard shows no commit for these deploys (the CLI reads
+<cwd>/.git, and the export has none); the release log's manifest names the commit instead.
+The 3c upload-filter guard now reads the COMMITTED .vercelignore, the one the export ships.
+
 ## Not in this change
 Pruning old versioned tarballs from the deploy (a just-read latest.json can still ask
 for the version it named; carrying every pair on disk is today's behaviour, kept on
