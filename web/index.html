@@ -22180,7 +22180,14 @@ function pjRoomAnnounce(text) {
   }
 }
 
-document.getElementById('pj-post-go').addEventListener('click', pjPostSend);
+/* ⚠️ AN ARROW, NOT THE FUNCTION (#752). Binding pjPostSend itself as the click
+   handler handed the MouseEvent into its ATTACHMENT parameter, so every mouse
+   or touch click posted attachments:[<MouseEvent>] and the server refused it,
+   twice, about an attachment that did not exist. Nobody saw it because Enter
+   posts the same text perfectly and everyone who built this screen posts with
+   Enter; Pete found it on his first cold click. web.click-bindings.test.js
+   now refuses any bare handler whose first parameter is not an event. */
+document.getElementById('pj-post-go').addEventListener('click', () => pjPostSend());
 /* ⚠️ `!e.shiftKey` ARRIVED WITH THE TEXTAREA. As an <input> this element could
    not hold a newline, so catching every Enter cost nothing. A textarea can, and
    a growing field whose only Enter posts is a field you can never write a
