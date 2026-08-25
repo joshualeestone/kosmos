@@ -427,7 +427,12 @@ fi
 # requires server.js in-process) and was proven standalone before being added
 # here, matching this loop's existing "boots its own fixture server, runs
 # bare" shape exactly.
-for n in live-connect render-agent-nav render-busy-line render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls; do
+# render-model-change joins the same way: Ice Cream Kitty's #832 seeded its
+# own launch file under the sandboxed launch dir (#619) and set its own
+# AGENT_WORKFORCE_DRY_RUN=1, so it is genuinely self-contained the same as
+# render-memory-controls. Proven standalone (9/9, matching #832's own proof)
+# before being added here.
+for n in live-connect render-agent-nav render-busy-line render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
 sb3="$(new_sandbox)"
