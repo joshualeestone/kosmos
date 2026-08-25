@@ -355,7 +355,12 @@ chk "VERSION record installed" "[ -f \"$SB/home/VERSION\" ]"
 # failure on 2026-08-22: the board died with the machine, nothing started it,
 # and the browser's cached page then reported six separate "we could not check
 # this computer" panels for one dead process.
-BOARD_PLIST="$SB/launch/com.kosmos.board.plist"
+# #883: KOSMOS_HOME here is "$SB/home", never the real default, so the
+# board label carries the derived suffix -- computed the same way setup.sh
+# derives it, so this assertion tracks real behavior rather than assuming
+# the bare label a non-default KOSMOS_HOME no longer gets.
+BOARD_LABEL_SUFFIX="$(printf '%s' "$SB/home" | shasum -a 256 | cut -c1-8)"
+BOARD_PLIST="$SB/launch/com.kosmos.board.$BOARD_LABEL_SUFFIX.plist"
 # #513: THE TRANSCRIPT MUST PROVE THE GUARD HELD. Under the sandbox the
 # registration is skipped on purpose; a transcript that still promised
 # "Kosmos will start itself" could not tell a working guard from a broken
@@ -544,7 +549,7 @@ printf '{"dismissedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/AgentWorkforce/f
 # seeded here for exactly this reason; the board's is written by the install
 # instead, so "it is gone" would pass vacuously on any run where it was never
 # written — which is precisely the bug this change fixes.
-chk "the board's login job is there before the uninstall (or its removal cannot fail)" "[ -f \"$SB/launch/com.kosmos.board.plist\" ]"
+chk "the board's login job is there before the uninstall (or its removal cannot fail)" "[ -f \"$BOARD_PLIST\" ]"
 chk "the three remembered-answer files are there before the uninstall too" \
   "[ -f \"$SB/data/AgentWorkforce/first-run.json\" ] && [ -f \"$SB/data/AgentWorkforce/seen-version.json\" ] && [ -f \"$SB/data/AgentWorkforce/found-agents-dismissed.json\" ]"
 RC=0; sh -s -- --uninstall < "$SETUP" > "$SB/uninstall.log" 2>&1 || RC=$?
@@ -561,7 +566,12 @@ chk "agent plist removed" "[ ! -e \"$SB/launch/com.kosmos.agent.tiharness.plist\
 # ⚠️ THE BOARD'S JOB DOES NOT MATCH THE AGENTS' GLOB, so it needs its own
 # removal and its own check. Left behind it runs a deleted `kosmos` at every
 # login forever, invisible to somebody who believes they uninstalled Kosmos.
-chk "the board's login job removed" "[ ! -e \"$SB/launch/com.kosmos.board.plist\" ]"
+# #883: asserted against the DERIVED (suffixed) label, and also against the
+# bare label -- the uninstall path must find the suffixed file it should
+# actually be removing, not accidentally "succeed" by finding nothing at a
+# name that was never written in the first place.
+chk "the board's login job removed" "[ ! -e \"$BOARD_PLIST\" ]"
+chk "no stray bare-label plist exists to be confused with it" "[ ! -e \"$SB/launch/com.kosmos.board.plist\" ]"
 chk "user data folder survives" "[ -d \"$SB/data\" ]"
 # ⚠️ BYTE FOR BYTE, not merely present. The directory check above cannot tell
 # a preserved folder from an emptied one, and an uninstall that deleted a
@@ -1339,6 +1349,110 @@ else
   KOSMOS_HOME="$SB/home21" "$SB/bin21/kosmos" stop > /dev/null 2>&1 || true
   chmod 755 "$SYS_RO5"
 fi
+
+echo "== #883: a sandboxed KOSMOS_HOME derives its own board label and env roots =="
+# 🔑 THE WHOLE FILE'S GLOBAL EXPORTS (AGENT_WORKFORCE_DATA/_PROJECTS/_WORKERS,
+# set once near the top) are exactly the family Pete's release-walk
+# convention does NOT set -- so every scenario above already exercises the
+# NEW label-derivation logic (KOSMOS_HOME here is never the real default),
+# but none of them can exercise "derive the three env keys because they are
+# missing", since they are never missing here. This section deliberately
+# unsets them for three sub-scenarios to reproduce Pete's exact convention
+# (KOSMOS_HOME + KOSMOS_HOME_APP_DIR + KOSMOS_PORT, nothing else) rather than
+# the fuller harness family, which is the precise shape #883 was filed
+# against. Each sub-scenario stops its own board before the next starts --
+# healthy() treats ANY answering Kosmos board as "already running" (by
+# design, #664/#874's own territory), so a still-live board from a prior
+# sub-scenario would make the next one's install silently skip starting its
+# OWN process on the shared $PORT rather than a genuine port-free test.
+# 🔑 CONFIRMED, NOT ASSUMED: an occasionally-slow `kosmos stop` here is the
+# SAME identity gap #910 was filed for (install/kosmos's healthy() answers
+# "is A Kosmos board here", never "is MY Kosmos board here"), just wearing a
+# different costume. Traced directly while building this section: when the
+# prior scenario's board is still dying at the moment the next one's
+# `cmd_start` runs, `healthy()` sees IT and calls the whole thing "already
+# running" -- so the next scenario's OWN process never starts, its pidfile
+# is never written, and a later `kosmos stop` against that KOSMOS_HOME
+# correctly refuses to touch a process it does not recognize ("Something is
+# answering... but it was not started by this command, so it was left
+# alone."). A plain wait cannot fix that -- there is nothing for the next
+# scenario to eventually recognize as its own. So this helper does not just
+# wait: past the timeout it force-kills whatever is actually listening
+# (this suite's own disposable sandboxed boards, never a real user's), so
+# the NEXT scenario starts from a genuinely clean port rather than
+# inheriting an ambiguous one.
+wait_port_free() {
+  local i
+  for i in $(seq 1 30); do
+    curl -fsS -m 1 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null || return 0
+    sleep 0.5
+  done
+  lsof -nP -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | xargs -r kill -9 2>/dev/null || true
+  for i in $(seq 1 10); do
+    curl -fsS -m 1 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null || return 0
+    sleep 0.5
+  done
+  return 1
+}
+
+echo "-- default KOSMOS_HOME: byte-identical label, no env keys added --"
+# A sandboxed HOME so "the real default" resolves somewhere safe to read,
+# never the operator's actual ~/.local/share/kosmos. AGENT_WORKFORCE_LAUNCH
+# still overridden for file-write safety -- that override is orthogonal to
+# the KOSMOS_HOME-default check this scenario is actually testing.
+SBH_DEF="$SB/defaulthome"
+mkdir -p "$SBH_DEF"
+export KOSMOS_BIN_DIR="$SB/bindef"
+RC=0; cat "$SETUP" | env -u KOSMOS_HOME HOME="$SBH_DEF" AGENT_WORKFORCE_LAUNCH="$SB/launchdef" KOSMOS_APP_DIR="$SB/appsdef" sh > "$SB/defaulthome-install.log" 2>&1 || RC=$?
+chk "default-KOSMOS_HOME install exits 0" "rc_ok $RC"
+DEF_PLIST="$SB/launchdef/com.kosmos.board.plist"
+chk "default install's plist keeps the literal, unsuffixed label" "[ -f \"$DEF_PLIST\" ]"
+chk "default install's plist adds no AGENT_WORKFORCE_DATA key" "! grep -q AGENT_WORKFORCE_DATA \"$DEF_PLIST\""
+chk "default install's plist adds no AGENT_WORKFORCE_PROJECTS key" "! grep -q AGENT_WORKFORCE_PROJECTS \"$DEF_PLIST\""
+chk "default install's plist adds no AGENT_WORKFORCE_WORKERS key" "! grep -q AGENT_WORKFORCE_WORKERS \"$DEF_PLIST\""
+HOME="$SBH_DEF" "$SBH_DEF/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
+chk "the port is genuinely free before Pete's-convention scenario starts" "wait_port_free"
+
+echo "-- Pete's exact convention: unique label, all three roots under KOSMOS_HOME --"
+PETE_HOME="$SB/petehome"
+export KOSMOS_HOME="$PETE_HOME" KOSMOS_BIN_DIR="$SB/binpete"
+RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  AGENT_WORKFORCE_LAUNCH="$SB/launchpete" KOSMOS_HOME_APP_DIR="$SB/petehome-apps" KOSMOS_APP_DIR="$SB/appspete" \
+  sh > "$SB/pete-install.log" 2>&1 || RC=$?
+chk "Pete's-convention install exits 0" "rc_ok $RC"
+PETE_SUFFIX="$(printf '%s' "$PETE_HOME" | shasum -a 256 | cut -c1-8)"
+PETE_PLIST="$SB/launchpete/com.kosmos.board.$PETE_SUFFIX.plist"
+chk "Pete's-convention plist carries the derived, suffixed label" "[ -f \"$PETE_PLIST\" ]"
+chk "Pete's-convention plist does NOT reuse the bare default label" "[ ! -f \"$SB/launchpete/com.kosmos.board.plist\" ]"
+chk "Pete's-convention plist's AGENT_WORKFORCE_DATA is under KOSMOS_HOME" "grep -q \"<key>AGENT_WORKFORCE_DATA</key><string>$PETE_HOME/data</string>\" \"$PETE_PLIST\""
+chk "Pete's-convention plist's AGENT_WORKFORCE_PROJECTS is under KOSMOS_HOME" "grep -q \"<key>AGENT_WORKFORCE_PROJECTS</key><string>$PETE_HOME/projects</string>\" \"$PETE_PLIST\""
+chk "Pete's-convention plist's AGENT_WORKFORCE_WORKERS is under KOSMOS_HOME" "grep -q \"<key>AGENT_WORKFORCE_WORKERS</key><string>$PETE_HOME/workers</string>\" \"$PETE_PLIST\""
+
+echo "-- re-running the same sandboxed install derives the identical label --"
+# Deliberately NOT stopped first: the board from the run above is still
+# live, matching the real self-update shape (engine/update.js spawns this
+# exact script as a detached child of the RUNNING board) that #883's own
+# escalation named as the repeated-poisoning path.
+RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  AGENT_WORKFORCE_LAUNCH="$SB/launchpete" KOSMOS_HOME_APP_DIR="$SB/petehome-apps" KOSMOS_APP_DIR="$SB/appspete" \
+  sh > "$SB/pete-install2.log" 2>&1 || RC=$?
+chk "second run against the same KOSMOS_HOME exits 0" "rc_ok $RC"
+chk "second run derives the SAME label, not a new one (idempotency)" "[ -f \"$PETE_PLIST\" ]"
+KOSMOS_HOME="$PETE_HOME" "$PETE_HOME/bin/kosmos" stop > /dev/null 2>&1 || true
+chk "the port is genuinely free before the override scenario starts" "wait_port_free"
+
+echo "-- an explicit override still wins over the derived default --"
+export KOSMOS_HOME="$SB/petehome-override" KOSMOS_BIN_DIR="$SB/binpete-override"
+RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  AGENT_WORKFORCE_DATA="$SB/petehome-override-data" AGENT_WORKFORCE_LAUNCH="$SB/launchpete-override" \
+  KOSMOS_HOME_APP_DIR="$SB/petehome-override-apps" KOSMOS_APP_DIR="$SB/appspete-override" \
+  sh > "$SB/pete-override-install.log" 2>&1 || RC=$?
+chk "override-scenario install exits 0" "rc_ok $RC"
+OVERRIDE_SUFFIX="$(printf '%s' "$SB/petehome-override" | shasum -a 256 | cut -c1-8)"
+OVERRIDE_PLIST="$SB/launchpete-override/com.kosmos.board.$OVERRIDE_SUFFIX.plist"
+chk "an explicit AGENT_WORKFORCE_DATA is carried through as given, not overwritten" "grep -q \"<key>AGENT_WORKFORCE_DATA</key><string>$SB/petehome-override-data</string>\" \"$OVERRIDE_PLIST\""
+chk "AGENT_WORKFORCE_PROJECTS still derives from KOSMOS_HOME when not itself overridden" "grep -q \"<key>AGENT_WORKFORCE_PROJECTS</key><string>$SB/petehome-override/projects</string>\" \"$OVERRIDE_PLIST\""
+KOSMOS_HOME="$SB/petehome-override" "$SB/petehome-override/bin/kosmos" stop > /dev/null 2>&1 || true
 
 closing_checks
 summary_and_exit
