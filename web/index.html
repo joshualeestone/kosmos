@@ -2526,8 +2526,16 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    arrived. Column, because the name, the state and the told line were three
    siblings of a wrapping flex row and are now one block beside the disc. */
 .pj-member-b { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-/* The row's minus exists for the consolidated view only (#520 piece ten). */
-.pj-minus { display: none; }
+/* The row's minus, in BOTH views since #761 (Josh, 2026-08-24 21:56, looking
+   at the tab view: "when I mouse over it, it would give me an X. If I clicked
+   it, it would pop up a modal"). Shown on hover or keyboard focus; the
+   "Remove a member" door steps aside everywhere. */
+.pj-minus { display: grid; place-items: center; margin-left: auto; width: 20px; height: 20px; flex: none;
+  border: 1px solid var(--separator); border-radius: 6px; background: var(--bg-elevated); color: var(--label-2);
+  font: 600 14px/1 var(--font-ui); padding: 0; cursor: pointer; opacity: 0; }
+.pj-member:hover .pj-minus, .pj-minus:focus-visible { opacity: 1; }
+.pj-minus:hover { color: var(--label); }
+#pj-remove-member { display: none; }
 .pj-face { flex: 0 0 34px; }
 /* The pack's inline sizing for this one button, as a rule rather than a style
    attribute: full column width, its own smaller type and tighter padding. The
@@ -4915,6 +4923,19 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      own description of a destructive act can drift from the act. Keep is
      first and focused; the delete button is filled, not bordered, and is
      disabled until the name is typed when the files cannot come back. -->
+<!-- #761 (Josh, 2026-08-24 21:56): removing a member from the project page
+     asks first: "it would pop up a modal and say, 'Confirm that you want to
+     remove this agent, Anna or whatever, from this project.'" -->
+<div class="rm-back" id="mem-modal" hidden>
+  <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="mem-title" aria-describedby="mem-small">
+    <h2 class="rm-title" id="mem-title"></h2>
+    <p class="rm-small" id="mem-small"></p>
+    <div class="rm-acts">
+      <button class="btn" id="mem-keep" type="button"></button>
+      <button class="btn" id="mem-go" type="button"></button>
+    </div>
+  </div>
+</div>
 <div class="rm-back" id="del-modal" hidden>
   <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="del-title" aria-describedby="del-small">
     <h2 class="rm-title" id="del-title"></h2>
@@ -19574,7 +19595,11 @@ function pjMember(m, suppressTold, withMinus) {
        row no job title, for the same reason it lends it no photograph. Null is
        therefore a real answer here and renders nothing rather than a blank
        line. */
-    + (m.role ? '<small class="pj-member-role">' + esc(m.role) + '</small>' : '')
+    /* #761 (Josh, 2026-08-24 21:56: "all of their titles should be caps:
+       Copywriter, Account Manager"): the same derivation the cards use, so a
+       catalogue role reads as the catalogue writes it and the two surfaces
+       cannot disagree. A role the catalogue has never seen stays as typed. */
+    + (m.role ? '<small class="pj-member-role">' + esc(roleLine({ role: m.role }, ROLE_TITLES)) + '</small>' : '')
     // ⚠️ An `unknown` state carries its REASON here (historical origin: a
     // bare "Can't tell" once sat beside the now-retired told sentence and
     // read as a contradiction; the sentence is gone, the rule stands).
@@ -19664,10 +19689,12 @@ function pjMemberHasIt(m) {
        break voice control for somebody saying what they can see. The colon form
        is the Remove sibling's, and it is the one that satisfies both.
        (Mona Lisa, found by checking the fix rather than reading it.) */
-    return '<span class="pj-notyet">Has not picked this up yet'
-      + '<button class="btn-quiet pj-notyet-go" type="button" data-restart-agent="'
-      + esc(m.sessionName) + '" aria-label="Bring it up to date: ' + esc(m.name || m.sessionName)
-      + '">Bring it up to date</button></span>';
+    /* #761 (Josh, 2026-08-24 21:56): "All of them automatically picked it up
+       and started working on it so I think we just take that off for now
+       until it becomes some type of a problem." The stale arm draws nothing;
+       the could-not arms below still speak, because those are failures, not
+       a wait. The button's markup is kept in git under this comment's date. */
+    return '';
   }
   if (s.state === 'unknown') {
     /* ⚠️ NO REMEDY ON THIS ARM, deliberately. "We cannot tell" is not evidence
@@ -21183,7 +21210,7 @@ async function pjLoadDocs(id) {
   /* The SCREEN Josh asked for exists now (#134), so the button opens it and
      says so; the Finder hand-off lives inside that screen, named as what it
      does. */
-  all.textContent = more > 0 ? 'Show all ' + body.total : 'Show them all';
+  all.textContent = more > 0 ? 'Show all ' + body.total : 'Show all';   // #761: 'Show all', his words
 }
 
 /**
@@ -24240,11 +24267,39 @@ document.getElementById('pjs-members').addEventListener('click', (e) => {
 });
 /* The project page's own minus (#520 piece ten): the same drop, its receipt
    on the page's own message line. */
+let MEM_PENDING = null;
+function memConfirmClose() {
+  document.getElementById('mem-modal').hidden = true;
+  const p = MEM_PENDING; MEM_PENDING = null;
+  if (p && p.btn && !p.btn.disabled) p.btn.focus();
+}
 document.getElementById('pj-one-agents').addEventListener('click', (e) => {
   const btn = e.target.closest('.pj-minus[data-drop]');
   if (!btn || !PJ_CURRENT) return;
-  btn.disabled = true;
-  dropMember(btn, document.getElementById('pj-one-msg'));
+  /* #761: the minus asks before it acts. The dialog names the agent and the
+     project, says what changes and what does not, and Enter lands on the
+     harmless answer, the way every dialog in Kosmos does. */
+  const row = btn.closest('.pj-member');
+  const who = (row && row.querySelector('b')) ? row.querySelector('b').textContent : btn.dataset.drop;
+  const p = pjById(PJ_CURRENT);
+  const pjName = (p && p.name) || 'this project';
+  MEM_PENDING = { btn };
+  document.getElementById('mem-title').textContent = 'Remove ' + who + ' from ' + pjName + '?';
+  document.getElementById('mem-small').textContent = who + ' comes off this project\u2019s list and stops getting its posts. Nothing else changes; you can put ' + who + ' back with the + at the top.';
+  document.getElementById('mem-keep').textContent = 'Keep ' + who + ' on it';
+  document.getElementById('mem-go').textContent = 'Remove ' + who;
+  document.getElementById('mem-modal').hidden = false;
+  document.getElementById('mem-keep').focus();
+});
+document.getElementById('mem-keep').addEventListener('click', memConfirmClose);
+document.getElementById('mem-modal').addEventListener('click', (e) => { if (e.target.id === 'mem-modal') memConfirmClose(); });
+document.getElementById('mem-go').addEventListener('click', () => {
+  const p = MEM_PENDING;
+  document.getElementById('mem-modal').hidden = true;
+  MEM_PENDING = null;
+  if (!p || !p.btn || !PJ_CURRENT) return;
+  p.btn.disabled = true;
+  dropMember(p.btn, document.getElementById('pj-one-msg'));
 });
 
 function pjCloseConfirm() {
