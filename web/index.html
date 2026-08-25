@@ -12403,19 +12403,21 @@ function busyRow(fresh, name) {
        uses for the same phrase (web/index.html's STATE_COPY.label and
        stateReason() below). Different sinks, different rules: busyRow's
        whole return value is assigned straight to el.innerHTML (paintBusy),
-       so &rsquo;/&mdash;/&ldquo;/&rdquo; are interpreted as intended --
-       matching this function's own pre-existing &hellip; a few lines down.
+       so &rsquo;/&ldquo;/&rdquo; are interpreted as intended -- matching
+       this function's own pre-existing &hellip; a few lines down.
        stateReason()'s return value goes through BOTH esc(taskLine(a))
        (which escapes & to &amp;, so &rsquo; there would show as the literal
        text "&rsquo;") and a bare .textContent assignment (which never
        interprets entities at all) -- plain characters are the only choice
        that renders correctly on both paths. Found while reviewing this
        exact inconsistency in challenge-loop: verified with esc()'s own
-       source before concluding either side was wrong, and neither is. */
+       source before concluding either side was wrong, and neither is.
+       No em dash here (house rule) -- a colon reads cleanly with "last
+       seen" already doing the connecting work. */
     return face
       + '<span class="haz" aria-hidden="true">!</span>'
       + '<span>' + esc(who) + '&rsquo;s Claude sign-in isn&rsquo;t working'
-      + (fresh.stateEvidence ? ' &mdash; last seen: &ldquo;' + esc(fresh.stateEvidence) + '&rdquo;' : '')
+      + (fresh.stateEvidence ? ', last seen: &ldquo;' + esc(fresh.stateEvidence) + '&rdquo;' : '')
       + '</span>';
   }
   return face
@@ -13857,9 +13859,9 @@ function openDetail(sessionName, section) {
   /* THE SAME derivation the card uses, called not copied, so the two cannot say
      different things about one agent (the split this whole area keeps paying
      for). Since #209 that derivation no longer includes the frozen pane title,
-     so the header shows a state's own honest reason (only rate_limited has one)
-     and otherwise nothing, which this panel already prefers to a restated
-     badge. */
+     so the header shows a state's own honest reason (rate_limited, and since
+     #874, auth_failed) and otherwise nothing, which this panel already
+     prefers to a restated badge. */
   dtask.textContent = taskLine(a);
   dtask.hidden = !dtask.textContent;
   /* The lede names the AGENT rather than saying "this agent", which is the
