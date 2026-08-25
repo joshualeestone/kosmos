@@ -710,132 +710,14 @@ async function main() {
     await page.waitForTimeout(300);
   });
 
-  // 5. Adding one: the folder browser.
-  await shot('5-add', async (page) => {
-    await page.click('#pj-new');
-    await page.waitForTimeout(600);
-    // ⚠️ The advanced route starts CLOSED now -- the default path is a name and
-    // no picker at all -- so the browser has to be opened before it can be
-    // walked. When this line was missing the walk below clicked a control
-    // inside a hidden panel, which is this check photographing a screen that
-    // no longer exists.
-    await page.click('#pj-advanced');
-    await page.waitForTimeout(500);
-    // Walk in and choose, so the screenshot shows a real chosen folder rather
-    // than the opening state -- and so a regression that re-selects whatever
-    // is being looked at would show up here.
-    await page.click('button[data-into*="kosmos-demo-"]');
-    await page.waitForTimeout(400);
-
-    // ⚠️ KEYBOARD FOCUS SURVIVED THE STEP. `pjBrowse` replaces the whole list
-    // with `innerHTML`, which destroys the button that was just pressed and
-    // drops focus to <body> -- so a keyboard person walking home -> work ->
-    // clients restarted their Tab journey from the top of the document at every
-    // step, in the primary flow for the audience this product is FOR. Nothing
-    // in a screenshot can show that, which is why it is asserted here: the same
-    // reason the confirmation below is checked for visibility rather than
-    // presence.
-    const focus = await page.evaluate(() => ({
-      id: document.activeElement && document.activeElement.id,
-      body: document.activeElement === document.body,
-      text: (document.activeElement && document.activeElement.textContent || '').slice(0, 60),
-    }));
-    if (focus.body || focus.id !== 'pj-crumbs') {
-      throw new Error(
-        'focus was dropped walking into a folder (activeElement: '
-        + (focus.body ? '<body>' : `#${focus.id}`) + '). A keyboard person has to '
-        + 'tab from the top of the document again, with nothing saying where they are.',
-      );
-    }
-    if (!focus.text.trim()) {
-      throw new Error('focus landed on the crumb but the crumb says nothing about where we are');
-    }
-
-    await page.click('#pj-use');
-    await page.waitForTimeout(300);
-  });
-
-  // 5b. Backing out of the advanced route FORGETS the pick.
-  //     ⚠️ Asserted as the SYMPTOM, not the mechanism: the failure was a
-  //     project created at the folder the person had just backed out of, under
-  //     a line reading "Kosmos will make this at ~/Kosmos/Projects/<name>". So
-  //     this drives pick -> back out -> Add and asks the engine where the
-  //     project actually went. The two sentence checks on the way are the
-  //     visible half of the same promise: while a folder is picked exactly one
-  //     line says where the project will be, and after backing out the screen
-  //     is back to the default story.
-  {
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-    // ctx.close lives in a finally (round 27): an assertion throw anywhere
-    // in this block used to leak the context, unlike the sibling blocks.
-    try {
-      const page = await ctx.newPage();
-      await page.goto(BASE + '/?tab=projects', { waitUntil: 'networkidle' });
-      await page.click('#pj-new');
-      await page.waitForTimeout(400);
-      await page.click('#pj-advanced');
-      await page.waitForTimeout(500);
-      await page.click('button[data-into*="kosmos-demo-"]');
-      await page.waitForTimeout(300);
-      await page.click('#pj-use');
-      await page.waitForTimeout(200);
-      const picked = await page.evaluate(() => ({
-        chosen: document.getElementById('pj-chosen').textContent,
-        willBe: document.getElementById('pj-will-be').textContent.trim(),
-      }));
-      if (!picked.chosen.includes('kosmos-demo')) {
-        throw new Error('pressing "Use this folder" did not put the folder in the chosen line: ' + picked.chosen);
-      }
-      if (picked.willBe) {
-        throw new Error('with a folder picked, the default-path line still speaks -- two sentences about '
-          + 'where the project will be, one of them wrong: ' + JSON.stringify(picked));
-      }
-      // CONTROL for the back-out check: the pick was really in force just now,
-      // so the clearing asserted below is a change this click caused, not a
-      // state the screen was already in.
-      await page.click('#pj-advanced');
-      await page.waitForTimeout(200);
-      const after = await page.evaluate(() => ({
-        chosen: document.getElementById('pj-chosen').textContent,
-        willBe: document.getElementById('pj-will-be').textContent.trim(),
-      }));
-      if (after.chosen.includes('kosmos-demo') || !after.willBe) {
-        throw new Error('closing the advanced route did not forget the pick on screen: ' + JSON.stringify(after));
-      }
-      // ⚠️ PROBE, DON'T INFER, before the one create in this file that uses
-      // the DEFAULT path (round 23): unlike thread-server.js, this check
-      // drives whatever server it is pointed at, and against one started
-      // without AGENT_WORKFORCE_PROJECTS this click would build a real
-      // directory under ~/Kosmos/Projects that the DELETE below never
-      // removes (remove rewrites the record and deliberately never touches
-      // folders). The route answers with the exact path the server would
-      // use, so the refusal is keyed on reality, not on the header comment.
-      const os = require('node:os');
-      const probe = await api('/api/project-folder?name=' + encodeURIComponent('Backout check'));
-      if (String(probe.path || '').startsWith(os.homedir() + '/Kosmos')) {
-        throw new Error('refusing the default-path create: the server would build '
-          + probe.path + ' inside the operator\'s real home. Start the server with '
-          + 'AGENT_WORKFORCE_PROJECTS pointed at a scratch dir.');
-      }
-      await page.fill('#pj-name', 'Backout check');
-      await page.click('#pj-create');
-      await page.waitForTimeout(800);
-      const { projects } = await api('/api/projects');
-      const made = projects.find((p) => p.name === 'Backout check');
-      if (!made) throw new Error('the back-out project was not created at all');
-      try {
-        if (String(made.folder || '').includes('kosmos-demo')) {
-          throw new Error('backing out of the folder route did NOT back out: the project was created at '
-            + made.folder + ' while the screen promised the default path.');
-        }
-      } finally {
-        await api('/api/project/' + encodeURIComponent(made.id), { method: 'DELETE' });
-      }
-    } finally {
-      await ctx.close();
-    }
-  }
-
+  // 5 and 5b (the folder browser, and backing out of it) RETIRED with #750
+  // (Josh, 2026-08-24 21:29: "remove the option to 'or use a folder you
+  // already have.' Nobody's going to do that."). The door is gone from the
+  // page, so a walk through it would be this check photographing a screen
+  // that no longer exists. The folder browser's code stays hidden behind it
+  // until its own deletion; the honesty rules it carried (a picked folder is
+  // where the project goes; backing out forgets it) have no path to a
+  // person any more.
   // 6a. The removal question. ⚠️ A confirmation is exactly the control that can
   //     ship invisible -- this repo once had 316 tests and two blind reviews
   //     pass a fully transparent modal, because nothing had ever rendered it.

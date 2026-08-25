@@ -1632,10 +1632,18 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* The paper ground belongs to the LIST view only; the one-project, add,
    and project-settings views (view D territory, not this chunk) keep the
    shell the panel used to give them. */
-#pj-add-view, #pj-settings-view {
+#pj-settings-view {
   max-width: 860px; margin: 0 auto; background: var(--bg-elevated);
   border: 0.5px solid var(--separator); border-radius: var(--radius-card);
   box-shadow: var(--shadow-card); padding: var(--space-8); }
+/* #750 (Josh, 2026-08-24 21:29): "stylized to be just like the new agent":
+   no bounding box, the create page's width, fields at a normal width. */
+#pj-add-view { max-width: 34rem; margin: 0 auto; background: none; border: 0; box-shadow: none; padding: 0; }
+#pj-add-view .pj-picked { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3) 0; border-bottom: 0.5px solid var(--separator); }
+#pj-add-view .pj-picked b { font: 600 var(--text-body) var(--font-ui); }
+#pj-add-view .pj-picked small { color: var(--label-2); }
+#pj-add-view .pj-picked .skillrm { margin-left: auto; }
+#pj-add-view .pj-add-doors .btn:disabled { opacity: .5; cursor: not-allowed; }
 /* The room page sits on the GROUND like the pack draws it: the three
    pjcols are the cards, and a panel behind them was cards on a card. */
 #pj-one-view { background: none;
@@ -6297,7 +6305,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   <!-- Adding one. Two decisions, not a form. -->
   <div id="pj-add-view" hidden>
     <button class="back" id="pj-add-back" type="button">← All projects</button>
-    <h2>Add a project</h2>
+    <h2>New project</h2>
 
     <!-- ⚠️ NAMING IT IS THE WHOLE DEFAULT PATH, and the reason is a permission
          dialog rather than a preference. Making the folder the FIRST decision
@@ -6307,7 +6315,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          screens into a product somebody is still deciding whether to trust.
          So: type a name, and Kosmos makes the folder inside one it owns. -->
     <div class="field">
-      <span class="flabel">What do you call it?</span>
+      <span class="flabel">Name</span>
       <div class="frow">
         <!-- ⚠️ A placeholder is a value EXAMPLE, not a field name, and it
              disappears the moment somebody types. -->
@@ -6331,13 +6339,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            repaint-announcement defect round 30 fixed on the verdict
            line. A screen reader reaches the settled line in reading
            order once typing is done. -->
-      <p class="pj-chosen" id="pj-will-be"></p>
+      <!-- #750 (Josh, 2026-08-24 21:29): the folder sentence ("Kosmos will make a
+           folder for it...") is irrelevant to a business person; the line is
+           kept for the code that writes it and never shown. -->
+      <p class="pj-chosen" id="pj-will-be" hidden></p>
     </div>
     <!-- #551 (Josh, 2026-08-24 10:55): a project can be born described. The
          SAME field Project settings edits, optional on purpose: a name is
          enough to start, and a required description is a wall. -->
     <div class="field">
-      <span class="flabel">What is it about? <small style="font-weight:400;color:var(--label-2)">You can skip this.</small></span>
+      <span class="flabel">Description</span>
       <textarea class="tk-inp" id="pj-add-desc" rows="2" maxlength="500"
                 aria-label="What this project is about"
                 placeholder="Renewing the Henderson lease before October."></textarea>
@@ -6345,7 +6356,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 
     <!-- The advanced route, one link away: for work that already lives
          somewhere else. Not removed, and not the default. -->
-    <p class="pj-advanced">
+    <!-- #750 (Josh, 21:29): "remove the option to 'or use a folder you already
+         have.' Nobody's going to do that." The door is gone from the page; the
+         folder browser behind it stays wired and hidden until it is deleted
+         outright (its own follow-up), so nothing here throws. -->
+    <p class="pj-advanced" hidden>
       <button class="linkish" id="pj-advanced" type="button" aria-expanded="false"
               aria-controls="pj-folder-field">Or use a folder you already have</button>
     </p>
@@ -6402,12 +6417,28 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <span class="flabel" id="pj-agents-label">Which agents are on it?</span>
       <p class="fhint">You can change this later, and you can leave it empty for
          now.</p>
+      <!-- #750 (Josh, 21:29): "I don't want to come in here and see every single
+           agent I've ever created. I just want to see the three buttons." The
+           agents already put on the project are listed above the buttons; Add
+           an agent opens a dropdown of the rest, picking one adds it, and the
+           button can be pressed again. The two external buttons are present
+           and disabled until those flows exist: nothing that looks live may do
+           nothing, and disabled is the honest state. -->
       <div id="pj-add-agents" class="pj-members" role="group"
            aria-labelledby="pj-agents-label"></div>
+      <div class="frow" id="pj-add-agent-row" hidden style="margin-top: var(--space-4)">
+        <select id="pj-add-pick" aria-label="Which agent to add"></select>
+        <button class="linkish" id="pj-add-pick-cancel" type="button">Never mind</button>
+      </div>
+      <div class="frow pj-add-doors" style="margin-top: var(--space-4)">
+        <button class="btn" id="pj-add-agent" type="button"><span aria-hidden="true">+</span> Add an agent</button>
+        <button class="btn" type="button" disabled title="Not yet: people outside Kosmos will be able to join a project in a later version">Add an external person</button>
+        <button class="btn" type="button" disabled title="Not yet: agents outside Kosmos will be able to join a project in a later version">Add an external agent</button>
+      </div>
     </div>
 
-    <div class="frow" style="margin-top: var(--space-6)">
-      <button class="btn" id="pj-create" type="button">Add this project</button>
+    <div class="sfoot">
+      <button class="btn uprime big" id="pj-create" type="button">Create project</button>
     </div>
     <p class="fmsg" id="pj-add-msg" aria-live="polite"></p>
   </div>
@@ -23754,6 +23785,7 @@ function paintAddAgents() {
     return;
   }
   setLive(box, addAgentsHtml());
+  addPickOptions();
 }
 
 /* One builder for the picker list, used by the paint AND by the in-place
@@ -23764,7 +23796,26 @@ function paintAddAgents() {
    toggle now recomputes this string and refreshes __lastLive so the poll
    sees agreement. (Serialized innerHTML cannot stand in for it: the
    round-34 quote-escaping mismatch is why setLive stores strings at all.) */
+/* #750: only the agents put on the project so far, each with a way off;
+   the rest live in the dropdown behind "Add an agent". */
 function addAgentsHtml() {
+  const picked = PJ_ADD_AGENTS.map((key) => LAST.find((a) => a.sessionName === key)).filter(Boolean);
+  if (!picked.length) return '<p class="fhint" style="margin:0;">No agents on it yet.</p>';
+  return picked.map((a) => '<div class="pj-picked" data-agent="' + esc(a.sessionName) + '">'
+    + '<span><b>' + esc(a.name) + '</b> <small>' + esc(roleLine(a, ROLE_TITLES)) + '</small></span>'
+    + '<button class="skillrm" type="button" data-unpick="' + esc(a.sessionName) + '" aria-label="Take ' + esc(a.name) + ' off this project">Remove</button>'
+    + '</div>').join('');
+}
+function addPickOptions() {
+  const sel = document.getElementById('pj-add-pick');
+  const free = LAST.filter((a) => !PJ_ADD_AGENTS.includes(a.sessionName));
+  sel.innerHTML = '<option value="">Pick an agent\u2026</option>'
+    + free.map((a) => '<option value="' + esc(a.sessionName) + '">' + esc(a.name) + (roleLine(a, ROLE_TITLES) ? ' \u00b7 ' + esc(roleLine(a, ROLE_TITLES)) : '') + '</option>').join('');
+  const btn = document.getElementById('pj-add-agent');
+  btn.disabled = !free.length;
+  btn.title = free.length ? '' : 'Every agent on this Mac is already on it';
+}
+function addAgentsHtmlRetired() {
   return LAST.map((a) => {
     const on = PJ_ADD_AGENTS.includes(a.sessionName);
     return '<button class="pick" type="button" role="checkbox" aria-checked="' + (on ? 'true' : 'false')
@@ -23788,6 +23839,7 @@ function openAddProject() {
   name.dataset.auto = '1';
   document.getElementById('pj-add-desc').value = ''; // #551: no leak between opens
   document.getElementById('pj-add-msg').textContent = '';
+  document.getElementById('pj-add-agent-row').hidden = true;
   document.getElementById('pj-chosen').textContent = 'No folder chosen yet.';
   // The advanced route starts closed on every arrival, so a person who opened
   // it once does not meet the file picker again the next time they add a
@@ -23937,22 +23989,32 @@ document.getElementById('pj-browse').addEventListener('click', (e) => {
 });
 
 document.getElementById('pj-add-agents').addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-pick]');
+  const btn = e.target.closest('[data-unpick]');
   if (!btn) return;
-  const key = btn.dataset.pick;
-  const on = PJ_ADD_AGENTS.includes(key);
-  PJ_ADD_AGENTS = on ? PJ_ADD_AGENTS.filter((k) => k !== key) : [...PJ_ADD_AGENTS, key];
-  // ⚠️ Updates the button IN PLACE rather than rebuilding the list. A repaint
-  // destroys the very control that was just activated: keyboard focus drops to
-  // the body after every pick, so Space-then-Tab cannot walk the list, and
-  // because the element is replaced rather than changed, no `aria-checked`
-  // update is announced -- a keyboard user gets no confirmation the pick
-  // registered at all.
-  btn.setAttribute('aria-checked', String(!on));
-  // Keep setLive's memory in step with the DOM just changed (round 39):
-  // without this the next poll's paintAddAgents sees __lastLive differing
-  // from the freshly-computed markup and rebuilds the list, dropping focus.
-  document.getElementById('pj-add-agents').__lastLive = addAgentsHtml();
+  PJ_ADD_AGENTS = PJ_ADD_AGENTS.filter((k) => k !== btn.dataset.unpick);
+  paintAddAgents();
+  document.getElementById('pj-add-agent').focus();
+});
+/* #750: Add an agent opens the dropdown; picking one puts it on the list at
+   once and closes the dropdown, and the button can be pressed again. */
+document.getElementById('pj-add-agent').addEventListener('click', () => {
+  addPickOptions();
+  document.getElementById('pj-add-agent-row').hidden = false;
+  document.getElementById('pj-add-pick').focus();
+});
+document.getElementById('pj-add-pick-cancel').addEventListener('click', () => {
+  document.getElementById('pj-add-agent-row').hidden = true;
+  document.getElementById('pj-add-agent').focus();
+});
+document.getElementById('pj-add-pick').addEventListener('change', () => {
+  const sel = document.getElementById('pj-add-pick');
+  const key = sel.value;
+  if (!key) return;
+  if (!PJ_ADD_AGENTS.includes(key)) PJ_ADD_AGENTS = [...PJ_ADD_AGENTS, key];
+  sel.value = '';
+  document.getElementById('pj-add-agent-row').hidden = true;
+  paintAddAgents();
+  document.getElementById('pj-add-agent').focus();
 });
 
 document.getElementById('pj-use').addEventListener('click', () => {
