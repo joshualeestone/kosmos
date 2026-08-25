@@ -1830,7 +1830,7 @@ const server = http.createServer((req, res) => {
           // The route test now creates through here and asserts added: true.
           result.projects = wantProjects.map((id) => {
             try {
-              projects.addAgent(id, result.name, roster);
+              projects.addAgent(id, result.name, roster, { via: isViaScreen(req) ? 'screen' : 'process' });
               return { id, added: true };
             } catch (err) {
               return { id, added: false, because: String((err && err.message) || 'we could not put it on that project') };
@@ -5416,9 +5416,18 @@ const server = http.createServer((req, res) => {
       const on = !!(before && (before.agents || []).includes(name));
       moved = req.method === 'POST' ? !on : on;
     } catch { moved = false; }
+    /* The membership valve (#803, extended): a process past sixty membership
+       changes an hour across projects is refused the WRITE with the count
+       and the minutes; the screen is never valved (a person building a team
+       meets no refusal). Only a change that MOVES membership is counted. */
+    const viaScreenMember = isViaScreen(req);
+    if (moved && !viaScreenMember) {
+      const v = projects.memberValve();
+      if (v.refused) { res.setHeader('retry-after', String(v.retryAfterSecs)); sendJson(res, 429, { error: v.because, retry_after_secs: v.retryAfterSecs }); return; }
+    }
     try {
-      if (req.method === 'POST') projects.addAgent(id, name, roster);
-      else projects.removeAgent(id, name);
+      if (req.method === 'POST') projects.addAgent(id, name, roster, { via: viaScreenMember ? 'screen' : 'process' });
+      else projects.removeAgent(id, name, { via: viaScreenMember ? 'screen' : 'process' });
     } catch (err) {
       // ⚠️ Three different answers, because they are three different facts. A
       // store we cannot read is ours (500), a project that is not there is a

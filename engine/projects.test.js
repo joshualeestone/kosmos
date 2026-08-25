@@ -2220,3 +2220,35 @@ test('#761: listFiles carries a stamp that changes when the folder does, and onl
   fs.utimesSync(path.join(dir, 'zz-past-the-cap.txt'), new Date(1), new Date(1));
   assert.notEqual(projects.listFiles(dir, 2).stamp, capped.stamp, 'a file past the capped page still moves the stamp');
 });
+
+/* ── the membership valve (#803, extended) ──────────────────────────────── */
+test('a membership change that moves is recorded with how it arrived; a repeat records nothing; the valve counts processes only, says the number, and ages through the seam', () => {
+  const p = projects.create({ name: 'Member valve' });
+  const before = projects.processMemberChanges().count;
+  projects.addAgent(p.id, 'mara');                          // the screen: recorded, never counted
+  projects.addAgent(p.id, 'mara');                          // a repeat: nothing recorded
+  projects.addAgent(p.id, 'april', null, { via: 'process' });
+  projects.removeAgent(p.id, 'april', { via: 'process' });
+  projects.removeAgent(p.id, 'april', { via: 'process' });  // already off: nothing recorded
+  const rec = projects.readAll().find((x) => x.id === p.id).memberChanges;
+  assert.deepEqual(rec.map((c) => [c.agent, c.act, c.via]), [['mara', 'add', 'screen'], ['april', 'add', 'process'], ['april', 'remove', 'process']]);
+  assert.ok(rec.every((c) => Number.isFinite(Date.parse(c.at))));
+  assert.equal(projects.processMemberChanges().count, before + 2, 'the screen was counted, or a process change was not');
+  assert.equal(projects.memberValve().refused, false);
+  // A runaway: up to the ceiling, the next is refused with the number and the minutes.
+  let i = 0;
+  while (projects.processMemberChanges().count < projects.MEMBERS_PER_HOUR) { projects.addAgent(p.id, 'loop' + i, null, { via: 'process' }); i += 1; }
+  const v = projects.memberValve();
+  assert.equal(v.refused, true);
+  assert.match(v.because, /changed who is on projects \d+ times in the last hour/);
+  assert.match(v.because, /pausing agent-made membership changes for \d+ minutes?/);
+  assert.match(v.because, /from the screen/);
+  assert.ok(v.retryAfterSecs > 0 && v.retryAfterSecs <= 3600);
+  // The person is never in the count: a screen add lands while the valve is shut.
+  projects.addAgent(p.id, 'person-added');
+  assert.ok(projects.readAll().find((x) => x.id === p.id).agents.includes('person-added'));
+  // Aged through the seam, the valve opens.
+  projects.ageMemberChangesForTests(p.id, 3601);
+  assert.equal(projects.processMemberChanges().count, before);
+  assert.equal(projects.memberValve().refused, false);
+});

@@ -103,3 +103,39 @@ test('the thirteenth process part change in an hour is refused with the count an
   const ok = await req(path + '/parts', asProcess({ sentence: 'After the hour' }));
   assert.equal(ok.status, 200, ok.body);
 });
+
+/* The membership valve (#803, extended by Splinter's ruling): a membership
+   change rewrites an instruction file; a process is bounded at sixty an
+   hour across projects with a refusal that says the number; the screen is
+   never valved, so a person stacking agents on a new project meets none. */
+test('a process past sixty membership changes an hour is refused with the count and the minutes; the screen still adds; a repeat is not counted', async () => {
+  const p = projects.create({ name: 'Member Valve Route' });
+  for (const pj of projects.readAll()) projects.ageMemberChangesForTests(pj.id, 3601);
+  const path = '/api/project/' + encodeURIComponent(p.id) + '/agent/';
+  let refused = null; let landed = 0;
+  for (let i = 0; i < projects.MEMBERS_PER_HOUR + 2 && !refused; i += 1) {
+    const r = await req(path + 'agent-' + i, asProcess({}));
+    if (r.status === 429) refused = r; else { assert.equal(r.status, 200, r.body); landed += 1; }
+  }
+  assert.ok(refused, 'the valve never closed');
+  assert.equal(landed, projects.MEMBERS_PER_HOUR, 'the valve closed at the wrong count');
+  const err = JSON.parse(refused.body);
+  assert.match(err.error, new RegExp('changed who is on projects ' + projects.MEMBERS_PER_HOUR + ' times'));
+  assert.match(err.error, /pausing agent-made membership changes for \d+ minutes?/);
+  assert.match(err.error, /from the screen/);
+  assert.equal(refused.headers.get('retry-after'), String(err.retry_after_secs));
+  // A repeat of a member already on the project is not a change and is not refused.
+  const again = await req(path + 'agent-0', asProcess({}));
+  assert.equal(again.status, 200, again.body);
+  // A remove by a process is a change and is refused while shut.
+  const rm = await req(path + 'agent-0', { method: 'DELETE' });
+  assert.equal(rm.status, 429, rm.body);
+  // The screen is never valved: the person adds one now.
+  const sc = await req(path + 'from-the-person', asScreen({}));
+  assert.equal(sc.status, 200, sc.body);
+  assert.ok(projects.readAll().find((x) => x.id === p.id).agents.includes('from-the-person'));
+  // Aged, a process may write again.
+  projects.ageMemberChangesForTests(p.id, 3601);
+  const ok = await req(path + 'after-the-hour', asProcess({}));
+  assert.equal(ok.status, 200, ok.body);
+});

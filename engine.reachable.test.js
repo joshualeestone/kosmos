@@ -24,6 +24,8 @@ const EXCUSED = {
   setPauser: 'test seam: observes the codex Enter gap without sleeping (#571)',
   setDryRun: 'test seam: keeps suites off real panes',
   resetForTests: 'test seam',
+  agePartWritesForTests: 'test seam: ages the parts records instead of shortening the hour (#803)',
+  ageMemberChangesForTests: 'test seam: ages the membership records instead of shortening the hour (#803)',
   setPaneSource: 'test seam: keeps status reads off the real machine',
   setRenderer: 'test seam (attachments preview)',
   setRevealRunner: 'test seam (projects reveal)',
