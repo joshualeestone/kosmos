@@ -28,3 +28,14 @@ Teaching agents to say `--project <id>` (or "task N of <project>"): the wording 
 ## Not in this change
 
 The screen (what a tile says with `needsYouElsewhere`); the number-only task join in `claimFor` (carded separately); a project on the phone notification (`notify.happened` for `needs_you` does not carry it yet).
+
+## Blind review round 1, what changed (decisions under the ruling's direction: fewer false lights, never a missing one; inferences admit themselves)
+
+- A carried-forward project ADMITS ITSELF: `projectInferred` on the reading, `stateProjectInferred` on the card and the member row, `needsYouInferred` in the summary (Splinter 23:05: a tile lit by a guess and one lit by a statement must be tellable apart in the data).
+- `started` clears the carried project as `stopped` does: a crash leaves no `stopped` row, and the next run must not light the old run's project on its first question. Cost, stated: the hook reports `started` on every session start, compaction and resume included, so after each the hook's questions go unattributed until the agent names a project again. A missed light, never a wrong one.
+- The carry-forward is bounded by the 64 KB tail the reading looks at (about 400 to 500 rows; under a working day at the hook's one-heartbeat-a-minute throttle). Past it the reading says no project, never a wrong one; a test pins that direction.
+- A question read off the screen (Claude's own prompt, which no report mentions) beside a report that named or inherited a project is about that project as far as anyone can tell, marked inferred; the same inference the hook's question gets. Before this it lit nothing.
+- `needsYouElsewhere` (about ANOTHER project) is kept apart from `needsYouUnattributed` (about none), so a screen sentence about another project is never said of a question about none.
+- The route keeps `project` only when it is a string.
+- Screen consequence for Mona Lisa's half: with today's page, a project whose only member needs Josh about another project (or about none) shows the pill "Nothing running"; the engine ships the two counts for the sentence that replaces it.
+- Deferred: the phone notification (`notify.happened` for `needs_you`) does not carry the project yet; `--project` must precede the sentence, like the three existing flags.

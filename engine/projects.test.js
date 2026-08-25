@@ -452,6 +452,7 @@ test('the row summary counts what it can see AND says what it could not', () => 
   assert.equal(described.summary.unseen, 1, 'a summary that hides its own blind spot is the defect');
   assert.equal(otherRow.summary.needsYou, 0, 'the same agent is on Other too, and its question was not about Other (#763: four of seven tiles lit)');
   assert.equal(otherRow.summary.needsYouElsewhere, 1, 'a screen may still say someone here needs you about something else');
+  assert.equal(otherRow.summary.needsYouUnattributed, 0);
 
   /* Unattributed: a question that names no project (and no earlier report
      named one) lights no project; it is read on the Agents page. */
@@ -460,7 +461,8 @@ test('the row summary counts what it can see AND says what it could not', () => 
   const roster2 = cards([fleet.agent('mara', { state: 'working' }), fleet.agent('claudebot', { state: 'needs_you' })]);
   const again = projects.list(roster2).find((p) => p.id === mixed.id);
   assert.equal(again.summary.needsYou, 0, 'unattributed: no project lights');
-  assert.equal(again.summary.needsYouElsewhere, 1);
+  assert.equal(again.summary.needsYouElsewhere, 0, 'about no project is not about another project');
+  assert.equal(again.summary.needsYouUnattributed, 1);
 
   /* Inferred: a report names the project, a later question names none. The
      tile lights, and the data says it rests on a carried-forward project. */

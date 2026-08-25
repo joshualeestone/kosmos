@@ -168,7 +168,13 @@ function read(sessionName) {
        logic for "latest", but it matters that it REPLACES rather than
        merges: nothing from the previous run may leak into this one. */
     latest = row;
-    if (row.state === 'stopped') project = null;
+    /* stopped ends a run; started begins one (a crash leaves no stopped row, so
+       a new run must not inherit the old run's project and light it on the
+       first question). The cost: the hook reports started on every session
+       start, compaction and resume included, so after each the questions go
+       unattributed until the agent names a project again. A missed light,
+       never a wrong one (the direction ruled 2026-08-24 23:05). */
+    if (row.state === 'stopped' || row.state === 'started') project = null;
     else if (typeof row.project === 'string' && row.project) project = row.project;
   }
   if (!latest) return { found: false, because: NO_READING.NEVER_REPORTED };

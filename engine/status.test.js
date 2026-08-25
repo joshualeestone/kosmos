@@ -2808,6 +2808,13 @@ test('#763: reconcile carries the reported project on a needs_you, and null when
   const inherited = reconcileReport(rep('needs_you', { project: 'p-christmas', projectInferred: true }), scraped, T0);
   assert.equal(inherited.project, 'p-christmas');
   assert.equal(inherited.projectInferred, true, 'the inference is carried, so a lit tile can say it rests on one');
+  const screenQ = reconcileReport(rep('working', { project: 'p-christmas' }), scr(STATE.NEEDS_YOU, CONFIDENCE.SCRAPED, 'Do you want to proceed?'), T0);
+  assert.equal(screenQ.state, STATE.NEEDS_YOU);
+  assert.equal(screenQ.project, 'p-christmas', 'a question read off the screen beside a report that named a project is about it, as far as anyone can tell');
+  assert.equal(screenQ.projectInferred, true, 'and it says so');
+  const screenQ0 = reconcileReport(rep('working'), scr(STATE.NEEDS_YOU, CONFIDENCE.SCRAPED, 'Do you want to proceed?'), T0);
+  assert.equal(screenQ0.project, null);
+  assert.equal(screenQ0.projectInferred, false);
   const unnamed = reconcileReport(rep('needs_you'), scraped, T0);
   assert.equal(unnamed.state, STATE.NEEDS_YOU);
   assert.equal(unnamed.project, null);

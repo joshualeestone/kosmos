@@ -945,11 +945,15 @@ function describe(project, roster, all) {
          lit every project the agent belonged to when it asked about one. Needs
          you now counts the questions ABOUT THIS PROJECT (the report carries the
          project); a question that names no project lights no project and is
-         read on the Agents page. needsYouElsewhere is the rest, for a screen
-         that wants to say "someone on this project needs you about something
-         else". */
+         read on the Agents page. needsYouElsewhere is the rest that names ANOTHER project, for a
+         screen that wants to say "someone on this project needs you about
+         something else"; needsYouUnattributed names none. */
       needsYou: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject === project.id).length,
-      needsYouElsewhere: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject !== project.id).length,
+      needsYouElsewhere: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject !== null && m.stateProject !== project.id).length,
+      /* ...and about no project at all (nothing named, nothing to inherit): read
+         on the Agents page. Kept apart from "elsewhere" so a screen sentence
+         about another project is never said of a question about none. */
+      needsYouUnattributed: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject === null).length,
       /* Of needsYou, how many rest on a carried-forward project rather than a
          stated one: a screen may render them alike, but the data can say. */
       needsYouInferred: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject === project.id && m.stateProjectInferred).length,

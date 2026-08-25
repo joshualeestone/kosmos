@@ -112,3 +112,23 @@ test('#763: a project id longer than the cap is cut, not refused', () => {
   assert.equal(selfreport.record(who, { state: 'working', project: 'x'.repeat(500) }).recorded, true);
   assert.equal(selfreport.read(who).project.length <= 120, true);
 });
+
+test('#763: a new run (started) does not inherit the old run\'s project; the light is missed, never wrong', () => {
+  const who = 'pia-discord';
+  assert.equal(selfreport.record(who, { state: 'working', project: 'p-old' }).recorded, true);
+  assert.equal(selfreport.record(who, { state: 'started' }).recorded, true);
+  assert.equal(selfreport.record(who, { state: 'needs_you', because: 'asking permission' }).recorded, true);
+  assert.equal(selfreport.read(who).project, null, 'a crash leaves no stopped row; the next run must not light the old project');
+});
+
+test('#763: a naming row that fell off the tail read fails safe: no project, not a wrong one', () => {
+  const who = 'quin-discord';
+  assert.equal(selfreport.record(who, { state: 'working', project: 'p-far' }).recorded, true);
+  const rows = Math.ceil(selfreport.TAIL_BYTES / 60) + 5;
+  for (let i = 0; i < rows; i++) selfreport.record(who, { state: 'working' });
+  assert.equal(selfreport.record(who, { state: 'needs_you' }).recorded, true);
+  const back = selfreport.read(who);
+  assert.equal(back.state, 'needs_you');
+  assert.equal(back.project, null, 'the naming row is outside the tail; the reading must not guess');
+  assert.equal(back.projectInferred, false);
+});

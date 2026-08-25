@@ -2686,7 +2686,12 @@ function reconcileReport(reported, scraped, nowMs) {
   }
   // Rule 3: the red stands.
   if (scraped.state === STATE.NEEDS_YOU && reported.state !== 'needs_you') {
-    return { ...scraped, reported: false, conflict: 'its screen shows a question its reports do not mention' };
+    /* #763: a question read off the screen beside a report that named a
+       project (or inherited one) is about that project as far as anyone can
+       tell: the same inference the hook's project-less needs_you gets, and
+       marked as one. Null project when the reports named none. */
+    const p = (typeof reported.project === 'string' && reported.project) ? reported.project : null;
+    return { ...scraped, reported: false, conflict: 'its screen shows a question its reports do not mention', project: p, projectInferred: p !== null };
   }
 
   if (reported.state === 'working') {
