@@ -14,6 +14,11 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
 test('the settings body is the nav and one 34rem column, centred; narrow windows get the fluid column back', () => {
   assert.match(PAGE, /#panel-settings \.dbody \{ grid-template-columns: 176px 34rem; justify-content: center; \}/);
   assert.match(PAGE, /@media \(max-width: 60rem\) \{ #panel-settings \.dbody \{ grid-template-columns: 176px minmax\(0, 1fr\); justify-content: stretch; \} \}/);
+  // at phone width the nav stacks above the section: the id-selector rule must be restated inside the 56rem block, after the 60rem one
+  const i60 = PAGE.indexOf('@media (max-width: 60rem) { #panel-settings .dbody');
+  const i56 = PAGE.indexOf('@media (max-width: 56rem) {', i60); // the sheet has several 56rem blocks; the one that counts follows the 60rem rule
+  assert.ok(i60 > 0 && i56 > i60, 'the 56rem block comes after the 60rem rule');
+  assert.match(PAGE.slice(i56, i56 + 900), /#panel-settings \.dbody \{ grid-template-columns: minmax\(0, 1fr\); justify-content: stretch; \}/);
 });
 
 test('You is Your Profile: one-size picture buttons, no disclaimer by default, a short name field, a yellow Save', () => {
