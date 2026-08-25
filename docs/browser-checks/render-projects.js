@@ -927,10 +927,12 @@ async function main() {
       // `.pj-folder-state.bad` in the `badFolderEls` pass below, while the
       // project whose folder is missing is open. This list is the one-project
       // view of a HEALTHY project, so it cannot carry either.
-      // ⚠️ `.drop` LEFT THIS LIST 2026-08-19 and is measured in the settings pass
-      // below instead. It renders in exactly one place, paintSettingsMembers,
-      // which is the settings view — #87 moved removal there. Traced by Mona
-      // Lisa, whose ruling the move was.
+      // ⚠️ THE REMOVE CONTROL LEFT THIS LIST 2026-08-19 and is measured in the
+      // settings pass below instead. It renders in exactly one place,
+      // paintSettingsMembers, which is the settings view — #87 moved removal
+      // there (Mona Lisa's ruling). #762 changed WHAT renders there (the
+      // shared `.pj-minus` row, not the retired `.drop` button) without
+      // moving it off this screen again, so the selector below follows it.
       //
       // ⚠️ `.pj-told` STAYS HERE AND STAYS RED, deliberately. It did NOT move to
       // another screen; it moved to a STATE. pjToldLine returns a non-empty
@@ -988,9 +990,10 @@ async function main() {
     const settingsEls = await page.evaluate(() => {
       const bgOf = window.__kbg;
       const out = [];
-      // `.drop` measured HERE, on the screen it actually renders on.
+      // The remove control measured HERE, on the screen it actually renders
+      // on (#762: `.pj-minus`, the shared row's, not the retired `.drop`).
       for (const sel of ['#pj-settings-view #pjs-folder-name', '#pj-settings-view #pjs-folder-where',
-                         '#pj-settings-view .pj-member .drop']) {
+                         '#pj-settings-view .pj-member .pj-minus']) {
         const el = document.querySelector(sel);
         if (!el || !el.offsetParent) { out.push({ sel, missing: true }); continue; }
         const cs = getComputedStyle(el);

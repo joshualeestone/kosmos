@@ -1652,10 +1652,12 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* The paper ground belongs to the LIST view only; the one-project, add,
    and project-settings views (view D territory, not this chunk) keep the
    shell the panel used to give them. */
-#pj-settings-view {
-  max-width: 860px; margin: 0 auto; background: var(--bg-elevated);
-  border: 0.5px solid var(--separator); border-radius: var(--radius-card);
-  box-shadow: var(--shadow-card); padding: var(--space-8); }
+/* #762 (Josh, 2026-08-24 22:02): "very similar to adding a project and
+   adding an agent" -- no bounding box, the create page's width, and no
+   horizontal rule between fields (one exception below, his own ask). */
+#pj-settings-view { max-width: 34rem; margin: 0 auto; background: none; border: 0; box-shadow: none; padding: 0; }
+#pj-settings-view .field { border-top: 0; padding-top: 0; margin-top: var(--space-6); }
+#pj-settings-view .field.pjs-rule-above { border-top: 0.5px solid var(--separator); padding-top: var(--space-6); }
 /* #750 (Josh, 2026-08-24 21:29): "stylized to be just like the new agent":
    no bounding box, the create page's width, fields at a normal width. */
 #pj-add-view { max-width: 34rem; margin: 0 auto; background: none; border: 0; box-shadow: none; padding: 0; }
@@ -1663,7 +1665,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 #pj-add-view .pj-picked b { font: 600 var(--text-body) var(--font-ui); }
 #pj-add-view .pj-picked small { color: var(--label-2); }
 #pj-add-view .pj-picked .skillrm { margin-left: auto; }
-#pj-add-view .pj-add-doors .btn:disabled { opacity: .5; cursor: not-allowed; }
+#pj-add-view .pj-add-doors .btn:disabled, #pj-settings-view .pj-add-doors .btn:disabled { opacity: .5; cursor: not-allowed; }
 /* The room page sits on the GROUND like the pack draws it: the three
    pjcols are the cards, and a panel behind them was cards on a card. */
 #pj-one-view { background: none;
@@ -2008,7 +2010,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pj3 .pj-addmem:hover, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask:hover { color: var(--k-ink); }
   html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard:first-child > .pj-members, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .tkcards { margin-top: 6px; }
   html[data-layout="consolidated"] body.consolidated #pj-remove-member { display: none; }
-  html[data-layout="consolidated"] body.consolidated .pj-minus { display: grid; place-items: center; margin-left: auto; width: 20px; height: 20px; flex: none; border: 1px solid var(--k-rule); border-radius: 6px; background: var(--k-surface); color: var(--k-ink-2); font: 600 14px/1 var(--font-ui); padding: 0; cursor: pointer; opacity: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj-minus { display: grid; place-items: center; margin-left: auto; width: 24px; height: 24px; flex: none; border: 1px solid var(--k-rule); border-radius: 6px; background: var(--k-surface); color: var(--k-ink-2); font: 600 14px/1 var(--font-ui); padding: 0; cursor: pointer; opacity: 0; }
   html[data-layout="consolidated"] body.consolidated .pj-member:hover .pj-minus, html[data-layout="consolidated"] body.consolidated .pj-minus:focus-visible { opacity: 1; }
   html[data-layout="consolidated"] body.consolidated .pj-minus:hover { color: var(--k-ink); background: var(--k-hover-2, var(--k-sunk)); }
 }
@@ -2580,11 +2582,14 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    arrived. Column, because the name, the state and the told line were three
    siblings of a wrapping flex row and are now one block beside the disc. */
 .pj-member-b { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-/* The row's minus, in BOTH views since #761 (Josh, 2026-08-24 21:56, looking
-   at the tab view: "when I mouse over it, it would give me an X. If I clicked
-   it, it would pop up a modal"). Shown on hover or keyboard focus; the
-   "Remove a member" door steps aside everywhere. */
-.pj-minus { display: grid; place-items: center; margin-left: auto; width: 20px; height: 20px; flex: none;
+/* The row's minus, in every view that draws a member row since #761/#762
+   (Josh, 2026-08-24 21:56, looking at the tab view: "when I mouse over it,
+   it would give me an X. If I clicked it, it would pop up a modal").
+   Shown on hover or keyboard focus; the "Remove a member" door steps aside
+   everywhere. 24x24, not 20x20: WCAG 2.2 SC 2.5.8 (Target Size Minimum) is
+   this project's floor for the only destructive control on the row -- the
+   same standard the settings rows' own retired button was built to. */
+.pj-minus { display: grid; place-items: center; margin-left: auto; width: 24px; height: 24px; flex: none;
   border: 1px solid var(--separator); border-radius: 6px; background: var(--bg-elevated); color: var(--label-2);
   font: 600 14px/1 var(--font-ui); padding: 0; cursor: pointer; opacity: 0; }
 .pj-member:hover .pj-minus, .pj-minus:focus-visible { opacity: 1; }
@@ -2654,13 +2659,6 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    as its own flex child below the member cards, not inside one of them. */
 .pj-members .pj-told-group { display: block; font: var(--text-caption) var(--font-ui); color: var(--label-2); margin: 0; }
 .pj-member.unseen { border-style: dashed; }
-/* ⚠️ 24px minimum, because this is the only destructive control on the row and
-   WCAG 2.2 SC 2.5.8 (Target Size Minimum) is a Level AA criterion — and AA is
-   this project's floor, not its aspiration. It was a 10px underlined caption
-   with no padding: about a 13px-tall target. */
-.pj-member .drop { margin-left: auto; background: none; border: 0; cursor: pointer;
-  font: var(--text-callout) var(--font-ui); color: var(--label-2); text-decoration: underline;
-  min-height: 24px; min-width: 24px; padding: var(--space-3) var(--space-4); }
 /* --- the thread --------------------------------------------------------- */
 /* Same as #pj-one-add above: dressed by the shared `select` rule, widthed by
    the named width rule above — NOT `.frow select`, which does not exist and
@@ -6336,7 +6334,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        rule survives the surface change); Create closes it and repaints. -->
   <div id="pj-settings-view" hidden>
     <button class="back" id="pj-settings-back" type="button">&larr; <span id="pj-settings-backname"></span></button>
-    <h2>Project settings</h2>
+    <!-- #762 (Josh, 2026-08-24 22:02): "similar to how large the font is for
+         the title on the actual project" -- the project page's own .dname. -->
+    <h2 class="dname">Project settings</h2>
     <p class="fhint">Changes here apply to this project only.</p>
     <!-- The read-failure note, on THIS view: the folder facts and archive
          control below repaint from every poll, so when the poll stops
@@ -6346,22 +6346,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 
     <div class="field">
       <label class="flabel" for="pjs-name">Name</label>
-      <p class="fhint">Shown wherever this project appears.</p>
       <input class="tk-inp" type="text" id="pjs-name" maxlength="120">
     </div>
     <div class="field">
       <label class="flabel" for="pjs-desc">Description</label>
-      <p class="fhint">One line about what this project is for. Agents read it.</p>
       <!-- No maxlength, a recorded engine decision (projects.js): the engine
            counts CODE POINTS and HTML maxlength counts UTF-16 units, so a
            raw 200 here would cut a pasted emoji description at half length
            while the engine accepts it. The engine's refusal sentence is the
            cap. -->
       <textarea class="tk-inp" id="pjs-desc" rows="2"></textarea>
-    </div>
-    <div class="field">
-      <button class="btn uprime" id="pjs-save" type="button">Save changes</button>
-      <p class="fmsg" id="pjs-msg" aria-live="polite"></p>
     </div>
 
     <div class="field">
@@ -6381,17 +6375,33 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     </div>
 
     <div class="field">
-      <span class="flabel">Project members</span>
-      <!-- 18e's section (sha c69afdb2...), the build's field idiom. The
-           explanatory sentence was CUT (Josh, 2026-08-18 10:07 PM); the
-           survival reassurance lives in the removal announcement at the
-           moment of the act instead. Light direct DELETE, no modal:
-           recoverable in two clicks. -->
-      <div class="pj-members" id="pjs-members"></div>
+      <span class="flabel" id="pjs-agents-label">Project members</span>
+      <!-- #762 (Josh, 2026-08-24 22:02): a duplicate of New project's agents
+           section -- avatars, a single red X per row (the #761 confirm modal,
+           shared), and the same three doors underneath (#750). -->
+      <div class="pj-members" id="pjs-members" role="group" aria-labelledby="pjs-agents-label"></div>
       <p class="fmsg" id="pjs-members-msg" aria-live="polite" tabindex="-1"></p>
+      <div class="frow" id="pjs-add-row" hidden style="margin-top: var(--space-4)">
+        <select id="pjs-add-pick" aria-label="Which agent to add"></select>
+        <button class="linkish" id="pjs-add-pick-cancel" type="button">Never mind</button>
+      </div>
+      <div class="frow pj-add-doors" style="margin-top: var(--space-4)">
+        <button class="btn" id="pjs-add-agent" type="button"><span aria-hidden="true">+</span> Add an agent</button>
+        <button class="btn" type="button" disabled title="Not yet: people outside Kosmos will be able to join a project in a later version">Add an external person</button>
+        <button class="btn" type="button" disabled title="Not yet: agents outside Kosmos will be able to join a project in a later version">Add an external agent</button>
+      </div>
     </div>
 
     <div class="field">
+      <div class="sfoot">
+        <button class="btn uprime big" id="pjs-save" type="button">Save changes</button>
+      </div>
+      <p class="fmsg" id="pjs-msg" aria-live="polite"></p>
+    </div>
+
+    <!-- The one rule Josh kept (#762): "Archive and Remove are kind of below
+         Saving All the Actual Changes above it." -->
+    <div class="field pjs-rule-above">
       <span class="flabel" id="pj-one-archive-label">Archive this project</span>
       <p class="fhint" id="pj-one-archive-hint">Hides it from the projects list and stops it counting.
          Everything stays, and you can restore it whenever you like.</p>
@@ -19804,10 +19814,11 @@ function pjMember(m, suppressTold, withMinus) {
     + (toldLine ? '<span class="pj-told">' + toldLine + '</span>' : '')
     + pjMemberHasIt(m)
     + '</span>'
-    /* #520 piece ten: the mock's minus, at the row's end, shown on hover in
-       the consolidated view (CSS hides it everywhere else; the settings page
-       has its own Remove). It carries the same data-drop the settings row
-       carries, so one handler serves both. Only the project page asks for it. */
+    /* #520 piece ten, then #762: the mock's minus, at the row's end, shown
+       on hover or keyboard focus wherever it is drawn. Project settings
+       asks for it too now, the same button and the same confirm modal,
+       not a second "Remove from project" control -- two call sites
+       (paintOneProject and paintSettingsMembers), one shared row. */
     + (withMinus
       ? '<button class="pj-minus" type="button" data-drop="' + esc(m.sessionName) + '"'
         + ' aria-label="Remove ' + esc(m.name) + ' from this project" title="Remove from this project">\u2212</button>'
@@ -20930,6 +20941,9 @@ function paintProjectSettings(p) {
   // sentence survived Back-and-into-project-B and sat under B's roster,
   // attributing a failure to the wrong project (review blocker).
   document.getElementById('pjs-members-msg').textContent = '';
+  // A picker left open from a previous visit (or another project) must not
+  // survive into this one, the same reason PJ A's message could not.
+  document.getElementById('pjs-add-row').hidden = true;
   paintSettingsFacts(p);
 }
 
@@ -20939,7 +20953,10 @@ function paintProjectSettings(p) {
    paintProjectSettings alone -- a poll that rewrote pjs-name would eat a
    rename mid-type, the same draft-eater the say box fought (round 33). */
 /**
- * The settings members rows: name + state + the removal action (18e).
+ * The settings members rows: the same row `pjMember` draws everywhere else
+ * (avatar, role, state) with the same hover-minus the project page's own
+ * agents use (#762, a duplicate of that treatment rather than a third one:
+ * a red X per row, not a stretched "Remove from project" button).
  * Painted with setIfChanged so the poll never steals keyboard focus from
  * a row mid-interaction (the same rule the column's painter carries).
  */
@@ -20947,18 +20964,12 @@ function paintSettingsMembers(p) {
   const box = document.getElementById('pjs-members');
   const rows = (p.agents || []);
   setIfChanged(box, rows.length
-    ? rows.map((m) => '<div class="pj-member' + (m.present ? '' : ' unseen') + '">'
-        + '<b>' + esc(m.name) + '</b>'
-        // An unknown says WHY here too (the pjMember comment's rule: a bare
-        // "Can't tell" is the shipped defect this app already fixed once).
-        + '<small>' + esc(m.present
-          ? ((STATE_COPY[m.state] || STATE_COPY.unknown).label
-            + (m.state === 'unknown' && m.because ? ': ' + m.because : ''))
-          : (m.because || 'We cannot see this agent on this computer right now.')) + '</small>'
-        + '<button class="drop" type="button" aria-label="Remove from project: ' + esc(m.name)
-        + '" data-drop="' + esc(m.sessionName) + '">Remove from project</button>'
-        + '</div>').join('')
+    ? rows.map((m) => pjMember(m, false, true)).join('')
     : '<p class="fhint">No agents on this project yet.</p>');
+  // No btn passed: unlike the tab view's persistent "Put it on this
+  // project" Go button, "+ Add an agent" is a door (#750's pattern) and
+  // stays clickable even with nobody free, so the select can say why.
+  paintFreeAgentPicker(p, document.getElementById('pjs-add-pick'), null);
 }
 
 function paintSettingsFacts(p) {
@@ -21144,22 +21155,33 @@ function paintOneProject() {
       + (sharedTold ? '<p class="pj-told-group">' + sharedTold + '</p>' : '')
     : '<p class="fhint">No agents on this project yet.</p>');
 
-  // Only agents that are NOT already on it, and only ones we can actually see.
+  paintFreeAgentPicker(p, document.getElementById('pj-one-add'), document.getElementById('pj-one-add-go'));
+}
+
+/**
+ * The free-agent picker, shared by every "add an agent to this project"
+ * control (#762: the settings doors read the SAME source as the tab
+ * view's, rather than a second derivation of who is free). Fills `sel`
+ * with agents not already on the project, preserves the person's choice
+ * across a repaint, and disables `btn` (when given) if nobody is free.
+ *
+ * Only agents that are NOT already on it, and only ones we can actually see.
+ * ⚠️ THREE reasons this list can be empty, and one sentence covers all of
+ * them. "no other agents we can see" is wrong for the commonest case -- every
+ * agent is already ON the project, so they are all visible -- and it is the
+ * have-not-looked-yet conflation its sibling picker was just fixed for, which
+ * this one did not inherit. Each case now says which it is.
+ * ⚠️ The discriminator is `LAST.length`, NOT `on.size`. With an empty board
+ * and a project that has members, `on.size` is non-zero and this said "every
+ * agent we can see is already on it" while the rows above it said we cannot
+ * see any of them — membership rendered as visibility, on the same screen,
+ * contradicting itself. That state is reachable and became MORE reachable in
+ * this same branch: tmux installed with no server running is now a successful
+ * answer of zero agents rather than a refusal.
+ */
+function paintFreeAgentPicker(p, sel, btn) {
   const on = new Set((p.agents || []).map((a) => a.sessionName));
   const free = LAST.filter((a) => !on.has(a.sessionName));
-  const sel = document.getElementById('pj-one-add');
-  // ⚠️ THREE reasons this list can be empty, and one sentence covered all of
-  // them. "no other agents we can see" is wrong for the commonest case -- every
-  // agent is already ON the project, so they are all visible -- and it is the
-  // have-not-looked-yet conflation its sibling picker was just fixed for, which
-  // this one did not inherit. Each case now says which it is.
-  // ⚠️ The discriminator is `LAST.length`, NOT `on.size`. With an empty board
-  // and a project that has members, `on.size` is non-zero and this said "every
-  // agent we can see is already on it" while the rows above it said we cannot
-  // see any of them — membership rendered as visibility, on the same screen,
-  // contradicting itself. That state is reachable and became MORE reachable in
-  // this same branch: tmux installed with no server running is now a successful
-  // answer of zero agents rather than a refusal.
   const emptyBecause = BOARD_LOOK_FAILED
     ? 'we cannot see the agents right now'
     : !BOARD_LOOKED ? 'looking for the agents…'
@@ -21182,7 +21204,8 @@ function paintOneProject() {
     sel.innerHTML = html;
     if (chosen && free.some((a) => a.sessionName === chosen)) sel.value = chosen;
   }
-  document.getElementById('pj-one-add-go').disabled = !free.length;
+  if (btn) btn.disabled = !free.length;
+  return free;
 }
 
 /* ---- a project's documents ------------------------------------------------
@@ -24366,9 +24389,12 @@ document.getElementById('pj-create').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('pj-one-add-go').addEventListener('click', async () => {
-  const who = document.getElementById('pj-one-add').value;
-  const msg = document.getElementById('pj-one-msg');
+/**
+ * Put an agent on the CURRENT project, live -- shared by the tab view's
+ * "Put it on this project" Go button and the settings doors' picker
+ * (#762), so the two do not drift into two answers for one POST.
+ */
+async function addMemberToProject(who, msg) {
   if (!who || !PJ_CURRENT) return;
   msg.textContent = '';
   try {
@@ -24381,11 +24407,47 @@ document.getElementById('pj-one-add-go').addEventListener('click', async () => {
     // engine's reasons are clauses.
     msg.textContent = pjSentence(err.message) || 'We could not change that project.';
   }
+}
+document.getElementById('pj-one-add-go').addEventListener('click', () => {
+  addMemberToProject(document.getElementById('pj-one-add').value, document.getElementById('pj-one-msg'));
+});
+/* #762: the settings doors' own "+ Add an agent", a duplicate of New
+   project's reveal-a-picker door (#750) but live: picking an agent adds
+   it at once, the same POST the tab view's Go button drives. */
+document.getElementById('pjs-add-agent').addEventListener('click', () => {
+  const p = pjById(PJ_CURRENT);
+  if (p) paintFreeAgentPicker(p, document.getElementById('pjs-add-pick'), null);
+  document.getElementById('pjs-add-row').hidden = false;
+  document.getElementById('pjs-add-pick').focus();
+});
+document.getElementById('pjs-add-pick-cancel').addEventListener('click', () => {
+  document.getElementById('pjs-add-row').hidden = true;
+  document.getElementById('pjs-add-agent').focus();
+});
+document.getElementById('pjs-add-pick').addEventListener('change', async () => {
+  const sel = document.getElementById('pjs-add-pick');
+  const who = sel.value;
+  document.getElementById('pjs-add-row').hidden = true;
+  document.getElementById('pjs-add-agent').focus();
+  if (!who) return;
+  await addMemberToProject(who, document.getElementById('pjs-members-msg'));
 });
 
 /* The removal listener lives on the SETTINGS rows now (the column lost
    its buttons; Josh's ruling). Same DELETE, same verdict-read: only the
    home and the message element moved. */
+/* Where a removal's verdict belongs, read fresh rather than carried from
+   whenever the click happened (#762): the settings rows becoming a SECOND
+   possible source for `msg`, beside the tab view's, exposed the direction
+   this guard did not yet cover -- go INTO settings mid-flight and the
+   captured pj-one-msg is now the hidden one. Resolving by current
+   visibility, not by which element was passed in, covers both directions
+   the same way. */
+function dropMemberTarget() {
+  return document.getElementById('pj-settings-view').hidden
+    ? document.getElementById('pj-one-msg')
+    : document.getElementById('pjs-members-msg');
+}
 async function dropMember(btn, msg) {
   msg.textContent = '';
   // The say-box guard (its pattern): the verdict lands only on the
@@ -24416,8 +24478,7 @@ async function dropMember(btn, msg) {
     // the project view mid-flight (same project, so the guard passed),
     // and writing into the hidden settings view would be read by nobody
     // and wiped by the entry-clear -- told, and the answer dropped.
-    const target = document.getElementById('pj-settings-view').hidden
-      ? document.getElementById('pj-one-msg') : msg;
+    const target = dropMemberTarget();
     // Her ruled sentence (2026-08-18 10:07 PM), visible text and aria-live
     // in one element at one moment: names the agent, states the RESULTING
     // state, carries the survival fact -- which lives only here now that
@@ -24453,48 +24514,54 @@ async function dropMember(btn, msg) {
     // The clicked button died with the repaint; the keyboard lands on the
     // verdict element rather than <body> (the pjCloseConfirm pattern) --
     // but ONLY when focus actually fell to body: yanking it out of a
-    // field the person moved to mid-flight would be the draft-eater.
-    if (document.activeElement === document.body && target === msg) msg.focus();
+    // field the person moved to mid-flight would be the draft-eater. The
+    // target is always where the person IS now (dropMemberTarget), so
+    // there is no second "did we redirect" check to make here.
+    if (document.activeElement === document.body) target.focus();
   } catch (err) {
     if (PJ_CURRENT !== sentProject) return;
-    const target = document.getElementById('pj-settings-view').hidden
-      ? document.getElementById('pj-one-msg') : msg;
+    const target = dropMemberTarget();
     target.textContent = pjSentence(err.message) || 'We could not change that project.';
     // The error path repaints nothing, so the retry control survives;
     // focus moves only if it had already fallen to body.
-    if (document.activeElement === document.body && target === msg) msg.focus();
+    if (document.activeElement === document.body) target.focus();
   }
 }
-document.getElementById('pjs-members').addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-drop]');
-  if (!btn || !PJ_CURRENT) return;
-  dropMember(btn, document.getElementById('pjs-members-msg'));
-});
-/* The project page's own minus (#520 piece ten): the same drop, its receipt
-   on the page's own message line. */
+/* The project page's own minus (#520 piece ten), and the settings rows'
+   (#762: the same X, the same modal, not a third pattern). */
 let MEM_PENDING = null;
 function memConfirmClose() {
   document.getElementById('mem-modal').hidden = true;
   const p = MEM_PENDING; MEM_PENDING = null;
   if (p && p.btn && !p.btn.disabled) p.btn.focus();
 }
-document.getElementById('pj-one-agents').addEventListener('click', (e) => {
-  const btn = e.target.closest('.pj-minus[data-drop]');
-  if (!btn || !PJ_CURRENT) return;
-  /* #761: the minus asks before it acts. The dialog names the agent and the
-     project, says what changes and what does not, and Enter lands on the
-     harmless answer, the way every dialog in Kosmos does. */
+/* #761: the minus asks before it acts. The dialog names the agent and the
+   project, says what changes and what does not, and Enter lands on the
+   harmless answer, the way every dialog in Kosmos does. `msg` is where the
+   verdict lands after Remove -- the page's own message line on the tab
+   view, the settings members message on the settings row (#762). */
+function openMemModal(btn, msg) {
   const row = btn.closest('.pj-member');
   const who = (row && row.querySelector('b')) ? row.querySelector('b').textContent : btn.dataset.drop;
   const p = pjById(PJ_CURRENT);
   const pjName = (p && p.name) || 'this project';
-  MEM_PENDING = { btn };
+  MEM_PENDING = { btn, msg };
   document.getElementById('mem-title').textContent = 'Remove ' + who + ' from ' + pjName + '?';
   document.getElementById('mem-small').textContent = who + ' comes off this project\u2019s list and stops getting its posts. Nothing else changes; you can put ' + who + ' back with the + at the top.';
   document.getElementById('mem-keep').textContent = 'Keep ' + who + ' on it';
   document.getElementById('mem-go').textContent = 'Remove ' + who;
   document.getElementById('mem-modal').hidden = false;
   document.getElementById('mem-keep').focus();
+}
+document.getElementById('pjs-members').addEventListener('click', (e) => {
+  const btn = e.target.closest('.pj-minus[data-drop]');
+  if (!btn || !PJ_CURRENT) return;
+  openMemModal(btn, document.getElementById('pjs-members-msg'));
+});
+document.getElementById('pj-one-agents').addEventListener('click', (e) => {
+  const btn = e.target.closest('.pj-minus[data-drop]');
+  if (!btn || !PJ_CURRENT) return;
+  openMemModal(btn, document.getElementById('pj-one-msg'));
 });
 document.getElementById('mem-keep').addEventListener('click', memConfirmClose);
 document.getElementById('mem-modal').addEventListener('click', (e) => { if (e.target.id === 'mem-modal') memConfirmClose(); });
@@ -24504,7 +24571,7 @@ document.getElementById('mem-go').addEventListener('click', () => {
   MEM_PENDING = null;
   if (!p || !p.btn || !PJ_CURRENT) return;
   p.btn.disabled = true;
-  dropMember(p.btn, document.getElementById('pj-one-msg'));
+  dropMember(p.btn, p.msg || document.getElementById('pj-one-msg'));
 });
 
 function pjCloseConfirm() {
