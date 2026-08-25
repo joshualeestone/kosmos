@@ -73,6 +73,34 @@ release_bundle_matches_tree "$T/extra.tgz" "$BUILD" >/dev/null && bad "a file th
 echo 'stale command' > "$T/bundle/bin/kosmos"; bundle binbad.tgz; cp "$BUILD/install/kosmos" "$T/bundle/bin/kosmos"
 release_bundle_matches_tree "$T/binbad.tgz" "$BUILD" >/dev/null && bad "a stale top-level bin/kosmos was called matching" || ok "a stale bin/kosmos is caught (compared against install/kosmos)"
 
+# ---- the other direction (#609): a file the build FORGOT ---------------------
+# The loop that walks the bundle cannot see a file that is not in it; the
+# expected set is derived from the tree and the app, never from the build's
+# hand list, and each of its sources gets a case that drops exactly one file.
+exp="$(release_bundle_expected_files "$BUILD" | sort -u)"
+printf '%s\n' "$exp" | grep -qx 'app/web/index.html' && printf '%s\n' "$exp" | grep -qx 'bin/kosmos' && ok "the expected set is derived from the tree (web/index.html, bin/kosmos among it)" || bad "the expected set is missing the tree's own files: $exp"
+rm -f "$T/bundle/app/web/index.html"; bundle noweb.tgz; sed 's/__KOSMOS_VERSION__/1.0.0/' "$BUILD/web/index.html" > "$T/bundle/app/web/index.html"
+out="$(release_bundle_matches_tree "$T/noweb.tgz" "$BUILD")" && bad "a bundle without web/index.html was called matching" || { printf '%s' "$out" | grep -q "missing from the bundle.*app/web/index.html" && ok "a bundle that forgot web/index.html is caught, and the red names the file" || bad "the red did not name web/index.html: $out"; }
+mkdir -p "$BUILD/engine"; echo 'module.exports = 1;' > "$BUILD/engine/keep.js"; echo 'test' > "$BUILD/engine/keep.test.js"
+bundle noengine.tgz
+out="$(release_bundle_matches_tree "$T/noengine.tgz" "$BUILD")" && bad "a bundle without engine/keep.js was called matching" || { printf '%s' "$out" | grep -q "missing from the bundle.*app/engine/keep.js" && ok "a bundle that forgot an engine/*.js is caught (derived from the tree's glob)" || bad "the red did not name engine/keep.js: $out"; }
+printf '%s' "$out" | grep -q "keep.test.js" && bad "a *.test.js was demanded of the bundle" || ok "and *.test.js files are not demanded (the build skips them)"
+mkdir -p "$T/bundle/app/engine"; cp "$BUILD/engine/keep.js" "$T/bundle/app/engine/"
+# a module the server requires from OUTSIDE engine/: only the require walk can see it.
+mkdir -p "$BUILD/lib" "$T/bundle/app/lib"; echo 'module.exports = 2;' > "$BUILD/lib/helper.js"
+printf 'require("./lib/helper");\nconsole.log("A")\n' > "$BUILD/server.js"; cp "$BUILD/server.js" "$T/bundle/app/server.js"
+bundle nolib.tgz
+out="$(release_bundle_matches_tree "$T/nolib.tgz" "$BUILD")" && bad "a bundle without a module the server requires was called matching" || { printf '%s' "$out" | grep -q "missing from the bundle.*app/lib/helper.js" && ok "a bundle that forgot a module the server requires (outside engine/) is caught, from the require graph" || bad "the red did not name lib/helper.js: $out"; }
+cp "$BUILD/lib/helper.js" "$T/bundle/app/lib/"; bundle complete.tgz
+release_bundle_matches_tree "$T/complete.tgz" "$BUILD" >/dev/null && ok "CONTROL: with every expected file present the bundle matches again" || bad "CONTROL: a complete bundle was called incomplete: $(release_bundle_matches_tree "$T/complete.tgz" "$BUILD")"
+# a file the engine resolves under bin/ by path is demanded, from the engine's own code.
+printf "const path = require('path'); module.exports = path.join(__dirname, '..', 'bin', 'needed.sh');\n" > "$BUILD/engine/paths.js"; cp "$BUILD/engine/paths.js" "$T/bundle/app/engine/"
+bundle nobin.tgz
+out="$(release_bundle_matches_tree "$T/nobin.tgz" "$BUILD")" && bad "a bundle without a bin/ file the engine resolves by path was called matching" || { printf '%s' "$out" | grep -q "missing from the bundle.*app/bin/needed.sh" && ok "a bundle that forgot a bin/ file the engine resolves by path is caught (#731's shape)" || bad "the red did not name bin/needed.sh: $out"; }
+mkdir -p "$BUILD/bin"; echo 'x' > "$BUILD/bin/needed.sh"; cp "$BUILD/bin/needed.sh" "$T/bundle/app/bin/needed.sh"; bundle withbin.tgz
+release_bundle_matches_tree "$T/withbin.tgz" "$BUILD" >/dev/null && ok "CONTROL: with the bin/ file present it matches again" || bad "CONTROL: a bundle with the bin/ file was called incomplete"
+rm -f "$BUILD/engine/paths.js" "$T/bundle/app/engine/paths.js" "$T/bundle/app/bin/needed.sh" "$BUILD/bin/needed.sh"
+
 echo 'other' > "$T/bundle/app/bin/kosmos-report-hook.sh"; bundle relocbad.tgz; cp "$BUILD/install/kosmos-report-hook.sh" "$T/bundle/app/bin/kosmos-report-hook.sh"
 release_bundle_matches_tree "$T/relocbad.tgz" "$BUILD" >/dev/null && bad "a changed relocated hook was called matching" || ok "a changed relocated hook is caught (compared against install/)"
 

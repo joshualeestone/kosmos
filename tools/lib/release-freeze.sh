@@ -85,8 +85,55 @@ release_bundle_source_path() {
 # checksum -- the sha of the tunnel THIS release built -- rather than skipped.
 # Passing it empty means no bundle is expected to carry a tunnel, and a tunnel
 # appearing anyway is a failure (a file the comparison has no source for).
+# The files the served bundle MUST carry, derived from the tree and from the
+# app itself, never from the build script's hand-maintained list (#609): a
+# list that duplicated the build's would drift with it, and the failure this
+# closes is exactly a cp line dropped from that list. Five sources, each the
+# thing that would break without the file:
+#   the server's local require graph   a missing module crashes the board
+#   every engine/*.js (not *.test.js)  the build copies the glob; a dropped
+#                                      glob line drops them all
+#   the files the engine resolves      path.join(__dirname, '..', 'bin', X):
+#   under bin/ by path                 copied at every agent creation (#731:
+#                                      a day of installs could not make one)
+#   everything under web/              the build copies the tree; a dropped
+#                                      cp -R drops the page
+#   the pinned relocations             bin/kosmos (the command) and
+#                                      app/bin/kosmos-report-hook.sh, whose
+#                                      tree paths differ from their bundle
+#                                      paths; app/assets/Kosmos.icns when the
+#                                      tree has it
+# Prints bundle-relative paths, one per line. Needs node for the require walk
+# (the release machine has it; a tree with no server.js prints the rest).
+release_bundle_expected_files() {
+  local tree="$1"
+  [ -d "$tree" ] || return 2
+  printf 'app/server.js\napp/package.json\nbin/kosmos\napp/bin/kosmos-report-hook.sh\n'
+  [ -f "$tree/assets/Kosmos.icns" ] && printf 'app/assets/Kosmos.icns\n'
+  ( cd "$tree" && [ -d web ] && find web -type f ! -name '.*' | sed 's|^|app/|' )
+  ( cd "$tree" && [ -d engine ] && find engine -maxdepth 1 -name '*.js' ! -name '*.test.js' | sed 's|^|app/|' )
+  ( cd "$tree" && [ -d engine ] && grep -ho "join(__dirname, *'\.\.', *'bin', *'[^']*')" engine/*.js 2>/dev/null | sed "s/.*'bin', *'\([^']*\)').*/app\/bin\/\1/" )
+  if [ -f "$tree/server.js" ] && command -v node >/dev/null 2>&1; then
+    ( cd "$tree" && node -e '
+      const path = require("path"), fs = require("fs");
+      const seen = new Set(); const q = [path.resolve("server.js")];
+      while (q.length) {
+        const f = q.pop(); if (seen.has(f)) continue; seen.add(f);
+        let s = ""; try { s = fs.readFileSync(f, "utf8"); } catch { continue; }
+        for (const m of s.matchAll(/require\(\s*["\x27](\.[^"\x27]+)["\x27]\s*\)/g)) {
+          let r = path.resolve(path.dirname(f), m[1]);
+          if (!fs.existsSync(r) && fs.existsSync(r + ".js")) r += ".js";
+          if (fs.existsSync(r) && fs.statSync(r).isFile()) q.push(r);
+        }
+      }
+      for (const f of seen) console.log("app/" + path.relative(process.cwd(), f));
+    ' 2>/dev/null )
+  fi
+  return 0
+}
+
 release_bundle_matches_tree() {
-  local tar="$1" tree="$2" want_tunnel_sha="${3:-}" tmp ver rel src cmpfile got_tunnel_sha saw_tunnel=0 bad=0
+  local tar="$1" tree="$2" want_tunnel_sha="${3:-}" tmp ver rel src cmpfile got_tunnel_sha saw_tunnel=0 bad=0 expected
   [ -f "$tar" ] && [ -d "$tree" ] || { echo "release_bundle_matches_tree: need a tarball and a tree" >&2; return 2; }
   ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tree/package.json" | head -1)"
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bundle-cmp.XXXXXX")" || return 2
@@ -113,6 +160,17 @@ release_bundle_matches_tree() {
       cmp -s "$tree/$src" "$cmpfile" || { echo "   differs from the tree: $rel"; bad=1; }
     fi
   done < <(cd "$tmp" && find app bin -type f 2>/dev/null | sed 's|^\./||')
+  # THE OTHER DIRECTION (#609): every file the tree and the app say the bundle
+  # must carry is in it. The loop above walks what IS in the bundle, so a file
+  # the build forgot was invisible to it; this walks what SHOULD be.
+  expected="$(release_bundle_expected_files "$tree" | sort -u)"
+  [ -n "$expected" ] || { rm -rf "$tmp"; echo "   could not derive the files the bundle must carry from $tree"; return 2; }
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    [ -f "$tmp/$rel" ] || { echo "   missing from the bundle (the tree and the app need it): $rel"; bad=1; }
+  done <<EOS
+$expected
+EOS
   rm -rf "$tmp"
   # ⚠️ An empty bundle compares equal to everything; zero files is a failure.
   [ "$n" -gt 0 ] || { echo "   the bundle holds no tree-derived files" ; return 1; }
