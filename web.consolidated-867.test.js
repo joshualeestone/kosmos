@@ -49,17 +49,14 @@ test('the agents rail scrolls without showing a scrollbar', () => {
     'the webkit half of the hidden-scrollbar treatment is gone');
 });
 
-test('tasks are sorted above files in the consolidated project column', () => {
+test('the right column is dissolved into independent grid rows, so its cards can be reordered without a DOM move', () => {
   // .pjsplit is dissolved so members and files can be placed on either
   // side of the tasks aside, which sits on its own separate grid row.
+  // The exact row ORDER (tasks, then members, then files, per Josh's
+  // 2026-08-25 15:52 correction against the real mock) is pinned in
+  // web.consolidated-match-mock.test.js, not duplicated here.
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjsplit \{ display: contents; \}/,
     '.pjsplit no longer dissolves, so members and files cannot be placed independently');
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjsplit > \.pjcard:first-child \{ grid-column: 2; grid-row: 1; \}/,
-    'Project members is not pinned to row 1');
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > aside\.pjcol:not\(\.pjsplit\) \{ grid-column: 2; grid-row: 2; \}/,
-    'Tasks is not on row 2, between members and files');
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjsplit > \.pjcard:last-child \{ grid-column: 2; grid-row: 3; \}/,
-    'Files in this project is not pushed to row 3, below Tasks');
   // The conversation column spans all three rows, not the old two.
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{[^}]*grid-row: 1 \/ span 3;/s,
     'the conversation column does not span the new third row');
