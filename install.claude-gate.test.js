@@ -34,10 +34,29 @@ function gate() {
 /* The shipped gate runs under set -euo pipefail (setup.sh:102); the
    harness matches, so an edit that only breaks under -u or -e dies here
    too rather than only in the real installer. */
+/* Every sandbox this file makes is REMOVED when the process ends, on every
+   path: pass, fail, and a signal. Five call sites used mkdtempSync bare and
+   nothing removed them; this file runs under yarn test, which the release
+   gate runs on every cut, so the build Mac accumulated 4,638 clgate-* dirs,
+   three of them a populated fake home at ~310M (#906). Same shape as
+   docs/browser-checks/live-connect.js since #877. KOSMOS_KEEP_SANDBOX=1
+   keeps them for a look at a red run. */
+const SANDBOXES = [];
+function sandbox() {
+  const sb = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
+  SANDBOXES.push(sb);
+  return sb;
+}
+process.on('exit', () => {
+  if (process.env.KOSMOS_KEEP_SANDBOX === '1') { console.error('sandboxes kept (KOSMOS_KEEP_SANDBOX=1):', SANDBOXES.join(' ')); return; }
+  for (const sb of SANDBOXES) { try { fs.rmSync(sb, { recursive: true, force: true }); } catch { /* nothing to do about it at exit */ } }
+});
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => process.exit(1));
+
 const HARNESS = 'set -euo pipefail\ndie() { printf "%s\\n" "$*" >&2; exit 1; }\ninfo() { printf "%s\\n" "$*"; }\n';
 
 function run({ homeHasClaude, pathClaude, installer }) {
-  const sb = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
+  const sb = sandbox();
   const home = nodePath.join(sb, 'home');
   fs.mkdirSync(nodePath.join(home, '.local', 'bin'), { recursive: true });
   if (homeHasClaude) {
@@ -139,7 +158,7 @@ test('something present that cannot run gets its own sentence, never the false "
   /* A broken symlink (npm prefix moved) or a chmod-000 file at the path:
      the elsewhere-remedy's pasted ln would fail on File exists, so this
      state needs a different sentence and a remedy that works. */
-  const sb = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
+  const sb = sandbox();
   const home = nodePath.join(sb, 'home');
   fs.mkdirSync(nodePath.join(home, '.local', 'bin'), { recursive: true });
   fs.symlinkSync(nodePath.join(sb, 'moved-away'), nodePath.join(home, '.local', 'bin', 'claude'));
@@ -169,7 +188,7 @@ test('a DIRECTORY at the path is refused as unrunnable, never accepted', () => {
      path failed to start, the exact #133 failure. No claude on PATH here,
      so the plain remove remedy is the sentence, and rm -r is the form
      that works on a folder. */
-  const sb = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
+  const sb = sandbox();
   const home = nodePath.join(sb, 'home');
   fs.mkdirSync(nodePath.join(home, '.local', 'bin', 'claude'), { recursive: true });
   const script = HARNESS + gate();
@@ -187,7 +206,7 @@ test('a DIRECTORY at the path is refused as unrunnable, never accepted', () => {
   /* And a symlink TO a directory is refused the same way, with rm -rf
      removing only the link (the -f follows the link for the accept test,
      so this is the second half of that comment, pinned). */
-  const sb2 = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
+  const sb2 = sandbox();
   const home3 = nodePath.join(sb2, 'home');
   fs.mkdirSync(nodePath.join(home3, '.local', 'bin'), { recursive: true });
   const dirTarget = nodePath.join(sb2, 'a-directory');
@@ -201,7 +220,7 @@ test('a DIRECTORY at the path is refused as unrunnable, never accepted', () => {
 });
 
 test('the env override is honored, so sandboxed installs can point at a fixture', () => {
-  const sb = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'clgate-')));
+  const sb = sandbox();
   const fake = nodePath.join(sb, 'claude');
   fs.writeFileSync(fake, '#!/bin/sh\nexit 0\n'); fs.chmodSync(fake, 0o755);
   const script = HARNESS + gate();
