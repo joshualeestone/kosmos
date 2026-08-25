@@ -9042,16 +9042,23 @@ async function updCheckNowClick() {
     // A hang would otherwise lock the card at Checking with the recovery
     // button disabled (UPD_CHECKING stands off every poll paint); ten
     // seconds is generous for localhost answering a 25-byte question.
+    // ⚠️ THE TIMER COVERS THE BODY, NOT ONLY THE HEADERS (#788). It used to be
+    // cleared the moment fetch() resolved, and res.json() ran outside it; a
+    // check that FINDS an update with auto-update on starts the install,
+    // which kills this server while the answer is still streaming, so the
+    // body never completed and the line sat on "Checking." with the button
+    // disabled, forever, while the update it asked for landed underneath
+    // it (Pete, served 0.5.24). The abort signal reaches the body read too,
+    // so the whole round trip resolves within ten seconds either way.
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 10000);
-    let res;
     try {
-      res = await fetch('/api/update/check', { method: 'POST', signal: ctl.signal });
+      const res = await fetch('/api/update/check', { method: 'POST', signal: ctl.signal });
+      // A non-ok answer is the BOARD failing, not the release host: parsing
+      // it would paint "could not reach the update server", blaming the
+      // wrong leg (the arm below owns board-side failures).
+      out = res.ok ? await res.json() : null;
     } finally { clearTimeout(timer); }
-    // A non-ok answer is the BOARD failing, not the release host: parsing
-    // it would paint "could not reach the update server", blaming the
-    // wrong leg (the arm below owns board-side failures).
-    out = res.ok ? await res.json() : null;
   } catch { out = null; }
   UPD_CHECKING = false;
   if (!out) {
