@@ -41,28 +41,32 @@ let failed = 0;
   // Settings > Accounts
   await p.evaluate(() => { try { settingsGo('accounts'); } catch (e) { try { showTab('settings'); } catch (e2) {} const b = document.querySelector('[data-go="accounts"]'); if (b) b.click(); } });
   await p.waitForTimeout(800);
-  // Since #730 (Settings > Accounts, one provider at a time) the section opens
-  // on a provider picker (buttons carrying data-pick="claude" / "openai") and
-  // the OpenAI key form is revealed by picking OpenAI; the old always-visible
-  // #acct-add-openai button is gone. The 0.5.24 cut went red here because this
-  // check still asked for it (2026-08-24 21:41).
-  // Scoped to the section: the project member picker paints data-pick on
-  // every agent button too, and an agent named openai would be found first.
-  const PICK = '#s-sec-accounts [data-pick="openai"]';
-  const vis = await p.evaluate((sel) => { let el = document.querySelector(sel); const hid = []; if (!el) return ['(no ' + sel + ')']; while (el) { const cs = getComputedStyle(el); if (el.hidden || cs.display === 'none' || cs.visibility === 'hidden') hid.push(el.tagName + '#' + el.id + '.' + String(el.className).split(' ')[0]); el = el.parentElement; } return hid; }, PICK);
-  say('nothing above the OpenAI picker button is hidden', vis.length === 0, JSON.stringify(vis));
   const sec = await p.evaluate(() => { const s = document.getElementById('s-sec-accounts'); return s ? !s.hidden : null; });
   say('accounts section opens', sec === true, String(sec));
-  const geo = await p.evaluate((sel) => { const b = document.querySelector(sel); if (!b) return { rect: [0, 0, 0, 0], vw: [innerWidth, innerHeight], onTop: null }; const r = b.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); const top = hit && hit.closest(sel) === b ? b : hit; return { rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)], vw: [innerWidth, innerHeight], onTop: top ? top.tagName + '#' + top.id + '.' + String(top.className).split(' ')[0] + '[' + (top.getAttribute('data-pick') || '') + ']' : null }; }, PICK);
-  say('the OpenAI picker button has a size and is on top at its centre', geo.rect[2] > 0 && geo.rect[3] > 0 && /\[openai\]/.test(geo.onTop || ''), JSON.stringify(geo));
+  // #770: the picker moved into its own "Add a provider" dialog, reached
+  // through a door in the section; it opens on a dropdown (Josh's word,
+  // not the old data-pick button pair #730 shipped, which is gone) and the
+  // OpenAI key form is revealed by picking OpenAI in it.
+  say('the door into Add a provider is visible', await p.isVisible('#acct-add-open'));
+  say('before opening, the dialog is hidden', await p.isHidden('#acct-add-modal'));
+  await p.click('#acct-add-open');
+  await p.waitForTimeout(300);
+  say('the dialog opens', await p.isVisible('#acct-add-modal'));
+  const vis = await p.evaluate(() => { let el = document.getElementById('acct-provider-pick'); const hid = []; if (!el) return ['(no #acct-provider-pick)']; while (el) { const cs = getComputedStyle(el); if (el.hidden || cs.display === 'none' || cs.visibility === 'hidden') hid.push(el.tagName + '#' + el.id + '.' + String(el.className).split(' ')[0]); el = el.parentElement; } return hid; });
+  say('nothing above the provider dropdown is hidden', vis.length === 0, JSON.stringify(vis));
+  const geo = await p.evaluate(() => { const b = document.getElementById('acct-provider-pick'); if (!b) return { rect: [0, 0, 0, 0] }; const r = b.getBoundingClientRect(); return { rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)] }; });
+  say('the provider dropdown has a size', geo.rect[2] > 0 && geo.rect[3] > 0, JSON.stringify(geo));
   // Before the pick: neither form is showing. Without this, "reveals on the
   // pick" cannot be told from "always shown", the regression #730 exists to
   // prevent.
   say('before the pick, the OpenAI form is hidden', await p.isHidden('#acct-openai-flow'));
-  // The pair reads as two acts (Angel's ruling, #607): each picker names its provider.
-  const labels = await p.evaluate(() => [...document.querySelectorAll('#s-sec-accounts [data-pick]')].map((b) => b.getAttribute('data-pick') + ':' + b.innerText.trim()));
-  say('the provider pickers each name their provider', labels.some((l) => /^claude:.*Claude/.test(l)) && labels.some((l) => /^openai:.*OpenAI/.test(l)), JSON.stringify(labels));
-  await p.click(PICK, { timeout: 5000 }).catch(async () => { console.log('NOTE  normal click failed; clicking by force to continue the flow'); await p.click(PICK, { force: true }); });
+  // #770: every provider named in the dropdown, live ones enabled, coming
+  // ones disabled -- the same claim #730's two-button check made, restated
+  // for a select's options.
+  const opts770 = await p.evaluate(() => [...document.querySelectorAll('#acct-provider-pick option')].map((o) => ({ value: o.value, text: o.textContent, disabled: o.disabled })));
+  say('Anthropic Claude and OpenAI are live options', opts770.some((o) => o.value === 'claude' && !o.disabled && /Claude/.test(o.text)) && opts770.some((o) => o.value === 'openai' && !o.disabled && /OpenAI/.test(o.text)), JSON.stringify(opts770));
+  say('at least one other provider is listed and disabled', opts770.some((o) => o.disabled && /coming/i.test(o.text)), JSON.stringify(opts770));
+  await p.selectOption('#acct-provider-pick', 'openai');
   await p.waitForTimeout(300);
   say('add-by-key form reveals on picking OpenAI', await p.isVisible('#acct-openai-flow'));
   say('and the Claude flow is closed (one provider at a time, #730)', await p.isHidden('#acct-claude-flow'));
@@ -74,9 +78,14 @@ let failed = 0;
   const msg = await p.innerText('#acct-openai-msg');
   say('adding answers with the tail, never the key', /API key ending WALK/.test(msg) && !/walkwalk/.test(msg), msg);
   say('the key field is emptied after the add', (await p.inputValue('#acct-openai-key')) === '');
-  const rows = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-row')].filter((r) => r.getBoundingClientRect().height > 0).map((r) => r.innerText.replace(/\s+/g, ' ').trim()));
+  // #770: each account is its own box now (.acct-row retired), a green
+  // Connected mark and a Disconnect door on every one.
+  const rows = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-box')].filter((r) => r.getBoundingClientRect().height > 0).map((r) => r.innerText.replace(/\s+/g, ' ').trim()));
   say('the row lists by provider with the key tail', rows.some((r) => /OpenAI/.test(r) && !/Codex/.test(r) && /API key ending WALK/.test(r)), JSON.stringify(rows));
   say('no OpenAI row carries the history arm', !rows.some((r) => /OpenAI/.test(r) && /history/.test(r)));
+  say('every box says Connected', rows.length > 0 && rows.every((r) => /Connected/.test(r)), JSON.stringify(rows));
+  const disconnectDisabled = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-disconnect')].every((b) => b.disabled));
+  say('Disconnect is disabled everywhere (no engine route yet, #770)', disconnectDisabled);
   // Create form: OpenAI provider -> account menu offers the new account
   await p.goto(BASE + '/?tab=create', { waitUntil: 'load' });
   await p.waitForSelector('#pick-pm:not([hidden])', { timeout: 8000 });

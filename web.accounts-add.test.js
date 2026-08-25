@@ -19,12 +19,25 @@ function accountsSection() {
   return PAGE.slice(at, end);
 }
 
-test('the add-account button is live and no user-facing copy names a terminal (#248 rules 1, 2)', () => {
+/* #770: the add-a-provider flow (Claude sign-in, OpenAI key) moved out of
+   the Accounts section into its own dialog (`acct-add-modal`), reached
+   through a door button that stays in the section. Pins that need the
+   flow markup now read this region instead of `accountsSection()`. */
+function acctAddModal() {
+  const at = PAGE.indexOf('id="acct-add-modal"');
+  const end = PAGE.indexOf('id="del-modal"');
+  assert.ok(at > -1 && end > at, 'the add-a-provider dialog moved; restate this pin');
+  return PAGE.slice(at, end);
+}
+
+test('the door into the add-a-provider dialog is in the section, and the dialog itself is live with no terminal copy (#248 rules 1, 2)', () => {
   const sec = accountsSection();
-  assert.match(sec, /id="acct-add"(?![^>]*\bdisabled)/, 'the add-account button shipped disabled');
+  assert.match(sec, /id="acct-add-open"/, 'the door into Add a provider is gone from the section');
+  const modal = acctAddModal();
+  assert.match(modal, /id="acct-add"(?![^>]*\bdisabled)/, 'the add-account button shipped disabled');
   /* Rule 2, asserted on the rendered markup region, comments stripped so a
      recorded history cannot satisfy or fail a copy pin. */
-  const rendered = sec.replace(/<!--[\s\S]*?-->/g, '');
+  const rendered = modal.replace(/<!--[\s\S]*?-->/g, '');
   assert.ok(!rendered.includes('CLAUDE_CONFIG_DIR'), 'an environment variable reached user-facing copy');
   assert.ok(!/<code>[^<]*claude[^<]*<\/code>/i.test(rendered), 'a shell command survives in the copy');
 });
@@ -50,25 +63,57 @@ test('the code row appears only when the flow awaits a code, and a reason emptie
 });
 
 
-test('#727: one provider at a time, a key field the row sizes, an exit at button size, and a stopped receipt', () => {
-  const sec = accountsSection().replace(/<!--[\s\S]*?-->/g, '');
-  assert.match(sec, /class="frow acct-pick" role="group" aria-label="Add an account"/);
-  assert.match(sec, /data-pick="claude" aria-pressed="false"/); assert.match(sec, /data-pick="openai" aria-pressed="false"/);
-  assert.doesNotMatch(sec, /id="acct-add-openai"/, 'the old toggle would show the OpenAI form beside the Claude one');
-  assert.match(sec, /id="acct-claude-flow" hidden/); assert.match(sec, /id="acct-openai-flow" hidden/);
-  const claude = sec.slice(sec.indexOf('id="acct-claude-flow"'), sec.indexOf('id="acct-openai-flow"'));
+test('#727/#770: one provider at a time, a key field the row sizes, an exit at button size, and a stopped receipt', () => {
+  const modal = acctAddModal().replace(/<!--[\s\S]*?-->/g, '');
+  // #770: the picker is a dropdown now (Josh's word), not the two-button
+  // toggle -- Claude and OpenAI live, everything else listed and disabled
+  // so people can see what is coming.
+  assert.match(modal, /id="acct-provider-pick"/);
+  assert.match(modal, /<option value="claude">Anthropic Claude<\/option>/);
+  assert.match(modal, /<option value="openai">OpenAI<\/option>/);
+  assert.match(modal, /<option disabled>[^<]+ — coming<\/option>/, 'no other provider is listed, disabled, as coming');
+  assert.doesNotMatch(modal, /id="acct-add-openai"/, 'the old toggle would show the OpenAI form beside the Claude one');
+  assert.match(modal, /id="acct-claude-flow" hidden/); assert.match(modal, /id="acct-openai-flow" hidden/);
+  const claude = modal.slice(modal.indexOf('id="acct-claude-flow"'), modal.indexOf('id="acct-openai-flow"'));
   assert.match(claude, /id="acct-add"/); assert.match(claude, /id="acct-flow"/); assert.match(claude, /id="acct-code-row"/);
-  const pick = PAGE.slice(PAGE.indexOf('function acctPick'), PAGE.indexOf("document.querySelectorAll('.acct-pick [data-pick]').forEach((b) => b.addEventListener"));
+  const pick = PAGE.slice(PAGE.indexOf('function acctPick'), PAGE.indexOf("document.getElementById('acct-provider-pick').addEventListener('change'"));
   assert.match(pick, /getElementById\('acct-claude-flow'\)\.hidden = which !== 'claude'/);
   assert.match(pick, /getElementById\('acct-openai-flow'\)\.hidden = which !== 'openai'/);
   const paint = PAGE.slice(PAGE.indexOf('function acctFlowPaint'), PAGE.indexOf('function acctFlowWatch'));
-  assert.match(paint, /if \(!document\.querySelector\('\.acct-pick \[data-pick\]\[aria-pressed="true"\]'\)\) acctPick\('claude', \{ focus: false \}\)/, 'a sign-in in flight picks Claude on its own');
+  assert.match(paint, /if \(document\.getElementById\('acct-provider-pick'\)\.value !== 'claude'\) acctPick\('claude', \{ focus: false \}\)/, 'a sign-in in flight picks Claude on its own');
   assert.match(PAGE, /\.frow input\[type=text\], \.frow input\[type=password\] \{ flex: 1; min-width: 220px;/, 'the key field is sized by the row (it was "the world\'s tiniest input")');
-  assert.match(sec, /id="acct-openai-show" type="button" aria-pressed="false">Show</);
-  const flow = sec.slice(sec.indexOf('id="acct-flow"'), sec.indexOf('id="acct-add-note"'));
+  assert.match(modal, /id="acct-openai-show" type="button" aria-pressed="false">Show</);
+  const flow = modal.slice(modal.indexOf('id="acct-flow"'), modal.indexOf('id="acct-add-note"'));
   assert.match(flow, /<button class="btn" id="acct-cancel" type="button">Stop this sign-in<\/button>/, 'the exit is a button at button size');
   assert.doesNotMatch(flow, /class="linkish" id="acct-cancel"/);
   assert.ok(flow.indexOf('id="acct-cancel"') > flow.indexOf('id="acct-code-row"'), 'the exit sits under the code row in its own row, shown whether or not a code is wanted');
   const cancel = PAGE.slice(PAGE.indexOf("getElementById('acct-cancel').addEventListener"), PAGE.indexOf("getElementById('acct-cancel').addEventListener") + 700);
   assert.match(cancel, /note\.textContent = 'Stopped\. Nothing changed; start the sign-in again whenever you like\.'/);
+});
+
+test('#770: the door opens the dialog, and it closes on its own Close button, the backdrop and Escape', () => {
+  assert.match(PAGE, /getElementById\('acct-add-open'\)\.addEventListener\('click', openAcctAdd\)/);
+  assert.match(PAGE, /getElementById\('acct-add-close'\)\.addEventListener\('click', closeAcctAdd\)/);
+  assert.match(PAGE, /getElementById\('acct-add-modal'\)\.addEventListener\('click', \(e\) => \{ if \(e\.target\.id === 'acct-add-modal'\) closeAcctAdd\(\); \}\)/);
+  const openAt = PAGE.indexOf('function openAcctAdd');
+  const openFn = PAGE.slice(openAt, PAGE.indexOf('function closeAcctAdd'));
+  assert.match(openFn, /document\.getElementById\('acct-add-modal'\)/, 'openAcctAdd does not touch the dialog it is supposed to open');
+  assert.match(openFn, /modal\.hidden = false/);
+});
+
+test('#770: reopening onto a sign-in already in flight lands focus on that step, not the top of the dialog', () => {
+  // Independent review caught this: a sign-in reaching the awaiting-code
+  // phase, closed and reopened before the poll's key changes, used to
+  // send focus back to the provider dropdown -- acctFlowPaint's own
+  // dedup guard means it will not rerun and refocus the code field on
+  // its own, so openAcctAdd has to check the step itself.
+  const openAt = PAGE.indexOf('function openAcctAdd');
+  const openFn = PAGE.slice(openAt, PAGE.indexOf('function closeAcctAdd'));
+  assert.match(openFn, /const active = frConnActive\(/, 'openAcctAdd no longer knows whether a sign-in is in flight');
+  assert.match(openFn, /if \(active && !document\.getElementById\('acct-code-row'\)\.hidden\) \{\s*\n\s*document\.getElementById\('acct-code'\)\.focus\(\);/,
+    'reopening mid-flow with the code field showing no longer focuses it');
+  assert.match(openFn, /\} else if \(active\) \{\s*\n\s*document\.getElementById\('acct-cancel'\)\.focus\(\);/,
+    'reopening mid-flow before the code field shows no longer focuses the one actionable control (Stop this sign-in)');
+  assert.match(openFn, /\} else \{\s*\n\s*sel\.focus\(\);/,
+    'opening fresh (nothing in flight) no longer focuses the provider dropdown');
 });

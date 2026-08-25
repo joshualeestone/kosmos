@@ -94,7 +94,7 @@ function seed() {
        assertion added here does not inherit a hidden element. */
     await pg.click('#s-nav button[data-go="accounts"]');
     await pg.waitForTimeout(200);
-    chk((await pg.evaluate(() => document.querySelectorAll('#set-accounts .acct-row').length)) > 0,
+    chk((await pg.evaluate(() => document.querySelectorAll('#set-accounts .acct-box').length)) > 0,
       theme + ': the accounts list is read, not asserted');
     await pg.click('#s-nav button[data-go="advanced"]');
     await pg.waitForTimeout(200);

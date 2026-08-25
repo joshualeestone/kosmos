@@ -422,14 +422,31 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .instr-restart-note { display: block; margin-top: 6px; color: var(--label-2); font-size: .8125rem; }
 .tellrow { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: .875rem; }
 .tellrow input { width: 16px; height: 16px; flex: 0 0 16px; accent-color: var(--gold-deep, #b8860b); }
-.acct-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-            padding: 9px 0; border-bottom: 1px solid var(--k-rule); font-size: .875rem; }
-.acct-row:last-child { border-bottom: 0; }
-.acct-who { min-width: 0; }
-.acct-who b { font-weight: 650; }
+/* #770 (Josh, 2026-08-24 22:31): "a nicer more organized box of what's
+   connected... on the right of that box, a green connected thing... a
+   link at the bottom to disconnect." One box per account, stacked
+   (margin-bottom does the stacking, .llmrow's own shape). Green, not
+   the shared .settings-connected's gold -- his word this time, the same
+   kind of direct override #762's reveal-folder change made. */
+.acct-box { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px;
+            border: 1px solid var(--k-rule); border-radius: 12px; margin-bottom: 10px; background: var(--k-surface); }
+.acct-box-top { display: flex; align-items: center; gap: 12px; }
+.acct-who { min-width: 0; flex: 1; }
+.acct-who b { font-weight: 650; display: block; }
 .acct-org { display: block; color: var(--label-2); font-size: .8125rem; }
 .acct-tag { color: var(--label-2); font-weight: 400; font-size: .8125rem; }
 .acct-ok { color: var(--label-2); white-space: nowrap; }
+.acct-connected { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
+  font-weight: 600; color: #2f7d5a; white-space: nowrap; }
+.acct-connected .dot { width: 8px; height: 8px; border-radius: 50%; background: #2f7d5a; flex: 0 0 8px; }
+.acct-disconnect { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: .8125rem;
+  color: var(--label-2); text-decoration: underline; cursor: pointer; min-height: 24px; }
+.acct-disconnect[disabled] { cursor: not-allowed; text-decoration: none; opacity: .7; }
+/* #770: "underneath it we just have a large one that's the same exact
+   size that says Add a provider." Same width as a box, no fixed height
+   assumption -- .btn already matches a box's padding rhythm closely
+   enough that forcing an exact height would fight real content. */
+.acct-add-door { display: block; width: 100%; text-align: center; }
 .fdiv { height: 1px; background: var(--k-rule); margin: 16px 0 0; }
 .runnow { margin: 0 0 14px; font-size: .9375rem; color: var(--k-ink-2); }
 .runnow b { color: var(--k-ink); font-weight: 650; }
@@ -3435,6 +3452,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   :root:not([data-theme="light"]) .acard.hot { background: linear-gradient(180deg, rgba(255,140,130,.15) 0%, rgba(255,140,130,0) 42%), var(--k-surface); }
   :root:not([data-theme="light"]) .delivery.placed { border-color: rgba(121,197,157,.5); }
   :root:not([data-theme="light"]) .delivery.failed { border-color: rgba(255,140,130,.5); }
+  :root:not([data-theme="light"]) .acct-connected { color: #79c59d; }
+  :root:not([data-theme="light"]) .acct-connected .dot { background: #79c59d; }
   :root:not([data-theme="light"]) .gt { stroke: rgba(245,245,244,.14); }
   :root:not([data-theme="light"]) .gu { stroke: rgba(245,245,244,.28); }
   :root:not([data-theme="light"]) .bar { background: rgba(245,245,244,.14); }
@@ -3929,6 +3948,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .acard.hot { background: linear-gradient(180deg, rgba(255,140,130,.15) 0%, rgba(255,140,130,0) 42%), var(--k-surface); }
 :root[data-theme="dark"] .delivery.placed { border-color: rgba(121,197,157,.5); }
 :root[data-theme="dark"] .delivery.failed { border-color: rgba(255,140,130,.5); }
+:root[data-theme="dark"] .acct-connected { color: #79c59d; }
+:root[data-theme="dark"] .acct-connected .dot { background: #79c59d; }
 :root[data-theme="dark"] .gt { stroke: rgba(245,245,244,.14); }
 :root[data-theme="dark"] .gu { stroke: rgba(245,245,244,.28); }
 :root[data-theme="dark"] .bar { background: rgba(245,245,244,.14); }
@@ -5029,6 +5050,80 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <div class="rm-acts">
       <button class="btn" id="mem-keep" type="button"></button>
       <button class="btn" id="mem-go" type="button"></button>
+    </div>
+  </div>
+</div>
+<!-- #770 (Josh, 2026-08-24 22:31): "Add a provider" -- a dropdown of
+     every AI provider, Anthropic Claude and OpenAI live, the rest
+     listed and disabled so people can see what is coming. Replaces
+     #727's inline two-button picker; the flows themselves (Claude
+     browser sign-in, OpenAI pasted key) are unchanged, just reached
+     through a dialog instead of always sitting on the page. -->
+<div class="rm-back" id="acct-add-modal" hidden>
+  <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="acct-add-t" aria-describedby="acct-add-in">
+    <h2 class="rm-title" id="acct-add-t">Add a provider</h2>
+    <p class="rm-small" id="acct-add-in">Pick which AI provider you want to connect. Anthropic Claude and OpenAI work today; the rest are listed so you can see what is coming.</p>
+    <div class="field">
+      <label class="flabel tk-lab" for="acct-provider-pick">Provider</label>
+      <!-- #770: "list all the others so people can see that they're
+           coming" -- a placeholder roster (the four best-known other
+           LLM providers), not Josh's own list, since he named the
+           feature but not the names; flagged for his pass rather than
+           left out. -->
+      <select class="tk-inp" id="acct-provider-pick">
+        <option value="" selected>Choose a provider…</option>
+        <option value="claude">Anthropic Claude</option>
+        <option value="openai">OpenAI</option>
+        <option disabled>Google Gemini — coming</option>
+        <option disabled>Meta Llama — coming</option>
+        <option disabled>Mistral — coming</option>
+        <option disabled>xAI Grok — coming</option>
+      </select>
+    </div>
+    <!-- #727 (Josh, 2026-08-24 20:57: "Add a Claude account / Add an OpenAI
+         account... It changes what's below it for that thing"): one provider
+         at a time. Choosing one shows its form and closes the other, so the
+         Claude code step can never sit under the OpenAI key field again.
+         Functional first, by his ruling; he adds the look afterwards. -->
+    <div id="acct-claude-flow" hidden style="margin-top: var(--space-5);">
+      <p class="dhint" style="margin:0 0 8px;">Sign in to the other Claude account in your browser. Kosmos never sees your password, and the accounts above stay connected.</p>
+      <div class="frow"><button class="btn" id="acct-add" type="button">Start the sign-in</button></div>
+      <div id="acct-flow" hidden style="margin:10px 0 0;">
+        <p class="dhint" id="acct-flow-say" role="status" aria-live="polite" style="margin:0;"></p>
+        <div class="frow" id="acct-code-row" hidden style="margin:8px 0 0;">
+          <input type="text" id="acct-code" inputmode="numeric" autocomplete="one-time-code"
+               aria-label="The code from your email" placeholder="The code from your email">
+          <button class="btn" id="acct-code-go" type="button">Continue</button>
+        </div>
+        <!-- The way out is a button, at button size, on every step of the
+             sign-in (Josh, 20:56: "I've refreshed several times but I can't
+             get out of this", while the exit sat under the field as small
+             grey link text). -->
+        <div class="frow" style="margin:8px 0 0;"><button class="btn" id="acct-cancel" type="button">Stop this sign-in</button></div>
+      </div>
+      <p class="dhint" id="acct-add-note" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+    </div>
+    <!-- #540: an OpenAI account is a directory and one pasted key. No
+         terminal, no browser. The key goes to codex's own login on stdin
+         and lives in codex's own file on this Mac; Kosmos never echoes
+         it, never logs it, never puts it in a URL. The field is a
+         password field so the screen does not show it unless asked. -->
+    <div id="acct-openai-flow" hidden style="margin-top: var(--space-5);">
+      <p class="dhint" style="margin:0 0 8px;">Paste an OpenAI API key. It stays on this Mac with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
+      <div class="frow">
+        <input type="password" id="acct-openai-key" autocomplete="off" spellcheck="false"
+               aria-label="OpenAI API key" placeholder="sk-…">
+        <button class="linkish" id="acct-openai-show" type="button" aria-pressed="false">Show</button>
+      </div>
+      <div class="frow" style="margin-top:8px;">
+        <input type="text" id="acct-openai-label" autocomplete="off" maxlength="40"
+               aria-label="A name for this account (optional)" placeholder="A name, if you want one">
+        <button class="btn" id="acct-openai-go" type="button">Add</button>
+      </div>
+      <p class="dhint" id="acct-openai-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+    </div>
+    <div class="rm-acts" style="margin-top: var(--space-6);">
+      <button class="btn" id="acct-add-close" type="button">Close</button>
     </div>
   </div>
 </div>
@@ -6685,53 +6780,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            person's main account out. The terminal sentence is GONE per the
            card's rule 2: no user-facing string names an environment
            variable or a shell command. -->
-      <!-- #727 (Josh, 2026-08-24 20:57: "Add a Claude account / Add an OpenAI
-           account... It changes what's below it for that thing"): one provider
-           at a time. Choosing one shows its form and closes the other, so the
-           Claude code step can never sit under the OpenAI key field again.
-           Functional first, by his ruling; he adds the look afterwards. -->
-      <div class="frow acct-pick" role="group" aria-label="Add an account" style="margin:12px 0 0;">
-        <span class="dhint" style="margin:0;">Add an account:</span>
-        <button class="btn" type="button" data-pick="claude" aria-pressed="false">Claude</button>
-        <button class="btn" type="button" data-pick="openai" aria-pressed="false">OpenAI</button>
-      </div>
-      <div id="acct-claude-flow" hidden style="margin:10px 0 0;">
-        <p class="dhint" style="margin:0 0 8px;">Sign in to the other Claude account in your browser. Kosmos never sees your password, and the accounts above stay connected.</p>
-        <div class="frow"><button class="btn" id="acct-add" type="button">Start the sign-in</button></div>
-        <div id="acct-flow" hidden style="margin:10px 0 0;">
-          <p class="dhint" id="acct-flow-say" role="status" aria-live="polite" style="margin:0;"></p>
-          <div class="frow" id="acct-code-row" hidden style="margin:8px 0 0;">
-            <input type="text" id="acct-code" inputmode="numeric" autocomplete="one-time-code"
-                 aria-label="The code from your email" placeholder="The code from your email">
-            <button class="btn" id="acct-code-go" type="button">Continue</button>
-          </div>
-          <!-- The way out is a button, at button size, on every step of the
-               sign-in (Josh, 20:56: "I've refreshed several times but I can't
-               get out of this", while the exit sat under the field as small
-               grey link text). -->
-          <div class="frow" style="margin:8px 0 0;"><button class="btn" id="acct-cancel" type="button">Stop this sign-in</button></div>
-        </div>
-        <p class="dhint" id="acct-add-note" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
-      </div>
-      <!-- #540: an OpenAI account is a directory and one pasted key. No
-           terminal, no browser. The key goes to codex's own login on stdin
-           and lives in codex's own file on this Mac; Kosmos never echoes
-           it, never logs it, never puts it in a URL. The field is a
-           password field so the screen does not show it unless asked. -->
-      <div id="acct-openai-flow" hidden style="margin:10px 0 0;">
-        <p class="dhint" style="margin:0 0 8px;">Paste an OpenAI API key. It stays on this Mac with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
-        <div class="frow">
-          <input type="password" id="acct-openai-key" autocomplete="off" spellcheck="false"
-                 aria-label="OpenAI API key" placeholder="sk-…">
-          <button class="linkish" id="acct-openai-show" type="button" aria-pressed="false">Show</button>
-        </div>
-        <div class="frow" style="margin-top:8px;">
-          <input type="text" id="acct-openai-label" autocomplete="off" maxlength="40"
-                 aria-label="A name for this account (optional)" placeholder="A name, if you want one">
-          <button class="btn" id="acct-openai-go" type="button">Add</button>
-        </div>
-        <p class="dhint" id="acct-openai-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
-      </div>
+      <!-- #770 (Josh, 2026-08-24 22:31): "underneath it we just have a
+           large one that's the same exact size that says Add a
+           provider", opening a dialog with a dropdown of every
+           provider. Replaces #727's inline two-button picker, which
+           moved inside the dialog below (same flows, same functional
+           rule: one provider at a time). -->
+      <button class="btn acct-add-door" type="button" id="acct-add-open" style="margin-top:12px;">+ Add a provider</button>
     </section>
   </section>
   <section class="dsec" id="s-sec-connect" data-sec="connect" tabindex="-1" aria-label="Connections" hidden>
@@ -10473,10 +10528,24 @@ async function paintAccounts() {
     // The provider, on every row (#382): today every account is Anthropic's,
     // and the row says so rather than the heading assuming it.
     const provider = '<span class="acct-org">' + esc(a.providerName || 'Anthropic / Claude') + '</span>';
-    return '<div class="acct-row"><div class="acct-who"><b>' + who
+    /* #770 (Josh, 2026-08-24 22:31): one box per account, a green
+       Connected mark, a Disconnect link at the bottom that asks first.
+       ⚠️ DISCONNECT IS DISABLED, not wired to a confirm modal that opens
+       onto nothing: the engine has no route that ends an account's
+       connection yet (only `accounts.list()`/`share`, which read and
+       relink history -- neither closes anything), so a live button here
+       would be exactly the "nothing that looks live may do nothing"
+       shape this file already refuses for the external-person/agent
+       doors. Wire the modal when that route exists. */
+    return '<div class="acct-box"><div class="acct-box-top"><div class="acct-who"><b>' + who
       // No "your first account" tag (#394): the email is the answer, whole.
       + '</b>' + provider + org + '</div>'
-      + shared + '</div>';
+      + '<span class="acct-connected"><span class="dot" aria-hidden="true"></span>Connected</span></div>'
+      + shared
+      + '<button class="acct-disconnect" type="button" disabled '
+      + 'aria-label="Disconnect ' + who + '" '
+      + 'title="Not built yet: disconnecting an account here has no way to tell agents on it to stop first">Disconnect</button>'
+      + '</div>';
   }).join('');
   for (const btn of box.querySelectorAll('[data-share]')) {
     btn.addEventListener('click', async () => {
@@ -10533,7 +10602,7 @@ function acctFlowPaint(st) {
   if (key === ACCT_FLOW_LAST) return;
   ACCT_FLOW_LAST = key;
   if (frConnActive(phase)) {
-    if (!document.querySelector('.acct-pick [data-pick][aria-pressed="true"]')) acctPick('claude', { focus: false });
+    if (document.getElementById('acct-provider-pick').value !== 'claude') acctPick('claude', { focus: false });
     flow.hidden = false;
     btn.disabled = true;
     say.textContent = ACCT_FLOW_SAY[phase] || 'Working…';
@@ -10604,14 +10673,63 @@ document.getElementById('acct-add').addEventListener('click', async () => {
    sign-in already in flight picks Claude on its own (acctFlowPaint), so a
    reload lands the person back on the step they were on. */
 function acctPick(which, opts) {
-  document.querySelectorAll('.acct-pick [data-pick]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pick === which)));
+  const sel = document.getElementById('acct-provider-pick');
+  if (sel.value !== which) sel.value = which;
   document.getElementById('acct-claude-flow').hidden = which !== 'claude';
   document.getElementById('acct-openai-flow').hidden = which !== 'openai';
   if (opts && opts.focus === false) return;
   if (which === 'openai') document.getElementById('acct-openai-key').focus();
   if (which === 'claude') document.getElementById('acct-add').focus();
 }
-document.querySelectorAll('.acct-pick [data-pick]').forEach((b) => b.addEventListener('click', () => acctPick(b.dataset.pick)));
+document.getElementById('acct-provider-pick').addEventListener('change', (e) => {
+  const which = e.target.value;
+  if (which === 'claude' || which === 'openai') { acctPick(which); return; }
+  // Cleared, or (defensively) a disabled "coming" option somehow reached
+  // change: neither flow is a live provider, so neither shows.
+  document.getElementById('acct-claude-flow').hidden = true;
+  document.getElementById('acct-openai-flow').hidden = true;
+});
+/* #770: the door opens the dialog; the dialog remembers nothing between
+   visits on purpose (choosing a provider is the first thing a person
+   does every time), except a sign-in already in flight, which
+   acctFlowPaint re-selects Claude for on its own. */
+function openAcctAdd() {
+  const modal = document.getElementById('acct-add-modal');
+  const sel = document.getElementById('acct-provider-pick');
+  const active = frConnActive((ACCT_FLOW_LAST || '').split('|')[0]);
+  if (!active) {
+    sel.value = '';
+    document.getElementById('acct-claude-flow').hidden = true;
+    document.getElementById('acct-openai-flow').hidden = true;
+  }
+  document.getElementById('acct-add-note').textContent = '';
+  document.getElementById('acct-openai-msg').textContent = '';
+  modal.hidden = false;
+  // Reopening onto a sign-in already in flight lands focus on whatever
+  // step it is actually on, not back at the top of the dialog -- a
+  // person awaiting the code field would otherwise have their focus
+  // (and a screen reader's attention) sent to the provider dropdown
+  // instead, since acctFlowPaint's own dedup guard means it will not
+  // rerun and refocus the code field on its own here.
+  if (active && !document.getElementById('acct-code-row').hidden) {
+    document.getElementById('acct-code').focus();
+  } else if (active) {
+    document.getElementById('acct-cancel').focus();
+  } else {
+    sel.focus();
+  }
+}
+function closeAcctAdd() {
+  document.getElementById('acct-add-modal').hidden = true;
+  document.getElementById('acct-add-open').focus();
+}
+document.getElementById('acct-add-open').addEventListener('click', openAcctAdd);
+document.getElementById('acct-add-close').addEventListener('click', closeAcctAdd);
+document.getElementById('acct-add-modal').addEventListener('click', (e) => { if (e.target.id === 'acct-add-modal') closeAcctAdd(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!document.getElementById('acct-add-modal').hidden) closeAcctAdd();
+});
 document.getElementById('acct-openai-show').addEventListener('click', () => {
   const key = document.getElementById('acct-openai-key');
   const show = document.getElementById('acct-openai-show');
