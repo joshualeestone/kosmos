@@ -1137,6 +1137,23 @@ KOSMOS_SWEEP_LIST
     info "removing the shared supervisor"
     rm -rf "$_support/bin"
   fi
+  # 🔑 THE APP'S OWN REMEMBERED ANSWERS ARE PLUMBING TOO, THE SAME ARGUMENT AS
+  # THE SUPERVISOR ABOVE (#891). Three tiny files live at the data folder's
+  # root, each holding one "have we asked this yet" fact the app checked once
+  # so it would not ask again: whether first run has been seen
+  # (first-run.json), the last app version the person was shown a what's-new
+  # for (seen-version.json), and whether the "we found your existing agents"
+  # card was dismissed for good (found-agents-dismissed.json,
+  # engine/discover.js's DISMISS_FILE). engine/discover.js's own comment
+  # already names all three as one family ("the app's other remembered
+  # answers"), written before this bug was ever found. None of them is the
+  # person's data -- unlike "Forget my data" (engine/forget.js), which
+  # deliberately KEEPS first-run.json so clearing your data does not also
+  # re-trigger onboarding, uninstall removes the whole app, so a reinstall
+  # should start from the same blank slate a first install does. `rm -f`
+  # (not `-rf`: these are files, and `-f` is silent when one was never
+  # written, e.g. a person who never opened the what's-new page).
+  rm -f "$_support/first-run.json" "$_support/seen-version.json" "$_support/found-agents-dismissed.json"
   # ⚠️ Deliberately NOT removed: the user's agents' folders, their instruction
   # files, and anything under ~/work. Uninstalling the app must never delete
   # somebody's work, and an installer that cleans up too enthusiastically is

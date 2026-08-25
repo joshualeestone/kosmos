@@ -526,17 +526,37 @@ echo "== uninstall reverses the machine =="
 printf '<plist/>' > "$SB/launch/com.kosmos.agent.tiharness.plist"
 seed_residue "$SB/apps/.Kosmos.app.stage.333" "$SB/home"
 seed_residue "$SB/apps/.Kosmos.app.old.444" "$SB/home"
+# 🔑 #891: THE APP'S OWN REMEMBERED ANSWERS, SEEDED THE WAY A REAL RUN WOULD
+# LEAVE THEM (whats-new seen, first run completed, the found-agents card
+# dismissed) so the byte-for-byte check below has something real to catch.
+# Cut 0.5.32 attempt a caught exactly this shape live: one of these three
+# (seen-version.json) appeared in a sandboxed data folder mid-gate and
+# survived the uninstall (#889/#891). Seeded directly rather than driven
+# through the routes that write them, matching this file's own precedent a
+# few lines up (`seed_residue`) for a plumbing shape the product writes but
+# this harness does not need to exercise the write path itself to prove the
+# sweep.
+mkdir -p "$SB/data/AgentWorkforce"
+printf '{"completedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/AgentWorkforce/first-run.json"
+printf '{"version":"0.5.32"}' > "$SB/data/AgentWorkforce/seen-version.json"
+printf '{"dismissedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/AgentWorkforce/found-agents-dismissed.json"
 # ⚠️ THE PREMISE OF THE REMOVAL CHECK, ASSERTED. The agent plist above is
 # seeded here for exactly this reason; the board's is written by the install
 # instead, so "it is gone" would pass vacuously on any run where it was never
 # written — which is precisely the bug this change fixes.
 chk "the board's login job is there before the uninstall (or its removal cannot fail)" "[ -f \"$SB/launch/com.kosmos.board.plist\" ]"
+chk "the three remembered-answer files are there before the uninstall too" \
+  "[ -f \"$SB/data/AgentWorkforce/first-run.json\" ] && [ -f \"$SB/data/AgentWorkforce/seen-version.json\" ] && [ -f \"$SB/data/AgentWorkforce/found-agents-dismissed.json\" ]"
 RC=0; sh -s -- --uninstall < "$SETUP" > "$SB/uninstall.log" 2>&1 || RC=$?
 chk "uninstall exits 0" "rc_ok $RC"
 chk "home gone" "[ ! -d \"$SB/home\" ]"
 chk "symlink gone" "[ ! -e \"$SB/bin/kosmos\" ] && [ ! -L \"$SB/bin/kosmos\" ]"
 chk "app gone" "[ ! -d \"$SB/apps/Kosmos.app\" ]"
 chk "override-branch stage and aside residue swept" "[ ! -e \"$SB/apps/.Kosmos.app.stage.333\" ] && [ ! -e \"$SB/apps/.Kosmos.app.old.444\" ]"
+# #891: the app's remembered answers do not survive the uninstall either.
+chk "first-run.json swept" "[ ! -e \"$SB/data/AgentWorkforce/first-run.json\" ]"
+chk "seen-version.json swept" "[ ! -e \"$SB/data/AgentWorkforce/seen-version.json\" ]"
+chk "found-agents-dismissed.json swept" "[ ! -e \"$SB/data/AgentWorkforce/found-agents-dismissed.json\" ]"
 chk "agent plist removed" "[ ! -e \"$SB/launch/com.kosmos.agent.tiharness.plist\" ]"
 # ⚠️ THE BOARD'S JOB DOES NOT MATCH THE AGENTS' GLOB, so it needs its own
 # removal and its own check. Left behind it runs a deleted `kosmos` at every
