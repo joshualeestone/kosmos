@@ -146,6 +146,16 @@ _suite_log="$(mktemp)"
 _suite_exit=0
 ( cd "$REPO" && yarn test >"$_suite_log" 2>&1 ) || _suite_exit=$?
 grep -E '^ℹ (tests|pass|fail)' "$_suite_log" || true
+# 📌 AN AUDIT TRAIL, NOT A GUARD (Splinter, 2026-08-25 05:30; the guard reading
+# was withdrawn: this step cannot be skipped, it refuses a red on its own).
+# One line per cut naming the frozen sha and the exit, appended BEFORE the
+# refusal, because a red cut otherwise leaves only a temp log that is
+# cleaned up: the reds were the least-recorded events in the pipeline. A
+# green is a fact about one sha and expires on the next merge; the record
+# says which. At many small cuts a day, "which sha did we ship and was it
+# green" lives in one file rather than in chat.
+mkdir -p "$HOME/.claude/logs" 2>/dev/null || true
+printf '%s version=%s sha=%s suite_exit=%s\n' "$(date -u +%FT%TZ)" "$V" "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" "$_suite_exit" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
 # ⚠️ 126/127 IS NOT A RED SUITE. It means the suite could not be run at all
 # (yarn or node missing or not executable), and saying "red" about it sends
 # the person to read assertions that never ran (#785, three flavours of this
