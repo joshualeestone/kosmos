@@ -123,7 +123,14 @@ echo "== 2b. the tree that ships, frozen at one sha (#597) =="
 MAIN_REPO="$REPO"
 BUILD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-release.XXXXXX")" || { echo "no temp dir for the frozen tree"; exit 1; }
 BUILD="$(release_freeze "$MAIN_REPO" "$SHA" "$BUILD_ROOT")" || { rm -rf "$BUILD_ROOT"; echo "could not freeze the tree at $SHA"; exit 1; }
-trap 'release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
+# The versioned pair's presence BEFORE this cut, so a failure removes only what
+# this cut created (a pair from an earlier, served cut is not ours to touch).
+_pair_had=0; [ -f "$SITE/dist/kosmos-$V-arm64.tar.gz" ] && _pair_had=1
+DEPLOYED=0
+# On any exit before step 8 finished, the site checkout stops claiming $V
+# (#609 review, Splinter 23:05: a failed cut left latest.json and setup.sha256
+# uncommitted at the new version, and the pair that made cut 5 refuse).
+trap '[ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
 REPO="$BUILD"
 echo "   building ${SHA:0:12} in $BUILD; a pull into $MAIN_REPO from now on changes nothing below"
 
@@ -296,6 +303,21 @@ else
 fi
 rm -f "$_tunnel_tmp"
 echo "   connector: kosmos-tunnel $TUNNEL_SHA"
+# 🛑 BEFORE THE FIRST COPY TOWARD THE SITE (#609): the bundle just built carries
+# every file the tree and the app need, and each present file equals the
+# tree's. The same comparator runs at 9b on the SERVED bytes; here it runs on
+# the built ones, so a file the build forgot (#731: the codex bridge, absent
+# from every served bundle for ten versions) stops the cut with nothing
+# published, instead of being caught after step 8 has deployed it.
+_cmp_rc=0; release_bundle_matches_tree "$REPO/dist/kosmos-arm64.tar.gz" "$BUILD" "$TUNNEL_SHA" || _cmp_rc=$?
+if [ "$_cmp_rc" -eq 0 ]; then
+  echo "   the built bundle carries everything the tree and the app need, and every file in it is the tree's"
+else
+  if [ "$_cmp_rc" -eq 2 ]; then echo "THE BUNDLE JUST BUILT COULD NOT BE CHECKED AGAINST THE TREE (the lines above say why). No bundle was copied to the site."
+  else echo "THE BUNDLE JUST BUILT IS NOT THE TREE THAT WAS TESTED, OR LACKS A FILE THE APP NEEDS (the lines above name it). No bundle was copied to the site."; fi
+  [ "${PKG_PUBLISHED:-0}" = 1 ] && echo "   (3c already put a rebuilt Kosmos.pkg triple in $SITE/dist; a site deploy before the next cut would carry it; verify-served.sh is the check that applies)"
+  exit 1
+fi
 cp "$REPO/dist/kosmos-arm64.tar.gz" "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/"
 # ⚠️ THE VERSIONED NAME IS THE ONE A CACHE CANNOT LIE ABOUT. The plain
 # name is one URL across every release, and an edge cache satisfied an
@@ -440,6 +462,7 @@ elif [ -n "$_dep_dropped" ]; then echo "the export's .vercelignore would drop $_
 fi
 ( cd "$_site_export" && vercel deploy --prod --yes )
 
+DEPLOYED=1   # step 8 finished: the site checkout now claims what is served, so the trap leaves it
 echo "== 9. verify what is SERVED, from the code that fetches it =="
 # ⚠️ Retried, because a deploy is live before every edge has it, and a single
 # read cannot tell "not published" from "not yet".

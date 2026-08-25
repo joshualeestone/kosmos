@@ -22,7 +22,10 @@
 #       bin/kosmos command) equals the tree's, web/index.html after the
 #       version bake; the connector (app/bin/kosmos-tunnel, not a tree file) is
 #       matched against <connector-sha> when given and must be PRESENT if it is;
-#       prints each difference
+#       and the other direction (#609): every file the tree and the app need
+#       is in the tarball; prints each difference and each missing file;
+#       2 when the expected set could not be derived
+#   release_bundle_expected_files <tree>           prints that set, one per line
 
 release_freeze() {
   local repo="$1" sha="$2" root="$3" build
@@ -75,6 +78,66 @@ release_bundle_source_path() {
   esac
 }
 
+# The files the served bundle MUST carry, derived from the tree and from the
+# app itself, never from the build script's hand-maintained list (#609): a
+# list that duplicated the build's would drift with it, and the failure this
+# closes is exactly a cp line dropped from that list. Five sources, each the
+# thing that would break without the file:
+#   the server's local require graph   a missing module crashes the board
+#   every engine/*.js (not *.test.js)  the build copies the glob; a dropped
+#                                      glob line drops them all
+#   the files the engine resolves      path.join(__dirname, '..', 'bin', X):
+#   under bin/ by path                 copied at every agent creation (#731:
+#                                      a day of installs could not make one)
+#   everything under web/              the build copies the tree; a dropped
+#                                      cp -R drops the page
+#   the pinned relocations             bin/kosmos (the command) and
+#                                      app/bin/kosmos-report-hook.sh, whose
+#                                      tree paths differ from their bundle
+#                                      paths; app/assets/Kosmos.icns when the
+#                                      tree has it
+# Prints bundle-relative paths, one per line. Needs node for the require walk
+# (the release machine has it; a tree with no server.js prints the rest).
+release_bundle_expected_files() {
+  local tree="$1" walk rc
+  [ -d "$tree" ] || { echo "release_bundle_expected_files: no tree at $tree" >&2; return 2; }
+  # A Kosmos tree has both; a tree without them would derive a set that is
+  # nearly empty and pass a nearly empty bundle, so it is refused, not passed.
+  [ -d "$tree/web" ] && [ -d "$tree/engine" ] || { echo "release_bundle_expected_files: $tree has no web/ or no engine/, so it is not a Kosmos tree and the expected set cannot be derived from it" >&2; return 2; }
+  printf 'app/server.js\napp/package.json\nbin/kosmos\napp/bin/kosmos-report-hook.sh\n'
+  [ -f "$tree/assets/Kosmos.icns" ] && printf 'app/assets/Kosmos.icns\n'
+  ( cd "$tree" && [ -d web ] && find web -type f ! -name '.*' | sed 's|^|app/|' )
+  ( cd "$tree" && [ -d engine ] && find engine -maxdepth 1 -name '*.js' ! -name '*.test.js' | sed 's|^|app/|' )
+  # join( and resolve( both (reporthook.js resolves the hook with path.resolve).
+  # The connector is resolved by path too (engine/remote.js) but is not a tree
+  # file: the comparator's checksum argument owns it, so it is left out here.
+  ( cd "$tree" && find engine -maxdepth 1 -name '*.js' ! -name '*.test.js' -exec grep -hoE "(join|resolve)\(__dirname, *'\.\.', *'bin', *'[^']*'\)" {} + 2>/dev/null | sed "s/.*'bin', *'\([^']*\)').*/app\/bin\/\1/" | grep -vx 'app/bin/kosmos-tunnel' || true )
+  # The require walk needs node; without it the modules outside engine/ would
+  # go unlisted and a bundle lacking one would pass, so no node is a refusal,
+  # and a walk that throws is one too, with node's own words.
+  if [ -f "$tree/server.js" ]; then
+    command -v node >/dev/null 2>&1 || { echo "release_bundle_expected_files: node is not on PATH, and the server's require graph (the modules the board cannot start without) needs it" >&2; return 2; }
+    walk="$( cd "$tree" && node -e '
+      const path = require("path"), fs = require("fs");
+      const seen = new Set(); const q = [path.resolve("server.js")];
+      while (q.length) {
+        const f = q.pop(); if (seen.has(f)) continue; seen.add(f);
+        let s = ""; try { s = fs.readFileSync(f, "utf8"); } catch { continue; }
+        for (const m of s.matchAll(/require\(\s*["\x27](\.[^"\x27]+)["\x27]\s*\)/g)) {
+          let r = path.resolve(path.dirname(f), m[1]);
+          if (!fs.existsSync(r) && fs.existsSync(r + ".js")) r += ".js";
+          if (fs.existsSync(r) && fs.statSync(r).isFile()) q.push(r);
+        }
+      }
+      for (const f of seen) console.log("app/" + path.relative(process.cwd(), f));
+    ' 2>"$tree/.kosmos-walk-err" )"; rc=$?
+    [ "$rc" -eq 0 ] || { echo "release_bundle_expected_files: the require walk failed (node exit $rc): $(cat "$tree/.kosmos-walk-err" 2>/dev/null || true)" >&2; rm -f "$tree/.kosmos-walk-err"; return 2; }
+    rm -f "$tree/.kosmos-walk-err"
+    printf '%s\n' "$walk"
+  fi
+  return 0
+}
+
 # Compare every TREE-DERIVED file the served bundle ships against the tree it
 # was built from: app/** and the top-level bin/kosmos (the command every user
 # runs). runtime/** (a downloaded Node) and VERSION (a build stamp) are not
@@ -85,8 +148,13 @@ release_bundle_source_path() {
 # checksum -- the sha of the tunnel THIS release built -- rather than skipped.
 # Passing it empty means no bundle is expected to carry a tunnel, and a tunnel
 # appearing anyway is a failure (a file the comparison has no source for).
+# The expected set below (#609) leaves the tunnel out for that reason: its
+# presence and bytes are this checksum's to judge, never the tree's.
+# Then THE OTHER DIRECTION (#609): every file the tree and the app say the
+# bundle must carry is in it; a missing one is named. 2 when the set could not
+# be derived (not a Kosmos tree, no node for the require walk).
 release_bundle_matches_tree() {
-  local tar="$1" tree="$2" want_tunnel_sha="${3:-}" tmp ver rel src cmpfile got_tunnel_sha saw_tunnel=0 bad=0
+  local tar="$1" tree="$2" want_tunnel_sha="${3:-}" tmp ver rel src cmpfile got_tunnel_sha saw_tunnel=0 bad=0 expected
   [ -f "$tar" ] && [ -d "$tree" ] || { echo "release_bundle_matches_tree: need a tarball and a tree" >&2; return 2; }
   ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tree/package.json" | head -1)"
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bundle-cmp.XXXXXX")" || return 2
@@ -113,6 +181,23 @@ release_bundle_matches_tree() {
       cmp -s "$tree/$src" "$cmpfile" || { echo "   differs from the tree: $rel"; bad=1; }
     fi
   done < <(cd "$tmp" && find app bin -type f 2>/dev/null | sed 's|^\./||')
+  # THE OTHER DIRECTION (#609): every file the tree and the app say the bundle
+  # must carry is in it. The loop above walks what IS in the bundle, so a file
+  # the build forgot was invisible to it; this walks what SHOULD be.
+  # Not through a pipe: sort would eat the derivation's 2. And the set must
+  # hold a web/ file and an engine/ file, the two derived sources, or the
+  # derivation is broken and would pass a bundle missing the page or the engine.
+  if ! expected="$(release_bundle_expected_files "$tree" 2>"$tmp/.derive-err")"; then
+    echo "   could not derive the files the bundle must carry from $tree: $(cat "$tmp/.derive-err" 2>/dev/null || true)"; rm -rf "$tmp"; return 2
+  fi
+  expected="$(printf '%s\n' "$expected" | sort -u)"
+  printf '%s\n' "$expected" | grep -q '^app/web/' && printf '%s\n' "$expected" | grep -q '^app/engine/' || { rm -rf "$tmp"; echo "   the derived set names no web/ file or no engine/ file, so the derivation is broken (it would pass a bundle missing the page or the engine)"; return 2; }
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    [ -f "$tmp/$rel" ] || { echo "   missing from the bundle (the tree and the app need it): $rel"; bad=1; }
+  done <<EOS
+$expected
+EOS
   rm -rf "$tmp"
   # ⚠️ An empty bundle compares equal to everything; zero files is a failure.
   [ "$n" -gt 0 ] || { echo "   the bundle holds no tree-derived files" ; return 1; }
@@ -124,4 +209,33 @@ release_bundle_matches_tree() {
     echo "   the bundle carries no Plus connector (app/bin/kosmos-tunnel) but one was expected"; bad=1
   fi
   return $bad
+}
+
+# A cut that fails after it began writing into the site checkout leaves that
+# checkout claiming a version it never served: dist/latest.json naming the new
+# version, setup.sha256 for an installer nobody can download, and the versioned
+# tarball pair whose name is cache-immutable (cut 5 of 0.5.24 refused to
+# republish over the pair cut 4 left behind). A stray site deploy in that state
+# would publish a latest.json pointing at a version that does not exist.
+#   release_site_restore <site> <version> <pair-existed-before: 0|1>
+# puts the two tracked files back to their committed bytes and removes the
+# versioned pair when this cut created it. versions.html is NOT touched: its
+# entry is hand-written and the re-cut needs it. Prints what it did. 0 always
+# (it runs from a trap; a failure here must not mask the cut's own reason).
+release_site_restore() {
+  local site="$1" v="$2" had="$3" f
+  [ -n "$site" ] && [ -n "$v" ] && [ -d "$site" ] || { echo "release_site_restore: site and version are required" >&2; return 0; }
+  for f in dist/latest.json setup.sha256; do
+    if git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+      if ! git -C "$site" diff --quiet -- "$f"; then
+        git -C "$site" checkout -q -- "$f" && echo "   put back: $f (the cut had changed it; the site checkout no longer claims $v)"
+      fi
+    fi
+  done
+  if [ "$had" != 1 ]; then
+    for f in "dist/kosmos-$v-arm64.tar.gz" "dist/kosmos-$v-arm64.tar.gz.sha256"; do
+      [ -f "$site/$f" ] && rm -f "$site/$f" && echo "   removed: $f (this cut created it and never served it; the name is cache-immutable, so it must not linger)"
+    done
+  fi
+  return 0
 }
