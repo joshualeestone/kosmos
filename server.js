@@ -5084,8 +5084,7 @@ const server = http.createServer((req, res) => {
            cannot be minted by a process lying in JSON; a process that
            offered its pane gets named through the same roster the write
            already trusts. */
-        const viaScreen = typeof req.headers['sec-fetch-site'] === 'string'
-          || (() => { try { const h = new URL(String(req.headers.origin || '')).hostname.replace(/\.$/, '').toLowerCase(); return LOOPBACK_HOSTS.has(h) || ALLOWED_HOSTS.has(h); } catch { return false; } })();
+        const viaScreen = isViaScreen(req);
         const paneCard = !viaScreen && typeof body.from_pane === 'string'
           ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
           : null;
@@ -5116,7 +5115,7 @@ const server = http.createServer((req, res) => {
             try { told = projects.syncAgent(made.who, roster); }
             catch (err2) { told = { state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
           }
-          sendJson(res, 200, { task: made, told, heard: heardBy(id, made, made.who) });
+          sendJson(res, 200, { task: made, told, heard: heardBy(id, made, made.who, made.sentence) });
         } catch (err) {
           // Three answers for three facts, same split as the member route:
           // our unreadable store (500), a project that is not there (404),
@@ -5148,13 +5147,37 @@ const server = http.createServer((req, res) => {
      pane, one line, the way the room's nudge is, and the answer says whether it
      was placed. Only on assignment (create with a who, a part given a who):
      closing or reopening a task types nothing. */
-  function heardBy(projectId, t, who) {
+  // #327's shape, factored out rather than copied a third time (taskMake
+  // already had its own inline copy; #761 needs the same split for parts).
+  function isViaScreen(req2) {
+    return typeof req2.headers['sec-fetch-site'] === 'string'
+      || (() => { try { const h = new URL(String(req2.headers.origin || '')).hostname.replace(/\.$/, '').toLowerCase(); return LOOPBACK_HOSTS.has(h) || ALLOWED_HOSTS.has(h); } catch { return false; } })();
+  }
+  /* #761's own valve for the two routes taskMake's twelve-an-hour cap does
+     not cover: a part gets no `addedVia` of its own (parts predate #485's
+     process/screen split and are not job to widen here), so this reuses the
+     SAME hour-window count of process-made tasks as a shared budget for
+     "how many times a process can make Kosmos type into a live pane" --
+     under the cap, `heard` still fires for a part; over it, the write still
+     lands (skipping notification is not skipping the edit) but nothing is
+     typed, the same non-gating rule as `told`. */
+  function heardBudgetAllows() {
+    const hourAgo = Date.now() - 3600000;
+    const recent = projects.readAll().reduce((n, p) => n + ((p && p.tasks) || []).filter((t) => t && t.addedVia === 'process'
+      && Number.isFinite(Date.parse(t.createdAt)) && Date.parse(t.createdAt) >= hourAgo).length, 0);
+    return recent < 12;
+  }
+  // `sentence` is explicit, never read off `t`: a part's own sentence is
+  // never the task's top-level one (a task with parts drops `who`/keeps one
+  // `sentence` at the top, and a part given a `who` must be heard for the
+  // part it was actually given, not the parent task's original wording).
+  function heardBy(projectId, t, who, sentence) {
     const name = typeof who === 'string' && who.trim() ? who.trim() : null;
     if (!name || !t || typeof t.number !== 'number') return undefined;
     let title = projectId;
     try { const rec = projects.readAll().find((x) => x && x.id === projectId); if (rec && rec.name) title = rec.name; } catch { /* the id will do */ }
     const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
-      + String(t.sentence || '').replace(/[\r\n]/g, ' ') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
+      + String(sentence || '').replace(/[\r\n]/g, ' ') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
       + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
     let sent;
     try { sent = chat.deliver(name, line, safeRoster()); }
@@ -5212,7 +5235,9 @@ const server = http.createServer((req, res) => {
       try {
         const out = tasks.addPart(id, partMake[2], { sentence: body && body.sentence, who: body && body.who });
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
-        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task), heard: heardBy(id, out.task, body && body.who) });
+        const heard = (isViaScreen(req) || heardBudgetAllows())
+          ? heardBy(id, out.task, body && body.who, body && body.sentence) : undefined;
+        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task), heard });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
@@ -5235,7 +5260,14 @@ const server = http.createServer((req, res) => {
           ? tasks.assignPart(id, partAct[2], partAct[3], body && body.who)
           : tasks.setPartClosed(id, partAct[2], partAct[3], verb === 'close' ? new Date().toISOString() : null);
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
-        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task), heard: verb === 'who' ? heardBy(id, out.task, body && body.who) : undefined });
+        // `out.changed`: assignPart reports whether `who` actually moved, so
+        // re-posting the same assignee does not re-type the same pane line
+        // (#304's rule). The budget check mirrors partMake's.
+        const heard = (verb === 'who' && out.changed && (isViaScreen(req) || heardBudgetAllows()))
+          ? heardBy(id, out.task, body && body.who,
+              (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partAct[3])) || {}).sentence)
+          : undefined;
+        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task), heard });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,

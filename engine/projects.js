@@ -49,6 +49,7 @@ const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const store = require('./store');
 const instructions = require('./instructions');
 // ⚠️ ONE rule for who answers, and it lives with the thread rather than being
@@ -1151,7 +1152,7 @@ function listFiles(folder, limit) {
      few seconds and repaint only on change (Josh had to hard-refresh to see a
      file arrive). Names, sizes and times of every file, not only the capped
      page, hashed: a file added past the cap still moves the total. */
-  const stamp = require('node:crypto').createHash('sha1')
+  const stamp = crypto.createHash('sha1')
     .update(files.map((f) => f.name + '\0' + f.size + '\0' + f.modified).join('\n')).digest('hex').slice(0, 16);
   /* ⚠️ `names` IS EVERY FILE, not the capped view, and it is here rather than
      behind a second route because the two answers must come from ONE read of

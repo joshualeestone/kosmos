@@ -10926,3 +10926,83 @@ test('#761: giving a task to an agent types the assignment into its pane, and th
     board.restore();
   }
 });
+
+/* #761 challenge-loop round 1: heardBy read the TASK's sentence for every
+   call, including a part given a `who` -- so an agent assigned a part heard
+   the parent task's original sentence, not the part it was actually given.
+   Fixed by making the sentence explicit at every call site. Same round also
+   added: a repeat "who" with the same assignee types nothing twice (#304's
+   rule, extended to parts), and a part cannot be given to a non-member. */
+test('#761 round 1: a part is heard with its own sentence, a no-op reassignment types nothing, a non-member is refused', async () => {
+  const chatEngine = require('./engine/chat');
+  const projectsEngine761b = require('./engine/projects');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('theo', { state: 'idle' })]);
+  const sends = [];
+  try {
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    const pdir = nodePath.join(SANDBOX, 'p761-part-tell'); fs.mkdirSync(pdir, { recursive: true });
+    const p = projectsEngine761b.create({ name: 'Renovation', folder: pdir, agents: ['mara'], roster: board.agents });
+
+    // A parent sentence distinct from the part's, so reading the wrong one is observable.
+    const r0 = await req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ sentence: 'Renovate the kitchen' }),
+    });
+    assert.equal(r0.status, 200, r0.body);
+
+    const r1 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ sentence: 'Order the cabinets', who: 'mara' }),
+    });
+    assert.equal(r1.status, 200, r1.body);
+    const out1 = JSON.parse(r1.body);
+    assert.equal(out1.heard && out1.heard.state, 'placed', 'the part assignment was not typed: ' + JSON.stringify(out1));
+    let typed = sends.map((a) => a.join(' ')).join('\n');
+    assert.match(typed, /you were given task 1 in "Renovation": Order the cabinets/, 'the PART\'s own sentence');
+    assert.doesNotMatch(typed, /Renovate the kitchen/, 'the parent task\'s sentence must not leak into a part\'s pane line');
+    // Part ids are NOT 1-based on a task's first added part: a task with no
+    // parts yet reads as one implicit part (id 1, unassigned, the task's own
+    // sentence -- partsOf's "never zero parts" rule), so the first REAL part
+    // this test adds lands at id 2.
+    const partId = out1.task.parts.find((x) => x.sentence === 'Order the cabinets').id;
+    assert.equal(partId, 2, 'sanity: the implicit whole-task part holds id 1');
+
+    // CONTROL: reassigning the SAME who a second time types nothing new.
+    const before = sends.length;
+    const r2 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/part/' + partId + '/who', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ who: 'mara' }),
+    });
+    assert.equal(r2.status, 200, r2.body);
+    assert.equal(JSON.parse(r2.body).heard, undefined, 'a no-op reassignment has nothing new to say');
+    assert.equal(sends.length, before, 'CONTROL: no line was typed for the unchanged assignment');
+
+    // A REAL reassignment does type a new line.
+    const rMember = await req('/api/project/' + encodeURIComponent(p.id) + '/agent/theo', { method: 'POST' });
+    assert.equal(rMember.status, 200, rMember.body);
+    const before2 = sends.length;
+    const r4 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/part/' + partId + '/who', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ who: 'theo' }),
+    });
+    assert.equal(r4.status, 200, r4.body);
+    assert.equal(JSON.parse(r4.body).heard && JSON.parse(r4.body).heard.state, 'placed');
+    assert.ok(sends.length > before2, 'a real reassignment types a fresh line');
+
+    // A part cannot be handed to an agent that is not on this project.
+    const r5 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/part/' + partId + '/who', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ who: 'ghost' }),
+    });
+    assert.equal(r5.status, 400, r5.body);
+    assert.match(JSON.parse(r5.body).error, /not on this project/, 'a non-member assignee is refused, the same as create()');
+  } finally {
+    chatEngine.setRunner(null);
+    board.restore();
+  }
+});
