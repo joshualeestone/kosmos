@@ -53,18 +53,32 @@ check_tool() {   # <label> <KEY=VALUE lines>
   has "$(audit "$less")" '"partial":true' && ok "$label CONTROL: with tmux live the gate refuses" || bad "$label CONTROL: with tmux live the gate did not refuse"
 }
 
-# 1. the bundle build's smoke test: the lines from the smoke banner to the node
-#    invocation (the range closes on the first "runtime/bin/node" line).
+# 1. the bundle build's smoke test: the lines from the smoke banner to the
+#    server invocation (the range closes on the first app/server.js line).
 BUILD=tools/build-kosmos-bundle.sh
-block="$(sed -n '/^echo "==> smoke test/,/runtime\/bin\/node/p' "$BUILD")"
+block="$(sed -n '/^echo "==> smoke test/,/app\/server\.js/p' "$BUILD")"
 [ -n "$block" ] && ok "found the smoke-test block in $BUILD" || bad "no smoke-test block found in $BUILD"
 check_tool "build smoke test" "$(assignments "$block")"
 
 # 2. the install harness: every export of an AGENT_WORKFORCE_ variable up to
-#    its first install (later blocks unset and re-export for their own passes).
+#    its first install, AND everything after it: the harness starts more boards
+#    in later blocks (the download path, the probes, the update), so a root
+#    unset or emptied later would make one of those boards half-sandboxed
+#    while this audit read only the first block (measured on a mutated copy).
+#    No later block touches a gate root today; if one ever does, it must set
+#    a non-empty value, never unset, and the merged audit must still pass.
 HARNESS=tools/test-install.sh
 block="$(sed -n '1,/^echo "== install (piped into sh/p' "$HARNESS" | grep '^export ')"
+rest="$(sed -n '/^echo "== install (piped into sh/,$p' "$HARNESS" | grep -v '^[[:space:]]*#')"
 check_tool "install harness" "$(assignments "$block")"
+if printf '%s\n' "$rest" | grep -qE 'unset[^#]*AGENT_WORKFORCE_(DATA|PROJECTS|WORKERS|LAUNCH|DRY_RUN|TMUX_BIN)\b'; then
+  bad "install harness: a later block unsets a gate root (a board started after it would be half-sandboxed): $(printf '%s\n' "$rest" | grep -E 'unset[^#]*AGENT_WORKFORCE_' | head -1)"
+else ok "install harness: no later block unsets a gate root"; fi
+later="$(assignments "$rest" | grep -E '^AGENT_WORKFORCE_(DATA|PROJECTS|WORKERS|LAUNCH|DRY_RUN|TMUX_BIN)=' || true)"
+if [ -n "$later" ]; then
+  merged="$(printf '%s\n%s\n' "$(assignments "$block")" "$later")"
+  has "$(audit "$merged")" '"partial":false' && ok "install harness: later re-assignments of gate roots still audit whole" || bad "install harness: a later re-assignment makes a board half-sandboxed: $later"
+else ok "install harness: no later block re-assigns a gate root"; fi
 
 # The extraction itself, on shapes that fooled its first version (measured):
 # an empty value must NOT read as set, a commented line must NOT count, and a
