@@ -33,16 +33,51 @@
 #
 set -uo pipefail
 
+log()  { printf '%s\n' "$*"; }
+sec()  { printf '\n=== %s ===\n' "$*"; }
+
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
+
+# --- freeze against a concurrent merge (#758) --------------------------------
+# Every check below reads CODE straight from $REPO (boot_board only sandboxes
+# DATA dirs), so a merge landing in a shared, mutable checkout WHILE this runs
+# can flip a booted board's self-reported freshness underneath every check
+# that shares it -- this is what broke render-reload-toast (kosmos#813).
+#
+# A real release cut already avoids this: tools/release.sh freezes a detached
+# worktree at the bump sha and reassigns REPO to it (tools/lib/release-freeze.sh,
+# #597/#611) BEFORE invoking this script (`REPO="$BUILD"`, then `cd "$REPO" &&
+# bash tools/browser-checks.sh`) -- so a DETACHED HEAD here is the signature of
+# already being isolated. Freezing again would cost a second worktree on the
+# one path that is already time-pressured (a 25-minute cut), for no isolation
+# gained. A normal branch checkout -- a direct `bash tools/browser-checks.sh`,
+# the path that bit Mona Lisa -- is the vulnerable case, and gets frozen here.
+SOURCE_REPO="$REPO"
+FREEZE_BUILD=""
+FREEZE_ROOT=""
+if git -C "$REPO" symbolic-ref -q HEAD >/dev/null 2>&1; then
+  # Loud, not silent, about the one real behaviour change: before this, a
+  # direct run always saw uncommitted edits; a frozen worktree is checked out
+  # from the last COMMIT, so it will not.
+  if [ -n "$(git -C "$REPO" status --porcelain)" ]; then
+    log "‼️  $REPO has uncommitted changes. This run freezes a detached copy of the LAST COMMIT (#758) -- uncommitted edits will not be reflected. Commit first to check them."
+  fi
+  # shellcheck source=tools/lib/release-freeze.sh
+  . "$REPO/tools/lib/release-freeze.sh"
+  FREEZE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bc-freeze.XXXXXX")" || { log "no temp dir for the frozen tree"; exit 1; }
+  FREEZE_BUILD="$(release_freeze "$REPO" "$(git -C "$REPO" rev-parse HEAD)" "$FREEZE_ROOT")" || { rm -rf "$FREEZE_ROOT"; log "could not freeze the tree (#758)"; exit 1; }
+  REPO="$FREEZE_BUILD"
+  cd "$REPO"
+  log "Frozen at $(git -C "$REPO" rev-parse --short HEAD) ($REPO) -- a concurrent merge into $SOURCE_REPO cannot move this run."
+else
+  log "Already on a detached HEAD ($REPO) -- isolated by the caller (release.sh's own freeze, #597/#611); not freezing again."
+fi
 
 FAKE_TMUX="$REPO/test-support/fake-tmux.sh"
 FAILED=()
 RAN=()
 RETRIED=()
-
-log()  { printf '%s\n' "$*"; }
-sec()  { printf '\n=== %s ===\n' "$*"; }
 
 # --- Playwright, borrowed not depended-on -----------------------------------
 resolve_pw() {
@@ -93,6 +128,14 @@ cleanup() {
   local pid
   for pid in "${SERVER_PIDS[@]:-}"; do [ -n "$pid" ] && kill "$pid" 2>/dev/null; done
   rm -rf "$RUN_DIR"
+  # #758: thaw the frozen worktree, if this run made one. release_thaw is
+  # defined only when FREEZE_BUILD was set (the freeze block sourced
+  # release-freeze.sh), so the guard also protects against calling an
+  # undefined function on the already-detached (no freeze needed) path.
+  if [ -n "$FREEZE_BUILD" ]; then
+    release_thaw "$SOURCE_REPO" "$FREEZE_BUILD"
+    rm -rf "$FREEZE_ROOT"
+  fi
 }
 trap cleanup EXIT
 
