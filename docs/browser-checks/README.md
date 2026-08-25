@@ -188,8 +188,12 @@ whose words moved. A check that is stale by ruling is listed in that file's
 `KNOWN_STALE` with the commit, and the test refuses an entry that is no longer
 stale, so the list cannot outlive the rot it names. Two things it made visible
 the night it landed: `render-create-made.js` had asked for `#made-done` since
-4bf7d95, and 27 of the 46 checks here are not in the release gate at all (they
-run only when somebody remembers).
+4bf7d95 (restated in #826), and 15 of the 47 checks here were not in the
+release gate (they ran only when somebody remembers). The first count said 27
+of 46: it counted literal `run_one "name"` lines and could not see the loop
+at `tools/browser-checks.sh:334` that runs twelve more by name. A count
+matched by pattern cannot see a loop; Angel's two real runs printing those
+twelve in "ran:" were the instrument that corrected it (#812).
 
 ## Sandboxed whole, or not at all
 

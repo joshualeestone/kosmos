@@ -51,8 +51,8 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 # --- a screen change runs the guard its checks would fail on (#758) --------
-# The page gate is not in yarn test and 27 of its 46 checks are not in the
-# gate, so a change to web/index.html that removes an id a check asks for
+# The page gate is not in yarn test and 15 of its 47 checks were not in the
+# gate (first miscounted as 27 of 46; #812), so a change to web/index.html that removes an id a check asks for
 # merged green and stopped a cut at minute twenty-two, three times in one
 # night. browser-checks-selectors.test.js is the static, milliseconds half:
 # every id a check asks for must exist on the page, and the red names the
