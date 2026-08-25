@@ -28,6 +28,11 @@
 //   KOSMOS_PORT   the board's port (default 16180)
 //   KOSMOS_APP_CONFIG   path to a kosmos-install.json to read instead of
 //                       the bundle's own Contents/Resources copy (testing only)
+//   KOSMOS_APP_TEST_HOME   stands in for NSHomeDirectory() in the #664
+//                       different-account fallback lookup (testing only --
+//                       NSHomeDirectory() does not honor $HOME, so this is
+//                       the only way to simulate a different account
+//                       without a second real macOS account)
 
 import Cocoa
 import WebKit
@@ -71,6 +76,12 @@ struct KosmosInstallConfig: Codable {
 struct ResolvedInstall {
     let kosmosHome: String
     let port: Int
+    // Wording parity with the bash launcher it replaces (#677 phase 3):
+    // bash's own dialog says "your Kosmos" ONLY in the one branch below
+    // where a different account is opening ITS OWN install, and the
+    // generic "Kosmos" everywhere else, including a same-account
+    // KOSMOS_HOME override. loadBoard() reads this to pick the wording.
+    let isOwnAccount: Bool
 }
 
 enum InstallResolutionError: Error {
@@ -78,25 +89,37 @@ enum InstallResolutionError: Error {
 }
 
 func resolveInstall(config: KosmosInstallConfig?) throws -> ResolvedInstall {
-    let defaultHome = NSHomeDirectory() + "/.local/share/kosmos"
+    // Test-only seam: NSHomeDirectory() reads the REAL account's passwd
+    // record and does NOT honor an overridden $HOME (confirmed empirically
+    // -- unlike the bash launcher it replaces, which read bash's own $HOME
+    // variable directly). A genuinely different macOS account clicking the
+    // shared icon gets ITS OWN true home this same way, with no override
+    // needed -- this seam exists only so a test harness can simulate that
+    // without provisioning a second real account.
+    let realHome = ProcessInfo.processInfo.environment["KOSMOS_APP_TEST_HOME"] ?? NSHomeDirectory()
+    let defaultHome = realHome + "/.local/share/kosmos"
     // An explicit KOSMOS_HOME in the environment names the copy to open
     // outright (a self-host layout, or a harness pointing at a disposable
     // tree) -- same override contract as the bash launcher and `kosmos`
     // itself, checked FIRST so it can never be second-guessed by the
-    // uid comparison below.
+    // uid comparison below. Bash applies the same override for the
+    // OWNING account too (its own top-level `KOSMOS_HOME:-baked`), always
+    // with the generic wording -- so this branch is "own account" unless
+    // a baked config says otherwise.
     if let overrideHome = ProcessInfo.processInfo.environment["KOSMOS_HOME"] {
         let port = ProcessInfo.processInfo.environment["KOSMOS_PORT"].flatMap { Int($0) }
             ?? config?.port ?? 16180
-        return ResolvedInstall(kosmosHome: overrideHome, port: port)
+        let isOwnAccount = config == nil || getuid() == config!.ownerUid
+        return ResolvedInstall(kosmosHome: overrideHome, port: port, isOwnAccount: isOwnAccount)
     }
     guard let config else {
         // No baked config and no override: fall back to the well-known
         // default, same as a bare `kosmos` invocation would.
         let port = ProcessInfo.processInfo.environment["KOSMOS_PORT"].flatMap { Int($0) } ?? 16180
-        return ResolvedInstall(kosmosHome: defaultHome, port: port)
+        return ResolvedInstall(kosmosHome: defaultHome, port: port, isOwnAccount: true)
     }
     if getuid() == config.ownerUid {
-        return ResolvedInstall(kosmosHome: config.kosmosHome, port: config.port)
+        return ResolvedInstall(kosmosHome: config.kosmosHome, port: config.port, isOwnAccount: true)
     }
     // A different account clicked the shared icon (#664). If THEY have
     // their own install at the default home, open that -- never the
@@ -104,7 +127,7 @@ func resolveInstall(config: KosmosInstallConfig?) throws -> ResolvedInstall {
     let ownKosmosBin = defaultHome + "/bin/kosmos"
     if FileManager.default.isExecutableFile(atPath: ownKosmosBin) {
         logLine("resolveInstall: uid \(getuid()) != owner \(config.ownerUid), opening own install at \(defaultHome)")
-        return ResolvedInstall(kosmosHome: defaultHome, port: 16180) // their own default; they have not shared this icon's baked port
+        return ResolvedInstall(kosmosHome: defaultHome, port: 16180, isOwnAccount: false) // their own default; they have not shared this icon's baked port
     }
     throw InstallResolutionError.noOwnInstallForOtherUser
 }
@@ -126,6 +149,13 @@ func startBoard(kosmosHome: String, port: Int) -> StartResult {
     process.arguments = ["start"]
     var env = ProcessInfo.processInfo.environment
     env["KOSMOS_PORT"] = String(port)
+    // install/kosmos self-resolves KOSMOS_HOME from its own script location
+    // when this is unset, so it is not strictly required for the real
+    // command to work -- set explicitly anyway, matching the bash launcher
+    // it replaces, as a defense-in-depth against ever invoking the wrong
+    // install's copy by accident, and so a test double can observe which
+    // home resolveInstall actually decided on.
+    env["KOSMOS_HOME"] = kosmosHome
     process.environment = env
     let stderrPipe = Pipe()
     process.standardError = stderrPipe
@@ -230,6 +260,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         do {
             resolved = try resolveInstall(config: config)
         } catch InstallResolutionError.noOwnInstallForOtherUser {
+            // Logged before the modal so a test double can observe the
+            // refusal without needing to click the dialog it is about to
+            // block on (see the modal note on showStartupFailureAlert below).
+            logLine("resolveInstall: refused, no own install for this account")
             // #664's dialog, bash launcher's wording verbatim.
             showForeignAccountAlert()
             return
@@ -242,7 +276,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         switch startBoard(kosmosHome: resolved.kosmosHome, port: resolved.port) {
         case .failed(let message):
             logLine("startBoard failed: \(message)")
-            showStartupFailureAlert(detail: "Something went wrong while Kosmos was starting. Installing it again usually fixes this: open installkosmos.com and click Download for macOS. Your agents and settings stay on this Mac; installing again does not remove them.")
+            // Bash launcher wording verbatim, including its ONE distinction:
+            // "your Kosmos" only for a different account opening its OWN
+            // install (isOwnAccount == false); the generic "Kosmos" for
+            // every other failure, override included.
+            let whose = resolved.isOwnAccount ? "Kosmos" : "your Kosmos"
+            showStartupFailureAlert(detail: "Something went wrong while \(whose) was starting. Installing it again usually fixes this: open installkosmos.com and click Download for macOS. Your agents and settings stay on this Mac; installing again does not remove them.")
         case .alreadyRunningOrStarted:
             let urlString = "http://127.0.0.1:\(resolved.port)"
             guard let url = URL(string: urlString) else {

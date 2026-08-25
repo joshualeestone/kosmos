@@ -392,49 +392,117 @@ chk "the login job is well-formed plist XML" "plutil -lint \"$BOARD_PLIST\" >/de
 chk "a sandboxed install registered no launchd job pointing at the sandbox" \
   "! /bin/launchctl print \"gui/\$(/usr/bin/id -u)/com.kosmos.board\" 2>/dev/null | grep -qF \"$SB\""
 chk "KOSMOS_APP_DIR bypasses the probe entirely" "[ \"\$(stat -f %Fm \"$SB/sysnever\")\" = \"$SYSNEVER_MTIME\" ] && [ -z \"\$(ls -A \"$SB/sysnever\")\" ]"
-# The generated launcher, actually executed: the account guard must PASS
-# for the account that installed (a uid compare, exactly the leg the old
-# under-HOME proxy false-alarmed on), the env KOSMOS_HOME override must be
-# honored, and `open` must be what it invokes. The stub home keeps the
-# real board and the real browser out of it. The refusal leg is driven
-# just below by a copy with a wrong baked uid, since a real second uid is
-# not available to the harness.
+# ⚠️ THE GENERATED LAUNCHER IS A REAL GUI PROCESS NOW (#677), NOT A SHORT
+# SCRIPT THAT EXITS: on success it runs a window's own event loop, and on
+# this section's refusal path it blocks in an NSAlert modal nobody can
+# click in a headless harness. Neither case returns control on its own, so
+# nothing below waits for an exit code -- each launch runs detached, polls
+# for the OBSERVABLE EFFECT that proves the branch was taken, then
+# explicitly terminates it. Measured: waiting on an exit code here hung a
+# run for 38 minutes before anyone noticed (#677 phase 3 postmortem). The
+# suite's own EXIT trap (above) would eventually sweep an orphan by its
+# $SB-containing command line, but only once the script itself exits --
+# which a blocking foreground wait never allows, so it is not a substitute
+# for this.
+wait_for_file() {
+  # $1: file to wait for (non-empty), $2: max whole seconds (bash has no
+  # portable fractional sleep across macOS versions, so this polls once a
+  # second rather than pretend to finer granularity).
+  local f="$1" n="${2:-10}" i=0
+  while [ ! -s "$f" ] && [ "$i" -lt "$n" ]; do sleep 1; i=$((i + 1)); done
+  [ -s "$f" ]
+}
+
+# ⚠️ ACTUALLY LAUNCHING THE REAL COMPILED .app REGISTERS IT WITH
+# LaunchServices, even run directly by path with lsregister never called --
+# confirmed by hand (launched a throwaway .app, never touched lsregister,
+# `lsregister -dump` showed it anyway). The old bash launcher never
+# triggered this: it exited before AppKit ever activated. So every launch
+# below unregisters its OWN path afterward, or the operator's REAL
+# machine-global LaunchServices database gains a dead entry for a mktemp
+# path that stops existing the moment this suite's EXIT trap runs -- the
+# exact kind of stray entry closing_checks()'s "no sandbox path registered"
+# check exists to catch. deregister_kosmos_app is the one place that does
+# it, so it cannot drift out of step across the three call sites below.
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+deregister_kosmos_app() { "$LSREGISTER" -u "$SB/apps/Kosmos.app" >/dev/null 2>&1 || true; }
+
+# The account that installed, using its own KOSMOS_HOME override: the
+# guard must PASS (a uid compare, exactly the leg the old under-HOME proxy
+# false-alarmed on), and `start` -- not `open`, which the old bash launcher
+# invoked -- must be what it runs: the window IS what `open` used to open,
+# so the compiled binary calls `kosmos start` directly and loads the board
+# itself (#677 phase 2, native-app/main.swift's startBoard()). The stub
+# home keeps the real board and the real browser out of it.
 mkdir -p "$SB/fakehome/bin"
 printf '#!/bin/sh\necho "$@" >> "%s/launcher.log"\nexit 0\n' "$SB" > "$SB/fakehome/bin/kosmos"
 chmod +x "$SB/fakehome/bin/kosmos"
-RC=0; KOSMOS_HOME="$SB/fakehome" "$SB/apps/Kosmos.app/Contents/MacOS/Kosmos" > /dev/null 2>&1 || RC=$?
-chk "launcher passes its own account and opens" "rc_ok $RC && grep -qx 'open' \"$SB/launcher.log\""
-chk "the launcher bakes this install's port" "grep -q \"KOSMOS_PORT:-$PORT\" \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\""
+KOSMOS_HOME="$SB/fakehome" KOSMOS_APP_LOG="$SB/launcher-app.log" \
+  "$SB/apps/Kosmos.app/Contents/MacOS/Kosmos" > /dev/null 2>&1 &
+LAUNCHER_PID=$!
+wait_for_file "$SB/launcher.log" 30 || true
+kill "$LAUNCHER_PID" >/dev/null 2>&1 || true
+wait "$LAUNCHER_PID" 2>/dev/null || true
+deregister_kosmos_app
+chk "launcher passes its own account and starts the board" "[ -s \"$SB/launcher.log\" ] && grep -qx 'start' \"$SB/launcher.log\""
+chk "the launcher's baked port travels with it" "grep -q '\"port\":'\"$PORT\"'[,}]' \"$SB/apps/Kosmos.app/Contents/Resources/kosmos-install.json\""
 # The NEGATIVE control: the refusal is the guard's whole purpose, and
 # without this the entire uid block could be deleted while the suite
-# stayed green. A copy with a wrong baked uid must refuse (exit 1) and
-# invoke nothing. osascript is swapped for /usr/bin/true in the copy so
-# the alert never reaches the operator's screen on a GUI dev machine.
+# stayed green. #677: a wrong owner can no longer be synthesized by
+# sed-patching the compiled binary -- that is what threw "illegal byte
+# sequence" the first time this ran -- so this patches a COPY of the real
+# kosmos-install.json's ownerUid instead, fed back in through
+# KOSMOS_APP_CONFIG, the same test-only seam the Swift code already reads.
+# Still editing plain text, still no second real macOS account required.
 WRONG_UID=$(( $(id -u) + 1 ))
-sed -e "s|!= \"[0-9][0-9]*\"|!= \"$WRONG_UID\"|" -e 's|/usr/bin/osascript|/usr/bin/true|' \
-  "$SB/apps/Kosmos.app/Contents/MacOS/Kosmos" > "$SB/other-account-launcher"
-chmod +x "$SB/other-account-launcher"
+sed -e "s/\"ownerUid\":[0-9]*/\"ownerUid\":$WRONG_UID/" \
+  "$SB/apps/Kosmos.app/Contents/Resources/kosmos-install.json" > "$SB/wrong-owner-config.json"
 LNS_BEFORE="$(wc -l < "$SB/launcher.log" | tr -d ' ')"
-# 🛑 A SANDBOX HOME FOR THE OTHER ACCOUNT, AND NO KOSMOS_HOME OVERRIDE. Since
-# #720 the launcher looks for the clicking account's OWN Kosmos and opens
-# that; with the real HOME this ran the operator's real `kosmos open` from
-# inside the harness (agent1 has one) and the refusal never happened
-# (2026-08-24). An empty home is an account that never installed. And since
-# #738 an explicit KOSMOS_HOME at click time NAMES the copy to open, so these
-# two legs run with the exported KOSMOS_HOME (the baked one, as a real click
-# has) and let the launcher consult $HOME, which is what they test.
+# 🛑 A SANDBOX HOME FOR THE OTHER ACCOUNT, AND NO KOSMOS_HOME OVERRIDE.
+# Since #720 the launcher looks for the clicking account's OWN Kosmos and
+# starts that. #677: Swift's NSHomeDirectory(), unlike bash's $HOME, does
+# NOT honor an overridden environment variable at all (confirmed
+# empirically), so this uses KOSMOS_APP_TEST_HOME, the seam that stands in
+# for it in tests only -- with the real value this ran the operator's real
+# board from inside the harness and the refusal never happened (#720,
+# 2026-08-24, the bash-era version of the exact same mistake). An empty
+# home is an account that never installed.
+# ⚠️ env -u KOSMOS_HOME, NOT a bare KOSMOS_APP_CONFIG=... prefix: KOSMOS_HOME
+# is EXPORTED well above (line 155, for the whole install/update/uninstall
+# sweep) and stays live in every command's environment unless a command
+# either overrides it (case A above does, with its own KOSMOS_HOME=...
+# prefix) or removes it. Without -u this branch inherits the exported
+# KOSMOS_HOME and resolveInstall's top-priority override branch fires
+# instead of the uid-comparison branch this case exists to test --
+# measured: it never reached "refused, no own install" at all.
 mkdir -p "$SB/otherhome"
-RC=0; HOME="$SB/otherhome" "$SB/other-account-launcher" > /dev/null 2>&1 || RC=$?
-chk "launcher refuses a different account (that has no Kosmos of its own)" "[ $RC -eq 1 ] && [ \"\$(wc -l < \"$SB/launcher.log\" | tr -d ' ')\" = \"$LNS_BEFORE\" ]"
-# And #720's own branch, on a stub: an account that HAS its own copy gets that
-# copy opened (the stub records the call), never this icon's, and never
-# anything real on this machine.
+env -u KOSMOS_HOME KOSMOS_APP_CONFIG="$SB/wrong-owner-config.json" KOSMOS_APP_TEST_HOME="$SB/otherhome" KOSMOS_APP_LOG="$SB/refuse-app.log" \
+  "$SB/apps/Kosmos.app/Contents/MacOS/Kosmos" > /dev/null 2>&1 &
+REFUSE_PID=$!
+_i=0
+while ! grep -q 'refused, no own install' "$SB/refuse-app.log" 2>/dev/null && [ "$_i" -lt 30 ]; do sleep 1; _i=$((_i + 1)); done
+REFUSED_LOGGED=1
+grep -q 'refused, no own install' "$SB/refuse-app.log" 2>/dev/null || REFUSED_LOGGED=0
+kill "$REFUSE_PID" >/dev/null 2>&1 || true
+wait "$REFUSE_PID" 2>/dev/null || true
+deregister_kosmos_app
+chk "launcher refuses a different account (that has no Kosmos of its own)" "[ \"$REFUSED_LOGGED\" = 1 ] && [ \"\$(wc -l < \"$SB/launcher.log\" | tr -d ' ')\" = \"$LNS_BEFORE\" ]"
+# And #720's own branch, on a stub: an account that HAS its own copy gets
+# that one started (the stub records the call), never this icon's, and
+# never anything real on this machine.
 mkdir -p "$SB/ownhome/.local/share/kosmos/bin"
 printf '#!/bin/sh\nprintf "%%s %%s\\n" "$1" "${KOSMOS_HOME:-}" >> "%s/own-open.log"\nexit 0\n' "$SB" > "$SB/ownhome/.local/share/kosmos/bin/kosmos"
 chmod +x "$SB/ownhome/.local/share/kosmos/bin/kosmos"
-RC=0; HOME="$SB/ownhome" "$SB/other-account-launcher" > /dev/null 2>&1 || RC=$?
-chk "an account with its own Kosmos gets that one opened (exit 0)" "rc_ok $RC"
-chk "and it was THEIR copy that was called, with their home baked" "grep -q \"^open $SB/ownhome/.local/share/kosmos\" \"$SB/own-open.log\""
+# Same env -u KOSMOS_HOME reasoning as the case above.
+env -u KOSMOS_HOME KOSMOS_APP_CONFIG="$SB/wrong-owner-config.json" KOSMOS_APP_TEST_HOME="$SB/ownhome" KOSMOS_APP_LOG="$SB/own-app.log" \
+  "$SB/apps/Kosmos.app/Contents/MacOS/Kosmos" > /dev/null 2>&1 &
+OWN_PID=$!
+wait_for_file "$SB/own-open.log" 30 || true
+kill "$OWN_PID" >/dev/null 2>&1 || true
+wait "$OWN_PID" 2>/dev/null || true
+deregister_kosmos_app
+chk "an account with its own Kosmos gets that one started" "[ -s \"$SB/own-open.log\" ]"
+chk "and it was THEIR copy that was called, with their home baked" "grep -q \"^start $SB/ownhome/.local/share/kosmos\" \"$SB/own-open.log\""
 chk "and this icon's launcher log did not grow (nothing real was opened)" "[ \"\$(wc -l < \"$SB/launcher.log\" | tr -d ' ')\" = \"$LNS_BEFORE\" ]"
 
 echo "== update (stale file must not survive; board must restart) =="
@@ -812,7 +880,10 @@ else
   RC=0; cat "$SETUP" | HOME="$SBH17" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_DEEP" sh > "$SB/deep.log" 2>&1 || RC=$?
   chk "deep-locked reinstall exits 0" "rc_ok $RC"
   chk "the visible slot holds a complete bundle" "[ -x \"$SYS_DEEP/Kosmos.app/Contents/MacOS/Kosmos\" ]"
-  chk "the new bundle is provably ours" "grep -qF \":-$SB/home19}\\\"\" \"$SYS_DEEP/Kosmos.app/Contents/MacOS/Kosmos\""
+  # #677: the anchor moved off the (now compiled) launcher and onto its
+  # per-install config file -- bundle_is_ours checks the same new anchor,
+  # see install/setup.sh.
+  chk "the new bundle is provably ours" "grep -qF '\"kosmosHome\":\"$SB/home19\"' \"$SYS_DEEP/Kosmos.app/Contents/Resources/kosmos-install.json\""
   chk "the locked aside is named at install time" "grep -q 'could not remove the leftover hidden folder' \"$SB/deep.log\""
   KOSMOS_HOME="$SB/home19" "$SB/bin19/kosmos" stop > /dev/null 2>&1 || true
   # ⚠️ The lock STAYS for the uninstall. The first version of this pass
