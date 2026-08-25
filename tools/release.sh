@@ -561,6 +561,18 @@ else
   echo "   Either the deploy did not carry dist/Kosmos.pkg* or an edge is holding the prior pair."; exit 1
 fi
 
+echo "== 9d. the served manifest answers for the served bytes (#776) =="
+# The manifest the build wrote (step 4) was committed beside the pointer (7b)
+# and deployed (8); this reads BOTH back from the wire and checks the
+# artifact's sha and every file's sha against it. Not a volunteer's check
+# after the fact: a cut is not done until the served bytes are the ones the
+# build recorded. Small cuts, many times a day (Josh, 2026-08-25), is exactly
+# when a check that depends on someone being awake stops happening.
+if ! bash "$REPO/tools/verify-manifest.sh" "$V"; then
+  echo "THE SERVED MANIFEST DOES NOT ANSWER FOR THE SERVED BYTES. The pointer is live; what it points at is not what the build recorded. Do not announce this cut; read the mismatch above."
+  exit 1
+fi
+
 echo "== 10. the board on THIS Mac, if it runs from this repo =="
 # 🛑 Installs update themselves from what step 9 verified; the developer's own
 # board runs the repo under launchd and never did, so every release left it
