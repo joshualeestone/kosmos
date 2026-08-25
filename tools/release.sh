@@ -179,12 +179,13 @@ echo "== 3c. the installer .pkg, rebuilt and published only when its inputs chan
 # anyone publishes it with no 9c behind it. verify-served.sh is the check
 # that then applies; run it after any site deploy that follows an abandoned
 # cut.
-# ⚠️ NAMED HAZARD, SAME AS THE TARBALLS: the site gitignores dist/*.pkg,
-# dist/*.pkg.sha256 and dist/*.pkg.inputs (build output; .vercelignore
-# carries them to the deploy), so all three go live from the site's WORKING
-# TREE with no commit behind them, which is #649's shape. Step 9c and
-# verify-served.sh check what is actually served, and this step says out loud
-# whether it published, so a stale pkg is a red line, never a quiet skip.
+# ⚠️ NOT COMMITTED, CARRIED BY NAME: the site gitignores dist/*.pkg,
+# dist/*.pkg.sha256 and dist/*.pkg.inputs (build output), so the triple has
+# no commit behind it; step 8's export carries it as a named artifact class
+# (tools/lib/site-deploy.sh), which is how #649's working-tree accident became
+# a decision. Step 9c and verify-served.sh check what is actually served, and
+# this step says out loud whether it published, so a stale pkg is a red line,
+# never a quiet skip.
 . "$REPO/tools/lib/pkg-inputs.sh"
 # The upload filter must carry the triple, or 9c reds after a ten-minute wait
 # for a reason a read can give now, BEFORE any sign + notarise minutes are
@@ -192,9 +193,14 @@ echo "== 3c. the installer .pkg, rebuilt and published only when its inputs chan
 # patterns (the same semantics Vercel applies), and a MISSING filter is a
 # refusal: without one Vercel falls back to the site's .gitignore, which
 # excludes dist/*.pkg, which is the exact hole the site's .gitignore warns of.
-set +e; _pkg_dropped="$(pkg_upload_filter_excludes "$SITE/.vercelignore")"; _pkg_frc=$?; set -e
+# The COMMITTED filter, because the deploy ships the export of HEAD (#649),
+# not the working tree: an uncommitted edit to .vercelignore is not what the
+# deploy applies, so it is not what this guard may vouch for.
+_vi_tmp="$(mktemp "$BUILD_ROOT/vercelignore.XXXXXX")"
+if git -C "$SITE" show HEAD:.vercelignore > "$_vi_tmp" 2>/dev/null; then :; else rm -f "$_vi_tmp"; _vi_tmp="$BUILD_ROOT/no-such-vercelignore"; fi
+set +e; _pkg_dropped="$(pkg_upload_filter_excludes "$_vi_tmp")"; _pkg_frc=$?; set -e
 if [ "$_pkg_frc" = 1 ]; then
-  echo "the site has no .vercelignore; Vercel would fall back to .gitignore and drop dist/Kosmos.pkg from the upload"; exit 1
+  echo "no committed .vercelignore at the site's HEAD (the export ships the committed one); Vercel would fall back to .gitignore and drop dist/Kosmos.pkg from the upload"; exit 1
 elif [ "$_pkg_frc" != 0 ]; then
   echo "could not evaluate the site's .vercelignore (rc=$_pkg_frc); refusing to assume the deploy carries the pkg"; exit 1
 elif [ -n "$_pkg_dropped" ]; then
@@ -320,9 +326,10 @@ echo "   its timestamp agrees with the clock"
 
 echo "== 7b. the site's release files are committed and pushed BEFORE they deploy =="
 # 🛑 SERVED FROM THE WORKING TREE MEANS SERVED FROM NOBODY'S HISTORY. This
-# script committed and pushed $REPO but only COPIED into $SITE, and Vercel
-# deploys the working tree, so eleven releases' installers went live with
-# no commit behind them (#568): the swap-proof installer that ended the
+# script committed and pushed $REPO but only COPIED into $SITE, and the deploy
+# then shipped the working tree, so eleven releases' installers went live with
+# no commit behind them (#568; step 8 now deploys an export of HEAD, so what
+# is committed here is what ships): the swap-proof installer that ended the
 # 0.5.13 wedge was serving and unrecorded, and the "error line numbers
 # match no revision" tell that diagnosed that wedge is confounded while
 # the served script matches no revision at all. Named paths only, never
@@ -343,17 +350,47 @@ if ! git -C "$SITE" diff --quiet HEAD -- $_site_paths; then
   # shellcheck disable=SC2086
   git -C "$SITE" commit -q -m "$V: the served installer, pointer and versions entry" -- $_site_paths
 fi
-git -C "$SITE" push -q origin HEAD || {
+# The sha that deploys is the sha that is PUSHED, read before the push and
+# pushed by name: the checkout is shared and a commit can land between a
+# push of "HEAD" and the archive (#649).
+# ⚠️ ON MAIN, CHECKED HERE and not only at the top of 7b's block: the push
+# below names refs/heads/main as its target, so a site checkout left on some
+# branch would put that branch's tip (plus this commit) onto main, or be
+# rejected with a message that blames the wrong cause.
+[ "$(git -C "$SITE" rev-parse --abbrev-ref HEAD)" = main ] || { echo "the site checkout is on '$(git -C "$SITE" rev-parse --abbrev-ref HEAD)', not main; refusing to push its tip onto origin/main"; exit 1; }
+SITE_SHA="$(git -C "$SITE" rev-parse HEAD)"
+git -C "$SITE" push -q origin "$SITE_SHA:refs/heads/main" || {
   echo "could not push the site (origin/main moved, or no network). The $V site commit is local."
   echo "Recover: git -C \"$SITE\" pull --rebase && git -C \"$SITE\" push, then re-run release.sh; expect to bump the version, because the bundle build is not byte-reproducible and the versioned name refuses different bytes."
   exit 1
 }
 # shellcheck disable=SC2086
 [ -z "$(git -C "$SITE" status --porcelain -- $_site_paths)" ] || { echo "release files still dirty after the commit"; exit 1; }
-echo "   site committed and pushed: $(git -C "$SITE" log --oneline -1)"
+echo "   site committed and pushed: $(git -C "$SITE" log --oneline -1 "$SITE_SHA")"
 
-echo "== 8. deploy =="
-( cd "$SITE" && vercel deploy --prod --yes )
+echo "== 8. deploy, from an export of the COMMITTED site plus the named artifacts (#649) =="
+# 🛑 NEVER THE WORKING TREE. This deployed $SITE itself, so a cut published
+# whatever anybody had uncommitted in the shared checkout (a half-edited
+# homepage twice during the 0.5.22 cut, caught by hand), and the gitignored
+# release artifacts reached production only through that accident. The
+# export is `git archive` of the sha 7b pushed (the pages as committed)
+# plus each artifact class by name (tools/lib/site-deploy.sh says which and
+# why), and it prints what the working tree holds that does NOT ship. It
+# lives under BUILD_ROOT so the 2b trap removes it.
+# ⚠️ The export has no .git, so the Vercel dashboard shows no commit for these
+# deploys (the CLI reads <cwd>/.git for that); the manifest's "pages: commit"
+# line below is the link from a deployment to its commit.
+. "$REPO/tools/lib/site-deploy.sh"
+_site_export="$BUILD_ROOT/site-export"
+site_deploy_export "$SITE" "$_site_export" "$SITE_SHA" || { echo "could not export the site for deploy; nothing was deployed"; exit 1; }
+# The filter that ACTUALLY ships is the export's; 3c read HEAD's early, and
+# the sha can have moved since. Same evaluator, same refusal, on the real file.
+set +e; _dep_dropped="$(pkg_upload_filter_excludes "$_site_export/.vercelignore")"; _dep_frc=$?; set -e
+if [ "$_dep_frc" = 1 ]; then echo "the export has no .vercelignore; nothing was deployed"; exit 1
+elif [ "$_dep_frc" != 0 ]; then echo "could not evaluate the export's .vercelignore (rc=$_dep_frc); nothing was deployed"; exit 1
+elif [ -n "$_dep_dropped" ]; then echo "the export's .vercelignore would drop $_dep_dropped; nothing was deployed"; exit 1
+fi
+( cd "$_site_export" && vercel deploy --prod --yes )
 
 echo "== 9. verify what is SERVED, from the code that fetches it =="
 # ⚠️ Retried, because a deploy is live before every edge has it, and a single
@@ -395,20 +432,19 @@ fi
 
 echo "== 9c. the served installer .pkg is the one step 3c left in the site dist (#638, B guard) =="
 # Step 3c decided from the site's working copy; this reads the SERVED host,
-# because the deploy carries the pkg from the working tree (the named hazard
-# above) and an edge can serve the prior pair (Kosmos.pkg and its .sha256
-# share one cache). Four facts, all from the wire, and the red names the one
-# that failed: the served inputs sidecar is the source's, the served pkg's
-# bytes are the served checksum's, the sidecar vouches for those bytes, and
-# those bytes are the site dist's. Retried like 9 and 9b: cache lag is not
-# staleness until six reads agree.
-# ⚠️ NO BARE `x="$(curl ...)"` CAPTURES: under set -e a 404 on the first read
-# (a path that has never existed on the edge, exactly this step's first run)
-# would kill the script before the loop retried, and the six-read message
-# would never print. Every fetch lands in a file inside the if chain, the
-# same shape as step 4's tar guard and step 9b.
-# The temp dir lives under BUILD_ROOT so the EXIT trap from 2b removes it on
-# an errexit inside the loop.
+# because the deploy carries the pkg by name from an export (step 8) and an
+# edge can serve the prior pair (Kosmos.pkg and its .sha256 share one cache).
+# Four facts, all from the wire, and the red names the one that failed: the
+# served inputs sidecar is the source's, the served pkg's bytes are the served
+# checksum's, the sidecar vouches for those bytes, and those bytes are the
+# site dist's. Retried like 9 and 9b: cache lag is not staleness until six
+# reads agree. ⚠️ NO BARE `x="$(curl ...)"` CAPTURES: under set -e a 404 on
+# the first read (a path that has never existed on the edge, exactly this
+# step's first run) would kill the script before the loop retried, and the
+# six-read message would never print. Every fetch lands in a file inside the
+# if chain, the same shape as step 4's tar guard and step 9b. The temp dir
+# lives under BUILD_ROOT so the EXIT trap from 2b removes it on an errexit
+# inside the loop.
 _pkg_ok=0; _pkg_dir="$(mktemp -d "$BUILD_ROOT/pkg9c.XXXXXX")"; _pkg_fact=""
 for i in 1 2 3 4 5 6; do
   _pkg_fact="the served inputs sidecar could not be fetched"
@@ -423,8 +459,11 @@ for i in 1 2 3 4 5 6; do
         if [ "$_pkg_real" = "$(awk '{print $1}' "$_pkg_dir/sha256")" ]; then
           _pkg_fact="the served sidecar vouches for other bytes ($(pkg_sidecar_pkgsha "$_pkg_dir/inputs" | cut -c1-12)) than the served pkg's (${_pkg_real:0:12})"
           if [ "$(pkg_sidecar_pkgsha "$_pkg_dir/inputs")" = "$_pkg_real" ]; then
-            _pkg_fact="the served Kosmos.pkg is not the one in the site dist (an edge is holding the prior pair)"
-            if cmp -s "$_pkg_dir/Kosmos.pkg" "$SITE/dist/Kosmos.pkg"; then _pkg_ok=1; break; fi
+            _pkg_fact="the served Kosmos.pkg is not the one the export deployed (an edge is holding the prior pair)"
+            # Against the EXPORT's copy (the file that deployed; a real copy
+            # under BUILD_ROOT, not a link), not the shared working tree, which
+            # can be replaced in place during the ten-minute wait.
+            if cmp -s "$_pkg_dir/Kosmos.pkg" "$_site_export/dist/Kosmos.pkg"; then _pkg_ok=1; break; fi
           fi
         fi
       fi
