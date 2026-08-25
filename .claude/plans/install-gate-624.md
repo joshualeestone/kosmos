@@ -7,7 +7,11 @@ a red stops the cut before step 5. Gate mode runs the install, update, uninstall
 download-path passes plus the closing "nothing leaked" checks, then exits before the probe
 blocks. tools/test-install-gate-control.sh proves the gate reds on a bundle missing a file the
 installer's post-extract check expects (removed from a copy's staged tree and tarball), with
-the untouched copy green as the control of the control.
+the untouched copy green as the control of the control, and a third copy with only the
+tarball broken red at the download-path pass (the artifact people receive).
+Also in this change, because the gate needed it: the harness's other-account launcher pass
+runs with a sandbox HOME (since #720 it ran the operator's real kosmos open) and #720's
+own-copy branch is proven on a stub home.
 
 ## Why
 Every check in the cut measured bytes (the suite, served == built file by file); none ever

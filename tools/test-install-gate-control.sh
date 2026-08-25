@@ -3,11 +3,11 @@
 # post-extract check expects must turn the gate RED. Without this, a gate that
 # is green on a good bundle proves nothing about a bad one.
 #
-# Runs against a COPY of this checkout's install/, tools/ and dist/ (the
-# harness installs from the dist beside its own script, so the copy is the
+# Runs against COPIES of this checkout's install/, tools/ and dist/ (the
+# harness installs from the dist beside its own script, so a copy is the
 # only way to break a bundle without breaking the one the release ships).
 # Needs the staged trees in dist/ (build them first, as test-install.sh says).
-# Minutes, two gate runs; run by hand before changing the gate or the
+# Minutes, three gate runs (untouched, staged tree broken, tarball broken); run by hand before changing the gate or the
 # installer's post-extract list: `bash tools/test-install-gate-control.sh`.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
@@ -48,6 +48,20 @@ rm -f "$C/repo/dist/kosmos-bundle/app/bin/kosmos-tunnel"
 tar -tzf "$C/repo/dist/kosmos-arm64.tar.gz" | grep -q '^app/' && ok "the repacked tarball keeps the built tarball's member shape (app/..., no ./)" || bad "the repack changed the member shape"
 settle
 if ( cd "$C/repo" && KOSMOS_INSTALL_GATE=1 bash tools/test-install.sh ) > "$C/red.log" 2>&1; then bad "a bundle missing app/bin/kosmos-tunnel PASSED the gate (the gate is blind to the bundle's shape)"
-else ok "a bundle missing app/bin/kosmos-tunnel turns the gate red ($(grep -E ' passed, ' "$C/red.log" | tail -1 || true; [ -n "$(grep -E ' passed, ' "$C/red.log")" ] || echo "$(grep -c '^FAIL' "$C/red.log") FAIL line(s), no summary: the harness stopped at the broken install"))"; fi
+else ok "a bundle missing app/bin/kosmos-tunnel turns the gate red ($(grep -E ' passed, ' "$C/red.log" | tail -1 || true; [ -n "$(grep -E ' passed, ' "$C/red.log")" ] || echo "$(grep -c '^FAIL' "$C/red.log") FAIL line(s), no summary"))"; fi
 grep -q "^FAIL  install exits 0" "$C/red.log" && ok "and the red names the install itself, not a later check" || bad "the red did not name the install: $(grep -E '^FAIL' "$C/red.log" | head -2 | tr '\n' ' ')"
+
+# THE TARBALL HALF, ON ITS OWN. Above, the staged-tree install fails first and
+# the harness stops there, so the repacked tarball was never opened: that run
+# proves nothing about a defect that lives only in the artifact people
+# receive. A second copy with the staged tree INTACT and only the packed
+# tarball broken must red at the download-path pass.
+rm -rf "$C/repo2"; mkdir -p "$C/repo2"; cp -R install tools package.json "$C/repo2/"; cp -R dist "$C/repo2/dist"
+( cd "$C/repo2/dist" && mkdir -p repack && tar -xzf kosmos-arm64.tar.gz -C repack && rm -f repack/app/bin/kosmos-tunnel && ( cd repack && tar -czf ../kosmos-arm64.tar.gz -- * ) && rm -rf repack && shasum -a 256 kosmos-arm64.tar.gz > kosmos-arm64.tar.gz.sha256 )
+[ -x "$C/repo2/dist/kosmos-bundle/app/bin/kosmos-tunnel" ] && ok "CONTROL: the second copy's staged tree is intact (only the tarball is broken)" || bad "the second copy's staged tree lost the file too"
+settle
+if ( cd "$C/repo2" && KOSMOS_INSTALL_GATE=1 bash tools/test-install.sh ) > "$C/red2.log" 2>&1; then bad "a tarball missing app/bin/kosmos-tunnel (staged tree intact) PASSED the gate: the download path is not gating the artifact people receive"
+else ok "a tarball missing app/bin/kosmos-tunnel, staged tree intact, turns the gate red"; fi
+grep -q "^FAIL  download-path install exits 0" "$C/red2.log" && ok "and that red lands at the download-path install, the pass that opens the tarball" || bad "the tarball red did not land at the download path: $(grep -E '^FAIL' "$C/red2.log" | head -3 | tr '\n' ' ')"
+grep -q "^FAIL  install exits 0" "$C/red2.log" && bad "the staged-tree install failed in the tarball-only run (the copy was not what it claims)" || ok "and the staged-tree install still passed in that run (the red is the tarball's alone)"
 echo "install-gate-control: $FAILS failures"; [ "$FAILS" -eq 0 ]

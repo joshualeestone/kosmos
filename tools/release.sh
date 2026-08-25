@@ -256,16 +256,27 @@ rm -rf "$REPO/dist/tmux-bundle"; mkdir -p "$REPO/dist/tmux-bundle"
 tar -xzf "$REPO/dist/tmux-arm64.tar.gz" -C "$REPO/dist/tmux-bundle" || { echo "the served tmux bundle does not extract"; exit 1; }
 # A bare mktemp, like step 3's suite log: the red branch exits, the 2b trap
 # removes BUILD_ROOT, and a log under it would be gone before anyone read it.
+# ⚠️ DISK, SAID BY NAME. A gate run uses ~300 MB transiently (measured
+# 2026-08-24: 277 MB peak, returned on exit; gate mode never reaches the
+# probe blocks whose fresh homes each pull a 345 MB Claude Code install),
+# but this Mac reached 288 MB free tonight, and an install failing on a
+# full disk reads as a broken bundle, not as a full disk. Refuse below 2 GB
+# and name the disk, so the red says what it is.
+_gate_free_mb="$(df -m "${TMPDIR:-/tmp}" | awk 'NR==2 {print $4}')"
+if [ "${_gate_free_mb:-0}" -lt 2048 ]; then
+  echo "only ${_gate_free_mb:-?} MB free on the disk that holds the sandbox; the install gate needs ~300 MB and a full disk would read as a bundle that does not install. Free space, then re-run."; exit 1
+fi
 _gate_log="$(mktemp "${TMPDIR:-/tmp}/kosmos-install-gate.XXXXXX")"
 if ( cd "$REPO" && KOSMOS_INSTALL_GATE=1 bash tools/test-install.sh ) > "$_gate_log" 2>&1; then
   echo "   $(grep -E ' passed, ' "$_gate_log" | tail -1 || true): the bundle installs, updates, uninstalls and downloads-and-installs in a sandbox"
   rm -f "$_gate_log"
 else
-  echo "THE BUNDLE JUST BUILT DOES NOT INSTALL. Nothing was copied to the site. The gate said:"
-  # || true: under set -e a log with no FAIL or summary line (the harness died
-  # before its first check, or refused at its staged-trees line) would abort
-  # here with the headline and no reason.
+  echo "THE BUNDLE JUST BUILT DOES NOT INSTALL. No bundle was copied to the site. The gate said:"
+  # The fallback: under set -e a log with no FAIL, summary or SKIP line (the
+  # harness died before its first check, or refused at its staged-trees line)
+  # would abort here with the headline and no reason; print its tail instead.
   grep -E '^FAIL|passed, |SKIP' "$_gate_log" | sed 's/^/   /' || tail -15 "$_gate_log" | sed 's/^/   /'
+  [ "${PKG_PUBLISHED:-0}" = 1 ] && echo "   (3c already put a rebuilt Kosmos.pkg triple in $SITE/dist; a site deploy before the next cut would carry it; verify-served.sh is the check that applies)"
   echo "   (full log: $_gate_log)"; exit 1
 fi
 
