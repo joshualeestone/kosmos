@@ -1767,12 +1767,28 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    dissolves (display: contents) so the name group and the status pill
    become grid items of their own. Explicit columns, so a row with no
    description keeps its agents and status in place. */
+/* #860 (Josh, 2026-08-25 10:35): "spread them out... in equal
+   portions... title far left, description almost centered, and all
+   the agents plus the status all crammed over on the right. They're
+   bleeding over on top of each other." Title and description now
+   share the row's width roughly evenly rather than title-narrow/
+   description-wide; the agents column widened to 12rem so up to five
+   faces plus the count text (the worst case addAgentsHtml/projectCard
+   ever draws) fit without spilling into the status column -- the
+   actual cause of the bleed, a grid item's default min-width:auto
+   letting a flex row's natural size push past its track. */
 .pj-list:not(.asgrid) .pj-row { display: grid; align-items: center; column-gap: 16px; row-gap: 4px;
-  grid-template-columns: minmax(10rem, 1.1fr) minmax(9rem, 1.4fr) minmax(7rem, 9rem) auto; padding: 12px 16px; }
+  grid-template-columns: minmax(9rem, 1fr) minmax(9rem, 1fr) minmax(9rem, 12rem) auto; padding: 12px 16px; }
 .pj-list:not(.asgrid) .pj-row .pjcard-h { display: contents; }
 .pj-list:not(.asgrid) .pj-row .pjname { grid-column: 1; grid-row: 1; }
-.pj-list:not(.asgrid) .pj-row .pc-t { grid-column: 2; grid-row: 1; margin-top: 0; }
-.pj-list:not(.asgrid) .pj-row .pjfaces { grid-column: 3; grid-row: 1; margin-top: 0; }
+/* Truncate rather than wrap, list view only: a long title or
+   description used to wrap unpredictably and crowd the row instead of
+   being cut cleanly. The grid tile view is untouched (it has room for
+   the pack's own wrap/clamp behaviour, and its own pinned checks). */
+.pj-list:not(.asgrid) .pj-row .pjname b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-list:not(.asgrid) .pj-row .pc-t { grid-column: 2; grid-row: 1; margin-top: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-list:not(.asgrid) .pj-row .pjfaces { grid-column: 3; grid-row: 1; margin-top: 0; min-width: 0; overflow: hidden; }
 .pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 4; grid-row: 1; justify-self: end; }
 .pj-list:not(.asgrid) .pj-row .pj-who, .pj-list:not(.asgrid) .pj-row .pj-warn { grid-column: 1 / -1; }
 @media (max-width: 52rem) {
