@@ -482,13 +482,22 @@ async function main() {
       if (!bareDetail.present) {
         throw new Error('#pj-one-desc vanished from the markup entirely');
       }
-      if (bareDetail.hidden !== false || bareDetail.h <= 0
+      /* RE-EXPRESSED AGAIN (2026-08-25, #862, Mona Lisa's ruling 11:25): the
+         detail description now lives in the conversation column's HEADER in
+         every layout (f731a69, Josh 10:12), and that header keeps one line so
+         it stays a header (#520): an EMPTY description is hidden there, not
+         shown as a sentence. That is a header-specific narrowing of the 08-20
+         ruling, not its supersession: the project list's rows and tiles still
+         show the placeholder, and their arms above are untouched. So the pin
+         here is: the element is present, carries the empty marker, still
+         holds the placeholder sentence (so any surface that shows it shows
+         the ruled words), and is NOT rendered (zero height); a page that
+         showed a full italic sentence inside a one-line header would be the
+         regression now. No styling leg: nothing is on screen to style. */
+      if (bareDetail.empty !== true
         || !/^This project has no description yet\./.test(bareDetail.text)
-        || bareDetail.empty !== true) {
-        throw new Error('an undescribed project\u2019s detail must SHOW the placeholder in the empty styling (Josh, 08-20): ' + JSON.stringify(bareDetail));
-      }
-      if (bareDetail.fontStyle !== 'italic' || bareDetail.fontSize !== '15px') {
-        throw new Error('the placeholder lost its unmistakably-not-content styling (italic at the pack size): ' + JSON.stringify(bareDetail));
+        || bareDetail.h > 0) {
+        throw new Error('an undescribed project\u2019s detail must be marked empty, carry the placeholder sentence, and stay hidden in the merged header (#520 kept one line; Mona Lisa, 2026-08-25): ' + JSON.stringify(bareDetail));
       }
       // A description AT THE CAP wraps FULLY on the pack card (the one-line
       // ellipsis retired with the pj-cards restyle): the claim is that the
