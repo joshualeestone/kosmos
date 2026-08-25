@@ -37,7 +37,35 @@ if [ ! -d "$TMUX_SRC" ] || [ ! -d "$KOS_SRC" ]; then
   exit 1
 fi
 
+# ---- the disk, before a byte is written (#736) -------------------------------
+# A full run holds every sandbox home's Node runtime and, before the shared
+# Claude Code below, a 345 MB Claude Code per home: ~4 GB for eleven homes,
+# which took this Mac to 288 MB free with five agents working. Refuse under
+# 3 GB and name the disk; tools/test-disk-guard.sh shows the guard red and green.
+. "$HERE/tools/lib/disk-guard.sh"
+kosmos_require_free_mb "${KOSMOS_HARNESS_MIN_FREE_MB:-3072}" "${TMPDIR:-/tmp}" "a full install-harness run" || exit 1
 SB="$(mktemp -d)"
+# ---- ONE Claude Code for every sandbox home (#736) --------------------------
+# setup.sh's "Kosmos needs Claude Code and this Mac does not have it" step runs
+# Anthropic's real installer into any home without one: 345 MB downloaded per
+# sandbox home, eleven homes a run. The engine, the installer and create.js all
+# honour AGENT_WORKFORCE_CLAUDE_BIN, so every home is pointed at one shared
+# binary: the operator's real Claude Code when this Mac has one, else a stub
+# that answers --version (nothing in this harness ever starts an agent). The
+# FIRST install leg below keeps the real download as the positive control that
+# the carry still works; it clears the seam for that one command.
+mkdir -p "$SB/claude-shared"
+_real_claude="${HOME}/.local/bin/claude"
+[ -f "$_real_claude" ] && [ -x "$_real_claude" ] || _real_claude="$(command -v claude 2>/dev/null || true)"
+if [ -n "$_real_claude" ] && [ -f "$_real_claude" ] && [ -x "$_real_claude" ]; then
+  ln -s "$_real_claude" "$SB/claude-shared/claude"
+  echo "claude for sandbox homes: shared, $_real_claude"
+else
+  printf '#!/bin/sh\ncase "$1" in --version) echo "0.0.0 (harness stub, not Claude Code)";; *) echo "harness stub: not Claude Code" >&2; exit 64;; esac\n' > "$SB/claude-shared/claude"
+  chmod +x "$SB/claude-shared/claude"
+  echo "claude for sandbox homes: stub (this Mac has no Claude Code)"
+fi
+export AGENT_WORKFORCE_CLAUDE_BIN="$SB/claude-shared/claude"
 # The board-kill list is a glob, not a hardcoded home/home2/... list: a
 # future pass that adds a seventh sandbox home must not silently leak a
 # board process onto the operator's machine.
@@ -52,7 +80,7 @@ SB="$(mktemp -d)"
 # every server the suite can start is launched by a path under $SB, so
 # pgrep -f "$SB" is a complete inventory, and it cannot reach unrelated
 # processes because $SB is a fresh mktemp path no one else names.
-trap 'for _p in "$SB"/home*/board.pid; do if [ -f "$_p" ]; then _k="$(cat "$_p" 2>/dev/null)"; [ "$_k" = "$$" ] || kill "$_k" 2>/dev/null || true; fi; done; for _k in $(pgrep -f "$SB" 2>/dev/null); do [ "$_k" = "$$" ] || kill "$_k" 2>/dev/null || true; done; chflags -R nouchg "$SB" 2>/dev/null || true; chmod -R u+w "$SB" 2>/dev/null || true; rm -rf "$SB"' EXIT
+trap 'for _p in "$SB"/home*/board.pid; do if [ -f "$_p" ]; then _k="$(cat "$_p" 2>/dev/null)"; [ "$_k" = "$$" ] || kill "$_k" 2>/dev/null || true; fi; done; for _k in $(pgrep -f "$SB" 2>/dev/null); do [ "$_k" = "$$" ] || kill "$_k" 2>/dev/null || true; done; chflags -R nouchg "$SB" 2>/dev/null || true; chmod -R u+w "$SB" 2>/dev/null || true; echo "sandbox size at exit: $(du -sh "$SB" 2>/dev/null | cut -f1) (deleted now; keeping one is #736)"; rm -rf "$SB"' EXIT
 mkdir -p "$SB/data" "$SB/launch"
 
 # 🛑 REAL CONTENT IN THE DATA FOLDER, BEFORE ANYTHING RUNS. The "user data
@@ -248,7 +276,9 @@ summary_and_exit() {
 }
 
 echo "== install (piped into sh, local sources, port $PORT) =="
-RC=0; cat "$SETUP" | sh > "$SB/install.log" 2>&1 || RC=$?
+# The ONE real Claude Code download of the run (the positive control for the
+# carry): the shared seam is cleared for this command only.
+RC=0; cat "$SETUP" | AGENT_WORKFORCE_CLAUDE_BIN= sh > "$SB/install.log" 2>&1 || RC=$?
 chk "install exits 0" "[ $RC -eq 0 ]"
 # 🔑 THE UPGRADE PATH, ASSERTED HERE AND NOT ONLY AFTER THE UNINSTALL. An
 # update re-runs THIS installer over an existing install (engine/update.js
