@@ -51,10 +51,12 @@ echo "== 1. main, clean, and carrying what you mean to ship =="
 # The cut's first line in the record, before anything can refuse (Shredder,
 # 2026-08-25): an absent step-3 line would otherwise mean either "no cut" or
 # "a cut died at step 1 or 2", and silence is not "no". This names the
-# checkout HEAD at launch; step 3's line names the FROZEN sha and the suite's
-# exit. A "started" with no matching step-3 line is a cut that died early.
+# checkout HEAD at launch, BEFORE the version bump, so it is NOT the cut's sha
+# and is named pre_bump_head so nobody quotes it as one (the 545dd7e mistake,
+# Shredder 2026-08-25); step 3's line names the FROZEN sha (frozen_sha=), which
+# is the cut. A "started" with no matching step-3 line is a cut that died early.
 mkdir -p "$HOME/.claude/logs" 2>/dev/null || true
-printf '%s version=%s started head=%s\n' "$(date -u +%FT%TZ)" "$V" "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
+printf '%s version=%s started pre_bump_head=%s\n' "$(date -u +%FT%TZ)" "$V" "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
 git -C "$REPO" fetch origin -q
 [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD)" = main ] || { echo "not on main"; exit 1; }
 [ -z "$(git -C "$REPO" status --porcelain)" ] || { echo "main is dirty"; exit 1; }
@@ -162,7 +164,7 @@ grep -E '^ℹ (tests|pass|fail)' "$_suite_log" || true
 # says which. At many small cuts a day, "which sha did we ship and was it
 # green" lives in one file rather than in chat.
 mkdir -p "$HOME/.claude/logs" 2>/dev/null || true
-printf '%s version=%s sha=%s suite_exit=%s\n' "$(date -u +%FT%TZ)" "$V" "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" "$_suite_exit" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
+printf '%s version=%s frozen_sha=%s suite_exit=%s\n' "$(date -u +%FT%TZ)" "$V" "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" "$_suite_exit" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
 # ⚠️ 126/127 IS NOT A RED SUITE. It means the suite could not be run at all
 # (yarn or node missing or not executable), and saying "red" about it sends
 # the person to read assertions that never ran (#785, three flavours of this
