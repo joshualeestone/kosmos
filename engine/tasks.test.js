@@ -422,3 +422,31 @@ test('a part needs words, and a part number that is not there is refused', () =>
   assert.match(tasks.assignPart(p.id, t.number, 99, 'april').because, /no part by that number/);
   assert.match(tasks.setPartClosed(p.id, t.number, 99, null).because, /no part by that number/);
 });
+
+/* #761 challenge-loop round 4: create()'s membership refusal (above) has its
+   own dedicated test; addPart/assignPart's new one (#761) did not, only an
+   end-to-end HTTP one. Same shape, at the same layer. */
+test('a part cannot be given to, or reassigned to, an agent that is not on the project', () => {
+  const p = freshProject('Part members only');
+  const t = tasks.create(p.id, { sentence: 'Something' });
+
+  // addPart: refused before any write, the same as create()'s guard.
+  assert.throws(() => tasks.addPart(p.id, t.number, { sentence: 'For a stranger', who: 'outsider' }),
+    /not on this project/);
+  let after = tasks.byNumber(projects.readAll().find((x) => x.id === p.id), t.number);
+  assert.equal((after && after.parts || []).length, 0, 'the refusal wrote a part');
+
+  // assignPart: an existing (unassigned) part cannot be moved to a stranger either.
+  const added = tasks.addPart(p.id, t.number, { sentence: 'Real part' });
+  assert.equal(added.ok, true, added.because);
+  const partId = tasks.partsOf(added.task)[1].id;
+  assert.throws(() => tasks.assignPart(p.id, t.number, partId, 'outsider'), /not on this project/);
+  after = tasks.byNumber(projects.readAll().find((x) => x.id === p.id), t.number);
+  assert.equal(tasks.partsOf(after).find((x) => x.id === partId).who, null, 'the refused reassignment moved who anyway');
+
+  // A real member still works, for both.
+  projects.addAgent(p.id, 'april');
+  const real = tasks.assignPart(p.id, t.number, partId, 'april');
+  assert.equal(real.ok, true, real.because);
+  assert.equal(tasks.partsOf(real.task).find((x) => x.id === partId).who, 'april');
+});
