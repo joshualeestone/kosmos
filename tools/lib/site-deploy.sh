@@ -61,7 +61,10 @@ site_deploy_export() {
   # as ready (measured). This function's promise has to hold on its own.
   # ⚠️ EVERY REFUSAL FROM HERE ON REMOVES $out: a half-extracted export that
   # a caller could deploy is worse than none.
-  tarf="$(mktemp "${TMPDIR:-/tmp}/site-archive.XXXXXX")" || { rm -rf "$out"; return 1; }
+  # The temp archive sits BESIDE $out (under BUILD_ROOT in the release), not
+  # in the shared TMPDIR: a stale one there from an interrupted cut made an
+  # unrelated suite run red (measured).
+  tarf="$(mktemp "$out.archive.XXXXXX")" || { rm -rf "$out"; return 1; }
   if ! git -C "$site" archive --format=tar "$head" > "$tarf"; then echo "site_deploy_export: git archive of $head failed" >&2; rm -f "$tarf"; rm -rf "$out"; return 1; fi
   if ! tar -x -C "$out" -f "$tarf"; then echo "site_deploy_export: could not extract the archive of $head" >&2; rm -f "$tarf"; rm -rf "$out"; return 1; fi
   rm -f "$tarf"
@@ -73,6 +76,12 @@ site_deploy_export() {
   n=0; bytes=0
   for f in "$site"/dist/*.tar.gz "$site"/dist/*.tar.gz.sha256; do
     [ -f "$f" ] || continue
+    # A TRACKED file matching a carry glob (someone's git add -f) would be
+    # overwritten by the working-tree copy and then hidden from the manifest
+    # as carried: a modified tracked artifact shipping silently. Refuse.
+    if git -C "$site" ls-files --error-unmatch "dist/${f##*/}" >/dev/null 2>&1; then
+      echo "site_deploy_export: dist/${f##*/} is tracked by git AND matches a carry pattern; the export would overwrite the committed copy with the working tree's. Untrack it or stop carrying it." >&2; rm -rf "$out"; return 1
+    fi
     _site_carry "$f" "$out/dist/" || { rm -rf "$out"; return 1; }
     _SITE_CARRIED="${_SITE_CARRIED}dist/${f##*/}${_SITE_NL}"
     n=$((n+1)); bytes=$((bytes + $(wc -c < "$f" | tr -d ' ')))
@@ -119,14 +128,18 @@ _site_carry() {   # <file> <dir/>
 _site_left_behind() {
   local site="${1:?}" line path kind any=0 listing errf
   errf="$(mktemp "${TMPDIR:-/tmp}/site-status-err.XXXXXX")" || return 1
-  # core.quotePath=false: a non-ASCII name would otherwise print C-quoted and
-  # miss the carried list, listing a shipped file as left behind (measured).
-  listing="$(git -C "$site" -c core.quotePath=false status --porcelain --ignored --untracked-files=all 2>"$errf")" || { echo "site_deploy_export: could not list the working tree of $site (git status failed: $(tr '\n' ' ' < "$errf"))" >&2; rm -f "$errf"; return 1; }
+  # -z: NUL-delimited, NEVER quoted. Porcelain v1 without -z C-quotes a name
+  # with a space (whatever core.quotePath says) and a non-ASCII name, so a
+  # carried "x y.tar.gz" missed the carried list and was printed as left
+  # behind while it shipped (measured).
+  listing="$(git -C "$site" status --porcelain -z --ignored --untracked-files=all 2>"$errf" | tr '\0' '\n')" || { echo "site_deploy_export: could not list the working tree of $site (git status failed: $(tr '\n' ' ' < "$errf"))" >&2; rm -f "$errf"; return 1; }
   rm -f "$errf"
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     # porcelain: two status columns, a space, the path (the first column can
-    # itself be a space, so this is a cut by position, not by word).
+    # itself be a space, so this is a cut by position, not by word). With -z
+    # a rename is two records (new, then old); the old name is listed as a
+    # path of its own and reads as "renamed".
     kind="${line:0:2}"; path="${line:3}"
     case "$_SITE_CARRIED" in *"${_SITE_NL}${path}${_SITE_NL}"*) continue;; esac
     case "$path" in

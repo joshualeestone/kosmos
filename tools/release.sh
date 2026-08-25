@@ -350,17 +350,18 @@ if ! git -C "$SITE" diff --quiet HEAD -- $_site_paths; then
   # shellcheck disable=SC2086
   git -C "$SITE" commit -q -m "$V: the served installer, pointer and versions entry" -- $_site_paths
 fi
-git -C "$SITE" push -q origin HEAD || {
+# The sha that deploys is the sha that is PUSHED, read before the push and
+# pushed by name: the checkout is shared and a commit can land between a
+# push of "HEAD" and the archive (#649).
+SITE_SHA="$(git -C "$SITE" rev-parse HEAD)"
+git -C "$SITE" push -q origin "$SITE_SHA:refs/heads/main" || {
   echo "could not push the site (origin/main moved, or no network). The $V site commit is local."
   echo "Recover: git -C \"$SITE\" pull --rebase && git -C \"$SITE\" push, then re-run release.sh; expect to bump the version, because the bundle build is not byte-reproducible and the versioned name refuses different bytes."
   exit 1
 }
 # shellcheck disable=SC2086
 [ -z "$(git -C "$SITE" status --porcelain -- $_site_paths)" ] || { echo "release files still dirty after the commit"; exit 1; }
-echo "   site committed and pushed: $(git -C "$SITE" log --oneline -1)"
-# The sha that was pushed is the sha that deploys: the checkout is shared and
-# a commit can land between this push and step 8's archive (#649).
-SITE_SHA="$(git -C "$SITE" rev-parse HEAD)"
+echo "   site committed and pushed: $(git -C "$SITE" log --oneline -1 "$SITE_SHA")"
 
 echo "== 8. deploy, from an export of the COMMITTED site plus the named artifacts (#649) =="
 # 🛑 NEVER THE WORKING TREE. This deployed $SITE itself, so a cut published
@@ -380,8 +381,9 @@ site_deploy_export "$SITE" "$_site_export" "$SITE_SHA" || { echo "could not expo
 # The filter that ACTUALLY ships is the export's; 3c read HEAD's early, and
 # the sha can have moved since. Same evaluator, same refusal, on the real file.
 set +e; _dep_dropped="$(pkg_upload_filter_excludes "$_site_export/.vercelignore")"; _dep_frc=$?; set -e
-if [ "$_dep_frc" != 0 ] || [ -n "$_dep_dropped" ]; then
-  echo "the export's .vercelignore would drop ${_dep_dropped:-the pkg triple} (rc=$_dep_frc); nothing was deployed"; exit 1
+if [ "$_dep_frc" = 1 ]; then echo "the export has no .vercelignore; nothing was deployed"; exit 1
+elif [ "$_dep_frc" != 0 ]; then echo "could not evaluate the export's .vercelignore (rc=$_dep_frc); nothing was deployed"; exit 1
+elif [ -n "$_dep_dropped" ]; then echo "the export's .vercelignore would drop $_dep_dropped; nothing was deployed"; exit 1
 fi
 ( cd "$_site_export" && vercel deploy --prod --yes )
 
@@ -426,18 +428,18 @@ fi
 echo "== 9c. the served installer .pkg is the one step 3c left in the site dist (#638, B guard) =="
 # Step 3c decided from the site's working copy; this reads the SERVED host,
 # because the deploy carries the pkg by name from an export (step 8) and an
-# edge can serve the prior pair (Kosmos.pkg and its .sha256 share one cache). Four facts, all from the wire, and the red names the one
-# that failed: the served inputs sidecar is the source's, the served pkg's
-# bytes are the served checksum's, the sidecar vouches for those bytes, and
-# those bytes are the site dist's. Retried like 9 and 9b: cache lag is not
-# staleness until six reads agree.
-# ⚠️ NO BARE `x="$(curl ...)"` CAPTURES: under set -e a 404 on the first read
-# (a path that has never existed on the edge, exactly this step's first run)
-# would kill the script before the loop retried, and the six-read message
-# would never print. Every fetch lands in a file inside the if chain, the
-# same shape as step 4's tar guard and step 9b.
-# The temp dir lives under BUILD_ROOT so the EXIT trap from 2b removes it on
-# an errexit inside the loop.
+# edge can serve the prior pair (Kosmos.pkg and its .sha256 share one cache).
+# Four facts, all from the wire, and the red names the one that failed: the
+# served inputs sidecar is the source's, the served pkg's bytes are the served
+# checksum's, the sidecar vouches for those bytes, and those bytes are the
+# site dist's. Retried like 9 and 9b: cache lag is not staleness until six
+# reads agree. ⚠️ NO BARE `x="$(curl ...)"` CAPTURES: under set -e a 404 on
+# the first read (a path that has never existed on the edge, exactly this
+# step's first run) would kill the script before the loop retried, and the
+# six-read message would never print. Every fetch lands in a file inside the
+# if chain, the same shape as step 4's tar guard and step 9b. The temp dir
+# lives under BUILD_ROOT so the EXIT trap from 2b removes it on an errexit
+# inside the loop.
 _pkg_ok=0; _pkg_dir="$(mktemp -d "$BUILD_ROOT/pkg9c.XXXXXX")"; _pkg_fact=""
 for i in 1 2 3 4 5 6; do
   _pkg_fact="the served inputs sidecar could not be fetched"
@@ -452,8 +454,11 @@ for i in 1 2 3 4 5 6; do
         if [ "$_pkg_real" = "$(awk '{print $1}' "$_pkg_dir/sha256")" ]; then
           _pkg_fact="the served sidecar vouches for other bytes ($(pkg_sidecar_pkgsha "$_pkg_dir/inputs" | cut -c1-12)) than the served pkg's (${_pkg_real:0:12})"
           if [ "$(pkg_sidecar_pkgsha "$_pkg_dir/inputs")" = "$_pkg_real" ]; then
-            _pkg_fact="the served Kosmos.pkg is not the one in the site dist (an edge is holding the prior pair)"
-            if cmp -s "$_pkg_dir/Kosmos.pkg" "$SITE/dist/Kosmos.pkg"; then _pkg_ok=1; break; fi
+            _pkg_fact="the served Kosmos.pkg is not the one the export deployed (an edge is holding the prior pair)"
+            # Against the EXPORT's copy (the file that deployed, still under
+            # BUILD_ROOT), not the shared working tree, which can be replaced
+            # during the ten-minute wait.
+            if cmp -s "$_pkg_dir/Kosmos.pkg" "${_site_export:-$SITE}/dist/Kosmos.pkg"; then _pkg_ok=1; break; fi
           fi
         fi
       fi

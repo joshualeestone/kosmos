@@ -40,7 +40,7 @@ git -C "$S" check-ignore -q dist/build.log && ok "CONTROL: the stray really is g
 [ -f "$O/.vercel/project.json" ] && ok "the Vercel project link ships" || bad "the project link is missing"
 [ -f "$O/dist/latest.json" ] && [ -f "$O/vercel.json" ] && [ -f "$O/.vercelignore" ] && ok "the committed release files and the upload filter ship from the commit" || bad "a committed file is missing"
 [ ! -e "$O/.git" ] && ok "no .git in the export" || bad ".git shipped"
-[ ! -e "$O/../site-archive."* ] 2>/dev/null; ls "${TMPDIR:-/tmp}"/site-archive.* >/dev/null 2>&1 && bad "the archive temp file was left behind" || ok "no archive temp file left in TMPDIR"
+ls "$O".archive.* >/dev/null 2>&1 && bad "the archive temp file was left beside the export" || ok "no archive temp file left beside the export"
 printf '%s\n' "$man" | grep -q "untracked: notes.txt" && ok "the manifest names the untracked stray as left behind" || bad "the manifest did not name notes.txt: $man"
 printf '%s\n' "$man" | grep -q "ignored:   dist/build.log" && ok "the manifest names the ignored stray as left behind" || bad "the manifest did not name build.log: $man"
 printf '%s\n' "$man" | grep -q "modified:  index.html (deploys as committed)" && ok "the manifest names the half-edited page and says it deploys as committed" || bad "the manifest did not name index.html: $man"
@@ -68,27 +68,39 @@ if site_deploy_export "$S" "$T/out5" >/dev/null 2>"$T/err"; then bad "a pkg with
 printf 'in\npkg:z\n' > "$S/dist/Kosmos.pkg.inputs"
 # a git that cannot list the tree is a refusal, never "left behind: nothing".
 # (the stub execs the REAL git by absolute path; `env git` would find the stub again and recurse forever)
-REALGIT="$(command -v git)"; mkdir -p "$T/bin"; printf '#!/bin/sh\ncase "$*" in *status*) exit 128;; esac\nexec %s "$@"\n' "$REALGIT" > "$T/bin/git"; chmod +x "$T/bin/git"
+# (the stubs read the SUBCOMMAND after any -C <dir> / -c k=v, not "$*", which contains paths)
+REALGIT="$(command -v git)"; mkdir -p "$T/bin"
+printf '#!/bin/bash\norig=("$@"); sub=""; while [ $# -gt 0 ]; do case "$1" in -C|-c) shift 2;; -*) shift;; *) sub="$1"; break;; esac; done\n[ "$sub" = status ] && exit 128\nexec %s "${orig[@]}"\n' "$REALGIT" > "$T/bin/git"; chmod +x "$T/bin/git"
 rm -rf "$T/out6"; if PATH="$T/bin:$PATH" site_deploy_export "$S" "$T/out6" >"$T/man6" 2>"$T/err6"; then bad "a failing git status did not refuse: $(cat "$T/man6")"; else grep -q "could not list the working tree" "$T/err6" && ok "a failing git status refuses instead of claiming a clean tree" || bad "the refusal did not say why: $(cat "$T/err6")"; fi
 grep -q "left behind: nothing" "$T/man6" && bad "the clean-tree claim was printed on a failed listing" || ok "no clean-tree claim on a failed listing"
 
 # an orphan sidecar (no pkg beside it) and a dotfile tarball match the name patterns but are
 # NOT carried; the manifest must list them, keyed on what was carried, not on the pattern.
 git -C "$S" reset -q -- new.html; rm -f "$S/new.html"; rm -rf "$S/dist/sub"
-mv "$S/dist/Kosmos.pkg" "$T/pkg.aside"; printf 'DOT\n' > "$S/dist/.hidden.tar.gz"
+mv "$S/dist/Kosmos.pkg" "$T/pkg.aside"; printf 'DOT\n' > "$S/dist/.hidden.tar.gz"; printf 'SP\n' > "$S/dist/kosmos-1.0.0-arm64 copy.tar.gz"; printf 'UTF\n' > "$S/dist/café.tar.gz"
 rm -rf "$T/out7"; man="$(site_deploy_export "$S" "$T/out7")"
 [ ! -e "$T/out7/dist/Kosmos.pkg.sha256" ] && ok "an orphan checksum (no pkg) is not carried" || bad "an orphan checksum was carried"
 printf '%s\n' "$man" | grep -q "ignored:   dist/Kosmos.pkg.sha256" && ok "and the manifest lists the orphan checksum as left behind" || bad "the orphan checksum vanished from the manifest: $man"
 [ ! -e "$T/out7/dist/.hidden.tar.gz" ] && ok "a dotfile tarball is not carried" || bad "a dotfile tarball was carried"
 printf '%s\n' "$man" | grep -q "ignored:   dist/.hidden.tar.gz" && ok "and the manifest lists the dotfile tarball as left behind" || bad "the dotfile tarball vanished from the manifest: $man"
+# names with a space or non-ASCII bytes are carried AND not listed as left behind (porcelain -z, never quoted).
+[ -f "$T/out7/dist/kosmos-1.0.0-arm64 copy.tar.gz" ] && ok "a tarball with a space in its name is carried" || bad "the spaced tarball was not carried"
+printf '%s\n' "$man" | grep -q "arm64 copy" && bad "the carried spaced tarball was listed as left behind (quoted path missed the carried list): $man" || ok "and it is not listed as left behind"
+[ -f "$T/out7/dist/café.tar.gz" ] && ok "a non-ASCII tarball is carried" || bad "the non-ASCII tarball was not carried"
+printf '%s\n' "$man" | grep -q "caf" && bad "the carried non-ASCII tarball was listed as left behind: $man" || ok "and it is not listed as left behind"
+rm -f "$S/dist/kosmos-1.0.0-arm64 copy.tar.gz" "$S/dist/café.tar.gz"
 mv "$T/pkg.aside" "$S/dist/Kosmos.pkg"; rm -f "$S/dist/.hidden.tar.gz"
+# a TRACKED file that matches a carry glob refuses (the export would overwrite the committed copy).
+printf 'tracked\n' > "$S/dist/tmux-arm64.tar.gz.sha256"; git -C "$S" add -f dist/tmux-arm64.tar.gz.sha256 && git -C "$S" commit -qm "force-tracked artifact"
+rm -rf "$T/out12"; if site_deploy_export "$S" "$T/out12" >/dev/null 2>"$T/err12"; then bad "a tracked file matching a carry glob did not refuse"; else grep -q "tracked by git AND matches a carry pattern" "$T/err12" && ok "a tracked file matching a carry glob refuses and says why" || bad "the refusal did not say why: $(cat "$T/err12")"; fi
+git -C "$S" rm -q --cached dist/tmux-arm64.tar.gz.sha256 && git -C "$S" commit -qm "untrack it"
 # a tracked file deleted in the working tree says "deleted", and deploys as committed.
 rm "$S/vercel.json"; rm -rf "$T/out8"; man="$(site_deploy_export "$S" "$T/out8")"
 [ -f "$T/out8/vercel.json" ] && ok "a file deleted in the working tree still deploys as committed" || bad "a working-tree deletion reached the export"
 printf '%s\n' "$man" | grep -q "deleted:   vercel.json (deploys as committed)" && ok "and the manifest says deleted" || bad "the deletion was not described as deleted: $man"
 git -C "$S" checkout -q -- vercel.json
 # the archive's failure is seen WITHOUT the caller's pipefail (an empty site read as ready before).
-printf '#!/bin/sh\ncase "$*" in *archive*) exit 128;; esac\nexec %s "$@"\n' "$REALGIT" > "$T/bin/git-noarchive"; chmod +x "$T/bin/git-noarchive"
+printf '#!/bin/bash\norig=("$@"); sub=""; while [ $# -gt 0 ]; do case "$1" in -C|-c) shift 2;; -*) shift;; *) sub="$1"; break;; esac; done\n[ "$sub" = archive ] && exit 128\nexec %s "${orig[@]}"\n' "$REALGIT" > "$T/bin/git-noarchive"; chmod +x "$T/bin/git-noarchive"
 mkdir -p "$T/bin2"; cp "$T/bin/git-noarchive" "$T/bin2/git"
 rm -rf "$T/out9"; if ( set +o pipefail; PATH="$T/bin2:$PATH" site_deploy_export "$S" "$T/out9" ) >/dev/null 2>"$T/err9"; then bad "a failing git archive did not refuse without pipefail (an empty site would deploy)"; else grep -q "git archive of" "$T/err9" && [ ! -e "$T/out9" ] && ok "a failing git archive refuses without the caller's pipefail, and leaves nothing" || bad "the archive failure was not the reason, or the dir remained: $(cat "$T/err9")"; fi
 # the export takes a commit: the FIRST commit's page, not HEAD's, when asked for it.
