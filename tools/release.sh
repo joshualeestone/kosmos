@@ -146,6 +146,11 @@ _suite_log="$(mktemp)"
 _suite_exit=0
 ( cd "$REPO" && yarn test >"$_suite_log" 2>&1 ) || _suite_exit=$?
 grep -E '^ℹ (tests|pass|fail)' "$_suite_log" || true
+# ⚠️ 126/127 IS NOT A RED SUITE. It means the suite could not be run at all
+# (yarn or node missing or not executable), and saying "red" about it sends
+# the person to read assertions that never ran (#785, three flavours of this
+# in one day). Refuse either way, with the true sentence.
+if [ "$_suite_exit" -eq 126 ] || [ "$_suite_exit" -eq 127 ]; then echo "the suite COULD NOT RUN (exit $_suite_exit: yarn, node or a program a shell test calls is missing or not executable); this is not a failing test. Full output: $_suite_log"; exit 1; fi
 [ "$_suite_exit" -eq 0 ] || { echo "the suite is red (exit $_suite_exit); full output: $_suite_log"; exit 1; }
 rm -f "$_suite_log"
 
@@ -161,7 +166,8 @@ echo "== 3b. the page layer, headless (#39) =="
 _page_log="$(mktemp)"
 _page_exit=0
 ( cd "$REPO" && bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
-grep -E '^PASS |^FAIL |^‼️|retried:|all page' "$_page_log" || true
+grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|retried:|all page' "$_page_log" || true
+if [ "$_page_exit" -eq 126 ] || [ "$_page_exit" -eq 127 ]; then echo "the page gate COULD NOT RUN (exit $_page_exit: bash, node or a program it needs is missing or not executable); this is not a red check. Full output: $_page_log"; exit 1; fi
 [ "$_page_exit" -eq 0 ] || { echo "the page checks are red (exit $_page_exit); full output: $_page_log"; exit 1; }
 rm -f "$_page_log"
 
