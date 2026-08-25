@@ -126,6 +126,8 @@ chmod +x "$STAGE/bin/kosmos"
 # repo). This step takes it as an INPUT, the same way the Node runtime is a
 # downloaded input rather than a tree file. Provide it at KOSMOS_TUNNEL_BIN;
 # the default is kosmos-relay's release output beside this checkout.
+# Its .commit and .sha256 sidecars must sit beside it (the relay's build writes
+# them); a copied binary needs its sidecars copied too (#621).
 #
 # ⚠️ THE INPUT IS UNSIGNED (kosmos-relay builds it, does not sign it). This
 # step signs it Developer ID below, in the build that produces the final bytes,
@@ -147,8 +149,25 @@ case " $_tunnel_arches " in
   *" x86_64 "*) case " $_tunnel_arches " in *" arm64 "*) : ;; *) echo "the Plus connector at $TUNNEL_BIN lacks a plain arm64 slice (lipo: $_tunnel_arches)" >&2; exit 1 ;; esac ;;
   *) echo "the Plus connector at $TUNNEL_BIN is not a universal x86_64+arm64 Mach-O (lipo: ${_tunnel_arches:-not a Mach-O})" >&2; exit 1 ;;
 esac
+# 🛑 PROVENANCE FROM THE BINARY'S OWN SIDECARS, before a byte is staged (#621):
+# the commit it was compiled from and the sha256 it was written with, both
+# written by kosmos-relay's build beside it. Refused when missing, mismatched
+# (a stale or half-copied pair), dirty, or malformed. `git describe` in the
+# checkout used to stand in for this and could name a commit the bytes were
+# not built from.
+. "$REPO/tools/lib/connector-provenance.sh"
+# One check, read directly (not through $( ), which would run it in a subshell
+# and lose the values): two separate reads could straddle a relay rebuild and
+# log the old commit beside the new bytes, the very shape #621 closes.
+_connector_provenance_check "$TUNNEL_BIN" || exit 1
+_tunnel_src="$CONNECTOR_COMMIT"; _tunnel_in="$CONNECTOR_SHA"
 cp "$TUNNEL_BIN" "$STAGE/app/bin/kosmos-tunnel"
 chmod +x "$STAGE/app/bin/kosmos-tunnel"
+# The bytes STAGED are the bytes the sidecar vouched for: a relay rebuild landing
+# between the check and the copy (rebuilt minutes before a cut is the shape
+# #621 is about) would otherwise ship bytes the check never saw.
+_tunnel_staged="$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}')"
+[ "$_tunnel_staged" = "$_tunnel_in" ] || { echo "the connector changed under its sidecars between the provenance check and the copy (sidecar $_tunnel_in, staged $_tunnel_staged); re-run the build" >&2; exit 1; }
 # ⚠️ SIGNED HERE, Developer ID, in the build that produces the final bytes, so
 # the checksum captured below IS what ships and nothing signs after (#583,
 # Splinter's Apple-lane ruling). The tunnel is spawned not launched, but a
@@ -172,14 +191,15 @@ codesign -v "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || { echo "the
 # proves the load. The x86_64 slice's own load is covered when an Intel install
 # runs it, not provable here on Apple silicon without emulation.
 "$STAGE/app/bin/kosmos-tunnel" --help >/dev/null 2>&1 || { echo "the signed connector does not run (--help failed); it may not load under hardened runtime" >&2; exit 1; }
-# Provenance, logged not baked: the input's own checksum, and which
-# kosmos-relay commit produced it when the input sits in a checkout. This is
-# what a human (or a follow-up automated check) compares against Baron's build
-# to confirm the connector is not stale; the release's 9b then proves the
-# SERVED tunnel is byte-for-byte the one THIS build packed.
+# Provenance, logged not baked. Two checksums on purpose: the INPUT sha is the
+# one the relay build wrote beside the binary (what its sidecar names), the
+# SIGNED sha is the staged copy after Developer ID signing, which is what ships
+# and what the release's 9b compares the served bytes against. They never
+# match each other; a reader comparing the signed one with the sidecar would
+# read a fresh connector as stale. The commit is the sidecar's (#621), so it is
+# the bytes' own and cannot name a checkout state the binary was not built from.
 _tunnel_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}')"
-_tunnel_src="$(cd "$(dirname "$TUNNEL_BIN")" 2>/dev/null && git describe --always --dirty 2>/dev/null || echo 'no git provenance')"
-echo "==> Plus connector: kosmos-tunnel $_tunnel_sha (from $TUNNEL_BIN, $_tunnel_src)"
+echo "==> Plus connector: kosmos-tunnel signed $_tunnel_sha, input $_tunnel_in (its .sha256), built from kosmos-relay commit $_tunnel_src (per its sidecars beside $TUNNEL_BIN)"
 
 # ---- the runtime ------------------------------------------------------------
 node_arch() {
