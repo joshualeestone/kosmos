@@ -72,6 +72,31 @@ const { version } = require('./package.json');
 const ENGINE_STARTED_AT = new Date();
 const ENGINE_ROOT = __dirname + path.sep;
 let engineLook = { at: 0, staleSince: null };
+/* #761's valve for the part routes (below, near heardBy): unlike a task,
+   a part carries no `addedVia`/`createdAt` of its own, so counting
+   process-made PARTS the way taskMake counts process-made tasks would need
+   widening that record shape for a safety valve alone. This counts the
+   thing actually being limited -- process-triggered pane notifications --
+   directly, in memory. ⚠️ Resets on restart, unlike taskMake's persisted
+   count: an acceptable line for a notification valve (the write it guards
+   still lands either way) but NOT one to reuse for anything that gates data. */
+const heardBudgetLog = [];
+const HEARD_BUDGET_WINDOW_MS = 3600000;
+const HEARD_BUDGET_MAX = 12;
+function heardBudgetAllows() {
+  const cutoff = Date.now() - HEARD_BUDGET_WINDOW_MS;
+  while (heardBudgetLog.length && heardBudgetLog[0] < cutoff) heardBudgetLog.shift();
+  return heardBudgetLog.length < HEARD_BUDGET_MAX;
+}
+function heardBudgetRecord() {
+  heardBudgetLog.push(Date.now());
+}
+// Test-only, same shape as chatEngine.resetForTests()/messagesEngine.resetForTests():
+// heardBudgetLog is in-memory and module-scoped, so without this, one test's
+// spent budget silently carries into the next test in the same file.
+function resetHeardBudgetForTests() {
+  heardBudgetLog.length = 0;
+}
 function engineFreshness() {
   const now = Date.now();
   if (now - engineLook.at > 5000) {
@@ -5140,8 +5165,7 @@ const server = http.createServer((req, res) => {
            cannot be minted by a process lying in JSON; a process that
            offered its pane gets named through the same roster the write
            already trusts. */
-        const viaScreen = typeof req.headers['sec-fetch-site'] === 'string'
-          || (() => { try { const h = new URL(String(req.headers.origin || '')).hostname.replace(/\.$/, '').toLowerCase(); return LOOPBACK_HOSTS.has(h) || ALLOWED_HOSTS.has(h); } catch { return false; } })();
+        const viaScreen = isViaScreen(req);
         const paneCard = !viaScreen && typeof body.from_pane === 'string'
           ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
           : null;
@@ -5172,7 +5196,22 @@ const server = http.createServer((req, res) => {
             try { told = projects.syncAgent(made.who, roster); }
             catch (err2) { told = { state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
           }
-          sendJson(res, 200, { task: made, told });
+          // heardBy shares its budget with the part routes' valve (below):
+          // a process at the part routes' 12/hour cap must not ALSO get a
+          // separate 12/hour allowance here -- one shared count of "how many
+          // times a process paged a live pane this hour", not two 12/hour
+          // caps that combine to 24. Task CREATION keeps its own, stronger,
+          // persisted refusal above (429s the whole request); this only
+          // gates whether the creation also gets to page a pane.
+          let heard;
+          if (viaScreen || heardBudgetAllows()) {
+            heard = heardBy(id, made, made.who, made.sentence, roster);
+            // Only a REAL delivery spends the budget -- a run of failed
+            // attempts at an unreachable agent must not exhaust the shared
+            // hour for every other project's legitimate placements.
+            if (heard && heard.state === chat.DELIVERY.PLACED && !viaScreen) heardBudgetRecord();
+          }
+          sendJson(res, 200, { task: made, told, heard });
         } catch (err) {
           // Three answers for three facts, same split as the member route:
           // our unreadable store (500), a project that is not there (404),
@@ -5197,10 +5236,50 @@ const server = http.createServer((req, res) => {
    * ⚠️ Non-gating in every case: failing to update an agent's instructions must
    * not fail the edit that already landed.
    */
-  const tellEveryoneOn = (t) => {
+  /* #761 (Josh, 2026-08-24 21:56: "I created three new tasks and assigned them
+     but I don't know that the agent was notified"): being written into an
+     agent's instructions (`told`, above) reaches it at its NEXT start; a running
+     agent hears nothing. So an assignment is also typed into the assignee's
+     pane, one line, the way the room's nudge is, and the answer says whether it
+     was placed. Only on assignment (create with a who, a part given a who):
+     closing or reopening a task types nothing. */
+  // #327's shape, factored out rather than copied a third time (taskMake
+  // already had its own inline copy; #761 needs the same split for parts).
+  function isViaScreen(req) {
+    return typeof req.headers['sec-fetch-site'] === 'string'
+      || (() => { try { const h = new URL(String(req.headers.origin || '')).hostname.replace(/\.$/, '').toLowerCase(); return LOOPBACK_HOSTS.has(h) || ALLOWED_HOSTS.has(h); } catch { return false; } })();
+  }
+  // heardBudgetAllows/heardBudgetRecord: module scope, above, beside
+  // ENGINE_STARTED_AT -- they must survive across requests, and every name
+  // in this handler is redefined fresh per request.
+  // `sentence` is explicit, never read off `t`: a part's own sentence is
+  // never the task's top-level one (a task with parts drops `who`/keeps one
+  // `sentence` at the top, and a part given a `who` must be heard for the
+  // part it was actually given, not the parent task's original wording).
+  // `roster`: the caller's already-fetched snapshot, never a fresh
+  // safeRoster() of our own -- snapshot() fans out a real tmux capture-pane
+  // per agent, and every call site here already has one in scope.
+  function heardBy(projectId, t, who, sentence, roster) {
+    const name = typeof who === 'string' && who.trim() ? who.trim() : null;
+    if (!name || !t || typeof t.number !== 'number') return undefined;
+    let title = projectId;
+    try { const rec = projects.readAll().find((x) => x && x.id === projectId); if (rec && rec.name) title = rec.name; } catch { /* the id will do */ }
+    const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
+      + String(sentence || '').replace(/[\r\n]/g, ' ') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
+      + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
+    let sent;
+    try { sent = chat.deliver(name, line, roster); }
+    catch (err2) { sent = { state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
+    return { who: name, state: sent.state, because: sent.because || null };
+  }
+  // `roster`: optional, so taskAct (close/reopen, below) keeps fetching its
+  // own exactly as before -- only #761's routes, which already have one in
+  // scope for `heardBy`, pass it through instead of paying for a second
+  // snapshot() in the same request.
+  const tellEveryoneOn = (t, roster) => {
     const named = tasks.whoOf(t);
     if (!named.length) return undefined;
-    const roster = safeRoster();
+    if (!roster) roster = safeRoster();
     let last;
     for (const one of named) {
       try { last = projects.syncAgent(one, roster); }
@@ -5248,7 +5327,18 @@ const server = http.createServer((req, res) => {
       try {
         const out = tasks.addPart(id, partMake[2], { sentence: body && body.sentence, who: body && body.who });
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
-        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task) });
+        const screen = isViaScreen(req);
+        // The STORED (trimmed) sentence, off the part addPart just appended
+        // -- never the raw request body, which can carry whitespace addPart
+        // itself strips before saving.
+        const newPart = (out.task.parts || [])[(out.task.parts || []).length - 1];
+        const roster = safeRoster();
+        let heard;
+        if (screen || heardBudgetAllows()) {
+          heard = heardBy(id, out.task, body && body.who, newPart && newPart.sentence, roster);
+          if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord();
+        }
+        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task, roster), heard });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
@@ -5271,7 +5361,18 @@ const server = http.createServer((req, res) => {
           ? tasks.assignPart(id, partAct[2], partAct[3], body && body.who)
           : tasks.setPartClosed(id, partAct[2], partAct[3], verb === 'close' ? new Date().toISOString() : null);
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
-        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task) });
+        // `out.changed`: assignPart reports whether `who` actually moved, so
+        // re-posting the same assignee does not re-type the same pane line
+        // (#304's rule). The budget check mirrors partMake's.
+        const screen = isViaScreen(req);
+        const roster = safeRoster();
+        let heard;
+        if (verb === 'who' && out.changed && (screen || heardBudgetAllows())) {
+          const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partAct[3])) || {}).sentence;
+          heard = heardBy(id, out.task, body && body.who, sentence, roster);
+          if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord();
+        }
+        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task, roster), heard });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
@@ -5995,4 +6096,4 @@ if (require.main === module) {
 // re-implementation of it. Testing the path helper in isolation would not have
 // caught the routing bug, because the helper was never the broken part -- the
 // routes reading `req.url` around it were.
-module.exports = { server, start, pathOf, decodeSegment };
+module.exports = { server, start, pathOf, decodeSegment, resetHeardBudgetForTests };

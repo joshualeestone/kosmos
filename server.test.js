@@ -173,7 +173,7 @@ require('./engine/remove').setRunner(null);
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, pathOf, decodeSegment } = require('./server');
+const { start, server, pathOf, decodeSegment, resetHeardBudgetForTests } = require('./server');
 const fleet = require('./test-support/fleet');
 
 let base;
@@ -10893,4 +10893,247 @@ test('#734: the status route carries the lines it could not read, beside the cou
   // The route rebuilds counts with its own countAgents call; the samples must survive that (they did not, once).
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'server.js'), 'utf8');
   assert.match(src, /countAgents\(agents, snap\.counts && snap\.counts\.unreadableLines, snap\.counts && snap\.counts\.unreadableSamples\)/);
+});
+
+/* #761: an assignee is TOLD (its instructions, for its next start) and HEARD
+   (a line typed into its pane now), and the answer says which. */
+test('#761: giving a task to an agent types the assignment into its pane, and the answer says it was placed', async () => {
+  const chatEngine = require('./engine/chat');
+  const projectsEngine761 = require('./engine/projects');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  const sends = [];
+  try {
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    const pdir = nodePath.join(SANDBOX, 'p761-tell'); fs.mkdirSync(pdir, { recursive: true });
+    const p = projectsEngine761.create({ name: 'Christmas plan', folder: pdir, agents: ['mara'], roster: board.agents });
+
+    const r = await req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ sentence: 'Book the venue', who: 'mara' }),
+    });
+    assert.equal(r.status, 200, r.body);
+    const out = JSON.parse(r.body);
+    assert.equal(out.heard && out.heard.who, 'mara');
+    assert.equal(out.heard.state, 'placed', 'the assignment was not typed: ' + ((out.heard && out.heard.because) || r.body));
+    const typed = sends.map((a) => a.join(' ')).join('\n');
+    assert.match(typed, /you were given task 1 in "Christmas plan": Book the venue/, 'the line names the task, the project and the sentence');
+    assert.match(typed, /say "task 1 of Christmas plan" in what you report/, 'and teaches the long spelling (#779: a bare "task 1" collides across projects)');
+    assert.match(typed, new RegExp('kosmos post ' + p.id), 'and names the room');
+    assert.ok(out.told, 'told (the instructions) is still answered beside heard');
+
+    /* CONTROL: no assignee, nothing typed; closing, nothing typed. */
+    const before = sends.length;
+    const r2 = await req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ sentence: 'Order the cake' }),
+    });
+    assert.equal(r2.status, 200, r2.body);
+    assert.equal(JSON.parse(r2.body).heard, undefined, 'a task with no assignee has nobody to tell');
+    const r3 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/close', { method: 'POST' });
+    assert.equal(r3.status, 200, r3.body);
+    assert.equal(JSON.parse(r3.body).heard, undefined, 'closing types nothing');
+    assert.equal(sends.length, before, 'CONTROL: no line was typed for the unassigned task or the close');
+  } finally {
+    chatEngine.setRunner(null);
+    board.restore();
+  }
+});
+
+/* #761 challenge-loop round 1: heardBy read the TASK's sentence for every
+   call, including a part given a `who` -- so an agent assigned a part heard
+   the parent task's original sentence, not the part it was actually given.
+   Fixed by making the sentence explicit at every call site. Same round also
+   added: a repeat "who" with the same assignee types nothing twice (#304's
+   rule, extended to parts), and a part cannot be given to a non-member. */
+test('#761 round 1: a part is heard with its own sentence, a no-op reassignment types nothing, a non-member is refused', async () => {
+  const chatEngine = require('./engine/chat');
+  const projectsEngine761b = require('./engine/projects');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('theo', { state: 'idle' })]);
+  const sends = [];
+  try {
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    const pdir = nodePath.join(SANDBOX, 'p761-part-tell'); fs.mkdirSync(pdir, { recursive: true });
+    const p = projectsEngine761b.create({ name: 'Renovation', folder: pdir, agents: ['mara'], roster: board.agents });
+
+    // A parent sentence distinct from the part's, so reading the wrong one is observable.
+    const r0 = await req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ sentence: 'Renovate the kitchen' }),
+    });
+    assert.equal(r0.status, 200, r0.body);
+
+    const r1 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ sentence: 'Order the cabinets', who: 'mara' }),
+    });
+    assert.equal(r1.status, 200, r1.body);
+    const out1 = JSON.parse(r1.body);
+    assert.equal(out1.heard && out1.heard.state, 'placed', 'the part assignment was not typed: ' + JSON.stringify(out1));
+    let typed = sends.map((a) => a.join(' ')).join('\n');
+    assert.match(typed, /you were given task 1 in "Renovation": Order the cabinets/, 'the PART\'s own sentence');
+    assert.doesNotMatch(typed, /Renovate the kitchen/, 'the parent task\'s sentence must not leak into a part\'s pane line');
+    // Part ids are NOT 1-based on a task's first added part: a task with no
+    // parts yet reads as one implicit part (id 1, unassigned, the task's own
+    // sentence -- partsOf's "never zero parts" rule), so the first REAL part
+    // this test adds lands at id 2.
+    const partId = out1.task.parts.find((x) => x.sentence === 'Order the cabinets').id;
+    assert.equal(partId, 2, 'sanity: the implicit whole-task part holds id 1');
+
+    // CONTROL: reassigning the SAME who a second time types nothing new.
+    const before = sends.length;
+    const r2 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/part/' + partId + '/who', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ who: 'mara' }),
+    });
+    assert.equal(r2.status, 200, r2.body);
+    assert.equal(JSON.parse(r2.body).heard, undefined, 'a no-op reassignment has nothing new to say');
+    assert.equal(sends.length, before, 'CONTROL: no line was typed for the unchanged assignment');
+
+    // A REAL reassignment does type a new line.
+    const rMember = await req('/api/project/' + encodeURIComponent(p.id) + '/agent/theo', { method: 'POST' });
+    assert.equal(rMember.status, 200, rMember.body);
+    const before2 = sends.length;
+    const r4 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/part/' + partId + '/who', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ who: 'theo' }),
+    });
+    assert.equal(r4.status, 200, r4.body);
+    assert.equal(JSON.parse(r4.body).heard && JSON.parse(r4.body).heard.state, 'placed');
+    assert.ok(sends.length > before2, 'a real reassignment types a fresh line');
+
+    // A part cannot be handed to an agent that is not on this project.
+    const r5 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/part/' + partId + '/who', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ who: 'ghost' }),
+    });
+    assert.equal(r5.status, 400, r5.body);
+    assert.match(JSON.parse(r5.body).error, /not on this project/, 'a non-member assignee is refused, the same as create()');
+  } finally {
+    chatEngine.setRunner(null);
+    board.restore();
+  }
+});
+
+/* #761 challenge-loop round 2: the part routes' pane-notify valve reused
+   taskMake's persisted process-task counter, but addPart/assignPart never
+   set `addedVia` on anything -- so the counter never moved and the "cap"
+   let a process page a live agent without limit. Fixed with a real,
+   dedicated in-memory counter (server.js heardBudgetLog). */
+test('#761 round 2: a process cannot unboundedly page a live agent through the part routes', async () => {
+  const chatEngine = require('./engine/chat');
+  const projectsEngine761c = require('./engine/projects');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  const sends = [];
+  try {
+    resetHeardBudgetForTests(); // module-scope, in-memory: does not reset itself between tests
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    const pdir = nodePath.join(SANDBOX, 'p761-valve'); fs.mkdirSync(pdir, { recursive: true });
+    const p = projectsEngine761c.create({ name: 'Valve check', folder: pdir, agents: ['mara'], roster: board.agents });
+    const r0 = await req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ sentence: 'Host a dinner' }),
+    });
+    assert.equal(r0.status, 200, r0.body);
+
+    // Twelve process-originated (no sec-fetch-site: a curl, not a browser)
+    // part assignments should each page the pane -- the cap is 12/hour.
+    let placed = 0;
+    for (let i = 0; i < 12; i++) {
+      const rp = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sentence: 'Course ' + i, who: 'mara' }),
+      });
+      assert.equal(rp.status, 200, rp.body);
+      const outp = JSON.parse(rp.body);
+      if (outp.heard && outp.heard.state === 'placed') placed++;
+    }
+    assert.equal(placed, 12, 'all twelve under the cap were heard');
+
+    // The part still gets created past the cap (the write is never gated),
+    // but nothing is typed into mara's pane for it.
+    const before = sends.length;
+    const r13 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sentence: 'Course 13', who: 'mara' }),
+    });
+    assert.equal(r13.status, 200, r13.body);
+    assert.equal(JSON.parse(r13.body).task.parts.some((x) => x.sentence === 'Course 13'), true, 'the write still lands over the cap');
+    assert.equal(JSON.parse(r13.body).heard, undefined, 'over the cap, the pane is not paged again');
+    assert.equal(sends.length, before, 'CONTROL: nothing new was typed once the valve tripped');
+  } finally {
+    chatEngine.setRunner(null);
+    board.restore();
+  }
+});
+
+/* #761 challenge-loop round 6: heardBudgetRecord() fired whenever heardBy
+   returned an object at all, including a FAILED delivery (could_not /
+   unconfirmed) to an unreachable agent -- so a run of failed attempts spent
+   the same shared budget a real placement does, and could exhaust it for
+   every other project's legitimate ones. Now only a real 'placed' spends it. */
+test('#761 round 6: failed deliveries do not spend the shared pane-notify budget', async () => {
+  const chatEngine = require('./engine/chat');
+  const projectsEngine761e = require('./engine/projects');
+  // Only 'mara' is a live pane; 'ghost' is a project member with nowhere real to type.
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  const sends = [];
+  try {
+    resetHeardBudgetForTests();
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    const pdir = nodePath.join(SANDBOX, 'p761-failed-not-spent'); fs.mkdirSync(pdir, { recursive: true });
+    const p = projectsEngine761e.create({ name: 'Failed delivery', folder: pdir, agents: ['ghost', 'mara'], roster: board.agents });
+    const r0 = await req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ sentence: 'Host it' }),
+    });
+    assert.equal(r0.status, 200, r0.body);
+
+    // Fifteen process-originated attempts at the unreachable 'ghost' -- past
+    // what would trip the cap if these counted.
+    let notPlaced = 0;
+    for (let i = 0; i < 15; i++) {
+      const rp = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sentence: 'Ghost part ' + i, who: 'ghost' }),
+      });
+      assert.equal(rp.status, 200, rp.body);
+      const h = JSON.parse(rp.body).heard;
+      assert.ok(h && h.state && h.state !== 'placed', 'an unreachable agent should not read as placed: ' + JSON.stringify(h));
+      notPlaced++;
+    }
+    assert.equal(notPlaced, 15, 'all fifteen failed attempts got a heard verdict (just not placed)');
+    assert.equal(sends.length, 0, 'nothing was ever really typed for an agent with no live pane');
+
+    // A REAL delivery, right after, still succeeds -- the budget was never spent.
+    const rReal = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sentence: 'Real part', who: 'mara' }),
+    });
+    assert.equal(rReal.status, 200, rReal.body);
+    assert.equal(JSON.parse(rReal.body).heard && JSON.parse(rReal.body).heard.state, 'placed',
+      'fifteen failed deliveries to a different agent must not exhaust the budget for a real one');
+  } finally {
+    chatEngine.setRunner(null);
+    board.restore();
+  }
 });

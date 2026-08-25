@@ -2195,3 +2195,28 @@ test('in the test store (itself temp) a temp-folder project is still accepted', 
   const p = projects.create({ name: 'Temp store ok', folder: dir });
   assert.equal(p.folder, dir, 'a temp project is fine when the store is temp');
 });
+
+test('#761: listFiles carries a stamp that changes when the folder does, and only then', () => {
+  reset();
+  const dir = folder('docs-stamp');
+  fs.writeFileSync(path.join(dir, 'brief.txt'), 'a');
+  const first = projects.listFiles(dir);
+  assert.equal(first.ok, true);
+  assert.match(first.stamp, /^[0-9a-f]{16}$/);
+  assert.equal(projects.listFiles(dir).stamp, first.stamp, 'CONTROL: an unchanged folder keeps its stamp');
+  fs.writeFileSync(path.join(dir, 'plan.txt'), 'b');
+  const added = projects.listFiles(dir);
+  assert.notEqual(added.stamp, first.stamp, 'a file arriving changes the stamp');
+  fs.writeFileSync(path.join(dir, 'plan.txt'), 'bb');
+  fs.utimesSync(path.join(dir, 'plan.txt'), new Date(2), new Date(2));
+  assert.notEqual(projects.listFiles(dir).stamp, added.stamp, 'a file changing size or time changes the stamp');
+  fs.unlinkSync(path.join(dir, 'brief.txt'));
+  const fewer = projects.listFiles(dir);
+  assert.notEqual(fewer.stamp, added.stamp, 'a file leaving changes the stamp');
+  for (let i = 0; i < 4; i++) fs.writeFileSync(path.join(dir, 'x' + i + '.txt'), 'x');
+  const capped = projects.listFiles(dir, 2);
+  assert.equal(capped.files.length, 2);
+  fs.writeFileSync(path.join(dir, 'zz-past-the-cap.txt'), 'z');
+  fs.utimesSync(path.join(dir, 'zz-past-the-cap.txt'), new Date(1), new Date(1));
+  assert.notEqual(projects.listFiles(dir, 2).stamp, capped.stamp, 'a file past the capped page still moves the stamp');
+});

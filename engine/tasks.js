@@ -121,7 +121,7 @@ function writeParts(projectId, n, fn) {
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
-    const parts = fn(partsOf(t), t);
+    const parts = fn(partsOf(t), t, p);
     if (!parts) throw new Error('that did not change anything');
     changed = { ...t, parts };
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
@@ -148,8 +148,16 @@ function addPart(projectId, n, { sentence, who } = {}) {
   if (said.length > SENTENCE_MAX) return { ok: false, because: `keep it under ${SENTENCE_MAX} characters` };
   const whoKey = typeof who === 'string' && who.trim() ? who.trim() : null;
   if (whoKey && whoKey.length > WHO_MAX) return { ok: false, because: 'who is on it has to be an agent\'s name' };
-  const task = writeParts(projectId, n, (parts) =>
-    parts.concat([{ id: nextPartId(parts), who: whoKey, sentence: said, closedAt: null }]));
+  // Same refusal as create() (engine/tasks.js create(), above): the screen only
+  // offers members, so an assignee that is not on the project reaches here only
+  // via the API, and #761 now types a line into whoever `who` names -- a check
+  // that never fired before this had a live-pane side effect to guard.
+  const task = writeParts(projectId, n, (parts, t, p) => {
+    if (whoKey && !(p.agents || []).includes(whoKey)) {
+      throw new Error('that agent is not on this project, so the part cannot be given to it');
+    }
+    return parts.concat([{ id: nextPartId(parts), who: whoKey, sentence: said, closedAt: null }]);
+  });
   return { ok: true, task };
 }
 
@@ -158,13 +166,34 @@ function assignPart(projectId, n, partId, who) {
   const whoKey = typeof who === 'string' && who.trim() ? who.trim() : null;
   if (whoKey && whoKey.length > WHO_MAX) return { ok: false, because: 'who is on it has to be an agent\'s name' };
   let found = false;
-  const task = writeParts(projectId, n, (parts) => parts.map((x) => {
-    if (Number(x.id) !== Number(partId)) return x;
-    found = true;
-    return { ...x, who: whoKey };
-  }));
+  // `moved` is false when `who` is set to what it already was -- the caller
+  // uses it to skip re-typing the same pane line for the same fact (#304's
+  // rule, extended here to parts). Named apart from writeParts's own local
+  // `changed` (the merged task record it returns) -- same word, unrelated
+  // meaning, easy to conflate on a re-read.
+  let moved = false;
+  // The membership check runs only for a part that actually exists (inside
+  // the id match below) -- checked unconditionally up front, a nonexistent
+  // partId with an unrecognised who threw the membership error instead of
+  // "no part by that number" (caught by the existing refusal test).
+  // ⚠️ AND only when `moved` -- a resubmit of the CURRENT assignee must stay
+  // a harmless no-op even if that agent has since left the project (removal
+  // does not clear a part's `who`). Checking membership unconditionally
+  // turned every such resubmit into a hard refusal for a value nothing was
+  // asking to change.
+  const task = writeParts(projectId, n, (parts, t, p) => {
+    return parts.map((x) => {
+      if (Number(x.id) !== Number(partId)) return x;
+      found = true;
+      moved = (x.who || null) !== whoKey;
+      if (moved && whoKey && !(p.agents || []).includes(whoKey)) {
+        throw new Error('that agent is not on this project, so the part cannot be given to it');
+      }
+      return { ...x, who: whoKey };
+    });
+  });
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
-  return { ok: true, task };
+  return { ok: true, task, changed: moved };
 }
 
 /** Finish a part, or put it back. The parent's state follows from its parts. */
