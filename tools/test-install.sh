@@ -82,7 +82,7 @@ DATA_FINGERPRINT="$(cd "$SB/data" && find . -type f -exec shasum {} \; | sort)"
 # ⚠️ SPLIT RATHER THAN LOOSENED, and the split is STRICTER than what it replaces.
 # Three claims, each able to fail alone: every seeded file is byte for byte what
 # it was, nothing the person had has vanished, and the additions are EXACTLY the
-# one we expect. A surprise write into the data directory still fails, and now it
+# ones we expect. A surprise write into the data directory still fails, and now it
 # fails by naming itself.
 data_paths() { (cd "$SB/data" && find . -type f | sort); }
 data_hashes() { (cd "$SB/data" && find . -type f -exec shasum {} \; | sort); }
@@ -271,8 +271,25 @@ GONE="$(comm -23 "$SB/.before.txt" "$SB/.after.txt")"
 chk "installing over an existing home leaves the person's own files byte for byte" \
   "[ \"\$SURVIVED\" = \"\$EXPECTED_SURVIVORS\" ]"
 chk "and nothing the person had is gone" "[ -z \"\$GONE\" ]"
-chk "and the only thing it added is the supervisor the agents point at" \
+chk "and the only things it added are the supervisor and the codex bridge the agents point at" \
   "[ \"\$ADDED\" = \"\$EXPECTED_ADDS\" ]"
+# A mismatch names its paths. The 0.5.24 cut went red on this check with a
+# correct bundle and the red named no file, so learning which one meant
+# reproducing the run. Every grep pipeline ends "|| true" because the harness
+# runs under pipefail and an empty grep here once ended the run after the first
+# red; an empty list says "(none)" rather than printing a blank entry. The cut
+# (release.sh step 4b) carries these indented lines to its own output.
+if [ "$ADDED" != "$EXPECTED_ADDS" ]; then
+  _extra="$(printf '%s\n' "$ADDED" | grep -vxF -f <(printf '%s\n' "$EXPECTED_ADDS") | grep -v '^$' || true)"
+  _short="$(printf '%s\n' "$EXPECTED_ADDS" | grep -vxF -f <(printf '%s\n' "$ADDED") | grep -v '^$' || true)"
+  if [ -z "$_extra" ] && [ -z "$_short" ]; then
+    echo "   the same paths, but not the same text (order, a repeat, or a blank); added:"; printf '%s\n' "$ADDED" | sed 's/^/      /'
+    echo "   expected:"; printf '%s\n' "$EXPECTED_ADDS" | sed 's/^/      /'
+  else
+    echo "   added, not expected:"; if [ -n "$_extra" ]; then printf '%s\n' "$_extra" | sed 's/^/      /'; else echo "      (none)"; fi
+    echo "   expected, not added:"; if [ -n "$_short" ]; then printf '%s\n' "$_short" | sed 's/^/      /'; else echo "      (none)"; fi
+  fi
+fi
 chk "board answers" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 chk "command works through the symlink" "\"$SB/bin/kosmos\" status | grep -q running"
 chk "app bundle created" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ]"
