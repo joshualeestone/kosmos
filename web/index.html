@@ -25,6 +25,16 @@
 <link rel="icon" type="image/png" sizes="32x32" href="/icons/kosmos-32.png">
 <link rel="icon" type="image/png" sizes="48x48" href="/icons/kosmos-48.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/icons/kosmos-180.png">
+<!-- Installable (#718, the home-screen third): the manifest makes Add to
+     Home Screen an app-shaped launch; the two Apple metas do the same on
+     iOS Safari, which reads them rather than display:standalone. The
+     theme colour and the app title are placeholders for Mona Lisa (#815).
+     Not the App Store third, and not iOS parity. -->
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#f6f5f2">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Kosmos">
 <style>
 /* ---------------------------------------------------------------------------
    macOS-flavoured foundation. Values from docs/apple-style-reference.md, which
