@@ -42,6 +42,17 @@ const path = require('path');
      flaky. A short settle after it lands lets the rails finish their first paint. */
   const settled = async (cons) => { await pg.waitForFunction((c) => document.body.classList.contains('consolidated') === c, cons, { timeout: 15000 }); await pg.waitForTimeout(300); };
   const none = () => pg.$eval('#pj-none', (e) => (e.hidden ? null : e.textContent)).catch(() => '(no #pj-none on the page)');
+  /* #867 (Josh, 2026-08-25 11:02): a project now auto-opens on the first
+     consolidated load (this check always has one seeded), so "nothing
+     is open" is no longer this page's own starting state -- it is a
+     state a person REACHES (closing what auto-opened, or the projects
+     genuinely running out), and this check still has to prove Kosmos
+     renders it correctly when reached. Forces exactly that state via
+     the same PROJECTS/flags reset `paintAs` below already uses, rather
+     than a real click: the door out of an open project (#pj-back) is
+     itself hidden in the consolidated view, so there is no real click
+     that reaches this state from here. */
+  const forceNothingOpen = () => pg.evaluate(() => { PJ_CURRENT = null; pjView('list'); paintPjNone(); });
 
   let seedFolder = '';
   let savedLayout = 'tabs';
@@ -69,6 +80,7 @@ const path = require('path');
       await pg.evaluate((l) => { localStorage.setItem('kosmos.layout.agents', l); sessionStorage.removeItem('rail-fold-a'); sessionStorage.removeItem('rail-fold-p'); }, lay);
       await pg.reload({ waitUntil: 'networkidle' });
       await settled(true);
+      await forceNothingOpen();
       const tag = 'agents left on ' + lay + ', arriving on ' + tab;
       say(await pg.evaluate(() => document.body.classList.contains('consolidated')), tag + ': the consolidated view is up');
       say((await rect('#orgview')) === null, tag + ': the org chart is not painted');
@@ -91,6 +103,7 @@ const path = require('path');
   }
 
   // fold the projects rail alone, then both: the sentence says where the list went, and which column when there are two
+  await forceNothingOpen();
   await pg.click('#rail-projects-fold'); await pg.waitForTimeout(300);
   const foldedP = await none();
   say(!!foldedP && /^Nothing is open yet\. The projects list is folded; press › at the top of the narrow column to open it\.$/.test(foldedP), 'projects rail folded: the sentence names the fold button', JSON.stringify(foldedP));
