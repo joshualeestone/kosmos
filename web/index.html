@@ -2102,7 +2102,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tkpart { display: flex; align-items: center; gap: 10px; padding: 9px 0; }
 .tkpart + .tkpart { border-top: 1px solid var(--k-rule); }
 .tkpart .lav { flex: 0 0 34px; }
-.tkpart .lav.q { background: var(--k-sunk); color: var(--label-2); }
+.tkpart .lav.q, .tkcard-part .lav.q { background: var(--k-sunk); color: var(--label-2); }
 .tkpart .tkwho-b { flex: 1; min-width: 0; }
 /* The name as a control. It must read as the NAME at rest -- the row is a
    fact first and a menu second -- so it inherits everything and only picks up
@@ -3327,12 +3327,29 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 .tkcard-n { display: block; font: var(--text-caption) var(--font-ui); color: var(--label-2);
           text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
 .tkcard-t { font: var(--text-body) var(--font-ui); font-weight: 600; }
-.tkcard-who { display: flex; align-items: center; gap: 6px; margin-top: 6px;
+.tkcard-who { display: flex; align-items: center; gap: 8px; margin-top: 6px;
             font: var(--text-callout) var(--font-ui); color: var(--label-2); }
-.tkcard-who .tkchip { width: 18px; height: 18px; border-radius: 50%; flex: 0 0 18px;
-            display: inline-flex; align-items: center; justify-content: center;
-            background: var(--bg-sunken); border: 1px solid var(--separator);
-            font-size: 10px; font-weight: 700; color: var(--label); }
+/* #761 item 8: "shows the assignee's face" -- the same .lav pjMember and the
+   task detail page's rows already draw, sized down for a card the way the
+   project-tile faces already are (.pjfaces .lav, above). */
+.tkcard-who .lav, .tkcard-parts .lav { width: 22px; height: 22px; flex: 0 0 22px; font-size: .625rem; }
+/* "...and UNDER IT the status": name and status stack, not sit side by side
+   on one line -- the whole point of item 8's wording. */
+.tkcard-who-b { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.tkcard-who-b .tksay, .tkcard-who-b .tkunk { display: block; margin-left: 0; font-size: .75rem; }
+/* The real `because` (taskClaimHtml), CSS-clamped to one line rather than
+   trimmed to a shorter, invented paraphrase -- the full sentence still
+   reaches a screen reader and a hover (title=), only the ON-SCREEN glyphs
+   are bounded to the card's width. */
+.tkcard-who-b .tkunk { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+/* #761 item 8: "Multiple assignees, as the pack drew" -- one face+name row
+   per assigned part, reusing .tkcard-who-b for the name/status stack so
+   the single- and multi-assignee cases read as one family, not two. */
+.tkcard-parts { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.tkcard-part { display: flex; align-items: center; gap: 8px; font: var(--text-callout) var(--font-ui); color: var(--label-2); }
+/* The honest count -- t.progress.assigned/total, engine-computed, never
+   "Not started"/"Waiting on you": no field on the wire says either yet. */
+.tkcard-status { display: block; margin-top: 4px; font-size: .75rem; color: var(--label-2); }
 .tkcard.closed .tkcard-t { text-decoration: line-through; color: var(--label-2); }
 .tksay { font-style: normal; color: var(--label-2); margin-left: 4px; }
 /* ⚠️ A DIFFERENT APPEARANCE, not just different words. `.tksay` carries what
@@ -20648,53 +20665,115 @@ function tkMemberName(p, sessionName) {
   return (m && m.name) || sessionName;
 }
 
+/* THE SAME FACE THE MEMBERS COLUMN DRAWS, built from `pjMember`'s rule
+   rather than a fresh one (shared by the task detail page's per-part rows
+   and the task card list). `hasAvatar` is gated on TIED in the engine and
+   that gate travels with it: a stranger's pane borrowing the name must not
+   lend a row a photograph of somebody it is not. */
+function tkFace(p, sessionName) {
+  const shown = sessionName ? tkMemberName(p, sessionName) : null;
+  if (!shown) return '<span class="lav q" aria-hidden="true">+</span>';
+  const m = (p.agents || []).find((a) => a && a.sessionName === sessionName);
+  return (m && m.hasAvatar)
+    ? '<span class="lav" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(sessionName) + '/avatar" alt=""></span>'
+    : '<span class="lav" aria-hidden="true" style="background:' + discTint(shown)
+      + ';color:' + discInk(shown) + '">' + esc(initials(shown)) + '</span>';
+}
+
+/* #761 item 8 (Josh, 2026-08-24 21:56): "'we could not check' is not a
+   status a person can use." Splinter's read, holding: an objection to the
+   WORDS, not the STATE -- the fix is not to drop claimed:null, it is to
+   stop discarding the real reason the engine already computed for it.
+   `t.claim.because` already says something specific and often actionable
+   ("it last reported 42 minutes ago, too long to still be true", "this
+   agent is no longer on the project"); the card was showing a canned
+   non-answer INSTEAD of it. Shown here at full length, CSS-clamped rather
+   than string-truncated, so the real sentence is what a screen reader
+   gets and what a hover reveals -- never a paraphrase invented client-side.
+   `.tksay` (the agent's own claim) and `.tkunk` (ours, could-not-establish)
+   stay two classes, two appearances, per the card's own established rule:
+   what the agent said and what we could not establish are different kinds
+   of statement. Shared here so the task detail page's per-part row, which
+   had fallen back to the same canned "we could not check" with no
+   distinguishing style at all, gets the same fix in one place. */
+function taskClaimHtml(claim) {
+  if (!claim) return '';
+  if (claim.claimed === true) return '<em class="tksay">says it is on this</em>';
+  if (claim.claimed === false) return '<em class="tksay">says it is not on this</em>';
+  const why = claim.because || 'we could not check';
+  return '<em class="tkunk" title="' + esc(why) + '">' + esc(why) + '</em>';
+}
+
 let TK_LIST_HTML = null;   // change guard, the removed-list's own pattern
 function paintProjectTasks(p) {
   const list = document.getElementById('pj-tasklist');
   const door = document.getElementById('pj-alltasks');
   const all = p.tasks || [];
-  const column = all.filter((t) => t.who && !t.closedAt);
+  /* Through t.progress.assigned/closed, not t.who -- exactly the "second
+     t.who gate" mistake engine/projects.js's own withParts comment names
+     (a task assigned only through parts, with no legacy top-level `who`
+     at all, sailed past a `t.who`-only filter and fell out of the column
+     silently). engine/tasks.js's own columnTasks() uses whoOf/progressOf
+     for the same reason; mirrored here rather than called because the
+     card also needs the parts themselves, which columnTasks does not
+     return. */
+  const column = all.filter((t) => t.progress && t.progress.assigned > 0 && !t.progress.closed);
   const behind = all.length - column.length;
   const showing = TK_SHOW_ALL ? all : column;
   // Not "no tasks" when empty: an empty COLUMN coexists with closed and
   // unpicked tasks behind the door, and the door line below says so.
   const html = showing.map((t) => {
     const n = Number(t.number);   // server-issued, but the one unescaped field deserves the same distrust as the rest
-    const who = t.who
-      ? '<span class="tkcard-who"><span class="tkchip" aria-hidden="true">'
-        + esc((Array.from(tkMemberName(p, t.who))[0] || '?').toUpperCase()) + '</span>' + esc(tkMemberName(p, t.who))
-        /* ⚠️ FOUR STATES, FOUR APPEARANCES. Two of these used to render as
-           NOTHING, and Josh wrote "Add Task Status" on a card whose status was
-           deliberately blank -- which is the whole finding: a state that
-           renders as nothing is indistinguishable from a feature nobody built.
+    const parts = Array.isArray(t.parts) ? t.parts : [];
+    const assigned = parts.filter((x) => x && x.who);
+    /* ⚠️ FOUR STATES, FOUR APPEARANCES. Two of these used to render as
+       NOTHING, and Josh wrote "Add Task Status" on a card whose status was
+       deliberately blank -- which is the whole finding: a state that
+       renders as nothing is indistinguishable from a feature nobody built.
 
-           Mona Lisa's ruling (2026-08-19) RETIRED her earlier chip-is-the-
-           status rule rather than reversing it: she had attached the condition
-           "no second word until the commitments join can support one", the
-           join shipped in #52, and the rule expired on its own terms.
+       Mona Lisa's ruling (2026-08-19) RETIRED her earlier chip-is-the-
+       status rule rather than reversing it: she had attached the condition
+       "no second word until the commitments join can support one", the
+       join shipped in #52, and the rule expired on its own terms.
 
-           ⚠️ "says it is not on this", NOT the pack's "Not started". Nothing
-           here knows whether the WORK started. commitments.js is explicit that
-           an empty list only counts when it is an ASSERTION rather than an
-           absence -- the agent has to have said, recently, that it is holding
-           nothing. So claimed:false is a statement the agent made, and
-           mirroring the positive exactly (same verb, opposite polarity) keeps
-           the subject on the agent's report where it belongs. "Not started"
-           would be a claim about the work that nobody computed, and "has not
-           said it is on this" describes a silence and invites "so it is
-           slacking".
-
-           claimed:null is OURS rather than the agent's, so it gets its own
-           class and its own voice. The engine's `because` runs 30-50 words and
-           belongs where the task opens, not on a card: the card carries
-           signals, the panel carries explanation. */
-        + (t.claim
-          ? (t.claim.claimed === true ? '<em class="tksay">· says it is on this</em>'
-            : t.claim.claimed === false ? '<em class="tksay">· says it is not on this</em>'
-              : '<em class="tkunk">· we could not check</em>')
-          : '')
-        + '</span>'
-      : '<span class="tkcard-who">Nobody yet</span>';
+       ⚠️ "says it is not on this", NOT the pack's "Not started". Nothing
+       here knows whether the WORK started. commitments.js is explicit that
+       an empty list only counts when it is an ASSERTION rather than an
+       absence -- the agent has to have said, recently, that it is holding
+       nothing. So claimed:false is a statement the agent made, and
+       mirroring the positive exactly (same verb, opposite polarity) keeps
+       the subject on the agent's report where it belongs. "Not started"
+       would be a claim about the work that nobody computed, and "has not
+       said it is on this" describes a silence and invites "so it is
+       slacking". #761 item 8's null-case fix (taskClaimHtml, above) keeps
+       this same discipline: the real `because` the engine computed, never
+       an invented "issue" word standing in for it. */
+    const sayHtml = taskClaimHtml(t.claim);
+    let who;
+    if (!assigned.length) {
+      who = '<span class="tkcard-who"><span class="tkcard-who-b">Nobody yet</span></span>';
+    } else if (parts.length > 1) {
+      /* #761 item 8: "Multiple assignees, as the pack drew." One face+name
+         row per part -- including an unassigned one, "Nobody yet" per part
+         and not just for the whole task, the pack's own "+" row -- and an
+         honest "N of M assigned" summary: t.progress.assigned/total,
+         engine-computed (progressOf, #206/#803), never counted client-side.
+         The claim line still lands on the FIRST assigned part, the same
+         convention the task detail page's own per-part rows use (the claim
+         is the TASK's, asked of one report, not a per-part fact nobody
+         computed). */
+      const firstWho = assigned.length ? assigned[0].who : null;
+      const rows = parts.map((part) => '<span class="tkcard-part' + (part.who ? '' : ' none') + '">'
+        + tkFace(p, part.who)
+        + '<span class="tkcard-who-b"><b>' + esc(part.who ? tkMemberName(p, part.who) : 'Nobody yet') + '</b>'
+        + (part.who && part.who === firstWho ? sayHtml : '') + '</span></span>').join('');
+      who = '<span class="tkcard-parts">' + rows + '</span>'
+        + '<span class="tkcard-status">' + esc(t.progress.assigned + ' of ' + t.progress.total + ' assigned') + '</span>';
+    } else {
+      const sole = assigned[0].who;
+      who = '<span class="tkcard-who">' + tkFace(p, sole)
+        + '<span class="tkcard-who-b"><b>' + esc(tkMemberName(p, sole)) + '</b>' + sayHtml + '</span></span>';
+    }
     return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + '" type="button" data-task="' + n + '">'
       + '<span class="tkcard-n">Task ' + n + (t.closedAt ? ' (done)' : '') + '</span>'
       + '<div class="tkcard-t">' + esc(t.sentence) + '</div>'
@@ -20819,31 +20898,15 @@ function paintTaskPage() {
     ? t.parts : [{ id: 1, who: t.who || null, sentence: t.sentence, closedAt: t.closedAt || null }];
   const prog = t.progress || { done: parts.filter((x) => x.closedAt).length, total: parts.length };
   const nameOf = (sn) => (sn ? tkMemberName(p, sn) : null);
-  /* ⚠️ THE SAME FACE THE MEMBERS COLUMN DRAWS, built from `pjMember`'s rule
-     rather than a fresh one. Every other `.lav` in this file carries a
-     discTint/discInk inline style or a real avatar, so the class's own
-     background is a default nothing uses -- a near-black disc on a near-black
-     card in dark. `hasAvatar` is gated on TIED in the engine and that gate
-     travels with it: a stranger's pane borrowing the name must not lend a row
-     a photograph of somebody it is not. */
-  const faceFor = (sn) => {
-    const shown = nameOf(sn);
-    if (!shown) return '<span class="lav q" aria-hidden="true">+</span>';
-    const m = (p.agents || []).find((a) => a && a.sessionName === sn);
-    return (m && m.hasAvatar)
-      ? '<span class="lav" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(sn) + '/avatar" alt=""></span>'
-      : '<span class="lav" aria-hidden="true" style="background:' + discTint(shown)
-        + ';color:' + discInk(shown) + '">' + esc(initials(shown)) + '</span>';
-  };
+  // Face-drawing itself moved to the shared tkFace(p, sessionName) (#761
+  // item 8), reused by the card list below -- one rule, not two that can
+  // drift.
+  const faceFor = (sn) => tkFace(p, sn);
   /* The say-line is the TASK's claim, shown on the part its agent holds. A
      report naming "task 15" is a claim about the task; agents have not been
      taught a per-part spelling, so pretending otherwise would put a fact
      nobody computed under somebody's name. */
-  const say = (t.claim
-    ? (t.claim.claimed === true ? 'says it is on this'
-      : t.claim.claimed === false ? 'says it is not on this'
-        : 'we could not check')
-    : '');
+  const sayHtml = taskClaimHtml(t.claim);
   const firstWho = parts.map((x) => x.who).filter(Boolean)[0] || null;
   document.getElementById('tk-who').innerHTML = parts.map((part) => {
     const shown = nameOf(part.who);
@@ -20867,7 +20930,7 @@ function paintTaskPage() {
         : '<button class="tkwho-pick" type="button" data-pick-part="' + esc(String(part.id)) + '"'
           + ' aria-label="Change who is on this part">' + esc(shown || 'Nobody yet') + '</button>')
       + (line ? '<small>' + esc(line) + '</small>' : '')
-      + (say && part.who && part.who === firstWho && !part.closedAt ? '<em class="tksay">' + esc(say) + '</em>' : '')
+      + (part.who && part.who === firstWho && !part.closedAt ? sayHtml : '')
       + '</div>'
       + '<button class="linkish tkpart-go" type="button" data-part-act="' + (part.closedAt ? 'reopen' : 'close') + '">'
       + (part.closedAt ? 'Put back' : 'Done') + '</button>'
