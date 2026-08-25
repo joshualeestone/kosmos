@@ -384,9 +384,16 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-updates-stale" env KOSMOS_URL="$B8" node docs/browser-checks/render-updates-stale.js "$sb7/shots-updates"
   run_one "render-switch-states" env KOSMOS_URL="$B8" node docs/browser-checks/render-switch-states.js
   run_one "render-theme-toggle"  env KOSMOS_URL="$B8" node docs/browser-checks/render-theme-toggle.js "$sb7/shots-toggle"
+  # #812: 15 checks were green on a clean main but never asked. render-full-width
+  # first (#778 restated it, Ice Cream Kitty, #814; ready now); more join in
+  # later batches as each is proven, not all at once (#812's own reasoning:
+  # adding checks to a gate a concurrent merge can flip is a real cost, not
+  # only a benefit -- see tools/browser-checks-freeze-758's #824 freeze, which
+  # this batching relies on to make a red here mean something).
+  run_one "render-full-width"   env KOSMOS_URL="$B8" node docs/browser-checks/render-full-width.js "$sb7/shots-fullwidth"
   run_one "render-offline-note"  env KOSMOS_URL="$B8" node docs/browser-checks/render-offline-note.js "$sb7/shots-offline" "$B8_PID"
 else
-  for n in contrast named-controls render-create-form render-found-undo render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-theme-toggle render-offline-note; do FAILED+=("$n (server did not boot)"); done
+  for n in contrast named-controls render-create-form render-found-undo render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
 fi
 for n in live-connect render-agent-nav render-busy-line render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state; do
   run_one "$n" node "docs/browser-checks/$n.js"
