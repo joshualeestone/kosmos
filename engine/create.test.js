@@ -511,6 +511,7 @@ test('the roles where being wrong is expensive carry their limit in BOTH places'
     // (catalogue build, 2026-08-16).
     books: /do not give financial or tax advice/i,
     ea: /draft, never send/i,
+    email: /draft, never send/i,
     social: /draft, never post/i,
     sales: /they send it, always/i,
     support: /draft, never send/i,
@@ -1889,7 +1890,10 @@ test('own is the last entry and no role is hidden but it', () => {
   // on its own line no matter how large the catalogue grows.
   // 29 since Product Director (2026-08-23, Josh's word in #chaoskosmos-design,
   // Mona Lisa's text: Josh-Brain/Projects/kosmos-role-character-sheets-2026-08-23.md).
-  assert.equal(roles.ROLES.length, 29, 'the catalogue grew or shrank; say so here on purpose');
+  // 30 since Email Assistant (Josh, 2026-08-25 in #chaoskosmos-design: "Let's
+  // add an Email type of agent to the list of predefined roles"; shaped
+  // against Vivienne's real account of the job, not a generic guess).
+  assert.equal(roles.ROLES.length, 30, 'the catalogue grew or shrank; say so here on purpose');
   const menu = roles.ROLES.filter((r) => r.menu !== false);
   assert.equal(menu.length, roles.ROLES.length - 1,
     'exactly one entry is meant to be hidden; own leaked into the picker, or a menu role got hidden');
