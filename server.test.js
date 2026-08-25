@@ -2443,7 +2443,10 @@ test('a write another website could send is refused, whatever route it names', a
     const ours = await req('/api/agents', {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: new URL(base).origin },
-      body: JSON.stringify({ name: 'BAD NAME', role: 'pm' }),
+      /* A name the engine still refuses, so the 400 proves the request
+         reached the route. 'BAD NAME' stopped being one in #740 (a space
+         between words is a name now); a dot is still refused, never stripped. */
+      body: JSON.stringify({ name: 'BAD.NAME', role: 'pm' }),
     });
     assert.equal(ours.status, 400,
       'the board can no longer write to itself, so this guard has broken the product');

@@ -209,10 +209,22 @@ function cleanName(raw) {
  * then refuses anything the result is not made of.
  */
 function slugFor(raw) {
-  return cleanName(raw).toLowerCase();
+  /* #740 (Josh, 2026-08-24 21:17: "I've got to be able to have capitals.
+     I've got to be able to have spaces... first name, last name"): a run of
+     whitespace becomes ONE hyphen, and that is the only thing besides case
+     that changes. Still not safeKey: nothing is stripped, so `Ca.sey` is
+     still refused rather than silently becoming `casey`. "Kira Knightley"
+     is shown as typed and is `kira-knightley` to the machinery; if an agent
+     already holds that machine name, createAgent refuses by name, so two
+     spellings can never land on one folder in silence. */
+  return cleanName(raw).toLowerCase().replace(/\s+/g, '-');
 }
 
 function nameProblem(raw) {
+  /* #740: a plain space between words is a name; a tab or a line break
+     inside one is not (it would break the "You are **Name**" line every
+     agent boots from). Refused here, in words, before slugFor folds it. */
+  if (/[^\S ]/.test(cleanName(raw))) return 'use plain spaces between the words of a name, not tabs or line breaks';
   const name = slugFor(raw);
   if (!name) return 'give the agent a name';
   // ⚠️ Length gets its OWN sentence. `NAME_RE` enforces 2 to 32 characters, and

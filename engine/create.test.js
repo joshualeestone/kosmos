@@ -152,7 +152,9 @@ test('a name that cannot address an agent is refused before anything is made', (
   //     a request naming one reached the other.
   //   - a leading `_` survives safeKey and is refused by safeServiceName and
   //     safeTarget, so the agent is created and then unreachable.
-  for (const bad of ['', '  ', 'My.Bot', '_bot', '-bot', 'a', 'has space', 'emoji🙂']) {
+  // #740: 'has space' moved from this list to the accepted one below; a space
+  // between words is a name now (shown as typed, hyphenated for the machine).
+  for (const bad of ['', '  ', 'My.Bot', '_bot', '-bot', 'a', 'has\ttab', 'emoji🙂']) {
     assert.ok(create.nameProblem(bad), `'${bad}' was accepted as a name`);
   }
   // ⚠️ A CAPITAL IS NO LONGER A REFUSAL, and `MyBot` moved from the list above
@@ -162,9 +164,28 @@ test('a name that cannot address an agent is refused before anything is made', (
   // capital is now the DISPLAY name and `slugFor` supplies the machine one, so
   // `Casey` is a name you can type and `My.Bot` is still refused because its
   // slug is not a name we can build an agent out of.
-  for (const good of ['fixture-agent', 'casey-2', 'my_bot', 'a1', 'MyBot', 'Casey']) {
+  for (const good of ['fixture-agent', 'casey-2', 'my_bot', 'a1', 'MyBot', 'Casey', 'has space', 'Kira Knightley']) {
     assert.equal(create.nameProblem(good), null, `'${good}' was refused`);
   }
+});
+
+test('#740: a two-word capitalised name is shown as typed and is one hyphenated machine name; nothing is stripped', () => {
+  assert.equal(create.nameProblem('Kira Knightley'), null, 'the name Josh typed was refused');
+  assert.equal(create.cleanName('Kira Knightley'), 'Kira Knightley');
+  assert.equal(create.slugFor('Kira Knightley'), 'kira-knightley');
+  assert.equal(create.slugFor('  Kira   Knightley '), 'kira-knightley', 'a run of spaces is one hyphen');
+  assert.equal(create.nameProblem('Kira.Knightley'), 'use letters, numbers, hyphens and underscores, starting with a letter or number', 'a dot is still refused, never stripped');
+  assert.equal(create.nameProblem('Kira Knightley-discord'), 'names cannot end in -discord, which the board reads as an agent running somewhere else');
+  // Through the real create path: the machine name is the slug and the shown name is the record.
+  create.setRunner(() => ({ ok: true }));
+  create.setDryRun(false);
+  const r = create.createAgent({ ...BINS, name: 'Kira Knightley', role: 'pm' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because || '');
+  assert.equal(store.readProfile('kira-knightley').displayName, 'Kira Knightley');
+  // The second spelling of the same machine name is refused by name, not merged.
+  const again = create.createAgent({ ...BINS, name: 'kira-knightley', role: 'pm' });
+  assert.equal(again.outcome, create.OUTCOME.REFUSED);
+  assert.match(again.because, /already an agent called/);
 });
 
 test('the display name and the machine name differ ONLY in case, which is what makes the split safe', () => {
@@ -199,9 +220,11 @@ test('the display name and the machine name differ ONLY in case, which is what m
          lines instead of passing both. */
       assert.equal(shown, candidate.trim(),
         `'${candidate}' is shown as something other than what was typed`);
-      assert.equal(create.slugFor(candidate), candidate.trim().toLowerCase(),
-        `'${candidate}' is shown as something that is not just the machine name in another case`);
-      assert.match(shown, /^[A-Za-z0-9][A-Za-z0-9_-]*$/,
+      /* #740: and a run of whitespace becomes one hyphen; nothing else. The
+         raw candidate stays the independent reference. */
+      assert.equal(create.slugFor(candidate), candidate.trim().toLowerCase().replace(/\s+/g, '-'),
+        `'${candidate}' is shown as something that is not just the machine name in another case (spaces aside)`);
+      assert.match(shown, /^[A-Za-z0-9][A-Za-z0-9 _-]*$/,
         `'${candidate}' would put something other than a name into the file an agent boots from`);
     }
   }
@@ -906,7 +929,8 @@ test('a length problem says it is a length problem', () => {
   assert.match(create.nameProblem('a'), /two characters/);
   assert.match(create.nameProblem('x'.repeat(33)), /32 characters/);
   // And the character rule still answers for a character problem.
-  assert.match(create.nameProblem('has space'), /letters, numbers/);
+  assert.match(create.nameProblem('has.dot'), /letters, numbers/);
+  assert.match(create.nameProblem('has\ttab'), /plain spaces/, 'a tab inside a name is a character problem said in its own words');
 });
 
 /**
