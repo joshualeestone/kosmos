@@ -106,9 +106,10 @@ const MEMBER = 'taskmate';
 
     // The new-task PAGE (#383): + navigates, nothing pops over the project.
     await p.click('#pj-newtask');
-    await p.waitForSelector('#pj-newtask-view', { state: 'visible' });
-    if (await p.isVisible('#pj-one-view')) die('the project view is still on screen under the new-task page');
-    const hint = await p.evaluate(() => { const h = document.querySelector('#pj-newtask-view .fhint'); return h.getBoundingClientRect().height > 0 ? h.innerText.trim() : ''; });
+    /* #766: New task is a dialog over the project page again. */
+    await p.waitForSelector('#nt-modal', { state: 'visible' });
+    if (!(await p.isVisible('#pj-one-view'))) die('the project view left the screen under the new-task dialog');
+    const hint = await p.evaluate(() => { const h = document.querySelector('#nt-modal .fhint'); return h.getBoundingClientRect().height > 0 ? h.innerText.trim() : ''; });
     if (hint !== 'You can give it to somebody later.') die('the default-to-nobody hint drifted: ' + hint);
     if (!(await p.locator('#nt-go').isDisabled())) die('Create task is live with no sentence');
     await p.screenshot({ path: path.join(OUT, 'tasks-new-page.png') });
@@ -116,7 +117,9 @@ const MEMBER = 'taskmate';
     // A page does not trap and does not dismiss: Escape leaves it standing,
     // and typed words survive Back to the same project.
     await p.keyboard.press('Escape');
-    if (!(await p.isVisible('#pj-newtask-view'))) die('Escape dismissed a page, the modal behaviour surviving');
+    if (await p.isVisible('#nt-modal')) die('Escape did not leave the dialog (#766)');
+    await p.click('#pj-newtask');
+    await p.waitForSelector('#nt-modal', { state: 'visible' });
     await p.fill('#nt-what', 'held across Back');
     await p.selectOption('#nt-who', MEMBER);
     await p.click('#nt-back');

@@ -3315,6 +3315,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 .rm-small { font: var(--text-callout) var(--font-ui); color: var(--label-2);
             line-height: 1.45; margin: 0 0 var(--space-8); }
 .rm-acts { display: flex; gap: var(--space-4); flex-wrap: wrap; }
+/* #766: a dialog that holds a form (New task) takes the create page's width
+   and lets its fields fill it. */
+.rm-box.rm-box-form { max-width: 34rem; }
+.rm-box-form .field { margin-top: var(--space-5); }
+.rm-box-form .tk-inp { width: 100%; }
 /* Both answers are full-size and legible. The destructive one is marked by its
    border, never by hue alone -- this screen reads the same in greyscale. */
 .rm-acts .btn { padding: var(--space-5) var(--space-7); }
@@ -4949,6 +4954,33 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 <!-- #761 (Josh, 2026-08-24 21:56): removing a member from the project page
      asks first: "it would pop up a modal and say, 'Confirm that you want to
      remove this agent, Anna or whatever, from this project.'" -->
+<div class="rm-back" id="nt-modal" hidden>
+  <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="nt-t" aria-describedby="nt-in">
+    <h2 class="rm-title" id="nt-t">New task</h2>
+    <p class="rm-small" id="nt-in">In <b id="nt-project"></b>.</p>
+    <div class="field">
+      <label class="flabel tk-lab" for="nt-what">What needs doing?</label>
+      <input class="tk-inp" id="nt-what" type="text" maxlength="200" placeholder="Rewrite the handoff checklist">
+    </div>
+    <div class="field">
+      <label class="flabel tk-lab" for="nt-detail">Anything they should know</label>
+      <textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, what done looks like, anything you already tried."></textarea>
+    </div>
+    <div class="field">
+      <label class="flabel tk-lab" for="nt-who">Who is on it</label>
+      <select class="tk-inp" id="nt-who"><option value="">Nobody yet</option></select>
+      <!-- "You can give it to somebody later" is the whole reason the field is
+           allowed to default to nobody (pack): without it, a person reads an
+           unassigned task as a mistake they are about to make. -->
+      <p class="fhint" style="margin:8px 0 0;">You can give it to somebody later.</p>
+    </div>
+    <div class="rm-acts" style="margin-top: var(--space-6);">
+      <button class="btn" id="nt-back" type="button">Cancel</button>
+      <button class="btn uprime" id="nt-go" type="button" disabled>Create task</button>
+    </div>
+    <div class="fmsg" id="nt-msg" role="alert" aria-live="assertive"></div>
+  </div>
+</div>
 <div class="rm-back" id="mem-modal" hidden>
   <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="mem-title" aria-describedby="mem-small">
     <h2 class="rm-title" id="mem-title"></h2>
@@ -6257,36 +6289,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     </div>
     <p class="fmsg" id="docs-msg" aria-live="polite"></p>
   </div>
-  <div id="pj-newtask-view" hidden>
-    <button class="back" id="nt-back" type="button"></button>
-    <div class="pjhead">
-      <div class="pjtitle">
-        <h2 class="dname" id="nt-t">New task</h2>
-        <p class="pj-desc">In <b id="nt-project"></b>.</p>
-      </div>
-    </div>
-    <div class="field">
-      <label class="flabel tk-lab" for="nt-what">What needs doing?</label>
-      <input class="tk-inp" id="nt-what" type="text" maxlength="200" placeholder="Rewrite the handoff checklist">
-    </div>
-    <div class="field">
-      <label class="flabel tk-lab" for="nt-detail">Anything they should know</label>
-      <textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, what done looks like, anything you already tried."></textarea>
-    </div>
-    <div class="field">
-      <label class="flabel tk-lab" for="nt-who">Who is on it</label>
-      <select class="tk-inp" id="nt-who"><option value="">Nobody yet</option></select>
-      <!-- "You can give it to somebody later" is the whole reason the field is
-           allowed to default to nobody (pack): without it, a person reads an
-           unassigned task as a mistake they are about to make. -->
-      <p class="fhint" style="margin:8px 0 0;">You can give it to somebody later.</p>
-    </div>
-    <div class="frow" style="margin-top: var(--space-4);">
-      <button class="btn uprime" id="nt-go" type="button" disabled>Create task</button>
-    </div>
-    <div class="fmsg" id="nt-msg" role="alert" aria-live="assertive"></div>
-  </div>
-
+  <!-- #766 (Josh, 2026-08-24 22:09): New task is a dialog over the project
+       page again ("the problem that I have with the new task page right now
+       is that it's got so much empty space... go back and implement the
+       modal. All of the text and everything looks like it's pretty good").
+       Same fields, same ids, same words; the page that held them is gone.
+       Escape and Cancel close it and keep the draft (#383's never-delete
+       rule survives the surface change); Create closes it and repaints. -->
   <div id="pj-settings-view" hidden>
     <button class="back" id="pj-settings-back" type="button">&larr; <span id="pj-settings-backname"></span></button>
     <h2>Project settings</h2>
@@ -19497,7 +19506,7 @@ let PJ_THREAD_GEN = 0;
 let PJ_NAV_GEN = 0;
 
 function pjView(which) {
-  for (const v of ['list', 'one', 'add', 'settings', 'task', 'newtask', 'docs']) {
+  for (const v of ['list', 'one', 'add', 'settings', 'task', 'docs']) {
     document.getElementById('pj-' + v + '-view').hidden = (v !== which);
   }
   /* #520: the list is the projects rail in the consolidated view, so it
@@ -20619,7 +20628,7 @@ function openNewTask() {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
   document.getElementById('nt-project').textContent = p.name;
-  document.getElementById('nt-back').textContent = '\u2190 ' + p.name;
+  /* The dialog's Cancel keeps its word; the page's Back used to carry the project's name here. */
   /* Decided BEFORE the key moves: keepWho below must answer "was there a
      kept draft when we arrived", and reading NT_FOR after this block sets
      it would resurrect the PREVIOUS task's assignee on a clean open
@@ -20655,11 +20664,11 @@ function openNewTask() {
   }
   document.getElementById('nt-msg').textContent = '';
   document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
-  pjView('newtask');
+  document.getElementById('nt-modal').hidden = false;
   document.getElementById('nt-what').focus();
 }
 function leaveNewTask() {
-  pjView('one');
+  document.getElementById('nt-modal').hidden = true;
   document.getElementById('pj-newtask').focus();
 }
 document.getElementById('pj-newtask').addEventListener('click', openNewTask);
@@ -20711,11 +20720,11 @@ document.addEventListener('keydown', (e) => {
   /* #539's two consent dialogs leave on Escape like every sibling. */
   if (!document.getElementById('doc-modal').hidden) closeDocModal();
   if (!document.getElementById('docf-modal').hidden) closeDocfModal();
-  /* ⚠️ NEITHER TASK SURFACE IS AN ESCAPE TARGET ANY MORE (#206, then #383):
-     Escape dismisses a thing that covers your work; it does not navigate.
-     Both halves of tasks are pages now, and wiring Escape on either would
-     be the modal behaviour surviving the markup that stopped being one. */
+  /* New task is a dialog again (#766), so Escape leaves it, keeping the draft
+     the way Cancel does. The task PAGE stays a page (#206, #383): no Escape. */
+  if (!document.getElementById('nt-modal').hidden) leaveNewTask();
 });
+document.getElementById('nt-modal').addEventListener('click', (e) => { if (e.target.id === 'nt-modal') leaveNewTask(); });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Tab') return;
   for (const [backId, stopIds, home] of [
