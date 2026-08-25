@@ -1642,6 +1642,36 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    invisible to every text check). */
 .pj-list.asgrid .pj-row { height: 100%; display: flex; flex-direction: column;
                           align-items: stretch; justify-content: flex-start; }
+/* #861 (Josh, 2026-08-25 10:37): "these need to be more like the agents
+   grid, where everything is centered and more stacked... Title
+   centered, status underneath, the same kind of status bubble... the
+   icons of the agents... underneath that, the number of agents." The
+   same dissolve-and-order technique the list row already uses (#860):
+   .pjcard-h stops being a real box here too, so .pjname and .pjpill
+   become independent flex children the grid can stack and centre.
+   Description is deliberately absent from this card -- Josh's own
+   four-item list did not include it, and the card this is modelled on
+   (.acard) carries no description-equivalent either. It is untouched
+   in the list view, where #860 already handles it. */
+.pj-list.asgrid .pj-row { align-items: center; text-align: center; padding: 24px 22px 20px; }
+.pj-list.asgrid .pj-row .pjcard-h { display: contents; }
+.pj-list.asgrid .pj-row .pjname { order: 1; justify-content: center; }
+/* The same bubble recipe .astate draws on the agents grid, scoped here
+   rather than sharing the class -- .astate carries a six-state agent
+   vocabulary (working/attn/idle/paused/stopped/unknown) that does not
+   apply to a project's two-state pill (default or "Needs you"). */
+.pj-list.asgrid .pj-row .pjpill { order: 2; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  margin: 12px auto 0; font-size: 1rem; font-weight: 600; color: var(--k-ink);
+  padding: .38rem 1rem; border-radius: 100px; border: 1.5px solid var(--k-rule); background: var(--k-surface); }
+.pj-list.asgrid .pj-row .pjpill.attn { border-color: rgba(179,38,30,.55); }
+.pj-list.asgrid .pj-row .pc-t { display: none; }
+/* "The icons... underneath that, the number" -- stacked, not the list
+   row's single inline line, so .pjfaces becomes a column here: the
+   avatar row, then the count as its own caption line beneath it. */
+.pj-list.asgrid .pj-row .pjfaces { order: 3; flex-direction: column; justify-content: center; gap: 6px; margin-top: 14px; }
+.pj-list.asgrid .pj-row .pjfaces > [aria-hidden] { justify-content: center; }
+.pj-list.asgrid .pj-row .pjcount { margin-left: 0; }
+.pj-list.asgrid .pj-row .pj-who, .pj-list.asgrid .pj-row .pj-warn { order: 4; }
 /* The empty state and the read-failure card span the grid: the failure
    message is the one that matters and it must not squeeze into one cell. */
 .pj-list.asgrid .pj-empty, .pj-list.asgrid .err { grid-column: 1 / -1; }
