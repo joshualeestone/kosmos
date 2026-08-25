@@ -1252,9 +1252,11 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
    itself" under a reported state, "Read from its screen" under a scraped one,
    a small secondary line and never words inside the state word itself. The
    list's copy stacks inside the state CELL (the five-slot rule forbids a
-   sixth child); the detail's sits under the badge. All three read the same
-   derivation (saidLine), so the surfaces cannot disagree about provenance. */
-.asaid { font-size: .75rem; color: var(--k-ink-2); margin-top: 2px; }
+   sixth child); the detail's sits under the badge. Both read the same
+   derivation (saidLine), so the two surfaces cannot disagree about
+   provenance. The grid card dropped its own copy of this line (#855, Josh,
+   2026-08-25: "junking up the page"), so `.asaid` itself is retired --
+   `saidLine()` is unchanged and still backs the other two. */
 .lstate .lsaid { display: block; font-size: .75rem; font-weight: 400; color: var(--k-ink-2); }
 .dsaid { display: block; font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
 /* `.acut` is retired: the pack dropped the rule AND the divs together, and a
@@ -8736,11 +8738,10 @@ function card(a) {
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
     <div class="astate st-${m.st}">${GLYPH[m.st]}<b>${esc(copy.label)}</b>${answer}</div>
-    ${saidLine(a) ? `<div class="asaid">${esc(saidLine(a))}</div>` : ''}
+    <div class="amodel">${esc(modelLine(a))}</div>
     <div class="atask">${esc(taskLine(a))}</div>
     ${conflictNote(a) ? `<div class="note">${esc(conflictNote(a))}</div>` : ''}
     ${unknownNote}
-    <div class="amodel">${esc(modelLine(a))}</div>
   </div>`;
 }
 
@@ -8871,8 +8872,13 @@ function lrow(a) {
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b><small>${esc(roleLine(a, ROLE_TITLES))}</small><em>${esc(modelLine(a))}</em></div>
     <!-- #569: the said line stacks INSIDE the state cell -- the five-slot
          rule above forbids a sixth child, and lname already stacks lines
-         within one cell, so this is the sanctioned shape. Same derivation
-         as the card's .asaid; the two halves of the board cannot disagree. -->
+         within one cell, so this is the sanctioned shape.
+         #855 (Josh, 2026-08-25 10:22): the grid card dropped its own
+         saidLine() rendering (the .asaid it used to carry) as clutter, by
+         name, scoped to the grid view only -- the list row keeps it. Two
+         surfaces reading the SAME saidLine() derivation is still what
+         keeps them from disagreeing on the FACT if the list row ever
+         grows the line back; showing it is now a per-surface choice. -->
     <div class="lstate">${GLYPH[m.st]}${esc(copy.label)}${answerBtn(a)}${saidLine(a) ? `<small class="lsaid">${esc(saidLine(a))}</small>` : ''}</div>
     <div class="ltask">${esc(taskLine(a))}</div>
     <div class="lmem">${mem}</div>
