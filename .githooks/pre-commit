@@ -41,6 +41,15 @@ if [ "$shape_reds" -ne 0 ]; then
   exit 1
 fi
 
+# ⚠️ A GUARD THAT CANNOT RUN MUST SAY SO, not report a violation. Without
+# node on PATH the test below exits 127 and this hook said "a check and its
+# README row must move together" about a commit that moved neither (it did,
+# three times in one evening, 2026-08-24, to the person who wrote it). Refuse
+# either way, but with the true sentence.
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: node is not on PATH, so the browser-checks index guard and the shell-shape scan cannot run. Not a violation: put node on PATH (on this Mac, /opt/homebrew/bin) and commit again." >&2
+  exit 1
+fi
 if git diff --cached --name-only --diff-filter=ACDMR | grep -q '^docs/browser-checks/'; then
   # The test reads the working tree, so check what is STAGED: stash nothing,
   # just refuse if an unstaged edit would mask the staged state.

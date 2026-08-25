@@ -60,6 +60,11 @@ if [ "$NODE_STATUS" -eq 0 ]; then
 fi
 
 # --- name the machine, only beside a red -------------------------------------
+if [ "$NODE_STATUS" -eq 126 ] || [ "$NODE_STATUS" -eq 127 ]; then
+  echo
+  echo "=== exit $NODE_STATUS is not a failing test ==="
+  echo "Something the suite needs could not be run (missing or not executable: node itself, yarn, or a program a shell test calls). Read the last line before the exit; no assertion failed."
+fi
 if [ "$NODE_STATUS" -ne 0 ]; then
   echo
   echo "=== the machine, when this run started (#708) ==="

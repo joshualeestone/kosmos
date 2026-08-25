@@ -13,7 +13,7 @@
  * writing the code, and a check that only looks after the failure passes on a
  * build that shows the note immediately.
  *
- *   AGENT_WORKFORCE_DATA=/tmp/on PORT=17451 node server.js &
+ *   AGENT_WORKFORCE_DATA=/tmp/on PORT=17451 node server.js &   # ...and pass $! as the third argument: this check kills THAT pid
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" \
  *     KOSMOS_URL=http://127.0.0.1:17451 node docs/browser-checks/render-offline-note.js /tmp/onshots
  *
@@ -26,6 +26,7 @@ const { execFileSync } = require('node:child_process');
 
 const URL = process.env.KOSMOS_URL || 'http://127.0.0.1:17451';
 const OUT = process.argv[2] || '/tmp/onshots';
+const SERVER_PID = Number(process.argv[3]) || 0; // the board to take away, by pid, never by port (#708)
 const fails = [];
 const say = (ok, label, extra) => {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
@@ -60,7 +61,12 @@ function URL_(u) { return new (require('node:url').URL)(u); }
 
   /* Now let it fail for real: the server goes away underneath the page. */
   await pg.unroute('**/api/status');
-  try { execFileSync('/bin/sh', ['-c', `lsof -nP -iTCP:${port} -sTCP:LISTEN -t | xargs kill`]); } catch { /* already gone */ }
+  /* Kill the server we were HANDED, never whatever listens on the port (#708):
+     on a shared Mac the port's listener can be somebody else's board. The pid
+     is the third argument; the gate passes the one it booted, and the recipe
+     above passes $!. Without one this check will not guess, it says so. */
+  if (!SERVER_PID) { say(false, 'the server that should go away was not named: pass its pid as the third argument'); }
+  else { try { process.kill(SERVER_PID, 'SIGTERM'); } catch { /* already gone */ } }
   await pg.waitForTimeout(7000);
 
   const down = await read();
