@@ -1,6 +1,6 @@
 /* Drive-through of the update toast + confirm: the toast renders from a
    published newer version, clears the header controls, opens the drawn
-   confirm with the exact frozen copy, surfaces the route's honest from-source
+   confirm with the exact frozen copy, used to surface the route's from-source
    refusal, and Later remembers per version. Sandboxed server + local release
    host. */
 const { spawn } = require('node:child_process');
@@ -28,10 +28,11 @@ const PORT = freePort();
 const RELPORT = freePort();
 
 (async () => {
+  let served = '9.9.9'; // what the fake release host says is latest; the Later leg withdraws the offer by serving the running version
   const rel = http.createServer((req, res) => {
     if (req.url === '/dist/latest.json') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ version: '9.9.9' }));
+      res.end(JSON.stringify({ version: served }));
     } else { res.writeHead(404); res.end(); }
   }).listen(RELPORT, '127.0.0.1');
 
@@ -154,6 +155,9 @@ const RELPORT = freePort();
     const goTxt = (await p.locator('#uc-go').textContent()).trim();
     const noTxt = (await p.locator('#uc-no').textContent()).trim();
     if (goTxt !== 'Update' || noTxt !== 'Not now') die('confirm buttons: ' + noTxt + ' / ' + goTxt);
+    // It opens on the harmless answer (Mona Lisa's ruling on #780).
+    const opened = await p.evaluate(() => document.activeElement && document.activeElement.id);
+    if (opened !== 'uc-no') die('the confirm did not open focused on Not now: ' + opened);
     await p.screenshot({ path: path.join(OUT, 'update-confirm.png') });
 
     // The trap holds at BOTH wrap boundaries, with real keypresses: Tab on
@@ -166,12 +170,11 @@ const RELPORT = freePort();
     active = await p.evaluate(() => document.activeElement && document.activeElement.id);
     if (active !== 'uc-go') die('Shift+Tab from the first stop escaped the confirm to: ' + active);
 
-    // This checkout runs from source, so Update surfaces the route's honest
-    // 409 sentence inside the modal instead of pretending.
-    await p.click('#uc-go');
-    await p.waitForSelector('#uc-err', { state: 'visible' });
-    const err = await p.locator('#uc-err').textContent();
-    if (!/source code/.test(err)) die('from-source refusal not surfaced: ' + err);
+    /* RETIRED (#780): the leg that pressed Update and read the route's
+       from-source refusal. A source-run board no longer offers an update at
+       all (Josh, 2026-08-23 13:03), so that state cannot arise, and this
+       board is an installed layout on purpose, where Update would start a
+       real install. Update is not pressed here. */
 
     // Not now closes; Later hides and remembers the version.
     await p.click('#uc-no');
@@ -185,10 +188,35 @@ const RELPORT = freePort();
     await p.waitForTimeout(6000);
     if (await p.isVisible('.utoast:not(.stale)')) die('the toast came back after Later');
 
+    // Later is per VERSION (Mona Lisa's three facts, #780): a note left for an
+    // older release does not silence a newer one...
+    await p.evaluate(() => localStorage.setItem('kosmos-update-later', '9.9.8'));
+    await p.reload({ waitUntil: 'networkidle' });
+    if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
+    await p.waitForSelector('.utoast:not(.stale)', { state: 'visible', timeout: 20000 });
+    // ...and Check for Update clears the note, through the real button.
+    await p.click('#ut-later');
+    if ((await p.evaluate(() => localStorage.getItem('kosmos-update-later'))) !== '9.9.9') die('Later did not re-note the current version');
+    // While an update is on offer the footer's button reads Update, so the
+    // fake host now says the running version is latest and the page asks
+    // (the same TTL-bypassing route the button uses); the offer withdraws
+    // and the footer offers Check for Update, the real button, which clears.
+    served = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8')).version;
+    await p.evaluate(async () => { await fetch('/api/update/check', { method: 'POST' }).then((r) => r.text()); });
+    await p.click('[data-tab="settings"]'); await p.waitForTimeout(300);
+    await p.click('#s-nav button[data-go="updates"]'); await p.waitForTimeout(300);
+    await p.waitForFunction(() => { const b = document.getElementById('upd-btn'); return b && !b.hidden && b.getBoundingClientRect().height > 0 && /Check for Update/.test(b.innerText); }, null, { timeout: 15000 });
+    await p.click('#upd-btn');
+    await p.waitForTimeout(1500);
+    const cleared = await p.evaluate(() => localStorage.getItem('kosmos-update-later'));
+    if (cleared !== null) die('Check for Update did not clear the Later note: ' + cleared);
+
     // Mobile pass: at 375 the toast must still clear whatever header
     // controls are visible.
     await p.setViewportSize({ width: 375, height: 812 });
     await p.evaluate(() => localStorage.removeItem('kosmos-update-later'));
+    served = '9.9.9'; // the offer is back for the mobile pass
+    await p.evaluate(async () => { await fetch('/api/update/check', { method: 'POST' }).then((r) => r.text()); });
     await p.reload({ waitUntil: 'networkidle' });
     if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
     await p.waitForSelector('.utoast:not(.stale)', { state: 'visible', timeout: 20000 });
@@ -204,7 +232,7 @@ const RELPORT = freePort();
     await p.screenshot({ path: path.join(OUT, 'update-toast-375.png') });
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('TOAST DRIVE OK: render, geometry clear of header controls, frozen copy verbatim, from-source refusal surfaced, Later remembered per version, 0 page errors; shots in ' + OUT);
+    console.log('TOAST DRIVE OK: render, geometry clear of header controls, frozen copy verbatim, opens on Not now, Update never pressed, Later per version and back for a newer one and cleared by Check for Update, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     srv.kill();
