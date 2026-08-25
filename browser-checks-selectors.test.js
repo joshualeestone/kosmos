@@ -1,8 +1,9 @@
 'use strict';
 /**
  * #758: a screen change can merge green and red the next cut, because the
- * page gate (docs/browser-checks/) is not in yarn test, and 27 of its 46
- * checks are not even in the gate. The class that fires: a check asks for
+ * page gate (docs/browser-checks/) is not in yarn test, and 15 of its 47
+ * checks were not in the gate (first counted as 27 of 46 by matching literal
+ * run_one lines, which cannot see the loop at browser-checks.sh:334; #812). The class that fires: a check asks for
  * an id the page no longer has (#730 removed #acct-add-openai and stopped
  * the 0.5.24 cut at minute twenty-two; #754 removed #create-limit; 4bf7d95
  * removed #made-done and render-create-made has been asking for it since).
