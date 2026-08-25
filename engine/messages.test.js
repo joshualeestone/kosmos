@@ -1709,3 +1709,35 @@ test('#562: a half-appended last line is answered when it is whole, and never co
   got = messages.record();
   assert.deepEqual(got.rows.map((m) => m.id), ['m1', 'm2', 'm3', 'm4'], 'the completed append did not arrive whole');
 });
+
+test('#670: unread is every post after the person last opened the room, agent chatter in, the person\'s own out, unknown never zero', () => {
+  withFleet(room3(), (board) => {
+    fs.rmSync(messages.LOG, { force: true });
+    fs.rmSync(messages.SEEN, { force: true });
+    arm([]);
+    assert.deepEqual(messages.unreadAll(), {}, 'no record, nothing unread');
+    // The operator's own post does not count.
+    const mine = messages.sendPost({ operator: true, project: 'henderson-lease', projectName: 'Henderson Lease', text: '@mara where is the draft?' }, board.agents, MEMBERS);
+    assert.equal(mine.state, chat.DELIVERY.PLACED, mine.because || '');
+    assert.equal(messages.unread('henderson-lease'), 0);
+    // A never-opened room counts every agent post it has.
+    armSender('mara-discord');
+    assert.equal(messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'in the folder' }, board.agents, MEMBERS).state, chat.DELIVERY.PLACED);
+    assert.equal(messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one pass left' }, board.agents, MEMBERS).state, chat.DELIVERY.PLACED);
+    assert.equal(messages.unread('henderson-lease'), 2);
+    assert.equal(messages.unread('some-other-room'), 0, 'another room is untouched');
+    // Opening the room reads it; a later post is unread again.
+    const last = messages.record().rows.filter((m) => m.kind === 'post').pop();
+    messages.markSeen('henderson-lease', Date.parse(last.at));
+    assert.equal(messages.unread('henderson-lease'), 0, 'a post at the seen moment is read');
+    assert.equal(messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'and done' }, board.agents, MEMBERS).state, chat.DELIVERY.PLACED);
+    assert.equal(messages.unread('henderson-lease'), 1);
+    assert.ok(fs.existsSync(messages.SEEN) && messages.SEEN.startsWith(SANDBOX), 'the cursor lives in the sandbox');
+    // The control: a cursor file we cannot read is unknown, not "never opened".
+    fs.writeFileSync(messages.SEEN, '{not json');
+    assert.equal(messages.unreadAll(), null);
+    assert.equal(messages.unread('henderson-lease'), null);
+    fs.rmSync(messages.SEEN, { force: true });
+    assert.equal(messages.unread('henderson-lease'), 3, 'and with no cursor at all, everything counts again');
+  });
+});

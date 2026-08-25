@@ -58,6 +58,68 @@ const store = require('./store');
 const limits = require('./limits');
 
 const LOG = path.join(store.ROOT, 'messages.jsonl');
+
+/* #670: the per-project read cursor. One person per Kosmos install, so the
+   cursor is keyed by project alone. "Unread" is every post to that room
+   after the moment the person last opened it: agent-to-agent chatter counts
+   and only the person's own posts do not (Josh, 2026-08-24 16:32: "just like
+   Discord. If you guys talk to each other and there are 50 messages, it shows
+   me a little bubble with 50"). Held on disk beside the log so it survives a
+   reload and a restart. A cursor file we cannot read is UNKNOWN, never
+   "never opened": the count answers null and the page draws nothing, the
+   same rule the record itself follows. */
+const SEEN = path.join(store.ROOT, 'room-seen.json');
+
+function seenRead() {
+  let raw;
+  try { raw = fs.readFileSync(SEEN, 'utf8'); } catch (err) {
+    if (err && err.code === 'ENOENT') return {};
+    return null;
+  }
+  try {
+    const v = JSON.parse(raw);
+    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : null;
+  } catch { return null; }
+}
+
+/** The person opened this room now (or at `now`). Returns the ISO moment kept. */
+function markSeen(projectId, now) {
+  const id = String(projectId || '');
+  if (!id) throw new Error('say which project was opened');
+  const cur = seenRead() || {};
+  cur[id] = new Date(Number.isFinite(now) ? now : Date.now()).toISOString();
+  fs.mkdirSync(path.dirname(SEEN), { recursive: true });
+  const tmp = SEEN + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(cur, null, 2) + '\n');
+  fs.renameSync(tmp, SEEN);
+  return cur[id];
+}
+
+/**
+ * Unread posts per project, { [projectId]: n }, in one pass over the record.
+ * A project never opened counts every post it has. null when the record or
+ * the cursor cannot be read: unknown is not zero.
+ */
+function unreadAll() {
+  const rec = record();
+  if (!rec.ok) return null;
+  const seen = seenRead();
+  if (seen === null) return null;
+  const out = {};
+  for (const m of rec.rows) {
+    if (!m || m.kind !== 'post' || !m.project || m.operator === true) continue;
+    const since = seen[m.project] ? Date.parse(seen[m.project]) : -Infinity;
+    const at = Date.parse(m.at);
+    if (!Number.isFinite(at) || at <= since) continue;
+    out[m.project] = (out[m.project] || 0) + 1;
+  }
+  return out;
+}
+
+function unread(projectId) {
+  const all = unreadAll();
+  return all === null ? null : (all[String(projectId)] || 0);
+}
 const SPILL_DIR = path.join(store.ROOT, 'messages');
 
 /* Long bodies spill to a file and the pane gets a pointer. Fleet lesson
@@ -1480,5 +1542,6 @@ module.exports = {
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
   resolveSender, send, sendPost, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
+  unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests,
 };

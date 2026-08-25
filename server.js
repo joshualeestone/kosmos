@@ -559,6 +559,17 @@ function pathOf(req) {
  * which requests reach a decode is exactly the kind of second-order effect a
  * routing change is prone to.
  */
+/* #670: every project on the wire carries its unread count, derived HERE
+   from the record and the read cursor, never re-counted on the page. null
+   when the record or the cursor cannot be read (unknown is not zero), and
+   never a 500: a projects list that fails because a bubble could not be
+   computed would be the wrong thing to lose. */
+function withUnread(list) {
+  let counts = null;
+  try { counts = messages.unreadAll(); } catch { counts = null; }
+  return (list || []).map((p) => ({ ...p, unread: counts === null ? null : (counts[p.id] || 0) }));
+}
+
 function decodeSegment(segment) {
   try {
     return decodeURIComponent(segment);
@@ -4468,7 +4479,7 @@ const server = http.createServer((req, res) => {
     }
     const roster = safeRoster();
     try {
-      sendJson(res, 200, { projects: projects.list(roster), agentsUnreadable: roster === null });
+      sendJson(res, 200, { projects: withUnread(projects.list(roster)), agentsUnreadable: roster === null });
     } catch {
       // The record is still readable when the roster is not, so the projects
       // themselves are served with every member marked unseen rather than the
@@ -4488,7 +4499,7 @@ const server = http.createServer((req, res) => {
         return;
       }
       sendJson(res, 200, {
-        projects: listed,
+        projects: withUnread(listed),
         agentsUnreadable: true,
         because: 'we cannot read the agents on this computer right now, so we are not saying anything about how they are doing',
       });
@@ -4791,6 +4802,21 @@ const server = http.createServer((req, res) => {
      The thread is the record filtered by PROJECT ALONE (the spec's
      falsifiable claim: no reference to the member list), posts plus the
      room's own valve closings. Read-only, best-effort history. */
+  /* #670: the person opened this project's room, so everything posted
+     before now is read. POST, behind the cross-site guard like every write.
+     The count itself is server-derived (see withUnread); this only moves
+     the cursor. */
+  const roomSeen = pathname.match(/^\/api\/project\/([^/]+)\/seen$/);
+  if (roomSeen && req.method === 'POST') {
+    const id = decodeSegment(roomSeen[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let at;
+    try { at = messages.markSeen(id); }
+    catch (err) { sendJson(res, 500, { error: String((err && err.message) || 'we could not record that') }); return; }
+    sendJson(res, 200, { seen: at, unread: 0 });
+    return;
+  }
+
   const roomThread = pathname.match(/^\/api\/project\/([^/]+)\/room$/);
   if (roomThread && (req.method === 'GET' || req.method === 'HEAD')) {
     const id = decodeSegment(roomThread[1]);

@@ -10891,3 +10891,34 @@ test('the policies screen says what just happened, never "Saved" over a removal 
   // And the shape the miss line uses names the agent the person knows (shownAs), not the machine name.
   assert.doesNotMatch(partial, /\bb \(/);
 });
+
+test('#670: every project on the wire carries its unread count, and opening a room moves the cursor', async () => {
+  let r = await req('/api/projects');
+  assert.equal(r.status, 200);
+  const list = JSON.parse(r.body).projects;
+  for (const p of list) assert.ok('unread' in p && (p.unread === null || Number.isInteger(p.unread)), 'a project without an unread field: ' + p.id);
+  r = await req('/api/project/' + encodeURIComponent('x-670') + '/seen', { method: 'POST' });
+  assert.equal(r.status, 200);
+  const body = JSON.parse(r.body);
+  assert.equal(body.unread, 0);
+  assert.ok(/^\d{4}-\d\d-\d\dT/.test(body.seen), 'the moment kept comes back');
+  const seen = JSON.parse(require('node:fs').readFileSync(require('./engine/messages').SEEN, 'utf8'));
+  assert.equal(seen['x-670'], body.seen);
+  r = await req('/api/project/%ZZ/seen', { method: 'POST' });
+  assert.equal(r.status, 400, 'an unreadable id is refused, not recorded');
+});
+
+test('#670: the bubble draws nothing for none, the number otherwise, 99+ past the cap, and never counts', () => {
+  const unreadBadge = pageFunction('unreadBadge');
+  assert.equal(unreadBadge(0), '');
+  assert.equal(unreadBadge(null), '');
+  assert.equal(unreadBadge(undefined), '');
+  assert.equal(unreadBadge(-2), '');
+  assert.equal(unreadBadge(1), '<span class="pj-unread" aria-label="1 unread">1</span>');
+  assert.equal(unreadBadge(50), '<span class="pj-unread" aria-label="50 unread">50</span>');
+  assert.equal(unreadBadge(99), '<span class="pj-unread" aria-label="99 unread">99</span>');
+  assert.equal(unreadBadge(100), '<span class="pj-unread" aria-label="99+ unread">99+</span>');
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(src, /unreadBadge\(p\.id === PJ_CURRENT \? 0 : p\.unread\)/, 'the row draws the engine\'s number, suppressed only for the open room');
+  assert.match(src, /PJ_LAST_OPENED = id;\n  pjMarkSeen\(id\);/, 'opening a project moves the cursor');
+});
