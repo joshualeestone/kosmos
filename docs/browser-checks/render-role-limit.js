@@ -104,16 +104,24 @@ async function rolesFrom(page) {
         if (sel.value !== key) throw new Error('the menu has no option ' + key);
         sel.dispatchEvent(new Event('change', { bubbles: true }));
       }
-      document.getElementById('role-next').click();
     }, role.key);
     await page.waitForTimeout(400);
   }
 
-  for (const role of [pm, withLimit.find((r) => r.key !== 'pm')]) {
+  /* Roles reached through the dropdown carry the line under it. The Project
+     Manager row is a row, not a menu, and it is preselected, so a fold line
+     there would put its limit on the comparison card at first sight, which
+     the sweep above refuses and the pack does not draw (Josh, 2026-08-22 and
+     2026-08-24: that row is name, description, Recommended). Its limit is a
+     scope note, not a legal one, and is not said while choosing. */
+  for (const role of withLimit.filter((r) => r.key !== 'pm').slice(0, 2)) {
     await pick(role);
     const seen = await page.evaluate(() => {
-      const p = document.getElementById('create-limit');
-      const btn = document.getElementById('create-go');
+      /* #739/#750-era: the limit is said on STEP ONE, under the dropdown, the
+         moment the role is chosen (roles.js: visible while choosing). Step two
+         carries none since #739 (Josh, 2026-08-24 21:16). */
+      const p = document.getElementById('pick-limit');
+      const btn = document.getElementById('role-next');
       const vis = (n) => {
         if (!n) return false;
         const r = n.getBoundingClientRect();
@@ -139,7 +147,7 @@ async function rolesFrom(page) {
         onTop = Boolean(hit) && (hit === p || p.contains(hit));
       }
       return {
-        onStep2: !document.getElementById('cstep-name').hidden,
+        onStep1: !document.getElementById('cstep-role').hidden,
         text: p ? p.textContent : null,
         shown: vis(p),
         onTop,
@@ -148,7 +156,7 @@ async function rolesFrom(page) {
       };
     });
 
-    check(`[${role.key}] the last step is the one on screen`, seen.onStep2);
+    check(`[${role.key}] the choosing step is the one on screen`, seen.onStep1);
     check(`[${role.key}] the limit is visible there`, seen.shown && seen.text === role.caution,
       JSON.stringify(String(seen.text).slice(0, 56)));
     check(`[${role.key}] and a person can actually see it, with nothing over it`, seen.onTop);
@@ -159,7 +167,7 @@ async function rolesFrom(page) {
        above it failed. An ordering assertion about an element that is not on
        screen is not a weaker assertion, it is a different one that is always
        true. */
-    check(`[${role.key}] it is above the button that creates the agent`,
+    check(`[${role.key}] it is above the button that moves on from the choice`,
       seen.shown && seen.limitBottom !== null && seen.buttonTop !== null
         && seen.limitBottom <= seen.buttonTop,
       `shown=${seen.shown} limit ends ${Math.round(seen.limitBottom)}, button starts ${Math.round(seen.buttonTop)}`);
@@ -170,7 +178,7 @@ async function rolesFrom(page) {
   if (noLimit) {
     await pick(noLimit);
     const box = await page.evaluate(() => {
-      const p = document.getElementById('create-limit');
+      const p = document.getElementById('pick-limit');
       const r = p.getBoundingClientRect();
       return { h: r.height, hidden: p.hidden };
     });
