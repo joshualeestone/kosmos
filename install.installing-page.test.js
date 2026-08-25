@@ -42,15 +42,25 @@ test('settling freezes the mark and bar in place instead of hiding them', () => 
   assert.equal((onload.match(/settle\(\);/g) || []).length, 2, 'settle() is not called on both the taken branch and the ready branch');
 });
 
-test('a real "Open Kosmos" link is offered, wired to the actual address, never auto-navigated', () => {
-  assert.match(HTML, /<a class="go" id="go" href="#">Open Kosmos<\/a>/, 'the Open Kosmos link is gone');
+test('a real link is offered, wired to the actual address, never auto-navigated', () => {
+  assert.match(HTML, /<a class="go" id="go" href="#">Open it anyway<\/a>/, 'the taken-branch link is gone');
   assert.match(HTML, /getElementById\("go"\)\.href = base \+ "\/"/, 'the link is never pointed at the real address');
   // The refusal to auto-navigate is the actual safety property (the
   // installer's own BOARD_OURS gate makes the same call) and must survive:
   // only a real person's click reaches base+"/" in the taken branch.
   const takenBranch = HTML.slice(HTML.indexOf('if (first) {'), HTML.indexOf('return;\n      }\n      settle();'));
   assert.doesNotMatch(takenBranch, /location\.replace/, 'the taken branch navigates on its own -- the whole point was that only a click should');
-  assert.match(HTML, /open Kosmos from Applications instead, or Finder/, 'the Applications fallback for a wrong guess is gone');
+});
+
+test('the taken branch is honest that the board answering is often someone else\'s, not a rare exception', () => {
+  // Angel's finding: install/kosmos's healthy() checks "is *a* Kosmos", not
+  // "is MINE", so on a shared Mac this branch is the ORDINARY outcome for a
+  // second macOS account, not an astronomically unlikely one. The copy must
+  // say so instead of implying the link safely opens the reader's own board.
+  assert.match(HTML, /often THEIRS, not yours/, 'the taken branch no longer names the common shared-Mac case');
+  assert.doesNotMatch(HTML, /Open Kosmos</, 'the link still claims ownership it cannot verify');
+  assert.match(HTML, /If it is not yours, close it without changing anything/, 'the safe-backout guidance for a wrong guess is gone');
+  assert.match(HTML, /Your own copy of Kosmos is in Applications/, 'the Applications pointer for a wrong guess is gone');
 });
 
 test('the ordinary wait keeps its own copy: unreadable time, then a slow-download note', () => {
