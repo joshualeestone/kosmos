@@ -14,6 +14,9 @@ process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-m
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-model-config-'));
+// The model change rewrites the launch job and restarts it; under dry run
+// the runner is inert, so the check never touches launchctl (#619).
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 const ROOT = path.join(__dirname, '..', '..');
 const { chromium } = require('playwright');
 const fleet = require(path.join(ROOT, 'test-support', 'fleet'));
@@ -23,6 +26,17 @@ const fail = [];
 const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fail.push(label); };
 (async () => {
   fleet.install([fleet.agent('mara', { state: 'idle', displayName: 'Mara' })]);
+  /* #619: since #454 the Model menu is disabled for an agent with no launch
+     file (nothing for setModel to rewrite, so the control is unavailable
+     rather than failing after a click), and the fixture agent had none, so
+     this check waited forever on a disabled select. Seed the one file the
+     product requires, in the shape the product writes, under the sandboxed
+     launch dir, before the server starts; the menu is then enabled for a
+     real reason and the change below rewrites this file. Angel agreed the
+     seam (2026-08-25 03:20). */
+  const create = require(path.join(ROOT, 'engine', 'create'));
+  fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+  fs.writeFileSync(create.plistPath('mara'), create.plistFor('mara', '/bin/echo', process.env.AGENT_WORKFORCE_TMUX_BIN, null, null, 'claude'));
   try { firstrun.complete(); } catch { /* fine */ }
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -49,8 +63,12 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     const small = await page.$eval('#chg-small', (e) => e.textContent);
     chk(/agreed to and has not done yet/.test(small) && /^Mara restarts/.test(small), 'the dialog names what is lost, before it happens', small.slice(0, 60));
     chk(/^Change Mara to /.test(await page.$eval('#chg-title', (e) => e.textContent)), 'the title names the agent and the model');
-    await page.click('#chg-go'); await page.waitForTimeout(2500);
-    const out = await page.$eval('#chg-msg', (e) => e.textContent);
+    await page.click('#chg-go');
+    /* Wait for the sentence, not a fixed 2.5 s: the change rewrites the job
+       and restarts it, and how long the restart takes is the product's. A
+       verdict that never arrives is still caught, by the bound. */
+    let out = 'Working…';
+    for (let i = 0; i < 60 && out === 'Working…'; i += 1) { await page.waitForTimeout(500); out = await page.$eval('#chg-msg', (e) => e.textContent); }
     chk(out.length > 0 && out !== 'Working…', 'the outcome is reported inside the dialog, in a sentence', out.slice(0, 80));
     chk(!(await page.$eval('#chg-modal', (m) => m.hidden)) && (await page.$eval('#chg-keep', (b) => b.textContent)) !== 'Keep it as it is', 'the dialog stays open with a Done/Close rather than vanishing');
     await page.click('#chg-keep'); await page.waitForTimeout(200);
