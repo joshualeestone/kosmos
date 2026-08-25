@@ -7155,6 +7155,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <div class="frow">
           <button class="btn" type="button" id="plus-send-code">Email me a code</button>
         </div>
+        <p class="dhint" id="plus-sent" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
         <div id="plus-code-row" hidden>
           <div class="field">
             <label class="flabel" for="plus-code">The code from the email</label>
@@ -17633,16 +17634,62 @@ document.getElementById('plus-switch').addEventListener('click', async () => {
   } catch { msg.textContent = 'we could not change that'; }
   paintPlus();
 });
+/* The words of the code box (#729). Pete sat at it for twelve minutes, three
+   sends in, unable to tell from the screen whether anything had happened;
+   the emails had all delivered. A wait a person is in must be able to say
+   what it is waiting for and that it can fail (#579's posture, for a
+   person). One place for the sentences so a test can pin them. */
+const PLUS_CODE_WORDS = {
+  asking: (email) => 'Asking for a code for ' + email + '.',
+  sent: (email) => 'We sent a code to ' + email + '. It can take a minute to arrive; look in spam if it is not there. Nothing after a few minutes? Press Email me a code again.',
+  slow: (email) => 'The sign-in service has not answered in 15 seconds about ' + email + '. Nothing was sent that we know of. Check this Mac is online and press Email me a code again.',
+  refused: (why) => 'No code was sent: ' + why + '.',
+  noEmail: 'Type the email first.',
+};
+const PLUS_ASK_TIMEOUT_MS = 15000;
+let PLUS_COUNTDOWN = null;
+function plusCountdown(line, btn, why, secs) {
+  if (PLUS_COUNTDOWN) clearInterval(PLUS_COUNTDOWN);
+  let left = secs;
+  const paint = () => { line.textContent = 'No code was sent: ' + why.replace(/in \d+ seconds?/, 'in ' + left + (left === 1 ? ' second' : ' seconds')) + '.'; };
+  paint();
+  btn.disabled = true;
+  PLUS_COUNTDOWN = setInterval(() => {
+    left -= 1;
+    if (left <= 0) { clearInterval(PLUS_COUNTDOWN); PLUS_COUNTDOWN = null; btn.disabled = false; line.textContent = 'You can ask for a code again now.'; return; }
+    paint();
+  }, 1000);
+}
 document.getElementById('plus-send-code').addEventListener('click', async () => {
   const msg = document.getElementById('plus-msg');
+  const sent = document.getElementById('plus-sent');
+  const btn = document.getElementById('plus-send-code');
   msg.textContent = '';
   const email = document.getElementById('plus-email').value.trim();
+  if (!email) { sent.hidden = false; sent.textContent = PLUS_CODE_WORDS.noEmail; return; }
+  sent.hidden = false; sent.textContent = PLUS_CODE_WORDS.asking(email);
+  btn.disabled = true;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), PLUS_ASK_TIMEOUT_MS);
   try {
-    const res = await fetch('/api/remote/setup-start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email }) });
-    if (!res.ok) { msg.textContent = plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not start the sign-up'); return; }
+    const res = await fetch('/api/remote/setup-start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email }), signal: ctl.signal });
+    if (!res.ok) {
+      const why = plusWords(((await res.json().catch(() => null)) || {}).error || 'the sign-in service refused');
+      /* Too many asks is not a wrong code and not a broken service: the
+         sentence carries the seconds ("in 43 seconds"), so count them down
+         where the person is looking and give the button back at zero. */
+      const m = /in (\d+) seconds?/.exec(why);
+      if (m) { plusCountdown(sent, btn, why, Number(m[1])); return; }
+      sent.textContent = PLUS_CODE_WORDS.refused(why);
+      return;
+    }
+    await res.text().catch(() => '');
+    sent.textContent = PLUS_CODE_WORDS.sent(email);
     document.getElementById('plus-code-row').hidden = false;
     document.getElementById('plus-code').focus();
-  } catch { msg.textContent = 'we could not start the sign-up'; }
+  } catch (err) {
+    sent.textContent = (err && err.name === 'AbortError') ? PLUS_CODE_WORDS.slow(email) : PLUS_CODE_WORDS.refused('this Mac could not reach the sign-in service');
+  } finally { clearTimeout(timer); if (!PLUS_COUNTDOWN) btn.disabled = false; }
 });
 document.getElementById('plus-confirm').addEventListener('click', async () => {
   const msg = document.getElementById('plus-msg');
