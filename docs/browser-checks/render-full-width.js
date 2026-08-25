@@ -121,12 +121,15 @@ const say = (ok, label, extra) => {
     });
     say(Boolean(dg), theme + ': the settings body is on screen');
     if (dg) {
-      say(dg.left === edges.header.left && dg.right === edges.header.right,
-        theme + ': the settings body shares the page edges', JSON.stringify(dg));
+      /* #770 (Josh, 2026-08-24 22:15 and 22:32) reversed the full-width rule
+         for Settings: one 34rem content column beside the nav, the pair
+         centred. So the body is NOT asked to share the page edges any more;
+         it is asked to be centred, and the section to be the create page's
+         width. */
+      say(Math.abs((dg.left + dg.right) / 2 - (edges.header.left + edges.header.right) / 2) <= 2,
+        theme + ': the settings pair is centred on the page', JSON.stringify(dg));
       say(dg.cols === 2, theme + ': nav column plus one section column', String(dg.cols));
-      /* ⚠️ A LOWER BOUND TOO: an assertion that passes on a zero-width hidden
-         element cannot fail for the reason it was written. */
-      say(dg.secWidth > 600 && dg.secWidth < (dg.right - dg.left), theme + ': the open section fills the row beside the nav', String(dg.secWidth));
+      say(dg.secWidth >= 540 && dg.secWidth <= 548, theme + ': the open section is the create page\'s width (34rem)', String(dg.secWidth));
     }
 
     await pg.click('.tab[data-tab="agents"]');

@@ -397,6 +397,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
              color: var(--label-2); background: var(--k-sunk); }
 .lav.youav img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .yourow .frow { flex: 1; min-width: 240px; }
+/* #770: the name field is a name's width, not the page's ("that should
+   probably be 20% that wide"). */
+#you-name { flex: 0 1 14rem; min-width: 10rem; }
 /* In the hub the picture fills the circle the word used to sit in. */
 .hub.haspic { padding: 0; overflow: hidden; border-width: 2px; }
 .hub.haspic img { display: block; width: 100%; height: 100%; object-fit: cover; }
@@ -1352,6 +1355,15 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
    whole screen. The pill that is on wears the gold the tab bar uses, so "which
    one am I in" reads the same way on both levels of the page. */
 .dbody { display: grid; grid-template-columns: 176px minmax(0, 1fr); gap: 26px; align-items: start; }
+/* #770 (Josh, 2026-08-24 22:15 and 22:32): "the width of the settings view
+   needs to be much more condensed... center it and make it so all the tabs
+   need to stay in the same spot. All of the content areas need to be the
+   same width." Settings is the nav column and ONE content column of the
+   create page's width (34rem), centred as a pair, so switching tabs moves
+   nothing and no tab is full-width. Under 60rem the pair gives way to the
+   fluid column it had. */
+#panel-settings .dbody { grid-template-columns: 176px 34rem; justify-content: center; }
+@media (max-width: 60rem) { #panel-settings .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch; } }
 .snav { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 16px; }
 .snav button { position: relative; display: block; width: 100%; text-align: center; padding: 8px 28px;
                border-radius: 100px; border: 1px solid var(--k-rule); background: var(--k-surface);
@@ -6555,7 +6567,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        resemble each other. -->
   <div class="dbody">
   <nav class="snav" id="s-nav" aria-label="Sections of Settings">
-    <button type="button" data-go="you" aria-controls="s-sec-you" class="on" aria-current="true">You</button>
+    <button type="button" data-go="you" aria-controls="s-sec-you" class="on" aria-current="true">Your Profile</button>
     <button type="button" data-go="accounts" aria-controls="s-sec-accounts">Accounts</button>
     <button type="button" data-go="connect" aria-controls="s-sec-connect">Connections</button>
     <button type="button" data-go="gskills" aria-controls="s-sec-gskills">Global Skills</button>
@@ -6568,9 +6580,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="advanced" aria-controls="s-sec-advanced">Advanced</button>
   </nav>
   <div class="dsecs">
-  <section class="dsec" id="s-sec-you" data-sec="you" tabindex="-1" aria-label="You">
+  <section class="dsec" id="s-sec-you" data-sec="you" tabindex="-1" aria-label="Your Profile">
     <section class="dbox">
-      <h3 class="dlab">You</h3>
+      <!-- #770 (Josh, 2026-08-24 22:15): "Your Profile"; Change picture and
+           Remove one size; the "appears wherever Kosmos shows you" sentence
+           gone ("that's implied"); a short name field; a larger yellow Save. -->
+      <h3 class="dlab">Your Profile</h3>
       <!-- Josh, 2026-08-22: "we need the user avatar somewhere in settings
            still". The person is the one participant with no face: "You" is
            plain text in the org hub and in every message row, and on the chart
@@ -6584,11 +6599,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <span class="lav youav" id="you-face" aria-hidden="true">You</span>
         <div class="frow">
           <button class="btn sav-btn" type="button" id="you-file-btn">Change picture</button>
-          <button class="btn-quiet" id="you-remove" type="button" hidden>Remove</button>
+          <button class="btn" id="you-remove" type="button" hidden>Remove</button>
           <input type="file" id="you-file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="A picture of you" hidden>
         </div>
       </div>
-      <p class="dhint" id="you-msg" role="status" style="margin:10px 0 0;">It appears wherever Kosmos shows you, which is the middle of the org chart and beside anything you have said.</p>
+      <p class="dhint" id="you-msg" role="status" style="margin:10px 0 0;"></p>
       <!-- 🔑 YOUR NAME LIVES HERE (Mona Lisa's settings mock, 2026-08-22: "the
            first thing a new person sees in Settings, and one field they
            understand is a better opening than eight sections they do not").
@@ -6601,7 +6616,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <div class="fhint">What your agents call you.</div>
         <div class="frow">
           <input type="text" id="you-name" maxlength="80" placeholder="Your name" disabled>
-          <button class="btn" type="button" id="you-name-save" aria-label="Save your name" disabled>Save</button>
+          <button class="btn uprime" type="button" id="you-name-save" aria-label="Save your name" disabled>Save</button>
         </div>
         <p class="fmsg" id="you-name-msg" role="status" aria-live="polite"></p>
       </div>
