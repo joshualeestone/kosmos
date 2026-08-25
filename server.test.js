@@ -11006,3 +11006,59 @@ test('#761 round 1: a part is heard with its own sentence, a no-op reassignment 
     board.restore();
   }
 });
+
+/* #761 challenge-loop round 2: the part routes' pane-notify valve reused
+   taskMake's persisted process-task counter, but addPart/assignPart never
+   set `addedVia` on anything -- so the counter never moved and the "cap"
+   let a process page a live agent without limit. Fixed with a real,
+   dedicated in-memory counter (server.js heardBudgetLog). */
+test('#761 round 2: a process cannot unboundedly page a live agent through the part routes', async () => {
+  const chatEngine = require('./engine/chat');
+  const projectsEngine761c = require('./engine/projects');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  const sends = [];
+  try {
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    const pdir = nodePath.join(SANDBOX, 'p761-valve'); fs.mkdirSync(pdir, { recursive: true });
+    const p = projectsEngine761c.create({ name: 'Valve check', folder: pdir, agents: ['mara'], roster: board.agents });
+    const r0 = await req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ sentence: 'Host a dinner' }),
+    });
+    assert.equal(r0.status, 200, r0.body);
+
+    // Twelve process-originated (no sec-fetch-site: a curl, not a browser)
+    // part assignments should each page the pane -- the cap is 12/hour.
+    let placed = 0;
+    for (let i = 0; i < 12; i++) {
+      const rp = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sentence: 'Course ' + i, who: 'mara' }),
+      });
+      assert.equal(rp.status, 200, rp.body);
+      const outp = JSON.parse(rp.body);
+      if (outp.heard && outp.heard.state === 'placed') placed++;
+    }
+    assert.equal(placed, 12, 'all twelve under the cap were heard');
+
+    // The part still gets created past the cap (the write is never gated),
+    // but nothing is typed into mara's pane for it.
+    const before = sends.length;
+    const r13 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sentence: 'Course 13', who: 'mara' }),
+    });
+    assert.equal(r13.status, 200, r13.body);
+    assert.equal(JSON.parse(r13.body).task.parts.some((x) => x.sentence === 'Course 13'), true, 'the write still lands over the cap');
+    assert.equal(JSON.parse(r13.body).heard, undefined, 'over the cap, the pane is not paged again');
+    assert.equal(sends.length, before, 'CONTROL: nothing new was typed once the valve tripped');
+  } finally {
+    chatEngine.setRunner(null);
+    board.restore();
+  }
+});

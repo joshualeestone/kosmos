@@ -72,6 +72,25 @@ const { version } = require('./package.json');
 const ENGINE_STARTED_AT = new Date();
 const ENGINE_ROOT = __dirname + path.sep;
 let engineLook = { at: 0, staleSince: null };
+/* #761's valve for the part routes (below, near heardBy): unlike a task,
+   a part carries no `addedVia`/`createdAt` of its own, so counting
+   process-made PARTS the way taskMake counts process-made tasks would need
+   widening that record shape for a safety valve alone. This counts the
+   thing actually being limited -- process-triggered pane notifications --
+   directly, in memory. ⚠️ Resets on restart, unlike taskMake's persisted
+   count: an acceptable line for a notification valve (the write it guards
+   still lands either way) but NOT one to reuse for anything that gates data. */
+const heardBudgetLog = [];
+const HEARD_BUDGET_WINDOW_MS = 3600000;
+const HEARD_BUDGET_MAX = 12;
+function heardBudgetAllows() {
+  const cutoff = Date.now() - HEARD_BUDGET_WINDOW_MS;
+  while (heardBudgetLog.length && heardBudgetLog[0] < cutoff) heardBudgetLog.shift();
+  return heardBudgetLog.length < HEARD_BUDGET_MAX;
+}
+function heardBudgetRecord() {
+  heardBudgetLog.push(Date.now());
+}
 function engineFreshness() {
   const now = Date.now();
   if (now - engineLook.at > 5000) {
@@ -5153,20 +5172,9 @@ const server = http.createServer((req, res) => {
     return typeof req2.headers['sec-fetch-site'] === 'string'
       || (() => { try { const h = new URL(String(req2.headers.origin || '')).hostname.replace(/\.$/, '').toLowerCase(); return LOOPBACK_HOSTS.has(h) || ALLOWED_HOSTS.has(h); } catch { return false; } })();
   }
-  /* #761's own valve for the two routes taskMake's twelve-an-hour cap does
-     not cover: a part gets no `addedVia` of its own (parts predate #485's
-     process/screen split and are not job to widen here), so this reuses the
-     SAME hour-window count of process-made tasks as a shared budget for
-     "how many times a process can make Kosmos type into a live pane" --
-     under the cap, `heard` still fires for a part; over it, the write still
-     lands (skipping notification is not skipping the edit) but nothing is
-     typed, the same non-gating rule as `told`. */
-  function heardBudgetAllows() {
-    const hourAgo = Date.now() - 3600000;
-    const recent = projects.readAll().reduce((n, p) => n + ((p && p.tasks) || []).filter((t) => t && t.addedVia === 'process'
-      && Number.isFinite(Date.parse(t.createdAt)) && Date.parse(t.createdAt) >= hourAgo).length, 0);
-    return recent < 12;
-  }
+  // heardBudgetAllows/heardBudgetRecord: module scope, above, beside
+  // ENGINE_STARTED_AT -- they must survive across requests, and every name
+  // in this handler is redefined fresh per request.
   // `sentence` is explicit, never read off `t`: a part's own sentence is
   // never the task's top-level one (a task with parts drops `who`/keeps one
   // `sentence` at the top, and a part given a `who` must be heard for the
@@ -5235,8 +5243,16 @@ const server = http.createServer((req, res) => {
       try {
         const out = tasks.addPart(id, partMake[2], { sentence: body && body.sentence, who: body && body.who });
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
-        const heard = (isViaScreen(req) || heardBudgetAllows())
-          ? heardBy(id, out.task, body && body.who, body && body.sentence) : undefined;
+        const screen = isViaScreen(req);
+        // The STORED (trimmed) sentence, off the part addPart just appended
+        // -- never the raw request body, which can carry whitespace addPart
+        // itself strips before saving.
+        const newPart = (out.task.parts || [])[(out.task.parts || []).length - 1];
+        let heard;
+        if (screen || heardBudgetAllows()) {
+          heard = heardBy(id, out.task, body && body.who, newPart && newPart.sentence);
+          if (heard && !screen) heardBudgetRecord();
+        }
         sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task), heard });
       } catch (err) {
         const msg = String((err && err.message) || '');
@@ -5263,10 +5279,13 @@ const server = http.createServer((req, res) => {
         // `out.changed`: assignPart reports whether `who` actually moved, so
         // re-posting the same assignee does not re-type the same pane line
         // (#304's rule). The budget check mirrors partMake's.
-        const heard = (verb === 'who' && out.changed && (isViaScreen(req) || heardBudgetAllows()))
-          ? heardBy(id, out.task, body && body.who,
-              (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partAct[3])) || {}).sentence)
-          : undefined;
+        const screen = isViaScreen(req);
+        let heard;
+        if (verb === 'who' && out.changed && (screen || heardBudgetAllows())) {
+          const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partAct[3])) || {}).sentence;
+          heard = heardBy(id, out.task, body && body.who, sentence);
+          if (heard && !screen) heardBudgetRecord();
+        }
         sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task), heard });
       } catch (err) {
         const msg = String((err && err.message) || '');
