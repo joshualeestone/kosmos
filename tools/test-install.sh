@@ -220,6 +220,26 @@ chk() {
   if eval "$2"; then PASS=$((PASS + 1)); echo "PASS  $1"
   else FAIL=$((FAIL + 1)); echo "FAIL  $1"; fi
 }
+# Exit codes read as verdicts (#785). rc_ok is "exited 0" and, when it did
+# not, says the code, naming 126 and 127 as could-not-run (a program missing
+# or not executable) rather than a failed assertion. rc_refused is "exited
+# non-zero on purpose": a 126 or 127 is NOT a refusal, it is the thing not
+# running at all, and before this a tampered download that could not run
+# passed the "refuses" check.
+rc_say() {
+  case "$1" in
+    126|127) echo "      exit $1: could not run (a program missing or not executable), not a failed assertion" ;;
+    *) echo "      exit $1" ;;
+  esac
+}
+rc_ok() { [ "$1" -eq 0 ] && return 0; rc_say "$1"; return 1; }
+rc_refused() {
+  case "$1" in
+    0) echo "      exit 0: it did not refuse"; return 1 ;;
+    126|127) rc_say "$1"; return 1 ;;
+    *) return 0 ;;
+  esac
+}
 
 seed_kosmos_bundle() { # $1 = Applications dir, $2 = the KOSMOS_HOME it bakes
   mkdir -p "$1/Kosmos.app/Contents/MacOS"
@@ -279,7 +299,7 @@ echo "== install (piped into sh, local sources, port $PORT) =="
 # The ONE real Claude Code download of the run (the positive control for the
 # carry): the shared seam is cleared for this command only.
 RC=0; cat "$SETUP" | AGENT_WORKFORCE_CLAUDE_BIN= sh > "$SB/install.log" 2>&1 || RC=$?
-chk "install exits 0" "[ $RC -eq 0 ]"
+chk "install exits 0" "rc_ok $RC"
 # 🔑 THE UPGRADE PATH, ASSERTED HERE AND NOT ONLY AFTER THE UNINSTALL. An
 # update re-runs THIS installer over an existing install (engine/update.js
 # fetches /setup and runs it), so "install does not touch the person's data" is
@@ -383,7 +403,7 @@ mkdir -p "$SB/fakehome/bin"
 printf '#!/bin/sh\necho "$@" >> "%s/launcher.log"\nexit 0\n' "$SB" > "$SB/fakehome/bin/kosmos"
 chmod +x "$SB/fakehome/bin/kosmos"
 RC=0; KOSMOS_HOME="$SB/fakehome" "$SB/apps/Kosmos.app/Contents/MacOS/Kosmos" > /dev/null 2>&1 || RC=$?
-chk "launcher passes its own account and opens" "[ $RC -eq 0 ] && grep -qx 'open' \"$SB/launcher.log\""
+chk "launcher passes its own account and opens" "rc_ok $RC && grep -qx 'open' \"$SB/launcher.log\""
 chk "the launcher bakes this install's port" "grep -q \"KOSMOS_PORT:-$PORT\" \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\""
 # The NEGATIVE control: the refusal is the guard's whole purpose, and
 # without this the entire uid block could be deleted while the suite
@@ -413,7 +433,7 @@ mkdir -p "$SB/ownhome/.local/share/kosmos/bin"
 printf '#!/bin/sh\nprintf "%%s %%s\\n" "$1" "${KOSMOS_HOME:-}" >> "%s/own-open.log"\nexit 0\n' "$SB" > "$SB/ownhome/.local/share/kosmos/bin/kosmos"
 chmod +x "$SB/ownhome/.local/share/kosmos/bin/kosmos"
 RC=0; HOME="$SB/ownhome" "$SB/other-account-launcher" > /dev/null 2>&1 || RC=$?
-chk "an account with its own Kosmos gets that one opened (exit 0)" "[ $RC -eq 0 ]"
+chk "an account with its own Kosmos gets that one opened (exit 0)" "rc_ok $RC"
 chk "and it was THEIR copy that was called, with their home baked" "grep -q \"^open $SB/ownhome/.local/share/kosmos\" \"$SB/own-open.log\""
 chk "and this icon's launcher log did not grow (nothing real was opened)" "[ \"\$(wc -l < \"$SB/launcher.log\" | tr -d ' ')\" = \"$LNS_BEFORE\" ]"
 
@@ -421,7 +441,7 @@ echo "== update (stale file must not survive; board must restart) =="
 touch "$SB/home/app/engine/stale-marker.js"
 PID1="$(cat "$SB/home/board.pid")"
 RC=0; cat "$SETUP" | sh > "$SB/update.log" 2>&1 || RC=$?
-chk "update exits 0" "[ $RC -eq 0 ]"
+chk "update exits 0" "rc_ok $RC"
 chk "stale file gone (swap, not merge)" "[ ! -e \"$SB/home/app/engine/stale-marker.js\" ]"
 chk "board restarted (new pid)" "[ \"$PID1\" != \"$(cat "$SB/home/board.pid")\" ]"
 chk "board serves after update" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
@@ -444,7 +464,7 @@ seed_residue "$SB/apps/.Kosmos.app.old.444" "$SB/home"
 # written — which is precisely the bug this change fixes.
 chk "the board's login job is there before the uninstall (or its removal cannot fail)" "[ -f \"$SB/launch/com.kosmos.board.plist\" ]"
 RC=0; sh -s -- --uninstall < "$SETUP" > "$SB/uninstall.log" 2>&1 || RC=$?
-chk "uninstall exits 0" "[ $RC -eq 0 ]"
+chk "uninstall exits 0" "rc_ok $RC"
 chk "home gone" "[ ! -d \"$SB/home\" ]"
 chk "symlink gone" "[ ! -e \"$SB/bin/kosmos\" ] && [ ! -L \"$SB/bin/kosmos\" ]"
 chk "app gone" "[ ! -d \"$SB/apps/Kosmos.app\" ]"
@@ -478,7 +498,7 @@ chk "the operator's own profile line survives" "grep -q 'own line' \"$SB/zprofil
 # case the regex exists for) and run the uninstall again.
 printf '%s\nexport PATH="/different/bin:$PATH"\n' '# kosmos: PATH for the kosmos command (removed by --uninstall)' >> "$SB/zprofile"
 RC=0; sh -s -- --uninstall < "$SETUP" > "$SB/uninstall2.log" 2>&1 || RC=$?
-chk "second uninstall exits 0" "[ $RC -eq 0 ]"
+chk "second uninstall exits 0" "rc_ok $RC"
 chk "adjacency arm removed an export from a DIFFERENT bin dir" "! grep -q '/different/bin' \"$SB/zprofile\""
 chk "the operator's line still survives the second sweep" "grep -q 'own line' \"$SB/zprofile\""
 # The pre-existing-backup HALT arm: a prior failed run's preserved copy
@@ -489,7 +509,7 @@ printf '%s\nexport PATH="/halt/bin:$PATH"\n' '# kosmos: PATH for the kosmos comm
 printf 'PRESERVED FROM AN EARLIER RUN\n' > "$SB/zprofile.kosmos-uninstall-backup"
 cp "$SB/zprofile" "$SB/zprofile.before-halt"
 RC=0; sh -s -- --uninstall < "$SETUP" > "$SB/uninstall3.log" 2>&1 || RC=$?
-chk "halt-arm uninstall exits 0" "[ $RC -eq 0 ]"
+chk "halt-arm uninstall exits 0" "rc_ok $RC"
 chk "a pre-existing backup halts the edit (profile untouched)" "cmp -s \"$SB/zprofile\" \"$SB/zprofile.before-halt\""
 chk "the preserved backup survives byte-identical" "[ \"\$(cat \"$SB/zprofile.kosmos-uninstall-backup\")\" = 'PRESERVED FROM AN EARLIER RUN' ]"
 chk "the halt names the backup in its note" "grep -q 'already exists from an earlier run' \"$SB/uninstall3.log\""
@@ -511,13 +531,13 @@ if cp "$HERE/dist/tmux-arm64.tar.gz" "$HERE/dist/tmux-arm64.tar.gz.sha256" \
   unset KOSMOS_TMUX_SRC KOSMOS_SRC
   export KOSMOS_RELEASE_BASE="file://$SB/dist"
   RC=0; cat "$SETUP" | sh > "$SB/dl-install.log" 2>&1 || RC=$?
-  chk "download-path install exits 0" "[ $RC -eq 0 ]"
+  chk "download-path install exits 0" "rc_ok $RC"
   chk "download-path board answers" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
   "$SB/bin/kosmos" stop > /dev/null 2>&1 || true
   sh -s -- --uninstall < "$SETUP" > /dev/null 2>&1 || true
   printf 'x' >> "$SB/dist/kosmos-arm64.tar.gz"
   RC=0; cat "$SETUP" | sh > "$SB/tamper.log" 2>&1 || RC=$?
-  chk "tampered download refuses" "[ $RC -ne 0 ]"
+  chk "tampered download refuses" "rc_refused $RC"
   chk "tamper refusal speaks a sentence" "grep -q 'did not arrive intact' \"$SB/tamper.log\""
   chk "no stage residue after refusal" "[ -z \"\$(ls -d \"$SB/home\"/.kosmos.stage.* 2>/dev/null)\" ]"
 
@@ -533,7 +553,7 @@ if cp "$HERE/dist/tmux-arm64.tar.gz" "$HERE/dist/tmux-arm64.tar.gz.sha256" \
     cp "$SB/dist/kosmos-arm64.tar.gz" "$SB/dist/kosmos-$BUNDLE_V-arm64.tar.gz"
     cp "$SB/dist/kosmos-arm64.tar.gz.sha256" "$SB/dist/kosmos-$BUNDLE_V-arm64.tar.gz.sha256"
     RC=0; cat "$SETUP" | sh > "$SB/pinned.log" 2>&1 || RC=$?
-    chk "pinned install exits 0" "[ $RC -eq 0 ]"
+    chk "pinned install exits 0" "rc_ok $RC"
     chk "the run names its target version" "grep -q \"installs Kosmos $BUNDLE_V\" \"$SB/pinned.log\""
     chk "the versioned artifact name was fetched" "grep -q \"kosmos-$BUNDLE_V-arm64.tar.gz\" \"$SB/pinned.log\""
     chk "the read-back states what is on disk" "grep -q \"on disk now: Kosmos $BUNDLE_V\" \"$SB/pinned.log\""
@@ -546,7 +566,7 @@ if cp "$HERE/dist/tmux-arm64.tar.gz" "$HERE/dist/tmux-arm64.tar.gz.sha256" \
     # exit non-zero, never print done over the old version.
     printf '{"version":"9.9.9-wedge"}\n' > "$SB/dist/latest.json"
     RC=0; cat "$SETUP" | sh > "$SB/stale.log" 2>&1 || RC=$?
-    chk "stale-bytes install refuses (exit non-zero)" "[ $RC -ne 0 ]"
+    chk "stale-bytes install refuses (exit non-zero)" "rc_refused $RC"
     chk "the refusal names both versions" "grep -q 'release pointer says 9.9.9-wedge' \"$SB/stale.log\" && grep -q \"files that landed are $BUNDLE_V\" \"$SB/stale.log\""
     chk "no false installed-done over old bytes" "! grep -q 'on disk now: Kosmos' \"$SB/stale.log\""
     rm -f "$SB/dist/latest.json" "$SB/dist/kosmos-$BUNDLE_V-arm64.tar.gz" "$SB/dist/kosmos-$BUNDLE_V-arm64.tar.gz.sha256"
@@ -605,7 +625,7 @@ export KOSMOS_HOME="$SB/home2" KOSMOS_BIN_DIR="$SB/bin2"
 # operator's real ~/.zprofile (leaked once, 2026-08-18, before the gate).
 RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_PROFILE_FILE= KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe1.log" 2>&1 || RC=$?
 chk "the profile gate skipped: no zprofile written under the sandbox HOME" "[ ! -e \"$SBH/.zprofile\" ]"
-chk "probe install exits 0" "[ $RC -eq 0 ]"
+chk "probe install exits 0" "rc_ok $RC"
 chk "app landed in the system folder" "[ -x \"$SYS_OK/Kosmos.app/Contents/MacOS/Kosmos\" ]"
 chk "transcript names Applications" "grep -q 'you will find it in Applications, as Kosmos' \"$SB/probe1.log\""
 chk "stale home-folder icon cleaned up" "[ ! -d \"$SBH/Applications/Kosmos.app\" ]"
@@ -617,7 +637,7 @@ chk "fresh install opened the dashboard" "[ \"\$(wc -l < \"$SB/opened.log\" 2>/d
 
 # The update run through the same probe env must NOT open the browser.
 RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe1b.log" 2>&1 || RC=$?
-chk "probe update exits 0" "[ $RC -eq 0 ]"
+chk "probe update exits 0" "rc_ok $RC"
 chk "update did not open the dashboard" "[ \"\$(wc -l < \"$SB/opened.log\" | tr -d ' ')\" = \"1\" ]"
 KOSMOS_HOME="$SB/home2" "$SB/bin2/kosmos" stop > /dev/null 2>&1 || true
 
@@ -637,7 +657,7 @@ else
   # KOSMOS_NO_OPEN stays exported here: a fresh install with the suppressor
   # set must stay quiet, which pins the suppressor itself.
   RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_RO" KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe2.log" 2>&1 || RC=$?
-  chk "fallback install exits 0" "[ $RC -eq 0 ]"
+  chk "fallback install exits 0" "rc_ok $RC"
   chk "app fell back to the home folder" "[ -x \"$SBH/Applications/Kosmos.app/Contents/MacOS/Kosmos\" ]"
   chk "transcript names the home folder" "grep -q 'you will find it in the Applications folder inside your home folder' \"$SB/probe2.log\""
   chk "no probe residue in the read-only folder" "[ -z \"\$(ls -A \"$SYS_RO\")\" ]"
@@ -651,7 +671,7 @@ echo "== the uninstall sweep proves ownership before deleting =="
 # runs as the home3 install, so the sweep must take the per-user icon and
 # REFUSE the shared one it does not own, in a sentence.
 RC=0; HOME="$SBH" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" sh -s -- --uninstall < "$SETUP" > "$SB/probe-un.log" 2>&1 || RC=$?
-chk "sweep uninstall exits 0" "[ $RC -eq 0 ]"
+chk "sweep uninstall exits 0" "rc_ok $RC"
 chk "home-folder icon swept" "[ ! -d \"$SBH/Applications/Kosmos.app\" ]"
 chk "another install's system icon left alone" "[ -d \"$SYS_OK/Kosmos.app\" ]"
 chk "the refusal speaks a sentence" "grep -q \"in $SYS_OK could not be proven to belong to this install\" \"$SB/probe-un.log\""
@@ -670,7 +690,7 @@ seed_residue "$SBH/Applications/.Kosmos.app.old.222" "$SB/home2"
 mkdir -p "$SYS_OK/.kosmos-write-probe.777"
 export KOSMOS_HOME="$SB/home2" KOSMOS_BIN_DIR="$SB/bin2"
 RC=0; HOME="$SBH" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" sh -s -- --uninstall < "$SETUP" > "$SB/probe-un2.log" 2>&1 || RC=$?
-chk "owner uninstall exits 0" "[ $RC -eq 0 ]"
+chk "owner uninstall exits 0" "rc_ok $RC"
 chk "system-folder icon swept by its owner" "[ ! -d \"$SYS_OK/Kosmos.app\" ]"
 chk "our stage and probe residue swept from the system folder" "[ ! -e \"$SYS_OK/.Kosmos.app.stage.999\" ] && [ ! -e \"$SYS_OK/.kosmos-write-probe.777\" ] && [ ! -e \"$SYS_OK/.Kosmos.app.old.111\" ]"
 chk "the foreign aside survives" "[ -d \"$SYS_OK/.Kosmos.app.old.333\" ]"
@@ -691,7 +711,7 @@ mkdir -p "$SBH3" "$SYSALIAS"
 ln -s "$SYSALIAS" "$SBH3/Applications"
 export KOSMOS_HOME="$SB/home4" KOSMOS_BIN_DIR="$SB/bin4"
 RC=0; cat "$SETUP" | HOME="$SBH3" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYSALIAS" sh > "$SB/alias.log" 2>&1 || RC=$?
-chk "aliased install exits 0" "[ $RC -eq 0 ]"
+chk "aliased install exits 0" "rc_ok $RC"
 chk "app survives its own stale-icon cleanup" "[ -x \"$SYSALIAS/Kosmos.app/Contents/MacOS/Kosmos\" ]"
 chk "no phantom move sentence" "! grep -q 'icon moved here' \"$SB/alias.log\""
 KOSMOS_HOME="$SB/home4" "$SB/bin4/kosmos" stop > /dev/null 2>&1 || true
@@ -699,11 +719,11 @@ KOSMOS_HOME="$SB/home4" "$SB/bin4/kosmos" stop > /dev/null 2>&1 || true
 # check refuses the system icon, and the home sweep must not delete it
 # through the symlink either.
 RC=0; HOME="$SBH3" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYSALIAS" KOSMOS_HOME="$SB/home5" KOSMOS_BIN_DIR="$SB/bin5" sh -s -- --uninstall < "$SETUP" > "$SB/alias-un.log" 2>&1 || RC=$?
-chk "foreign uninstall exits 0 in the aliased world" "[ $RC -eq 0 ]"
+chk "foreign uninstall exits 0 in the aliased world" "rc_ok $RC"
 chk "refused bundle survives the aliased home sweep" "[ -d \"$SYSALIAS/Kosmos.app\" ]"
 # The owner's uninstall takes it, exactly once, with no survivor note.
 RC=0; HOME="$SBH3" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYSALIAS" sh -s -- --uninstall < "$SETUP" > "$SB/alias-un2.log" 2>&1 || RC=$?
-chk "owner uninstall exits 0 in the aliased world" "[ $RC -eq 0 ]"
+chk "owner uninstall exits 0 in the aliased world" "rc_ok $RC"
 chk "aliased bundle removed by its owner" "[ ! -d \"$SYSALIAS/Kosmos.app\" ]"
 chk "no spurious survivor note" "! grep -q 'could not remove' \"$SB/alias-un2.log\""
 
@@ -720,7 +740,7 @@ SBH4="$SB/divert-home"
 mkdir -p "$SBH4"
 export KOSMOS_HOME="$SB/home6" KOSMOS_BIN_DIR="$SB/bin6"
 RC=0; cat "$SETUP" | HOME="$SBH4" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_FOREIGN" sh > "$SB/divert.log" 2>&1 || RC=$?
-chk "divert install exits 0" "[ $RC -eq 0 ]"
+chk "divert install exits 0" "rc_ok $RC"
 chk "foreign bundle untouched" "grep -q 'not ours' \"$SYS_FOREIGN/Kosmos.app/Contents/MacOS/KosmosDesktop\""
 chk "our app went to the home folder instead" "[ -x \"$SBH4/Applications/Kosmos.app/Contents/MacOS/Kosmos\" ]"
 chk "the divert speaks its own sentence" "grep -q 'something else already has the Kosmos spot' \"$SB/divert.log\""
@@ -740,7 +760,7 @@ mkdir -p "$SBH7"
 ln -s "$SYSALIAS2" "$SBH7/Applications"
 export KOSMOS_HOME="$SB/home9" KOSMOS_BIN_DIR="$SB/bin9"
 RC=0; cat "$SETUP" | HOME="$SBH7" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYSALIAS2" sh > "$SB/alias-foreign.log" 2>&1 || RC=$?
-chk "foreign-aliased install exits 0" "[ $RC -eq 0 ]"
+chk "foreign-aliased install exits 0" "rc_ok $RC"
 chk "the stranger's app is byte-identical" "grep -q 'stranger' \"$SYSALIAS2/Kosmos.app/Contents/MacOS/Kosmos\""
 chk "nothing new appeared beside the stranger's app" "[ \"\$(ls -A \"$SYSALIAS2\" | grep -cv '^Kosmos.app\$')\" = \"0\" ]"
 chk "the skip speaks its own sentence" "grep -q 'is the same folder, so no icon was created' \"$SB/alias-foreign.log\""
@@ -765,7 +785,7 @@ else
   mkdir -p "$SBH5"
   export KOSMOS_HOME="$SB/home7" KOSMOS_BIN_DIR="$SB/bin7"
   RC=0; cat "$SETUP" | HOME="$SBH5" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_WEDGE" sh > "$SB/wedge.log" 2>&1 || RC=$?
-  chk "wedge install exits 0" "[ $RC -eq 0 ]"
+  chk "wedge install exits 0" "rc_ok $RC"
   chk "retry landed the icon in the home folder" "[ -x \"$SBH5/Applications/Kosmos.app/Contents/MacOS/Kosmos\" ]"
   chk "retry sentence names the home folder" "grep -q 'you will find it in the Applications folder inside your home folder' \"$SB/wedge.log\""
   chk "the unmovable bundle was never gutted" "[ -f \"$SYS_WEDGE/Kosmos.app/Contents/MacOS/Kosmos\" ]"
@@ -790,7 +810,7 @@ else
   mkdir -p "$SBH17"
   export KOSMOS_HOME="$SB/home19" KOSMOS_BIN_DIR="$SB/bin19"
   RC=0; cat "$SETUP" | HOME="$SBH17" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_DEEP" sh > "$SB/deep.log" 2>&1 || RC=$?
-  chk "deep-locked reinstall exits 0" "[ $RC -eq 0 ]"
+  chk "deep-locked reinstall exits 0" "rc_ok $RC"
   chk "the visible slot holds a complete bundle" "[ -x \"$SYS_DEEP/Kosmos.app/Contents/MacOS/Kosmos\" ]"
   chk "the new bundle is provably ours" "grep -qF \":-$SB/home19}\\\"\" \"$SYS_DEEP/Kosmos.app/Contents/MacOS/Kosmos\""
   chk "the locked aside is named at install time" "grep -q 'could not remove the leftover hidden folder' \"$SB/deep.log\""
@@ -801,7 +821,7 @@ else
   # served header says the sweep names what it cannot remove; hold it to
   # that.
   RC=0; HOME="$SBH17" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_DEEP" sh -s -- --uninstall < "$SETUP" > "$SB/deep-un.log" 2>&1 || RC=$?
-  chk "deep-world uninstall exits 0" "[ $RC -eq 0 ]"
+  chk "deep-world uninstall exits 0" "rc_ok $RC"
   chk "deep-world slot fully cleared" "[ ! -e \"$SYS_DEEP/Kosmos.app\" ]"
   # The aside here is OUR OWN, gutted unprovable by its best-effort
   # cleanup dying on the locked dir; either it is gone, or the transcript
@@ -821,7 +841,7 @@ else
   SBH6="$SB/locked-home"
   mkdir -p "$SBH6"
   RC=0; HOME="$SBH6" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_LOCKED" sh -s -- --uninstall < "$SETUP" > "$SB/locked-un.log" 2>&1 || RC=$?
-  chk "locked uninstall exits 0" "[ $RC -eq 0 ]"
+  chk "locked uninstall exits 0" "rc_ok $RC"
   chk "the survivor is named" "grep -q 'could not remove' \"$SB/locked-un.log\""
   chk "the survivor survives" "[ -d \"$SYS_LOCKED/Kosmos.app\" ]"
   chmod 755 "$SYS_LOCKED"
@@ -838,13 +858,13 @@ SYS_OK3="$SB/sysok3"
 mkdir -p "$SYS_OK3"
 export KOSMOS_HOME="$SB/home10" KOSMOS_BIN_DIR="$SB/bin10"
 RC=0; cat "$SETUP" | HOME="$SBH9" KOSMOS_HOME_APP_DIR="$SBH9/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK3" sh > "$SB/fhome.log" 2>&1 || RC=$?
-chk "foreign-home install exits 0" "[ $RC -eq 0 ]"
+chk "foreign-home install exits 0" "rc_ok $RC"
 chk "foreign home bundle survives the cleanup" "grep -q 'theirs' \"$SBH9/Applications/Kosmos.app/Contents/MacOS/Kosmos\""
 chk "the foreign home bundle is named" "grep -q 'not created by this install is in the Applications folder inside your home folder' \"$SB/fhome.log\""
 KOSMOS_HOME="$SB/home10" "$SB/bin10/kosmos" stop > /dev/null 2>&1 || true
 # Its uninstall drives the home-folder refusal note too.
 RC=0; HOME="$SBH9" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK3" sh -s -- --uninstall < "$SETUP" > "$SB/fhome-un.log" 2>&1 || RC=$?
-chk "foreign-home uninstall exits 0" "[ $RC -eq 0 ]"
+chk "foreign-home uninstall exits 0" "rc_ok $RC"
 chk "home refusal speaks its sentence" "grep -q 'inside your home folder was not created by this install' \"$SB/fhome-un.log\""
 chk "foreign home bundle survives uninstall" "[ -d \"$SBH9/Applications/Kosmos.app\" ]"
 
@@ -855,7 +875,7 @@ mkdir -p "$SBH10"
 seed_kosmos_bundle "$SBH10/Applications" "$SB/home11"
 export KOSMOS_HOME="$SB/home11" KOSMOS_BIN_DIR="$SB/bin11"
 RC=0; HOME="$SBH10" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SB/no-such-sys" sh -s -- --uninstall < "$SETUP" > "$SB/nosys-un.log" 2>&1 || RC=$?
-chk "no-sys uninstall exits 0" "[ $RC -eq 0 ]"
+chk "no-sys uninstall exits 0" "rc_ok $RC"
 chk "fail-closed note names the system folder" "grep -q \"could not check $SB/no-such-sys\" \"$SB/nosys-un.log\""
 chk "home icon left alone under fail-closed" "[ -d \"$SBH10/Applications/Kosmos.app\" ]"
 
@@ -880,7 +900,7 @@ else
   mkdir -p "$SYS_OK4"
   export KOSMOS_HOME="$SB/home12" KOSMOS_BIN_DIR="$SB/bin12"
   RC=0; cat "$SETUP" | HOME="$SBH11" KOSMOS_HOME_APP_DIR="$SBH11/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK4" sh > "$SB/stale-locked.log" 2>&1 || RC=$?
-  chk "locked-stale install exits 0" "[ $RC -eq 0 ]"
+  chk "locked-stale install exits 0" "rc_ok $RC"
   chk "undeletable stale icon is named" "grep -q 'an older Kosmos icon is still' \"$SB/stale-locked.log\""
   KOSMOS_HOME="$SB/home12" "$SB/bin12/kosmos" stop > /dev/null 2>&1 || true
 
@@ -888,7 +908,7 @@ else
   # locked so the home sweep's rm fails and must name the survivor.
   RC=0; HOME="$SBH11" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK4" sh -s -- --uninstall < "$SETUP" > "$SB/locked-home-un.log" 2>&1 || RC=$?
   chmod -R u+w "$SBH11" 2>/dev/null || true
-  chk "locked-home uninstall exits 0" "[ $RC -eq 0 ]"
+  chk "locked-home uninstall exits 0" "rc_ok $RC"
   chk "home survivor is named" "grep -q \"could not remove $SBH11/Applications/Kosmos.app\" \"$SB/locked-home-un.log\""
 
   # The last give-up sentence: probe fails AND the home folder cannot take
@@ -901,7 +921,7 @@ else
   chmod 555 "$SBH12/Applications"
   export KOSMOS_HOME="$SB/home13" KOSMOS_BIN_DIR="$SB/bin13"
   RC=0; cat "$SETUP" | HOME="$SBH12" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_RO2" sh > "$SB/noicon.log" 2>&1 || RC=$?
-  chk "no-icon install exits 0" "[ $RC -eq 0 ]"
+  chk "no-icon install exits 0" "rc_ok $RC"
   chk "the give-up sentence prints" "grep -q 'could not create the app icon, but Kosmos itself is fine' \"$SB/noicon.log\""
   chmod 755 "$SYS_RO2" "$SBH12/Applications"
   KOSMOS_HOME="$SB/home13" "$SB/bin13/kosmos" stop > /dev/null 2>&1 || true
@@ -920,7 +940,7 @@ SBH18="$SB/lnk-home"
 mkdir -p "$SBH18"
 export KOSMOS_HOME="$SB/home20" KOSMOS_BIN_DIR="$SB/bin20"
 RC=0; cat "$SETUP" | HOME="$SBH18" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_LNK" sh > "$SB/syslnk.log" 2>&1 || RC=$?
-chk "system-link install exits 0" "[ $RC -eq 0 ]"
+chk "system-link install exits 0" "rc_ok $RC"
 chk "the link entry survives untouched" "[ -L \"$SYS_LNK/Kosmos.app\" ] && [ \"\$(readlink \"$SYS_LNK/Kosmos.app\")\" = \"$SB/nowhere/Kosmos.app\" ]"
 chk "the install diverted to the home folder" "[ -x \"$SBH18/Applications/Kosmos.app/Contents/MacOS/Kosmos\" ]"
 chk "the divert names the occupied spot" "grep -q 'something else already has the Kosmos spot' \"$SB/syslnk.log\""
@@ -938,7 +958,7 @@ SBH21="$SB/lnk2-home"
 mkdir -p "$SBH21"
 export KOSMOS_HOME="$SB/home23" KOSMOS_BIN_DIR="$SB/bin23"
 RC=0; cat "$SETUP" | HOME="$SBH21" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_LNK2" sh > "$SB/syslnk2.log" 2>&1 || RC=$?
-chk "resolvable-link install exits 0" "[ $RC -eq 0 ]"
+chk "resolvable-link install exits 0" "rc_ok $RC"
 chk "the resolvable link survives untouched" "[ -L \"$SYS_LNK2/Kosmos.app\" ] && [ \"\$(readlink \"$SYS_LNK2/Kosmos.app\")\" = \"$REALB/Kosmos.app\" ]"
 chk "the link's target survives untouched" "[ -f \"$REALB/Kosmos.app/Contents/MacOS/Kosmos\" ]"
 chk "the resolvable-link install diverted home" "[ -x \"$SBH21/Applications/Kosmos.app/Contents/MacOS/Kosmos\" ]"
@@ -961,7 +981,7 @@ for _lvl in contents macos leaf; do
     leaf) mkdir -p "$LNK_SYS/Kosmos.app/Contents/MacOS"; ln -s "$LNK_TGT/Kosmos.app/Contents/MacOS/Kosmos" "$LNK_SYS/Kosmos.app/Contents/MacOS/Kosmos" ;;
   esac
   RC=0; HOME="$SB/inner-home-$_lvl" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$LNK_SYS" KOSMOS_HOME="$SB/home-inner" KOSMOS_BIN_DIR="$SB/bin-inner" sh -s -- --uninstall < "$SETUP" > "$SB/inner-$_lvl.log" 2>&1 || RC=$?
-  chk "inner-$_lvl link uninstall exits 0" "[ $RC -eq 0 ]"
+  chk "inner-$_lvl link uninstall exits 0" "rc_ok $RC"
   chk "inner-$_lvl link bundle survives, named" "[ -e \"$LNK_SYS/Kosmos.app\" ] && grep -q 'could not be proven to belong to this install' \"$SB/inner-$_lvl.log\""
 done
 
@@ -977,7 +997,7 @@ mkdir -p "$SBH13"
 ln -s "$SB/does-not-exist" "$SBH13/Applications"
 export KOSMOS_HOME="$SB/home15" KOSMOS_BIN_DIR="$SB/bin15"
 RC=0; cat "$SETUP" | HOME="$SBH13" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_F2" sh > "$SB/unknown-skip.log" 2>&1 || RC=$?
-chk "unknown-skip install exits 0" "[ $RC -eq 0 ]"
+chk "unknown-skip install exits 0" "rc_ok $RC"
 chk "unknown-skip speaks its own sentence" "grep -q 'could not be checked, so no icon was created' \"$SB/unknown-skip.log\""
 chk "unknown-skip does not claim the same-folder cause" "! grep -q 'is the same folder' \"$SB/unknown-skip.log\""
 chk "the second stranger is untouched" "grep -q 'stranger2' \"$SYS_F2/Kosmos.app/Contents/MacOS/Kosmos\""
@@ -993,7 +1013,7 @@ mkdir -p "$SBH14/Applications"
 ln -s "$SYS_OK5/Kosmos.app" "$SBH14/Applications/Kosmos.app"
 export KOSMOS_HOME="$SB/home16" KOSMOS_BIN_DIR="$SB/bin16"
 RC=0; HOME="$SBH14" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK5" sh -s -- --uninstall < "$SETUP" > "$SB/link-un.log" 2>&1 || RC=$?
-chk "link uninstall exits 0" "[ $RC -eq 0 ]"
+chk "link uninstall exits 0" "rc_ok $RC"
 chk "our link swept with its bundle" "[ ! -e \"$SBH14/Applications/Kosmos.app\" ] && [ ! -L \"$SBH14/Applications/Kosmos.app\" ]"
 chk "the link sweep is named" "grep -q 'removing a link that pointed at the removed Kosmos app' \"$SB/link-un.log\""
 ln -s "$SB/somewhere-else/Kosmos.app" "$SBH14/Applications/Kosmos.app"
@@ -1015,7 +1035,7 @@ else
   mkdir -p "$SBH15"
   export KOSMOS_HOME="$SB/home17" KOSMOS_BIN_DIR="$SB/bin17"
   RC=0; cat "$SETUP" | HOME="$SBH15" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_RO3" sh > "$SB/stale-sys.log" 2>&1 || RC=$?
-  chk "stale-sys install exits 0" "[ $RC -eq 0 ]"
+  chk "stale-sys install exits 0" "rc_ok $RC"
   chk "fresh icon landed in the home folder" "[ -x \"$SBH15/Applications/Kosmos.app/Contents/MacOS/Kosmos\" ]"
   chk "the unreachable system icon is named" "grep -q 'could not be updated from this account' \"$SB/stale-sys.log\""
   chmod 755 "$SYS_RO3"
@@ -1039,7 +1059,7 @@ else
   printf '#!/bin/bash\n# their home app\nKOSMOS_HOME="${KOSMOS_HOME:-/their/place}"\n' > "$SBH20/Applications/Kosmos.app/Contents/MacOS/Kosmos"
   export KOSMOS_HOME="$SB/home22" KOSMOS_BIN_DIR="$SB/bin22"
   RC=0; cat "$SETUP" | HOME="$SBH20" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_RO6" sh > "$SB/foreign-fb.log" 2>&1 || RC=$?
-  chk "foreign-fallback install exits 0" "[ $RC -eq 0 ]"
+  chk "foreign-fallback install exits 0" "rc_ok $RC"
   chk "the stranger's home app is untouched" "grep -q 'their home app' \"$SBH20/Applications/Kosmos.app/Contents/MacOS/Kosmos\""
   chk "no icon was written over it" "grep -q 'left alone and no icon was created' \"$SB/foreign-fb.log\""
   chmod 755 "$SYS_RO6"
@@ -1055,7 +1075,7 @@ mkdir -p "$NOTKOS"
 printf '1.0\n' > "$NOTKOS/VERSION"
 printf 'precious\n' > "$NOTKOS/user-data.txt"
 RC=0; KOSMOS_HOME="$NOTKOS" KOSMOS_BIN_DIR="$SB/bin-nk" sh -s -- --uninstall < "$SETUP" > "$SB/notkos.log" 2>&1 || RC=$?
-chk "not-a-Kosmos-install uninstall exits 0" "[ $RC -eq 0 ]"
+chk "not-a-Kosmos-install uninstall exits 0" "rc_ok $RC"
 chk "the folder is refused in a sentence" "grep -q 'does not look like a Kosmos install' \"$SB/notkos.log\""
 chk "the folder survives with its contents" "grep -q 'precious' \"$NOTKOS/user-data.txt\""
 
@@ -1082,7 +1102,7 @@ mkdir -p "$SBH22/Applications/Kosmos.app/Contents/MacOS"
 printf '#!/bin/bash\n# their home app 2\nKOSMOS_HOME="${KOSMOS_HOME:-/their/place/2}"\n' > "$SBH22/Applications/Kosmos.app/Contents/MacOS/Kosmos"
 export KOSMOS_HOME="$SB/home24" KOSMOS_BIN_DIR="$SB/bin24"
 RC=0; cat "$SETUP" | HOME="$SBH22" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_F3" sh > "$SB/dual.log" 2>&1 || RC=$?
-chk "dual-foreign install exits 0" "[ $RC -eq 0 ]"
+chk "dual-foreign install exits 0" "rc_ok $RC"
 chk "the home stranger survives" "grep -q 'their home app 2' \"$SBH22/Applications/Kosmos.app/Contents/MacOS/Kosmos\""
 chk "the system stranger survives" "grep -q 'stranger3' \"$SYS_F3/Kosmos.app/Contents/MacOS/Kosmos\""
 chk "the home refusal speaks" "grep -q 'not created by this install is in the Applications folder inside' \"$SB/dual.log\""
@@ -1108,7 +1128,7 @@ APPS_F="$SB/apps-foreign"
 mkdir -p "$APPS_F/Kosmos.app/Contents/MacOS"
 printf '#!/bin/bash\n# override stranger\nKOSMOS_HOME="${KOSMOS_HOME:-/not/ours/override}"\n' > "$APPS_F/Kosmos.app/Contents/MacOS/Kosmos"
 RC=0; KOSMOS_APP_DIR="$APPS_F" KOSMOS_HOME="$SB/home25" KOSMOS_BIN_DIR="$SB/bin25" sh -s -- --uninstall < "$SETUP" > "$SB/ovf-un.log" 2>&1 || RC=$?
-chk "override-foreign uninstall exits 0" "[ $RC -eq 0 ]"
+chk "override-foreign uninstall exits 0" "rc_ok $RC"
 chk "the override stranger survives" "grep -q 'override stranger' \"$APPS_F/Kosmos.app/Contents/MacOS/Kosmos\""
 chk "the override stranger is named" "grep -q 'could not be proven to belong to this install' \"$SB/ovf-un.log\""
 
@@ -1118,7 +1138,7 @@ echo "== a stranger's board on the port is never presented as this install's =="
 # running", and must NOT open a browser onto the stranger's board.
 export KOSMOS_HOME="$SB/home26" KOSMOS_BIN_DIR="$SB/bin26" KOSMOS_APP_DIR="$SB/apps26"
 RC=0; cat "$SETUP" | sh > "$SB/first-board.log" 2>&1 || RC=$?
-chk "first board install exits 0" "[ $RC -eq 0 ]"
+chk "first board install exits 0" "rc_ok $RC"
 # ⚠️ Probe-style env, deliberately: with KOSMOS_APP_DIR set, the sandbox
 # belt suppresses the open on its own and BOARD_OURS is never consulted
 # (proven by mutation: deleting the BOARD_OURS clause kept the suite
@@ -1136,7 +1156,7 @@ mkdir -p "$SB/home27"
 printf '%s' "$$" > "$SB/home27/board.pid"
 OPENED_BEFORE_STRANGER="$(wc -l < "$SB/opened.log" | tr -d ' ')"
 RC=0; cat "$SETUP" | HOME="$SBH23" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS28" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/stranger-board.log" 2>&1 || RC=$?
-chk "occupied-port install exits 0" "[ $RC -eq 0 ]"
+chk "occupied-port install exits 0" "rc_ok $RC"
 chk "the occupied port is named, not claimed" "grep -q 'something else is already answering on port' \"$SB/stranger-board.log\" && ! grep -q '^  Kosmos is running\.\$' \"$SB/stranger-board.log\""
 chk "no browser was opened onto the stranger's board" "[ \"\$(wc -l < \"$SB/opened.log\" | tr -d ' ')\" = \"$OPENED_BEFORE_STRANGER\" ]"
 rm -f "$SB/home27/board.pid"
@@ -1149,7 +1169,7 @@ mkdir -p "$SB/home31"
 cp "$SB/home26/board.pid" "$SB/home31/board.pid"
 OPENED_BEFORE_ANCHOR="$(wc -l < "$SB/opened.log" | tr -d ' ')"
 RC=0; cat "$SETUP" | HOME="$SB/anchor-home" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SB/sys31" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/anchor.log" 2>&1 || RC=$?
-chk "anchored install exits 0" "[ $RC -eq 0 ]"
+chk "anchored install exits 0" "rc_ok $RC"
 chk "another install's live server does not read as ours" "grep -q 'something else is already answering on port' \"$SB/anchor.log\""
 chk "no open on another install's server" "[ \"\$(wc -l < \"$SB/opened.log\" | tr -d ' ')\" = \"$OPENED_BEFORE_ANCHOR\" ]"
 KOSMOS_HOME="$SB/home26" "$SB/bin26/kosmos" stop > /dev/null 2>&1 || true
@@ -1167,7 +1187,7 @@ SBH24="$SB/lnk3-home"
 mkdir -p "$SBH24"
 export KOSMOS_HOME="$SB/home28" KOSMOS_BIN_DIR="$SB/bin28"
 RC=0; HOME="$SBH24" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS29" sh -s -- --uninstall < "$SETUP" > "$SB/lnk3-un.log" 2>&1 || RC=$?
-chk "owned-target-link uninstall exits 0" "[ $RC -eq 0 ]"
+chk "owned-target-link uninstall exits 0" "rc_ok $RC"
 chk "the link survives the uninstall" "[ -L \"$SYS29/Kosmos.app\" ]"
 chk "its target survives too" "[ -f \"$REALB2/Kosmos.app/Contents/MacOS/Kosmos\" ]"
 chk "the link is named, not claimed" "grep -q 'could not be proven to belong to this install' \"$SB/lnk3-un.log\""
@@ -1189,7 +1209,7 @@ chk "port free before the belt pass (a leaked board here makes the belt assertio
 OPENED_LINES_BEFORE="$(wc -l < "$SB/opened.log" | tr -d ' ')"
 export KOSMOS_HOME="$SB/home18" KOSMOS_BIN_DIR="$SB/bin18"
 RC=0; cat "$SETUP" | KOSMOS_APP_DIR="$SB/apps18" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/belt.log" 2>&1 || RC=$?
-chk "belt install exits 0" "[ $RC -eq 0 ]"
+chk "belt install exits 0" "rc_ok $RC"
 chk "the verbatim override alone suppresses the open" "[ \"\$(wc -l < \"$SB/opened.log\" | tr -d ' ')\" = \"$OPENED_LINES_BEFORE\" ]"
 KOSMOS_HOME="$SB/home18" "$SB/bin18/kosmos" stop > /dev/null 2>&1 || true
 
@@ -1209,7 +1229,7 @@ else
   touch "$SBH19/Applications"
   export KOSMOS_HOME="$SB/home21" KOSMOS_BIN_DIR="$SB/bin21"
   RC=0; cat "$SETUP" | HOME="$SBH19" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_RO5" sh > "$SB/fileapps.log" 2>&1 || RC=$?
-  chk "file-shadowed Applications does not abort the install" "[ $RC -eq 0 ]"
+  chk "file-shadowed Applications does not abort the install" "rc_ok $RC"
   chk "the give-up sentence prints for the shadowed folder" "grep -q 'could not create the app icon, but Kosmos itself is fine' \"$SB/fileapps.log\""
   chk "the board still came up" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
   KOSMOS_HOME="$SB/home21" "$SB/bin21/kosmos" stop > /dev/null 2>&1 || true
