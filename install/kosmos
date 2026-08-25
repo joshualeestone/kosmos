@@ -144,9 +144,24 @@ export LANG="${LANG:-en_US.UTF-8}"
 # go red. Now the candidates are the system tmux resolved against the PATH
 # from BEFORE our export, then the two places a Mac keeps one, never the
 # bundle itself; the first that can LIST the running server wins.
+# Was AGENT_WORKFORCE_TMUX_BIN an explicit choice on entry (set, and not
+# marked as a previous launcher's pick)? Read once, before the picker runs.
+_KOSMOS_TMUX_EXPLICIT=""
+if [ -n "${AGENT_WORKFORCE_TMUX_BIN:-}" ] && [ "${KOSMOS_TMUX_BIN_PICKED:-}" != "1" ]; then _KOSMOS_TMUX_EXPLICIT=1; fi
 _kosmos_pick_tmux() {
-  # Already chosen for us (harness, or a person who knows what they are doing).
-  [ -n "${AGENT_WORKFORCE_TMUX_BIN:-}" ] && return 0
+  # Already chosen for us (harness, or a person who knows what they are doing)
+  # ... unless the chooser was an EARLIER RUN OF THIS LAUNCHER. Its pick rides
+  # the environment down the in-app update chain (old server -> update.js ->
+  # setup.sh -> kosmos start), so the launcher the update just installed met
+  # the old launcher's bundled pick, took it for a deliberate choice, and a Mac
+  # with a newer tmux server stayed blind across every in-app update until a
+  # clean-env restart (Pete, #728, measured on 0.5.24 -> 0.5.25). A pick this
+  # launcher makes is exported WITH the marker below; a person's or a
+  # harness's choice carries no marker and is honoured exactly as before.
+  if [ -n "${AGENT_WORKFORCE_TMUX_BIN:-}" ] && [ "${KOSMOS_TMUX_BIN_PICKED:-}" != "1" ]; then
+    return 0
+  fi
+  unset AGENT_WORKFORCE_TMUX_BIN
   _bundled="$KOSMOS_HOME/tmux/bin/tmux"
   _sys="$(PATH="${_KOSMOS_PATH_SYS:-$PATH}" command -v tmux 2>/dev/null || true)"
   # The two places a Mac keeps a tmux, for the board under launchd, whose PATH
@@ -166,6 +181,13 @@ _kosmos_pick_tmux() {
 }
 _kosmos_pick_tmux
 export AGENT_WORKFORCE_TMUX_BIN
+# The marker: "this value was picked by the launcher, not chosen by a person",
+# so the next launcher in a chain re-picks instead of inheriting. Set only
+# when the value is ours (an inherited explicit choice returned above with
+# the marker unset, and stays unmarked).
+if [ "${KOSMOS_TMUX_BIN_PICKED:-}" = "1" ] || [ -z "${_KOSMOS_TMUX_EXPLICIT:-}" ]; then
+  KOSMOS_TMUX_BIN_PICKED=1; export KOSMOS_TMUX_BIN_PICKED
+fi
 # The engine's bare `tmux` calls must agree with the choice: when a system tmux
 # won, its directory goes first, so two processes never read the same socket
 # through two versions.
