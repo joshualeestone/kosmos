@@ -1151,14 +1151,13 @@ function listFiles(folder, limit) {
   /* #761: a stamp that changes whenever the list would, so a page can ask every
      few seconds and repaint only on change (Josh had to hard-refresh to see a
      file arrive). Names, sizes and times of every file, not only the capped
-     page, hashed: a file added past the cap still moves the total.
-     ⚠️ `\0`/`\n` separators, not collision-proof: a POSIX filename can legally
-     contain `\n` (not `\0`), so two distinct real folder states could in
-     principle hash equal. A change-detection cache key, not a security
-     boundary, and considered acceptable on that basis -- worst case is a
-     stale repaint, never a wrong file served. */
+     page, hashed: a file added past the cap still moves the total. Each
+     record is JSON-encoded before joining, so a filename containing the
+     separator itself (legal in a POSIX name) cannot blend two records into
+     one -- unlike a bare `\0`/`\n` join, which two review rounds independently
+     flagged as a theoretical (never practical) collision. */
   const stamp = crypto.createHash('sha1')
-    .update(files.map((f) => f.name + '\0' + f.size + '\0' + f.modified).join('\n')).digest('hex').slice(0, 16);
+    .update(files.map((f) => JSON.stringify([f.name, f.size, f.modified])).join('\n')).digest('hex').slice(0, 16);
   /* ⚠️ `names` IS EVERY FILE, not the capped view, and it is here rather than
      behind a second route because the two answers must come from ONE read of
      the folder. A message body's path citations are matched against this list,

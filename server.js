@@ -5149,7 +5149,7 @@ const server = http.createServer((req, res) => {
           // gates whether the creation also gets to page a pane.
           let heard;
           if (viaScreen || heardBudgetAllows()) {
-            heard = heardBy(id, made, made.who, made.sentence);
+            heard = heardBy(id, made, made.who, made.sentence, roster);
             if (heard && !viaScreen) heardBudgetRecord();
           }
           sendJson(res, 200, { task: made, told, heard });
@@ -5197,7 +5197,10 @@ const server = http.createServer((req, res) => {
   // never the task's top-level one (a task with parts drops `who`/keeps one
   // `sentence` at the top, and a part given a `who` must be heard for the
   // part it was actually given, not the parent task's original wording).
-  function heardBy(projectId, t, who, sentence) {
+  // `roster`: the caller's already-fetched snapshot, never a fresh
+  // safeRoster() of our own -- snapshot() fans out a real tmux capture-pane
+  // per agent, and every call site here already has one in scope.
+  function heardBy(projectId, t, who, sentence, roster) {
     const name = typeof who === 'string' && who.trim() ? who.trim() : null;
     if (!name || !t || typeof t.number !== 'number') return undefined;
     let title = projectId;
@@ -5206,14 +5209,18 @@ const server = http.createServer((req, res) => {
       + String(sentence || '').replace(/[\r\n]/g, ' ') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
       + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
     let sent;
-    try { sent = chat.deliver(name, line, safeRoster()); }
+    try { sent = chat.deliver(name, line, roster); }
     catch (err2) { sent = { state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
     return { who: name, state: sent.state, because: sent.because || null };
   }
-  const tellEveryoneOn = (t) => {
+  // `roster`: optional, so taskAct (close/reopen, below) keeps fetching its
+  // own exactly as before -- only #761's routes, which already have one in
+  // scope for `heardBy`, pass it through instead of paying for a second
+  // snapshot() in the same request.
+  const tellEveryoneOn = (t, roster) => {
     const named = tasks.whoOf(t);
     if (!named.length) return undefined;
-    const roster = safeRoster();
+    if (!roster) roster = safeRoster();
     let last;
     for (const one of named) {
       try { last = projects.syncAgent(one, roster); }
@@ -5266,12 +5273,13 @@ const server = http.createServer((req, res) => {
         // -- never the raw request body, which can carry whitespace addPart
         // itself strips before saving.
         const newPart = (out.task.parts || [])[(out.task.parts || []).length - 1];
+        const roster = safeRoster();
         let heard;
         if (screen || heardBudgetAllows()) {
-          heard = heardBy(id, out.task, body && body.who, newPart && newPart.sentence);
+          heard = heardBy(id, out.task, body && body.who, newPart && newPart.sentence, roster);
           if (heard && !screen) heardBudgetRecord();
         }
-        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task), heard });
+        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task, roster), heard });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
@@ -5298,13 +5306,14 @@ const server = http.createServer((req, res) => {
         // re-posting the same assignee does not re-type the same pane line
         // (#304's rule). The budget check mirrors partMake's.
         const screen = isViaScreen(req);
+        const roster = safeRoster();
         let heard;
         if (verb === 'who' && out.changed && (screen || heardBudgetAllows())) {
           const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partAct[3])) || {}).sentence;
-          heard = heardBy(id, out.task, body && body.who, sentence);
+          heard = heardBy(id, out.task, body && body.who, sentence, roster);
           if (heard && !screen) heardBudgetRecord();
         }
-        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task), heard });
+        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task, roster), heard });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
