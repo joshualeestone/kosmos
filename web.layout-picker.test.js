@@ -167,13 +167,23 @@ test('piece ten: the + sits at the card heads and the minus on the member rows, 
   assert.match(src, /function pjMember\(m, suppressTold, withMinus\)/);
   assert.match(src, /withMinus\n\s+\? '<button class="pj-minus" type="button" data-drop="' \+ esc\(m\.sessionName\)/);
   assert.match(src, /roster\.map\(\(m\) => pjMember\(m, !!sharedTold, true\)\)/, 'the project page asks for it');
-  assert.equal((src.match(/pjMember\([^)]*, true\)/g) || []).length, 1, 'nowhere else does');
-  // One drop for both lists.
+  // #762: Project settings asks for it too now (the same red-X treatment,
+  // not a third pattern), so the count is two -- the tab/consolidated view
+  // AND the settings rows -- not one.
+  assert.equal((src.match(/pjMember\([^)]*, true\)/g) || []).length, 2, 'the minus is drawn somewhere other than these two call sites');
+  assert.match(src, /rows\.map\(\(m\) => pjMember\(m, false, true\)\)/, 'the settings rows ask for it too (#762)');
+  // One drop for both lists, both routed through the confirm modal (#762
+  // moved the settings rows onto the same ask-first flow the project page
+  // already had).
   assert.match(src, /async function dropMember\(btn, msg\)/);
-  assert.match(src, /getElementById\('pjs-members'\)\.addEventListener\('click', \(e\) => \{\n\s+const btn = e\.target\.closest\('\[data-drop\]'\);[\s\S]{0,80}dropMember\(btn, document\.getElementById\('pjs-members-msg'\)\)/);
+  assert.match(src, /getElementById\('pjs-members'\)\.addEventListener\('click', \(e\) => \{\n\s+const btn = e\.target\.closest\('\.pj-minus\[data-drop\]'\);[\s\S]{0,80}openMemModal\(btn, document\.getElementById\('pjs-members-msg'\)\)/);
   // #761: the minus asks first; the dialog's Remove is what calls dropMember.
-  assert.match(src, /getElementById\('pj-one-agents'\)\.addEventListener\('click', \(e\) => \{\n\s+const btn = e\.target\.closest\('\.pj-minus\[data-drop\]'\);[\s\S]{0,1600}getElementById\('mem-modal'\)\.hidden = false;/);
-  assert.match(src, /getElementById\('mem-go'\)\.addEventListener\('click', \(\) => \{[\s\S]{0,300}dropMember\(p\.btn, document\.getElementById\('pj-one-msg'\)\)/);
+  // #762 factored the modal setup into openMemModal, shared by both
+  // listeners (the settings rows above and the tab view here), so the
+  // pin moved from the listener body onto the shared function.
+  assert.match(src, /getElementById\('pj-one-agents'\)\.addEventListener\('click', \(e\) => \{\n\s+const btn = e\.target\.closest\('\.pj-minus\[data-drop\]'\);[\s\S]{0,80}openMemModal\(btn, document\.getElementById\('pj-one-msg'\)\)/);
+  assert.match(src, /function openMemModal\(btn, msg\) \{[\s\S]{0,1200}getElementById\('mem-modal'\)\.hidden = false;/);
+  assert.match(src, /getElementById\('mem-go'\)\.addEventListener\('click', \(\) => \{[\s\S]{0,300}dropMember\(p\.btn, p\.msg \|\| document\.getElementById\('pj-one-msg'\)\)/);
   // Hidden outside the mode; on hover inside it. The Remove door steps aside there.
   // #761: the minus is in both views now; the base rule draws it hidden-until-hover, and the door is gone everywhere.
   assert.match(src, /\n\.pj-minus \{ display: grid;[^}]*opacity: 0; \}\n\.pj-member:hover \.pj-minus, \.pj-minus:focus-visible \{ opacity: 1; \}/);

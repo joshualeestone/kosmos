@@ -1086,17 +1086,19 @@ function cleanDescription(text) {
  * every other root in this codebase is held to.
  */
 /**
- * Open the folder in Finder. `open -R` selects it in its parent, which is
- * the "show me where it is" a person asked for, rather than dropping them
- * INSIDE it with no context. The path is the caller-validated stored
- * record's; runner injectable for tests, same shape as machine.js.
+ * Open the folder in Finder. Plain `open` opens the folder itself, showing
+ * what is inside it — the reversal of an earlier ruling (`open -R`, which
+ * selected it in its PARENT instead): Josh, #762, 2026-08-24: "my
+ * expectation was it would take me inside that folder, not to the
+ * enclosing folder." The path is the caller-validated stored record's;
+ * runner injectable for tests, same shape as machine.js.
  */
 let revealRunner = null;
 function setRevealRunner(f) { revealRunner = f; }
 function revealFolder(folder) {
   try {
-    if (revealRunner) return revealRunner('/usr/bin/open', ['-R', folder]);
-    execFileSync('/usr/bin/open', ['-R', folder], { timeout: 5000, stdio: 'ignore' });
+    if (revealRunner) return revealRunner('/usr/bin/open', [folder]);
+    execFileSync('/usr/bin/open', [folder], { timeout: 5000, stdio: 'ignore' });
     return { ok: true };
   } catch (err) {
     // ⚠️ A programming error must not wear the failure's clothes. This

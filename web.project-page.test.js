@@ -34,11 +34,18 @@ test('the files door says Show all, and the stale arm draws nothing', () => {
 test('the minus asks first, names the agent and the project, lands on the harmless answer, and only its Remove calls the drop; it is in both views', () => {
   const body = PAGE.replace(/<!--[\s\S]*?-->/g, '');
   assert.match(body, /<div class="rm-back" id="mem-modal" hidden>\s*<div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="mem-title" aria-describedby="mem-small">/);
+  // #762 factored the modal setup into openMemModal, shared by the tab
+  // view's minus AND the settings rows' -- the listener itself is now a
+  // one-line call, so the pins on "asks before it acts" moved onto the
+  // shared function.
   const at = SCRIPT.indexOf("getElementById('pj-one-agents').addEventListener('click'"); const handler = SCRIPT.slice(at, SCRIPT.indexOf('\n});\n', at) + 5);
-  assert.match(handler, /'Remove ' \+ who \+ ' from ' \+ pjName \+ '\?'/);
-  assert.match(handler, /getElementById\('mem-keep'\)\.focus\(\);/, 'Enter on the fresh dialog does not land on the harmless answer');
+  assert.match(handler, /openMemModal\(btn, document\.getElementById\('pj-one-msg'\)\)/);
   assert.doesNotMatch(handler, /dropMember\(/, 'the minus removes without asking');
-  assert.match(SCRIPT, /getElementById\('mem-go'\)\.addEventListener\('click', \(\) => \{[\s\S]{0,300}dropMember\(p\.btn, document\.getElementById\('pj-one-msg'\)\)/);
+  const openAt = SCRIPT.indexOf('function openMemModal(btn, msg)'); const openFn = SCRIPT.slice(openAt, SCRIPT.indexOf('\n}\n', openAt) + 3);
+  assert.match(openFn, /'Remove ' \+ who \+ ' from ' \+ pjName \+ '\?'/);
+  assert.match(openFn, /getElementById\('mem-keep'\)\.focus\(\);/, 'Enter on the fresh dialog does not land on the harmless answer');
+  assert.doesNotMatch(openFn, /dropMember\(/, 'the minus removes without asking');
+  assert.match(SCRIPT, /getElementById\('mem-go'\)\.addEventListener\('click', \(\) => \{[\s\S]{0,300}dropMember\(p\.btn, p\.msg \|\| document\.getElementById\('pj-one-msg'\)\)/);
   assert.match(SCRIPT, /getElementById\('mem-keep'\)\.addEventListener\('click', memConfirmClose\);/);
   assert.match(PAGE, /\n\.pj-minus \{ display: grid;[^}]*opacity: 0; \}\n\.pj-member:hover \.pj-minus, \.pj-minus:focus-visible \{ opacity: 1; \}/);
   assert.match(PAGE, /\n#pj-remove-member \{ display: none; \}/);

@@ -6855,23 +6855,25 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
   assert.ok(!member(m).includes('data-drop'),
     'a removal control survived on the member rows');
 
-  // The SETTINGS painter carries the action now: rows with the name, the
-  // visible label, the label-leading accessible name (WCAG 2.5.3), and
-  // the data-drop wiring the relocated handler keys on.
+  // The SETTINGS painter carries the action now, and (#762) it is the SAME
+  // hover-minus + data-drop the project page's own rows use, not a second
+  // "Remove from project" button reading the same fact a different way.
   const paintMembers = pageFunction('paintSettingsMembers',
-    TOLD_PRELUDE
-    + 'const STATE_COPY = { idle: { label: "Idle" }, unknown: { label: "Can\'t tell" } };\n'
-    + 'const setIfChanged = (el, html) => { el.innerHTML = html; };\n');
+    prelude
+    + pageFnSource('pjMember') + '\n'
+    + pageFnSource('paintFreeAgentPicker') + '\n'
+    + 'const setIfChanged = (el, html) => { el.innerHTML = html; };\n'
+    + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = null;\n');
   const box = { innerHTML: '' };
-  global.document = { getElementById: (id) => (id === 'pjs-members' ? box : null) };
+  const addPick = { innerHTML: '', value: '' };
+  global.document = { getElementById: (id) => (id === 'pjs-members' ? box : id === 'pjs-add-pick' ? addPick : null) };
   try {
     paintMembers({ agents: roster });
-    const VISIBLE = 'Remove from project';
-    assert.ok(box.innerHTML.includes('>' + VISIBLE + '</button>'),
+    assert.ok(box.innerHTML.includes('class="pj-minus"'),
       'CONTROL: the settings rows lack the removal action, so the absence above proves loss, not relocation');
     const aria = (box.innerHTML.match(/aria-label="([^"]*)"/) || [])[1] || '';
-    assert.ok(aria.indexOf(VISIBLE) === 0,
-      'the accessible name does not lead with the visible label: ' + aria);
+    assert.ok(aria.startsWith('Remove ') && aria.endsWith(' from this project'),
+      'the minus lost its shared accessible-name shape: ' + aria);
     // N buttons all visibly read the same; the interpolated name is the
     // ONLY thing distinguishing their accessible names.
     assert.ok(aria.includes(roster[0].name),
@@ -6913,12 +6915,14 @@ test('the settings members wiring is real, not just extractable', () => {
   // The guard trio, pinned at source level (the say-box precedent):
   // these were fixes to fixes, the least-proven lines on the branch,
   // and the stubbed unit test cannot see any of them.
-  /* #520 piece ten: the body moved out of the listener into dropMember(btn,
-     msg), which the settings rows AND the project page's hover minus both
-     call, so the claims below are pinned on the function and the listener is
-     pinned to call it. */
-  assert.ok(/getElementById\('pjs-members'\)\.addEventListener\('click', \(e\) => \{[\s\S]{0,200}dropMember\(btn, /.test(raw),
-    'the settings rows no longer route their click to dropMember');
+  /* #762: the settings rows ask before they act now, the same confirm
+     modal #761 put on the project page's own minus -- openMemModal, not a
+     direct dropMember call. dropMember itself only ever runs from
+     mem-go's click, pinned separately below. */
+  assert.ok(/getElementById\('pjs-members'\)\.addEventListener\('click', \(e\) => \{[\s\S]{0,200}openMemModal\(btn, /.test(raw),
+    'the settings rows no longer route their click through the confirm modal');
+  assert.ok(/getElementById\('mem-go'\)\.addEventListener\('click', \(\) => \{[\s\S]{0,300}dropMember\(p\.btn, /.test(raw),
+    'the confirm modal\'s Remove no longer calls dropMember');
   const handlerSrc = raw.slice(raw.indexOf('async function dropMember(btn, msg) {'));
   // The terminator is the listener's own close at column 0: an inner
   // `});` (the fetch options literal) cut the first version of this
@@ -6950,10 +6954,13 @@ test('the settings members wiring is real, not just extractable', () => {
   // (which would steal keyboard focus from the rows every five seconds).
   assert.ok(pageFnSource('paintSettingsMembers').includes('setIfChanged('),
     'paintSettingsMembers no longer repaints through setIfChanged');
-  // The unknown-says-why arm exists in the painter (its behavioral twin
-  // in pjMember records the bare-caption form as a shipped defect).
-  assert.ok(pageFnSource('paintSettingsMembers').includes("m.state === 'unknown' && m.because"),
-    'the settings rows lost the unknown-says-why arm');
+  // The unknown-says-why arm: #762 moved the settings rows onto pjMember's
+  // own rendering (the shared row every member surface draws), so the pin
+  // now lives on pjMember rather than on a second copy inside the painter.
+  assert.ok(pageFnSource('pjMember').includes("m.state === 'unknown' && m.because"),
+    'the shared row lost the unknown-says-why arm the settings rows depend on');
+  assert.ok(pageFnSource('paintSettingsMembers').includes('pjMember('),
+    'the settings rows no longer draw through the shared pjMember row');
 });
 
 test('the receipt pill borders have dark twins (the trio that missed the #71 pass)', () => {
@@ -7423,12 +7430,12 @@ test('the search is wired: pack markup verbatim, instant repaint, reset on switc
 
 test("the removal announcement is her sentence, on both verdict arms", () => {
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  /* #520 piece ten: the body moved out of the listener into dropMember(btn,
-     msg), which the settings rows AND the project page's hover minus both
-     call, so the claims below are pinned on the function and the listener is
-     pinned to call it. */
-  assert.ok(/getElementById\('pjs-members'\)\.addEventListener\('click', \(e\) => \{[\s\S]{0,200}dropMember\(btn, /.test(raw),
-    'the settings rows no longer route their click to dropMember');
+  /* #520 piece ten, then #762: the body lives in dropMember(btn, msg),
+     which mem-go's Remove calls after the confirm modal (both the settings
+     rows and the project page's hover minus route through it now), so the
+     claims below are pinned on the function and mem-go is pinned to call it. */
+  assert.ok(/getElementById\('mem-go'\)\.addEventListener\('click', \(\) => \{[\s\S]{0,300}dropMember\(p\.btn, /.test(raw),
+    'the confirm modal\'s Remove no longer calls dropMember');
   const handlerSrc = raw.slice(raw.indexOf('async function dropMember(btn, msg) {'));
   const handler = handlerSrc.slice(0, handlerSrc.indexOf('\n}') + 2);
   /* 🔄 THE RULING CHANGED, 2026-08-22, and this assertion changed with it

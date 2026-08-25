@@ -1728,14 +1728,14 @@ test('the reveal-folder route: guard inherited, server-derived path, honest refu
     assert.equal(cross.status, 403, 'a cross-site page can open Finder');
     assert.equal(ran, 0, 'the guard answered 403 but Finder opened anyway');
 
-    // Happy path: the runner gets open -R with the STORED folder, nothing
-    // from the request.
+    // Happy path: the runner gets plain open with the STORED folder,
+    // nothing from the request -- inside the folder, not its parent (#762).
     let args = null;
     projects.setRevealRunner((cmd, a) => { args = [cmd, a]; return { ok: true }; });
     const ok = await post(`/api/project/${made.project.id}/reveal-folder`, {});
     assert.equal(ok.status, 200);
     const stored = projects.readAll().find((x) => x.id === made.project.id);
-    assert.deepEqual(args, ['/usr/bin/open', ['-R', stored.folder]]);
+    assert.deepEqual(args, ['/usr/bin/open', [stored.folder]]);
 
     // A project that is not there: 404 with the usual sentence.
     const gone = await post('/api/project/no-such/reveal-folder', {});

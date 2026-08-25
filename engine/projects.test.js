@@ -1595,7 +1595,7 @@ test('revealFolder: the PRODUCTION path runs, with no injected runner standing i
   // ⚠️ No setRevealRunner here, on purpose: the injected runner once
   // replaced the exact line that was broken (execFileSync unimported), and
   // every test stayed green over a feature dead in production. A
-  // nonexistent path makes the real `open -R` exit non-zero with no Finder
+  // nonexistent path makes the real `open` exit non-zero with no Finder
   // side effect; a missing import now THROWS out of the catch instead of
   // wearing the failure's sentence.
   const out = projects.revealFolder('/nonexistent/kosmos-reveal-probe');
