@@ -1,15 +1,141 @@
-// Kosmos native app prototype (#677), phase 1: prove the AppKit lifecycle
-// mechanics against a real running board, before touching the installer.
+// Kosmos native app prototype (#677).
 //
-// NOT the shipped shape yet -- no install-time config, no signing. Run
-// directly with `swiftc main.swift -o kosmos-app-prototype && ./kosmos-app-prototype`.
+// Phase 1 (done): the AppKit lifecycle mechanics (window, WKWebView, stay-
+// running-on-close, the quit dialog) proven against a real running board.
 //
-// KOSMOS_URL env var overrides the URL (default http://127.0.0.1:16180),
-// matching the way the real launcher's KOSMOS_PORT works, so this can be
-// pointed at a real running board on any port.
+// Phase 2 (this pass): the board-resolution and starting logic, reusing
+// `bin/kosmos start`'s existing health-check-and-start-if-needed rather
+// than reimplementing it -- this file stays DUMB about how a board comes
+// up (retries, pidfiles, log tails, the "another process already owns
+// this port" refusal) and only knows how to run that command and read
+// its exit code, matching the app's whole reuse philosophy: the board
+// itself is unchanged, this is a window pointed at it.
+//
+// NOT the shipped shape yet -- no signing, no notarization, no install-time
+// config file wired from install/setup.sh yet (this reads one by hand for
+// testing; see KosmosInstallConfig below). Run directly:
+//   swiftc main.swift -o kosmos-app-prototype && ./kosmos-app-prototype
+//
+// Env overrides for testing (mirror the real launcher's own contract):
+//   KOSMOS_HOME   where the install lives (default ~/.local/share/kosmos)
+//   KOSMOS_PORT   the board's port (default 16180)
+//   KOSMOS_APP_CONFIG   path to a kosmos-install.json to read instead of
+//                       the bundle's own Contents/Resources copy (testing only)
 
 import Cocoa
 import WebKit
+
+// MARK: - Install-time configuration
+//
+// The CURRENT bash launcher gets $KOSMOS_HOME/$owner_uid/$PORT baked in via
+// heredoc string substitution at install time (install/setup.sh
+// build_app_bundle). A compiled binary can't be re-baked that way without
+// recompiling per install, and compiling on the user's own Mac is exactly
+// the kind of surprise install/kosmos's own comments rule out (it can
+// trigger an Xcode command-line-tools dialog). So: this binary is
+// pre-built once, the same shape as the already-shipped Rust connector
+// (kosmos-tunnel), and reads its install-time values from a small JSON
+// file build_app_bundle will write into Contents/Resources/ (phase 3;
+// not wired yet -- this struct and its fallback path are ready for it).
+struct KosmosInstallConfig: Codable {
+    let kosmosHome: String
+    let ownerUid: UInt32
+    let port: Int
+
+    static func load() -> KosmosInstallConfig? {
+        let path = ProcessInfo.processInfo.environment["KOSMOS_APP_CONFIG"]
+            ?? (Bundle.main.resourcePath.map { $0 + "/kosmos-install.json" })
+        guard let path, let data = FileManager.default.contents(atPath: path) else { return nil }
+        return try? JSONDecoder().decode(KosmosInstallConfig.self, from: data)
+    }
+}
+
+// MARK: - Resolving which install to open (#664: another account clicked
+// the shared /Applications icon)
+//
+// The bash launcher compares the CLICKING account's uid against the
+// baked owner_uid; a mismatch means someone else's icon. It then checks
+// whether the clicking account has ITS OWN install at the well-known
+// default home, and opens that if so -- never assumes, never guesses. In
+// Swift, `getuid()` and NSHomeDirectory() are already resolved against
+// the REAL running identity (not an inherited, spoofable $HOME the way
+// the bash version reads it), so this is if anything more robust than
+// the shape it replaces, not just a port of it.
+struct ResolvedInstall {
+    let kosmosHome: String
+    let port: Int
+}
+
+enum InstallResolutionError: Error {
+    case noOwnInstallForOtherUser
+}
+
+func resolveInstall(config: KosmosInstallConfig?) throws -> ResolvedInstall {
+    let defaultHome = NSHomeDirectory() + "/.local/share/kosmos"
+    // An explicit KOSMOS_HOME in the environment names the copy to open
+    // outright (a self-host layout, or a harness pointing at a disposable
+    // tree) -- same override contract as the bash launcher and `kosmos`
+    // itself, checked FIRST so it can never be second-guessed by the
+    // uid comparison below.
+    if let overrideHome = ProcessInfo.processInfo.environment["KOSMOS_HOME"] {
+        let port = ProcessInfo.processInfo.environment["KOSMOS_PORT"].flatMap { Int($0) }
+            ?? config?.port ?? 16180
+        return ResolvedInstall(kosmosHome: overrideHome, port: port)
+    }
+    guard let config else {
+        // No baked config and no override: fall back to the well-known
+        // default, same as a bare `kosmos` invocation would.
+        let port = ProcessInfo.processInfo.environment["KOSMOS_PORT"].flatMap { Int($0) } ?? 16180
+        return ResolvedInstall(kosmosHome: defaultHome, port: port)
+    }
+    if getuid() == config.ownerUid {
+        return ResolvedInstall(kosmosHome: config.kosmosHome, port: config.port)
+    }
+    // A different account clicked the shared icon (#664). If THEY have
+    // their own install at the default home, open that -- never the
+    // installing account's private tree.
+    let ownKosmosBin = defaultHome + "/bin/kosmos"
+    if FileManager.default.isExecutableFile(atPath: ownKosmosBin) {
+        logLine("resolveInstall: uid \(getuid()) != owner \(config.ownerUid), opening own install at \(defaultHome)")
+        return ResolvedInstall(kosmosHome: defaultHome, port: 16180) // their own default; they have not shared this icon's baked port
+    }
+    throw InstallResolutionError.noOwnInstallForOtherUser
+}
+
+// MARK: - Starting the board (delegates entirely to `bin/kosmos start`)
+
+enum StartResult {
+    case alreadyRunningOrStarted
+    case failed(String) // stderr, the die() message, same wording a terminal user would see
+}
+
+func startBoard(kosmosHome: String, port: Int) -> StartResult {
+    let kosmosBin = kosmosHome + "/bin/kosmos"
+    guard FileManager.default.isExecutableFile(atPath: kosmosBin) else {
+        return .failed("Kosmos looks incomplete: \(kosmosBin) is missing.")
+    }
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: kosmosBin)
+    process.arguments = ["start"]
+    var env = ProcessInfo.processInfo.environment
+    env["KOSMOS_PORT"] = String(port)
+    process.environment = env
+    let stderrPipe = Pipe()
+    process.standardError = stderrPipe
+    process.standardOutput = Pipe() // discarded; `say()` output is not shown, matching the bash launcher (>/dev/null 2>&1)
+    do {
+        try process.run()
+        process.waitUntilExit()
+    } catch {
+        return .failed("Could not run \(kosmosBin): \(error.localizedDescription)")
+    }
+    if process.terminationStatus == 0 {
+        return .alreadyRunningOrStarted
+    }
+    let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    let errText = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return .failed(errText.isEmpty ? "kosmos start exited \(process.terminationStatus)" : errText)
+}
 
 // MARK: - The one lifecycle seam (Splinter's explicit design requirement:
 // window-close, Cmd-Q, and Dock "Quit" all route through ONE place, so
@@ -50,39 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         buildWindow()
         loadBoard()
         NSApp.activate(ignoringOtherApps: true)
-        installTestSignalHooks() // TEST-ONLY: see the function's own comment
     }
-
-    // TEST-ONLY, prototype phase only, never in the shipped app: this
-    // session has no Accessibility or Screen Recording permission granted,
-    // so a real click/keystroke on the window's close button or Cmd-Q
-    // cannot be simulated to verify the lifecycle. SIGUSR1/SIGUSR2 trigger
-    // the EXACT SAME AppKit entry points a real click would
-    // (window.performClose(nil) is what a click on the red button calls;
-    // NSApp.terminate(nil) is what Cmd-Q calls) -- this is not a parallel
-    // path being tested instead of the real one, it is the real one,
-    // triggered a different way. Removed entirely before Phase 2.
-    private func installTestSignalHooks() {
-        signal(SIGUSR1, SIG_IGN)
-        let closeSource = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
-        closeSource.setEventHandler { [weak self] in
-            logLine("TEST SIGNAL: simulating window close click (performClose)")
-            self?.window.performClose(nil)
-        }
-        closeSource.resume()
-        self.testCloseSource = closeSource
-
-        signal(SIGUSR2, SIG_IGN)
-        let quitSource = DispatchSource.makeSignalSource(signal: SIGUSR2, queue: .main)
-        quitSource.setEventHandler {
-            logLine("TEST SIGNAL: simulating Cmd-Q (NSApp.terminate)")
-            NSApp.terminate(nil)
-        }
-        quitSource.resume()
-        self.testQuitSource = quitSource
-    }
-    private var testCloseSource: DispatchSourceSignal?
-    private var testQuitSource: DispatchSourceSignal?
 
     // MARK: Window
 
@@ -108,19 +202,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     private func loadBoard() {
-        let urlString = ProcessInfo.processInfo.environment["KOSMOS_URL"] ?? "http://127.0.0.1:16180"
-        guard let url = URL(string: urlString) else {
-            showStartupFailureAlert(detail: "The address \(urlString) is not a valid URL.")
+        // Testing shortcut, unchanged from phase 1: point directly at an
+        // already-running board (a hand-booted sandbox), skipping the real
+        // resolve/start path entirely. Not present in the shipped app's
+        // decision tree -- KOSMOS_URL is never set by the installer.
+        if let urlString = ProcessInfo.processInfo.environment["KOSMOS_URL"] {
+            guard let url = URL(string: urlString) else {
+                showStartupFailureAlert(detail: "The address \(urlString) is not a valid URL.")
+                return
+            }
+            logLine("LOADING \(url.absoluteString) (KOSMOS_URL override, test path)")
+            webView.load(URLRequest(url: url))
             return
         }
-        logLine("LOADING \(url.absoluteString)")
-        webView.load(URLRequest(url: url))
+
+        let config = KosmosInstallConfig.load()
+        logLine("KosmosInstallConfig.load() -> \(config == nil ? "nil (no baked config; using defaults/overrides)" : "loaded")")
+
+        let resolved: ResolvedInstall
+        do {
+            resolved = try resolveInstall(config: config)
+        } catch InstallResolutionError.noOwnInstallForOtherUser {
+            // #664's dialog, bash launcher's wording verbatim.
+            showForeignAccountAlert()
+            return
+        } catch {
+            showStartupFailureAlert(detail: "Could not determine which Kosmos to open: \(error.localizedDescription)")
+            return
+        }
+        logLine("resolved kosmosHome=\(resolved.kosmosHome) port=\(resolved.port)")
+
+        switch startBoard(kosmosHome: resolved.kosmosHome, port: resolved.port) {
+        case .failed(let message):
+            logLine("startBoard failed: \(message)")
+            showStartupFailureAlert(detail: "Something went wrong while Kosmos was starting. Installing it again usually fixes this: open installkosmos.com and click Download for macOS. Your agents and settings stay on this Mac; installing again does not remove them.")
+        case .alreadyRunningOrStarted:
+            let urlString = "http://127.0.0.1:\(resolved.port)"
+            guard let url = URL(string: urlString) else {
+                showStartupFailureAlert(detail: "The address \(urlString) is not a valid URL.")
+                return
+            }
+            logLine("LOADING \(url.absoluteString)")
+            webView.load(URLRequest(url: url))
+        }
     }
 
     private func showStartupFailureAlert(detail: String) {
         let alert = NSAlert()
         alert.messageText = "Kosmos could not start"
-        alert.informativeText = "Something went wrong while Kosmos was starting. \(detail)"
+        alert.informativeText = detail
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    // #664's dialog, bash launcher's wording verbatim (install/setup.sh):
+    // never sends anyone to a terminal, always points at the .pkg for
+    // their own copy.
+    private func showForeignAccountAlert() {
+        let alert = NSAlert()
+        alert.messageText = "Kosmos is installed on this Mac for another user"
+        alert.informativeText = "It was set up by a different account on this computer, and it runs for that account. To use Kosmos here, install your own copy: open installkosmos.com and click Download for macOS. Yours will be separate, with your own agents and settings."
         alert.alertStyle = .critical
         alert.addButton(withTitle: "OK")
         alert.runModal()
