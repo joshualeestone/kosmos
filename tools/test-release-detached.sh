@@ -52,7 +52,9 @@ if release_freeze "$T/main" "0000000000000000000000000000000000000000" "$T/root"
 #    relocations (bin/kosmos, app/bin/kosmos-report-hook.sh) are allowed.
 #    The fixture carries a valid app/ AND bin/ from the start, so every tarball
 #    below is well-formed and each negative case perturbs exactly one file.
-mkdir -p "$T/bundle/app/web" "$T/bundle/app/bin" "$T/bundle/bin" "$BUILD/install" "$BUILD/web"
+mkdir -p "$T/bundle/app/web" "$T/bundle/app/bin" "$T/bundle/app/engine" "$T/bundle/bin" "$BUILD/install" "$BUILD/web" "$BUILD/engine"
+# A Kosmos tree has web/ and engine/ (#609: the expected set is refused without them).
+echo 'module.exports = 1;' > "$BUILD/engine/keep.js"; cp "$BUILD/engine/keep.js" "$T/bundle/app/engine/"
 cp "$BUILD/server.js" "$BUILD/package.json" "$T/bundle/app/"
 echo '<meta name="kosmos-version" content="__KOSMOS_VERSION__">' > "$BUILD/web/index.html"
 sed 's/__KOSMOS_VERSION__/1.0.0/' "$BUILD/web/index.html" > "$T/bundle/app/web/index.html"
@@ -78,10 +80,10 @@ release_bundle_matches_tree "$T/binbad.tgz" "$BUILD" >/dev/null && bad "a stale 
 # expected set is derived from the tree and the app, never from the build's
 # hand list, and each of its sources gets a case that drops exactly one file.
 exp="$(release_bundle_expected_files "$BUILD" | sort -u)"
-printf '%s\n' "$exp" | grep -qx 'app/web/index.html' && printf '%s\n' "$exp" | grep -qx 'bin/kosmos' && ok "the expected set is derived from the tree (web/index.html, bin/kosmos among it)" || bad "the expected set is missing the tree's own files: $exp"
+printf '%s\n' "$exp" | grep -qx 'app/web/index.html' && printf '%s\n' "$exp" | grep -qx 'app/engine/keep.js' && ok "the expected set is derived from the tree (web/index.html from web/, engine/keep.js from engine/; neither is pinned)" || bad "the expected set is missing the tree's own files: $exp"
 rm -f "$T/bundle/app/web/index.html"; bundle noweb.tgz; sed 's/__KOSMOS_VERSION__/1.0.0/' "$BUILD/web/index.html" > "$T/bundle/app/web/index.html"
 out="$(release_bundle_matches_tree "$T/noweb.tgz" "$BUILD")" && bad "a bundle without web/index.html was called matching" || { printf '%s' "$out" | grep -q "missing from the bundle.*app/web/index.html" && ok "a bundle that forgot web/index.html is caught, and the red names the file" || bad "the red did not name web/index.html: $out"; }
-mkdir -p "$BUILD/engine"; echo 'module.exports = 1;' > "$BUILD/engine/keep.js"; echo 'test' > "$BUILD/engine/keep.test.js"
+echo 'test' > "$BUILD/engine/keep.test.js"; rm -f "$T/bundle/app/engine/keep.js"
 bundle noengine.tgz
 out="$(release_bundle_matches_tree "$T/noengine.tgz" "$BUILD")" && bad "a bundle without engine/keep.js was called matching" || { printf '%s' "$out" | grep -q "missing from the bundle.*app/engine/keep.js" && ok "a bundle that forgot an engine/*.js is caught (derived from the tree's glob)" || bad "the red did not name engine/keep.js: $out"; }
 printf '%s' "$out" | grep -q "keep.test.js" && bad "a *.test.js was demanded of the bundle" || ok "and *.test.js files are not demanded (the build skips them)"
@@ -121,9 +123,22 @@ bundle noconn.tgz
 release_bundle_matches_tree "$T/noconn.tgz" "$BUILD" "$_tsha" >/dev/null && bad "a bundle missing the connector passed with an expected sha" || ok "a bundle missing the connector is caught when one is expected"
 release_bundle_matches_tree "$T/noconn.tgz" "$BUILD" "" >/dev/null && ok "a bundle with no connector and no expectation passes" || bad "no-connector-no-expectation was wrongly failed"
 
+# The derivation refuses rather than shrinking (#609 review): without node the
+# require walk (the only source for modules outside engine/) would go silent
+# and a bundle lacking one would pass; a tree without engine/ or web/ is not a
+# Kosmos tree and would derive a near-empty set that passes a near-empty bundle.
+bundle complete2.tgz
+out="$(PATH=/usr/bin:/bin release_bundle_matches_tree "$T/complete2.tgz" "$BUILD" 2>&1)"; rc=$?
+hit=0; printf '%s' "$out" | grep -q "node is not on PATH" && hit=1
+[ "$rc" = 2 ] && [ "$hit" = 1 ] && ok "no node on PATH: the comparator refuses (2) and names node, rather than passing with the require walk silent" || bad "no node on PATH: rc $rc, '$out'"
+rm -rf "$T/noeng"; cp -R "$BUILD" "$T/noeng"; rm -rf "$T/noeng/engine"
+out="$(release_bundle_matches_tree "$T/complete2.tgz" "$T/noeng" 2>&1)"; rc=$?
+hit=0; printf '%s' "$out" | grep -q "not a Kosmos tree" && hit=1
+[ "$rc" = 2 ] && [ "$hit" = 1 ] && ok "a tree without engine/ is refused (2) as not a Kosmos tree, not compared" || bad "tree without engine/: rc $rc, '$out'"
+
 # A tarball missing a whole tree (no bin member) is a setup failure (2), not a pass.
-tar -czf "$T/nobin.tgz" -C "$T/bundle" app
-release_bundle_matches_tree "$T/nobin.tgz" "$BUILD" >/dev/null; [ "$?" = 2 ] && ok "a bundle missing bin/ is refused as malformed (2), not passed" || bad "a bundle missing bin/ was not refused as malformed"
+tar -czf "$T/noroot.tgz" -C "$T/bundle" app
+release_bundle_matches_tree "$T/noroot.tgz" "$BUILD" >/dev/null; [ "$?" = 2 ] && ok "a bundle missing bin/ is refused as malformed (2), not passed" || bad "a bundle missing bin/ was not refused as malformed"
 
 # An empty-but-well-formed bundle: the zero-tree-files guard fires (1).
 mkdir -p "$T/empty/app" "$T/empty/bin"; tar -czf "$T/empty.tgz" -C "$T/empty" app bin

@@ -296,6 +296,17 @@ else
 fi
 rm -f "$_tunnel_tmp"
 echo "   connector: kosmos-tunnel $TUNNEL_SHA"
+# 🛑 BEFORE THE FIRST COPY TOWARD THE SITE (#609): the bundle just built carries
+# every file the tree and the app need, and each present file equals the
+# tree's. The same comparator runs at 9b on the SERVED bytes; here it runs on
+# the built ones, so a file the build forgot (#731: the codex bridge, absent
+# from every served bundle for ten versions) stops the cut with nothing
+# published, instead of being caught after step 8 has deployed it.
+if release_bundle_matches_tree "$REPO/dist/kosmos-arm64.tar.gz" "$BUILD" "$TUNNEL_SHA"; then
+  echo "   the built bundle carries everything the tree and the app need, and every file in it is the tree's"
+else
+  echo "THE BUNDLE JUST BUILT IS NOT THE TREE THAT WAS TESTED, OR LACKS A FILE THE APP NEEDS (the lines above name it). Nothing was copied to the site."; exit 1
+fi
 cp "$REPO/dist/kosmos-arm64.tar.gz" "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/"
 # ⚠️ THE VERSIONED NAME IS THE ONE A CACHE CANNOT LIE ABOUT. The plain
 # name is one URL across every release, and an edge cache satisfied an
