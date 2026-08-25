@@ -128,6 +128,20 @@ export SHELL=/bin/zsh
 printf '# the operator\047s own line\n' > "$SB/zprofile"
 export KOSMOS_TMUX_SRC="$TMUX_SRC" KOSMOS_SRC="$KOS_SRC" KOSMOS_PORT="$PORT"
 export AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_LAUNCH="$SB/launch"
+# 🛑 EVERY ROOT THE GATE NAMES, AND AN INERT TMUX, or the board this harness
+# installs refuses to start (#634): a sandbox with some roots live is the
+# exact thing the app now refuses, and it refused this harness at its first
+# install the evening the gate merged (2026-08-24). DRY_RUN=1 is what makes
+# every board's tmux sends no-ops here (the harness never sets TMUX_BIN, so
+# install/kosmos may hand a board the machine's tmux); the install's own
+# tmux (bundled, sandboxed) is untouched.
+# ⚠️ AND THE TWO ROOTS THE GATE DOES NOT NAME: the claude config (which
+# engine/trust.js WRITES through) and the config root. Left unset they are
+# the operator's real ~/.claude.json and config, for every board this
+# harness starts; the build's smoke test sandboxes both, so does this.
+# tools/test-build-smoke-sandbox.sh audits these exports against the gate.
+export AGENT_WORKFORCE_PROJECTS="$SB/projects" AGENT_WORKFORCE_WORKERS="$SB/workers" AGENT_WORKFORCE_DRY_RUN=1
+export AGENT_WORKFORCE_CLAUDE_CONFIG="$SB/claude.json" AGENT_WORKFORCE_CONFIG_ROOT="$SB/config"
 # A test that steals the operator's browser is a test nobody runs twice:
 # every pass suppresses the fresh-install open unless it deliberately
 # substitutes the recording stub below to assert the open itself.
