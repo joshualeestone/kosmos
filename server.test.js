@@ -10921,4 +10921,6 @@ test('#670: the bubble draws nothing for none, the number otherwise, 99+ past th
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'web', 'index.html'), 'utf8');
   assert.match(src, /unreadBadge\(p\.id === PJ_CURRENT \? 0 : p\.unread\)/, 'the row draws the engine\'s number, suppressed only for the open room');
   assert.match(src, /PJ_LAST_OPENED = id;\n  pjMarkSeen\(id\);/, 'opening a project moves the cursor');
+  // The seen POST reads its body: an unread Response holds the page's network "in flight" (the release gate hung on it, 2026-08-24).
+  assert.match(src, /\/seen', \{ method: 'POST' \}\)\n\s+\.then\(\(r\) => r\.text\(\)\)/);
 });
