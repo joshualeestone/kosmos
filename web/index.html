@@ -1251,8 +1251,9 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
 /* #569: where the state came from, never how (Mona Lisa's ruling): "Said so
    itself" under a reported state, "Read from its screen" under a scraped one,
    a small secondary line and never words inside the state word itself. The
-   list's copy stacks inside the state CELL (the five-slot rule forbids a
-   sixth child); the detail's sits under the badge. Both read the same
+   list's copy stacks inside the state CELL (#856 widened the row's own
+   slot rule from five to seven; the said line still stacks rather than
+   claiming an eighth); the detail's sits under the badge. Both read the same
    derivation (saidLine), so the two surfaces cannot disagree about
    provenance. The grid card dropped its own copy of this line (#855, Josh,
    2026-08-25: "junking up the page"), so `.asaid` itself is retired --
@@ -1578,11 +1579,25 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 
 /* ---- the agents list: the pack's .lrow (stage 4) ---- */
 .alist { display: flex; flex-direction: column; gap: 8px; }
-.lrow { display: grid; align-items: center; gap: 16px;
-        grid-template-columns: 34px minmax(9rem, 1.2fr) minmax(7rem, .7fr) minmax(8rem, 1.4fr) 8.5rem;
+/* #856 (Josh, 2026-08-25 10:23): "agent name, agent title, its status,
+   whatever text it reported, its model, its percentage used" -- title
+   and model each get their own column now, pulled out of .lname's own
+   stack; model sits immediately left of percentage (.lmem), matching
+   his order. SEVEN slots now, not five -- the row above this one spent
+   a real, measured bug on "always the SAME number of columns, every
+   row template supplies every one" (a stopped-agent row that supplied
+   four instead of five shifted .lstate one column right on a real
+   board). Both row templates below (the running one and the
+   off/notrunning one) were updated together, not just the one that
+   prompted this. */
+.lrow { display: grid; align-items: center; gap: 14px;
+        grid-template-columns: 34px minmax(7rem, 1fr) minmax(6rem, .7fr) minmax(6rem, .8fr) minmax(7rem, 1.3fr) minmax(5rem, .6fr) 8.5rem;
         background: var(--k-surface); color: var(--k-ink);
         border: 1px solid var(--k-rule); border-radius: 12px;
         padding: 12px 16px; cursor: pointer; }
+.ltitle { font-size: .8125rem; color: var(--k-ink-2); }
+.lmodel { font-size: .75rem; color: var(--k-ink-2); overflow: hidden;
+          text-overflow: ellipsis; white-space: nowrap; }
 .lrow:hover { border-color: rgba(20,22,26,.28); }
 .lrow.attn { border-color: rgba(179,38,30,.42); }
 .lrow.unk { border-style: dashed; }
@@ -1597,8 +1612,6 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    because the row builds the chip's INSIDE, not the chip). */
 .lavtint { width: 100%; height: 100%; display: grid; place-items: center; border-radius: 50%; }
 .lname b { display: block; font-size: 1rem; }
-.lname small { color: var(--k-ink-2); font-size: .8125rem; }
-.lname em { display: block; font-style: normal; font-size: .75rem; color: var(--k-ink-2); }
 .lstate { display: flex; align-items: center; gap: 8px; font-size: .9375rem; font-weight: 600; }
 .lstate .ansgo { margin-left: 10px; }
 .ltask { font-size: .9375rem; color: var(--k-ink-2); overflow: hidden;
@@ -1935,7 +1948,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents .railacts { flex-direction: column; }
   html[data-layout="consolidated"] body.consolidated.fold-a .railname { display: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow { grid-template-columns: 34px; justify-content: center; padding: 4px 0; border: 0; background: none; }
-  html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lname, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lstate { display: none; }
+  html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lname, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .ltitle, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lstate { display: none; }
   /* Folded projects: the arrow alone, the list gone. */
   html[data-layout="consolidated"] body.consolidated.fold-p #panel-projects { grid-template-columns: 48px minmax(0, 1fr); }
   html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects { flex-direction: column; margin-left: 0; }
@@ -1951,15 +1964,23 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 39 / span 2; max-width: none; margin: 0; padding-top: 0 !important; }
   /* #774: the empty-centre sentence sits where the open project would. */
   html[data-layout="consolidated"] body.consolidated #pj-none { grid-column: 2; grid-row: 1; align-self: start; margin: 14px 0 0; max-width: 34rem; }
-  /* The rail row: the face, then the name over the title over the state. */
+  /* The rail row: the face, then the name over the title over the state --
+     this comment predates #856 and named exactly this three-line stack
+     before the markup could deliver it (title used to be squeezed inside
+     .lname's own cell as a second line; #856 gave it a real column at the
+     .lrow level for the tab view's sake, which finally lets the rail give
+     it a real ROW of its own here too, one closer to what this comment
+     always said). .ltitle joins .lav/.lname/.lstate in the exception
+     list; .lmodel does not -- the rail has no room for it and Josh has
+     not asked for it there, so it stays caught by the blanket hide below
+     like every other new-to-#856 field. */
   html[data-layout="consolidated"] body.consolidated .lrow { grid-template-columns: 34px minmax(0, 1fr); gap: 2px 10px; padding: 8px 10px; }
-  html[data-layout="consolidated"] body.consolidated .lrow > .lav { grid-row: 1 / span 2; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lav { grid-row: 1 / span 3; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lname { grid-column: 2; grid-row: 1; min-width: 0; }
-  html[data-layout="consolidated"] body.consolidated .lrow > .lname b, html[data-layout="consolidated"] body.consolidated .lrow > .lname small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  html[data-layout="consolidated"] body.consolidated .lrow > .lname small { font-size: .625rem; }
-  html[data-layout="consolidated"] body.consolidated .lrow > .lstate { grid-column: 2; grid-row: 2; font-size: .625rem; }
-  html[data-layout="consolidated"] body.consolidated .lrow > :not(.lav):not(.lname):not(.lstate) { display: none; }
-  html[data-layout="consolidated"] body.consolidated .lrow > .lname > small:not(:first-of-type) { display: none; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lname b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .ltitle { grid-column: 2; grid-row: 2; font-size: .625rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate { grid-column: 2; grid-row: 3; font-size: .625rem; }
+  html[data-layout="consolidated"] body.consolidated .lrow > :not(.lav):not(.lname):not(.ltitle):not(.lstate) { display: none; }
   /* The face shrinks to 24px inside its 34px cell so the ring sits OUTSIDE
      it with a gap of ground (an inside-edge ring vanished on Josh's screen);
      the warning sits over the face. Both stay inside the 34px cell, so the
@@ -8778,10 +8799,14 @@ function lrow(a) {
    */
   if (a.running === false) {
     /**
-     * 🛑 FIVE SLOTS, ALWAYS, AND THE FIRST VERSION SUPPLIED FOUR. `.lrow` is a
-     * five-column grid, so a row with four children shifts every cell one
-     * column right: measured on a real board, `.lstate` at left=463 where the
-     * rows above and below it have it at 313.
+     * 🛑 SEVEN SLOTS, ALWAYS (#856 widened this from five: title and model
+     * pulled out of .lname into their own columns), AND THE FIRST VERSION
+     * OF THIS RULE SUPPLIED FOUR AGAINST FIVE. `.lrow` is a seven-column
+     * grid, so a row supplying fewer children shifts every cell after the
+     * gap one column right: measured on a real board, at five columns,
+     * `.lstate` sat at left=463 where the rows above and below it had it
+     * at 313. Both row templates (this one and the running one) were kept
+     * in sync at seven when this widened, for the same reason.
      *
      * ⚠️ AND THE ALIGNMENT WAS THE SMALLER HALF. The extra `.lrole` landed IN
      * the state column, so scanning that column down a list read "Idle /
@@ -8803,9 +8828,11 @@ function lrow(a) {
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
     return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}">
       <div class="lav">${off}</div>
-      <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b><small>${esc(roleLine(a, ROLE_TITLES))}</small></div>
+      <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
+      <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
       <div class="ltask"></div>
+      <div class="lmodel"></div>
       <div class="lmem"></div>
     </div>`;
   }
@@ -8860,10 +8887,11 @@ function lrow(a) {
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
   return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}">
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>
-    <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b><small>${esc(roleLine(a, ROLE_TITLES))}</small><em>${esc(modelLine(a))}</em></div>
-    <!-- #569: the said line stacks INSIDE the state cell -- the five-slot
-         rule above forbids a sixth child, and lname already stacks lines
-         within one cell, so this is the sanctioned shape.
+    <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
+    <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
+    <!-- #569: the said line stacks INSIDE the state cell -- the seven-slot
+         rule above forbids an eighth child, and .lstate already stacks a
+         second line within its own cell, so this is the sanctioned shape.
          #855 (Josh, 2026-08-25 10:22): the grid card dropped its own
          saidLine() rendering (the .asaid it used to carry) as clutter, by
          name, scoped to the grid view only -- the list row keeps it. Two
@@ -8872,6 +8900,7 @@ function lrow(a) {
          grows the line back; showing it is now a per-surface choice. -->
     <div class="lstate">${GLYPH[m.st]}${esc(copy.label)}${answerBtn(a)}${saidLine(a) ? `<small class="lsaid">${esc(saidLine(a))}</small>` : ''}</div>
     <div class="ltask">${esc(taskLine(a))}</div>
+    <div class="lmodel">${esc(modelLine(a))}</div>
     <div class="lmem">${mem}</div>
   </div>`;
 }

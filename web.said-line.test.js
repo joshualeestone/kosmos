@@ -112,3 +112,34 @@ test('the model line sits right after the state pill, ahead of the task line, si
   assert.ok(iState < iModel, 'the model line is not after the state pill');
   assert.ok(iModel < iTask, 'the model line is not ahead of the task line');
 });
+
+/* #856 (Josh, 2026-08-25 10:23): "agent name, agent title, its status,
+   whatever text it reported, its model, its percentage used" -- six
+   columns, that order, in the running list row. Pinned by position
+   relative to one another, not by a hardcoded index, for the same reason
+   as the card test above. Title and model both pulled out of .lname's
+   own stacked small/em (checked absent below), so name carries only the
+   name now. */
+test('the list row lays out name, title, status, reported text, model, percentage in that order, since #856', () => {
+  const lrowFull = page.lift(SCRIPT, 'lrow');
+  // lrow() has TWO templates (an early-return off/notrunning branch, then
+  // the running one) -- indexOf on the whole function would find the
+  // off-branch's occurrences first and compare indices across two
+  // different templates inconsistently. Scope to the running branch only,
+  // which starts at its own const m = cardStOf(a) line.
+  const runningStart = lrowFull.indexOf('const m = cardStOf(a);');
+  assert.ok(runningStart > -1, 'the running branch’s own start line moved; re-anchor this test');
+  const lrowFn = lrowFull.slice(runningStart);
+  const iName = lrowFn.indexOf('class="lname"');
+  const iTitle = lrowFn.indexOf('class="ltitle"');
+  const iState = lrowFn.indexOf('class="lstate"');
+  const iTask = lrowFn.indexOf('class="ltask"');
+  const iModel = lrowFn.indexOf('class="lmodel"');
+  const iMem = lrowFn.indexOf('class="lmem"');
+  assert.ok([iName, iTitle, iState, iTask, iModel, iMem].every((i) => i > -1),
+    'one of lname/ltitle/lstate/ltask/lmodel/lmem went missing from the running list row');
+  assert.ok(iName < iTitle && iTitle < iState && iState < iTask && iTask < iModel && iModel < iMem,
+    'the list row’s columns are not in the order Josh asked for: name, title, status, reported, model, percentage');
+  assert.doesNotMatch(lrowFn.slice(0, iTitle), /<small>|<em>/,
+    'the name cell still stacks role/model inside itself instead of the row carrying them as their own columns');
+});
