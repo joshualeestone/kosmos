@@ -17,6 +17,32 @@
 set -euo pipefail
 V="${1:-}"
 [ -n "$V" ] || { echo "usage: bash tools/release.sh <version>   e.g. 0.2.12"; exit 1; }
+# The cut's first line in the record, written the moment the version is known
+# and before ANY check can refuse (Shredder, 2026-08-25; hoisted above the
+# node read and the site-checkout check after two controls died silently in
+# front of them): "no lines at all" now means no cut was attempted, never
+# "an environment refused one". This names the
+# checkout HEAD at launch, BEFORE the version bump, so it is NOT the cut's sha
+# and is named pre_bump_head so nobody quotes it as one (the 545dd7e mistake,
+# Shredder 2026-08-25); step 3's line names the FROZEN sha (frozen_sha=), which
+# is the cut. A "started" with no matching step-3 line is a cut that died early.
+mkdir -p "$HOME/.claude/logs" 2>/dev/null || true
+printf '%s version=%s started pre_bump_head=%s\n' "$(date -u +%FT%TZ)" "$V" "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
+# The tail of the record, mirror of the head (Shredder, 2026-08-25): without a
+# completion line, "still running steps 4-9d" and "died at 4b, 8 or 9d" read
+# identically at the end. Written once, from the EXIT trap, with the exit
+# status, so a cut that dies anywhere after the started line still says so.
+_CUT_DONE_WRITTEN=0
+cut_record_done() {
+  [ "$_CUT_DONE_WRITTEN" = 1 ] && return 0
+  _CUT_DONE_WRITTEN=1
+  printf '%s version=%s completed exit=%s served=%s\n' "$(date -u +%FT%TZ)" "$V" "$1" "${DEPLOYED:-0}" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
+}
+# Installed HERE, before step 1 can refuse: the full trap below (site restore,
+# thaw) only exists after the freeze, so a death at step 1 or 2 would leave the
+# started line with no completion. The full trap replaces this one and calls
+# the same once-only writer, so exactly one completed line is written per cut.
+trap '_rc=$?; cut_record_done "$_rc"' EXIT
 
 # 🔑 AFTER 0.2.99 COMES 0.3.0, and this refuses anything else. Josh, 2026-08-22:
 # *"since we are getting close, when we get to 0.2.99 then lets roll to 0.3.00"*.
@@ -48,30 +74,6 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 [ -d "$SITE/dist" ] || { echo "no site checkout at $SITE (set KOSMOS_SITE)"; exit 1; }
 
 echo "== 1. main, clean, and carrying what you mean to ship =="
-# The cut's first line in the record, before anything can refuse (Shredder,
-# 2026-08-25): an absent step-3 line would otherwise mean either "no cut" or
-# "a cut died at step 1 or 2", and silence is not "no". This names the
-# checkout HEAD at launch, BEFORE the version bump, so it is NOT the cut's sha
-# and is named pre_bump_head so nobody quotes it as one (the 545dd7e mistake,
-# Shredder 2026-08-25); step 3's line names the FROZEN sha (frozen_sha=), which
-# is the cut. A "started" with no matching step-3 line is a cut that died early.
-mkdir -p "$HOME/.claude/logs" 2>/dev/null || true
-printf '%s version=%s started pre_bump_head=%s\n' "$(date -u +%FT%TZ)" "$V" "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
-# The tail of the record, mirror of the head (Shredder, 2026-08-25): without a
-# completion line, "still running steps 4-9d" and "died at 4b, 8 or 9d" read
-# identically at the end. Written once, from the EXIT trap, with the exit
-# status, so a cut that dies anywhere after the started line still says so.
-_CUT_DONE_WRITTEN=0
-cut_record_done() {
-  [ "$_CUT_DONE_WRITTEN" = 1 ] && return 0
-  _CUT_DONE_WRITTEN=1
-  printf '%s version=%s completed exit=%s served=%s\n' "$(date -u +%FT%TZ)" "$V" "$1" "${DEPLOYED:-0}" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
-}
-# Installed HERE, before step 1 can refuse: the full trap below (site restore,
-# thaw) only exists after the freeze, so a death at step 1 or 2 would leave the
-# started line with no completion. The full trap replaces this one and calls
-# the same once-only writer, so exactly one completed line is written per cut.
-trap '_rc=$?; cut_record_done "$_rc"' EXIT
 git -C "$REPO" fetch origin -q
 [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD)" = main ] || { echo "not on main"; exit 1; }
 [ -z "$(git -C "$REPO" status --porcelain)" ] || { echo "main is dirty"; exit 1; }
