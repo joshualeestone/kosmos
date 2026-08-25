@@ -1600,7 +1600,56 @@ function setArchived(id, want) {
   return edit(id, { archived: want });
 }
 
-function addAgent(id, sessionName, roster) {
+/* The membership valve (#803, extended by Splinter's ruling 2026-08-25): a
+   membership change rewrites the member's instruction file, the most
+   dangerous surface on this Mac, and processes had no bound on it. A
+   change that MOVES membership is recorded on the project (who, add or
+   remove, how it arrived, when), kept a day, so the count is read from the
+   records and a restart opens nothing. Sized for a runaway, never for a
+   person: the SCREEN is never valved (a person stacking six agents on a new
+   project meets no refusal), and a process gets sixty an hour across all
+   projects, which a loop hits in a minute and a real integration does not. */
+const MEMBERS_PER_HOUR = 60;
+const HOUR_MS = 3600000;
+const DAY_MS = 24 * HOUR_MS;
+function viaOf(made) { return made && made.via === 'process' ? 'process' : 'screen'; }
+function withMemberChange(p, agent, act, made, now) {
+  const at = new Date(now).toISOString();
+  const kept = (p.memberChanges || []).filter((c) => c && Number.isFinite(Date.parse(c.at)) && Date.parse(c.at) >= now - DAY_MS);
+  return { ...p, memberChanges: kept.concat([{ agent, act, via: viaOf(made), at }]) };
+}
+
+/** Every process-originated membership change in the last hour, across all
+ * projects, and when the oldest ages out. */
+function processMemberChanges(now = Date.now()) {
+  const since = now - HOUR_MS;
+  let count = 0; let oldest = null;
+  for (const p of readAll()) {
+    for (const c of (p && p.memberChanges) || []) {
+      const ms = Date.parse(c && c.at);
+      if (c && c.via === 'process' && Number.isFinite(ms) && ms >= since) { count += 1; if (oldest === null || ms < oldest) oldest = ms; }
+    }
+  }
+  return { count, liftsInSecs: oldest === null ? 0 : Math.max(1, Math.ceil((oldest + HOUR_MS - now) / 1000)) };
+}
+
+/** The refusal, or not, for a process membership change right now. */
+function memberValve(now = Date.now()) {
+  const w = processMemberChanges(now);
+  if (w.count < MEMBERS_PER_HOUR) return { refused: false, count: w.count };
+  const mins = Math.max(1, Math.ceil(w.liftsInSecs / 60));
+  return { refused: true, count: w.count, retryAfterSecs: w.liftsInSecs,
+    because: 'agents have changed who is on projects ' + w.count + ' times in the last hour, so Kosmos is pausing agent-made membership changes for '
+      + mins + (mins === 1 ? ' minute' : ' minutes') + '; the person can still change them from the screen' };
+}
+
+/** Tests age the records through this rather than shortening the hour. */
+function ageMemberChangesForTests(id, secs) {
+  mutate(id, (p) => ({ ...p, memberChanges: (p.memberChanges || []).map((c) => ({ ...c,
+    at: Number.isFinite(Date.parse(c.at)) ? new Date(Date.parse(c.at) - secs * 1000).toISOString() : c.at })) }));
+}
+
+function addAgent(id, sessionName, roster, made) {
   const key = String(sessionName || '').trim();
   if (!key) throw new Error('choose an agent');
   // ⚠️ Whether we could see this agent AT THE MOMENT IT WAS ADDED is recorded,
@@ -1612,17 +1661,18 @@ function addAgent(id, sessionName, roster) {
   const seen = Array.isArray(roster) ? roster.some((a) => a && a.sessionName === key) : null;
   return mutate(id, (p) => {
     if ((p.agents || []).includes(key)) return p;
-    return {
+    return withMemberChange({
       ...p,
       agents: [...(p.agents || []), key],
       everSeen: { ...(p.everSeen || {}), [key]: seen },
-    };
+    }, key, 'add', made, Date.now());
   });
 }
 
-function removeAgent(id, sessionName) {
+function removeAgent(id, sessionName, made) {
   const key = String(sessionName || '').trim();
   return mutate(id, (p) => {
+    if (!(p.agents || []).includes(key)) return p;
     const told = { ...(p.told || {}) };
     const everSeen = { ...(p.everSeen || {}) };
     delete everSeen[key];
@@ -1630,7 +1680,7 @@ function removeAgent(id, sessionName) {
     // leave a stale "we told this agent" beside an agent that is no longer on
     // the project, which is a sentence about a thing that is not true any more.
     delete told[key];
-    return { ...p, agents: (p.agents || []).filter((a) => a !== key), told, everSeen };
+    return withMemberChange({ ...p, agents: (p.agents || []).filter((a) => a !== key), told, everSeen }, key, 'remove', made, Date.now());
   });
 }
 
@@ -2060,7 +2110,7 @@ function syncAgent(sessionName, roster) {
   return verdict;
 }
 
-module.exports = {
+module.exports = { memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe,
   list, get, projectsFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
