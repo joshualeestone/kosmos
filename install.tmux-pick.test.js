@@ -38,11 +38,17 @@ function picker() {
   assert.notEqual(at, -1, 'the tmux picker moved or was renamed; re-point this test');
   const end = LAUNCHER.indexOf('\n_kosmos_pick_tmux\n', at);
   assert.notEqual(end, -1, 'the picker is defined and never called');
-  return LAUNCHER.slice(at, end + '\n_kosmos_pick_tmux\n'.length);
+  /* Include the explicit-choice read above the function and the marker export
+     below the call: the #728 chain fix lives in those two, not in the function. */
+  const above = LAUNCHER.lastIndexOf('_KOSMOS_TMUX_EXPLICIT=""', at);
+  const markerEnd = LAUNCHER.indexOf('export KOSMOS_TMUX_BIN_PICKED\nfi\n', end);
+  assert.notEqual(above, -1, 'the explicit-choice read moved; re-point this test');
+  assert.notEqual(markerEnd, -1, 'the picked marker export moved; re-point this test');
+  return LAUNCHER.slice(above, markerEnd + 'export KOSMOS_TMUX_BIN_PICKED\nfi\n'.length);
 }
 
 /** Run the picker with a PATH and a fake bundled tmux, and report its choice. */
-function pick({ path: PATH, sysExit, preset }) {
+function pick({ path: PATH, sysExit, preset, picked }) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'tmuxpick-'));
   const home = nodePath.join(sb, 'home');
   fs.mkdirSync(nodePath.join(home, 'tmux', 'bin'), { recursive: true });
@@ -64,6 +70,7 @@ function pick({ path: PATH, sysExit, preset }) {
          server; a sandbox pretending to be a clean machine must hide it. */
       KOSMOS_TMUX_KNOWN: '',
       ...(preset ? { AGENT_WORKFORCE_TMUX_BIN: preset } : {}),
+      ...(picked ? { KOSMOS_TMUX_BIN_PICKED: '1' } : {}),
     },
   });
   return { chose: out, bundled, sb };
@@ -161,4 +168,21 @@ test('#728: a genuinely absent server is still an honest None', () => {
   const r = agentsWith('no server running on /private/tmp/tmux-501/default', 1);
   assert.match(r.out, /None\./);
   assert.equal(r.code, 1);
+});
+
+/* #728, the rider Pete measured on a real 0.5.24 -> 0.5.25 update: the OLD
+   launcher's pick rides the environment down the update chain and the NEW
+   launcher took it for a deliberate choice, so a Mac with a newer tmux stayed
+   blind until a clean-env restart. A value marked as a previous launcher's
+   pick is re-picked; an unmarked explicit value is still honoured. */
+test('#728: a previous launcher\'s pick (marked) is re-picked, so an update does not inherit blindness', () => {
+  const r = pick({ sysExit: 0, preset: '/previous/launcher/bundled/tmux', picked: true });
+  assert.match(r.chose, /\/bin\/tmux$/);
+  assert.notEqual(r.chose, '/previous/launcher/bundled/tmux', 'the inherited pick was taken for a person\'s choice');
+  fs.rmSync(r.sb, { recursive: true, force: true });
+});
+test('#728: an unmarked explicit choice is still honoured (the harness, or a person)', () => {
+  const r = pick({ sysExit: 0, preset: '/somewhere/else/tmux', picked: false });
+  assert.equal(r.chose, '/somewhere/else/tmux');
+  fs.rmSync(r.sb, { recursive: true, force: true });
 });
