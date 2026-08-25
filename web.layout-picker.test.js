@@ -134,31 +134,39 @@ test('piece eight: the member rows go flat in the consolidated view, not boxed',
   assert.match(block, /body\.consolidated \.pj-member:hover \{ background: var\(--k-surface\); \}/);
 });
 
-test('piece nine: the project head moves into the conversation header in the consolidated view, and back for tabs', () => {
+test('piece nine, then #761 (2026-08-25): the project head moves into the conversation header in EVERY layout now, not only consolidated', () => {
   const src = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   // The move is a function called from the layout switch, so both boot and a click take the same path.
-  assert.match(src, /document\.documentElement\.setAttribute\('data-layout', want\);\n  placeProjectHead\(want\);/);
-  const fn = src.match(/function placeProjectHead\(want\) \{[\s\S]*?\n\}/);
+  assert.match(src, /document\.documentElement\.setAttribute\('data-layout', want\);\n  placeProjectHead\(\);/);
+  const fn = src.match(/function placeProjectHead\(\) \{[\s\S]*?\n\}/);
   assert.ok(fn, 'placeProjectHead is defined');
-  assert.match(fn[0], /mid\.insertBefore\(head, mid\.firstChild\)/, 'consolidated: the head goes first in the conversation header');
-  assert.match(fn[0], /grid\.parentElement\.insertBefore\(head, grid\)/, 'tabs: the head returns above the grid');
-  // Exercised, not just read: a bare DOM stand-in runs both directions.
+  assert.match(fn[0], /mid\.insertBefore\(head, mid\.firstChild\)/, 'the head goes first in the conversation header');
+  // Josh, 2026-08-25 10:12 CDT, asked for the tab view to match: there is no
+  // "move it back for tabs" branch left to test for. If one reappears here
+  // it is a regression of that request, not a restored feature.
+  assert.doesNotMatch(fn[0], /grid\.parentElement\.insertBefore/, 'the tabs-only un-merge branch should not have returned');
+  // Exercised, not just read: a bare DOM stand-in runs the merge, twice, and
+  // from both starting positions (never-merged, and already-merged).
   const mk = (children = []) => { const n = { children: [...children], parentElement: null, get firstChild() { return this.children[0] || null; },
     insertBefore(node, before) { if (node.parentElement) node.parentElement.children = node.parentElement.children.filter((c) => c !== node); node.parentElement = this; const i = before ? this.children.indexOf(before) : -1; if (i < 0) this.children.push(node); else this.children.splice(i, 0, node); } }; children.forEach((c) => { c.parentElement = n; }); return n; };
-  const head = mk(); const dlab = mk(); const mid = mk([dlab]); const grid = mk(); const view = mk([head, grid]);
-  const document = { querySelector: (sel) => ({ '#pj-one-view .pjhead': head, '#pj-one-view .pjmidhead': mid, '#pj-one-view .pj3': grid })[sel] };
+  const head = mk(); const dlab = mk(); const mid = mk([dlab]); const grid = mk(); mk([head, grid]);
+  const document = { querySelector: (sel) => ({ '#pj-one-view .pjhead': head, '#pj-one-view .pjmidhead': mid })[sel] };
   // eslint-disable-next-line no-new-func
   const place = new Function('document', fn[0] + '\nreturn placeProjectHead;')(document);
-  place('consolidated');
+  place();
   assert.equal(head.parentElement, mid); assert.equal(mid.children[0], head, 'ahead of the Conversation label');
-  place('consolidated');
+  place();
   assert.equal(mid.children.filter((c) => c === head).length, 1, 'a second apply does not duplicate it');
-  place('tabs');
-  assert.equal(head.parentElement, view); assert.equal(view.children.indexOf(head), view.children.indexOf(grid) - 1, 'back directly above the grid');
-  // And the CSS: the label steps aside, the header takes the rule.
-  const block = src.slice(src.indexOf('html[data-layout="consolidated"]'));
-  assert.match(block, /body\.consolidated \.pjmidhead > \.dlab \{ display: none; \}/);
-  assert.match(block, /body\.consolidated \.pjmidhead \{[^}]*border-bottom: 1px solid var\(--k-rule\)/);
+  place();
+  assert.equal(head.parentElement, mid, 'a third apply (simulating a tab-view boot after a consolidated one) leaves it merged, never un-merges it');
+  // And the CSS: the label steps aside, the header takes the rule, in
+  // BOTH the consolidated-scoped block and the unscoped one that gives the
+  // tab view the same shape (see the comment above the unscoped rules).
+  const consolidatedBlock = src.slice(src.indexOf('html[data-layout="consolidated"]'));
+  assert.match(consolidatedBlock, /body\.consolidated \.pjmidhead > \.dlab \{ display: none; \}/);
+  assert.match(consolidatedBlock, /body\.consolidated \.pjmidhead \{[^}]*border-bottom: 1px solid var\(--k-rule\)/);
+  assert.match(src, /\.pjmidhead:has\(\.pjhead\) > \.dlab \{ display: none; \}/, 'the tab-view (unscoped) rule hiding the label');
+  assert.match(src, /\.pjmidhead:has\(\.pjhead\) \{[^}]*border-bottom: 1px solid var\(--k-rule\)/, 'the tab-view (unscoped) rule taking the header rule');
 });
 
 test('piece ten: the + sits at the card heads and the minus on the member rows, in the consolidated view only', () => {

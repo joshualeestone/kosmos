@@ -1395,8 +1395,23 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
    two Settings rules below that block and phones get the nav beside the
    section again. web.settings-width.test.js pins both rules' place above the
    block; render-settings-nav.js renders the result at 420, 920 and 1400. */
-#panel-settings .dbody { grid-template-columns: 176px 34rem; justify-content: center; }
-@media (max-width: 60rem) { #panel-settings .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch; } }
+#panel-settings .dbody, #panel-detail .dbody { grid-template-columns: 176px 34rem; justify-content: center; }
+@media (max-width: 60rem) { #panel-settings .dbody, #panel-detail .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch; } }
+/* Josh, 2026-08-25 10:07 CDT: "make the width of the viewing agent the same
+   as we did on the settings stuff... it could all kind of fit centered."
+   Same #770 request, one screen later: the agent detail page (#panel-detail)
+   shares .dbody/.snav/.dsec with Settings already (built as siblings on
+   purpose, see the comment above Settings' own nav) but never got the width
+   override, so it was still on the base .dbody rule's fluid 1fr column.
+   ⚠️ .dhead sits BEFORE .dbody, a sibling not a child, so capping .dbody
+   alone would leave the avatar/name row spanning the full window while the
+   sections below it centre to 746px -- visibly disagreeing about the page's
+   own width. Capped to the same total (176px nav + 26px gap + 34rem content,
+   .dbody's own values) so the header's left/right edges line up with the
+   grid below it, and relaxed at the same 60rem breakpoint Settings uses so
+   the two behave as one page, not two independently-tuned widths. */
+#panel-detail .dhead { max-width: calc(176px + 26px + 34rem); margin: 0 auto 30px; }
+@media (max-width: 60rem) { #panel-detail .dhead { max-width: none; margin: 0 0 30px; } }
 .snav { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 16px; }
 .snav button { position: relative; display: block; width: 100%; text-align: center; padding: 8px 28px;
                border-radius: 100px; border: 1px solid var(--k-rule); background: var(--k-surface);
@@ -1438,8 +1453,11 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
   /* #770 gave Settings its own id-selector column rule up to 60rem, which
      outranked this class rule at phone width and kept the nav beside the
      section (render-settings-nav caught it at 420px). Restated with the same
-     specificity, later in the sheet, so the nav stacks above the section here. */
-  #panel-settings .dbody { grid-template-columns: minmax(0, 1fr); }
+     specificity, later in the sheet, so the nav stacks above the section here.
+     #panel-detail carries the same id-selector rule since 2026-08-25 (Josh's
+     matching-width request) and needs the same restatement for the same
+     reason. */
+  #panel-settings .dbody, #panel-detail .dbody { grid-template-columns: minmax(0, 1fr); }
   .snav { position: static; flex-direction: row; flex-wrap: wrap; }
   .snav button { width: auto; }
   .snav .sep { display: none; }
@@ -2136,6 +2154,46 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tkdetail { white-space: pre-wrap; margin: 0; }
 .pjmid { display: flex; flex-direction: column; min-width: 0; }
 .pjmidhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+/* #761 (Josh, 2026-08-25 10:12 CDT): the piece-nine merged header (title
+   and description in the conversation column's own header, beside the
+   search; the "Conversation" label steps aside) in the tab view too, not
+   only consolidated -- #761 left this as an open question ("check after
+   the cut whether he wants the same in the tab view") and he has now said
+   yes. placeProjectHead() moves .pjhead into .pjmidhead in every layout as
+   of this change, so this needs no layout gate: it draws the merged shape
+   whenever the merge has happened, which is always now.
+   ⚠️ UNSCOPED ON PURPOSE, NOT DUPLICATING THE CONSOLIDATED RULES. The
+   existing `html[data-layout="consolidated"] body.consolidated .pjmidhead…`
+   block (above) is higher-specificity (an attribute selector plus a class
+   on body) than anything declared here, so it keeps winning inside
+   consolidated exactly as before -- these rules only have anything to
+   style in the tab view, where nothing else claims the merged shape yet.
+   Title size matches consolidated's ACTUAL rendered size (1.25rem, from
+   `#pj-one-view .dname`, an ID-scoped rule elsewhere that already beats
+   consolidated's own 1rem attempt on specificity -- verified by comparing
+   selector specificity by hand rather than assumed from the rule that
+   reads like the intended one), not the dead 1rem line that never wins. */
+.pjmidhead:has(.pjhead) { align-items: center; gap: 12px; padding: 0 0 10px; margin-bottom: 16px; border-bottom: 1px solid var(--k-rule); }
+.pjmidhead:has(.pjhead) > .dlab { display: none; }
+.pjmidhead .pjhead { flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; align-items: center; gap: 12px; }
+.pjmidhead .pjhead .pjtitle { display: grid; gap: 1px; }
+.pjmidhead .pjhead .dname { font-size: 1.25rem; }
+.pjmidhead .pjhead .pj-desc, .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 1px 0 0; max-width: none; line-height: 1.35; }
+.pjmidhead .pjhead .pj-desc.pj-desc-none { display: none; }
+.pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
+.pjmidhead:has(.pjhead) .tsearch { flex: 0 1 min(320px, 40%); }
+/* Below 60rem there is not enough room for a title, a description and a
+   search box on one line (tab view has no 1280px floor the way
+   consolidated does, so this has to hold at phone width too, not just
+   handle a already-generous minimum): title and search stack, the
+   description keeps to its own line beneath the title, matching how the
+   rest of this project view already gives up the side-by-side shape at
+   68rem (.pj3, above) and 60rem (Settings/detail, #panel-settings .dbody). */
+@media (max-width: 60rem) {
+  .pjmidhead:has(.pjhead) { flex-direction: column; align-items: stretch; }
+  .pjmidhead .pjhead { flex-direction: column; align-items: stretch; gap: 4px; }
+  .pjmidhead:has(.pjhead) .tsearch { flex: none; }
+}
 /* ⚠️ THE MESSAGES GET A BOX OF THEIR OWN, matching Project members and Tasks:
    without it the middle column is the only one whose content floats, and the
    three columns read as two panels and a gap. The pack puts the box on the
@@ -17510,25 +17568,27 @@ function applyLayout(layout, apply) {
   if (!apply) return;
   const was = document.documentElement.getAttribute('data-layout') || 'tabs';
   document.documentElement.setAttribute('data-layout', want);
-  placeProjectHead(want);
+  placeProjectHead();
   if (was !== want && typeof URL_TAB === 'string') showTab(URL_TAB);
 }
-/* #520 piece nine (the card's finesse item 1): in the consolidated view the
-   project's title lives in the conversation column's own header, beside the
-   search, the way the mock draws it. Two siblings' children cannot share a
-   line by CSS alone, so the head is MOVED, and moved back when the tabs view
-   returns. The elements are the same ones either way: every painter that
-   writes #pj-one-name or #pj-one-desc keeps working, and nothing is copied. */
-function placeProjectHead(want) {
+/* #520 piece nine (the card's finesse item 1), then #761 (Josh, 2026-08-25
+   10:12 CDT: "still some styling changes... moving the title and
+   description to where the conversation title is" for the tab view too,
+   confirming the question #761 left open): the project's title lives in
+   the conversation column's own header, beside the search, the way the
+   mock draws it -- in EVERY layout now, not only consolidated. Two
+   siblings' children cannot share a line by CSS alone, so the head is
+   MOVED once, on the first paint, and stays there. The `want` parameter
+   is unused now that both layouts want the merge; kept so callers do not
+   need to change, and so a future layout that genuinely needs the old
+   split has a place to branch again rather than deleting the concept.
+   The elements are the same ones either way: every painter that writes
+   #pj-one-name or #pj-one-desc keeps working, and nothing is copied. */
+function placeProjectHead() {
   const head = document.querySelector('#pj-one-view .pjhead');
   const mid = document.querySelector('#pj-one-view .pjmidhead');
-  const grid = document.querySelector('#pj-one-view .pj3');
-  if (!head || !mid || !grid) return;
-  if (want === 'consolidated') {
-    if (head.parentElement !== mid) mid.insertBefore(head, mid.firstChild);
-  } else if (head.parentElement === mid) {
-    grid.parentElement.insertBefore(head, grid);
-  }
+  if (!head || !mid) return;
+  if (head.parentElement !== mid) mid.insertBefore(head, mid.firstChild);
 }
 document.querySelectorAll('[data-layout-pick]').forEach((b) => {
   b.addEventListener('click', async () => {
