@@ -7803,6 +7803,11 @@ const STATE_COPY = {
   working:      { label: 'Working',       attn: false },
   needs_you:    { label: 'Needs you',     attn: true  },
   rate_limited: { label: 'Paused',        attn: true  },
+  /* #874: Anthropic has rejected this account's bearer token outright, not
+     merely throttled it. "Working" forever was the bug; "Paused" would be
+     the wrong reassurance (it implies "will resume on its own"), so this
+     gets its own label. */
+  auth_failed:  { label: "Sign-in isn't working", attn: true  },
   /* Reported-only (#188's third verb): the agent said it is waiting on
      something that is not you. No pane shape produces it. */
   blocked:      { label: 'Waiting',       attn: true  },
@@ -7830,6 +7835,12 @@ const CARD_ST = {
   working:      { st: 'working', pres: 'on' },
   needs_you:    { st: 'attn',    pres: 'on' },
   rate_limited: { st: 'paused',  pres: 'on' },
+  /* #874: wears the same quiet "paused" pack shape as rate_limited for now
+     (an account-level problem stopping work is the closest existing
+     precedent) -- the process is still up (pres: 'on'), it just cannot get
+     an answer from Claude. Whether this deserves its own louder pack
+     treatment is a design call for whoever owns that, not decided here. */
+  auth_failed:  { st: 'paused',  pres: 'on' },
   /* blocked wears paused's quieter shape: waiting is waiting, and red stays
      reserved for "somebody is waiting on YOU". */
   blocked:      { st: 'paused',  pres: 'on' },
@@ -7929,8 +7940,8 @@ function taskLine(a) {
    * exactly there, because a person deciding whether to answer read it as what
    * the agent is stuck ON. Dropped with Mona Lisa's agreement (she wrote the
    * original and asked for the by-construction check above before relying on
-   * "never"). `rate_limited` still speaks its own honest reason, which is not the
-   * title at all.
+   * "never"). `rate_limited` (and, since #874, `auth_failed`) still speak
+   * their own honest reason, which is not the title at all.
    */
   return stateReason(a);
 }
@@ -7942,8 +7953,8 @@ function taskLine(a) {
  * derive their task line from `taskLine`, which calls this. The frozen pane
  * title used to be the fallback here; #209 removed it entirely (a title Kosmos
  * never writes and Claude Code freezes at first message is a fossil, not a
- * status), so today only `rate_limited` speaks and every other state shows
- * nothing rather than a stale summary.
+ * status), so today only `rate_limited` and `auth_failed` (#874) speak and
+ * every other state shows nothing rather than a stale summary.
  *
  * 🛑 `taskWords` IS GONE. It stripped the "Claude Code" default out of the
  * frozen title (#222) so a brand-new agent did not read as "doing Claude Code".
@@ -7960,6 +7971,14 @@ function stateReason(a) {
      stale one already decayed to unknown server-side before reaching here. */
   if (a && a.stateReported === true && a.because) {
     return '“' + a.because + '”';
+  }
+  /* #874: same hedge shape as rate_limited below -- SCRAPED means a regex
+     over a pane, not a live check of the account, so this says what was
+     SEEN ("looks like") rather than what is concluded ("is not"). */
+  if (a && a.state === 'auth_failed') {
+    return a.stateConfidence === 'scraped'
+      ? "Looks like its Claude sign-in isn't working"
+      : "Its Claude sign-in isn't working";
   }
   if (!a || a.state !== 'rate_limited') return '';
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
@@ -12369,6 +12388,23 @@ function busyRow(fresh, name) {
       + encodeURIComponent(fresh.sessionName) + '/avatar" alt=""></div>'
     : '<div class="msg-av" aria-hidden="true" style="background:' + discTint(who)
       + ';color:' + discInk(who) + '">' + esc(initials(who)) + '</div>';
+  /**
+   * #874: THE BUG WAS "IS WORKING…" FOREVER, IN THIS EXACT SLOT. Josh's
+   * agent sat here saying it was working while its real terminal showed a
+   * 401 auth failure retrying, and nothing on the chat screen he was
+   * actually looking at said otherwise. `auth_failed` gets its own line
+   * here rather than just disappearing from `paintBusy` below (a blank
+   * slot is what `rate_limited` still does today, and it is the same
+   * "someone has to know to look elsewhere" gap, just quieter) -- this is
+   * specifically the surface the bug report named.
+   */
+  if (fresh && fresh.state === 'auth_failed') {
+    return face
+      + '<span class="haz" aria-hidden="true">!</span>'
+      + '<span>' + esc(who) + '&rsquo;s Claude sign-in isn&rsquo;t working'
+      + (fresh.stateEvidence ? ' &mdash; last seen: &ldquo;' + esc(fresh.stateEvidence) + '&rdquo;' : '')
+      + '</span>';
+  }
   return face
     + '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>'
     + '<span>' + esc(who) + ' is ' + WORKING_VERB + '&hellip;</span>';
@@ -12432,9 +12468,11 @@ function paintRoomBusy(members) {
 function paintBusy(fresh, name) {
   const el = document.getElementById('d-busy');
   if (!el) return;
-  const busy = !!(fresh && fresh.state === 'working');
-  el.hidden = !busy;
-  if (!busy) { el.innerHTML = ''; return; }
+  // #874: shown for auth_failed too, not just working -- see busyRow's own
+  // comment for why this exact slot is the one the bug report named.
+  const show = !!(fresh && (fresh.state === 'working' || fresh.state === 'auth_failed'));
+  el.hidden = !show;
+  if (!show) { el.innerHTML = ''; return; }
   /* ⚠️ THE SAME AVATAR THE CARD DRAWS, off the same route, with the same
      initials fallback — Josh asked for the face and a second way of drawing one
      would drift from the board's. `aria-hidden` because the sentence beside it

@@ -77,6 +77,16 @@ test('rate_limited still speaks its own reason, and never the title', () => {
     'Usage limit reached');
 });
 
+test('#874: auth_failed speaks its own reason too, and never the title', () => {
+  // Before this, an auth-failed agent showed nothing here (falling through
+  // stateReason's rate_limited-only check) -- silence, not a wrong answer,
+  // but silence is exactly what let "is working…" stand unquestioned above it.
+  assert.equal(taskLineOf({ state: 'auth_failed', stateConfidence: 'scraped', task: FROZEN }),
+    "Looks like its Claude sign-in isn't working");
+  assert.equal(taskLineOf({ state: 'auth_failed', stateConfidence: 'reported', task: FROZEN }),
+    "Its Claude sign-in isn't working");
+});
+
 test('a missing or empty title is handled the same as any other: nothing', () => {
   assert.equal(taskLineOf({ state: 'idle' }), '');
   assert.equal(taskLineOf({ state: 'working', task: '' }), '');

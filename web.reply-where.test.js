@@ -155,6 +155,23 @@ test('only a card that positively says working produces the line', () => {
   assert.match(src, /!!\(fresh && /, 'a missing card no longer resolves to not-busy');
 });
 
+test('#874: the same slot also shows for auth_failed, not only for working', () => {
+  /**
+   * The bug this card fixes: "<name> is working…" sat in THIS exact slot,
+   * unchanged, while the real terminal showed a rejected token retrying.
+   * Before this fix `paintBusy` only ever compared against 'working', so an
+   * auth-failed agent produced no line at all here -- silence, and silence
+   * is what let the false "is working…" (from a stale prior poll, or simply
+   * nothing replacing it) go unquestioned.
+   */
+  assert.match(fn('paintBusy'), /fresh\.state === 'auth_failed'/,
+    'paintBusy no longer shows this slot for an auth-failed agent');
+  assert.match(fn('busyRow'), /fresh\.state === 'auth_failed'/,
+    'busyRow no longer has a distinct line for an auth-failed agent');
+  assert.match(fn('busyRow'), /sign-in isn&rsquo;t working/,
+    'the auth-failed line lost its actual words');
+});
+
 test('it is painted on open AND on the poll, off the poll’s existing lookup', () => {
   /**
    * ⚠️ ON OPEN, because painted only by the poll it is absent for up to five

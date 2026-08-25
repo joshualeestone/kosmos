@@ -600,6 +600,13 @@ function waitingNote(state, outcome) {
       return unsure
         ? 'it was paused on a usage limit'
         : 'it was paused on a usage limit, so it may not act on this until that clears';
+    // #874: was falling to the default below ("we could not tell what it
+    // was doing") for exactly the case where the most was known -- its
+    // Claude sign-in had already failed.
+    case status.STATE.AUTH_FAILED:
+      return unsure
+        ? "its Claude sign-in was not working"
+        : "its Claude sign-in was not working, so it will not act on this until that is fixed";
     case status.STATE.IDLE:
       return 'it was sitting at its prompt';
     default:
