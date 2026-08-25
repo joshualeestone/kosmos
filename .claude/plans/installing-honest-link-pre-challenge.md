@@ -3,7 +3,7 @@ pre_challenge: true
 method: pre-challenge
 explicit_override: true
 branch: installing-honest-link
-diff_hash: 32fbb51b9648970e366bb95e7fec1750691431e2a6438f07ea0fd065f8454b09
+diff_hash: ec992f01dd393179f6f09f6f4adf2a3636195d84399728816dd8d95b560c3ac9
 timestamp: 2026-08-25T21:50:00Z
 iterations: 1
 converged: true
