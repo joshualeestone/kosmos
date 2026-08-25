@@ -546,8 +546,21 @@ chk "user data folder survives" "[ -d \"$SB/data\" ]"
 # ⚠️ BYTE FOR BYTE, not merely present. The directory check above cannot tell
 # a preserved folder from an emptied one, and an uninstall that deleted a
 # person's agents while leaving the folder would have passed it.
-chk "every user file survives the uninstall byte for byte" \
-  "[ \"\$(cd \"$SB/data\" && find . -type f -exec shasum {} \\; | sort)\" = \"\$DATA_FINGERPRINT\" ]"
+# ⚠️ ON FAILURE THIS CHECK NAMES THE FILE. It used to print PASS or FAIL and
+# nothing else, and the EXIT trap then deleted the sandbox: the gate knew a
+# byte had changed and could not say which. Cut 0.5.32 attempt a died on it
+# (2026-08-25, #889) and the only way to learn what was written was to rebuild
+# the bundle by hand and run a patched copy. The diff below is the patched
+# copy, made permanent: `<` lines are the fingerprint before the install,
+# `>` lines are the folder after the uninstall; a file that appears only on the
+# right was left behind, one on both sides with different hashes was changed.
+if [ "$(data_hashes)" = "$DATA_FINGERPRINT" ]; then
+  chk "every user file survives the uninstall byte for byte" true
+else
+  chk "every user file survives the uninstall byte for byte" false
+  echo "      the data folder is not byte for byte what was seeded (< before install, > after uninstall):"
+  diff <(printf '%s\n' "$DATA_FINGERPRINT") <(data_hashes) | sed 's/^/      /'
+fi
 # POSITIVE CONTROL: the fingerprint is not empty, so the comparison above is
 # comparing something. An empty string equals an empty string.
 # ⚠️ `grep -c .` COUNTS LINES; `printf '%s' | wc -l` COUNTS NEWLINES and so
