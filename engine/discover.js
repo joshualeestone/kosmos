@@ -40,8 +40,16 @@ const store = require('./store');
    other remembered answers (seen-version.json, first-run.json), not in the
    browser, because "forever" has to survive a new browser, a new port and
    the next version. A missing file is the only "not dismissed"; a file we
-   cannot read is one that exists, so the person's answer stands. */
-const DISMISS_FILE = path.join(process.env.AGENT_WORKFORCE_DATA || store.ROOT, 'found-agents-dismissed.json');
+   cannot read is one that exists, so the person's answer stands.
+   ⚠️ `store.ROOT` ALONE, #891: `store.ROOT` already resolves
+   AGENT_WORKFORCE_DATA (it joins the env var with the app's own
+   'AgentWorkforce' subfolder when set). `process.env.AGENT_WORKFORCE_DATA
+   || store.ROOT` looked like the identical fallback but short-circuits
+   PAST that join whenever the env var is set, landing this file one
+   directory above every sibling it is meant to sit beside -- unnoticed
+   with the env var unset (every real install), exactly wrong under a
+   sandboxed gate that sets it. */
+const DISMISS_FILE = path.join(store.ROOT, 'found-agents-dismissed.json');
 
 function dismissed() {
   try { fs.statSync(DISMISS_FILE); return true; } catch (err) {
