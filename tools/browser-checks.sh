@@ -33,16 +33,91 @@
 #
 set -uo pipefail
 
+log()  { printf '%s\n' "$*"; }
+sec()  { printf '\n=== %s ===\n' "$*"; }
+
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
+
+# --- freeze against a concurrent merge (#758) --------------------------------
+# Every check below reads CODE straight from $REPO (boot_board only sandboxes
+# DATA dirs), so a merge landing in a shared, mutable checkout WHILE this runs
+# can flip a booted board's self-reported freshness underneath every check
+# that shares it -- this is what broke render-reload-toast (kosmos#813).
+#
+# A real release cut already avoids this: tools/release.sh freezes a detached
+# worktree at the bump sha and reassigns REPO to it (tools/lib/release-freeze.sh,
+# #597/#611) BEFORE invoking this script (`REPO="$BUILD"`, then `cd "$REPO" &&
+# bash tools/browser-checks.sh`) -- so a DETACHED HEAD here is the signature of
+# already being isolated. Freezing again would cost a second worktree on the
+# one path that is already time-pressured (a 25-minute cut), for no isolation
+# gained. A normal branch checkout -- a direct `bash tools/browser-checks.sh`,
+# the path that bit Mona Lisa -- is the vulnerable case, and gets frozen here.
+SOURCE_REPO="$REPO"
+FREEZE_BUILD=""
+FREEZE_ROOT=""
+if git -C "$REPO" symbolic-ref -q HEAD >/dev/null 2>&1; then
+  # Loud, not silent, about the one real behaviour change: before this, a
+  # direct run always saw uncommitted edits; a frozen worktree is checked out
+  # from the last COMMIT, so it will not.
+  if [ -n "$(git -C "$REPO" status --porcelain)" ]; then
+    log "‼️  $REPO has uncommitted changes. This run freezes a detached copy of the LAST COMMIT (#758) -- uncommitted edits will not be reflected. Commit first to check them."
+  fi
+  # shellcheck source=lib/release-freeze.sh
+  . "$REPO/tools/lib/release-freeze.sh"
+  FREEZE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bc-freeze.XXXXXX")" || { log "no temp dir for the frozen tree"; exit 1; }
+  FREEZE_BUILD="$(release_freeze "$REPO" "$(git -C "$REPO" rev-parse HEAD)" "$FREEZE_ROOT")" || { rm -rf "$FREEZE_ROOT"; log "could not freeze the tree (#758)"; exit 1; }
+  REPO="$FREEZE_BUILD"
+  cd "$REPO"
+  log "Frozen at $(git -C "$REPO" rev-parse --short HEAD) ($REPO) -- a concurrent merge into $SOURCE_REPO cannot move this run."
+else
+  # ⚠️ KNOWN LIMITATION, narrow: detached HEAD is release.sh's freeze in
+  # practice (its only automated caller), but is not UNIQUE to it -- a
+  # developer mid-rebase, mid-bisect, or who manually checked out a sha in
+  # an ordinary worktree also detaches, and would silently skip both the
+  # freeze AND the uncommitted-changes warning above. Accepted for now: the
+  # false-negative only fires on a deliberately unusual local git state, not
+  # on the normal "commit, then run" workflow this fix targets.
+  log "Already on a detached HEAD ($REPO) -- isolated by the caller (release.sh's own freeze, #597/#611); not freezing again."
+fi
+
+# --- cleanup, registered THE MOMENT there is anything to clean up -----------
+# ⚠️ MUST be set up before any code that can exit early (the Playwright
+# resolution block right below does, at KOSMOS_SKIP_BROWSER_CHECKS=1 and at
+# "no Playwright found"). A first version of the #758 freeze registered this
+# trap later, alongside RUN_DIR -- so a machine with no Playwright (a normal
+# CI/release-machine case this same file's own header names) froze a
+# worktree, then exited before the trap that would have thawed it existed,
+# leaking a phantom `.git/worktrees` entry and a temp dir on every such run.
+# ⚠️ ONE RUN DIRECTORY, REMOVED WHOLE. The first version kept an array of
+# sandboxes and removed each on exit, and it never removed one: new_sandbox
+# is called as `sb="$(new_sandbox)"`, a subshell, so the append to the array
+# happened in a copy and cleanup saw an empty list. 200 leaked sandboxes,
+# 131 MB, in TMPDIR by 2026-08-24 18:20, and a "gates running" signal in
+# tools/run-tests.sh that counted them as 200 live gates (#708). Every sandbox
+# now lives under one per-run directory, and cleanup removes that directory.
+# Servers were never affected: boot_board appends to SERVER_PIDS directly.
+RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bc.XXXXXX")"
+SERVER_PIDS=()
+cleanup() {
+  local pid
+  for pid in "${SERVER_PIDS[@]:-}"; do [ -n "$pid" ] && kill "$pid" 2>/dev/null; done
+  rm -rf "$RUN_DIR"
+  # #758: thaw the frozen worktree, if this run made one. release_thaw is
+  # defined only when FREEZE_BUILD was set (the freeze block sourced
+  # release-freeze.sh), so the guard also protects against calling an
+  # undefined function on the already-detached (no freeze needed) path.
+  if [ -n "$FREEZE_BUILD" ]; then
+    release_thaw "$SOURCE_REPO" "$FREEZE_BUILD"
+    rm -rf "$FREEZE_ROOT"
+  fi
+}
+trap cleanup EXIT
 
 FAKE_TMUX="$REPO/test-support/fake-tmux.sh"
 FAILED=()
 RAN=()
 RETRIED=()
-
-log()  { printf '%s\n' "$*"; }
-sec()  { printf '\n=== %s ===\n' "$*"; }
 
 # --- Playwright, borrowed not depended-on -----------------------------------
 resolve_pw() {
@@ -77,24 +152,6 @@ if [ -z "$PW_NODE_PATH" ]; then
   exit 2
 fi
 log "Playwright: $PW_NODE_PATH"
-
-# --- a sandbox per check, cleaned up on exit --------------------------------
-# ⚠️ ONE RUN DIRECTORY, REMOVED WHOLE. The first version kept an array of
-# sandboxes and removed each on exit, and it never removed one: new_sandbox
-# is called as `sb="$(new_sandbox)"`, a subshell, so the append to the array
-# happened in a copy and cleanup saw an empty list. 200 leaked sandboxes,
-# 131 MB, in TMPDIR by 2026-08-24 18:20, and a "gates running" signal in
-# tools/run-tests.sh that counted them as 200 live gates (#708). Every sandbox
-# now lives under one per-run directory, and cleanup removes that directory.
-# Servers were never affected: boot_board appends to SERVER_PIDS directly.
-RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bc.XXXXXX")"
-SERVER_PIDS=()
-cleanup() {
-  local pid
-  for pid in "${SERVER_PIDS[@]:-}"; do [ -n "$pid" ] && kill "$pid" 2>/dev/null; done
-  rm -rf "$RUN_DIR"
-}
-trap cleanup EXIT
 
 new_sandbox() {
   local sb; sb="$(mktemp -d "$RUN_DIR/sb.XXXXXX")"
