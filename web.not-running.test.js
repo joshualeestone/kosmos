@@ -172,14 +172,18 @@ for (const which of ['card', 'lrow']) {
   test(`${which}: the cells it cannot answer are ${which === 'card' ? 'absent' : 'empty'}`, () => {
     /* 🛑 THE TWO RENDERERS DIFFER HERE AND THE FIRST VERSION TREATED THEM THE
        SAME, which shipped a real defect. A card is a stack of rows, so a row
-       it cannot fill is simply not drawn. A list row is a FIVE-COLUMN GRID,
-       so a row supplying four children shifts every cell one column right:
-       measured on a real board, `.lstate` at left=463 where its neighbours
-       have it at 313, with the agent's ROLE landing in the state column and
-       reading as a state (Mona Lisa).
-       🔑 So the list keeps the board's column rhythm and leaves the two cells
-       EMPTY. Empty, not a dash and not "no task": a stopped agent has no task
-       to not-show. */
+       it cannot fill is simply not drawn. A list row is a SEVEN-COLUMN GRID
+       (#856 widened this from five: title and model each got their own
+       column), so a row supplying fewer children shifts every cell after
+       the gap one column right: measured on a real board at five columns,
+       `.lstate` sat at left=463 where its neighbours had it at 313, with
+       the agent's ROLE landing in the state column and reading as a state
+       (Mona Lisa).
+       🔑 So the list keeps the board's column rhythm and leaves the cells
+       it cannot answer EMPTY. Empty, not a dash and not "no task": a
+       stopped agent has no task to not-show. Title is NOT one of the empty
+       ones -- a stopped agent's role is a static fact, not a runtime
+       reading, and the card shows it too (.ameta, real content). */
     const html = render(which, offlineRow());
     if (which === 'card') {
       for (const gone of ['atask', 'amodel']) {
@@ -187,11 +191,13 @@ for (const which of ['card', 'lrow']) {
       }
       return;
     }
-    for (const slot of ['lav', 'lname', 'lstate', 'ltask', 'lmem']) {
+    for (const slot of ['lav', 'lname', 'ltitle', 'lstate', 'ltask', 'lmodel', 'lmem']) {
       assert.ok(html.includes(`class="${slot}"`) || html.includes(`class="${slot} `),
         `the list row is missing its ${slot} cell, so every cell after it moves one column`);
     }
+    assert.match(html, /<div class="ltitle">[^<]*<\/div>/, 'the title cell should carry the role, a static fact, not be empty');
     assert.match(html, /<div class="ltask"><\/div>/, 'the task cell is not empty');
+    assert.match(html, /<div class="lmodel"><\/div>/, 'the model cell is not empty');
     assert.match(html, /<div class="lmem"><\/div>/, 'the memory cell is not empty');
   });
 
