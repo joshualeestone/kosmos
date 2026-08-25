@@ -373,6 +373,37 @@ function setupRun(args) {
   });
 }
 
+/** Forget this Mac (#793): retire it at the coordinator while its key still
+ * exists, THEN destroy the key. Order is the whole point: after the state
+ * dir is gone the Mac cannot speak for itself and only a signed-in phone
+ * can retire it (a dead sandbox, a wiped laptop). Retire is best-effort and
+ * its outcome is reported, never hidden: a coordinator that could not be
+ * reached still leaves the Mac forgotten HERE, and the answer says the
+ * address may still show on the account page until it is removed there. */
+async function forget() {
+  const was = { enrolled: enrolled(), address: address() };
+  stopChild();
+  let retired = false;
+  let because = null;
+  if (was.enrolled) {
+    const r = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()]);
+    retired = r.ok === true;
+    because = r.ok ? null : r.because;
+  }
+  try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* best effort; enrolled() re-reads */ }
+  try { fs.rmSync(STATUS_FILE(), { force: true }); } catch { /* stale is worse than absent */ }
+  const r = read();
+  write({ ...r, on: false });
+  return {
+    ok: true,
+    retired,
+    address: was.address,
+    because: !was.enrolled ? 'this Mac was not set up for Plus, so there was nothing to retire'
+      : retired ? null
+      : 'this Mac is forgotten here, but the coordinator could not be told (' + because + '); its address may still show on your account page until you remove it there',
+  };
+}
+
 /** The email step: ask the coordinator to send the code. */
 async function setupStart(email) {
   if (typeof email !== 'string' || !email.includes('@')) {
@@ -502,7 +533,7 @@ async function deviceRemove(id) {
   return parseSaid(await setupRun(deviceArgs('remove', id, false)));
 }
 
-module.exports = { DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   setOn,

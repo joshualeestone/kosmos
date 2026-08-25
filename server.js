@@ -2273,6 +2273,16 @@ const server = http.createServer((req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not finish the sign-up' }));
     return;
   }
+  /* ---- Forget this Mac (#793): retire at the coordinator while the key
+     exists, then destroy the key. The engine owns the order; this route only
+     relays the outcome, including the case where the coordinator could not
+     be told, so the page can say the address may still show on the account. */
+  if (pathname === '/api/remote/forget' && req.method === 'POST') {
+    remote.forget()
+      .then((got) => sendJson(res, 200, { ok: true, retired: got.retired === true, address: got.address, because: got.because, status: remote.status() }))
+      .catch((err) => sendJson(res, 500, { error: 'we could not forget this Mac: ' + (err && err.message) }));
+    return;
+  }
   /* ---- Devices (#567): the Allow moment's seam. `pending` is a FILE the
      running tunnel refreshes (every open board reads it every five seconds,
      so it must never spawn); the list and the three verbs shell to the
