@@ -275,7 +275,7 @@ else
   # The fallback: under set -e a log with no FAIL, summary or SKIP line (the
   # harness died before its first check, or refused at its staged-trees line)
   # would abort here with the headline and no reason; print its tail instead.
-  grep -E '^FAIL|passed, |SKIP' "$_gate_log" | sed 's/^/   /' || tail -15 "$_gate_log" | sed 's/^/   /'
+  grep -E '^FAIL|^   |passed, |SKIP' "$_gate_log" | sed 's/^/   /' || tail -15 "$_gate_log" | sed 's/^/   /'
   [ "${PKG_PUBLISHED:-0}" = 1 ] && echo "   (3c already put a rebuilt Kosmos.pkg triple in $SITE/dist; a site deploy before the next cut would carry it; verify-served.sh is the check that applies)"
   echo "   (full log: $_gate_log)"; exit 1
 fi

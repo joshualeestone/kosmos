@@ -275,14 +275,20 @@ chk "and the only things it added are the supervisor and the codex bridge the ag
   "[ \"\$ADDED\" = \"\$EXPECTED_ADDS\" ]"
 # A mismatch names its paths. The 0.5.24 cut went red on this check with a
 # correct bundle and the red named no file, so learning which one meant
-# reproducing the run. Every grep ends "|| true" because the harness runs under
-# pipefail and an empty grep here once ended the run after the first red; an
-# empty list says "(none)" rather than printing a blank entry.
+# reproducing the run. Every grep pipeline ends "|| true" because the harness
+# runs under pipefail and an empty grep here once ended the run after the first
+# red; an empty list says "(none)" rather than printing a blank entry. The cut
+# (release.sh step 4b) carries these indented lines to its own output.
 if [ "$ADDED" != "$EXPECTED_ADDS" ]; then
   _extra="$(printf '%s\n' "$ADDED" | grep -vxF -f <(printf '%s\n' "$EXPECTED_ADDS") | grep -v '^$' || true)"
   _short="$(printf '%s\n' "$EXPECTED_ADDS" | grep -vxF -f <(printf '%s\n' "$ADDED") | grep -v '^$' || true)"
-  echo "   added, not expected:"; if [ -n "$_extra" ]; then printf '%s\n' "$_extra" | sed 's/^/      /'; else echo "      (none)"; fi
-  echo "   expected, not added:"; if [ -n "$_short" ]; then printf '%s\n' "$_short" | sed 's/^/      /'; else echo "      (none)"; fi
+  if [ -z "$_extra" ] && [ -z "$_short" ]; then
+    echo "   the same paths, but not the same text (order, a repeat, or a blank); added:"; printf '%s\n' "$ADDED" | sed 's/^/      /'
+    echo "   expected:"; printf '%s\n' "$EXPECTED_ADDS" | sed 's/^/      /'
+  else
+    echo "   added, not expected:"; if [ -n "$_extra" ]; then printf '%s\n' "$_extra" | sed 's/^/      /'; else echo "      (none)"; fi
+    echo "   expected, not added:"; if [ -n "$_short" ]; then printf '%s\n' "$_short" | sed 's/^/      /'; else echo "      (none)"; fi
+  fi
 fi
 chk "board answers" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 chk "command works through the symlink" "\"$SB/bin/kosmos\" status | grep -q running"

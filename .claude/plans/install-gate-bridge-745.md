@@ -12,13 +12,14 @@ The third 0.5.24 cut (22:03) stopped at step 4b, the install gate (#624): "and t
 
 ## Finished when
 
-- The block by itself, under `/bin/bash` 3.2 with `set -euo pipefail`, survives six inputs (empty, the old one-file set, an exact match, one extra, reversed order, a staging leftover) with exit 0 and prints "(none)" for an empty side.
+- The block by itself, under `/bin/bash` 3.2 with `set -euo pipefail`, survives six inputs (empty, the old one-file set, an exact match, one extra, reversed order, a staging leftover) with exit 0, prints "(none)" for an empty side, and prints both raw values when the sets match but the text does not.
+- The cut's own red branch (`tools/release.sh` step 4b) shows these lines: its filter carries indented lines, which in a gate log are only this block's.
 - A build from this tree passes the gate (75 passed, 0 failed) and the block prints nothing.
 - The one-file expectation restored as a control: red at this check, `./AgentWorkforce/bin/codex-report-bridge.js` under "added, not expected", "(none)" under "expected, not added", and the run reaches its summary (74 passed, 1 failed).
 
 ## Review
 
-One blind round on the pre-rebase diff: the conflict with #767 (cured by the rebase), the plan's stale claims (rewritten), the blank line on an empty `ADDED` and the headers over empty lists (both now "(none)"), the redundant `:` (gone with the `if` form), the "EXACTLY the one" paragraph (fixed). Deferred: a pre-existing em dash at line 398, not this change's.
+One blind round on the pre-rebase diff: the conflict with #767 (cured by the rebase), the plan's stale claims (rewritten), the blank line on an empty `ADDED` and the headers over empty lists (both now "(none)"), the redundant `:` (gone with the `if` form), the "EXACTLY the one" paragraph (fixed). Deferred: the file's one pre-existing em dash (in a later comment), not this change's.
 
 ## Not in this change
 
