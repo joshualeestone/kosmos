@@ -829,7 +829,22 @@ async function runFlow(owner, haveBinary) {
     }
 
     writeState({ phase: PHASE.INSTALLING, startedOnce: true });
-    const inst = await run(downloaded.path, ['install'], { timeout: 180000, env: { TERM: 'dumb' }, cancellable: true });
+    /**
+     * ⚠️ HOME IS PASSED, and it is not cosmetic. `claudeBinPath()` now
+     * resolves through `runners.resolveBin('claude')`, which honours the
+     * AGENT_WORKFORCE_HOME sandbox seam. Without passing the same home to
+     * the child, WHERE WE LOOK and WHERE THE VENDOR WRITES key on different
+     * variables: under a sandbox the install would land in the operator's
+     * real home and the `accessSync` below would then report a SUCCESSFUL
+     * install as "we cannot find it where it should be". Production is
+     * unchanged -- AGENT_WORKFORCE_HOME is unset there, so this is
+     * `HOME: HOME`.
+     */
+    const inst = await run(downloaded.path, ['install'], {
+      timeout: 180000,
+      env: { TERM: 'dumb', HOME: require('./runners').homeDir() },
+      cancellable: true,
+    });
     if (driver !== owner) {
       try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
       return;

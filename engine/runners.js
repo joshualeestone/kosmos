@@ -106,18 +106,18 @@ const MANIFEST = Object.assign(Object.create(null), {
      * way. Shipping the script version would have added a second, strictly
      * weaker install path for the same product beside a verified one.
      *
-     * So this kind does not install anything itself. It delegates to
-     * `connect.download()` -- the same verified fetch, the same refusals --
-     * and then runs the downloaded binary's own `install`, which is what
-     * puts the launcher at ~/.local/bin/claude. One download mechanism for
-     * Claude Code in this process, not two.
+     * So this kind does not install anything itself, and on this branch it
+     * does not download either: it LINKS a Claude Code that is already on
+     * the Mac, and refuses in words when there is none. The download half
+     * is #996, where connect.js's verified download+install is extracted
+     * into one function both callers share. Reassembling it here is what
+     * the second wrong version did; see installVendor().
      *
-     * ⚠️ WHAT IS STILL HONESTLY ABSENT: there is no `url`/`integrity` pin
-     * HERE, because the version and its checksum are discovered at run time
-     * from the vendor's own manifest rather than frozen into this file. So
-     * `pinnedVersion` is null for this kind and says so. Byte counts, by
-     * contrast, are now REAL -- the verified fetch reports them -- which is
-     * what lets a screen draw a true progress bar instead of a spinner.
+     * ⚠️ WHAT IS HONESTLY ABSENT: there is no `url`/`integrity` pin HERE,
+     * because the version and its checksum are discovered at run time from
+     * the vendor's own manifest rather than frozen into this file. So
+     * `pinnedVersion` is null for this kind and says so, and `downloadBytes`
+     * is null because nothing on this branch downloads.
      */
     kind: 'vendor-verified',
     binName: 'claude',
@@ -139,6 +139,11 @@ Object.freeze(MANIFEST);
  * installed board resolve the same managed runner rather than each
  * installing their own.
  */
+/* ⚠️ Keys on the bare module `HOME`, NOT homeDir(). Deliberate and worth
+   naming, because the asymmetry with resolveBin's claude rung is exactly
+   the shape homeDir()'s own comment argues against: this path has its own
+   sandbox seam (AGENT_WORKFORCE_RUNNERS_DIR) that the tests use, so adding
+   a second one here would give one directory two ways to be redirected. */
 function managedRoot() {
   // Testing / self-host seam, same contract as the other AGENT_WORKFORCE_*
   // path overrides: a harness points this at a sandbox so no test ever
@@ -246,15 +251,20 @@ function resolveBin(provider, opts) {
  *
  * Job shape, readable at any moment via status():
  *   tarball kind:         phase 'downloading'|'verifying'|'unpacking'
- *   vendor-verified kind: phase 'linking' OR 'downloading'|'installing'
+ *   vendor-verified kind: phase 'linking'   (the only fetching phase it
+ *                         has until #996 gives it a real install)
  *   both kinds:           -> 'proving' -> 'installed'|'failed'
- *   { phase, receivedBytes, totalBytes (REAL for both kinds -- the
- *     vendor-verified fetch reports them, so a screen draws a true bar,
- *     null only in the 'linking' branch where nothing is fetched),
- *     version (both kinds: pinned for tarball, discovered for
- *     vendor-verified), because (failed only), proved (installed only:
- *     the runner's own --version line), linked (vendor-verified: the
- *     found path a link points at) }
+ *   { phase, receivedBytes, totalBytes (real numbers for the tarball kind;
+ *     null for vendor-verified, which moves no bytes -- a link is not a
+ *     download and must not draw a bar), version (tarball: the pinned one;
+ *     vendor-verified: null), because (failed only), proved (installed
+ *     only: the runner's own --version line), linked (vendor-verified: the
+ *     found path a link points at, null otherwise) }
+ *
+ * ⚠️ EVERY ABSENCE ABOVE IS SPELLED `null`, NEVER a missing key. An absent
+ * field is dropped by JSON.stringify, which makes "this kind has no version"
+ * indistinguishable on the wire from "the field was never added" -- so the
+ * job is initialised with every field it can ever carry.
  */
 const jobs = Object.create(null);
 
@@ -270,11 +280,10 @@ function status() {
     if (r.present && jobs[provider] && jobs[provider].phase === 'failed') delete jobs[provider];
     out[provider] = {
       name: m.name,
-      // The screens branch on this. BOTH kinds now carry real byte counts
-      // while fetching, so this is no longer bar-vs-spinner; it is which
-      // SENTENCE the screen tells (a pinned Kosmos-managed runner vs the
-      // vendor's own current build), and the 'linking' phase, which only
-      // this kind can reach, has nothing to draw a bar from.
+      // The screens branch on this: a tarball gets a real byte progress bar,
+      // a vendor-verified kind gets no bar at all, because until #996 its
+      // only fetching phase is `linking` and a link moves no bytes. Stated
+      // rather than left to be inferred from nulls.
       kind: m.kind || 'tarball',
       // pinnedVersion, NOT a claim about the binary on disk: presence is
       // existence, and a legacy or older managed runner may answer any
@@ -681,15 +690,11 @@ function installVendor(provider, m, o, existing) {
     }
     return null;
   });
-  // Required lazily: connect.js is a heavier module and this is the only
-  // path that needs it, but the important part is that it is REQUIRED
-  // rather than reimplemented -- one verified fetch for Claude Code.
-  const fetchVendor = o.fetchVendor
-    || ((onProgress) => require('./connect').download(onProgress));
-  const runVendorInstall = o.runVendorInstall
-    || ((binary, done) => execFile(binary, ['install'], { timeout: 600000 }, done));
-
-  const job = { phase: 'linking', receivedBytes: null, totalBytes: null };
+  // `linking` from the start, and for this kind that is the ONLY fetching
+  // phase there is until #996 lands. Byte counts are null and stay null:
+  // a link moves no bytes, and inventing a count would be the same lie the
+  // tarball kind's real numbers exist to avoid.
+  const job = { phase: 'linking', receivedBytes: null, totalBytes: null, version: null, linked: null };
   jobs[provider] = job;
   const fail = (because) => { job.phase = 'failed'; job.because = because; };
 
@@ -731,26 +736,46 @@ function installVendor(provider, m, o, existing) {
         fs.symlinkSync(elsewhere, canonical);
         job.linked = elsewhere;
       } else {
-        job.phase = 'downloading';
-        const got = await fetchVendor((received, total) => {
-          job.receivedBytes = received;
-          job.totalBytes = total;
-        });
-        job.version = (got && got.version) || null;
-        job.phase = 'installing';
-        await new Promise((resolve, reject) => {
-          runVendorInstall(got && got.path, (err) => err
-            ? reject(new Error(`the ${m.name} installer did not finish: ${String((err && err.message) || err).trim()}`))
-            : resolve());
-        });
-        // isRunnable, not existsSync: one definition of present governs the
-        // resolver AND the installer, so an installer that lands a
-        // non-executable file gets the named sentence here instead of a
-        // raw shell error one step later at prove.
-        if (!isRunnable(canonical)) {
-          fail(`the ${m.name} installer finished but nothing runnable landed at ${canonical}`);
-          return;
-        }
+        /**
+         * 🛑 THE DOWNLOAD-AND-INSTALL BRANCH IS DELIBERATELY NOT HERE, and
+         * this refusal is the honest placeholder for it (#996).
+         *
+         * Two earlier versions of it lived here and both were wrong in the
+         * same way, one level apart. The first curl-and-shelled the vendor's
+         * script with no integrity check, beside an `engine/connect.js` that
+         * has verified the same product against a published SHA256 since
+         * 2026-08-12. The second fixed that by borrowing connect.js's
+         * verified DOWNLOAD and hand-writing the rest of the install next to
+         * it -- which reintroduced, from the other side, three defects
+         * connect.js had already found and fixed for itself:
+         *
+         *   - the two paths share `store.ROOT/downloads` with no mutual
+         *     exclusion, so on a bare Mac (the only machine either path runs
+         *     on) a sign-in flow and a runner install can stream into the
+         *     SAME .part, or sweep each other's verified binary away between
+         *     the download and the install;
+         *   - connect.js's `cancel()` destroys a module-global "active
+         *     request", so cancelling a sign-in aborts a runner download it
+         *     knows nothing about, and vice versa;
+         *   - the ~281MB download was left on disk, where connect.js unlinks
+         *     it on every exit for a stated reason.
+         *
+         * ⭐ The fix is NOT to patch those here. It is that ONE function owns
+         * downloading, installing, verifying and cleaning up Claude Code, and
+         * both callers use it -- which means extracting that block out of
+         * `runFlow`, where it is currently woven into the sign-in state
+         * machine. That is a real change to the most delicate shipped path in
+         * Kosmos and it gets its own branch and its own review (#996), rather
+         * than riding along with a consolidation.
+         *
+         * ⚠️ SO WHAT THIS KIND CAN DO TODAY IS LINK, NOT INSTALL, and the
+         * refusal says so in the words a person would need. It is never a
+         * silent no-op and never a false `installed`: the thing Josh's whole
+         * provider ruling exists to prevent is a dead end that does not
+         * explain itself.
+         */
+        fail(`${m.name} is already on this Mac or it is not, and right now Kosmos can only use one that is already here. Downloading it during setup is the next piece of this work; until then, install ${m.name} yourself and Kosmos will find it.`);
+        return;
       }
       job.phase = 'proving';
       await new Promise((resolve, reject) => {
@@ -777,4 +802,4 @@ function installVendor(provider, m, o, existing) {
 /** Test-only: forget every job receipt (the same shape connect.js ships). */
 function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 
-module.exports = { MANIFEST, managedRoot, resolveBin, status, install, download, resetForTests };
+module.exports = { MANIFEST, managedRoot, resolveBin, homeDir, status, install, download, resetForTests };
