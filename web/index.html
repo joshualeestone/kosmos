@@ -13872,18 +13872,100 @@ async function paintAgentWindow(sessionName, opts) {
  * container; `detailGo` does the landing on return, and a reader's kept place
  * wins over a message that arrived while they were away.
  */
-function setThread(el, html, count) {
-  if (el.__lastThread !== html) {
+/* How far off the bottom still counts as being at the bottom. The thread box is
+   240px, so this is deliberately small: sub-pixel layout and a zoomed display
+   leave a fractional gap under a reader who IS at the floor, and nothing more
+   than that is meant to qualify. A person who nudged up half a line has
+   scrolled up, and is left alone. */
+const THREAD_BOTTOM_SLACK = 4;
+function threadAtBottom(el) {
+  /* ⚠️ A HIDDEN BOX IS "UNKNOWN", AND THE SAFE ANSWER TO UNKNOWN IS NO.
+     display:none gives 0 for all three, and 0-0-0 <= slack is TRUE, so a naive
+     test says a box nobody can see is at the bottom. That is not harmless: it
+     would let a paint into the hidden Talk section arm the image re-pin at
+     offset 0, and a late image firing after the person came back would then
+     drag a reader at the TOP to the bottom. Refusing to guess here removes
+     that whole path. */
+  if (!el.clientHeight) return false;
+  return (el.scrollHeight - el.scrollTop - el.clientHeight) <= THREAD_BOTTOM_SLACK;
+}
+function setThread(el, html, key) {
+  /* 🛑 THE THING THAT MOVES THE READER IS THE MARKUP WRITE, NOT THE SCROLL
+     LINE (#1037). Every not-a-list arm -- opening, unreadable, nothing yet, no
+     filter match -- replaces the whole thread with a one-paragraph note. That
+     collapses scrollHeight, the browser CLAMPS scrollTop to 0, and the next
+     poll paints the rows back at the top. No scroll assignment is involved, so
+     guarding the scroll assignment alone changes "thrown to the bottom" into
+     "thrown to the top" and the person reading is just as lost.
+
+     Josh timed the jump at precisely five seconds, sitting still, with nothing
+     said, in a plain browser as well as the app. A poll flapping through a
+     null arm is the only thing on this page that does that.
+
+     So the offset is CARRIED ACROSS THE WRITE. Captured before, restored
+     after, unless we have decided to follow the tail. */
+  const wasAtBottom = threadAtBottom(el);
+  const heldTop = el.scrollTop;
+  const rewrote = el.__lastThread !== html;
+  if (rewrote) {
     el.__lastThread = html;
     el.innerHTML = html;
   }
-  // ⚠️ `count` is null for every not-a-list state (opening, unreadable,
-  // nothing yet). Those must not leave a number behind that a later thread of
-  // the same length would match, so the key is cleared rather than kept.
-  if (el.__lastCount !== count) {
-    el.__lastCount = count;
-    if (count !== null) el.scrollTop = el.scrollHeight;
-  }
+  /* ⚠️ `key` IS AN IDENTITY, NOT A LENGTH, and it used to be `rows.length`.
+     A count cannot tell a new message from a flap, and at the 200-message tail
+     the server applies it cannot tell a new message from anything at all: past
+     200 the length is pinned and every later message was invisible here. The
+     room box beside this one already keys on message ids for exactly that
+     reason; this is that. null still means "not a list", and those arms never
+     follow the tail.
+
+     Compared against the last key that was NOT null, so a flap through a note
+     and back returns to the same identity and reads as no news, while a real
+     message does not. */
+  const isNews = key !== null && key !== el.__lastRealKey;
+  if (key !== null) el.__lastRealKey = key;
+  el.__lastCount = key;
+  /* Follow the tail only for actual news, and only for someone who was already
+     at the floor. A person who scrolled up to read is never moved, which is
+     the half of this that holds however the flap turns out to work. */
+  if (isNews && wasAtBottom) { pinToBottom(el); return; }
+  /* Otherwise put them back exactly where they were. Only after a rewrite:
+     untouched markup has not moved anything, and writing scrollTop for no
+     reason can itself cancel a smooth scroll the person started. */
+  if (rewrote && el.scrollTop !== heldTop) el.scrollTop = heldTop;
+}
+/**
+ * Put the thread on its newest row, and KEEP it there while the rows it just
+ * gained finish laying out.
+ *
+ * ⚠️ AN IMAGE HAS NO HEIGHT UNTIL IT LOADS, so scrollHeight immediately after
+ * a markup write is short by however tall the pictures turn out to be, and the
+ * jump lands part way up. That is the "middle of the conversation" half of
+ * #1037: a person who WANTED the newest row still did not get it.
+ *
+ * 📌 THE RE-PIN IS KEYED ON THE PAINT, NOT ON AN OFFSET. A later paint detaches
+ * these images, and a detached image still fires. The offset alone is not a
+ * discriminator -- this one element is reused by every agent, so landing on the
+ * same number by coincidence would let a stale image from one conversation pin
+ * another. The markup this pin belongs to is a real one.
+ */
+function pinToBottom(el) {
+  el.scrollTop = el.scrollHeight;
+  const paint = el.__lastThread;
+  const pinnedAt = el.scrollTop;
+  el.querySelectorAll('img').forEach((img) => {
+    if (img.complete) return;
+    const again = () => {
+      if (el.__lastThread !== paint) return;   // a different conversation now
+      if (el.scrollTop !== pinnedAt) return;   // the person has moved; leave them
+      el.scrollTop = el.scrollHeight;
+    };
+    // `error` too: a broken picture also changes the height it occupies, and
+    // leaving only `load` strands the reader on exactly the threads where
+    // something failed to load.
+    img.addEventListener('load', again, { once: true });
+    img.addEventListener('error', again, { once: true });
+  });
 }
 
 /**
@@ -14210,7 +14292,15 @@ function paintTalkThread(body, name) {
      *     oldest, so the count holds at 200 and a new arrival does not bring
      *     itself into view.
      */
-    setThread(thread, rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows)), filtering ? null : rows.length);
+    /* The identity of what is on screen, not its length: the newest row's own
+       id and how many there are. Past the server's 200-message tail the length
+       stops changing and a new message would otherwise be invisible to
+       setThread. `at` is the fallback the room's key uses for the same reason.
+       A filtered paint stays null: the person is reading, not following. */
+    const tailRow = rows.length ? rows[rows.length - 1] : null;
+    const threadKey = filtering ? null
+      : rows.length + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '');
+    setThread(thread, rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows)), threadKey);
   }
 }
 async function paintTalk(sessionName, agentName) {
@@ -15255,6 +15345,14 @@ function openDetail(sessionName, section) {
     document.getElementById('d-qask-text').hidden = true;
     document.getElementById('d-qask-fail').textContent = '';
     document.getElementById('d-qask-fail').hidden = true;
+    /* 🛑 THE IDENTITY GOES WITH THE AGENT. This element is reused by every
+       agent, and `__lastRealKey` deliberately survives a null arm so a flap
+       reads as no news. An OPEN is not a flap: without this, agent B's first
+       paint is compared against agent A's last message, so opening anyone
+       whose thread matched would land on the oldest row instead of the
+       newest. Measured before the fix by an independent review, on a length
+       key: open A then B and B landed at the top. */
+    document.getElementById('d-dmthread').__lastRealKey = undefined;
     setThread(document.getElementById('d-dmthread'), '<p class="dmnone">Opening&hellip;</p>', null);
     // A reading posture, not agent state: carried across agents it would hide
     // the next thread silently.
@@ -15433,7 +15531,10 @@ function detailGo(section, opts) {
        that arrived while they were away. `setThread`'s newest-row jump is
        for the live list under a reader; here the reader had left. */
     if (th && TALK_SCROLL !== null) { th.scrollTop = TALK_SCROLL; TALK_SCROLL = null; }
-    else if (th && th.__lastCount !== null && th.__lastCount !== undefined) th.scrollTop = th.scrollHeight;
+    /* Through `pinToBottom`, not a raw assignment: coming back to a thread
+       whose pictures have not laid out lands part way up otherwise, which is
+       the same "middle rather than bottom" the poll path had. */
+    else if (th && th.__lastCount !== null && th.__lastCount !== undefined) pinToBottom(th);
   }
   /* The FRESH record, not the one captured at open: the poll never rewrites
      CURRENT, and a tie that changed while the person sat on Talk would
