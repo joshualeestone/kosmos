@@ -1720,8 +1720,16 @@ echo "-- control: a DEFAULT KOSMOS_HOME uninstall still removes the jobs naming 
 # (fake) real Application Support, and the foreign job from above is now
 # the one that names it.
 plist931 d931own "$D931_KHOME/data" > "$D931_HOME/Library/LaunchAgents/com.kosmos.agent.d931own.plist"
-RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_LAUNCH \
-  HOME="$D931_HOME" KOSMOS_HOME_APP_DIR="$SB/d931home-apps-b" KOSMOS_APP_DIR="$SB/apps931b" \
+# 🛑 AGENT_WORKFORCE_LAUNCH IS SET HERE, ON PURPOSE, AND THE FIRST VERSION
+# DID NOT: a default-KOSMOS_HOME uninstall with it unset runs `launchctl
+# bootout gui/$uid/com.kosmos.board`, the REAL board's label, and this
+# scenario took the live Kosmos on the build Mac down at 00:39 on
+# 2026-08-26 (the closing "port 16180 is as we found it" check caught it).
+# A fake HOME scopes the FILES; it does not scope the launchd domain. The
+# ownership proof under test is the file loop, which reads this directory
+# either way.
+RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  HOME="$D931_HOME" AGENT_WORKFORCE_LAUNCH="$D931_HOME/Library/LaunchAgents" KOSMOS_HOME_APP_DIR="$SB/d931home-apps-b" KOSMOS_APP_DIR="$SB/apps931b" \
   sh -s -- --uninstall > "$SB/d931-control-uninstall.log" 2>&1 || RC=$?
 chk "#931 control (default KOSMOS_HOME) uninstall exits 0" "rc_ok $RC"
 chk "control: the job naming the real supervisor IS removed, as before #931" "[ ! -e \"$D931_HOME/Library/LaunchAgents/com.kosmos.agent.d931foreign.plist\" ]"
