@@ -159,6 +159,7 @@ const forget = require('./engine/forget');
 const ping = require('./engine/ping');
 const notify = require('./engine/notify');
 const selfreport = require('./engine/selfreport');
+const sendertoken = require('./engine/sendertoken');
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
@@ -3483,11 +3484,30 @@ const server = http.createServer((req, res) => {
        nothing fans out. The board reads the record back through
        `status.reconcileReport`, where a fresh report outranks the pane.
 
-       🔑 THE SENDER IS A PROPERTY, NOT A FIELD: identity NEVER comes from
-       the body. It is derived from the pane (messages.resolveSender, the
-       rule every write route enforces), so an agent can only ever report as
-       itself -- a report anyone on the machine could forge would not be
-       evidence, and evidence is this record's whole job. */
+       🔑 THE SENDER IS DERIVED, NEVER NAMED BY THE SENDER. There is no
+       `from` field to fill in: the caller presents a HANDLE, we map it, and
+       the roster tie (`isNamedOurs`) decides whether that row may speak.
+
+       🛑 THIS COMMENT USED TO SAY a report "anyone on the machine could
+       forge would not be evidence", implying none could. AND A PANE IS A
+       CLAIM TOO: pane ids are enumerable with `tmux list-panes`, and this
+       server binds loopback with no auth, so a local process can pass a
+       second agent's pane and have this record as that agent. That is not a
+       new finding -- the `/api/reply` comment a few hundred lines up already
+       says it, in those words, after its own too-strong wording was
+       corrected. This route's copy was simply never updated with it, which
+       is how one codebase ends up holding both the correction and the thing
+       it corrected. Fixed on #570.
+
+       🔑 ONE RESOLVER CHAIN, TOKEN FIRST, PANE SECOND (#570 item 2). An
+       agent with no pane -- Windows, or an SDK runner that was never in a
+       terminal -- presents the launch token it was handed instead. Both arms
+       return the same `{ ok, card }` and the same failure shape, because a
+       Windows path living beside a Mac path is two copies of one fact.
+
+       ⚠️ NO DOWNGRADE. A presented token DECIDES: if it does not resolve we
+       refuse rather than falling back to the pane. A caller free to choose
+       which identity check judges it would choose the weakest one. */
     readBody(req)
       .then((buf) => {
         let body;
@@ -3504,7 +3524,10 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { recorded: false, because: 'we could not check which agents are running, so we could not tell who this is from' });
           return;
         }
-        const sender = messages.resolveSender(body.from_pane, roster);
+        const presented = req.headers['x-kosmos-agent-token'] || body.token;
+        const sender = presented
+          ? sendertoken.resolve(presented, roster)
+          : messages.resolveSender(body.from_pane, roster);
         if (!sender.ok) { sendJson(res, 200, { recorded: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
