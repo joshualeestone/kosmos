@@ -2253,7 +2253,13 @@ function pageFunction(name, prelude = '') {
  * harness (no querySelector) runs as a source checkout: never stale.
  */
 function updateCardDeps() {
-  return pageFnSource('bakedVersion') + '\n' + pageFnSource('pageIsStale') + '\n';
+  /* ⚠️ ENGINE_STALE too (#995): paintUpdateCard's stale arm now stands down
+     under it, the way the toast already did, so a footer offering Reload
+     cannot contradict a notice saying the board needs restarting. Declared
+     null here so every existing caller keeps testing the ordinary case; a
+     test that wants the engine-stale branch sets it explicitly. */
+  return pageFnSource('bakedVersion') + '\n' + pageFnSource('pageIsStale') + '\n'
+    + 'let ENGINE_STALE = null;\n';
 }
 
 test('the creation screen only calls an agent made when the board can see it running', async () => {
@@ -10791,7 +10797,7 @@ test('the doctrine routes: plan, consent-by-hash, not-now, and the fleet list', 
   }
 });
 
-test('with a newer version installed than the open page, Check for Update says reload, not "Up to date" (#691)', async () => {
+test('with a newer version installed than the open page, the footer says Reload, not "Up to date" (#691, control reversed by #995)', async () => {
   /* Josh, 2026-08-24 16:50, screenshot: "version 0.5.22 · reload for 0.5.23"
      and, beside it, "Up to date." Both halves true, together a contradiction.
      The verdict now asks the page's own staleness question. */

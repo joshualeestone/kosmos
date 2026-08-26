@@ -9561,7 +9561,15 @@ function paintUpdateCard(running, offer, look) {
      * the build line above, which announces staleness without being asked.
      * Gating the button on UPD_ASKED would leave his screenshot unchanged.
      */
-    if (pageIsStale(running)) {
+    /* ⚠️ AND IT STANDS DOWN UNDER ENGINE-STALE, like the toast does.
+       `renderUpdateToast` gives the engine-stale notice absolute precedence
+       (#338) and deliberately offers no Reload there, because reloading the
+       page cannot fix a BOARD running older code than the files on disk.
+       Without this gate the two surfaces contradict each other: the toast
+       says restart, the footer says Reload, and the reload re-delivers the
+       same page so the button never goes away. Reachable whenever an update
+       replaced the files but the restart did not take. */
+    if (pageIsStale(running) && !(ENGINE_STALE && ENGINE_STALE.staleSince)) {
       putBtn('Reload');
       btn.dataset.act = 'reload';
     } else {
@@ -9661,7 +9669,17 @@ async function updCheckNowClick() {
   // dropped focus to <body>, and the person who pressed the button was
   // left nowhere while the answer landed (announced by the line's
   // role="status").
-  btn.focus();
+  /* 🛑 EXCEPT WHEN THE PRESS JUST TURNED IT INTO Reload (#995). The paint
+     above can relabel this very button from "Check for Update" to "Reload"
+     and re-point its action. Restoring focus then puts a DIFFERENT, unguarded
+     action under a finger that is already there, and the natural repeat of the
+     press just made -- a second Enter or Space -- reloads the document
+     immediately. The offer arm has the same relabel shape but a confirm
+     dialog absorbs a stray press; this one has nothing in front of it, and the
+     page has no beforeunload, so anything typed and unsent is gone.
+     ⚠️ The accessibility reason for the refocus still holds for every other
+     outcome, which is why this is a narrow exception rather than a removal. */
+  if (btn.dataset.act !== 'reload') btn.focus();
 }
 document.getElementById('upd-btn').addEventListener('click', updCheckNowClick);
 
