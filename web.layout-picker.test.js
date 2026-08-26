@@ -17,6 +17,30 @@ const path = require('node:path');
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = PAGE.slice(PAGE.lastIndexOf('<script>'));
 
+/* ⚠️ THE "IS IT STYLED AWAY" GUARDS MUST READ DECLARATIONS, NOT PROSE.
+   They are `doesNotMatch` on the raw block, so they fire on any occurrence of a
+   slot's id -- including one inside a COMMENT. That is not hypothetical: a
+   comment added beside the .apphead override, explaining that those very slots
+   are what the override protects, turned both guards red while the CSS was
+   correct. A guard that a correct explanation can break teaches people to stop
+   explaining, which is the opposite of what it is for.
+   🔑 Stripping comments is what makes the assertion mean what its message says.
+   The positive control below proves the strip did not also remove the guard's
+   teeth: a planted `display: none` on a real slot must still be caught. */
+const stripCssComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '');
+/* ⚠️ Declared HERE, above every use. It previously sat 61 lines below its
+   first caller and worked only because node:test defers test callbacks past
+   module evaluation -- a describe wrapper or an only-run would have put it in
+   the temporal dead zone. */
+
+/* The guard's regex, declared ONCE and shared by the assertion and its control,
+   so the two cannot drift into testing different things -- which is exactly what
+   happened when the control carried a paraphrase of it.
+   ⚠️ And declared HERE for the same reason as the helper above: putting it
+   beside the control left it in the temporal dead zone for the assertion that
+   runs first. Same bug, one variable over, inside the fix for it. */
+const GUARD = /(?:#pj-room|#pj-room-search|\.composer)(?:(?!scrollbar)[^{])*\{[^}]*display: none/;
+
 test('the picker sits at the top of Styles with two tiles, tabs checked in the markup', () => {
   const at = PAGE.indexOf('id="s-sec-styles"');
   const theme = PAGE.indexOf('id="style-theme"', at);
@@ -63,12 +87,20 @@ test('the consolidated CSS re-lays the board list and the projects panel; it hid
      hidden scrollbar TRACK on the composer's textarea is a #980 ask, not
      the composer being hidden. The guard still catches the real thing:
      any of these elements themselves carrying display: none. */
-  assert.doesNotMatch(stripCssComments(block), /(?:#pj-room|#pj-room-search|\.composer)(?:(?!scrollbar)[^{])*\{[^}]*display: none/, 'the room, its search or its composer is hidden in the consolidated view');
-  /* Comment-stripped like its two siblings below, and given the positive
-     control they gained in the same pass: a guard with no proof it can fire
-     is a claim. */
-  assert.match(stripCssComments('a{} .composer { display: none; }'), /\.composer[^{]*\{[^}]*display: none/,
-    'control: the composer guard can no longer catch a real display:none on .composer');
+  assert.doesNotMatch(stripCssComments(block), GUARD, 'the room, its search or its composer is hidden in the consolidated view');
+  /* ⚠️ THE CONTROL RUNS THE GUARD'S OWN REGEX, not a similar one. A first
+     version asserted `/\.composer[^{]*\{[^}]*display: none/`, which never
+     exercised the tempered `(?!scrollbar)` part and never touched the two id
+     alternatives -- so mis-tightening the temper would blind the guard while
+     this control stayed green, still reporting that it could catch a real
+     display:none. A control that tests a paraphrase of the guard is not a
+     control. */
+  for (const planted of ['.composer { display: none; }', '#pj-room { display: none; }', '#pj-room-search { display: none; }']) {
+    assert.match(stripCssComments('a{}\n  ' + planted), GUARD,
+      `control: the guard no longer catches a real display:none on ${planted.split(' ')[0]}`);
+  }
+  assert.doesNotMatch(stripCssComments('/* .composer display: none in prose */'), GUARD,
+    'control: a comment naming the composer can redden the guard again');
 });
 
 test('no em dash in what a person reads', () => {
@@ -114,17 +146,7 @@ test('piece four: the row draws its ring only with a known memory and its warnin
   assert.match(PAGE, /body\.consolidated \.lrow > \.lav > \.lwarn \{ display: block/);
 });
 
-/* ⚠️ THE "IS IT STYLED AWAY" GUARDS MUST READ DECLARATIONS, NOT PROSE.
-   They are `doesNotMatch` on the raw block, so they fire on any occurrence of a
-   slot's id -- including one inside a COMMENT. That is not hypothetical: a
-   comment added beside the .apphead override, explaining that those very slots
-   are what the override protects, turned both guards red while the CSS was
-   correct. A guard that a correct explanation can break teaches people to stop
-   explaining, which is the opposite of what it is for.
-   🔑 Stripping comments is what makes the assertion mean what its message says.
-   The positive control below proves the strip did not also remove the guard's
-   teeth: a planted `display: none` on a real slot must still be caught. */
-const stripCssComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '');
+
 
 test('piece five: the header folds to its notice slots, the K mark is the header\'s own image at the rail top, and the rails go flat', () => {
   const start = PAGE.indexOf('@media (min-width: 960px) {\n  html[data-layout="consolidated"]');

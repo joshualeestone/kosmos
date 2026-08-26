@@ -2440,7 +2440,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   /* #980: the third row (Members, after the Files-above-Members swap) is
      the right column's flexing one; each card scrolls inside itself, so
      tall content bounds instead of growing the page. */
-  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(120px, 1fr); height: 100%; min-height: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(168px, 1fr); height: 100%; min-height: 0; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { min-height: 0; align-self: start; }
   /* ⚠️ THE SCROLLER IS THE LIST, NOT THE CARD, on Tasks and Members
      (challenge-loop iteration 6): both cards are grids (piece ten below)
@@ -2461,7 +2461,23 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      scrolling list, and that child sets `align-self: stretch` on itself
      immediately below, with its own measured reason. Setting the property on
      the PARENT to fix ONE child is what reached the head row as well. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { overflow: hidden; grid-template-rows: auto minmax(0, 1fr); }
+  /* 🛑 `overflow-y: auto`, NOT `hidden`, AND THE LIST IS STILL THE SCROLLER.
+     Only `.pj-members` gets a scroller below; the card's FOUR OTHER children --
+     the add-member control, remove, the add row carrying its confirm button,
+     and the aria-live result message -- sit outside it. With Tasks and Files
+     both at their 38vh caps the third track lands on its floor, the card clamps,
+     and those four are clipped with no scrollbar and no wheel target: a confirm
+     button a person cannot reach.
+     ⚠️ THIS IS THE SAME FAILURE THE BRANCH ALREADY TREATS AS BLOCKING for the
+     four projects sub-views, and those were given `overflow-y: auto`. This card
+     was given `hidden`, which is the inconsistency rather than a considered
+     difference.
+     📌 `auto` does not weaken "the scroller is the list": at every size the
+     content fits, nothing scrolls here and the list scrolls inside its own
+     track exactly as before. The card scroll engages only in the clamp, which
+     is the same escape-hatch shape as the body grid -- reachability wins where
+     the geometry cannot be honoured. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { overflow-y: auto; grid-template-rows: auto minmax(0, 1fr); }
   /* align-self: stretch, or the list sizes to its CONTENT instead of its
      bounded track and the scroll never engages (measured: 1314px of rows
      rendering into a 301px track, clipped unreachable). */
@@ -2487,8 +2503,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      cards' own margins, so on a 700px window with both lists full Members
      computed to roughly one row. Each cap was doing its job and the
      arithmetic across them was nobody's.
-     ⇒ Members' track now carries a 120px FLOOR (its head plus about two
-     rows). Below that the grid exceeds `.pj3` and the overflow chains out to
+     ⇒ Members' track carries a 168px FLOOR. 120 was derived from the list
+     alone and did not count the card's OWN furniture: the head, the add-member
+     control and the add row with its confirm button do not scroll, so they
+     have to fit before a single member is visible. 168 is those plus about one
+     row. Below that the grid exceeds `.pj3` and the overflow chains out to
      the body's own scroll -- the same escape hatch, and the same trade, as
      the body grid's `minmax(200px, 1fr)`: in every window a person uses
      nothing scrolls, and where the geometry cannot be honoured, reachability
@@ -2577,7 +2596,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      sticky was provably inert on grid items whose containing block is
      their own row). Files, a plain card scroller, pins its label the
      ordinary sticky way. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child > .dlab { position: sticky; top: 0; z-index: 3; background: var(--k-surface); }
+  /* ⚠️ THE INSET IS PADDING, NOT MARGIN, or the ground has a hole in it.
+     `.dlab` carries `margin: 0 0 10px`, and a sticky element's background stops
+     at its border box -- so scrolled rows passed through a 10px transparent
+     band directly beneath the pinned label, sliding under nothing. Folding the
+     inset into padding extends the ground to cover it. The projects rail header
+     already solved this the same way; this card had not. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child > .dlab { position: sticky; top: 0; z-index: 3; background: var(--k-surface); margin-bottom: 0; padding-bottom: 10px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem, html[data-layout="consolidated"] body.consolidated .pj3 .fi, html[data-layout="consolidated"] body.consolidated .pj3 .tkrow { padding: 6px 8px; border-radius: 9px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem:hover, html[data-layout="consolidated"] body.consolidated .pj3 .fi:hover { background: var(--k-surface); }
   /* The add/remove actions match the rail heads: a quiet + rather than a

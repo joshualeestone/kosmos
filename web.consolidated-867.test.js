@@ -12,6 +12,10 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+
+/* A comment quoting a selector must not be able to redden a guard about
+   DECLARATIONS. Same hazard, same fix, as the sibling suite. */
+const stripCssComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '');
 const fs = require('node:fs');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
@@ -60,7 +64,7 @@ test('the person\'s own row stays on screen under a tall right column', () => {
      height grid, which is what pins the person's row. */
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \{[^}]*height: 100vh; overflow-y: auto; overflow-x: hidden;/s,
     'the body lost its viewport-height no-page-scroll grid, the structure that pins the person\'s row');
-  assert.doesNotMatch(PAGE, /> #rail-me \{[^}]*position: sticky/s,
+  assert.doesNotMatch(stripCssComments(PAGE), /> #rail-me \{[^}]*position: sticky/s,
     'a dead sticky is back on rail-me, claiming a job the grid structure does');
 });
 

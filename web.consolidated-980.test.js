@@ -105,8 +105,15 @@ test('the open project stays lit: a persistent .open state, written on click and
      same hole that let an indexOf find a comment before a declaration
      elsewhere in this suite. Comments are stripped first, so the number
      means call sites. */
-  assert.ok((codeOnly.match(/pjMarkOpen\(null\)/g) || []).length >= 4,
-    'a close path lost its pjMarkOpen(null) -- a lit row can outlive its project again');
+  /* ⚠️ THE EXACT COUNT, not a floor. `>= 4` against six real call sites meant
+     two could be deleted while the pin stayed green and its message asserted
+     the opposite. A floor is the right shape only when the number is allowed
+     to grow freely; here every call site is a named close path, so the number
+     IS the claim. Adding a legitimate one should make somebody update this
+     line and say which path it is. */
+  const nulls = (codeOnly.match(/pjMarkOpen\(null\)/g) || []).length;
+  assert.equal(nulls, 6,
+    `pjMarkOpen(null) is called from ${nulls} places, expected 6. Fewer means a close path lost it and a lit row can outlive its project; more means a new close path arrived and this pin should name it.`);
   assert.ok((('/* pjMarkOpen(null) */').replace(/\/\*[\s\S]*?\*\//g, '').match(/pjMarkOpen\(null\)/g) || []).length === 0,
     'control: the comment strip no longer removes a quoted call, so the count above can be satisfied by prose');
 });
@@ -160,7 +167,7 @@ test('the open-project marker clears 3:1 on BOTH grounds it touches, in BOTH the
     // row's fill and its outer edge abuts the rail. BOTH are adjacent.
     for (const [what, ground] of [['the row fill it sits on', rowFill], ['the rail ground it abuts', railGround]]) {
       const r = ratio(bar, ground);
-      assert.ok(r >= 3, `${theme}: the open marker ${bar} measures ${r.toFixed(2)}:1 against ${what} (${ground}), under the 3:1 this file declares at :78 for anything identifying a control's state`);
+      assert.ok(r >= 3, `${theme}: the open marker ${bar} measures ${r.toFixed(2)}:1 against ${what} (${ground}), under the 3:1 this file declares (grep for THE OPTION BUTTON BOUNDARY IS A CONTRAST FLOOR) for anything identifying a control's state`);
     }
     // POSITIVE CONTROL: the carriers this fix replaced must still measure
     // under the floor. If this ever passes, the extraction or the formula is
