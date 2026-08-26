@@ -1571,16 +1571,16 @@ if [ "$_osmajor" -lt "$MACOS_FLOOR_MAJOR" ] || { [ "$_osmajor" -eq "$MACOS_FLOOR
 fi
 info "macOS $_osver on $ARCH"
 
-# ⚠️ CLAUDE CODE IS GATED HERE, IN A SENTENCE, NOT DISCOVERED BY AN AGENT
-# THAT NEVER STARTS (#133). Kosmos starts every agent with the absolute
-# path ~/.local/bin/claude (engine/create.js binPaths; a fresh Mac does
-# not carry that folder on PATH, so `which claude` answers no on machines
-# where it IS installed -- the check must ask the path the product asks).
-# Three states, three different sentences, because two of them look
-# identical from a Terminal and need opposite things:
-#   at the path Kosmos uses            -> proceed
-#   installed, but somewhere else      -> name where, and the one-line link
-#   genuinely absent                   -> name the install step
+# ⚠️ CLAUDE CODE IS NOT GATED HERE ANY MORE, and this header used to say the
+# opposite three lines above the block that says so. Kosmos starts every agent
+# with the absolute path ~/.local/bin/claude (engine/create.js binPaths; a
+# fresh Mac does not carry that folder on PATH, so `which claude` answers no
+# on machines where it IS installed -- so the check must ask the path the
+# product asks). Four states, and only one of them still acts:
+#   at the path Kosmos uses            -> say so
+#   installed, but somewhere else      -> say so, and LINK it (no bytes moved)
+#   something there that cannot run    -> say so, carry on
+#   genuinely absent                   -> say nothing, carry on
 # Extracted as a function so the test runs the shipped code, like the
 # tmux picker.
 # 🔑 OBSERVES, INSTALLS NOTHING (#979, Josh's ruling 2026-08-26 10:32: "we
@@ -1606,9 +1606,10 @@ info "macOS $_osver on $ARCH"
 # its installer -- shipping since 2026-08-12. So a person who picks Claude
 # still gets it; they just get it when they ask.
 #
-# ⚠️ THE LINK ARM WENT TOO, and that is not an oversight: engine/runners.js's
-# vendor-external `linking` phase does exactly that on Connect. Doing it here
-# as well is one job in two places, which is what #997 exists to end.
+# 📌 THE LINK ARM STAYS. It moves no bytes and installs nothing; it makes a
+# copy the person already installed usable, and without it they eat a fresh
+# 231MB download of software they have. See the arm itself for why the
+# "runners.js will do it on Connect" reasoning was wrong.
 #
 # 📌 AGENT_WORKFORCE_CLAUDE_INSTALL_URL IS RETIRED HERE. It was the operator's
 # mirror override for the download this function no longer performs. The
@@ -1634,7 +1635,32 @@ note_claude_code() {
   fi
   _claude_elsewhere="$(command -v claude 2>/dev/null || true)"
   if [ -n "$_claude_elsewhere" ]; then
-    info "Claude Code is installed at $_claude_elsewhere. Kosmos starts agents from $_claude_bin and will link it there when you choose Claude."
+    # 🛑 THE LINK STAYS, and an earlier version of this branch removed it on
+    # the grounds that engine/runners.js's vendor-external `linking` phase
+    # would do it on Connect. CHECKED, and that was wrong twice: that phase
+    # is on an unmerged branch, and even once it lands it is reachable only
+    # through POST /api/runners/claude/install, which no screen calls.
+    # engine/connect.js looks ONLY at the canonical path and never at
+    # `command -v claude`, so a person with Claude Code at
+    # /opt/homebrew/bin/claude would be told a link was coming and instead
+    # get a fresh 231MB download of something they already have.
+    #
+    # ⚠️ AND IT DOES NOT BREAK THE RULING. Josh's rule is that nothing
+    # INSTALLS and nothing DOWNLOADS before a provider is chosen. A symlink
+    # is neither: it moves no bytes and adds no software. It makes a copy the
+    # person already chose to install usable, which is the opposite of
+    # putting something on their Mac that they did not ask for.
+    info "Claude Code is installed at $_claude_elsewhere, but Kosmos starts agents from $_claude_bin. Linking it there now."
+    if mkdir -p "$(dirname "$_claude_bin")" \
+      && ln -s "$_claude_elsewhere" "$_claude_bin" \
+      && [ -f "$_claude_bin" ] && [ -x "$_claude_bin" ]; then
+      info "Claude Code linked at $_claude_bin"
+      return 0
+    fi
+    # Non-fatal now, where this used to die: one provider's convenience link
+    # failing is not a reason nobody gets Kosmos.
+    info "We could not link it, so Kosmos will download its own copy if you choose Claude. To avoid that, link it yourself:"
+    info "  mkdir -p \"\$(dirname \"$_claude_bin\")\" && ln -s \"$_claude_elsewhere\" \"$_claude_bin\""
     return 0
   fi
   # 🛑 SILENT ON PURPOSE, and this is Josh's line rather than a preference.
@@ -1654,6 +1680,14 @@ note_claude_code() {
   # of them describes something ALREADY ON THIS MAC (found, unrunnable, or
   # somewhere unusual). That is a fact about their machine that explains what
   # Kosmos does later. "You do not have a thing you never asked for" is not.
+  #
+  # 📌 SILENT TO THE PERSON, NOT TO THE LOG. This file says the transcript is
+  # "the one thing we ask a stranger to send us", and the commonest machine
+  # state leaving no trace would make "Kosmos looked and found nothing"
+  # indistinguishable from "Kosmos never looked". Josh's objection is to being
+  # told about one provider on a SCREEN before choosing; a log line is not a
+  # screen.
+  printf '%s\n' "note: no Claude Code at $_claude_bin and none on PATH; nothing installed (by design, #979)" >>"$LOG" 2>/dev/null || true
   return 0
 }
 note_claude_code

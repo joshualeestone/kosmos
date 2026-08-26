@@ -127,17 +127,43 @@ function run({ homeHasClaude, pathClaude, installer }) {
     fs.writeFileSync(inst, '#!/bin/sh\nexit 1\n');
     installUrl = `file://${inst}`;
   }
+  // The shipped function appends to $LOG; give it one so the transcript
+  // assertion has something real to read rather than a stub of our own.
+  const log = nodePath.join(sb, 'install.log');
+  fs.writeFileSync(log, '');
   const script = HARNESS + gate();
   try {
     const out = execFileSync('/bin/sh', ['-c', script], {
       encoding: 'utf8',
-      env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, AGENT_WORKFORCE_CLAUDE_INSTALL_URL: installUrl },
+      env: {
+        HOME: home, PATH: `${bin}:/usr/bin:/bin`, LOG: log,
+        AGENT_WORKFORCE_CLAUDE_INSTALL_URL: installUrl,
+      },
     });
-    return { code: 0, out, err: '', home };
+    return { code: 0, out, err: '', home, log };
   } catch (e) {
-    return { code: e.status, out: String(e.stdout || ''), err: String(e.stderr || ''), home };
+    return { code: e.status, out: String(e.stdout || ''), err: String(e.stderr || ''), home, log };
   }
 }
+
+test('the env override is honored, so sandboxed installs can point at a fixture', () => {
+  /* ⚠️ RESTORED. An earlier version of this branch deleted this case along
+     with the download it used to guard, but AGENT_WORKFORCE_CLAUDE_BIN is
+     still read by the shipped function, and tools/test-install.sh pins all
+     eleven of its sandbox homes at one shared binary through it. Deleting the
+     download did not delete the seam, and the seam had no other coverage. */
+  const sb = sandbox();
+  const home = nodePath.join(sb, 'home');
+  fs.mkdirSync(home, { recursive: true });
+  const fixture = nodePath.join(sb, 'fixture-claude');
+  fs.writeFileSync(fixture, '#!/bin/sh\nexit 0\n'); fs.chmodSync(fixture, 0o755);
+  const out = execFileSync('/bin/sh', ['-c', HARNESS + gate()], {
+    encoding: 'utf8',
+    env: { HOME: home, PATH: '/usr/bin:/bin', AGENT_WORKFORCE_CLAUDE_BIN: fixture },
+  });
+  assert.match(out, new RegExp('Claude Code found at ' + fixture.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+    'the override was ignored, so every sandboxed install would look at the real home');
+});
 
 test('present at the path Kosmos uses: says where it looked, changes nothing', () => {
   const r = run({ homeHasClaude: true, pathClaude: false, installer: 'lands' });
@@ -158,6 +184,12 @@ test('⭐ genuinely absent: the install COMPLETES, and nothing is downloaded', (
      for the provider actually chosen. */
   assert.doesNotMatch(r.out, /Claude/,
     'the installer mentions Claude Code to somebody who has not chosen a provider');
+  /* 📌 Silent to the PERSON, not to the log. The transcript is what a stranger
+     is asked to send us, and this is the commonest machine state: without a
+     line there, "we looked and found nothing" is indistinguishable from "we
+     never looked". A log is not a screen, so the ruling is untouched. */
+  assert.match(fs.readFileSync(r.log, 'utf8'), /no Claude Code at .*and none on PATH; nothing installed/,
+    'the install transcript cannot say whether Kosmos even looked');
   // 🛑 THE LOAD-BEARING ASSERTION. The stub installer would have landed a
   // runnable claude if anything still called it.
   assert.equal(fs.existsSync(nodePath.join(r.home, '.local', 'bin', 'claude')), false,
@@ -165,16 +197,30 @@ test('⭐ genuinely absent: the install COMPLETES, and nothing is downloaded', (
   assert.doesNotMatch(r.out, /Installing it now/, 'the retired sentence is back');
 });
 
-test('installed elsewhere: named, NOT linked -- the engine links on Connect now', () => {
+test('installed elsewhere: LINKED into place, which moves no bytes and installs nothing', () => {
+  /* 🛑 THE LINK STAYS, and an earlier version of this branch removed it on
+     the belief that the engine would do it on Connect. Checked and wrong
+     twice: that code is on an unmerged branch, and even merged it is
+     reachable only through a route no screen calls -- engine/connect.js looks
+     ONLY at the canonical path, never at `command -v claude`. So removing it
+     would have told a person with Claude Code at /opt/homebrew/bin that a
+     link was coming and instead given them a fresh 231MB download of what
+     they already have.
+
+     ⚠️ It does not breach the ruling either: the rule is that nothing
+     INSTALLS and nothing DOWNLOADS before a provider is chosen. A symlink is
+     neither. */
   const r = run({ homeHasClaude: false, pathClaude: true, installer: 'lands' });
   assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /Claude Code is installed at .*\/bin\/claude/);
-  assert.match(r.out, /will link it there when you choose Claude/);
-  /* engine/runners.js's vendor-external `linking` phase owns this now. The
-     installer doing it too is the same job in two places (#997), and a link
-     made here would also be a link nobody asked for. */
-  assert.equal(fs.existsSync(nodePath.join(r.home, '.local', 'bin', 'claude')), false,
-    'the installer linked it anyway');
+  assert.match(r.out, /Claude Code is installed at .*\/bin\/claude, but Kosmos starts agents from/);
+  assert.match(r.out, /Claude Code linked at /);
+  const link = nodePath.join(r.home, '.local', 'bin', 'claude');
+  assert.ok(fs.existsSync(link) && (fs.statSync(link).mode & 0o100),
+    'the link sentence appeared but nothing runnable is at the path');
+  assert.equal(fs.lstatSync(link).isSymbolicLink(), true,
+    'it copied or downloaded rather than linking');
+  // And the download stub was armed the whole time: linking is not installing.
+  assert.doesNotMatch(r.out, /Installing it now/, 'the retired install sentence is back');
 });
 
 test('something present that cannot run: named, and the install still COMPLETES', () => {
