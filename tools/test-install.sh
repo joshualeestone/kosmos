@@ -1537,5 +1537,104 @@ chk "AGENT_WORKFORCE_WORKERS still derives from KOSMOS_HOME when not itself over
 chk "an explicit AGENT_WORKFORCE_HALF_SANDBOX_OK=0 is carried through as given, not overwritten to 1" "grep -q '<key>AGENT_WORKFORCE_HALF_SANDBOX_OK</key><string>0</string>' \"$OVERRIDE_PLIST\""
 KOSMOS_HOME="$SB/petehome-override" "$SB/petehome-override/bin/kosmos" stop > /dev/null 2>&1 || true
 
+echo "== #924: uninstall derives its data root the same way install does, or it sweeps somebody else's real data =="
+# 🔑 THE EXACT INCIDENT. Pete's act-three uninstall ran with KOSMOS_HOME set
+# (a sandboxed convention walk, exactly the "Pete's exact convention"
+# scenario above) and AGENT_WORKFORCE_DATA unset. The install path derives
+# AGENT_WORKFORCE_DATA from KOSMOS_HOME for a non-default KOSMOS_HOME
+# (#883, proven above) -- uninstall() never did, so `_remote_state` and
+# `_support` fell through to the REAL, unsandboxed
+# $HOME/Library/Application Support, and would sweep the shared supervisor
+# and remembered-answer files there while KOSMOS_HOME itself stayed
+# correctly scoped: correctly-scoped LABEL (#883's own duplication above
+# already covers the plist), wrong DATA ROOT, so the run LOOKED targeted
+# and was not.
+#
+# A fake HOME stands in for "the real machine" here, never the operator's
+# actual one -- the whole point of this section is "does the sandboxed
+# uninstall reach outside its own KOSMOS_HOME", so what it must not touch
+# has to be a planted, observable file, not the operator's real
+# Application Support.
+D924_HOME="$SB/d924-realhome"
+mkdir -p "$D924_HOME/Library/Application Support/AgentWorkforce/bin"
+printf 'REAL SHARED SUPERVISOR, OUTSIDE THE SANDBOXED WALK\n' > "$D924_HOME/Library/Application Support/AgentWorkforce/bin/sentinel"
+printf '{"real":true}\n' > "$D924_HOME/Library/Application Support/AgentWorkforce/first-run.json"
+
+echo "-- Pete's exact incident, reproduced: KOSMOS_HOME set, AGENT_WORKFORCE_DATA unset --"
+D924_KHOME="$SB/d924-sandboxedhome"
+export KOSMOS_HOME="$D924_KHOME" KOSMOS_BIN_DIR="$SB/bin924"
+RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  HOME="$D924_HOME" AGENT_WORKFORCE_LAUNCH="$SB/launch924" KOSMOS_HOME_APP_DIR="$SB/d924home-apps" KOSMOS_APP_DIR="$SB/apps924" \
+  sh > "$SB/d924-install.log" 2>&1 || RC=$?
+chk "#924 setup install exits 0" "rc_ok $RC"
+KOSMOS_HOME="$D924_KHOME" "$D924_KHOME/bin/kosmos" stop > /dev/null 2>&1 || true
+chk "the port is genuinely free before #924's uninstall runs" "wait_port_free"
+
+RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  HOME="$D924_HOME" KOSMOS_HOME="$D924_KHOME" AGENT_WORKFORCE_LAUNCH="$SB/launch924" KOSMOS_HOME_APP_DIR="$SB/d924home-apps" KOSMOS_APP_DIR="$SB/apps924" \
+  sh -s -- --uninstall > "$SB/d924-uninstall.log" 2>&1 || RC=$?
+chk "#924 uninstall exits 0" "rc_ok $RC"
+chk "the real Application Support's shared supervisor survives byte for byte" \
+  "[ \"\$(cat \"$D924_HOME/Library/Application Support/AgentWorkforce/bin/sentinel\" 2>/dev/null)\" = 'REAL SHARED SUPERVISOR, OUTSIDE THE SANDBOXED WALK' ]"
+chk "the real Application Support's first-run.json survives" "[ -f \"$D924_HOME/Library/Application Support/AgentWorkforce/first-run.json\" ]"
+chk "the sandboxed KOSMOS_HOME itself is gone" "[ ! -d \"$D924_KHOME\" ]"
+
+echo "-- an explicit AGENT_WORKFORCE_DATA at uninstall time still wins over the derived default --"
+D924_EXPLICIT_DATA="$SB/d924-explicit-data"
+mkdir -p "$D924_EXPLICIT_DATA/AgentWorkforce/bin"
+printf 'explicit-scenario supervisor\n' > "$D924_EXPLICIT_DATA/AgentWorkforce/bin/sentinel"
+RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  HOME="$D924_HOME" KOSMOS_HOME="$D924_KHOME" AGENT_WORKFORCE_DATA="$D924_EXPLICIT_DATA" \
+  AGENT_WORKFORCE_LAUNCH="$SB/launch924b" KOSMOS_HOME_APP_DIR="$SB/d924home-apps-b" KOSMOS_APP_DIR="$SB/apps924b" \
+  sh > "$SB/d924-explicit-install.log" 2>&1 || RC=$?
+chk "#924 explicit-AGENT_WORKFORCE_DATA setup install exits 0" "rc_ok $RC"
+KOSMOS_HOME="$D924_KHOME" "$D924_KHOME/bin/kosmos" stop > /dev/null 2>&1 || true
+chk "the port is genuinely free before the explicit-override uninstall runs" "wait_port_free"
+RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  HOME="$D924_HOME" KOSMOS_HOME="$D924_KHOME" AGENT_WORKFORCE_DATA="$D924_EXPLICIT_DATA" \
+  AGENT_WORKFORCE_LAUNCH="$SB/launch924b" KOSMOS_HOME_APP_DIR="$SB/d924home-apps-b" KOSMOS_APP_DIR="$SB/apps924b" \
+  sh -s -- --uninstall > "$SB/d924-explicit-uninstall.log" 2>&1 || RC=$?
+chk "explicit-override uninstall exits 0" "rc_ok $RC"
+chk "the caller's explicit AGENT_WORKFORCE_DATA is what got swept, not the KOSMOS_HOME-derived default" "[ ! -f \"$D924_EXPLICIT_DATA/AgentWorkforce/bin/sentinel\" ]"
+chk "the caller's explicit AGENT_WORKFORCE_DATA scenario never touched the real Application Support sentinel" \
+  "[ \"\$(cat \"$D924_HOME/Library/Application Support/AgentWorkforce/bin/sentinel\" 2>/dev/null)\" = 'REAL SHARED SUPERVISOR, OUTSIDE THE SANDBOXED WALK' ]"
+
+echo "-- the belt: a non-default KOSMOS_HOME whose AGENT_WORKFORCE_DATA is forced back to the real default is refused, not swept --"
+# Defense in depth for the derivation above ever not firing (a future
+# reorder, a caller who sandboxes KOSMOS_HOME but mistakenly points
+# AGENT_WORKFORCE_DATA at the real path by hand). Forced here by setting
+# AGENT_WORKFORCE_DATA explicitly to the same path the DEFAULT would
+# resolve to, while KOSMOS_HOME stays sandboxed -- the exact mismatch the
+# belt exists to catch.
+RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  HOME="$D924_HOME" KOSMOS_HOME="$D924_KHOME" AGENT_WORKFORCE_DATA="$D924_HOME/Library/Application Support" \
+  AGENT_WORKFORCE_LAUNCH="$SB/launch924" KOSMOS_HOME_APP_DIR="$SB/d924home-apps" KOSMOS_APP_DIR="$SB/apps924" \
+  sh -s -- --uninstall > "$SB/d924-belt-uninstall.log" 2>&1 || RC=$?
+chk "the belt-scenario uninstall refuses (exit 1), it does not silently sweep" "[ \"$RC\" = 1 ]"
+chk "the belt-scenario names why it refused" "grep -q 'refusing to touch' \"$SB/d924-belt-uninstall.log\""
+chk "the belt-scenario never touched the real Application Support sentinel" \
+  "[ \"\$(cat \"$D924_HOME/Library/Application Support/AgentWorkforce/bin/sentinel\" 2>/dev/null)\" = 'REAL SHARED SUPERVISOR, OUTSIDE THE SANDBOXED WALK' ]"
+
+echo "-- control: a DEFAULT KOSMOS_HOME with AGENT_WORKFORCE_DATA unset still targets Application Support as before (unchanged) --"
+# The belt above must never fire for a genuine real-machine uninstall --
+# KOSMOS_HOME here equals its own default, so the guard's
+# "KOSMOS_HOME != _kosmos_home_default" condition is false and the sweep
+# proceeds exactly as it always has.
+D924_DEFHOME="$SB/d924-defaulthome"
+mkdir -p "$D924_DEFHOME/Library/Application Support/AgentWorkforce/bin"
+printf 'default-scenario supervisor\n' > "$D924_DEFHOME/Library/Application Support/AgentWorkforce/bin/sentinel"
+RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  HOME="$D924_DEFHOME" AGENT_WORKFORCE_LAUNCH="$SB/launch924c" KOSMOS_HOME_APP_DIR="$SB/d924home-apps-c" KOSMOS_APP_DIR="$SB/apps924c" \
+  sh > "$SB/d924-default-install.log" 2>&1 || RC=$?
+chk "#924 control (default KOSMOS_HOME) install exits 0" "rc_ok $RC"
+HOME="$D924_DEFHOME" "$D924_DEFHOME/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
+chk "the port is genuinely free before the control uninstall runs" "wait_port_free"
+RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  HOME="$D924_DEFHOME" AGENT_WORKFORCE_LAUNCH="$SB/launch924c" KOSMOS_HOME_APP_DIR="$SB/d924home-apps-c" KOSMOS_APP_DIR="$SB/apps924c" \
+  sh -s -- --uninstall > "$SB/d924-default-uninstall.log" 2>&1 || RC=$?
+chk "control uninstall exits 0" "rc_ok $RC"
+chk "control: the real (for this scenario's fake HOME) Application Support supervisor IS swept, matching pre-#924 behavior" \
+  "[ ! -f \"$D924_DEFHOME/Library/Application Support/AgentWorkforce/bin/sentinel\" ]"
+
 closing_checks
 summary_and_exit
