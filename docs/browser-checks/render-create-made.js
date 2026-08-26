@@ -169,8 +169,10 @@ async function makeAnna(page, { seen }) {
      ⚠️ SO THE ASSERTION IS INVERTED RATHER THAN DELETED. If the mechanism is ever
      pinned down and the word turns out to be wrong after all, this line is where
      the argument is kept. */
-  check('the invitation asks for the hello, in his words',
-    done.hello && /say hello to your agent to activate it on kosmos/i.test(done.hello),
+  /* #858 (Josh, 2026-08-25 10:28): "Let's put 'hello' in quotation marks
+     so it's like 'Say "hello" to your agent to activate it on Kosmos'." */
+  check('the invitation asks for the hello, in his words, "hello" quoted as he asked',
+    done.hello && /say .hello. to your agent to activate it on kosmos/i.test(done.hello),
     JSON.stringify(done.hello));
   check('the button names the agent, with the capital he asked for',
     done.btn === 'Say Hello to Anna' && done.goesTo === 'anna', JSON.stringify(done.btn));
