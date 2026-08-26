@@ -9539,8 +9539,35 @@ function paintUpdateCard(running, offer, look) {
     } else {
       put(UPD_ASKED ? 'Up to date.' : '');
     }
-    putBtn('Check for Update');
-    btn.dataset.act = 'check';
+    /**
+     * 🛑 THE CONTROL, NOT THE VERDICT, AND THEY ARE GATED DIFFERENTLY (#995).
+     *
+     * Josh, 2026-08-26 11:26, with a screenshot: *"if we could put a 'reload'
+     * button so it would be like 'Reload' to update to Beta Version 0.5.66.
+     * Right now it tells me twice to reload but the only button is Check For
+     * Update. If we know there is an update available we dont need the 'Check
+     * for Update'."*
+     *
+     * ⚠️ THE BUG WAS PURELY POSITIONAL: `putBtn` sat OUTSIDE the branch that
+     * knows the page is stale, so the one state where Kosmos has already
+     * determined the answer offered the one control that goes and asks it.
+     *
+     * ⚠️ AND IT IS DELIBERATELY *NOT* GATED ON `UPD_ASKED`, unlike the
+     * sentence above it. That gate exists because a VERDICT answers a
+     * question, and until somebody asks there is no question -- the rule this
+     * arm's own docblock sets out. A CONTROL is not a verdict: offering the
+     * right button is not claiming anything. And Josh's case is exactly the
+     * ungated one, because he never pressed Check -- the news reached him from
+     * the build line above, which announces staleness without being asked.
+     * Gating the button on UPD_ASKED would leave his screenshot unchanged.
+     */
+    if (pageIsStale(running)) {
+      putBtn('Reload');
+      btn.dataset.act = 'reload';
+    } else {
+      putBtn('Check for Update');
+      btn.dataset.act = 'check';
+    }
   } else if (look && look.reached && !look.readable) {
     // The captive-portal shape: the host answered, the answer was not a
     // version. Saying "Up to date" here would be a claim about a world
@@ -9566,6 +9593,14 @@ async function updCheckNowClick() {
   const btn = document.getElementById('upd-btn');
   const line = document.getElementById('upd-line');
   if (UPD_CHECKING) return;
+  if (btn.dataset.act === 'reload') {
+    /* The page is older than the board serving it, and reloading is the whole
+       remedy -- index.html is served `no-store` (#271), so this cannot come
+       back from cache. No confirm: unlike Update, nothing is installed and
+       nothing is irreversible. */
+    location.reload();
+    return;
+  }
   if (btn.dataset.act === 'update') {
     // ONE install path: the same confirm the toast opens, same safe-focus rule.
     UPD_CONFIRM_OPENER = btn;
