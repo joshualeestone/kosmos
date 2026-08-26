@@ -34,8 +34,8 @@ set -euo pipefail
 # One EXIT trap, registered before anything can create a temp resource: six
 # exit-1 paths once sat between the download's mktemp and a trap that was
 # "folded in" later, each leaking ~150MB of Node tarball per failed build.
-TMP=""; SMOKE_LOG=""; SMOKE_ROOTS=""
-trap 'rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}"' EXIT
+TMP=""; SMOKE_LOG=""; SMOKE_ROOTS=""; _reload_table_stderr=""
+trap 'rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}" "${_reload_table_stderr:-}"' EXIT
 
 NODE_VERSION="${KOSMOS_NODE_VERSION:-24.19.0}"
 OUT="${1:-dist}"
@@ -254,10 +254,10 @@ startInFlight=true committed=true lastLoadFailed=true -> ignore'
 # stdout only in the comparison: folding stderr in would let incidental
 # runtime noise from a clean-exiting binary masquerade as a drifted table.
 # stderr is kept aside and shown only on the failed-to-run branch, where it
-# is the one clue a broken build machine has.
+# is the one clue a broken build machine has. Cleanup rides the script's ONE
+# EXIT trap (registered up top), per its own temp-resource invariant.
 _reload_table_stderr="$(mktemp "${TMPDIR:-/tmp}/reload-table-stderr.XXXXXXXXXX")"
-_reload_table_actual="$("$STAGE/app/bin/kosmos-app" --kosmos-app-reload-decision-selftest 2>"$_reload_table_stderr")" || { echo "the native app's --kosmos-app-reload-decision-selftest failed to run; its stderr:" >&2; cat "$_reload_table_stderr" >&2; rm -f "$_reload_table_stderr"; exit 1; }
-rm -f "$_reload_table_stderr"
+_reload_table_actual="$("$STAGE/app/bin/kosmos-app" --kosmos-app-reload-decision-selftest 2>"$_reload_table_stderr")" || { echo "the native app's --kosmos-app-reload-decision-selftest failed to run; its stderr:" >&2; cat "$_reload_table_stderr" >&2; exit 1; }
 [ "$_reload_table_actual" = "$_reload_table_expected" ] || { printf '%s\n' "the native app's Reload decision table drifted from the expected eight rows (#965):" "$_reload_table_actual" >&2; exit 1; }
 _app_bin_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')"
 echo "==> native app: kosmos-app signed $_app_bin_sha"
