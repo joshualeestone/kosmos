@@ -18679,11 +18679,18 @@ async function paintAccountPicker(a) {
        continuation paint its sentence onto the NEW agent's panel,
        which the switch-time clear had just emptied for it. */
     const forAgent = a && a.sessionName;
+    /* #881: GET /api/accounts now confirms each account live with
+       Anthropic, so this first-open fetch can take a real, visible span
+       instead of the instant directory stat it used to be. Said plainly
+       rather than a silently unresponsive dropdown -- same "Checking…"
+       language paintAccounts() already uses for the same wait. */
+    if (msg) msg.textContent = 'Checking…';
     try {
       const res = await fetch('/api/accounts', { cache: 'no-store' });
       if (res.ok) ACCOUNTS = ((await res.json()) || {}).accounts || [];
     } catch { /* the control stays empty and disabled, which is honest */ }
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
+    if (msg) msg.textContent = '';
   }
   const acct = a && a.account;
   /* The comments below predate the Signed-in-as line's removal. The
