@@ -59,7 +59,7 @@ test('the plan counts what a person would lose, in words, and offers the Trash w
   assert.equal(p.toTrash, true);
   assert.equal(p.typeToConfirm, null, 'the Trash path asked for the name to be typed');
   assert.match(p.loses[0], /^Its folder: 3 files, \d+ bytes, last changed a moment ago$/);
-  assert.match(p.loses[1], /startup job/);
+  assert.match(p.loses[1], /auto-start file/);
   assert.match(p.verb, /^Move 3 files to the Trash$/);
   assert.match(p.reassurance, /Trash, where you can get it back/);
   assert.match(p.reassurance, /the name april is free/);

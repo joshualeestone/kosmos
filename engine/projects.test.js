@@ -776,8 +776,8 @@ test('an agent on two projects is told about both in one block', () => {
 
 /* #863 (Josh, 2026-08-25 10:41): a comma-joined project list with no "and"
    before the last name read as a run-on list with no ending, and the
-   sentence itself is appended to with ", and told it in its pane" -- so
-   the last project name and "told it in its pane" read as the SAME kind
+   sentence itself is appended to with ", and told it on its screen" -- so
+   the last project name and "told it on its screen" read as the SAME kind
    of list item. Pinned at two names (the plain "and") and three (the
    Oxford comma before the final "and"), since those are the two shapes
    the join can take beyond the untouched one-name case. */

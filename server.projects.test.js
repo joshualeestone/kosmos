@@ -2542,7 +2542,7 @@ test('#732: the first agent is not born stale: its home exists before it does an
   assert.ok(src.slice(callAt, callAt + 1600).includes('projects: projectsToJoin,'), 'the creation is not handed the list the seed pushed into');
 });
 
-test('#732: a Kosmos-made edit that was told in the pane is `told`, not `stale`; a person\'s edit and an older tell are untouched', () => {
+test('#732: a Kosmos-made edit that was told on the screen is `told`, not `stale`; a person\'s edit and an older tell are untouched', () => {
   const projectsEngine = require('./engine/projects');
   const editedAt = new Date(Date.now() - 5000).toISOString();
   const stale = { state: 'stale', editedAt, startedAt: new Date(Date.now() - 60000).toISOString(), wroteBy: { who: 'kosmos', because: 'Kosmos put it on Midnight Inventory' } };
@@ -2554,7 +2554,7 @@ test('#732: a Kosmos-made edit that was told in the pane is `told`, not `stale`;
   projectsEngine.writeAll(all);
   const told = projectsEngine.toldOverride(stale, 'told-agent');
   assert.equal(told.state, 'told', JSON.stringify(told));
-  assert.match(told.because, /told it in its pane/);
+  assert.match(told.because, /told it on its screen/);
   assert.equal(projectsEngine.toldOverride({ ...stale, editedAt: new Date(Date.now() + 5000).toISOString() }, 'told-agent').state, 'stale', 'a tell OLDER than the edit counted as knowing');
   try { projectsEngine.remove(p.id); } catch { /* cleanup */ }
 });

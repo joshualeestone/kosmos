@@ -175,17 +175,17 @@ function plan(name, opts) {
     const when = folder.newest ? ', last changed ' + agoWords(folder.newest, now) : '';
     loses.push(`Its folder: ${what}${when}` + (folder.git ? ', including a git repository' : ''));
   }
-  if (job) loses.push('Its startup job, so nothing tries to start it again');
+  if (job) loses.push('Its auto-start file, so nothing tries to start it again');
   const question = `Delete what is left of ${shown}?`;
   const reassurance = toTrash
     ? `Everything goes to the Trash, where you can get it back until you empty it. After this, the name ${shown} is free for a new agent.`
     : `This cannot be undone: the Trash cannot take these files, so they will be deleted for good. After this, the name ${shown} is free for a new agent.`;
   const verb = folder
     ? (toTrash ? `Move ${filesWords(folder)} to the Trash` : `Delete ${filesWords(folder)} for good`)
-    : (toTrash ? 'Move the startup job to the Trash' : 'Delete the startup job for good');
+    : (toTrash ? 'Move the auto-start file to the Trash' : 'Delete the auto-start file for good');
   const hint = folder
     ? `${shown}'s folder is still on this computer (${filesWords(folder)}${folder.newest ? ', last changed ' + agoWords(folder.newest, now) : ''}), and the name stays taken until it is gone.`
-    : `A startup job for ${shown} is still on this computer, and the name stays taken until it is gone.`;
+    : `An auto-start file for ${shown} is still on this computer, and the name stays taken until it is gone.`;
   return {
     ok: true,
     name: clean,
@@ -240,7 +240,7 @@ function del(name, opts) {
        gone. Best effort: a job that was never loaded answers "not found",
        which is the state we want. */
     run('launchctl', ['bootout', `gui/${process.getuid ? process.getuid() : 501}/${p.job.label}`]);
-    move(p.job.path, 'its startup job');
+    move(p.job.path, 'its auto-start file');
   }
   if (p.folder) move(p.folder.path, 'its folder');
   /* The removed-list record, if any, is what keeps a name hidden on the

@@ -27,11 +27,20 @@ const DIRS = [
   ['AGENT_WORKFORCE_LAUNCH', 'launchd (~/Library/LaunchAgents)'],
 ];
 
+/* jargon-ok:tmux -- this refusal writes to stderr and exits the process
+   before the server starts listening (server.js); it never reaches a
+   browser screen. Its only reader is whoever is starting Kosmos in a
+   half-sandboxed test environment, and that reader needs the exact env
+   var (AGENT_WORKFORCE_TMUX_BIN) named, not a softened paraphrase. The
+   word "pane" is avoided below anyway (-> "live terminal"), since
+   jargon.py's own `\bpanes?\b` pattern strips to a form its jargon-ok
+   marker cannot capture (the trailing `?` falls outside `[a-z ]+`), so
+   no marker text can ever exempt it. */
 function audit(env) {
   const set = DIRS.filter(([k]) => env[k]).map(([k]) => k);
   const live = DIRS.filter(([k]) => !env[k]);
   const tmuxInert = Boolean(env.AGENT_WORKFORCE_TMUX_BIN) || env.AGENT_WORKFORCE_DRY_RUN === '1';
-  if (!tmuxInert) live.push(['tmux', "tmux, so a send would type into a real agent's pane (set AGENT_WORKFORCE_TMUX_BIN to a stub or AGENT_WORKFORCE_DRY_RUN=1)"]);
+  if (!tmuxInert) live.push(['tmux', "tmux, so a send would type into a real agent's live terminal (set AGENT_WORKFORCE_TMUX_BIN to a stub or AGENT_WORKFORCE_DRY_RUN=1)"]);
   const partial = set.length > 0 && live.length > 0 && env.AGENT_WORKFORCE_HALF_SANDBOX_OK !== '1';
   return { partial, set, live: live.map(([k, what]) => ({ key: k, what })), tmuxInert };
 }
