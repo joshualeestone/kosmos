@@ -726,42 +726,71 @@ test('a first-time installer meets the port precondition before anything is down
 
 test('every copy of the default port agrees, and none of them sits in the ephemeral range', () => {
   /**
-   * 🛑 THREE COPIES OF ONE FACT. The default port is written in `server.js`,
-   * `install/kosmos` and `install/setup.sh`, and a change to one is invisible
-   * until somebody starts the board a way that reaches a different copy — then
-   * the icon opens one port and the board is listening on another.
+   * 🛑 WAS THREE COPIES OF ONE FACT; now four independent formulas, plus
+   * one pinned literal each has to agree on (#910). The primary/first
+   * macOS account (uid 501 -- pinned so the single most common Kosmos
+   * install changes zero observable bytes) still gets the literal
+   * unchanged port; a change to any of the four computing sites
+   * (`server.js` is a consumer, not a computing site: it always reads
+   * whatever PORT `install/kosmos`'s `cmd_start` already resolved and
+   * passed it, and only its own bare-`node server.js` dev fallback ever
+   * reaches its own `|| 16180`) is invisible until somebody starts the
+   * board a way that reaches a different copy -- then the icon opens one
+   * port and the board is listening on another.
    *
    * 🔑 MOVED OFF 4317 because that is the OpenTelemetry OTLP/gRPC default, so
    * the people likeliest to collide with Kosmos were the people already running
-   * agents — this product's own audience. Josh picked 16180, the golden ratio:
+   * agents -- this product's own audience. Josh picked 16180, the golden ratio:
    * unregistered, nothing clustered near it, and memorable enough to type.
    *
-   * ⚠️ AND DELIBERATELY NOT IN 49152–65535, which was the tempting answer since
+   * ⚠️ AND DELIBERATELY NOT IN 49152-65535, which was the tempting answer since
    * nothing ships a default there. MEASURED on macOS: that range IS the
    * ephemeral pool (`net.inet.ip.portrange.first: 49152`), so a fixed listener
-   * in it collides at random, occasionally, and only sometimes — an intermittent
+   * in it collides at random, occasionally, and only sometimes -- an intermittent
    * failure nobody can reproduce, which is worse than the deterministic one it
-   * would replace.
+   * would replace. The derived range for non-primary accounts (16181-20179)
+   * stays inside the same safe registered band, checked below too.
    */
   const read = (rel) => fs.readFileSync(path.join(__dirname, rel), 'utf8');
   const strip = (s) => s.split('\n').filter((l) => !/^\s*(#|\/\/|\*|\/\*)/.test(l)).join('\n');
 
   const fromServer = /process\.env\.PORT \|\| (\d+)/.exec(strip(read('server.js')));
-  const fromLauncher = /PORT="\$\{KOSMOS_PORT:-(\d+)\}"/.exec(strip(read('install/kosmos')));
-  const fromSetup = /PORT="\$\{KOSMOS_PORT:-(\d+)\}"/.exec(strip(read('install/setup.sh')));
-  assert.ok(fromServer && fromLauncher && fromSetup, 'one of the three defaults could not be found');
+  const fromLauncher = /_kosmos_default_port=(\d+)/.exec(strip(read('install/kosmos')));
+  const fromSetup = /_kosmos_default_port=(\d+)/.exec(strip(read('install/setup.sh')));
+  assert.ok(fromServer && fromLauncher && fromSetup, 'one of the three pinned-primary defaults could not be found');
 
   const ports = [fromServer[1], fromLauncher[1], fromSetup[1]].map(Number);
   assert.equal(new Set(ports).size, 1,
-    'the three copies of the default port disagree: ' + ports.join(', ')
-    + ' — the icon and the board would open different ports');
+    'the three copies of the pinned-primary default port disagree: ' + ports.join(', ')
+    + ' -- the icon and the board would open different ports for the primary account');
 
   const port = ports[0];
+  assert.equal(port, 16180, 'the pinned-primary default moved off the literal every real install already uses');
   assert.notEqual(port, 4317, 'back on the OpenTelemetry OTLP/gRPC default');
   assert.notEqual(port, 4318, 'on the OpenTelemetry OTLP/HTTP default');
   assert.ok(port >= 1024 && port < 49152,
-    'the default is in macOS’s ephemeral range (49152+), where the kernel hands out '
-    + 'ports at random — a fixed listener there fails intermittently');
+    'the default is in macOS\'s ephemeral range (49152+), where the kernel hands out '
+    + 'ports at random -- a fixed listener there fails intermittently');
+
+  /* #910: the two shell formulas that compute a NON-primary account's
+     port must also agree with each other, and the whole derived range
+     they can produce (16181-20179 for realistic uids) must stay clear
+     of the ephemeral pool the same way the pinned literal does. */
+  const formulaOf = (src) => {
+    const m = /_kosmos_default_port=\$\(\(16180 \+ 1 \+ \(_kosmos_uid % (\d+)\)\)\)/.exec(strip(src));
+    return m ? Number(m[1]) : null;
+  };
+  const modLauncher = formulaOf(read('install/kosmos'));
+  const modSetup = formulaOf(read('install/setup.sh'));
+  assert.ok(modLauncher !== null && modSetup !== null, 'the non-primary derivation formula could not be found in one of the two shell files');
+  assert.equal(modLauncher, modSetup, 'install/kosmos and install/setup.sh use different moduli for the non-primary derivation');
+  // The `+ 1` in the formula (16180 + 1 + (uid % mod)) is what keeps the
+  // smallest possible result at 16181, never back onto the pinned-primary
+  // 16180 -- structural, not something worth re-deriving in a separate
+  // assertion here; the shell test-install.sh suite already pins a live
+  // uid (502) through the real formula and checks the same property.
+  const maxDerived = 16180 + 1 + (modLauncher - 1);
+  assert.ok(maxDerived < 49152, 'the widest possible derived port reaches into the ephemeral range');
 });
 
 /* ---- the shelf's one read (#805) ---------------------------------------- */
