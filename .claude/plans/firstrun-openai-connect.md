@@ -85,3 +85,14 @@ and it is accurate now.
       asked-and-found, asked-and-nothing-there, and a read failure, which
       must leave the row untouched rather than read as a "no").
 - [x] `node --test` (full suite): 2198/2198 pass.
+
+## Deferred on purpose (recorded by challenge-loop iteration 5, not fixed here)
+
+- Settings' own `#acct-openai-key` still fails the paste-then-Enter gesture
+  silently, the exact gap this branch fixed on first-run. Out of this diff's
+  scope; the two screens should get it together (belongs with the #977/#978
+  Settings polish batch).
+- The Add handler's own pre-POST supersession bump is untested (the race test
+  extracts and exercises only the painter's internal bump). If the handler's
+  bump line is dropped, no test reds; the failure is transient and
+  self-correcting, which is why it was recorded rather than harnessed.

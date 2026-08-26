@@ -5462,7 +5462,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <div id="acct-openai-flow" hidden style="margin-top: var(--space-5);">
       <p class="dhint" style="margin:0 0 8px;">Paste an OpenAI API key. It stays on this Mac with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
       <div class="frow">
-        <input type="password" id="acct-openai-key" autocomplete="off" spellcheck="false"
+        <input type="password" id="acct-openai-key" autocomplete="new-password" spellcheck="false"
                aria-label="OpenAI API key" placeholder="sk-…">
         <button class="linkish" id="acct-openai-show" type="button" aria-pressed="false">Show</button>
       </div>
@@ -5670,7 +5670,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                a shorter row, his explicit call, not a case where the two
                screens differ on the underlying risk. -->
           <div class="frow">
-            <input type="password" id="fr-openai-key" autocomplete="off" spellcheck="false"
+            <input type="password" id="fr-openai-key" autocomplete="new-password" spellcheck="false"
                    aria-label="OpenAI API key" placeholder="sk-…">
             <button class="btn" id="fr-openai-go" type="button">Add</button>
           </div>
@@ -26975,14 +26975,19 @@ document.getElementById('fr-openai-go').addEventListener('click', async () => {
  * already on this Mac, `known` omitted) and a successful Add (told directly,
  * `known.justAdded` true, no re-fetch needed).
  *
- * ⚠️ TWO DIFFERENT "NO" ANSWERS, NOT ONE. A failed *read* (`/api/accounts`
- * unreachable) leaves the row exactly as it was -- the same honest-unknown
- * shape #881 already settled on for the Claude box, never turn "we could not
- * tell" into "no". A successful read that finds no OpenAI account is a real
- * answer, though, and repaints back to "Connect" -- the reverse of Connected
- * has to work or a person who disconnects elsewhere (or re-enters this step
- * after a first-run restart) is shown a state that stopped being true, the
- * same "AND BACK AGAIN" requirement frPaintSubscription's own tests hold.
+ * ⚠️ THREE DIFFERENT "NO" ANSWERS, NOT ONE. A failed *read* (`/api/accounts`
+ * unreachable), and equally a row whose per-account verdict is 'unknown',
+ * leaves the row exactly as it was -- the same honest-unknown shape #881
+ * already settled on for the Claude box, never turn "we could not tell"
+ * into "no". A successful read that finds no OpenAI account is a real
+ * answer and repaints back to "Connect" -- the reverse of Connected has to
+ * work or a person who disconnects elsewhere (or re-enters this step after
+ * a first-run restart) is shown a state that stopped being true, the same
+ * "AND BACK AGAIN" requirement frPaintSubscription's own tests hold. And a
+ * row whose verdict is 'none' (the key exists but OpenAI rejected it) is
+ * also a real "no": it paints Connect WITH the verdict's because, so the
+ * form stays usable for a fresh key instead of a dead one wearing
+ * Connected.
  *
  * ⚠️ THE MESSAGE SAYS WHAT IS TRUE, NOT WHAT JUST HAPPENED, except right
  * after it happened. Told directly (`justAdded`) it reports the action
@@ -27010,6 +27015,7 @@ async function frPaintOpenai(known) {
   const seq = frPaintOpenai.seq;
   let connected = known && known.connected;
   let keyTail = known && known.keyTail;
+  let deadWhy = null;
   const justAdded = Boolean(known && known.justAdded);
   if (!known) {
     try {
@@ -27018,8 +27024,18 @@ async function frPaintOpenai(known) {
       const list = ((await res.json()) || {}).accounts || [];
       if (seq !== frPaintOpenai.seq) return; // superseded while we were reading
       const a = list.find((x) => x.provider === 'openai');
-      connected = Boolean(a);
+      /* ⚠️ A ROW IS NOT A CONNECTION (challenge-loop iteration 5): each row
+         carries the per-account verdict /api/accounts pays real seconds to
+         compute, and mere presence covered a key OpenAI has since revoked --
+         painting Connected over a dead key hid the form and left no way to
+         enter a fresh one on this screen. So: 'connected' means connected;
+         'none' means not (and its because is worth showing); 'unknown' (or
+         a row with no verdict at all) is could-not-tell, same honest-unknown
+         as a failed read -- leave the row exactly as it was. */
+      if (a && (!a.connection || a.connection.state === 'unknown')) return;
+      connected = Boolean(a && a.connection && a.connection.state === 'connected');
       keyTail = a && a.keyTail;
+      deadWhy = a && a.connection && a.connection.state === 'none' ? a.connection.because : null;
     } catch { return; } // same: a read failure is not a "no"
   }
   connectBtn.textContent = connected ? 'Connected' : 'Connect';
@@ -27036,8 +27052,10 @@ async function frPaintOpenai(known) {
       : 'An OpenAI account is connected' + (keyTail ? ' (API key ending ' + keyTail + ')' : '') + '.';
   } else {
     // Leave `flow.hidden` alone: a person mid-typing should not have the
-    // form yanked shut under them by an unrelated repaint.
-    msg.textContent = '';
+    // form yanked shut under them by an unrelated repaint. A positively
+    // dead key names itself (its because), so the person knows why the row
+    // says Connect over an account that exists.
+    msg.textContent = deadWhy || '';
   }
   // The disclosure state must track the flow it controls: the connected
   // paint hides the flow, and a later repaint back to Connect leaves it

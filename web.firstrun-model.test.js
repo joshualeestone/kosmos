@@ -225,7 +225,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   // already exists. The message reports the STATE, not a fictional action:
   // this call did not just add anything, and must not claim it did.
   els = makeEls();
-  const fakeFetch = async () => ({ ok: true, json: async () => ({ accounts: [{ provider: 'openai', keyTail: 'cd34' }] }) });
+  const fakeFetch = async () => ({ ok: true, json: async () => ({ accounts: [{ provider: 'openai', keyTail: 'cd34', connection: { state: 'connected', because: 'OpenAI confirmed this key still works' } }] }) });
   // eslint-disable-next-line no-new-func
   await new Function('document', 'fetch', body + '\nreturn frPaintOpenai();')(
     { getElementById: (id) => els[id] || null },
@@ -242,6 +242,15 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
     'the disclosure still claims to be expanded over a hidden flow');
   assert.equal(els['fr-openai-key'].value, '',
     'a half-typed key was left parked in the hidden field');
+
+  // The stated contract is SAME warning copy as Settings ("a person who has
+  // already done this once in Settings recognises it here") -- hold the two
+  // strings identical so an edit to one screen cannot silently un-pair the
+  // other (challenge-loop iteration 5).
+  const hints = page.match(/Paste an OpenAI API key\.[^<]*/g) || [];
+  assert.ok(hints.length >= 2, 'expected the key hint copy on both screens');
+  assert.equal(hints[0], hints[1],
+    'Settings and first-run no longer share the same key warning copy');
   assert.match(els['fr-openai-msg'].textContent, /connected/, 'should still say it is connected');
   assert.match(els['fr-openai-msg'].textContent, /cd34/);
 
@@ -275,6 +284,40 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   );
   assert.equal(els['fr-openai-connect'].textContent, 'Connected',
     'a failed read must not overwrite a known Connected state with a guess');
+
+  // A ROW IS NOT A CONNECTION (challenge-loop iteration 5): a row whose
+  // per-account verdict is 'none' is a key OpenAI positively rejected.
+  // Painting Connected off mere row presence hid the form over a dead key
+  // with no way to enter a fresh one. It must paint Connect, keep the form
+  // reachable, and say why.
+  els = makeEls();
+  const deadFetch = async () => ({ ok: true, json: async () => ({ accounts: [{ provider: 'openai', keyTail: 'ef56', connection: { state: 'none', because: 'OpenAI did not accept this key' } }] }) });
+  // eslint-disable-next-line no-new-func
+  await new Function('document', 'fetch', body + '\nreturn frPaintOpenai();')(
+    { getElementById: (id) => els[id] || null },
+    deadFetch,
+  );
+  assert.equal(els['fr-openai-connect'].textContent, 'Connect',
+    'a positively rejected key still wears Connected');
+  assert.equal(els['fr-openai-connect'].disabled, false,
+    'the way to enter a fresh key was taken away over a dead one');
+  assert.match(els['fr-openai-msg'].textContent, /did not accept/,
+    'the dead key should say why the row reads Connect over an account that exists');
+
+  // And a row whose verdict is 'unknown' is could-not-tell, the same
+  // honest-unknown as a failed read: leave the row exactly as it was,
+  // in BOTH directions.
+  els = makeEls();
+  Object.assign(els['fr-openai-connect'], { textContent: 'Connected', disabled: true });
+  els['fr-openai-flow'] = { hidden: true };
+  const unknownFetch = async () => ({ ok: true, json: async () => ({ accounts: [{ provider: 'openai', keyTail: 'gh78', connection: { state: 'unknown', because: 'we could not check this account' } }] }) });
+  // eslint-disable-next-line no-new-func
+  await new Function('document', 'fetch', body + '\nreturn frPaintOpenai();')(
+    { getElementById: (id) => els[id] || null },
+    unknownFetch,
+  );
+  assert.equal(els['fr-openai-connect'].textContent, 'Connected',
+    'an unknown verdict must not overwrite a known Connected state');
 
   // SUPERSESSION (challenge-loop iteration 2's real find): the pane-entry
   // read can be slow (/api/accounts verifies each account live, up to 8s)

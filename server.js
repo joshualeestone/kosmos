@@ -2513,9 +2513,14 @@ const server = http.createServer((req, res) => {
        file's shape implies -- one badge vocabulary, one meaning, across
        providers.
        ⚠️ listLive(), NOT list(): this route is the one place a live,
-       per-account check is safe to pay for -- it fires on a deliberate
-       Settings > Accounts open, never the 5-second status tick (which still
+       per-account check is safe to pay for -- its callers are deliberate,
+       person-paced moments, never the 5-second status tick (which still
        calls the plain, fast list() elsewhere in this file, untouched).
+       Two callers today: a Settings > Accounts open, and the first-run
+       wizard's model step entering (frPaintOpenai), which can re-fire on a
+       back/forward pass through the wizard -- still a person walking a
+       screen, not a timer, and the client holds a supersession token so a
+       slow answer landing late cannot overwrite a newer state.
        ⚠️ HEAD SKIPS THE LIVE CHECK. Nothing in web/index.html sends one
        today, but a HEAD is conventionally cheap/side-effect-light, and
        nothing about it needs a per-account subprocess/network call to
