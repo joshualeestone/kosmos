@@ -25,7 +25,9 @@
 //
 // Env overrides for testing (mirror the real launcher's own contract):
 //   KOSMOS_HOME   where the install lives (default ~/.local/share/kosmos)
-//   KOSMOS_PORT   the board's port (default 16180)
+//   KOSMOS_PORT   the board's port (default 16180 for uid 501, a
+//                 uid-derived value 16181-20179 for any other account --
+//                 see kosmosDefaultPort() below)
 //   KOSMOS_APP_CONFIG   path to a kosmos-install.json to read instead of
 //                       the bundle's own Contents/Resources copy (testing only)
 //   KOSMOS_APP_TEST_HOME   stands in for NSHomeDirectory() in the #664

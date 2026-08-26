@@ -904,10 +904,14 @@ function unxml(value) {
  */
 /* Which board a launched agent belongs to (#577). The server reads PORT the
    same way (server.js: `Number(process.env.PORT || 16180)`), so this is the
-   creating server's own port, not a guess. ⚠️ One more copy of the 16180
-   default, beside server.js's and install/kosmos's; it exists so the child
-   can be told nothing when the answer is the default every agent on every
-   machine already assumes, and told exactly once when it is not. */
+   creating server's own port, not a guess. ⚠️ ONE OF FIVE COPIES OF THE
+   PINNED 16180 LITERAL (#910: server.js, install/kosmos, install/setup.sh,
+   install/pkg-scripts/postinstall, and native-app/main.swift's
+   kosmosDefaultPort() -- of those, four compute the full per-account
+   derivation, this file and server.js only ever consume/pin the literal);
+   it exists so the child can be told nothing when the answer is the
+   default every agent on every machine already assumes, and told exactly
+   once when it is not. */
 const DEFAULT_BOARD_PORT = 16180;
 function boardPort() {
   return Number(process.env.PORT) || DEFAULT_BOARD_PORT;
