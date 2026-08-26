@@ -42,14 +42,19 @@ KOSMOS_HOME="${KOSMOS_HOME:-$(cd "$(dirname "$SELF")/.." && pwd)}"
 
 NODE="$KOSMOS_HOME/runtime/bin/node"
 APP="$KOSMOS_HOME/app/server.js"
-# ⚠️ ONE OF FOUR COPIES OF THIS DEFAULT (was three; #910 added
-# native-app/main.swift as the fourth, previously-undocumented one), and
-# they must move together: here, `server.js`, `install/setup.sh`, and the
-# native app's own Swift fallback. The installer BAKES the install-time port
-# into the app bundle (`export KOSMOS_PORT=...`), so the icon always agrees with
-# itself -- but somebody typing `kosmos start` in a terminal gets this one, and
-# a stale copy here would start the board on a different port from the one the
-# icon opens.
+# ⚠️ ONE OF FIVE COPIES OF THE PINNED 16180 LITERAL (was three before
+# #910 added `install/pkg-scripts/postinstall` and native-app/main.swift):
+# here, `server.js` (its own bare-`node server.js` dev fallback only --
+# every real invocation is handed an already-resolved PORT, never falls
+# back to its own literal), `install/setup.sh`, `install/pkg-scripts/
+# postinstall`, and native-app/main.swift's `kosmosDefaultPort()`. Of
+# those, FOUR actually COMPUTE the full derivation (this file, setup.sh,
+# postinstall, and main.swift) and must move together for real; server.js
+# only ever consumes a port someone else already resolved. The installer
+# BAKES the install-time port into the app bundle (`export KOSMOS_PORT=...`),
+# so the icon always agrees with itself -- but somebody typing `kosmos start`
+# in a terminal gets this one, and a stale copy here would start the board
+# on a different port from the one the icon opens.
 # 📌 16180, moved off 4317 because that is the OpenTelemetry OTLP default and
 # collided with exactly this product's audience. See setup.sh for why it is not
 # in 49152-65535.

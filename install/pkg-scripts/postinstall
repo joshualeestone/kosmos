@@ -67,9 +67,24 @@ AGENT_PLIST="$USER_HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
 # with 16180 would poll a port nothing ever answers on, and the "becomes
 # the dashboard the moment the board answers" promise this whole page
 # exists for would just never happen for exactly the account this card is
-# about. Same formula as install/kosmos and install/setup.sh, must move
-# together (now four sites, not three).
+# about. Same formula as install/kosmos, install/setup.sh, and
+# native-app/main.swift, must move together (now four sites, not three).
 if [ -n "${KOSMOS_PORT:-}" ]; then
+  # Same digit-only/length/range posture as install/setup.sh's own
+  # KOSMOS_PORT guard, for the same reason: this value is baked into the
+  # generated page via `sed`, so anything but plain digits could corrupt
+  # the sed command itself (a `/` or `&` in KOSMOS_PORT) or bake a
+  # malformed value into the page. Refuse rather than propagate.
+  case "$KOSMOS_PORT" in
+    ''|*[!0-9]*|0*|??????*)
+      echo "Kosmos: KOSMOS_PORT must be a number from 1 to 65535, with no leading zeros." >&2
+      exit 1
+      ;;
+  esac
+  if [ "$KOSMOS_PORT" -gt 65535 ]; then
+    echo "Kosmos: KOSMOS_PORT must be a number from 1 to 65535." >&2
+    exit 1
+  fi
   _KOSMOS_PAGE_PORT="$KOSMOS_PORT"
 elif [ "$CONSOLE_UID" = 501 ]; then
   _KOSMOS_PAGE_PORT=16180
