@@ -6137,6 +6137,20 @@ function start(port = PORT) {
          switched-on machine rests forever at "the board has not started
          the tunnel". The bound port, not the requested one. */
       try { remote.ensure(server.address().port); } catch { /* status says what happened */ }
+      /* The tunnel's ensure tick. The comment above is the whole defect: the
+         engine starts the tunnel only when SOMEBODY calls ensure(), and the
+         callers are boot, the Plus switch, and the Mac's own code step. Any
+         way enrolment or the switch can land without one of those (measured
+         on Josh's fresh Mac, 2026-08-26 08:50: "The board has not started the
+         tunnel" after sign-in, every precondition true, no child) rests
+         forever. ensure() is idempotent (a running child or a pending
+         restart returns at once), so a tick costs one settings read and
+         four stat() calls every fifteen seconds, and the resting state can
+         last at most that long. unref'd so it never holds the process open. */
+      const ensureTick = setInterval(() => {
+        try { remote.ensure(); } catch { /* status says what happened */ }
+      }, Number(process.env.AGENT_WORKFORCE_TUNNEL_ENSURE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_TUNNEL_ENSURE_MS) : 15 * 1000);  // the env is the test seam only
+      if (typeof ensureTick.unref === 'function') ensureTick.unref();
       /* #185: the nudge sweep. Its own timer, never the status GET (a
          read must stay a read); once a minute is far inside the
          ten-minute constant it serves. unref'd so it never holds the
