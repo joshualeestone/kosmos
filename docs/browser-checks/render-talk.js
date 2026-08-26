@@ -1119,15 +1119,21 @@ function unreachableStates() {
            seconds while touching nothing, and no scroll assignment is
            involved -- so a check that only watches the scroll line cannot see
            it. `historyUnfilable` with no rows is one of the real null arms. */
+        /* ⚠️ ASSERTED, NOT ASSUMED. If the fixture thread ever gets shorter than
+           the panel needs for a 900px offset, `before` silently becomes the max
+           offset -- and on unfixed code the flap ends at scrollHeight, which
+           clamps to that same max, so afterFlap === before and this arm becomes
+           unfalsifiable. `parkedProperly` is reported so it cannot go quiet. */
         box.scrollTop = 900;
         const before = box.scrollTop;
+        const parkedProperly = before === 900;
         const keep = window.__fx.messages;
         window.__fx = { ...window.__fx, messages: [], historyUnfilable: true };
         await paintTalk('april', 'April');          // the null arm
         window.__fx = { ...window.__fx, messages: keep, historyUnfilable: false };
         await paintTalk('april', 'April');          // and the rows come back
         const afterFlap = box.scrollTop;
-        return { held, moved: box.scrollTop, readingBack, followed, before, afterFlap };
+        return { held, readingBack, followed, before, afterFlap, parkedProperly };
       });
       if (scroll.held !== 0) {
         problems.push(`[${theme}] scroll: an identical repaint moved a reader from 0 to ${scroll.held}`);
@@ -1144,6 +1150,9 @@ function unreachableStates() {
       }
       if (!scroll.followed) {
         problems.push(`[${theme}] scroll: a reader who WAS at the bottom did not follow the new message`);
+      }
+      if (!scroll.parkedProperly) {
+        problems.push(`[${theme}] scroll: the fixture could not park a reader at 900 (got ${scroll.before}), so the flap arm proves nothing`);
       }
       if (scroll.afterFlap !== scroll.before) {
         problems.push(`[${theme}] scroll: a poll through a not-a-list arm moved the reader from ${scroll.before} to ${scroll.afterFlap} (#1037)`);
