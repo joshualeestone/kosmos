@@ -521,9 +521,11 @@ chk "and it was THEIR copy that was called, with their home baked" "grep -q \"^s
 chk "and this icon's launcher log did not grow (nothing real was opened)" "[ \"\$(wc -l < \"$SB/launcher.log\" | tr -d ' ')\" = \"$LNS_BEFORE\" ]"
 
 echo "== #910: per-account port derivation, shell and Swift agree =="
-# 🔑 THE SAME FORMULA LIVES IN FIVE PLACES (install/kosmos, install/setup.sh,
-# install/pkg-scripts/postinstall, and native-app/main.swift's two call
-# sites) and has to move together. Bash-to-bash agreement is nearly free to
+# 🔑 THE SAME FORMULA LIVES IN FOUR FILES (install/kosmos, install/setup.sh,
+# install/pkg-scripts/postinstall, and native-app/main.swift, whose own
+# kosmosDefaultPort() centralizes it for THREE call sites inside
+# resolveInstall() plus the selftest hatch below) and has to move
+# together. Bash-to-bash agreement is nearly free to
 # assert (it is the same few lines, copied); the ONE cross-language
 # boundary that could silently drift is bash vs. the compiled Swift binary,
 # so that is the pairing actually worth testing here. main.swift carries a

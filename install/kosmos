@@ -71,7 +71,13 @@ APP="$KOSMOS_HOME/app/server.js"
 # modulo (not `uid % 4000` alone) because `uid % 4000` can itself equal 0,
 # which added to 16180 would reproduce the literal primary port for some
 # OTHER account -- the two cases can never collide by construction, not
-# just by low probability. No runtime probing and no persisted "which port
+# just by low probability. Two DIFFERENT non-primary uids landing on the
+# SAME derived port (uid % 3999 wraps, e.g. 1000 and 4999) is accepted,
+# not guarded against: real personal/family Macs have a handful of
+# accounts at most, and macOS allocates uids sequentially from 501, so a
+# same-machine collision between two ordinary accounts is not a case this
+# needs to defend against today (see the plan for the full reasoning).
+# No runtime probing and no persisted "which port
 # did I end up on" record: this is a pure function of `id -u`, so every
 # command (start/stop/status) independently derives the identical answer,
 # stable regardless of whether any OTHER account's board happens to be up
