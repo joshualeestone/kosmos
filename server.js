@@ -795,7 +795,33 @@ function crossSiteWrite(req) {
   return null;
 }
 
+/* 🔑 THE INSTALL GATE'S REQUEST LOG (#908). On 2026-08-25 and again on
+   2026-08-26 the gate went red because something loaded a sandboxed board's
+   page (POST /api/whats-new/seen wrote seen-version.json, #891), and nothing
+   could name the client: the board keeps no request log and the gate deletes
+   its sandbox on exit. With KOSMOS_INSTALL_GATE=1 every request appends one
+   line, `time method path user-agent`, to a file OUTSIDE the sandbox
+   (KOSMOS_INSTALL_GATE_LOG, default ~/.claude/logs/install-gate-requests.log,
+   where the cut record already outlives cuts). A GET / before the API calls
+   means something opened the page; API calls with no page load means a page
+   from another process on a reused port; the User-Agent names the host.
+   Env-gated, off in the product, no data path changes. Approved by Splinter
+   2026-08-25 15:40. Never throws: a log that cannot be written must not
+   turn the instrument into a second defect. */
+const GATE_LOG = process.env.KOSMOS_INSTALL_GATE === '1'
+  ? (process.env.KOSMOS_INSTALL_GATE_LOG || path.join(os.homedir(), '.claude', 'logs', 'install-gate-requests.log'))
+  : null;
+function gateLog(req) {
+  if (!GATE_LOG) return;
+  try {
+    fs.mkdirSync(path.dirname(GATE_LOG), { recursive: true });
+    const ua = String(req.headers['user-agent'] || '-').replace(/[\r\n\t]+/g, ' ');
+    fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${req.url} ${ua}\n`);
+  } catch { /* the instrument never becomes the defect */ }
+}
+
 const server = http.createServer((req, res) => {
+  gateLog(req);
   const pathname = pathOf(req);
   if (pathname === null) {
     // Not addressed to us. Saying so is better than handing back the index,
