@@ -318,6 +318,35 @@ menu:Window
 _menu_table_stderr="$(mktemp "${TMPDIR:-/tmp}/menu-table-stderr.XXXXXXXXXX")"
 _menu_table_actual="$(perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-menu-selftest 2>"$_menu_table_stderr")" || { echo "the native app's --kosmos-app-menu-selftest failed to run or hung (a drifted hatch flag falls through to app.run()); its stderr:" >&2; cat "$_menu_table_stderr" >&2; exit 1; }
 [ "$_menu_table_actual" = "$_menu_table_expected" ] || { printf '%s\n' "the native app's menu bar drifted from the expected table (#994). A menu item that vanishes is invisible until somebody presses the key it no longer has." "EXPECTED:" "$_menu_table_expected" "ACTUAL:" "$_menu_table_actual" >&2; exit 1; }
+# ---- the file picker actually opens (kosmos#1032) ---------------------------
+# A WKWebView does not open a file picker itself: it ASKS the host app through
+# WKUIDelegate.runOpenPanelWith. Kosmos shipped with no uiDelegate at all, so
+# every + button in the product was dead and silent -- no error, no console
+# line, nothing. Drag-and-drop kept working, which is why it read as a
+# cosmetic gap rather than a broken feature.
+#
+# 🛑 NO BROWSER CHECK CAN EVER CATCH THIS. In a browser the picker belongs to
+# the browser; the open-panel handshake only exists when a page is hosted by an
+# app. The whole failure lives in the one seam the page suite is structurally
+# blind to, so the gate has to live here, next to the binary.
+#
+# ⚠️ THIS ONE NEEDS A WINDOW SERVER, unlike the menu table above. It builds a
+# real WKWebView and presses a real button. On a machine with no console
+# session it is SKIPPED LOUDLY rather than failed, the same bargain
+# tools/test-floor-gate-tree.sh strikes when there is no swiftc: a release cut
+# on a headless box must not be blocked by a check that box cannot run. The
+# skip line names what went unchecked so it is never silent.
+if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
+  _fp_out="$(perl -e 'alarm 40; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-filepanel-selftest 2>&1)" || {
+    printf '%s\n' "the native app's file picker is dead (#1032): a + button will do nothing, silently." "$_fp_out" >&2
+    exit 1
+  }
+  printf '%s\n' "$_fp_out" | sed 's/^/    /'
+  echo "==> native app: the file picker asks for a panel (#1032)"
+else
+  echo "==> SKIPPED the #1032 file-picker gate: no console session for this user, so a WKWebView cannot be built here. The + button is UNCHECKED in this bundle." >&2
+fi
+
 _app_bin_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')"
 echo "==> native app: kosmos-app signed $_app_bin_sha"
 
