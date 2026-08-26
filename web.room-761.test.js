@@ -35,7 +35,15 @@ test('an image attachment reads down at the card\'s width; a document keeps its 
 test('the empty status line under the composer takes no room; the Tasks box is taller and says what it is for', () => {
   assert.match(PAGE, /\.pjmid #pj-room-msg:empty \{ display: none; \}/);
   assert.match(PAGE, /\.tkcards \{ display: flex; flex-direction: column; gap: var\(--space-4\); min-height: 14rem; \}/);
-  assert.match(SCRIPT, /list\.innerHTML = html \|\| \(all\.length\n\s+\? ''\n\s+: '<p class="tk-empty">Add a task, or have an agent add one, to start tracking progress\.<\/p>'\);/);
+  /* kosmos#1009 replaced the `? ''` arm. This test's SUBJECT is "the Tasks box
+     says what it is for", and the old pin satisfied that only when the project
+     had no tasks at all -- the arm it pinned as `''` was exactly the void Josh
+     hit. So the assertion is strengthened rather than merely repointed: BOTH
+     arms must now be a sentence, and neither may be empty. */
+  assert.match(SCRIPT, /list\.innerHTML = html \|\| \(all\.length\n\s+\? '<p class="tk-empty">[^']+<\/p>'\n\s+: '<p class="tk-empty">[^']+<\/p>'\);/,
+    'an arm of the empty-tasks message is blank again, so the Tasks column can render a void');
+  assert.ok(!/list\.innerHTML = html \|\| \(all\.length\n\s+\? ''/.test(SCRIPT),
+    'the empty arm is back: a project with only finished tasks shows nothing above its View all link');
 });
 
 test('#764: a side column may shrink and wrap but never spill under the room', () => {

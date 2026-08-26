@@ -21887,11 +21887,27 @@ function paintProjectTasks(p) {
      for the same reason; mirrored here rather than called because the
      card also needs the parts themselves, which columnTasks does not
      return. */
-  const column = all.filter((t) => t.progress && t.progress.assigned > 0 && !t.progress.closed);
+  /* kosmos#1009 (Josh, 2026-08-26): EVERY OPEN TASK, assigned or not. This
+     used to require `assigned > 0`, which is why a project's Tasks column was
+     blank on first visit while the link under it read "View all tasks (3)" --
+     a task nobody has picked up yet is the normal state of a task you just
+     made, so on a first run EVERY task was hidden.
+     🔑 The deciding argument is the LABEL, not the filter: the column is
+     headed TASKS, and a column headed TASKS that hides tasks is mislabelled.
+     Josh called them "the tasks" and expected to see them. The
+     assigned-versus-unassigned split is our distinction, not the reader's.
+     If we ever want a working-on-it-only column it needs its own heading.
+     The door now means everything INCLUDING finished, which is what "View
+     all" always sounded like it meant. */
+  const column = all.filter((t) => !(t.progress && t.progress.closed));
   const behind = all.length - column.length;
   const showing = TK_SHOW_ALL ? all : column;
-  // Not "no tasks" when empty: an empty COLUMN coexists with closed and
-  // unpicked tasks behind the door, and the door line below says so.
+  // kosmos#1009 retired the reasoning that used to sit here ("an empty COLUMN
+  // coexists with closed and unpicked tasks behind the door, and the door line
+  // below says so"). Josh's first look is the evidence it was not sufficient:
+  // an empty column above "View all tasks (3)" states two contradictory things
+  // at once, and the COUNT makes it worse rather than better, because it proves
+  // the emptiness is wrong instead of explaining it.
   const html = showing.map((t) => {
     const n = Number(t.number);   // server-issued, but the one unescaped field deserves the same distrust as the rest
     const parts = Array.isArray(t.parts) ? t.parts : [];
@@ -21958,8 +21974,17 @@ function paintProjectTasks(p) {
        that just says something like 'Add a task' or 'Have your agent add a
        task to start tracking your progress'... inviting." Only when there is
        nothing in the column; a list behind the door is not an empty list. */
+    /* kosmos#1009: a message WHENEVER the column is empty, never a void. The
+       old gate spoke only when the project had no tasks at all, so the
+       three-unassigned-tasks case got neither the tasks nor the sentence --
+       and a blank space above a link reading "View all tasks (3)" is the one
+       thing that always reads as broken.
+       ⚠️ TWO sentences, because after the filter change an empty column means
+       two different things and one sentence would be false in the other case.
+       Nothing open, but finished tasks behind the door, must NOT say "Add a
+       task" -- that contradicts the door line sitting directly under it. */
     list.innerHTML = html || (all.length
-      ? ''
+      ? '<p class="tk-empty">Nothing open here. The finished ones are behind View all.</p>'
       : '<p class="tk-empty">Add a task, or have an agent add one, to start tracking progress.</p>');
   }
   // The door: pack rule, the column is not the whole list and says so.
