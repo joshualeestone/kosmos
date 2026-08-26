@@ -1881,6 +1881,32 @@ test('the MODELS list has one default and args the CLI will accept as model ids'
   }
 });
 
+test('every model the menu offers is named the same by the board that reports it', () => {
+  /* 🛑 TWO LISTS OF MODEL NAMES EXIST AND BOTH ARE CORRECT TO EXIST.
+     `create.MODELS` is what a person can CHOOSE. `status.MODEL_NAMES` is what
+     to CALL a model we have SEEN, which necessarily includes ones nobody can
+     pick any more: an agent started last month may still be running
+     claude-opus-4-8, and the board has to name it rather than shrug. Merging
+     them would delete that, so they stay two.
+
+     ⚠️ WHAT MUST NOT DRIFT IS THE OVERLAP. Where both lists know a model, they
+     have to call it the same thing, or the create menu offers "Claude Sonnet
+     5" and the agent's own card reports something else for the very model the
+     person just picked. Nothing checked that, and Mona Lisa found the two
+     lists disagreeing in content on 2026-08-26 while working on the Runs-on
+     menus.
+
+     📌 Through `modelDisplayName`, not by reading MODEL_NAMES directly: dated
+     ids (…-20251001) are the same model with a snapshot suffix and the
+     function is what knows that. Reading the table raw would fail on haiku for
+     a reason that is not a defect. */
+  for (const m of create.MODELS) {
+    const reported = status.modelDisplayName(m.arg);
+    assert.equal(reported, m.label,
+      `the menu offers ${m.arg} as "${m.label}" and the board reports it as "${reported}"`);
+  }
+});
+
 test('own is the last entry and no role is hidden but it', () => {
   // ⚠️ TWO FACTS, AND THEY USED TO BE TWO NUMBERS THAT MOVED TOGETHER (27 and
   // 26). Adding Project Director broke both at once, which is exactly the
