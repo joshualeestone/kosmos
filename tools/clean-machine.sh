@@ -127,8 +127,6 @@ run_setup() {
   sh "$SB/setup" "$@" > "$SB/out.$_label.log" 2>&1
 }
 
-# ⚠️ RESTATED, NOT DELETED (#548, Josh's carry ruling 2026-08-24 11:06).
-# This phase asserted #133's refusal while Claude Code was the only engine;
 # 🛑 THIS LEG IS INVERTED AGAIN (#979, Josh 2026-08-26 10:32), and the header
 # above it was one revision stale for the same reason. It has now asserted
 # three different things: refuse the install (#133), carry and install it
@@ -144,20 +142,28 @@ say "== CLEAN HOME: no Claude Code, so the installer installs nothing and finish
 if [ -e "$SBHOME/.local/bin/claude" ]; then
   fail "the control is broken: the sandbox HOME already has a claude, so this leg would prove nothing"
 fi
-if run_setup carry; then
+if run_setup clean; then
   pass "the install COMPLETED on a Mac with no Claude Code (an OpenAI-only person could not get past this before)"
   if [ -e "$SBHOME/.local/bin/claude" ]; then
     fail "something still installs Claude Code: it landed at $SBHOME/.local/bin/claude without being asked for"
   else
     pass "nothing was installed at $SBHOME/.local/bin/claude"
   fi
-  if grep -qi "claude" "$SB/out.carry.log"; then
-    fail "the installer named Claude Code to somebody who has not chosen a provider; matched: $(grep -i -m1 'claude' "$SB/out.carry.log")"
+  # ⚠️ THE RETIRED SENTENCES, NOT THE WORD. A whole-log `grep -i claude` is
+  # GUARANTEED to match on a correct installer: the permission-merge step
+  # legitimately prints "(this answers Claude Code's one-time skip-permissions
+  # question for this whole Mac" on its SUCCESS branch, which is the normal
+  # path on a clean home. So that assertion could only ever pass when an
+  # unrelated step failed -- inverted against reality, on the harness that runs
+  # against the served artifact. What the ruling actually forbids is the check
+  # step announcing a MISSING provider before one is chosen.
+  if grep -qE "Installing it now|does not have it|We tried to install Claude Code" "$SB/out.clean.log"; then
+    fail "the installer announced a missing provider before one was chosen; matched: $(grep -m1 -E 'Installing it now|does not have it|We tried to install Claude Code' "$SB/out.clean.log")"
   else
-    pass "said nothing about Claude Code before a provider was chosen"
+    pass "the retired install-Claude sentences are gone"
   fi
 else
-  fail "the installer DIED on a Mac with no Claude Code; tail: $(tail -2 "$SB/out.carry.log" | tr '\n' ' ')"
+  fail "the installer DIED on a Mac with no Claude Code; tail: $(tail -2 "$SB/out.clean.log" | tr '\n' ' ')"
 fi
 # The carry leg ran a COMPLETE install (that is the point), so a sandbox
 # board may now be listening. WALK must start from a stopped state or its

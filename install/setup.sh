@@ -1583,6 +1583,13 @@ info "macOS $_osver on $ARCH"
 #   genuinely absent                   -> say nothing, carry on
 # Extracted as a function so the test runs the shipped code, like the
 # tmux picker.
+# 📌 NO SIZE FIGURE IS QUOTED IN THIS FILE, DELIBERATELY. The tree already
+# carries two, both true when written: engine/connect.js says 281MB (measured
+# 2026-08-12) and the vendor's manifest says 230,824,016 bytes today. A number
+# in a comment is a number nobody updates, and the same argument applies to a
+# comment as to a screen: if the size matters, read it from the manifest we
+# already fetch for the checksum rather than from prose.
+#
 # 🔑 OBSERVES, INSTALLS NOTHING (#979, Josh's ruling 2026-08-26 10:32: "we
 # assume that not everybody is going to have Claude Code... we're not forcing
 # people to have Claude Code as part of the installer").
@@ -1592,7 +1599,7 @@ info "macOS $_osver on $ARCH"
 # found-elsewhere -> symlink it; nothing -> `curl https://claude.ai/install.sh
 # | sh` -> or die. Three of those four were the installer doing a provider's
 # job, and Josh watched the fourth happen on a fresh Mac on 2026-08-26 at
-# 14:45: 231MB, no ask, no way to decline. A function still called `check_`
+# 14:45: a few hundred megabytes, no ask, no way to decline. A function still called `check_`
 # that no longer gates is a name that lies, so the name went with the gate.
 #
 # ⚠️ AND IT CANNOT ASK. install/pkg-scripts/postinstall runs this script as
@@ -1608,7 +1615,7 @@ info "macOS $_osver on $ARCH"
 #
 # 📌 THE LINK ARM STAYS. It moves no bytes and installs nothing; it makes a
 # copy the person already installed usable, and without it they eat a fresh
-# 231MB download of software they have. See the arm itself for why the
+# full download of software they have. See the arm itself for why the
 # "runners.js will do it on Connect" reasoning was wrong.
 #
 # 📌 AGENT_WORKFORCE_CLAUDE_INSTALL_URL IS RETIRED HERE. It was the operator's
@@ -1629,6 +1636,18 @@ note_claude_code() {
   # broken file at its path, is a fact about that provider rather than a
   # reason nobody gets Kosmos.
   if [ -e "$_claude_bin" ] || [ -L "$_claude_bin" ]; then
+    # ⚠️ ASKS ABOUT ELSEWHERE BEFORE GIVING UP. This arm used to return here,
+    # which defeated the link arm below in the one case it exists for: a
+    # broken link at the canonical path AND a working claude on PATH is
+    # exactly the person who would otherwise re-download the whole binary
+    # they already have. The old gate handled that pairing with a one-shot
+    # `rm -rf … && ln -s …`; returning early silently dropped it.
+    _claude_broken_elsewhere="$(command -v claude 2>/dev/null || true)"
+    if [ -n "$_claude_broken_elsewhere" ]; then
+      info "There is something at $_claude_bin that cannot run, and Claude Code is installed at $_claude_broken_elsewhere. Kosmos starts agents from $_claude_bin. Replace it and Kosmos will use it:"
+      info "  rm -rf \"$_claude_bin\" && ln -s \"$_claude_broken_elsewhere\" \"$_claude_bin\""
+      return 0
+    fi
     info "There is something at $_claude_bin that cannot run (a broken link, a folder, or a file without execute permission). Kosmos will not use it. Remove it if you want Claude Code set up here:"
     info "  rm -rf \"$_claude_bin\""
     return 0
@@ -1643,7 +1662,7 @@ note_claude_code() {
     # engine/connect.js looks ONLY at the canonical path and never at
     # `command -v claude`, so a person with Claude Code at
     # /opt/homebrew/bin/claude would be told a link was coming and instead
-    # get a fresh 231MB download of something they already have.
+    # get a fresh full download of something they already have.
     #
     # ⚠️ AND IT DOES NOT BREAK THE RULING. Josh's rule is that nothing
     # INSTALLS and nothing DOWNLOADS before a provider is chosen. A symlink
@@ -1673,8 +1692,18 @@ note_claude_code() {
   # ⇒ The absence of ONE provider's runner is not the installer's news to
   # deliver, because at this moment nobody has chosen a provider. Kosmos
   # raises it on the Connect step for the provider the person actually picked,
-  # with the size and a confirm, and nowhere else. An `info` line here would
-  # be a smaller version of exactly what he objected to.
+  # with the size and a confirm. An `info` line here would be a smaller
+  # version of exactly what he objected to.
+  #
+  # 🛑 THAT SENTENCE ENDED "AND NOWHERE ELSE" AND IT WAS FALSE.
+  # engine/machine.js's installedCheck lists Claude Code beside tmux as a
+  # thing the MACHINE needs, with no idea which provider anyone wants, and the
+  # first-run checks screen paints it. That state was UNREACHABLE before this
+  # change, because the install died first, so removing this gate is what
+  # EXPOSES it. Claiming otherwise here would have sent the next reader
+  # hunting a problem that had just been created two files away.
+  # => Fixed on `machine-check-979c`, which must land with or before this
+  # branch. Recorded rather than quietly narrowed.
   #
   # ⚠️ The other three arms DO speak, and the difference is deliberate: each
   # of them describes something ALREADY ON THIS MAC (found, unrunnable, or
@@ -1687,7 +1716,15 @@ note_claude_code() {
   # indistinguishable from "Kosmos never looked". Josh's objection is to being
   # told about one provider on a SCREEN before choosing; a log line is not a
   # screen.
-  printf '%s\n' "note: no Claude Code at $_claude_bin and none on PATH; nothing installed (by design, #979)" >>"$LOG" 2>/dev/null || true
+  # ⚠️ CARRIES THE RUN ID, like every other line in this file. This one writes
+  # around the FIFO/awk writer, and the invariant is stated in capitals up top:
+  # two overlapping runs interleave invisibly without it, and this transcript
+  # is the one thing we ask a stranger to send us. A line whose whole purpose
+  # is attributability was the one line nobody could attribute.
+  # ⚠️ And 2>/dev/null FIRST: redirections apply left to right, so the other
+  # order sends a failed-append error to the console, in the one arm that is
+  # required to be silent.
+  printf '[%s] %s\n' "$$" "note: no Claude Code at $_claude_bin and none on PATH; nothing installed (by design, #979)" 2>/dev/null >>"${LOG:-/dev/null}" || true
   return 0
 }
 note_claude_code
