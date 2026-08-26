@@ -1,26 +1,24 @@
 'use strict';
 
 /**
- * The first-run model step shows one choosable model at full weight and the
- * rest behind a disclosure (#262).
+ * The first-run model step shows all six models, always, each at full
+ * weight with its real vendor mark — replacing #262's one-prominent-row
+ * plus a collapsed "More models" disclosure.
  *
- * 🛑 THE STEP RENDERED 1003px AND ITS CONTINUE SAT BELOW THE FOLD at 950, 800
- * and 700. The overlay scrolls, so nothing was clipped and nothing was
- * unreachable; what a person met was a screen that looked complete with its
- * only way forward two to three hundred pixels under the edge.
+ * ⭐ REVERSED BY JOSH, 2026-08-25 21:08 CDT: "I want to show all of the
+ * models. That's more important to me than having the button above the
+ * fold. It's not like it's unreasonable to have to scroll down... we could
+ * make the button show and the modal stuff could scroll behind it even."
  *
- * 🔑 THE FIX IS ABOUT WEIGHT AND THE OVERFLOW IS A CONSEQUENCE. The step asks
- * somebody to choose a model and there is exactly ONE choosable model. Five
- * rows nobody can select are a roadmap, and at full weight above an invisible
- * Continue they invert the priority: the thing you cannot do is visible and the
- * thing you must do is not.
+ * 🛑 #262's OWN MEASUREMENT STILL HOLDS AND IS NOT WHAT CHANGED: six full
+ * rows put this card at 1003px, and Continue sits 300px below the fold at
+ * 950/800/700 if the card just grows. What changed is which fix that number
+ * drives. #262 hid five rows to keep Continue on-screen; the fix now is a
+ * sticky footer (`#firstrun .fr-box`/`.fr-body`), so Continue stays visible
+ * on every step of the wizard while the body scrolls under it — six rows and
+ * an always-visible Continue are no longer in tension.
  *
- * 📌 AND IT IS THE TREATMENT THE CREATE FORM ALREADY USES for the same five, so
- * a person now meets one list twice rather than two lists that look different.
- * Measured after the change: 616px, primary above the fold at all three
- * heights.
- *
- * Ruled by Mona Lisa, who measured the recovery before ruling it.
+ * Ruled by Mona Lisa, from the design pack's real vendor marks (#876).
  */
 
 const test = require('node:test');
@@ -32,43 +30,83 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const STEP = PAGE.slice(PAGE.indexOf('id="fr-pane-3"'), PAGE.indexOf('id="fr-sub"'));
 
 test('the step is a real slice of the model pane', () => {
-  /* The whole file would satisfy every assertion below, since the create form
-     carries the same disclosure. Without this the tests are about the page
-     rather than about this step. */
-  assert.ok(STEP.length > 200 && STEP.length < 6000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
+  /* The whole file would satisfy every assertion below, since the slice
+     upper bound accounts for six inlined vendor SVGs (~11.5k chars measured),
+     not just the create form's shorter disclosure. Without this the tests
+     are about the page rather than about this step. */
+  assert.ok(STEP.length > 200 && STEP.length < 16000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
   assert.match(STEP, /Your agents run on your own subscription/, 'the slice does not contain the model step');
   assert.ok(!STEP.includes('id="create-model"'), 'the slice ran past this step into the create form');
 });
 
 test('the one choosable model stays at full weight', () => {
-  assert.match(STEP, /class="llm on"[\s\S]{0,200}<b>Claude<\/b>/,
+  /* A wide window: the row now carries Claude's real inlined vendor SVG
+     between the opening tag and the name, thousands of characters where an
+     empty aria-hidden span used to sit. */
+  assert.match(STEP, /class="llm on"[\s\S]{0,6000}<b>Claude<\/b>/,
     'the model a person can actually pick is no longer the prominent row');
   assert.match(STEP, /id="fr-llm-connect"/, 'the Connect button left the step');
 });
 
-test('the five that cannot be chosen are behind a closed disclosure', () => {
-  assert.match(STEP, /<details class="smore">[\s\S]*?<summary>More models<\/summary>/,
-    'the coming-soon models are not behind a disclosure');
-  /* 🛑 NO `open` ATTRIBUTE. A disclosure that ships open recovers nothing and
-     is the previous layout with a summary line added on top. */
-  assert.ok(!/<details class="smore"\s+open/.test(STEP), 'the disclosure ships open');
-  for (const name of ['Gemini', 'GPT', 'Llama', 'Qwen', 'Mistral']) {
-    assert.ok(STEP.includes(name), name + ' vanished from the step rather than moving into the disclosure');
+test('no disclosure survives: all six providers render in the open', () => {
+  assert.ok(!/<details/.test(STEP), 'a collapsed disclosure came back');
+  assert.ok(!/<summary/.test(STEP), 'a collapsed disclosure came back');
+  for (const name of ['Claude', 'Gemini', 'GPT', 'Llama', 'Qwen', 'Mistral']) {
+    assert.ok(STEP.includes(name), name + ' is missing from the step');
   }
-  /* ⚠️ THE FAILURE DIRECTION THE ORIGINAL LAYOUT PROTECTED: understating the
-     product on the screen where somebody is choosing. Shortening the list would
-     have fixed the height and broken that, so every name must survive the move. */
-  assert.ok(!/class="llm off"/.test(STEP),
-    'a coming-soon row is still drawn at full weight beside the choosable one');
+  /* Five coming-soon rows, all at the same `.llm off` weight as before —
+     the difference from #262 is that they are no longer hidden, not that
+     they changed shape. */
+  assert.equal((STEP.match(/class="llm off"/g) || []).length, 5,
+    'expected exactly the five coming-soon providers at .llm off weight');
+  assert.equal((STEP.match(/class="soon"/g) || []).length, 5,
+    'expected a "Coming soon" pill on each of the five unavailable providers');
 });
 
-test('the disclosure uses the separator the rest of the product uses', () => {
-  /* The pack specced these five lines with em dashes. The house never ships
-     one, and the first-run provider list already used a middle dot, so the two
-     surfaces match rather than merely both being legal. */
-  const dis = STEP.slice(STEP.indexOf('<details class="smore">'));
-  assert.ok(!/&mdash;|—/.test(dis), 'an em dash reached the disclosure');
-  assert.match(dis, /&middot;/, 'the separator changed to something the sibling list does not use');
+test('every provider carries a real, inlined vendor mark', () => {
+  for (const key of ['claude', 'gemini', 'openai', 'meta', 'qwen', 'mistral']) {
+    const marker = new RegExp('data-pmark="' + key + '"[^>]*>\\s*<svg');
+    assert.match(STEP, marker, key + ' has no inline SVG mark');
+  }
+  /* Claude is the one live, coloured mark; the other five are dimmed, and
+     dimming is done by CSS filter (see the .pmark.dim rule) rather than by
+     omitting the mark, so a vendor's real colours never leak through on a
+     provider nobody can pick yet. */
+  assert.match(STEP, /class="llm-m pmark live" data-pmark="claude"/, 'Claude is not the live mark');
+  assert.equal((STEP.match(/class="llm-m pmark dim"/g) || []).length, 5,
+    'expected all five coming-soon marks to be dimmed');
+});
+
+test('the tier label and its separator match the rest of the product', () => {
+  assert.match(STEP, /<p class="smore-t">Runs on this computer<\/p>/,
+    'the "Runs on this computer" tier heading is missing or changed shape');
+  /* The house never ships an em dash in PRODUCT-FACING TEXT (code comments
+     are a different convention and use them freely, including several in
+     this very step's own build comments) -- so this strips HTML comments
+     before checking, the same scoping the disclosure-only slice used to get
+     for free by starting past them. */
+  const visible = STEP.replace(/<!--[\s\S]*?-->/g, '');
+  assert.ok(!/&mdash;|—/.test(visible), 'an em dash reached text a person actually reads on this step');
+  assert.match(visible, /&middot;/, 'the separator changed to something the sibling rows do not use');
+});
+
+test('the sticky footer keeps Continue on screen while the body scrolls behind it', () => {
+  const boxAt = PAGE.indexOf('#firstrun .fr-box {');
+  assert.notEqual(boxAt, -1, '#firstrun .fr-box rule moved; re-point this test');
+  const boxRule = PAGE.slice(boxAt, PAGE.indexOf('}', boxAt));
+  assert.match(boxRule, /display:\s*flex/, '.fr-box is not a flex container');
+  assert.match(boxRule, /flex-direction:\s*column/, '.fr-box is not a flex column');
+  assert.match(boxRule, /max-height:/, '.fr-box has no bounded height, so it can grow past the viewport again');
+
+  const bodyAt = PAGE.indexOf('#firstrun .fr-body {');
+  assert.notEqual(bodyAt, -1, '#firstrun .fr-body rule moved; re-point this test');
+  const bodyRule = PAGE.slice(bodyAt, PAGE.indexOf('}', bodyAt));
+  assert.match(bodyRule, /overflow-y:\s*auto/, '.fr-body no longer scrolls internally');
+
+  const actsAt = PAGE.indexOf('#firstrun .fr-acts {');
+  assert.notEqual(actsAt, -1, '#firstrun .fr-acts rule moved; re-point this test');
+  const actsRule = PAGE.slice(actsAt, PAGE.indexOf('}', actsAt));
+  assert.match(actsRule, /flex:\s*0 0 auto/, 'Continue\'s row can still shrink away inside the flex column');
 });
 
 test('the Connect button says Connected once it is, and stops saying it if we lose sight of that', () => {
