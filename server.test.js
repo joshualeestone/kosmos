@@ -5091,7 +5091,7 @@ function firstRunHarness(name, state, opts = {}) {
   return { els: globalThis.__els, actions: globalThis.__actions(), done: Promise.resolve(out) };
 }
 
-test('an unrecognised subscription answer never renders as "you have none"', () => {
+test('no subscription state renders a verdict about the person\'s Claude account', () => {
   /**
    * ⚠️ THE ONE SENTENCE `engine/subscription.js` SAYS MUST NOT BE SHOWN TO
    * SOMEBODY WE COULD NOT READ. The dispatcher's first version fell through to
@@ -5110,15 +5110,34 @@ test('an unrecognised subscription answer never renders as "you have none"', () 
     const out = els['fr-sub'].innerHTML;
     assert.ok(!/No Claude subscription is connected/.test(out),
       `subscription state ${JSON.stringify(sub)} rendered as the flat negative`);
-    assert.match(out, /fr-check unknown/,
-      `subscription state ${JSON.stringify(sub)} did not render as "we could not tell"`);
+    /* kosmos#1008 made this STRONGER rather than retiring it. The old pin was
+       "an unreadable answer must render as `we could not tell`, never as the
+       negative" -- careful wording around a claim about somebody's Claude
+       account. Josh's ruling removed the claim: this screen now says nothing
+       about any particular account, so there is no wrong thing left to say.
+       Asserting NO verdict row at all is the same protection with a wider
+       blast radius: it fails if either sentence comes back, and it also fails
+       if a THIRD one is invented. */
+    assert.ok(!/fr-check /.test(out),
+      `subscription state ${JSON.stringify(sub)} still renders a verdict about the person's Claude account`);
+    assert.ok(!/Claude/.test(out),
+      `subscription state ${JSON.stringify(sub)} names Claude on a step that offers four providers`);
+    assert.match(out, /fr-note/,
+      `subscription state ${JSON.stringify(sub)} dropped the line saying what carrying on costs`);
   }
 
-  // ⚠️ THE CONTROL. If nothing can produce the negative any more, the assertions
-  // above are vacuous — so the one state that SHOULD produce it must.
-  const { els } = firstRunHarness('frPaintSubscription', { FR: { subscription: { state: 'none' } } });
-  assert.match(els['fr-sub'].innerHTML, /No Claude subscription is connected/,
-    'nothing renders the negative any more, so the assertions above prove nothing');
+  /* ⚠️ THE CONTROL, REPOINTED RATHER THAN DROPPED (kosmos#1008). It used to
+     assert that state `none` DOES render the negative, which is exactly what
+     this change makes impossible -- so the control's own premise went with the
+     feature. Deleting it would leave five assertions that pass because nothing
+     on this screen renders anything, which is the vacuum it existed to catch.
+     🔑 The connected arm is the one verdict row that survives, so it is the
+     right control now: it proves the harness CAN render an `fr-check` row, and
+     therefore that "no fr-check for any unreadable state" above is a real
+     finding rather than an empty page. */
+  const { els } = firstRunHarness('frPaintSubscription', { FR: { subscription: { state: 'connected' } } });
+  assert.match(els['fr-sub'].innerHTML, /fr-check /,
+    'even the connected state renders no row, so the assertions above pass on an empty page and prove nothing');
 });
 
 test('the way back is on the last step, on every ending a person can get', () => {

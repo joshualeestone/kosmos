@@ -28041,59 +28041,37 @@ function frPaintSubscription() {
    * `frCheckRow` twelve lines up already got this treatment. This is the one
    * where it costs something.
    */
-  if (sub.state !== 'none') {
-    /**
-     * ⚠️ THE ONE THAT MUST NOT READ AS "NO". Measured on the machine this was
-     * written on: a working Claude Max 20x account whose `hasAvailableSubscription`
-     * is `false`. A screen that turns "we cannot tell" into "you are not
-     * subscribed" tells a paying customer to go and buy a second subscription,
-     * on the screen that decides whether they keep the product.
-     */
-    box.innerHTML = frCheckRow({
-      state: 'unknown',
-      title: 'We could not tell whether Claude is connected',
-      detail: 'This does not mean it is not: ' + (sub.because || 'we could not read the settings')
-        + '. If you already pay for Claude, carry on: nothing here has decided otherwise.',
-    });
-    frActions({ label: 'Continue', go: () => frGo(4) }, { label: 'Check again', go: frRecheck });
-    return;
-  }
+  /* 🛑 NO VERDICT ABOUT ANYBODY'S CLAUDE ACCOUNT ON THIS SCREEN (kosmos#1008).
+     Josh, 2026-08-26 14:35: "they don't need to be told 'No Claude subscription
+     is connected yet', because they might want to connect with OpenAI or ...
+     Gemini. By default telling them it's an error state ... is incorrect."
+     Two rows used to live here, `unknown` ("We could not tell whether Claude is
+     connected") and `none` ("No Claude subscription is connected yet"). Both are
+     gone, and the ARMS went with them rather than being reworded.
 
-  box.innerHTML = frCheckRow({
-    state: 'attention',
-    title: 'No Claude subscription is connected yet',
-    detail: 'A Claude agent thinks with Claude, so a Claude subscription is what one needs. '
-      + 'If you have a subscription at claude.ai, Connect Claude does the rest here; '
-      + 'if you do not, get one there first. If you would rather use GPT, you do not need this at all.',
-  })
-  /**
-   * ⚠️ SAYS WHAT CARRYING ON ACTUALLY GETS THEM. "Continue anyway" with no
-   * sentence beside it lets somebody make an agent, watch it do nothing, and
-   * conclude the product is broken — when what happened is the thing this
-   * screen just told them.
-   */
-  + '<div class="fr-note">You can carry on and look around. An agent made before Claude is '
-  + 'connected will sit there doing nothing until it is.</div>';
-  /**
-   * ⚠️ "Check again" is gone from THIS state on purpose, not by accident:
-   * Connect Claude re-checks the connection before it does anything else, so
-   * somebody who just signed in through Terminal gets their green row from the
-   * same button — and the two-button bar stays two buttons.
-   *
-   * ⚠️ And the VERDICT ROW for the `unknown` state above carries no Connect
-   * of its own. The pack's static provider list (pane 3 markup) does show
-   * its Connect button in every state -- the pack's drawing. What the
-   * re-check actually guarantees, stated precisely: a machine whose verdict
-   * is CONNECTED short-circuits to the green row and never enters the
-   * sign-in drive (engine/connect.js start()). On an `unknown` verdict the
-   * drive IS entered -- and its REPL detection then lands on the honest
-   * "Claude looks signed in here, but we could not confirm a subscription"
-   * rather than forcing credential entry. So the asymmetry rule
-   * (`engine/subscription.js`: never push a possibly-paying customer into a
-   * second sign-in) is preserved by the drive's honesty, not by a
-   * short-circuit; the markup comment on the list says the same.
-   */
-  frActions({ label: 'Connect Claude', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(4) });
+     🔑 THIS DISSOLVES A PROBLEM RATHER THAN MANAGING IT. The `unknown` arm
+     existed for a real, measured case: a working Claude Max 20x account whose
+     `hasAvailableSubscription` is false, where saying "no subscription" sends a
+     paying customer to buy a second one. Careful wording was the old answer.
+     Saying nothing about their account is a better one -- there is no longer a
+     claim that can be wrong about them.
+
+     ⚠️ IT IS ALSO THE LAST SINGLE-PROVIDER ASSUMPTION ON THIS SCREEN. A step
+     offering four providers and then reporting on the state of exactly one
+     account treats Claude as the default and everything else as an alternative,
+     which contradicts Josh's own 10:32 ruling that Claude is a provider like the
+     others. That ruling and a standing Claude verdict cannot both stand.
+
+     📌 ONE THING IS KEPT, deliberately, and made provider-neutral: what
+     CARRYING ON COSTS. "Continue" with nothing beside it lets somebody make an
+     agent, watch it do nothing, and conclude the product is broken -- when what
+     happened is the thing this screen declined to mention. That is not a verdict
+     about their account; it is a consequence of the button they are about to
+     press. `sub.because` is deliberately NOT rendered: it is the diagnosis
+     behind a claim we no longer make. */
+  box.innerHTML = '<div class="fr-note">You can carry on and look around. An agent made before '
+    + 'you connect a model will sit there doing nothing until you do.</div>';
+  frActions({ label: 'Connect Claude', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue', go: () => frGo(4) });
 }
 
 /* --------------------------------------------------------------------------
