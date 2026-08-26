@@ -104,7 +104,7 @@ second, separately-invoked tool.
 
 ## Test plan
 
-`tools/test-install.sh`, a new `#918` section following the established fixture style, five
+`tools/test-install.sh`, a new `#918` section following the established fixture style, six
 scenarios sharing ONE launch dir (the way multiple walk runs on one Mac would):
 
 - **A and B** -- two sandboxed installs. A's `KOSMOS_HOME` is deleted directly (no
@@ -124,6 +124,14 @@ scenarios sharing ONE launch dir (the way multiple walk runs on one Mac would):
   `ProgramArguments[1]` of exactly `/bin/kosmos` (no home prefix at all), placed in the same
   shared launch dir, proving it survives the sweep untouched rather than being misread as a
   confirmed orphan through the empty-string derivation described above.
+- **A plist PlistBuddy cannot even read, added in challenge-loop iteration 3** -- a
+  syntactically valid plist with a real `Label` but no `ProgramArguments` key at all (the
+  regression test for the BLOCKER that round found: an unguarded `PlistBuddy` command
+  substitution under this file's `set -euo pipefail` would abort the WHOLE uninstall script
+  silently, mid-function, the instant it hit this plist). The only assertion that actually
+  proves the crash did not happen is the uninstall's own `rc_ok` check on its exit code --
+  a `set -e` abort would have failed that directly, since this scenario's own board-plist
+  removal happens earlier in `uninstall()`, before the orphan sweep ever runs.
 
 `AGENT_WORKFORCE_LAUNCH` is pinned to a sandboxed directory for every step in this
 scenario, matching the file's own `#946` safety rule (an unpinned launch dir with a
