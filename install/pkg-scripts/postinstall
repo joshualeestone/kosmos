@@ -69,22 +69,28 @@ AGENT_PLIST="$USER_HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
 # exists for would just never happen for exactly the account this card is
 # about. Same formula as install/kosmos, install/setup.sh, and
 # native-app/main.swift, must move together (now four sites, not three).
+_kosmos_port_ok=0
 if [ -n "${KOSMOS_PORT:-}" ]; then
   # Same digit-only/length/range posture as install/setup.sh's own
   # KOSMOS_PORT guard, for the same reason: this value is baked into the
   # generated page via `sed`, so anything but plain digits could corrupt
   # the sed command itself (a `/` or `&` in KOSMOS_PORT) or bake a
-  # malformed value into the page. Refuse rather than propagate.
+  # malformed value into the page.
+  # 🛑 FALL BACK, NEVER exit, on a bad value here. This section is
+  # documented above as best-effort ("if any step fails the install
+  # proceeds exactly as before"), and `sudo` does not carry this
+  # postinstall's own environment into the real install at the bottom of
+  # this file (line ~139) -- so KOSMOS_PORT here affects ONLY the cosmetic
+  # progress page, never the actual board's port. An `exit` on a malformed
+  # value would abort the REAL install too, which is strictly worse than a
+  # cosmetic page guessing wrong. Caught in review: the first version of
+  # this guard did exactly that.
   case "$KOSMOS_PORT" in
-    ''|*[!0-9]*|0*|??????*)
-      echo "Kosmos: KOSMOS_PORT must be a number from 1 to 65535, with no leading zeros." >&2
-      exit 1
-      ;;
+    ''|*[!0-9]*|0*|??????*) ;;
+    *) [ "$KOSMOS_PORT" -le 65535 ] && _kosmos_port_ok=1 ;;
   esac
-  if [ "$KOSMOS_PORT" -gt 65535 ]; then
-    echo "Kosmos: KOSMOS_PORT must be a number from 1 to 65535." >&2
-    exit 1
-  fi
+fi
+if [ "$_kosmos_port_ok" = 1 ]; then
   _KOSMOS_PAGE_PORT="$KOSMOS_PORT"
 elif [ "$CONSOLE_UID" = 501 ]; then
   _KOSMOS_PAGE_PORT=16180
