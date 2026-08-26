@@ -889,10 +889,29 @@ uninstall() {
   # launchctl recipe as the only exit. The jobs are app plumbing; the
   # agents' FILES are user work and stay.
   _agents_dir="${AGENT_WORKFORCE_LAUNCH:-$HOME/Library/LaunchAgents}"
+  # 🛑 EVERY FILE PROVES IT IS OURS BEFORE ANYTHING IS DONE TO IT (#931).
+  # The glob above finds every Kosmos agent job in the directory, and the
+  # directory is the REAL ~/Library/LaunchAgents whenever the caller
+  # sandboxed KOSMOS_HOME without also pinning AGENT_WORKFORCE_LAUNCH
+  # (Pete's release-walk convention, the same shape as #924). Before this,
+  # a sandboxed --uninstall then booted out and deleted every real agent's
+  # job on the machine. The board's own plist was already protected by its
+  # KOSMOS_HOME-derived label (#883); the agents' labels are bare names, so
+  # the proof has to come from INSIDE the file: engine/create.js's plistFor
+  # writes this install's supervisor path into ProgramArguments, and that
+  # path lives under the data root this uninstall resolved above
+  # (`_resolved_support`, derived from KOSMOS_HOME by #924's block). A job
+  # that names a different supervisor belongs to a different install and
+  # is left alone, by name, rather than silently.
+  _supervisor_ours="$_resolved_support/AgentWorkforce/bin/agent-supervisor.sh"
   for _plist in "$_agents_dir"/com.kosmos.agent.*.plist; do
     [ -e "$_plist" ] || continue
     _label="$(basename "$_plist" .plist)"
     _name="${_label#com.kosmos.agent.}"
+    if ! /usr/bin/grep -qF "<string>$_supervisor_ours</string>" "$_plist" 2>/dev/null; then
+      info "leaving the background job for $_name: it belongs to a different Kosmos install ($_plist names another supervisor)"
+      continue
+    fi
     _agents_stopped=yes
     info "removing the background job for $_name"
     # ⚠️ enable BEFORE bootout, the order the app's own runbook uses. The
@@ -1222,7 +1241,12 @@ KOSMOS_SWEEP_LIST
   # an uninstaller cannot tell, so deleting it would overstep. The
   # reversibility contract is honored by NAMING what was left, per the
   # header's rule that anything not removed is left alone and named.
-  if [ -f "$HOME/.claude/settings.json" ] && grep -q 'skipDangerousModePermissionPrompt' "$HOME/.claude/settings.json" 2>/dev/null; then
+  if [ -f "$HOME/.claude/settings.json" ] && grep -Eq '"skipDangerousModePermissionPrompt": *true' "$HOME/.claude/settings.json" 2>/dev/null; then
+    # ⚠️ THE VALUE, NOT THE KEY (#932): the sibling gate below learned this
+    # first (hasTrustDialogAccepted). A key present and false, set by the
+    # person's own hand or flipped back after install, means nothing was
+    # left in effect and the question is already back, and every clause of
+    # the sentence below would be wrong.
     printf '  One setting was left in place: skipDangerousModePermissionPrompt in\n'
     printf '  ~/.claude/settings.json (agents skip per-action permission prompts).\n'
     printf '  Delete that line there if you want the question back.\n\n'

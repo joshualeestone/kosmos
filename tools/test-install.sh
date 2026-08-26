@@ -1666,5 +1666,52 @@ chk "control uninstall exits 0" "rc_ok $RC"
 chk "control: the real (for this scenario's fake HOME) Application Support supervisor IS swept, matching pre-#924 behavior" \
   "[ ! -f \"$D924_DEFHOME/Library/Application Support/AgentWorkforce/bin/sentinel\" ]"
 
+echo "== #931: a sandboxed uninstall removes only the agent jobs that name ITS supervisor, never another install's =="
+# 🔑 THE EXACT INCIDENT SHAPE, with a fake HOME standing in for the real
+# machine. KOSMOS_HOME sandboxed, AGENT_WORKFORCE_LAUNCH unset: the plist
+# loop resolves to "$HOME/Library/LaunchAgents", the REAL directory, and
+# before #931 booted out and deleted every com.kosmos.agent.*.plist there.
+# The proof of ownership is inside each file: plistFor writes the creating
+# install's supervisor path into ProgramArguments. Two planted jobs, same
+# shape engine/create.js writes: one naming the sandboxed install's
+# supervisor (ours, must go) and one naming the fake real machine's
+# (foreign, must survive byte for byte). No install is needed: the loop
+# runs on whatever is in the directory, and the names are unique to this
+# scenario so the (harmless, || true) launchctl calls on gui/$uid touch no
+# real label.
+D931_HOME="$SB/d931-realhome"
+D931_KHOME="$SB/d931-sandboxedhome"
+mkdir -p "$D931_HOME/Library/LaunchAgents" "$D931_KHOME"
+plist931() {
+  printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n  <key>Label</key><string>com.kosmos.agent.%s</string>\n  <key>ProgramArguments</key>\n  <array>\n    <string>/bin/bash</string>\n    <string>%s/AgentWorkforce/bin/agent-supervisor.sh</string>\n    <string>%s</string>\n  </array>\n</dict>\n</plist>\n' "$1" "$2" "$1"
+}
+plist931 d931own "$D931_KHOME/data" > "$D931_HOME/Library/LaunchAgents/com.kosmos.agent.d931own.plist"
+plist931 d931foreign "$D931_HOME/Library/Application Support" > "$D931_HOME/Library/LaunchAgents/com.kosmos.agent.d931foreign.plist"
+FOREIGN931_BEFORE="$(shasum -a 256 < "$D931_HOME/Library/LaunchAgents/com.kosmos.agent.d931foreign.plist" | cut -c1-64)"
+RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_LAUNCH \
+  HOME="$D931_HOME" KOSMOS_HOME="$D931_KHOME" KOSMOS_HOME_APP_DIR="$SB/d931home-apps" KOSMOS_APP_DIR="$SB/apps931" \
+  sh -s -- --uninstall > "$SB/d931-uninstall.log" 2>&1 || RC=$?
+chk "#931 sandboxed uninstall (LAUNCH unset, the incident shape) exits 0" "rc_ok $RC"
+chk "the job naming the sandboxed install's supervisor is removed" "[ ! -e \"$D931_HOME/Library/LaunchAgents/com.kosmos.agent.d931own.plist\" ]"
+chk "the job naming another install's supervisor survives byte for byte" \
+  "[ \"\$(shasum -a 256 < \"$D931_HOME/Library/LaunchAgents/com.kosmos.agent.d931foreign.plist\" 2>/dev/null | cut -c1-64)\" = \"$FOREIGN931_BEFORE\" ]"
+chk "the survivor is named in the log rather than skipped silently" "grep -q 'leaving the background job for d931foreign' \"$SB/d931-uninstall.log\""
+chk "the removed job is named in the log as removed" "grep -q 'removing the background job for d931own' \"$SB/d931-uninstall.log\""
+
+echo "-- control: a DEFAULT KOSMOS_HOME uninstall still removes the jobs naming the real supervisor --"
+# The proof must not turn a real uninstall into one that leaves every job
+# behind: with KOSMOS_HOME at its default, the resolved data root IS the
+# (fake) real Application Support, and the foreign job from above is now
+# the one that names it.
+plist931 d931own "$D931_KHOME/data" > "$D931_HOME/Library/LaunchAgents/com.kosmos.agent.d931own.plist"
+RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_LAUNCH \
+  HOME="$D931_HOME" KOSMOS_HOME_APP_DIR="$SB/d931home-apps-b" KOSMOS_APP_DIR="$SB/apps931b" \
+  sh -s -- --uninstall > "$SB/d931-control-uninstall.log" 2>&1 || RC=$?
+chk "#931 control (default KOSMOS_HOME) uninstall exits 0" "rc_ok $RC"
+chk "control: the job naming the real supervisor IS removed, as before #931" "[ ! -e \"$D931_HOME/Library/LaunchAgents/com.kosmos.agent.d931foreign.plist\" ]"
+chk "control: the sandboxed install's job is the survivor this time" "[ -e \"$D931_HOME/Library/LaunchAgents/com.kosmos.agent.d931own.plist\" ]"
+rm -f "$D931_HOME/Library/LaunchAgents/com.kosmos.agent.d931own.plist"
+
+
 closing_checks
 summary_and_exit
