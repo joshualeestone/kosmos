@@ -417,11 +417,16 @@ function sendJson(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
-/* ⚠️ ONE OF THREE COPIES OF THIS DEFAULT (here, `install/kosmos`,
-   `install/setup.sh`) and they must move together. Reached only when nothing
-   sets PORT -- the launcher and the app bundle both do -- so a stale value here
-   is invisible until somebody runs the server directly, and then it is a board
-   on a port nothing else expects.
+/* ⚠️ ONE OF FIVE COPIES OF THE PINNED 16180 LITERAL (#910: here,
+   `install/kosmos`, `install/setup.sh`, `install/pkg-scripts/postinstall`,
+   and native-app/main.swift's `kosmosDefaultPort()`) -- but this is the
+   ONLY one that is a pure consumer's dev-only fallback, not a computing
+   site: every real invocation (the launcher, the app bundle, a .pkg
+   install) resolves PORT itself and hands it here already set, so this
+   literal is reached only by a bare `node server.js` with no PORT in its
+   environment. A stale value here is invisible until somebody runs the
+   server that way directly, and then it is a board on a port nothing
+   else expects.
    📌 16180: 4317 is the OpenTelemetry OTLP/gRPC default and collided with the
    people most likely to run this. Not in 49152-65535, which is macOS's
    ephemeral pool: a fixed listener there collides at random. */

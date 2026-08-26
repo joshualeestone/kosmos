@@ -568,6 +568,29 @@ chk "install/setup.sh's derivation block was found (or this check is vacuous)" "
 chk "install/kosmos and install/setup.sh carry the byte-identical derivation" \
   "diff <(_kosmos_formula_from \"$HERE/install/kosmos\") <(_kosmos_formula_from \"$HERE/install/setup.sh\") >/dev/null"
 
+# 🔑 postinstall's KOSMOS_PORT guard, EXECUTED not just diffed: unlike the
+# two shell files above (byte-identical to each other so a text diff is
+# meaningful), postinstall names its own variables and can't run through
+# setup.sh's own `sh < "$SETUP"` pipe (it needs CONSOLE_UID resolved and a
+# real console session before it would ever reach this block). Extracted
+# by its own distinctive anchors and actually sourced in a subshell with
+# CONSOLE_UID/KOSMOS_PORT set, so a regression in the REAL code is caught,
+# not a hand-copied duplicate of it.
+_postinstall_port_block() {
+  awk '/^_kosmos_port_ok=0$/{f=1} f{print} f&&/^fi$/{c++; if(c==2) exit}' "$HERE/install/pkg-scripts/postinstall"
+}
+chk "postinstall's KOSMOS_PORT guard block was found (or this check is vacuous)" "[ -n \"\$(_postinstall_port_block)\" ]"
+_postinstall_page_port() { # $1 = CONSOLE_UID, $2 = KOSMOS_PORT (may be unset/empty)
+  ( CONSOLE_UID="$1"; KOSMOS_PORT="${2:-}"; eval "$(_postinstall_port_block)"; printf '%s' "$_KOSMOS_PAGE_PORT" )
+}
+chk "a valid KOSMOS_PORT override is used as-is" "[ \"\$(_postinstall_page_port 502 8080)\" = 8080 ]"
+chk "the boundary value 65535 is accepted" "[ \"\$(_postinstall_page_port 502 65535)\" = 65535 ]"
+chk "an empty KOSMOS_PORT falls back to the derived default, not an error" "[ \"\$(_postinstall_page_port 502 '')\" = \"\$(_kosmos_expected_port 502)\" ]"
+chk "a non-numeric KOSMOS_PORT falls back to the derived default (best-effort, never exits)" "[ \"\$(_postinstall_page_port 502 abc)\" = \"\$(_kosmos_expected_port 502)\" ]"
+chk "a leading-zero KOSMOS_PORT falls back to the derived default" "[ \"\$(_postinstall_page_port 502 0070)\" = \"\$(_kosmos_expected_port 502)\" ]"
+chk "an over-65535 KOSMOS_PORT falls back to the derived default" "[ \"\$(_postinstall_page_port 502 70000)\" = \"\$(_kosmos_expected_port 502)\" ]"
+chk "an unset KOSMOS_PORT for uid 501 still pins the literal 16180" "[ \"\$(_postinstall_page_port 501)\" = 16180 ]"
+
 echo "== update (stale file must not survive; board must restart) =="
 touch "$SB/home/app/engine/stale-marker.js"
 PID1="$(cat "$SB/home/board.pid")"
