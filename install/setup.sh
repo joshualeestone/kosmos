@@ -749,12 +749,17 @@ uninstall() {
   # so a named survivor is not one Spotlight denies. Sandboxed runs never
   # touch the machine-global database.
   _lsreg=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+  # ⚠️ KOSMOS_HOME_APP_DIR IS A SANDBOX SIGNAL TOO (#945): a walk built with
+  # it alone (the migration-era variable, honoured for the app dir at the
+  # top of this file) slipped past every gate keyed on the other two and
+  # read, wrote and registered against the operator's real surfaces.
+  # Measured 2026-08-26 00:36 on the build Mac.
   _lsreg_u() {
-    [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}" ] || return 0
+    [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ] || return 0
     [ -x "$_lsreg" ] && "$_lsreg" -u "$1" >/dev/null 2>&1 || true
   }
   _lsreg_f() {
-    [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}" ] || return 0
+    [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ] || return 0
     [ -x "$_lsreg" ] && "$_lsreg" -f "$1" >/dev/null 2>&1 || true
   }
   # The board first, while the command that knows how still exists: deleting
@@ -858,7 +863,7 @@ uninstall() {
   esac
   # Same sandbox gate as the install side: a harness run touches only a
   # profile it names explicitly, never the operator's real one.
-  if [ -n "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}" ] && [ -z "${KOSMOS_PROFILE_FILE:-}" ]; then
+  if [ -n "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ] && [ -z "${KOSMOS_PROFILE_FILE:-}" ]; then
     _profile=""
   fi
   _marker="$PATH_MARKER"
@@ -1758,7 +1763,7 @@ esac
 # profile such a run may write is one it names explicitly. The first
 # harness run after this feature leaked a sandbox bin path into the
 # operator's real ~/.zprofile; this gate is that measurement.
-if [ -n "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}" ] && [ -z "${KOSMOS_PROFILE_FILE:-}" ]; then
+if [ -n "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ] && [ -z "${KOSMOS_PROFILE_FILE:-}" ]; then
   PROFILE_FILE=""
 fi
 case ":$PATH:" in
@@ -1940,7 +1945,7 @@ make_app() {
   # id. Measured after harness runs: dozens of dead mktemp paths
   # registered against com.chaoskosmos.kosmos. Any override set means a
   # harness, and a harness must leave that database alone.
-  if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}" ]; then
+  if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ]; then
     local lsreg=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
     # ⚠️ TOUCH BEFORE REGISTERING. MEASURED (Josh's clean-machine install,
     # 2026-08-17): app present, Get Info previews the icon, the Dock draws
@@ -2195,14 +2200,14 @@ if [ "$APP_MADE" = "yes" ]; then
           # Spotlight says does not exist. Both directions best-effort,
           # both skipped in a sandbox.
           _lsreg=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
-          if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}" ]; then
+          if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ]; then
             [ -x "$_lsreg" ] && "$_lsreg" -u "$HOME_APP_DIR/Kosmos.app" >/dev/null 2>&1 || true
           fi
           if rm -rf "$HOME_APP_DIR/Kosmos.app" 2>/dev/null; then
             info "note: the Kosmos icon moved here from the Applications folder inside your home folder."
             info "If Kosmos was in your Dock, remove it and drag the new one in."
           else
-            if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}" ]; then
+            if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ]; then
               [ -x "$_lsreg" ] && "$_lsreg" -f "$HOME_APP_DIR/Kosmos.app" >/dev/null 2>&1 || true
             fi
             info "note: an older Kosmos icon is still in the Applications folder inside your home folder; drag it to the Trash."
