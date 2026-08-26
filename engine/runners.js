@@ -89,7 +89,17 @@ const HOME = os.homedir();
 // same reason.
 const MANIFEST = Object.assign(Object.create(null), {
   openai: {
-    name: 'OpenAI runner',
+    /* ⚠️ THE NAME A PERSON READS, and it flows into six sentences below via
+       `${m.name}`. It said "OpenAI runner". "Runner" is OUR word: it appears
+       nowhere OpenAI publishes, so somebody who searches it finds nothing.
+       That is precisely the noun that put "tmux" on a screen, which this
+       codebase has two rulings against.
+       📌 "OpenAI's Codex" keeps the parallel with "Claude Code" (vendor named
+       alongside product) and is accurate to what is actually downloaded.
+       Mona Lisa's call, 2026-08-26, and the copy on the Connect screens uses
+       the same three names: the provider is OpenAI, the row says GPT, the
+       thing installed is OpenAI's Codex. */
+    name: "OpenAI's Codex",
     version: '0.149.1',
     arch: 'arm64',
     url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-darwin-arm64.tgz',
@@ -857,7 +867,7 @@ function installVendor(provider, m, o, existing) {
       }
     }
     return st.isDirectory()
-      ? `we found ${m.name} at ${elsewhere}, but ${canonical} is a folder rather than a runner, so nothing was changed; move it aside and try again`
+      ? `we found ${m.name} at ${elsewhere}, but ${canonical} is a folder rather than a program, so nothing was changed; move it aside and try again`
       : `we found ${m.name} at ${elsewhere}, but ${canonical} already exists and is not something we put there, so nothing was changed; move it aside and try again`;
   };
 

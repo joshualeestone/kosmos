@@ -629,7 +629,9 @@ test('#979: a DIRECTORY at the canonical path is refused in words, not as a raw 
     });
     await job.settled;
     assert.equal(job.phase, 'failed');
-    assert.match(job.because, /is a folder rather than a runner/);
+    assert.match(job.because, /is a folder rather than a program/);
+    assert.doesNotMatch(job.because, /\brunner\b/,
+      'runner is our word for it and appears nowhere the vendor publishes, the same class of noun as tmux');
     assert.match(job.because, /we found Claude Code at /,
       'the finding survives the refusal: it still says where Claude WAS found');
     assert.doesNotMatch(job.because, /EISDIR|ERR_FS/, 'a person must not be shown an errno');
