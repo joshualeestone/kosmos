@@ -14,6 +14,14 @@ const { execFileSync } = require('node:child_process');
    so every call below pins it to a sandbox path via the legacyBin seam. */
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-runners-'));
 process.env.AGENT_WORKFORCE_RUNNERS_DIR = nodePath.join(SANDBOX, 'runners');
+/* ⚠️ AND THE DATA ROOT, because this file now requires engine/connect.js (the
+   no-network guard test stubs its download). connect pulls in engine/store.js,
+   whose ROOT falls back to the operator's REAL ~/Library/Application Support
+   when AGENT_WORKFORCE_DATA is unset. Requiring those modules performs no write
+   today, so this is latent rather than live -- which is exactly when it is cheap
+   to close. The header rule above says sandbox EVERY root this module reads or
+   writes; it was one root short. */
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 delete process.env.AGENT_WORKFORCE_CODEX_BIN;
 const runners = require('./runners');
 
@@ -226,7 +234,7 @@ test('#979: an env override naming a missing path refuses install instead of sta
       download: () => { throw new Error('no bytes may move behind a masking override'); },
     });
     assert.equal(job.phase, 'failed');
-    assert.match(job.because, /operator override points the openai runner at .*gone-codex/);
+    assert.match(job.because, /AGENT_WORKFORCE_CODEX_BIN points the openai runner at .*gone-codex/);
   } finally {
     delete process.env.AGENT_WORKFORCE_CODEX_BIN;
   }
@@ -455,8 +463,13 @@ test('#979: with no claude anywhere, the install REFUSES in words and never clai
     // Leads with what happened, not with a tautology: the house rule on
     // writing to a person is to say what happened and what it means for them.
     assert.match(job.because, /^We could not find Claude Code on this Mac\./);
-    assert.match(job.because, /cannot download one yet/);
-    assert.match(job.because, /Install Claude Code yourself/);
+    // ⚠️ AND IT MUST NOT LIE ABOUT THE PRODUCT. Kosmos DOES download Claude
+    // Code, through the sign-in flow; only this step cannot. A sentence that
+    // says "Kosmos cannot download one" is false to the only subject the
+    // reader has, and points them at the worse of the two remedies.
+    assert.match(job.because, /Connecting a Claude account will download and set it up/);
+    assert.doesNotMatch(job.because, /cannot download/i,
+      'never a flat claim that the product cannot do what its sign-in flow does');
     assert.equal(job.receivedBytes, null, 'nothing was downloaded, so no count is invented');
   });
 });
@@ -595,7 +608,9 @@ test('#979: a DIRECTORY at the canonical path is refused in words, not as a raw 
     });
     await job.settled;
     assert.equal(job.phase, 'failed');
-    assert.match(job.because, /is a folder, not a runner/);
+    assert.match(job.because, /is a folder rather than a runner/);
+    assert.match(job.because, /we found Claude Code at /,
+      'the finding survives the refusal: it still says where Claude WAS found');
     assert.doesNotMatch(job.because, /EISDIR|ERR_FS/, 'a person must not be shown an errno');
   });
 });

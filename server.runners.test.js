@@ -125,6 +125,40 @@ test('#979: Add with the runner present passes the runner gate (no needsRunner i
   }
 });
 
+test('#979: POST /api/runners/claude/install is reachable and answers a refusal over HTTP', async () => {
+  /* ⚠️ THE ROUTE IS NEWLY REACHABLE FOR claude (the path regex matches any
+     lowercase name) and nothing exercised it: every other POST test uses
+     openai or a bogus provider.
+
+     🛑 AND THE OBVIOUS VERSION OF THIS TEST IS UNSAFE. Clearing the override
+     so the vendor-external branch runs reaches the DEFAULT findElsewhere,
+     which probes absolute machine paths and then `which claude` -- on any
+     machine that has Claude installed (every fleet Mac) that answers with the
+     OPERATOR'S REAL BINARY, which is not equal to the sandbox's canonical
+     path, so the self-exclusion does not fire and the job LINKS the sandbox
+     at the operator's live install and runs it. I wrote that version first
+     and it returned 200 instead of the expected refusal, which is exactly how
+     it announced itself.
+
+     So this pins the route through the OVERRIDE arm instead: an override
+     naming a path that does not exist. Same HTTP contract, same job shape,
+     and it cannot touch anything outside the sandbox. The default probe stays
+     covered by nothing, deliberately, and the plan says so. */
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = path.join(SANDBOX, 'no-such-claude');
+  try {
+    const got = await req('/api/runners/claude/install', { method: 'POST' });
+    assert.equal(got.status, 400, 'a refusal is an HTTP refusal, not a success a screen could read as started');
+    const body = json(got);
+    assert.equal(body.job.phase, 'failed');
+    assert.match(body.job.because, /AGENT_WORKFORCE_CLAUDE_BIN/, 'it names the variable a person must unset');
+    assert.equal(body.job.receivedBytes, null, 'no invented byte count crosses the wire');
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    else process.env.AGENT_WORKFORCE_CLAUDE_BIN = prev;
+  }
+});
+
 test('#979: claude is listed beside openai with the documented shape (vendor-external kind)', async () => {
   const got = await req('/api/runners');
   assert.equal(got.status, 200);
