@@ -265,12 +265,43 @@ function sleepCheck(text) {
  */
 function installedCheck(opts) {
   const { claudeBin, tmuxBin } = create.binPaths(opts);
-  const parts = [['Claude Code', claudeBin], ['tmux', tmuxBin]];
+  /**
+   * 🛑 CLAUDE CODE IS REPORTED, NOT REQUIRED (#979, Josh 2026-08-26 10:32:
+   * "we assume that not everybody is going to have Claude Code... we're not
+   * forcing people to have Claude Code as part of the installer").
+   *
+   * This row used to list Claude Code beside tmux as a thing the MACHINE
+   * needs, whichever provider the person picked. So somebody who chose GPT
+   * was told their Mac was missing something it does not need, on the screen
+   * whose job is to say whether they can proceed. They can: an OpenAI agent
+   * runs on codex and never touches the Claude binary.
+   *
+   * ⚠️ THE FACT STAYS, ONLY THE FRAMING GOES. "Is Claude Code on this Mac" is
+   * true and useful even when it is not a requirement -- the Connect step
+   * needs it to know whether pressing Connect will download anything. What
+   * was wrong was the word REQUIRED sitting next to it. So it is probed
+   * exactly as before and published on `present`; it just no longer decides
+   * the verdict.
+   *
+   * ⚠️ tmux IS still required, for every provider: it is how Kosmos runs any
+   * agent at all. The two are not symmetrical and this list is where that is
+   * recorded.
+   */
+  const parts = [['tmux', tmuxBin]];
+  const informational = [['Claude Code', claudeBin]];
 
   const missing = [];
   const unreadable = [];
   const unusable = [];
-  for (const [label, bin] of parts) {
+  /* One probe, both lists: `present` gets an answer for every part, and the
+     buckets that drive the verdict get only the required ones. Probing them
+     twice would be two definitions of "installed", which is the mistake this
+     function's own header warns about. */
+  const present = Object.create(null);
+  for (const [label, bin, required] of [
+    ...parts.map(([l, b]) => [l, b, true]),
+    ...informational.map(([l, b]) => [l, b, false]),
+  ]) {
     /**
      * ⚠️ `statSync`, NOT `existsSync`, AND THE DIFFERENCE IS THE WHOLE POINT OF
      * THE CATCH.
@@ -301,7 +332,7 @@ function installedCheck(opts) {
      * the screen says it is not, and the actual cause -- a quote or a newline in
      * the path -- is never named anywhere.
      */
-    if (create.unusablePath(bin)) { unusable.push({ label, bin }); continue; }
+    if (create.unusablePath(bin)) { present[label] = null; if (required) unusable.push({ label, bin }); continue; }
 
     /**
      * ⚠️ TWO PROBES, BECAUSE `EACCES` MEANS TWO DIFFERENT THINGS HERE and
@@ -321,7 +352,7 @@ function installedCheck(opts) {
     try {
       st = fs.statSync(bin);
     } catch (err) {
-      if (err && err.code === 'ENOENT') { missing.push({ label, bin }); continue; }
+      if (err && err.code === 'ENOENT') { present[label] = false; if (required) missing.push({ label, bin }); continue; }
       /**
        * ⚠️ RECORDED, NOT RETURNED. Returning here threw away whatever the OTHER
        * probe had already established: with Claude genuinely absent and tmux
@@ -333,7 +364,9 @@ function installedCheck(opts) {
        * its sibling function, written the same afternoon. Half the answer was
        * read and none of it was reported.
        */
-      unreadable.push({ label, bin, because: String((err && err.message) || err) });
+      // `null`, not false: we could not look, which is not the same as absent.
+      present[label] = null;
+      if (required) unreadable.push({ label, bin, because: String((err && err.message) || err) });
       continue;
     }
 
@@ -345,11 +378,15 @@ function installedCheck(opts) {
      * will work. launchd would then start the job and it would fail silently,
      * which is the worst available outcome: nothing on screen, nothing running.
      */
-    if (!st.isFile()) { missing.push({ label, bin }); continue; }
+    if (!st.isFile()) { present[label] = false; if (required) missing.push({ label, bin }); continue; }
     try {
       fs.accessSync(bin, fs.constants.X_OK);
+      present[label] = true;
     } catch {
-      missing.push({ label, bin });
+      // Present means RUNNABLE here too: a file with no execute bit is not
+      // something Connect can skip installing.
+      present[label] = false;
+      if (required) missing.push({ label, bin });
     }
   }
 
@@ -360,6 +397,7 @@ function installedCheck(opts) {
       // The pack's row, verbatim (first-run spec, screen 4 ruling).
       title: 'Everything it needs is installed',
       detail: 'Nothing for you to go and find.',
+      present,
     };
   }
 
@@ -401,6 +439,7 @@ function installedCheck(opts) {
       title: 'We could not check what is installed',
       detail: unreadable.map((u) => `Looking for ${u.label} at ${u.bin} did not work (${u.because})`).join(', and ')
         + '. That does not mean anything is missing, only that we could not see it.',
+      present,
     };
   }
 
@@ -412,6 +451,7 @@ function installedCheck(opts) {
       ? `${named[0]} is not where we can use it`
       : 'Some of what it needs is not where we can use it',
     detail: 'An agent made now would not start. ' + parts_.join(' '),
+    present,
   };
 }
 
