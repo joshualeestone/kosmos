@@ -10561,6 +10561,54 @@ test('the report route derives the sender from the pane, records, and the board 
   }
 });
 
+test('#570: an agent with NO pane reports using only its launch token, and the board reads it back', async () => {
+  /* The Windows and SDK-runner case, proven on this Mac without either: the
+     request carries no `from_pane` at all, so nothing about THIS IDENTITY
+     goes through tmux.
+
+     ⚠️ WHAT THIS DOES NOT PROVE, said here so the test is not read as more
+     than it is: `fleet.install` fakes a pane to put the row on the board, and
+     in production `status.snapshot` builds the fleet by mapping over
+     `tmux list-panes`. So a genuinely pane-less agent still has NO ROSTER ROW
+     to be tied to, and the tie is what makes this record evidence. This test
+     proves the SENDER half of #570 item 2. The membership half -- an agent
+     existing in the fleet without a pane -- is the larger remaining piece. */
+  const sendertokenEngine = require('./engine/sendertoken');
+  const selfreportEngine = require('./engine/selfreport');
+  const board = fleet.install([fleet.agent('paneless', { state: 'idle' })]);
+  try {
+    const minted = sendertokenEngine.mint('paneless');
+    assert.equal(minted.ok, true);
+
+    const r = await req('/api/report', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': minted.token },
+      body: JSON.stringify({ state: 'blocked', text: 'no pane, no tmux, still reporting' }),
+    });
+    assert.equal(r.status, 200);
+    assert.equal(JSON.parse(r.body).recorded, true, 'a pane-less agent could not report: ' + r.body);
+    assert.equal(selfreportEngine.read('paneless').state, 'blocked');
+
+    const row = JSON.parse((await req('/api/status')).body).agents.find((a) => a.sessionName === 'paneless');
+    assert.equal(row.state, 'blocked', 'the token-derived report did not reach the board');
+    assert.equal(row.stateReported, true);
+
+    /* NO DOWNGRADE: a bad token is refused outright rather than quietly
+       falling back to the pane arm, which a caller could otherwise choose. */
+    const forged = await req('/api/report', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': 'f'.repeat(64) },
+      body: JSON.stringify({ state: 'working', from_pane: '%7' }),
+    });
+    const verdict = JSON.parse(forged.body);
+    assert.equal(verdict.recorded, false, 'a bad token fell through to the pane and wrote anyway');
+    assert.match(verdict.because, /could not match that to one of your agents/);
+    assert.equal(selfreportEngine.read('paneless').state, 'blocked', 'the refused call still changed the record');
+  } finally {
+    board.restore();
+  }
+});
+
 test('the report route refuses an unknown state word with the closed list, and a caller with no pane with the identity sentence', async () => {
   const messagesEngine = require('./engine/messages');
   const board = fleet.install([fleet.agent('peteworker', { state: 'idle' })]);
