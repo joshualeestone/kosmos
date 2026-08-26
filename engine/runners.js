@@ -793,6 +793,17 @@ function installVendor(provider, m, o, existing) {
        * board was frozen for exactly as long, just after the response had been
        * handed to the socket instead of before. The comment claimed the
        * opposite. The only real fix is for the probe itself not to block.
+       *
+       * 📌 MEASURED, AND THE PRECISE PROPERTY IS NARROWER THAN "IT YIELDS
+       * FIRST": `findElsewhere()` is still CALLED synchronously here -- the
+       * body runs to the first await, and that await is on its result. What
+       * changed is that the default's expensive step (`which`) is now async,
+       * so the synchronous part is three `statSync` calls. ⚠️ THE GUARANTEE
+       * THEREFORE LIVES IN THE PROBE, NOT AT THIS CALL SITE: a seam, or a
+       * future default, that did slow synchronous work would block the board
+       * again and nothing here would stop it. If that ever needs enforcing,
+       * enforce it in the probe rather than by adding another await here --
+       * an await at this call site is what did not work last time.
        */
       const elsewhere = await findElsewhere();
       if (elsewhere) {
