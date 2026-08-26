@@ -73,8 +73,8 @@
      column's ground sit a shade behind the conversation, the settings
      strip a shade behind the rails. Literal values, not derived washes,
      because Josh specced from the mock's measured colors. */
-  --cv-side: #f3f1ec;
-  --cv-side-2: #ebe8e2;
+  --k-side: #f3f1ec;
+  --k-side-2: #ebe8e2;
   /* ⚠️ THE OPTION BUTTON'S BOUNDARY IS A CONTRAST FLOOR, not a preference.
      `--k-rule` measures 1.18:1 against the question panel in light and 1.10:1
      in dark, and WCAG SC 1.4.11 asks 3:1 of anything that identifies a control.
@@ -208,8 +208,8 @@
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
-    --cv-side:   #111316;
-    --cv-side-2: #1c1f23;
+    --k-side:   #111316;
+    --k-side-2: #1c1f23;
     --k-optline: #6e7278;
   }
 }
@@ -2048,11 +2048,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      bottom: 0` is the same mechanism `.pjmid .composer` already uses to
      stay on screen while its own column scrolls. */
   /* #980: the settings strip goes flat on the mock's own deeper tone
-     (--cv-side-2, the .me treatment), full column width with no radius or
+     (--k-side-2, the .me treatment), full column width with no radius or
      float-gap, so the agents column reads as ONE column with the person
      pinned at its foot and the rule running unbroken down its edge. */
   html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 41; display: flex; align-items: center; gap: 6px;
-    margin: 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 0; background: var(--cv-side-2);
+    margin: 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 0; background: var(--k-side-2);
     position: sticky; bottom: 0; z-index: 5; }
   html[data-layout="consolidated"] body.consolidated .railme-go { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
   html[data-layout="consolidated"] body.consolidated .railme-face { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; overflow: hidden;
@@ -2084,8 +2084,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      agents column's rule rides #rail-agents/#alist/#rail-me (all three
      grid rows of column 1, zero vertical gaps between them, so the border
      reads as one line), the projects rail's rule is its own right edge. */
-  html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated #pj-list-view { background: var(--cv-side); border-radius: 0; padding: 8px; }
-  html[data-layout="consolidated"] body.consolidated > #rail-agents { background: var(--cv-side); border-radius: 0; padding: 8px 8px 0; margin: 0; }
+  html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated #pj-list-view { background: var(--k-side); border-radius: 0; padding: 8px; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents { background: var(--k-side); border-radius: 0; padding: 8px 8px 0; margin: 0; }
   html[data-layout="consolidated"] body.consolidated > #alist { border-radius: 0; padding-top: 0; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents, html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated > #rail-me { border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated #pj-list-view { border-right: 1px solid var(--k-rule); }
@@ -2212,6 +2212,21 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated #panel-projects { display: grid; grid-template-columns: minmax(180px, 17%) minmax(0, 1fr); column-gap: 18px; align-items: stretch; grid-template-rows: minmax(0, 1fr); }
   html[data-layout="consolidated"] body.consolidated #pj-list-view { min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated #pj-one-view { min-height: 0; }
+  /* 🛑 EVERY sub-view the projects panel can show needs its own scroll
+     under the no-page-scroll grid (challenge-loop iteration 2's blocker):
+     the page used to grow and scroll, so Settings/task/docs/add content
+     taller than the viewport was reachable; with body overflow hidden it
+     was clipped with no scrollbar and no wheel target -- Project settings'
+     own bottom controls (archive, member removal) unreachable, through the
+     very "Settings" link this pass renames. Same treatment as the list
+     view; the visible track stays (these are reading columns, not rails). */
+  html[data-layout="consolidated"] body.consolidated #pj-settings-view, html[data-layout="consolidated"] body.consolidated #pj-task-view,
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view, html[data-layout="consolidated"] body.consolidated #pj-add-view { min-height: 0; overflow-y: auto; }
+  /* #980 (iteration 2): the projects rail header pins at the top of its
+     scroller, so a long project list scrolls UNDER it -- the same gesture
+     the agents rail gives (whose header sits outside #alist's scroll), and
+     the fold arrow stays reachable without scrolling back up. */
+  html[data-layout="consolidated"] body.consolidated #rail-projects { position: sticky; top: 0; z-index: 4; background: var(--k-side); }
   /* #867 (Josh, 2026-08-25 11:02): "push the title all the way up so
      it's flush with projects and project members" -- measured 8px low
      against #rail-agents, traced to #pj-list-view's own top padding
@@ -2316,7 +2331,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      row at viewport height -- paints its whole column back to the page
      ground, full width and height, with the dialogue|cards rule on its
      right edge. No radii anywhere: columns, not boxes. */
-  html[data-layout="consolidated"] body.consolidated .pj3 { background: var(--cv-side); border-radius: 0; padding: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj3 { background: var(--k-side); border-radius: 0; padding: 0; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-bg); border-radius: 0; border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin: 0 12px 12px; }
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin-top: 12px; }
@@ -2400,8 +2415,9 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pj-members { gap: 2px; }
   /* #980 (Josh, 2026-08-26 08:31): the member avatars were "squished
      vertically or cut off... not in a perfect circle like everywhere
-     else" -- the disc had a size but no flex basis, so the row's flex
-     shrank it against a long name. Pinned: never shrinks, always 1:1. */
+     else" -- the base .pj-face carries flex: 0 0 34px, so the 34px BASIS
+     fought this rule's 28px width/height and the disc rendered as a
+     34x28 ellipse. Basis re-pinned to match, 1:1 held explicitly. */
   html[data-layout="consolidated"] body.consolidated .pj-member .lav.pj-face { width: 28px; height: 28px; flex: 0 0 28px; aspect-ratio: 1; }
   html[data-layout="consolidated"] body.consolidated .pj-addmem { font-size: .8125rem; padding: 6px 10px; margin-top: 4px; }
   /* #520 piece ten (the mock's controls; Josh, 14:10 and 14:14): the small +
@@ -4423,8 +4439,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
-    --cv-side:   #111316;
-    --cv-side-2: #1c1f23;
+    --k-side:   #111316;
+    --k-side-2: #1c1f23;
     --k-optline: #6e7278;
   }
 
