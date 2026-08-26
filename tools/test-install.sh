@@ -162,12 +162,16 @@ export SHELL=/bin/zsh
 printf '# the operator\047s own line\n' > "$SB/zprofile"
 export KOSMOS_TMUX_SRC="$TMUX_SRC" KOSMOS_SRC="$KOS_SRC" KOSMOS_PORT="$PORT"
 # 🔑 #908: every board this gate starts logs its requests OUTSIDE the sandbox
-# (server.js, KOSMOS_INSTALL_GATE=1), so the next time the byte-for-byte
-# check names seen-version.json (#891) the log names the client that loaded
-# the page. The file outlives the sandbox and the run; read it with
-# `grep " GET / " ~/.claude/logs/install-gate-requests.log`.
-export KOSMOS_INSTALL_GATE=1
-echo "request log for every sandboxed board: ${KOSMOS_INSTALL_GATE_LOG:-$HOME/.claude/logs/install-gate-requests.log} (#908)"
+# (server.js), so the next time the byte-for-byte check names
+# seen-version.json (#891) the log names the client that loaded the page.
+# 🛑 BY PATH, NEVER BY EXPORTING KOSMOS_INSTALL_GATE=1 HERE: that flag is
+# this file's own release-gate short mode (line ~740, #624), and the first
+# version of this block exported it, turning every full run into the
+# 81-check short run without a word. A cut already sets the flag (and so
+# gets the log); a full run names the path. It outlives the sandbox and the
+# run; read it with `grep " GET / " ~/.claude/logs/install-gate-requests.log`.
+export KOSMOS_INSTALL_GATE_LOG="${KOSMOS_INSTALL_GATE_LOG:-$HOME/.claude/logs/install-gate-requests.log}"
+echo "request log for every sandboxed board: $KOSMOS_INSTALL_GATE_LOG (#908)"
 export AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_LAUNCH="$SB/launch"
 # 🛑 EVERY ROOT THE GATE NAMES, AND AN INERT TMUX, or the board this harness
 # installs refuses to start (#634): a sandbox with some roots live is the
@@ -1694,8 +1698,18 @@ RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFOR
 chk "#924 control (default KOSMOS_HOME) install exits 0" "rc_ok $RC"
 HOME="$D924_DEFHOME" "$D924_DEFHOME/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free before the control uninstall runs" "wait_port_free"
-RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_LAUNCH \
-  HOME="$D924_DEFHOME" KOSMOS_HOME_APP_DIR="$SB/d924home-apps-c" KOSMOS_APP_DIR="$SB/apps924c" \
+# 🛑 AGENT_WORKFORCE_LAUNCH IS PINNED FOR THE UNINSTALL STEP (#946). A fake
+# HOME scopes the files; it does not scope the launchd domain. With
+# KOSMOS_HOME at its default the label is the bare com.kosmos.board, and
+# this uninstall ran `launchctl bootout gui/$uid/com.kosmos.board`: the
+# REAL board's job on the build Mac, taken down on every full gate run
+# (measured 2026-08-26 00:39 and 00:53, restored by hand both times). The
+# install step above keeps LAUNCH unset for the reason its comment gives;
+# the uninstall's data-root assertion below does not need launchctl at all,
+# and the plist it should remove is the one the install wrote under the
+# fake HOME, which is exactly where this points.
+RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  HOME="$D924_DEFHOME" AGENT_WORKFORCE_LAUNCH="$D924_DEFHOME/Library/LaunchAgents" KOSMOS_HOME_APP_DIR="$SB/d924home-apps-c" KOSMOS_APP_DIR="$SB/apps924c" \
   sh -s -- --uninstall > "$SB/d924-default-uninstall.log" 2>&1 || RC=$?
 chk "control uninstall exits 0" "rc_ok $RC"
 chk "control: the real (for this scenario's fake HOME) Application Support supervisor IS swept, matching pre-#924 behavior" \
