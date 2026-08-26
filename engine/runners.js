@@ -186,7 +186,10 @@ function isRunnable(p) {
     // this", and a root-owned 0o700 binary passes that while failing at
     // launch for us. accessSync asks the only question that matters -- can
     // THIS process run it -- which is the same question engine/connect.js
-    // already asks of the same binary at its two launch sites.
+    // asks of the same binary at its presence probe, its post-install gate
+    // and its stuck-state check. (Not at the launch itself, which checks
+    // nothing -- so this is the question asked BEFORE a launch, three times
+    // over there and once here.)
     fs.accessSync(p, fs.constants.X_OK);
     return true;
   } catch { return false; }
@@ -244,11 +247,17 @@ function resolveBin(provider, opts) {
     // there is no Kosmos-managed location for a vendor-external kind,
     // so `managed` is always false here.
     const envClaude = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
-    if (envClaude) return { bin: envClaude, present: isRunnable(envClaude), managed: false, overridden: true };
+    // `envName` travels with the answer for the same reason `overridden`
+    // does: install()'s refusal names the variable a person must unset, and
+    // re-deriving that name from the provider there would confidently tell
+    // the third provider's operator to unset AGENT_WORKFORCE_CODEX_BIN.
+    if (envClaude) return { bin: envClaude, present: isRunnable(envClaude), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_CLAUDE_BIN' };
     // AGENT_WORKFORCE_HOME is the same sandbox seam openaiaccounts keys
     // its HOME on -- without it, every test on this fleet Mac would see
     // the real ~/.local/bin/claude and read present. Unset in production.
-    const canonical = path.join(homeDir(), '.local', 'bin', 'claude');
+    // MANIFEST.claude.binName, not a literal: findElsewhere already reads it
+    // from there, and two spellings of one name is how they drift apart.
+    const canonical = path.join(homeDir(), '.local', 'bin', MANIFEST.claude.binName);
     return { bin: canonical, present: isRunnable(canonical), managed: false, overridden: false };
   }
   if (provider !== 'openai') return { bin: null, present: false, managed: false, overridden: false };
@@ -261,7 +270,7 @@ function resolveBin(provider, opts) {
   // keys on the RESOLVER'S knowledge rather than re-deriving which env
   // var belongs to which provider.
   const envBin = process.env.AGENT_WORKFORCE_CODEX_BIN;
-  if (envBin) return { bin: envBin, present: isRunnable(envBin), managed: false, overridden: true };
+  if (envBin) return { bin: envBin, present: isRunnable(envBin), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_CODEX_BIN' };
   const managed = path.join(managedRoot(), 'openai', MANIFEST.openai.binName);
   const candidates = [
     managed,
@@ -283,8 +292,8 @@ function resolveBin(provider, opts) {
  *
  * Job shape, readable at any moment via status():
  *   tarball kind:         phase 'downloading'|'verifying'|'unpacking'
- *   vendor-external kind: phase 'linking'   (the only fetching phase it
- *                        has until #997 gives it a real install)
+ *   vendor-external kind: phase 'linking'   (its only pre-prove phase until
+ *                        #997 gives it a real install; it fetches nothing)
  *   both kinds:           -> 'proving' -> 'installed'|'failed'
  *   { phase, receivedBytes, totalBytes (real numbers for the tarball kind;
  *     null for vendor-external, which moves no bytes -- a link is not a
@@ -309,6 +318,29 @@ function resolveBin(provider, opts) {
  * claimed the stronger rule and two shapes in this file already broke it.
  */
 const jobs = Object.create(null);
+
+/**
+ * Every field a job can ever carry, all spelled `null`.
+ *
+ * 🛑 IT EXISTS BECAUSE THE ABSENCES HAD FOUR SPELLINGS. `receivedBytes` was
+ * missing from the refusal arms while every real job spelled it `null`;
+ * `version` and `linked` were missing from the refusal AND the
+ * already-present synthetic while the linking job spelled them `null`. All of
+ * those cross the wire as `{ job }` from the same route, so one screen field
+ * read `undefined` from one arm and `null` from another for the SAME
+ * provider. An earlier version of the docblock above carved out an exception
+ * for exactly this -- but that carve-out would equally have justified leaving
+ * `receivedBytes` alone, and it was already agreed that one was a defect. The
+ * rule cannot hold for one field and not its neighbours, so it holds for all
+ * of them and this is the one place that decides what "all" means.
+ *
+ * ⚠️ `null` IS NOT A CLAIM. The synthetic's own comment argues against
+ * carrying a `version` for a present binary of unknown age, and it is right:
+ * what it argues against is asserting the PINNED version as if it had been
+ * proved. `null` asserts nothing -- it says the question has no answer here,
+ * which is exactly the fact.
+ */
+const blankJob = () => ({ receivedBytes: null, totalBytes: null, version: null, linked: null });
 
 function status() {
   const out = {};
@@ -461,7 +493,7 @@ function install(provider, opts) {
    * docblock exists to prevent, on the one path a person actually sees. Found
    * by the route test, which asserted null and got undefined.
    */
-  const refuse = (because) => ({ phase: 'failed', because, receivedBytes: null, totalBytes: null });
+  const refuse = (because) => ({ ...blankJob(), phase: 'failed', because });
 
   if (!m) return refuse(`we do not know how to install a runner for ${provider}`);
   // Join a LIVE job before consulting presence: during `proving` the
@@ -488,7 +520,7 @@ function install(provider, opts) {
     // would be the exact overclaim status() renamed its field to avoid.
     if (jobs[provider] && jobs[provider].phase === 'installed') return jobs[provider];
     if (jobs[provider] && jobs[provider].phase === 'failed') delete jobs[provider];
-    return { phase: 'installed', receivedBytes: null, totalBytes: null };
+    return { ...blankJob(), phase: 'installed' };
   }
   // An authoritative override naming a MISSING path would mask the
   // managed location this install stages into: the job would end
@@ -501,8 +533,10 @@ function install(provider, opts) {
     // RUNNABLE now, so this arm is also reached by a real file with no exec
     // bit and by a directory. Telling an operator the file is missing sends
     // them looking for the wrong problem.
-    const envName = provider === 'claude' ? 'AGENT_WORKFORCE_CLAUDE_BIN' : 'AGENT_WORKFORCE_CODEX_BIN';
-    // Names the variable: a person cannot unset an override we will not name.
+    // From the RESOLVER, not re-derived here: see its comment. A person
+    // cannot unset an override we will not name, and naming the wrong one is
+    // worse than naming none, because it looks actionable.
+    const envName = existing.envName || 'the override';
     return refuse(`${envName} points the ${provider} runner at ${existing.bin}, which is not something we can run; unset it (or point it at a real runner) before installing`);
   }
   // Wrong hardware fails in seconds with the CAUSE, not in minutes at
@@ -525,7 +559,7 @@ function install(provider, opts) {
   // REAL download function is exercised by the plan's one live proof.
   const doDownload = o.download || download;
 
-  const job = { phase: 'downloading', receivedBytes: 0, totalBytes: m.downloadBytes, version: m.version };
+  const job = { ...blankJob(), phase: 'downloading', receivedBytes: 0, totalBytes: m.downloadBytes, version: m.version };
   jobs[provider] = job;
 
   const destDir = path.join(managedRoot(), provider);
@@ -762,7 +796,7 @@ function installVendor(provider, m, o, existing) {
   // phase there is until #997 lands. Byte counts are null and stay null:
   // a link moves no bytes, and inventing a count would be the same lie the
   // tarball kind's real numbers exist to avoid.
-  const job = { phase: 'linking', receivedBytes: null, totalBytes: null, version: null, linked: null };
+  const job = { ...blankJob(), phase: 'linking' };
   jobs[provider] = job;
   const fail = (because) => { job.phase = 'failed'; job.because = because; };
 
@@ -827,7 +861,15 @@ function installVendor(provider, m, o, existing) {
        * FIRST": `findElsewhere()` is still CALLED synchronously here -- the
        * body runs to the first await, and that await is on its result. What
        * changed is that the default's expensive step (`which`) is now async,
-       * so the synchronous part is three `statSync` calls. ⚠️ THE GUARANTEE
+       * ⚠️ AND THE SYNCHRONOUS REMAINDER IS THE SPAWN, NOT THE stat()s. An
+       * earlier version of this line said "three statSync calls", which was
+       * wrong twice over: those run in the loop on the FAR SIDE of the await,
+       * and the cost that remains synchronous is `execFile`'s fork/exec.
+       * Measured on this Mac: three statSync = 0.08ms, the execFile spawn =
+       * 2.81ms, install()'s whole synchronous return = 2.37ms. Milliseconds
+       * rather than seconds, which is the point -- but a comment whose only
+       * job is to stop the next person reintroducing a block has to name the
+       * operation that actually carries the cost. ⚠️ THE GUARANTEE
        * THEREFORE LIVES IN THE PROBE, NOT AT THIS CALL SITE: a seam, or a
        * future default, that did slow synchronous work would block the board
        * again and nothing here would stop it. If that ever needs enforcing,
@@ -901,7 +943,7 @@ function installVendor(provider, m, o, existing) {
            SHA256 and runs its installer, whenever the binary is absent. The
            reader's subject is the product, not the module -- and the old
            wording also handed them the worse of the two remedies. */
-        fail(`We could not find ${m.name} on this Mac. Connecting a Claude account will download and set it up for you; this particular step can only use a copy that is already here.`);
+        fail(`We could not find ${m.name} on this Mac. Connecting a Claude account will download and set it up for you; Kosmos can only link a copy that is already on this Mac.`);
         return;
       }
       job.phase = 'proving';

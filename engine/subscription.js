@@ -277,7 +277,13 @@ function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; }
  * `AGENT_WORKFORCE_CLAUDE_BIN || ~/.local/bin/claude`, and when #979 gave
  * the resolver an AGENT_WORKFORCE_HOME rung the copies silently disagreed
  * with it about exactly that rung -- the drift pair the resolver exists to
- * end, one file over. Required lazily so the module graph stays acyclic.
+ * end, one file over.
+ *
+ * 📌 Required lazily as a HABIT, not a necessity: `engine/runners.js` imports
+ * only node builtins, so there is no cycle here for a top-level require to
+ * create. An earlier version of this line said the lazy require was what kept
+ * the graph acyclic, which credited it with work it is not doing. It stays
+ * because it costs nothing and survives runners.js gaining an engine import.
  */
 function claudeBinPath() {
   return require('./runners').resolveBin('claude').bin;
