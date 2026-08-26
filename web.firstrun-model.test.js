@@ -52,12 +52,30 @@ test('OpenAI is choosable too, with its own key-entry connect', () => {
   /* #944-adjacent: OpenAI already works via Settings' pasted-key flow, so
      first-run stopped claiming otherwise. Its own reveal/submit is distinct
      from Claude's OAuth button, not a relabel of it. */
-  assert.match(STEP, /class="llm on"[\s\S]{0,6000}<b>GPT<\/b>/,
+  // Anchored on OpenAI's own row start (its pmark), not just any "llm on":
+  // a wide unanchored window cleared Claude's row by only ~100 chars, so a
+  // modest markup shortening could have let this pass with OpenAI dimmed.
+  assert.match(STEP, /class="llm on"><span class="llm-m pmark live" data-pmark="openai"[\s\S]{0,4500}<b>GPT<\/b>/,
     'OpenAI is not shown at full weight alongside Claude');
   assert.match(STEP, /id="fr-openai-connect"/, 'the OpenAI Connect button is missing');
   assert.match(STEP, /id="fr-openai-key"/, 'the OpenAI key field is missing');
   assert.match(STEP, /id="fr-openai-go"/, 'the OpenAI Add button is missing');
   assert.match(STEP, /id="fr-openai-flow" hidden/, 'the key-entry reveal should start hidden');
+
+  // The outcome line must live OUTSIDE the flow it reports on: the connected
+  // paint hides the whole form (flow.hidden = true) and then writes here, so
+  // a message inside the flow lands in a display:none subtree and the
+  // aria-live announcement never fires (challenge-loop iteration 2's real
+  // find). Structural check: between the flow's open tag and the message,
+  // the flow's own divs must all have closed.
+  const flowStart = STEP.indexOf('id="fr-openai-flow"');
+  const msgStart = STEP.indexOf('id="fr-openai-msg"');
+  assert.ok(flowStart !== -1 && msgStart !== -1, 'flow and message both exist');
+  const between = STEP.slice(flowStart, msgStart);
+  const opens = (between.match(/<div\b/g) || []).length;
+  const closes = (between.match(/<\/div>/g) || []).length;
+  assert.ok(closes > opens,
+    'the outcome line #fr-openai-msg sits inside #fr-openai-flow, where the connected paint hides it');
 });
 
 test('no disclosure survives: all six providers render in the open', () => {
@@ -186,13 +204,13 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
     'fr-openai-msg': { textContent: '' },
   });
 
-  // Told directly (the Add handler's own path — no fetch needed). The
+  // Told directly (the Add handler's own path -- no fetch needed). The
   // message reports the ACTION, since this call is right after it happened.
   let els = makeEls();
   // eslint-disable-next-line no-new-func
   await new Function('document', 'fetch', 'known', body + '\nreturn frPaintOpenai(known);')(
     { getElementById: (id) => els[id] || null },
-    () => { throw new Error('should not have fetched — known was supplied'); },
+    () => { throw new Error('should not have fetched -- known was supplied'); },
     { connected: true, keyTail: 'ab12', justAdded: true },
   );
   assert.equal(els['fr-openai-connect'].textContent, 'Connected');
@@ -201,7 +219,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   assert.match(els['fr-openai-msg'].textContent, /^Added/, 'told-directly should report the action, not just the state');
   assert.match(els['fr-openai-msg'].textContent, /ab12/, 'the confirmation should name the key tail it was told');
 
-  // Asked the machine (pane-3 entry, nothing known yet) — an OpenAI account
+  // Asked the machine (pane-3 entry, nothing known yet) -- an OpenAI account
   // already exists. The message reports the STATE, not a fictional action:
   // this call did not just add anything, and must not claim it did.
   els = makeEls();
@@ -217,7 +235,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   assert.match(els['fr-openai-msg'].textContent, /connected/, 'should still say it is connected');
   assert.match(els['fr-openai-msg'].textContent, /cd34/);
 
-  // Asked the machine, a real answer of "nothing there" — a DEFINITE no,
+  // Asked the machine, a real answer of "nothing there" -- a DEFINITE no,
   // not an unknown, so the row must repaint back to Connect. This is the
   // reverse transition frPaintSubscription's own tests already hold Claude
   // to ("AND BACK AGAIN"); caught missing here in challenge-loop iteration 1.
@@ -234,7 +252,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
     'a definite empty answer must repaint back to Connect, not leave a stale Connected standing');
   assert.equal(els['fr-openai-connect'].disabled, false);
 
-  // A read FAILURE, by contrast, is not a "no" — the row must stay exactly
+  // A read FAILURE, by contrast, is not a "no" -- the row must stay exactly
   // as it was (never turn "we could not tell" into "no", #881's contract).
   els = makeEls();
   els['fr-openai-connect'] = { textContent: 'Connected', disabled: true };
@@ -247,4 +265,28 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   );
   assert.equal(els['fr-openai-connect'].textContent, 'Connected',
     'a failed read must not overwrite a known Connected state with a guess');
+
+  // SUPERSESSION (challenge-loop iteration 2's real find): the pane-entry
+  // read can be slow (/api/accounts verifies each account live, up to 8s)
+  // while a successful Add paints immediately. A read that started BEFORE
+  // the Add must not land AFTER it and repaint the row back to Connect off
+  // its pre-add answer -- that invites a second paste of the same key and a
+  // duplicate account. Both calls run in ONE extraction scope so they share
+  // the function's own token.
+  els = makeEls();
+  let releaseRead;
+  const gate = new Promise((res) => { releaseRead = res; });
+  const slowEmptyFetch = async () => { await gate; return { ok: true, json: async () => ({ accounts: [] }) }; };
+  // eslint-disable-next-line no-new-func
+  const both = new Function('document', 'fetch', 'known',
+    body + '\nconst read = frPaintOpenai(); const add = frPaintOpenai(known); return Promise.all([read, add]);')(
+    { getElementById: (id) => els[id] || null },
+    slowEmptyFetch,
+    { connected: true, keyTail: 'ab12', justAdded: true },
+  );
+  releaseRead();
+  await both;
+  assert.equal(els['fr-openai-connect'].textContent, 'Connected',
+    'a pre-add read resolving late repainted a just-connected row back to Connect');
+  assert.equal(els['fr-openai-connect'].disabled, true);
 });

@@ -3563,11 +3563,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    nothing is fetched at runtime — the only rule that survives from an
    earlier "no vendor logos" version of this comment, which the marks below
    no longer honour in the way it originally meant (see the HTML for the
-   full history). ⚠️ CLAUDE IN COLOUR, EVERY OTHER MARK MONOCHROME. Six
-   vendor logos at full saturation makes the five you cannot use louder than
-   the one you can, and this row exists to show what works today beside what
-   is coming; monochrome is also what most vendor guidelines permit as the
-   single-colour variant. */
+   full history). ⚠️ THE TWO LIVE MARKS AT FULL STRENGTH (Claude in its
+   colour, OpenAI in its own solid black), THE FOUR COMING-SOON MARKS
+   MONOCHROME AND DIMMED. Six vendor logos at full saturation would make
+   the four you cannot use louder than the two you can, and this row exists
+   to show what works today beside what is coming; monochrome is also what
+   most vendor guidelines permit as the single-colour variant. */
 .pmark { display: grid; place-items: center; }
 .pmark svg { width: 100%; height: 100%; display: block; }
 /* ⚠️ MONOCHROME BY FILTER, NOT BY FORCING FILLS. `svg * { fill: grey !important }`
@@ -5613,11 +5614,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              (2026-08-17: "Yes I want that picking a model in the app").
              Claude and OpenAI both carry Connect now (#944-adjacent, Josh
              asked why OpenAI still said Coming soon after it already worked
-             in Settings — "coming soon" had gone false with no commit
+             in Settings -- "coming soon" had gone false with no commit
              marking the day it did, Splinter's finding); Gemini/Llama/Qwen/
              Mistral are the genuine Coming soon. The verdict row (#fr-sub)
              renders BENEATH the list, exactly where the pack draws its
-             could-not-tell chk row, for Claude only — OpenAI's own row
+             could-not-tell chk row, for Claude only -- OpenAI's own row
              carries its own state (#fr-openai-msg) since its connect shape
              (a pasted key) has no equivalent poll to reconcile against.
              Claude's Connect button re-checks before it does anything: a
@@ -5673,8 +5674,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                    aria-label="OpenAI API key" placeholder="sk-…">
             <button class="btn" id="fr-openai-go" type="button">Add</button>
           </div>
-          <p class="dhint" id="fr-openai-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
         </div>
+        <!-- 🛑 OUTSIDE #fr-openai-flow ON PURPOSE. The connected paint hides
+             the whole form (flow.hidden = true) and then writes the outcome
+             here; caught in challenge-loop iteration 2 with this element
+             INSIDE the flow, where "Added: API key ending xxxx." landed in a
+             display:none subtree -- invisible, and the aria-live announcement
+             never fired. The message must survive the form it reports on. -->
+        <p class="dhint" id="fr-openai-msg" role="status" aria-live="polite" style="margin:-4px 0 10px;"></p>
         <p class="smore-t">Runs on this computer</p>
         <div class="llm off"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon">Coming soon</span></div>
         <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
@@ -26925,6 +26932,10 @@ document.getElementById('fr-openai-go').addEventListener('click', async () => {
   const key = keyField.value;
   if (!key.trim()) { msg.textContent = 'Paste the key first.'; keyField.focus(); return; }
   go.disabled = true;
+  // Invalidate any pane-entry read still in flight: its pre-add answer must
+  // not blank this "Adding…" (or a later error) when it lands -- the same
+  // supersession token frPaintOpenai's own doc comment explains.
+  frPaintOpenai.seq = (frPaintOpenai.seq || 0) + 1;
   msg.textContent = 'Adding…';
   try {
     // Same endpoint Settings uses (#540) -- no new backend for this screen.
@@ -26973,6 +26984,19 @@ async function frPaintOpenai(known) {
   const connectBtn = document.getElementById('fr-openai-connect');
   const flow = document.getElementById('fr-openai-flow');
   const msg = document.getElementById('fr-openai-msg');
+  /* 🛑 A DIRECTLY-TOLD PAINT SUPERSEDES AN OLDER READ, caught in
+     challenge-loop iteration 2: the pane-entry read goes through
+     /api/accounts, whose per-account live verification can take seconds
+     (#960's 8s timeout), while a successful Add paints immediately. Without
+     this token, the slow read's PRE-add account list could resolve after
+     the Add and repaint a just-connected row back to "Connect" -- inviting
+     a second paste of the same key, which creates a duplicate account. The
+     told-directly path bumps the token synchronously; a read that comes
+     back to find the token moved simply drops its stale answer. The token
+     self-initialises (no separate `frPaintOpenai.seq = 0` line) so the
+     painter tests' function-body extraction gets the whole mechanism. */
+  frPaintOpenai.seq = (frPaintOpenai.seq || 0) + 1;
+  const seq = frPaintOpenai.seq;
   let connected = known && known.connected;
   let keyTail = known && known.keyTail;
   const justAdded = Boolean(known && known.justAdded);
@@ -26981,6 +27005,7 @@ async function frPaintOpenai(known) {
       const res = await fetch('/api/accounts', { cache: 'no-store' });
       if (!res.ok) return; // could not tell -- leave the row exactly as it was
       const list = ((await res.json()) || {}).accounts || [];
+      if (seq !== frPaintOpenai.seq) return; // superseded while we were reading
       const a = list.find((x) => x.provider === 'openai');
       connected = Boolean(a);
       keyTail = a && a.keyTail;

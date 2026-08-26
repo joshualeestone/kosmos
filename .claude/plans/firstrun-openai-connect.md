@@ -23,7 +23,10 @@ feature's own diff never touches the sentence denying it exists.
   already solid black (`fill="black"`, not `currentColor`), so "live" for it
   just lifts the grayscale/opacity filter rather than changing a tint.
 - Clicking Connect reveals `#fr-openai-flow`, a small key-entry form
-  (password field, Show/Hide, Add) adapted from Settings' `#acct-openai-flow`
+  (password field and Add in one row; the Show/Hide toggle from the first
+  build was removed at Josh's 2026-08-26 live call, commit 4e68f6f, so
+  Settings keeps its pre-Add check and first-run trades it for a shorter
+  row) adapted from Settings' `#acct-openai-flow`
   -- same warning copy, same "never shown again" promise, same endpoint, so a
   person who already did this once in Settings recognises it here. Not
   verbatim: two deliberate simplifications for the first-run context, called
@@ -78,6 +81,7 @@ and it is accurate now.
       tests updated for the coming-soon count (5 -> 4) and two providers now
       carrying live marks (was 1), one existing test title corrected
       ("the one choosable model" -> now two), two new tests added (OpenAI's
-      markup, and `frPaintOpenai`'s three real paths: told directly,
-      asked-and-found, asked-and-nothing-there).
+      markup, and `frPaintOpenai`'s four real paths: told directly,
+      asked-and-found, asked-and-nothing-there, and a read failure, which
+      must leave the row untouched rather than read as a "no").
 - [x] `node --test` (full suite): 2198/2198 pass.
