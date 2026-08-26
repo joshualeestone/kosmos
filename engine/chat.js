@@ -994,11 +994,16 @@ function questionIn(text) {
 // One digit, 1-9, not `\d+`. The count is capped at 9 anyway, and `\d+`
 // accepted `01.` as option 1 through Number() -- a shape no menu draws and one
 // more way for prose to look like a list.
-const OPTION_LINE = /^(❯\s*)?([1-9])[.)]\s+(\S.*)$/;
+/* ⚠️ The glyph class comes from status.js (#998), NOT a literal here. Two
+   parsers keyed on this separately and disagreed: this one knew only Claude's
+   ❯, while the needs-you markers knew Codex draws ›, so every Codex choice
+   prompt was DETECTED and then drew no buttons. One source, so they cannot
+   fork again. */
+const OPTION_LINE = new RegExp(`^([${status.SELECTOR_GLYPHS}]\\s*)?([1-9])[.)]\\s+(\\S.*)$`);
 // ⚠️ ANY digit count, deliberately wider than OPTION_LINE. It is what sees a
 // line the single-digit pattern cannot read -- a tenth option -- so a menu
 // longer than we can read is refused rather than served as its first nine.
-const ANY_NUMBERED = /^(?:❯\s*)?\d+[.)]\s+\S/;
+const ANY_NUMBERED = new RegExp(`^(?:[${status.SELECTOR_GLYPHS}]\\s*)?\\d+[.)]\\s+\\S`);
 
 /**
  * The text ABOVE a confident option run, which is what tells two menus with the
@@ -1024,7 +1029,14 @@ function questionAbove(questionText) {
   const opts = optionsIn(questionText);
   if (!opts) return null;
   const lines = String(questionText == null ? '' : questionText).split('\n');
-  const first = lines.findIndex((l) => /^(?:❯\s*)?[1-9][.)]\s+\S.*$/.test(
+  /* Same glyph class as OPTION_LINE (#998), and it MUST be: this finds where
+     the option run starts so the question above it can be sliced off. Left on
+     ❯ only, a Codex menu would parse (optionsIn having been widened) and then
+     find `first === -1` here, so the "question above" would be the WHOLE pane
+     -- the thing this function exists to avoid. A half-widened parser is worse
+     than an unwidened one. */
+  const OPTION_START = new RegExp(`^(?:[${status.SELECTOR_GLYPHS}]\\s*)?[1-9][.)]\\s+\\S.*$`);
+  const first = lines.findIndex((l) => OPTION_START.test(
     l.replace(/^\s*│\s?/, '').replace(/[\s│]+$/, '').replace(/^\s+/, '')));
   /**
    * ⚠️ EVERY MEANINGFUL LINE ABOVE THE RUN, and this rule has had three shapes.
@@ -1182,7 +1194,15 @@ function optionsIn(questionText) {
    * `found.length + 1` is the signature of a list this pattern truncated, and
    * almost nothing else.
    */
-  const CONTINUATION = new RegExp('^(?:❯\\s*)?0*' + (found.length + 1) + '[.)]\\s+\\S');
+  /* ⚠️ THE GLYPH CLASS BELONGS HERE MOST OF ALL (#998). This is the guard that
+     spots a menu this pattern TRUNCATED -- a line numbered one past the run --
+     and refuses rather than serving a ten-option menu as its first nine. Widen
+     the matcher and leave this on ❯ alone and the two disagree in the one
+     direction that hurts: a Codex menu would start producing buttons while the
+     guard that says "there is more of this list than we can read" stays blind.
+     This file's own rule is that an UNPARSED menu costs a person one line of
+     typing and a MIS-PARSED one answers for them. */
+  const CONTINUATION = new RegExp(`^(?:[${status.SELECTOR_GLYPHS}]\\s*)?0*${found.length + 1}[.)]\\s+\\S`);
   for (let i = lastRun.at + 1; i < lines.length; i += 1) {
     const bare = lines[i].replace(/^\s*│\s?/, '').replace(/[\s│]+$/, '').replace(/^\s+/, '');
     if (CONTINUATION.test(bare)) return null;

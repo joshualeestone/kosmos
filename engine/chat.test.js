@@ -2109,6 +2109,61 @@ test('questionAbove is the identity of a question, and never an empty one', () =
     'a menu with nothing above it cannot be told from another menu with nothing above it');
 });
 
+test("#998: a CODEX menu gets buttons too -- the option parser reads › as well as ❯", () => {
+  /* 🛑 THE REGRESSION THIS PINS. `status.js` has known since #249 that Codex
+     draws its selector as › (U+203A) and Claude as ❯ (U+276F) -- captured
+     from a live codex-cli pane, and the whole reason that card exists. The
+     option parser here knew only ❯, so `marked` never went true for a Codex
+     menu and `optionsIn` returned null: the board correctly announced "waiting
+     on an answer" and then drew NO buttons to answer with. A person was told
+     their agent was stuck and handed nothing to unstick it.
+
+     ⚠️ EVERY OTHER FIXTURE IN THIS FILE USES ❯, which is exactly why the suite
+     was green while the defect was live. This one is Codex-shaped on purpose. */
+  const codex = chat.optionsIn('Do you want to proceed?\n› 1. Yes, continue\n  2. No, quit');
+  assert.deepEqual(codex, [{ n: 1, label: 'Yes, continue' }, { n: 2, label: 'No, quit' }],
+    'a Codex-shaped menu must produce the same buttons a Claude-shaped one does');
+
+  // The control: the Claude shape still works. A fix that traded one glyph for
+  // the other would pass the assertion above and break every agent we have.
+  assert.deepEqual(chat.optionsIn('Do you want to proceed?\n❯ 1. Yes\n  2. No'),
+    [{ n: 1, label: 'Yes' }, { n: 2, label: 'No' }], 'the Claude shape is unchanged');
+
+  // And the marker is still REQUIRED: an unmarked numbered list is prose, not
+  // a menu, and widening the glyph class must not have widened that.
+  assert.equal(chat.optionsIn('Steps:\n1. Yes\n2. No'), null,
+    'a numbered list with no selector is not a menu');
+});
+
+test('#998: the two REFUSAL guards are Codex-shaped too, so a widened matcher cannot mis-parse', () => {
+  /* ⭐ THESE, NOT THE HAPPY PATH, ARE THE TESTS THAT CATCH A PARTIAL FIX.
+     `optionsIn` is one of THREE patterns keyed on the selector glyph. The other
+     two are guards that REFUSE a menu rather than read one. Widen only the
+     matcher and the three disagree in the one direction that hurts: Codex menus
+     start producing buttons while the guards that spot a truncated menu, and
+     that find where the run begins, stay blind. This file's own rule is that an
+     unparsed menu costs a person one line of typing and a MIS-PARSED one
+     answers for them. */
+
+  // 1. The truncation guard. A run of nine with a tenth line below it is a list
+  //    this pattern could not read whole, and it must refuse rather than serve
+  //    the first nine as if they were all of them.
+  const nine = Array.from({ length: 9 }, (_, i) => `${i === 0 ? '›' : ' '} ${i + 1}. option ${i + 1}`).join('\n');
+  assert.equal(chat.optionsIn(`Pick one?\n${nine}\n  10. option 10`), null,
+    'a Codex menu with a tenth option must be REFUSED, not served as nine');
+  // Control: the same run without the tenth line is a real menu and IS read.
+  // Without this, the assertion above would pass on a parser that refuses
+  // every Codex menu -- which is the bug, not the fix.
+  assert.equal((chat.optionsIn(`Pick one?\n${nine}`) || []).length, 9,
+    'the same nine-option Codex menu, untruncated, is still read');
+
+  // 2. The run-start guard, via questionAbove: it slices the question off the
+  //    top of the option run, so if it cannot find where a Codex run begins it
+  //    returns the whole pane as "the question".
+  assert.equal(chat.questionAbove('Edit file src/a.js?\n› 1. Yes\n  2. No'), 'Edit file src/a.js?',
+    'the question above a Codex menu is found, not the whole pane');
+});
+
 test('optionsIn reads a real menu, both the two-option prompt and a long one', () => {
   // The shapes are the captures this repo already holds: engine/chat.test.js's
   // own permission prompt above, and connect.test.js's theme screen, taken

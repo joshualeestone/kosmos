@@ -1173,6 +1173,24 @@ const NEEDS_YOU_MARKERS = Object.freeze([
  * finding reported on its own), so it is not guessed at here. Add to this
  * list by OBSERVING, exactly as the rate-limit markers demand.
  */
+/**
+ * The selector glyphs a runner draws beside the highlighted option, as a
+ * character class two files can share.
+ *
+ * 🛑 IT LIVES HERE, EXPORTED, BECAUSE TWO PARSERS KEYED ON THIS SEPARATELY
+ * AND DISAGREED (#998). This file's markers knew Codex draws › (U+203A) and
+ * Claude draws ❯ (U+276F) -- #249 exists entirely because of that difference.
+ * `engine/chat.js`'s option parser knew only ❯. So a Codex agent's choice
+ * prompt was correctly detected as "waiting on an answer" and then produced
+ * NO buttons, because the option lines never matched: the person was told
+ * their agent was stuck and given nothing to unstick it with.
+ *
+ * ⚠️ ADD TO THIS BY OBSERVING, exactly as the marker lists above demand. A
+ * guessed glyph is the same 0-for-1 bet as a guessed wording. Plain ASCII `>`
+ * is deliberately NOT here: no runner has been observed drawing it.
+ */
+const SELECTOR_GLYPHS = '❯›';
+
 const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
   /›\s*1\.\s*Yes/,
 ]);
@@ -3110,6 +3128,7 @@ module.exports = {
   NEEDS_YOU_MARKERS,
   CODEX_NEEDS_YOU_MARKERS,
   ALL_NEEDS_YOU_MARKERS,
+  SELECTOR_GLYPHS,
   isCodexCommand,
 };
 
