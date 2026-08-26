@@ -997,8 +997,14 @@ function questionIn(text) {
 /* ⚠️ The glyph class comes from status.js (#998), NOT a literal here. Two
    parsers keyed on this separately and disagreed: this one knew only Claude's
    ❯, while the needs-you markers knew Codex draws ›, so every Codex choice
-   prompt was DETECTED and then drew no buttons. One source, so they cannot
-   fork again. */
+   prompt was DETECTED and then drew no buttons.
+
+   📌 SCOPE, STATED RATHER THAN OVERCLAIMED: this constant governs the three
+   MENU-PARSING patterns in this file. It is deliberately NOT the marker lists
+   in status.js -- those stay per-runner because each is an OBSERVED capture
+   from a specific CLI and its docblock records what was seen, which is a
+   different kind of fact from "these characters can precede an option". So
+   "one source" is true of the parser, not of every glyph in the codebase. */
 const OPTION_LINE = new RegExp(`^([${status.SELECTOR_GLYPHS}]\\s*)?([1-9])[.)]\\s+(\\S.*)$`);
 // ⚠️ ANY digit count, deliberately wider than OPTION_LINE. It is what sees a
 // line the single-digit pattern cannot read -- a tenth option -- so a menu
