@@ -88,6 +88,27 @@ enum InstallResolutionError: Error {
     case noOwnInstallForOtherUser
 }
 
+// 🔑 #910: PER ACCOUNT, NOT ONE VALUE FOR EVERY macOS USER ON THIS
+// MACHINE. Every account defaulting to the identical port was the entire
+// reason a second macOS account's Kosmos loaded the first account's real
+// agents: 127.0.0.1 is machine-wide, so `install/kosmos`'s `healthy()`
+// always found account A's board first and account B's install never
+// needed a board of its own. Same formula as install/kosmos,
+// install/setup.sh, and install/pkg-scripts/postinstall -- must move
+// together, now five sites. uid 501 (the Setup Assistant's first created
+// user account on every personal or family Mac -- macOS reserves
+// anything below 500 for system accounts) is pinned to the LITERAL
+// unchanged value: every real install today is hardcoded to exactly
+// this, so the single most common Kosmos install on this planet changes
+// zero observable bytes. Every other uid gets a deterministic, stable
+// alternate -- `+1` on the modulo so it can never itself land back on
+// 16180 by coincidence (uid % 4000 alone can be exactly 0). No probing,
+// no persisted state: a pure function of the account's own uid.
+func kosmosDefaultPort(uid: uid_t) -> Int {
+    if uid == 501 { return 16180 }
+    return 16180 + 1 + Int(uid % 3999)
+}
+
 func resolveInstall(config: KosmosInstallConfig?) throws -> ResolvedInstall {
     // Test-only seam: NSHomeDirectory() reads the REAL account's passwd
     // record and does NOT honor an overridden $HOME (confirmed empirically
@@ -108,14 +129,14 @@ func resolveInstall(config: KosmosInstallConfig?) throws -> ResolvedInstall {
     // a baked config says otherwise.
     if let overrideHome = ProcessInfo.processInfo.environment["KOSMOS_HOME"] {
         let port = ProcessInfo.processInfo.environment["KOSMOS_PORT"].flatMap { Int($0) }
-            ?? config?.port ?? 16180
+            ?? config?.port ?? kosmosDefaultPort(uid: getuid())
         let isOwnAccount = config == nil || getuid() == config!.ownerUid
         return ResolvedInstall(kosmosHome: overrideHome, port: port, isOwnAccount: isOwnAccount)
     }
     guard let config else {
         // No baked config and no override: fall back to the well-known
         // default, same as a bare `kosmos` invocation would.
-        let port = ProcessInfo.processInfo.environment["KOSMOS_PORT"].flatMap { Int($0) } ?? 16180
+        let port = ProcessInfo.processInfo.environment["KOSMOS_PORT"].flatMap { Int($0) } ?? kosmosDefaultPort(uid: getuid())
         return ResolvedInstall(kosmosHome: defaultHome, port: port, isOwnAccount: true)
     }
     if getuid() == config.ownerUid {
@@ -123,11 +144,15 @@ func resolveInstall(config: KosmosInstallConfig?) throws -> ResolvedInstall {
     }
     // A different account clicked the shared icon (#664). If THEY have
     // their own install at the default home, open that -- never the
-    // installing account's private tree.
+    // installing account's private tree. #910: never the INSTALLING
+    // account's baked port either -- that is `config.port`, a value THIS
+    // account chose, not necessarily the well-known default. THEIR port
+    // is their own uid's derived value, same formula as their own
+    // `kosmos start` would compute.
     let ownKosmosBin = defaultHome + "/bin/kosmos"
     if FileManager.default.isExecutableFile(atPath: ownKosmosBin) {
         logLine("resolveInstall: uid \(getuid()) != owner \(config.ownerUid), opening own install at \(defaultHome)")
-        return ResolvedInstall(kosmosHome: defaultHome, port: 16180, isOwnAccount: false) // their own default; they have not shared this icon's baked port
+        return ResolvedInstall(kosmosHome: defaultHome, port: kosmosDefaultPort(uid: getuid()), isOwnAccount: false)
     }
     throw InstallResolutionError.noOwnInstallForOtherUser
 }
@@ -441,6 +466,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 // NSApplication/app.run() below, so it never opens a window.
 if CommandLine.arguments.contains("--kosmos-app-selftest") {
     print("kosmos-app selftest ok")
+    exit(0)
+}
+// #910: same shape as the selftest above, for a single pure function
+// rather than the whole binary. Exists so a shell test can prove parity
+// between THIS Swift formula and the identical one duplicated in
+// install/kosmos / install/setup.sh / install/pkg-scripts/postinstall --
+// the four shell sites can be cross-checked against each other by diffing
+// their own output for the same $(id -u), but nothing outside a compiled
+// Swift binary can invoke kosmosDefaultPort() directly to compare against
+// THIS implementation, so it needs its own tiny, deliberate exit hatch.
+if let uidArgIndex = CommandLine.arguments.firstIndex(of: "--kosmos-app-port-selftest"),
+   CommandLine.arguments.count > uidArgIndex + 1,
+   let uidArg = UInt32(CommandLine.arguments[uidArgIndex + 1]) {
+    print(kosmosDefaultPort(uid: uidArg))
     exit(0)
 }
 

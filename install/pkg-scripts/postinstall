@@ -56,11 +56,31 @@ PAGE_DIR="$USER_HOME/Library/Caches/Kosmos"
 PAGE="$PAGE_DIR/installing.html"
 AGENT_LABEL=com.kosmos.installing
 AGENT_PLIST="$USER_HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
+# 🔑 #910: THE SAME PER-ACCOUNT PORT setup.sh WILL DERIVE FOR THIS CONSOLE
+# USER, computed here (root already knows $CONSOLE_UID) and threaded into
+# the page below as an explicit argument -- NOT left to the inner
+# subshell's own `${KOSMOS_PORT:-16180}`, which is not exported anywhere
+# in this root-descended path and would always bake the literal primary
+# port regardless of which account is installing. For any account other
+# than the primary (uid 501), the real board setup.sh starts a few lines
+# down binds its OWN, correctly-derived, DIFFERENT port -- so a page baked
+# with 16180 would poll a port nothing ever answers on, and the "becomes
+# the dashboard the moment the board answers" promise this whole page
+# exists for would just never happen for exactly the account this card is
+# about. Same formula as install/kosmos and install/setup.sh, must move
+# together (now four sites, not three).
+if [ -n "${KOSMOS_PORT:-}" ]; then
+  _KOSMOS_PAGE_PORT="$KOSMOS_PORT"
+elif [ "$CONSOLE_UID" = 501 ]; then
+  _KOSMOS_PAGE_PORT=16180
+else
+  _KOSMOS_PAGE_PORT=$((16180 + 1 + (CONSOLE_UID % 3999)))
+fi
 if [ -f "$PAGE_SRC" ] && [ -d "$USER_HOME" ]; then
   /usr/bin/sudo -u "$CONSOLE_USER" -H /bin/sh -c '
     set -e
     mkdir -p "$1" "$(dirname "$3")"
-    sed "s/__KOSMOS_PORT__/${KOSMOS_PORT:-16180}/" "$0" > "$2"
+    sed "s/__KOSMOS_PORT__/$5/" "$0" > "$2"
     /bin/launchctl bootout "gui/$(/usr/bin/id -u)/$4" >/dev/null 2>&1 || true
     cat > "$3" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -80,7 +100,7 @@ if [ -f "$PAGE_SRC" ] && [ -d "$USER_HOME" ]; then
 </dict>
 </plist>
 PLIST
-  ' "$PAGE_SRC" "$PAGE_DIR" "$PAGE" "$AGENT_PLIST" "$AGENT_LABEL" \
+  ' "$PAGE_SRC" "$PAGE_DIR" "$PAGE" "$AGENT_PLIST" "$AGENT_LABEL" "$_KOSMOS_PAGE_PORT" \
   && /bin/launchctl bootstrap "gui/$CONSOLE_UID" "$AGENT_PLIST" 2>/dev/null \
   && PAGE_OPENED=1
 fi
