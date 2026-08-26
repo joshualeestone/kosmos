@@ -5603,10 +5603,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <div class="fr-pane" id="fr-pane-3" hidden>
         <!-- The pack's model list, as drawn and at Josh's explicit word
              (2026-08-17: "Yes I want that picking a model in the app").
-             Claude is the one that works today and carries Connect; the rest
-             are Coming soon. The verdict row (#fr-sub) renders BENEATH the
-             list, exactly where the pack draws its could-not-tell chk row.
-             The Connect button re-checks before it does anything: a
+             Claude and OpenAI both carry Connect now (#944-adjacent, Josh
+             asked why OpenAI still said Coming soon after it already worked
+             in Settings — "coming soon" had gone false with no commit
+             marking the day it did, Splinter's finding); Gemini/Llama/Qwen/
+             Mistral are the genuine Coming soon. The verdict row (#fr-sub)
+             renders BENEATH the list, exactly where the pack draws its
+             could-not-tell chk row, for Claude only — OpenAI's own row
+             carries its own state (#fr-openai-msg) since its connect shape
+             (a pasted key) has no equivalent poll to reconcile against.
+             Claude's Connect button re-checks before it does anything: a
              CONNECTED verdict short-circuits to the green row, and an
              unknown one enters a drive whose REPL detection says "we could
              not confirm" rather than forcing credential entry (the painter
@@ -5636,7 +5642,28 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <div class="llm on"><span class="llm-m pmark live" data-pmark="claude" role="img" aria-label="Claude"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 125 125" fill="currentColor" aria-label="Claude"><path d="M54.375 118.75L56.125 111L58.125 101L59.75 93L61.25 83.125L62.125 79.875L62 79.625L61.375 79.75L53.875 90L42.5 105.375L33.5 114.875L31.375 115.75L27.625 113.875L28 110.375L30.125 107.375L42.5 91.5L50 81.625L54.875 76L54.75 75.25H54.5L21.5 96.75L15.625 97.5L13 95.125L13.375 91.25L14.625 90L24.5 83.125L49.125 69.375L49.5 68.125L49.125 67.5H47.875L43.75 67.25L29.75 66.875L17.625 66.375L5.75 65.75L2.75 65.125L0 61.375L0.25 59.5L2.75 57.875L6.375 58.125L14.25 58.75L26.125 59.5L34.75 60L47.5 61.375H49.5L49.75 60.5L49.125 60L48.625 59.5L36.25 51.25L23 42.5L16 37.375L12.25 34.75L10.375 32.375L9.625 27.125L13 23.375L17.625 23.75L18.75 24L23.375 27.625L33.25 35.25L46.25 44.875L48.125 46.375L49 45.875V45.5L48.125 44.125L41.125 31.375L33.625 18.375L30.25 13L29.375 9.75C29.0417 8.625 28.875 7.375 28.875 6L32.75 0.750006L34.875 0L40.125 0.750006L42.25 2.625L45.5 10L50.625 21.625L58.75 37.375L61.125 42.125L62.375 46.375L62.875 47.75H63.75V47L64.375 38L65.625 27.125L66.875 13.125L67.25 9.125L69.25 4.375L73.125 1.87501L76.125 3.25L78.625 6.875L78.25 9.125L76.875 18.75L73.875 33.875L72 44.125H73.125L74.375 42.75L79.5 36L88.125 25.25L91.875 21L96.375 16.25L99.25 14H104.625L108.5 19.875L106.75 26L101.25 33L96.625 38.875L90 47.75L86 54.875L86.375 55.375H87.25L102.125 52.125L110.25 50.75L119.75 49.125L124.125 51.125L124.625 53.125L122.875 57.375L112.625 59.875L100.625 62.25L82.75 66.5L82.5 66.625L82.75 67L90.75 67.75L94.25 68H102.75L118.5 69.125L122.625 71.875L125 75.125L124.625 77.75L118.25 80.875L109.75 78.875L89.75 74.125L83 72.5H82V73L87.75 78.625L98.125 88L111.25 100.125L111.875 103.125L110.25 105.625L108.5 105.375L97 96.625L92.5 92.75L82.5 84.375H81.875V85.25L84.125 88.625L96.375 107L97 112.625L96.125 114.375L92.875 115.5L89.5 114.875L82.25 104.875L74.875 93.5L68.875 83.375L68.25 83.875L64.625 121.625L63 123.5L59.25 125L56.125 122.625L54.375 118.75Z"/></svg></span><div class="llm-w"><b>Claude</b><small>Anthropic &middot; works today</small></div>
           <button class="connect-b" type="button" id="fr-llm-connect">Connect</button></div>
         <div class="llm off"><span class="llm-m pmark dim" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#pmark-gemini-g)"/> <defs> <radialGradient id="pmark-gemini-g" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(2.77876 11.3795) rotate(18.6832) scale(29.8025 238.737)"> <stop offset="0.0671246" stop-color="#9168C0"/> <stop offset="0.342551" stop-color="#5684D1"/> <stop offset="0.672076" stop-color="#1BA1E3"/> </radialGradient> </defs> </svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><span class="soon">Coming soon</span></div>
-        <div class="llm off"><span class="llm-m pmark dim" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="black"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI</small></div><span class="soon">Coming soon</span></div>
+        <div class="llm on"><span class="llm-m pmark live" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="black"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI</small></div>
+          <button class="connect-b" type="button" id="fr-openai-connect">Connect</button></div>
+        <!-- #944-adjacent: OpenAI is a pasted API key, not an OAuth popup like
+             Claude, so it gets its own small reveal instead of reusing
+             fr-llm-connect. Mirrors Settings' #acct-openai-flow verbatim
+             (same endpoint, same copy, same "never shown again" promise) so a
+             person who has already done this once in Settings recognises it
+             here. Hidden until Connect is pressed; the row's own message line
+             (#fr-openai-msg) carries the outcome, same shape as Claude's
+             #fr-sub beneath it. -->
+        <div id="fr-openai-flow" hidden style="margin: -2px 0 10px;">
+          <p class="dhint" style="margin:0 0 8px;">Paste an OpenAI API key. It stays on this Mac with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
+          <div class="frow">
+            <input type="password" id="fr-openai-key" autocomplete="off" spellcheck="false"
+                   aria-label="OpenAI API key" placeholder="sk-…">
+            <button class="linkish" id="fr-openai-show" type="button" aria-pressed="false">Show</button>
+          </div>
+          <div class="frow" style="margin-top:8px;">
+            <button class="btn" id="fr-openai-go" type="button">Add</button>
+          </div>
+          <p class="dhint" id="fr-openai-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+        </div>
         <p class="smore-t">Runs on this computer</p>
         <div class="llm off"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon">Coming soon</span></div>
         <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
@@ -25967,6 +25994,7 @@ function frGo(step) {
   } else if (step === 3) {
     document.getElementById('fr-title').textContent = 'Choose a model.';
     frPaintSubscription();
+    frPaintOpenai();
     // ⚠️ A connect flow may already be running (it keeps going server-side
     // when somebody wanders to another step). If it is, this repaints the
     // live flow over the static verdict once the answer arrives.
@@ -26869,6 +26897,84 @@ document.getElementById('fr-pane-3').addEventListener('click', (e) => {
   b.disabled = true;
   Promise.resolve(frConnectStart()).finally(() => { b.disabled = false; });
 });
+
+/* #944-adjacent: OpenAI's own reveal/submit, independent of the Claude
+   button above -- same click delegation on the shared pane so both wire up
+   from one listener each, matching the pattern already established here. */
+document.getElementById('fr-openai-connect').addEventListener('click', () => {
+  const flow = document.getElementById('fr-openai-flow');
+  flow.hidden = false;
+  document.getElementById('fr-openai-key').focus();
+});
+document.getElementById('fr-openai-show').addEventListener('click', () => {
+  const key = document.getElementById('fr-openai-key');
+  const show = document.getElementById('fr-openai-show');
+  const on = key.type === 'password';
+  key.type = on ? 'text' : 'password';
+  show.textContent = on ? 'Hide' : 'Show';
+  show.setAttribute('aria-pressed', String(on));
+  key.focus();
+});
+document.getElementById('fr-openai-go').addEventListener('click', async () => {
+  const keyField = document.getElementById('fr-openai-key');
+  const go = document.getElementById('fr-openai-go');
+  const msg = document.getElementById('fr-openai-msg');
+  const key = keyField.value;
+  if (!key.trim()) { msg.textContent = 'Paste the key first.'; keyField.focus(); return; }
+  go.disabled = true;
+  msg.textContent = 'Adding…';
+  try {
+    // Same endpoint Settings uses (#540) -- no new backend for this screen.
+    const res = await fetch('/api/accounts/openai', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not add that account');
+    // The key leaves the field the moment it is stored, same as Settings.
+    keyField.value = '';
+    frPaintOpenai({ connected: true, keyTail: out && out.account && out.account.keyTail });
+  } catch (err) {
+    msg.textContent = String((err && err.message) || 'We could not add that account.');
+    go.disabled = false;
+  }
+});
+
+/**
+ * Paints the OpenAI row's own connected state, independent of frPaintSubscription
+ * (Claude's box below the list). Two callers: pane-3 entry (checks whatever is
+ * already on this Mac) and a successful Add (told directly, no re-fetch needed).
+ *
+ * ⚠️ SILENT ON FAILURE TO READ, ON PURPOSE. If /api/accounts cannot be read, the
+ * row simply stays at "Connect" -- the same honest-unknown shape #881 already
+ * settled on for the Claude box (never turn "we could not tell" into "no"), and
+ * pressing Connect here costs nothing extra: Add will fail loudly on the same
+ * read if the account truly cannot be reached.
+ */
+async function frPaintOpenai(known) {
+  const connectBtn = document.getElementById('fr-openai-connect');
+  const flow = document.getElementById('fr-openai-flow');
+  const msg = document.getElementById('fr-openai-msg');
+  let connected = known && known.connected;
+  let keyTail = known && known.keyTail;
+  if (!known) {
+    try {
+      const res = await fetch('/api/accounts', { cache: 'no-store' });
+      if (!res.ok) return;
+      const list = ((await res.json()) || {}).accounts || [];
+      const a = list.find((x) => x.provider === 'openai');
+      if (!a) return;
+      connected = true;
+      keyTail = a.keyTail;
+    } catch { return; }
+  }
+  if (!connected) return;
+  connectBtn.textContent = 'Connected';
+  connectBtn.disabled = true;
+  flow.hidden = true;
+  msg.textContent = 'Added' + (keyTail ? ': API key ending ' + keyTail : '') + '.';
+}
 
 function frPaintSubscription() {
   const sub = (FR && FR.subscription) || { state: 'unknown', because: 'we have not been able to look' };

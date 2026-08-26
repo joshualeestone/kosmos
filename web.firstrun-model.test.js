@@ -39,7 +39,7 @@ test('the step is a real slice of the model pane', () => {
   assert.ok(!STEP.includes('id="create-model"'), 'the slice ran past this step into the create form');
 });
 
-test('the one choosable model stays at full weight', () => {
+test('Claude stays at full weight, the one with an OAuth connect', () => {
   /* A wide window: the row now carries Claude's real inlined vendor SVG
      between the opening tag and the name, thousands of characters where an
      empty aria-hidden span used to sit. */
@@ -48,19 +48,32 @@ test('the one choosable model stays at full weight', () => {
   assert.match(STEP, /id="fr-llm-connect"/, 'the Connect button left the step');
 });
 
+test('OpenAI is choosable too, with its own key-entry connect', () => {
+  /* #944-adjacent: OpenAI already works via Settings' pasted-key flow, so
+     first-run stopped claiming otherwise. Its own reveal/submit is distinct
+     from Claude's OAuth button, not a relabel of it. */
+  assert.match(STEP, /class="llm on"[\s\S]{0,6000}<b>GPT<\/b>/,
+    'OpenAI is not shown at full weight alongside Claude');
+  assert.match(STEP, /id="fr-openai-connect"/, 'the OpenAI Connect button is missing');
+  assert.match(STEP, /id="fr-openai-key"/, 'the OpenAI key field is missing');
+  assert.match(STEP, /id="fr-openai-go"/, 'the OpenAI Add button is missing');
+  assert.match(STEP, /id="fr-openai-flow" hidden/, 'the key-entry reveal should start hidden');
+});
+
 test('no disclosure survives: all six providers render in the open', () => {
   assert.ok(!/<details/.test(STEP), 'a collapsed disclosure came back');
   assert.ok(!/<summary/.test(STEP), 'a collapsed disclosure came back');
   for (const name of ['Claude', 'Gemini', 'GPT', 'Llama', 'Qwen', 'Mistral']) {
     assert.ok(STEP.includes(name), name + ' is missing from the step');
   }
-  /* Five coming-soon rows, all at the same `.llm off` weight as before —
-     the difference from #262 is that they are no longer hidden, not that
-     they changed shape. */
-  assert.equal((STEP.match(/class="llm off"/g) || []).length, 5,
-    'expected exactly the five coming-soon providers at .llm off weight');
-  assert.equal((STEP.match(/class="soon"/g) || []).length, 5,
-    'expected a "Coming soon" pill on each of the five unavailable providers');
+  /* Four coming-soon rows (Gemini, Llama, Qwen, Mistral), all at the same
+     `.llm off` weight as before. OpenAI moved out of this group (#944-
+     adjacent): it already works via Settings, so first-run stopped saying
+     otherwise. */
+  assert.equal((STEP.match(/class="llm off"/g) || []).length, 4,
+    'expected exactly the four coming-soon providers at .llm off weight');
+  assert.equal((STEP.match(/class="soon"/g) || []).length, 4,
+    'expected a "Coming soon" pill on each of the four still-unavailable providers');
 });
 
 test('every provider carries a real, inlined vendor mark', () => {
@@ -68,13 +81,16 @@ test('every provider carries a real, inlined vendor mark', () => {
     const marker = new RegExp('data-pmark="' + key + '"[^>]*>\\s*<svg');
     assert.match(STEP, marker, key + ' has no inline SVG mark');
   }
-  /* Claude is the one live, coloured mark; the other five are dimmed, and
-     dimming is done by CSS filter (see the .pmark.dim rule) rather than by
-     omitting the mark, so a vendor's real colours never leak through on a
-     provider nobody can pick yet. */
-  assert.match(STEP, /class="llm-m pmark live" data-pmark="claude"/, 'Claude is not the live mark');
-  assert.equal((STEP.match(/class="llm-m pmark dim"/g) || []).length, 5,
-    'expected all five coming-soon marks to be dimmed');
+  /* Claude and OpenAI are the two live marks now; the other four are
+     dimmed, and dimming is done by CSS filter (see the .pmark.dim rule)
+     rather than by omitting the mark, so a vendor's real colours never leak
+     through on a provider nobody can pick yet. OpenAI's own SVG is already
+     solid black (no currentColor to carry a tint), so "live" for it just
+     means the grayscale/opacity filter lifts, not a colour change. */
+  assert.match(STEP, /class="llm-m pmark live" data-pmark="claude"/, 'Claude is not a live mark');
+  assert.match(STEP, /class="llm-m pmark live" data-pmark="openai"/, 'OpenAI is not a live mark');
+  assert.equal((STEP.match(/class="llm-m pmark dim"/g) || []).length, 4,
+    'expected all four still-coming-soon marks to be dimmed');
 });
 
 test('the tier label and its separator match the rest of the product', () => {
@@ -154,4 +170,54 @@ test('the Connect button says Connected once it is, and stops saying it if we lo
   run({ state: 'none' });
   assert.equal(btn.textContent, 'Connect');
   assert.equal(btn.disabled, false);
+});
+
+test('frPaintOpenai marks the row Connected, told directly or by asking the machine', async () => {
+  const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  const at = page.indexOf('async function frPaintOpenai(');
+  assert.notEqual(at, -1, 'frPaintOpenai moved; re-point this test');
+  let d = 0; let i = page.indexOf('{', page.indexOf(')', at));
+  for (; i < page.length; i++) { if (page[i] === '{') d++; else if (page[i] === '}') { d--; if (!d) break; } }
+  const body = page.slice(at, i + 1);
+
+  const makeEls = () => ({
+    'fr-openai-connect': { textContent: 'Connect', disabled: false },
+    'fr-openai-flow': { hidden: false },
+    'fr-openai-msg': { textContent: '' },
+  });
+
+  // Told directly (the Add handler's own path — no fetch needed).
+  let els = makeEls();
+  // eslint-disable-next-line no-new-func
+  await new Function('document', 'fetch', 'known', body + '\nreturn frPaintOpenai(known);')(
+    { getElementById: (id) => els[id] || null },
+    () => { throw new Error('should not have fetched — known was supplied'); },
+    { connected: true, keyTail: 'ab12' },
+  );
+  assert.equal(els['fr-openai-connect'].textContent, 'Connected');
+  assert.equal(els['fr-openai-connect'].disabled, true);
+  assert.equal(els['fr-openai-flow'].hidden, true, 'the key form should close once connected');
+  assert.match(els['fr-openai-msg'].textContent, /ab12/, 'the confirmation should name the key tail it was told');
+
+  // Asked the machine (pane-3 entry, nothing known yet) — an OpenAI account exists.
+  els = makeEls();
+  const fakeFetch = async () => ({ ok: true, json: async () => ({ accounts: [{ provider: 'openai', keyTail: 'cd34' }] }) });
+  // eslint-disable-next-line no-new-func
+  await new Function('document', 'fetch', body + '\nreturn frPaintOpenai();')(
+    { getElementById: (id) => els[id] || null },
+    fakeFetch,
+  );
+  assert.equal(els['fr-openai-connect'].textContent, 'Connected');
+  assert.match(els['fr-openai-msg'].textContent, /cd34/);
+
+  // Asked the machine, nothing there yet — the row stays untouched at Connect.
+  els = makeEls();
+  const emptyFetch = async () => ({ ok: true, json: async () => ({ accounts: [] }) });
+  // eslint-disable-next-line no-new-func
+  await new Function('document', 'fetch', body + '\nreturn frPaintOpenai();')(
+    { getElementById: (id) => els[id] || null },
+    emptyFetch,
+  );
+  assert.equal(els['fr-openai-connect'].textContent, 'Connect', 'no OpenAI account should not claim Connected');
+  assert.equal(els['fr-openai-connect'].disabled, false);
 });
