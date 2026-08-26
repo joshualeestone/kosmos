@@ -634,6 +634,23 @@ if ! bash "$REPO/tools/verify-manifest.sh" "$V"; then
   exit 1
 fi
 
+echo "== 9e. the served artifact, audited from OUTSIDE the build (Splinter's check, owned by the cut since 2026-08-26) =="
+# Every check above ran inside the build or read back what the build recorded.
+# #927 is what that blind spot costs: a dead Applications icon shipped for
+# eighteen releases because the build's own selftest ran on a macOS 26 host
+# and could not see a macOS 26 floor. This fetches the SERVED pointer, tarball
+# and installer and asks the bytes: floor on every Mach-O it finds (discovers,
+# never enumerates), signatures, the .sha256's name, /setup against the site,
+# known-prefix credentials, with its own controls. 0.5.47 through 0.5.60
+# shipped with nobody running it; a step nobody has to remember is the fix.
+# It runs AFTER the flip, against what is served, never the staged tree; a red
+# here leaves the pointer live and the record line reads served=1 exit=1,
+# which is the honest state: served, and failed the outside audit.
+if ! bash "$REPO/tools/kosmos-artifact-check.sh" --repo "$REPO"; then
+  echo "THE SERVED ARTIFACT FAILED THE OUTSIDE AUDIT (the lines above say which check). The pointer is live. Do not announce this cut as verified; read the red, and bump rather than republish if bytes must change."
+  exit 1
+fi
+
 echo "== 10. the board on THIS Mac, if it runs from this repo =="
 # 🛑 Installs update themselves from what step 9 verified; the developer's own
 # board runs the repo under launchd and never did, so every release left it
