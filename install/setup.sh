@@ -153,6 +153,38 @@ case "$KOSMOS_HOME" in
     exit 2
     ;;
 esac
+# 🔑 A SANDBOXED KOSMOS_HOME SANDBOXES EVERY MACHINE-GLOBAL SURFACE, DERIVED
+# HERE, ONCE, BEFORE ANYTHING READS THEM (#928, #934). The #883/#917
+# derivation further down covers the three data roots, and only at the
+# install path's start step; uninstall dispatches before it (#924's lesson)
+# and these four never had one at all. So a walk that set only KOSMOS_HOME
+# (Pete's convention) still repointed the operator's REAL ~/.local/bin/kosmos
+# at the sandbox (#928, live incident: dangling after the tmp cleaner ate
+# the target) and wrote its PATH line into the real ~/.zprofile, on every
+# install AND on every auto-update tick, which re-runs this file.
+# KOSMOS_HOME_APP_DIR is NOT derived: ~/Applications already carries the
+# #226 ownership proof (a bundle is claimed only when its launcher names
+# THIS KOSMOS_HOME), and sixteen harness scenarios exercise a fake
+# HOME/Applications on purpose; deriving it moved every walk's icon and
+# went red in the gate, measured 2026-08-26.
+# Caller's explicit value always wins, matching every other ${VAR:-default}
+# here. KOSMOS_APP_DIR is deliberately NOT derived: an override there means
+# "no probing", and a sandboxed install must still exercise the
+# /Applications ownership proof the harness tests with KOSMOS_APP_DIR= and
+# a sandboxed KOSMOS_SYS_APP_DIR. AGENT_WORKFORCE_CLAUDE_BIN is NOT derived
+# either, measured rather than reasoned: the carry (#548) runs Anthropic's
+# installer, which lands at its own ~/.local/bin/claude, so a derived path
+# made the installer unable to find what it had just installed (the gate's
+# first leg went red). Claude Code is the person's real tool at its real
+# path, not a sandbox surface; a harness pins it to a shared copy (#736).
+# The default is computed the same way the
+# two later copies compute it (slash-normalised like KOSMOS_HOME itself).
+_kosmos_home_default="$(printf '%s' "$HOME/.local/share/kosmos" | /usr/bin/tr -s '/')"
+_kosmos_home_default="${_kosmos_home_default%/}"
+if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
+  [ -n "${KOSMOS_BIN_DIR:-}" ] || export KOSMOS_BIN_DIR="$KOSMOS_HOME/localbin"
+  [ -n "${KOSMOS_PROFILE_FILE:-}" ] || export KOSMOS_PROFILE_FILE="$KOSMOS_HOME/zprofile"
+fi
 BIN_DIR="${KOSMOS_BIN_DIR:-$HOME/.local/bin}"
 # ONE definition for the profile-wiring literals, used by the install
 # wiring AND the uninstall sweep: two derivations of these strings is how

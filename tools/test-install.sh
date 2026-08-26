@@ -1737,5 +1737,64 @@ chk "control: the sandboxed install's job is the survivor this time" "[ -e \"$D9
 rm -f "$D931_HOME/Library/LaunchAgents/com.kosmos.agent.d931own.plist"
 
 
+echo "== #928/#934: a sandboxed KOSMOS_HOME never touches the real kosmos link, profile, Applications or claude link =="
+# 🔑 PETE'S CONVENTION AGAIN (KOSMOS_HOME + app dirs + port, nothing else),
+# now with the four machine-global overrides UNSET, which every scenario
+# above sets and so could never catch: KOSMOS_BIN_DIR (#928's live
+# incident, the real ~/.local/bin/kosmos repointed into a walk sandbox and
+# dangling after the tmp cleaner) and KOSMOS_PROFILE_FILE; KOSMOS_HOME_APP_DIR is
+# and NOT AGENT_WORKFORCE_CLAUDE_BIN (see setup.sh: the carry lands at
+# Anthropic's own path, so that one is the person's real tool, and the
+# planted claude below must simply be FOUND and left alone). A fake HOME
+# with planted sentinels stands in
+# for the real machine; each must survive the install AND the uninstall
+# byte for byte, and the sandbox must get its own copies under KOSMOS_HOME.
+D928_HOME="$SB/d928-realhome"
+D928_KHOME="$SB/d928-sandboxedhome"
+mkdir -p "$D928_HOME/.local/bin" "$D928_HOME/Applications"
+printf '#!/bin/sh\necho REAL KOSMOS COMMAND\n' > "$D928_HOME/.local/bin/kosmos"; chmod +x "$D928_HOME/.local/bin/kosmos"
+printf '# the person'"'"'s own profile\n' > "$D928_HOME/.zprofile"
+printf '#!/bin/sh\necho REAL CLAUDE\n' > "$D928_HOME/.local/bin/claude"; chmod +x "$D928_HOME/.local/bin/claude"
+SENT928_KOSMOS="$(shasum -a 256 < "$D928_HOME/.local/bin/kosmos" | cut -c1-64)"
+SENT928_PROFILE="$(shasum -a 256 < "$D928_HOME/.zprofile" | cut -c1-64)"
+SENT928_CLAUDE="$(shasum -a 256 < "$D928_HOME/.local/bin/claude" | cut -c1-64)"
+d928_untouched() {
+  [ "$(shasum -a 256 < "$D928_HOME/.local/bin/kosmos" 2>/dev/null | cut -c1-64)" = "$SENT928_KOSMOS" ] \
+  && [ ! -L "$D928_HOME/.local/bin/kosmos" ] \
+  && [ "$(shasum -a 256 < "$D928_HOME/.zprofile" 2>/dev/null | cut -c1-64)" = "$SENT928_PROFILE" ] \
+  && [ "$(shasum -a 256 < "$D928_HOME/.local/bin/claude" 2>/dev/null | cut -c1-64)" = "$SENT928_CLAUDE" ] \
+  && [ ! -e "$D928_HOME/Applications/Kosmos.app" ]
+}
+RC=0; cat "$SETUP" | env -u KOSMOS_BIN_DIR -u KOSMOS_PROFILE_FILE -u AGENT_WORKFORCE_CLAUDE_BIN \
+  -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  HOME="$D928_HOME" KOSMOS_HOME="$D928_KHOME" AGENT_WORKFORCE_LAUNCH="$SB/launch928" KOSMOS_APP_DIR="$SB/apps928" \
+  sh > "$SB/d928-install.log" 2>&1 || RC=$?
+[ "$RC" = 0 ] || { echo "DEBUG #928 install log:"; tail -20 "$SB/d928-install.log" 2>&1 || true; }
+chk "#928 sandboxed install with the four overrides unset exits 0" "rc_ok $RC"
+chk "the real kosmos command, profile, claude and Applications are untouched by the install" "d928_untouched"
+chk "the sandbox got its own kosmos link under KOSMOS_HOME/localbin" "[ -L \"$D928_KHOME/localbin/kosmos\" ]"
+chk "the sandbox's PATH line went to KOSMOS_HOME/zprofile, not the real profile" "grep -qxF '# kosmos: PATH for the kosmos command (removed by --uninstall)' \"$D928_KHOME/zprofile\""
+KOSMOS_HOME="$D928_KHOME" "$D928_KHOME/bin/kosmos" stop > /dev/null 2>&1 || true
+chk "the port is genuinely free before #928's uninstall runs" "wait_port_free"
+RC=0; cat "$SETUP" | env -u KOSMOS_BIN_DIR -u KOSMOS_PROFILE_FILE -u AGENT_WORKFORCE_CLAUDE_BIN \
+  -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  HOME="$D928_HOME" KOSMOS_HOME="$D928_KHOME" AGENT_WORKFORCE_LAUNCH="$SB/launch928" KOSMOS_APP_DIR="$SB/apps928" \
+  sh -s -- --uninstall > "$SB/d928-uninstall.log" 2>&1 || RC=$?
+chk "#928 sandboxed uninstall exits 0" "rc_ok $RC"
+chk "the real kosmos command, profile, claude and Applications are untouched by the uninstall too" "d928_untouched"
+chk "the sandboxed KOSMOS_HOME itself is gone" "[ ! -d \"$D928_KHOME\" ]"
+# Control: an explicit KOSMOS_BIN_DIR still wins over the derived default.
+D928_BIN="$SB/d928-explicit-bin"
+RC=0; cat "$SETUP" | env -u KOSMOS_PROFILE_FILE -u AGENT_WORKFORCE_CLAUDE_BIN \
+  -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  HOME="$D928_HOME" KOSMOS_HOME="$D928_KHOME" KOSMOS_BIN_DIR="$D928_BIN" AGENT_WORKFORCE_LAUNCH="$SB/launch928b" KOSMOS_APP_DIR="$SB/apps928b" \
+  sh > "$SB/d928-explicit-install.log" 2>&1 || RC=$?
+chk "#928 control: explicit KOSMOS_BIN_DIR install exits 0" "rc_ok $RC"
+chk "control: the caller's explicit KOSMOS_BIN_DIR is where the link went" "[ -L \"$D928_BIN/kosmos\" ]"
+chk "control: and the derived localbin was not used" "[ ! -e \"$D928_KHOME/localbin/kosmos\" ]"
+KOSMOS_HOME="$D928_KHOME" "$D928_KHOME/bin/kosmos" stop > /dev/null 2>&1 || true
+chk "the port is genuinely free after #928's control" "wait_port_free"
+
+
 closing_checks
 summary_and_exit
