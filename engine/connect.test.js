@@ -849,6 +849,83 @@ driverTest('#727 item 4: an abandoned browser leg expires instead of waiting for
   assert.ok(term.killed >= 1, 'the abandoned sign-in window was left running');
 });
 
+driverTest('#727 item 4: the SAME abandonment expiry applies to browser-open, not just awaiting-code', async () => {
+  /**
+   * ⚠️ PINS THE OTHER HALF OF THE OR, for the EXPIRY specifically. A fresh
+   * review correctly noted the sibling config-outranks-screen test above
+   * only exercises `browser-open` for that check, while every expiry/reset/
+   * not-disturbed test still only ever drives `awaiting-code` -- so a future
+   * edit narrowing the expiry's own `seen.kind === 'browser-open' ||
+   * seen.kind === 'awaiting-code'` condition down to just 'awaiting-code'
+   * would pass the whole suite. This terminal never advances past
+   * browser-open (no code prompt ever appears), so only the expiry firing
+   * on the browser-open kind can produce STUCK here.
+   */
+  connect.setAbandonedSigninMs(200);
+  const term = {
+    screen: SCREEN_THEME,
+    killed: 0,
+    runner(file, args) {
+      const cmd = args[0];
+      if (cmd === 'kill-session') { term.killed += 1; return { ok: true, stdout: '' }; }
+      if (cmd === 'capture-pane') return { ok: true, stdout: term.screen };
+      if (cmd === 'send-keys') {
+        if (term.screen === SCREEN_THEME) term.screen = SCREEN_LOGIN_METHOD;
+        else if (term.screen === SCREEN_LOGIN_METHOD) term.screen = SCREEN_SPINNER;
+        return { ok: true, stdout: '' };
+      }
+      return { ok: true, stdout: '' };
+    },
+  };
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+
+  await connect.start();
+  await until(() => connect.state().phase === connect.PHASE.SIGNIN_BROWSER_OPEN);
+
+  await until(() => connect.state().phase === connect.PHASE.STUCK, 5000);
+  const st = connect.state();
+  assert.match(st.because, /expired/, `expected an honest expiry sentence, got: ${st.because}`);
+  assert.ok(term.killed >= 1, 'the abandoned sign-in window was left running');
+});
+
+driverTest('#727 item 4: a flickering blank capture does not restart the abandonment clock', async () => {
+  /**
+   * ⚠️ A fresh review caught this directly: browser-open is itself an
+   * ANIMATED screen (a spinner frame), and a blank capture between two
+   * screens is legitimate and already-documented elsewhere in this file
+   * ("Blanks are legitimate between screens"). The `else` branch that clears
+   * `browserWaitSince` on any non-browser-open/awaiting-code kind used to
+   * include 'blank' -- so a single mid-repaint blank capture silently reset
+   * the whole 15-minute clock to zero, and a flow that flickers blank even
+   * occasionally while genuinely abandoned would never expire. This
+   * terminal alternates the paste prompt with a blank capture on every
+   * other tick; if the clock survives that (does not reset on 'blank'),
+   * this still reaches STUCK by the bound. Before the fix, this test hangs
+   * and times out -- the clock restarts every other tick, forever.
+   */
+  connect.setAbandonedSigninMs(200);
+  const term = fakeTerminal();
+  let flip = false;
+  const realRunner = term.runner;
+  term.runner = (file, args) => {
+    if (args[0] === 'capture-pane' && term.screen === SCREEN_PASTE) {
+      flip = !flip;
+      if (flip) return { ok: true, stdout: '' }; // blank this tick
+    }
+    return realRunner(file, args);
+  };
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+
+  await connect.start();
+  await until(() => connect.state().phase === connect.PHASE.SIGNIN_AWAITING_CODE);
+
+  await until(() => connect.state().phase === connect.PHASE.STUCK, 5000);
+  const st = connect.state();
+  assert.match(st.because, /expired/, `expected an honest expiry sentence, got: ${st.because}`);
+});
+
 driverTest('#727 item 4: submitting a code re-arms the expiry, so an engaged retry is not punished', async () => {
   /**
    * ⚠️ PROVES THE RESET IS REAL, NOT A NO-OP. submitCode() clears

@@ -1095,11 +1095,22 @@ async function tickBody(owner) {
      */
     if (!owner.browserWaitSince) owner.browserWaitSince = Date.now();
     if (Date.now() - owner.browserWaitSince > ABANDONED_SIGNIN_MS) {
-      becomeStuck(owner, 'this sign-in was not finished in the browser, so it expired',
+      becomeStuck(owner,
+        seen.kind === 'awaiting-code'
+          ? 'no code was entered for this sign-in, so it expired'
+          : 'this sign-in was not finished in the browser, so it expired',
         tailOf(cap.stdout));
       return;
     }
-  } else {
+    /* ⚠️ NOT reset on 'blank' -- a blank capture is a legitimate transient
+       between screens (this file's own existing rule for blankTicks just
+       below), and browser-open is itself an ANIMATED screen (a spinner
+       frame), so a mid-repaint/mid-animation capture landing blank while
+       genuinely still parked here must not wipe the clock. 'unknown' never
+       reaches this line at all (it returns earlier, above), so only a
+       screen that is GENUINELY something else -- real forward progress --
+       clears the timer. */
+  } else if (seen.kind !== 'blank') {
     owner.browserWaitSince = null;
   }
 
