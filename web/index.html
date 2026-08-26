@@ -3531,25 +3531,41 @@ svg { display: block; }
                  color: var(--k-ink-2); }
 .shint { margin: 6px 0 0; font-size: .8125rem; line-height: 1.45; color: var(--k-ink-2); }
 
-/* The create form's "More models" disclosure (#202).
-   ⚠️ ON EXISTING TOKENS ONLY. Every colour here is a var that already has a
-   dark value, so `tools/sync-forced-theme.js` has nothing to generate and the
-   forced-theme picker cannot fall out of step with the media query. A literal
-   colour in this block would need a matching rule in two other places. */
-.smore { margin: 10px 0 0; font-size: .8125rem; }
-.smore > summary { cursor: pointer; color: var(--k-ink-2); line-height: 1.45;
-                   border-radius: 6px; padding: 2px 4px; margin-left: -4px;
-                   width: fit-content; }
-.smore > summary:hover { color: var(--k-ink); }
-/* A focus ring on the summary, because it IS the control and a disclosure
-   somebody can reach by keyboard but cannot see focused fails AA (2.4.7). */
-.smore > summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-.smore ul { list-style: none; margin: 8px 0 0; padding: 0 0 0 4px; color: var(--k-ink-2); }
-.smore li { color: var(--k-ink-2); line-height: 1.7; margin: 3px 0; }
+/* ⚠️ THE DISCLOSURE (#202/#262) IS RETIRED, not this label. `.smore-t` is the
+   one survivor: first-run step 3 still uses it for the "Runs on this
+   computer" tier heading above Llama/Qwen/Mistral, now sitting over plain
+   rows instead of a collapsed list. Josh, 2026-08-25 21:08 CDT: "I want to
+   show all of the models. That's more important to me than having the
+   button above the fold... we could make the button show and the modal
+   stuff could scroll behind it even" — see `#firstrun .fr-box`/`.fr-body`
+   below for the sticky-footer half of that answer. #262's own overflow
+   measurement (300px below the fold at 950/800/700px if the card just grows)
+   still holds and is not being disproved here; it is being solved by pinning
+   Continue instead of hiding rows (Splinter, 2026-08-25). */
 .smore-t { margin: 9px 0 0; color: var(--k-ink-2); font-weight: 600;
            font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase; }
 code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          background: color-mix(in srgb, var(--k-ink) 7%, transparent); }
+
+/* Provider marks (#876/#262): real vendor SVGs, inlined into the page so
+   nothing is fetched at runtime — the only rule that survives from an
+   earlier "no vendor logos" version of this comment, which the marks below
+   no longer honour in the way it originally meant (see the HTML for the
+   full history). ⚠️ CLAUDE IN COLOUR, EVERY OTHER MARK MONOCHROME. Six
+   vendor logos at full saturation makes the five you cannot use louder than
+   the one you can, and this row exists to show what works today beside what
+   is coming; monochrome is also what most vendor guidelines permit as the
+   single-colour variant. */
+.pmark { display: grid; place-items: center; }
+.pmark svg { width: 100%; height: 100%; display: block; }
+/* ⚠️ MONOCHROME BY FILTER, NOT BY FORCING FILLS. `svg * { fill: grey !important }`
+   destroys any mark whose negative space is a WHITE PATH rather than a hole —
+   Qwen's mark is built exactly that way (two gradients plus a white counter),
+   so a forced fill turns the counter grey too and the mark fills in solid.
+   `grayscale()` preserves relative luminance, so white counters survive. */
+.pmark.dim { color: var(--k-ink-2); }
+.pmark.dim svg { filter: grayscale(1) opacity(.8); }
+.pmark.live { color: var(--k-ink); }
 
 /* Running on older instructions. A STATE, not a toast: it survives a reload,
    and it is still right when the file was edited outside this app entirely. */
@@ -4004,12 +4020,22 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) #firstrun { --label-2: #4a4f57; --separator: #e3e1dc; }
 }
+/* ⚠️ STICKY FOOTER, ALL SIX STEPS — Josh, 2026-08-25 21:08 CDT, answering
+   #262's overflow: "we could make the button show and the modal stuff could
+   scroll behind it even." `.fr-box` becomes the bounded flex column, `.fr-body`
+   is the part that scrolls, `.fr-acts` (Continue/Back) stays put at the
+   bottom of the card. Applied to the whole wizard rather than step 3 alone:
+   #262 itself measured step 4 growing tall too ("a machine with three
+   findings"), and a card that fits comfortably scrolls nowhere, so this is
+   free on every step but the one that needed it. */
 #firstrun .fr-box {
   width: min(660px, 100%); background: #fff; border-radius: 24px; border: 0;
   box-shadow: 0 1px 2px rgba(20,22,26,.05), 0 12px 40px rgba(20,22,26,.10);
   color: var(--k-ink);
+  max-height: calc(100vh - 2 * var(--space-8));
+  display: flex; flex-direction: column;
 }
-#firstrun .fr-body { padding: 40px 44px 36px; }
+#firstrun .fr-body { padding: 40px 44px 36px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
 #firstrun .fc-head { display: flex; align-items: center; gap: 12px; justify-content: center; margin-bottom: 26px; }
 #firstrun .fc-k { width: 42px; height: 42px; flex: 0 0 42px; display: block; border-radius: 10px; }
 #firstrun .fr-segs { gap: 8px; margin-bottom: 34px; }
@@ -4027,7 +4053,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 #firstrun .fr-body p { font: 400 1.0625rem/1.6 var(--font-ui); color: var(--k-ink-2);
                        margin: 0 0 14px; max-width: 52ch; }
 #firstrun .fr-body p b { color: var(--k-ink); }
-#firstrun .fr-acts { justify-content: flex-end; gap: 14px; margin-top: 36px; border-top-color: var(--k-rule); }
+/* `flex: 0 0 auto`, not the default: now that `.fr-box` is a flex column,
+   the acts row would otherwise shrink toward zero height alongside `.fr-body`
+   when the two compete for the box's bounded height. `background: #fff`
+   (matching `.fr-box`'s own) because content now scrolls UNDER this row —
+   without it, a row scrolled almost to the footer would show through. */
+#firstrun .fr-acts { justify-content: flex-end; gap: 14px; margin-top: 36px; border-top-color: var(--k-rule);
+                     flex: 0 0 auto; background: #fff; }
 /* The secondary action (Check again) sits flush LEFT, the primary right
    (Josh, 2026-08-17). The DOM order alt / spacer / next carries this: the
    spacer's auto margin absorbs ALL free space between them. A margin-right
@@ -4124,19 +4156,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 #firstrun .fr-sleepbtn:focus-visible, #firstrun #fr-reveal:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
 #firstrun .fr-progress { background: var(--k-rule); }
 #firstrun .fr-progress-fill, #firstrun .fr-progress i, #firstrun .fr-progress > div { background: var(--gold-deep); }
-/* ⚠️ A PORTING GAP, not dead markup. `.llm-m` carries the DIMENSIONS and never
-   came across from the pack, so every provider row rendered a fully styled disc
-   at 0x0 — gradient, border-radius and all, invisible. Measured on the install
-   screen: six rows, six markers, all zero-sized.
-   ⚠️ AND IT LOOKED LIKE DEAD CODE FROM INSIDE THE BUILD. A class worn by six
-   elements with no rule anywhere reads as a marker to delete; deleting it would
-   have removed the hook the missing rule attaches to, and then nothing in
-   either file would have shown the gap. "Dead in the build" and "dead in the
-   pack" are different questions (Mona Lisa, 2026-08-19), and only asking both
-   tells you which. */
+/* ⚠️ `.llm-disc` (the gradient circle) IS RETIRED, 2026-08-25 — every
+   provider row now carries a real vendor mark (`.pmark`, see below) instead
+   of a plain coloured disc, so the gap this comment used to document (the
+   marker rendering at 0x0 because `.llm-m` shipped with no rule anywhere) no
+   longer applies: `.llm-m` still carries the dimensions every row needs, and
+   now it always has real content to size. */
 #firstrun .llm-m { width: 34px; height: 34px; flex: 0 0 34px; display: block; }
-#firstrun .llm-disc { border-radius: 100px; background: radial-gradient(circle at 35% 35%, #d8b65a, #b88920); }
-#firstrun .llm.off .llm-disc { background: radial-gradient(circle at 35% 35%, #d5d3ce, #a9adb3); }
 #firstrun .fieldlab { display: block; font-size: .75rem; letter-spacing: .1em; text-transform: uppercase;
                       font-weight: 600; color: var(--k-ink-2); margin-bottom: 6px; }
 /* ⚠️ THIS IS THE RULE THAT ACTUALLY DRESSES THE WIZARD'S FIELDS, and it beats
@@ -5574,42 +5600,35 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              not confirm" rather than forcing credential entry (the painter
              comment states the guarantee precisely). -->
         <p>Your agents run on your own subscription, on this computer.</p>
-        <div class="llm on"><span class="llm-m llm-disc gold" aria-hidden="true"></span><div class="llm-w"><b>Claude</b><small>Anthropic &middot; works today</small></div>
+        <!-- ⭐ ALL SIX SHOWN, ALWAYS — Josh, 2026-08-25 21:08 CDT: "I want to
+             show all of the models. That's more important to me than having
+             the button above the fold. It's not like it's unreasonable to
+             have to scroll down." He was comparing the live app against this
+             exact row set, real vendor marks and all, from the design pack.
+
+             ⚠️ #262 MEASURED SOMETHING REAL, AND IT STILL HOLDS: six full
+             rows put this card at 1003px, and Continue 300px below the fold
+             at 950/800/700 if the card just grows. What changed is not that
+             number, it is which fix it drives. #262 hid five rows to keep
+             Continue on-screen; that traded the thing Josh actually wants
+             (see all six) for the thing that was easy to fix (button
+             visible). The fix now is `#firstrun .fr-box`/`.fr-body` above:
+             Continue is a sticky footer on every step of this wizard, and
+             the body scrolls under it — so six rows and an always-visible
+             Continue are no longer in tension. (Splinter, 2026-08-25:
+             "#262's problem, solved by pinning instead of hiding.")
+
+             Real vendor marks, inlined SVG (nothing fetched at runtime) —
+             see `.pmark` above for why Claude is in colour and the rest are
+             monochrome by filter. -->
+        <div class="llm on"><span class="llm-m pmark live" data-pmark="claude" role="img" aria-label="Claude"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 125 125" fill="currentColor" aria-label="Claude"><path d="M54.375 118.75L56.125 111L58.125 101L59.75 93L61.25 83.125L62.125 79.875L62 79.625L61.375 79.75L53.875 90L42.5 105.375L33.5 114.875L31.375 115.75L27.625 113.875L28 110.375L30.125 107.375L42.5 91.5L50 81.625L54.875 76L54.75 75.25H54.5L21.5 96.75L15.625 97.5L13 95.125L13.375 91.25L14.625 90L24.5 83.125L49.125 69.375L49.5 68.125L49.125 67.5H47.875L43.75 67.25L29.75 66.875L17.625 66.375L5.75 65.75L2.75 65.125L0 61.375L0.25 59.5L2.75 57.875L6.375 58.125L14.25 58.75L26.125 59.5L34.75 60L47.5 61.375H49.5L49.75 60.5L49.125 60L48.625 59.5L36.25 51.25L23 42.5L16 37.375L12.25 34.75L10.375 32.375L9.625 27.125L13 23.375L17.625 23.75L18.75 24L23.375 27.625L33.25 35.25L46.25 44.875L48.125 46.375L49 45.875V45.5L48.125 44.125L41.125 31.375L33.625 18.375L30.25 13L29.375 9.75C29.0417 8.625 28.875 7.375 28.875 6L32.75 0.750006L34.875 0L40.125 0.750006L42.25 2.625L45.5 10L50.625 21.625L58.75 37.375L61.125 42.125L62.375 46.375L62.875 47.75H63.75V47L64.375 38L65.625 27.125L66.875 13.125L67.25 9.125L69.25 4.375L73.125 1.87501L76.125 3.25L78.625 6.875L78.25 9.125L76.875 18.75L73.875 33.875L72 44.125H73.125L74.375 42.75L79.5 36L88.125 25.25L91.875 21L96.375 16.25L99.25 14H104.625L108.5 19.875L106.75 26L101.25 33L96.625 38.875L90 47.75L86 54.875L86.375 55.375H87.25L102.125 52.125L110.25 50.75L119.75 49.125L124.125 51.125L124.625 53.125L122.875 57.375L112.625 59.875L100.625 62.25L82.75 66.5L82.5 66.625L82.75 67L90.75 67.75L94.25 68H102.75L118.5 69.125L122.625 71.875L125 75.125L124.625 77.75L118.25 80.875L109.75 78.875L89.75 74.125L83 72.5H82V73L87.75 78.625L98.125 88L111.25 100.125L111.875 103.125L110.25 105.625L108.5 105.375L97 96.625L92.5 92.75L82.5 84.375H81.875V85.25L84.125 88.625L96.375 107L97 112.625L96.125 114.375L92.875 115.5L89.5 114.875L82.25 104.875L74.875 93.5L68.875 83.375L68.25 83.875L64.625 121.625L63 123.5L59.25 125L56.125 122.625L54.375 118.75Z"/></svg></span><div class="llm-w"><b>Claude</b><small>Anthropic &middot; works today</small></div>
           <button class="connect-b" type="button" id="fr-llm-connect">Connect</button></div>
-        <!-- 🛑 THE SAME FIVE, BEHIND THE SAME DISCLOSURE THE CREATE FORM USES
-             (#262). They were six expanded rows here and a closed `More models`
-             there, so a person met one list twice and it looked like two
-             different things.
-
-             ⚠️ MEASURED, and the overflow is a consequence rather than the
-             goal. This card rendered 1003px, so its Continue sat below the fold
-             at 950, 800 and 700, reachable only by scrolling a screen that
-             looked complete. The five rows are 320px plus a 16px tier label
-             less about 20px for the summary: roughly 315px back, which puts the
-             primary above the fold at every height tested. A sticky footer
-             would have kept the button visible and let the card grow forever;
-             this makes the seventh provider cost one line inside a closed
-             element rather than another 64px of screen.
-
-             🔑 AND IT IS THE CORRECT WEIGHT, not a compromise. The step asks a
-             person to choose a model and there is exactly ONE choosable model.
-             Five rows nobody can select are a roadmap, and presenting them at
-             full weight above an invisible Continue inverts the priority: the
-             thing you cannot do is visible and the thing you must do is not.
-             (Mona Lisa, who measured the recovery before ruling it.) -->
-        <details class="smore">
-          <summary>More models</summary>
-          <ul>
-            <li>Gemini, Google &middot; coming soon</li>
-            <li>GPT, OpenAI &middot; coming soon</li>
-          </ul>
-          <p class="smore-t">Runs on this computer</p>
-          <ul>
-            <li>Llama, Meta &middot; coming soon</li>
-            <li>Qwen, Alibaba &middot; coming soon</li>
-            <li>Mistral &middot; coming soon</li>
-          </ul>
-        </details>
+        <div class="llm off"><span class="llm-m pmark dim" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#pmark-gemini-g)"/> <defs> <radialGradient id="pmark-gemini-g" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(2.77876 11.3795) rotate(18.6832) scale(29.8025 238.737)"> <stop offset="0.0671246" stop-color="#9168C0"/> <stop offset="0.342551" stop-color="#5684D1"/> <stop offset="0.672076" stop-color="#1BA1E3"/> </radialGradient> </defs> </svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><span class="soon">Coming soon</span></div>
+        <div class="llm off"><span class="llm-m pmark dim" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="black"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI</small></div><span class="soon">Coming soon</span></div>
+        <p class="smore-t">Runs on this computer</p>
+        <div class="llm off"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon">Coming soon</span></div>
+        <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
+        <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
         <div id="fr-sub"></div>
         <div class="fr-msg" id="fr-sub-msg" role="status" aria-live="polite"></div>
         <!-- ⚠️ The connect flow's phase announcements, VISUALLY HIDDEN on
