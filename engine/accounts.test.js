@@ -264,7 +264,7 @@ test('#881: listLive() attaches a live connection to every row, in parallel', as
     // here from the presence/absence of the override itself, which is
     // exactly the thing under test.
     seenConfigDirs[env.CLAUDE_CONFIG_DIR || '<none>'] = true;
-    return JSON.stringify({ loggedIn: true });
+    return { stdout: JSON.stringify({ loggedIn: true }), err: null };
   });
   try {
     const got = await accounts.listLive();
@@ -297,7 +297,7 @@ test('#881: listLive() answers UNKNOWN for one account\'s failed check without s
   const subscription = require('./subscription');
   subscription.setRunner(async (env) => {
     if (env.CLAUDE_CONFIG_DIR) throw new Error('simulated failure for the non-default account only');
-    return JSON.stringify({ loggedIn: true });
+    return { stdout: JSON.stringify({ loggedIn: true }), err: null };
   });
   try {
     const got = await accounts.listLive();

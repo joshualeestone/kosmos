@@ -840,3 +840,29 @@ test('/api/connections answers every built door from the engines, and a connecte
     hetzner.setFetcher(null);
   }
 });
+
+/* ---- #881: GET /api/accounts, end to end through the real route -------- */
+test('GET /api/accounts confirms each Claude account live, through the real route', async () => {
+  /* Vertical slice, not just the engine functions: iteration 1's review
+     found no test anywhere exercised server.js's own route wiring
+     (async, calling accounts.listLive() instead of list()) -- this hits
+     the real, listening server the way a browser would. */
+  const subscription = require('./engine/subscription');
+  fs.mkdirSync(path.join(HOME, '.claude', 'projects'), { recursive: true });
+  fs.writeFileSync(path.join(HOME, '.claude.json'),
+    JSON.stringify({ oauthAccount: { emailAddress: 'route-881@example.com' } }));
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  try {
+    const got = json(await req('/api/accounts'));
+    assert.ok(Array.isArray(got.accounts), 'no accounts array in the response');
+    const row = got.accounts.find((a) => a.email === 'route-881@example.com');
+    assert.ok(row, 'the fixture account did not come back through the route');
+    assert.equal(row.provider, 'anthropic');
+    assert.equal(row.connection.state, subscription.STATE.CONNECTED, 'the route did not carry the live connection through');
+    assert.equal(row.connection.checkedLive, true);
+  } finally {
+    subscription.setRunner(null);
+    fs.rmSync(path.join(HOME, '.claude.json'), { force: true });
+    fs.rmSync(path.join(HOME, '.claude'), { recursive: true, force: true });
+  }
+});

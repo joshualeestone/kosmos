@@ -10828,7 +10828,16 @@ async function paintSettings() {
   } catch {
     // The card keeps its last honest paint; the poll repaints it.
   }
-  await paintAccounts();
+  /* #881: NOT awaited here, deliberately. GET /api/accounts now confirms
+     each account live with Anthropic (a real subprocess call per account,
+     parallel across accounts but each with its own timeout) instead of
+     the instant directory-stat read this used to be. Awaiting it in this
+     sequential chain would stall refreshHistory/refreshYou/paintLimits/
+     refreshEngMode behind it too -- unrelated panels frozen for a check
+     none of them need. paintAccounts() paints its own loading state
+     immediately and fills in the real answer whenever it lands; nothing
+     later in this function reads its result. */
+  paintAccounts();
   await refreshHistory();
   await refreshYou();
   await paintLimits();
@@ -10850,6 +10859,13 @@ async function paintAccounts() {
   const box = document.getElementById('set-accounts');
   const msg = document.getElementById('set-accounts-msg');
   if (!box) return;
+  /* #881: GET /api/accounts now confirms each account live with Anthropic
+     (a real check per account, not an instant directory stat), so this
+     box can sit empty/stale for a real, visible span rather than the
+     immediate paint it used to be. Said plainly rather than left blank --
+     same "Checking…" language the token-door rows already use for the
+     same wait. */
+  box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">Checking…</p>';
   let list = [];
   try {
     const res = await fetch('/api/accounts', { cache: 'no-store' });

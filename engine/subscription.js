@@ -276,12 +276,16 @@ function claudeBinPath() {
 function runAuthStatus(env) {
   if (runner) return Promise.resolve(runner(env));
   return new Promise((resolve) => {
-    execFile(claudeBinPath(), ['auth', 'status', '--json'], { env, timeout: 8000 }, (_err, stdout) => {
-      // ⚠️ IGNORE THE EXIT CODE. `claude auth status` exits 1 for a genuine,
-      // well-formed "not logged in" answer (measured) -- the JSON on stdout
-      // is the real signal either way, and treating a nonzero exit as
-      // failure would misread a clean negative as "we could not check".
-      resolve(String(stdout || ''));
+    execFile(claudeBinPath(), ['auth', 'status', '--json'], { env, timeout: 8000 }, (err, stdout) => {
+      // ⚠️ `err` IS CARRIED THROUGH, NOT DISCARDED, but it is not treated as
+      // failure by itself: `claude auth status` exits 1 for a genuine,
+      // well-formed "not logged in" answer (measured) -- so an exit-code
+      // error with valid JSON on stdout is not a real failure. checkLive()
+      // below only consults `err` when stdout could NOT be parsed into a
+      // usable answer, so a REAL failure (a missing binary, a timeout) gets
+      // its own honest message instead of being folded into the generic
+      // "could not make sense of the answer" one alongside a clean negative.
+      resolve({ stdout: String(stdout || ''), err: err || null });
     });
   });
 }
@@ -306,9 +310,9 @@ async function checkLive(opts) {
   const env = { ...process.env };
   if (configDir) env.CLAUDE_CONFIG_DIR = configDir;
   else delete env.CLAUDE_CONFIG_DIR;
-  let raw;
+  let result;
   try {
-    raw = await runAuthStatus(env);
+    result = await runAuthStatus(env);
   } catch (err) {
     return {
       state: STATE.UNKNOWN, plan: null, checkedLive: true,
@@ -316,11 +320,31 @@ async function checkLive(opts) {
     };
   }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { parsed = null; }
-  // ⚠️ UNPARSEABLE IS `unknown`, NEVER `none`. Same asymmetry this whole
-  // module is built on: an unreadable answer is not evidence of anything,
-  // least of all the answer with the worst cost if wrong.
-  if (!parsed || typeof parsed !== 'object') {
+  try { parsed = JSON.parse(result.stdout); } catch { parsed = null; }
+  // ⚠️ THE ONLY WAY IN IS A REAL BOOLEAN `loggedIn`. Caught in challenge-loop
+  // iteration 1, reproduced directly: the first version treated anything
+  // OTHER than `loggedIn === true` as NONE -- so a missing `loggedIn` key,
+  // `null`, or any future schema change that still parses as valid JSON
+  // would confidently tell a possibly-signed-in account "Anthropic says
+  // this account is not signed in". `check()` right above this function is
+  // built entirely around the opposite discipline (assert NONE only from a
+  // POSITIVELY recognised negative, default everything else to UNKNOWN);
+  // this now matches it exactly.
+  if (!parsed || typeof parsed !== 'object' || typeof parsed.loggedIn !== 'boolean') {
+    // A real subprocess failure (missing binary, timeout) earns its own
+    // honest message instead of the generic "could not make sense" one --
+    // only reached here, never for `claude auth status`'s clean "not
+    // logged in" answer, which is exit 1 with well-formed JSON and is
+    // handled by the boolean branch below, not this one.
+    if (result.err) {
+      const timedOut = result.err.killed === true || result.err.code === 'ETIMEDOUT';
+      const because = result.err.code === 'ENOENT'
+        ? 'we could not find Claude Code on this computer to check with'
+        : timedOut
+          ? 'Claude Code took too long to answer whether this account is signed in'
+          : 'we asked Claude Code whether this account is signed in and it did not answer';
+      return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because };
+    }
     return {
       state: STATE.UNKNOWN, plan: null, checkedLive: true,
       because: 'we asked Claude Code whether this account is signed in and could not make sense of the answer',
@@ -337,6 +361,9 @@ async function checkLive(opts) {
       because: 'Anthropic confirmed this account is signed in',
     };
   }
+  // Only reached when parsed.loggedIn is the literal boolean false --
+  // guarded by the typeof check above, so this is a positively recognised
+  // negative, never a guess.
   return {
     state: STATE.NONE, plan: null, checkedLive: true,
     because: 'Anthropic says this account is not signed in',
