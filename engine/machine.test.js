@@ -312,12 +312,12 @@ test('⭐ #979: a Mac with no Claude Code is OK, and its absence is still REPORT
   assert.equal(got.state, 'ok', 'a GPT-only Mac is told it is missing something it does not need');
   assert.doesNotMatch(got.title + ' ' + got.detail, /Claude/,
     'the row still names Claude Code to somebody who may never want it');
-  assert.equal(got.present['Claude Code'], false, 'the fact went with the requirement');
+  assert.equal(got.present.claude, false, 'the fact went with the requirement');
   assert.equal(got.present.tmux, true);
 
   // CONTROL: present is a real reading, not a constant. Same call, real path.
   const has = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: REAL_BIN });
-  assert.equal(has.present['Claude Code'], true,
+  assert.equal(has.present.claude, true,
     'present answers false for everything, so the assertion above proves nothing');
 });
 
@@ -332,7 +332,7 @@ test('#979: an unrunnable Claude Code reads absent in `present`, and still does 
     fs2.mkdirSync(asDir);
     const got = machine.installedCheck({ claudeBin: asDir, tmuxBin: REAL_BIN });
     assert.equal(got.state, 'ok', 'an unrunnable Claude Code blocked a machine that does not need it');
-    assert.equal(got.present['Claude Code'], false, 'a directory named claude read as present');
+    assert.equal(got.present.claude, false, 'a directory named claude read as present');
   } finally {
     fs2.rmSync(dir, { recursive: true, force: true });
   }
@@ -351,8 +351,6 @@ test('something at the path is not the same as something we could run', () => {
   const nodePath = require('node:path');
   const dir = fs2.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'aw-exec-'));
   try {
-    const asDir = nodePath.join(dir, 'claude');
-    fs2.mkdirSync(asDir);
     const asDirTmux = nodePath.join(dir, 'tmuxdir');
     fs2.mkdirSync(asDirTmux);
     const notExec = nodePath.join(dir, 'tmux');
@@ -360,7 +358,7 @@ test('something at the path is not the same as something we could run', () => {
     fs2.chmodSync(notExec, 0o644);
 
     // The controls: both really are present, which is what made them pass.
-    assert.ok(fs2.existsSync(asDir) && fs2.existsSync(notExec),
+    assert.ok(fs2.existsSync(asDirTmux) && fs2.existsSync(notExec),
       'the fixture no longer contains things that exist but cannot be run');
 
     /* ⚠️ NARROWED (#979). This used to point claudeBin at the directory and
@@ -381,7 +379,7 @@ test('something at the path is not the same as something we could run', () => {
   }
 });
 
-test('a definite finding survives the other probe being unreadable', () => {
+test('an unreadable REQUIRED probe is unknown, not a definite "not installed"', () => {
   /**
    * ⚠️ THE SIBLING OF THE SLEEP FIX, UNFIXED FOR A WHILE. With Claude
    * genuinely absent and tmux unreadable, the early return on the unreadable
@@ -418,9 +416,9 @@ test('a definite finding survives the other probe being unreadable', () => {
     assert.equal(got.state, 'unknown',
       'an unreadable required probe was reported as a definite "not installed"');
     assert.match(got.detail, /could not check|did not work/,
-      'the unreadable half went unmentioned, so the screen looks like a complete answer');
+      'the sentence does not say we could not look, so a person reads it as a finding');
     assert.equal(got.present.tmux, null, 'we could not look, which is not the same as absent');
-    assert.equal(got.present['Claude Code'], false,
+    assert.equal(got.present.claude, false,
       'the informational part stopped answering when the required probe could not be read');
   } finally {
     fs2.chmodSync(inner, 0o755);
@@ -672,7 +670,7 @@ test('a path we refuse on sight is not described as a path we looked at', () => 
   assert.match(got.title, /not where we can use it/i);
 });
 
-test('every bucket gets said, not just the first one that returns', () => {
+test('a refused path is SAID rather than dropped, and an unchosen provider is not named', () => {
   /**
    * ⚠️ THE THIRD TIME THIS FUNCTION DROPPED A FINDING BY RETURNING EARLY.
    * `unreadable` beat `missing` first; then `unusable` was added with its own
@@ -706,7 +704,7 @@ test('every bucket gets said, not just the first one that returns', () => {
     'the refused path went unmentioned, which is how it went unfixed');
   assert.doesNotMatch(got.title + ' ' + got.detail, /Claude/,
     'an absent Claude Code was named to somebody who may only want GPT');
-  assert.equal(got.present['Claude Code'], false,
+  assert.equal(got.present.claude, false,
     'and the fact is still reported, it just no longer accuses');
 });
 

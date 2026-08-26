@@ -1654,8 +1654,17 @@ function createAgentInner(opts) {
              PR): a person who installs Claude Code an hour later watches
              the agent start, so "never" is false on a real path.
              Present-tense truth, same weight, no forever claim. */
+          /* ⚠️ POINTS AT CONNECT, NOT AT A WEBSITE (#979). This used to say
+             "Install it first (https://claude.com/claude-code)", which sends
+             a person off to do by hand the job Kosmos does for them: pressing
+             Connect on Claude downloads it, checks it against the vendor's
+             published checksum and sets it up. That sentence was written when
+             the installer guaranteed the binary, so this arm was near
+             unreachable; with the installer no longer forcing it, this is the
+             sentence a real person meets, and the worse of the two remedies
+             is the one it was handing them. */
           because: 'we could not find Claude Code on this computer, so an agent made now could not start. '
-            + 'Install it first (https://claude.com/claude-code)'
+            + 'Connect a Claude account and Kosmos will set it up'
             + (codexConnected ? ', or create this agent on OpenAI instead' : ''),
           alternative: codexConnected
             ? { offered: true }
