@@ -103,9 +103,14 @@ vurl="$HOST/dist/kosmos-$want-arm64.tar.gz"
 vtmp=$(mktemp)
 if curl -fsS "$vurl" -o "$vtmp"; then
   vreal=$(shasum -a 256 "$vtmp" | awk '{print $1}')
-  vpub=$(curl -fsS "$vurl.sha256" | awk '{print $1}')
+  vline=$(curl -fsS "$vurl.sha256")
+  vpub=$(awk '{print $1}' <<<"$vline"); vname=$(awk '{print $2}' <<<"$vline")
   if [ "$vreal" = "$vpub" ]; then say "/dist/kosmos-$want-arm64.tar.gz" "versioned pair present, checksum matches"
   else say "/dist/kosmos-$want-arm64.tar.gz" "CHECKSUM MISMATCH on the versioned pair"; fail=1; fi
+  # #930: the name INSIDE the .sha256 is what `shasum -c` opens. A digest that
+  # matches beside a name that does not is a FAILED for the careful tester.
+  if [ "$vname" = "kosmos-$want-arm64.tar.gz" ]; then say "/dist/kosmos-$want-arm64.tar.gz.sha256" "names the file it is served beside (shasum -c would pass)"
+  else say "/dist/kosmos-$want-arm64.tar.gz.sha256" "NAMES '${vname:-nothing}', not kosmos-$want-arm64.tar.gz: shasum -c fails on good bytes (#930)"; fail=1; fi
 else say "/dist/kosmos-$want-arm64.tar.gz" "MISSING -- installers fall back to the cacheable plain name"; fail=1; fi
 rm -f "$vtmp"
 
