@@ -263,6 +263,46 @@ startInFlight=true committed=true lastLoadFailed=true -> ignore'
 _reload_table_stderr="$(mktemp "${TMPDIR:-/tmp}/reload-table-stderr.XXXXXXXXXX")"
 _reload_table_actual="$(perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-reload-decision-selftest 2>"$_reload_table_stderr")" || { echo "the native app's --kosmos-app-reload-decision-selftest failed to run or hung (a drifted hatch flag falls through to app.run()); its stderr:" >&2; cat "$_reload_table_stderr" >&2; exit 1; }
 [ "$_reload_table_actual" = "$_reload_table_expected" ] || { printf '%s\n' "the native app's Reload decision table drifted from the expected eight rows (#965)." "EXPECTED:" "$_reload_table_expected" "ACTUAL:" "$_reload_table_actual" >&2; exit 1; }
+# The MENU BAR (#994), diffed against its expected table, for the same reason
+# the Reload table above is: it is machine-checked at build time instead of by
+# a headed walk.
+#
+# 🛑 THIS ONE EXISTS BECAUSE THE ABSENCE WAS INVISIBLE. The bar carried SIX
+# shortcuts for the life of the app -- no Undo, no Hide, no Minimize, no Close,
+# no Settings -- and nobody noticed, because a menu item that was never added
+# looks exactly like an app until somebody presses the key. "Remember to check"
+# is precisely the mechanism that already failed here.
+#
+# ⚠️ WHAT IT PROVES AND WHAT IT DOES NOT. This is a STRUCTURAL check: the item
+# exists and carries that key equivalent. It cannot tell you the action does
+# anything -- Undo and Settings in particular can be present and inert -- so a
+# change to either still owes a headed press. It catches the failure mode that
+# actually happened, which is an item silently disappearing or never arriving.
+_menu_table_expected='menu:Kosmos
+  item:About Kosmos	shortcut:-	action:orderFrontStandardAboutPanel:
+  item:Settings…	shortcut:cmd+,	action:openSettings:
+  item:Services	shortcut:-	action:submenuAction:
+  item:Hide Kosmos	shortcut:cmd+h	action:hide:
+  item:Hide Others	shortcut:cmd+opt+h	action:hideOtherApplications:
+  item:Show All	shortcut:-	action:unhideAllApplications:
+  item:Quit Kosmos	shortcut:cmd+q	action:terminate:
+menu:Edit
+  item:Undo	shortcut:cmd+z	action:undo:
+  item:Redo	shortcut:cmd+shift+z	action:redo:
+  item:Cut	shortcut:cmd+x	action:cut:
+  item:Copy	shortcut:cmd+c	action:copy:
+  item:Paste	shortcut:cmd+v	action:paste:
+  item:Select All	shortcut:cmd+a	action:selectAll:
+menu:View
+  item:Reload	shortcut:cmd+r	action:reloadBoard:
+menu:Window
+  item:Minimize	shortcut:cmd+m	action:performMiniaturize:
+  item:Zoom	shortcut:-	action:performZoom:
+  item:Close	shortcut:cmd+w	action:performClose:
+  item:Bring All to Front	shortcut:-	action:arrangeInFront:'
+_menu_table_stderr="$(mktemp "${TMPDIR:-/tmp}/menu-table-stderr.XXXXXXXXXX")"
+_menu_table_actual="$(perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-menu-selftest 2>"$_menu_table_stderr")" || { echo "the native app's --kosmos-app-menu-selftest failed to run or hung (a drifted hatch flag falls through to app.run()); its stderr:" >&2; cat "$_menu_table_stderr" >&2; exit 1; }
+[ "$_menu_table_actual" = "$_menu_table_expected" ] || { printf '%s\n' "the native app's menu bar drifted from the expected table (#994). A menu item that vanishes is invisible until somebody presses the key it no longer has." "EXPECTED:" "$_menu_table_expected" "ACTUAL:" "$_menu_table_actual" >&2; exit 1; }
 _app_bin_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')"
 echo "==> native app: kosmos-app signed $_app_bin_sha"
 
