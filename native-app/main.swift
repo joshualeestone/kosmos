@@ -871,10 +871,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            📌 There is no `NSText.undo:`. Undo inside a WKWebView comes from
            the WEB CONTENT's own undo manager, so these two are deliberately
            nil-targeted and travel the responder chain to the web view.
-           🛑 A MENU ITEM THAT EXISTS IS NOT A MENU ITEM THAT WORKS. These two
-           can compile, appear, and still do nothing, which is worse than
-           absent because it looks answered. They are pressed by hand in the
-           verification, not just asserted structurally. */
+           🛑 A MENU ITEM THAT EXISTS IS NOT A MENU ITEM THAT WORKS, AND THERE
+           IS NO SAFETY NET HERE. An earlier comment claimed that if nothing
+           implemented `undo:` AppKit would grey the item out, so an inert Undo
+           would at least be visible. MEASURED, and it is false:
+           `WKWebView.instancesRespond(to: "undo:")` is FALSE while
+           `NSWindow.instancesRespond(to: "undo:")` is TRUE. So the action
+           always finds an implementor, the item never greys on that account,
+           and its enabled state is driven by whichever undo manager the window
+           returns. ⇒ These two rows can only be settled by a headed press. */
         editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
         let redoItem = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
         redoItem.keyEquivalentModifierMask = [.command, .shift]
@@ -947,11 +952,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
      which would mean the page is an older build than this binary.
      */
     @objc func openSettings(_ sender: Any?) {
+        /* ⚠️ THE WINDOW MAY BE HIDDEN. ⌘W (new on this branch) routes through
+           `windowShouldClose`, which orders the window out and returns false --
+           the app keeps running with no window on screen. Switching a tab on an
+           invisible window and reporting success is the "looks answered and is
+           not" failure this menu bar exists to remove. */
+        window.makeKeyAndOrderFront(nil)
+        /* 🛑 THE `try` IS AROUND THE LOOKUP ONLY, NOT THE CALL.
+           An earlier version wrapped `showTab('settings')` itself, so ANY
+           exception thrown INSIDE showTab -- it reaches a dozen elements by id
+           on a partly-painted page -- fell through to the navigation and threw
+           away whatever the person had typed into an instructions field. That
+           is the exact harm the fallback's own comment claims to avoid. Now a
+           throw from showTab propagates and is REPORTED; only a genuinely
+           missing function navigates. */
         let js = """
         (function () {
-          try {
-            if (typeof showTab === 'function') { showTab('settings'); return 'in-place'; }
-          } catch (e) { /* fall through to the navigation below */ }
+          var fn = null;
+          try { fn = (typeof showTab === 'function') ? showTab : null; } catch (e) { fn = null; }
+          if (fn) { fn('settings'); return 'in-place'; }
           location.assign('/?tab=settings');
           return 'navigated';
         })()
@@ -960,6 +979,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // and so no capture list is needed either.
         webView.evaluateJavaScript(js) { result, error in
             if let error = error {
+                /* ⚠️ NOT ONLY logLine. In a shipped install the log path
+                   (/tmp/kosmos-app-test/app.log) does not exist and
+                   FileManager.createFile fails, so a log-only failure is
+                   invisible to the person AND to field diagnostics -- ⌘,
+                   would silently do nothing on a window that never loaded
+                   (about:blank after a startup-failure alert), with the item
+                   permanently enabled because something in the chain always
+                   implements this action. A beep is what `reloadBoard`
+                   already does for its own can't-act case. */
+                NSSound.beep()
                 logLine("openSettings: the page did not answer (\(error.localizedDescription))")
             } else {
                 logLine("openSettings: \(result as? String ?? "no answer")")
@@ -1018,10 +1047,17 @@ if CommandLine.arguments.contains("--kosmos-app-reload-decision-selftest") {
 // item is invisible until somebody presses the key it does not have. A person
 // remembering to check is exactly the mechanism that already failed.
 if CommandLine.arguments.contains("--kosmos-app-menu-selftest") {
-    // nil targets: this is a STRUCTURAL dump, and a real target would need a
-    // delegate, which would need a window. What is being proven here is that
-    // the item and its key equivalent exist; whether the action does anything
-    // is a different question and is answered by pressing it.
+    // nil targets because a structural dump has no use for them. (An earlier
+    // comment said a real target "would need a window" -- not true, the binary
+    // constructs an AppDelegate below without one.) What is proven here is
+    // that the item and its key equivalent EXIST; whether the action does
+    // anything is a different question, answered by pressing it.
+    //
+    // ⚠️ ONE LEVEL DEEP, and NSApp.servicesMenu / NSApp.windowsMenu are
+    // assigned in buildMenu(), outside what this can see. So a DELETED
+    // services/windows wiring, or a future nested submenu, escapes this gate
+    // even though a rename would not. Stated so the gate is not trusted for
+    // more than it checks.
     let menu = AppDelegate.makeMainMenu(reloadTarget: nil, settingsTarget: nil)
     for top in menu.items {
         guard let sub = top.submenu else { continue }

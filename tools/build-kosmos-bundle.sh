@@ -34,8 +34,8 @@ set -euo pipefail
 # One EXIT trap, registered before anything can create a temp resource: six
 # exit-1 paths once sat between the download's mktemp and a trap that was
 # "folded in" later, each leaking ~150MB of Node tarball per failed build.
-TMP=""; SMOKE_LOG=""; SMOKE_ROOTS=""; _reload_table_stderr=""
-trap 'rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}" "${_reload_table_stderr:-}"' EXIT
+TMP=""; SMOKE_LOG=""; SMOKE_ROOTS=""; _reload_table_stderr=""; _menu_table_stderr=""
+trap 'rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}" "${_reload_table_stderr:-}" "${_menu_table_stderr:-}"' EXIT
 
 NODE_VERSION="${KOSMOS_NODE_VERSION:-24.19.0}"
 OUT="${1:-dist}"
@@ -300,6 +300,9 @@ menu:Window
   item:Zoom	shortcut:-	action:performZoom:
   item:Close	shortcut:cmd+w	action:performClose:
   item:Bring All to Front	shortcut:-	action:arrangeInFront:'
+# Pre-declared and trapped up top with its siblings (line ~37): a mktemp
+# that is not on the ONE EXIT trap leaks a file per build, including every
+# FAILING build, which is the exact class the single trap exists to prevent.
 _menu_table_stderr="$(mktemp "${TMPDIR:-/tmp}/menu-table-stderr.XXXXXXXXXX")"
 _menu_table_actual="$(perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-menu-selftest 2>"$_menu_table_stderr")" || { echo "the native app's --kosmos-app-menu-selftest failed to run or hung (a drifted hatch flag falls through to app.run()); its stderr:" >&2; cat "$_menu_table_stderr" >&2; exit 1; }
 [ "$_menu_table_actual" = "$_menu_table_expected" ] || { printf '%s\n' "the native app's menu bar drifted from the expected table (#994). A menu item that vanishes is invisible until somebody presses the key it no longer has." "EXPECTED:" "$_menu_table_expected" "ACTUAL:" "$_menu_table_actual" >&2; exit 1; }
