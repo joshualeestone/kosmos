@@ -808,7 +808,13 @@ function crossSiteWrite(req) {
    Env-gated, off in the product, no data path changes. Approved by Splinter
    2026-08-25 15:40. Never throws: a log that cannot be written must not
    turn the instrument into a second defect. */
-const GATE_LOG = process.env.KOSMOS_INSTALL_GATE === '1'
+/* ⚠️ TWO SWITCHES, MEASURED: KOSMOS_INSTALL_GATE=1 is ALSO the release
+   cut's short-mode flag in tools/test-install.sh (stop before the probe
+   blocks, #624), so the suite must never export it for the log's sake: the
+   first version did, and every full run silently became the short run (81
+   checks instead of 274, 2026-08-26 01:20). A cut sets the flag and gets
+   the log for free; a full local run names the PATH instead. */
+const GATE_LOG = process.env.KOSMOS_INSTALL_GATE === '1' || process.env.KOSMOS_INSTALL_GATE_LOG
   ? (process.env.KOSMOS_INSTALL_GATE_LOG || path.join(os.homedir(), '.claude', 'logs', 'install-gate-requests.log'))
   : null;
 function gateLog(req) {
