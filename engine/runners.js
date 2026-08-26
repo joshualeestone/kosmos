@@ -28,12 +28,13 @@
  *      real progress bar and a real "done" instead of a spinner over a
  *      mystery.
  *
- * Claude's place here is RULED but not yet built: Josh (2026-08-26 10:32,
- * on #979) classed Claude Code as a provider like the others, superseding
- * the installer's up-front install. The Claude conversion (its manifest
- * entry, the installer change, the die() path replaced by an in-flow
- * failure) is the follow-up branch on that card; this module's manifest
- * shape is what it slots into.
+ * Claude rides here as a second manifest KIND (Josh's 2026-08-26 10:32
+ * ruling: a provider like the others): 'vendor-installer', installed by
+ * Anthropic's own script rather than a pinned tarball -- see
+ * installVendor() for the phases and the die()-replacement contract. The
+ * INSTALLER still pre-installs Claude today; removing that is the gated
+ * branch B on #979, held until the in-flow path exists end to end so a
+ * bare-Mac Claude pick can never dead-end the way OpenAI's used to.
  */
 
 const fs = require('fs');
@@ -41,7 +42,7 @@ const os = require('os');
 const path = require('path');
 const https = require('https');
 const crypto = require('crypto');
-const { execFile } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
 
 const HOME = os.homedir();
 
@@ -87,6 +88,24 @@ const MANIFEST = Object.assign(Object.create(null), {
     binName: 'codex',
     downloadBytes: 114152335,
   },
+  claude: {
+    name: 'Claude Code',
+    // kind 'vendor-installer' (#979, Josh's 10:32 ruling: Claude is a
+    // provider like the others): Anthropic's own installer script puts
+    // the CLI at ~/.local/bin/claude -- the exact mechanism, path, and
+    // AGENT_WORKFORCE_CLAUDE_INSTALL_URL override contract setup.sh's
+    // preflight uses today. ⚠️ HONESTY COST, stated rather than papered:
+    // the vendor script installs the vendor's LATEST, publishes no
+    // checksum, and reports no byte counts -- so this kind has no
+    // integrity pin, no pinnedVersion claim, and its job carries null
+    // byte counts instead of invented ones. The prove step (the binary
+    // must answer --version) is the same gate the tarball kind gets.
+    kind: 'vendor-installer',
+    installUrl: 'https://claude.ai/install.sh',
+    installUrlEnv: 'AGENT_WORKFORCE_CLAUDE_INSTALL_URL',
+    binName: 'claude',
+    downloadBytes: null,
+  },
 });
 // The url and integrity above are the trust anchors for bytes this module
 // EXECUTES; frozen so nothing in-process can quietly repoint them. Tests
@@ -131,6 +150,20 @@ function managedRoot() {
  * get the place an install would land, never '').
  */
 function resolveBin(provider, opts) {
+  if (provider === 'claude') {
+    // Same authoritative-override contract as openai, with Claude's own
+    // env var (the one every harness in this codebase already sets).
+    // Claude's canonical home is the vendor's, ~/.local/bin/claude --
+    // there is no Kosmos-managed location for a vendor-installer kind,
+    // so `managed` is always false here.
+    const envClaude = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    if (envClaude) return { bin: envClaude, present: fs.existsSync(envClaude), managed: false, overridden: true };
+    // AGENT_WORKFORCE_HOME is the same sandbox seam openaiaccounts keys
+    // its HOME on -- without it, every test on this fleet Mac would see
+    // the real ~/.local/bin/claude and read present. Unset in production.
+    const canonical = path.join(process.env.AGENT_WORKFORCE_HOME || HOME, '.local', 'bin', 'claude');
+    return { bin: canonical, present: fs.existsSync(canonical), managed: false, overridden: false };
+  }
   if (provider !== 'openai') return { bin: null, present: false, managed: false, overridden: false };
   // An operator-set override is AUTHORITATIVE, not a candidate: when the
   // env names a path, that path is the answer, present or not -- so every
@@ -333,10 +366,14 @@ function install(provider, opts) {
   }
   // Wrong hardware fails in seconds with the CAUSE, not in minutes at
   // the prove step with a symptom: the pinned artifact is arch-specific.
+  // (A vendor-installer entry carries no arch: the vendor's script picks
+  // its own artifact for this machine, so the guard naturally passes.)
   const arch = o.arch || process.arch;
   if (m.arch && arch !== m.arch) {
     return { phase: 'failed', because: `the pinned ${m.name} build is ${m.arch} and this Mac is ${arch}; no download was attempted` };
   }
+
+  if (m.kind === 'vendor-installer') return installVendor(provider, m, o, existing);
 
   const url = o.url || m.url;
   const integrity = o.integrity || m.integrity;
@@ -509,6 +546,97 @@ function install(provider, opts) {
   // shape over the API stays exactly the documented fields.
   Object.defineProperty(job, 'settled', { value: run });
 
+  return job;
+}
+
+/**
+ * The vendor-installer pipeline (#979, the Claude kind): the vendor's own
+ * script installs its LATEST into its canonical path. Three phases:
+ *
+ *   linking     a runner already on this Mac but not at the canonical
+ *               path gets a symlink, not a download -- setup.sh's
+ *               near-miss handling carried in-flow ("nothing is
+ *               installed; a link is named as a link")
+ *   installing  the vendor script runs, output to a log file whose path
+ *               rides in the job on failure (a log must be able to say
+ *               what a run actually installed); no byte counts, because
+ *               the script reports none and inventing them is worse
+ *   proving     the binary must answer --version before `installed` is
+ *               ever claimed -- the same gate the tarball kind gets
+ *
+ * ⚠️ THE die() REPLACEMENT: a failure here is a JOB ANSWER the screen
+ * shows. Nothing exits, nothing kills an install, Kosmos keeps running --
+ * the exact contract Josh's provider ruling demands where setup.sh's
+ * preflight used to die.
+ *
+ * Seams (o.): findElsewhere() -> path|null replaces the PATH probe;
+ * runInstaller(url, logFile, done) replaces the curl|sh child;
+ * prove(bin, done) as everywhere.
+ */
+function installVendor(provider, m, o, existing) {
+  const canonical = existing.bin;
+  const url = o.url || (m.installUrlEnv && process.env[m.installUrlEnv]) || m.installUrl;
+  const prove = o.prove || ((bin, done) => execFile(bin, ['--version'], { timeout: 30000 }, done));
+  const findElsewhere = o.findElsewhere || (() => {
+    try {
+      const found = String(execFileSync('/usr/bin/which', [m.binName], { timeout: 5000 })).trim();
+      return found && found !== canonical ? found : null;
+    } catch { return null; }
+  });
+  const runInstaller = o.runInstaller || ((u, logFile, done) => {
+    // The same one-liner setup.sh runs, output captured the same way; a
+    // 10-minute ceiling so a wedged vendor endpoint fails the job
+    // instead of parking it forever behind the idempotent join.
+    execFile('/bin/sh', ['-c', `curl -fsSL "${u}" | sh >"${logFile}" 2>&1`], { timeout: 600000 }, done);
+  });
+
+  const job = { phase: 'installing', receivedBytes: null, totalBytes: null };
+  jobs[provider] = job;
+  const fail = (because) => { job.phase = 'failed'; job.because = because; };
+
+  const run = (async () => {
+    try {
+      const elsewhere = findElsewhere();
+      if (elsewhere) {
+        job.phase = 'linking';
+        fs.mkdirSync(path.dirname(canonical), { recursive: true });
+        fs.rmSync(canonical, { force: true });
+        fs.symlinkSync(elsewhere, canonical);
+        job.linked = elsewhere;
+      } else {
+        const logDir = path.join(managedRoot(), '.tmp');
+        fs.mkdirSync(logDir, { recursive: true });
+        const logFile = path.join(logDir, `${provider}-install-${process.pid}.log`);
+        await new Promise((resolve, reject) => {
+          runInstaller(url, logFile, (err) => err
+            ? reject(new Error(`the ${m.name} installer did not finish (its log is at ${logFile})`))
+            : resolve());
+        });
+        if (!fs.existsSync(canonical)) {
+          fail(`the ${m.name} installer finished but nothing landed at ${canonical} (its log is at ${logFile})`);
+          return;
+        }
+        job.log = logFile;
+      }
+      job.phase = 'proving';
+      await new Promise((resolve, reject) => {
+        prove(canonical, (err, stdout) => {
+          if (err) { reject(new Error(`the installed runner did not run: ${String(err.message || err).trim()}`)); return; }
+          job.proved = String(stdout || '').trim();
+          resolve();
+        });
+      });
+      job.phase = 'installed';
+    } catch (err) {
+      // A failed prove after a LINK must take the link down, same as the
+      // tarball kind's symlink teardown: a broken runner never reads as
+      // present. A failed prove after a real install leaves the vendor's
+      // file for diagnosis (removing a vendor-owned path is not ours).
+      if (job.linked) { try { fs.rmSync(canonical, { force: true }); } catch { /* best effort */ } }
+      fail(String((err && err.message) || err).trim() || 'the install failed');
+    }
+  })();
+  Object.defineProperty(job, 'settled', { value: run });
   return job;
 }
 

@@ -1043,9 +1043,13 @@ function unusablePath(bin) {
  */
 function binPaths(opts) {
   return {
+    // Claude's resolution moved to engine/runners.js (#979, same
+    // consolidation the codex line below got in #987): ONE priority list
+    // (env override authoritative, then the vendor's canonical path)
+    // shared with the runner-install machinery, so the two can never
+    // disagree about where Claude lives.
     claudeBin: (opts && opts.claudeBin)
-      || process.env.AGENT_WORKFORCE_CLAUDE_BIN
-      || path.join(HOME, '.local', 'bin', 'claude'),
+      || require('./runners').resolveBin('claude').bin,
     tmuxBin: (opts && opts.tmuxBin)
       || process.env.AGENT_WORKFORCE_TMUX_BIN
       || '/opt/homebrew/bin/tmux',
