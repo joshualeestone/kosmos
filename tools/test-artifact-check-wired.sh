@@ -1,0 +1,17 @@
+#!/bin/bash
+# The outside-in artifact audit is a cut step, not a memory (ownership note,
+# 2026-08-26): release.sh must run tools/kosmos-artifact-check.sh after the
+# flip (after 9d, before 10) against the served bytes, and fail the cut on red.
+set -uo pipefail
+cd "$(dirname "$0")/.." || exit 1
+FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
+[ -x tools/kosmos-artifact-check.sh ] && ok "tools/kosmos-artifact-check.sh is present and executable" || bad "tools/kosmos-artifact-check.sh missing or not executable"
+bash -n tools/kosmos-artifact-check.sh && ok "the check parses" || bad "the check does not parse"
+L9d=$(grep -n '^echo "== 9d\.' tools/release.sh | cut -d: -f1); L9e=$(grep -n '^echo "== 9e\.' tools/release.sh | cut -d: -f1); L10=$(grep -n '^echo "== 10\.' tools/release.sh | cut -d: -f1)
+[ -n "$L9e" ] && ok "release.sh has a 9e step" || bad "release.sh has no 9e step"
+[ -n "$L9d" ] && [ -n "$L9e" ] && [ -n "$L10" ] && [ "$L9d" -lt "$L9e" ] && [ "$L9e" -lt "$L10" ] && ok "9e sits after 9d (served bytes verified) and before 10 (the local board)" || bad "9e is not between 9d and 10 ($L9d/$L9e/$L10)"
+sed -n "${L9e:-0},${L10:-0}p" tools/release.sh | grep -q 'kosmos-artifact-check.sh" --repo "\$REPO"' && ok "9e runs the vendored check with --repo" || bad "9e does not run tools/kosmos-artifact-check.sh --repo"
+sed -n "${L9e:-0},${L10:-0}p" tools/release.sh | grep -q '^  exit 1' && ok "a red audit exits the cut non-zero" || bad "a red audit does not fail the cut"
+# the served-bytes constraint: the check must fetch from the site base, never read the staged tree
+grep -q 'KOSMOS_SITE_BASE' tools/kosmos-artifact-check.sh && ! grep -q 'BUILD_ROOT\|STAGE/' tools/kosmos-artifact-check.sh && ok "the check reads the served site, not the staged tree" || bad "the check references the staged tree"
+[ "$FAILS" -eq 0 ] && echo "artifact check wired: all hold" || { echo "artifact check wired: $FAILS failed"; exit 1; }
