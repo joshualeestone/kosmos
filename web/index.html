@@ -1292,7 +1292,6 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
    provenance. The grid card dropped its own copy of this line (#855, Josh,
    2026-08-25: "junking up the page"), so `.asaid` itself is retired --
    `saidLine()` is unchanged and still backs the other two. */
-.lstate .lsaid { display: block; font-size: .75rem; font-weight: 400; color: var(--k-ink-2); }
 .dsaid { display: block; font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
 /* `.acut` is retired: the pack dropped the rule AND the divs together, and a
    surviving rule would still draw a line under markup that no longer exists. */
@@ -2283,8 +2282,9 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      precedent in this file (.agauge/.dav-wrap/.pjmidhead). The kept row
      sits on its own third line; its state word takes the quiet size while
      .ansgo keeps its own larger .8125rem (it is the action, and its
-     SC 2.5.3 name contract wants it legible). .lsaid inside the row is
-     still hidden by the rule below. */
+     SC 2.5.3 name contract wants it legible). The quoted said-line no longer
+     renders in a list row at all (kosmos#986), so there is nothing here to
+     hide -- see the note on the clip below. */
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate { grid-column: 2; grid-row: 3; font-size: .625rem; }
   /* 🛑 VISUALLY HIDDEN, NOT `display: none`, and the difference is the whole
      point. `display: none` takes the element out of the ACCESSIBILITY TREE as
@@ -2301,9 +2301,14 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      for the eye, sentence for the ear". These are `.vh`'s own declarations (grep `^.vh {`), inlined rather than adding a class, because the element is
      painted in two places (grep `class="lstate`) and a CSS-only fix cannot be
      forgotten by one of them.
-     ⚠️ `.lsaid` stays `display: none` (below) DELIBERATELY: the quoted chatter
-     is the thing Josh cut, and it should be gone from both channels. The state
-     WORD is what survives. Every GLYPH is already `aria-hidden` (grep for the GLYPH map),
+     ⚠️ The quoted chatter (`saidLine()`) is GONE FROM THE MARKUP, not hidden.
+     kosmos#986, Josh 2026-08-26: the grid card dropped it under #855 scoped to
+     the grid only ("junking up the page") and the list row kept it; this
+     extends the same cut to the list. Removing the RENDER rather than adding a
+     `display: none` is deliberate -- a hide has to be repeated on every new
+     surface and can be forgotten, while an absent element cannot come back by
+     accident. `saidLine()` itself is unchanged and still backs the other
+     surfaces. The state WORD is what survives. Every GLYPH is already `aria-hidden` (grep for the GLYPH map),
      so what is announced here is `copy.label` and nothing else. */
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate:not(:has(.ansgo)) {
     position: absolute; width: 1px; height: 1px;
@@ -2321,7 +2326,6 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .lrow > .lav > .lring { display: block; position: absolute; inset: 0; width: 34px; height: 34px; }
   html[data-layout="consolidated"] body.consolidated .lring .gf.warn, html[data-layout="consolidated"] body.consolidated .lring .gf.high { stroke-width: 2.5; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lav > .lwarn { display: block; position: absolute; left: 50%; top: 50%; width: 18px; height: 16px; transform: translate(-50%, -52%); }
-  html[data-layout="consolidated"] body.consolidated .lrow > .lstate .lsaid { display: none; }
   /* The board's stats row and summary belong to the tab, not the rail; the
      list rows say each agent's state, and the + at the rail's top (a later
      piece) is where New agent moves. */
@@ -9796,7 +9800,7 @@ function lrow(a) {
          surfaces reading the SAME saidLine() derivation is still what
          keeps them from disagreeing on the FACT if the list row ever
          grows the line back; showing it is now a per-surface choice. -->
-    <div class="lstate">${GLYPH[m.st]}${esc(copy.label)}${answerBtn(a)}${saidLine(a) ? `<small class="lsaid">${esc(saidLine(a))}</small>` : ''}</div>
+    <div class="lstate">${GLYPH[m.st]}${esc(copy.label)}${answerBtn(a)}</div>
     <div class="ltask">${esc(taskLine(a))}</div>
     <div class="lmodel">${esc(modelLine(a))}</div>
     <div class="lmem">${mem}</div>

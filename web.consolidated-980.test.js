@@ -227,9 +227,14 @@ test('the state chatter is hidden from the EYE only, and a needs-you row keeps i
   assert.match(rule[0], /clip-path:\s*inset\(50%\)/,
     'the .lstate hide is no longer the visually-hidden clip, so it is not keeping the state word for screen readers');
   /* The chatter itself SHOULD be gone from both channels: it is the quoted
-     last-words line Josh called nonsense, not a state. */
-  assert.match(PAGE, new RegExp(cons + ' \\.lrow > \\.lstate \\.lsaid \\{ display: none; \\}'),
-    'the quoted last-words line is no longer hidden outright -- Josh cut it, and it should not survive for screen readers either');
+     last-words line Josh called nonsense, not a state.
+     kosmos#986 strengthened this from a HIDE to an ABSENCE: the list row no
+     longer renders `.lsaid` at all, so there is no rule to assert and nothing
+     a new surface could forget to hide. Asserting the class is absent from the
+     whole page is the stronger claim, and it fails if anyone reintroduces the
+     render -- which the old `display: none` pin would have happily allowed. */
+  assert.doesNotMatch(PAGE, /lsaid/,
+    'the quoted last-words line is being rendered again somewhere -- Josh cut it under #855 (grid) and #986 (list); it should not exist in the markup at all');
   assert.match(PAGE, new RegExp(cons + ' \\.lrow:has\\(\\.lstate \\.ansgo\\) > \\.lav \\{ grid-row: 1 \\/ span 3; \\}'),
     'the avatar no longer spans the Answer row, so the kept .lstate misaligns');
   /* Every state glyph stays aria-hidden, or the clip above starts announcing
