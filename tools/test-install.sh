@@ -1623,14 +1623,30 @@ echo "-- control: a DEFAULT KOSMOS_HOME with AGENT_WORKFORCE_DATA unset still ta
 D924_DEFHOME="$SB/d924-defaulthome"
 mkdir -p "$D924_DEFHOME/Library/Application Support/AgentWorkforce/bin"
 printf 'default-scenario supervisor\n' > "$D924_DEFHOME/Library/Application Support/AgentWorkforce/bin/sentinel"
-RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
-  HOME="$D924_DEFHOME" AGENT_WORKFORCE_LAUNCH="$SB/launch924c" KOSMOS_HOME_APP_DIR="$SB/d924home-apps-c" KOSMOS_APP_DIR="$SB/apps924c" \
+# ⚠️ NO AGENT_WORKFORCE_LAUNCH OVERRIDE HERE, DELIBERATELY. An earlier
+# version of this scenario passed one anyway (copy-pasted from the
+# sandboxed scenarios above) while leaving KOSMOS_HOME at its real
+# default -- LAUNCH sandboxed, DATA/PROJECTS/WORKERS not, which is
+# exactly the half-sandboxed shape `engine/sandbox.js`'s #634 guard
+# exists to refuse. Caught by running this scenario, not by reading it:
+# the board printed "Kosmos will not start half-sandboxed" and the
+# install step itself failed before uninstall was ever reached. Leaving
+# AGENT_WORKFORCE_LAUNCH unset here is safe -- $HOME is already this
+# scenario's own fake $D924_DEFHOME, so the real default it falls back to
+# is "$D924_DEFHOME/Library/LaunchAgents", not the operator's actual one.
+RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_LAUNCH \
+  HOME="$D924_DEFHOME" KOSMOS_HOME_APP_DIR="$SB/d924home-apps-c" KOSMOS_APP_DIR="$SB/apps924c" \
   sh > "$SB/d924-default-install.log" 2>&1 || RC=$?
+[ "$RC" = 0 ] || {
+  echo "DEBUG #924 control install log:"; cat "$SB/d924-default-install.log";
+  echo "DEBUG #924 control board.log:"; cat "$D924_DEFHOME/.local/share/kosmos/logs/board.log" 2>&1;
+  echo "DEBUG #924 control install.log:"; cat "$D924_DEFHOME/.local/share/kosmos/logs/install.log" 2>&1;
+}
 chk "#924 control (default KOSMOS_HOME) install exits 0" "rc_ok $RC"
 HOME="$D924_DEFHOME" "$D924_DEFHOME/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free before the control uninstall runs" "wait_port_free"
-RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
-  HOME="$D924_DEFHOME" AGENT_WORKFORCE_LAUNCH="$SB/launch924c" KOSMOS_HOME_APP_DIR="$SB/d924home-apps-c" KOSMOS_APP_DIR="$SB/apps924c" \
+RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_LAUNCH \
+  HOME="$D924_DEFHOME" KOSMOS_HOME_APP_DIR="$SB/d924home-apps-c" KOSMOS_APP_DIR="$SB/apps924c" \
   sh -s -- --uninstall > "$SB/d924-default-uninstall.log" 2>&1 || RC=$?
 chk "control uninstall exits 0" "rc_ok $RC"
 chk "control: the real (for this scenario's fake HOME) Application Support supervisor IS swept, matching pre-#924 behavior" \
