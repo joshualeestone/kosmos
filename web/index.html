@@ -5836,19 +5836,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      is consent for the listed names only, and a fleet click never
      overrides a per-agent Not now (those names show here so the person can
      change their mind on the agent's own page). -->
-<div class="rm-back" id="docf-modal" hidden>
-  <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="docf-title" aria-describedby="docf-changing">
-    <h2 class="rm-title" id="docf-title">Add the working rules to every agent that is missing them?</h2>
-    <ul class="rst-list" id="docf-changing"></ul>
-    <ul class="rst-list" id="docf-staying"></ul>
-    <div class="rm-acts">
-      <button class="btn" id="docf-keep" type="button">Keep as it is</button>
-      <button class="btn" id="docf-go" type="button">Add them</button>
-    </div>
-    <div class="fmsg" id="docf-msg" role="status" aria-live="polite"></div>
-  </div>
-</div>
-
 <div class="rm-back" id="rst-modal" hidden>
   <div class="rm-box" role="alertdialog" aria-modal="true"
        aria-labelledby="rst-title" aria-describedby="rst-small">
@@ -8367,22 +8354,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <p class="dhint" id="hist-count" style="margin:6px 0 0;"></p>
     </div>
     <button class="btn-quiet" type="button" id="hist-go">Delete history&hellip;</button>
-  </div>
-  <!-- #539: the fleet-wide consented refresh, in Advanced (Mona Lisa's
-       your-call-where, Splinter's front-load case: get the current working
-       rules into every agent that predates them, one consent, per-agent
-       verdicts, and never past a per-agent Not now. -->
-  <div class="boardrow">
-    <div>
-      <b>The working rules</b>
-      <p class="dhint" style="margin:4px 0 0;max-width:60ch;">
-        Agents made before the current working rules can have them added,
-        with your OK, under their own heading. Your own words in each
-        agent&rsquo;s instructions are never touched.
-      </p>
-      <p class="dhint" id="docf-verdicts" style="margin:6px 0 0;"></p>
-    </div>
-    <button class="btn-quiet" type="button" id="set-doctrine-go">Add the working rules to every agent that is missing them&hellip;</button>
   </div>
   </section>
   </div>
@@ -16329,17 +16300,6 @@ document.getElementById('doc-keep').addEventListener('click', closeDocModal);
 document.getElementById('doc-modal').addEventListener('click', (e) => {
   if (e.target.id === 'doc-modal') closeDocModal();
 });
-let DOCF_OPENER = null;
-function closeDocfModal() {
-  document.getElementById('docf-modal').hidden = true;
-  const back = (DOCF_OPENER && document.contains(DOCF_OPENER)) ? DOCF_OPENER : document.getElementById('set-doctrine-go');
-  DOCF_OPENER = null;
-  if (back) back.focus();
-}
-document.getElementById('docf-keep').addEventListener('click', closeDocfModal);
-document.getElementById('docf-modal').addEventListener('click', (e) => {
-  if (e.target.id === 'docf-modal') closeDocfModal();
-});
 document.getElementById('doc-go').addEventListener('click', async () => {
   const plan = DOCTRINE_PLAN;
   const msg = document.getElementById('doc-msg');
@@ -16381,74 +16341,6 @@ document.getElementById('doc-go').addEventListener('click', async () => {
 
 /* The fleet half: list before the click, consent for the listed names only,
    verdict sentences after, one per agent, never silence. */
-let DOCF_NAMES = [];
-document.getElementById('set-doctrine-go').addEventListener('click', async () => {
-  const changing = document.getElementById('docf-changing');
-  const staying = document.getElementById('docf-staying');
-  const msg = document.getElementById('docf-msg');
-  changing.textContent = ''; staying.textContent = ''; msg.textContent = ''; DOCF_NAMES = [];
-  try {
-    const res = await fetch('/api/doctrine/fleet', { cache: 'no-store' });
-    /* An error renders an ERROR sentence, never the false all-clear
-       (Angel's review: got.agents||[] fell through to "Nobody is missing
-       them" on a failed read, a success nobody checked). */
-    if (!res.ok) throw new Error('no');
-    const got = await res.json();
-    if (got && got.ok === false) throw new Error('no');
-    for (const a of got.agents || []) {
-      const li = document.createElement('li');
-      if (a.state === 'refresh') {
-        DOCF_NAMES.push(a.sessionName);
-        li.textContent = a.name + ' will get the working rules.';
-        changing.appendChild(li);
-      } else {
-        li.textContent = a.state === 'current' ? a.name + ' already has them.'
-          : a.state === 'declined' ? a.name + ' stays: you said Not now. Change your mind on their page.'
-            : a.name + ' stays: ' + (a.because || 'we could not read their instructions') + '.';
-        staying.appendChild(li);
-      }
-    }
-    if (!DOCF_NAMES.length) {
-      const li = document.createElement('li');
-      li.textContent = 'Nobody is missing them.';
-      changing.appendChild(li);
-    }
-    document.getElementById('docf-go').disabled = DOCF_NAMES.length === 0;
-    DOCF_OPENER = document.getElementById('set-doctrine-go');
-    document.getElementById('docf-modal').hidden = false;
-    document.getElementById('docf-keep').focus();
-  } catch {
-    document.getElementById('docf-verdicts').textContent = 'We could not reach Kosmos to look.';
-  }
-});
-document.getElementById('docf-go').addEventListener('click', async () => {
-  const msg = document.getElementById('docf-msg');
-  if (!DOCF_NAMES.length) return;
-  try {
-    const res = await fetch('/api/doctrine/refresh-fleet', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ names: DOCF_NAMES }),
-    });
-    if (!res.ok) throw new Error('no');
-    const got = await res.json();
-    if (!Array.isArray(got.verdicts) || !got.verdicts.length) {
-      /* A result with no verdicts is a silent result, which this dialog's
-         whole copy contract forbids: sentences, never silence. */
-      msg.textContent = 'We could not tell what happened; nothing is confirmed changed. Look at an agent’s own page to check.';
-      return;
-    }
-    const lines = (got.verdicts || []).map((v) => v.name + ': '
-      + (v.state === 'added' ? 'Added.'
-        : v.state === 'current' ? 'Already has them.'
-          : v.state === 'declined' ? 'Left alone: you said Not now for ' + v.name + '.'
-            : 'Left alone: ' + (v.because || 'we could not read ' + v.name + '’s instructions, so we did not change them') + '.'));
-    msg.textContent = lines.join(' ');
-    document.getElementById('docf-verdicts').textContent = lines.join(' ');
-  } catch {
-    msg.textContent = 'We could not reach Kosmos to do that.';
-  }
-});
-
 function renderStale(s) {
   const el = document.getElementById('d-instr-stale');
   if (!s || s.state === 'current') {
@@ -22502,9 +22394,9 @@ document.getElementById('nt-go').addEventListener('click', async () => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!document.getElementById('hist-modal').hidden) closeHistModal();
-  /* #539's two consent dialogs leave on Escape like every sibling. */
+  /* #539's consent dialog leaves on Escape like every sibling. The fleet-wide
+     one went with kosmos#1002; the per-agent dialog is the one that remains. */
   if (!document.getElementById('doc-modal').hidden) closeDocModal();
-  if (!document.getElementById('docf-modal').hidden) closeDocfModal();
   /* New task is a dialog again (#766), so Escape leaves it, keeping the draft
      the way Cancel does. The task PAGE stays a page (#206, #383): no Escape. */
   if (!document.getElementById('nt-modal').hidden) leaveNewTask();
@@ -22521,7 +22413,6 @@ document.addEventListener('keydown', (e) => {
        fold's summary is a REAL tab stop and is listed, or shift-Tab from
        it would leak backwards off the dialog. */
     ['doc-modal', ['doc-fold-sum', 'doc-keep', 'doc-go'], 'doc-keep'],
-    ['docf-modal', ['docf-keep', 'docf-go'], 'docf-keep'],
   ]) {
     const back = document.getElementById(backId);
     if (back.hidden) continue;
