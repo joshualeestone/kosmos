@@ -757,11 +757,15 @@ test('every copy of the default port agrees, and none of them sits in the epheme
   const fromServer = /process\.env\.PORT \|\| (\d+)/.exec(strip(read('server.js')));
   const fromLauncher = /_kosmos_default_port=(\d+)/.exec(strip(read('install/kosmos')));
   const fromSetup = /_kosmos_default_port=(\d+)/.exec(strip(read('install/setup.sh')));
-  assert.ok(fromServer && fromLauncher && fromSetup, 'one of the three pinned-primary defaults could not be found');
+  // postinstall uses its own variable names (_KOSMOS_PAGE_PORT, not
+  // _kosmos_default_port) since it computes the page's port as root, ahead
+  // of the board it hands off to -- same fact, differently-named copy.
+  const fromPostinstall = /_KOSMOS_PAGE_PORT=(\d+)$/m.exec(strip(read('install/pkg-scripts/postinstall')));
+  assert.ok(fromServer && fromLauncher && fromSetup && fromPostinstall, 'one of the four pinned-primary defaults could not be found');
 
-  const ports = [fromServer[1], fromLauncher[1], fromSetup[1]].map(Number);
+  const ports = [fromServer[1], fromLauncher[1], fromSetup[1], fromPostinstall[1]].map(Number);
   assert.equal(new Set(ports).size, 1,
-    'the three copies of the pinned-primary default port disagree: ' + ports.join(', ')
+    'the four copies of the pinned-primary default port disagree: ' + ports.join(', ')
     + ' -- the icon and the board would open different ports for the primary account');
 
   const port = ports[0];
@@ -772,18 +776,25 @@ test('every copy of the default port agrees, and none of them sits in the epheme
     'the default is in macOS\'s ephemeral range (49152+), where the kernel hands out '
     + 'ports at random -- a fixed listener there fails intermittently');
 
-  /* #910: the two shell formulas that compute a NON-primary account's
+  /* #910: all THREE shell formulas that compute a NON-primary account's
      port must also agree with each other, and the whole derived range
      they can produce (16181-20179 for realistic uids) must stay clear
-     of the ephemeral pool the same way the pinned literal does. */
+     of the ephemeral pool the same way the pinned literal does.
+     Variable-name-agnostic on purpose: install/kosmos and install/setup.sh
+     name theirs _kosmos_uid/_kosmos_default_port, postinstall names its
+     own CONSOLE_UID/_KOSMOS_PAGE_PORT (it computes as root, ahead of the
+     board) -- the shape (16180 + 1 + (UID % N)) is the fact that must
+     hold, not the identifier spelling it. */
   const formulaOf = (src) => {
-    const m = /_kosmos_default_port=\$\(\(16180 \+ 1 \+ \(_kosmos_uid % (\d+)\)\)\)/.exec(strip(src));
+    const m = /=\$\(\(16180 \+ 1 \+ \([A-Za-z_][A-Za-z0-9_]* % (\d+)\)\)\)/.exec(strip(src));
     return m ? Number(m[1]) : null;
   };
   const modLauncher = formulaOf(read('install/kosmos'));
   const modSetup = formulaOf(read('install/setup.sh'));
-  assert.ok(modLauncher !== null && modSetup !== null, 'the non-primary derivation formula could not be found in one of the two shell files');
+  const modPostinstall = formulaOf(read('install/pkg-scripts/postinstall'));
+  assert.ok(modLauncher !== null && modSetup !== null && modPostinstall !== null, 'the non-primary derivation formula could not be found in one of the three shell files');
   assert.equal(modLauncher, modSetup, 'install/kosmos and install/setup.sh use different moduli for the non-primary derivation');
+  assert.equal(modLauncher, modPostinstall, 'install/pkg-scripts/postinstall uses a different modulus for the non-primary derivation -- the installing page would poll a port the board never binds');
   // The `+ 1` in the formula (16180 + 1 + (uid % mod)) is what keeps the
   // smallest possible result at 16181, never back onto the pinned-primary
   // 16180 -- structural, not something worth re-deriving in a separate
