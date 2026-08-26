@@ -4175,6 +4175,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    longer applies: `.llm-m` still carries the dimensions every row needs, and
    now it always has real content to size. */
 #firstrun .llm-m { width: 34px; height: 34px; flex: 0 0 34px; display: block; }
+/* Josh, 2026-08-26 07:08, from the options page: OpenAI's mark reads smaller
+   than Claude's and Gemini's in the same 34px box. Measured why rather than
+   guess a number: Claude's path spans its full 0-125 viewBox edge to edge
+   (100% fill); OpenAI's spans only ~175-541 of its own 0-716 viewBox (about
+   51% fill) -- real whitespace baked into the source mark, not a sizing bug
+   in this rule. His ask was 50% larger specifically, not "match exactly", so
+   a plain scale rather than re-deriving a crop. */
+#firstrun .llm-m[data-pmark="openai"] svg { transform: scale(1.5); }
 #firstrun .fieldlab { display: block; font-size: .75rem; letter-spacing: .1em; text-transform: uppercase;
                       font-weight: 600; color: var(--k-ink-2); margin-bottom: 6px; }
 /* ⚠️ THIS IS THE RULE THAT ACTUALLY DRESSES THE WIZARD'S FIELDS, and it beats
@@ -5654,12 +5662,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              #fr-sub beneath it. -->
         <div id="fr-openai-flow" hidden style="margin: -2px 0 10px;">
           <p class="dhint" style="margin:0 0 8px;">Paste an OpenAI API key. It stays on this Mac with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
+          <!-- Josh, 2026-08-26 07:01, from the options page: one row, key
+               and Add together, no Show/Hide. Settings' own #acct-openai-key
+               keeps Show/Hide so a long pasted key can be checked before
+               pressing Add; first-run trades that check away on purpose for
+               a shorter row, his explicit call, not a case where the two
+               screens differ on the underlying risk. -->
           <div class="frow">
             <input type="password" id="fr-openai-key" autocomplete="off" spellcheck="false"
                    aria-label="OpenAI API key" placeholder="sk-…">
-            <button class="linkish" id="fr-openai-show" type="button" aria-pressed="false">Show</button>
-          </div>
-          <div class="frow" style="margin-top:8px;">
             <button class="btn" id="fr-openai-go" type="button">Add</button>
           </div>
           <p class="dhint" id="fr-openai-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
@@ -26906,15 +26917,6 @@ document.getElementById('fr-openai-connect').addEventListener('click', () => {
   const flow = document.getElementById('fr-openai-flow');
   flow.hidden = false;
   document.getElementById('fr-openai-key').focus();
-});
-document.getElementById('fr-openai-show').addEventListener('click', () => {
-  const key = document.getElementById('fr-openai-key');
-  const show = document.getElementById('fr-openai-show');
-  const on = key.type === 'password';
-  key.type = on ? 'text' : 'password';
-  show.textContent = on ? 'Hide' : 'Show';
-  show.setAttribute('aria-pressed', String(on));
-  key.focus();
 });
 document.getElementById('fr-openai-go').addEventListener('click', async () => {
   const keyField = document.getElementById('fr-openai-key');
