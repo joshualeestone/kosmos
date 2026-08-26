@@ -1092,6 +1092,17 @@ async function tickBody(owner) {
      * (submitCode() clears it) so someone genuinely retrying wrong codes is
      * never punished for staying engaged, and cleared entirely once the
      * flow moves on (the `else` branch below).
+     *
+     * ⚠️ ONE CLOCK FOR BOTH SCREENS, DELIBERATELY -- this `if` covers
+     * browser-open AND awaiting-code together, so the budget is 15 minutes
+     * for the WHOLE wait on the browser, not 15 minutes at each stage
+     * separately. A fresh review named this directly: someone who spends 10
+     * minutes on a slow OAuth/2FA leg has only 5 left once they reach the
+     * paste-code screen. Accepted as-is -- the alternative (two independent
+     * clocks) would let a person legitimately sit for up to 30 minutes
+     * total, and 15 already matches this codebase's own definition of dead
+     * for a parked flow (DEAD_BOUND_MS). If that combined budget turns out
+     * too tight in practice, ABANDONED_SIGNIN_MS is the one number to raise.
      */
     if (!owner.browserWaitSince) owner.browserWaitSince = Date.now();
     if (Date.now() - owner.browserWaitSince > ABANDONED_SIGNIN_MS) {

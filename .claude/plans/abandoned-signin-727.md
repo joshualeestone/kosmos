@@ -117,3 +117,27 @@ Full suite: `bash tools/run-tests.sh`, 0 failures required before PR.
 ## Challenge-loop
 
 Standard `/challenge-loop` to convergence before `/create-pr`, per house process.
+
+## Deferred design tradeoffs, surfaced by challenge-loop, not code defects
+
+Two things a fresh review named that are real product judgment calls rather than bugs, both
+addressed by leaving `ABANDONED_SIGNIN_MS` a single, easily-raised constant rather than by a
+code change:
+
+- **One combined 15-minute budget for the whole browser wait, not 15 minutes at each stage.**
+  `browserWaitSince` is set once, the first tick either `browser-open` or `awaiting-code` is
+  seen, and is not restarted when the screen advances from one to the other. Someone who
+  spends 10 minutes on a slow OAuth/2FA leg has 5 minutes left once they reach the paste-code
+  screen. The alternative (two independent 15-minute clocks) would let a person legitimately
+  sit for up to 30 minutes total; a single shared budget matching this file's own existing
+  15-minute "dead" convention was judged the better default. Covered by a dedicated test
+  (`the abandonment clock survives the real-world browser-open -> awaiting-code transition,
+  not restarted`).
+- **15 minutes may be tight specifically for a delayed one-time code.** The only way to keep
+  the clock alive while parked at `awaiting-code` is `submitCode()` actually being called; a
+  person genuinely waiting on a slow-to-arrive code (spam filtering, provider queuing) has no
+  way to signal "still here" until the code shows up, and could be declared expired through no
+  fault of their own.
+
+Both are worth a look after this ships in practice; if either turns out wrong, the fix is a
+one-line change to `ABANDONED_SIGNIN_MS`'s default, not a redesign.

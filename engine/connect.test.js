@@ -974,6 +974,54 @@ driverTest('#727 item 4: a person genuinely still there, well within the bound, 
     'a flow well within the abandoned-signin bound was disturbed');
 });
 
+driverTest('#727 item 4: the abandonment clock survives the real-world browser-open -> awaiting-code transition, not restarted', async () => {
+  /**
+   * ⚠️ THE ACTUAL PATH #727/#897 LIVED IN: a person sees the browser-open
+   * spinner first, and the paste-code fallback appears once the CLI prints
+   * it -- with no keypress in between. `browserWaitSince` is set ONCE (the
+   * `if (!owner.browserWaitSince)` guard, not a per-kind timestamp) and
+   * must NOT restart when the screen advances from browser-open to
+   * awaiting-code. The math below only lets the CORRECT (un-restarted)
+   * behavior pass: by the time this test asserts STUCK, a clock that
+   * restarted at the transition would still have most of its own fresh
+   * 400ms budget left and this would time out instead.
+   */
+  connect.setAbandonedSigninMs(400);
+  const term = {
+    screen: SCREEN_THEME,
+    killed: 0,
+    runner(file, args) {
+      const cmd = args[0];
+      if (cmd === 'kill-session') { term.killed += 1; return { ok: true, stdout: '' }; }
+      if (cmd === 'capture-pane') return { ok: true, stdout: term.screen };
+      if (cmd === 'send-keys') {
+        if (term.screen === SCREEN_THEME) term.screen = SCREEN_LOGIN_METHOD;
+        else if (term.screen === SCREEN_LOGIN_METHOD) term.screen = SCREEN_SPINNER;
+        return { ok: true, stdout: '' };
+      }
+      return { ok: true, stdout: '' };
+    },
+  };
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+
+  await connect.start();
+  await until(() => connect.state().phase === connect.PHASE.SIGNIN_BROWSER_OPEN);
+
+  // Spend most of the 400ms budget at browser-open, THEN the pane advances
+  // on its own (no code, no send-keys -- just the CLI's own next line).
+  await new Promise((r) => setTimeout(r, 250));
+  term.screen = SCREEN_PASTE;
+  await until(() => connect.state().phase === connect.PHASE.SIGNIN_AWAITING_CODE);
+
+  // Only ~150ms of the original budget remains. A correct (un-restarted)
+  // clock reaches STUCK well inside this 250ms window; a clock that
+  // restarted at the transition would need its own fresh 400ms and would
+  // still be sitting at awaiting-code when this poll gives up.
+  await until(() => connect.state().phase === connect.PHASE.STUCK, 250);
+  assert.match(connect.state().because, /expired/, 'expected an honest expiry sentence');
+});
+
 driverTest('#727 item 4: a cancel mid-countdown leaves no late STUCK behind', async () => {
   /**
    * ⚠️ MAKES EXPLICIT WHAT A THIRD REVIEW TRACED BY HAND: cancel() nulls
