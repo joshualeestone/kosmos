@@ -2519,7 +2519,7 @@ const server = http.createServer((req, res) => {
        today, but a HEAD is conventionally cheap/side-effect-light, and
        nothing about it needs a per-account subprocess call to answer --
        it only asks whether the route is there. */
-    if (req.method === 'HEAD') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(); return; }
+    if (req.method === 'HEAD') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(); return; }
     accounts.listLive()
       .then((rows) => {
         const claude = rows.map((a) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', ...a }));

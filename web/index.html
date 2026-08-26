@@ -10874,6 +10874,14 @@ async function paintAccounts() {
      instant stat, a real risk now. */
   const mine = ++ACCT_EPOCH;
   box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">Checking…</p>';
+  // ⚠️ THE ANNOUNCEMENT GOES THROUGH #set-accounts-msg (already
+  // role="status"), NOT the list box itself. Making the whole account
+  // list a live region would read out every account row on every
+  // repaint; the msg line is the one place this page already commits to
+  // announcing state changes politely. Caught in challenge-loop
+  // iteration 6: this box went from an effectively-instant paint to a
+  // real, multi-second one and had no announcement for that span at all.
+  if (msg) msg.textContent = 'Checking your accounts…';
   let list = [];
   try {
     const res = await fetch('/api/accounts', { cache: 'no-store' });
@@ -10883,6 +10891,7 @@ async function paintAccounts() {
     if (mine !== ACCT_EPOCH) return;
   } catch {
     if (mine !== ACCT_EPOCH) return;
+    if (msg) msg.textContent = '';
     // ⚠️ Never "one account": a failed read must not shrink the list.
     box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">We could not read the accounts on this computer.</p>';
     return;
