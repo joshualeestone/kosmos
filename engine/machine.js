@@ -151,7 +151,7 @@ function sleepCheck(text) {
     return {
       key: 'sleep',
       state: STATE.UNKNOWN,
-      title: 'We could not tell whether this Mac goes to sleep',
+      title: 'We could not tell whether this computer goes to sleep',
       detail: (battFirst === 0
         // ⚠️ The half we DID read, for the same reason the branches below say
         // theirs. Discarding a clean battery reading because the AC section was
@@ -220,10 +220,10 @@ function sleepCheck(text) {
     return {
       key: 'sleep',
       state: STATE.UNKNOWN,
-      title: 'We could not tell what this Mac does on battery',
+      title: 'We could not tell what this computer does on battery',
       detail: (acSleep === 0
         ? 'It does not go to sleep while it is plugged in. What it does on battery is the '
-        : 'What this Mac does on battery is the ')
+        : 'What this computer does on battery is the ')
         + 'part we could not read, and that is the part that matters if you carry it home.',
     };
   }
@@ -525,7 +525,7 @@ function restartCheck(runner) {
       state: STATE.OK,
       // Josh's wording, verbatim (2026-08-17 screen-4 annotation).
       title: 'Agents made here automatically restart themselves',
-      detail: 'They come back on their own after this Mac restarts.',
+      detail: 'They come back on their own after this computer restarts.',
     };
   }
   /**
@@ -640,7 +640,7 @@ function appLocationCheck(opts) {
         // title AND detail that name no folder ("from there" would point at
         // a place the title deliberately declines to name).
         const named = i < TITLES.length;
-        const title = named ? TITLES[i] : 'We found the Kosmos icon on this Mac';
+        const title = named ? TITLES[i] : 'We found the Kosmos icon on this computer';
         const detail = named ? OPEN_FROM_THERE
           : 'Open it from where you found it. Clicking it starts Kosmos if it is not already running.';
         return { key: 'app-location', state: STATE.OK, title, detail };
@@ -803,7 +803,7 @@ function sleepPaneUrl(runner, lister) {
     arbitrary URLs on the machine. */
 function openSleepSettings(runner, lister) {
   const url = sleepPaneUrl(runner, lister);
-  if (!url) return { ok: false, because: 'we could not find the sleep settings screen on this Mac' };
+  if (!url) return { ok: false, because: 'we could not find the sleep settings screen on this computer' };
   const r = runner || run;
   const res = r('/usr/bin/open', [url]);
   return res.ok
@@ -838,18 +838,18 @@ function labelTruthCheck(runner) {
   } catch {
     return { key: 'labels', state: STATE.UNKNOWN,
       title: 'We could not check the background jobs',
-      detail: 'We could not read the folder this Mac keeps them in. That tells us about the folder, not the jobs.' };
+      detail: 'We could not read the folder this computer keeps them in. That tells us about the folder, not the jobs.' };
   }
   if (!labels.length) {
     return { key: 'labels', state: STATE.OK,
       title: 'Background jobs are as installed',
-      detail: 'No Kosmos background jobs are registered on this Mac yet.' };
+      detail: 'No Kosmos background jobs are registered on this computer yet.' };
   }
   const uid = typeof process.getuid === 'function' ? process.getuid() : null;
   if (uid === null) {
     return { key: 'labels', state: STATE.UNKNOWN,
       title: 'We could not check the background jobs',
-      detail: 'We could not tell which user this Mac is running Kosmos as.' };
+      detail: 'We could not tell which user this computer is running Kosmos as.' };
   }
   const impostors = [];
   for (const label of labels) {
@@ -864,7 +864,7 @@ function labelTruthCheck(runner) {
   if (!impostors.length) {
     return { key: 'labels', state: STATE.OK,
       title: 'Background jobs are as installed',
-      detail: 'Every Kosmos background job on this Mac points at its own real file.' };
+      detail: 'Every Kosmos background job on this computer points at its own real file.' };
   }
   const one = impostors[0];
   return { key: 'labels', state: STATE.ATTENTION,
@@ -872,7 +872,7 @@ function labelTruthCheck(runner) {
       + ' got replaced by something else',
     detail: `${one.label} is registered from ${one.registered} instead of its file in Library/LaunchAgents. `
       + 'Whatever registered it will not survive a restart, and the real one is not running. '
-      + 'Restarting this Mac puts the real one back; if this keeps happening, tell us.' };
+      + 'Restarting this computer puts the real one back; if this keeps happening, tell us.' };
 }
 
 function check(opts) {
@@ -885,7 +885,7 @@ function check(opts) {
   const sleepRow = pm.ok ? sleepCheck(pm.stdout) : {
       key: 'sleep',
       state: STATE.UNKNOWN,
-      title: 'We could not read this Mac\'s sleep settings',
+      title: 'We could not read this computer\'s sleep settings',
       detail: 'That setting decides whether your agents keep working when you walk away. You '
         + 'can see it in System Settings, under Lock Screen on a desktop or Battery on a laptop.',
   };

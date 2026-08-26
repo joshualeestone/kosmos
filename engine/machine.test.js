@@ -484,7 +484,7 @@ test('launchctl answering is a pass, and launchctl NOT answering is unknown', ()
   assert.doesNotMatch(alive.title, /^Your agents/, 'the pass speaks for the whole fleet again');
   // Josh's one-line rewrite (2026-08-17): the scope caveat about other
   // programs' agents left the row with the pack's one-line rhythm.
-  assert.match(alive.detail, /come back on their own after this Mac restarts/,
+  assert.match(alive.detail, /come back on their own after this computer restarts/,
     'the ok row lost Josh\'s wording');
 
   /**
@@ -783,7 +783,7 @@ test('the app-location check looks in both folders and answers all four states',
   fs.mkdirSync(path.join(home, 'Kosmos.app'), { recursive: true });
   const extra = machine.appLocationCheck({ appDirs: [sys, sys, home] });
   assert.equal(extra.state, machine.STATE.OK);
-  assert.match(extra.title, /found the Kosmos icon on this Mac/);
+  assert.match(extra.title, /found the Kosmos icon on this computer/);
   assert.ok(!/folder/.test(extra.title), 'the extra-dir title must name no folder');
   assert.match(extra.detail, /from where you found it/);
   fs.rmSync(path.join(home, 'Kosmos.app'), { recursive: true, force: true });
@@ -986,4 +986,29 @@ test('labelTruthCheck: a registered Kosmos label pointing anywhere but its real 
   } finally {
     if (origLaunch2 === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = origLaunch2;
   }
+});
+
+/* kosmos#1004 (Josh: call it "this computer", not "this Mac"). A COUNT, not a
+   spot-check, and the count is the whole point: the first pass at this changed
+   FOUR sentences and was reported done, while TWELVE live strings still said
+   "this Mac". Nobody was careless -- the four that were fixed were the four
+   somebody had looked at, and a spot-check cannot tell you about the ones you
+   did not think to open. So this asserts the absence across the file.
+   ⚠️ COMMENTS ARE EXEMPT ON PURPOSE. Three of them quote what an older
+   sentence used to print, and rewording those falsifies a record rather than
+   fixing copy -- the same distinction as editing a bug report to match the
+   fix. The classifier below is deliberately crude and errs toward INCLUDING a
+   line: a false positive costs someone thirty seconds, a false negative is
+   exactly the failure this test exists to stop. */
+test('no live sentence in this file still says "this Mac"', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'machine.js'), 'utf8');
+  const live = src.split('\n')
+    .map((line, i) => [i + 1, line])
+    .filter(([, line]) => line.includes('this Mac'))
+    .filter(([, line]) => {
+      const t = line.trimStart();
+      return !(t.startsWith('*') || t.startsWith('//') || t.startsWith('/*'));
+    });
+  assert.deepEqual(live, [],
+    'these lines still say "this Mac" to a person:\n' + live.map(([n, l]) => '  ' + n + ': ' + l.trim()).join('\n'));
 });
