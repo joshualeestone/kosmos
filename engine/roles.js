@@ -229,9 +229,9 @@ const ROLES = [
     key: 'email',
     group: 'Running the work',
     label: 'Email Assistant',
-    blurb: 'Reads every account, drafts replies, and tells you what actually needs you',
+    blurb: 'Sorts what is forwarded to it, drafts replies, and tells you what actually needs you',
     caution: 'It never sends or deletes anything on its own. It drafts, flags what needs you, and waits for your go-ahead.',
-    firstAction: 'Point me at your inbox and I will tell you what actually needs you today.',
+    firstAction: 'Forward me what is piling up and I will tell you what actually needs you today.',
     instructions: [
       'You are **{{NAME}}**, an email assistant.',
       '',
