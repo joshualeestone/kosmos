@@ -18,20 +18,28 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
    the wrong thing. */
 const CODE = PAGE.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
-test('pressing Connect on Claude cannot reach the download without a confirm', () => {
-  const handler = CODE.slice(CODE.indexOf("const b = e.target.closest('#fr-llm-connect')"), CODE.indexOf("const b = e.target.closest('#fr-llm-connect')") + 1400);
-  assert.ok(handler.length > 100, 'the Connect handler moved; this test is measuring nothing');
+test('NO caller can reach the download without passing the confirm gate', () => {
+  /* 🛑 THE PROPERTY, NOT THE SHAPE. An earlier version put the gate in ONE
+     listener and asserted the order of statements inside it. That passed while
+     the button a clean Mac actually presses -- the footer primary in the `none`
+     arm -- called the worker directly and downloaded 231MB with no warning.
+     A gate in a listener is a gate one new call site forgets. */
+  const worker = 'frConnectStartConfirmed';
+  const entry = CODE.slice(CODE.indexOf('async function frConnectStart(opts)'), CODE.indexOf('async function frConnectStart(opts)') + 500);
+  assert.ok(entry.length > 100, 'the gated entry moved or was renamed');
+  assert.match(entry, /frClaudeInstallNeeded\(\)/, 'the entry no longer asks whether an install is needed');
+  assert.match(entry, /frClaudeConfirmOpen\(\)/, 'the entry no longer opens the confirm');
+  assert.match(entry, new RegExp('return ' + worker + '\\(\\)'), 'the entry no longer reaches the worker at all');
 
-  /* 🛑 THE NEGATIVE ONE, and it is the point of the file. The old handler
-     called frConnectStart() directly. If the confirm branch is ever removed or
-     short-circuited, the FIRST reachable statement becomes the download again.
-     So: the gate must appear BEFORE the start call in the handler body. */
-  const gate = handler.indexOf('frClaudeInstallNeeded()');
-  const start = handler.indexOf('frConnectStart()');
-  assert.ok(gate > 0, 'the Connect handler no longer asks whether an install is needed -- it can download without asking');
-  assert.ok(start > 0, 'the Connect handler no longer starts the flow at all');
-  assert.ok(gate < start, 'the download call now precedes the confirm gate: pressing Connect downloads before asking, which is the defect this exists to prevent');
-  assert.match(handler, /return;/, 'the confirm branch no longer returns, so it falls through into the download it was meant to defer');
+  /* Every mention of the worker outside its own declaration must be that one
+     call. If a second appears, something reaches the download around the gate. */
+  const calls = (CODE.match(new RegExp(worker + '\\(', 'g')) || []).length;
+  assert.equal(calls, 2, `${worker} is called from ${calls - 1} place(s); exactly one (the gated entry) is allowed, or a caller can download without asking`);
+
+  /* The retries pass confirmed:true deliberately -- a person re-trying a failed
+     attempt has already agreed. Anything else calling the ENTRY is fine, since
+     the entry gates. */
+  assert.match(CODE, /frConnectStart\(\{ confirmed: true \}\)/, 'the post-attempt retries lost their confirmed flag and will re-ask on every retry');
 });
 
 test('the confirm names the size, because being told once the bar moves is too late to decline', () => {
@@ -64,19 +72,42 @@ test('the reveal is announced, not just drawn', () => {
   assert.match(handler, /\.focus\(\)/, 'focus never moves into the revealed panel: pressing Connect by keyboard appears to do nothing');
 });
 
-test('a Mac that already has Claude Code is not asked to install it', () => {
-  const fn = CODE.slice(CODE.indexOf('function frClaudeInstallNeeded()'), CODE.indexOf('function frClaudeInstallNeeded()') + 700);
-  assert.ok(fn.length > 100, 'frClaudeInstallNeeded is gone; the confirm can no longer skip when nothing would download');
-  /* Unknown must default to ASKING. Asking unnecessarily costs one click;
-     not asking is the thing Josh called total chaos. */
-  assert.match(fn, /if \(!checks\) return true;/, 'an unreadable machine answer no longer defaults to asking -- it would download silently');
-  assert.match(fn, /if \(!row\) return true;/, 'a missing Claude Code row no longer defaults to asking');
+test('the install check reads an engine answer, and asks when there is none', () => {
+  const fn = CODE.slice(CODE.indexOf('function frClaudeInstallNeeded()'), CODE.indexOf('function frClaudeInstallNeeded()') + 400);
+  assert.ok(fn.length > 50, 'frClaudeInstallNeeded is gone');
+  /* 🛑 NO /api/machine LOOKUP. A previous version searched the machine checks
+     for a Claude Code row. It guessed the row shape, so it never matched and
+     could only return true; and even a correct lookup is the wrong grain,
+     because installedCheck reports Claude Code and tmux in ONE row. */
+  assert.doesNotMatch(fn, /FR_MACHINE|checks/, 'the machine-checks lookup is back: its rows cannot answer this question at any shape, because one row covers Claude Code and tmux together');
+  assert.match(fn, /willInstall/, 'the engine answer is no longer read');
+  assert.match(fn, /return true;/, 'the unknown case no longer defaults to asking -- it would download silently');
 });
 
 test('the provider rows read Claude, GPT, Gemini', () => {
   const rows = [...PAGE.matchAll(/data-pmark="(claude|openai|gemini)"[^>]*role="img"/g)].map((m) => m[1]);
   assert.deepEqual(rows.slice(0, 3), ['claude', 'openai', 'gemini'],
     'the provider order changed: Josh asked for Claude, GPT, Gemini, and Gemini is a Coming soon row that should not sit between the only two that work');
+
+  /* 🛑 SOURCE ORDER IS NOT VISIBLE ORDER, and this assertion shipped without
+     the difference. The reorder briefly put the Gemini row INSIDE
+     #fr-openai-flow, which is `hidden` -- so the list showed five rows, Gemini
+     appeared only inside the API-key form, and the order check above passed the
+     whole time because the substrings were in the right sequence.
+     🔑 THE MEASURE IS NET DEPTH, not a count of opens against closes. A first
+     draft compared those two totals and could not fire: the GPT row's own
+     closing tag and the form's inner rows inflate the close count past the
+     single unclosed open. Between two SIBLINGS every tag that opens also
+     closes, so the net is zero; a positive net means the second row sits
+     inside something the first one did not. */
+  const rowRe = (id) => new RegExp('<div class="llm[^"]*"><span class="llm-m[^"]*" data-pmark="' + id + '"');
+  const gpt = PAGE.search(rowRe('openai'));
+  const gem = PAGE.search(rowRe('gemini'));
+  assert.ok(gpt > 0 && gem > gpt, 'could not locate the GPT and Gemini ROWS in order; this guard is measuring nothing');
+  const between = PAGE.slice(gpt, gem);
+  const depth = (between.match(/<div\b/g) || []).length - (between.match(/<\/div>/g) || []).length;
+  assert.equal(depth, 0,
+    `the Gemini row is nested ${depth} level(s) deeper than the GPT row: it sits inside a container that never closes between them (#fr-openai-flow is \`hidden\`), so it will not render in the provider list`);
 });
 
 test('a connected provider row goes green with a check, and does not read as disabled', () => {
