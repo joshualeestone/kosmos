@@ -2025,11 +2025,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      agents." Still scrolls -- scrollbar-width/-ms-overflow-style hide
      the track, not the ability to scroll it; content wheels and
      touchpad gestures are untouched. He also guessed the same
-     treatment belongs on "projects, members, files, and tasks" -- none
-     of those four currently have their OWN independent scroll region
-     in this view (they grow with the page instead), so there is no
-     scrollbar on them yet to hide. Revisit if one of them gets a
-     max-height/overflow of its own later. */
+     treatment belongs on "projects, members, files, and tasks" -- his
+     guess landed: #980's no-page-scroll grid gave all four their own
+     scroll regions (the projects rail and the three right-column cards,
+     below), each with this same hidden-track treatment. */
   /* #980: no tuned max-height -- the list's grid row is the flexing one
      (minmax(0,1fr) above), so the list fills whatever the viewport gives
      it and scrolls inside that, at every window size. */
@@ -2052,7 +2051,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      float-gap, so the agents column reads as ONE column with the person
      pinned at its foot and the rule running unbroken down its edge. */
   html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 41; display: flex; align-items: center; gap: 6px;
-    margin: 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 0; background: var(--k-side-2);
+    margin: 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 0; background: var(--k-side-2, #ebe8e2);
     position: sticky; bottom: 0; z-index: 5; }
   html[data-layout="consolidated"] body.consolidated .railme-go { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
   html[data-layout="consolidated"] body.consolidated .railme-face { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; overflow: hidden;
@@ -2084,8 +2083,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      agents column's rule rides #rail-agents/#alist/#rail-me (all three
      grid rows of column 1, zero vertical gaps between them, so the border
      reads as one line), the projects rail's rule is its own right edge. */
-  html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated #pj-list-view { background: var(--k-side); border-radius: 0; padding: 8px; }
-  html[data-layout="consolidated"] body.consolidated > #rail-agents { background: var(--k-side); border-radius: 0; padding: 8px 8px 0; margin: 0; }
+  html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated #pj-list-view { background: var(--k-side, #f3f1ec); border-radius: 0; padding: 8px; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents { background: var(--k-side, #f3f1ec); border-radius: 0; padding: 8px 8px 0; margin: 0; }
   html[data-layout="consolidated"] body.consolidated > #alist { padding-top: 0; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents, html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated > #rail-me { border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated #pj-list-view { border-right: 1px solid var(--k-rule); }
@@ -2175,7 +2174,9 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      the needs-you row's one ACTION lived in the same element, and hiding
      it left clicking the row as the only way to answer. :has() has
      precedent in this file (.agauge/.dav-wrap/.pjmidhead). The kept row
-     stays at the quiet size on its own third line; .lsaid inside it is
+     sits on its own third line; its state word takes the quiet size while
+     .ansgo keeps its own larger .8125rem (it is the action, and its
+     SC 2.5.3 name contract wants it legible). .lsaid inside the row is
      still hidden by the rule below. */
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate { grid-column: 2; grid-row: 3; font-size: .625rem; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate:not(:has(.ansgo)) { display: none; }
@@ -2232,7 +2233,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      swallow #pj-list-view's 8px padding, its own padding restores the
      inset), so scrolled rows cannot peek through side strips beside the
      pinned header. */
-  html[data-layout="consolidated"] body.consolidated #rail-projects { position: sticky; top: 0; z-index: 4; background: var(--k-side);
+  html[data-layout="consolidated"] body.consolidated #rail-projects { position: sticky; top: 0; z-index: 4; background: var(--k-side, #f3f1ec);
     margin: 0 -8px 6px; padding: 2px 10px 4px; }
   /* #867 (Josh, 2026-08-25 11:02): "push the title all the way up so
      it's flush with projects and project members" -- measured 8px low
@@ -2339,11 +2340,25 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      row at viewport height -- paints its whole column back to the page
      ground, full width and height, with the dialogue|cards rule on its
      right edge. No radii anywhere: columns, not boxes. */
-  html[data-layout="consolidated"] body.consolidated .pj3 { background: var(--k-side); border-radius: 0; padding: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj3 { background: var(--k-side, #f3f1ec); border-radius: 0; padding: 0; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-bg); border-radius: 0; border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin: 0 12px 12px; }
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin-top: 12px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .dlab { font-size: .6875rem; letter-spacing: .1em; margin-bottom: 8px; }
+  /* #980 (iteration 5): the composer strip repaints to the column's own
+     ground -- .pjmid left --k-surface for --k-bg, and the sticky composer
+     keeping the base surface drew a mismatched band across the bottom
+     (glaring in dark: #17191c on #0c0d0f), a sliver of the boxed look
+     this pass removes. The bordered composerbox inside it is unchanged. */
+  html[data-layout="consolidated"] body.consolidated .pjmid .composer { background: var(--k-bg); }
+  /* #980 (iteration 5): the card heads pin while their card scrolls, the
+     same answer the rail headers give the same gesture -- a tall Tasks
+     list was scrolling its own + control away. The head is a label plus
+     its small + (grid row 1 of the card, per the piece-ten rule below),
+     so BOTH stick, on the card's own surface. Tasks' label nests inside
+     .field, hence the descendant selector. */
+  html[data-layout="consolidated"] body.consolidated .pj3 .pjcard .dlab, html[data-layout="consolidated"] body.consolidated .pj3 aside.pjcol:not(.pjsplit) .dlab,
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask, html[data-layout="consolidated"] body.consolidated .pj3 .pjsplit .pjcard:first-child > .pj-addmem { position: sticky; top: 0; z-index: 3; background: var(--k-surface); }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem, html[data-layout="consolidated"] body.consolidated .pj3 .fi, html[data-layout="consolidated"] body.consolidated .pj3 .tkrow { padding: 6px 8px; border-radius: 9px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem:hover, html[data-layout="consolidated"] body.consolidated .pj3 .fi:hover { background: var(--k-surface); }
   /* The add/remove actions match the rail heads: a quiet + rather than a
@@ -21692,7 +21707,7 @@ function paintTaskPage() {
      whose task was deleted elsewhere. A dialog could simply be dismissed; a
      page has to go somewhere, and the project it belonged to is the only
      honest destination. */
-  if (!t) { TK_OPEN = null; if (p) { pjView('one'); } else { pjView('list'); PJ_CURRENT = null; } return; }
+  if (!t) { TK_OPEN = null; if (p) { pjView('one'); } else { pjView('list'); PJ_CURRENT = null; pjMarkOpen(null); } return; }
   TK_ACT = (t.progress ? t.progress.closed : Boolean(t.closedAt)) ? 'reopen' : 'close';
   const who = t.who ? tkMemberName(p, t.who) : null;
   document.getElementById('tk-back').textContent = '\u2190 ' + p.name;
@@ -22276,7 +22291,7 @@ document.getElementById('pjs-reveal').addEventListener('click', async () => {
 
 function paintOneProject() {
   const p = pjById(PJ_CURRENT);
-  if (!p) { pjView('list'); PJ_CURRENT = null; return; }
+  if (!p) { pjView('list'); PJ_CURRENT = null; pjMarkOpen(null); return; }
   document.getElementById('pj-one-name').textContent = p.name;
   paintProjectTasks(p);
   const desc = document.getElementById('pj-one-desc');
@@ -22961,6 +22976,15 @@ document.getElementById('pj-docs-all').addEventListener('click', () => {
   openDocsView();
 });
 
+/* #980: the ONE writer of the rail's .open selected state outside the
+   painter -- called with an id on open, with null on every path that
+   closes a project without an immediate list repaint, so a lit row can
+   never outlive the project it points at (iteration 5: topLevelReset and
+   the missing-project path nulled PJ_CURRENT and left the row lit until
+   the next poll). */
+function pjMarkOpen(id) {
+  document.querySelectorAll('#pj-list .pj-row').forEach((r) => r.classList.toggle('open', r.dataset.project === id));
+}
 function openProject(id) {
   // ⚠️ Only opens a project we actually HAVE. `paintOneProject` bails back to
   // the list when the id is not in `PROJECTS`, and showing the panel
@@ -23007,7 +23031,7 @@ function openProject(id) {
   PJ_CURRENT = id;
   // #980: selection shows the moment it happens (the painter also writes
   // .open on repaints; this covers the gap between click and next paint).
-  document.querySelectorAll('#pj-list .pj-row').forEach((r) => r.classList.toggle('open', r.dataset.project === id));
+  pjMarkOpen(id);
   document.getElementById('pj-one-msg').textContent = '';
   // ⚠️ The thread starts fresh on every OTHER project. Carrying the last
   // project's recipient over would open a conversation addressed to
@@ -25529,7 +25553,7 @@ document.getElementById('pj-new').addEventListener('click', openAddProject);
 // a question is open, on purpose) -- so the screen whose whole honesty argument
 // is "it keeps re-reading" quietly stopped, for the rest of the session, and
 // nothing said so.
-document.getElementById('pj-back').addEventListener('click', () => { pjCloseConfirm(); PJ_CURRENT = null; pjView('list'); });
+document.getElementById('pj-back').addEventListener('click', () => { pjCloseConfirm(); PJ_CURRENT = null; pjMarkOpen(null); pjView('list'); });
 document.getElementById('pj-add-back').addEventListener('click', () => pjView('list'));
 
 document.getElementById('pj-list').addEventListener('click', (e) => {

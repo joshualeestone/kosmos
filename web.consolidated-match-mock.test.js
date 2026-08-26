@@ -59,7 +59,7 @@ test('the right cards sit on the side tone; the discussion is a full-bleed colum
   // cards, the part he called correct), the discussion column paints back
   // to the page ground over its whole column, and the dialogue|cards rule
   // is the discussion's own right edge. No radii: columns, not boxes.
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 \{ background: var\(--k-side\); border-radius: 0; padding: 0; \}/,
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 \{ background: var\(--k-side, #f3f1ec\); border-radius: 0; padding: 0; \}/,
     'the right column lost its side-tone ground (or the boxes-on-a-ground look is back)');
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{ background: var\(--k-bg\); border-radius: 0; border-right: 1px solid var\(--k-rule\); \}/,
     'the discussion is boxed again (or lost the rule that separates it from the right column)');
