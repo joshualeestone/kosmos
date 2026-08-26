@@ -25,9 +25,11 @@ test('the open project stays lit: a persistent .open state, written on click and
 });
 
 test('the search placeholder follows the EFFECTIVE view, in showTab, not the saved layout', () => {
-  const st = PAGE.slice(PAGE.indexOf("document.body.classList.toggle('consolidated', cons)"), PAGE.indexOf("document.body.classList.toggle('consolidated', cons)") + 600);
-  assert.match(st, /roomSearch\.placeholder = cons \? 'Search' : 'Search this conversation'/,
-    'the placeholder swap left showTab -- a consolidated save on a narrow window would carry the wrong wording');
+  const st = PAGE.slice(PAGE.indexOf("document.body.classList.toggle('consolidated', cons)"), PAGE.indexOf("document.body.classList.toggle('consolidated', cons)") + 1400);
+  assert.match(st, /roomSearch\.placeholder = cons \? 'Search' : roomSearch\.dataset\.longPlaceholder/,
+    'the placeholder swap left showTab (or the tab-view restore stopped reading the markup-captured wording, so a markup edit could be silently reverted)');
+  assert.match(st, /if \(!roomSearch\.dataset\.longPlaceholder\) roomSearch\.dataset\.longPlaceholder = roomSearch\.placeholder/,
+    'the long wording is no longer captured from the markup once at first toggle');
   const al = PAGE.slice(PAGE.indexOf('function applyLayout('), PAGE.indexOf('function applyLayout(') + 1200);
   assert.doesNotMatch(al, /placeholder =/,
     'applyLayout swaps the placeholder again -- that keys on the SAVED layout and goes stale across the 960px resize');
@@ -58,6 +60,26 @@ test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able
   for (const id of ['id="askcard"', 'id="conn"', 'id="board-msg"']) {
     assert.ok(PAGE.includes(id), id + ' is gone; re-derive whether the auto-rows invariant still protects the right surfaces');
   }
+
+  // The 38-track headroom is a real number: the 39th simultaneously
+  // renderable auto-placed body child would spill into an implicit row
+  // below the clipped viewport -- the same invisible-surface failure the
+  // auto rows exist to prevent. Count the body's direct element children
+  // with a small depth tracker (comments stripped) and hold the margin.
+  const bodyHtml = PAGE.slice(PAGE.indexOf('<body'), PAGE.indexOf('</body>')).replace(/<!--[\s\S]*?-->/g, '');
+  let depth = 0, children = 0;
+  const tagRe = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:"[^"]*"|'[^']*'|[^"'>])*)>/g;
+  const voidTags = new Set(['img', 'input', 'br', 'hr', 'meta', 'link', 'source', 'path', 'circle', 'rect', 'use', 'stop']);
+  let m2;
+  while ((m2 = tagRe.exec(bodyHtml)) !== null) {
+    const [, close, tag, attrs] = m2;
+    if (tag === 'body') continue;
+    if (close) { depth--; continue; }
+    if (depth === 0) children++;
+    if (!voidTags.has(tag.toLowerCase()) && !/\/\s*$/.test(attrs)) depth++;
+  }
+  assert.ok(children <= 38, 'the body has ' + children + ' direct children; the consolidated grid reserves 38 pre-rail auto rows, and past it a visible notice can be silently clipped -- widen repeat(38, auto) with the count');
+  assert.ok(children >= 20, 'the body child counter read ' + children + ', implausibly low -- the counter itself has likely broken, re-derive before trusting the headroom claim');
 });
 
 test('every projects sub-view scrolls inside the no-page-scroll grid', () => {
@@ -71,7 +93,7 @@ test('every projects sub-view scrolls inside the no-page-scroll grid', () => {
 });
 
 test('the projects rail header pins over its scrolling list, like the agents header', () => {
-  assert.match(PAGE, new RegExp(cons + ' #rail-projects \\{ position: sticky; top: 0; z-index: 4; background: var\\(--k-side\\); \\}'),
+  assert.match(PAGE, new RegExp(cons + ' #rail-projects \\{ position: sticky; top: 0; z-index: 4; background: var\\(--k-side\\);'),
     'the projects header scrolls away with a long list while the agents header stays -- the two rails answer the same gesture differently');
 });
 

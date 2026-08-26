@@ -77,3 +77,12 @@ the verification section lists the measurements.
   row carries the selected style, and screenshots for the eyes-on pass.
 - sync-forced-theme.js --check clean after any dark-section change
   (regenerate via the tool, never hand-edit).
+
+## Recorded, not fixed (challenge-loop iteration 3)
+
+- While a pointer hovers a DIFFERENT row, the open project's row differs
+  from that hover only by its 1px --k-rule ring (~1.18:1 in light). The
+  persistent-when-idle state, which is what Josh asked for, reads fine;
+  the hover-collision instant is carried by a sub-threshold hairline.
+  Left as-is deliberately: strengthening the ring competes with the
+  gold accents, and the moment resolves itself when the pointer moves.

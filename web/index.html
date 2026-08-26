@@ -2211,6 +2211,9 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      is what lets each region scroll inside itself instead of pushing. */
   html[data-layout="consolidated"] body.consolidated #panel-projects { display: grid; grid-template-columns: minmax(180px, 17%) minmax(0, 1fr); column-gap: 18px; align-items: stretch; grid-template-rows: minmax(0, 1fr); }
   html[data-layout="consolidated"] body.consolidated #pj-list-view { min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+  /* The webkit companion, same as #alist's: the app ships in a WKWebView
+     and older WebKit ignores scrollbar-width alone. */
+  html[data-layout="consolidated"] body.consolidated #pj-list-view::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated #pj-one-view { min-height: 0; }
   /* 🛑 EVERY sub-view the projects panel can show needs its own scroll
      under the no-page-scroll grid (challenge-loop iteration 2's blocker):
@@ -2226,7 +2229,12 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      scroller, so a long project list scrolls UNDER it -- the same gesture
      the agents rail gives (whose header sits outside #alist's scroll), and
      the fold arrow stays reachable without scrolling back up. */
-  html[data-layout="consolidated"] body.consolidated #rail-projects { position: sticky; top: 0; z-index: 4; background: var(--k-side); }
+  /* The header's ground spans the scroller's full width (negative margins
+     swallow #pj-list-view's 8px padding, its own padding restores the
+     inset), so scrolled rows cannot peek through side strips beside the
+     pinned header. */
+  html[data-layout="consolidated"] body.consolidated #rail-projects { position: sticky; top: 0; z-index: 4; background: var(--k-side);
+    margin: 0 -8px 6px; padding: 2px 10px 4px; }
   /* #867 (Josh, 2026-08-25 11:02): "push the title all the way up so
      it's flush with projects and project members" -- measured 8px low
      against #rail-agents, traced to #pj-list-view's own top padding
@@ -2293,6 +2301,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      tall content bounds instead of growing the page. */
   html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(0, 1fr); height: 100%; min-height: 0; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; align-self: start; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard::-webkit-scrollbar, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit)::-webkit-scrollbar { display: none; }
   /* ⚠️ vh CAPS ON THE TWO auto-ROW CARDS, NOT max-height: 100% (challenge-
      loop iteration 1, then MEASURED: with 30 rows stuffed into Tasks and
      Files, %-caps against content-sized tracks let the two grow to ~460px
@@ -10851,7 +10860,13 @@ function showTab(tab) {
   // the resize re-check), never the saved layout alone -- a consolidated
   // save on a narrow window is the tab view and keeps the long wording.
   const roomSearch = document.getElementById('pj-room-search');
-  if (roomSearch) roomSearch.placeholder = cons ? 'Search' : 'Search this conversation';
+  if (roomSearch) {
+    // Capture the markup's own long wording once, so the tab-view restore
+    // is correct by construction: an edit to the placeholder in the HTML
+    // can never be silently reverted by a round-trip through this view.
+    if (!roomSearch.dataset.longPlaceholder) roomSearch.dataset.longPlaceholder = roomSearch.placeholder;
+    roomSearch.placeholder = cons ? 'Search' : roomSearch.dataset.longPlaceholder;
+  }
   document.getElementById('rail-agents').hidden = !cons;
   document.getElementById('rail-projects').hidden = !cons;
   document.getElementById('rail-me').hidden = !cons;
@@ -22272,7 +22287,7 @@ function paintOneProject() {
      pin this line used to carry. Muted and unmistakably not content, so a
      colleague reading the page cannot take the placeholder for the
      project's actual description. */
-  desc.textContent = p.description || 'This project has no description yet. Add one in Project settings.';
+  desc.textContent = p.description || 'This project has no description yet. Add one in Settings.';
   desc.classList.toggle('pj-desc-none', !p.description);
   desc.classList.toggle('pj-desc-empty', !p.description);
   desc.hidden = false;
