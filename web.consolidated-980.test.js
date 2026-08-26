@@ -66,7 +66,13 @@ test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able
   // below the clipped viewport -- the same invisible-surface failure the
   // auto rows exist to prevent. Count the body's direct element children
   // with a small depth tracker (comments stripped) and hold the margin.
-  const bodyHtml = PAGE.slice(PAGE.indexOf('<body'), PAGE.indexOf('</body>')).replace(/<!--[\s\S]*?-->/g, '');
+  // Script BODIES are stripped before counting (their JS builds tag-like
+  // strings that drift the depth tracker; verified: without this the depth
+  // ends at +23 and only ordering luck kept the count right); the empty
+  // <script></script> shells stay so the elements themselves are counted.
+  const bodyHtml = PAGE.slice(PAGE.indexOf('<body'), PAGE.indexOf('</body>'))
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/(<script\b[^>]*>)[\s\S]*?(<\/script>)/g, '$1$2');
   let depth = 0, children = 0;
   const tagRe = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:"[^"]*"|'[^']*'|[^"'>])*)>/g;
   const voidTags = new Set(['img', 'input', 'br', 'hr', 'meta', 'link', 'source', 'path', 'circle', 'rect', 'use', 'stop']);
@@ -80,6 +86,21 @@ test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able
   }
   assert.ok(children <= 38, 'the body has ' + children + ' direct children; the consolidated grid reserves 38 pre-rail auto rows, and past it a visible notice can be silently clipped -- widen repeat(38, auto) with the count');
   assert.ok(children >= 20, 'the body child counter read ' + children + ', implausibly low -- the counter itself has likely broken, re-derive before trusting the headroom claim');
+  assert.equal(depth, 0, 'the child counter ended at depth ' + depth + ', not 0 -- it is mis-parsing the markup and its count cannot be trusted');
+});
+
+test('the remaining #980 rulings each keep their pin', () => {
+  // One pin per ruling is this file's contract; these four had none.
+  assert.match(PAGE, new RegExp(cons + '\\.fold-a #alist \\.pj-empty \\{ display: none; \\}'),
+    'the folded 48px strip shows the letter-wrapped empty-state card again');
+  assert.match(PAGE, new RegExp(cons + ' \\.pj-member \\.lav\\.pj-face \\{ width: 28px; height: 28px; flex: 0 0 28px; aspect-ratio: 1; \\}'),
+    'the member avatar lost its shrink-proof 1:1 pin; a long name can squish it out of round again');
+  assert.match(PAGE, new RegExp(cons + ' \\.pjmidhead \\.pjhead \\.pj-desc \\{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; \\}'),
+    'the header description no longer truncates to one line');
+  assert.match(PAGE, /desc\.title = p\.description \|\| ''/,
+    'the truncated description lost its full-text hover (the title the truncation comment promises)');
+  assert.match(PAGE, new RegExp(cons + ' \\.pjmid \\.composerbox textarea\\.cinput \\{ scrollbar-width: none; -ms-overflow-style: none; \\}'),
+    'the composer textarea shows its scrollbar track again');
 });
 
 test('every projects sub-view scrolls inside the no-page-scroll grid', () => {

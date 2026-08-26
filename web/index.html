@@ -2086,7 +2086,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      reads as one line), the projects rail's rule is its own right edge. */
   html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated #pj-list-view { background: var(--k-side); border-radius: 0; padding: 8px; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents { background: var(--k-side); border-radius: 0; padding: 8px 8px 0; margin: 0; }
-  html[data-layout="consolidated"] body.consolidated > #alist { border-radius: 0; padding-top: 0; }
+  html[data-layout="consolidated"] body.consolidated > #alist { padding-top: 0; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents, html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated > #rail-me { border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated #pj-list-view { border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated .lrow { border: 0; background: none; box-shadow: none; border-radius: 9px; padding: 6px 6px; }
@@ -2099,7 +2099,6 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      so the rail always answers "which one am I looking at". */
   html[data-layout="consolidated"] body.consolidated .pj-row.open { background: var(--k-surface); box-shadow: 0 0 0 1px var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated #pj-list { gap: 2px; }
-  html[data-layout="consolidated"] body.consolidated #rail-projects { margin: 0 2px 6px 2px; }
   /* The rail heads: a name, a +, and the fold arrow. Folded, the arrow (and
      the +) stack and the name goes. */
   html[data-layout="consolidated"] body.consolidated .railhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 0 2px 8px 6px; min-height: 22px; }
@@ -22288,6 +22287,10 @@ function paintOneProject() {
      colleague reading the page cannot take the placeholder for the
      project's actual description. */
   desc.textContent = p.description || 'This project has no description yet. Add one in Settings.';
+  // #980: the consolidated header truncates the description to one line, so
+  // the full text must be readable HERE, not only in Settings -- the title
+  // makes the truncation-comment's hover claim true instead of aspirational.
+  desc.title = p.description || '';
   desc.classList.toggle('pj-desc-none', !p.description);
   desc.classList.toggle('pj-desc-empty', !p.description);
   desc.hidden = false;
