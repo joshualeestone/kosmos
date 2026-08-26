@@ -185,11 +185,15 @@ test('the Connect button says Connected once it is, and stops saying it if we lo
   const els = { 'fr-llm-connect': btn, 'fr-sub': { innerHTML: '' } };
   const run = (subscription) => {
     // eslint-disable-next-line no-new-func
-    new Function('document', 'FR', 'frCheckRow', 'frActions', 'frGo', 'frRecheck',
+    /* frClaudeConfirmClose joined the dependency list when the install confirm
+       arrived: the painter closes the panel on every repaint, so a verdict that
+       flips while it is open cannot leave a live Confirm under a green
+       Connected button. The harness models it like the others. */
+    new Function('document', 'FR', 'frCheckRow', 'frActions', 'frGo', 'frRecheck', 'frClaudeConfirmClose',
       body + '\nfrPaintSubscription();')(
       { getElementById: (id) => els[id] || null },
       { subscription },
-      () => '', () => {}, () => {}, () => {},
+      () => '', () => {}, () => {}, () => {}, () => {},
     );
   };
 

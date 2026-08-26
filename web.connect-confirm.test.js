@@ -16,7 +16,7 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
    suite today: an indexOf found a comment naming a declaration before the
    declaration itself, and the test failed with a true-sounding message about
    the wrong thing. */
-const CODE = PAGE.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+const CODE = PAGE.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/[^\n]*/gm, '');
 
 test('NO caller can reach the download without passing the confirm gate', () => {
   /* 🛑 THE PROPERTY, NOT THE SHAPE. An earlier version put the gate in ONE
@@ -36,40 +36,63 @@ test('NO caller can reach the download without passing the confirm gate', () => 
   const calls = (CODE.match(new RegExp(worker + '\\(', 'g')) || []).length;
   assert.equal(calls, 2, `${worker} is called from ${calls - 1} place(s); exactly one (the gated entry) is allowed, or a caller can download without asking`);
 
-  /* The retries pass confirmed:true deliberately -- a person re-trying a failed
-     attempt has already agreed. Anything else calling the ENTRY is fine, since
-     the entry gates. */
-  assert.match(CODE, /frConnectStart\(\{ confirmed: true \}\)/, 'the post-attempt retries lost their confirmed flag and will re-ask on every retry');
+  /* 🛑 EXACTLY ONE CALLER MAY BYPASS THE GATE, AND IT MUST BE THE CONFIRM BUTTON.
+     The retries used to pass confirmed:true on the reasoning that a person
+     re-trying has already agreed. In the same session they have. But the arms
+     those buttons live on are painted on a FRESH PAGE LOAD from the persisted
+     connect record, so somebody who had seen no confirm at all could press
+     "Start again" on an interrupted download and begin ~230MB with nothing on
+     screen saying so. The session flag does not survive a restart; the literal
+     did. They gate on FR_CONN_CONFIRMED now, which gets both cases right. */
+  const bypasses = (CODE.match(/frConnectStart\(\s*\{\s*confirmed:\s*true\s*\}\s*\)/g) || []).length;
+  assert.equal(bypasses, 1, `${bypasses} call sites pass confirmed:true; exactly one (the Confirm button) may. Any other is a route to the download that skips the confirm, and the arms that look like safe retries are painted on a fresh page load.`);
+  const goAt = CODE.indexOf("getElementById('fr-claude-confirm-go').addEventListener");
+  assert.ok(goAt > 0, 'the Confirm handler moved; cannot verify which call site holds the bypass');
+  assert.match(CODE.slice(goAt, goAt + 900), /frConnectStart\(\{ confirmed: true \}\)/,
+    'the one confirmed:true bypass is not in the Confirm handler, so something else is skipping the gate');
 });
 
-test('the confirm names the size, because being told once the bar moves is too late to decline', () => {
+test('the confirm states a magnitude, and does not assert an install it cannot confirm', () => {
   const box = PAGE.match(/<div id="fr-claude-confirm"[\s\S]*?<\/div>\s*<\/div>/);
   assert.ok(box, 'the confirm panel is gone');
-  /* Rough, not exact. Josh, 15:27: a person "doesnt care if its 108 or 127MB..
-     they just want to know its making progress installing". The sentence has to
-     say it is big enough to wait for; the bar says it is moving. */
-  assert.match(box[0], /install Claude Code first/, 'the confirm no longer says what is being installed');
-  /* 🔑 THE SIZE IS ASKED FOR, NOT TYPED. A number written into markup goes stale
-     the day the vendor changes the file. The sentence is built at reveal time
-     from what the engine is about to fetch, with an honest floor when it cannot
-     answer. */
-  assert.doesNotMatch(box[0], /\d+\s?MB/, 'a size is hardcoded in the markup again -- it will go stale and lie on the screen where trust is decided');
-  const fn = CODE.slice(CODE.indexOf('function frClaudeConfirmSentence'), CODE.indexOf('function frClaudeConfirmSentence') + 600);
-  assert.match(fn, /It is a large download\.'/, 'the no-size floor is gone: with no answer from the engine the box would say nothing about magnitude');
-  assert.match(fn, /It is a large download, about '/, 'the sentence no longer states a magnitude when one is known');
-  assert.doesNotMatch(fn, /minutes/, 'a time estimate came back: Josh dropped it and we cannot know a connection');
-  assert.match(box[0], /install Claude Code first/, 'the confirm no longer says what is being installed');
-  assert.doesNotMatch(box[0], /minutes|minute/, 'a time estimate came back: Josh dropped it (15:07, "that seems hard") and we cannot know a person\'s connection, so any figure is a promise the product breaks');
   assert.match(box[0], /id="fr-claude-confirm-go"/, 'the Confirm button is gone');
   assert.match(box[0], /id="fr-claude-confirm-no"/, 'the Not now escape is gone -- a confirm with no way out is an announcement');
+  /* No size typed into the markup: a number in a sentence goes stale. */
+  assert.doesNotMatch(box[0], /\d+\s?MB/, 'a size is hardcoded in the markup again');
+
+  const fn = CODE.slice(CODE.indexOf('function frClaudeConfirmSentence'), CODE.indexOf('function frClaudeConfirmSentence') + 900);
+  assert.ok(fn.length > 100, 'frClaudeConfirmSentence moved');
+  /* 🛑 CONDITIONAL WHILE THE ANSWER IS UNKNOWN. A flat "we need to install
+     Claude Code first" is FALSE on a Mac that already has it, and could make
+     someone decline a download that was never going to happen. */
+  assert.match(fn, /If it is not here already we will install it/,
+    'the unknown case asserts an install again: on a Mac that already has Claude Code that sentence is false');
+  assert.match(fn, /we need to install Claude Code first/,
+    'the known case lost Josh\'s approved wording');
+  assert.match(fn, /a large download/, 'the magnitude is gone in one or both arms');
+  assert.doesNotMatch(fn, /minutes/, 'a time estimate came back');
 });
 
 test('the reveal is announced, not just drawn', () => {
   assert.match(PAGE, /id="fr-llm-connect" aria-expanded="false" aria-controls="fr-claude-confirm"/,
-    'the Connect button lost its expanded/controls contract, so a screen reader is not told a panel opened beneath it');
-  const handler = CODE.slice(CODE.indexOf("const b = e.target.closest('#fr-llm-connect')"), CODE.indexOf("const b = e.target.closest('#fr-llm-connect')") + 1400);
-  assert.match(handler, /setAttribute\('aria-expanded'/, 'aria-expanded is never updated, so it lies after the first press');
-  assert.match(handler, /\.focus\(\)/, 'focus never moves into the revealed panel: pressing Connect by keyboard appears to do nothing');
+    'the Connect button lost its expanded/controls contract');
+  /* ⚠️ ANCHORED ON frClaudeConfirmOpen, WHICH IS WHERE THIS BEHAVIOUR LIVES.
+     A previous version anchored on the Connect listener and sliced forward, and
+     both assertions were satisfied by the NEXT listener in the file -- so
+     deleting the focus move and the aria set from the opener left this test
+     green. Fourth wrong anchor in this branch; the shape is always the same,
+     a slice that reaches past the thing it names. */
+  const at = CODE.indexOf('function frClaudeConfirmOpen(');
+  assert.ok(at > 0, 'frClaudeConfirmOpen is gone; this test is measuring nothing');
+  const open = CODE.slice(at, at + 700);
+  assert.match(open, /setAttribute\('aria-expanded', 'true'\)/, 'the opener no longer announces that a panel opened');
+  assert.match(open, /\.focus\(\)/, 'focus never moves into the revealed panel: pressing Connect by keyboard appears to do nothing');
+  assert.match(open, /FR_CONFIRM_OPENER/, 'the opener is no longer tracked, so aria and focus land on whichever button is hard-wired rather than the one pressed');
+
+  /* The panel must not survive a repaint that changes the verdict. */
+  const paint = CODE.slice(CODE.indexOf('function frPaintSubscription'), CODE.indexOf('function frPaintSubscription') + 900);
+  assert.match(paint, /frClaudeConfirmClose\(\)/,
+    'a repaint no longer closes the confirm: it can sit open under a green Connected button with a live Confirm in it');
 });
 
 test('the install check reads an engine answer, and asks when there is none', () => {

@@ -26651,9 +26651,19 @@ function frConnWatch() {
  * ⇒ Every caller now passes through this. A new call site cannot forget the
  * confirm, because there is no ungated entry to forget it with.
  *
- * `opts.confirmed` is how the Confirm button and the post-attempt retries say
- * "the person has already agreed to this download in this session". Retrying
- * a failed attempt must not re-ask; starting fresh must.
+ * `opts.confirmed` is ONLY for the Confirm button itself. Everything else,
+ * including the retries, gates on `FR_CONN_CONFIRMED`, which is per-session.
+ *
+ * 🛑 THE RETRIES USED TO PASS `confirmed: true` AND THAT WAS A CROSS-SESSION
+ * BYPASS. "Try again" and "Start again" look like post-attempt retries, and in
+ * the same session they are. But the `stuck` and `interrupted` arms they live
+ * on are painted on a FRESH PAGE LOAD, from the persisted connect record --
+ * so a person who has seen no confirm at all could press "Start again" on an
+ * interrupted download and begin ~230MB with no size anywhere on screen. The
+ * session flag does not survive a restart; the literal did.
+ * ⇒ Gating on the flag alone gets both cases right for free: a same-session
+ * retry stays silent because the flag is already true, and a cross-session one
+ * asks because it is not.
  */
 let FR_CONN_CONFIRMED = false;
 
@@ -26924,7 +26934,7 @@ function frPaintConnect(st) {
          and is the honest way forward from here. */
       : ', or carry on and connect later from Settings.')
     + '</div>';
-    frActions({ label: 'Try again', go: () => frConnectStart({ confirmed: true }) }, { label: 'Continue anyway', go: () => frGo(4) });
+    frActions({ label: 'Try again', go: () => frConnectStart() }, { label: 'Continue anyway', go: () => frGo(4) });
     return;
   }
 
@@ -26951,7 +26961,7 @@ function frPaintConnect(st) {
       title: 'A connection attempt was interrupted',
       detail: 'Kosmos was closed while it was ' + frConnBefore(before) + '. ' + afterSentence,
     });
-    frActions({ label: 'Start again', go: () => frConnectStart({ confirmed: true }) }, { label: 'Continue anyway', go: () => frGo(4) });
+    frActions({ label: 'Start again', go: () => frConnectStart() }, { label: 'Continue anyway', go: () => frGo(4) });
     return;
   }
 
@@ -27090,13 +27100,20 @@ function frClaudeInstallNeeded() {
  * figure then describes the exact file THIS Mac is about to get, on machines
  * we have never seen, and cannot drift because we do not maintain it.
  *
- * Returns bytes, or null when we genuinely do not know.
+ * ⚠️ RETURNS A NUMBER ALWAYS, today. The null arm exists for the day the engine
+ * answers and can answer "no idea"; while the constant is the fallback there is
+ * no path to it, and an earlier version of this line claimed otherwise. Saying
+ * a function can return null when it cannot is how a dead branch gets pinned by
+ * a test that can never fail for the reason it states.
  */
 function frClaudeDownloadBytes() {
   const st = (FR && FR.connect) || null;
   const n = st && st.willInstallBytes;
   if (Number.isFinite(n) && n > 0) return n;
-  return 230e6;   // ⚠️ replace with the engine's answer; see above
+  return 230824016;   // ⚠️ replace with the engine's answer; see above.
+  // The real arm64 artifact, so this reads 231MB and AGREES with the download
+  // bar beside it, which counts the engine's own bytes. 230e6 rendered 230MB
+  // and the two disagreed by a megabyte on the same screen.
 }
 
 /** Megabytes, never bytes. Josh, 15:27: a person "doesnt care if its 108 or
@@ -27105,22 +27122,44 @@ function frRoughMB(bytes) {
   return Math.round(bytes / 1e6) + 'MB';
 }
 
+/**
+ * 🛑 THE SENTENCE MUST NOT ASSERT AN INSTALL WE CANNOT CONFIRM WILL HAPPEN.
+ * While `frClaudeInstallNeeded` can only answer "we do not know", a flat "we
+ * need to install Claude Code first" is FALSE on any Mac that already has it
+ * -- including the working Claude Max machine the `unknown` verdict arm spends
+ * three paragraphs protecting. Someone could decline a download that was never
+ * going to happen, on the screen that decides whether they continue.
+ *
+ * ⇒ Conditional while unknown, flat once the engine can tell us. Josh's
+ * approved wording is the flat form; this is the same sentence with the one
+ * clause honesty requires until the answer exists.
+ */
 function frClaudeConfirmSentence() {
   const bytes = frClaudeDownloadBytes();
-  const base = 'In order to connect to Claude, we need to install Claude Code first.';
-  return bytes === null
-    ? base + ' It is a large download.'
-    : base + ' It is a large download, about ' + frRoughMB(bytes) + '.';
+  const size = bytes === null ? 'a large download' : 'a large download, about ' + frRoughMB(bytes);
+  const st = (FR && FR.connect) || null;
+  const known = st && typeof st.willInstall === 'boolean';
+  return known
+    ? 'In order to connect to Claude, we need to install Claude Code first. It is ' + size + '.'
+    : 'Connecting to Claude needs Claude Code on this Mac. If it is not here already we will install it, ' + size + '.';
 }
 
-function frClaudeConfirmOpen() {
+/* ⚠️ THE OPENER IS TRACKED, because there are two of them. The panel is opened
+   from the row's Connect AND from the footer primary in the `none` arm -- which
+   is the button a clean Mac actually presses. Hard-wiring the reveal contract
+   to the row button put aria-expanded on a control nobody had pressed, and sent
+   focus back up several rows on Not now, to a different button. */
+let FR_CONFIRM_OPENER = null;
+
+function frClaudeConfirmOpen(opener) {
   const box = document.getElementById('fr-claude-confirm');
   const t = document.getElementById('fr-claude-confirm-t');
-  const btn = document.getElementById('fr-llm-connect');
+  const btn = opener || document.getElementById('fr-llm-connect');
   if (!box) return;
+  FR_CONFIRM_OPENER = btn || null;
   if (t) t.textContent = frClaudeConfirmSentence();
   box.hidden = false;
-  if (btn) btn.setAttribute('aria-expanded', 'true');
+  if (btn && btn.setAttribute) btn.setAttribute('aria-expanded', 'true');
   /* Focus moves INTO the panel. A reveal that leaves focus on the trigger is
      invisible to a screen reader and to anyone driving this by keyboard: they
      press Connect and, as far as they can tell, nothing happened. */
@@ -27130,9 +27169,10 @@ function frClaudeConfirmOpen() {
 
 function frClaudeConfirmClose() {
   const box = document.getElementById('fr-claude-confirm');
-  const btn = document.getElementById('fr-llm-connect');
+  const btn = FR_CONFIRM_OPENER || document.getElementById('fr-llm-connect');
   if (box) box.hidden = true;
-  if (!btn) return;
+  FR_CONFIRM_OPENER = null;
+  if (!btn || !btn.setAttribute) return;
   btn.setAttribute('aria-expanded', 'false');
   /* ⚠️ NOT UNCONDITIONALLY. A background recheck can repaint to `connected`
      while this panel is open, which disables the button and turns it green.
@@ -27170,7 +27210,11 @@ document.getElementById('fr-claude-confirm-go').addEventListener('click', (e) =>
      guards against: the person presses Confirm and, for a screen reader or a
      keyboard, the screen goes quiet. The status line is where the flow speaks
      next, so focus follows the story. */
-  const say = document.getElementById('fr-sub-msg');
+  /* ⚠️ #fr-sub, NOT #fr-sub-msg. The message line is cleared by the worker one
+     line later and only ever carries an error, so on the success path focus
+     landed on an empty element -- and it sits AFTER the container that receives
+     the phase panel, so a screen reader reading forward started below the news. */
+  const say = document.getElementById('fr-sub');
   if (say) { if (!say.hasAttribute('tabindex')) say.setAttribute('tabindex', '-1'); say.focus(); }
   Promise.resolve(frConnectStart({ confirmed: true })).finally(() => {
     b.disabled = false;
@@ -27182,9 +27226,12 @@ document.getElementById('fr-claude-confirm-go').addEventListener('click', (e) =>
    Connect button live again. It does NOT advance the wizard and it does not
    record a refusal: they have declined a download, not declined Claude. */
 document.getElementById('fr-claude-confirm-no').addEventListener('click', () => {
+  /* Focus returns to whoever opened it, captured BEFORE close clears it.
+     Always returning to the row button dropped a keyboard user several rows up
+     the page, into a control they had not pressed. */
+  const back = FR_CONFIRM_OPENER || document.getElementById('fr-llm-connect');
   frClaudeConfirmClose();
-  const connect = document.getElementById('fr-llm-connect');
-  if (connect) connect.focus();
+  if (back && back.focus) back.focus();
 });
 
 /* #944-adjacent: OpenAI's own reveal/submit. Each gets its own direct
@@ -27366,6 +27413,13 @@ function frPaintSubscription() {
      the card it sits on, over the 3:1 a control boundary needs.
      📌 aria-disabled as well as disabled: some browse modes skip a disabled
      control, and this one carries the outcome the person is waiting for. */
+  /* ⚠️ CLOSE THE CONFIRM ON ANY REPAINT. Reachable: open the panel from the
+     unknown arm, press Check again, and if the verdict flips to connected the
+     button goes green and disabled while the panel stays open beneath it with a
+     live Confirm and a stale aria-expanded. That is the two-answers-on-one-
+     screen defect this block exists to prevent, reintroduced by the new panel. */
+  frClaudeConfirmClose();
+
   if (connectBtn) {
     const done = sub.state === 'connected';
     connectBtn.innerHTML = done ? '<span aria-hidden="true">\u2713</span> Connected' : 'Connect';

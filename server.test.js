@@ -5028,6 +5028,11 @@ function firstRunHarness(name, state, opts = {}) {
     let FR_FOUND_GEN = 0;
     let FR_STEP = 6;   // the fleet screen is the LAST step, not the machine check
     function frFindAgents() {}
+    /* frPaintSubscription closes the install confirm on every repaint, so a
+       verdict flipping to connected while the panel is open cannot leave a live
+       Confirm sitting under a green Connected button. Stubbed here because this
+       harness tests what the painter RENDERS, not the panel. */
+    function frClaudeConfirmClose() {}
     /* The REAL row painter, shared with the board's own found list. Stubbing it
        would put every assertion below about a row against markup written here
        instead of the markup that ships. */
