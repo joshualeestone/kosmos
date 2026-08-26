@@ -239,6 +239,20 @@ codesign -v "$STAGE/app/bin/kosmos-app" 2>&1 | sed 's/^/    /' || { echo "the na
 # proves the signed binary loads and executes without needing a window
 # server, which a build machine may not have.
 "$STAGE/app/bin/kosmos-app" --kosmos-app-selftest >/dev/null 2>&1 || { echo "the signed native app does not run (--kosmos-app-selftest failed); it may not load under hardened runtime" >&2; exit 1; }
+# The Reload state machine (#965), diffed against its expected eight-row
+# table -- the hatch exists so this decision logic is machine-checked at
+# build time instead of only by a headed walk. A drift here is a real
+# behavior change in Cmd-R, so the build refuses it.
+_reload_table_expected='startInFlight=false committed=false lastLoadFailed=false -> startBoard
+startInFlight=false committed=false lastLoadFailed=true -> startBoard
+startInFlight=false committed=true lastLoadFailed=false -> reload
+startInFlight=false committed=true lastLoadFailed=true -> startBoard
+startInFlight=true committed=false lastLoadFailed=false -> ignore
+startInFlight=true committed=false lastLoadFailed=true -> ignore
+startInFlight=true committed=true lastLoadFailed=false -> ignore
+startInFlight=true committed=true lastLoadFailed=true -> ignore'
+_reload_table_actual="$("$STAGE/app/bin/kosmos-app" --kosmos-app-reload-decision-selftest 2>&1)" || { echo "the native app's --kosmos-app-reload-decision-selftest failed to run" >&2; exit 1; }
+[ "$_reload_table_actual" = "$_reload_table_expected" ] || { printf '%s\n' "the native app's Reload decision table drifted from the expected eight rows (#965):" "$_reload_table_actual" >&2; exit 1; }
 _app_bin_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')"
 echo "==> native app: kosmos-app signed $_app_bin_sha"
 

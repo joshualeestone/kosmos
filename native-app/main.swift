@@ -425,8 +425,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 // leaked for that attempt -- the re-arm, not this kill, is
                 // the user-facing guarantee.
                 if let s = self.inFlightStart, s.generation == generation {
-                    logLine("watchdog: terminating hung kosmos start (pid \(s.process.processIdentifier))")
-                    s.process.terminate()
+                    if s.process.isRunning {
+                        logLine("watchdog: terminating hung kosmos start (pid \(s.process.processIdentifier))")
+                        s.process.terminate()
+                    } else {
+                        // The child already exited; the hang is the drain
+                        // (a grandchild holding stderr). Nothing to kill
+                        // safely -- and no SIGTERM at a possibly-recycled pid.
+                        logLine("watchdog: hung start's child already exited; drain blocked by an inherited fd, leaving it")
+                    }
                     self.inFlightStart = nil
                 }
                 // Bump the generation so the hung start, if it EVER resolves,
@@ -437,8 +444,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 // next Cmd-R reaches the now-running board anyway.
                 self.boardStartGeneration += 1
                 // Say so; a silent blank window is the failure mode this
-                // whole feature exists to end.
-                self.showStartupFailureAlert(detail: "Kosmos is taking unusually long to start. Press Cmd-R to try again.")
+                // whole feature exists to end. Neutral headline: the start
+                // did not conclusively fail, it is being given up on.
+                self.showStartupFailureAlert(detail: "Kosmos is taking unusually long to start. Press Cmd-R to try again.", title: "Kosmos is still starting")
             }
         }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -488,9 +496,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
-    private func showStartupFailureAlert(detail: String) {
+    private func showStartupFailureAlert(detail: String, title: String = "Kosmos could not start") {
         let alert = NSAlert()
-        alert.messageText = "Kosmos could not start"
+        alert.messageText = title
         alert.informativeText = detail
         alert.alertStyle = .critical
         alert.addButton(withTitle: "OK")
@@ -555,18 +563,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Attribution: is this failure about the user's reload, or about
         // something else (most often a navigation the reload superseded)?
         // Identity against the token webView.reload() returned answers it.
-        // If no token was captured (reload() may return nil), fall back to
-        // unattributed: an armed flag claims the failure, the pre-token
-        // behavior. A nil navigation with a live token cannot be attributed
-        // and is treated as not-ours.
-        let isReloadNav: Bool
-        if let nav = navigation, let ours = reloadNavigation {
-            isReloadNav = nav === ours
-        } else if reloadNavigation == nil {
-            isReloadNav = recoverOnReloadFailure
-        } else {
-            isReloadNav = false
-        }
+        // The token is always live while the one-shot is armed (the .reload
+        // branch disarms immediately when reload() returns no navigation),
+        // so there is no unattributed case; a nil navigation cannot be
+        // attributed and is treated as not-ours.
+        let isReloadNav = navigation != nil && navigation === reloadNavigation
         if isBenignCancellation(error) {
             // -999 of the reload's OWN navigation means that reload is over,
             // disarm -- a stale one-shot would fire a surprise board restart
@@ -579,7 +580,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             }
             return
         }
-        lastLoadFailed = true
+        // Flag the page only when this failure says something about what is
+        // ON SCREEN: the reload's own navigation failing, or a failure with
+        // no committed page behind it. An unrelated navigation failing over
+        // a healthy committed page (a JS-driven fetch of a dead endpoint)
+        // must not rob the next Cmd-R of its plain reload -- the same
+        // user-cost the -999 carve-out above prevents, for other codes.
+        if isReloadNav || webView.backForwardList.currentItem == nil {
+            lastLoadFailed = true
+        }
         // One-shot fall-through: the user's reload hit a dead page (the
         // board died AFTER a good load, the likeliest field case). Recover
         // on THIS press instead of making them press twice, whichever
@@ -632,6 +641,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             logLine("reload: webView.reload() of \(webView.url?.absoluteString ?? "<committed page>")")
             recoverOnReloadFailure = true
             reloadNavigation = webView.reload()
+            if reloadNavigation == nil {
+                // reload() declined -- no navigation started, so there is
+                // nothing to attribute and the one-shot must not survive to
+                // claim some later unrelated failure.
+                recoverOnReloadFailure = false
+                logLine("reload: webView.reload() returned no navigation; one-shot disarmed")
+            }
         case .startBoard:
             logLine("reload: no healthy page (committed=\(committed), lastLoadFailed=\(lastLoadFailed)), re-running loadBoard()")
             loadBoard()
