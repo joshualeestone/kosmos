@@ -343,7 +343,14 @@ cat > "$sb4/fake-claude" <<'FAKE'
 # honest fixture for a sandbox that has no account; an empty answer would
 # make the sandbox's verdict depend on how the parser treats silence.
 [ "$1" = --version ] && { echo "claude 0.0.0-fake"; exit 0; }
-[ "$1" = auth ] && [ "$2" = status ] && { echo '{"logged_in":false}'; exit 0; }
+# ⚠️ THE EXACT SHAPE, CAPTURED, NOT A PLAUSIBLE ONE. engine/subscription.js
+# gates on `typeof parsed.loggedIn === 'boolean'` -- camelCase -- so a
+# snake_case key falls through to "we could not make sense of the answer",
+# which is the ambiguous verdict this fixture exists to avoid. The real
+# command answers {"loggedIn": false, "authMethod": "none"} and exits 1;
+# both halves are copied here, per the repo's fixture-discipline rule that a
+# fixture is a capture and not a guess.
+[ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
 exit 0
 FAKE
 chmod +x "$sb4/fake-claude"

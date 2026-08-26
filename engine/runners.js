@@ -44,7 +44,7 @@ const os = require('os');
 const path = require('path');
 const https = require('https');
 const crypto = require('crypto');
-const { execFile, execFileSync } = require('child_process');
+const { execFile } = require('child_process');
 
 const HOME = os.homedir();
 
@@ -216,7 +216,13 @@ function homeDir() {
  * providers and the claude branch is different in kind: its rungs are the env
  * override then the VENDOR's canonical `~/.local/bin/claude`, with `managed`
  * always false, because a vendor-external kind has no Kosmos-managed location
- * to install into. Both branches key on homeDir() and on isRunnable().
+ * to install into.
+ *
+ * ⚠️ ONLY THE CLAUDE BRANCH KEYS ON homeDir(). The openai rungs go through
+ * managedRoot(), which keys on the bare module HOME and has its own sandbox
+ * seam (AGENT_WORKFORCE_RUNNERS_DIR) -- see its comment. Both branches DO
+ * share isRunnable(). An earlier version of this line claimed both shared
+ * both, which contradicted managedRoot's own comment sixty lines up.
  *
  * 📌 This block was stranded for one iteration -- it sat above isRunnable() and
  * homeDir() rather than above the function it documents, so it described the
@@ -276,8 +282,8 @@ function resolveBin(provider, opts) {
  *     null for vendor-external, which moves no bytes -- a link is not a
  *     download and must not draw a bar), version (tarball: the pinned one;
  *     vendor-external: null), because (failed only), proved (installed
- *     only: the runner's own --version line), linked (vendor-external: the
- *     found path a link points at, null otherwise) }
+ *     only: the runner's own --version line), linked (vendor-external only:
+ *     the found path a link points at, null when it did not link) }
  *
  * ⚠️ THE `null`-NOT-MISSING RULE, AND ITS HONEST SCOPE. An absent field is
  * dropped by JSON.stringify, which makes "this kind has no version"
@@ -308,10 +314,13 @@ function status() {
     if (r.present && jobs[provider] && jobs[provider].phase === 'failed') delete jobs[provider];
     out[provider] = {
       name: m.name,
-      // The screens branch on this: a tarball gets a real byte progress bar,
-      // a vendor-external kind gets no bar at all, because until #997 its
+      // What the screens WILL branch on: a tarball gets a real byte progress
+      // bar, a vendor-external kind gets no bar at all, because until #997 its
       // only fetching phase is `linking` and a link moves no bytes. Stated
       // rather than left to be inferred from nulls.
+      // 📌 Future tense on purpose: nothing in web/ or native-app/ reads
+      // /api/runners yet. Publishing the field ahead of its consumer is fine;
+      // claiming it HAS one is the kind of comment that reads as verified.
       kind: m.kind || 'tarball',
       // pinnedVersion, NOT a claim about the binary on disk: presence is
       // existence, and a legacy or older managed runner may answer any
@@ -694,7 +703,7 @@ function install(provider, opts) {
 function installVendor(provider, m, o, existing) {
   const canonical = existing.bin;
   const prove = o.prove || ((bin, done) => execFile(bin, ['--version'], { timeout: 30000 }, done));
-  const findElsewhere = o.findElsewhere || (() => {
+  const findElsewhere = o.findElsewhere || (async () => {
     // `which` under a launchd-started board sees the stock PATH, which
     // hides Homebrew and npm-global installs -- the very copies setup.sh's
     // `command -v` (a login shell) finds. So the known homes are probed
@@ -709,14 +718,17 @@ function installVendor(provider, m, o, existing) {
       '/usr/local/bin/' + m.binName,
       path.join(homeDir(), '.npm-global', 'bin', m.binName),
     ];
-    try {
-      // stdio: a routine "not found" from `which` is an ANSWER here, not an
-      // incident, and inheriting stderr writes it into the board's own log on
-      // every miss.
-      const found = String(execFileSync('/usr/bin/which', [m.binName],
-        { timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] })).trim();
-      if (found) candidates.push(found);
-    } catch { /* not on the server's PATH; the explicit rungs stand */ }
+    // ASYNC, not execFileSync: see the comment at the call site. A routine
+    // "not found" from `which` is an ANSWER here, not an incident, so a
+    // non-zero exit resolves to no extra candidate rather than rejecting, and
+    // stderr is discarded rather than written into the board's own log on
+    // every miss.
+    const found = await new Promise((resolve) => {
+      execFile('/usr/bin/which', [m.binName], { timeout: 5000 }, (err, stdout) => {
+        resolve(err ? '' : String(stdout || '').trim());
+      });
+    });
+    if (found) candidates.push(found);
     for (const c of candidates) {
       if (c !== canonical && isRunnable(c)) return c;
     }
@@ -766,23 +778,42 @@ function installVendor(provider, m, o, existing) {
   const run = (async () => {
     try {
       /**
-       * ⚠️ YIELD FIRST, AND IT IS NOT COSMETIC. An async function body runs
-       * SYNCHRONOUSLY up to its first await, and `server.js` calls
-       * `runners.install()` straight from the HTTP handler -- so without this
-       * line the default `findElsewhere`'s `execFileSync('/usr/bin/which')`
-       * blocks the single-threaded board for up to its 5s timeout: the UI
-       * poll, agent supervision and every other request, frozen, on the one
-       * request that was meant to be a background job. Awaiting anything at
-       * all puts the rest of this function on a later tick, where the job
-       * record (already in `jobs[provider]`) is what the poller reads.
+       * ⚠️ THE PROBE IS ASYNC, AND A MICROTASK IS NOT ENOUGH.
+       *
+       * `server.js` calls `runners.install()` straight from the HTTP handler,
+       * and an async function body runs SYNCHRONOUSLY up to its first await --
+       * so a synchronous `which` here blocks the single-threaded board for up
+       * to its 5s timeout: the UI poll, agent supervision, every other
+       * request, frozen, on the one call that was meant to be a background
+       * job.
+       *
+       * 🛑 AN EARLIER FIX FOR THIS WAS `await Promise.resolve()` AND IT FIXED
+       * NOTHING. That queues a MICROTASK, which the runtime drains at the end
+       * of the current tick, BEFORE returning to the event loop -- so the
+       * board was frozen for exactly as long, just after the response had been
+       * handed to the socket instead of before. The comment claimed the
+       * opposite. The only real fix is for the probe itself not to block.
        */
-      await Promise.resolve();
-      const elsewhere = findElsewhere();
+      const elsewhere = await findElsewhere();
       if (elsewhere) {
-        fs.mkdirSync(path.dirname(canonical), { recursive: true });
+        try {
+          fs.mkdirSync(path.dirname(canonical), { recursive: true });
+        } catch (err) {
+          fail(`we found ${m.name} at ${elsewhere} but could not create ${path.dirname(canonical)} to link it into; check that folder's permissions`);
+          return;
+        }
         const blocked = clearForLink();
         if (blocked) { fail(blocked); return; }
-        fs.symlinkSync(elsewhere, canonical);
+        try {
+          fs.symlinkSync(elsewhere, canonical);
+        } catch (err) {
+          // Named, not an errno. The directory case beside this one is
+          // deliberately errno-free and has a test asserting so; a write that
+          // fails for permissions or a full disk deserves the same treatment
+          // rather than `EACCES: permission denied, symlink '...' -> '...'`.
+          fail(`we found ${m.name} at ${elsewhere} but could not put a link to it at ${canonical}; check that folder's permissions`);
+          return;
+        }
         job.linked = elsewhere;
       } else {
         /**
