@@ -1200,9 +1200,9 @@ const server = http.createServer((req, res) => {
                          sentence claims only what was checked: no profile,
                          nothing set up. */
                       ? ('Kosmos made this agent once, but only its folder'
-                          + (k.job ? ' and a startup job remain' : ' remains')
+                          + (k.job ? ' and an auto-start file remain' : ' remains')
                           + ' on disk. Removing it clears it off the board; its files are never deleted')
-                      : 'Kosmos no longer has this agent set up: a startup job was found on disk. Removing it stops that job and clears it off the board')
+                      : 'Kosmos no longer has this agent set up: an auto-start file was found on disk. Removing it stops that file from starting anything and clears it off the board')
                   : (k.job && !k.folder)
                   /* #127: the distinct, broken state this row now surfaces. A
                      job with no folder cannot start (it has nothing to run) and
@@ -1210,7 +1210,7 @@ const server = http.createServer((req, res) => {
                      it, which this row finally makes reachable. Said before the
                      switched-off case because it is the stronger fact: a folder
                      that is gone is gone whether or not the job is also off. */
-                  ? 'this agent cannot run: its folder is gone but a leftover startup job remains. Remove it here to stop that job for good'
+                  ? 'this agent cannot run: its folder is gone but a leftover auto-start file remains. Remove it here to stop it for good'
                   : unseen
                   /* #668: both halves are facts we hold right now, and the
                      sentence claims nothing past them -- not why, not what to
