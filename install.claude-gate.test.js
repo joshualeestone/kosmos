@@ -105,13 +105,19 @@ function run({ homeHasClaude, pathClaude, installer }) {
     fs.writeFileSync(c, '#!/bin/sh\nexit 0\n'); fs.chmodSync(c, 0o755);
   }
   /**
-   * ⚠️ THE CARRY ARM MUST NEVER REACH THE REAL NETWORK FROM A TEST. The
-   * gate's install URL is overridable (an operator-mirror seam), and every
-   * case here sets it to a LOCAL stub via file://, which curl speaks:
-   * 'lands'  a stub installer that writes a runnable claude where
-   *          Anthropic's own does,
+   * 🛑 THE STUB IS ARMED ON PURPOSE, AND THERE IS NO LONGER A CARRY ARM.
+   *
+   * This block used to explain how to keep the install arm off the real
+   * network. That arm is gone, and the shipped function no longer reads the
+   * mirror override at all (asserted above). The stub stays for the OPPOSITE
+   * reason: `'lands'` writes a runnable claude exactly where the retired
+   * installer put one, so every case runs with a loaded gun pointed at the
+   * old behaviour and then asserts nothing landed. A test that only read the
+   * sentences would pass against code that still downloaded.
+   *
+   * 'lands'  a stub that writes a runnable claude at the canonical path,
    * 'fails'  a stub that exits 1,
-   * absent   a file:// URL with nothing behind it (curl -f fails).
+   * absent   a file:// URL with nothing behind it.
    */
   let installUrl = `file://${sb}/no-such-installer.sh`;
   if (installer === 'lands') {
@@ -188,8 +194,11 @@ test('⭐ genuinely absent: the install COMPLETES, and nothing is downloaded', (
      is asked to send us, and this is the commonest machine state: without a
      line there, "we looked and found nothing" is indistinguishable from "we
      never looked". A log is not a screen, so the ruling is untouched. */
-  assert.match(fs.readFileSync(r.log, 'utf8'), /no Claude Code at .*and none on PATH; nothing installed/,
+  const logged = fs.readFileSync(r.log, 'utf8');
+  assert.match(logged, /no Claude Code at .*and none on PATH; nothing installed/,
     'the install transcript cannot say whether Kosmos even looked');
+  assert.match(logged, /^\[\d+\] /m,
+    'the line carries no run id, so two overlapping runs interleave invisibly in the one file we ask a stranger to send us');
   // 🛑 THE LOAD-BEARING ASSERTION. The stub installer would have landed a
   // runnable claude if anything still called it.
   assert.equal(fs.existsSync(nodePath.join(r.home, '.local', 'bin', 'claude')), false,
@@ -204,7 +213,7 @@ test('installed elsewhere: LINKED into place, which moves no bytes and installs 
      reachable only through a route no screen calls -- engine/connect.js looks
      ONLY at the canonical path, never at `command -v claude`. So removing it
      would have told a person with Claude Code at /opt/homebrew/bin that a
-     link was coming and instead given them a fresh 231MB download of what
+     link was coming and instead given them a fresh full download of what
      they already have.
 
      ⚠️ It does not breach the ruling either: the rule is that nothing
@@ -221,6 +230,56 @@ test('installed elsewhere: LINKED into place, which moves no bytes and installs 
     'it copied or downloaded rather than linking');
   // And the download stub was armed the whole time: linking is not installing.
   assert.doesNotMatch(r.out, /Installing it now/, 'the retired install sentence is back');
+});
+
+test('the link it writes is ACCEPTED on the next run, so a linked Mac does not loop', () => {
+  /* ⚠️ RESTORED from the pre-#979 file. Updates re-run this installer, so a
+     symlink that failed the function's own `-f && -x` accept test would be
+     re-reported forever. The link arm is the only one that WRITES, so it is
+     the only one that can disagree with itself. */
+  const first = run({ homeHasClaude: false, pathClaude: true, installer: 'lands' });
+  assert.match(first.out, /Claude Code linked at /);
+  const second = execFileSync('/bin/sh', ['-c', HARNESS + gate()], {
+    encoding: 'utf8',
+    env: { HOME: first.home, PATH: '/usr/bin:/bin', LOG: first.log },
+  });
+  assert.match(second, /Claude Code found at /,
+    'the function refuses the very link it created, so every linked machine loops');
+});
+
+test('a broken link at the path WITH a working claude elsewhere gets the one-shot replace', () => {
+  /* The pairing the unrunnable arm used to swallow by returning early: the
+     person most likely to re-download the whole binary of something they already have. */
+  const sb = sandbox();
+  const home = nodePath.join(sb, 'home');
+  fs.mkdirSync(nodePath.join(home, '.local', 'bin'), { recursive: true });
+  fs.symlinkSync(nodePath.join(sb, 'moved-away'), nodePath.join(home, '.local', 'bin', 'claude'));
+  const bin = nodePath.join(sb, 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const c = nodePath.join(bin, 'claude');
+  fs.writeFileSync(c, '#!/bin/sh\nexit 0\n'); fs.chmodSync(c, 0o755);
+  const out = execFileSync('/bin/sh', ['-c', HARNESS + gate()], {
+    encoding: 'utf8',
+    env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, LOG: nodePath.join(sb, 'l.log') },
+  });
+  assert.match(out, /cannot run, and Claude Code is installed at /);
+  assert.match(out, /&& ln -s/, 'the one-shot replacement is not offered although a working claude is on PATH');
+});
+
+test('a SYMLINK TO A DIRECTORY is refused, not accepted because -f followed it', () => {
+  /* RESTORED. `-f` follows symlinks, which is what lets a link to a real
+     binary pass; the other half of that is that a link to a FOLDER must not. */
+  const sb = sandbox();
+  const home = nodePath.join(sb, 'home');
+  fs.mkdirSync(nodePath.join(home, '.local', 'bin'), { recursive: true });
+  const dir = nodePath.join(sb, 'a-folder');
+  fs.mkdirSync(dir);
+  fs.symlinkSync(dir, nodePath.join(home, '.local', 'bin', 'claude'));
+  const out = execFileSync('/bin/sh', ['-c', HARNESS + gate()], {
+    encoding: 'utf8',
+    env: { HOME: home, PATH: '/usr/bin:/bin', LOG: nodePath.join(sb, 'l.log') },
+  });
+  assert.match(out, /cannot run/, 'a symlink to a folder was accepted as a runner');
 });
 
 test('something present that cannot run: named, and the install still COMPLETES', () => {
