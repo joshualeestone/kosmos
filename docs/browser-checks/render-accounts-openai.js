@@ -83,7 +83,11 @@ let failed = 0;
   const rows = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-box')].filter((r) => r.getBoundingClientRect().height > 0).map((r) => r.innerText.replace(/\s+/g, ' ').trim()));
   say('the row lists by provider with the key tail', rows.some((r) => /OpenAI/.test(r) && !/Codex/.test(r) && /API key ending WALK/.test(r)), JSON.stringify(rows));
   say('no OpenAI row carries the history arm', !rows.some((r) => /OpenAI/.test(r) && /history/.test(r)));
-  say('every box says Connected', rows.length > 0 && rows.every((r) => /Connected/.test(r)), JSON.stringify(rows));
+  // #962: Connected is now a LIVE answer. The harness points the check at a
+  // stub that accepts exactly the walk key (tools/browser-checks.sh), so this
+  // line proves the live path renders Connected on an accepted key, not that
+  // a badge is hardcoded.
+  say('every box says Connected (live check against the harness stub accepted the walk key)', rows.length > 0 && rows.every((r) => /Connected/.test(r)), JSON.stringify(rows));
   const disconnectDisabled = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-disconnect')].every((b) => b.disabled));
   say('Disconnect is disabled everywhere (no engine route yet, #770)', disconnectDisabled);
   // Create form: OpenAI provider -> account menu offers the new account

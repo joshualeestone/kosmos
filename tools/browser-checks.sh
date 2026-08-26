@@ -326,7 +326,23 @@ key=$(cat); mkdir -p "$CODEX_HOME"; printf '{"auth_mode":"apikey","OPENAI_API_KE
 FAKE
 chmod +x "$sb4/fake-codex"
 write_fleet "$sb4"
+# A stand-in for api.openai.com/v1/models (#962): the badge now checks a key
+# live, and a page gate must not send a fake key to OpenAI, nor depend on
+# OpenAI answering. The stub accepts exactly the walk's key and refuses any
+# other with OpenAI's own invalid_api_key shape, so both badge states are
+# reachable from the check without a network.
+P_OAI="$(free_port)"
+AGENT_WORKFORCE_OPENAI_WALK_KEY="sk-proj-walkwalkwalkwalkwalkWALK" PORT="$P_OAI" node -e '
+  const ok = "Bearer " + process.env.AGENT_WORKFORCE_OPENAI_WALK_KEY;
+  require("node:http").createServer((q, r) => {
+    const good = q.url === "/v1/models" && q.headers.authorization === ok;
+    r.writeHead(good ? 200 : 401, { "content-type": "application/json" });
+    r.end(JSON.stringify(good ? { data: [{ id: "gpt-4o" }] } : { error: { code: "invalid_api_key", message: "Incorrect API key provided" } }));
+  }).listen(Number(process.env.PORT), "127.0.0.1");
+' > "$sb4/openai-stub.log" 2>&1 &
+SERVER_PIDS+=("$!")
 AGENT_WORKFORCE_HOME="$sb4/home" AGENT_WORKFORCE_CODEX_BIN="$sb4/fake-codex" \
+  AGENT_WORKFORCE_OPENAI_MODELS_URL="http://127.0.0.1:$P_OAI/v1/models" \
   AGENT_WORKFORCE_DATA="$sb4/data" AGENT_WORKFORCE_WORKERS="$sb4/workers" \
   AGENT_WORKFORCE_LAUNCH="$sb4/launch" AGENT_WORKFORCE_PROJECTS="$sb4/projects" \
   AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb4/panes.txt" \

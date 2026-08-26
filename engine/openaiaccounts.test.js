@@ -267,3 +267,31 @@ test('#960: listLive() catches one row throwing so it cannot sink the others', (
     });
   } finally { openai.checkLive = realCheckLive; openai.setFetcher(null); }
 });
+
+test('#962 harness seam: AGENT_WORKFORCE_OPENAI_MODELS_URL points the live check at a stand-in, read per call', async () => {
+  const http = require('node:http');
+  const srv = http.createServer((q, r) => {
+    const good = q.url === '/v1/models' && q.headers.authorization === 'Bearer sk-walk';
+    r.writeHead(good ? 200 : 401, { 'content-type': 'application/json', connection: 'close' });
+    r.end(JSON.stringify(good ? { data: [{ id: 'gpt-4o' }] } : { error: { code: 'invalid_api_key' } }));
+  });
+  await new Promise((res) => srv.listen(0, '127.0.0.1', res));
+  const dir = nodePath.join(SANDBOX, "seam-" + Date.now());
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, "auth.json"), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-walk' }));
+  const prev = process.env.AGENT_WORKFORCE_OPENAI_MODELS_URL;
+  try {
+    process.env.AGENT_WORKFORCE_OPENAI_MODELS_URL = 'http://127.0.0.1:' + srv.address().port + '/v1/models';
+    openai.setFetcher(null);
+    const r = await openai.checkLive(dir);
+    assert.equal(r.state, sub.STATE.CONNECTED, JSON.stringify(r));
+    fs.writeFileSync(nodePath.join(dir, "auth.json"), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-other' }));
+    const bad = await openai.checkLive(dir);
+    assert.equal(bad.state, sub.STATE.NONE, JSON.stringify(bad));
+    assert.match(bad.because, /did not accept/);
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_OPENAI_MODELS_URL; else process.env.AGENT_WORKFORCE_OPENAI_MODELS_URL = prev;
+    srv.closeAllConnections();
+    await new Promise((res) => srv.close(res));
+  }
+});

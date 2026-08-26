@@ -222,8 +222,16 @@ async function askModels(key) {
       return { status: res.status, body };
     } finally { clearTimeout(t); }
   });
+  /* The harness seam: docs/browser-checks runs a real server process, where
+     setFetcher() cannot reach, so the models URL itself is overridable, the
+     way AGENT_WORKFORCE_RELEASE_BASE points the updater at a fixture. Read
+     per call, so a test can set it after require. A shipped install never
+     sets it, and an unset value is OpenAI's real endpoint. Without this the
+     page gate sent a fake key to api.openai.com on every cut and, since
+     #962 made the badge honest, read "did not accept this key" (0.5.59a). */
+  const url = process.env.AGENT_WORKFORCE_OPENAI_MODELS_URL || 'https://api.openai.com/v1/models';
   try {
-    return await f('https://api.openai.com/v1/models', { method: 'GET', headers: { authorization: 'Bearer ' + key } });
+    return await f(url, { method: 'GET', headers: { authorization: 'Bearer ' + key } });
   } catch (err) {
     /* ⚠️ NO RAW err.message HERE -- the same rule subscription.js's checkLive()
        is built on: a raw network/fetch error can carry anything (a DNS
