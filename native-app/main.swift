@@ -202,6 +202,13 @@ func startBoard(kosmosHome: String, port: Int) -> StartResult {
     // Drain stderr BEFORE waiting, for the same deadlock reason: this read
     // consumes as the child writes, so stderr can never fill either, and it
     // returns at the child's EOF -- after which the wait is immediate.
+    // ⚠️ Cross-file dependency: "EOF at child exit" holds only while nothing
+    // `kosmos start` spawns inherits this stderr and outlives it. Today that
+    // is true because install/kosmos starts the board daemon with
+    // `nohup ... >> "$BOARD_LOG" 2>&1 &` (its fds re-pointed at the board
+    // log). A future long-lived child that inherits stderr would hold this
+    // read open past the child's exit -- the caller's watchdog (loadBoard)
+    // re-arms Reload if that ever happens, and this comment is the pointer.
     let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
     if process.terminationStatus == 0 {
@@ -256,8 +263,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // #965: a board start is already running on the background queue; reload
     // requests are ignored until it resolves, so two Cmd-R presses (or the
     // test seam firing during a slow boot) cannot race two `kosmos start`
-    // invocations.
+    // invocations. Guarded by a watchdog (see loadBoard) so a hung start can
+    // never leave Reload permanently dead -- the generation counter ties each
+    // watchdog to ITS start, so a stale watchdog cannot clear a newer one's
+    // flag.
     private var boardStartInFlight = false
+    private var boardStartGeneration = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -270,7 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // reload decision path end to end without Accessibility permission for
         // synthetic Cmd-R keystrokes. Never set by the installer.
         if let after = ProcessInfo.processInfo.environment["KOSMOS_APP_TEST_RELOAD_AFTER"] {
-            if let seconds = Double(after), seconds >= 0 {
+            if let seconds = Double(after), seconds >= 0, seconds.isFinite {
                 logLine("KOSMOS_APP_TEST_RELOAD_AFTER=\(seconds): scheduling one test reload")
                 DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
                     self?.reloadBoard(nil)
@@ -309,8 +320,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     private func loadBoard() {
         // A fresh attempt starts with a clean slate; the delegate methods
-        // below re-set this if THIS attempt fails too (#965).
+        // below re-set these if THIS attempt fails too (#965). Disarming the
+        // one-shot here matters: without it, an armed fall-through from a
+        // reload could survive into a later, unrelated navigation failure and
+        // fire a full board restart the user never asked for.
         lastLoadFailed = false
+        recoverOnReloadFailure = false
         // Testing shortcut, unchanged from phase 1: point directly at an
         // already-running board (a hand-booted sandbox), skipping the real
         // resolve/start path entirely. Not present in the shipped app's
@@ -351,10 +366,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // it on the main thread would beachball the app for the whole boot.
         // Run it off the main thread; every UI outcome marshals back.
         boardStartInFlight = true
+        boardStartGeneration += 1
+        let generation = boardStartGeneration
+        // Watchdog: if the start never resolves (the drain in startBoard can
+        // block past the child's exit if a future grandchild inherits stderr
+        // -- see the comment there), a permanently-true flag would make every
+        // future Cmd-R a silent no-op, which is the exact hole #965 fixes.
+        // Two minutes is far beyond any real `kosmos start`; log and re-arm.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 120) { [weak self] in
+            guard let self = self else { return }
+            if self.boardStartInFlight && self.boardStartGeneration == generation {
+                logLine("watchdog: board start gen \(generation) unresolved after 120s; re-arming Reload")
+                self.boardStartInFlight = false
+            }
+        }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let result = startBoard(kosmosHome: resolved.kosmosHome, port: resolved.port)
             DispatchQueue.main.async {
                 guard let self = self else { return }
+                // A start that resolves only after its watchdog re-armed (or
+                // after a newer start superseded it) reports nothing: acting
+                // on its outcome would race the newer attempt's load/alert.
+                guard self.boardStartGeneration == generation else {
+                    logLine("stale board start gen \(generation) resolved late; ignoring its outcome")
+                    return
+                }
                 self.boardStartInFlight = false
                 switch result {
                 case .failed(let message):
@@ -425,6 +461,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         logLine("PAGE LOAD FAILED: \(error.localizedDescription)")
         if isBenignCancellation(error) { return }
         lastLoadFailed = true
+        // Same one-shot fall-through as the provisional case below: a reload
+        // whose navigation committed and THEN failed is still the user's one
+        // press against a dead board, and must not degrade to two presses
+        // just because WebKit delivered the failure through this delegate.
+        if recoverOnReloadFailure {
+            recoverOnReloadFailure = false
+            logLine("reload hit a dead page; falling through to loadBoard() once")
+            loadBoard()
+        }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -463,6 +508,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     //     too recovers on a single press, not two.
     @objc func reloadBoard(_ sender: Any?) {
         if boardStartInFlight {
+            // Dropped, not queued, by design: the in-flight start will end in
+            // a load or an alert either way, and a queued second start could
+            // only duplicate it. The beep is the user-visible half -- the
+            // press registered, something is already happening -- without
+            // which a slow boot makes Cmd-R look broken, the very complaint
+            // this feature answers.
+            NSSound.beep()
             logLine("reload: ignored, a board start is already in flight")
             return
         }
