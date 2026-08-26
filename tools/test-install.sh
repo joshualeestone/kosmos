@@ -1963,10 +1963,35 @@ RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u 
   sh > "$SB/d918-install-c.log" 2>&1 || RC=$?
 chk "#918 scenario-C install exits 0" "rc_ok $RC"
 KOSMOS_HOME="$D918_KHOME_C" "$D918_KHOME_C/bin/kosmos" stop > /dev/null 2>&1 || true
+chk "the port is genuinely free before #918 scenario-D installs" "wait_port_free"
+
+# 🔑 THE HIGHEST-STAKES PROPERTY, PROVEN THROUGH THE REAL SWEEP, NOT ASSERTED
+# BY COMMENT. A default (unsuffixed) KOSMOS_HOME install in the SAME shared
+# launch dir gives the sweep a REAL `com.kosmos.board.plist` -- the one
+# label every normal end-user install has -- to prove it survives the exact
+# loop that ships, not just the glob-exclusion reasoning in setup.sh's own
+# comment. A bug here would stop a real person's board from launching at
+# their next login.
+D918_HOME_D="$SB/d918-home-d"
+mkdir -p "$D918_HOME_D"
+# ⚠️ AGENT_WORKFORCE_DATA/_PROJECTS/_WORKERS are DELIBERATELY LEFT SET here
+# (unlike scenarios A-C), matching #883's own "default KOSMOS_HOME" scenario
+# exactly: those three are only ever derived FROM KOSMOS_HOME for a
+# non-default one, so a default-KOSMOS_HOME install (this scenario) is
+# supposed to keep the shared sandboxed values this script already exported
+# globally near the top. Unsetting them here (an earlier version of this
+# scenario did) sent this install down a different, untested path and
+# failed for a reason that had nothing to do with #918.
+RC=0; cat "$SETUP" | env -u KOSMOS_HOME \
+  HOME="$D918_HOME_D" AGENT_WORKFORCE_LAUNCH="$D918_LAUNCH" \
+  KOSMOS_APP_DIR="$SB/apps918d" KOSMOS_BIN_DIR="$SB/bin918d" \
+  sh > "$SB/d918-install-d.log" 2>&1 || RC=$?
+chk "#918 scenario-D (default KOSMOS_HOME) install exits 0" "rc_ok $RC"
+HOME="$D918_HOME_D" "$D918_HOME_D/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free before #918's uninstall runs" "wait_port_free"
 
-chk "three distinct board labels are registered in the shared launch dir before anything is torn down" \
-  "[ \"\$(ls \"$D918_LAUNCH\"/com.kosmos.board.*.plist 2>/dev/null | wc -l | tr -d ' ')\" = 3 ]"
+chk "four distinct board labels (three suffixed, one bare default) are registered in the shared launch dir before anything is torn down" \
+  "[ \"\$(ls \"$D918_LAUNCH\"/com.kosmos.board*.plist 2>/dev/null | wc -l | tr -d ' ')\" = 4 ]"
 
 # Scenario A's scratch directory is deleted DIRECTLY -- exactly the walk
 # convention #918 is about, never running --uninstall against it.
@@ -1987,6 +2012,14 @@ chk "scenario A's ORPHANED label was swept even though this uninstall never name
 chk "scenario C's STILL-ALIVE label survives, untouched by a sweep it has no reason to trigger" \
   "[ -f \"$D918_LAUNCH/com.kosmos.board.\$(printf '%s' \"$D918_KHOME_C\" | shasum -a 256 | cut -c1-8).plist\" ]"
 chk "scenario C's own KOSMOS_HOME directory is untouched (only its label was checked, never removed)" "[ -d \"$D918_KHOME_C\" ]"
+# 🔑 THE ACTUAL PROPERTY THE REVIEW ASKED FOR: the bare, unsuffixed
+# com.kosmos.board.plist -- the real board a normal install has -- survives
+# this same sweep untouched. Proven through the shipped loop, not just the
+# glob-exclusion comment in setup.sh.
+chk "the bare default label (scenario D, a real install's own board) survives the sweep untouched" \
+  "[ -f \"$D918_LAUNCH/com.kosmos.board.plist\" ]"
+chk "scenario D's own KOSMOS_HOME directory is untouched too" "[ -d \"$D918_HOME_D/.local/share/kosmos\" ]"
+HOME="$D918_HOME_D" "$D918_HOME_D/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
 KOSMOS_HOME="$D918_KHOME_C" "$D918_KHOME_C/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free after #918's scenario" "wait_port_free"
 

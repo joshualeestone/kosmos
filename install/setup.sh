@@ -856,7 +856,9 @@ uninstall() {
   if [ -d "$_sweep_dir" ]; then
     _uid="$(/usr/bin/id -u)"
     for _orphan_plist in "$_sweep_dir"/com.kosmos.board.*.plist; do
-      [ -f "$_orphan_plist" ] || continue
+      # Matches this file's own sibling convention: the agents-sweep loop
+      # just below uses the same `[ -e ]` idiom for the same no-match guard.
+      [ -e "$_orphan_plist" ] || continue
       # ⚠️ THE BARE DEFAULT LABEL NEVER MATCHES THIS GLOB. `com.kosmos.board.plist`
       # has no fourth dot-segment between "board." and the ".plist" suffix
       # (#883's suffix is only ever added for a non-default KOSMOS_HOME), so this
@@ -876,11 +878,25 @@ uninstall() {
         # future-format plist) -- leave it alone rather than guess.
         *) continue ;;
       esac
-      # THE ONLY SIGNAL: does that KOSMOS_HOME still exist. A live walk in
+      # THE SIGNAL: does that KOSMOS_HOME still exist. A live walk in
       # progress (its directory present, its board plist just not yet touched
       # by ITS OWN --uninstall) must never be booted out from under it -- this
       # sweep only ever removes a label whose home is confirmed gone.
       [ -d "$_orphan_home" ] && continue
+      # ⚠️ "GONE" MEANS CONFIRMED GONE, NOT "WE COULD NOT SEE IT JUST NOW".
+      # A bare `[ -d ]` alone cannot tell a genuinely-deleted home apart from
+      # one that is merely transiently unreachable (an unmounted volume, a
+      # network share hiccup, an ancestor directory the process briefly
+      # cannot stat) -- and this sweep runs on EVERY uninstall, unscoped to
+      # the one KOSMOS_HOME the caller actually named, so an unrelated
+      # uninstall hitting that window would boot out a still-wanted install's
+      # job on a false read. If the PARENT directory is also unreadable right
+      # now, that is exactly the shape of a transient outage rather than a
+      # confirmed deletion (KOSMOS_HOME's own parent does not vanish on its
+      # own) -- treat it as "cannot tell" and leave the label alone, matching
+      # this whole feature's own rule that an honest "we could not check"
+      # must never be acted on as a confirmed negative.
+      [ -d "$(dirname "$_orphan_home")" ] || continue
       info "removing an orphaned background job for a deleted install ($_orphan_home)"
       # Same "no launchctl under a sandbox" rule as this install's own label
       # above: AGENT_WORKFORCE_LAUNCH set means a harness pointed the plist
