@@ -142,7 +142,7 @@ function sleepCheck(text) {
       return {
         key: 'sleep',
         state: STATE.ATTENTION,
-        title: `This Mac goes to sleep on battery after ${battFirst} ${battFirst === 1 ? 'minute' : 'minutes'}`,
+        title: `This computer goes to sleep on battery after ${battFirst} ${battFirst === 1 ? 'minute' : 'minutes'}`,
         detail: 'Your agents stop when it sleeps. We could not read what it does while it is '
           + 'plugged in, which may be different. You can see both in System Settings, under '
           + 'Battery.',
@@ -189,7 +189,7 @@ function sleepCheck(text) {
     return {
       key: 'sleep',
       state: STATE.ATTENTION,
-      title: `This Mac goes to sleep after ${acSleep} ${acSleep === 1 ? 'minute' : 'minutes'}`,
+      title: `This computer goes to sleep after ${acSleep} ${acSleep === 1 ? 'minute' : 'minutes'}`,
       detail: 'Your agents stop when it sleeps and start again when you wake it. If you want '
         + 'them getting on with things while you are away, change Sleep to Never in System '
         + 'Settings.'
@@ -232,7 +232,7 @@ function sleepCheck(text) {
     return {
       key: 'sleep',
       state: STATE.ATTENTION,
-      title: 'This Mac keeps working plugged in, and sleeps on battery',
+      title: 'This computer keeps working plugged in, and sleeps on battery',
       detail: `Plugged in it never sleeps. On battery it sleeps after ${batterySleep} `
         + `${batterySleep === 1 ? 'minute' : 'minutes'}, and your agents stop with it. `
         + 'A laptop you close at five o\'clock is not a computer that stays on: if you want '
@@ -244,7 +244,7 @@ function sleepCheck(text) {
   return {
     key: 'sleep',
     state: STATE.OK,
-    title: 'This Mac does not go to sleep',
+    title: 'This computer does not go to sleep',
     detail: battery
       ? 'Plugged in or on battery, it stays awake, so your agents keep working while you are away.'
       : 'So your agents keep working while you are away.',
