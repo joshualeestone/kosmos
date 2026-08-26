@@ -3538,6 +3538,9 @@ const server = http.createServer((req, res) => {
           on: body.on,
           owner: body.owner,
           until: body.until,
+          /* #570: which RUN said it, when the sender came from a launch token.
+             The pane arm resolves no instance and leaves this undefined. */
+          instance: sender.instance,
         });
         if (kept.recorded !== true) {
           sendJson(res, 200, { recorded: false, because: kept.because });
