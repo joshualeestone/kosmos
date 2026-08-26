@@ -325,6 +325,19 @@ cat > "$sb4/fake-codex" <<'FAKE'
 key=$(cat); mkdir -p "$CODEX_HOME"; printf '{"auth_mode":"apikey","OPENAI_API_KEY":"%s"}' "$key" > "$CODEX_HOME/auth.json"
 FAKE
 chmod +x "$sb4/fake-codex"
+# #979: a stand-in Claude Code, for the same reason fake-codex exists.
+# Until #979 the board's claudeBin ignored AGENT_WORKFORCE_HOME and so found
+# the REAL claude on the operator's machine -- a sandbox reaching outside
+# itself, which happened to make Claude read present here. The resolver now
+# honours the sandbox home, so without this the check would silently start
+# asserting against an absent Claude. Sealing the sandbox is the fix; making
+# the resolver reach out again is not.
+cat > "$sb4/fake-claude" <<'FAKE'
+#!/bin/bash
+[ "$1" = --version ] && { echo "claude 0.0.0-fake"; exit 0; }
+exit 0
+FAKE
+chmod +x "$sb4/fake-claude"
 write_fleet "$sb4"
 # A stand-in for api.openai.com/v1/models (#962): the badge now checks a key
 # live, and a page gate must not send a fake key to OpenAI, nor depend on
@@ -342,6 +355,7 @@ AGENT_WORKFORCE_OPENAI_WALK_KEY="sk-proj-walkwalkwalkwalkwalkWALK" PORT="$P_OAI"
 ' > "$sb4/openai-stub.log" 2>&1 &
 SERVER_PIDS+=("$!")
 AGENT_WORKFORCE_HOME="$sb4/home" AGENT_WORKFORCE_CODEX_BIN="$sb4/fake-codex" \
+  AGENT_WORKFORCE_CLAUDE_BIN="$sb4/fake-claude" \
   AGENT_WORKFORCE_OPENAI_MODELS_URL="http://127.0.0.1:$P_OAI/v1/models" \
   AGENT_WORKFORCE_DATA="$sb4/data" AGENT_WORKFORCE_WORKERS="$sb4/workers" \
   AGENT_WORKFORCE_LAUNCH="$sb4/launch" AGENT_WORKFORCE_PROJECTS="$sb4/projects" \

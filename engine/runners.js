@@ -29,9 +29,11 @@
  *      mystery.
  *
  * Claude rides here as a second manifest KIND (Josh's 2026-08-26 10:32
- * ruling: a provider like the others): 'vendor-installer', installed by
- * Anthropic's own script rather than a pinned tarball -- see
- * installVendor() for the phases and the die()-replacement contract. The
+ * ruling: a provider like the others): 'vendor-verified', installed by
+ * delegating to engine/connect.js's already-verified download (published
+ * per-platform SHA256, https-only redirects) rather than a pinned tarball
+ * -- see installVendor() for the phases and the die()-replacement
+ * contract. The
  * INSTALLER still pre-installs Claude today; removing that is the gated
  * branch B on #979, held until the in-flow path exists end to end so a
  * bare-Mac Claude pick can never dead-end the way OpenAI's used to.
@@ -90,19 +92,34 @@ const MANIFEST = Object.assign(Object.create(null), {
   },
   claude: {
     name: 'Claude Code',
-    // kind 'vendor-installer' (#979, Josh's 10:32 ruling: Claude is a
-    // provider like the others): Anthropic's own installer script puts
-    // the CLI at ~/.local/bin/claude -- the exact mechanism, path, and
-    // AGENT_WORKFORCE_CLAUDE_INSTALL_URL override contract setup.sh's
-    // preflight uses today. ⚠️ HONESTY COST, stated rather than papered:
-    // the vendor script installs the vendor's LATEST, publishes no
-    // checksum, and reports no byte counts -- so this kind has no
-    // integrity pin, no pinnedVersion claim, and its job carries null
-    // byte counts instead of invented ones. The prove step (the binary
-    // must answer --version) is the same gate the tarball kind gets.
-    kind: 'vendor-installer',
-    installUrl: 'https://claude.ai/install.sh',
-    installUrlEnv: 'AGENT_WORKFORCE_CLAUDE_INSTALL_URL',
+    /**
+     * kind 'vendor-verified' (#979, Josh's 10:32 ruling: Claude is a
+     * provider like the others).
+     *
+     * 🛑 THE FIRST VERSION OF THIS ENTRY WAS `curl -fsSL https://claude.ai/
+     * install.sh | sh`, ported from setup.sh's preflight, and its comment
+     * claimed the vendor "publishes no checksum". THAT CLAIM WAS FALSE, and
+     * this repo falsified it three files over: `engine/connect.js` has
+     * installed Claude Code since 2026-08-12 by reading a per-platform
+     * SHA256 out of `<base>/<version>/manifest.json` and REFUSING a binary
+     * that does not match it, plus refusing any https->http redirect on the
+     * way. Shipping the script version would have added a second, strictly
+     * weaker install path for the same product beside a verified one.
+     *
+     * So this kind does not install anything itself. It delegates to
+     * `connect.download()` -- the same verified fetch, the same refusals --
+     * and then runs the downloaded binary's own `install`, which is what
+     * puts the launcher at ~/.local/bin/claude. One download mechanism for
+     * Claude Code in this process, not two.
+     *
+     * ⚠️ WHAT IS STILL HONESTLY ABSENT: there is no `url`/`integrity` pin
+     * HERE, because the version and its checksum are discovered at run time
+     * from the vendor's own manifest rather than frozen into this file. So
+     * `pinnedVersion` is null for this kind and says so. Byte counts, by
+     * contrast, are now REAL -- the verified fetch reports them -- which is
+     * what lets a screen draw a true progress bar instead of a spinner.
+     */
+    kind: 'vendor-verified',
     binName: 'claude',
     downloadBytes: null,
   },
@@ -158,8 +175,28 @@ function managedRoot() {
 function isRunnable(p) {
   try {
     const st = fs.statSync(p); // follows symlinks, which is the point
-    return st.isFile() && (st.mode & 0o111) !== 0;
+    if (!st.isFile()) return false;
+    // X_OK, not `mode & 0o111`: the mode bits answer "can SOMEBODY execute
+    // this", and a root-owned 0o700 binary passes that while failing at
+    // launch for us. accessSync asks the only question that matters -- can
+    // THIS process run it -- which is the same question engine/connect.js
+    // already asks of the same binary at its two launch sites.
+    fs.accessSync(p, fs.constants.X_OK);
+    return true;
   } catch { return false; }
+}
+
+/**
+ * The home every rung of this module keys on.
+ *
+ * ⚠️ ONE derivation, because the two halves of an install used to disagree:
+ * `resolveBin`'s canonical rung honoured AGENT_WORKFORCE_HOME while the
+ * find-it-elsewhere probe read the real machine, so a harness that sandboxed
+ * the first would symlink the sandbox's canonical path at the operator's live
+ * `claude`. A sandbox that reaches the real machine is not a sandbox.
+ */
+function homeDir() {
+  return process.env.AGENT_WORKFORCE_HOME || HOME;
 }
 
 function resolveBin(provider, opts) {
@@ -167,14 +204,14 @@ function resolveBin(provider, opts) {
     // Same authoritative-override contract as openai, with Claude's own
     // env var (the one every harness in this codebase already sets).
     // Claude's canonical home is the vendor's, ~/.local/bin/claude --
-    // there is no Kosmos-managed location for a vendor-installer kind,
+    // there is no Kosmos-managed location for a vendor-verified kind,
     // so `managed` is always false here.
     const envClaude = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
     if (envClaude) return { bin: envClaude, present: isRunnable(envClaude), managed: false, overridden: true };
     // AGENT_WORKFORCE_HOME is the same sandbox seam openaiaccounts keys
     // its HOME on -- without it, every test on this fleet Mac would see
     // the real ~/.local/bin/claude and read present. Unset in production.
-    const canonical = path.join(process.env.AGENT_WORKFORCE_HOME || HOME, '.local', 'bin', 'claude');
+    const canonical = path.join(homeDir(), '.local', 'bin', 'claude');
     return { bin: canonical, present: isRunnable(canonical), managed: false, overridden: false };
   }
   if (provider !== 'openai') return { bin: null, present: false, managed: false, overridden: false };
@@ -208,14 +245,16 @@ function resolveBin(provider, opts) {
  * the same artifact can only waste the second one's bytes.
  *
  * Job shape, readable at any moment via status():
- *   tarball kind:          phase 'downloading'|'verifying'|'unpacking'
- *   vendor-installer kind: phase 'installing'|'linking'
- *   both kinds:            -> 'proving' -> 'installed'|'failed'
- *   { phase, receivedBytes, totalBytes (null for vendor-installer: the
- *     script reports none), version (tarball only),
- *     because (failed only), proved (installed only: the runner's own
- *     --version line), log (vendor-installer: the installer's output
- *     file), linked (vendor-installer: the found path a link points at) }
+ *   tarball kind:         phase 'downloading'|'verifying'|'unpacking'
+ *   vendor-verified kind: phase 'linking' OR 'downloading'|'installing'
+ *   both kinds:           -> 'proving' -> 'installed'|'failed'
+ *   { phase, receivedBytes, totalBytes (REAL for both kinds -- the
+ *     vendor-verified fetch reports them, so a screen draws a true bar,
+ *     null only in the 'linking' branch where nothing is fetched),
+ *     version (both kinds: pinned for tarball, discovered for
+ *     vendor-verified), because (failed only), proved (installed only:
+ *     the runner's own --version line), linked (vendor-verified: the
+ *     found path a link points at) }
  */
 const jobs = Object.create(null);
 
@@ -231,9 +270,11 @@ function status() {
     if (r.present && jobs[provider] && jobs[provider].phase === 'failed') delete jobs[provider];
     out[provider] = {
       name: m.name,
-      // The screens branch on this: a tarball gets a byte progress bar, a
-      // vendor-installer gets an indeterminate one (its script reports no
-      // counts) -- stated rather than left to be inferred from nulls.
+      // The screens branch on this. BOTH kinds now carry real byte counts
+      // while fetching, so this is no longer bar-vs-spinner; it is which
+      // SENTENCE the screen tells (a pinned Kosmos-managed runner vs the
+      // vendor's own current build), and the 'linking' phase, which only
+      // this kind can reach, has nothing to draw a bar from.
       kind: m.kind || 'tarball',
       // pinnedVersion, NOT a claim about the binary on disk: presence is
       // existence, and a legacy or older managed runner may answer any
@@ -241,7 +282,12 @@ function status() {
       // certifies what actually ran. (A manifest bump therefore does not
       // auto-reinstall an existing runner; that flow arrives with the
       // first real bump, on the card.)
-      pinnedVersion: m.version,
+      // `|| null`, so an absent pin SERIALIZES. `undefined` is dropped
+      // entirely by JSON.stringify, which makes "this kind cannot pin a
+      // version" indistinguishable on the wire from "the field was never
+      // added" -- while the sibling honest-absence field, downloadBytes,
+      // already travels as null. Two absences, one spelling.
+      pinnedVersion: m.version || null,
       downloadBytes: m.downloadBytes,
       present: r.present,
       bin: r.bin,
@@ -387,14 +433,14 @@ function install(provider, opts) {
   }
   // Wrong hardware fails in seconds with the CAUSE, not in minutes at
   // the prove step with a symptom: the pinned artifact is arch-specific.
-  // (A vendor-installer entry carries no arch: the vendor's script picks
-  // its own artifact for this machine, so the guard naturally passes.)
+  // (A vendor-verified entry carries no arch: the vendor's manifest picks
+  // its own per-platform artifact, so the guard naturally passes.)
   const arch = o.arch || process.arch;
   if (m.arch && arch !== m.arch) {
     return { phase: 'failed', because: `the pinned ${m.name} build is ${m.arch} and this Mac is ${arch}; no download was attempted` };
   }
 
-  if (m.kind === 'vendor-installer') return installVendor(provider, m, o, existing);
+  if (m.kind === 'vendor-verified') return installVendor(provider, m, o, existing);
 
   const url = o.url || m.url;
   const integrity = o.integrity || m.integrity;
@@ -571,19 +617,32 @@ function install(provider, opts) {
 }
 
 /**
- * The vendor-installer pipeline (#979, the Claude kind): the vendor's own
- * script installs its LATEST into its canonical path. Three phases:
+ * The vendor-verified pipeline (#979, the Claude kind).
  *
- *   linking     a runner already on this Mac but not at the canonical
- *               path gets a symlink, not a download -- setup.sh's
- *               near-miss handling carried in-flow ("nothing is
- *               installed; a link is named as a link")
- *   installing  the vendor script runs, output to a log file whose path
- *               rides in the job on failure (a log must be able to say
- *               what a run actually installed); no byte counts, because
- *               the script reports none and inventing them is worse
- *   proving     the binary must answer --version before `installed` is
- *               ever claimed -- the same gate the tarball kind gets
+ * 🛑 READ THE MANIFEST ENTRY'S COMMENT BEFORE CHANGING THIS. The first
+ * version of this function curl-and-shelled `https://claude.ai/install.sh`
+ * with no integrity check, beside an `engine/connect.js` that has verified
+ * the same product against a published SHA256 since 2026-08-12. It never
+ * shipped; it was caught in review. Do not reintroduce a second, weaker
+ * install path for a product this process already installs safely.
+ *
+ * Phases:
+ *
+ *   linking      a runner already on this Mac but not at the canonical
+ *                path gets a symlink, not a download -- setup.sh's
+ *                near-miss handling carried in-flow ("nothing is
+ *                installed; a link is named as a link")
+ *   downloading  connect.download(): `<base>/latest`, then that version's
+ *                manifest.json for a per-platform SHA256, then the binary,
+ *                REFUSED unless its hash matches and refused on any
+ *                https->http redirect. Real byte counts, so the job's
+ *                receivedBytes/totalBytes are true numbers.
+ *   installing   the downloaded binary's own `install` subcommand, which
+ *                is what places the launcher at the canonical path. No
+ *                shell, no fetched script -- a verified binary we already
+ *                hold, run once.
+ *   proving      the binary must answer --version before `installed` is
+ *                ever claimed -- the same gate the tarball kind gets
  *
  * ⚠️ THE die() REPLACEMENT: a failure here is a JOB ANSWER the screen
  * shows. Nothing exits, nothing kills an install, Kosmos keeps running --
@@ -591,22 +650,27 @@ function install(provider, opts) {
  * preflight used to die.
  *
  * Seams (o.): findElsewhere() -> path|null replaces the PATH probe;
- * runInstaller(url, logFile, done) replaces the curl|sh child;
+ * fetchVendor(onProgress) -> {path, version} replaces connect.download;
+ * runVendorInstall(binary, done) replaces the `<binary> install` child;
  * prove(bin, done) as everywhere.
  */
 function installVendor(provider, m, o, existing) {
   const canonical = existing.bin;
-  const url = o.url || (m.installUrlEnv && process.env[m.installUrlEnv]) || m.installUrl;
   const prove = o.prove || ((bin, done) => execFile(bin, ['--version'], { timeout: 30000 }, done));
   const findElsewhere = o.findElsewhere || (() => {
     // `which` under a launchd-started board sees the stock PATH, which
     // hides Homebrew and npm-global installs -- the very copies setup.sh's
     // `command -v` (a login shell) finds. So the known homes are probed
     // explicitly, and `which` is the tail rung for anything else.
+    //
+    // ⚠️ homeDir(), not HOME: this probe and resolveBin's canonical rung
+    // are two halves of ONE flow and must agree about which machine they
+    // are looking at, or a sandboxed test links its canonical path at the
+    // operator's real binary. See homeDir().
     const candidates = [
       '/opt/homebrew/bin/' + m.binName,
       '/usr/local/bin/' + m.binName,
-      path.join(HOME, '.npm-global', 'bin', m.binName),
+      path.join(homeDir(), '.npm-global', 'bin', m.binName),
     ];
     try {
       const found = String(execFileSync('/usr/bin/which', [m.binName], { timeout: 5000 })).trim();
@@ -617,65 +681,76 @@ function installVendor(provider, m, o, existing) {
     }
     return null;
   });
-  const runInstaller = o.runInstaller || ((u, logFile, done) => {
-    // setup.sh's mechanism, ported with two deliberate upgrades and one
-    // accepted cost:
-    //   - POSITIONAL ARGS, never string interpolation: a template literal
-    //     inside sh -c would re-parse $(...) in an operator-set URL or a
-    //     runners-dir path as live shell. "$1"/"$2"/"$3" expand inertly,
-    //     which is what setup.sh's own "$_claude_install_url" does.
-    //   - curl-to-file THEN sh, not curl|sh: a pipeline without pipefail
-    //     reports curl's failure as sh's success over an empty script,
-    //     and loses curl's stderr entirely. Sequenced, a network failure
-    //     exits nonzero with curl's own words in the log -- "a log must
-    //     be able to say what a run actually installed".
-    //   - The 10-minute ceiling kills the /bin/sh wrapper; a child mid
-    //     stage can outlive it briefly and exits with its own stage.
-    //     Accepted: bounded, rare, and a process-group kill is machinery
-    //     this path does not earn.
-    const script = `${logFile}.script.sh`;
-    execFile('/bin/sh', ['-c', 'curl -fsSL "$1" >"$3" 2>>"$2" && sh "$3" >>"$2" 2>&1', 'sh', u, logFile, script],
-      { timeout: 600000 },
-      (err) => { try { fs.rmSync(script, { force: true }); } catch { /* tmp sweep gets it */ } done(err); });
-  });
+  // Required lazily: connect.js is a heavier module and this is the only
+  // path that needs it, but the important part is that it is REQUIRED
+  // rather than reimplemented -- one verified fetch for Claude Code.
+  const fetchVendor = o.fetchVendor
+    || ((onProgress) => require('./connect').download(onProgress));
+  const runVendorInstall = o.runVendorInstall
+    || ((binary, done) => execFile(binary, ['install'], { timeout: 600000 }, done));
 
-  const job = { phase: 'installing', receivedBytes: null, totalBytes: null };
+  const job = { phase: 'linking', receivedBytes: null, totalBytes: null };
   jobs[provider] = job;
   const fail = (because) => { job.phase = 'failed'; job.because = because; };
+
+  /**
+   * Clear the canonical path so a symlink can take it.
+   *
+   * ⚠️ NARROW ON PURPOSE. The unconditional `rmSync(canonical, {force:true})`
+   * this replaces ran in exactly the case where canonical EXISTS but is not
+   * runnable -- which includes a real vendor-owned file (a truncated
+   * launcher a crashed connect.js install left behind), and this module's
+   * own catch block says removing a vendor-owned path is not ours. It also
+   * threw a raw ERR_FS_EISDIR into the person-facing `because` when
+   * canonical was a directory, the other #133 shape.
+   *
+   * So: a symlink is ours to replace (that is what we write here). Anything
+   * else that exists is refused BY NAME, with the path, so a person can see
+   * what is in the way instead of reading an errno.
+   */
+  const clearForLink = () => {
+    let st;
+    try { st = fs.lstatSync(canonical); } catch { return null; } // nothing there: nothing to clear
+    if (st.isSymbolicLink()) {
+      try { fs.unlinkSync(canonical); return null; } catch (err) {
+        return `something is already at ${canonical} and it could not be replaced: ${String((err && err.message) || err).trim()}`;
+      }
+    }
+    return st.isDirectory()
+      ? `${canonical} is a folder, not a runner, so nothing was changed; move it aside and try again`
+      : `${canonical} already exists and is not something we put there, so nothing was changed; move it aside and try again`;
+  };
 
   const run = (async () => {
     try {
       const elsewhere = findElsewhere();
       if (elsewhere) {
-        job.phase = 'linking';
         fs.mkdirSync(path.dirname(canonical), { recursive: true });
-        fs.rmSync(canonical, { force: true });
+        const blocked = clearForLink();
+        if (blocked) { fail(blocked); return; }
         fs.symlinkSync(elsewhere, canonical);
         job.linked = elsewhere;
       } else {
-        const logDir = path.join(managedRoot(), '.tmp');
-        fs.mkdirSync(logDir, { recursive: true });
-        // The same age-gated, provider-prefixed sweep discipline as the
-        // tarball path's staging files, for this kind's logs and script
-        // temps -- the module's bounded-temp-state claim covers every kind.
-        for (const f of fs.readdirSync(logDir)) {
-          if (!f.startsWith(`${provider}-install-`)) continue;
-          try {
-            const p = path.join(logDir, f);
-            if (Date.now() - fs.statSync(p).mtimeMs > 3600000) fs.rmSync(p, { force: true });
-          } catch { /* best effort */ }
-        }
-        const logFile = path.join(logDir, `${provider}-install-${process.pid}.log`);
+        job.phase = 'downloading';
+        const got = await fetchVendor((received, total) => {
+          job.receivedBytes = received;
+          job.totalBytes = total;
+        });
+        job.version = (got && got.version) || null;
+        job.phase = 'installing';
         await new Promise((resolve, reject) => {
-          runInstaller(url, logFile, (err) => err
-            ? reject(new Error(`the ${m.name} installer did not finish (its log is at ${logFile})`))
+          runVendorInstall(got && got.path, (err) => err
+            ? reject(new Error(`the ${m.name} installer did not finish: ${String((err && err.message) || err).trim()}`))
             : resolve());
         });
-        if (!fs.existsSync(canonical)) {
-          fail(`the ${m.name} installer finished but nothing landed at ${canonical} (its log is at ${logFile})`);
+        // isRunnable, not existsSync: one definition of present governs the
+        // resolver AND the installer, so an installer that lands a
+        // non-executable file gets the named sentence here instead of a
+        // raw shell error one step later at prove.
+        if (!isRunnable(canonical)) {
+          fail(`the ${m.name} installer finished but nothing runnable landed at ${canonical}`);
           return;
         }
-        job.log = logFile;
       }
       job.phase = 'proving';
       await new Promise((resolve, reject) => {

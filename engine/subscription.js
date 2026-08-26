@@ -269,8 +269,18 @@ let runner = null;
     per-module `fetcher`). Pass null to restore the real subprocess call. */
 function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; }
 
+/**
+ * Where Claude Code lives. ONE definition, in engine/runners.js.
+ *
+ * ⚠️ THIS USED TO BE A THIRD COPY. `engine/runners.js`, `engine/connect.js`
+ * and `engine/subscription.js` each spelled out
+ * `AGENT_WORKFORCE_CLAUDE_BIN || ~/.local/bin/claude`, and when #979 gave
+ * the resolver an AGENT_WORKFORCE_HOME rung the copies silently disagreed
+ * with it about exactly that rung -- the drift pair the resolver exists to
+ * end, one file over. Required lazily so the module graph stays acyclic.
+ */
 function claudeBinPath() {
-  return process.env.AGENT_WORKFORCE_CLAUDE_BIN || path.join(HOME, '.local', 'bin', 'claude');
+  return require('./runners').resolveBin('claude').bin;
 }
 
 function runAuthStatus(env) {
