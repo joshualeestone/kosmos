@@ -5991,13 +5991,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          Functional first, by his ruling; he adds the look afterwards. -->
     <div id="acct-claude-flow" hidden style="margin-top: var(--space-5);">
       <p class="dhint" style="margin:0 0 8px;">Sign in to the other Claude account in your browser. Kosmos never sees your password, and the accounts above stay connected.</p>
-      <div class="frow"><button class="btn" id="acct-add" type="button">Start the sign-in</button></div>
+      <div class="frow"><button class="btn uprime" id="acct-add" type="button">Start the sign-in</button></div>
       <div id="acct-flow" hidden style="margin:10px 0 0;">
         <p class="dhint" id="acct-flow-say" role="status" aria-live="polite" style="margin:0;"></p>
         <div class="frow" id="acct-code-row" hidden style="margin:8px 0 0;">
           <input type="text" id="acct-code" inputmode="numeric" autocomplete="one-time-code"
                aria-label="The code from your email" placeholder="The code from your email">
-          <button class="btn" id="acct-code-go" type="button">Continue</button>
+          <button class="btn uprime" id="acct-code-go" type="button">Continue</button>
         </div>
         <!-- The way out is a button, at button size, on every step of the
              sign-in (Josh, 20:56: "I've refreshed several times but I can't
@@ -6019,10 +6019,27 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                aria-label="OpenAI API key" placeholder="sk-…">
         <button class="linkish" id="acct-openai-show" type="button" aria-pressed="false">Show</button>
       </div>
+      <!-- 🛑 ADD IS NOT ON THE NAME'S ROW ANY MORE (kosmos#978). Josh read this
+           form as "Add a name" rather than "activate this key", and the layout
+           told him so: the rows were [key][Show] then [name][Add], so the only
+           thing Add sat beside was the name. The field was ALREADY optional --
+           the handler requires the key and nothing else -- so nothing was wrong
+           with the behaviour and everything was wrong with what it looked like.
+           📌 Add now has its own row under both fields, where it reads as the
+           action for the FORM rather than for whichever input it is touching.
+           📌 The first-run OpenAI flow (`#fr-openai-flow`) has no name field at
+           all, so this was the outlier of the two, not the pattern. -->
       <div class="frow" style="margin-top:8px;">
         <input type="text" id="acct-openai-label" autocomplete="off" maxlength="40"
                aria-label="A name for this account (optional)" placeholder="A name, if you want one">
-        <button class="btn" id="acct-openai-go" type="button">Add</button>
+      </div>
+      <!-- ⚠️ SAID IN WORDS, NOT ONLY IN A PLACEHOLDER. A placeholder is the one
+           label that disappears exactly when someone is deciding whether to
+           fill the field in. -->
+      <p class="dhint" style="margin:6px 0 0;">The name is optional. It is only so you can tell this key
+        apart from another one later.</p>
+      <div class="frow" style="margin-top:12px;">
+        <button class="btn uprime" id="acct-openai-go" type="button">Add</button>
       </div>
       <p class="dhint" id="acct-openai-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
     </div>
