@@ -1009,6 +1009,9 @@ const OPTION_LINE = new RegExp(`^([${status.SELECTOR_GLYPHS}]\\s*)?([1-9])[.)]\\
 // ⚠️ ANY digit count, deliberately wider than OPTION_LINE. It is what sees a
 // line the single-digit pattern cannot read -- a tenth option -- so a menu
 // longer than we can read is refused rather than served as its first nine.
+/* 📌 Widened with its siblings for one-source consistency; like CONTINUATION,
+   inert in practice -- the line it guards on is below the run and therefore
+   unmarked, and the selector group was already optional. */
 const ANY_NUMBERED = new RegExp(`^(?:[${status.SELECTOR_GLYPHS}]\\s*)?\\d+[.)]\\s+\\S`);
 
 /**
@@ -1036,11 +1039,16 @@ function questionAbove(questionText) {
   if (!opts) return null;
   const lines = String(questionText == null ? '' : questionText).split('\n');
   /* Same glyph class as OPTION_LINE (#998), and it MUST be: this finds where
-     the option run starts so the question above it can be sliced off. Left on
-     ❯ only, a Codex menu would parse (optionsIn having been widened) and then
-     find `first === -1` here, so the "question above" would be the WHOLE pane
-     -- the thing this function exists to avoid. A half-widened parser is worse
-     than an unwidened one. */
+     the option run starts so the question above it can be sliced off.
+     ⚠️ MEASURED, because the first version of this comment guessed the
+     mechanism and guessed wrong. Left on ❯ only, against
+     `Edit file src/a.js?\n› 1. Yes\n  2. No`, `first` is 2 -- NOT -1. The
+     marked line is skipped and the run appears to start at the UNMARKED
+     second option, so the "question above" becomes
+     `Edit file src/a.js?\n› 1. Yes`: the option line gets absorbed into the
+     question's identity. That value is what the 409 screen-check compares, so
+     the consequence is a refused press, not a wrong one -- but a half-widened
+     parser is still worse than an unwidened one. */
   const OPTION_START = new RegExp(`^(?:[${status.SELECTOR_GLYPHS}]\\s*)?[1-9][.)]\\s+\\S.*$`);
   const first = lines.findIndex((l) => OPTION_START.test(
     l.replace(/^\s*│\s?/, '').replace(/[\s│]+$/, '').replace(/^\s+/, '')));
@@ -1200,14 +1208,19 @@ function optionsIn(questionText) {
    * `found.length + 1` is the signature of a list this pattern truncated, and
    * almost nothing else.
    */
-  /* ⚠️ THE GLYPH CLASS BELONGS HERE MOST OF ALL (#998). This is the guard that
-     spots a menu this pattern TRUNCATED -- a line numbered one past the run --
-     and refuses rather than serving a ten-option menu as its first nine. Widen
-     the matcher and leave this on ❯ alone and the two disagree in the one
-     direction that hurts: a Codex menu would start producing buttons while the
-     guard that says "there is more of this list than we can read" stays blind.
-     This file's own rule is that an UNPARSED menu costs a person one line of
-     typing and a MIS-PARSED one answers for them. */
+  /* The truncation guard: a line numbered one past the run means this pattern
+     read only part of a list, and refusing beats serving a ten-option menu as
+     its first nine.
+     📌 THE GLYPH CLASS HERE IS FOR CONSISTENCY, NOT FOR A BUG (#998). An
+     earlier comment claimed leaving it on ❯ would let a truncated Codex menu
+     slip past. It would not, and I checked rather than kept asserting: the
+     selector group is OPTIONAL, and a continuation line is unmarked BY
+     CONSTRUCTION -- only one row in a menu carries the cursor and it is inside
+     the run. Measured: the ❯-only pattern matches `10. option 10`. So this
+     widening is inert. It stays because three patterns deriving one fact
+     should derive it from one place, which is the whole point of #998; it is
+     not load-bearing, and a comment claiming a harm that cannot occur is what
+     the next maintainer would trust. */
   const CONTINUATION = new RegExp(`^(?:[${status.SELECTOR_GLYPHS}]\\s*)?0*${found.length + 1}[.)]\\s+\\S`);
   for (let i = lastRun.at + 1; i < lines.length; i += 1) {
     const bare = lines[i].replace(/^\s*│\s?/, '').replace(/[\s│]+$/, '').replace(/^\s+/, '');
