@@ -45,7 +45,7 @@ test('the person\'s own row stays on screen under a tall right column', () => {
   // window too short for the floor the page scrolls and this strip scrolls with
   // it; a sticky cannot help (zero travel in an exactly-fitting row). Stated
   // rather than assumed, because this file's whole job is the pin.
-  // construction. No sticky is pinned here on purpose -- a grid item
+  // No sticky is pinned here on purpose -- a grid item
   // whose containing block is its own exactly-fitting row has zero
   // sticky travel, so a sticky would be dead code wearing a load-bearing
   // look (the same fact that made the card-head stickies inert).

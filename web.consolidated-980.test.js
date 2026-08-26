@@ -95,14 +95,16 @@ test('the open project stays lit: a persistent .open state, written on click and
     'pjMarkOpen no longer toggles the class');
   assert.match(pm, /setAttribute\('aria-current', 'true'\)/,
     'pjMarkOpen no longer toggles aria-current with the class');
-  assert.match(PAGE, /pjMarkOpen\(id\);/,
+  /* Comments stripped for BOTH assertions below, not just the count: a comment
+     quoting either call would satisfy a raw-PAGE match. */
+  const codeOnly = PAGE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  assert.match(codeOnly, /pjMarkOpen\(id\);/,
     'openProject no longer marks selection on the click itself (it would wait for the next repaint)');
   /* ⚠️ COUNTED IN CODE, NOT IN PROSE. The raw-text count matched anywhere in
      the file, so a comment quoting the call would have satisfied it -- the
      same hole that let an indexOf find a comment before a declaration
      elsewhere in this suite. Comments are stripped first, so the number
      means call sites. */
-  const codeOnly = PAGE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
   assert.ok((codeOnly.match(/pjMarkOpen\(null\)/g) || []).length >= 4,
     'a close path lost its pjMarkOpen(null) -- a lit row can outlive its project again');
   assert.ok((('/* pjMarkOpen(null) */').replace(/\/\*[\s\S]*?\*\//g, '').match(/pjMarkOpen\(null\)/g) || []).length === 0,

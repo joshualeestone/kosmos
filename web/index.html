@@ -2156,7 +2156,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      reads as one line), the projects rail's rule is its own right edge. */
   html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated #pj-list-view { background: var(--k-side, #f3f1ec); border-radius: 0; padding: 8px; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents { background: var(--k-side, #f3f1ec); border-radius: 0; padding: 8px 8px 0; margin: 0; }
-  html[data-layout="consolidated"] body.consolidated > #alist { padding-top: 0; }
+  /* ⚠️ This was dead: `#alist`'s own rule later in source order sets
+     `padding-top: 6px` at identical specificity and won, silently defeating
+     the flush-under-the-head intent the comment above describes. Raised to
+     beat it rather than left as a declaration that reads as if it works. */
+  html[data-layout="consolidated"] body.consolidated > #alist#alist { padding-top: 0; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents, html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated > #rail-me { border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated #pj-list-view { border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated .lrow { border: 0; background: none; box-shadow: none; border-radius: 9px; padding: 6px 6px; }
@@ -2491,8 +2495,18 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { max-height: 100%; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 3; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit { display: contents; }
-  /* #980 (Josh, 2026-08-26 08:31): Files ABOVE Project members. The split's
-     first child is Members, last is Files; rows swap, DOM untouched, tab
+  /* #980 (Josh, 2026-08-26 08:31): Files ABOVE Project members.
+     🛑 ACCEPTED TRADE, NAMED RATHER THAN LEFT TO BE FOUND: swapping by grid row
+     desynchronises TAB order from VISUAL order in this view. DOM order is
+     Members then Files, so the keyboard runs Members -> Files while the eye
+     reads Files -> Members (WCAG 2.4.3 / 1.3.2). Before this change the two
+     agreed; the mismatch is introduced here.
+     ⚠️ The durable fix is swapping the two children in MARKUP -- `display:
+     contents` makes that free visually -- but that also reorders the TAB view,
+     a screen Josh did not ask about and has not seen. Reordering an unrequested
+     screen inside a styling pass is the worse of the two, so the mismatch is
+     recorded here and carded rather than taken silently.
+     The split's first child is Members, last is Files; rows swap, DOM untouched, tab
      view untouched -- the third re-ordering of this same shared markup,
      same display:contents technique as the first two. */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { grid-column: 2; grid-row: 3; }
@@ -2519,7 +2533,22 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      ground, full width and height, with the dialogue|cards rule on its
      right edge. No radii anywhere: columns, not boxes. */
   html[data-layout="consolidated"] body.consolidated .pj3 { background: var(--k-side, #f3f1ec); border-radius: 0; padding: 0; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-bg); border-radius: 0; border-right: 1px solid var(--k-rule); }
+  /* 🛑 `border: 0` FIRST, and its absence made this pass fail at the one thing
+     it exists to do. `.pjmid` is a `.pjcol`, and `.pjcol` carries
+     `border: 1px solid var(--k-rule)` on all four sides. Setting
+     `border-radius: 0` and a `border-right` here left top, left and bottom
+     STANDING -- so the "no bounding boxes" column kept three sides of a box,
+     square-cornered, plus a doubled line beside the projects rail (the rail's
+     own right border, the gap, then this column's left one).
+     ⚠️ THE TELL WAS IN THE RULE ITSELF: re-declaring `border-right` only makes
+     sense if you believe there is no border there already. I wrote the
+     evidence of my own mistake into the line and did not read it.
+     ⚠️ AND THE GUARD COULD NOT SEE IT. web.consolidated-match-mock pins this
+     rule's TEXT ("the discussion is boxed again"), and rule text cannot see an
+     inherited border. A cascade defect is invisible to every text pin in this
+     branch, which is the same blind spot the stray-terminator scanner exists
+     for. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-bg); border: 0; border-radius: 0; border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin: 0 12px 12px; }
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin-top: 12px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .dlab { font-size: .6875rem; letter-spacing: .1em; margin-bottom: 8px; }
@@ -23191,7 +23220,7 @@ function openProject(id) {
   if (!pjById(id)) {
     document.getElementById('pj-list-msg').textContent =
       'That project was created, but we could not read it back just now.';
-    pjView('list');
+    PJ_CURRENT = null; pjMarkOpen(null); pjView('list');
     return;
   }
   /* ⚠️ "Fresh" is scoped to SWITCHING projects (round 31): re-opening the
@@ -25750,7 +25779,13 @@ document.getElementById('pj-new').addEventListener('click', openAddProject);
 // is "it keeps re-reading" quietly stopped, for the rest of the session, and
 // nothing said so.
 document.getElementById('pj-back').addEventListener('click', () => { pjCloseConfirm(); PJ_CURRENT = null; pjMarkOpen(null); pjView('list'); });
-document.getElementById('pj-add-back').addEventListener('click', () => pjView('list'));
+/* ⚠️ CLEARS THE RAIL MARKER TOO. Reachable in the consolidated view as: open a
+   project, press + in the projects rail head, then Back. Without this it lands
+   on the nothing-open list with the previous project still lit and still
+   aria-current -- the exact unreachable combination the render check was fixed
+   to stop pinning. pjMarkOpen's own docblock enumerates the close paths; this
+   one was not in the list. */
+document.getElementById('pj-add-back').addEventListener('click', () => { PJ_CURRENT = null; pjMarkOpen(null); pjView('list'); });
 
 document.getElementById('pj-list').addEventListener('click', (e) => {
   if (e.target.closest('#pj-new-empty')) { openAddProject(); return; }

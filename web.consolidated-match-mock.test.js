@@ -61,7 +61,15 @@ test('the right cards sit on the side tone; the discussion is a full-bleed colum
   // is the discussion's own right edge. No radii: columns, not boxes.
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 \{ background: var\(--k-side, #f3f1ec\); border-radius: 0; padding: 0; \}/,
     'the right column lost its side-tone ground (or the boxes-on-a-ground look is back)');
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{ background: var\(--k-bg\); border-radius: 0; border-right: 1px solid var\(--k-rule\); \}/,
+  /* 🛑 `border: 0` IS THE LOAD-BEARING PART, and this pin shipped without it
+     for a while. `.pjmid` is a `.pjcol`, and `.pjcol` sets a 1px border on all
+     four sides. Without the reset, top/left/bottom survived and the "full
+     bleed column" kept three sides of a box -- while this very assertion
+     passed, because rule TEXT cannot see an inherited border.
+     ⚠️ That is the limit of every text pin in this suite. Keep `border: 0`
+     first in the expectation so a future edit that drops it goes red here
+     rather than only on somebody's screen. */
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{ background: var\(--k-bg\); border: 0; border-radius: 0; border-right: 1px solid var\(--k-rule\); \}/,
     'the discussion is boxed again (or lost the rule that separates it from the right column)');
 });
 
