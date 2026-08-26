@@ -12,6 +12,10 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+
+/* A comment quoting a selector must not be able to redden a guard about
+   DECLARATIONS. Same hazard, same fix, as the sibling suite. */
+const stripCssComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '');
 const fs = require('node:fs');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
@@ -38,8 +42,30 @@ test('the agents and projects rail titles sit at the same height', () => {
 });
 
 test('the person\'s own row stays on screen under a tall right column', () => {
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated > #rail-me \{[^}]*position: sticky; bottom: 8px;/s,
-    'rail-me is no longer sticky, so a tall right column can scroll it off screen again');
+  // #980 rebased this from a sticky float to a STRUCTURAL pin: rail-me is
+  // the body grid's last track (grid-row 41, rows auto/1fr/auto) under a
+  // 100vh grid, so WHILE THE GRID FITS THE VIEWPORT it sits at the foot by
+  // construction. The body is overflow-y: auto since #980's floor fix, so in a
+  // window too short for the floor the page scrolls and this strip scrolls with
+  // it; a sticky cannot help (zero travel in an exactly-fitting row). Stated
+  // rather than assumed, because this file's whole job is the pin.
+  // No sticky is pinned here on purpose -- a grid item
+  // whose containing block is its own exactly-fitting row has zero
+  // sticky travel, so a sticky would be dead code wearing a load-bearing
+  // look (the same fact that made the card-head stickies inert).
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated > #rail-me \{ grid-column: 1; grid-row: 41;/,
+    'rail-me left its last-track row, the structure that pins it at the column foot');
+  /* ⚠️ overflow-y: auto, NOT hidden, since #980's floor fix. "No page
+     scrollbar" and "always reachable" cannot both hold at every window
+     height: `auto` draws nothing while the content fits, so the no-page-
+     scroll outcome Josh asked for is unchanged in every window a person
+     uses, and the scrollbar exists only as the escape hatch when the
+     grid genuinely cannot fit. What this pin protects is the viewport-
+     height grid, which is what pins the person's row. */
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \{[^}]*height: 100vh; overflow-y: auto; overflow-x: hidden;/s,
+    'the body lost its viewport-height no-page-scroll grid, the structure that pins the person\'s row');
+  assert.doesNotMatch(stripCssComments(PAGE), /> #rail-me \{[^}]*position: sticky/s,
+    'a dead sticky is back on rail-me, claiming a job the grid structure does');
 });
 
 test('the agents rail scrolls without showing a scrollbar', () => {
@@ -63,8 +89,11 @@ test('the right column is dissolved into independent grid rows, so its cards can
 });
 
 test('the conversation box fills the available height instead of leaving a gap above the composer', () => {
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{[^}]*height: calc\(100vh - 63px\);/s,
-    'the conversation column lost its real, viewport-based height');
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pjmid \.thread \{ min-height: 40vh; max-height: none; flex: 1 1 auto; \}/,
-    'the conversation box no longer grows to fill its column (still capped, or not set to flex-grow)');
+  // #980: the height comes from the grid chain (body 100vh -> panel
+  // stretch -> .pj3 100%), not the old tuned viewport calc -- and the
+  // thread is the COLUMN now, not a bordered card floating inside it.
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{[^}]*height: 100%; min-height: 0;/s,
+    'the conversation column lost its full-height grid chain');
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pjmid \.thread \{ min-height: 0; max-height: none; flex: 1 1 auto; border: 0; border-radius: 0; background: none; \}/,
+    'the conversation no longer fills its column as a flat, borderless region (re-boxed, capped, or not flex-grow)');
 });

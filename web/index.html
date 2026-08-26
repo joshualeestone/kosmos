@@ -68,6 +68,13 @@
      definition, not just the defence its source happened to carry. The
      fallbacks stay at the usage sites anyway, verbatim from the pack. */
   --k-sunk: rgba(20,22,26,.05);
+  /* #980: the consolidated view's flat side tones, the mock's own values
+     (installkosmos.com/consolidated-mock line 12-14): rails and the right
+     column's ground sit a shade behind the conversation, the settings
+     strip a shade behind the rails. Literal values, not derived washes,
+     because Josh specced from the mock's measured colors. */
+  --k-side: #f3f1ec;
+  --k-side-2: #ebe8e2;
   /* ⚠️ THE OPTION BUTTON'S BOUNDARY IS A CONTRAST FLOOR, not a preference.
      `--k-rule` measures 1.18:1 against the question panel in light and 1.10:1
      in dark, and WCAG SC 1.4.11 asks 3:1 of anything that identifies a control.
@@ -200,6 +207,9 @@
     /* The inverse: a raised-looking wash on the dark ground, because a
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
+    /* #980: the consolidated side tones' dark twins, the mock's line 25. */
+    --k-side:   #111316;
+    --k-side-2: #1c1f23;
     --k-optline: #6e7278;
   }
 }
@@ -1982,22 +1992,93 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .laytile svg { width: 100%; height: auto; display: block; border-radius: 8px; margin-bottom: 8px; }
 .laytile b { display: block; font-size: .9375rem; }
 .laytile small { display: block; font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: 2px; }
+/* #980 (Josh, 2026-08-26 08:31): NO page scrollbar, ever -- "no matter
+   what size... it has a 10% or 15% scroll so you can scroll down and see
+   a nothingness space" (the page-level body padding was most of it). The
+   body becomes a viewport-height grid with explicit rows for the three
+   that need one (the rail heads, the lists, the person -- the header is
+   auto-placed among the pre-rail tracks, which is what `repeat(38, auto)`
+   protects), the lists' row is the one that flexes, and every region
+   scrolls inside itself.
+   ⚠️ "EVER" IS THE GOAL, NOT THE MECHANISM, and the distinction is the
+   thing to read before editing this rule. The body is `overflow-y: auto`,
+   NOT `hidden`: `auto` draws nothing while the grid fits, so in every
+   window a person uses there is no page scrollbar, exactly as asked. It
+   is the escape hatch for the one case where honouring the goal would
+   cost REACHABILITY -- a window too short for the flexing row's floor.
+   `hidden` there does not keep the promise, it hides the board. The long
+   comment on the rule itself carries the full reasoning; this paragraph
+   exists so the first thing a reader meets is not the opposite of it.
+   ⚠️ This comment sits ABOVE the media block on purpose: five spec-pin
+   tests anchor on the media line being immediately followed by the body
+   rule. */
 @media (min-width: 960px) {
   html[data-layout="consolidated"] body.consolidated { display: grid; grid-template-columns: minmax(200px, 15%) minmax(0, 1fr);
-    column-gap: 18px; align-content: start; }
+    /* Zero gap, not 18px: the agents and projects rails sit flush at their
+       shared rule, the way two columns of one surface should -- the
+       discussion gets its breathing room from its own padding instead. */
+    column-gap: 0; align-content: stretch;
+    /* 🛑 `overflow-y: auto`, NOT `hidden`, and the row below carries a FLOOR.
+       These two are one fix for one hole: the 38 pre-rail tracks are `auto`
+       and take whatever the notices need, while the row holding #alist and
+       #panel-projects was `minmax(0, 1fr)` and could be squeezed to ZERO. With
+       `overflow: hidden` that content was then unreachable -- no page scroll
+       to fall back on, because this view deliberately removed it. Before this
+       branch the page simply grew and scrolled, so it was always reachable.
+       ⚠️ "NEVER A PAGE SCROLLBAR" AND "ALWAYS REACHABLE" CANNOT BOTH HOLD AT
+       EVERY WINDOW HEIGHT. Josh asked for the first; the second is not
+       negotiable. So the first is honoured in every window a person actually
+       uses, and the scrollbar is the escape hatch only when the window is too
+       short to honour it. `auto` draws nothing while the content fits, so in
+       the normal case this is invisible and identical to `hidden`.
+       📌 Evidence it does not regress at normal sizes: measured at 1280x900
+       in the open-project, list, #conn-visible and #askcard-visible states,
+       documentElement.scrollHeight equals clientHeight exactly. The scrollbar
+       appears only once the grid genuinely cannot fit.
+       `overflow-x: hidden` keeps the sideways-scroll ban absolute, which the
+       first-run and memory-words checks already enforce elsewhere. */
+    height: 100vh; overflow-y: auto; overflow-x: hidden; padding: 0; margin: 0;
+    /* 🛑 auto TRACKS FOR EVERY PRE-RAIL ROW, NOT 0 (challenge-loop
+       iteration 1's blocker): #askcard (a phone asking to pair), #conn
+       (subscription unreachable) and #board-msg are auto-placed body
+       children with no explicit row. In a 0-height track they painted
+       UNDER the rails' opaque grounds -- a pairing request nobody can
+       see. auto collapses to nothing while they are hidden and gives
+       them their height the moment they show; the lists' 1fr row absorbs
+       the difference, so the no-page-scroll invariant holds either way.
+       ⚠️ AND THE FLEXING ROW HAS A FLOOR, which is the other half of the
+       overflow change above. `minmax(0, 1fr)` let this row reach zero, and a
+       zero-height #alist/#panel-projects is the whole board gone. 200px is a
+       rail head plus about four rows: enough that the row is recognisably
+       itself and can be scrolled inside, rather than a sliver. Below that the
+       grid exceeds the viewport and the body scroll above carries it. */
+    grid-template-rows: repeat(38, auto) auto minmax(200px, 1fr) auto; }
   html[data-layout="consolidated"] body.consolidated > * { grid-column: 1 / -1; }
+  /* ⚠️ #conn CARRIES NO HORIZONTAL MARGIN OF ITS OWN (its `.conn {` rule carries margin-bottom
+     only): it is a rounded, bordered card drawn against the body's
+     `--space-8` inset, and this view sets `padding: 0`. Measured, it
+     rendered `left: 0; width: 1280` at a 1280px viewport, so its rounded
+     corners sat flush against the window edges.
+     📌 The sibling in the same pre-rail run does NOT need this, and the
+     difference is the tell: `.askcard` carries `margin: 10px 24px 0`
+     itself, so it kept its inset when the padding went. Matching that
+     inset here rather than inventing one keeps the two cards, which
+     appear in the same place, agreeing about where the edge is. */
+  html[data-layout="consolidated"] body.consolidated > #conn { margin-left: var(--space-8); margin-right: var(--space-8); }
   html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 39; }
   /* #867 (Josh, 2026-08-25 11:02): "hide that scrollbar inside of
      agents." Still scrolls -- scrollbar-width/-ms-overflow-style hide
      the track, not the ability to scroll it; content wheels and
      touchpad gestures are untouched. He also guessed the same
-     treatment belongs on "projects, members, files, and tasks" -- none
-     of those four currently have their OWN independent scroll region
-     in this view (they grow with the page instead), so there is no
-     scrollbar on them yet to hide. Revisit if one of them gets a
-     max-height/overflow of its own later. */
+     treatment belongs on "projects, members, files, and tasks" -- his
+     guess landed: #980's no-page-scroll grid gave all four their own
+     scroll regions (the projects rail and the three right-column cards,
+     below), each with this same hidden-track treatment. */
+  /* #980: no tuned max-height -- the list's grid row is the flexing one
+     (minmax(0,1fr) above), so the list fills whatever the viewport gives
+     it and scrolls inside that, at every window size. */
   html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 40; margin: 0; display: flex; flex-direction: column; gap: 6px;
-    max-height: calc(100vh - 230px); overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+    min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated > #alist::-webkit-scrollbar { display: none; }
   /* The person, pinned under the list on a deeper ground so the row is not
      lost among the faces (Josh, 14:14). Folded, the picture alone.
@@ -2010,9 +2091,25 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      nothing here was pinned to the viewport itself. `position: sticky;
      bottom: 0` is the same mechanism `.pjmid .composer` already uses to
      stay on screen while its own column scrolls. */
+  /* #980: the settings strip goes flat on the mock's own deeper tone
+     (--k-side-2, the .me treatment), full column width with no radius or
+     float-gap, so the agents column reads as ONE column with the person
+     pinned at its foot and the rule running unbroken down its edge. */
+  /* The pin is STRUCTURAL, AND ITS SCOPE IS THE VIEWPORT IT FITS IN: row 41
+     is the body grid's last track, sized by this element, so while the grid
+     fits 100vh the strip sits at the viewport foot by construction.
+     ⚠️ THAT IS NO LONGER "ALWAYS", and the qualifier is not decoration. The
+     body is `overflow-y: auto` with a `minmax(200px, 1fr)` floor on the list
+     row (the body grid rule above): in a window too short to honour that floor the grid
+     exceeds the viewport, the page scrolls, and this strip goes with it.
+     🔑 A sticky would NOT rescue that case -- a grid item whose containing
+     block is its own exactly-fitting row has zero sticky travel (the fact
+     iteration 6 proved on the card heads) -- so there is no cheap fix being
+     passed over here, only a trade being stated: below the floor,
+     reachability beats the visual pin, which is the same call the overflow
+     change makes. In every window a person actually uses, it is pinned. */
   html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 41; display: flex; align-items: center; gap: 6px;
-    margin: 8px 0 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-sunk, rgba(20,22,26,.05));
-    position: sticky; bottom: 8px; z-index: 5; }
+    margin: 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 0; background: var(--k-side-2, #ebe8e2); }
   html[data-layout="consolidated"] body.consolidated .railme-go { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
   html[data-layout="consolidated"] body.consolidated .railme-face { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; overflow: hidden;
     background: var(--k-surface); border: 1px solid var(--k-rule); font: 700 10px/1 var(--font-ui); color: var(--k-ink-2); }
@@ -2028,7 +2125,21 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      for"). Its notice slots stay in the flow, so an update note or the
      offline warning still has somewhere to appear; the tabs, the K link,
      the status line and the theme pill are elsewhere in this view. */
-  html[data-layout="consolidated"] body.consolidated > .apphead { position: static; padding: 0; border: 0; min-height: 0; }
+  /* 🛑 margin MUST be reset here, and its absence was a shipped clip.
+     `.apphead`'s own rule (grep `.apphead { position: sticky`) sets a margin that is `calc(-1 * --space-8)` on both sides
+     PURELY to cancel the body's own `--space-8` padding -- its comment
+     says so, and says a body-padding breakpoint needs one here too. This
+     view sets `padding: 0` (the body grid rule above), so those -24px stopped cancelling
+     anything and became a real offset: measured, `.apphead` and
+     `#newsbar` render at left:-24, top:-24. Under this view's
+     `height: 100vh` that was CLIPPED rather than
+     scrollable -- the update notice was sliced through the middle with
+     its status dot off-screen.
+     ⚠️ AND IT CLIPPED EXACTLY WHAT THE COMMENT ABOVE PROMISES STAYS
+     VISIBLE: #utoast-slot, #unote-slot, #unews-slot, #uoffline-slot. A
+     sentence asserting a property is not a guard on it; `web.consolidated-980`
+     now pins this so the promise can fail loudly instead of quietly. */
+  html[data-layout="consolidated"] body.consolidated > .apphead { position: static; margin: 0 0 var(--space-6); padding: 0; border: 0; min-height: 0; }
   html[data-layout="consolidated"] body.consolidated > .apphead header { padding: 0; min-height: 0; }
   html[data-layout="consolidated"] body.consolidated > .apphead .klink, html[data-layout="consolidated"] body.consolidated > .apphead h1,
   html[data-layout="consolidated"] body.consolidated > .apphead .tabs, html[data-layout="consolidated"] body.consolidated > .apphead .headright { display: none; }
@@ -2038,16 +2149,54 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents .lead { flex-direction: column; }
   /* The rails on a deeper ground than the conversation, and their rows flat
      and quiet, the way the mock draws them. */
-  html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated #pj-list-view { background: var(--k-sunk, rgba(20,22,26,.05)); border-radius: 12px; padding: 8px; }
-  html[data-layout="consolidated"] body.consolidated > #rail-agents { background: var(--k-sunk, rgba(20,22,26,.05)); border-radius: 12px 12px 0 0; padding: 8px 8px 0; margin: 0; }
-  html[data-layout="consolidated"] body.consolidated > #alist { border-radius: 0 0 12px 12px; padding-top: 0; }
+  /* #980 (Josh, 2026-08-26 08:31): NO bounding boxes on the rails. Flat
+     columns on the mock's side tone, separated by vertical rules -- the
+     agents column's rule rides #rail-agents/#alist/#rail-me (all three
+     grid rows of column 1, zero vertical gaps between them, so the border
+     reads as one line), the projects rail's rule is its own right edge. */
+  html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated #pj-list-view { background: var(--k-side, #f3f1ec); border-radius: 0; padding: 8px; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents { background: var(--k-side, #f3f1ec); border-radius: 0; padding: 8px 8px 0; margin: 0; }
+  /* ⚠️ This was dead: `#alist`'s own rule later in source order sets
+     `padding-top: 6px` at identical specificity and won, silently defeating
+     the flush-under-the-head intent the comment above describes. Raised to
+     beat it rather than left as a declaration that reads as if it works. */
+  html[data-layout="consolidated"] body.consolidated > #alist#alist { padding-top: 0; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents, html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated > #rail-me { border-right: 1px solid var(--k-rule); }
+  html[data-layout="consolidated"] body.consolidated #pj-list-view { border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated .lrow { border: 0; background: none; box-shadow: none; border-radius: 9px; padding: 6px 6px; }
   html[data-layout="consolidated"] body.consolidated .lrow:hover { background: var(--k-surface); }
   html[data-layout="consolidated"] body.consolidated .lrow.attn { border: 0; }
   html[data-layout="consolidated"] body.consolidated .pj-row { border: 0; background: none; box-shadow: none; border-radius: 9px; padding: 7px 8px; }
   html[data-layout="consolidated"] body.consolidated .pj-row:hover { background: var(--k-surface); box-shadow: none; }
+  /* #980: the OPEN project stays lit (the mock's .pj.on): surface on the
+     side ground with a hairline ring, stronger than hover and persistent,
+     so the rail always answers "which one am I looking at". */
+  /* 🛑 THE FILL AND THE RING CANNOT CARRY THIS STATE ALONE. Measured against
+     the grounds by name, not by eye:
+         light  --k-surface #ffffff on --k-side #f3f1ec  1.13:1
+         light  --k-rule    #e3e1dc on --k-side #f3f1ec  1.16:1
+         dark   --k-surface #17191c on --k-side #111316  1.06:1
+         dark   --k-rule    #2a2d31 on --k-side #111316  1.35:1
+     This file declares the floor itself (grep `THE OPTION BUTTON'S BOUNDARY`) -- SC 1.4.11 asks 3:1 of
+     anything that identifies a control, and that covers a control's STATE.
+     ⚠️ The plan recorded this as hover-collision only and called the resting
+     state fine. It is not: the resting state is carried by those same two
+     hairlines, and dark is the worse of the two. `aria-current` (written in `pjMarkOpen`)
+     closes it for assistive tech and does nothing for a sighted low-vision
+     reader, who is the person "which one am I looking at" was added for.
+     🔑 THE BAR IS INK, NOT GOLD, and that is the file's own semantic rather
+     than my preference: the first-run progress strip uses `--k-ink` for the
+     step you are ON (`.fr-seg.now`) and gold for steps DONE (`.fr-seg.done`).
+     Open is a now, not a done. Gold would also have failed: every one of the
+     pack's five golds measures under 3:1 on the light rail ground, deepest
+     included at 2.80:1, and [[the pack is the source]] so inventing a sixth
+     is not available.
+     ✅ --k-ink-2 clears the floor on BOTH adjacent grounds in BOTH themes --
+     the row fill it sits on and the rail ground its outer edge abuts:
+     8.24:1 / 7.30:1 light, 7.81:1 / 8.25:1 dark. Pinned in
+     web.consolidated-980 so a token edit cannot quietly drop it back under. */
+  html[data-layout="consolidated"] body.consolidated .pj-row.open { background: var(--k-surface); box-shadow: inset 3px 0 0 0 var(--k-ink-2), 0 0 0 1px var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated #pj-list { gap: 2px; }
-  html[data-layout="consolidated"] body.consolidated #rail-projects { margin: 0 2px 6px 2px; }
   /* The rail heads: a name, a +, and the fold arrow. Folded, the arrow (and
      the +) stack and the name goes. */
   html[data-layout="consolidated"] body.consolidated .railhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 0 2px 8px 6px; min-height: 22px; }
@@ -2061,13 +2210,37 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated.fold-a { grid-template-columns: 48px minmax(0, 1fr); }
   html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents { flex-direction: column; margin-left: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents .railacts { flex-direction: column; }
-  html[data-layout="consolidated"] body.consolidated.fold-a .railname { display: none; }
+  /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
+     the PROJECTS label two columns over (Josh's "they jump around all over
+     the place" family: a fold on one rail visibly rearranging the other). */
+  html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents .railname { display: none; }
+  /* #980: the folded 48px strip shows the letters in their rings, nothing
+     else -- the empty-state card was wrapping letter-by-letter inside it.
+     ⚠️ ACKNOWLEDGED TRADE: this hides the could-not-read failure card too,
+     so a folded rail cannot distinguish "no agents" from "cannot look".
+     Accepted because the fold is the person's own choice, one press undoes
+     it, and 48px cannot carry a sentence honestly -- the unfolded rail
+     remains the surface where that distinction lives. */
+  html[data-layout="consolidated"] body.consolidated.fold-a #alist .pj-empty { display: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow { grid-template-columns: 34px; justify-content: center; padding: 4px 0; border: 0; background: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lname, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .ltitle, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lstate { display: none; }
   /* Folded projects: the arrow alone, the list gone. */
   html[data-layout="consolidated"] body.consolidated.fold-p #panel-projects { grid-template-columns: 48px minmax(0, 1fr); }
-  html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects { flex-direction: column; margin-left: 0; }
+  /* ⚠️ NO MARGIN DECLARATION HERE ANY MORE. It used to say `margin-left: 0`,
+     which out-specified the sticky header's `margin: 0 -8px` below ((1,3,2)
+     against (1,2,2)), so a folded header kept its right bleed and lost its
+     left. The first fix restated the bleed as `margin-inline-start: -8px`,
+     which was inert: `#rail-projects`'s own rule already supplies it and
+     already beats `.railhead`, so the "fold's own left inset" that
+     declaration claimed to cancel does not exist. A declaration whose comment
+     asserts a job nothing is doing is worse than its absence. */
+  html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects { flex-direction: column; }
   html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects .railacts { flex-direction: column; }
+  /* #980 (Josh, 2026-08-26 08:31): "when I collapse projects the header
+     should go away and just have the + and the arrow" -- the label was
+     never hidden on this side (only fold-a had the rule, and unscoped at
+     that), so PROJECTS overflowed the 48px strip as clipped letters. */
+  html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects .railname { display: none; }
   /* `#pj-list.asgrid` above carries one more class than this, so the fold
      names the same class or its display:none loses the specificity contest
      (the switch-specificity trap: two classes beat one, order irrelevant). */
@@ -2076,7 +2249,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      list's, so the PROJECTS head, the project title and the right column all
      share the AGENTS head's top (Josh, 16:32: "flush vertically with agents";
      measured before this at 42px below it). */
-  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 39 / span 2; max-width: none; margin: 0; padding-top: 0 !important; }
+  /* #980: span 3 -- through the person's row too, so the projects rail,
+     the discussion and the right column all run to the viewport's bottom
+     edge (the person's strip lives only in column 1). min-height: 0 lets
+     the panel shrink to its row instead of forcing the page taller. */
+  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 39 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
   /* #774: the empty-centre sentence sits where the open project would. */
   html[data-layout="consolidated"] body.consolidated #pj-none { grid-column: 2; grid-row: 1; align-self: start; margin: 14px 0 0; max-width: 34rem; }
   /* The rail row: the face, then the name over the title over the state --
@@ -2089,12 +2266,51 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      list; .lmodel does not -- the rail has no room for it and Josh has
      not asked for it there, so it stays caught by the blanket hide below
      like every other new-to-#856 field. */
-  html[data-layout="consolidated"] body.consolidated .lrow { grid-template-columns: 34px minmax(0, 1fr); gap: 2px 10px; padding: 8px 10px; }
-  html[data-layout="consolidated"] body.consolidated .lrow > .lav { grid-row: 1 / span 3; }
+  /* #980 (Josh, 2026-08-26 08:31): two lines, not three -- "the names of
+     those are gigantic" (brought to the mock's .8125rem) and "we don't
+     want to put a status bubble in there". The STATE TEXT goes; the
+     needs-you warning stays, drawn over the avatar itself, which is the
+     one state signal this rail still carries and the one that matters. */
+  html[data-layout="consolidated"] body.consolidated .lrow { grid-template-columns: 34px minmax(0, 1fr); gap: 2px 10px; padding: 6px 10px; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lav { grid-row: 1 / span 2; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lname { grid-column: 2; grid-row: 1; min-width: 0; }
-  html[data-layout="consolidated"] body.consolidated .lrow > .lname b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lname b { display: block; font-size: .8125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   html[data-layout="consolidated"] body.consolidated .lrow > .ltitle { grid-column: 2; grid-row: 2; font-size: .625rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* ⚠️ .lstate hides EXCEPT when it carries the inline Answer button
+     (challenge-loop iteration 1): the state chatter goes, per Josh, but
+     the needs-you row's one ACTION lived in the same element, and hiding
+     it left clicking the row as the only way to answer. :has() has
+     precedent in this file (.agauge/.dav-wrap/.pjmidhead). The kept row
+     sits on its own third line; its state word takes the quiet size while
+     .ansgo keeps its own larger .8125rem (it is the action, and its
+     SC 2.5.3 name contract wants it legible). .lsaid inside the row is
+     still hidden by the rule below. */
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate { grid-column: 2; grid-row: 3; font-size: .625rem; }
+  /* 🛑 VISUALLY HIDDEN, NOT `display: none`, and the difference is the whole
+     point. `display: none` takes the element out of the ACCESSIBILITY TREE as
+     well as off the screen, so a rail row announced its name and role and then
+     said nothing at all about state -- for working, idle and Not running
+     alike. Only `attn` survived, by luck: its triangle carries its own
+     `aria-label` (grep `LROW_WARN`).
+     🔑 Josh's ask was about the EYE ("we don't want to put a status bubble in
+     there", and the quoted last-words line is "sort of nonsense to show"). It
+     was never about the ear, and the states he listed -- idle, working, needs
+     you, is there a problem -- are exactly what a screen-reader user needs
+     MOST, having no glyph to look at.
+     📌 This file already owns the idiom and names it (grep `for the eye, sentence for the ear`): "shape and word
+     for the eye, sentence for the ear". These are `.vh`'s own declarations (grep `^.vh {`), inlined rather than adding a class, because the element is
+     painted in two places (grep `class="lstate`) and a CSS-only fix cannot be
+     forgotten by one of them.
+     ⚠️ `.lsaid` stays `display: none` (below) DELIBERATELY: the quoted chatter
+     is the thing Josh cut, and it should be gone from both channels. The state
+     WORD is what survives. Every GLYPH is already `aria-hidden` (grep for the GLYPH map),
+     so what is announced here is `copy.label` and nothing else. */
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate:not(:has(.ansgo)) {
+    position: absolute; width: 1px; height: 1px;
+    margin: -1px; padding: 0; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap; border: 0;
+  }
+  html[data-layout="consolidated"] body.consolidated .lrow:has(.lstate .ansgo) > .lav { grid-row: 1 / span 3; }
   html[data-layout="consolidated"] body.consolidated .lrow > :not(.lav):not(.lname):not(.ltitle):not(.lstate) { display: none; }
   /* The face shrinks to 24px inside its 34px cell so the ring sits OUTSIDE
      it with a gap of ground (an inside-edge ring vanished on Josh's screen);
@@ -2119,7 +2335,47 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pjcard-h b { font-size: .875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pc-t, html[data-layout="consolidated"] body.consolidated .pj-row .pj-who { display: none; }
   /* The projects panel: its list is the second rail, everything else the rest. */
-  html[data-layout="consolidated"] body.consolidated #panel-projects { display: grid; grid-template-columns: minmax(180px, 17%) minmax(0, 1fr); column-gap: 18px; align-items: start; }
+  /* #980: stretch, not start -- the projects rail and the open project
+     both run the panel's full height, so the columns and their rules
+     reach the bottom edge. The height chain (min-height:0 at every rung)
+     is what lets each region scroll inside itself instead of pushing. */
+  html[data-layout="consolidated"] body.consolidated #panel-projects { display: grid; grid-template-columns: minmax(180px, 17%) minmax(0, 1fr); column-gap: 18px; align-items: stretch; grid-template-rows: minmax(0, 1fr); }
+  html[data-layout="consolidated"] body.consolidated #pj-list-view { min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+  /* The webkit companion, same as #alist's: the app ships in a WKWebView
+     and older WebKit ignores scrollbar-width alone. */
+  html[data-layout="consolidated"] body.consolidated #pj-list-view::-webkit-scrollbar { display: none; }
+  html[data-layout="consolidated"] body.consolidated #pj-one-view { min-height: 0; }
+  /* 🛑 EVERY sub-view the projects panel can show needs its own scroll
+     under the no-page-scroll grid (challenge-loop iteration 2's blocker):
+     the page used to grow and scroll, so Settings/task/docs/add content
+     taller than the viewport was reachable; with body overflow hidden it
+     was clipped with no scrollbar and no wheel target -- Project settings'
+     own bottom controls (archive, member removal) unreachable, through the
+     very "Settings" link this pass renames. Same treatment as the list
+     view; the visible track stays here (these four are reading columns, not
+     rails).
+     ⚠️ SCOPE: this sentence governs THESE FOUR SUB-VIEWS only. The three
+     right-column cards below (members, tasks, files) DO hide their tracks,
+     deliberately and by Josh's own ask -- #867, where he named "projects,
+     members, files, and tasks" alongside the agents rail. That is a real
+     trade and it is worth naming rather than letting the two rules look
+     like a contradiction: those three carry vh caps, so they clip on a
+     short window, and a hidden track means a mouse reader gets no cue that
+     the list continues. Keyboard reach is unaffected (the rows are
+     buttons). If that cost ever outweighs the tidiness, it is his call to
+     reverse, not a defect to fix quietly. */
+  html[data-layout="consolidated"] body.consolidated #pj-settings-view, html[data-layout="consolidated"] body.consolidated #pj-task-view,
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view, html[data-layout="consolidated"] body.consolidated #pj-add-view { min-height: 0; overflow-y: auto; }
+  /* #980 (iteration 2): the projects rail header pins at the top of its
+     scroller, so a long project list scrolls UNDER it -- the same gesture
+     the agents rail gives (whose header sits outside #alist's scroll), and
+     the fold arrow stays reachable without scrolling back up. */
+  /* The header's ground spans the scroller's full width (negative margins
+     swallow #pj-list-view's 8px padding, its own padding restores the
+     inset), so scrolled rows cannot peek through side strips beside the
+     pinned header. */
+  html[data-layout="consolidated"] body.consolidated #rail-projects { position: sticky; top: 0; z-index: 4; background: var(--k-side, #f3f1ec);
+    margin: 0 -8px 6px; padding: 2px 10px 4px; }
   /* #867 (Josh, 2026-08-25 11:02): "push the title all the way up so
      it's flush with projects and project members" -- measured 8px low
      against #rail-agents, traced to #pj-list-view's own top padding
@@ -2181,11 +2437,132 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      installkosmos.com/consolidated-mock, not the citation below that
      never actually checked it): tasks, members, files -- not members,
      tasks, files. */
-  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); grid-template-rows: auto auto auto; }
+  /* #980: the third row (Members, after the Files-above-Members swap) is
+     the right column's flexing one; each card scrolls inside itself, so
+     tall content bounds instead of growing the page. */
+  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(168px, 1fr); height: 100%; min-height: 0; }
+  /* 🛑 `stretch`, NOT `start`, AND THIS ONE OVERLAPPED CARDS ON A SMALL LAPTOP.
+     With `start` a card is never sized to its track: its height is its own
+     content clamped by the 38vh cap. But the two `minmax(0, auto)` tracks have a
+     base size of 0, so when space is tight grid splits the leftover EQUALLY and
+     they land below their content. The track shrinks faster than the cap does,
+     the two cross at about 770px of viewport, and past that the cards overflow
+     their areas. `.pjcard`/`.pjcol` are opaque and paint in DOM order, so Tasks
+     covered the top of Files and Files covered the top of Members -- the sticky
+     Files label and the + Add member control went UNDER an opaque card.
+     ⚠️ AND THE BODY'S ESCAPE HATCH CANNOT SAVE IT: because the tracks shrink
+     rather than grow, the grid never exceeds the viewport, so no page scrollbar
+     appears and `overflow-y: auto` never fires. A safety valve that cannot be
+     reached by a failure is not a safety valve for that failure.
+     ✅ MEASURED, headless at 1280 wide with 14 rows in each card, before and
+     after: `start` overlapped by 8px at 720px and 22px at 600px; `stretch`
+     overlaps at no height tested (900/720/600). The probe was controlled with a
+     planted overlap first, so a clean result means clean rather than blind.
+     `stretch` makes each card compress into its track and scroll inside, which
+     both already support. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { min-height: 0; align-self: stretch; }
+  /* ⚠️ THE SCROLLER IS THE LIST, NOT THE CARD, on Tasks and Members
+     (challenge-loop iteration 6): both cards are grids (piece ten below)
+     whose head sits in grid row 1, and a sticky grid item cannot travel
+     outside its own grid area -- sticky heads there were provably inert
+     and the + control scrolled away with the content. With the CONTENT
+     region as the scroll container the head never moves by construction:
+     card overflow hidden, head row auto, list row minmax(0,1fr) scrolling
+     inside (Tasks keeps its finished-tasks door pinned in a third row).
+     Files is not a grid, so it stays a plain card scroller with a sticky
+     label, which genuinely pins there. */
+  /* ⚠️ NO `align-items: start` HERE, and its removal is a fix rather than a
+     tidy. It outranked the deliberate `align-items: center` on the shared card-head rule --
+     (0,6,2) against (0,5,2) -- which exists so the 22px `+` control (the `.pj-addmem`/`#pj-newtask` rule,
+     `margin: 0 0 6px`) lines up with its `.dlab`. Measured, the + centre
+     moved 3px above the label centre to 3px below it on both cards.
+     🔑 It was never needed: the only child that must not be centred is the
+     scrolling list, and that child sets `align-self: stretch` on itself
+     immediately below, with its own measured reason. Setting the property on
+     the PARENT to fix ONE child is what reached the head row as well. */
+  /* 🛑 `overflow-y: auto`, NOT `hidden`, AND THE LIST IS STILL THE SCROLLER.
+     Only `.pj-members` gets a scroller below; the card's FOUR OTHER children --
+     the add-member control, remove, the add row carrying its confirm button,
+     and the aria-live result message -- sit outside it. With Tasks and Files
+     both at their 38vh caps the third track lands on its floor, the card clamps,
+     and those four are clipped with no scrollbar and no wheel target: a confirm
+     button a person cannot reach.
+     ⚠️ THIS IS THE SAME FAILURE THE BRANCH ALREADY TREATS AS BLOCKING for the
+     four projects sub-views, and those were given `overflow-y: auto`. This card
+     was given `hidden`, which is the inconsistency rather than a considered
+     difference.
+     📌 `auto` does not weaken "the scroller is the list": at every size the
+     content fits, nothing scrolls here and the list scrolls inside its own
+     track exactly as before. The card scroll engages only in the clamp, which
+     is the same escape-hatch shape as the body grid -- reachability wins where
+     the geometry cannot be honoured. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { overflow-y: auto; grid-template-rows: auto minmax(0, 1fr); }
+  /* align-self: stretch, or the list sizes to its CONTENT instead of its
+     bounded track and the scroll never engages (measured: 1314px of rows
+     rendering into a 301px track, clipped unreachable). */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child > .pj-members { overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child > .pj-members::-webkit-scrollbar { display: none; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { overflow: hidden; display: flex; flex-direction: column; }
+  /* Same removal, same reason, for Tasks: (1,3,2) outranked (1,2,2), and
+     `.tkcards` sets its own `align-self: stretch` on the next line. */
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field { flex: 1 1 auto; min-height: 0; grid-template-rows: auto minmax(0, 1fr) auto; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > .tkcards { overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > .tkcards::-webkit-scrollbar { display: none; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child { overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child::-webkit-scrollbar { display: none; }
+  /* ⚠️ vh CAPS ON THE TWO auto-ROW CARDS, NOT max-height: 100% (challenge-
+     loop iteration 1, then MEASURED: with 30 rows stuffed into Tasks and
+     Files, %-caps against content-sized tracks let the two grow to ~460px
+     each and push Members clean off the bottom). A viewport cap cannot be
+     gamed by content: Tasks and Files each stop at 38vh and scroll inside;
+     Members' own row is 1fr-bounded by construction, so its 100% cap is
+     against a real track and holds.
+     🛑 THE TWO CAPS BOUND EACH CARD, NOT THEIR SUM, and that is what starved
+     the third row. 38vh + 38vh is 76vh, plus `.pj3`'s 16px row gaps and the
+     cards' own margins, so on a 700px window with both lists full Members
+     computed to roughly one row. Each cap was doing its job and the
+     arithmetic across them was nobody's.
+     ⇒ Members' track carries a 168px FLOOR. 120 was derived from the list
+     alone and did not count the card's OWN furniture: the head, the add-member
+     control and the add row with its confirm button do not scroll, so they
+     have to fit before a single member is visible. 168 is those plus about one
+     row. Below that the grid exceeds `.pj3` and the overflow chains out to
+     the body's own scroll -- the same escape hatch, and the same trade, as
+     the body grid's `minmax(200px, 1fr)`: in every window a person uses
+     nothing scrolls, and where the geometry cannot be honoured, reachability
+     wins over the no-scrollbar promise. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit), html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child { max-height: 38vh; }
+  /* 🛑 `calc(100% - 12px)`, NOT `100%`, AND THIS ONE IS NOT WINDOW-DEPENDENT.
+     `max-height` resolves against the grid AREA, but this card also carries
+     `margin: 0 12px 12px` below, so at the cap its MARGIN BOX is 12px taller
+     than its own track. A full Members list then spills 12px past `.pj3`
+     (height: 100%, no overflow) and out through #pj-one-view and
+     #panel-projects, neither of which has a bottom padding to absorb it --
+     straight to the body scroll.
+     ⚠️ That is a page scrollbar in exactly the state this branch exists to
+     remove, and unlike the two documented escape hatches it does not need a
+     short window: it fires whenever Members overflows. The sibling caps are
+     safe by contrast, because Tasks and Files sit in `auto` tracks, which size
+     to the margin box rather than against it. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { max-height: calc(100% - 12px); }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 3; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit { display: contents; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { grid-column: 2; grid-row: 2; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child { grid-column: 2; grid-row: 3; }
+  /* #980 (Josh, 2026-08-26 08:31): Files ABOVE Project members.
+     🛑 ACCEPTED TRADE, NAMED RATHER THAN LEFT TO BE FOUND: swapping by grid row
+     desynchronises TAB order from VISUAL order in this view. DOM order is
+     Members then Files, so the keyboard runs Members -> Files while the eye
+     reads Files -> Members (WCAG 2.4.3 / 1.3.2). Before this change the two
+     agreed; the mismatch is introduced here.
+     ⚠️ The durable fix is swapping the two children in MARKUP -- `display:
+     contents` makes that free visually -- but that also reorders the TAB view,
+     a screen Josh did not ask about and has not seen. Reordering an unrequested
+     screen inside a styling pass is the worse of the two, so the mismatch is
+     recorded here and carded rather than taken silently.
+     The split's first child is Members, last is Files; rows swap, DOM untouched, tab
+     view untouched -- the third re-ordering of this same shared markup,
+     same display:contents technique as the first two. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { grid-column: 2; grid-row: 3; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child { grid-column: 2; grid-row: 2; }
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { grid-column: 2; grid-row: 1; }
   /* #520 piece six (Josh, 2026-08-24 16:14: "missing a whole lot"): the
      board's full-width notice bars do not belong over the consolidated grid;
@@ -2201,9 +2578,50 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      .pjcard here, not to override it differently: it already looks
      like the mock without any consolidated-specific rule at all. What
      needs to change is the ground behind it. */
-  html[data-layout="consolidated"] body.consolidated .pj3 { background: var(--k-sunk, rgba(20,22,26,.05)); border-radius: 12px; padding: 12px; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-surface); border-radius: 12px; }
+  /* #980: the discussion is not a floating card. The .pj3 ground carries
+     the side tone (which is what shows behind the right column's cards,
+     the part Josh called correct), and .pjmid -- column 1, spanning every
+     row at viewport height -- paints its whole column back to the page
+     ground, full width and height, with the dialogue|cards rule on its
+     right edge. No radii anywhere: columns, not boxes. */
+  html[data-layout="consolidated"] body.consolidated .pj3 { background: var(--k-side, #f3f1ec); border-radius: 0; padding: 0; }
+  /* 🛑 `border: 0` FIRST, and its absence made this pass fail at the one thing
+     it exists to do. `.pjmid` is a `.pjcol`, and `.pjcol` carries
+     `border: 1px solid var(--k-rule)` on all four sides. Setting
+     `border-radius: 0` and a `border-right` here left top, left and bottom
+     STANDING -- so the "no bounding boxes" column kept three sides of a box,
+     square-cornered, plus a doubled line beside the projects rail (the rail's
+     own right border, the gap, then this column's left one).
+     ⚠️ THE TELL WAS IN THE RULE ITSELF: re-declaring `border-right` only makes
+     sense if you believe there is no border there already. I wrote the
+     evidence of my own mistake into the line and did not read it.
+     ⚠️ AND THE GUARD COULD NOT SEE IT. web.consolidated-match-mock pins this
+     rule's TEXT ("the discussion is boxed again"), and rule text cannot see an
+     inherited border. A cascade defect is invisible to every text pin in this
+     branch, which is the same blind spot the stray-terminator scanner exists
+     for. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-bg); border: 0; border-radius: 0; border-right: 1px solid var(--k-rule); }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin: 0 12px 12px; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin-top: 12px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .dlab { font-size: .6875rem; letter-spacing: .1em; margin-bottom: 8px; }
+  /* #980 (iteration 5): the composer strip repaints to the column's own
+     ground -- .pjmid left --k-surface for --k-bg, and the sticky composer
+     keeping the base surface drew a mismatched band across the bottom
+     (glaring in dark: #17191c on #0c0d0f), a sliver of the boxed look
+     this pass removes. The bordered composerbox inside it is unchanged. */
+  html[data-layout="consolidated"] body.consolidated .pjmid .composer { background: var(--k-bg); }
+  /* #980 (iterations 5-6): Tasks' and Members' heads never move because
+     their LIST is the scroller (see the scroller-is-the-list rule above;
+     sticky was provably inert on grid items whose containing block is
+     their own row). Files, a plain card scroller, pins its label the
+     ordinary sticky way. */
+  /* ⚠️ THE INSET IS PADDING, NOT MARGIN, or the ground has a hole in it.
+     `.dlab` carries `margin: 0 0 10px`, and a sticky element's background stops
+     at its border box -- so scrolled rows passed through a 10px transparent
+     band directly beneath the pinned label, sliding under nothing. Folding the
+     inset into padding extends the ground to cover it. The projects rail header
+     already solved this the same way; this card had not. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child > .dlab { position: sticky; top: 0; z-index: 3; background: var(--k-surface); margin-bottom: 0; padding-bottom: 10px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem, html[data-layout="consolidated"] body.consolidated .pj3 .fi, html[data-layout="consolidated"] body.consolidated .pj3 .tkrow { padding: 6px 8px; border-radius: 9px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem:hover, html[data-layout="consolidated"] body.consolidated .pj3 .fi:hover { background: var(--k-surface); }
   /* The add/remove actions match the rail heads: a quiet + rather than a
@@ -2212,23 +2630,36 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   /* #867 (Josh, 2026-08-25 11:02): "make the dialog box fit the height
      of the page. Right now you can see it has a big empty gap... match
      up with the design that we did yesterday" -- the 2026-08-19 pass
-     (:2310 below) that made the tab view's box "fill the page height",
+     (grep `.pjmid .thread`) that made the tab view's box "fill the page height",
      the reference he could not recall the date of.
      ⚠️ TWO THINGS TRIED AND MEASURED WRONG BEFORE THIS ONE, kept here
-     so the next reader does not retry them: (1) stretching .pjmid to
-     its GRID ROW's height did nothing, because `.pj3`'s rows are
-     `auto`-sized from the RIGHT column's own content -- on a short
-     project the row is short too, so it fed the box the same shortage
-     it was meant to fix. (2) `max-height: calc(100vh - Npx)` alone ALSO
+     so the next reader does not retry them. ⚠️ BOTH DESCRIBE THE PRE-#980
+     LAYOUT and are kept as history, not as a description of this file:
+     (1) stretching .pjmid to its GRID ROW's height did nothing, because
+     `.pj3`'s rows were THEN `auto`-sized from the RIGHT column's own
+     content -- on a short project the row was short too, so it fed the
+     box the same shortage it was meant to fix. That is precisely why
+     #980 replaced it: `.pj3` is `height: 100%` now with a
+     `minmax(0, 1fr)` row, so the reasoning below no longer applies to
+     the shipped rule. (2) `max-height: calc(100vh - Npx)` alone ALSO
      did nothing, on a box with little or no conversation: max-height is
      a ceiling on content that would otherwise be taller, not an
      instruction to grow past a short natural size, so an empty thread
      just sat at its min-height floor with the ceiling unused far above
      it. What actually fills the box: a REAL height on the flex
      container (.pjmid, sized off the viewport, the same idiom #alist
-     already uses at :1955) for .thread to flex-grow INTO. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { height: calc(100vh - 63px); }
-  html[data-layout="consolidated"] body.consolidated .pjmid .thread { min-height: 40vh; max-height: none; flex: 1 1 auto; }
+     used) for .thread to flex-grow INTO.
+     🔑 SUPERSEDED BY THE ONE-LINE NOTE BELOW, which is the shipped rule:
+     the height comes from the grid chain, not a viewport calc. Read that
+     first; this paragraph is why the calc was tried, not what runs. */
+  /* #980: the box height comes from the grid chain now (body 100vh -> panel
+     stretch -> .pj3 100%), not a viewport calc with a tuned offset. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { height: 100%; min-height: 0; }
+  /* #980 (Josh, 2026-08-26 08:31): the discussion is "not a floating box".
+     The thread loses its own border/radius card and becomes the column --
+     full width, full height, scrolling inside itself; the header rule
+     above and the composer below are the only edges it needs. */
+  html[data-layout="consolidated"] body.consolidated .pjmid .thread { min-height: 0; max-height: none; flex: 1 1 auto; border: 0; border-radius: 0; background: none; }
   /* #867 (Josh, 2026-08-25 15:52): "strip out the 'drop a file... type @'
      hint for this view as well, because this is kind of the power user
      mode. They're going to know what a + means or how to do an @ to
@@ -2254,6 +2685,26 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .dname { font-size: 1rem; font-weight: 650; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjtitle { display: grid; gap: 1px; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .pj-desc, html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 0; max-width: none; line-height: 1.35; }
+  /* #980 (Josh, 2026-08-26 08:31): the description truncates -- one line
+     with an ellipsis, so the header stays a header however long the
+     sentence. Ellipsis over a hard 50-char cut: the full text stays in
+     the DOM (and the title attribute a hover reads), nothing is thrown
+     away, and the cut point follows the real column width instead of a
+     guessed character count. */
+  html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .pj-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* #980: no visible scrollbar inside "Write to the project" -- the same
+     track-hiding #alist already uses; typing and wheeling still scroll. */
+  /* ⚠️ THIS ONE DIFFERS IN KIND FROM THE LIST SCROLLERS, and the difference is
+     worth naming rather than folding in under "the same treatment #alist gets".
+     `.cinput` is `max-height: 9rem; overflow-y: auto`, so on a long post the
+     track was the only signal that text the PERSON WROTE has scrolled out of
+     view. The caret covers typing; it does not cover re-reading what you have
+     already written before pressing Post.
+     📌 Kept because hiding it is Josh's #867 ask and this is his composer, but
+     recorded as a trade so the next person meets the reasoning rather than
+     rediscovering the cost. */
+  html[data-layout="consolidated"] body.consolidated .pjmid .composerbox textarea.cinput { scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated .pjmid .composerbox textarea.cinput::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .tsearch { flex: 0 1 min(320px, 40%); }
   html[data-layout="consolidated"] body.consolidated #pj-one-name + .pj-desc, html[data-layout="consolidated"] body.consolidated #pj-one-made { margin-top: 1px; }
@@ -2264,7 +2715,12 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pj-member { border: 0; padding: 6px 8px; border-radius: 9px; gap: 8px; }
   html[data-layout="consolidated"] body.consolidated .pj-member:hover { background: var(--k-surface); }
   html[data-layout="consolidated"] body.consolidated .pj-members { gap: 2px; }
-  html[data-layout="consolidated"] body.consolidated .pj-member .lav.pj-face { width: 28px; height: 28px; }
+  /* #980 (Josh, 2026-08-26 08:31): the member avatars were "squished
+     vertically or cut off... not in a perfect circle like everywhere
+     else" -- the base .pj-face carries flex: 0 0 34px, so the 34px BASIS
+     fought this rule's 28px width/height and the disc rendered as a
+     34x28 ellipse. Basis re-pinned to match, 1:1 held explicitly. */
+  html[data-layout="consolidated"] body.consolidated .pj-member .lav.pj-face { width: 28px; height: 28px; flex: 0 0 28px; aspect-ratio: 1; }
   html[data-layout="consolidated"] body.consolidated .pj-addmem { font-size: .8125rem; padding: 6px 10px; margin-top: 4px; }
   /* #520 piece ten (the mock's controls; Josh, 14:10 and 14:14): the small +
      at the head of Members and Tasks, the same 22px control the rail heads
@@ -4284,6 +4740,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     /* The inverse: a raised-looking wash on the dark ground, because a
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
+    /* #980: the consolidated side tones' dark twins, the mock's line 25. */
+    --k-side:   #111316;
+    --k-side-2: #1c1f23;
     --k-optline: #6e7278;
   }
 
@@ -6429,7 +6888,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       </div>
       <!-- The door to settings, in the pack's pjhead corner: what lives
            there is what has nowhere else to live. -->
-      <button class="linkish" id="pj-settings-link" type="button">Project settings</button>
+      <!-- ⚠️ VISIBLE "Settings", ACCESSIBLE NAME "Project settings", and the two
+           differ on purpose. Josh asked for the shorter visible label (#980), but
+           the consolidated view puts this control on the same screen as the
+           person's row, whose accessible name is also "Open Settings" and which
+           opens the APP's settings. A screen-reader user listing the buttons
+           would hear "Settings" twice, going to two different places, with
+           nothing to tell them apart.
+           📌 It also keeps the door matching its destination: the page this
+           opens still titles itself "Project settings". The eye gets the trim;
+           the ear keeps the noun that says which settings these are. -->
+      <button class="linkish" id="pj-settings-link" type="button" aria-label="Project settings">Settings</button>
     </div>
 
     <div class="pj3">
@@ -10742,6 +11211,18 @@ function showTab(tab) {
   const cons = layoutConsolidated() && (tab === 'agents' || tab === 'projects');
   const wasCons = document.body.classList.contains('consolidated');
   document.body.classList.toggle('consolidated', cons);
+  // #980: the search placeholder follows the EFFECTIVE view, set in the
+  // one place that decides it (this toggle re-runs on tab switches and on
+  // the resize re-check), never the saved layout alone -- a consolidated
+  // save on a narrow window is the tab view and keeps the long wording.
+  const roomSearch = document.getElementById('pj-room-search');
+  if (roomSearch) {
+    // Capture the markup's own long wording once, so the tab-view restore
+    // is correct by construction: an edit to the placeholder in the HTML
+    // can never be silently reverted by a round-trip through this view.
+    if (!('longPlaceholder' in roomSearch.dataset)) roomSearch.dataset.longPlaceholder = roomSearch.placeholder;
+    roomSearch.placeholder = cons ? 'Search' : roomSearch.dataset.longPlaceholder;
+  }
   document.getElementById('rail-agents').hidden = !cons;
   document.getElementById('rail-projects').hidden = !cons;
   document.getElementById('rail-me').hidden = !cons;
@@ -11822,6 +12303,10 @@ document.getElementById('tabs').addEventListener('click', (e) => {
        Same three steps the project Back button does, so arriving by the tab and
        arriving by Back leave the screen in one state rather than two. */
     topLevelReset(btn.dataset.tab);
+    // #980: clear the rail's lit row here, beside the reset (which stays
+    // DOM-free by its own contract) -- without this the row stayed lit for
+    // one loadProjects round-trip after a tab re-click closed the project.
+    if (btn.dataset.tab === 'projects') pjMarkOpen(null);
     showTab(btn.dataset.tab);
     /* Choosing from the OPEN menu display:none's the element focus is on --
        the same hazard the Escape path below guards -- and this is the common
@@ -18128,6 +18613,9 @@ function applyLayout(layout, apply) {
   const was = document.documentElement.getAttribute('data-layout') || 'tabs';
   document.documentElement.setAttribute('data-layout', want);
   placeProjectHead();
+  // #980: the "Search" placeholder swap lives in showTab's consolidated
+  // toggle (the one place that knows the EFFECTIVE view, resize included),
+  // not here -- this function only knows the saved preference.
   if (was !== want && typeof URL_TAB === 'string') showTab(URL_TAB);
 }
 /* #520 piece nine (the card's finesse item 1), then #761 (Josh, 2026-08-25
@@ -21055,7 +21543,12 @@ function projectCard(p, unreadable) {
      drift: name, description, agents, status at the far right. Two projects
      with one name are still told apart in Project settings, where the
      folder is shown. */
-  return '<button class="pj-row' + (pill.cls === 'attn' ? ' attn' : '') + '" type="button" data-project="' + esc(p.id) + '">'
+  /* #980: the open project wears .open so the consolidated rail can show
+     a stuck selected state (Josh, 2026-08-26 08:31: hover alone said
+     nothing about WHICH project is on screen). The tab view ignores the
+     class; openProject() also toggles it directly so selection paints on
+     the click, not on the next list repaint. */
+  return '<button class="pj-row' + (pill.cls === 'attn' ? ' attn' : '') + (p.id === PJ_CURRENT ? ' open' : '') + '"' + (p.id === PJ_CURRENT ? ' aria-current="true"' : '') + ' type="button" data-project="' + esc(p.id) + '">'
     + '<span class="pjcard-h"><span class="pjname"><b>' + esc(p.name) + '</b>'
     /* The room the person is looking at has no unread: the engine's cursor
        moves when the room paints, and the poll between could otherwise flash
@@ -21560,7 +22053,7 @@ function paintTaskPage() {
      whose task was deleted elsewhere. A dialog could simply be dismissed; a
      page has to go somewhere, and the project it belonged to is the only
      honest destination. */
-  if (!t) { TK_OPEN = null; if (p) { pjView('one'); } else { pjView('list'); PJ_CURRENT = null; } return; }
+  if (!t) { TK_OPEN = null; if (p) { pjView('one'); } else { pjView('list'); PJ_CURRENT = null; pjMarkOpen(null); } return; }
   TK_ACT = (t.progress ? t.progress.closed : Boolean(t.closedAt)) ? 'reopen' : 'close';
   const who = t.who ? tkMemberName(p, t.who) : null;
   document.getElementById('tk-back').textContent = '\u2190 ' + p.name;
@@ -22144,7 +22637,7 @@ document.getElementById('pjs-reveal').addEventListener('click', async () => {
 
 function paintOneProject() {
   const p = pjById(PJ_CURRENT);
-  if (!p) { pjView('list'); PJ_CURRENT = null; return; }
+  if (!p) { pjView('list'); PJ_CURRENT = null; pjMarkOpen(null); return; }
   document.getElementById('pj-one-name').textContent = p.name;
   paintProjectTasks(p);
   const desc = document.getElementById('pj-one-desc');
@@ -22154,7 +22647,11 @@ function paintOneProject() {
      pin this line used to carry. Muted and unmistakably not content, so a
      colleague reading the page cannot take the placeholder for the
      project's actual description. */
-  desc.textContent = p.description || 'This project has no description yet. Add one in Project settings.';
+  desc.textContent = p.description || 'This project has no description yet. Add one in Settings.';
+  // #980: the consolidated header truncates the description to one line, so
+  // the full text must be readable HERE, not only in Settings -- the title
+  // makes the truncation-comment's hover claim true instead of aspirational.
+  desc.title = p.description || '';
   desc.classList.toggle('pj-desc-none', !p.description);
   desc.classList.toggle('pj-desc-empty', !p.description);
   desc.hidden = false;
@@ -22825,6 +23322,24 @@ document.getElementById('pj-docs-all').addEventListener('click', () => {
   openDocsView();
 });
 
+/* #980: the ONE writer of the rail's .open selected state outside the
+   painter -- called with an id on open, with null beside each close path
+   that repaints nothing synchronously (the task-view fallback, the
+   missing-project path, the Back button, and the projects tab re-click
+   next to its DOM-free topLevelReset). The two delete/archive paths need
+   no call: they await loadProjects(), whose repaint writes .open from the
+   already-nulled PJ_CURRENT. */
+function pjMarkOpen(id) {
+  // aria-current travels with the class (iteration 7): the ring answers
+  // "which one is open" for sighted users only -- and during a hover
+  // collision it is sub-threshold, so the non-visual channel is not a
+  // nicety. Same aria-current pattern the tab bars and nav already use.
+  document.querySelectorAll('#pj-list .pj-row').forEach((r) => {
+    const on = r.dataset.project === id;
+    r.classList.toggle('open', on);
+    if (on) r.setAttribute('aria-current', 'true'); else r.removeAttribute('aria-current');
+  });
+}
 function openProject(id) {
   // ⚠️ Only opens a project we actually HAVE. `paintOneProject` bails back to
   // the list when the id is not in `PROJECTS`, and showing the panel
@@ -22835,7 +23350,7 @@ function openProject(id) {
   if (!pjById(id)) {
     document.getElementById('pj-list-msg').textContent =
       'That project was created, but we could not read it back just now.';
-    pjView('list');
+    PJ_CURRENT = null; pjMarkOpen(null); pjView('list');
     return;
   }
   /* ⚠️ "Fresh" is scoped to SWITCHING projects (round 31): re-opening the
@@ -22869,6 +23384,9 @@ function openProject(id) {
      because there is nothing left to do at navigation time. The restore
      below is the only other half. */
   PJ_CURRENT = id;
+  // #980: selection shows the moment it happens (the painter also writes
+  // .open on repaints; this covers the gap between click and next paint).
+  pjMarkOpen(id);
   document.getElementById('pj-one-msg').textContent = '';
   // ⚠️ The thread starts fresh on every OTHER project. Carrying the last
   // project's recipient over would open a conversation addressed to
@@ -25390,8 +25908,14 @@ document.getElementById('pj-new').addEventListener('click', openAddProject);
 // a question is open, on purpose) -- so the screen whose whole honesty argument
 // is "it keeps re-reading" quietly stopped, for the rest of the session, and
 // nothing said so.
-document.getElementById('pj-back').addEventListener('click', () => { pjCloseConfirm(); PJ_CURRENT = null; pjView('list'); });
-document.getElementById('pj-add-back').addEventListener('click', () => pjView('list'));
+document.getElementById('pj-back').addEventListener('click', () => { pjCloseConfirm(); PJ_CURRENT = null; pjMarkOpen(null); pjView('list'); });
+/* ⚠️ CLEARS THE RAIL MARKER TOO. Reachable in the consolidated view as: open a
+   project, press + in the projects rail head, then Back. Without this it lands
+   on the nothing-open list with the previous project still lit and still
+   aria-current -- the exact unreachable combination the render check was fixed
+   to stop pinning. pjMarkOpen's own docblock enumerates the close paths; this
+   one was not in the list. */
+document.getElementById('pj-add-back').addEventListener('click', () => { PJ_CURRENT = null; pjMarkOpen(null); pjView('list'); });
 
 document.getElementById('pj-list').addEventListener('click', (e) => {
   if (e.target.closest('#pj-new-empty')) { openAddProject(); return; }

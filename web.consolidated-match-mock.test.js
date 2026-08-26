@@ -30,13 +30,16 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 
-test('the right column is ordered tasks, then project members, then files', () => {
+test('the right column is ordered tasks, then files, then project members', () => {
+  // Re-ordered a THIRD time (Josh, 2026-08-26 08:31, #980): "put files in
+  // this project above project members". The split's first child is
+  // Members (row 3, last now), its last child is Files (row 2).
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > aside\.pjcol:not\(\.pjsplit\) \{ grid-column: 2; grid-row: 1; \}/,
-    'Tasks is not pinned to row 1 -- it should lead the right column, not sit between the other two');
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjsplit > \.pjcard:first-child \{ grid-column: 2; grid-row: 2; \}/,
-    'Project members is not on row 2 -- it should follow Tasks');
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjsplit > \.pjcard:last-child \{ grid-column: 2; grid-row: 3; \}/,
-    'Files is not on row 3, last');
+    'Tasks is not pinned to row 1 -- it should lead the right column');
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjsplit > \.pjcard:last-child \{ grid-column: 2; grid-row: 2; \}/,
+    'Files is not on row 2 -- it should follow Tasks, above Members');
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjsplit > \.pjcard:first-child \{ grid-column: 2; grid-row: 3; \}/,
+    'Project members is not on row 3, last');
 });
 
 test('the project cards keep their real border and background instead of a consolidated-only flat override', () => {
@@ -48,11 +51,26 @@ test('the project cards keep their real border and background instead of a conso
     'the base bordered-card rule (which the real mock matches) is gone');
 });
 
-test('the project detail area sits on a tinted ground, with the conversation as a white panel over it', () => {
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 \{ background: var\(--k-sunk, rgba\(20,22,26,\.05\)\); border-radius: 12px; padding: 12px; \}/,
-    'the project view lost its tinted ground -- the white cards need something to pop against, like the mock\'s .rcol');
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{ background: var\(--k-surface\); border-radius: 12px; \}/,
-    'the conversation column lost its white panel treatment against the tinted ground');
+test('the right cards sit on the side tone; the discussion is a full-bleed column, not a floating panel', () => {
+  // #980 (Josh, 2026-08-26 08:31) superseded the boxes-on-a-ground look:
+  // "the discussion area should not be inside of a bounding box on top of
+  // a background. It should be full width and full height." The .pj3
+  // ground carries the mock's side tone (what shows behind the right
+  // cards, the part he called correct), the discussion column paints back
+  // to the page ground over its whole column, and the dialogue|cards rule
+  // is the discussion's own right edge. No radii: columns, not boxes.
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 \{ background: var\(--k-side, #f3f1ec\); border-radius: 0; padding: 0; \}/,
+    'the right column lost its side-tone ground (or the boxes-on-a-ground look is back)');
+  /* 🛑 `border: 0` IS THE LOAD-BEARING PART, and this pin shipped without it
+     for a while. `.pjmid` is a `.pjcol`, and `.pjcol` sets a 1px border on all
+     four sides. Without the reset, top/left/bottom survived and the "full
+     bleed column" kept three sides of a box -- while this very assertion
+     passed, because rule TEXT cannot see an inherited border.
+     ⚠️ That is the limit of every text pin in this suite. Keep `border: 0`
+     first in the expectation so a future edit that drops it goes red here
+     rather than only on somebody's screen. */
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{ background: var\(--k-bg\); border: 0; border-radius: 0; border-right: 1px solid var\(--k-rule\); \}/,
+    'the discussion is boxed again (or lost the rule that separates it from the right column)');
 });
 
 test('each project row in the rail shows its agent count as a subtitle, without the face icons the narrow rail has no room for', () => {
