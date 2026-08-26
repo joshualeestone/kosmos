@@ -763,10 +763,7 @@ uninstall() {
   _resolved_support="$(printf '%s' "${AGENT_WORKFORCE_DATA:-$HOME/Library/Application Support}" | /usr/bin/tr -s '/')"
   _resolved_support="${_resolved_support%/}"
   if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ] && [ "$_resolved_support" = "$_default_support" ]; then
-    info "refusing to touch $_default_support: this uninstall is for a sandboxed"
-    info "install ($KOSMOS_HOME), and the real Application Support folder is not part of it."
-    info "If you meant to remove the real install, run --uninstall with KOSMOS_HOME unset."
-    exit 1
+    die "refusing to touch $_default_support: this uninstall is for a sandboxed install ($KOSMOS_HOME), and the real Application Support folder is not part of it. If you meant to remove the real install, run --uninstall with KOSMOS_HOME unset. If you meant to remove the sandboxed install, point AGENT_WORKFORCE_DATA at its own data root instead of the real one."
   fi
   _board_label=com.kosmos.board
   if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
