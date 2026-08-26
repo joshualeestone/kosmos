@@ -46,14 +46,33 @@ test('closed is the resting state, for the description AND the title', () => {
 /* Josh's complaint was the copy being there EVERY time. A remembered-open
    state, or one carried from the previously viewed project, reproduces exactly
    the thing he asked to remove -- so the reset belongs in the painter, which
-   runs per project, not in the click handler. */
-test('every arrival opens closed, and one project cannot carry its state onto the next', () => {
+   runs per project, not in the click handler.
+   ⚠️ REFINED BY A BROWSER CHECK, not by argument: closed-by-default was right
+   for a project WITH a description and wrong for one without, where the
+   placeholder is the only thing telling you a description exists at all. So the
+   resting state is keyed on the description being empty. Both arms are pinned
+   below, because a rule with two arms and one test is a rule with an untested
+   half. */
+test('a described project opens closed; an empty one opens with its placeholder showing', () => {
   const painter = PAGE.slice(PAGE.indexOf('function paintOneProject() {'));
   const body = painter.slice(0, painter.indexOf('\nfunction '));
-  assert.ok(body.includes("classList.remove('is-open')"),
-    'paintOneProject no longer closes the disclosure, so an opened description follows you to the next project');
-  assert.ok(body.includes("setAttribute('aria-expanded', 'false')"),
-    'the reset moves the class without the aria state, so the button and the page disagree');
+  assert.ok(/const isEmpty = !p\.description;/.test(body),
+    'the resting state is no longer keyed on whether there is a description to hide');
+  assert.ok(/classList\.toggle\('is-open', isEmpty\)/.test(body),
+    'the disclosure no longer opens for an empty description, so a new project hides the only hint that descriptions exist');
+  assert.ok(/setAttribute\('aria-expanded', isEmpty \? 'true' : 'false'\)/.test(body),
+    'the class and the aria state disagree, so the button lies about what is on screen');
+});
+
+/* The per-project reset is a SEPARATE property from which state it resets to,
+   and it is the one that stops an opened description following you to the next
+   project. Pinned on its own so a change to the resting state cannot silently
+   take the reset with it. */
+test('the resting state is decided per project, in the painter', () => {
+  const painter = PAGE.slice(PAGE.indexOf('function paintOneProject() {'));
+  const body = painter.slice(0, painter.indexOf('\nfunction '));
+  assert.ok(body.includes("classList.toggle('is-open'") && body.includes("aria-expanded"),
+    'paintOneProject no longer sets the disclosure state, so the previous project\'s open description carries over');
 });
 
 test('the arrow respects reduced motion', () => {
