@@ -110,7 +110,7 @@ test('#960: a 200 from OpenAI means connected, and the key is never in the reque
   } finally { openai.setFetcher(null); }
 });
 
-test('#960: a 401 from OpenAI means not connected, a positively confirmed negative', () => {
+test('#960: a 401 with invalid_api_key means not connected, a positively confirmed negative', () => {
   writeAuth('.codex-live401', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-rejectedkeyKEY2' });
   const dir = nodePath.join(SANDBOX, '.codex-live401');
   openai.setFetcher(async () => ({ status: 401, body: { error: { code: 'invalid_api_key' } } }));
@@ -122,12 +122,40 @@ test('#960: a 401 from OpenAI means not connected, a positively confirmed negati
   } finally { openai.setFetcher(null); }
 });
 
-test('#960: a 403 is also a confirmed negative, same as 401', () => {
+test('#960: a 403 with invalid_api_key is also a confirmed negative, same as 401', () => {
   writeAuth('.codex-live403', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-forbiddenkeyKEY3' });
   const dir = nodePath.join(SANDBOX, '.codex-live403');
-  openai.setFetcher(async () => ({ status: 403, body: null }));
+  openai.setFetcher(async () => ({ status: 403, body: { error: { code: 'invalid_api_key' } } }));
   try {
     return openai.checkLive(dir).then((r) => assert.equal(r.state, sub.STATE.NONE));
+  } finally { openai.setFetcher(null); }
+});
+
+test('#960: a 401/403 WITHOUT invalid_api_key is UNKNOWN, not a guessed NONE (a scope-restricted key)', () => {
+  /* Caught in challenge-loop iteration 2: an OpenAI project key can be
+     restricted in the dashboard and legitimately lack permission to LIST
+     models while still being fully valid for what an agent actually does
+     with it. That still answers 401/403 here, but for a permissions
+     reason, not a revoked-key one -- only OpenAI's own `invalid_api_key`
+     code is a positive confirmation the key itself is bad. */
+  writeAuth('.codex-live403scoped', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-scopedkeySCOP' });
+  const dir = nodePath.join(SANDBOX, '.codex-live403scoped');
+  openai.setFetcher(async () => ({ status: 403, body: { error: { code: 'insufficient_permissions' } } }));
+  try {
+    return openai.checkLive(dir).then((r) => {
+      assert.equal(r.state, sub.STATE.UNKNOWN);
+      assert.doesNotMatch(r.because, /did not accept this key/, 'a scope-restricted key was called flatly rejected, overclaiming the key itself is bad');
+    });
+  } finally { openai.setFetcher(null); }
+});
+
+test('#960: a 401 with no readable body at all is also UNKNOWN, not a guessed NONE', () => {
+  // No error code available to confirm anything -- must not default to NONE.
+  writeAuth('.codex-live401nobody', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-nobodykeyNOBO' });
+  const dir = nodePath.join(SANDBOX, '.codex-live401nobody');
+  openai.setFetcher(async () => ({ status: 401, body: null }));
+  try {
+    return openai.checkLive(dir).then((r) => assert.equal(r.state, sub.STATE.UNKNOWN));
   } finally { openai.setFetcher(null); }
 });
 
@@ -207,7 +235,7 @@ test('#960: listLive() attaches a real connection to every row, live-checked in 
   writeAuth('.codex-listlive-bad', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-badkeyBAD0' });
   openai.setFetcher(async (url, init) => (init.headers.authorization.endsWith('GOOD')
     ? { status: 200, body: {} }
-    : { status: 401, body: {} }));
+    : { status: 401, body: { error: { code: 'invalid_api_key' } } }));
   try {
     return openai.listLive().then((rows) => {
       const good = rows.find((r) => r.label === 'listlive-good');

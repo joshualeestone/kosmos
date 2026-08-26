@@ -63,12 +63,12 @@ function readAuthFile(dir) {
   return { kind: 'ok', data: parsed };
 }
 
-/** What codex wrote about who this is; null when nobody is signed in here,
-    or when auth.json exists but is unreadable/unrecognized. */
-function identityOf(dir) {
-  const got = readAuthFile(dir);
-  if (got.kind !== 'ok') return null;
-  const parsed = got.data;
+/** Pure: turns an already-parsed auth.json object into an identity, or null
+    if its shape is not one this module recognises. No I/O -- callers that
+    already have `readAuthFile()`'s parsed data (checkLive()) use this
+    directly instead of re-reading the file identityOf() would otherwise
+    read a second time. */
+function identityFromData(parsed) {
   const mode = typeof parsed.auth_mode === 'string' ? parsed.auth_mode : null;
   const key = typeof parsed.OPENAI_API_KEY === 'string' ? parsed.OPENAI_API_KEY : '';
   if (mode === 'apikey' || (!mode && key)) {
@@ -87,6 +87,14 @@ function identityOf(dir) {
     return { authMode: 'chatgpt', email, keyTail: null };
   }
   return null;
+}
+
+/** What codex wrote about who this is; null when nobody is signed in here,
+    or when auth.json exists but is unreadable/unrecognized. */
+function identityOf(dir) {
+  const got = readAuthFile(dir);
+  if (got.kind !== 'ok') return null;
+  return identityFromData(got.data);
 }
 
 function rowFor(dir, isDefault) {
@@ -247,7 +255,13 @@ async function checkLive(dir) {
   if (got.kind === 'unreadable') {
     return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: 'we could not read this account\'s settings' };
   }
-  const who = identityOf(dir);
+  // identityFromData(), not identityOf(dir): identityOf() would re-read and
+  // re-parse the SAME file readAuthFile() already read above into `got` --
+  // caught in challenge-loop iteration 2, both as needless I/O and as a
+  // narrow TOCTOU (the file could change between the two reads, so a
+  // decision already made from `got` could silently disagree with a second,
+  // independent read of it).
+  const who = identityFromData(got.data);
   if (!who) {
     // The file parses, but not into a shape this module recognises (an
     // auth_mode neither apikey nor chatgpt, or an apikey entry with no
@@ -267,7 +281,7 @@ async function checkLive(dir) {
     };
   }
   // The key, from the SAME parsed read readAuthFile() already did above --
-  // no second file read, unlike the version challenge-loop iteration 1 flagged.
+  // no second file read anywhere in this function any more.
   const key = got.data.OPENAI_API_KEY;
   if (typeof key !== 'string' || !key) {
     return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: 'we could not read this account\'s key to check it' };
@@ -280,7 +294,25 @@ async function checkLive(dir) {
     return { state: STATE.CONNECTED, plan: null, checkedLive: true, because: 'OpenAI confirmed this key still works' };
   }
   if (r.status === 401 || r.status === 403) {
-    return { state: STATE.NONE, plan: null, checkedLive: true, because: 'OpenAI did not accept this key' };
+    /* ⚠️ A 401/403 IS NOT ALWAYS "THE KEY IS BAD". Caught in challenge-loop
+       iteration 2: an OpenAI project key can be scoped/restricted in the
+       dashboard and legitimately lack permission to LIST models while still
+       being fully valid for everything an agent actually does with it --
+       that also answers 401/403 here, for a permissions reason, not a
+       revoked-key reason. Only OpenAI's own `invalid_api_key` error code is
+       a POSITIVE confirmation the key itself is rejected; anything else
+       shaped like a 401/403 is an honest "we asked and got refused, but
+       cannot confirm the key is bad" -- UNKNOWN, not a guessed NONE. This
+       is the same asymmetry rule as everywhere else in this module, applied
+       to a response body's error code instead of a missing/corrupt file. */
+    const code = r.body && r.body.error && typeof r.body.error.code === 'string' ? r.body.error.code : null;
+    if (code === 'invalid_api_key') {
+      return { state: STATE.NONE, plan: null, checkedLive: true, because: 'OpenAI did not accept this key' };
+    }
+    return {
+      state: STATE.UNKNOWN, plan: null, checkedLive: true,
+      because: 'OpenAI refused to check this key in a way that does not confirm the key itself is bad',
+    };
   }
   return {
     state: STATE.UNKNOWN, plan: null, checkedLive: true,
