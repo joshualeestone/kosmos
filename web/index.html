@@ -26898,9 +26898,10 @@ document.getElementById('fr-pane-3').addEventListener('click', (e) => {
   Promise.resolve(frConnectStart()).finally(() => { b.disabled = false; });
 });
 
-/* #944-adjacent: OpenAI's own reveal/submit, independent of the Claude
-   button above -- same click delegation on the shared pane so both wire up
-   from one listener each, matching the pattern already established here. */
+/* #944-adjacent: OpenAI's own reveal/submit. Each gets its own direct
+   listener rather than the delegated pattern fr-llm-connect uses above --
+   there is exactly one button per id here, so delegation would add
+   indirection with nothing to share it with. */
 document.getElementById('fr-openai-connect').addEventListener('click', () => {
   const flow = document.getElementById('fr-openai-flow');
   flow.hidden = false;
@@ -26934,9 +26935,12 @@ document.getElementById('fr-openai-go').addEventListener('click', async () => {
     if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not add that account');
     // The key leaves the field the moment it is stored, same as Settings.
     keyField.value = '';
-    frPaintOpenai({ connected: true, keyTail: out && out.account && out.account.keyTail });
+    frPaintOpenai({ connected: true, keyTail: out && out.account && out.account.keyTail, justAdded: true });
   } catch (err) {
     msg.textContent = String((err && err.message) || 'We could not add that account.');
+  } finally {
+    // Same one-press guard as fr-llm-connect: harmless to re-enable on
+    // success too, since frPaintOpenai has already hidden the whole form.
     go.disabled = false;
   }
 });
@@ -26944,13 +26948,24 @@ document.getElementById('fr-openai-go').addEventListener('click', async () => {
 /**
  * Paints the OpenAI row's own connected state, independent of frPaintSubscription
  * (Claude's box below the list). Two callers: pane-3 entry (checks whatever is
- * already on this Mac) and a successful Add (told directly, no re-fetch needed).
+ * already on this Mac, `known` omitted) and a successful Add (told directly,
+ * `known.justAdded` true, no re-fetch needed).
  *
- * ⚠️ SILENT ON FAILURE TO READ, ON PURPOSE. If /api/accounts cannot be read, the
- * row simply stays at "Connect" -- the same honest-unknown shape #881 already
- * settled on for the Claude box (never turn "we could not tell" into "no"), and
- * pressing Connect here costs nothing extra: Add will fail loudly on the same
- * read if the account truly cannot be reached.
+ * ⚠️ TWO DIFFERENT "NO" ANSWERS, NOT ONE. A failed *read* (`/api/accounts`
+ * unreachable) leaves the row exactly as it was -- the same honest-unknown
+ * shape #881 already settled on for the Claude box, never turn "we could not
+ * tell" into "no". A successful read that finds no OpenAI account is a real
+ * answer, though, and repaints back to "Connect" -- the reverse of Connected
+ * has to work or a person who disconnects elsewhere (or re-enters this step
+ * after a first-run restart) is shown a state that stopped being true, the
+ * same "AND BACK AGAIN" requirement frPaintSubscription's own tests hold.
+ *
+ * ⚠️ THE MESSAGE SAYS WHAT IS TRUE, NOT WHAT JUST HAPPENED, except right
+ * after it happened. Told directly (`justAdded`) it reports the action
+ * ("Added…"); asked cold on pane entry it reports the state ("An OpenAI
+ * account is connected…") -- without this split, stepping back to pane 2
+ * and forward to pane 3 again would claim to have "Added" an account this
+ * page never touched this session.
  */
 async function frPaintOpenai(known) {
   const connectBtn = document.getElementById('fr-openai-connect');
@@ -26958,22 +26973,29 @@ async function frPaintOpenai(known) {
   const msg = document.getElementById('fr-openai-msg');
   let connected = known && known.connected;
   let keyTail = known && known.keyTail;
+  const justAdded = Boolean(known && known.justAdded);
   if (!known) {
     try {
       const res = await fetch('/api/accounts', { cache: 'no-store' });
-      if (!res.ok) return;
+      if (!res.ok) return; // could not tell -- leave the row exactly as it was
       const list = ((await res.json()) || {}).accounts || [];
       const a = list.find((x) => x.provider === 'openai');
-      if (!a) return;
-      connected = true;
-      keyTail = a.keyTail;
-    } catch { return; }
+      connected = Boolean(a);
+      keyTail = a && a.keyTail;
+    } catch { return; } // same: a read failure is not a "no"
   }
-  if (!connected) return;
-  connectBtn.textContent = 'Connected';
-  connectBtn.disabled = true;
-  flow.hidden = true;
-  msg.textContent = 'Added' + (keyTail ? ': API key ending ' + keyTail : '') + '.';
+  connectBtn.textContent = connected ? 'Connected' : 'Connect';
+  connectBtn.disabled = connected;
+  if (connected) {
+    flow.hidden = true;
+    msg.textContent = justAdded
+      ? 'Added' + (keyTail ? ': API key ending ' + keyTail : '') + '.'
+      : 'An OpenAI account is connected' + (keyTail ? ' (API key ending ' + keyTail + ')' : '') + '.';
+  } else {
+    // Leave `flow.hidden` alone: a person mid-typing should not have the
+    // form yanked shut under them by an unrelated repaint.
+    msg.textContent = '';
+  }
 }
 
 function frPaintSubscription() {

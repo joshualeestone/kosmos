@@ -23,22 +23,35 @@ feature's own diff never touches the sentence denying it exists.
   already solid black (`fill="black"`, not `currentColor`), so "live" for it
   just lifts the grayscale/opacity filter rather than changing a tint.
 - Clicking Connect reveals `#fr-openai-flow`, a small key-entry form
-  (password field, Show/Hide, Add) copied verbatim from Settings'
-  `#acct-openai-flow` -- same copy, same "never shown again" promise, so a
-  person who already did this once in Settings recognises it here.
+  (password field, Show/Hide, Add) adapted from Settings' `#acct-openai-flow`
+  -- same warning copy, same "never shown again" promise, same endpoint, so a
+  person who already did this once in Settings recognises it here. Not
+  verbatim: two deliberate simplifications for the first-run context, called
+  out here rather than left for a reviewer to find. (1) The optional
+  account-name/label field is dropped; first-run only needs one OpenAI
+  account to exist, naming it is a Settings-only nicety for telling several
+  apart later. (2) Settings' own form stays open after a successful Add (so
+  a person can add a second key right away); first-run's closes, because
+  once the row shows Connected there's nothing left to do on this step.
 - Submitting posts to `POST /api/accounts/openai`, the exact endpoint
-  Settings already uses. No backend change; confirmed with Angel this is the
-  right call before starting (she owns that surface, has no uncommitted work
-  there tonight).
+  Settings already uses, with `{ key }` only (no `label`, per the
+  simplification above). No backend change; confirmed with Angel this is
+  the right call before starting (she owns that surface, has no uncommitted
+  work there tonight).
 - `frPaintOpenai()`, a new function parallel to `frPaintSubscription()` but
   independent of it: on pane-3 entry it checks `/api/accounts` for an
   existing OpenAI account (in case one was already added, e.g. resuming a
   partial run) and paints Connected if so; after a successful Add it is told
-  directly rather than re-fetching. Fails silently on a read error, same
-  honest-unknown shape #881 already settled on for the Claude box -- never
-  turn "we could not tell" into "no", and pressing Connect costs nothing
-  extra since Add will fail loudly on the same read if the account truly
-  cannot be reached.
+  directly (`known.justAdded`) rather than re-fetching, which also lets the
+  message be action-descriptive ("Added…") only right after the action,
+  state-descriptive ("An OpenAI account is connected…") otherwise -- caught
+  in challenge-loop iteration 1: without the split, stepping back to pane 2
+  and forward again would claim to have just "Added" an account this visit
+  never touched. Fails silently ONLY on a read failure (honest-unknown, same
+  contract #881 settled on for the Claude box -- never turn "we could not
+  tell" into "no"); a successful read that finds no account is a real
+  answer and does repaint back to Connect, the reverse transition
+  `frPaintSubscription()`'s own tests already hold Claude's box to.
 - Updated the pane's own stale doc comment ("Claude is the one that works
   today... the rest are Coming soon") to name both live providers and the
   four genuine Coming-soon ones.

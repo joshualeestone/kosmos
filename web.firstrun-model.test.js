@@ -186,20 +186,24 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
     'fr-openai-msg': { textContent: '' },
   });
 
-  // Told directly (the Add handler's own path — no fetch needed).
+  // Told directly (the Add handler's own path — no fetch needed). The
+  // message reports the ACTION, since this call is right after it happened.
   let els = makeEls();
   // eslint-disable-next-line no-new-func
   await new Function('document', 'fetch', 'known', body + '\nreturn frPaintOpenai(known);')(
     { getElementById: (id) => els[id] || null },
     () => { throw new Error('should not have fetched — known was supplied'); },
-    { connected: true, keyTail: 'ab12' },
+    { connected: true, keyTail: 'ab12', justAdded: true },
   );
   assert.equal(els['fr-openai-connect'].textContent, 'Connected');
   assert.equal(els['fr-openai-connect'].disabled, true);
   assert.equal(els['fr-openai-flow'].hidden, true, 'the key form should close once connected');
+  assert.match(els['fr-openai-msg'].textContent, /^Added/, 'told-directly should report the action, not just the state');
   assert.match(els['fr-openai-msg'].textContent, /ab12/, 'the confirmation should name the key tail it was told');
 
-  // Asked the machine (pane-3 entry, nothing known yet) — an OpenAI account exists.
+  // Asked the machine (pane-3 entry, nothing known yet) — an OpenAI account
+  // already exists. The message reports the STATE, not a fictional action:
+  // this call did not just add anything, and must not claim it did.
   els = makeEls();
   const fakeFetch = async () => ({ ok: true, json: async () => ({ accounts: [{ provider: 'openai', keyTail: 'cd34' }] }) });
   // eslint-disable-next-line no-new-func
@@ -208,16 +212,39 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
     fakeFetch,
   );
   assert.equal(els['fr-openai-connect'].textContent, 'Connected');
+  assert.ok(!/^Added/.test(els['fr-openai-msg'].textContent),
+    'stepping back to this pane and forward again must not claim an Add that did not happen this visit');
+  assert.match(els['fr-openai-msg'].textContent, /connected/, 'should still say it is connected');
   assert.match(els['fr-openai-msg'].textContent, /cd34/);
 
-  // Asked the machine, nothing there yet — the row stays untouched at Connect.
+  // Asked the machine, a real answer of "nothing there" — a DEFINITE no,
+  // not an unknown, so the row must repaint back to Connect. This is the
+  // reverse transition frPaintSubscription's own tests already hold Claude
+  // to ("AND BACK AGAIN"); caught missing here in challenge-loop iteration 1.
   els = makeEls();
+  els['fr-openai-connect'] = { textContent: 'Connected', disabled: true };
+  els['fr-openai-flow'] = { hidden: true };
   const emptyFetch = async () => ({ ok: true, json: async () => ({ accounts: [] }) });
   // eslint-disable-next-line no-new-func
   await new Function('document', 'fetch', body + '\nreturn frPaintOpenai();')(
     { getElementById: (id) => els[id] || null },
     emptyFetch,
   );
-  assert.equal(els['fr-openai-connect'].textContent, 'Connect', 'no OpenAI account should not claim Connected');
+  assert.equal(els['fr-openai-connect'].textContent, 'Connect',
+    'a definite empty answer must repaint back to Connect, not leave a stale Connected standing');
   assert.equal(els['fr-openai-connect'].disabled, false);
+
+  // A read FAILURE, by contrast, is not a "no" — the row must stay exactly
+  // as it was (never turn "we could not tell" into "no", #881's contract).
+  els = makeEls();
+  els['fr-openai-connect'] = { textContent: 'Connected', disabled: true };
+  els['fr-openai-flow'] = { hidden: true };
+  const failFetch = async () => ({ ok: false });
+  // eslint-disable-next-line no-new-func
+  await new Function('document', 'fetch', body + '\nreturn frPaintOpenai();')(
+    { getElementById: (id) => els[id] || null },
+    failFetch,
+  );
+  assert.equal(els['fr-openai-connect'].textContent, 'Connected',
+    'a failed read must not overwrite a known Connected state with a guess');
 });
