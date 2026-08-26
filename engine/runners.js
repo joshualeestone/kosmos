@@ -263,10 +263,12 @@ function download(url, file, job, redirectsLeft) {
  * without touching the network -- "Add must never silently do nothing"
  * cuts both ways: an install that has nothing to do says so instantly.
  *
- * The staging file lives under runners/.tmp and is REMOVED on every
- * failure path, and swept at the start of every install, so a board
- * restart mid-download can strand at most one partial file for exactly
- * one attempt.
+ * Temp state is bounded two ways: the staging tarball (runners/.tmp) and
+ * the per-pid unpack trees (pkg.new- and pkg.old- prefixed) are both
+ * REMOVED on every failure path this process sees, and both swept
+ * age-gated at the start of every install -- so a crash or restart
+ * strands at most one attempt's files, and only until the next install
+ * passes by.
  *
  * `opts` is the test seam: { url, integrity, binInPackage, download,
  * legacyBin, prove } narrow the manifest and machinery for fixtures, and
@@ -296,9 +298,11 @@ function install(provider, opts) {
     return { phase: 'failed', because: `the ${provider} runner has a manifest entry but no resolution rule yet, so an install could never be seen; teach resolveBin about it first` };
   }
   if (existing.present) {
-    // Presence also retires a stale failed job (see status()).
+    // Presence also retires a stale failed job (see status()). Byte
+    // counts are null, not zero: nothing was downloaded, and "0 of 0"
+    // would be an invented number on a progress bar.
     if (jobs[provider] && jobs[provider].phase === 'failed') delete jobs[provider];
-    return { phase: 'installed', version: m.version, receivedBytes: 0, totalBytes: 0 };
+    return { phase: 'installed', version: m.version, receivedBytes: null, totalBytes: null };
   }
   // An authoritative env override naming a MISSING path would mask the
   // managed location this install stages into: the job would end
@@ -331,8 +335,13 @@ function install(provider, opts) {
   // lockfile would close the remaining swap-vs-swap window; accepted as
   // residual until two boards on one Mac is a real configuration.
   const staging = path.join(tmpDir, `${provider}-${m.version}-${process.pid}.tgz`);
+  // Set when the unpack tree is created, so EVERY failure path can remove
+  // it: a stranded pkg.new tree is a fully unpacked runner (~300MB), a
+  // much bigger stray than a staging tarball.
+  let pkgNewLive = null;
   const fail = (because) => {
     try { fs.rmSync(staging, { force: true }); } catch { /* the sweep gets it */ }
+    if (pkgNewLive) { try { fs.rmSync(pkgNewLive, { recursive: true, force: true }); } catch { /* the sweep gets it */ } }
     job.phase = 'failed';
     job.because = because;
   };
@@ -356,11 +365,13 @@ function install(provider, opts) {
       fs.rmSync(staging, { force: true });
       await doDownload(url, staging, job);
 
-      // A short read that closed cleanly is a network fact, not a tamper
-      // fact -- name it as what it is instead of letting the checksum
-      // refusal below accuse the wrong culprit.
+      // A size mismatch that closed cleanly is a network fact, not a
+      // tamper fact -- name it as what it is (early OR over-delivery,
+      // accurately) instead of letting the checksum refusal below accuse
+      // the wrong culprit.
       if (job.totalBytes && job.receivedBytes !== job.totalBytes) {
-        fail(`the download ended early (${job.receivedBytes} of ${job.totalBytes} bytes), so it was discarded`);
+        const how = job.receivedBytes < job.totalBytes ? 'ended early' : 'delivered more than promised';
+        fail(`the download ${how} (${job.receivedBytes} of ${job.totalBytes} bytes), so it was discarded`);
         return;
       }
 
@@ -388,14 +399,29 @@ function install(provider, opts) {
       const pkgDir = path.join(destDir, 'pkg');
       const pkgNew = path.join(destDir, `pkg.new-${process.pid}`);
       const pkgOld = path.join(destDir, `pkg.old-${process.pid}`);
+      // Sweep STALE per-pid trees from crashed or restarted attempts, the
+      // same age-gated discipline as the .tmp sweep: a restarted board has
+      // a new pid, so its old strays would otherwise sit forever, and each
+      // one is a whole unpacked runner.
+      for (const f of fs.readdirSync(destDir)) {
+        if (!/^pkg\.(new|old)-/.test(f)) continue;
+        const p = path.join(destDir, f);
+        if (p === pkgNew || p === pkgOld) continue;
+        try {
+          if (Date.now() - fs.statSync(p).mtimeMs > 3600000) fs.rmSync(p, { recursive: true, force: true });
+        } catch { /* best effort */ }
+      }
       fs.rmSync(pkgNew, { recursive: true, force: true });
       fs.mkdirSync(pkgNew, { recursive: true });
+      pkgNewLive = pkgNew;
       await new Promise((resolve, reject) => {
-        execFile('/usr/bin/tar', ['-xzf', staging, '-C', pkgNew, '--strip-components', '1'],
+        // Timeboxed like its neighbors (download 60s stall, prove 30s): a
+        // wedged tar would otherwise park the job in `unpacking` forever
+        // behind the idempotent join.
+        execFile('/usr/bin/tar', ['-xzf', staging, '-C', pkgNew, '--strip-components', '1'], { timeout: 120000 },
           (err, _stdout, stderr) => err ? reject(new Error(String(stderr || err.message).trim())) : resolve());
       });
       if (!fs.existsSync(path.join(pkgNew, binInPackage))) {
-        fs.rmSync(pkgNew, { recursive: true, force: true });
         fail(`the archive did not contain the runner at ${binInPackage}, so nothing was installed`);
         return;
       }
@@ -403,6 +429,7 @@ function install(provider, opts) {
       fs.rmSync(pkgOld, { recursive: true, force: true });
       if (fs.existsSync(pkgDir)) fs.renameSync(pkgDir, pkgOld);
       fs.renameSync(pkgNew, pkgDir);
+      pkgNewLive = null; // swapped in; nothing at the per-pid name any more
       fs.rmSync(pkgOld, { recursive: true, force: true });
       const unpacked = path.join(pkgDir, binInPackage);
       // ONE stable path for every caller, whatever the package layout is:

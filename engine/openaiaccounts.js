@@ -162,7 +162,8 @@ function keyProblem(key) {
    pre-checks with the shared resolver and answers this refusal itself
    (with the structured needsRunner shape around it), and addWithKey keeps
    its own last-line check for direct callers. Exported so both say the
-   same words forever; the UI matches on this sentence. */
+   same words forever; the UI displays this sentence verbatim, so one
+   source keeps the on-screen wording identical whichever path refused. */
 const MISSING_RUNNER_SENTENCE = 'we could not find the OpenAI runner on this computer, so there is nothing to sign in to';
 
 /**

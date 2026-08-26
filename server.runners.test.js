@@ -103,8 +103,9 @@ test('#979: Add with the runner missing is a STRUCTURED refusal the screen can a
   const got = await post('/api/accounts/openai', { key: 'sk-test-not-a-real-key' });
   assert.equal(got.status, 400);
   const j = json(got);
-  // The exact legacy sentence is load-bearing: today's UI matches on it,
-  // and it keeps working until the flow binds the richer shape.
+  // The exact legacy sentence is load-bearing: the UI displays it
+  // verbatim, so the on-screen wording must not change out from under
+  // people until the flow binds the richer shape.
   assert.equal(j.error, 'we could not find the OpenAI runner on this computer, so there is nothing to sign in to');
   assert.equal(j.needsRunner, true);
   assert.equal(j.provider, 'openai');
