@@ -236,10 +236,20 @@ const ACTIVE_PHASES = [
  * dawdling at the paste prompt), so a record older than FRESH_BOUND_MS
  * belongs to a flow whose driver stopped -- whatever its recycled pid says.
  */
+/**
+ * ⚠️ ONE NUMBER, NOT TWO COINCIDENTALLY EQUAL ONES. `FRESH_BOUND_MS` below
+ * and `ABANDONED_SIGNIN_MS` further down answer different questions (is the
+ * owning process still alive vs. has the browser leg been abandoned), but
+ * both are this codebase's definition of "dead" for a parked flow -- shared
+ * from one constant so that stays true in code, not just in a comment two
+ * hundred lines apart. Each still has its own setter, so a test (or a future
+ * tuning pass) can move one without moving the other.
+ */
+const DEAD_BOUND_MS = 15 * 60 * 1000;
 let HEARTBEAT_MS = 5 * 60 * 1000;
-let FRESH_BOUND_MS = 15 * 60 * 1000;
+let FRESH_BOUND_MS = DEAD_BOUND_MS;
 function setFreshnessForTests(boundMs, heartbeatMs) {
-  FRESH_BOUND_MS = boundMs || 15 * 60 * 1000;
+  FRESH_BOUND_MS = boundMs || DEAD_BOUND_MS;
   HEARTBEAT_MS = heartbeatMs || 5 * 60 * 1000;
 }
 
@@ -597,14 +607,14 @@ let UNKNOWN_GRACE_MS = 10000;
  * leg (Josh, 2026-08-24: switched Claude account inside the OAuth tab,
  * landed on claude.ai, "I've refreshed several times but I can't get out of
  * this") shows the exact same pane text a genuinely slow person also shows.
- * Only elapsed time can tell them apart. 15 minutes matches this file's own
- * existing `FRESH_BOUND_MS` -- already this codebase's definition of "dead"
- * for a parked flow -- reused here instead of inventing a second number.
+ * Only elapsed time can tell them apart. Shares `DEAD_BOUND_MS` (see
+ * `FRESH_BOUND_MS` above) -- already this codebase's definition of "dead"
+ * for a parked flow -- instead of a second, coincidentally-equal number.
  */
-let ABANDONED_SIGNIN_MS = 15 * 60 * 1000;
+let ABANDONED_SIGNIN_MS = DEAD_BOUND_MS;
 function setTickInterval(ms) { TICK_MS = ms; }
 function setUnknownGrace(ms) { UNKNOWN_GRACE_MS = ms; }
-function setAbandonedSigninMs(ms) { ABANDONED_SIGNIN_MS = ms || 15 * 60 * 1000; }
+function setAbandonedSigninMs(ms) { ABANDONED_SIGNIN_MS = ms || DEAD_BOUND_MS; }
 
 /**
  * ⚠️ Codes are typed into a terminal by us on the user's behalf, so they are
@@ -1056,15 +1066,22 @@ async function tickBody(owner) {
    * from your email'"... though the account had in fact been added in the
    * background) was invisible to every tick that landed here, because
    * browser-open and awaiting-code were the two screens this outranking
-   * check was never wired into. Checked first, before anything the switch
-   * below does with the pane text -- and before the abandoned-leg expiry
-   * just below it, so a sign-in that actually landed is never raced against
-   * its own expiry clock.
+   * check was never wired into. Checked first, on every tick, before
+   * anything the switch below does with the pane text and before the
+   * abandoned-leg expiry just below it -- so within any ONE tick, a landed
+   * sign-in is always seen before its own expiry clock could fire on that
+   * same tick. Residual, accepted, and inherent to a poll-based driver: a
+   * sign-in that completes in the ~TICK_MS gap between one negative check
+   * and the next is not yet visible when the NEXT tick runs its check, the
+   * same granularity every other becomeStuck() trigger in this file already
+   * accepts. At a 15-minute bound that window is a small fraction of a
+   * percent of the whole wait, not eliminated but not worth adding
+   * cross-tick bookkeeping to shrink further.
    */
   if (seen.kind === 'browser-open' || seen.kind === 'awaiting-code') {
     const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
     if (sub.state === subscription.STATE.CONNECTED) {
-      finishConnected(owner, sub);
+      await finishConnected(owner, sub);
       return;
     }
     /**

@@ -761,6 +761,71 @@ driverTest('#897: a login that succeeds while the pane NEVER shows login-done st
   assert.equal(term.screen, SCREEN_PASTE, 'the pane text changed; this test needs it to stay put');
 });
 
+driverTest('config-outranks-screen also applies to browser-open, not just awaiting-code', async () => {
+  /**
+   * ⚠️ PINS THE OTHER HALF OF THE OR. `seen.kind === 'browser-open' ||
+   * seen.kind === 'awaiting-code'` is one condition, but the test above only
+   * ever exercises the awaiting-code half -- a fresh review correctly flagged
+   * that a future edit narrowing this back to just 'awaiting-code' (exactly
+   * the shape of gap #897 already was) would have nothing catching it. This
+   * terminal never advances past the browser-open screen on its own -- no
+   * paste prompt, ever -- so only the config-outranks-screen check on the
+   * browser-open kind can produce CONNECTED here.
+   */
+  const term = {
+    screen: SCREEN_THEME,
+    all: [],
+    killed: 0,
+    runner(file, args) {
+      term.all.push(args.slice());
+      const cmd = args[0];
+      if (cmd === 'kill-session') { term.killed += 1; return { ok: true, stdout: '' }; }
+      if (cmd === 'capture-pane') return { ok: true, stdout: term.screen };
+      if (cmd === 'send-keys') {
+        if (term.screen === SCREEN_THEME) term.screen = SCREEN_LOGIN_METHOD;
+        else if (term.screen === SCREEN_LOGIN_METHOD) term.screen = SCREEN_SPINNER;
+        // Once at SCREEN_SPINNER: no further Enters ever come from the
+        // driver (browser-open takes no action), so the pane parks here.
+        return { ok: true, stdout: '' };
+      }
+      return { ok: true, stdout: '' };
+    },
+  };
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+
+  await connect.start();
+  await until(() => connect.state().phase === connect.PHASE.SIGNIN_BROWSER_OPEN);
+
+  writeClaudeConfig(CONNECTED_CONFIG);
+  await until(() => connect.state().phase === connect.PHASE.CONNECTED, 5000);
+  assert.equal(term.screen, SCREEN_SPINNER, 'the pane text changed; this test needs it to stay at browser-open');
+});
+
+driverTest('config-outranks-screen fires even mid the pre-existing reject-cycle grace window', async () => {
+  /**
+   * ⚠️ PROVES THE TWO PIECES OF ADJACENT LOGIC DO NOT FIGHT. Right after a
+   * code is typed, mem.phase moves to SIGNIN_COMPLETING while the pane still
+   * shows the paste prompt -- the pre-existing rejectTicks grace window
+   * (engine/connect.js, "a paste prompt after a code was typed means the
+   * code did not take") is mid-flight, deciding whether to call this a
+   * rejection. If the account actually connects during that exact window,
+   * config-outranks-screen must still win over the reject-cycle's own timer.
+   */
+  const term = fakeTerminal();
+  term.onCode = () => { term.screen = SCREEN_PASTE; }; // looks rejected until the config says otherwise
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+
+  await connect.start();
+  await until(() => connect.state().phase === connect.PHASE.SIGNIN_AWAITING_CODE);
+  assert.equal(connect.submitCode('firstCode#111111').ok, true);
+  await until(() => connect.state().phase === connect.PHASE.SIGNIN_COMPLETING);
+
+  writeClaudeConfig(CONNECTED_CONFIG);
+  await until(() => connect.state().phase === connect.PHASE.CONNECTED, 5000);
+});
+
 driverTest('#727 item 4: an abandoned browser leg expires instead of waiting forever', async () => {
   /**
    * ⚠️ THE ACTUAL BUG REPRODUCTION. The pane sits at awaiting-code forever
