@@ -124,6 +124,13 @@ enum ReloadDecision: String {
     case startBoard  // no healthy page: re-run the resolve-and-start path
 }
 
+// Deliberately NOT an input: "a page load is in flight". A press landing in
+// the ms-wide window between the start resolving and the first commit takes
+// .startBoard while a healthy load is about to land -- costing one redundant
+// `kosmos start` (its already-running path is a fast health-check) and a
+// duplicate load whose superseded -999 the failure handler treats as benign.
+// Accepted: a fourth input to guard a self-limiting cost buys complexity,
+// not correctness.
 func reloadDecision(startInFlight: Bool, hasCommittedPage: Bool, lastLoadFailed: Bool) -> ReloadDecision {
     if startInFlight { return .ignore }
     if hasCommittedPage && !lastLoadFailed { return .reload }
@@ -446,7 +453,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 // Say so; a silent blank window is the failure mode this
                 // whole feature exists to end. Neutral headline: the start
                 // did not conclusively fail, it is being given up on.
-                self.showStartupFailureAlert(detail: "Kosmos is taking unusually long to start. Press Cmd-R to try again.", title: "Kosmos is still starting")
+                self.showStartupFailureAlert(detail: "Kosmos is taking unusually long to start. Press Cmd-R (View > Reload) to try again.", title: "Kosmos is still starting")
             }
         }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -521,6 +528,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // actually landed rather than inferring it from process/network state.
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // Blanket-clear, deliberately NOT attributed like the failure side:
+        // any finished main-frame navigation means a healthy screen, and a
+        // navigation that superseded the reload already disarmed it via its
+        // attributed -999. Do not "fix" this into identity-checking.
         lastLoadFailed = false
         recoverOnReloadFailure = false
         reloadNavigation = nil
