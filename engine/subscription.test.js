@@ -440,7 +440,7 @@ test('#881: checkLive() reads a non-boolean loggedIn as UNKNOWN, never NONE', as
   } finally { sub.setRunner(null); }
 });
 
-test('#881: checkLive() reads a thrown/rejected runner as UNKNOWN, never NONE', async () => {
+test('#881: checkLive() reads a thrown/rejected runner as UNKNOWN, never NONE, with a hand-written sentence', async () => {
   /* ⚠️ THE ASYMMETRY THIS WHOLE MODULE IS BUILT ON, applied to the live
      path too: a network failure is not evidence the account is signed
      out, and rendering it that way would be the exact mistake the file
@@ -450,7 +450,15 @@ test('#881: checkLive() reads a thrown/rejected runner as UNKNOWN, never NONE', 
     const got = await sub.checkLive();
     assert.equal(got.state, sub.STATE.UNKNOWN);
     assert.equal(got.checkedLive, true);
-    assert.match(got.because, /ECONNRESET/);
+    // ⚠️ NOT `err.message`. Caught in challenge-loop iteration 2: the first
+    // version embedded the raw thrown error into the sentence
+    // (`/ECONNRESET/` used to be the assertion here), breaking this
+    // module's own "no jargon in a user-facing sentence" rule for a
+    // real-world error like a stack trace or an errno name. The sentence
+    // must be hand-written and identical regardless of what the runner
+    // actually threw.
+    assert.doesNotMatch(got.because, /ECONNRESET/);
+    assert.match(got.because, /could not reach Claude Code/);
   } finally { sub.setRunner(null); }
 });
 
@@ -468,10 +476,11 @@ test('#881: checkLive() distinguishes a real subprocess failure from a clean neg
      discarded entirely, so a missing binary and an unparseable-but-clean
      answer produced the identical generic message. `runAuthStatus` now
      carries `err` through; this exercises the two failure shapes execFile
-     itself produces (ENOENT for a missing binary, killed/ETIMEDOUT for a
-     timeout) via the injected runner, since spawning a genuinely missing
-     binary for real is covered separately below (the real, un-injected
-     path). */
+     itself produces (ENOENT for a missing binary, `killed: true` for a
+     timeout -- NOT `code: 'ETIMEDOUT'`, which Node does not set here,
+     caught in iteration 2) via the injected runner, since spawning a
+     genuinely missing binary for real is covered separately below (the
+     real, un-injected path). */
   sub.setRunner(async () => ({ stdout: '', err: { code: 'ENOENT', message: 'spawn claude ENOENT' } }));
   try {
     const got = await sub.checkLive();

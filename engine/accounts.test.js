@@ -289,6 +289,12 @@ test('#881: listLive() attaches a live connection to every row, in parallel', as
 });
 
 test('#881: listLive() answers UNKNOWN for one account\'s failed check without sinking the others', async () => {
+  /* ⚠️ THIS EXERCISES checkLive()'s OWN internal catch (a thrown runner),
+     NOT listLive()'s try/catch around it -- checkLive() never rejects by
+     contract (every internal failure resolves to {state: UNKNOWN, ...}),
+     so listLive()'s own catch is unreachable from here. See the separate
+     test below for that one, which monkey-patches subscription.checkLive
+     itself to actually reject. */
   fs.mkdirSync(nodePath.join(SANDBOX, '.claude', 'projects'), { recursive: true });
   write('.claude.json', { oauthAccount: { emailAddress: 'default-881b@example.com' } });
   fs.mkdirSync(nodePath.join(SANDBOX, '.claude-live881b', 'projects'), { recursive: true });
@@ -306,8 +312,35 @@ test('#881: listLive() answers UNKNOWN for one account\'s failed check without s
     assert.ok(def && other, 'both fixture accounts must be found');
     assert.equal(def.connection.state, subscription.STATE.CONNECTED, 'the default row is unaffected by the other row\'s failure');
     assert.equal(other.connection.state, subscription.STATE.UNKNOWN, 'a failed check reads as unknown, never none');
-    assert.match(other.connection.because, /simulated failure/);
+    assert.match(other.connection.because, /could not reach Claude Code/);
   } finally { subscription.setRunner(null); }
+});
+
+test('#881: listLive()\'s OWN catch answers UNKNOWN if checkLive() itself ever rejected', async () => {
+  /* checkLive() never rejects today (verified in subscription.test.js),
+     but listLive()'s Promise.all wraps each call in its own try/catch as
+     defense in depth against that contract ever regressing -- untested
+     until now, since nothing could make checkLive() itself throw. Module
+     caching makes this safe to monkey-patch: accounts.js's own
+     require('./subscription') inside listLive() returns this exact same
+     object. */
+  fs.mkdirSync(nodePath.join(SANDBOX, '.claude', 'projects'), { recursive: true });
+  write('.claude.json', { oauthAccount: { emailAddress: 'default-881c@example.com' } });
+  fs.mkdirSync(nodePath.join(SANDBOX, '.claude-live881c', 'projects'), { recursive: true });
+  write('.claude-live881c/.claude.json', { oauthAccount: { emailAddress: 'second-881c@example.com' } });
+
+  const subscription = require('./subscription');
+  const real = subscription.checkLive;
+  subscription.checkLive = async () => { throw new Error('checkLive itself rejected, not just its internal runner'); };
+  try {
+    const got = await accounts.listLive();
+    const def = got.find((a) => a.email === 'default-881c@example.com');
+    const other = got.find((a) => a.email === 'second-881c@example.com');
+    assert.ok(def && other, 'both fixture accounts must be found');
+    assert.equal(def.connection.state, subscription.STATE.UNKNOWN, 'listLive()\'s own catch must answer unknown, never none, and never throw');
+    assert.equal(other.connection.state, subscription.STATE.UNKNOWN);
+    assert.match(def.connection.because, /could not check this account/);
+  } finally { subscription.checkLive = real; }
 });
 
 test('#881: list() itself is unchanged -- no connection field, no live check', () => {

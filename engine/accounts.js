@@ -246,14 +246,19 @@ async function listLive() {
         ? await subscription.checkLive()
         : await subscription.checkLive({ configDir: row.dir });
       return { ...row, connection };
-    } catch (err) {
+    } catch {
       // ⚠️ ONE ACCOUNT'S CHECK FAILING NEVER SINKS THE WHOLE LIST. `unknown`,
       // never `none` -- the same asymmetry subscription.js is built on.
+      // ⚠️ NO RAW err.message HERE EITHER (same rule, same challenge-loop
+      // pass that fixed subscription.js's own catch): checkLive() never
+      // rejects by contract, so this is defense in depth against that
+      // contract regressing, not a path that fires today -- but the
+      // sentence still has to be hand-written for the day it does.
       return {
         ...row,
         connection: {
           state: subscription.STATE.UNKNOWN, plan: null, checkedLive: true,
-          because: 'we could not check this account just now: ' + String((err && err.message) || err),
+          because: 'we could not check this account just now',
         },
       };
     }

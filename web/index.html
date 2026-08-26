@@ -10855,6 +10855,7 @@ async function paintSettings() {
  * button is the shape this app keeps having to remove: an admission that leaves
  * somebody nowhere to go.
  */
+let ACCT_EPOCH = 0;
 async function paintAccounts() {
   const box = document.getElementById('set-accounts');
   const msg = document.getElementById('set-accounts-msg');
@@ -10864,14 +10865,24 @@ async function paintAccounts() {
      box can sit empty/stale for a real, visible span rather than the
      immediate paint it used to be. Said plainly rather than left blank --
      same "Checking…" language the token-door rows already use for the
-     same wait. */
+     same wait.
+     ⚠️ EPOCH-GUARDED, same pattern as paintLimits()/LIM_EPOCH: this box
+     now has real, multi-second concurrent callers (Settings-tab open,
+     the post-share/post-add refreshes, paintConnLive's own tab), and a
+     slower older fetch resolving after a faster newer one used to be
+     able to paint stale data over fresh -- unlikely when this was an
+     instant stat, a real risk now. */
+  const mine = ++ACCT_EPOCH;
   box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">Checking…</p>';
   let list = [];
   try {
     const res = await fetch('/api/accounts', { cache: 'no-store' });
+    if (mine !== ACCT_EPOCH) return;
     if (!res.ok) throw new Error('no');
     list = ((await res.json()) || {}).accounts || [];
+    if (mine !== ACCT_EPOCH) return;
   } catch {
+    if (mine !== ACCT_EPOCH) return;
     // ⚠️ Never "one account": a failed read must not shrink the list.
     box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">We could not read the accounts on this computer.</p>';
     return;
@@ -10926,10 +10937,18 @@ async function paintAccounts() {
        Josh has not ruled on that provider's live-check story) and keep
        the prior unconditional badge so this fix does not silently
        regress a path it was never meant to touch. */
+    // ⚠️ THE REAL SENTENCE IS BOTH THE VISIBLE TEXT AND THE title, not a
+    // fixed label with the reason hidden in a hover-only tooltip -- the
+    // same rule taskClaimHtml() already established for exactly this
+    // shape ("the real sentence is what a screen reader gets and what a
+    // hover reveals -- never a paraphrase invented client-side"), caught
+    // in challenge-loop iteration 2 for not yet applying it here.
+    const noneWhy = (a.connection && a.connection.because) || 'not connected';
+    const unknownWhy = (a.connection && a.connection.because) || 'could not check';
     const connBadge = isOpenai ? '<span class="acct-connected"><span class="dot" aria-hidden="true"></span>Connected</span>'
       : a.connection && a.connection.state === 'connected' ? '<span class="acct-connected"><span class="dot" aria-hidden="true"></span>Connected</span>'
-      : a.connection && a.connection.state === 'none' ? '<span class="acct-none" title="' + esc(a.connection.because || '') + '"><span class="dot" aria-hidden="true"></span>Not connected</span>'
-      : '<span class="acct-unknown" title="' + esc((a.connection && a.connection.because) || '') + '"><span class="dot" aria-hidden="true"></span>Could not check</span>';
+      : a.connection && a.connection.state === 'none' ? '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>'
+      : '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
     return '<div class="acct-box"><div class="acct-box-top"><div class="acct-who"><b>' + who
       // No "your first account" tag (#394): the email is the answer, whole.
       + '</b>' + provider + org + '</div>'
@@ -14888,7 +14907,15 @@ async function paintConnLive() {
   try {
     const res = await fetch('/api/accounts', { cache: 'no-store' });
     if (!res.ok) throw new Error('no');
-    const list = ((await res.json()) || {}).accounts || [];
+    const all = ((await res.json()) || {}).accounts || [];
+    /* #881: a Claude row now carries a REAL, live-checked `connection`
+       field -- counting `all.length` here would show this exact box
+       claiming an account is "connected and thinking for your agents"
+       for one that Settings > Accounts, one tab over, correctly says is
+       not. OpenAI rows carry no `connection` field (out of scope for
+       #881), so they keep the old presence-only count -- this line does
+       not regress a provider it never touched. */
+    const list = all.filter((a) => a.provider !== 'anthropic' || (a.connection && a.connection.state === 'connected'));
     el.textContent = '';
     if (!list.length) {
       el.textContent = 'Nothing is connected yet.';

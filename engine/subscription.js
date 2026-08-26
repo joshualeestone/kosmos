@@ -313,10 +313,18 @@ async function checkLive(opts) {
   let result;
   try {
     result = await runAuthStatus(env);
-  } catch (err) {
+  } catch {
+    // ⚠️ NO RAW err.message HERE. Caught in challenge-loop iteration 2: this
+    // module's own header rule ("the warnings can't talk about JSON for
+    // non-technical people") applies to every because string, and a raw
+    // subprocess error can carry anything -- a stack trace, a path, an
+    // errno name. Unreachable from the real execFile path today (it
+    // resolves, never rejects; only an injected test runner can throw),
+    // but the sentence still has to be hand-written for the day something
+    // does reach it.
     return {
       state: STATE.UNKNOWN, plan: null, checkedLive: true,
-      because: 'we could not reach Claude Code to check: ' + String((err && err.message) || err),
+      because: 'we could not reach Claude Code to check whether this account is signed in',
     };
   }
   let parsed;
@@ -337,10 +345,16 @@ async function checkLive(opts) {
     // logged in" answer, which is exit 1 with well-formed JSON and is
     // handled by the boolean branch below, not this one.
     if (result.err) {
-      const timedOut = result.err.killed === true || result.err.code === 'ETIMEDOUT';
+      // ⚠️ `killed === true` ONLY, NOT `code === 'ETIMEDOUT'`. Verified
+      // against Node's own documented execFile behavior (challenge-loop
+      // iteration 2 caught the first version asserting a code Node never
+      // actually sets here): a timeout kill sets `killed: true` and
+      // `signal` (SIGTERM by default), never `error.code = 'ETIMEDOUT'`
+      // -- that string is an errno convention from other subsystems this
+      // path does not go through.
       const because = result.err.code === 'ENOENT'
         ? 'we could not find Claude Code on this computer to check with'
-        : timedOut
+        : result.err.killed === true
           ? 'Claude Code took too long to answer whether this account is signed in'
           : 'we asked Claude Code whether this account is signed in and it did not answer';
       return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because };
