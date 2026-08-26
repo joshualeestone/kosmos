@@ -34,8 +34,8 @@ set -euo pipefail
 # One EXIT trap, registered before anything can create a temp resource: six
 # exit-1 paths once sat between the download's mktemp and a trap that was
 # "folded in" later, each leaking ~150MB of Node tarball per failed build.
-TMP=""; SMOKE_LOG=""; SMOKE_ROOTS=""
-trap 'rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}"' EXIT
+TMP=""; SMOKE_LOG=""; SMOKE_ROOTS=""; _reload_table_stderr=""
+trap 'rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}" "${_reload_table_stderr:-}"' EXIT
 
 NODE_VERSION="${KOSMOS_NODE_VERSION:-24.19.0}"
 OUT="${1:-dist}"
@@ -238,7 +238,31 @@ codesign -v "$STAGE/app/bin/kosmos-app" 2>&1 | sed 's/^/    /' || { echo "the na
 # --kosmos-app-selftest exits before touching NSApplication/app.run(), so it
 # proves the signed binary loads and executes without needing a window
 # server, which a build machine may not have.
-"$STAGE/app/bin/kosmos-app" --kosmos-app-selftest >/dev/null 2>&1 || { echo "the signed native app does not run (--kosmos-app-selftest failed); it may not load under hardened runtime" >&2; exit 1; }
+# Timeboxed (perl alarm; macOS ships no `timeout`): a selftest flag that
+# drifts out of main.swift falls through to NSApplication/app.run(), which
+# on a headless build machine HANGS instead of exiting -- the timebox turns
+# hang-on-drift into fail-on-drift.
+perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-selftest >/dev/null 2>&1 || { echo "the signed native app does not run (--kosmos-app-selftest failed or hung); it may not load under hardened runtime, or the hatch flag drifted" >&2; exit 1; }
+# The Reload state machine (#965), diffed against its expected eight-row
+# table -- the hatch exists so this decision logic is machine-checked at
+# build time instead of only by a headed walk. A drift here is a real
+# behavior change in Cmd-R, so the build refuses it.
+_reload_table_expected='startInFlight=false committed=false lastLoadFailed=false -> startBoard
+startInFlight=false committed=false lastLoadFailed=true -> startBoard
+startInFlight=false committed=true lastLoadFailed=false -> reload
+startInFlight=false committed=true lastLoadFailed=true -> startBoard
+startInFlight=true committed=false lastLoadFailed=false -> ignore
+startInFlight=true committed=false lastLoadFailed=true -> ignore
+startInFlight=true committed=true lastLoadFailed=false -> ignore
+startInFlight=true committed=true lastLoadFailed=true -> ignore'
+# stdout only in the comparison: folding stderr in would let incidental
+# runtime noise from a clean-exiting binary masquerade as a drifted table.
+# stderr is kept aside and shown only on the failed-to-run branch, where it
+# is the one clue a broken build machine has. Cleanup rides the script's ONE
+# EXIT trap (registered up top), per its own temp-resource invariant.
+_reload_table_stderr="$(mktemp "${TMPDIR:-/tmp}/reload-table-stderr.XXXXXXXXXX")"
+_reload_table_actual="$(perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-reload-decision-selftest 2>"$_reload_table_stderr")" || { echo "the native app's --kosmos-app-reload-decision-selftest failed to run or hung (a drifted hatch flag falls through to app.run()); its stderr:" >&2; cat "$_reload_table_stderr" >&2; exit 1; }
+[ "$_reload_table_actual" = "$_reload_table_expected" ] || { printf '%s\n' "the native app's Reload decision table drifted from the expected eight rows (#965)." "EXPECTED:" "$_reload_table_expected" "ACTUAL:" "$_reload_table_actual" >&2; exit 1; }
 _app_bin_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')"
 echo "==> native app: kosmos-app signed $_app_bin_sha"
 
