@@ -376,7 +376,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // below re-set these if THIS attempt fails too (#965). Disarming the
         // one-shot here matters: without it, an armed fall-through from a
         // reload could survive into a later, unrelated navigation failure and
-        // fire a full board restart the user never asked for.
+        // fire a full board restart the user never asked for. Known cost of
+        // the clean slate: if THIS attempt's `kosmos start` fails over a
+        // stale committed page, the next press burns one doomed reload()
+        // round-trip before its own fall-through lands back here -- still
+        // one press per recovery, just a slower first hop.
         lastLoadFailed = false
         recoverOnReloadFailure = false
         reloadNavigation = nil
