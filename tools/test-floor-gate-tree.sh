@@ -69,5 +69,8 @@ grep -q 'swiftc -target "arm64-apple-macos$(cat "$REPO/tools/macos-floor")"' too
 grep -q '^floor_gate_tree "\$STAGE"$' tools/build-kosmos-bundle.sh \
   || fail "build-kosmos-bundle.sh no longer walks \$STAGE with floor_gate_tree (an enumerated gate is the defect)"
 grep -q '^floor_gate "\$STAGE/' tools/build-kosmos-bundle.sh && fail "build-kosmos-bundle.sh still gates an enumerated file beside the tree walk"
+grep -q '^floor_gate_tree "\$OUT"$' tools/build-tmux-bundle.sh \
+  || fail "build-tmux-bundle.sh no longer walks \$OUT with floor_gate_tree (it enumerated bin/tmux + lib/*.dylib before)"
+grep -q '^floor_gate "\$OUT' tools/build-tmux-bundle.sh && fail "build-tmux-bundle.sh still gates an enumerated list beside the tree walk"
 
 echo "floor gate walks the stage; kosmos-app builds and reads back at macOS $FLOOR (launch on a pre-26 Mac: not observed here, see header)"

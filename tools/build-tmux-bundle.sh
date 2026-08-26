@@ -197,8 +197,12 @@ otool -L "$OUT/bin/tmux" | tail -n +2 | sed 's/^/      /'
 # silently. Until a tmux built against the floor SDK is sourced, a release
 # build of this bundle FAILS here on purpose; KOSMOS_ALLOW_MINOS=1 permits
 # a LOCAL TEST BUILD only.
+# Every Mach-O under the bundle, discovered by walking it (#927, Shredder's
+# second point after #929): "bin/tmux plus lib/*.dylib" is a claim about the
+# ship list that nothing rechecks, the same shape that let kosmos-app ship at
+# minos 26.0 for eighteen releases one builder over.
 . "$(dirname "${BASH_SOURCE[0]}")/lib/floor-gate.sh"
-floor_gate "$OUT/bin/tmux" "$OUT"/lib/*.dylib
+floor_gate_tree "$OUT"
 
 # ---- what shipped, recorded ---------------------------------------------------
 # The Node half of a release is pinned and checksummed; the tmux half must at
