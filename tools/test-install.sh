@@ -137,8 +137,18 @@ EXPECTED_ADDS="$(printf '%s\n' ./AgentWorkforce/bin/agent-supervisor.sh ./AgentW
 # guard keyed on a superseded value passes while watching the wrong thing --
 # which is the same defect class this check exists to catch. Derived, it cannot
 # drift; if the extraction ever fails, that is loud rather than silently green.
-KOSMOS_DEFAULT_PORT="$(sed -n 's/^PORT="\${KOSMOS_PORT:-\([0-9][0-9]*\)}"/\1/p' "$HERE/install/setup.sh" | head -1)"
+# ⚠️ #910: THE PORT IS NO LONGER ONE LITERAL, it is uid 501 (the primary
+# account, which is what THIS test-runner's own account and virtually
+# every real single-user Mac already is) pinned to the unchanged value,
+# with every other uid deriving an alternate. Extracted from setup.sh's
+# own pinned-case line, which stays a plain literal for exactly this
+# reason -- still "read from the installer, never typed here" in spirit,
+# just reading the ONE line that answers "what does the account this
+# harness actually runs as get" instead of a single global default that
+# no longer exists.
+KOSMOS_DEFAULT_PORT="$(sed -n 's/^  _kosmos_default_port=\([0-9][0-9]*\)$/\1/p' "$HERE/install/setup.sh" | head -1)"
 [ -n "$KOSMOS_DEFAULT_PORT" ] || { echo "FAIL: could not read the default port out of install/setup.sh" >&2; exit 1; }
+[ "$(/usr/bin/id -u)" = 501 ] || echo "WARN: this harness is not running as uid 501 -- KOSMOS_DEFAULT_PORT ($KOSMOS_DEFAULT_PORT, the pinned-primary value) will not match this account's own derived port for the checks below that assume it does" >&2
 DEFAULT_PORT_BEFORE=free
 curl -s -m 1 -o /dev/null "http://127.0.0.1:$KOSMOS_DEFAULT_PORT/" 2>/dev/null && DEFAULT_PORT_BEFORE=busy
 
@@ -532,6 +542,52 @@ deregister_kosmos_app
 chk "an account with its own Kosmos gets that one started" "[ -s \"$SB/own-open.log\" ]"
 chk "and it was THEIR copy that was called, with their home baked" "grep -q \"^start $SB/ownhome/.local/share/kosmos\" \"$SB/own-open.log\""
 chk "and this icon's launcher log did not grow (nothing real was opened)" "[ \"\$(wc -l < \"$SB/launcher.log\" | tr -d ' ')\" = \"$LNS_BEFORE\" ]"
+
+echo "== #910: per-account port derivation, shell and Swift agree =="
+# 🔑 THE SAME FORMULA LIVES IN FIVE PLACES (install/kosmos, install/setup.sh,
+# install/pkg-scripts/postinstall, and native-app/main.swift's two call
+# sites) and has to move together. Bash-to-bash agreement is nearly free to
+# assert (it is the same few lines, copied); the ONE cross-language
+# boundary that could silently drift is bash vs. the compiled Swift binary,
+# so that is the pairing actually worth testing here. main.swift carries a
+# tiny, deliberate exit hatch for exactly this (`--kosmos-app-port-selftest
+# <uid>`, same shape as the pre-existing `--kosmos-app-selftest` build-time
+# check) -- nothing outside a compiled Swift binary can call
+# kosmosDefaultPort() directly to compare against.
+_kosmos_expected_port() { # $1 = uid
+  if [ "$1" = 501 ]; then printf '16180'; else printf '%s' "$((16180 + 1 + ($1 % 3999)))"; fi
+}
+for _uid in 501 502 1000 4999 5000; do
+  _expected="$(_kosmos_expected_port "$_uid")"
+  _swift_got="$("$KOS_SRC/app/bin/kosmos-app" --kosmos-app-port-selftest "$_uid")"
+  chk "uid $_uid: Swift's kosmosDefaultPort agrees with the shell formula ($_expected)" "[ \"$_swift_got\" = \"$_expected\" ]"
+done
+chk "uid 501 is pinned to the literal, unchanged default" "[ \"\$(_kosmos_expected_port 501)\" = 16180 ]"
+chk "uid 1000 and uid 4999 wrap the same modulo to the identical port (1000 % 3999 = 4999 % 3999)" "[ \"\$(_kosmos_expected_port 1000)\" = \"\$(_kosmos_expected_port 4999)\" ]"
+chk "the derived alternate never lands back on the pinned primary port" "[ \"\$(_kosmos_expected_port 502)\" != 16180 ]"
+# ⚠️ WHAT THIS SECTION CANNOT PROVE, NAMED RATHER THAN LEFT IMPLICIT: none of
+# the checks above exercise install/kosmos's or install/setup.sh's OWN
+# embedded formula against a non-primary uid -- both call `/usr/bin/id -u`
+# by absolute path (deliberately, matching this repo's own style for
+# security-sensitive system binaries), which cannot be safely stubbed via a
+# PATH trick, and this harness has no second real macOS account to run as.
+# `_kosmos_expected_port` above is a SEPARATE, hand-written copy of the
+# formula, so a bug in the real code that also happened to make its way
+# into that copy would not be caught by it. What CAN be verified without a
+# second real account: the two shell copies stay byte-identical to each
+# other (a copy-paste drift between them would be silent otherwise, since
+# every other scenario in this file always sets KOSMOS_PORT explicitly and
+# never actually reaches either fallback).
+# Located by its own distinctive first line, not a hardcoded line number --
+# either file gaining or losing lines elsewhere would silently point a
+# line-number-based extraction at the wrong content.
+_kosmos_formula_from() { # $1 = file, reads from the anchor line through PORT=
+  awk '/^_kosmos_uid="\$\(\/usr\/bin\/id -u\)"$/{f=1} f{print} f&&/^PORT="\$\{KOSMOS_PORT:-\$_kosmos_default_port\}"$/{exit}' "$1"
+}
+chk "install/kosmos's derivation block was found (or this check is vacuous)" "[ -n \"\$(_kosmos_formula_from "$HERE/install/kosmos")\" ]"
+chk "install/setup.sh's derivation block was found (or this check is vacuous)" "[ -n \"\$(_kosmos_formula_from "$HERE/install/setup.sh")\" ]"
+chk "install/kosmos and install/setup.sh carry the byte-identical derivation" \
+  "diff <(_kosmos_formula_from \"$HERE/install/kosmos\") <(_kosmos_formula_from \"$HERE/install/setup.sh\") >/dev/null"
 
 echo "== update (stale file must not survive; board must restart) =="
 touch "$SB/home/app/engine/stale-marker.js"

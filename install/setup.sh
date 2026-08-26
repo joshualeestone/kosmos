@@ -399,7 +399,31 @@ resolve_app_dir() {
 # 📌 AN EXISTING INSTALL KEEPS THE PORT IT HAS. `kosmos` reads its own state, and
 # KOSMOS_PORT still overrides everything here, so nothing moves under somebody
 # who is already running.
-PORT="${KOSMOS_PORT:-16180}"
+# 🔑 PER ACCOUNT, NOT ONE VALUE FOR EVERY macOS USER ON THIS MACHINE (#910).
+# Every account defaulting to the identical port is the entire reason a
+# second macOS account's Kosmos loaded the first account's real agents:
+# 127.0.0.1 is machine-wide, so `healthy()` always found account A's board
+# first and account B's install never needed to bind a port of its own.
+# uid 501 (the Setup Assistant's first created user account on every
+# personal or family Mac -- macOS reserves anything below 500 for system
+# accounts) is pinned to the LITERAL unchanged value: every real install
+# today is hardcoded to exactly this, so the single most common Kosmos
+# install on this planet changes zero observable bytes. Every other uid
+# gets a deterministic, stable alternate -- `+1` on the modulo so it can
+# never itself land back on 16180 by coincidence (uid % 4000 alone can be
+# exactly 0). No probing, no persisted state: a pure function of `id -u`,
+# so `kosmos start`/`stop`/`status` and this installer always agree with
+# each other and with themselves, regardless of what any OTHER account's
+# board happens to be doing at the moment. Moves together with the exact
+# same formula in install/kosmos, install/pkg-scripts/postinstall, and
+# native-app/main.swift.
+_kosmos_uid="$(/usr/bin/id -u)"
+if [ "$_kosmos_uid" = 501 ]; then
+  _kosmos_default_port=16180
+else
+  _kosmos_default_port=$((16180 + 1 + (_kosmos_uid % 3999)))
+fi
+PORT="${KOSMOS_PORT:-$_kosmos_default_port}"
 # The port is baked into the same unquoted launcher heredoc the
 # KOSMOS_HOME character guard protects, so it gets the same posture:
 # anything but digits is refused in a sentence (reproduced in review: a
