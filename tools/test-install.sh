@@ -161,6 +161,13 @@ export KOSMOS_PROFILE_FILE="$SB/zprofile"
 export SHELL=/bin/zsh
 printf '# the operator\047s own line\n' > "$SB/zprofile"
 export KOSMOS_TMUX_SRC="$TMUX_SRC" KOSMOS_SRC="$KOS_SRC" KOSMOS_PORT="$PORT"
+# 🔑 #908: every board this gate starts logs its requests OUTSIDE the sandbox
+# (server.js, KOSMOS_INSTALL_GATE=1), so the next time the byte-for-byte
+# check names seen-version.json (#891) the log names the client that loaded
+# the page. The file outlives the sandbox and the run; read it with
+# `grep " GET / " ~/.claude/logs/install-gate-requests.log`.
+export KOSMOS_INSTALL_GATE=1
+echo "request log for every sandboxed board: ${KOSMOS_INSTALL_GATE_LOG:-$HOME/.claude/logs/install-gate-requests.log} (#908)"
 export AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_LAUNCH="$SB/launch"
 # 🛑 EVERY ROOT THE GATE NAMES, AND AN INERT TMUX, or the board this harness
 # installs refuses to start (#634): a sandbox with some roots live is the
