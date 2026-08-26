@@ -334,7 +334,16 @@ chmod +x "$sb4/fake-codex"
 # the resolver reach out again is not.
 cat > "$sb4/fake-claude" <<'FAKE'
 #!/bin/bash
+# ⚠️ TWO ARMS, because TWO callers reach this stub now. `--version` is the
+# runner probe. `auth status --json` is engine/subscription.js's live account
+# check, which reaches this binary for the first time on this branch:
+# claudeBinPath() was repointed at the resolver, which honours
+# AGENT_WORKFORCE_HOME, so sandbox 4's check lands here instead of on the
+# operator's real Claude. Answering with an explicit "not signed in" is the
+# honest fixture for a sandbox that has no account; an empty answer would
+# make the sandbox's verdict depend on how the parser treats silence.
 [ "$1" = --version ] && { echo "claude 0.0.0-fake"; exit 0; }
+[ "$1" = auth ] && [ "$2" = status ] && { echo '{"logged_in":false}'; exit 0; }
 exit 0
 FAKE
 chmod +x "$sb4/fake-claude"

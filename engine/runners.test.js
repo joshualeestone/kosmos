@@ -377,6 +377,12 @@ const CLAUDE_HOME = nodePath.join(SANDBOX, 'claude-home');
 const CANONICAL = nodePath.join(CLAUDE_HOME, '.local', 'bin', 'claude');
 
 test('#979: claude resolution is env-authoritative, then the vendor canonical path, sandboxed via AGENT_WORKFORCE_HOME', () => {
+  // Save-and-restore, like every other Claude test in this file. This one is
+  // the FIRST to run, which is exactly the case the shared helper's comment
+  // was written to survive: a delete here would silently clear a value a
+  // future preamble sets, and nothing would fail to say so.
+  const prevHome = process.env.AGENT_WORKFORCE_HOME;
+  const prevBin = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
   try {
@@ -396,8 +402,10 @@ test('#979: claude resolution is env-authoritative, then the vendor canonical pa
     r = runners.resolveBin('claude');
     assert.deepEqual(r, { bin: envClaude, present: true, managed: false, overridden: true });
   } finally {
-    delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
-    delete process.env.AGENT_WORKFORCE_HOME;
+    if (prevHome === undefined) delete process.env.AGENT_WORKFORCE_HOME;
+    else process.env.AGENT_WORKFORCE_HOME = prevHome;
+    if (prevBin === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    else process.env.AGENT_WORKFORCE_CLAUDE_BIN = prevBin;
     fs.rmSync(CANONICAL, { force: true });
   }
 });
@@ -442,19 +450,29 @@ test('#979: with no claude anywhere, the install REFUSES in words and never clai
     // The refusal has to be usable by a person, not just non-crashing: it
     // says what Kosmos can do and what they can do. A dead end that does
     // not explain itself is the thing the provider ruling exists to kill.
-    assert.match(job.because, /can only use one that is already here/);
-    assert.match(job.because, /install Claude Code yourself/);
+    // Leads with what happened, not with a tautology: the house rule on
+    // writing to a person is to say what happened and what it means for them.
+    assert.match(job.because, /^We could not find Claude Code on this Mac\./);
+    assert.match(job.because, /cannot download one yet/);
+    assert.match(job.because, /Install Claude Code yourself/);
     assert.equal(job.receivedBytes, null, 'nothing was downloaded, so no count is invented');
   });
 });
 
-test('#979: the refusal path spawns NOTHING -- no fetch, no child, no shell', async () => {
+test('#979: the refusal path reaches no NETWORK -- connect.download is never called', async () => {
   /* The guard against #997 being half-reintroduced by accident. Two earlier
      versions of this branch reached the network here: one curl|sh, one a
      borrowed download that shared a directory with the sign-in flow. If a
-     future edit puts either back without the shared-install work, this test
-     is what fails. It stubs the module registry entries a download would
-     have to come through, and asserts they are never touched. */
+     future edit puts either back without the shared-install work, this fails.
+
+     ⚠️ ITS NAME USED TO SAY "spawns NOTHING -- no fetch, no child, no shell",
+     AND THAT WAS FALSE TWICE OVER. The production refusal path DOES spawn a
+     child: the default findElsewhere runs `/usr/bin/which`. And seaming
+     findElsewhere out -- as this test must, to stay off the operator's real
+     machine -- removes the only child there is, so the fixture was supplying
+     the very premise the title claimed to verify. It is named for what it
+     actually pins now. The no-child claim is not made anywhere, because it is
+     not true. */
   await withClaudeHome(async () => {
     const connect = require('./connect');
     const realDownload = connect.download;
@@ -496,6 +514,12 @@ test('#979: a claude found elsewhere is LINKED, not downloaded, and a failed pro
     });
     await bad.settled;
     assert.equal(bad.phase, 'failed');
+    // ⚠️ PIN THE FAILURE TO THE PROVE STEP. Without these two, the assertion
+    // below passes just as well when the link was never made at all (a
+    // clearForLink refusal, say) -- "it is gone" would then be true of
+    // something that was never there, which proves no teardown ran.
+    assert.equal(bad.linked, null, 'the linked field comes down with the link it names');
+    assert.match(bad.because, /did not run/, 'it failed at prove, which is the branch under test');
     assert.equal(fs.existsSync(CANONICAL), false, 'a broken link must not read as present');
   });
 });
@@ -538,7 +562,7 @@ test('#979: a DIRECTORY at the canonical path is refused in words, not as a raw 
   });
 });
 
-test('#979: the arch guard does not apply to the vendor-verified kind', async () => {
+test('#979: the arch guard does not apply to the vendor-external kind', async () => {
   await withClaudeHome(async () => {
     const job = runners.install('claude', {
       arch: 'x64', // would refuse the tarball kind; the vendor manifest is per-platform
@@ -547,7 +571,7 @@ test('#979: the arch guard does not apply to the vendor-verified kind', async ()
     await job.settled;
     assert.equal(job.phase, 'failed');
     assert.doesNotMatch(job.because, /arm64|x64/, 'the refusal must not be an arch refusal');
-    assert.match(job.because, /already on this Mac/, 'it reaches the kind\'s own refusal, not the arch guard');
+    assert.match(job.because, /could not find Claude Code/, 'it reaches the kind\'s own refusal, not the arch guard');
   });
 });
 

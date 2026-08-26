@@ -46,7 +46,6 @@ const { execFile } = require('node:child_process');
 const store = require('./store');
 const subscription = require('./subscription');
 
-const HOME = os.homedir();
 
 const PHASE = {
   IDLE: 'idle',
@@ -837,8 +836,8 @@ async function runFlow(owner, haveBinary) {
      * variables: under a sandbox the install would land in the operator's
      * real home and the `accessSync` below would then report a SUCCESSFUL
      * install as "we cannot find it where it should be". Production is
-     * unchanged -- AGENT_WORKFORCE_HOME is unset there, so this is
-     * `HOME: HOME`.
+     * unchanged -- AGENT_WORKFORCE_HOME is unset there, so this resolves
+     * to the real home, exactly as the old bare `HOME` constant did.
      */
     const inst = await run(downloaded.path, ['install'], {
       timeout: 180000,

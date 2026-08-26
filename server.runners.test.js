@@ -125,7 +125,7 @@ test('#979: Add with the runner present passes the runner gate (no needsRunner i
   }
 });
 
-test('#979: claude is listed beside openai with the documented shape (vendor-verified kind)', async () => {
+test('#979: claude is listed beside openai with the documented shape (vendor-external kind)', async () => {
   const got = await req('/api/runners');
   assert.equal(got.status, 200);
   const r = json(got).runners;
@@ -135,7 +135,7 @@ test('#979: claude is listed beside openai with the documented shape (vendor-ver
   // and the bin names the operator-set path.
   assert.equal(r.claude.present, true);
   assert.equal(r.claude.bin, '/bin/echo');
-  // A vendor-verified entry makes NO pinned-version claim and invents no
+  // A vendor-external entry makes NO pinned-version claim and invents no
   // download size: the version and its checksum are discovered from the
   // vendor's own manifest at install time, not frozen into our manifest.
   // Asserted as null, not undefined: an absence that does not survive
@@ -143,6 +143,6 @@ test('#979: claude is listed beside openai with the documented shape (vendor-ver
   assert.equal(r.claude.pinnedVersion, null);
   assert.ok('pinnedVersion' in r.claude, 'the honest absence SURVIVES serialisation');
   assert.equal(r.claude.downloadBytes, null);
-  assert.equal(r.claude.kind, 'vendor-verified');
+  assert.equal(r.claude.kind, 'vendor-external');
   assert.equal(r.openai.kind, 'tarball');
 });
