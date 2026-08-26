@@ -10706,6 +10706,40 @@ test('#570: two runs of one agent report, and the record says WHICH RUN said eac
   }
 });
 
+test('#900: the Stop hook\'s idle does not erase a blocked, and the BOARD still shows it', async () => {
+  /* End to end, because the defect was only visible on the board: an agent
+     files blocked mid-turn, its own Stop hook fires seconds later at the end
+     of that turn, and the agent reads as at-rest and finished. */
+  const messagesEngine = require('./engine/messages');
+  const board = fleet.install([fleet.agent('waiting', { state: 'idle' })]);
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'waiting-discord' }));
+    const post = (b) => req('/api/report', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b),
+    });
+
+    assert.equal(JSON.parse((await post({ state: 'blocked', text: 'needs Josh to sign in', owner: 'Josh', from_pane: '%7' })).body).recorded, true);
+
+    /* The hook's own end-of-turn write. It must be refused, and refused in a
+       sentence rather than looking like a failure the hook should retry. */
+    const stop = JSON.parse((await post({ state: 'idle', text: 'finished responding', auto: true, from_pane: '%7' })).body);
+    assert.equal(stop.recorded, false);
+    assert.match(stop.because, /waiting on a person/);
+
+    const row = JSON.parse((await req('/api/status')).body).agents.find((a) => a.sessionName === 'waiting');
+    assert.equal(row.state, 'blocked', 'the board read a blocked agent as at rest, which is the whole defect');
+    assert.equal(row.because, 'needs Josh to sign in');
+
+    /* And it is not a trap: the next real turn clears it. */
+    assert.equal(JSON.parse((await post({ state: 'working', text: 'answering a prompt', auto: true, from_pane: '%7' })).body).recorded, true);
+    const row2 = JSON.parse((await req('/api/status')).body).agents.find((a) => a.sessionName === 'waiting');
+    assert.equal(row2.state, 'working', 'a real block became permanent');
+  } finally {
+    messagesEngine.resetForTests();
+    board.restore();
+  }
+});
+
 test('the report route refuses an unknown state word with the closed list, and a caller with no pane with the identity sentence', async () => {
   const messagesEngine = require('./engine/messages');
   const board = fleet.install([fleet.agent('peteworker', { state: 'idle' })]);

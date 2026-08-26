@@ -13,7 +13,7 @@
 #   PermissionRequest -> needs_you, with the command in the sentence
 #                        (fires BEFORE the box renders; the Notification
 #                        hook is ~6 seconds late by design and is unused)
-#   Stop              -> idle
+#   Stop              -> idle --auto (never erases a standing blocked/needs_you, #900)
 #   StopFailure       -> blocked --on "provider api (<kind>)" --owner provider
 #   SessionEnd        -> stopped
 #
@@ -167,7 +167,11 @@ case "$EVENT" in
     report needs_you "asking permission to use ${TOOL}${CMD:+: $CMD}" ;;
   Stop)
     rm -f "$MARK" 2>/dev/null || true
-    report idle finished responding ;;
+    # #900: --auto, so this end-of-turn idle cannot erase a `blocked` or
+    # `needs_you` the agent filed DURING the turn. Stop fires at the end of
+    # every turn, so without this an agent waiting on a person read as idle
+    # within seconds of saying so.
+    report idle --auto finished responding ;;
   StopFailure)
     KIND=$(json_field '.matcher // .error_type' 'matcher'); KIND="${KIND:-an api error}"
     rm -f "$MARK" 2>/dev/null || true
