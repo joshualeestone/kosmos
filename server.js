@@ -3541,6 +3541,10 @@ const server = http.createServer((req, res) => {
           /* #570: which RUN said it, when the sender came from a launch token.
              The pane arm resolves no instance and leaves this undefined. */
           instance: sender.instance,
+          /* #900: an AUTOMATIC write, from a lifecycle hook rather than the
+             agent choosing to say it. Only the machine's `idle` is refused
+             over a standing waiting state; see selfreport.record. */
+          auto: body.auto === true,
         });
         if (kept.recorded !== true) {
           sendJson(res, 200, { recorded: false, because: kept.because });

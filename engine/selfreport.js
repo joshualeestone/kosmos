@@ -38,6 +38,11 @@ const store = require('./store');
 
 const STATES = Object.freeze(['started', 'working', 'idle', 'needs_you', 'blocked', 'stopped']);
 
+/* #900: the two words that mean A PERSON IS THE BLOCKER. They are the states
+   `status.reconcileReport` already declines to decay, and they are the only
+   ones an automatic writer may not erase. */
+const WAITING_ON_A_PERSON = Object.freeze(['blocked', 'needs_you']);
+
 const DIR = path.join(store.ROOT, 'selfreports');
 
 /* The reader's window. 64KB holds hundreds of transitions; anything older
@@ -83,6 +88,33 @@ function record(sessionName, entry) {
   const state = entry && entry.state;
   if (!STATES.includes(state)) {
     return { recorded: false, because: 'that is not a state we know. The states are: ' + STATES.join(', ') };
+  }
+  /* 🛑 #900: AN AUTOMATIC `idle` MAY NOT ERASE A DELIBERATE `blocked` OR
+     `needs_you`. The Stop hook fires at the end of EVERY turn and writes idle,
+     so a waiting state an agent filed mid-turn survived only until its own turn
+     ended, seconds later. Latest-report-wins then rendered an agent waiting on
+     a person as at-rest and finished. Two throwaway walk agents found this
+     about themselves on 0.5.34 and traced it correctly.
+
+     ⚠️ THE DISCRIMINATOR IS `auto`, NOT THE WORD. A person or an agent
+     deliberately saying `idle` still clears a waiting state, which is how a
+     block gets cleared at all; only the machine writing on its behalf is
+     refused. Marking the writer is the only way to tell those apart, because
+     the two produce an identical line.
+
+     ⚠️ AND IT REFUSES ONLY `idle`. `working` (the next prompt), `stopped`
+     (session end) and `started` (a new run) all still land, so a real block
+     clears the moment the agent actually does something. A rule that refused
+     every automatic write would strand the agent blocked forever. */
+  if (entry.auto === true && state === 'idle') {
+    const standing = read(sessionName);
+    if (standing.found === true && WAITING_ON_A_PERSON.includes(standing.state)) {
+      return {
+        recorded: false,
+        skipped: 'waiting',
+        because: 'it is waiting on a person (' + standing.state + '), so an automatic idle did not overwrite that',
+      };
+    }
   }
   const at = new Date().toISOString();
   const line = {
@@ -206,4 +238,4 @@ function read(sessionName) {
   };
 }
 
-module.exports = { STATES, DIR, NO_READING, TAIL_BYTES, record, read, fileFor };
+module.exports = { STATES, WAITING_ON_A_PERSON, DIR, NO_READING, TAIL_BYTES, record, read, fileFor };
