@@ -935,9 +935,14 @@ driverTest('#727 item 4: submitting a code re-arms the expiry, so an engaged ret
    * so the two outcomes diverge: by the time this test asserts, the
    * ORIGINAL (un-reset) window would already have expired, but the
    * RESET window has not -- so a passing assertion here is only possible if
-   * the reset actually happened, not just "nothing got stuck yet".
+   * the reset actually happened, not just "nothing got stuck yet". Scaled
+   * up (not the suite's usual 200-500ms) for the same reason the sibling
+   * transition test was scaled up: a fresh review flagged the original
+   * ~150ms margin here as flake-prone under real machine jitter, since this
+   * is a single fixed-delay checkpoint rather than a polling `until()`. The
+   * numbers below keep an even ~750ms of headroom on both sides.
    */
-  connect.setAbandonedSigninMs(500);
+  connect.setAbandonedSigninMs(2500);
   const term = fakeTerminal();
   term.onCode = () => { term.screen = SCREEN_PASTE; }; // rejected: still parked, pane unchanged
   connect.setRunner(term.runner);
@@ -946,13 +951,14 @@ driverTest('#727 item 4: submitting a code re-arms the expiry, so an engaged ret
   await connect.start();
   await until(() => connect.state().phase === connect.PHASE.SIGNIN_AWAITING_CODE);
 
-  // Submitted at ~300ms (well inside the original 500ms window either way).
-  await new Promise((r) => setTimeout(r, 300));
+  // Submitted at ~1500ms (well inside the original 2500ms window either way).
+  await new Promise((r) => setTimeout(r, 1500));
   assert.equal(connect.submitCode('retryCode#111111').ok, true);
-  // Now 300 + 350 = 650ms since start() -- past the ORIGINAL window's 500ms
-  // deadline -- but only ~350ms since the reset armed at ~300ms, inside its
-  // own 500ms window. Still not stuck: the reset, not luck, is what saved it.
-  await new Promise((r) => setTimeout(r, 350));
+  // Now 1500 + 1750 = 3250ms since start() -- ~750ms past the ORIGINAL
+  // window's 2500ms deadline -- but only ~1750ms since the reset armed at
+  // ~1500ms, ~750ms inside its own 2500ms window. Still not stuck: the
+  // reset, not luck, is what saved it.
+  await new Promise((r) => setTimeout(r, 1750));
   assert.notEqual(connect.state().phase, connect.PHASE.STUCK,
     'a code submitted before the bound did not re-arm the expiry clock');
 });

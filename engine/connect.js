@@ -1117,7 +1117,7 @@ async function tickBody(owner) {
       becomeStuck(owner,
         seen.kind === 'awaiting-code'
           ? (owner.codeTyped
-            ? 'the code entered did not work, and no other was entered before this sign-in expired'
+            ? 'the code entered did not work, and no other code was entered before this sign-in expired'
             : 'no code was entered for this sign-in, so it expired')
           : 'this sign-in was not finished in the browser, so it expired',
         tailOf(cap.stdout));
