@@ -78,8 +78,23 @@ function chk(ok, label, extra) {
       body: JSON.stringify({ running: served, latest: served, reached: true, readable: true, offer: null }),
     }));
     await pg.route('**/api/status', async (route) => {
-      const res = await route.fetch();
-      const data = await res.json();
+      /* 🛑 EVERY await IN HERE IS GUARDED, AND THE REASON IS THE PRESS BELOW.
+         Reload navigates the page, and a navigation disposes the request context
+         of any route callback still in flight. Unguarded, that rejection has no
+         catch above it, so node dies -- AFTER every assertion has printed PASS.
+         The run reads green on screen and exits 1, and the harness reports it as
+         a retry, which is the shape that gets waved through as a flake.
+         MEASURED on this check, not reasoned about: it killed one attempt of a
+         full browser-checks run and not the retry. A route callback losing its
+         page is normal here, so it is swallowed rather than reported. */
+      let res, data;
+      try {
+        res = await route.fetch();
+        data = await res.json();
+      } catch {
+        await route.abort().catch(() => {});
+        return;
+      }
       data.updateLook = { reached: true, readable: true, looked: true };
       data.update = null;
       /* The engine-stale notice outranks the stale toast in the same slot and
@@ -139,6 +154,16 @@ function chk(ok, label, extra) {
       /* 🔑 THE SENTINEL IS THE ASSERTION THAT CANNOT FALSE-PASS ON A SAME-URL
          RELOAD. A reload destroys the JS context and nothing else in this flow
          does. waitForNavigation alone is weaker (PigeonPete, who ran it). */
+      /* ⚠️ THE STALE SHOT IS TAKEN BEFORE THE PRESS, AND IT HAS TO BE. This file
+         is named for the STALE state; the press reloads, the faked meta goes with
+         the old JS context, and the card comes back CURRENT. A shot taken after
+         the press therefore lands in updates-stale.png showing a card that is not
+         stale -- a picture that quietly contradicts its own filename, which is
+         worse than no picture because it is the one thing a reviewer trusts
+         without re-deriving. */
+      const staleBox = await pg.$('#s-sec-updates');
+      if (staleBox) await staleBox.screenshot({ path: path.join(OUT, 'updates-stale.png') });
+
       await pg.evaluate(() => { window.__preReload = 1; });
       const before = errs.length;
       const navigated = pg.waitForNavigation({ timeout: 12000 }).then(() => true).catch(() => false);
@@ -155,8 +180,24 @@ function chk(ok, label, extra) {
       await pg.waitForSelector('#s-sec-updates', { state: 'visible', timeout: 12000 });
       const box = await pg.$('#s-sec-updates');
       chk(!!box, 'stale: the updates card repainted after the reload', String(!!box));
-      await box.screenshot({ path: path.join(OUT, 'updates-stale.png') });
+      /* A DIFFERENT FILENAME, because this is a different state. The card above
+         is the stale one; this is the same card after the reload put it right,
+         and the two are worth having side by side in a PR. */
+      await box.screenshot({ path: path.join(OUT, 'updates-stale-after-reload.png') });
       chk(errs.length === before, 'stale: no console errors on the reloaded page', errs.slice(before).join(' | '));
+
+      /* ⭐ THE ONE ASSERTION THAT MAKES Reload A STATE RATHER THAN A RENAME.
+         The sentinel proves the page reloaded; this proves the reload was the
+         RIGHT ANSWER -- the page is no longer behind, so the control goes back to
+         offering Check for Update. A button relabelled Reload for good would pass
+         every other assertion here. Waited for, because the control ships hidden
+         until a paint. */
+      await pg.waitForFunction(() => {
+        const el = document.getElementById('upd-btn');
+        return el && !el.hidden && el.textContent.trim().length > 0;
+      }, null, { timeout: 12000 }).catch(() => {});
+      const afterLabel = await pg.$eval('#upd-btn', (el) => el.textContent.trim());
+      chk(afterLabel === 'Check for Update', 'stale: after the reload the control offers Check for Update again', JSON.stringify(afterLabel));
     } else {
       await pg.click('#upd-btn');
       await pg.waitForFunction(() => !/Checking\.$/.test(document.getElementById('upd-line').textContent), null, { timeout: 12000 });
@@ -166,6 +207,9 @@ function chk(ok, label, extra) {
       if (box) await box.screenshot({ path: path.join(OUT, 'updates-' + state + '.png') });
       chk(errs.length === 0, state + ': no console errors', errs.join(' | '));
     }
+    /* Playwright's own advice for the disposed-context crash above: drop the
+       routes before the page goes, so nothing is left holding a closing page. */
+    await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
     await pg.close();
   }
   await b.close();
