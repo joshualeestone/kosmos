@@ -58,7 +58,12 @@ test('the consolidated CSS re-lays the board list and the projects panel; it hid
   const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
   assert.match(block, /> #alist \{ grid-column: 1/);
   assert.match(block, /> #panel-projects \{ grid-column: 2/);
-  assert.doesNotMatch(block, /#pj-room[^}]*display: none|\.composer[^}]*display: none|#pj-room-search[^}]*display: none/, 'the room, its search or its composer is hidden in the consolidated view');
+  /* #980 note: the tempered selector part ((?!scrollbar)[^{])* keeps this
+     guard from tripping on `::-webkit-scrollbar { display: none }` -- a
+     hidden scrollbar TRACK on the composer's textarea is a #980 ask, not
+     the composer being hidden. The guard still catches the real thing:
+     any of these elements themselves carrying display: none. */
+  assert.doesNotMatch(block, /(?:#pj-room|#pj-room-search|\.composer)(?:(?!scrollbar)[^{])*\{[^}]*display: none/, 'the room, its search or its composer is hidden in the consolidated view');
 });
 
 test('no em dash in what a person reads', () => {

@@ -38,8 +38,14 @@ test('the agents and projects rail titles sit at the same height', () => {
 });
 
 test('the person\'s own row stays on screen under a tall right column', () => {
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated > #rail-me \{[^}]*position: sticky; bottom: 8px;/s,
-    'rail-me is no longer sticky, so a tall right column can scroll it off screen again');
+  // #980 rebased this from a sticky float (bottom: 8px, its own rounded
+  // box) to the viewport-height grid: rail-me is the column's own last
+  // row (grid-row 41, body rows auto/1fr/auto), pinned by structure, with
+  // sticky bottom 0 kept as the belt for any overflow inside the row.
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated > #rail-me \{[^}]*position: sticky; bottom: 0;/s,
+    'rail-me is no longer pinned at the column foot');
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \{[^}]*height: 100vh; overflow: hidden;/s,
+    'the body lost its viewport-height no-page-scroll grid, the structure that pins the person\'s row');
 });
 
 test('the agents rail scrolls without showing a scrollbar', () => {
@@ -63,8 +69,11 @@ test('the right column is dissolved into independent grid rows, so its cards can
 });
 
 test('the conversation box fills the available height instead of leaving a gap above the composer', () => {
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{[^}]*height: calc\(100vh - 63px\);/s,
-    'the conversation column lost its real, viewport-based height');
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pjmid \.thread \{ min-height: 40vh; max-height: none; flex: 1 1 auto; \}/,
-    'the conversation box no longer grows to fill its column (still capped, or not set to flex-grow)');
+  // #980: the height comes from the grid chain (body 100vh -> panel
+  // stretch -> .pj3 100%), not the old tuned viewport calc -- and the
+  // thread is the COLUMN now, not a bordered card floating inside it.
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{[^}]*height: 100%; min-height: 0;/s,
+    'the conversation column lost its full-height grid chain');
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pjmid \.thread \{ min-height: 0; max-height: none; flex: 1 1 auto; border: 0; border-radius: 0; background: none; \}/,
+    'the conversation no longer fills its column as a flat, borderless region (re-boxed, capped, or not flex-grow)');
 });

@@ -68,6 +68,13 @@
      definition, not just the defence its source happened to carry. The
      fallbacks stay at the usage sites anyway, verbatim from the pack. */
   --k-sunk: rgba(20,22,26,.05);
+  /* #980: the consolidated view's flat side tones, the mock's own values
+     (installkosmos.com/consolidated-mock line 12-14): rails and the right
+     column's ground sit a shade behind the conversation, the settings
+     strip a shade behind the rails. Literal values, not derived washes,
+     because Josh specced from the mock's measured colors. */
+  --cv-side: #f3f1ec;
+  --cv-side-2: #ebe8e2;
   /* ⚠️ THE OPTION BUTTON'S BOUNDARY IS A CONTRAST FLOOR, not a preference.
      `--k-rule` measures 1.18:1 against the question panel in light and 1.10:1
      in dark, and WCAG SC 1.4.11 asks 3:1 of anything that identifies a control.
@@ -200,6 +207,9 @@
     /* The inverse: a raised-looking wash on the dark ground, because a
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
+    /* #980: the consolidated side tones' dark twins, the mock's line 25. */
+    --cv-side:   #111316;
+    --cv-side-2: #1c1f23;
     --k-optline: #6e7278;
   }
 }
@@ -1982,9 +1992,25 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .laytile svg { width: 100%; height: auto; display: block; border-radius: 8px; margin-bottom: 8px; }
 .laytile b { display: block; font-size: .9375rem; }
 .laytile small { display: block; font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: 2px; }
+/* #980 (Josh, 2026-08-26 08:31): NO page scrollbar, ever -- "no matter
+   what size... it has a 10% or 15% scroll so you can scroll down and see
+   a nothingness space" (the page-level body padding was most of it). The
+   body becomes a viewport-height grid with explicit rows for the four
+   that exist (the head, the rail heads, the lists, the person), the
+   lists' row is the one that flexes, and every region scrolls inside
+   itself. overflow:hidden is the backstop: a future mis-sized child
+   clips instead of resurrecting the page scrollbar.
+   ⚠️ This comment sits ABOVE the media block on purpose: four spec-pin
+   tests anchor on the media line being immediately followed by the body
+   rule. */
 @media (min-width: 960px) {
   html[data-layout="consolidated"] body.consolidated { display: grid; grid-template-columns: minmax(200px, 15%) minmax(0, 1fr);
-    column-gap: 18px; align-content: start; }
+    /* Zero gap, not 18px: the agents and projects rails sit flush at their
+       shared rule, the way two columns of one surface should -- the
+       discussion gets its breathing room from its own padding instead. */
+    column-gap: 0; align-content: stretch;
+    height: 100vh; overflow: hidden; padding: 0; margin: 0;
+    grid-template-rows: auto repeat(37, 0) auto minmax(0, 1fr) auto; }
   html[data-layout="consolidated"] body.consolidated > * { grid-column: 1 / -1; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 39; }
   /* #867 (Josh, 2026-08-25 11:02): "hide that scrollbar inside of
@@ -1996,8 +2022,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      in this view (they grow with the page instead), so there is no
      scrollbar on them yet to hide. Revisit if one of them gets a
      max-height/overflow of its own later. */
+  /* #980: no tuned max-height -- the list's grid row is the flexing one
+     (minmax(0,1fr) above), so the list fills whatever the viewport gives
+     it and scrolls inside that, at every window size. */
   html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 40; margin: 0; display: flex; flex-direction: column; gap: 6px;
-    max-height: calc(100vh - 230px); overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+    min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated > #alist::-webkit-scrollbar { display: none; }
   /* The person, pinned under the list on a deeper ground so the row is not
      lost among the faces (Josh, 14:14). Folded, the picture alone.
@@ -2010,9 +2039,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      nothing here was pinned to the viewport itself. `position: sticky;
      bottom: 0` is the same mechanism `.pjmid .composer` already uses to
      stay on screen while its own column scrolls. */
+  /* #980: the settings strip goes flat on the mock's own deeper tone
+     (--cv-side-2, the .me treatment), full column width with no radius or
+     float-gap, so the agents column reads as ONE column with the person
+     pinned at its foot and the rule running unbroken down its edge. */
   html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 41; display: flex; align-items: center; gap: 6px;
-    margin: 8px 0 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-sunk, rgba(20,22,26,.05));
-    position: sticky; bottom: 8px; z-index: 5; }
+    margin: 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 0; background: var(--cv-side-2);
+    position: sticky; bottom: 0; z-index: 5; }
   html[data-layout="consolidated"] body.consolidated .railme-go { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
   html[data-layout="consolidated"] body.consolidated .railme-face { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; overflow: hidden;
     background: var(--k-surface); border: 1px solid var(--k-rule); font: 700 10px/1 var(--font-ui); color: var(--k-ink-2); }
@@ -2038,14 +2071,25 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents .lead { flex-direction: column; }
   /* The rails on a deeper ground than the conversation, and their rows flat
      and quiet, the way the mock draws them. */
-  html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated #pj-list-view { background: var(--k-sunk, rgba(20,22,26,.05)); border-radius: 12px; padding: 8px; }
-  html[data-layout="consolidated"] body.consolidated > #rail-agents { background: var(--k-sunk, rgba(20,22,26,.05)); border-radius: 12px 12px 0 0; padding: 8px 8px 0; margin: 0; }
-  html[data-layout="consolidated"] body.consolidated > #alist { border-radius: 0 0 12px 12px; padding-top: 0; }
+  /* #980 (Josh, 2026-08-26 08:31): NO bounding boxes on the rails. Flat
+     columns on the mock's side tone, separated by vertical rules -- the
+     agents column's rule rides #rail-agents/#alist/#rail-me (all three
+     grid rows of column 1, zero vertical gaps between them, so the border
+     reads as one line), the projects rail's rule is its own right edge. */
+  html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated #pj-list-view { background: var(--cv-side); border-radius: 0; padding: 8px; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents { background: var(--cv-side); border-radius: 0; padding: 8px 8px 0; margin: 0; }
+  html[data-layout="consolidated"] body.consolidated > #alist { border-radius: 0; padding-top: 0; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents, html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated > #rail-me { border-right: 1px solid var(--k-rule); }
+  html[data-layout="consolidated"] body.consolidated #pj-list-view { border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated .lrow { border: 0; background: none; box-shadow: none; border-radius: 9px; padding: 6px 6px; }
   html[data-layout="consolidated"] body.consolidated .lrow:hover { background: var(--k-surface); }
   html[data-layout="consolidated"] body.consolidated .lrow.attn { border: 0; }
   html[data-layout="consolidated"] body.consolidated .pj-row { border: 0; background: none; box-shadow: none; border-radius: 9px; padding: 7px 8px; }
   html[data-layout="consolidated"] body.consolidated .pj-row:hover { background: var(--k-surface); box-shadow: none; }
+  /* #980: the OPEN project stays lit (the mock's .pj.on): surface on the
+     side ground with a hairline ring, stronger than hover and persistent,
+     so the rail always answers "which one am I looking at". */
+  html[data-layout="consolidated"] body.consolidated .pj-row.open { background: var(--k-surface); box-shadow: 0 0 0 1px var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated #pj-list { gap: 2px; }
   html[data-layout="consolidated"] body.consolidated #rail-projects { margin: 0 2px 6px 2px; }
   /* The rail heads: a name, a +, and the fold arrow. Folded, the arrow (and
@@ -2061,13 +2105,24 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated.fold-a { grid-template-columns: 48px minmax(0, 1fr); }
   html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents { flex-direction: column; margin-left: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents .railacts { flex-direction: column; }
-  html[data-layout="consolidated"] body.consolidated.fold-a .railname { display: none; }
+  /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
+     the PROJECTS label two columns over (Josh's "they jump around all over
+     the place" family: a fold on one rail visibly rearranging the other). */
+  html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents .railname { display: none; }
+  /* #980: the folded 48px strip shows the letters in their rings, nothing
+     else -- the empty-state card was wrapping letter-by-letter inside it. */
+  html[data-layout="consolidated"] body.consolidated.fold-a #alist .pj-empty { display: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow { grid-template-columns: 34px; justify-content: center; padding: 4px 0; border: 0; background: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lname, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .ltitle, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lstate { display: none; }
   /* Folded projects: the arrow alone, the list gone. */
   html[data-layout="consolidated"] body.consolidated.fold-p #panel-projects { grid-template-columns: 48px minmax(0, 1fr); }
   html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects { flex-direction: column; margin-left: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects .railacts { flex-direction: column; }
+  /* #980 (Josh, 2026-08-26 08:31): "when I collapse projects the header
+     should go away and just have the + and the arrow" -- the label was
+     never hidden on this side (only fold-a had the rule, and unscoped at
+     that), so PROJECTS overflowed the 48px strip as clipped letters. */
+  html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects .railname { display: none; }
   /* `#pj-list.asgrid` above carries one more class than this, so the fold
      names the same class or its display:none loses the specificity contest
      (the switch-specificity trap: two classes beat one, order irrelevant). */
@@ -2076,7 +2131,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      list's, so the PROJECTS head, the project title and the right column all
      share the AGENTS head's top (Josh, 16:32: "flush vertically with agents";
      measured before this at 42px below it). */
-  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 39 / span 2; max-width: none; margin: 0; padding-top: 0 !important; }
+  /* #980: span 3 -- through the person's row too, so the projects rail,
+     the discussion and the right column all run to the viewport's bottom
+     edge (the person's strip lives only in column 1). min-height: 0 lets
+     the panel shrink to its row instead of forcing the page taller. */
+  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 39 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
   /* #774: the empty-centre sentence sits where the open project would. */
   html[data-layout="consolidated"] body.consolidated #pj-none { grid-column: 2; grid-row: 1; align-self: start; margin: 14px 0 0; max-width: 34rem; }
   /* The rail row: the face, then the name over the title over the state --
@@ -2089,13 +2148,17 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      list; .lmodel does not -- the rail has no room for it and Josh has
      not asked for it there, so it stays caught by the blanket hide below
      like every other new-to-#856 field. */
-  html[data-layout="consolidated"] body.consolidated .lrow { grid-template-columns: 34px minmax(0, 1fr); gap: 2px 10px; padding: 8px 10px; }
-  html[data-layout="consolidated"] body.consolidated .lrow > .lav { grid-row: 1 / span 3; }
+  /* #980 (Josh, 2026-08-26 08:31): two lines, not three -- "the names of
+     those are gigantic" (brought to the mock's .8125rem) and "we don't
+     want to put a status bubble in there". The STATE TEXT goes; the
+     needs-you warning stays, drawn over the avatar itself, which is the
+     one state signal this rail still carries and the one that matters. */
+  html[data-layout="consolidated"] body.consolidated .lrow { grid-template-columns: 34px minmax(0, 1fr); gap: 2px 10px; padding: 6px 10px; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lav { grid-row: 1 / span 2; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lname { grid-column: 2; grid-row: 1; min-width: 0; }
-  html[data-layout="consolidated"] body.consolidated .lrow > .lname b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lname b { display: block; font-size: .8125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   html[data-layout="consolidated"] body.consolidated .lrow > .ltitle { grid-column: 2; grid-row: 2; font-size: .625rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  html[data-layout="consolidated"] body.consolidated .lrow > .lstate { grid-column: 2; grid-row: 3; font-size: .625rem; }
-  html[data-layout="consolidated"] body.consolidated .lrow > :not(.lav):not(.lname):not(.ltitle):not(.lstate) { display: none; }
+  html[data-layout="consolidated"] body.consolidated .lrow > :not(.lav):not(.lname):not(.ltitle) { display: none; }
   /* The face shrinks to 24px inside its 34px cell so the ring sits OUTSIDE
      it with a gap of ground (an inside-edge ring vanished on Josh's screen);
      the warning sits over the face. Both stay inside the 34px cell, so the
@@ -2119,7 +2182,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pjcard-h b { font-size: .875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pc-t, html[data-layout="consolidated"] body.consolidated .pj-row .pj-who { display: none; }
   /* The projects panel: its list is the second rail, everything else the rest. */
-  html[data-layout="consolidated"] body.consolidated #panel-projects { display: grid; grid-template-columns: minmax(180px, 17%) minmax(0, 1fr); column-gap: 18px; align-items: start; }
+  /* #980: stretch, not start -- the projects rail and the open project
+     both run the panel's full height, so the columns and their rules
+     reach the bottom edge. The height chain (min-height:0 at every rung)
+     is what lets each region scroll inside itself instead of pushing. */
+  html[data-layout="consolidated"] body.consolidated #panel-projects { display: grid; grid-template-columns: minmax(180px, 17%) minmax(0, 1fr); column-gap: 18px; align-items: stretch; grid-template-rows: minmax(0, 1fr); }
+  html[data-layout="consolidated"] body.consolidated #pj-list-view { min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated #pj-one-view { min-height: 0; }
   /* #867 (Josh, 2026-08-25 11:02): "push the title all the way up so
      it's flush with projects and project members" -- measured 8px low
      against #rail-agents, traced to #pj-list-view's own top padding
@@ -2181,11 +2250,19 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      installkosmos.com/consolidated-mock, not the citation below that
      never actually checked it): tasks, members, files -- not members,
      tasks, files. */
-  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); grid-template-rows: auto auto auto; }
+  /* #980: the third row (Members, after the Files-above-Members swap) is
+     the right column's flexing one; each card scrolls inside itself, so
+     tall content bounds instead of growing the page. */
+  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(0, 1fr); height: 100%; min-height: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; align-self: start; max-height: 100%; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 3; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit { display: contents; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { grid-column: 2; grid-row: 2; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child { grid-column: 2; grid-row: 3; }
+  /* #980 (Josh, 2026-08-26 08:31): Files ABOVE Project members. The split's
+     first child is Members, last is Files; rows swap, DOM untouched, tab
+     view untouched -- the third re-ordering of this same shared markup,
+     same display:contents technique as the first two. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { grid-column: 2; grid-row: 3; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child { grid-column: 2; grid-row: 2; }
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { grid-column: 2; grid-row: 1; }
   /* #520 piece six (Josh, 2026-08-24 16:14: "missing a whole lot"): the
      board's full-width notice bars do not belong over the consolidated grid;
@@ -2201,8 +2278,16 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      .pjcard here, not to override it differently: it already looks
      like the mock without any consolidated-specific rule at all. What
      needs to change is the ground behind it. */
-  html[data-layout="consolidated"] body.consolidated .pj3 { background: var(--k-sunk, rgba(20,22,26,.05)); border-radius: 12px; padding: 12px; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-surface); border-radius: 12px; }
+  /* #980: the discussion is not a floating card. The .pj3 ground carries
+     the side tone (which is what shows behind the right column's cards,
+     the part Josh called correct), and .pjmid -- column 1, spanning every
+     row at viewport height -- paints its whole column back to the page
+     ground, full width and height, with the dialogue|cards rule on its
+     right edge. No radii anywhere: columns, not boxes. */
+  html[data-layout="consolidated"] body.consolidated .pj3 { background: var(--cv-side); border-radius: 0; padding: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-bg); border-radius: 0; border-right: 1px solid var(--k-rule); }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin: 0 12px 12px; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin-top: 12px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .dlab { font-size: .6875rem; letter-spacing: .1em; margin-bottom: 8px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem, html[data-layout="consolidated"] body.consolidated .pj3 .fi, html[data-layout="consolidated"] body.consolidated .pj3 .tkrow { padding: 6px 8px; border-radius: 9px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem:hover, html[data-layout="consolidated"] body.consolidated .pj3 .fi:hover { background: var(--k-surface); }
@@ -2227,8 +2312,14 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      it. What actually fills the box: a REAL height on the flex
      container (.pjmid, sized off the viewport, the same idiom #alist
      already uses at :1955) for .thread to flex-grow INTO. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { height: calc(100vh - 63px); }
-  html[data-layout="consolidated"] body.consolidated .pjmid .thread { min-height: 40vh; max-height: none; flex: 1 1 auto; }
+  /* #980: the box height comes from the grid chain now (body 100vh -> panel
+     stretch -> .pj3 100%), not a viewport calc with a tuned offset. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { height: 100%; min-height: 0; }
+  /* #980 (Josh, 2026-08-26 08:31): the discussion is "not a floating box".
+     The thread loses its own border/radius card and becomes the column --
+     full width, full height, scrolling inside itself; the header rule
+     above and the composer below are the only edges it needs. */
+  html[data-layout="consolidated"] body.consolidated .pjmid .thread { min-height: 0; max-height: none; flex: 1 1 auto; border: 0; border-radius: 0; background: none; }
   /* #867 (Josh, 2026-08-25 15:52): "strip out the 'drop a file... type @'
      hint for this view as well, because this is kind of the power user
      mode. They're going to know what a + means or how to do an @ to
@@ -2254,6 +2345,17 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .dname { font-size: 1rem; font-weight: 650; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjtitle { display: grid; gap: 1px; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .pj-desc, html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 0; max-width: none; line-height: 1.35; }
+  /* #980 (Josh, 2026-08-26 08:31): the description truncates -- one line
+     with an ellipsis, so the header stays a header however long the
+     sentence. Ellipsis over a hard 50-char cut: the full text stays in
+     the DOM (and the title attribute a hover reads), nothing is thrown
+     away, and the cut point follows the real column width instead of a
+     guessed character count. */
+  html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .pj-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* #980: no visible scrollbar inside "Write to the project" -- the same
+     track-hiding #alist already uses; typing and wheeling still scroll. */
+  html[data-layout="consolidated"] body.consolidated .pjmid .composerbox textarea.cinput { scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated .pjmid .composerbox textarea.cinput::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .tsearch { flex: 0 1 min(320px, 40%); }
   html[data-layout="consolidated"] body.consolidated #pj-one-name + .pj-desc, html[data-layout="consolidated"] body.consolidated #pj-one-made { margin-top: 1px; }
@@ -2264,7 +2366,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pj-member { border: 0; padding: 6px 8px; border-radius: 9px; gap: 8px; }
   html[data-layout="consolidated"] body.consolidated .pj-member:hover { background: var(--k-surface); }
   html[data-layout="consolidated"] body.consolidated .pj-members { gap: 2px; }
-  html[data-layout="consolidated"] body.consolidated .pj-member .lav.pj-face { width: 28px; height: 28px; }
+  /* #980 (Josh, 2026-08-26 08:31): the member avatars were "squished
+     vertically or cut off... not in a perfect circle like everywhere
+     else" -- the disc had a size but no flex basis, so the row's flex
+     shrank it against a long name. Pinned: never shrinks, always 1:1. */
+  html[data-layout="consolidated"] body.consolidated .pj-member .lav.pj-face { width: 28px; height: 28px; flex: 0 0 28px; aspect-ratio: 1; }
   html[data-layout="consolidated"] body.consolidated .pj-addmem { font-size: .8125rem; padding: 6px 10px; margin-top: 4px; }
   /* #520 piece ten (the mock's controls; Josh, 14:10 and 14:14): the small +
      at the head of Members and Tasks, the same 22px control the rail heads
@@ -4284,6 +4390,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     /* The inverse: a raised-looking wash on the dark ground, because a
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
+    /* #980: the consolidated side tones' dark twins, the mock's line 25. */
+    --cv-side:   #111316;
+    --cv-side-2: #1c1f23;
     --k-optline: #6e7278;
   }
 
@@ -6429,7 +6538,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       </div>
       <!-- The door to settings, in the pack's pjhead corner: what lives
            there is what has nowhere else to live. -->
-      <button class="linkish" id="pj-settings-link" type="button">Project settings</button>
+      <button class="linkish" id="pj-settings-link" type="button">Settings</button>
     </div>
 
     <div class="pj3">
@@ -18075,6 +18184,13 @@ function applyLayout(layout, apply) {
   const was = document.documentElement.getAttribute('data-layout') || 'tabs';
   document.documentElement.setAttribute('data-layout', want);
   placeProjectHead();
+  // #980 (Josh, 2026-08-26 08:31): the consolidated header's search says
+  // just "Search" -- the column it sits in already names the project, and
+  // the narrow bar truncated the long placeholder anyway. The tab view
+  // keeps the descriptive one; a placeholder is an attribute, so the swap
+  // rides the layout change rather than forking the markup.
+  const roomSearch = document.getElementById('pj-room-search');
+  if (roomSearch) roomSearch.placeholder = want === 'consolidated' ? 'Search' : 'Search this conversation';
   if (was !== want && typeof URL_TAB === 'string') showTab(URL_TAB);
 }
 /* #520 piece nine (the card's finesse item 1), then #761 (Josh, 2026-08-25
@@ -21002,7 +21118,12 @@ function projectCard(p, unreadable) {
      drift: name, description, agents, status at the far right. Two projects
      with one name are still told apart in Project settings, where the
      folder is shown. */
-  return '<button class="pj-row' + (pill.cls === 'attn' ? ' attn' : '') + '" type="button" data-project="' + esc(p.id) + '">'
+  /* #980: the open project wears .open so the consolidated rail can show
+     a stuck selected state (Josh, 2026-08-26 08:31: hover alone said
+     nothing about WHICH project is on screen). The tab view ignores the
+     class; openProject() also toggles it directly so selection paints on
+     the click, not on the next list repaint. */
+  return '<button class="pj-row' + (pill.cls === 'attn' ? ' attn' : '') + (p.id === PJ_CURRENT ? ' open' : '') + '" type="button" data-project="' + esc(p.id) + '">'
     + '<span class="pjcard-h"><span class="pjname"><b>' + esc(p.name) + '</b>'
     /* The room the person is looking at has no unread: the engine's cursor
        moves when the room paints, and the poll between could otherwise flash
@@ -22816,6 +22937,9 @@ function openProject(id) {
      because there is nothing left to do at navigation time. The restore
      below is the only other half. */
   PJ_CURRENT = id;
+  // #980: selection shows the moment it happens (the painter also writes
+  // .open on repaints; this covers the gap between click and next paint).
+  document.querySelectorAll('#pj-list .pj-row').forEach((r) => r.classList.toggle('open', r.dataset.project === id));
   document.getElementById('pj-one-msg').textContent = '';
   // ⚠️ The thread starts fresh on every OTHER project. Carrying the last
   // project's recipient over would open a conversation addressed to
