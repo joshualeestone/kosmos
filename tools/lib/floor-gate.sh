@@ -46,4 +46,30 @@ floor_gate() {
   done
 }
 
+# Gate EVERY Mach-O under a directory, discovered rather than enumerated
+# (#927). An enumerated list is a claim about the ship list that nothing
+# rechecks: the bundle build gated runtime/bin/node by name and shipped
+# kosmos-app at minos 26.0 for eighteen releases, ninety lines below the
+# comment warning about exactly that. Walking the stage means the next binary
+# someone adds is covered by default instead of by remembering. Refuses a tree
+# with no Mach-O in it at all (a walk that finds nothing is blind, and
+# green-on-blind is banned here), and prints what it certified.
+floor_gate_tree() {
+  local dir="$1" f magic n=0 found=()
+  [ -d "$dir" ] || { echo "FAIL: floor_gate_tree: $dir is not a directory" >&2; exit 1; }
+  while IFS= read -r -d '' f; do
+    magic="$(head -c 4 "$f" 2>/dev/null | xxd -p)"
+    case "$magic" in
+      cffaedfe|cefaedfe|feedfacf|feedface|cafebabe|bebafeca) found+=("$f") ;;
+    esac
+  done < <(find "$dir" -type f -print0)
+  n="${#found[@]}"
+  if [ "$n" -eq 0 ]; then
+    echo "FAIL: floor_gate_tree found no Mach-O under $dir; refusing to certify a floor for nothing." >&2
+    exit 1
+  fi
+  floor_gate "${found[@]}"
+  echo "    floor $FLOOR_MAJOR.$FLOOR_MINOR certified for $n Mach-O file(s) under $(basename "$dir")"
+}
+
 floor_gate_load

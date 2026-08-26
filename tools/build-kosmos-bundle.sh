@@ -219,7 +219,13 @@ echo "==> Plus connector: kosmos-tunnel signed $_tunnel_sha, input $_tunnel_in (
 # not build or test on Intel.
 echo "==> compiling the native app (native-app/main.swift)"
 [ "$ARCH" = "arm64" ] || { echo "the native app is compiled arm64-only; this build machine is $ARCH (an Intel build is not part of this bundle's support)" >&2; exit 1; }
-swiftc -O "$REPO/native-app/main.swift" -o "$STAGE/app/bin/kosmos-app" 2>&1 | sed 's/^/    /'
+# Built TO THE FLOOR, not to this machine (#927): with no -target, swiftc
+# stamps the build Mac's own OS as the binary's minimum (measured: minos 26.0
+# from this Mac, on a bundle whose installer promises 13.5), and the selftest
+# below cannot see it, because a selftest on a macOS 26 host can never detect
+# a macOS 26 floor. The same number the installer promises, read from the
+# same file, and the tree gate further down reads it back out of the artifact.
+swiftc -target "arm64-apple-macos$(cat "$REPO/tools/macos-floor")" -O "$REPO/native-app/main.swift" -o "$STAGE/app/bin/kosmos-app" 2>&1 | sed 's/^/    /'
 [ -x "$STAGE/app/bin/kosmos-app" ] || { echo "the native app failed to compile" >&2; exit 1; }
 # Signed here, Developer ID, same reasoning and the same cert as the
 # connector above (a nested ad-hoc binary makes the whole bundle's
@@ -308,8 +314,11 @@ chmod +x "$STAGE/runtime/bin/node"
 # tmux from this Mac stamps minos 26.0 and would load on nothing older),
 # so the floor is read out of the artifact with otool and compared, not
 # assumed. KOSMOS_ALLOW_MINOS=1 overrides for LOCAL TEST BUILDS ONLY.
+# EVERY Mach-O in the stage, discovered by walking it (#927): this line once
+# named runtime/bin/node alone, and kosmos-app shipped at minos 26.0 for
+# eighteen releases while the gate stood here, pointed at one file.
 . "$(dirname "${BASH_SOURCE[0]}")/lib/floor-gate.sh"
-floor_gate "$STAGE/runtime/bin/node"
+floor_gate_tree "$STAGE"
 
 # ---- smoke test -------------------------------------------------------------
 # ⚠️ THE STAGED TREE IS WHAT GETS TESTED, not the repo, AND A REAL REQUEST IS
