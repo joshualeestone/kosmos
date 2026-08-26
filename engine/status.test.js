@@ -2470,7 +2470,7 @@ test('the wording Claude Code actually uses for a spent limit reads as paused, n
   }
 });
 
-test('kosmos#966: the Fable 5 promo banner does not read as a spent limit', () => {
+test('#966: the Fable 5 promo banner does not read as a spent limit', () => {
   /**
    * 🛑 VERBATIM FROM JOSH'S SCREENSHOT, 2026-08-26, of Casey: a fresh Mac
    * Mini's very first agent, healthy account, zero real usage, showing
