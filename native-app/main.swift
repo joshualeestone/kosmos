@@ -235,6 +235,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var window: NSWindow!
     var webView: WKWebView!
     private var isActuallyQuitting = false
+    // #965: whether the most recent navigation ended in a delegate failure.
+    // Read by reloadBoard() to decide between a plain page reload and a full
+    // loadBoard() re-run; set/cleared ONLY in the three navigation delegate
+    // methods below and at the top of loadBoard().
+    private var lastLoadFailed = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -242,6 +247,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         buildWindow()
         loadBoard()
         NSApp.activate(ignoringOtherApps: true)
+        // #965 test seam, same testing-only contract as KOSMOS_APP_TEST_HOME:
+        // fire reloadBoard() once after N seconds, so a harness can drive the
+        // reload decision path end to end without Accessibility permission for
+        // synthetic Cmd-R keystrokes. Never set by the installer.
+        if let after = ProcessInfo.processInfo.environment["KOSMOS_APP_TEST_RELOAD_AFTER"],
+           let seconds = Double(after), seconds >= 0 {
+            logLine("KOSMOS_APP_TEST_RELOAD_AFTER=\(seconds): scheduling one test reload")
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+                self?.reloadBoard(nil)
+            }
+        }
     }
 
     // MARK: Window
@@ -268,6 +284,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     private func loadBoard() {
+        // A fresh attempt starts with a clean slate; the delegate methods
+        // below re-set this if THIS attempt fails too (#965).
+        lastLoadFailed = false
         // Testing shortcut, unchanged from phase 1: point directly at an
         // already-running board (a hand-booted sandbox), skipping the real
         // resolve/start path entirely. Not present in the shipped app's
@@ -347,17 +366,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // actually landed rather than inferring it from process/network state.
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        lastLoadFailed = false
         webView.evaluateJavaScript("document.title") { result, _ in
             logLine("PAGE LOADED, document.title=\(result ?? "<nil>")")
         }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        lastLoadFailed = true
         logLine("PAGE LOAD FAILED: \(error.localizedDescription)")
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        lastLoadFailed = true
         logLine("PROVISIONAL LOAD FAILED: \(error.localizedDescription)")
+    }
+
+    // MARK: Reload (#965) -- Cmd-R / View > Reload
+
+    // Two different kinds of "refresh", picked automatically:
+    //   - The page is up and merely stale/stuck (a modal, an old screen):
+    //     a plain webView.reload() is the browser-chrome behavior Josh
+    //     asked for, and keeps the board process untouched.
+    //   - Nothing ever loaded, or the last navigation FAILED (the board
+    //     died, the install was mid-upgrade, the Mac just woke): reloading
+    //     a failed page would only repeat the failure. Re-running
+    //     loadBoard() retries the whole resolve-and-start path, so Cmd-R
+    //     also RECOVERS a window whose board needs starting -- the actual
+    //     "stuck in a spot" from the report, where relaunching the app was
+    //     previously the only way out.
+    @objc func reloadBoard(_ sender: Any?) {
+        if let url = webView.url, !lastLoadFailed {
+            logLine("reload: webView.reload() of \(url.absoluteString)")
+            webView.reload()
+        } else {
+            logLine("reload: no healthy page (url=\(webView.url?.absoluteString ?? "<nil>"), lastLoadFailed=\(lastLoadFailed)), re-running loadBoard()")
+            loadBoard()
+        }
     }
 
     // MARK: Window-close vs. quit -- the one seam
@@ -458,6 +503,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+
+        // #965: standard macOS menu order puts View after Edit. The item
+        // targets the delegate explicitly rather than relying on the
+        // responder chain, so Reload works even when focus is inside the
+        // web view (WKWebView swallows nil-targeted actions it doesn't
+        // recognize on some macOS versions).
+        let viewMenuItem = NSMenuItem()
+        mainMenu.addItem(viewMenuItem)
+        let viewMenu = NSMenu(title: "View")
+        viewMenuItem.submenu = viewMenu
+        let reloadItem = NSMenuItem(title: "Reload", action: #selector(AppDelegate.reloadBoard(_:)), keyEquivalent: "r")
+        reloadItem.target = self
+        viewMenu.addItem(reloadItem)
 
         NSApp.mainMenu = mainMenu
     }
