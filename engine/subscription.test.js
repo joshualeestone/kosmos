@@ -384,3 +384,97 @@ test('#527: the scoped check answers for the DEFAULT account from its real recor
     JSON.stringify({ oauthAccount: { organizationType: 'claude_pro', emailAddress: 'o@example.com' } }));
   assert.equal(sub.check({ configDir: other }).state, sub.STATE.CONNECTED);
 });
+
+/* ---- #881: the live check --------------------------------------------
+   Injected runner throughout, never the real `claude` binary -- setRunner
+   is the same per-module test seam tokendoor.js's `fetcher` and
+   githubdevice.js's `fetcher` already establish for this codebase's other
+   external-I/O boundaries. Always reset in a `finally` so one test's
+   fixture can never leak into the next. */
+
+test('#881: checkLive() reads a logged-in answer as CONNECTED, live-flagged', async () => {
+  sub.setRunner(async () => JSON.stringify({ loggedIn: true, subscriptionType: 'max', email: 'a@example.com' }));
+  try {
+    const got = await sub.checkLive();
+    assert.equal(got.state, sub.STATE.CONNECTED);
+    assert.equal(got.checkedLive, true);
+    assert.match(got.because, /Anthropic confirmed/);
+  } finally { sub.setRunner(null); }
+});
+
+test('#881: checkLive() reads a logged-out answer as NONE, not UNKNOWN', () => {
+  sub.setRunner(async () => JSON.stringify({ loggedIn: false, authMethod: 'none' }));
+  return sub.checkLive().then((got) => {
+    assert.equal(got.state, sub.STATE.NONE);
+    assert.equal(got.checkedLive, true);
+  }).finally(() => sub.setRunner(null));
+});
+
+test('#881: checkLive() reads an unreachable runner as UNKNOWN, never NONE', async () => {
+  /* ⚠️ THE ASYMMETRY THIS WHOLE MODULE IS BUILT ON, applied to the live
+     path too: a network failure is not evidence the account is signed
+     out, and rendering it that way would be the exact mistake the file
+     header calls out for the paying-customer case. */
+  sub.setRunner(async () => { throw new Error('ECONNRESET'); });
+  try {
+    const got = await sub.checkLive();
+    assert.equal(got.state, sub.STATE.UNKNOWN);
+    assert.equal(got.checkedLive, true);
+    assert.match(got.because, /ECONNRESET/);
+  } finally { sub.setRunner(null); }
+});
+
+test('#881: checkLive() reads unparseable output as UNKNOWN, never NONE', async () => {
+  sub.setRunner(async () => 'not json at all');
+  try {
+    const got = await sub.checkLive();
+    assert.equal(got.state, sub.STATE.UNKNOWN);
+    assert.match(got.because, /could not make sense/);
+  } finally { sub.setRunner(null); }
+});
+
+test('#881: checkLive({configDir}) threads CLAUDE_CONFIG_DIR to the runner, scoped like check()', async () => {
+  let seenEnv = null;
+  sub.setRunner(async (env) => { seenEnv = env; return JSON.stringify({ loggedIn: true }); });
+  // ⚠️ SAVE/CLEAR THE AMBIENT VAR: this agent's own session runs under a
+  // real CLAUDE_CONFIG_DIR (a Kosmos-managed multi-account machine), so
+  // the "no override" control below would otherwise assert against
+  // whatever this dev/CI environment happens to be, not against the
+  // absence checkLive() is actually supposed to preserve.
+  const hadAmbient = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_CONFIG_DIR');
+  const ambient = process.env.CLAUDE_CONFIG_DIR;
+  delete process.env.CLAUDE_CONFIG_DIR;
+  try {
+    const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'sub-live-dir-'));
+    await sub.checkLive({ configDir: dir });
+    assert.equal(seenEnv.CLAUDE_CONFIG_DIR, dir);
+    fs.rmSync(dir, { recursive: true, force: true });
+    // CONTROL: no configDir means no override -- confirms the field above
+    // is really threading the option, not always present regardless.
+    seenEnv = null;
+    await sub.checkLive();
+    assert.equal(seenEnv.CLAUDE_CONFIG_DIR, undefined);
+  } finally {
+    sub.setRunner(null);
+    if (hadAmbient) process.env.CLAUDE_CONFIG_DIR = ambient;
+  }
+});
+
+test('#881: setRunner(null) restores real execFile behavior (not left permanently stubbed)', async () => {
+  /* Not a network test: AGENT_WORKFORCE_CLAUDE_BIN pointed at a binary
+     that certainly is not `claude` proves the real execFile path runs
+     (and fails honestly) once the injected runner is cleared, rather
+     than silently continuing to use a stale stub. */
+  sub.setRunner(async () => JSON.stringify({ loggedIn: true }));
+  await sub.checkLive();
+  sub.setRunner(null);
+  const oldBin = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/nonexistent/not-claude';
+  try {
+    const got = await sub.checkLive();
+    assert.equal(got.state, sub.STATE.UNKNOWN, 'a missing binary must read as unknown, not a crash and not none');
+  } finally {
+    if (oldBin === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    else process.env.AGENT_WORKFORCE_CLAUDE_BIN = oldBin;
+  }
+});

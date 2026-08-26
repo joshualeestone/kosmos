@@ -2507,12 +2507,20 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/api/accounts' && (req.method === 'GET' || req.method === 'HEAD')) {
     /* Every provider's accounts in one list (#540), each row saying which
-       provider it belongs to. The Claude rows are accounts.list() verbatim
-       plus the provider fields; the OpenAI rows come from their own module. */
-    try {
-      const claude = accounts.list().map((a) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', ...a }));
-      sendJson(res, 200, { accounts: [...claude, ...openaiAccounts.list()] });
-    } catch { sendJson(res, 500, { error: 'we could not read the accounts on this computer' }); }
+       provider it belongs to. The Claude rows are accounts.listLive() (#881:
+       each row's connection confirmed live with Anthropic via `claude auth
+       status`, not just the saved config's shape) plus the provider fields;
+       the OpenAI rows come from their own module.
+       ⚠️ listLive(), NOT list(): this route is the one place a live,
+       per-account check is safe to pay for -- it fires on a deliberate
+       Settings > Accounts open, never the 5-second status tick (which still
+       calls the plain, fast list() elsewhere in this file, untouched). */
+    accounts.listLive()
+      .then((rows) => {
+        const claude = rows.map((a) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', ...a }));
+        sendJson(res, 200, { accounts: [...claude, ...openaiAccounts.list()] });
+      })
+      .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;
   }
   /* Add an OpenAI account from a pasted key (#540). The key goes to codex's

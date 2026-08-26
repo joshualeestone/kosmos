@@ -451,6 +451,18 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 @media (prefers-reduced-motion: reduce) {
   .acct-connected .dot { animation: none; }
 }
+/* #881: the two states a live check can also confirm, alongside .acct-connected.
+   Neither dot pulses -- pulsing is reserved for "actively connected" (Josh's own
+   framing for .acct-connected above); a static dot reads as a fact, not a
+   heartbeat. .acct-none is the genuine negative (warn tokens, same as this
+   file's other danger states); .acct-unknown is deliberately muted, not red --
+   "we could not check" must never look as alarming as a confirmed problem. */
+.acct-none { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
+  font-weight: 600; color: var(--warn-ink); white-space: nowrap; }
+.acct-none .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); flex: 0 0 8px; }
+.acct-unknown { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
+  font-weight: 600; color: var(--label-2); white-space: nowrap; }
+.acct-unknown .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-2); flex: 0 0 8px; }
 .acct-disconnect { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: .8125rem;
   color: var(--label-2); text-decoration: underline; cursor: pointer; min-height: 24px; }
 .acct-disconnect[disabled] { cursor: not-allowed; text-decoration: none; opacity: .7; }
@@ -10885,10 +10897,27 @@ async function paintAccounts() {
        would be exactly the "nothing that looks live may do nothing"
        shape this file already refuses for the external-person/agent
        doors. Wire the modal when that route exists. */
+    /* #881: THREE STATES, NOT A HARDCODED ONE. This badge used to be
+       unconditional markup -- every account row said "Connected" no
+       matter what. GET /api/accounts now confirms each Claude row live
+       with Anthropic (engine/accounts.js's listLive()), so a.connection
+       is real evidence, not a guess: 'connected' -> the same green mark
+       as before (unchanged for anyone whose token actually works),
+       'none' -> a genuine "not signed in", 'unknown' -> "we could not
+       check" (deliberately muted, never rendered as a negative -- the
+       asymmetry engine/subscription.js's own header is built on).
+       OpenAI rows carry no `connection` field (out of scope for #881,
+       Josh has not ruled on that provider's live-check story) and keep
+       the prior unconditional badge so this fix does not silently
+       regress a path it was never meant to touch. */
+    const connBadge = isOpenai ? '<span class="acct-connected"><span class="dot" aria-hidden="true"></span>Connected</span>'
+      : a.connection && a.connection.state === 'connected' ? '<span class="acct-connected"><span class="dot" aria-hidden="true"></span>Connected</span>'
+      : a.connection && a.connection.state === 'none' ? '<span class="acct-none" title="' + esc(a.connection.because || '') + '"><span class="dot" aria-hidden="true"></span>Not connected</span>'
+      : '<span class="acct-unknown" title="' + esc((a.connection && a.connection.because) || '') + '"><span class="dot" aria-hidden="true"></span>Could not check</span>';
     return '<div class="acct-box"><div class="acct-box-top"><div class="acct-who"><b>' + who
       // No "your first account" tag (#394): the email is the answer, whole.
       + '</b>' + provider + org + '</div>'
-      + '<span class="acct-connected"><span class="dot" aria-hidden="true"></span>Connected</span></div>'
+      + connBadge + '</div>'
       + shared
       + '<button class="acct-disconnect" type="button" disabled '
       + 'aria-label="Disconnect ' + who + '" '
