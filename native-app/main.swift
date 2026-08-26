@@ -95,7 +95,9 @@ enum InstallResolutionError: Error {
 // always found account A's board first and account B's install never
 // needed a board of its own. Same formula as install/kosmos,
 // install/setup.sh, and install/pkg-scripts/postinstall -- must move
-// together, now five sites. uid 501 (the Setup Assistant's first created
+// together, now four computing sites (server.js consumes an
+// already-resolved port and never computes this formula itself). uid 501
+// (the Setup Assistant's first created
 // user account on every personal or family Mac -- macOS reserves
 // anything below 500 for system accounts) is pinned to the LITERAL
 // unchanged value: every real install today is hardcoded to exactly

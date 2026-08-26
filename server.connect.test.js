@@ -761,11 +761,20 @@ test('every copy of the default port agrees, and none of them sits in the epheme
   // _kosmos_default_port) since it computes the page's port as root, ahead
   // of the board it hands off to -- same fact, differently-named copy.
   const fromPostinstall = /_KOSMOS_PAGE_PORT=(\d+)$/m.exec(strip(read('install/pkg-scripts/postinstall')));
-  assert.ok(fromServer && fromLauncher && fromSetup && fromPostinstall, 'one of the four pinned-primary defaults could not be found');
+  // main.swift's pinned literal, read as text (this is a JS test, it cannot
+  // compile or run Swift) -- the ONLY thing this catches is the primary-
+  // account (uid 501) literal drifting; a drift in the Swift SIDE of the
+  // non-primary formula still needs tools/test-install.sh's compiled-binary
+  // --kosmos-app-port-selftest check, which this fast unit-test suite does
+  // not run. Still worth having here: a plain `yarn test`/`node --test`
+  // (no built bundle required) now catches the cheapest, most consequential
+  // drift -- the one that would move the single most common Kosmos install.
+  const fromSwift = /if uid == 501 \{ return (\d+) \}/.exec(strip(read('native-app/main.swift')));
+  assert.ok(fromServer && fromLauncher && fromSetup && fromPostinstall && fromSwift, 'one of the five pinned-primary defaults could not be found');
 
-  const ports = [fromServer[1], fromLauncher[1], fromSetup[1], fromPostinstall[1]].map(Number);
+  const ports = [fromServer[1], fromLauncher[1], fromSetup[1], fromPostinstall[1], fromSwift[1]].map(Number);
   assert.equal(new Set(ports).size, 1,
-    'the four copies of the pinned-primary default port disagree: ' + ports.join(', ')
+    'the five copies of the pinned-primary default port disagree: ' + ports.join(', ')
     + ' -- the icon and the board would open different ports for the primary account');
 
   const port = ports[0];
