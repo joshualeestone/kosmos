@@ -2470,6 +2470,42 @@ test('the wording Claude Code actually uses for a spent limit reads as paused, n
   }
 });
 
+test('#966: the Fable 5 promo banner does not read as a spent limit', () => {
+  /**
+   * 🛑 VERBATIM FROM JOSH'S SCREENSHOT, 2026-08-26, of Casey: a fresh Mac
+   * Mini's very first agent, healthy account, zero real usage, showing
+   * Claude Code's own benign startup promo:
+   *
+   *   Fable 5 is now a standard part of your Max plan
+   *   You can use up to 50% of your weekly usage limit on Fable 5. If you
+   *   hit your limit, you can continue on Fable 5 with usage credits...
+   *
+   * The bare `/usage limit/i` marker matched "your weekly usage limit"
+   * describing a FEATURE, not a block, and her card read Paused while she
+   * was idle and fine. Same array, same file, the mirror image of the
+   * 2026-08-21 miss two tests above: that one was too NARROW to see a real
+   * block, this one was too BROAD to rule out a non-block. See kosmos#966.
+   */
+  const PROMO = 'Fable 5 is now a standard part of your Max plan\n'
+    + 'You can use up to 50% of your weekly usage limit on Fable 5. If you hit\n'
+    + 'your limit, you can continue on Fable 5 with usage credits...\n'
+    + '\n> ready\n';
+  const pane = { session: 'casey', name: 'casey', claim: 'casey', command: '2.1.239', title: 'Fable 5 is now a standard part of your Max plan' };
+
+  const card = classify(pane, PROMO);
+  assert.notEqual(card.state, 'rate_limited',
+    'a benign promo banner mentioning "usage limit" is pausing a healthy agent');
+
+  /* 🔑 THE CONTROL: the real block two tests above must still read as
+     rate_limited. Removing the broad marker must not have also blinded the
+     narrower ones it shares an array with. */
+  const REAL_BLOCK = "You've reached your Fable 5 limit. Run /usage-credits to continue or\n"
+    + '    switch models with /model.\n';
+  const blocked = classify(pane, REAL_BLOCK);
+  assert.equal(blocked.state, 'rate_limited',
+    'the real 2026-08-21 block regression stopped matching');
+});
+
 test('#887: the prompt glyph ❯ (and Codex\'s ›) is stripped from the evidence line', () => {
   /* Observed live on 0.5.31's #880 walk: the API's stateEvidence read
      "❯ 401 {...}" because the strip class covered ASCII > and the box glyphs

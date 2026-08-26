@@ -1210,10 +1210,27 @@ const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEED
  * positives: a pane merely DISCUSSING rate limits already matched `/rate limit/`
  * before this change, which is why 0.2.20 made the card say what it SAW
  * ("its screen mentions a usage limit") rather than what it concluded.
+ *
+ * 🛑 `/usage limit/i` REMOVED 2026-08-25. Josh's screenshot of a fresh Mac
+ * Mini's very first agent (Casey), healthy account, zero real usage:
+ *
+ *   Fable 5 is now a standard part of your Max plan
+ *   You can use up to 50% of your weekly usage limit on Fable 5. If you hit
+ *   your limit, you can continue on Fable 5 with usage credits...
+ *
+ * This is Claude Code's own benign startup promo banner, not a block. It
+ * contains the words "usage limit" describing a FEATURE, so the bare phrase
+ * marker fired on a healthy, idle agent and stuck her card on "Paused" —
+ * the same class of failure as the 2026-08-21 incident above, mirrored: that
+ * one was a real block the markers were too NARROW to see, this one is a
+ * non-block the markers were too BROAD to rule out. Safe to drop: the banner
+ * matches neither `/reached your .{0,40}limit/i` (no "reached your" phrasing)
+ * nor `/\/usage-credits\b/` (says "usage credits", not the "/usage-credits"
+ * command), and every genuine block this array exists to catch keeps at
+ * least one of the other five markers.
  */
 const RATE_LIMIT_MARKERS = [
   /rate limit/i,
-  /usage limit/i,
   /\b429\b/,
   /try again (later|at)/i,
   /reached your .{0,40}limit/i,   // observed 2026-08-21
