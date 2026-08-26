@@ -161,6 +161,64 @@ with a dedicated `tools/test-install.sh` scenario using a trailing-slash
 `$HOME`, added after iteration 2 flagged that the first fix shipped
 without one.
 
+**Challenge-loop iteration 3 found the most serious defect of the three
+rounds: the fix, as it shipped through iteration 2, would have broken
+Pete's real walk convention outright.** `engine/sandbox.js`'s `audit()`
+(#634) refuses to start the board whenever ANY of `{AGENT_WORKFORCE_DATA,
+_PROJECTS, _WORKERS, _LAUNCH}` plus tmux-inertness is sandboxed while ANY
+is not -- symmetric, either direction. This card's own design deliberately
+derives only three of those four (leaving `AGENT_WORKFORCE_LAUNCH` and
+tmux untouched, both by design -- see "deliberately NOT touched" above).
+Pete's real convention (`KOSMOS_HOME` + `KOSMOS_HOME_APP_DIR` + `KOSMOS_PORT`
+only) never sets `AGENT_WORKFORCE_LAUNCH` and needs real, non-inert tmux to
+be a genuinely usable walk. So the derived environment -- three sandboxed,
+one live, tmux live -- is exactly the shape `#634` was built to refuse. The
+board would not start at all for the one scenario this whole card exists
+to fix. Nothing in this card's own test suite caught it: the "Pete's exact
+convention" scenario always explicitly set `AGENT_WORKFORCE_LAUNCH` (for
+the test's own file-write safety, but contradicting its comment's claim to
+reproduce Pete's convention exactly), and the whole file globally exports
+`AGENT_WORKFORCE_DRY_RUN=1`, making tmux permanently inert throughout --
+both incidentally satisfy `#634`'s "all sandboxed" bar and hid the gap.
+
+**Fixed by setting `AGENT_WORKFORCE_HALF_SANDBOX_OK=1`** alongside the
+three derived vars, in the same non-default-KOSMOS_HOME branch. That
+variable is `#634`'s own named escape hatch ("for the person who has read
+this and means it") -- and choosing a non-default `KOSMOS_HOME` is exactly
+that deliberate choice, not an accident. This does not reopen `#634`'s
+original incident (a real message typed into two real agents' tmux panes,
+two real `CLAUDE.md` files rewritten): that incident was `WORKERS` staying
+live while `DATA`/`PROJECTS` were sandboxed; `WORKERS` is one of the three
+this card derives, so that specific exposure stays closed. What remains --
+an agent job or tmux session created under a sandboxed `KOSMOS_HOME`
+colliding by NAME with a real one -- is the same class of gap `#910` and
+the deferred agent-job-label work already name, not something this line
+newly creates.
+
+Verified with a precise, safe unit test rather than a full end-to-end run
+with real tmux: `engine/sandbox.test.js` already tests `audit()` directly
+(a pure function, no process, no real tmux) with exactly this pattern of
+cases; added one more asserting the shape this card's derivation produces
+(`DATA`/`PROJECTS`/`WORKERS` set, `HALF_SANDBOX_OK` set, `LAUNCH` and tmux
+NOT set) resolves to `partial: false`. Deliberately did not attempt a full
+shell-level reproduction with real, non-stubbed tmux: this machine runs
+other agents' real tmux sessions on the same default socket
+(`install/kosmos`'s own comment: "share a socket directory" is the whole
+point of a private tmux BINARY, it is not a private tmux SERVER), and a
+test that starts a real board with real tmux risks touching them for
+marginal confidence beyond what the direct `audit()` test already gives.
+
+**Also fixed, lower stakes, found in the same round:** the three new plist
+keys were landing on one squished physical line instead of one line each
+(command substitution strips trailing newlines at every level of nesting,
+so three separately-substituted `_env_kv` calls each lost the newline
+meant to separate them) -- valid XML either way (`plutil -lint` accepts
+both), but inconsistent with the rest of the file's one-key-per-line
+style. Fixed with the standard portable trick for keeping a trailing
+newline through command substitution (append a sentinel character, strip
+it after capture). Verified directly by installing and reading the actual
+generated plist.
+
 Also confirmed, precisely rather than assumed, while building the
 verification tests: the same identity gap #910 was filed for (`healthy()`
 answering "is A Kosmos board here" rather than "is MY Kosmos board here")

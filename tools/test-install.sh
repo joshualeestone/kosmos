@@ -1411,7 +1411,7 @@ chk "default install's plist adds no AGENT_WORKFORCE_DATA key" "! grep -q AGENT_
 chk "default install's plist adds no AGENT_WORKFORCE_PROJECTS key" "! grep -q AGENT_WORKFORCE_PROJECTS \"$DEF_PLIST\""
 chk "default install's plist adds no AGENT_WORKFORCE_WORKERS key" "! grep -q AGENT_WORKFORCE_WORKERS \"$DEF_PLIST\""
 HOME="$SBH_DEF" "$SBH_DEF/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
-chk "the port is genuinely free before Pete's-convention scenario starts" "wait_port_free"
+chk "the port is genuinely free before the trailing-slash default scenario starts" "wait_port_free"
 
 echo "-- default KOSMOS_HOME, but \$HOME carries a trailing slash: still byte-identical --"
 # 🔑 THE REGRESSION TEST FOR CHALLENGE-LOOP ITERATION 1'S OWN FINDING. Without
@@ -1447,6 +1447,7 @@ chk "Pete's-convention plist does NOT reuse the bare default label" "[ ! -f \"$S
 chk "Pete's-convention plist's AGENT_WORKFORCE_DATA is under KOSMOS_HOME" "grep -q \"<key>AGENT_WORKFORCE_DATA</key><string>$PETE_HOME/data</string>\" \"$PETE_PLIST\""
 chk "Pete's-convention plist's AGENT_WORKFORCE_PROJECTS is under KOSMOS_HOME" "grep -q \"<key>AGENT_WORKFORCE_PROJECTS</key><string>$PETE_HOME/projects</string>\" \"$PETE_PLIST\""
 chk "Pete's-convention plist's AGENT_WORKFORCE_WORKERS is under KOSMOS_HOME" "grep -q \"<key>AGENT_WORKFORCE_WORKERS</key><string>$PETE_HOME/workers</string>\" \"$PETE_PLIST\""
+chk "the three new keys sit one per line, not squished onto one" "[ \"\$(grep -c '<key>AGENT_WORKFORCE_' \"\$PETE_PLIST\")\" = 3 ] && [ \"\$(grep -c '<key>AGENT_WORKFORCE_DATA</key>.*<key>AGENT_WORKFORCE_PROJECTS</key>' \"\$PETE_PLIST\")\" = 0 ]"
 
 echo "-- re-running the same sandboxed install derives the identical label --"
 # Deliberately NOT stopped first: the board from the run above is still
@@ -1472,6 +1473,7 @@ OVERRIDE_SUFFIX="$(printf '%s' "$SB/petehome-override" | shasum -a 256 | cut -c1
 OVERRIDE_PLIST="$SB/launchpete-override/com.kosmos.board.$OVERRIDE_SUFFIX.plist"
 chk "an explicit AGENT_WORKFORCE_DATA is carried through as given, not overwritten" "grep -q \"<key>AGENT_WORKFORCE_DATA</key><string>$SB/petehome-override-data</string>\" \"$OVERRIDE_PLIST\""
 chk "AGENT_WORKFORCE_PROJECTS still derives from KOSMOS_HOME when not itself overridden" "grep -q \"<key>AGENT_WORKFORCE_PROJECTS</key><string>$SB/petehome-override/projects</string>\" \"$OVERRIDE_PLIST\""
+chk "AGENT_WORKFORCE_WORKERS still derives from KOSMOS_HOME when not itself overridden" "grep -q \"<key>AGENT_WORKFORCE_WORKERS</key><string>$SB/petehome-override/workers</string>\" \"$OVERRIDE_PLIST\""
 KOSMOS_HOME="$SB/petehome-override" "$SB/petehome-override/bin/kosmos" stop > /dev/null 2>&1 || true
 
 closing_checks

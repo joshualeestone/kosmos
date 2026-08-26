@@ -2337,6 +2337,31 @@ if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
   [ -n "${AGENT_WORKFORCE_DATA:-}" ] || export AGENT_WORKFORCE_DATA="$KOSMOS_HOME/data"
   [ -n "${AGENT_WORKFORCE_PROJECTS:-}" ] || export AGENT_WORKFORCE_PROJECTS="$KOSMOS_HOME/projects"
   [ -n "${AGENT_WORKFORCE_WORKERS:-}" ] || export AGENT_WORKFORCE_WORKERS="$KOSMOS_HOME/workers"
+  # 🛑 WITHOUT THIS, THE BOARD REFUSES TO START AT ALL (#883, caught in
+  # challenge-loop, not assumed). `engine/sandbox.js`'s `audit()` (#634) is
+  # symmetric: ANY of {DATA, PROJECTS, WORKERS, LAUNCH} sandboxed while ANY
+  # stays live -- in EITHER direction -- is "half-sandboxed" and refused.
+  # This card deliberately does not touch AGENT_WORKFORCE_LAUNCH (moving
+  # agent-job plists off the one directory macOS actually auto-scans at
+  # login is a real, separate change, see the plan's "deliberately not
+  # touched" section) or tmux (Pete's walk needs a genuinely working board,
+  # so making tmux inert would defeat the point). So the three lines above,
+  # by themselves, derive exactly 3 of the 4 knobs #634 checks, leaving
+  # AGENT_WORKFORCE_LAUNCH and tmux live -- which #634 was built to refuse.
+  # `AGENT_WORKFORCE_HALF_SANDBOX_OK=1` is that file's own named escape
+  # hatch, "for the person who has read this and means it" -- and a
+  # non-default KOSMOS_HOME choosing to derive these three IS exactly that
+  # person, deliberately, not by accident. This does not reopen #634's
+  # original incident: that incident was AGENT_WORKFORCE_WORKERS staying
+  # live while DATA/PROJECTS were sandboxed, which corrupted real agents'
+  # CLAUDE.md files over real tmux sends -- WORKERS is one of the three
+  # derived here, so that exact exposure stays closed. What remains open
+  # (an agent job or tmux session created under this KOSMOS_HOME could
+  # collide by NAME with a real one) is the same class of gap #910 and the
+  # deferred agent-job-label work already name, not something this line
+  # newly creates. An explicit caller override still wins, same as the
+  # three lines above.
+  [ -n "${AGENT_WORKFORCE_HALF_SANDBOX_OK:-}" ] || export AGENT_WORKFORCE_HALF_SANDBOX_OK=1
 fi
 step "Starting Kosmos."
 KOSMOS_SAY_INDENT="     " "$KOSMOS_HOME/bin/kosmos" start || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
@@ -2428,7 +2453,21 @@ _env_kv() { # $1 = key name, $2 = value (already the final, unescaped path)
 # at all", not "three blank lines".
 _extra_env_kv=""
 if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
-  _extra_env_kv="$(_env_kv AGENT_WORKFORCE_DATA "$AGENT_WORKFORCE_DATA")$(_env_kv AGENT_WORKFORCE_PROJECTS "$AGENT_WORKFORCE_PROJECTS")$(_env_kv AGENT_WORKFORCE_WORKERS "$AGENT_WORKFORCE_WORKERS")"
+  # ⚠️ ALL THREE CAPTURED IN ONE COMMAND SUBSTITUTION, WITH A SENTINEL, so
+  # the newline AFTER THE LAST line survives. Command substitution strips
+  # EVERY trailing newline from what it captures -- calling `_env_kv`
+  # three times as three SEPARATE $(...) each loses its own trailing \n
+  # before the strings are even concatenated (every key/string pair lands
+  # on one physical line, valid XML but not the one-key-per-line shape
+  # every other entry in this dict has), and even one outer $(...) around
+  # all three would still strip the LAST \n, running the WORKERS line
+  # straight into the "  </dict>" this variable sits beside in the heredoc
+  # below. Appending a literal `X` after the real content, capturing THAT,
+  # then stripping the `X` with `${var%X}` is the standard portable way to
+  # keep a command substitution's trailing newlines: the `X` is not a
+  # newline, so nothing gets stripped until the explicit `%X` removes it.
+  _extra_env_kv="$( { _env_kv AGENT_WORKFORCE_DATA "$AGENT_WORKFORCE_DATA"; _env_kv AGENT_WORKFORCE_PROJECTS "$AGENT_WORKFORCE_PROJECTS"; _env_kv AGENT_WORKFORCE_WORKERS "$AGENT_WORKFORCE_WORKERS"; printf 'X'; } )"
+  _extra_env_kv="${_extra_env_kv%X}"
 fi
 _board_ok=no
 # 🛑 THIS HEREDOC IS UNQUOTED, so every $(...) and every backtick in its body
