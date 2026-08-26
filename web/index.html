@@ -3188,8 +3188,15 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* ---- step three ---------------------------------------------------------
    Centred like the two before it, and on the page ground rather than on a card:
    see the note on the element. */
-#cstep-made { max-width: 34rem; margin: 0 auto; }
-.made-mark { display: block; margin: 0 auto var(--space-5); width: 66px; height: 77px; }
+/* #858 (Josh, 2026-08-25 10:28, after reversing an earlier flush-left
+   instruction mid-message -- the centered version below is the one he
+   settled on): "Let's center everything... the animation... the title
+   as it's changing... all of the checkbox things. I don't care that
+   the checks don't line up. It's more about the items." */
+#cstep-made { max-width: 34rem; margin: 0 auto; text-align: center; }
+/* "if we could move the elements down just a little so that when the K
+   is animating it's not so close to the top." */
+.made-mark { display: block; margin: var(--space-4) auto var(--space-5); width: 66px; height: 77px; }
 /* 🔑 THE ROWS ARRIVE, ONE AT A TIME. Josh asked for each to animate in and to
    look like it is working before it resolves. The motion is on the ROW; what
    the row SAYS is the engine's answer and is never animated into existence.
@@ -3208,7 +3215,17 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   .tick.working .mark { animation: none; opacity: .6; }
 }
 .made-hello { margin-top: var(--space-7); display: grid; gap: var(--space-4); justify-items: center; }
-.made-hello p { margin: 0; font: var(--text-body) var(--font-ui); color: var(--label); }
+/* #858: "that thin gold outline... with the light gold background that
+   we've used in some places to call it out... about the same height as
+   the button too. Give them a little space so they're not touching
+   each other, but not stupid far away." The rgba(214,166,46,..) tint is
+   the same recipe this file already uses for a light gold wash
+   elsewhere (.devrow.pending, .dm.mine .dm-b); a real border rather
+   than the left-edge-only accent .askcard uses, since this is a single
+   short callout, not a card with a heading. */
+.made-hello p { margin: 0; font: var(--text-body) var(--font-ui); color: var(--label);
+  border: 1px solid var(--gold); border-radius: 10px; background: rgba(214,166,46,.10);
+  padding: .8em 1.25em; }
 
 /* ---- step two, after Josh's pass on 2026-08-22 -------------------------- */
 
@@ -3355,8 +3372,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .rolelimit[hidden] { display: none; }
 .pick small { font: var(--text-callout) var(--font-ui); color: var(--label-3); }
 .ticks { margin: var(--space-6) 0 0; }
+/* #858: the item (mark + words together) is centered as a unit; the
+   marks are not asked to line up column-wise across rows -- his words,
+   "I don't care that the checks don't line up. It's more about the
+   items." -- so this stays a per-row flex centering, not a shared
+   column. */
 .tick { font: var(--text-body) var(--font-ui); color: var(--label-2);
-        padding: var(--space-3) 0; display: flex; gap: var(--space-5); align-items: baseline; }
+        padding: var(--space-3) 0; display: flex; justify-content: center; gap: var(--space-5); align-items: baseline; }
 .tick .mark { font-weight: 600; width: 14px; flex: none; }
 .tick.done { color: var(--label); }
 .tick.fail { color: var(--label); }
@@ -20141,8 +20163,12 @@ async function watchForAgent(name, result, attempt) {
          making them is the one who uses this. Recorded rather than argued: if
          the mechanism is ever pinned down and he is describing something else,
          this comment is where to start. */
+      /* #858: "Let's put 'hello' in quotation marks so it's like 'Say
+         "hello" to your agent to activate it on Kosmos'." Curly quotes,
+         matching how this file quotes elsewhere (e.g. the reason line
+         at :8139). */
       document.getElementById('made-hello-say').textContent =
-        'Say hello to your agent to activate it on Kosmos.';
+        'Say “hello” to your agent to activate it on Kosmos.';
       const go = document.getElementById('made-hello-go');
       /* Capital H, at his word: "it looks weird to have a hello and lowercase in
          this button instance." */
