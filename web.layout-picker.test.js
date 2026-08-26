@@ -267,6 +267,6 @@ test('piece ten: the + sits at the card heads and the minus on the member rows, 
   assert.match(block, /body\.consolidated \.pj-member:hover \.pj-minus, [^{]*\.pj-minus:focus-visible \{ opacity: 1; \}/);
   assert.match(block, /body\.consolidated #pj-remove-member \{ display: none; \}/);
   // The + is the wired button, moved to the head row and shrunk; its words stay for the accessible name (font-size: 0, not display: none).
-  assert.match(block, /\.pjsplit \.pjcard:first-child > \.pj-addmem, [^{]*\.pj3 #pj-newtask \{ grid-column: 2; grid-row: 1; width: 22px; height: 22px;[^}]*font-size: 0;/, 'the + rule outranks the card\'s span-all rule (it lost once, and sat over the label)');
+  assert.match(block, /\.pjsplit \.pjcard-members > \.pj-addmem, [^{]*\.pj3 #pj-newtask \{ grid-column: 2; grid-row: 1; width: 22px; height: 22px;[^}]*font-size: 0;/, 'the + rule outranks the card\'s span-all rule (it lost once, and sat over the label)');
   assert.doesNotMatch(src, /id="pj-newtask" type="button" style=/, 'the inline margin moved to CSS so the mode can restyle it');
 });

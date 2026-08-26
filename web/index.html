@@ -2500,20 +2500,20 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      track exactly as before. The card scroll engages only in the clamp, which
      is the same escape-hatch shape as the body grid -- reachability wins where
      the geometry cannot be honoured. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { overflow-y: auto; grid-template-rows: auto minmax(0, 1fr); }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members { overflow-y: auto; grid-template-rows: auto minmax(0, 1fr); }
   /* align-self: stretch, or the list sizes to its CONTENT instead of its
      bounded track and the scroll never engages (measured: 1314px of rows
      rendering into a 301px track, clipped unreachable). */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child > .pj-members { overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child > .pj-members::-webkit-scrollbar { display: none; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members > .pj-members { overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members > .pj-members::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { overflow: hidden; display: flex; flex-direction: column; }
   /* Same removal, same reason, for Tasks: (1,3,2) outranked (1,2,2), and
      `.tkcards` sets its own `align-self: stretch` on the next line. */
   html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field { flex: 1 1 auto; min-height: 0; grid-template-rows: auto minmax(0, 1fr) auto; }
   html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > .tkcards { overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > .tkcards::-webkit-scrollbar { display: none; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child { overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child::-webkit-scrollbar { display: none; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files { overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files::-webkit-scrollbar { display: none; }
   /* ⚠️ vh CAPS ON THE TWO auto-ROW CARDS, NOT max-height: 100% (challenge-
      loop iteration 1, then MEASURED: with 30 rows stuffed into Tasks and
      Files, %-caps against content-sized tracks let the two grow to ~460px
@@ -2535,7 +2535,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      the body grid's `minmax(200px, 1fr)`: in every window a person uses
      nothing scrolls, and where the geometry cannot be honoured, reachability
      wins over the no-scrollbar promise. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit), html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child { max-height: 38vh; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit), html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files { max-height: 38vh; }
   /* 🛑 `calc(100% - 12px)`, NOT `100%`, AND THIS ONE IS NOT WINDOW-DEPENDENT.
      `max-height` resolves against the grid AREA, but this card also carries
      `margin: 0 12px 12px` below, so at the cap its MARGIN BOX is 12px taller
@@ -2548,7 +2548,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      short window: it fires whenever Members overflows. The sibling caps are
      safe by contrast, because Tasks and Files sit in `auto` tracks, which size
      to the margin box rather than against it. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { max-height: calc(100% - 12px); }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members { max-height: calc(100% - 12px); }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 3; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit { display: contents; }
   /* #980 (Josh, 2026-08-26 08:31): Files ABOVE Project members.
@@ -2565,8 +2565,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      The split's first child is Members, last is Files; rows swap, DOM untouched, tab
      view untouched -- the third re-ordering of this same shared markup,
      same display:contents technique as the first two. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { grid-column: 2; grid-row: 3; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child { grid-column: 2; grid-row: 2; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members { grid-column: 2; grid-row: 3; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files { grid-column: 2; grid-row: 2; }
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { grid-column: 2; grid-row: 1; }
   /* #520 piece six (Josh, 2026-08-24 16:14: "missing a whole lot"): the
      board's full-width notice bars do not belong over the consolidated grid;
@@ -2625,7 +2625,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      band directly beneath the pinned label, sliding under nothing. Folding the
      inset into padding extends the ground to cover it. The projects rail header
      already solved this the same way; this card had not. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child > .dlab { position: sticky; top: 0; z-index: 3; background: var(--k-surface); margin-bottom: 0; padding-bottom: 10px; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .dlab { position: sticky; top: 0; z-index: 3; background: var(--k-surface); margin-bottom: 0; padding-bottom: 10px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem, html[data-layout="consolidated"] body.consolidated .pj3 .fi, html[data-layout="consolidated"] body.consolidated .pj3 .tkrow { padding: 6px 8px; border-radius: 9px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem:hover, html[data-layout="consolidated"] body.consolidated .pj3 .fi:hover { background: var(--k-surface); }
   /* The add/remove actions match the rail heads: a quiet + rather than a
@@ -2720,13 +2720,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      the "Remove a member" door. The buttons are the ones already wired
      (#pj-add-member, #pj-newtask); only their place and their size change,
      and the accessible name keeps the words. */
-  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard:first-child, html[data-layout="consolidated"] body.consolidated #pj-tasks-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; }
-  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard:first-child > *, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > * { grid-column: 1 / -1; }
-  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard:first-child > .dlab, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .dlab { grid-column: 1; grid-row: 1; margin-bottom: 0; }
-  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard:first-child > .pj-addmem, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask { grid-column: 2; grid-row: 1; width: 22px; height: 22px; padding: 0; margin: 0 0 6px; border: 1px solid var(--k-rule); border-radius: 7px; background: var(--k-surface); color: var(--k-ink-2); font-size: 0; line-height: 0; display: grid; place-items: center; }
+  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members, html[data-layout="consolidated"] body.consolidated #pj-tasks-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; }
+  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > *, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > * { grid-column: 1 / -1; }
+  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > .dlab, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .dlab { grid-column: 1; grid-row: 1; margin-bottom: 0; }
+  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > .pj-addmem, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask { grid-column: 2; grid-row: 1; width: 22px; height: 22px; padding: 0; margin: 0 0 6px; border: 1px solid var(--k-rule); border-radius: 7px; background: var(--k-surface); color: var(--k-ink-2); font-size: 0; line-height: 0; display: grid; place-items: center; }
   html[data-layout="consolidated"] body.consolidated .pj3 .pj-addmem > span, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask > span { font: 600 15px/1 var(--font-ui); }
   html[data-layout="consolidated"] body.consolidated .pj3 .pj-addmem:hover, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask:hover { color: var(--k-ink); }
-  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard:first-child > .pj-members, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .tkcards { margin-top: 6px; }
+  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > .pj-members, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .tkcards { margin-top: 6px; }
   html[data-layout="consolidated"] body.consolidated #pj-remove-member { display: none; }
   html[data-layout="consolidated"] body.consolidated .pj-minus { display: grid; place-items: center; margin-left: auto; width: 24px; height: 24px; flex: none; border: 1px solid var(--k-rule); border-radius: 6px; background: var(--k-surface); color: var(--k-ink-2); font: 600 14px/1 var(--font-ui); padding: 0; cursor: pointer; opacity: 0; }
   html[data-layout="consolidated"] body.consolidated .pj-member:hover .pj-minus, html[data-layout="consolidated"] body.consolidated .pj-minus:focus-visible { opacity: 1; }
@@ -7040,7 +7040,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          not two headings in one. The aside keeps the layout column; the
          cards carry the chrome. -->
     <aside class="pjcol pjsplit">
-      <div class="pjcard">
+      <div class="pjcard pjcard-members">
       <h3 class="dlab">Project members</h3>
       <div id="pj-one-agents" class="pj-members"></div>
       <!-- ⚠️ The picker hides behind the button, not the other way round: the
@@ -7111,7 +7111,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            time tonight a comment naming its subject broke the check that reads
            for it. -->
       </div>
-      <div class="pjcard">
+      <div class="pjcard pjcard-files">
         <!-- 🛑 "Project documents" WAS THE ONLY THING ON THIS SECTION THAT
              LIED. Every sentence under it is already honest that it reads the
              project FOLDER; the heading promised something else. Josh, on what

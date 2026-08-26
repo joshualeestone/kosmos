@@ -36,9 +36,9 @@ test('the right column is ordered tasks, then files, then project members', () =
   // Members (row 3, last now), its last child is Files (row 2).
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > aside\.pjcol:not\(\.pjsplit\) \{ grid-column: 2; grid-row: 1; \}/,
     'Tasks is not pinned to row 1 -- it should lead the right column');
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjsplit > \.pjcard:last-child \{ grid-column: 2; grid-row: 2; \}/,
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjsplit > \.pjcard-files \{ grid-column: 2; grid-row: 2; \}/,
     'Files is not on row 2 -- it should follow Tasks, above Members');
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjsplit > \.pjcard:first-child \{ grid-column: 2; grid-row: 3; \}/,
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjsplit > \.pjcard-members \{ grid-column: 2; grid-row: 3; \}/,
     'Project members is not on row 3, last');
 });
 

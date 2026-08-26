@@ -368,13 +368,13 @@ test('the right-column cards stretch into their tracks, or they overlap each oth
 test('the two auto-row cards carry viewport caps a tall list cannot game', () => {
   // Measured in review: with 30 rows in Tasks and Files, %-caps against
   // content-sized tracks let both grow ~460px and push Members off-screen.
-  assert.match(PAGE, new RegExp(cons + ' \\.pj3 > aside\\.pjcol:not\\(\\.pjsplit\\), ' + cons + ' \\.pj3 > \\.pjsplit > \\.pjcard:last-child \\{ max-height: 38vh; \\}'),
+  assert.match(PAGE, new RegExp(cons + ' \\.pj3 > aside\\.pjcol:not\\(\\.pjsplit\\), ' + cons + ' \\.pj3 > \\.pjsplit > \\.pjcard-files \\{ max-height: 38vh; \\}'),
     'Tasks/Files lost their viewport caps; tall content can push Members off the bottom again');
   /* ⚠️ `calc(100% - 12px)`, and the 12px is the card's own bottom margin.
      `max-height` resolves against the grid AREA, so a plain 100% makes the
      margin box 12px taller than its track and a full Members list spills out
      to the body scroll -- a page scrollbar in the exact state this branch
      removes, and one that does not need a short window to appear. */
-  assert.match(PAGE, new RegExp(cons + ' \\.pj3 > \\.pjsplit > \\.pjcard:first-child \\{ max-height: calc\\(100% - 12px\\); \\}'),
+  assert.match(PAGE, new RegExp(cons + ' \\.pj3 > \\.pjsplit > \\.pjcard-members \\{ max-height: calc\\(100% - 12px\\); \\}'),
     'Members lost its track-bounded cap');
 });
