@@ -607,7 +607,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            first panel is still up and still theirs) and removes the whole
            class. Narrow today, because clicking a second + through a sheet is
            hard; free to close. */
+        /* ⚠️ SAID, NOT SILENT. This branch introduces the one state in the class
+           (`openPanelOutstanding`) that could strand: if a future path ever
+           presents without going through one of the two closures that clear it,
+           every later + press is refused forever with no diagnostic -- #1032
+           reproduced by the code that fixes it. Nothing exercises this branch,
+           so a line in the log is the only thing that would ever name it.
+           Main-thread only, like every other flag on this delegate: WebKit
+           calls this method on the main thread and both sheet completions are
+           main-thread, so the flag needs no synchronisation. */
         if openPanelOutstanding {
+            logLine("runOpenPanelWith: refused, a panel is already up")
             completionHandler(nil)
             return
         }
@@ -1299,7 +1309,12 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
         + "<button id=\"bvisible\">v</button><input id=\"fvisible\" type=\"file\">"
         + "<script>for (const k of ['hidden','visible']) {"
         + "document.getElementById('b'+k).addEventListener('click',"
-        + "() => document.getElementById('f'+k).click()); }</script>"
+        + "() => document.getElementById('f'+k).click()); }"
+        // ⚠️ SET LAST, AND POLLED INSTEAD OF THE BUTTON. The button exists in
+        // the DOM before this script runs, so polling for it opens a window
+        // where a press lands on a control with no listener -- and the gate
+        // would report asked-for-panel:no, which is a false accusation.
+        + "window.__probeReady = 1;</script>"
     web.loadHTMLString(probePage, baseURL: URL(string: "http://127.0.0.1/"))
 
     func press(_ k: String, then: @escaping () -> Void) {
@@ -1313,10 +1328,24 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
        renders that as "the + button will do nothing". This gate runs mid-build,
        after a Node download and a codesign, on whatever the box is doing. So
        it polls for the button the presses need and only then starts. */
-    func whenReady(_ go: @escaping () -> Void, tries: Int = 60) {
-        web.evaluateJavaScript("!!document.getElementById('bvisible')") { r, _ in
+    /* 🛑 THE GIVING-UP MESSAGE CARRIES THE WATCHDOG'S OWN TOKEN, AND THAT IS THE
+       POINT OF IT. Exhausting this poll means the gate could not get started,
+       not that the + button is dead -- and the previous version of this line
+       said something the bundle gate classified as a PRODUCT failure, which is
+       the exact defect the commit that added this poll set out to remove. The
+       fix removed one instance and shipped another. `filepanel selftest TIMED
+       OUT` is the unique string the shell keys its gate-fault arm on.
+       Budget: 150 x 0.1s = 15s, inside the hatch's own 25s watchdog and the
+       shell's 40s alarm. The page loads in well under half a second here, so
+       this is ~30x the observed margin rather than the ~12x it was. The whole
+       run is about 7s, so there was budget going spare. */
+    func whenReady(_ go: @escaping () -> Void, tries: Int = 150) {
+        web.evaluateJavaScript("window.__probeReady === 1") { r, _ in
             if (r as? Bool) == true { go(); return }
-            guard tries > 0 else { print("filepanel selftest: the probe page never loaded"); exit(1) }
+            guard tries > 0 else {
+                print("filepanel selftest TIMED OUT: the probe page never finished loading")
+                exit(1)
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenReady(go, tries: tries - 1) }
         }
     }

@@ -107,9 +107,36 @@ test('A HANG IS NOT BLAMED ON THE PRODUCT, even though it prints uiDelegate firs
   const v = verdict(['uiDelegate:set', 'navigationDelegate:set',
     'filepanel selftest TIMED OUT'].join('\n'), 1);
   assert.ok(!v.ok, 'a hang must still stop the cut');
-  assert.match(v.text, /hung/);
+  assert.match(v.text, /did not finish/);
   assert.doesNotMatch(v.text, /file picker is broken/,
     'a hang was blamed on the + button: the timeout arm must be tested before the product arm');
+});
+
+test('the gate GIVING UP is not a verdict on the product', () => {
+  /* 🛑 THE SHAPE THAT WAS SHIPPED WHILE FIXING THIS EXACT CLASS. The hatch
+     polls for its probe page and gives up if the page never loads. The first
+     version of that message did not carry the watchdog's token, so it matched
+     the product arm and a busy build box was reported as "the + button will do
+     nothing" -- which is the defect the poll was added to remove, reintroduced
+     by the fix for it. */
+  const v = verdict(['uiDelegate:set', 'navigationDelegate:set',
+    'filepanel selftest TIMED OUT: the probe page never finished loading'].join('\n'), 1);
+  assert.ok(!v.ok, 'a gate that could not finish must still stop the cut');
+  assert.match(v.text, /did not finish/);
+  assert.doesNotMatch(v.text, /file picker is broken/,
+    'the gate giving up was reported as a broken + button');
+});
+
+test('the timeout arm cannot be spoofed by the words appearing in other output', () => {
+  /* The timeout arm is tested FIRST, so a bare "TIMED OUT" substring would let
+     any output containing those two words exonerate a genuinely broken build.
+     It keys on the hatch's full unique phrase instead. */
+  const v = verdict(['uiDelegate:MISSING',
+    'press:hidden-input\tasked-for-panel:no',
+    'some unrelated line that says TIMED OUT'].join('\n'), 1);
+  assert.ok(!v.ok);
+  assert.match(v.text, /file picker is broken/,
+    'a real product break was exonerated because its output contained the words TIMED OUT');
 });
 
 test('a binary that never started is nobody\'s fault but the machine\'s', () => {

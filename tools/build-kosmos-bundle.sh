@@ -377,8 +377,18 @@ if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
     # A dead branch that reads as a live guard is worse than no branch.
     # tools.filepanel-gate.test.js fails if this order is put back.
     case "$_fp_out" in
-      *"TIMED OUT"*)
-        echo "the #1032 file-picker gate hung and killed itself (exit $_fp_rc). Something in the gate stopped answering; the product is NOT implicated by this." >&2 ;;
+      *"filepanel selftest TIMED OUT"*)
+        # ⚠️ THE FULL, UNIQUE TOKEN, not a bare "TIMED OUT". This arm is tested
+        # FIRST, so a bare substring would let any output that happens to
+        # contain those two words -- including a genuinely broken build whose
+        # WebKit stderr says them -- exonerate the product. The hatch prints
+        # this exact phrase and nothing else does.
+        # ⚠️ AND THE CLAIM IS BOUNDED ON PURPOSE. This says the gate could not
+        # finish, not that the product is innocent: a product-caused run-loop
+        # block (a future runModal on the open-panel path -- this file already
+        # uses runModal in three places) would hang here too and land in this
+        # arm. "Could not be judged" is what the evidence supports.
+        echo "the #1032 file-picker gate did not finish (exit $_fp_rc). It could not judge the + button either way, so this is NOT a verdict on the product. Look at the output above before assuming either." >&2 ;;
       *"press:"*|*"uiDelegate:"*)
         printf '%s\n' "the native app's file picker is broken (#1032). The gate got as far as it could and then this did not hold:" "    $_fp_missing" "A + button will do nothing, or Cancel will take the app down with it. Output above; exit $_fp_rc." >&2 ;;
       *)
