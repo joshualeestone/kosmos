@@ -66,6 +66,21 @@ exactly what jargon.py --engine flagged.
       assertions and one test title updated to match the new copy
       (`p.loses[1]`, `told.because`, and the doc comment quoting it);
       everything else was already independent of the changed strings.
+- [x] `node --test engine/sandbox.test.js web.delete-leftover.test.js`
+      (the direct test files for the two remaining changed functions,
+      caught as a coverage-list gap by challenge-loop iteration 1):
+      15/15 pass, both unaffected by the copy change.
 - [x] Grepped for leftover references to the old copy across
       `.js`/`.html`: only comments, test descriptions, and a genuinely
       separate `server.js` surface remain, all accounted for above.
+
+## Challenge-loop iteration 1 fixes (beyond the original scope above)
+
+- `engine/projects.js`'s second doc comment (directly above
+  `toldOverride`, missed because the file-header comment was the one
+  explicitly checked) still said "tells the agent in its pane" -- fixed
+  to "on its screen", matching the string it describes.
+- The file-header comment's own line-number citation for the changed
+  string was stale even before this branch (said `:2131`, the real
+  line is `:2155`) -- fixed since the comment was already being
+  touched for the wording change.
