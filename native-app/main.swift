@@ -378,6 +378,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             if self.boardStartInFlight && self.boardStartGeneration == generation {
                 logLine("watchdog: board start gen \(generation) unresolved after 120s; re-arming Reload")
                 self.boardStartInFlight = false
+                // Bump the generation so the hung start, if it EVER resolves,
+                // is stale and reports nothing. Without this, its two-minute-
+                // old failure could surface a "could not start" alert over a
+                // page the user has long since reloaded to health. Cost: a
+                // late lone SUCCESS is also dropped -- acceptable, the user's
+                // next Cmd-R reaches the now-running board anyway.
+                self.boardStartGeneration += 1
             }
         }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -472,6 +479,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
+    // A crashed WebContent process leaves a blank window with no navigation
+    // callback at all; log it so the field case is diagnosable. Cmd-R's
+    // reload() branch recovers it (reload relaunches the content process).
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        logLine("WEB CONTENT PROCESS TERMINATED (blank window until reload)")
+    }
+
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         logLine("PROVISIONAL LOAD FAILED: \(error.localizedDescription)")
         if isBenignCancellation(error) { return }
@@ -518,8 +532,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             logLine("reload: ignored, a board start is already in flight")
             return
         }
-        if let url = webView.url, !lastLoadFailed {
-            logLine("reload: webView.reload() of \(url.absoluteString)")
+        // backForwardList.currentItem, not webView.url: the url is non-nil
+        // during an UNCOMMITTED provisional load too, where reload() is a
+        // documented no-op -- a press in that window would silently do
+        // nothing. A committed page is what "reload" means.
+        if webView.backForwardList.currentItem != nil, !lastLoadFailed {
+            logLine("reload: webView.reload() of \(webView.url?.absoluteString ?? "<committed page>")")
             recoverOnReloadFailure = true
             webView.reload()
         } else {
