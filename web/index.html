@@ -2851,6 +2851,23 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pjmidhead .pjhead { flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; align-items: center; gap: 12px; }
 .pjmidhead .pjhead .pjtitle { display: grid; gap: 1px; }
 .pjmidhead .pjhead .dname { font-size: 1.25rem; }
+/* kosmos#1005: closed is the resting state. The description is hidden with
+   `display: none` DELIBERATELY here, unlike the .lstate case: a disclosure
+   whose aria-expanded says "false" is CLAIMING the content is not present,
+   so leaving it in the accessibility tree would make that claim false and a
+   screen-reader user would hear body copy the button says is closed. The
+   visually-hidden clip is right for something removed from the eye only; a
+   disclosure is removed from both, which is what the button then re-opens. */
+.pjtitle-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.pjtitle-row .dname { min-width: 0; }
+.pjtitle:not(.is-open) #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pjtitle:not(.is-open) #pj-one-desc { display: none; }
+.pjdisc { flex: 0 0 auto; border: 0; background: none; padding: 2px 2px 2px 0; margin: 0;
+  color: var(--k-ink-2); font: inherit; line-height: 1; cursor: pointer; }
+.pjdisc:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; border-radius: 4px; }
+.pjdisc-ar { display: inline-block; transition: transform .12s ease; }
+@media (prefers-reduced-motion: reduce) { .pjdisc-ar { transition: none; } }
+.pjtitle.is-open .pjdisc-ar { transform: rotate(90deg); }
 .pjmidhead .pjhead .pj-desc, .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 1px 0 0; max-width: none; line-height: 1.35; }
 /* #862 (Mona Lisa, 2026-08-25 11:40, option a): an undescribed project SHOWS its
    placeholder in the merged header too, at the header's own size; Josh's 08-20
@@ -6951,7 +6968,19 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button class="back" id="pj-back" type="button">← All projects</button>
     <div class="pjhead">
       <div class="pjtitle">
-        <h2 class="dname" id="pj-one-name"></h2>
+        <!-- kosmos#1005 (Josh, 2026-08-26): the description used to sit under
+             every project title on every visit, three lines of body copy above
+             the conversation. It is now behind a real disclosure, closed on
+             arrival. A BUTTON with aria-expanded rather than a styled span,
+             because this is the one control on the head and it has to be
+             reachable by keyboard and announced as openable. -->
+        <div class="pjtitle-row">
+          <button class="pjdisc" id="pj-one-more" type="button" aria-expanded="false" aria-controls="pj-one-desc">
+            <span class="pjdisc-ar" aria-hidden="true">&#9656;</span>
+            <span class="vh">Show the full title and the description</span>
+          </button>
+          <h2 class="dname" id="pj-one-name"></h2>
+        </div>
         <!-- What this project IS, in the person's own words, directly under
              the title per the design (PIN-2026-08-14-1913CDT): the pair is
              one statement. Hidden entirely when there is none: an empty grey
@@ -22588,6 +22617,16 @@ document.getElementById('pjs-reveal').addEventListener('click', async () => {
   }
 });
 
+/* kosmos#1005: the disclosure. The arrow is decorative (aria-hidden) and the
+   button carries its own visually-hidden name, so what is announced is one
+   button with a state, not a glyph. */
+document.getElementById('pj-one-more').addEventListener('click', (e) => {
+  const btn = e.currentTarget;
+  const title = btn.closest('.pjtitle');
+  if (!title) return;
+  const open = title.classList.toggle('is-open');
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+});
 function paintOneProject() {
   const p = pjById(PJ_CURRENT);
   if (!p) { pjView('list'); PJ_CURRENT = null; pjMarkOpen(null); return; }
@@ -22608,6 +22647,14 @@ function paintOneProject() {
   desc.classList.toggle('pj-desc-none', !p.description);
   desc.classList.toggle('pj-desc-empty', !p.description);
   desc.hidden = false;
+  /* kosmos#1005: closed on every arrival. Josh's complaint was the copy being
+     there EVERY time, so a remembered-open state would reproduce the thing he
+     asked to remove. Reset here rather than on the click, so switching between
+     projects cannot carry one project's open state onto the next. */
+  const pjTitle = desc.closest('.pjtitle');
+  const pjMore = document.getElementById('pj-one-more');
+  if (pjTitle) pjTitle.classList.remove('is-open');
+  if (pjMore) pjMore.setAttribute('aria-expanded', 'false');
   /* Agent-made projects say so (#327). `by` is the pane's agent when one was
      offered and resolved; otherwise the honest generic. Screen-made shows
      nothing: "made by you" under everything is furniture. */
