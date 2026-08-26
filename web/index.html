@@ -7669,7 +7669,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="gskills" aria-controls="s-sec-gskills">Global Skills</button>
     <button type="button" data-go="policy" aria-controls="s-sec-policy">AI Policies</button>
     <button type="button" data-go="talking" aria-controls="s-sec-talking">Agents Talking</button>
-    <button type="button" data-go="mac" aria-controls="s-sec-mac">This Mac</button>
+    <button type="button" data-go="mac" aria-controls="s-sec-mac">This computer</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
     <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Plus Account</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
     <button type="button" data-go="styles" aria-controls="s-sec-styles">Styles</button>
@@ -8016,7 +8016,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <p class="dhint" id="lim-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
   </section>
-  <section class="dsec" id="s-sec-mac" data-sec="mac" tabindex="-1" aria-label="This Mac" hidden>
+  <section class="dsec" id="s-sec-mac" data-sec="mac" tabindex="-1" aria-label="This computer" hidden>
     <section class="dbox">
       <h3 class="dlab">Opening Kosmos</h3>
       <div id="set-applocation"><p class="dhint">Checking where the app is…</p></div>
@@ -8070,23 +8070,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         quietly stops that one job. Kosmos never reaches outside its own
         folders unless you ask an agent to.
       </p>
-    </section>
-    <section class="dbox">
-      <h3 class="dlab">Agents already on this computer</h3>
-      <!-- #330's ask, answered by pointing at where it was built: discovery's
-           permanent home is the Agents page (found-wrap, below the board),
-           where an agent found is an agent you can add. This section is a
-           place you LOOK, so it says where, rather than duplicating the list
-           and giving one machine two answers about what was found. -->
-      <p class="dhint" style="margin:0;">
-        Kosmos keeps looking for Claude agents made outside it. Any it finds
-        are listed at the bottom of the Agents page, with a button to bring
-        each one in.
-      </p>
-      <!-- From the birth record (#157): a count that survives every file
-           being deleted, which is what makes it worth stating here. Hidden
-           until the record answers; zero is a real answer once it has. -->
-      <p class="dhint" id="set-made" style="margin:8px 0 0;" hidden></p>
     </section>
     </section>
   </section>
@@ -11008,7 +10991,7 @@ async function tick() {
     agTile.classList.toggle('floor', floor);
     if (floor) {
       agTile.setAttribute('role', 'button'); agTile.setAttribute('tabindex', '0');
-      agTile.setAttribute('aria-label', unreadSay + ' Opens This Mac, which shows the line.');
+      agTile.setAttribute('aria-label', unreadSay + ' Opens This computer, which shows the line.');
     } else {
       agTile.removeAttribute('role'); agTile.removeAttribute('tabindex'); agTile.removeAttribute('aria-label');
     }
@@ -11473,18 +11456,6 @@ async function paintSettings() {
   try {
     const m = await (await fetch('/api/machine')).json();
     mach.innerHTML = machineRows(m);
-    const made = document.getElementById('set-made');
-    /* ⚠️ ONLY ONCE THE RECORD HAS SOMETHING IN IT. The birth record starts the
-       day it ships, so on a machine whose agents predate it, "made 0 agents"
-       sits beside a board showing fourteen -- two true sentences composing a
-       contradiction. An empty record is not a claim of none; it is silence,
-       and the line stays silent with it. */
-    if (made && m.made && typeof m.made.agents === 'number' && (m.made.agents + (m.made.refused || 0)) > 0) {
-      made.textContent = 'Kosmos has made ' + m.made.agents + (m.made.agents === 1 ? ' agent' : ' agents')
-        + ' on this Mac since it started keeping the record'
-        + (m.made.refused > 0 ? ', and turned away ' + m.made.refused + ' attempt' + (m.made.refused === 1 ? '' : 's') + ' it could not do safely' : '') + '.';
-      made.hidden = false;
-    } else if (made) { made.hidden = true; made.textContent = ''; }
     for (const sleepBtn of mach.querySelectorAll('[data-sleep-settings]')) {
       sleepBtn.addEventListener('click', async () => {
         // The pane opening IS the success feedback; words appear on refusal
