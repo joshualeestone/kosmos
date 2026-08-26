@@ -228,8 +228,14 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   const body = page.slice(at, i + 1);
 
   const makeEls = () => ({
-    'fr-openai-connect': { textContent: 'Connect', disabled: false, attrs: {},
-      setAttribute(k, v) { this.attrs[k] = v; } },
+    /* Models what the paint actually writes. It gained innerHTML and classList
+       when the GPT row took the same green-with-a-check treatment as Claude's,
+       two rows above it; a stub that lags the element turns a real change into
+       a false failure. */
+    'fr-openai-connect': (() => { const cls = new Set(); return {
+      textContent: 'Connect', innerHTML: 'Connect', disabled: false, attrs: {},
+      classList: { toggle: (c, on) => { if (on) cls.add(c); else cls.delete(c); }, contains: (c) => cls.has(c) },
+      setAttribute(k, v) { this.attrs[k] = v; } }; })(),
     'fr-openai-flow': { hidden: false },
     'fr-openai-msg': { textContent: '' },
     'fr-openai-key': { value: 'half-typed-key' },
@@ -244,7 +250,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
     () => { throw new Error('should not have fetched -- known was supplied'); },
     { connected: true, keyTail: 'ab12', justAdded: true },
   );
-  assert.equal(els['fr-openai-connect'].textContent, 'Connected');
+  assert.match(els['fr-openai-connect'].innerHTML, /Connected/);
   assert.equal(els['fr-openai-connect'].disabled, true);
   assert.equal(els['fr-openai-flow'].hidden, true, 'the key form should close once connected');
   assert.match(els['fr-openai-msg'].textContent, /^Added/, 'told-directly should report the action, not just the state');
@@ -260,7 +266,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
     { getElementById: (id) => els[id] || null },
     fakeFetch,
   );
-  assert.equal(els['fr-openai-connect'].textContent, 'Connected');
+  assert.match(els['fr-openai-connect'].innerHTML, /Connected/);
   assert.ok(!/^Added/.test(els['fr-openai-msg'].textContent),
     'stepping back to this pane and forward again must not claim an Add that did not happen this visit');
   // The connected paint hides the flow, so the disclosure must say closed
@@ -288,7 +294,8 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   // reverse transition frPaintSubscription's own tests already hold Claude
   // to ("AND BACK AGAIN"); caught missing here in challenge-loop iteration 1.
   els = makeEls();
-  Object.assign(els['fr-openai-connect'], { textContent: 'Connected', disabled: true });
+  // innerHTML too: the paint writes and the assertions read that now.
+  Object.assign(els['fr-openai-connect'], { textContent: 'Connected', innerHTML: '\u2713 Connected', disabled: true });
   els['fr-openai-flow'] = { hidden: true };
   const emptyFetch = async () => ({ ok: true, json: async () => ({ accounts: [] }) });
   // eslint-disable-next-line no-new-func
@@ -296,14 +303,15 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
     { getElementById: (id) => els[id] || null },
     emptyFetch,
   );
-  assert.equal(els['fr-openai-connect'].textContent, 'Connect',
+  assert.equal(els['fr-openai-connect'].innerHTML, 'Connect',
     'a definite empty answer must repaint back to Connect, not leave a stale Connected standing');
   assert.equal(els['fr-openai-connect'].disabled, false);
 
   // A read FAILURE, by contrast, is not a "no" -- the row must stay exactly
   // as it was (never turn "we could not tell" into "no", #881's contract).
   els = makeEls();
-  Object.assign(els['fr-openai-connect'], { textContent: 'Connected', disabled: true });
+  // innerHTML too: the paint writes and the assertions read that now.
+  Object.assign(els['fr-openai-connect'], { textContent: 'Connected', innerHTML: '\u2713 Connected', disabled: true });
   els['fr-openai-flow'] = { hidden: true };
   const failFetch = async () => ({ ok: false });
   // eslint-disable-next-line no-new-func
@@ -311,7 +319,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
     { getElementById: (id) => els[id] || null },
     failFetch,
   );
-  assert.equal(els['fr-openai-connect'].textContent, 'Connected',
+  assert.match(els['fr-openai-connect'].innerHTML, /Connected/,
     'a failed read must not overwrite a known Connected state with a guess');
 
   // A ROW IS NOT A CONNECTION (challenge-loop iteration 5): a row whose
@@ -326,7 +334,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
     { getElementById: (id) => els[id] || null },
     deadFetch,
   );
-  assert.equal(els['fr-openai-connect'].textContent, 'Connect',
+  assert.equal(els['fr-openai-connect'].innerHTML, 'Connect',
     'a positively rejected key still wears Connected');
   assert.equal(els['fr-openai-connect'].disabled, false,
     'the way to enter a fresh key was taken away over a dead one');
@@ -337,7 +345,8 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   // honest-unknown as a failed read: leave the row exactly as it was,
   // in BOTH directions.
   els = makeEls();
-  Object.assign(els['fr-openai-connect'], { textContent: 'Connected', disabled: true });
+  // innerHTML too: the paint writes and the assertions read that now.
+  Object.assign(els['fr-openai-connect'], { textContent: 'Connected', innerHTML: '\u2713 Connected', disabled: true });
   els['fr-openai-flow'] = { hidden: true };
   const unknownFetch = async () => ({ ok: true, json: async () => ({ accounts: [{ provider: 'openai', keyTail: 'gh78', connection: { state: 'unknown', because: 'we could not check this account' } }] }) });
   // eslint-disable-next-line no-new-func
@@ -345,7 +354,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
     { getElementById: (id) => els[id] || null },
     unknownFetch,
   );
-  assert.equal(els['fr-openai-connect'].textContent, 'Connected',
+  assert.match(els['fr-openai-connect'].innerHTML, /Connected/,
     'an unknown verdict must not overwrite a known Connected state');
 
   // SUPERSESSION (challenge-loop iteration 2's real find): the pane-entry
@@ -368,7 +377,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   );
   releaseRead();
   await both;
-  assert.equal(els['fr-openai-connect'].textContent, 'Connected',
+  assert.match(els['fr-openai-connect'].innerHTML, /Connected/,
     'a pre-add read resolving late repainted a just-connected row back to Connect');
   assert.equal(els['fr-openai-connect'].disabled, true);
 });

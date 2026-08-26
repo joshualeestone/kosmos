@@ -28,7 +28,7 @@ test('NO caller can reach the download without passing the confirm gate', () => 
   const entry = CODE.slice(CODE.indexOf('async function frConnectStart(opts)'), CODE.indexOf('async function frConnectStart(opts)') + 500);
   assert.ok(entry.length > 100, 'the gated entry moved or was renamed');
   assert.match(entry, /frClaudeInstallNeeded\(\)/, 'the entry no longer asks whether an install is needed');
-  assert.match(entry, /frClaudeConfirmOpen\(\)/, 'the entry no longer opens the confirm');
+  assert.match(entry, /frClaudeConfirmOpen\(/, 'the entry no longer opens the confirm');
   assert.match(entry, new RegExp('return ' + worker + '\\(\\)'), 'the entry no longer reaches the worker at all');
 
   /* Every mention of the worker outside its own declaration must be that one
@@ -84,7 +84,14 @@ test('the reveal is announced, not just drawn', () => {
      a slice that reaches past the thing it names. */
   const at = CODE.indexOf('function frClaudeConfirmOpen(');
   assert.ok(at > 0, 'frClaudeConfirmOpen is gone; this test is measuring nothing');
-  const open = CODE.slice(at, at + 700);
+  /* ⚠️ BOUNDED AT THE NEXT FUNCTION, not a char count. A 700-char slice
+     overshot this ~505-char function into frClaudeConfirmClose, so the
+     FR_CONFIRM_OPENER assertion below was satisfied by the CLOSE function --
+     deleting the opener's own assignment left the test green. Fifth overshoot
+     of this exact shape in this branch; a fixed byte count is never the right
+     boundary for a thing that has one. */
+  const end = CODE.indexOf('\nfunction ', at + 10);
+  const open = CODE.slice(at, end > at ? end : at + 700);
   assert.match(open, /setAttribute\('aria-expanded', 'true'\)/, 'the opener no longer announces that a panel opened');
   assert.match(open, /\.focus\(\)/, 'focus never moves into the revealed panel: pressing Connect by keyboard appears to do nothing');
   assert.match(open, /FR_CONFIRM_OPENER/, 'the opener is no longer tracked, so aria and focus land on whichever button is hard-wired rather than the one pressed');
@@ -153,6 +160,16 @@ test('a connected provider row goes green with a check, and does not read as dis
   const block = CODE.slice(at, at + 600);
   assert.match(block, /classList\.toggle\('is-connected', done\)/, 'the green is no longer tied to the same `done` the label is, so the two can disagree');
   assert.ok(!/frMarkProviderConnected/.test(CODE), 'a second mechanism for the connected row is back; frPaintSubscription owns this');
+
+  /* 🛑 BOTH PROVIDERS, OR THE SCREEN CONTRADICTS ITSELF. Claude's row going
+     green while GPT's row greys out, two rows apart, gives opposite signals for
+     the same outcome. An earlier version of this test forbade a shared
+     mechanism and said nothing about the OpenAI row, which locked the
+     divergence in rather than catching it. */
+  const oa = CODE.slice(CODE.indexOf('connectBtn.innerHTML = connected'), CODE.indexOf('connectBtn.innerHTML = connected') + 400);
+  assert.ok(oa.length > 50, 'the OpenAI connected paint moved');
+  assert.match(oa, /classList\.toggle\('is-connected'/, 'the GPT row no longer goes green: it greys out beside a green Claude row on the same screen');
+  assert.match(oa, /aria-hidden="true"/, 'the GPT row lost its check glyph, or announces it as content');
 });
 
 test('no screen claims every agent thinks with Claude', () => {

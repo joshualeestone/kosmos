@@ -4213,7 +4213,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 #firstrun .fr-confirm { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
   background: rgba(184,137,32,.08); border: 1px solid rgba(184,137,32,.28); }
 #firstrun .fr-confirm[hidden] { display: none; }
-#firstrun .fr-confirm-t { margin: 0 0 8px; color: var(--k-ink); font: var(--text-body) var(--font-ui); max-width: 60ch; }
+/* ⚠️ `.fr-body p.fr-confirm-t`, NOT `.fr-confirm-t`. At (1,1,0) it lost every
+   declaration to `#firstrun .fr-body p` at (1,1,1), so the confirm sentence
+   rendered as ordinary muted body copy on the one panel whose job is to be
+   read. This file documents the same trap twice already, and this branch caught
+   it for the BUTTON and missed it for the paragraph beside it. */
+#firstrun .fr-body p.fr-confirm-t { margin: 0 0 8px; color: var(--k-ink); font: var(--text-body) var(--font-ui); max-width: 60ch; }
 /* ⚠️ `.btn.uprime` (0,2,0) LOSES to `#firstrun .btn` (1,1,0), which paints every
    button in the wizard white. This is the first uprime used under #firstrun, so
    nothing caught it before: Confirm and Not now rendered identically, on the one
@@ -26669,7 +26674,7 @@ let FR_CONN_CONFIRMED = false;
 
 async function frConnectStart(opts) {
   const confirmed = (opts && opts.confirmed) || FR_CONN_CONFIRMED;
-  if (!confirmed && frClaudeInstallNeeded()) { frClaudeConfirmOpen(); return; }
+  if (!confirmed && frClaudeInstallNeeded()) { frClaudeConfirmOpen(opts && opts.opener); return; }
   FR_CONN_CONFIRMED = true;
   return frConnectStartConfirmed();
 }
@@ -26934,7 +26939,7 @@ function frPaintConnect(st) {
          and is the honest way forward from here. */
       : ', or carry on and connect later from Settings.')
     + '</div>';
-    frActions({ label: 'Try again', go: () => frConnectStart() }, { label: 'Continue anyway', go: () => frGo(4) });
+    frActions({ label: 'Try again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(4) });
     return;
   }
 
@@ -26961,7 +26966,7 @@ function frPaintConnect(st) {
       title: 'A connection attempt was interrupted',
       detail: 'Kosmos was closed while it was ' + frConnBefore(before) + '. ' + afterSentence,
     });
-    frActions({ label: 'Start again', go: () => frConnectStart() }, { label: 'Continue anyway', go: () => frGo(4) });
+    frActions({ label: 'Start again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(4) });
     return;
   }
 
@@ -27110,6 +27115,13 @@ function frClaudeDownloadBytes() {
   const st = (FR && FR.connect) || null;
   const n = st && st.willInstallBytes;
   if (Number.isFinite(n) && n > 0) return n;
+  /* ⚠️ ARM64 ONLY. engine/connect.js picks arm64 or x64 from os.arch(), and the
+     manifest publishes a different size for each. Stating this figure on an
+     Intel Mac describes a file that machine will not download, so it is
+     withheld there rather than guessed: the sentence falls back to "a large
+     download", which is true everywhere. Delete all of this the day the engine
+     answers per machine. */
+  try { if (navigator && /Intel/i.test(navigator.userAgent || '')) return null; } catch { /* no navigator: keep the arm64 figure */ }
   return 230824016;   // ⚠️ replace with the engine's answer; see above.
   // The real arm64 artifact, so this reads 231MB and AGREES with the download
   // bar beside it, which counts the engine's own bytes. 230e6 rendered 230MB
@@ -27192,7 +27204,7 @@ document.getElementById('fr-pane-3').addEventListener('click', (e) => {
   // The same one-press guard the primary has: start() is idempotent under
   // it anyway, but the list button should not LOOK pressable twice.
   b.disabled = true;
-  Promise.resolve(frConnectStart()).finally(() => { b.disabled = false; });
+  Promise.resolve(frConnectStart({ opener: b })).finally(() => { b.disabled = false; });
 });
 
 document.getElementById('fr-claude-confirm-go').addEventListener('click', (e) => {
@@ -27356,8 +27368,15 @@ async function frPaintOpenai(known) {
       deadWhy = a && a.connection && a.connection.state === 'none' ? a.connection.because : null;
     } catch { return; } // same: a read failure is not a "no"
   }
-  connectBtn.textContent = connected ? 'Connected' : 'Connect';
+  /* ⚠️ THE SAME TREATMENT AS CLAUDE'S ROW, two rows above it on the same
+     screen. This used to relabel and disable, which reads as "this stopped
+     working" -- the exact greying Josh ruled against at 09:27 and the reason
+     the Claude row went green with a check. Two providers giving opposite
+     signals for the same outcome, side by side, is worse than either signal. */
+  connectBtn.innerHTML = connected ? '<span aria-hidden="true">\u2713</span> Connected' : 'Connect';
   connectBtn.disabled = connected;
+  if (connectBtn.classList) connectBtn.classList.toggle('is-connected', !!connected);
+  if (connectBtn.setAttribute) connectBtn.setAttribute('aria-disabled', String(!!connected));
   if (connected) {
     flow.hidden = true;
     // The cold-read path can hide the form with a half-typed key still in
@@ -27510,7 +27529,7 @@ function frPaintSubscription() {
    * second sign-in) is preserved by the drive's honesty, not by a
    * short-circuit; the markup comment on the list says the same.
    */
-  frActions({ label: 'Connect Claude', go: () => frConnectStart() }, { label: 'Continue anyway', go: () => frGo(4) });
+  frActions({ label: 'Connect Claude', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(4) });
 }
 
 /* --------------------------------------------------------------------------
