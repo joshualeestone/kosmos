@@ -52,11 +52,11 @@ row permanently so the next reader who reaches for it is answered by a measureme
    `allowsMultipleSelection` and `allowsDirectories`, and **answering the completion
    handler on cancel** (an unanswered handler wedges the input for the session, so a
    cancelled pick would break the NEXT press).
-2. `AppDelegate.makeWebView(frame:delegate:)` — both delegates assigned in one place,
+2. `AppDelegate.makeWebView(frame:delegate:)`, both delegates assigned in one place,
    so a webView can never again be built with one wired and the other forgotten.
-3. `AppDelegate.openPanelPresenter` — a nil-in-production seam so the gate can prove
+3. `AppDelegate.openPanelPresenter`, a nil-in-production seam so the gate can prove
    the delegate fires without a modal panel on a build machine.
-4. `--kosmos-app-filepanel-selftest` — builds a real webView via the shipped
+4. `--kosmos-app-filepanel-selftest`, builds a real webView via the shipped
    constructor, loads a page, presses a hidden input and a visible one, then presses
    once more **with the real presenter restored** and checks an `NSOpenPanel` is on
    screen. Window offscreen so a release cut does not flash a window.

@@ -605,10 +605,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection
         panel.canChooseDirectories = parameters.allowsDirectories
         panel.canChooseFiles = !parameters.allowsDirectories
-        // Sheeted on the window the click came from, so it cannot end up
-        // behind the board or on the wrong screen. Cancel MUST answer too:
-        // an unanswered completionHandler leaves the input wedged for the rest
-        // of the session, so a cancelled pick would break the NEXT press.
+        /* Sheeted on the window the click came from, so it cannot end up behind
+           the board or on the wrong screen.
+
+           🛑 CANCEL MUST ANSWER, AND THE COST IS WORSE THAN IT LOOKS. MEASURED
+           by building this delegate with the cancel arm dropped: WebKit does
+           not wedge the input quietly, it raises
+           NSInternalInconsistencyException, "Completion handler passed to
+           -[main.AppDelegate webView:runOpenPanelWithParameters:...] was not
+           called", and the app TERMINATES. So a person who opens the file
+           picker and presses Cancel would lose Kosmos, mid-conversation, with
+           no warning. An earlier version of this comment said it merely broke
+           the next press; that was a guess and it was wrong in the direction
+           that matters. */
         let host = webView.window
         let answer: (NSApplication.ModalResponse) -> Void = { resp in
             completionHandler(resp == .OK ? panel.urls : nil)
@@ -1233,13 +1242,21 @@ if CommandLine.arguments.contains("--kosmos-app-menu-selftest") {
 if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
+    /* ⚠️ `d` IS THE ONLY STRONG REFERENCE, AND BOTH DELEGATE PROPERTIES ARE
+       WEAK. Nothing reads `d` after the webView is built, so at -O the
+       optimizer is entitled to release it before the first press -- and the
+       failure would be `asked-for-panel:no` on a GOOD build, stopping a
+       release and blaming the product. It survives on Apple Swift 6.3.3 /
+       macOS 26 today, which makes this latent rather than live, and a gate
+       whose correctness depends on optimizer behaviour is not a gate.
+       `withExtendedLifetime` around the run loop removes the dependence. */
     let d = AppDelegate()
     let frame = NSRect(x: 0, y: 0, width: 600, height: 300)
     let web = AppDelegate.makeWebView(frame: frame, delegate: d)
     print("uiDelegate:\(web.uiDelegate == nil ? "MISSING" : "set")")
     print("navigationDelegate:\(web.navigationDelegate == nil ? "MISSING" : "set")")
 
-    var fired: [String: Bool] = ["hidden": false, "visible": false]
+    var fired: [String: Bool] = ["hidden": false, "visible": false, "again": false]
     var current = "hidden"
     AppDelegate.openPanelPresenter = { _, done in
         fired[current] = true
@@ -1286,11 +1303,31 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                     let panel = NSApp.windows.first { $0 is NSOpenPanel }
                     print("press:real-presenter\tpanel-on-screen:\((panel != nil) ? "yes" : "no")")
-                    if let p = panel as? NSOpenPanel {
-                        // Dismiss it, or the build hangs behind a dialog.
-                        if let host = p.sheetParent { host.endSheet(p, returnCode: .cancel) } else { p.cancel(nil) }
+                    guard let p = panel as? NSOpenPanel else { exit(1) }
+                    // Dismiss it, or the build hangs behind a dialog.
+                    if let host = p.sheetParent { host.endSheet(p, returnCode: .cancel) } else { p.cancel(nil) }
+
+                    /* ⭐ AND THEN PRESS AGAIN, because the one behaviour the fix
+                       singles out is the one nothing here was watching. An
+                       `NSOpenPanel` that is dismissed without calling the
+                       completion handler leaves the file input WEDGED: WebKit
+                       is still waiting for the last answer, and the NEXT press
+                       does nothing for the rest of the session. So a cancel is
+                       not the end of the check, it is the setup for it. This
+                       arm fails if the cancel arm is ever dropped. */
+                    AppDelegate.openPanelPresenter = { _, done in
+                        fired["again"] = true
+                        done(nil)
                     }
-                    exit(panel != nil ? 0 : 1)
+                    current = "again"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        web.evaluateJavaScript("document.getElementById('bvisible').click()") { _, _ in }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            let again = fired["again"] ?? false
+                            print("press:after-a-cancel\treaches-the-app-again:\(again ? "yes" : "no")")
+                            exit(again ? 0 : 1)
+                        }
+                    }
                 }
             }
         }
@@ -1300,7 +1337,7 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
         print("filepanel selftest TIMED OUT")
         exit(1)
     }
-    app.run()
+    withExtendedLifetime(d) { app.run() }
 }
 
 let app = NSApplication.shared

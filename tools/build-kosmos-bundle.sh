@@ -337,11 +337,48 @@ _menu_table_actual="$(perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/k
 # on a headless box must not be blocked by a check that box cannot run. The
 # skip line names what went unchecked so it is never silent.
 if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
-  _fp_out="$(perl -e 'alarm 40; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-filepanel-selftest 2>&1)" || {
-    printf '%s\n' "the native app's file picker is dead (#1032): a + button will do nothing, silently." "$_fp_out" >&2
-    exit 1
-  }
+  _fp_rc=0
+  _fp_out="$(perl -e 'alarm 40; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-filepanel-selftest 2>&1)" || _fp_rc=$?
   printf '%s\n' "$_fp_out" | sed 's/^/    /'
+  # ⚠️ THE CAUSE DECIDES THE SENTENCE, because most non-zero exits here are not
+  # a broken product. A drifted hatch flag falls through to app.run() and gets
+  # SIGALRM'd (142); a missing binary is 127; a box that owns the console but
+  # cannot reach the window server fails for its own reasons. Blaming the +
+  # button for those is a false accusation that stops a cut, which is the same
+  # over-broad message the menu gate above deliberately splits in two.
+  # 🛑 THE VERDICT IS THE OUTPUT, NOT THE EXIT STATUS, in BOTH directions.
+  #
+  # Reading only $? fails twice over. A future edit that returns early exits 0
+  # and proves nothing, which is exactly the structural check this gate exists
+  # to replace. And a non-zero exit says nothing about WHO is at fault: a
+  # drifted hatch flag falls through to app.run() and gets SIGALRM'd, a missing
+  # binary is 127, and a delegate that fails to answer its completion handler
+  # makes WebKit raise and the app abort at 134. Blaming the + button for the
+  # first two is a false accusation that stops a cut; exonerating the product
+  # for the third is worse.
+  #
+  # So the four arms are named, and the FIRST ONE MISSING is the message. A run
+  # that printed none of them never got going and is the only case where the
+  # product is genuinely not implicated.
+  _fp_missing=""
+  for _fp_want in "uiDelegate:set" "press:hidden-input	asked-for-panel:yes" "press:visible-input	asked-for-panel:yes" "press:real-presenter	panel-on-screen:yes" "press:after-a-cancel	reaches-the-app-again:yes"; do
+    case "$_fp_out" in
+      *"$_fp_want"*) ;;
+      *) [ -n "$_fp_missing" ] || _fp_missing="$_fp_want" ;;
+    esac
+  done
+  if [ -n "$_fp_missing" ]; then
+    case "$_fp_out" in
+      *"press:"*|*"uiDelegate:"*)
+        printf '%s\n' "the native app's file picker is broken (#1032). The gate got as far as it could and then this did not hold:" "    $_fp_missing" "A + button will do nothing, or Cancel will take the app down with it. Output above; exit $_fp_rc." >&2 ;;
+      *"TIMED OUT"*)
+        echo "the #1032 file-picker gate hung (exit $_fp_rc). The hatch flag may have drifted and fallen through to app.run(); the product is NOT implicated." >&2 ;;
+      *)
+        echo "the #1032 file-picker gate never ran (exit $_fp_rc) and printed none of its arms. Its output is above; the product is NOT implicated." >&2 ;;
+    esac
+    exit 1
+  fi
+  [ "$_fp_rc" -eq 0 ] || { echo "the #1032 file-picker gate printed every arm and still exited $_fp_rc. Treat that as the gate being broken, not as a pass." >&2; exit 1; }
   echo "==> native app: the file picker asks for a panel (#1032)"
 else
   echo "==> SKIPPED the #1032 file-picker gate: no console session for this user, so a WKWebView cannot be built here. The + button is UNCHECKED in this bundle." >&2
