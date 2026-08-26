@@ -361,7 +361,16 @@ test('#979: the already-present answer claims no version, nothing was downloaded
   try {
     const job = runners.install('openai', { legacyBin: LEGACY });
     assert.equal(job.phase, 'installed');
-    assert.equal(job.version, undefined, 'a present legacy binary may be any age; claiming the pin would be the status() overclaim again');
+    /* ⚠️ THE GUARD IS "NO CLAIM", NOT "NO KEY", and those had been conflated.
+       The real hazard is asserting the PINNED version for a hand-placed binary
+       of unknown age -- so that is what is asserted against, directly. `null`
+       says the question has no answer here, which is the fact; `undefined`
+       said the same thing in a second spelling that vanishes through
+       JSON.stringify, so one arm of this route answered `undefined` and
+       another `null` for the same field. */
+    assert.notEqual(job.version, runners.MANIFEST.openai.version,
+      'a present legacy binary may be any age; claiming the pin would be the status() overclaim again');
+    assert.equal(job.version, null, 'and the absence is spelled the one way every other arm spells it');
     assert.equal(job.receivedBytes, null);
   } finally {
     fs.rmSync(MANAGED, { force: true });
@@ -401,14 +410,17 @@ test('#979: claude resolution is env-authoritative, then the vendor canonical pa
     put(CANONICAL);
     r = runners.resolveBin('claude');
     assert.deepEqual(r, { bin: CANONICAL, present: true, managed: false, overridden: false });
-    // Env override is authoritative, present or not.
+    // Env override is authoritative, present or not -- and it carries the
+    // NAME of the variable, so install()'s refusal can tell a person what to
+    // unset without re-deriving which var belongs to which provider (which
+    // would name the wrong one for the third provider that gets a rung).
     const envClaude = nodePath.join(SANDBOX, 'env', 'claude');
     process.env.AGENT_WORKFORCE_CLAUDE_BIN = envClaude;
     r = runners.resolveBin('claude');
-    assert.deepEqual(r, { bin: envClaude, present: false, managed: false, overridden: true });
+    assert.deepEqual(r, { bin: envClaude, present: false, managed: false, overridden: true, envName: 'AGENT_WORKFORCE_CLAUDE_BIN' });
     put(envClaude);
     r = runners.resolveBin('claude');
-    assert.deepEqual(r, { bin: envClaude, present: true, managed: false, overridden: true });
+    assert.deepEqual(r, { bin: envClaude, present: true, managed: false, overridden: true, envName: 'AGENT_WORKFORCE_CLAUDE_BIN' });
   } finally {
     if (prevHome === undefined) delete process.env.AGENT_WORKFORCE_HOME;
     else process.env.AGENT_WORKFORCE_HOME = prevHome;

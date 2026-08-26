@@ -78,7 +78,13 @@ function downloadBase() {
  * `AGENT_WORKFORCE_CLAUDE_BIN || ~/.local/bin/claude`, and when #979 gave
  * the resolver an AGENT_WORKFORCE_HOME rung the copies silently disagreed
  * with it about exactly that rung -- the drift pair the resolver exists to
- * end, one file over. Required lazily so the module graph stays acyclic.
+ * end, one file over.
+ *
+ * 📌 Required lazily as a HABIT, not a necessity: `engine/runners.js` imports
+ * only node builtins, so there is no cycle here for a top-level require to
+ * create. An earlier version of this line said the lazy require was what kept
+ * the graph acyclic, which credited it with work it is not doing. It stays
+ * because it costs nothing and survives runners.js gaining an engine import.
  */
 function claudeBinPath() {
   return require('./runners').resolveBin('claude').bin;
@@ -836,8 +842,14 @@ async function runFlow(owner, haveBinary) {
      * variables: under a sandbox the install would land in the operator's
      * real home and the `accessSync` below would then report a SUCCESSFUL
      * install as "we cannot find it where it should be". Production is
-     * unchanged -- AGENT_WORKFORCE_HOME is unset there, so this resolves
-     * to the real home, exactly as the old bare `HOME` constant did.
+     * unchanged, and the REASON is checkable rather than remembered: there
+     * was no `HOME` constant at this call site. The old call passed only
+     * `{ TERM: 'dumb' }`, and `run()` merges `{ ...process.env, ...opts.env }`,
+     * so the child inherited `process.env.HOME` -- which the board's launchd
+     * plist sets (install/setup.sh), and which `os.homedir()` prefers. With
+     * AGENT_WORKFORCE_HOME unset, `homeDir()` returns that same value. An
+     * earlier version of this comment said "exactly as the old bare HOME
+     * constant did", which described code that was not there.
      */
     const inst = await run(downloaded.path, ['install'], {
       timeout: 180000,
