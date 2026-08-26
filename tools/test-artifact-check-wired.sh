@@ -10,7 +10,7 @@ bash -n tools/kosmos-artifact-check.sh && ok "the check parses" || bad "the chec
 L9d=$(grep -n '^echo "== 9d\.' tools/release.sh | cut -d: -f1); L9e=$(grep -n '^echo "== 9e\.' tools/release.sh | cut -d: -f1); L10=$(grep -n '^echo "== 10\.' tools/release.sh | cut -d: -f1)
 [ -n "$L9e" ] && ok "release.sh has a 9e step" || bad "release.sh has no 9e step"
 [ -n "$L9d" ] && [ -n "$L9e" ] && [ -n "$L10" ] && [ "$L9d" -lt "$L9e" ] && [ "$L9e" -lt "$L10" ] && ok "9e sits after 9d (served bytes verified) and before 10 (the local board)" || bad "9e is not between 9d and 10 ($L9d/$L9e/$L10)"
-sed -n "${L9e:-0},${L10:-0}p" tools/release.sh | grep -q 'kosmos-artifact-check.sh" --repo "\$REPO"' && ok "9e runs the vendored check with --repo" || bad "9e does not run tools/kosmos-artifact-check.sh --repo"
+sed -n "${L9e:-0},${L10:-0}p" tools/release.sh | grep -q 'kosmos-artifact-check.sh" --repo "\$MAIN_REPO"' && ok "9e runs the vendored check with --repo \$MAIN_REPO (the shared checkout, which has the site beside it)" || bad "9e must pass --repo \$MAIN_REPO: the frozen build tree has no ../chaoskosmos-site and the /setup check goes UNPROVEN (0.5.65)"
 sed -n "${L9e:-0},${L10:-0}p" tools/release.sh | grep -q '^  exit 1' && ok "a red audit exits the cut non-zero" || bad "a red audit does not fail the cut"
 # the served-bytes constraint: the check must fetch from the site base, never read the staged tree
 grep -q 'KOSMOS_SITE_BASE' tools/kosmos-artifact-check.sh && ! grep -q 'BUILD_ROOT\|STAGE/' tools/kosmos-artifact-check.sh && ok "the check reads the served site, not the staged tree" || bad "the check references the staged tree"

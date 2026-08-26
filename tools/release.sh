@@ -646,7 +646,11 @@ echo "== 9e. the served artifact, audited from OUTSIDE the build (Splinter's che
 # It runs AFTER the flip, against what is served, never the staged tree; a red
 # here leaves the pointer live and the record line reads served=1 exit=1,
 # which is the honest state: served, and failed the outside audit.
-if ! bash "$REPO/tools/kosmos-artifact-check.sh" --repo "$REPO"; then
+# --repo is the SHARED checkout (MAIN_REPO), not the frozen build tree: the
+# check compares served /setup against ../chaoskosmos-site beside the repo,
+# and the build tree has no site beside it. 0.5.65's 9e reported that check
+# UNPROVEN and failed the cut on a sound artifact for exactly this reason.
+if ! bash "$REPO/tools/kosmos-artifact-check.sh" --repo "$MAIN_REPO"; then
   echo "THE SERVED ARTIFACT FAILED THE OUTSIDE AUDIT (the lines above say which check). The pointer is live. Do not announce this cut as verified; read the red, and bump rather than republish if bytes must change."
   exit 1
 fi
