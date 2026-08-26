@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: claude-runner-979
-diff_hash: 74404c494684430b9ff0bb1d0e80da21e825ab8274373f4d1568a9b68f2547db
+diff_hash: e5bf4c4f87178fb5a7c0cf22636bad10076ecd8bec12dc6d3bc4fb802c8b25cd
 subdir_audit: passed
 timestamp: 2026-08-26T20:59:04Z
 iterations: 8
@@ -101,7 +101,7 @@ unproven is written down instead of ground away.
 - [WARNING] engine/connect.js - the HOME rationale misdescribes what the old code did --> FIXED
 - [NIT] engine/runners.js - the canonical rung hardcodes 'claude' while its sibling reads MANIFEST --> FIXED
 
-#### Iteration 8
+#### Iteration 8 (plus one post-review correction, below)
 **New findings:** 2 BLOCKERs, 3 WARNINGs, 3 NITs
 - [BLOCKER] engine/runners.js - the job-shape docblock still carves out "the tarball job has no linked, the synthetic has no version"; blankJob is spread into both, and this branch's own test asserts the second --> FIXED
 - [BLOCKER] engine/runners.js - "NO version field at all" was true of main and falsified by this branch --> FIXED
@@ -136,3 +136,21 @@ unproven is written down instead of ground away.
 - `tools/browser-checks.sh` sandbox 4 was genuinely reaching the operator's real Claude before
   this branch; it is sealed with a stub whose `auth status` arm is a capture (camelCase
   `loggedIn`, exit 1) rather than a plausible guess.
+
+
+### Post-review correction (after the loop stopped, and worth recording as such)
+
+Not a review finding: a naming decision settled in the channel after this branch's loop had
+already stopped. Recorded here because it changed shipped code and the hash above covers it.
+
+- [WARNING] engine/runners.js - `MANIFEST.openai.name` was literally `'OpenAI runner'`, and it
+  flows into six person-facing sentences via `${m.name}`. **"Runner" is our word**: it appears
+  nowhere OpenAI publishes, so a person who reads it and searches finds nothing, and a person who
+  later watches `Codex` download has no way to connect the two. Same class of noun as `tmux`,
+  which this codebase has two rulings against --> FIXED (`"OpenAI's Codex"`), plus the word
+  removed from a refusal describing a folder, with an assertion that fails if it returns.
+
+⚠️ **I proposed "OpenAI's runner" in that discussion, one hour after carding the tmux version of
+the same defect.** Mona Lisa's deciding argument is the one worth keeping: *a name that can go
+wrong loudly beats a name that stays true forever while quietly meaning something else.* That is
+the shape of nearly everything that cost time today.
