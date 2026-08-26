@@ -4191,6 +4191,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 #firstrun .fr-note { color: var(--k-ink-2); background: rgba(184,137,32,.08);
                      border: 1px solid var(--k-rule); }
 #firstrun .fr-note b { color: var(--k-ink); }
+/* The install confirm, on the row it belongs to. Deliberately the SAME gold
+   wash as .fr-note above rather than a new tone: this is the pack's
+   attention treatment and a second one would say "different kind of thing"
+   about something that is the same kind of thing. Sits directly under its
+   provider row (Josh: "it pops down right below it"), with the row's own
+   margin closed up so it reads as part of that row and not as a page-level
+   banner. */
+#firstrun .fr-confirm { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
+  background: rgba(184,137,32,.08); border: 1px solid rgba(184,137,32,.28); }
+#firstrun .fr-confirm[hidden] { display: none; }
+#firstrun .fr-confirm-t { margin: 0 0 8px; color: var(--k-ink); font: var(--text-body) var(--font-ui); max-width: 60ch; }
 #firstrun .fr-msg { color: var(--k-ink); }
 #firstrun .fr-youfine { color: var(--k-ink-2); }
 #firstrun .fr-revealrow { margin: 18px 0 22px; }
@@ -5684,8 +5695,35 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              see `.pmark` above for why Claude is in colour and the rest are
              monochrome by filter. -->
         <div class="llm on"><span class="llm-m pmark live" data-pmark="claude" role="img" aria-label="Claude"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 125 125" fill="currentColor" aria-label="Claude"><path d="M54.375 118.75L56.125 111L58.125 101L59.75 93L61.25 83.125L62.125 79.875L62 79.625L61.375 79.75L53.875 90L42.5 105.375L33.5 114.875L31.375 115.75L27.625 113.875L28 110.375L30.125 107.375L42.5 91.5L50 81.625L54.875 76L54.75 75.25H54.5L21.5 96.75L15.625 97.5L13 95.125L13.375 91.25L14.625 90L24.5 83.125L49.125 69.375L49.5 68.125L49.125 67.5H47.875L43.75 67.25L29.75 66.875L17.625 66.375L5.75 65.75L2.75 65.125L0 61.375L0.25 59.5L2.75 57.875L6.375 58.125L14.25 58.75L26.125 59.5L34.75 60L47.5 61.375H49.5L49.75 60.5L49.125 60L48.625 59.5L36.25 51.25L23 42.5L16 37.375L12.25 34.75L10.375 32.375L9.625 27.125L13 23.375L17.625 23.75L18.75 24L23.375 27.625L33.25 35.25L46.25 44.875L48.125 46.375L49 45.875V45.5L48.125 44.125L41.125 31.375L33.625 18.375L30.25 13L29.375 9.75C29.0417 8.625 28.875 7.375 28.875 6L32.75 0.750006L34.875 0L40.125 0.750006L42.25 2.625L45.5 10L50.625 21.625L58.75 37.375L61.125 42.125L62.375 46.375L62.875 47.75H63.75V47L64.375 38L65.625 27.125L66.875 13.125L67.25 9.125L69.25 4.375L73.125 1.87501L76.125 3.25L78.625 6.875L78.25 9.125L76.875 18.75L73.875 33.875L72 44.125H73.125L74.375 42.75L79.5 36L88.125 25.25L91.875 21L96.375 16.25L99.25 14H104.625L108.5 19.875L106.75 26L101.25 33L96.625 38.875L90 47.75L86 54.875L86.375 55.375H87.25L102.125 52.125L110.25 50.75L119.75 49.125L124.125 51.125L124.625 53.125L122.875 57.375L112.625 59.875L100.625 62.25L82.75 66.5L82.5 66.625L82.75 67L90.75 67.75L94.25 68H102.75L118.5 69.125L122.625 71.875L125 75.125L124.625 77.75L118.25 80.875L109.75 78.875L89.75 74.125L83 72.5H82V73L87.75 78.625L98.125 88L111.25 100.125L111.875 103.125L110.25 105.625L108.5 105.375L97 96.625L92.5 92.75L82.5 84.375H81.875V85.25L84.125 88.625L96.375 107L97 112.625L96.125 114.375L92.875 115.5L89.5 114.875L82.25 104.875L74.875 93.5L68.875 83.375L68.25 83.875L64.625 121.625L63 123.5L59.25 125L56.125 122.625L54.375 118.75Z"/></svg></span><div class="llm-w"><b>Claude</b><small>Anthropic &middot; works today</small></div>
-          <button class="connect-b" type="button" id="fr-llm-connect">Connect</button></div>
-        <div class="llm off"><span class="llm-m pmark dim" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#pmark-gemini-g)"/> <defs> <radialGradient id="pmark-gemini-g" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(2.77876 11.3795) rotate(18.6832) scale(29.8025 238.737)"> <stop offset="0.0671246" stop-color="#9168C0"/> <stop offset="0.342551" stop-color="#5684D1"/> <stop offset="0.672076" stop-color="#1BA1E3"/> </radialGradient> </defs> </svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><span class="soon">Coming soon</span></div>
+          <button class="connect-b" type="button" id="fr-llm-connect" aria-expanded="false" aria-controls="fr-claude-confirm">Connect</button></div>
+        <!-- 🛑 THE CONFIRM, and it is the point of this whole step. Josh, 2026-08-26
+             14:44, watching a fresh install: "it downloaded 231MB without asking...
+             total chaos". And 14:59: "I should be notified before an almost-quarter-
+             of-a-gig download that's about to happen."
+             ⚠️ Same reveal contract as #fr-openai-flow below (hidden, aria-expanded
+             on the button, aria-controls pointing here), because the two rows sit
+             next to each other and a person should not meet two different ideas of
+             what pressing Connect does. Josh described the behaviour as "it pops
+             down right below it" -- OpenAI already did that; Claude did not.
+             📌 The SIZE is in the sentence, not just the progress bar. Being told
+             231MB once the bar is already moving is being told too late to decline,
+             which makes the confirm a formality rather than a choice. No time
+             estimate: he dropped that at 15:07 ("that seems hard"), and we cannot
+             know somebody's connection -- a wrong figure is a promise the product
+             breaks on the screen where trust is being decided. -->
+        <div id="fr-claude-confirm" class="fr-confirm" hidden>
+          <p class="fr-confirm-t">In order to connect to Claude, we need to install Claude Code first. It is a 231MB download.</p>
+          <div class="frow">
+            <button class="btn uprime" type="button" id="fr-claude-confirm-go">Confirm</button>
+            <button class="btn" type="button" id="fr-claude-confirm-no">Not now</button>
+          </div>
+        </div>
+        <!-- ⚠️ ORDER IS CLAUDE, GPT, GEMINI (Josh, 2026-08-26 14:30: "lets put
+             GPT under Claude, and then Gemini 3rd"). Beyond his preference it
+             is the right shape: Gemini is a `llm off` Coming soon row, and it
+             previously sat BETWEEN the only two providers that work, so the eye
+             hit a dead row on the way to the second live one. Both working rows
+             now come first. Move this only if a provider changes state. -->
         <div class="llm on"><span class="llm-m pmark live" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="black"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI &middot; works today</small></div>
           <button class="connect-b" type="button" id="fr-openai-connect" aria-expanded="false" aria-controls="fr-openai-flow">Connect</button></div>
         <!-- #944-adjacent: OpenAI is a pasted API key, not an OAuth popup like
@@ -5709,6 +5747,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                    aria-label="OpenAI API key" placeholder="sk-…">
             <button class="btn" id="fr-openai-go" type="button">Add</button>
           </div>
+        <div class="llm off"><span class="llm-m pmark dim" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#pmark-gemini-g)"/> <defs> <radialGradient id="pmark-gemini-g" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(2.77876 11.3795) rotate(18.6832) scale(29.8025 238.737)"> <stop offset="0.0671246" stop-color="#9168C0"/> <stop offset="0.342551" stop-color="#5684D1"/> <stop offset="0.672076" stop-color="#1BA1E3"/> </radialGradient> </defs> </svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><span class="soon">Coming soon</span></div>
         </div>
         <!-- 🛑 OUTSIDE #fr-openai-flow ON PURPOSE. The connected paint hides
              the whole form (flow.hidden = true) and then writes the outcome
@@ -26942,13 +26981,89 @@ document.getElementById('fr-pane-1').addEventListener('click', async (e) => {
   }
 });
 
+/**
+ * Will pressing Connect on Claude actually DOWNLOAD something?
+ *
+ * 🔑 ONE FUNCTION, ON PURPOSE. This is the only thing the confirm box needs to
+ * know, and it is deliberately not composed at the call site: the page and the
+ * engine disagreeing about a fact they each derive separately is the shape
+ * this codebase has hit repeatedly. Angel is exposing the ANSWER as its own
+ * field from connect.js rather than leaving the page to assemble it from
+ * ingredients; when it lands, this function reads that and nothing else
+ * changes.
+ *
+ * ⚠️ PRESENCE IS NOT THE QUESTION, and that is the trap. "Is Claude Code on
+ * this Mac" and "will Connect download something" come apart in a real case:
+ * present-but-not-signed-in downloads NOTHING and goes straight to sign-in. A
+ * confirm box in front of that says we need to install something we already
+ * have, which is worse than no box at all.
+ *
+ * Until the engine field exists, `/api/machine`'s Claude Code check is the
+ * closest honest proxy, and it is a PROXY -- so the unknown case defaults to
+ * ASKING. Asking unnecessarily costs one click; not asking is the thing Josh
+ * called total chaos.
+ */
+function frClaudeInstallNeeded() {
+  const checks = FR_MACHINE && Array.isArray(FR_MACHINE.checks) ? FR_MACHINE.checks : null;
+  if (!checks) return true;   // cannot tell -> ask
+  const row = checks.find((c) => c && /claude code/i.test(String(c.name || c.label || c[0] || '')));
+  if (!row) return true;      // not reported -> ask
+  const ok = row.ok === true || row.state === 'ok' || row.present === true;
+  return !ok;
+}
+
+function frClaudeConfirmClose() {
+  const box = document.getElementById('fr-claude-confirm');
+  const btn = document.getElementById('fr-llm-connect');
+  if (box) box.hidden = true;
+  if (btn) { btn.setAttribute('aria-expanded', 'false'); btn.disabled = false; }
+}
+
 document.getElementById('fr-pane-3').addEventListener('click', (e) => {
   const b = e.target.closest('#fr-llm-connect');
   if (!b) return;
+  const box = document.getElementById('fr-claude-confirm');
+  /* 🛑 THE CONFIRM COMES FIRST, and only when something would actually be
+     downloaded. On a Mac that already has Claude Code this reveals nothing and
+     Connect behaves exactly as it always did -- the spec's "already on this
+     Mac" skip, which is a real state and not an edge case. */
+  if (box && frClaudeInstallNeeded()) {
+    const open = !box.hidden;
+    box.hidden = open;
+    b.setAttribute('aria-expanded', String(!open));
+    /* Focus moves INTO the panel it just opened. A reveal that leaves focus on
+       the button is invisible to a screen reader and to anyone driving this by
+       keyboard: they press Connect and, as far as they can tell, nothing
+       happened. */
+    if (!open) { const go = document.getElementById('fr-claude-confirm-go'); if (go) go.focus(); }
+    return;
+  }
   // The same one-press guard the primary has: start() is idempotent under
   // it anyway, but the list button should not LOOK pressable twice.
   b.disabled = true;
   Promise.resolve(frConnectStart()).finally(() => { b.disabled = false; });
+});
+
+document.getElementById('fr-claude-confirm-go').addEventListener('click', (e) => {
+  const b = e.target;
+  b.disabled = true;
+  const box = document.getElementById('fr-claude-confirm');
+  if (box) box.hidden = true;
+  const connect = document.getElementById('fr-llm-connect');
+  if (connect) { connect.setAttribute('aria-expanded', 'false'); connect.disabled = true; }
+  Promise.resolve(frConnectStart()).finally(() => {
+    b.disabled = false;
+    if (connect) connect.disabled = false;
+  });
+});
+
+/* "Not now" backs out and leaves the person exactly where they were, with the
+   Connect button live again. It does NOT advance the wizard and it does not
+   record a refusal: they have declined a download, not declined Claude. */
+document.getElementById('fr-claude-confirm-no').addEventListener('click', () => {
+  frClaudeConfirmClose();
+  const connect = document.getElementById('fr-llm-connect');
+  if (connect) connect.focus();
 });
 
 /* #944-adjacent: OpenAI's own reveal/submit. Each gets its own direct

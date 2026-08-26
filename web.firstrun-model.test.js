@@ -33,8 +33,16 @@ test('the step is a real slice of the model pane', () => {
   /* The whole file would satisfy every assertion below, since the slice
      upper bound accounts for six inlined vendor SVGs (~11.5k chars measured),
      not just the create form's shorter disclosure. Without this the tests
-     are about the page rather than about this step. */
-  assert.ok(STEP.length > 200 && STEP.length < 16000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
+     are about the page rather than about this step.
+     ⚠️ RAISED 16000 -> 18000 when the Claude install confirm was added to this
+     step (its panel, its reveal contract, and the note recording the provider
+     order). The bound is a drifted-anchor tripwire, not a size budget: what it
+     has to catch is a slice that ran into the rest of the page, and the
+     `id="create-model"` assertion below is the sharper half of that. Raise it
+     again if this step legitimately grows; do NOT remove it, and do not raise
+     it to a number that would swallow the create form. Measured after the
+     confirm landed: ~16.4k. */
+  assert.ok(STEP.length > 200 && STEP.length < 18000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
   assert.match(STEP, /Your agents run on your own subscription/, 'the slice does not contain the model step');
   assert.ok(!STEP.includes('id="create-model"'), 'the slice ran past this step into the create form');
 });
