@@ -70,7 +70,12 @@ const HOME = os.homedir();
  * compressed size of that exact tarball (114,152,335 bytes, curl,
  * 2026-08-26), for the screen's "x of y".
  */
-const MANIFEST = {
+// Null prototype: `provider` arrives from a URL path, and a plain literal
+// would answer the prototype chain for names like "constructor" -- a
+// lookup that passes a truthiness guard with a value that is not a
+// manifest entry at all. The jobs map below is null-prototyped for the
+// same reason.
+const MANIFEST = Object.assign(Object.create(null), {
   openai: {
     name: 'OpenAI runner',
     version: '0.149.1',
@@ -80,7 +85,7 @@ const MANIFEST = {
     binName: 'codex',
     downloadBytes: 114152335,
   },
-};
+});
 
 /**
  * Where managed runners live. An installed Kosmos keeps them inside
@@ -117,15 +122,21 @@ function managedRoot() {
  */
 function resolveBin(provider, opts) {
   if (provider !== 'openai') return { bin: null, present: false, managed: false };
+  // An operator-set override is AUTHORITATIVE, not a candidate: when the
+  // env names a path, that path is the answer, present or not -- so every
+  // downstream message names the path the operator actually set instead
+  // of silently falling through to a default they never chose. (This is
+  // also what makes the missing-runner route deterministically testable.)
+  const envBin = process.env.AGENT_WORKFORCE_CODEX_BIN;
+  if (envBin) return { bin: envBin, present: fs.existsSync(envBin), managed: false };
   const managed = path.join(managedRoot(), 'openai', MANIFEST.openai.binName);
   const candidates = [
-    process.env.AGENT_WORKFORCE_CODEX_BIN,
     managed,
     // Testing seam for the last rung only: the real legacy path is
     // machine state a test cannot control (this Mac genuinely has a
     // hand-installed codex there).
     (opts && opts.legacyBin) || '/opt/homebrew/bin/codex',
-  ].filter(Boolean);
+  ];
   for (const c of candidates) {
     if (fs.existsSync(c)) return { bin: c, present: true, managed: c === managed };
   }
@@ -139,7 +150,9 @@ function resolveBin(provider, opts) {
  *
  * Job shape, readable at any moment via status():
  *   { phase: 'downloading'|'verifying'|'unpacking'|'proving'|'installed'|'failed',
- *     receivedBytes, totalBytes, because (failed only), version }
+ *     receivedBytes, totalBytes, version,
+ *     because (failed only), proved (installed only: the runner's own
+ *     --version line, the receipt that it actually ran) }
  */
 const jobs = Object.create(null);
 
@@ -161,11 +174,17 @@ function status() {
   return out;
 }
 
-/** sha512 of a file, base64, in npm's integrity format ("sha512-<b64>"). */
+/** sha512 of a file, base64, in npm's integrity format ("sha512-<b64>").
+    Streamed, not readFileSync: the real artifact is ~114MB, and buffering
+    it whole is a needless memory spike on a small Mac. */
 function fileIntegrity(file) {
-  const h = crypto.createHash('sha512');
-  h.update(fs.readFileSync(file));
-  return 'sha512-' + h.digest('base64');
+  return new Promise((resolve, reject) => {
+    const h = crypto.createHash('sha512');
+    const s = fs.createReadStream(file);
+    s.on('data', (chunk) => h.update(chunk));
+    s.on('end', () => resolve('sha512-' + h.digest('base64')));
+    s.on('error', reject);
+  });
 }
 
 /**
@@ -197,6 +216,12 @@ function download(url, file, job, redirectsLeft) {
       res.on('error', reject);
       out.on('error', reject);
     });
+    // A wedged connection must FAIL the job, not park it in `downloading`
+    // forever -- the idempotent join hands the same job back to every
+    // Confirm, so with no timeout the only recovery would be a board
+    // restart. 60s of socket SILENCE (not total time; a slow link that is
+    // still moving bytes never trips this).
+    req.setTimeout(60000, () => req.destroy(new Error('the download stalled (no data for 60s)')));
     req.on('error', reject);
   });
 }
@@ -218,7 +243,9 @@ function download(url, file, job, redirectsLeft) {
  * --version child. Production callers pass nothing.
  */
 function install(provider, opts) {
-  const m = MANIFEST[provider];
+  // hasOwn, not truthiness: with a URL-supplied provider, a prototype-chain
+  // hit ("constructor") must be the SAME refusal as any unknown name.
+  const m = Object.hasOwn(MANIFEST, provider) ? MANIFEST[provider] : null;
   if (!m) return { phase: 'failed', because: `we do not know how to install a runner for ${provider}` };
   const o = opts || {};
   const existing = resolveBin(provider, o);
@@ -251,15 +278,28 @@ function install(provider, opts) {
   const run = (async () => {
     try {
       fs.mkdirSync(tmpDir, { recursive: true });
-      // Sweep strays from any earlier interrupted attempt before adding bytes.
+      // Sweep THIS PROVIDER'S strays from any earlier interrupted attempt.
+      // Prefix-scoped on purpose: a sweep of the whole shared .tmp would
+      // delete a concurrent sibling provider's in-flight download the
+      // moment a second manifest entry exists.
       for (const f of fs.readdirSync(tmpDir)) {
-        if (f !== path.basename(staging)) { try { fs.rmSync(path.join(tmpDir, f), { force: true }); } catch { /* best effort */ } }
+        if (f.startsWith(provider + '-') && f !== path.basename(staging)) {
+          try { fs.rmSync(path.join(tmpDir, f), { force: true }); } catch { /* best effort */ }
+        }
       }
       fs.rmSync(staging, { force: true });
       await doDownload(url, staging, job);
 
+      // A short read that closed cleanly is a network fact, not a tamper
+      // fact -- name it as what it is instead of letting the checksum
+      // refusal below accuse the wrong culprit.
+      if (job.totalBytes && job.receivedBytes !== job.totalBytes) {
+        fail(`the download ended early (${job.receivedBytes} of ${job.totalBytes} bytes), so it was discarded`);
+        return;
+      }
+
       job.phase = 'verifying';
-      const got = fileIntegrity(staging);
+      const got = await fileIntegrity(staging);
       if (got !== integrity) {
         // The wrong bytes are DELETED, named, and never unpacked. A CDN
         // hiccup retries clean; a tampered artifact never reaches disk in

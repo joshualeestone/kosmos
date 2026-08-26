@@ -74,11 +74,26 @@ test('#979: resolution priority is env override, then managed, then legacy', () 
   try {
     r = runners.resolveBin('openai', { legacyBin: LEGACY });
     assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: envBin, present: true, managed: false });
+    // And it is AUTHORITATIVE, not a candidate: an override naming a
+    // missing path answers that path as absent, never silently falling
+    // through to a default the operator did not choose.
+    process.env.AGENT_WORKFORCE_CODEX_BIN = nodePath.join(SANDBOX, 'env', 'no-such-codex');
+    r = runners.resolveBin('openai', { legacyBin: LEGACY });
+    assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed },
+      { bin: nodePath.join(SANDBOX, 'env', 'no-such-codex'), present: false, managed: false });
   } finally {
     delete process.env.AGENT_WORKFORCE_CODEX_BIN;
     fs.rmSync(MANAGED, { force: true });
     fs.rmSync(LEGACY, { force: true });
   }
+});
+
+test('#979: a prototype-chain name from a URL is refused like any unknown provider', () => {
+  const job = runners.install('constructor');
+  assert.equal(job.phase, 'failed');
+  assert.match(job.because, /do not know/);
+  const r = runners.resolveBin('constructor');
+  assert.deepEqual(r, { bin: null, present: false, managed: false });
 });
 
 test('#979: an unknown provider resolves to nothing and installs to a refusal', () => {
