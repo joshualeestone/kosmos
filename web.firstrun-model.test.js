@@ -171,7 +171,17 @@ test('the Connect button says Connected once it is, and stops saying it if we lo
   for (; i < page.length; i++) { if (page[i] === '{') d++; else if (page[i] === '}') { d--; if (!d) break; } }
   const body = page.slice(at, i + 1);
 
-  const btn = { textContent: 'Connect', disabled: false };
+  /* The stub models the element the code actually touches. It gained
+     classList/setAttribute/innerHTML when the connected state became green
+     with a check rather than a relabel; a stub that lags the element under
+     test turns a real change into a false failure. */
+  const attrs = {};
+  const classes = new Set();
+  const btn = {
+    textContent: 'Connect', innerHTML: 'Connect', disabled: false,
+    classList: { toggle: (c, on) => { if (on) classes.add(c); else classes.delete(c); }, has: (c) => classes.has(c) },
+    setAttribute: (k, v) => { attrs[k] = v; },
+  };
   const els = { 'fr-llm-connect': btn, 'fr-sub': { innerHTML: '' } };
   const run = (subscription) => {
     // eslint-disable-next-line no-new-func
@@ -184,17 +194,24 @@ test('the Connect button says Connected once it is, and stops saying it if we lo
   };
 
   run({ state: 'connected', plan: 'Claude Max' });
-  assert.equal(btn.textContent, 'Connected', 'a connected machine is still offered Connect');
+  assert.match(btn.innerHTML, /Connected/, 'a connected machine is still offered Connect');
   assert.equal(btn.disabled, true, 'the button still invites a press with nothing to do');
+  /* Green with a check, Josh 09:27: a greyed-out control reads as "this
+     stopped working", which is the opposite of the news it is delivering. */
+  assert.ok(btn.classList.has('is-connected'), 'the connected row is no longer green: disabled alone reads as deactivated');
+  assert.equal(attrs['aria-disabled'], 'true', 'aria-disabled is not set, so a browse mode may skip the outcome');
+  assert.match(btn.innerHTML, /aria-hidden="true"/, 'the check glyph is announced as well as the word');
 
   /* ⚠️ AND BACK AGAIN. Without this the test passes on a one-way change, which
      is the version that leaves "Connected" standing over "we could not tell". */
   run({ state: 'unknown', because: 'we could not read the settings' });
-  assert.equal(btn.textContent, 'Connect', 'a state we cannot read still claims it is connected');
+  assert.equal(btn.innerHTML, 'Connect', 'a state we cannot read still claims it is connected');
   assert.equal(btn.disabled, false, 'the way to connect was taken away on a state that is not an answer');
+  assert.ok(!btn.classList.has('is-connected'), 'the green stayed on a state that is not an answer -- the same defect the label half of this test exists to prevent');
+  assert.equal(attrs['aria-disabled'], 'false', 'aria-disabled stayed true after the verdict stopped being connected');
 
   run({ state: 'none' });
-  assert.equal(btn.textContent, 'Connect');
+  assert.equal(btn.innerHTML, 'Connect');
   assert.equal(btn.disabled, false);
 });
 

@@ -4119,6 +4119,18 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                        font-family: var(--font-ui); cursor: pointer; }
 #firstrun .connect-b:hover { background: var(--gold); }
 #firstrun .connect-b:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
+/* 🛑 CONNECTED IS A STATE OF THE BUTTON, NOT A SENTENCE BESIDE IT. Josh,
+   2026-08-26 09:27: green with a check, "We don't have to say 'Claude is
+   connected' underneath it. We just indicate it with the green button and
+   check mark." Reconfirmed 14:31 and drawn as step 5 of his own flow.
+   ⚠️ IT MUST NOT LOOK DISABLED, which is what it did before: a greyed-out
+   control reads as "this stopped working", the opposite of the news. Green
+   fill, white check, full contrast.
+   📌 The check glyph is aria-hidden and the word Connected carries the
+   meaning, so a screen reader hears "Connected" once rather than a
+   decoration plus a word. */
+#firstrun .connect-b.is-connected { background: #1f7a4d; color: #ffffff; cursor: default; }
+#firstrun .connect-b.is-connected:hover { background: #1f7a4d; }
 /* The shared action buttons take the pack's identity without touching
    frActions: the primary is gold, the alt quiet, Back a plain quiet link. */
 #firstrun #fr-next {
@@ -5705,14 +5717,25 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              next to each other and a person should not meet two different ideas of
              what pressing Connect does. Josh described the behaviour as "it pops
              down right below it" -- OpenAI already did that; Claude did not.
-             📌 The SIZE is in the sentence, not just the progress bar. Being told
-             231MB once the bar is already moving is being told too late to decline,
-             which makes the confirm a formality rather than a choice. No time
-             estimate: he dropped that at 15:07 ("that seems hard"), and we cannot
-             know somebody's connection -- a wrong figure is a promise the product
-             breaks on the screen where trust is being decided. -->
+             📌 THE SIZE IS ROUGH ON PURPOSE, and it is in the SENTENCE rather than
+             only on the bar. Being told how big it is once the bar is already
+             moving is being told too late to decline, which makes the confirm a
+             formality. But Josh, 15:27: "a white collar person doesnt care if its
+             108 or 127MB.. they just want to know its making progress installing."
+             ⇒ Say it is large, then show it moving. "Around 230MB" is enough to
+             decide whether to do this now or on better wifi, which is the decision
+             he described wanting to make. An exact figure serves nobody reading it
+             and is one more number that has to stay true.
+             ⚠️ No time estimate: dropped at 15:07 ("that seems hard"). We cannot
+             know somebody's connection, so any figure is a promise the product
+             breaks on the screen where trust is being decided.
+             ⚠️ STALENESS: 230 is hardcoded here. It is rough, so a small drift in
+             the real artifact does not make it a lie, but a large one would. The
+             durable version reads the size the engine already knows before it
+             downloads; worth doing when that field exists rather than inventing a
+             second source of truth for it now. -->
         <div id="fr-claude-confirm" class="fr-confirm" hidden>
-          <p class="fr-confirm-t">In order to connect to Claude, we need to install Claude Code first. It is a 231MB download.</p>
+          <p class="fr-confirm-t">In order to connect to Claude, we need to install Claude Code first. It is a large download, around 230MB.</p>
           <div class="frow">
             <button class="btn uprime" type="button" id="fr-claude-confirm-go">Confirm</button>
             <button class="btn" type="button" id="fr-claude-confirm-no">Not now</button>
@@ -27235,18 +27258,35 @@ function frPaintSubscription() {
      sent her looking for reassurance in the first place. Changing accounts lives
      on its own screen. */
   const connectBtn = document.getElementById('fr-llm-connect');
+  /* ⚠️ GREEN WITH A CHECK, NOT GREY (Josh, 09:27: "instead of it being grayed
+     out where it looks like it's deactivated, let's put a check mark up there
+     and make that box green"). `disabled` alone reads as "this stopped
+     working", which is the opposite of the news. The fill carries the state
+     and the word carries the meaning; the check is decoration and is
+     aria-hidden, so a screen reader hears "Connected" once. White on #1f7a4d
+     measures 5.32:1, over the 4.5 text floor, and the fill is 5.32:1 against
+     the card it sits on, over the 3:1 a control boundary needs.
+     📌 aria-disabled as well as disabled: some browse modes skip a disabled
+     control, and this one carries the outcome the person is waiting for. */
   if (connectBtn) {
     const done = sub.state === 'connected';
-    connectBtn.textContent = done ? 'Connected' : 'Connect';
+    connectBtn.innerHTML = done ? '<span aria-hidden="true">\u2713</span> Connected' : 'Connect';
     connectBtn.disabled = done;
+    if (connectBtn.classList) connectBtn.classList.toggle('is-connected', done);
+    if (connectBtn.setAttribute) connectBtn.setAttribute('aria-disabled', String(done));
   }
 
   if (sub.state === 'connected') {
     box.innerHTML = frCheckRow({
       state: 'ok',
       title: (sub.plan || 'A Claude subscription') + ' is connected',
-      detail: 'Your agents think with Claude, and this computer is signed in.',
+      detail: 'This computer is signed in.',
     });
+    /* ⚠️ The detail sentence above lost "Your agents think with Claude" -- it
+       is no longer true. An agent set to GPT runs on Codex and never touches
+       the Claude binary, so a screen asserting that every agent thinks with
+       Claude describes a product that had one provider. The same sentence is
+       corrected in the `none` arm below. */
     frActions({ label: 'Continue', go: () => frGo(4) },
       { label: 'Check again', go: frRecheck });
     return;
@@ -27287,9 +27327,9 @@ function frPaintSubscription() {
   box.innerHTML = frCheckRow({
     state: 'attention',
     title: 'No Claude subscription is connected yet',
-    detail: 'Your agents think with Claude, so they need one before they can do anything. '
+    detail: 'A Claude agent thinks with Claude, so a Claude subscription is what one needs. '
       + 'If you have a subscription at claude.ai, Connect Claude does the rest here; '
-      + 'if you do not, get one there first.',
+      + 'if you do not, get one there first. If you would rather use GPT, you do not need this at all.',
   })
   /**
    * ⚠️ SAYS WHAT CARRYING ON ACTUALLY GETS THEM. "Continue anyway" with no
