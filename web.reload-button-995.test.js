@@ -34,7 +34,7 @@ const SCRIPT = page.scriptOf(PAGE);
  * Drives the REAL paintUpdateCard against a stub document, so a drift in the
  * shipped function is a red test rather than a restatement that stays green.
  */
-function paint({ baked, running, asked, look, offer }) {
+function paint({ baked, running, asked, look, offer, engineStale }) {
   const btn = { textContent: '', dataset: {}, hidden: true, disabled: true };
   const line = { textContent: '' };
   const doc = {
@@ -42,9 +42,9 @@ function paint({ baked, running, asked, look, offer }) {
     querySelector: () => ({ getAttribute: () => baked }),
   };
   // eslint-disable-next-line no-new-func
-  new Function('document', 'UPD_ASKED', 'UPD_CHECKING', 'RUNNING', 'LOOK', 'OFFER',
+  new Function('document', 'UPD_ASKED', 'UPD_CHECKING', 'ENGINE_STALE', 'RUNNING', 'LOOK', 'OFFER',
     page.liftAll(SCRIPT, ['bakedVersion', 'pageIsStale', 'paintUpdateCard'])
-    + '\npaintUpdateCard(RUNNING, OFFER, LOOK);')(doc, asked, false, running, look, offer);
+    + '\npaintUpdateCard(RUNNING, OFFER, LOOK);')(doc, asked, false, engineStale || null, running, look, offer);
   return { label: btn.textContent, act: btn.dataset.act, line: line.textContent };
 }
 
@@ -97,4 +97,35 @@ test('the click handler acts on the reload act, and does it without a confirm', 
   const arm = handler.slice(at, handler.indexOf("dataset.act === 'update'"));
   assert.match(arm, /location\.reload\(\)/, 'the reload arm does not reload');
   assert.doesNotMatch(arm, /updconfirm/, 'the reload arm opens the install confirm');
+});
+
+test('#338: under ENGINE-STALE the footer stands down, because reloading cannot fix it', () => {
+  /* The toast gives the engine-stale notice absolute precedence and offers no
+     Reload there, because a page reload cannot fix a BOARD running older code
+     than the files on disk. Without the same gate here the two surfaces
+     contradict each other and the reload re-delivers the same page, so the
+     button never goes away. Reachable whenever an update replaced the files
+     and the restart did not take. */
+  const r = paint({
+    baked: '0.5.65', running: '0.5.66', asked: true, look: LOOKED,
+    engineStale: { staleSince: '2026-08-26T20:00:00Z' },
+  });
+  assert.notEqual(r.label, 'Reload', 'the footer offers a reload that cannot clear the state it is offered for');
+  assert.equal(r.act, 'check');
+
+  // CONTROL: the same stale page with no engine-stale DOES get Reload, so the
+  // assertion above is about the gate rather than about a broken fixture.
+  const ok = paint({ baked: '0.5.65', running: '0.5.66', asked: true, look: LOOKED });
+  assert.equal(ok.label, 'Reload');
+});
+
+test('a press that turns the button into Reload does not leave it focused', () => {
+  /* The paint can relabel the button a person is still touching, from
+     "Check for Update" to "Reload", and re-point its action. Restoring focus
+     then puts an unguarded reload under a finger already there, and the
+     natural repeat of the press just made discards anything typed and unsent.
+     Asserted against the source, because the act is a document reload. */
+  const handler = page.liftAll(SCRIPT, ['updCheckNowClick']);
+  assert.match(handler, /dataset\.act !== 'reload'\)\s*btn\.focus\(\)/,
+    'the refocus is unconditional, so a second Enter reloads the page');
 });
