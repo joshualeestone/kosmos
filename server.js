@@ -1727,7 +1727,15 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, {
       // The models an agent can be created on, from the engine's own list,
       // so the menu and the flag the job runs with cannot drift.
-      models: create.MODELS.map((m) => ({ key: m.key, label: m.label, default: m.default === true, why: m.why || '' })),
+      /* ⚠️ `provider` TRAVELS WITH EACH ROW (#1026). The create screen reads
+         this straight into its dropdown, so without it a GPT agent is offered
+         four Claude models. Serving the fact beats the screen deriving it:
+         a client-side mapping of model to vendor is a second definition of
+         something the engine already knows. */
+      models: create.MODELS.map((m) => ({
+        key: m.key, provider: m.provider, label: m.label,
+        default: m.default === true, why: m.why || '',
+      })),
       // The third radio's prefill, served whole so the screen and the
       // engine cannot hold two versions of the example. No label field:
       // that is the person's own words, gated at create.
