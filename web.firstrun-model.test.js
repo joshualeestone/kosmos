@@ -199,9 +199,11 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   const body = page.slice(at, i + 1);
 
   const makeEls = () => ({
-    'fr-openai-connect': { textContent: 'Connect', disabled: false },
+    'fr-openai-connect': { textContent: 'Connect', disabled: false, attrs: {},
+      setAttribute(k, v) { this.attrs[k] = v; } },
     'fr-openai-flow': { hidden: false },
     'fr-openai-msg': { textContent: '' },
+    'fr-openai-key': { value: 'half-typed-key' },
   });
 
   // Told directly (the Add handler's own path -- no fetch needed). The
@@ -232,6 +234,14 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   assert.equal(els['fr-openai-connect'].textContent, 'Connected');
   assert.ok(!/^Added/.test(els['fr-openai-msg'].textContent),
     'stepping back to this pane and forward again must not claim an Add that did not happen this visit');
+  // The connected paint hides the flow, so the disclosure must say closed
+  // (challenge-loop iteration 4: aria-expanded was set true on reveal and
+  // never reset), and a half-typed key must not sit parked in the hidden
+  // password field on this path (the justAdded path clears it on success).
+  assert.equal(els['fr-openai-connect'].attrs['aria-expanded'], 'false',
+    'the disclosure still claims to be expanded over a hidden flow');
+  assert.equal(els['fr-openai-key'].value, '',
+    'a half-typed key was left parked in the hidden field');
   assert.match(els['fr-openai-msg'].textContent, /connected/, 'should still say it is connected');
   assert.match(els['fr-openai-msg'].textContent, /cd34/);
 
@@ -240,7 +250,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   // reverse transition frPaintSubscription's own tests already hold Claude
   // to ("AND BACK AGAIN"); caught missing here in challenge-loop iteration 1.
   els = makeEls();
-  els['fr-openai-connect'] = { textContent: 'Connected', disabled: true };
+  Object.assign(els['fr-openai-connect'], { textContent: 'Connected', disabled: true });
   els['fr-openai-flow'] = { hidden: true };
   const emptyFetch = async () => ({ ok: true, json: async () => ({ accounts: [] }) });
   // eslint-disable-next-line no-new-func
@@ -255,7 +265,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   // A read FAILURE, by contrast, is not a "no" -- the row must stay exactly
   // as it was (never turn "we could not tell" into "no", #881's contract).
   els = makeEls();
-  els['fr-openai-connect'] = { textContent: 'Connected', disabled: true };
+  Object.assign(els['fr-openai-connect'], { textContent: 'Connected', disabled: true });
   els['fr-openai-flow'] = { hidden: true };
   const failFetch = async () => ({ ok: false });
   // eslint-disable-next-line no-new-func
