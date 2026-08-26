@@ -1,14 +1,27 @@
 'use strict';
 
 /**
- * The installer refuses a Mac with no Claude Code, in a named sentence
- * (#133), instead of finishing and leaving an agent that never starts.
+ * The installer OBSERVES Claude Code and installs nothing (#979, Josh's
+ * ruling 2026-08-26 10:32: "we're not forcing people to have Claude Code as
+ * part of the installer").
  *
- * Runs the SHIPPED gate, lifted from setup.sh the way install.tmux-pick
- * lifts the picker: a restatement here would pass while the installer
- * drifted. The three states each get a case, and the two that look
- * identical from a Terminal (absent vs installed-elsewhere) are proven to
- * produce DIFFERENT sentences, which is the card's whole point.
+ * 🛑 THIS FILE USED TO ASSERT THE OPPOSITE, and deliberately so: under #548
+ * ("let's carry and just install now", 2026-08-24) the installer downloaded
+ * Claude Code and REFUSED the whole install if that failed, and these tests
+ * pinned it. Both rulings are Josh's; the newer one wins, and the assertions
+ * move with the product the way they moved into it two days ago.
+ *
+ * ⭐ THE HEADLINE CASE IS NOW THE ONE THAT USED TO FAIL: a Mac with no Claude
+ * Code must COMPLETE the install. As shipped before this branch, an
+ * OpenAI-only person could not get through it at all.
+ *
+ * Runs the SHIPPED function, lifted from setup.sh the way install.tmux-pick
+ * lifts the picker: a restatement here would pass while the installer drifted.
+ *
+ * ⚠️ AND THE STRONGEST ASSERTION IN THE FILE IS A NEGATIVE ONE. Every case
+ * points the retired install URL at a stub that WOULD land a runnable claude
+ * if anything still called it, then asserts nothing landed. A test that only
+ * checked the sentences would pass against a function that still downloaded.
  */
 
 const test = require('node:test');
@@ -21,12 +34,34 @@ const { execFileSync } = require('node:child_process');
 const SETUP = fs.readFileSync(nodePath.join(__dirname, 'install', 'setup.sh'), 'utf8');
 
 function gate() {
-  const at = SETUP.indexOf('check_claude_code() {');
-  assert.notEqual(at, -1, 'the gate moved or was renamed; re-point this test');
-  const end = SETUP.indexOf('\ncheck_claude_code\n', at);
-  assert.notEqual(end, -1, 'the gate is defined and never called');
-  return SETUP.slice(at, end + '\ncheck_claude_code\n'.length);
+  const at = SETUP.indexOf('note_claude_code() {');
+  assert.notEqual(at, -1, 'the function moved or was renamed; re-point this test');
+  const end = SETUP.indexOf('\nnote_claude_code\n', at);
+  assert.notEqual(end, -1, 'it is defined and never called');
+  return SETUP.slice(at, end + '\nnote_claude_code\n'.length);
 }
+
+/* The retired mechanism must not come back by accident: a re-added gate is a
+   silent return to force-installing Claude Code on every Mac.
+
+   ⚠️ CODE LINES ONLY. The first version of this asserted the strings were
+   absent from the whole file and failed on the COMMENT that explains the
+   removal -- an explanation that names what it removed is not the thing
+   coming back. Comments are stripped before asking. */
+const CODE_LINES = SETUP.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+
+test('the force-install mechanism is gone from setup.sh, in code', () => {
+  assert.equal(CODE_LINES.includes('check_claude_code'), false,
+    'the old gate is back; the installer force-installs Claude Code again');
+  assert.equal(CODE_LINES.includes('claude.ai/install.sh'), false,
+    'the installer fetches the vendor installer again');
+  assert.equal(CODE_LINES.includes('AGENT_WORKFORCE_CLAUDE_INSTALL_URL'), false,
+    'the retired mirror override is being read again, which means something downloads');
+  // And the positive control, so the three assertions above are not vacuous:
+  // this file IS the installer and it DOES still look for Claude Code.
+  assert.ok(CODE_LINES.includes('note_claude_code'),
+    'setup.sh no longer mentions Claude Code at all, so the checks above prove nothing');
+});
 
 /* die/info from setup.sh are not lifted (they carry the whole logging
    apparatus); stubs with the same contract, refusal text on stderr and a
@@ -104,129 +139,78 @@ function run({ homeHasClaude, pathClaude, installer }) {
   }
 }
 
-test('present at the path Kosmos uses: proceeds, and says where it looked', () => {
-  const r = run({ homeHasClaude: true, pathClaude: false });
+test('present at the path Kosmos uses: says where it looked, changes nothing', () => {
+  const r = run({ homeHasClaude: true, pathClaude: false, installer: 'lands' });
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /Claude Code found at .*\.local\/bin\/claude/);
 });
 
-/* RESTATED for carry (#548, Josh's ruling 2026-08-24 11:06), not deleted:
-   the absent case now INSTALLS instead of refusing, and the assertions
-   moved with the product the way clean-machine's phase did. */
-test('genuinely absent: carries — says what it is doing, installs, and continues', () => {
+test('⭐ genuinely absent: the install COMPLETES, and nothing is downloaded', () => {
+  /* The case that used to install, and before that refused. It is the whole
+     point of the ruling: an OpenAI-only person gets through setup. */
   const r = run({ homeHasClaude: false, pathClaude: false, installer: 'lands' });
+  assert.equal(r.code, 0, r.err || 'a Mac with no Claude Code could not finish the install');
+  /* 🛑 AND IT SAYS NOTHING ABOUT CLAUDE CODE. Josh, 2026-08-26 14:59, on
+     being told about it before choosing a model: "Why the hell would I
+     install Claude Code? That doesn't make any sense." At this point in the
+     install nobody has picked a provider, so one provider's absence is not
+     news the installer gets to deliver. Kosmos raises it on the Connect step
+     for the provider actually chosen. */
+  assert.doesNotMatch(r.out, /Claude/,
+    'the installer mentions Claude Code to somebody who has not chosen a provider');
+  // 🛑 THE LOAD-BEARING ASSERTION. The stub installer would have landed a
+  // runnable claude if anything still called it.
+  assert.equal(fs.existsSync(nodePath.join(r.home, '.local', 'bin', 'claude')), false,
+    'something still installs Claude Code');
+  assert.doesNotMatch(r.out, /Installing it now/, 'the retired sentence is back');
+});
+
+test('installed elsewhere: named, NOT linked -- the engine links on Connect now', () => {
+  const r = run({ homeHasClaude: false, pathClaude: true, installer: 'lands' });
   assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /does not have it/, 'the state is named before anything happens');
-  assert.match(r.out, /Installing it now with Anthropic's own installer/, 'the carry is silent, which the card forbids');
-  assert.match(r.out, /Claude Code installed at /);
-  const landed = nodePath.join(r.home, '.local', 'bin', 'claude');
-  assert.ok(fs.existsSync(landed) && (fs.statSync(landed).mode & 0o100),
-    'the carry sentence appeared but nothing runnable landed');
+  assert.match(r.out, /Claude Code is installed at .*\/bin\/claude/);
+  assert.match(r.out, /will link it there when you choose Claude/);
+  /* engine/runners.js's vendor-external `linking` phase owns this now. The
+     installer doing it too is the same job in two places (#997), and a link
+     made here would also be a link nobody asked for. */
+  assert.equal(fs.existsSync(nodePath.join(r.home, '.local', 'bin', 'claude')), false,
+    'the installer linked it anyway');
 });
 
-test('a failed carry dies the way the old gate did: named, with the self-remedy, never a bare failure', () => {
-  const r = run({ homeHasClaude: false, pathClaude: false, installer: 'fails' });
-  assert.notEqual(r.code, 0, 'a failed carry completed the gate, building the agents-that-never-start machine');
-  assert.match(r.err, /We tried to install Claude Code and it did not work/);
-  assert.match(r.err, /claude\.com\/claude-code/, 'the refusal does not say what to do');
-});
-
-test('installed elsewhere: linked into place with a sentence, a DIFFERENT sentence than absent', () => {
-  const r = run({ homeHasClaude: false, pathClaude: true });
-  assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /is installed at .*\/bin\/claude, but Kosmos starts agents from/);
-  assert.match(r.out, /Linking it there now/);
-  assert.match(r.out, /Claude Code linked at /);
-  const link = nodePath.join(r.home, '.local', 'bin', 'claude');
-  assert.ok(fs.existsSync(link) && (fs.statSync(link).mode & 0o100),
-    'the link sentence appeared but nothing runnable is at the path');
-  /* The link the gate just CREATED must be accepted on the next run, or
-     every carry-linked machine gets re-linked (or worse) forever. Kept
-     from the old remedy-loop control, one step tighter: the state under
-     test is now the gate's own output, not a pasted remedy's. */
-  const linked = execFileSync('/bin/sh', ['-c', HARNESS + gate()], {
-    encoding: 'utf8',
-    env: { HOME: r.home, PATH: '/usr/bin:/bin', AGENT_WORKFORCE_CLAUDE_INSTALL_URL: 'file:///never-reached' },
-  });
-  assert.match(linked, /Claude Code found at /,
-    'the gate refuses the very link it created, so every linked machine loops');
-  assert.doesNotMatch(r.out, /Installing it now/,
-    'the two states that look identical from a Terminal took the same arm');
-});
-
-test('something present that cannot run gets its own sentence, never the false "nothing there"', () => {
-  /* A broken symlink (npm prefix moved) or a chmod-000 file at the path:
-     the elsewhere-remedy's pasted ln would fail on File exists, so this
-     state needs a different sentence and a remedy that works. */
+test('something present that cannot run: named, and the install still COMPLETES', () => {
+  /* A broken symlink (npm prefix moved) or a chmod-000 file at the path.
+     This used to die, taking the whole Kosmos install with it because one
+     provider's path was untidy. */
   const sb = sandbox();
   const home = nodePath.join(sb, 'home');
   fs.mkdirSync(nodePath.join(home, '.local', 'bin'), { recursive: true });
   fs.symlinkSync(nodePath.join(sb, 'moved-away'), nodePath.join(home, '.local', 'bin', 'claude'));
-  const bin = nodePath.join(sb, 'bin');
-  fs.mkdirSync(bin, { recursive: true });
-  const c = nodePath.join(bin, 'claude');
-  fs.writeFileSync(c, '#!/bin/sh\nexit 0\n'); fs.chmodSync(c, 0o755);
   const script = HARNESS + gate();
-  let code = 0; let out = '';
+  let code = 0; let out = ''; let err = '';
   try {
-    execFileSync('/bin/sh', ['-c', script], { encoding: 'utf8', env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` } });
+    out = execFileSync('/bin/sh', ['-c', script], { encoding: 'utf8', env: { HOME: home, PATH: '/usr/bin:/bin' } });
   } catch (e) {
-    code = e.status; out = String(e.stderr || '');
+    code = e.status; out = String(e.stdout || ''); err = String(e.stderr || '');
   }
-  assert.notEqual(code, 0, 'a path with an unrunnable claude completed the gate');
+  assert.equal(code, 0, err || 'an untidy Claude path still ends the whole install');
   assert.match(out, /cannot run \(a broken link, a folder, or a file without execute permission\)/);
-  assert.match(out, /rm -rf /, 'the remedy is not named, cannot handle every shape, or prompts on a mode-000 file');
+  assert.match(out, /rm -rf /, 'the remedy is not named');
   assert.doesNotMatch(out, /nothing there/, 'the false claim survived');
-  /* A working claude IS on PATH in this fixture, so the one-shot replace
-     remedy is the right sentence: rm then ln in one line. */
-  assert.match(out, /&& ln -s/, 'the one-shot replacement is not offered although a working claude is on PATH');
 });
 
-test('a DIRECTORY at the path is refused as unrunnable, never accepted', () => {
-  /* mode-755 directories pass a bare -x, and the first draft of this gate
-     accepted one: the install completed and every agent spawned from the
-     path failed to start, the exact #133 failure. No claude on PATH here,
-     so the plain remove remedy is the sentence, and rm -r is the form
-     that works on a folder. */
+test('a DIRECTORY at the path is named as unrunnable, and still does not end the install', () => {
+  /* mode-755 directories pass a bare -x, the #133 trap. The -f half still
+     catches it; what changed is that it no longer stops everything. */
   const sb = sandbox();
   const home = nodePath.join(sb, 'home');
   fs.mkdirSync(nodePath.join(home, '.local', 'bin', 'claude'), { recursive: true });
   const script = HARNESS + gate();
-  let code = 0; let out = '';
+  let code = 0; let out = ''; let err = '';
   try {
-    execFileSync('/bin/sh', ['-c', script], { encoding: 'utf8', env: { HOME: home, PATH: '/usr/bin:/bin' } });
+    out = execFileSync('/bin/sh', ['-c', script], { encoding: 'utf8', env: { HOME: home, PATH: '/usr/bin:/bin' } });
   } catch (e) {
-    code = e.status; out = String(e.stderr || '');
+    code = e.status; out = String(e.stdout || ''); err = String(e.stderr || '');
   }
-  assert.notEqual(code, 0, 'a directory at the path completed the gate');
-  assert.match(out, /a folder, or a file without execute permission/);
-  assert.match(out, /rm -rf /, 'the remedy would fail verbatim on a folder, or prompt on a mode-000 file');
-  assert.doesNotMatch(out, /&& ln -s/, 'the replace remedy was offered with nothing to link');
-
-  /* And a symlink TO a directory is refused the same way, with rm -rf
-     removing only the link (the -f follows the link for the accept test,
-     so this is the second half of that comment, pinned). */
-  const sb2 = sandbox();
-  const home3 = nodePath.join(sb2, 'home');
-  fs.mkdirSync(nodePath.join(home3, '.local', 'bin'), { recursive: true });
-  const dirTarget = nodePath.join(sb2, 'a-directory');
-  fs.mkdirSync(dirTarget);
-  fs.symlinkSync(dirTarget, nodePath.join(home3, '.local', 'bin', 'claude'));
-  let code3 = 0;
-  try {
-    execFileSync('/bin/sh', ['-c', HARNESS + gate()], { encoding: 'utf8', env: { HOME: home3, PATH: '/usr/bin:/bin' } });
-  } catch (e) { code3 = e.status; }
-  assert.notEqual(code3, 0, 'a symlink to a directory was accepted as runnable');
-});
-
-test('the env override is honored, so sandboxed installs can point at a fixture', () => {
-  const sb = sandbox();
-  const fake = nodePath.join(sb, 'claude');
-  fs.writeFileSync(fake, '#!/bin/sh\nexit 0\n'); fs.chmodSync(fake, 0o755);
-  const script = HARNESS + gate();
-  const out = execFileSync('/bin/sh', ['-c', script], {
-    encoding: 'utf8',
-    env: { HOME: nodePath.join(sb, 'nohome'), PATH: '/usr/bin:/bin', AGENT_WORKFORCE_CLAUDE_BIN: fake },
-  });
-  assert.match(out, /Claude Code found at /);
+  assert.equal(code, 0, err || 'a folder at the runner path still ends the whole install');
+  assert.match(out, /cannot run/);
 });
