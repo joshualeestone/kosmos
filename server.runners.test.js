@@ -124,3 +124,19 @@ test('#979: Add with the runner present passes the runner gate (no needsRunner i
     process.env.AGENT_WORKFORCE_CODEX_BIN = MISSING_CODEX;
   }
 });
+
+test('#979: claude is listed beside openai with the documented shape (vendor-installer kind)', async () => {
+  const got = await req('/api/runners');
+  assert.equal(got.status, 200);
+  const r = json(got).runners;
+  assert.ok(r.claude, 'the claude runner is listed');
+  // The harness sets AGENT_WORKFORCE_CLAUDE_BIN=/bin/echo, the same
+  // authoritative override create.js's suites rely on, so present is true
+  // and the bin names the operator-set path.
+  assert.equal(r.claude.present, true);
+  assert.equal(r.claude.bin, '/bin/echo');
+  // A vendor-installer entry makes NO pinned-version claim and invents no
+  // download size: the vendor's script installs the vendor's latest.
+  assert.equal(r.claude.pinnedVersion, undefined);
+  assert.equal(r.claude.downloadBytes, null);
+});

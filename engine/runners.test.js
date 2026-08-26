@@ -370,3 +370,149 @@ test('#979: status reports the manifest facts and the honest null for an unmeasu
   assert.ok(s.openai.downloadBytes === null || typeof s.openai.downloadBytes === 'number');
   assert.equal(typeof s.openai.present, 'boolean');
 });
+
+/* ---- the Claude (vendor-installer) kind, #979 branch A ---------------- */
+
+const CLAUDE_HOME = nodePath.join(SANDBOX, 'claude-home');
+const CANONICAL = nodePath.join(CLAUDE_HOME, '.local', 'bin', 'claude');
+
+test('#979: claude resolution is env-authoritative, then the vendor canonical path, sandboxed via AGENT_WORKFORCE_HOME', () => {
+  delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
+  try {
+    // Nothing anywhere: the canonical path is named, absent.
+    let r = runners.resolveBin('claude');
+    assert.deepEqual(r, { bin: CANONICAL, present: false, managed: false, overridden: false });
+    // Canonical present.
+    put(CANONICAL);
+    r = runners.resolveBin('claude');
+    assert.deepEqual(r, { bin: CANONICAL, present: true, managed: false, overridden: false });
+    // Env override is authoritative, present or not.
+    const envClaude = nodePath.join(SANDBOX, 'env', 'claude');
+    process.env.AGENT_WORKFORCE_CLAUDE_BIN = envClaude;
+    r = runners.resolveBin('claude');
+    assert.deepEqual(r, { bin: envClaude, present: false, managed: false, overridden: true });
+    put(envClaude);
+    r = runners.resolveBin('claude');
+    assert.deepEqual(r, { bin: envClaude, present: true, managed: false, overridden: true });
+  } finally {
+    delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    delete process.env.AGENT_WORKFORCE_HOME;
+    fs.rmSync(CANONICAL, { force: true });
+  }
+});
+
+test('#979: the vendor-installer happy path walks installing, proving, installed, with the log recorded and no invented numbers', async () => {
+  runners.resetForTests();
+  delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
+  try {
+    const job = runners.install('claude', {
+      findElsewhere: () => null,
+      runInstaller: (url, logFile, done) => {
+        fs.writeFileSync(logFile, 'installed ok\n');
+        put(CANONICAL, '#!/bin/sh\necho claude 9.9\n');
+        done(null);
+      },
+      prove: (bin, done) => done(null, 'claude 9.9\n'),
+    });
+    await job.settled;
+    assert.equal(job.phase, 'installed', job.because || '');
+    assert.equal(job.proved, 'claude 9.9');
+    assert.ok(job.log, 'the installer log path rides in the job');
+    assert.equal(job.receivedBytes, null, 'no byte counts are invented for a script that reports none');
+  } finally {
+    delete process.env.AGENT_WORKFORCE_HOME;
+    fs.rmSync(CANONICAL, { force: true });
+  }
+});
+
+test('#979: a failed vendor install is a JOB ANSWER naming the log, never a death', async () => {
+  runners.resetForTests();
+  delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
+  try {
+    const job = runners.install('claude', {
+      findElsewhere: () => null,
+      runInstaller: (url, logFile, done) => { fs.writeFileSync(logFile, 'curl: (22) 404\n'); done(new Error('exit 22')); },
+      prove: () => { throw new Error('prove must never run after a failed installer'); },
+    });
+    await job.settled;
+    assert.equal(job.phase, 'failed');
+    assert.match(job.because, /installer did not finish/);
+    assert.match(job.because, /its log is at/);
+  } finally {
+    delete process.env.AGENT_WORKFORCE_HOME;
+  }
+});
+
+test('#979: an installer that finishes but lands nothing is failed naming the canonical path', async () => {
+  runners.resetForTests();
+  delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
+  try {
+    const job = runners.install('claude', {
+      findElsewhere: () => null,
+      runInstaller: (url, logFile, done) => { fs.writeFileSync(logFile, 'said ok, did nothing\n'); done(null); },
+      prove: () => { throw new Error('prove must never run on nothing'); },
+    });
+    await job.settled;
+    assert.equal(job.phase, 'failed');
+    assert.match(job.because, /nothing landed at/);
+  } finally {
+    delete process.env.AGENT_WORKFORCE_HOME;
+  }
+});
+
+test('#979: a claude found elsewhere is LINKED, not downloaded, and a failed prove takes the link down', async () => {
+  runners.resetForTests();
+  delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
+  const elsewhere = nodePath.join(SANDBOX, 'elsewhere', 'claude');
+  put(elsewhere, '#!/bin/sh\necho claude 8.8\n');
+  try {
+    const job = runners.install('claude', {
+      findElsewhere: () => elsewhere,
+      runInstaller: () => { throw new Error('a link case must not download'); },
+      prove: (bin, done) => done(null, 'claude 8.8'),
+    });
+    await job.settled;
+    assert.equal(job.phase, 'installed', job.because || '');
+    assert.equal(job.linked, elsewhere);
+    assert.equal(fs.readlinkSync(CANONICAL), elsewhere, 'the canonical path is a link to the found install');
+
+    // And the teardown: a link whose prove fails must come down.
+    runners.resetForTests();
+    fs.rmSync(CANONICAL, { force: true });
+    const bad = runners.install('claude', {
+      findElsewhere: () => elsewhere,
+      runInstaller: () => { throw new Error('a link case must not download'); },
+      prove: (bin, done) => done(new Error('exec format error')),
+    });
+    await bad.settled;
+    assert.equal(bad.phase, 'failed');
+    assert.equal(fs.existsSync(CANONICAL), false, 'a broken link must not read as present');
+  } finally {
+    delete process.env.AGENT_WORKFORCE_HOME;
+    fs.rmSync(CANONICAL, { force: true });
+  }
+});
+
+test('#979: the arch guard does not apply to the vendor-installer kind', async () => {
+  runners.resetForTests();
+  delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
+  try {
+    const job = runners.install('claude', {
+      arch: 'x64', // would refuse the tarball kind; the vendor script picks its own artifact
+      findElsewhere: () => null,
+      runInstaller: (url, logFile, done) => { fs.writeFileSync(logFile, ''); done(new Error('stop here')); },
+    });
+    await job.settled;
+    assert.equal(job.phase, 'failed');
+    assert.doesNotMatch(job.because, /arm64|x64/, 'the refusal must not be an arch refusal');
+    assert.match(job.because, /installer did not finish/);
+  } finally {
+    delete process.env.AGENT_WORKFORCE_HOME;
+  }
+});
