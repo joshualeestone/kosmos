@@ -2507,23 +2507,24 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/api/accounts' && (req.method === 'GET' || req.method === 'HEAD')) {
     /* Every provider's accounts in one list (#540), each row saying which
-       provider it belongs to. The Claude rows are accounts.listLive() (#881:
-       each row's connection confirmed live with Anthropic via `claude auth
-       status`, not just the saved config's shape) plus the provider fields;
-       the OpenAI rows come from their own module.
+       provider it belongs to. Both the Claude rows (accounts.listLive(),
+       #881) and the OpenAI rows (openaiAccounts.listLive(), #960) carry a
+       real, live-checked `connection` field, not just what a saved local
+       file's shape implies -- one badge vocabulary, one meaning, across
+       providers.
        ⚠️ listLive(), NOT list(): this route is the one place a live,
        per-account check is safe to pay for -- it fires on a deliberate
        Settings > Accounts open, never the 5-second status tick (which still
        calls the plain, fast list() elsewhere in this file, untouched).
        ⚠️ HEAD SKIPS THE LIVE CHECK. Nothing in web/index.html sends one
        today, but a HEAD is conventionally cheap/side-effect-light, and
-       nothing about it needs a per-account subprocess call to answer --
-       it only asks whether the route is there. */
+       nothing about it needs a per-account subprocess/network call to
+       answer -- it only asks whether the route is there. */
     if (req.method === 'HEAD') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(); return; }
-    accounts.listLive()
-      .then((rows) => {
-        const claude = rows.map((a) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', ...a }));
-        sendJson(res, 200, { accounts: [...claude, ...openaiAccounts.list()] });
+    Promise.all([accounts.listLive(), openaiAccounts.listLive()])
+      .then(([claudeRows, openaiRows]) => {
+        const claude = claudeRows.map((a) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', ...a }));
+        sendJson(res, 200, { accounts: [...claude, ...openaiRows] });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;

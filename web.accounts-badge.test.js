@@ -1,12 +1,13 @@
 'use strict';
 
 /**
- * Settings > Accounts' Connected badge is computed, never hardcoded (#881):
- * the static markup used to say "Connected" for every account row
- * unconditionally, regardless of any real check. Same source-pattern style
- * as web.conn-live.test.js -- asserting on the function's own source text,
- * not executing its full DOM/fetch dependency chain, matching this file's
- * established convention for testing web/index.html's paint functions.
+ * Settings > Accounts' Connected badge is computed, never hardcoded (#881,
+ * then #960 for the OpenAI provider): the static markup used to say
+ * "Connected" for every account row unconditionally, regardless of any
+ * real check. Same source-pattern style as web.conn-live.test.js --
+ * asserting on the function's own source text, not executing its full
+ * DOM/fetch dependency chain, matching this file's established convention
+ * for testing web/index.html's paint functions.
  *
  *   node --test web.accounts-badge.test.js
  */
@@ -41,11 +42,11 @@ test('paintAccounts() renders three real states, not one hardcoded one', () => {
   assert.match(fn, /title="'\s*\+\s*esc\(unknownWhy\)\s*\+\s*'"[^<]*<span class="dot"[^<]*<\/span>'\s*\+\s*esc\(unknownWhy\)/,
     'the unknown badge does not show the same because-sentence as both title and visible text');
 
-  // OpenAI rows are explicitly out of scope for #881 (no live check exists
-  // for that provider) and must keep the unconditional badge -- a
-  // regression here would silently claim a live check that was never run.
-  assert.match(fn, /isOpenai \? '<span class="acct-connected">/,
-    'the OpenAI-row unconditional badge (deliberately out of #881\'s scope) is gone');
+  // OpenAI rows carry a real connection field too (#960), so the ternary
+  // must NOT branch on provider any more -- a regression here would bring
+  // back the exact pre-#960 hardcoded-Connected shape for that provider.
+  assert.doesNotMatch(fn, /isOpenai \? '<span class="acct-connected">/,
+    'the OpenAI-row unconditional badge is back -- #960 regressed');
 
   // The epoch guard (challenge-loop iteration 2, a real race once this
   // route stopped being an instant read) must still be present.

@@ -21,6 +21,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const subscription = require('./subscription');
 
 const HOME = process.env.AGENT_WORKFORCE_HOME || os.homedir();
 const PROVIDER = 'openai';
@@ -43,13 +44,31 @@ function authFile(dir) {
   return path.join(path.resolve(String(dir || '')), 'auth.json');
 }
 
-/** What codex wrote about who this is; null when nobody is signed in here. */
-function identityOf(dir) {
+/**
+ * The one read of auth.json, shared by identityOf() and checkLive() so
+ * "the file is absent" and "the file is present but corrupted/unreadable"
+ * stay two DIFFERENT facts everywhere in this module, not just where it
+ * happened to matter first -- the same distinction subscription.js's own
+ * readConfig() draws (absent -> a real NONE; unreadable -> UNKNOWN, never
+ * silently folded into the same negative). Caught in challenge-loop
+ * iteration 1: checkLive()'s first version treated both the same way,
+ * which is exactly the asymmetry this module's own header rules against.
+ */
+function readAuthFile(dir) {
   let raw;
-  try { raw = fs.readFileSync(authFile(dir), 'utf8'); } catch { return null; }
+  try { raw = fs.readFileSync(authFile(dir), 'utf8'); } catch { return { kind: 'absent' }; }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { return null; }
-  if (!parsed || typeof parsed !== 'object') return null;
+  try { parsed = JSON.parse(raw); } catch { return { kind: 'unreadable' }; }
+  if (!parsed || typeof parsed !== 'object') return { kind: 'unreadable' };
+  return { kind: 'ok', data: parsed };
+}
+
+/** Pure: turns an already-parsed auth.json object into an identity, or null
+    if its shape is not one this module recognises. No I/O -- callers that
+    already have `readAuthFile()`'s parsed data (checkLive()) use this
+    directly instead of re-reading the file identityOf() would otherwise
+    read a second time. */
+function identityFromData(parsed) {
   const mode = typeof parsed.auth_mode === 'string' ? parsed.auth_mode : null;
   const key = typeof parsed.OPENAI_API_KEY === 'string' ? parsed.OPENAI_API_KEY : '';
   if (mode === 'apikey' || (!mode && key)) {
@@ -68,6 +87,14 @@ function identityOf(dir) {
     return { authMode: 'chatgpt', email, keyTail: null };
   }
   return null;
+}
+
+/** What codex wrote about who this is; null when nobody is signed in here,
+    or when auth.json exists but is unreadable/unrecognized. */
+function identityOf(dir) {
+  const got = readAuthFile(dir);
+  if (got.kind !== 'ok') return null;
+  return identityFromData(got.data);
 }
 
 function rowFor(dir, isDefault) {
@@ -170,4 +197,156 @@ function addWithKey({ key, label, codexBin }) {
   return { ok: true, account: row };
 }
 
-module.exports = { list, identityOf, addWithKey, nextWorkDir, defaultDir, PROVIDER, PROVIDER_NAME, HOME_FOR_TEST: HOME };
+/* ── live check (#960) ───────────────────────────────────────────────────
+   `codex login status` is LOCAL ONLY -- verified by pointing CODEX_HOME at a
+   directory holding a fabricated, never-valid key and getting "Logged in
+   using an API key" back anyway. It cannot be this module's live check.
+   A raw apikey-mode key can be verified directly against OpenAI's own API
+   (GET /v1/models, the standard cheap verification call: 200 for a working
+   key, 401 for a rejected one), so this module gets its own real live check
+   rather than trusting the shape of a local file -- the exact #881/#959
+   discipline, applied to the other provider. Own fetcher seam, matching
+   tokendoor.js's and subscription.js's per-module convention: each external
+   I/O boundary in this codebase is independently controllable in tests. */
+let fetcher = null;
+function setFetcher(fn) { fetcher = typeof fn === 'function' ? fn : null; }
+
+async function askModels(key) {
+  const f = fetcher || (async (url, init) => {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 8000);
+    try {
+      const res = await fetch(url, { ...init, signal: ctl.signal });
+      let body = null;
+      try { body = await res.json(); } catch { body = null; }
+      return { status: res.status, body };
+    } finally { clearTimeout(t); }
+  });
+  try {
+    return await f('https://api.openai.com/v1/models', { method: 'GET', headers: { authorization: 'Bearer ' + key } });
+  } catch (err) {
+    /* ⚠️ NO RAW err.message HERE -- the same rule subscription.js's checkLive()
+       is built on: a raw network/fetch error can carry anything (a DNS
+       failure string, a stack fragment, a proxy's own error page), and this
+       module's whole reason for existing is sentences a non-technical
+       person can read. Caught by this file's own test before it ever
+       shipped, not by review. */
+    return { status: 0, body: null, unreachable: true, because: 'we could not reach OpenAI to check whether this key still works' };
+  }
+}
+
+/**
+ * `identityOf()`'s file-read answer, but confirmed live with OpenAI.
+ *
+ * @returns {Promise<{state: string, plan: null, because: string, checkedLive: true}>}
+ */
+async function checkLive(dir) {
+  const STATE = subscription.STATE;
+  const got = readAuthFile(dir);
+  /* ⚠️ ABSENT AND UNREADABLE ARE TWO DIFFERENT FACTS. No file at all is a
+     real, positively confirmed NONE -- nobody has ever signed in here. A
+     file that exists but does not parse (corrupted, half-written, a future
+     codex version writing a shape this file cannot read) is UNKNOWN: we
+     genuinely cannot tell, and asserting NONE for it would be exactly the
+     false negative this whole feature exists to prevent. */
+  if (got.kind === 'absent') {
+    return { state: STATE.NONE, plan: null, checkedLive: true, because: 'nobody has signed in to this account yet' };
+  }
+  if (got.kind === 'unreadable') {
+    return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: 'we could not read this account\'s settings' };
+  }
+  // identityFromData(), not identityOf(dir): identityOf() would re-read and
+  // re-parse the SAME file readAuthFile() already read above into `got` --
+  // caught in challenge-loop iteration 2, both as needless I/O and as a
+  // narrow TOCTOU (the file could change between the two reads, so a
+  // decision already made from `got` could silently disagree with a second,
+  // independent read of it).
+  const who = identityFromData(got.data);
+  if (!who) {
+    // The file parses, but not into a shape this module recognises (an
+    // auth_mode neither apikey nor chatgpt, or an apikey entry with no
+    // usable key) -- unrecognised, not absent, so this is UNKNOWN too.
+    return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: 'we could not find a usable sign-in in this account\'s settings' };
+  }
+  if (who.authMode !== 'apikey') {
+    /* ⚠️ UNKNOWN, NOT NONE, AND NOT A GUESSED CONNECTED EITHER. codex's
+       ChatGPT-mode auth hands us an id_token (an identity claim), not a
+       bearer credential usable against OpenAI's API the way apikey mode's
+       raw key is -- there is no real live check to run here yet. Saying so
+       honestly is the whole point of this fix: a badge this codebase cannot
+       actually verify must never claim it did. */
+    return {
+      state: STATE.UNKNOWN, plan: null, checkedLive: true,
+      because: 'this sign-in method is not yet checked live; it may or may not still work',
+    };
+  }
+  // The key, from the SAME parsed read readAuthFile() already did above --
+  // no second file read anywhere in this function any more.
+  const key = got.data.OPENAI_API_KEY;
+  if (typeof key !== 'string' || !key) {
+    return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: 'we could not read this account\'s key to check it' };
+  }
+  const r = await askModels(key);
+  if (r.unreachable) {
+    return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: r.because };
+  }
+  if (r.status === 200) {
+    return { state: STATE.CONNECTED, plan: null, checkedLive: true, because: 'OpenAI confirmed this key still works' };
+  }
+  if (r.status === 401 || r.status === 403) {
+    /* ⚠️ A 401/403 IS NOT ALWAYS "THE KEY IS BAD". Caught in challenge-loop
+       iteration 2: an OpenAI project key can be scoped/restricted in the
+       dashboard and legitimately lack permission to LIST models while still
+       being fully valid for everything an agent actually does with it --
+       that also answers 401/403 here, for a permissions reason, not a
+       revoked-key reason. Only OpenAI's own `invalid_api_key` error code is
+       a POSITIVE confirmation the key itself is rejected; anything else
+       shaped like a 401/403 is an honest "we asked and got refused, but
+       cannot confirm the key is bad" -- UNKNOWN, not a guessed NONE. This
+       is the same asymmetry rule as everywhere else in this module, applied
+       to a response body's error code instead of a missing/corrupt file. */
+    const code = r.body && r.body.error && typeof r.body.error.code === 'string' ? r.body.error.code : null;
+    if (code === 'invalid_api_key') {
+      return { state: STATE.NONE, plan: null, checkedLive: true, because: 'OpenAI did not accept this key' };
+    }
+    return {
+      state: STATE.UNKNOWN, plan: null, checkedLive: true,
+      because: 'OpenAI refused to check this key in a way that does not confirm the key itself is bad',
+    };
+  }
+  return {
+    state: STATE.UNKNOWN, plan: null, checkedLive: true,
+    because: 'we asked OpenAI whether this key still works and it answered ' + (r.status || 'nothing usable'),
+  };
+}
+
+/** Every OpenAI account, live-checked. One bad row's own failure cannot sink
+    the others -- caught individually, falling back to UNKNOWN, never a
+    false NONE. Mirrors accounts.listLive()'s exact contract. */
+async function listLive() {
+  const rows = list();
+  return Promise.all(rows.map(async (row) => {
+    try {
+      // Through module.exports, not the bare local name: this is what lets
+      // a test monkey-patch checkLive() to exercise listLive()'s OWN catch
+      // below specifically, rather than checkLive()'s internal one (which
+      // never rejects by contract) -- the same self-reference #881's
+      // accounts.js/subscription.js pair relies on, applied within one file
+      // since this module has no separate consumer to require it through.
+      return { ...row, connection: await module.exports.checkLive(row.dir) };
+    } catch {
+      return {
+        ...row,
+        connection: {
+          state: subscription.STATE.UNKNOWN, plan: null, checkedLive: true,
+          because: 'we could not check this account just now',
+        },
+      };
+    }
+  }));
+}
+
+module.exports = {
+  list, identityOf, addWithKey, nextWorkDir, defaultDir, PROVIDER, PROVIDER_NAME, HOME_FOR_TEST: HOME,
+  checkLive, listLive, setFetcher,
+};
