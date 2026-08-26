@@ -28,11 +28,12 @@
  *      real progress bar and a real "done" instead of a spinner over a
  *      mystery.
  *
- * ⚠️ The Claude question is deliberately NOT answered here. Whether
- * Claude Code joins this provider shape or stays a platform install is an
- * open ruling of Josh's (asked 2026-08-26 09:48, both branches held on
- * #979). The manifest is shaped so either answer is an entry, not a
- * rewrite.
+ * Claude's place here is RULED but not yet built: Josh (2026-08-26 10:32,
+ * on #979) classed Claude Code as a provider like the others, superseding
+ * the installer's up-front install. The Claude conversion (its manifest
+ * entry, the installer change, the die() path replaced by an in-flow
+ * failure) is the follow-up branch on that card; this module's manifest
+ * shape is what it slots into.
  */
 
 const fs = require('fs');
@@ -79,6 +80,7 @@ const MANIFEST = Object.assign(Object.create(null), {
   openai: {
     name: 'OpenAI runner',
     version: '0.149.1',
+    arch: 'arm64',
     url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-darwin-arm64.tgz',
     integrity: 'sha512-6X84kTCbnTgPIJ2EdcPsrvwS0Wxsqpa+bCswGmRf4BjhcQ5nPMnBC6yCAaCMj+vrbXQHj+L6sa9FaR4QkmA1qw==',
     binInPackage: 'vendor/aarch64-apple-darwin/bin/codex',
@@ -122,21 +124,24 @@ function managedRoot() {
  *   3. the legacy Homebrew path, for the Macs that hand-installed codex
  *      before this machinery existed
  *
- * Returns { bin, present, managed }. With the override set, `bin` is the
- * override and `present` is whether it exists. Otherwise `bin` is the
- * first existing of managed-then-legacy, or the managed path when nothing
- * exists anywhere (so callers always get the place an install would land,
- * never '').
+ * Returns { bin, present, managed, overridden }. With the override set,
+ * `bin` is the override, `present` is whether it exists, and `overridden`
+ * is true. Otherwise `bin` is the first existing of managed-then-legacy,
+ * or the managed path when nothing exists anywhere (so callers always
+ * get the place an install would land, never '').
  */
 function resolveBin(provider, opts) {
-  if (provider !== 'openai') return { bin: null, present: false, managed: false };
+  if (provider !== 'openai') return { bin: null, present: false, managed: false, overridden: false };
   // An operator-set override is AUTHORITATIVE, not a candidate: when the
   // env names a path, that path is the answer, present or not -- so every
   // downstream message names the path the operator actually set instead
   // of silently falling through to a default they never chose. (This is
   // also what makes the missing-runner route deterministically testable.)
+  // `overridden` travels with the answer so install()'s masking guard
+  // keys on the RESOLVER'S knowledge rather than re-deriving which env
+  // var belongs to which provider.
   const envBin = process.env.AGENT_WORKFORCE_CODEX_BIN;
-  if (envBin) return { bin: envBin, present: fs.existsSync(envBin), managed: false };
+  if (envBin) return { bin: envBin, present: fs.existsSync(envBin), managed: false, overridden: true };
   const managed = path.join(managedRoot(), 'openai', MANIFEST.openai.binName);
   const candidates = [
     managed,
@@ -146,9 +151,9 @@ function resolveBin(provider, opts) {
     (opts && opts.legacyBin) || '/opt/homebrew/bin/codex',
   ];
   for (const c of candidates) {
-    if (fs.existsSync(c)) return { bin: c, present: true, managed: c === managed };
+    if (fs.existsSync(c)) return { bin: c, present: true, managed: c === managed, overridden: false };
   }
-  return { bin: managed, present: false, managed: true };
+  return { bin: managed, present: false, managed: true, overridden: false };
 }
 
 /**
@@ -212,8 +217,13 @@ function fileIntegrity(file) {
  * node:https only, resolves on completion, rejects on any error or any
  * non-200 terminal status.
  */
-function download(url, file, job, redirectsLeft) {
+function download(url, file, job, redirectsLeft, getter) {
   const left = redirectsLeft === undefined ? 5 : redirectsLeft;
+  // `getter` is the transport seam (https.get-shaped): the redirect,
+  // non-200, and cleanup branches are unit-tested through it with real
+  // Readable streams, since the production https-only shape would demand
+  // TLS fixtures for a live listener.
+  const get = getter || https.get;
   return new Promise((resolve, reject) => {
     // Hoisted so EVERY failure path can close BOTH ends: a rejected
     // promise that strands an open write stream leaks one fd per failed
@@ -225,10 +235,10 @@ function download(url, file, job, redirectsLeft) {
       if (reqRef) { try { reqRef.destroy(); } catch { /* already closed */ } }
       reject(err);
     };
-    const req = https.get(url, (res) => {
+    const req = get(url, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && left > 0) {
         res.resume();
-        resolve(download(new URL(res.headers.location, url).toString(), file, job, left - 1));
+        resolve(download(new URL(res.headers.location, url).toString(), file, job, left - 1, getter));
         return;
       }
       if (res.statusCode !== 200) {
@@ -298,21 +308,30 @@ function install(provider, opts) {
     return { phase: 'failed', because: `the ${provider} runner has a manifest entry but no resolution rule yet, so an install could never be seen; teach resolveBin about it first` };
   }
   if (existing.present) {
-    // Presence also retires a stale failed job (see status()). Byte
-    // counts are null, not zero, and NO version field at all: nothing
-    // was downloaded, nothing was proved, and the present binary may be
-    // a legacy install of any age -- claiming the pinned version here
+    // A completed job for THIS binary carries the truthful receipt
+    // (`proved`, real byte counts) -- hand that back rather than a
+    // synthetic. Otherwise: byte counts null, not zero, and NO version
+    // field at all -- nothing was downloaded, nothing was proved, and a
+    // present legacy binary may be any age; claiming the pinned version
     // would be the exact overclaim status() renamed its field to avoid.
+    if (jobs[provider] && jobs[provider].phase === 'installed') return jobs[provider];
     if (jobs[provider] && jobs[provider].phase === 'failed') delete jobs[provider];
     return { phase: 'installed', receivedBytes: null, totalBytes: null };
   }
-  // An authoritative env override naming a MISSING path would mask the
+  // An authoritative override naming a MISSING path would mask the
   // managed location this install stages into: the job would end
   // `installed` while every status read still answers absent, an
   // unwinnable loop that re-downloads on each Confirm. Refuse with the
-  // fix in hand instead.
-  if (process.env.AGENT_WORKFORCE_CODEX_BIN && provider === 'openai') {
-    return { phase: 'failed', because: `AGENT_WORKFORCE_CODEX_BIN is set to ${process.env.AGENT_WORKFORCE_CODEX_BIN}, which does not exist; unset it (or point it at a real runner) before installing` };
+  // fix in hand instead -- keyed on the resolver's own `overridden`
+  // flag, so the next provider's override is covered the day it exists.
+  if (existing.overridden) {
+    return { phase: 'failed', because: `an operator override points the ${provider} runner at ${existing.bin}, which does not exist; unset the override (or point it at a real runner) before installing` };
+  }
+  // Wrong hardware fails in seconds with the CAUSE, not in minutes at
+  // the prove step with a symptom: the pinned artifact is arch-specific.
+  const arch = o.arch || process.arch;
+  if (m.arch && arch !== m.arch) {
+    return { phase: 'failed', because: `the pinned ${m.name} build is ${m.arch} and this Mac is ${arch}; no download was attempted` };
   }
 
   const url = o.url || m.url;
@@ -489,4 +508,7 @@ function install(provider, opts) {
   return job;
 }
 
-module.exports = { MANIFEST, managedRoot, resolveBin, status, install };
+/** Test-only: forget every job receipt (the same shape connect.js ships). */
+function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
+
+module.exports = { MANIFEST, managedRoot, resolveBin, status, install, download, resetForTests };

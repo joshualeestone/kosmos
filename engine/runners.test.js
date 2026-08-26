@@ -95,12 +95,12 @@ test('#979: a prototype-chain name from a URL is refused like any unknown provid
   assert.equal(job.phase, 'failed');
   assert.match(job.because, /do not know/);
   const r = runners.resolveBin('constructor');
-  assert.deepEqual(r, { bin: null, present: false, managed: false });
+  assert.deepEqual(r, { bin: null, present: false, managed: false, overridden: false });
 });
 
 test('#979: an unknown provider resolves to nothing and installs to a refusal', () => {
   const r = runners.resolveBin('grok');
-  assert.deepEqual(r, { bin: null, present: false, managed: false });
+  assert.deepEqual(r, { bin: null, present: false, managed: false, overridden: false });
   const job = runners.install('grok');
   assert.equal(job.phase, 'failed');
   assert.match(job.because, /do not know/);
@@ -226,10 +226,57 @@ test('#979: an env override naming a missing path refuses install instead of sta
       download: () => { throw new Error('no bytes may move behind a masking override'); },
     });
     assert.equal(job.phase, 'failed');
-    assert.match(job.because, /AGENT_WORKFORCE_CODEX_BIN is set to .*gone-codex/);
+    assert.match(job.because, /operator override points the openai runner at .*gone-codex/);
   } finally {
     delete process.env.AGENT_WORKFORCE_CODEX_BIN;
   }
+});
+
+test('#979: the wrong CPU architecture is refused before a byte moves, naming the cause', () => {
+  const job = runners.install('openai', {
+    legacyBin: LEGACY,
+    arch: 'x64',
+    download: () => { throw new Error('no bytes may move for the wrong architecture'); },
+  });
+  assert.equal(job.phase, 'failed');
+  assert.match(job.because, /build is arm64 and this Mac is x64/);
+  assert.match(job.because, /no download was attempted/);
+});
+
+test('#979: the real download function follows a redirect, and refuses non-200 and redirect storms', async () => {
+  const { Readable } = require('node:stream');
+  const { EventEmitter } = require('node:events');
+  const fakeReq = () => { const r = new EventEmitter(); r.setTimeout = () => {}; r.destroy = () => {}; return r; };
+  const respond = (cb, res) => { const q = fakeReq(); setImmediate(() => cb(res)); return q; };
+  const body = (status, headers, chunks) => {
+    const s = Readable.from(chunks || []);
+    s.statusCode = status; s.headers = headers || {};
+    s.resume = s.resume.bind(s);
+    return s;
+  };
+  const dest = nodePath.join(SANDBOX, 'dl-out');
+
+  // One redirect, then bytes: the file lands and counts are reported.
+  let calls = 0;
+  const job1 = { receivedBytes: 0, totalBytes: null };
+  await runners.download('https://x.invalid/a', dest, job1, undefined, (url, cb) => {
+    calls += 1;
+    if (calls === 1) return respond(cb, body(302, { location: 'https://x.invalid/b' }));
+    return respond(cb, body(200, { 'content-length': '5' }, [Buffer.from('hello')]));
+  });
+  assert.equal(fs.readFileSync(dest, 'utf8'), 'hello');
+  assert.equal(job1.receivedBytes, 5);
+  assert.equal(job1.totalBytes, 5);
+
+  // A non-200 terminal answer rejects with the status named.
+  await assert.rejects(
+    () => runners.download('https://x.invalid/nope', dest, { receivedBytes: 0 }, undefined, (url, cb) => respond(cb, body(404))),
+    /the download answered 404/);
+
+  // A redirect storm exhausts the valve and rejects rather than looping.
+  await assert.rejects(
+    () => runners.download('https://x.invalid/loop', dest, { receivedBytes: 0 }, undefined, (url, cb) => respond(cb, body(302, { location: 'https://x.invalid/loop' }))),
+    /the download answered 302/);
 });
 
 test('#979: a manifest entry the resolver cannot answer is refused loudly, never downloaded invisibly', () => {
@@ -298,6 +345,10 @@ test('#979: the FIRST install on a fresh machine works, no directory pre-created
 });
 
 test('#979: the already-present answer claims no version, nothing was downloaded or proved', () => {
+  // This test is about a binary Kosmos did NOT install (hand-placed);
+  // forget prior tests' job receipts so their truthful installed job
+  // cannot stand in for it.
+  runners.resetForTests();
   put(MANAGED);
   try {
     const job = runners.install('openai', { legacyBin: LEGACY });
