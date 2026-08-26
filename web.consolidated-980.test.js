@@ -319,8 +319,17 @@ test('the remaining #980 rulings each keep their pin', () => {
     'the header description no longer truncates to one line');
   assert.match(PAGE, /desc\.title = p\.description \|\| ''/,
     'the truncated description lost its full-text hover (the title the truncation comment promises)');
-  assert.match(PAGE, new RegExp(cons + ' \\.pjmid \\.composerbox textarea\\.cinput \\{ scrollbar-width: none; -ms-overflow-style: none; \\}'),
-    'the composer textarea shows its scrollbar track again');
+  /* kosmos#1006 moved this from the consolidated-scoped selector to the base
+     `.cinput` rule, which is where the max-height that CREATES the scrollbar
+     lives. Pinning the base rule is the stronger claim: the old pin passed
+     happily while every composer outside the consolidated view still showed
+     the track, which is the bug Josh reported three weeks later on a different
+     screen. Asserting the property sits with its cause is what stops the fix
+     being scoped to one layout again. */
+  assert.match(PAGE, /\.cinput \{[^}]*scrollbar-width: none; -ms-overflow-style: none; \}/,
+    'the composer scrollbar hide is no longer on the base .cinput rule, so composers outside the consolidated view show their track again');
+  assert.match(PAGE, /\.cinput::-webkit-scrollbar \{ display: none; \}/,
+    'the WebKit half of the composer scrollbar hide is gone -- this is the half that matters in the Mac app');
 });
 
 test('every projects sub-view scrolls inside the no-page-scroll grid', () => {

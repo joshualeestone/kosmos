@@ -2696,19 +2696,6 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      away, and the cut point follows the real column width instead of a
      guessed character count. */
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .pj-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  /* #980: no visible scrollbar inside "Write to the project" -- the same
-     track-hiding #alist already uses; typing and wheeling still scroll. */
-  /* ⚠️ THIS ONE DIFFERS IN KIND FROM THE LIST SCROLLERS, and the difference is
-     worth naming rather than folding in under "the same treatment #alist gets".
-     `.cinput` is `max-height: 9rem; overflow-y: auto`, so on a long post the
-     track was the only signal that text the PERSON WROTE has scrolled out of
-     view. The caret covers typing; it does not cover re-reading what you have
-     already written before pressing Post.
-     📌 Kept because hiding it is Josh's #867 ask and this is his composer, but
-     recorded as a trade so the next person meets the reasoning rather than
-     rediscovering the cost. */
-  html[data-layout="consolidated"] body.consolidated .pjmid .composerbox textarea.cinput { scrollbar-width: none; -ms-overflow-style: none; }
-  html[data-layout="consolidated"] body.consolidated .pjmid .composerbox textarea.cinput::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .tsearch { flex: 0 1 min(320px, 40%); }
   html[data-layout="consolidated"] body.consolidated #pj-one-name + .pj-desc, html[data-layout="consolidated"] body.consolidated #pj-one-made { margin-top: 1px; }
@@ -3255,9 +3242,27 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    what you already wrote the moment a post runs past the field, which is the
    one thing a person re-reads before sending. Bounded at 9rem so a long post
    cannot push the thread off the screen it belongs under. */
+/* No visible scrollbar in a composer: Josh's #867 (the project composer) and
+   #1006 (the same track on the box he was actually looking at). It sits HERE,
+   on the rule that creates the scrollbar, rather than on one layout's copy of
+   the selector -- #980 hid it for the consolidated view only, so every other
+   composer kept the track and the same complaint came back three weeks later
+   against a different screen. Typing and wheeling still scroll.
+   ⚠️ THIS DIFFERS IN KIND FROM THE LIST SCROLLERS and the difference is worth
+   naming rather than folding in under "the same treatment #alist gets".
+   `.cinput` is `max-height: 9rem; overflow-y: auto`, so on a long post the
+   track was the only signal that text the PERSON WROTE has scrolled out of
+   view. The caret covers typing; it does not cover re-reading what you have
+   already written before pressing Post. Widening the hide from one composer to
+   all of them widens that cost too, which is the honest reading of this change.
+   📌 Kept because hiding it is Josh's ask twice over and these are his
+   composers, but recorded as a trade so the next person meets the reasoning
+   rather than rediscovering the cost. */
 .cinput { flex: 1 1 auto; min-width: 0; min-height: 2.5rem; border: 0; background: none;
   resize: none; font: inherit; font-size: .9375rem; line-height: 1.5; color: var(--k-ink);
-  padding: 9px 4px; max-height: 9rem; overflow-y: auto; }
+  padding: 9px 4px; max-height: 9rem; overflow-y: auto;
+  scrollbar-width: none; -ms-overflow-style: none; }
+.cinput::-webkit-scrollbar { display: none; }
 .cinput:focus { outline: none; }
 .cinput::placeholder { color: var(--k-ink-2); }
 .cpost { flex: 0 0 auto; padding: .5em 1.05em; font-size: .9375rem; }
