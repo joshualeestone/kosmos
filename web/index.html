@@ -2010,7 +2010,15 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
        discussion gets its breathing room from its own padding instead. */
     column-gap: 0; align-content: stretch;
     height: 100vh; overflow: hidden; padding: 0; margin: 0;
-    grid-template-rows: auto repeat(37, 0) auto minmax(0, 1fr) auto; }
+    /* 🛑 auto TRACKS FOR EVERY PRE-RAIL ROW, NOT 0 (challenge-loop
+       iteration 1's blocker): #askcard (a phone asking to pair), #conn
+       (subscription unreachable) and #board-msg are auto-placed body
+       children with no explicit row. In a 0-height track they painted
+       UNDER the rails' opaque grounds -- a pairing request nobody can
+       see. auto collapses to nothing while they are hidden and gives
+       them their height the moment they show; the lists' 1fr row absorbs
+       the difference, so the no-page-scroll invariant holds either way. */
+    grid-template-rows: repeat(38, auto) auto minmax(0, 1fr) auto; }
   html[data-layout="consolidated"] body.consolidated > * { grid-column: 1 / -1; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 39; }
   /* #867 (Josh, 2026-08-25 11:02): "hide that scrollbar inside of
@@ -2110,7 +2118,12 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      the place" family: a fold on one rail visibly rearranging the other). */
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents .railname { display: none; }
   /* #980: the folded 48px strip shows the letters in their rings, nothing
-     else -- the empty-state card was wrapping letter-by-letter inside it. */
+     else -- the empty-state card was wrapping letter-by-letter inside it.
+     ⚠️ ACKNOWLEDGED TRADE: this hides the could-not-read failure card too,
+     so a folded rail cannot distinguish "no agents" from "cannot look".
+     Accepted because the fold is the person's own choice, one press undoes
+     it, and 48px cannot carry a sentence honestly -- the unfolded rail
+     remains the surface where that distinction lives. */
   html[data-layout="consolidated"] body.consolidated.fold-a #alist .pj-empty { display: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow { grid-template-columns: 34px; justify-content: center; padding: 4px 0; border: 0; background: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lname, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .ltitle, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lstate { display: none; }
@@ -2158,7 +2171,17 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .lrow > .lname { grid-column: 2; grid-row: 1; min-width: 0; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lname b { display: block; font-size: .8125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   html[data-layout="consolidated"] body.consolidated .lrow > .ltitle { grid-column: 2; grid-row: 2; font-size: .625rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  html[data-layout="consolidated"] body.consolidated .lrow > :not(.lav):not(.lname):not(.ltitle) { display: none; }
+  /* ⚠️ .lstate hides EXCEPT when it carries the inline Answer button
+     (challenge-loop iteration 1): the state chatter goes, per Josh, but
+     the needs-you row's one ACTION lived in the same element, and hiding
+     it left clicking the row as the only way to answer. :has() has
+     precedent in this file (.agauge/.dav-wrap/.pjmidhead). The kept row
+     stays at the quiet size on its own third line; .lsaid inside it is
+     still hidden by the rule below. */
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate { grid-column: 2; grid-row: 3; font-size: .625rem; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate:not(:has(.ansgo)) { display: none; }
+  html[data-layout="consolidated"] body.consolidated .lrow:has(.lstate .ansgo) > .lav { grid-row: 1 / span 3; }
+  html[data-layout="consolidated"] body.consolidated .lrow > :not(.lav):not(.lname):not(.ltitle):not(.lstate) { display: none; }
   /* The face shrinks to 24px inside its 34px cell so the ring sits OUTSIDE
      it with a gap of ground (an inside-edge ring vanished on Josh's screen);
      the warning sits over the face. Both stay inside the 34px cell, so the
@@ -2254,7 +2277,16 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      the right column's flexing one; each card scrolls inside itself, so
      tall content bounds instead of growing the page. */
   html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(0, 1fr); height: 100%; min-height: 0; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; align-self: start; max-height: 100%; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; align-self: start; }
+  /* ⚠️ vh CAPS ON THE TWO auto-ROW CARDS, NOT max-height: 100% (challenge-
+     loop iteration 1, then MEASURED: with 30 rows stuffed into Tasks and
+     Files, %-caps against content-sized tracks let the two grow to ~460px
+     each and push Members clean off the bottom). A viewport cap cannot be
+     gamed by content: Tasks and Files each stop at 38vh and scroll inside;
+     Members' own row is 1fr-bounded by construction, so its 100% cap is
+     against a real track and holds. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit), html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child { max-height: 38vh; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { max-height: 100%; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 3; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit { display: contents; }
   /* #980 (Josh, 2026-08-26 08:31): Files ABOVE Project members. The split's
@@ -10798,6 +10830,12 @@ function showTab(tab) {
   const cons = layoutConsolidated() && (tab === 'agents' || tab === 'projects');
   const wasCons = document.body.classList.contains('consolidated');
   document.body.classList.toggle('consolidated', cons);
+  // #980: the search placeholder follows the EFFECTIVE view, set in the
+  // one place that decides it (this toggle re-runs on tab switches and on
+  // the resize re-check), never the saved layout alone -- a consolidated
+  // save on a narrow window is the tab view and keeps the long wording.
+  const roomSearch = document.getElementById('pj-room-search');
+  if (roomSearch) roomSearch.placeholder = cons ? 'Search' : 'Search this conversation';
   document.getElementById('rail-agents').hidden = !cons;
   document.getElementById('rail-projects').hidden = !cons;
   document.getElementById('rail-me').hidden = !cons;
@@ -18184,13 +18222,9 @@ function applyLayout(layout, apply) {
   const was = document.documentElement.getAttribute('data-layout') || 'tabs';
   document.documentElement.setAttribute('data-layout', want);
   placeProjectHead();
-  // #980 (Josh, 2026-08-26 08:31): the consolidated header's search says
-  // just "Search" -- the column it sits in already names the project, and
-  // the narrow bar truncated the long placeholder anyway. The tab view
-  // keeps the descriptive one; a placeholder is an attribute, so the swap
-  // rides the layout change rather than forking the markup.
-  const roomSearch = document.getElementById('pj-room-search');
-  if (roomSearch) roomSearch.placeholder = want === 'consolidated' ? 'Search' : 'Search this conversation';
+  // #980: the "Search" placeholder swap lives in showTab's consolidated
+  // toggle (the one place that knows the EFFECTIVE view, resize included),
+  // not here -- this function only knows the saved preference.
   if (was !== want && typeof URL_TAB === 'string') showTab(URL_TAB);
 }
 /* #520 piece nine (the card's finesse item 1), then #761 (Josh, 2026-08-25
