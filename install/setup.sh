@@ -2453,20 +2453,35 @@ _env_kv() { # $1 = key name, $2 = value (already the final, unescaped path)
 # at all", not "three blank lines".
 _extra_env_kv=""
 if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
-  # ⚠️ ALL THREE CAPTURED IN ONE COMMAND SUBSTITUTION, WITH A SENTINEL, so
+  # ⚠️ FOUR KEYS, NOT THREE. `AGENT_WORKFORCE_HALF_SANDBOX_OK` (#883,
+  # challenge-loop iteration 4, caught by a direct reproduction, not a
+  # reading) is exported into THIS session above, before "Starting
+  # Kosmos.", so the immediate same-session start clears #634's guard --
+  # but that export dies with this script's process. The launchd job
+  # written below inherits ONLY what its own EnvironmentVariables dict
+  # carries; at the NEXT login or self-update, `kosmos start` runs as a
+  # fresh process whose entire environment IS that dict, nothing more. The
+  # first version of this fix persisted DATA/PROJECTS/WORKERS there but
+  # not the override that makes them safe together -- so a real Pete-
+  # convention board would start fine today and refuse to start half-
+  # sandboxed at the very next reboot, the identical #634 refusal this
+  # whole fix exists to clear, just deferred. Reproduced directly: invoked
+  # `bin/kosmos start` with ONLY the plist's own EnvironmentVariables (no
+  # override key) and watched it die with exactly that sentence.
+  # ⚠️ ALL FOUR CAPTURED IN ONE COMMAND SUBSTITUTION, WITH A SENTINEL, so
   # the newline AFTER THE LAST line survives. Command substitution strips
   # EVERY trailing newline from what it captures -- calling `_env_kv`
-  # three times as three SEPARATE $(...) each loses its own trailing \n
+  # four times as four SEPARATE $(...) each loses its own trailing \n
   # before the strings are even concatenated (every key/string pair lands
   # on one physical line, valid XML but not the one-key-per-line shape
   # every other entry in this dict has), and even one outer $(...) around
-  # all three would still strip the LAST \n, running the WORKERS line
-  # straight into the "  </dict>" this variable sits beside in the heredoc
-  # below. Appending a literal `X` after the real content, capturing THAT,
-  # then stripping the `X` with `${var%X}` is the standard portable way to
-  # keep a command substitution's trailing newlines: the `X` is not a
-  # newline, so nothing gets stripped until the explicit `%X` removes it.
-  _extra_env_kv="$( { _env_kv AGENT_WORKFORCE_DATA "$AGENT_WORKFORCE_DATA"; _env_kv AGENT_WORKFORCE_PROJECTS "$AGENT_WORKFORCE_PROJECTS"; _env_kv AGENT_WORKFORCE_WORKERS "$AGENT_WORKFORCE_WORKERS"; printf 'X'; } )"
+  # all four would still strip the LAST \n, running the HALF_SANDBOX_OK
+  # line straight into the "  </dict>" this variable sits beside in the
+  # heredoc below. Appending a literal `X` after the real content,
+  # capturing THAT, then stripping the `X` with `${var%X}` is the standard
+  # portable way to keep a command substitution's trailing newlines: the
+  # `X` is not a newline, so nothing gets stripped until `%X` removes it.
+  _extra_env_kv="$( { _env_kv AGENT_WORKFORCE_DATA "$AGENT_WORKFORCE_DATA"; _env_kv AGENT_WORKFORCE_PROJECTS "$AGENT_WORKFORCE_PROJECTS"; _env_kv AGENT_WORKFORCE_WORKERS "$AGENT_WORKFORCE_WORKERS"; _env_kv AGENT_WORKFORCE_HALF_SANDBOX_OK "$AGENT_WORKFORCE_HALF_SANDBOX_OK"; printf 'X'; } )"
   _extra_env_kv="${_extra_env_kv%X}"
 fi
 _board_ok=no

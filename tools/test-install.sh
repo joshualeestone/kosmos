@@ -1447,7 +1447,53 @@ chk "Pete's-convention plist does NOT reuse the bare default label" "[ ! -f \"$S
 chk "Pete's-convention plist's AGENT_WORKFORCE_DATA is under KOSMOS_HOME" "grep -q \"<key>AGENT_WORKFORCE_DATA</key><string>$PETE_HOME/data</string>\" \"$PETE_PLIST\""
 chk "Pete's-convention plist's AGENT_WORKFORCE_PROJECTS is under KOSMOS_HOME" "grep -q \"<key>AGENT_WORKFORCE_PROJECTS</key><string>$PETE_HOME/projects</string>\" \"$PETE_PLIST\""
 chk "Pete's-convention plist's AGENT_WORKFORCE_WORKERS is under KOSMOS_HOME" "grep -q \"<key>AGENT_WORKFORCE_WORKERS</key><string>$PETE_HOME/workers</string>\" \"$PETE_PLIST\""
-chk "the three new keys sit one per line, not squished onto one" "[ \"\$(grep -c '<key>AGENT_WORKFORCE_' \"\$PETE_PLIST\")\" = 3 ] && [ \"\$(grep -c '<key>AGENT_WORKFORCE_DATA</key>.*<key>AGENT_WORKFORCE_PROJECTS</key>' \"\$PETE_PLIST\")\" = 0 ]"
+chk "Pete's-convention plist ALSO carries the #634 override for the NEXT restart" "grep -q '<key>AGENT_WORKFORCE_HALF_SANDBOX_OK</key><string>1</string>' \"$PETE_PLIST\""
+chk "the four new keys sit one per line, not squished onto one" "[ \"\$(grep -c '<key>AGENT_WORKFORCE_' \"\$PETE_PLIST\")\" = 4 ] && [ \"\$(grep -c '<key>AGENT_WORKFORCE_DATA</key>.*<key>AGENT_WORKFORCE_PROJECTS</key>' \"\$PETE_PLIST\")\" = 0 ]"
+
+echo "-- #883 challenge-loop iteration 4: a REBOOT uses only the plist's own env, not this session's exports --"
+# 🔑 THE FIX THAT ITERATION 3 SHIPPED ONLY COVERED THE SAME-SESSION START.
+# A real reboot or self-update (engine/update.js) runs `kosmos start` as a
+# FRESH process whose entire environment IS the plist's EnvironmentVariables
+# dict -- nothing this installing shell had exported survives. Iteration 4
+# caught this by direct reproduction, not by reading: simulating exactly
+# what launchd does at the next login -- invoking `bin/kosmos start` with
+# ONLY the plist's own keys as its environment -- reproduced the #634
+# refusal even after the "session export" fix, because
+# AGENT_WORKFORCE_HALF_SANDBOX_OK had not yet been added to the plist
+# itself. This scenario is that exact reproduction, kept as a permanent
+# regression test.
+_plist_env_line() { # $1 = key, reads the plist XML shape <key>K</key><string>V</string>
+  sed -n "s|.*<key>$1</key><string>\\([^<]*\\)</string>.*|\\1|p" "$PETE_PLIST" | head -1
+}
+# 🛑 STOPPED FIRST, AND VERIFIED FREE, OR THIS TEST IS VACUOUS. Pete's board
+# from the install above is still live at this point. `cmd_start`'s own
+# healthy() short-circuits to "already running" the moment ANYTHING answers
+# on the port -- so without stopping it first, `kosmos start` below would
+# never spawn a NEW process with the constructed env at all, and this test
+# would "pass" whether or not the fix exists (measured: it did, on the very
+# first version of this test, before this stop was added).
+KOSMOS_HOME="$PETE_HOME" "$PETE_HOME/bin/kosmos" stop > /dev/null 2>&1 || true
+chk "the port is genuinely free before the reboot simulation" "wait_port_free"
+RC=0; env -i \
+  HOME="$(_plist_env_line HOME)" \
+  PATH="$(_plist_env_line PATH)" \
+  LANG="$(_plist_env_line LANG)" \
+  KOSMOS_PORT="$(_plist_env_line KOSMOS_PORT)" \
+  AGENT_WORKFORCE_DATA="$(_plist_env_line AGENT_WORKFORCE_DATA)" \
+  AGENT_WORKFORCE_PROJECTS="$(_plist_env_line AGENT_WORKFORCE_PROJECTS)" \
+  AGENT_WORKFORCE_WORKERS="$(_plist_env_line AGENT_WORKFORCE_WORKERS)" \
+  AGENT_WORKFORCE_HALF_SANDBOX_OK="$(_plist_env_line AGENT_WORKFORCE_HALF_SANDBOX_OK)" \
+  "$PETE_HOME/bin/kosmos" start > "$SB/reboot-sim.log" 2>&1 || RC=$?
+chk "a simulated reboot (plist env only) starts the board, not #634's refusal" "rc_ok $RC"
+# ⚠️ board.log, NOT reboot-sim.log: the shell wrapper's own stdout only ever
+# says "Kosmos did not come up, see board.log" -- the actual #634 sentence
+# (or any other startup failure) is written by the server process itself,
+# into board.log. Checking the wrong file here would pass vacuously no
+# matter what actually failed (confirmed: it did, on the first version of
+# this check, before the target file was corrected).
+chk "the reboot-simulation's board.log does not carry the half-sandboxed refusal" "! grep -q 'will not start half-sandboxed' \"$PETE_HOME/logs/board.log\""
+KOSMOS_HOME="$PETE_HOME" "$PETE_HOME/bin/kosmos" stop > /dev/null 2>&1 || true
+wait_port_free || echo "WARN: port did not go quiet after the reboot-simulation stop"
 
 echo "-- re-running the same sandboxed install derives the identical label --"
 # Deliberately NOT stopped first: the board from the run above is still

@@ -219,6 +219,39 @@ newline through command substitution (append a sentinel character, strip
 it after capture). Verified directly by installing and reading the actual
 generated plist.
 
+**Challenge-loop iteration 4 found a second critical defect in the SAME
+`AGENT_WORKFORCE_HALF_SANDBOX_OK` fix iteration 3 shipped, by direct
+reproduction rather than reading.** The fix exported the override into
+THIS session's own shell, before "Starting Kosmos" -- which correctly
+clears `#634` for the install's own first start. But it was never added to
+the persisted launchd plist alongside `AGENT_WORKFORCE_DATA`/`_PROJECTS`/
+`_WORKERS`. A real reboot or self-update runs `kosmos start` as a FRESH
+process whose entire environment IS the plist's `EnvironmentVariables`
+dict -- nothing this session exported survives. So the exact scenario
+"Keeping Kosmos running after a restart" exists to handle -- a reboot, or
+`engine/update.js`'s self-update -- would hit `#634`'s refusal all over
+again, deferred rather than fixed. Reproduced directly: invoked `bin/
+kosmos start` with ONLY the plist's own `EnvironmentVariables` as its
+environment (simulating exactly what launchd runs at the next login) and
+watched it die with the identical "will not start half-sandboxed"
+sentence. Fixed by adding `AGENT_WORKFORCE_HALF_SANDBOX_OK` as a fourth
+`_env_kv` call alongside the other three, in the same non-default-
+`KOSMOS_HOME` branch.
+
+Pinned with a dedicated `tools/test-install.sh` scenario doing the same
+reproduction the review did: stop the board (so a genuinely fresh process
+must start, not `healthy()` seeing the prior one still live -- the first
+version of this test skipped this and passed vacuously either way, caught
+by re-testing it against the reverted fix and watching it pass when it
+should not have), then start `bin/kosmos start` under `env -i` with ONLY
+the plist's own keys, and assert both a clean exit and that `board.log`
+(not the shell wrapper's own stdout, which never carries the actual
+server-side message -- a first version of this assertion checked the wrong
+file and passed vacuously too, also caught by testing against the
+reverted fix) carries no half-sandboxed refusal. Confirmed discriminating
+both times: reverted the respective fix, rebuilt, watched the corrected
+assertion fail for the right reason; restored, confirmed green.
+
 Also confirmed, precisely rather than assumed, while building the
 verification tests: the same identity gap #910 was filed for (`healthy()`
 answering "is A Kosmos board here" rather than "is MY Kosmos board here")
@@ -230,3 +263,14 @@ harness (a force-kill fallback in `wait_port_free` guarantees a clean port
 between scenarios) and written up on #910 as corroborating evidence, since
 it shows the same missing identity proof causing two different failure
 shapes depending on which code path (start vs. stop) hits it.
+
+**One more thing ruled out, not fixed:** while confirming iteration 4's fix,
+`tools/test-install.sh`'s pre-existing "== update ==" scenario (far earlier
+in the file, `$SB/home`'s first install, nothing this card touches)
+intermittently failed with its board's pidfile missing and the port
+unreachable -- looked at first like a regression this branch introduced.
+Ruled out by running the identical harness against completely unmodified
+`main`: it failed at the exact same point, at the same point in time, on
+this same machine. Pre-existing, environment-dependent, unrelated to this
+card's changes -- not investigated further here, since it reproduces
+without a single line of this branch's diff present.
