@@ -5735,7 +5735,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              downloads; worth doing when that field exists rather than inventing a
              second source of truth for it now. -->
         <div id="fr-claude-confirm" class="fr-confirm" hidden>
-          <p class="fr-confirm-t">In order to connect to Claude, we need to install Claude Code first. It is a large download, around 230MB.</p>
+          <p class="fr-confirm-t" id="fr-claude-confirm-t">In order to connect to Claude, we need to install Claude Code first.</p>
           <div class="frow">
             <button class="btn uprime" type="button" id="fr-claude-confirm-go">Confirm</button>
             <button class="btn" type="button" id="fr-claude-confirm-no">Not now</button>
@@ -27035,6 +27035,56 @@ function frClaudeInstallNeeded() {
   return !ok;
 }
 
+/**
+ * How big is the thing Connect is about to fetch?
+ *
+ * 🔑 ASKED, NOT TYPED. A size written into a sentence goes stale the day the
+ * vendor changes the file, and then the product is wrong on the screen where a
+ * person decides whether to trust it. Angel's point, and she is right that the
+ * answer is a number that CANNOT drift rather than no number: Josh's own reason
+ * for wanting the warning was "an almost-quarter-of-a-gig download", and the
+ * decision he described -- do this now or on better wifi -- needs a magnitude.
+ *
+ * Returns bytes, or null when we genuinely do not know.
+ */
+function frClaudeDownloadBytes() {
+  const st = (FR && FR.connect) || null;
+  const n = st && (st.totalBytes || st.total || st.sizeBytes);
+  if (Number.isFinite(n) && n > 0) return n;
+  /* ⚠️ FALLBACK, AND IT IS THE ONE THING HERE THAT CAN GO STALE. Angel found
+     the real answer: the vendor's own manifest -- the file Kosmos ALREADY
+     fetches for the checksum, before a single byte of the download -- publishes
+     the size, per machine kind (230,824,016 for arm64 at the current release).
+     So the number can be the true size of the exact file this Mac is about to
+     get, on machines we have never seen, and it cannot drift because we are not
+     the ones maintaining it.
+     🛑 DELETE THIS BRANCH the day the engine surfaces that. It exists to be
+     replaced, not maintained.
+     📌 It also covers a real case that survives: knowing the size means asking
+     the vendor first, so on a bad connection the answer may not be here yet
+     when the box opens. Falling back to "it is large" and getting on with it
+     beats a box that sits blank waiting for a number nobody reads. */
+  return 230e6;
+}
+
+/** Megabytes, never bytes. Josh, 15:27: a person "doesnt care if its 108 or
+    127MB", and "about" carries the roughness -- so once the number is the TRUE
+    size of the exact file this machine is about to fetch there is no reason to
+    blur it further. 230,824,016 -> "231MB". */
+function frRoughMB(bytes) {
+  return Math.round(bytes / 1e6) + 'MB';
+}
+
+function frClaudeConfirmSentence() {
+  const bytes = frClaudeDownloadBytes();
+  const base = 'In order to connect to Claude, we need to install Claude Code first.';
+  /* No size we can stand behind -> say the shape of it and nothing more. That
+     is the honest floor, and it only appears when it is genuinely all we know. */
+  return bytes === null
+    ? base + ' It is a large download.'
+    : base + ' It is a large download, about ' + frRoughMB(bytes) + '.';
+}
+
 function frClaudeConfirmClose() {
   const box = document.getElementById('fr-claude-confirm');
   const btn = document.getElementById('fr-llm-connect');
@@ -27058,7 +27108,11 @@ document.getElementById('fr-pane-3').addEventListener('click', (e) => {
        the button is invisible to a screen reader and to anyone driving this by
        keyboard: they press Connect and, as far as they can tell, nothing
        happened. */
-    if (!open) { const go = document.getElementById('fr-claude-confirm-go'); if (go) go.focus(); }
+    if (!open) {
+      const t = document.getElementById('fr-claude-confirm-t');
+      if (t) t.textContent = frClaudeConfirmSentence();
+      const go = document.getElementById('fr-claude-confirm-go'); if (go) go.focus();
+    }
     return;
   }
   // The same one-press guard the primary has: start() is idempotent under

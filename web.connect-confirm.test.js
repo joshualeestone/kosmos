@@ -40,9 +40,16 @@ test('the confirm names the size, because being told once the bar moves is too l
   /* Rough, not exact. Josh, 15:27: a person "doesnt care if its 108 or 127MB..
      they just want to know its making progress installing". The sentence has to
      say it is big enough to wait for; the bar says it is moving. */
-  assert.match(box[0], /large download/, 'the confirm no longer says the download is large -- a person cannot decide to wait for something they have not been warned about');
-  assert.match(box[0], /around 230MB/, 'the rough size is gone; it is what lets someone choose to do this on better wifi');
-  assert.doesNotMatch(box[0], /\b231MB\b|\b109MB\b/, 'an exact byte figure came back: it serves nobody reading it and is one more number that has to stay true');
+  assert.match(box[0], /install Claude Code first/, 'the confirm no longer says what is being installed');
+  /* 🔑 THE SIZE IS ASKED FOR, NOT TYPED. A number written into markup goes stale
+     the day the vendor changes the file. The sentence is built at reveal time
+     from what the engine is about to fetch, with an honest floor when it cannot
+     answer. */
+  assert.doesNotMatch(box[0], /\d+\s?MB/, 'a size is hardcoded in the markup again -- it will go stale and lie on the screen where trust is decided');
+  const fn = CODE.slice(CODE.indexOf('function frClaudeConfirmSentence'), CODE.indexOf('function frClaudeConfirmSentence') + 600);
+  assert.match(fn, /It is a large download\.'/, 'the no-size floor is gone: with no answer from the engine the box would say nothing about magnitude');
+  assert.match(fn, /It is a large download, about '/, 'the sentence no longer states a magnitude when one is known');
+  assert.doesNotMatch(fn, /minutes/, 'a time estimate came back: Josh dropped it and we cannot know a connection');
   assert.match(box[0], /install Claude Code first/, 'the confirm no longer says what is being installed');
   assert.doesNotMatch(box[0], /minutes|minute/, 'a time estimate came back: Josh dropped it (15:07, "that seems hard") and we cannot know a person\'s connection, so any figure is a promise the product breaks');
   assert.match(box[0], /id="fr-claude-confirm-go"/, 'the Confirm button is gone');
