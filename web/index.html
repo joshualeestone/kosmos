@@ -13894,18 +13894,31 @@ function setThread(el, html, key) {
      LINE (#1037). Every not-a-list arm -- opening, unreadable, nothing yet, no
      filter match -- replaces the whole thread with a one-paragraph note. That
      collapses scrollHeight, the browser CLAMPS scrollTop to 0, and the next
-     poll paints the rows back at the top. No scroll assignment is involved, so
-     guarding the scroll assignment alone changes "thrown to the bottom" into
-     "thrown to the top" and the person reading is just as lost.
+     poll paints the rows back at the top. No scroll assignment is involved.
 
-     Josh timed the jump at precisely five seconds, sitting still, with nothing
-     said, in a plain browser as well as the app. A poll flapping through a
-     null arm is the only thing on this page that does that.
+     Josh timed it at precisely five seconds, sitting still, nothing said, in a
+     plain browser as well as the app. A poll flapping through a null arm is
+     the only thing on this page that does that.
 
-     So the offset is CARRIED ACROSS THE WRITE. Captured before, restored
-     after, unless we have decided to follow the tail. */
-  const wasAtBottom = threadAtBottom(el);
-  const heldTop = el.scrollTop;
+     ⚠️ AND THE OBVIOUS GUARD IS NOT ENOUGH, WHICH IS WHY THIS IS SHAPED THE
+     WAY IT IS. Capturing scrollTop before each write and putting it back after
+     turns "thrown to the bottom" into "thrown to the top" and the person is
+     just as lost: by the time the rows return, the offset you would capture
+     has ALREADY been clamped to 0 by the note. Measured, both ways, by driving
+     this function against a container that clamps:
+
+       main         open=1760  parked=900  note=0  back=1760  back=1760
+       capture-only open=1760  parked=900  note=0  back=0     back=0
+       this         open=1760  parked=900  note=0  back=900   back=900
+
+     So the reader's place is remembered ONLY WHILE A LIST IS ON SCREEN, and a
+     note never updates it. The note cannot overwrite what it is about to
+     destroy. */
+  const showedList = el.__lastCount !== null && el.__lastCount !== undefined;
+  if (showedList) {
+    el.__heldTop = el.scrollTop;
+    el.__heldAtBottom = threadAtBottom(el);
+  }
   const rewrote = el.__lastThread !== html;
   if (rewrote) {
     el.__lastThread = html;
@@ -13915,24 +13928,22 @@ function setThread(el, html, key) {
      A count cannot tell a new message from a flap, and at the 200-message tail
      the server applies it cannot tell a new message from anything at all: past
      200 the length is pinned and every later message was invisible here. The
-     room box beside this one already keys on message ids for exactly that
-     reason; this is that. null still means "not a list", and those arms never
-     follow the tail.
-
+     room box beside this one already keys on message ids for that reason.
+     null still means "not a list", and those arms never follow the tail.
      Compared against the last key that was NOT null, so a flap through a note
-     and back returns to the same identity and reads as no news, while a real
-     message does not. */
+     and back returns to the same identity and reads as no news. */
   const isNews = key !== null && key !== el.__lastRealKey;
   if (key !== null) el.__lastRealKey = key;
   el.__lastCount = key;
-  /* Follow the tail only for actual news, and only for someone who was already
-     at the floor. A person who scrolled up to read is never moved, which is
-     the half of this that holds however the flap turns out to work. */
-  if (isNews && wasAtBottom) { pinToBottom(el); return; }
-  /* Otherwise put them back exactly where they were. Only after a rewrite:
-     untouched markup has not moved anything, and writing scrollTop for no
-     reason can itself cancel a smooth scroll the person started. */
-  if (rewrote && el.scrollTop !== heldTop) el.scrollTop = heldTop;
+  // A note follows nothing and restores nothing. It is not what the person
+  // came to read, and moving them inside it would only move them again.
+  if (key === null) return;
+  /* Follow the tail only for actual news, and only for someone who was at the
+     floor when a list was last on screen. `!== false` rather than `=== true`
+     so a first-ever paint, which has no remembered posture, still lands on the
+     newest row: opening an agent should show you the latest. */
+  if (isNews && el.__heldAtBottom !== false) { pinToBottom(el); return; }
+  if (el.__heldTop !== undefined && el.scrollTop !== el.__heldTop) el.scrollTop = el.__heldTop;
 }
 /**
  * Put the thread on its newest row, and KEEP it there while the rows it just
@@ -15352,8 +15363,22 @@ function openDetail(sessionName, section) {
        whose thread matched would land on the oldest row instead of the
        newest. Measured before the fix by an independent review, on a length
        key: open A then B and B landed at the top. */
-    document.getElementById('d-dmthread').__lastRealKey = undefined;
     setThread(document.getElementById('d-dmthread'), '<p class="dmnone">Opening&hellip;</p>', null);
+    /* 🛑 THE READER'S PLACE BELONGS TO THE AGENT, AND THIS ELEMENT IS SHARED.
+       One #d-dmthread serves every agent. `__lastRealKey` and `__heldTop`
+       deliberately SURVIVE a note, so that a poll flapping through one does
+       not lose where the person was. An open is not a flap: without this,
+       agent B's first paint is compared against agent A's last message and
+       restored to agent A's offset, so opening someone lands you at a
+       meaningless place in their conversation instead of at the newest thing
+       they said.
+       ⚠️ AFTER the paint above, not before: setThread re-reads these while a
+       list is still on screen, so clearing first would simply refill them from
+       the agent being left. */
+    const th0 = document.getElementById('d-dmthread');
+    th0.__lastRealKey = undefined;
+    th0.__heldTop = undefined;
+    th0.__heldAtBottom = undefined;
     // A reading posture, not agent state: carried across agents it would hide
     // the next thread silently.
     TALK_QUERY = '';
