@@ -10814,7 +10814,17 @@ test('with a newer version installed than the open page, Check for Update says r
     asked('0.5.23', null, { reached: true, readable: true, looked: true });
     assert.equal(els['upd-line'].textContent, 'This page is older than the Kosmos running it. Reload the page to get the newer one.',
       'a stale page was told it is up to date');
-    assert.equal(els['upd-btn'].textContent, 'Check for Update', 'the control changed with the sentence');
+    /* 🛑 THIS ASSERTION IS REVERSED FROM #691, ON JOSH'S OWN LATER WORD.
+       #691 deliberately pinned the button as UNCHANGED while the sentence
+       moved ("the control changed with the sentence"). Josh, 2026-08-26
+       11:26, with his own screenshot of this exact state: "if we could put a
+       'reload' button... Right now it tells me twice to reload but the only
+       button is Check For Update. If we know there is an update available we
+       dont need the 'Check for Update'." Both rulings are his; the newer one
+       wins, and the assertion moves with the product rather than being
+       deleted. (#995.) */
+    assert.equal(els['upd-btn'].textContent, 'Reload', 'the stale state still offers to go and ask a question it has already answered');
+    assert.equal(els['upd-btn'].dataset.act, 'reload');
     // CONTROL: the same press on a current page still gets the verdict. Without
     // this the assert above could pass on a card that never says "Up to date".
     els = mk('0.5.23');
