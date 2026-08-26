@@ -974,6 +974,39 @@ driverTest('#727 item 4: a person genuinely still there, well within the bound, 
     'a flow well within the abandoned-signin bound was disturbed');
 });
 
+driverTest('#727 item 4: a cancel mid-countdown leaves no late STUCK behind', async () => {
+  /**
+   * ⚠️ MAKES EXPLICIT WHAT A THIRD REVIEW TRACED BY HAND: cancel() nulls
+   * `driver` and clears the tick interval synchronously before its first
+   * await, and both tickBody's early return and becomeStuck's ownership
+   * guard are identity-checked (`driver !== owner`), not existence-checked
+   * -- so a tick already in flight when cancel lands cannot reach the
+   * expiry logic, and becomeStuck refuses to write STUCK for a driver
+   * that's already been nulled. This test proves it for the abandonment
+   * path specifically: cancel lands with time still left on the clock, and
+   * the record stays a clean IDLE, never a late STUCK arriving after the
+   * person already walked away cleanly.
+   */
+  connect.setAbandonedSigninMs(300);
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+
+  await connect.start();
+  await until(() => connect.state().phase === connect.PHASE.SIGNIN_AWAITING_CODE);
+
+  // Cancel with plenty of the 300ms window still remaining.
+  await new Promise((r) => setTimeout(r, 60));
+  await connect.cancel();
+  assert.equal(connect.state().phase, connect.PHASE.IDLE, 'cancel did not clear the flow');
+
+  // Wait past where the abandonment bound would have expired, and confirm
+  // no late STUCK ever lands -- there is no owning driver left to write one.
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(connect.state().phase, connect.PHASE.IDLE,
+    'a cancelled flow was declared STUCK after the person already walked away');
+});
+
 test('a secure fetch never follows a redirect down to plain http', () => {
   /**
    * The manifest carries the checksum everything is verified against; an
