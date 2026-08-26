@@ -842,6 +842,106 @@ uninstall() {
     fi
     rm -f "$_board_plist"
   fi
+  # ⚠️ #918: EVERY DISTINCT KOSMOS_HOME GETS ITS OWN PERMANENT LABEL, per
+  # #883's own fix above (a hash suffix whenever KOSMOS_HOME is non-default),
+  # and nothing ever swept one whose KOSMOS_HOME later vanished -- a walk
+  # convention that deletes its scratch directory directly, rather than
+  # running --uninstall against that exact KOSMOS_HOME, leaves the label
+  # registered forever, invisible to anyone who believes the scratch
+  # install is gone. This uninstall is already touching launchd for its OWN
+  # label (just above); sweep every OTHER board label at the same time.
+  # By this point THIS install's own plist is already removed (the block
+  # above), so it can never appear in the glob below and be double-handled.
+  _sweep_dir="${AGENT_WORKFORCE_LAUNCH:-$HOME/Library/LaunchAgents}"
+  if [ -d "$_sweep_dir" ]; then
+    _uid="$(/usr/bin/id -u)"
+    for _orphan_plist in "$_sweep_dir"/com.kosmos.board.*.plist; do
+      # Matches this file's own sibling convention: the agents-sweep loop
+      # just below uses the same `[ -e ]` idiom for the same no-match guard.
+      [ -e "$_orphan_plist" ] || continue
+      # ⚠️ THE BARE DEFAULT LABEL NEVER MATCHES THIS GLOB. `com.kosmos.board.plist`
+      # has no fourth dot-segment between "board." and the ".plist" suffix
+      # (#883's suffix is only ever added for a non-default KOSMOS_HOME), so this
+      # loop only ever considers a SUFFIXED label -- a genuine sweep candidate,
+      # never the one real board every normal install has.
+      _orphan_label="$(basename "$_orphan_plist" .plist)"
+      # KOSMOS_HOME survives in exactly one place in this plist: the second
+      # ProgramArguments string (the install path's own heredoc, above, never
+      # writes it into EnvironmentVariables). PlistBuddy is the standard,
+      # already-installed macOS tool for a structured read -- a homegrown XML
+      # parse of a plist whose exact shape could drift is exactly the kind of
+      # fragile code this file avoids everywhere else.
+      # ⚠️ `|| _orphan_home_bin=""`, NOT A BARE ASSIGNMENT -- this file runs
+      # under `set -euo pipefail`. PlistBuddy exits non-zero (not just an
+      # empty string) whenever a plist genuinely fails to read: no
+      # `ProgramArguments` key, a truncated file, or anything not valid XML
+      # -- all explicitly anticipated by this very block's own "a future
+      # format, a hand-edit" comment two lines below. Without the fallback,
+      # a failing command substitution in a plain assignment is NOT exempt
+      # from `set -e` (verified directly: the same shape aborts the whole
+      # script mid-function, silently, the instant it runs) -- so ANY
+      # unrelated malformed `com.kosmos.board.*.plist` sitting in a real
+      # person's LaunchAgents would crash their entirely normal, healthy
+      # uninstall partway through, before the agents' jobs, `bin/kosmos`
+      # link, PATH line, and KOSMOS_HOME itself are ever removed. Caught in
+      # challenge-loop iteration 3: rounds 1-2 hardened what happens when
+      # PlistBuddy SUCCEEDS but returns something unexpected; nobody had
+      # yet tested what happens when it fails to read at all. The `|| ""`
+      # lets that failure land in the SAME `*) continue` arm a shape
+      # mismatch already falls into -- "leave it alone rather than guess"
+      # becomes true for a read failure too, not just a wrong shape.
+      _orphan_home_bin="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:1' "$_orphan_plist" 2>/dev/null)" || _orphan_home_bin=""
+      case "$_orphan_home_bin" in
+        # ⚠️ `*` MATCHES ZERO-WIDTH: a ProgramArguments[1] of exactly
+        # "/bin/kosmos" (no home prefix at all) still matches `*/bin/kosmos`
+        # and would strip to an EMPTY `_orphan_home`. That empty string then
+        # defeats both signals below: `[ -d "" ]` reads false ("gone"), and
+        # `dirname ""` is POSIX-defined as "." -- a directory that always
+        # exists -- so the parent-readability guard passes unconditionally
+        # too. Caught in challenge-loop iteration 2: a degenerate plist
+        # (hand-edited, or corrupted) would sail through both checks that
+        # exist specifically to refuse an uncertain read. Required absolute
+        # up front instead: a real KOSMOS_HOME this file ever derives is
+        # always an absolute path, so anything else is already "not shaped
+        # like this file's own writer produced" and refused the same way
+        # the shape-mismatch arm below already refuses one.
+        /*/bin/kosmos) _orphan_home="${_orphan_home_bin%/bin/kosmos}" ;;
+        # Not shaped like this file's own writer produced (a hand-edited or
+        # future-format plist) -- leave it alone rather than guess.
+        *) continue ;;
+      esac
+      # THE SIGNAL: does that KOSMOS_HOME still exist. A live walk in
+      # progress (its directory present, its board plist just not yet touched
+      # by ITS OWN --uninstall) must never be booted out from under it -- this
+      # sweep only ever removes a label whose home is confirmed gone.
+      [ -d "$_orphan_home" ] && continue
+      # ⚠️ "GONE" MEANS CONFIRMED GONE, NOT "WE COULD NOT SEE IT JUST NOW".
+      # A bare `[ -d ]` alone cannot tell a genuinely-deleted home apart from
+      # one that is merely transiently unreachable (an unmounted volume, a
+      # network share hiccup, an ancestor directory the process briefly
+      # cannot stat) -- and this sweep runs on EVERY uninstall, unscoped to
+      # the one KOSMOS_HOME the caller actually named, so an unrelated
+      # uninstall hitting that window would boot out a still-wanted install's
+      # job on a false read. If the PARENT directory is also unreadable right
+      # now, that is exactly the shape of a transient outage rather than a
+      # confirmed deletion (KOSMOS_HOME's own parent does not vanish on its
+      # own) -- treat it as "cannot tell" and leave the label alone, matching
+      # this whole feature's own rule that an honest "we could not check"
+      # must never be acted on as a confirmed negative.
+      [ -d "$(dirname "$_orphan_home")" ] || continue
+      info "removing an orphaned background job for a deleted install ($_orphan_home)"
+      # Same "no launchctl under a sandbox" rule as this install's own label
+      # above: AGENT_WORKFORCE_LAUNCH set means a harness pointed the plist
+      # directory at a temp folder, and there is no real registration there
+      # to enable/bootout -- only the file itself is sandboxed and safe to
+      # remove under a harness.
+      if [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ]; then
+        /bin/launchctl enable "gui/$_uid/$_orphan_label" 2>/dev/null || true
+        /bin/launchctl bootout "gui/$_uid/$_orphan_label" 2>/dev/null || true
+      fi
+      rm -f "$_orphan_plist"
+    done
+  fi
   _agents_stopped=no
   # ⚠️ THE SYMLINK GOES BEFORE THE FOLDER, AND `-L` IS CHECKED. `-e` follows
   # symlinks, so once the folder was deleted the dangling link answered
