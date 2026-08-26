@@ -18692,6 +18692,7 @@ function paintReportsTo(a) {
   if (sel.innerHTML !== html) sel.innerHTML = html;
 }
 let ACCOUNTS = [];
+let ACCT_PICKER_FETCH = null; // #881: the one in-flight GET /api/accounts, so a second caller shares it
 async function paintAccountPicker(a) {
   const sel = document.getElementById('d-account');
   const go = document.getElementById('d-account-go');
@@ -18707,11 +18708,24 @@ async function paintAccountPicker(a) {
        Anthropic, so this first-open fetch can take a real, visible span
        instead of the instant directory stat it used to be. Said plainly
        rather than a silently unresponsive dropdown -- same "Checking…"
-       language paintAccounts() already uses for the same wait. */
+       language paintAccounts() already uses for the same wait.
+       ⚠️ ONE IN-FLIGHT FETCH, SHARED. Caught in challenge-loop iteration
+       7: before this, switching to a second agent's detail panel while
+       the first was still waiting on ACCOUNTS.length fired a SECOND,
+       fully duplicate round of live checks (this used to be free when
+       the route was an instant stat; now it is a real subprocess call
+       per account). ACCT_PICKER_FETCH holds the one in-flight promise so
+       a second caller awaits the SAME fetch instead of starting a new
+       one. */
     if (msg) msg.textContent = 'Checking…';
     try {
-      const res = await fetch('/api/accounts', { cache: 'no-store' });
-      if (res.ok) ACCOUNTS = ((await res.json()) || {}).accounts || [];
+      if (!ACCT_PICKER_FETCH) {
+        ACCT_PICKER_FETCH = fetch('/api/accounts', { cache: 'no-store' })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((body) => (body || {}).accounts || [])
+          .finally(() => { ACCT_PICKER_FETCH = null; });
+      }
+      ACCOUNTS = await ACCT_PICKER_FETCH;
     } catch { /* the control stays empty and disabled, which is honest */ }
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     if (msg) msg.textContent = '';

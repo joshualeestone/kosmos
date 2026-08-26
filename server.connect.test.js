@@ -866,3 +866,23 @@ test('GET /api/accounts confirms each Claude account live, through the real rout
     fs.rmSync(path.join(HOME, '.claude'), { recursive: true, force: true });
   }
 });
+
+test('HEAD /api/accounts answers without paying for a live check', async () => {
+  /* Caught in challenge-loop iteration 7: the new HEAD short-circuit
+     (server.js, added so a HEAD does not pay accounts.listLive()'s real
+     per-account subprocess cost) had no test of its own -- only
+     incidental confidence from the GET tests. This exercises it
+     directly: an injected runner that would fail the test if it were
+     ever actually called proves the live check is genuinely skipped,
+     not just fast. */
+  const subscription = require('./engine/subscription');
+  let called = false;
+  subscription.setRunner(async () => { called = true; return { stdout: JSON.stringify({ loggedIn: true }), err: null }; });
+  try {
+    const got = await req('/api/accounts', { method: 'HEAD' });
+    assert.equal(got.status, 200);
+    assert.match(got.type, /application\/json/);
+    assert.equal(got.body, '', 'a HEAD response must carry no body');
+    assert.equal(called, false, 'HEAD must not invoke the live check at all');
+  } finally { subscription.setRunner(null); }
+});
