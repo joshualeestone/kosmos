@@ -8160,13 +8160,24 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            originates with the person's own instruction, so the fix that is
            left is words: agents pre-warn (the boot block), and this box is
            the standing answer for someone who met it cold. -->
-      <h3 class="dlab">If your Mac asks about &ldquo;tmux&rdquo;</h3>
+      <!-- ⚠️ THIS BOX IS THE ONE PLACE THE WORD tmux IS ALLOWED TO REACH A
+           PERSON, and the distinction matters because two rulings in this
+           codebase say it must not. Those are about Kosmos INTRODUCING the
+           word. Here macOS puts it on the screen itself, in a box we do not
+           control, and a person who has just been shown a word deserves to be
+           told what it is. Explaining a word they were handed is the opposite
+           of using jargon at them.
+           📌 Shortened for kosmos#1004 (Josh: "shorten the copy"). What went
+           was the definition of tmux, which was answering a question nobody
+           asked -- "that is one of your agents" is the part they can act on.
+           The four facts all survive: what the box is, what to press, what
+           each choice costs, and the reassurance about folders. -->
+      <h3 class="dlab">If you see a box asking about &ldquo;tmux&rdquo;</h3>
       <p class="dhint" style="margin:0;">
-        Sometimes macOS shows a box like <i>&ldquo;tmux&rdquo; would like to access
-        files in your Desktop folder</i>. tmux is the window Kosmos runs your
-        agents in, so that is an agent asking to reach a folder you gave it
-        work in. Allow it and the agent can do what you asked; Don&rsquo;t Allow
-        quietly stops that one job. Kosmos never reaches outside its own
+        macOS sometimes asks whether <i>&ldquo;tmux&rdquo;</i> can open one of your
+        folders. That is one of your agents, asking to reach a folder you gave it
+        work in. Allow it and the agent gets on with the job. Don&rsquo;t Allow
+        and that one job stops, nothing else. Kosmos never goes outside its own
         folders unless you ask an agent to.
       </p>
     </section>
