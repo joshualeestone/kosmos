@@ -272,3 +272,49 @@ test('the one state pill whose SHAPE carries meaning clears 3:1 in both themes, 
   // POSITIVE CONTROL: the instrument sees the old value as the failure it was.
   assert.ok(ratio(colour('rgba(20,22,26,.22)'), surface.light) < 3, 'the contrast helper no longer fails the value this card was filed on');
 });
+
+/**
+ * The FIRST-RUN "!" glyph -- the screen Josh's screenshot was actually of.
+ *
+ * 🛑 NOT THE SAME COMPONENT AS THE `.chk.att` TEST ABOVE. That one paints
+ * Settings > This Mac (`chkRow()` into `#set-machine`); this one paints the
+ * first-run wizard's own machine-check step (`frCheckRow()` into
+ * `#fr-checks`, both inside `#firstrun`). Two near-identical-looking
+ * components with the same bug, caught first on the wrong one in
+ * challenge-loop iteration 1 and traced to the right one in iteration 2 by
+ * checking which function actually renders the screen in the screenshot,
+ * not by which class name looked most likely.
+ *
+ * ⚠️ ONLY ONE GROUND HERE, ON PURPOSE. `#firstrun` pins white in every
+ * theme (its own single-look ruling) and this rule has no dark-mode
+ * variant at all -- confirmed by `tools/sync-forced-theme.js --check`
+ * passing clean with none added. A test asserting a dark-mode split here
+ * would be testing a rule that does not exist.
+ */
+test('the first-run "!" glyph (frCheckRow, not chkRow) clears 3:1 against its real (always-white) ground', () => {
+  const attnRule = PAGE.match(/#firstrun \.fr-check\.attention \.fr-mark\s*\{[^}]*\}/);
+  assert.ok(attnRule, '#firstrun .fr-check.attention .fr-mark rule is missing or moved');
+  assert.doesNotMatch(attnRule[0], /\.fr-check\.ok/,
+    'the .ok and .attention rules are combined again, which is the exact bug this card reported');
+
+  const okRule = PAGE.match(/#firstrun \.fr-check\.ok \.fr-mark\s*\{[^}]*\}/);
+  assert.ok(okRule, '#firstrun .fr-check.ok .fr-mark rule is missing or moved');
+
+  const parse = (rule) => ({
+    tint: colour(rule.match(/background:\s*(rgba\([^)]*\))/)[1]),
+    ink: colour(rule.match(/color:\s*(#[0-9a-fA-F]{6})/)[1]),
+  });
+  const attn = parse(attnRule[0]);
+  const ok = parse(okRule[0]);
+
+  const white = hex('#ffffff');
+  const attnGround = over(attn.tint, white);
+  const r = ratio(attn.ink, attnGround);
+  assert.ok(r >= 3, 'the "!" glyph is ' + r.toFixed(2) + ':1 on its own tint over white, below the 3:1 floor');
+
+  /* THE ACTUAL BUG, as a regression sensor: .ok and .attention must not be
+     the same colour, or the glyph shape is the only thing telling them
+     apart again -- which is Josh's exact complaint. */
+  assert.notEqual(attn.ink.r + ',' + attn.ink.g + ',' + attn.ink.b, ok.ink.r + ',' + ok.ink.g + ',' + ok.ink.b,
+    '.ok and .attention share a colour again -- easy to skim past, which is the bug this card reported');
+});

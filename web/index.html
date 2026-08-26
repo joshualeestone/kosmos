@@ -4160,11 +4160,34 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 #firstrun .fr-mark { width: 26px; height: 26px; border-radius: 8px; flex: 0 0 26px; display: grid;
                      place-items: center; font-size: .875rem; font-weight: 700;
                      border: 1px solid var(--k-rule); background: rgba(20,22,26,.04); color: var(--k-ink-2); }
-#firstrun .fr-check.ok .fr-mark, #firstrun .fr-check.attention .fr-mark {
+#firstrun .fr-check.ok .fr-mark {
   /* Ink darker than the pack's gold-deep: the glyph is decorative (the vh
      word beside it is the content) but the checker holds the AA floor on
      everything painted, and gold-deep on the gold tint is 2.78. */
   background: rgba(184,137,32,.13); border-color: rgba(184,137,32,.4); color: #6e5311; }
+/* Josh, 2026-08-26 07:12, from a screenshot of THIS exact screen: the "!"
+   row ("This Mac goes to sleep after 1 minute") read as another checkmark
+   at a glance, easy to skim past and hit Continue -- it shared .ok's exact
+   gold above, told apart only by the glyph shape. (First attempt at this
+   fix edited `.chk.att .chk-m`, a same-looking but entirely different
+   component that paints Settings > This Mac, never this wizard screen --
+   caught in challenge-loop iteration 2 by tracing which function actually
+   renders `#fr-checks`. That fix is kept too, since it's a real instance
+   of the identical defect on a different screen, but this rule is the one
+   Josh's screenshot was actually about.) The base (non-#firstrun) rule
+   below already uses --warn-ink for .attention, correctly distinct from
+   .ok -- the bug is that #firstrun's single-look override RECOMBINED them
+   into one gold. Given #firstrun's own no-token-in-this-subtree discipline
+   (see the "single-look" comment a few lines below), hardcoded to the same
+   red already used everywhere else in this file for attention/failed
+   states, not var(--warn-ink) (an amber, and a token this subtree doesn't
+   use). No dark-mode split needed: #firstrun pins white in every theme, so
+   there's only one ground to measure against here (unlike .chk.att above,
+   where I had to learn that the hard way). Measured: #b3261e on its own
+   13%-tint over white is 5.27:1, clearing the 3:1 floor a status glyph
+   needs. */
+#firstrun .fr-check.attention .fr-mark {
+  background: rgba(179,38,30,.13); border-color: rgba(179,38,30,.45); color: #b3261e; }
 #firstrun .fr-ctitle { font-size: 1rem; font-weight: 600; margin-bottom: 2px; color: var(--k-ink); }
 #firstrun .fr-cdetail { font-size: .875rem; color: var(--k-ink-2); line-height: 1.5; }
 /* ⚠️ The pack's card is SINGLE-LOOK (white card, warm ground) in both
