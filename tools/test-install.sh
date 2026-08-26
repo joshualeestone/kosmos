@@ -300,6 +300,18 @@ echo "== install (piped into sh, local sources, port $PORT) =="
 # carry): the shared seam is cleared for this command only.
 RC=0; cat "$SETUP" | AGENT_WORKFORCE_CLAUDE_BIN= sh > "$SB/install.log" 2>&1 || RC=$?
 chk "install exits 0" "rc_ok $RC"
+# #916: the two files the added-files check expects (bin/agent-supervisor.sh,
+# bin/codex-report-bridge.js) are written by the BOARD at boot (server.js,
+# create.installSupervisor() right after listen), and the installer starts the
+# board and exits without waiting for it. Under load (16.8 on 0.5.40a) the
+# diff below ran before node reached that line and reported both files
+# "expected, not added" on a correct bundle. So the diff waits for the board's
+# first answer, bounded; "board answers" further down still reports the
+# boot itself, and a board that never answers gets the same red it always did,
+# now after 30s rather than by luck.
+_boot_wait=0; until curl -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/"; do
+  _boot_wait=$((_boot_wait+1)); [ "$_boot_wait" -ge 60 ] && { echo "note: the board did not answer within 30s of install exit; the data-folder diff runs anyway"; break; }; sleep 0.5
+done
 # 🔑 THE UPGRADE PATH, ASSERTED HERE AND NOT ONLY AFTER THE UNINSTALL. An
 # update re-runs THIS installer over an existing install (engine/update.js
 # fetches /setup and runs it), so "install does not touch the person's data" is
