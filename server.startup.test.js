@@ -61,3 +61,49 @@ test('#923: the board process chdirs to $HOME at startup, so a directory it was 
     fs.rmSync(launchDir, { recursive: true, force: true });
   }
 });
+
+test('#923: reproduces the precise failure -- a child spawned without an explicit cwd inherits a deleted one from its parent and fails at its OWN startup, the way `claude install` did', async () => {
+  // engine/connect.js's run() is internal (not exported) and driving the
+  // full download+install flow is too heavy for a unit test, so this
+  // isolates the actual OS-level mechanism instead: a child process does
+  // NOT fail to spawn from a deleted cwd (fork() inherits it by file
+  // descriptor, no path-string lookup needed) -- what fails is the CHILD
+  // itself calling process.cwd() at its own startup, exactly what a real
+  // CLI binary like `claude` does. Run as a subprocess of a subprocess
+  // (via a small script) because this test's OWN process must not have
+  // its cwd deleted out from under it.
+  const script = `
+    const { execFile } = require('node:child_process');
+    const fs = require('node:fs');
+    const os = require('node:os');
+    const path = require('node:path');
+    const util = require('node:util');
+    const run = util.promisify(execFile);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cwdkill-'));
+    process.chdir(dir);
+    fs.rmSync(dir, { recursive: true, force: true });
+    const childScript = 'try { process.cwd(); process.exit(0); } catch (e) { process.stderr.write(e.message); process.exit(1); }';
+    (async () => {
+      let before;
+      try { await run(process.execPath, ['-e', childScript]); before = 'succeeded'; }
+      catch (e) { before = 'failed: ' + (e.stderr || e.message); }
+      process.chdir(os.homedir());
+      let after;
+      try { await run(process.execPath, ['-e', childScript]); after = 'succeeded'; }
+      catch (e) { after = 'failed: ' + (e.stderr || e.message); }
+      process.stdout.write(JSON.stringify({ before, after }));
+    })();
+  `;
+  const out = execFileSync(process.execPath, ['-e', script], { encoding: 'utf8' });
+  const { before, after } = JSON.parse(out);
+  assert.match(
+    before,
+    /^failed: .*process\.cwd/,
+    'a child spawned without an explicit cwd, from a parent whose cwd was deleted, should fail the way `claude install` did for Josh -- got: ' + before
+  );
+  assert.equal(
+    after,
+    'succeeded',
+    'once the parent chdir()s to $HOME (this fix), the same spawn should succeed -- got: ' + after
+  );
+});

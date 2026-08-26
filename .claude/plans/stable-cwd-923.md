@@ -40,14 +40,37 @@ directory by design (`nohup`, backgrounded, meant to survive the
 installer exiting). Its `process.cwd()` stays pointed at that now-deleted
 directory forever, from the moment Installer.app cleans up -- likely
 within moments of the .pkg finishing, well before "Choose a model" is
-even reached. Any LATER `execFile`/`spawn` call that doesn't override
-`cwd` (only `engine/connect.js`'s `run()` fits that description; every
-other file write in this codebase resolves through `store.ROOT` or
-another absolute path, immune to cwd entirely) inherits the dead
-directory, and the spawned child dies at its own startup the moment it
-tries to resolve anything relative to a cwd that does not exist -- which
-is exactly the shell-level error Josh saw, since it is the shape a
-program (or the shell running it) reports when `getcwd()` itself fails.
+even reached.
+
+**The precise mechanism, confirmed by direct reproduction (not
+inferred):** it is not `execFile`/`spawn` itself that fails when the
+parent's cwd is deleted -- a child inherits the parent's cwd via `fork()`
+at the OS level, no path-string resolution needed, so the spawn call
+itself succeeds even from a dead cwd. What fails is the CHILD, once
+running, calling `process.cwd()` at ITS OWN startup (as `claude`, like
+most CLIs, does) -- verified directly: `execFile(node, ['-e',
+'process.cwd()'])` from a cwd-deleted parent throws inside the child with
+`ENOENT: process.cwd failed with error no such file or directory, the
+current working directory was likely removed without changing the
+working directory, uv_cwd` -- almost the literal words of Josh's error.
+`engine/connect.js:801`'s `run(downloaded.path, ['install'], ...)` spawns
+exactly this shape (`run()`, `engine/connect.js`'s own `execFile`
+wrapper, line ~137, never sets a `cwd` option), so the `claude` binary it
+launches inherits the dead cwd and fails at its own startup the same way.
+
+**Not the only spawn site, and the plan originally overclaimed this.**
+An earlier draft of this doc said "only `run()` fits that description."
+Checked again, specifically for other `execFile`/`spawn` calls with no
+explicit `cwd` (not just file writes, which do all resolve through
+`store.ROOT` or another absolute path and are correctly immune):
+`engine/attachments.js:155` (`qlmanage`), `engine/devicedoor.js:73` and
+`:120`, `engine/remote.js:214` and `:356`, `engine/update.js:375` (the
+self-update `curl | sh`) all spawn without an explicit `cwd` too. None of
+these are separately broken by this fix -- `process.chdir()` is
+process-wide, so the same `chdir(homedir())` protects all of them, not
+just `connect.js`'s `run()`. But the bug's blast radius was wider than
+"one call site," and any of these could plausibly have been the first to
+surface it on a different machine or flow.
 
 ## Corroborating evidence, independent of Josh's report
 
@@ -98,22 +121,36 @@ not silently absorbed, since 9 seconds on this machine's connection is a
 real assumption that clearly did not hold for whatever connection Josh
 was on when three retries felt costly enough to report.
 
-**Does not fix the render-collapse (More Models section losing its
-styling).** That is Mona Lisa's, tracked separately on the same issue;
-she is explicitly staying out of `install/`, no collision here.
+**Not connected to the "stale build served then swapped to current"
+report.** Investigated separately: the "Try again" button
+(`frConnectStart()` in `web/index.html`) is a plain `POST
+/api/connect/start` against the already-running board -- it never
+re-runs `install/setup.sh` and never touches `web/index.html` on disk,
+so `setup.sh:1620`'s self-update file-swap comment (specific to
+replacing a running old board's files) does not apply to this retry
+flow. Turned out moot anyway: what looked like a pre-#262 screenshot was
+a design mockup pasted next to real app screenshots, not a second build
+served from Josh's machine. No render bug, nothing further to chase
+here.
 
 ## Verification plan
 
-- Direct reproduction: spawn a real `node server.js` from a directory,
-  then `rm -rf` that directory out from under the running process (same
-  shape as both Josh's and Splinter's real instances), then hit a route
-  that calls `engine/connect.js`'s `run()` (or a lower-level unit test
-  calling `run()` directly) and confirm it previously would have failed
-  and now does not, because `process.cwd()` was already repointed to
-  `$HOME` before the deletion could matter.
-- A dedicated `server.js` startup test (or `engine/connect.test.js`
-  addition) asserting `process.cwd()` is set to `os.homedir()` shortly
-  after `require`, without needing the full delete-the-directory dance
+- Direct reproduction, DONE: `engine/connect.js`'s `run()` is not
+  exported for a direct unit-test call, and driving the full download
+  flow is too heavy for a focused test, so this reproduces the precise
+  OS-level mechanism instead of the full HTTP path -- confirmed by hand
+  first (see `server.startup.test.js`'s second test): a child spawned
+  via `execFile` with no explicit `cwd` inherits the parent's cwd via
+  `fork()`, so the spawn call itself always succeeds even from a deleted
+  cwd; what fails is the CHILD calling `process.cwd()` at its own
+  startup (exactly what `claude install` does), which throws `ENOENT:
+  process.cwd failed ... the current working directory was likely
+  removed` -- Josh's error, nearly word for word. Reproduced both
+  directions: before the parent's `chdir()`, a spawned child that calls
+  `process.cwd()` fails with that exact message; after, it succeeds.
+- A dedicated `server.js` startup test (`server.startup.test.js`'s first
+  test) asserting `process.cwd()` is set to `os.homedir()` shortly
+  after startup, without needing the full delete-the-directory dance
   for every test that touches this.
 - Full `node --test` suite before merge, to confirm nothing elsewhere in
   this codebase (or its own test suite) assumed `process.cwd()` stayed
