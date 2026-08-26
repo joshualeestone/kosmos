@@ -199,7 +199,7 @@ const ROLES = [
     key: 'ea',
     group: 'Running the work',
     label: 'Executive Assistant',
-    blurb: 'Manages email, calendars, meeting preparation, and follow-ups',
+    blurb: 'Sorts what is forwarded to it, preps you for meetings, and chases follow-ups',
     caution: 'It never sends anything. It drafts the emails and replies and leaves them ready for you to send.',
     firstAction: 'Tell me what is coming up this week and I will get you ready for it.',
     instructions: [
@@ -1066,7 +1066,7 @@ const ROLES = [
     key: 'personal',
     group: 'Personal and family',
     label: 'Personal Assistant',
-    blurb: 'Handles your personal email, calendar, and bookings, kept separate from work',
+    blurb: 'Sorts what is forwarded to it, drafts personal bookings, kept separate from work',
     caution: 'It never sends or books anything on its own. It drafts and prepares, and waits for your go-ahead.',
     firstAction: 'Tell me what is coming up in your personal life this week and I will get you ready for it.',
     instructions: [
