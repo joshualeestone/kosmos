@@ -4041,6 +4041,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    inside a selector" to guard it. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) #firstrun { --label-2: #4a4f57; --separator: #e3e1dc; }
+  /* Caught in challenge-loop iteration 1: #firstrun's single-look ruling
+     pins its background to white in EVERY theme, but the dark-mode red
+     added for .chk.att above was measured against a dark ground that
+     never actually occurs here. #ff8c82 on white measures ~2.03:1, well
+     under the 3:1 floor the whole point of this fix was to clear. Same
+     re-pin shape as the --label-2/--separator line above: force the
+     light value back inside this one subtree. */
+  :root:not([data-theme="light"]) #firstrun .chk.att .chk-m { background: rgba(179,38,30,.13); border-color: rgba(179,38,30,.45); color: #b3261e; }
 }
 /* ⚠️ STICKY FOOTER, ALL SIX STEPS — Josh, 2026-08-25 21:08 CDT, answering
    #262's overflow: "we could make the button show and the modal stuff could
@@ -4319,6 +4327,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .pj-row:hover { border-color: rgba(245,245,244,.30); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
 
 :root[data-theme="dark"] #firstrun { --label-2: #4a4f57; --separator: #e3e1dc; }
+/* Caught in challenge-loop iteration 1: #firstrun's single-look ruling
+     pins its background to white in EVERY theme, but the dark-mode red
+     added for .chk.att above was measured against a dark ground that
+     never actually occurs here. #ff8c82 on white measures ~2.03:1, well
+     under the 3:1 floor the whole point of this fix was to clear. Same
+     re-pin shape as the --label-2/--separator line above: force the
+     light value back inside this one subtree. */
+:root[data-theme="dark"] #firstrun .chk.att .chk-m { background: rgba(179,38,30,.13); border-color: rgba(179,38,30,.45); color: #b3261e; }
 /* ===== END GENERATED ===== */
 </style>
 <!-- ⚠️ THE id HERE IS LOAD-BEARING, NOT DECORATION. Every page test in this
