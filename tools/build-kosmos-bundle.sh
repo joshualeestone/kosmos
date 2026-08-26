@@ -278,28 +278,40 @@ _reload_table_actual="$(perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin
 # anything -- Undo and Settings in particular can be present and inert -- so a
 # change to either still owes a headed press. It catches the failure mode that
 # actually happened, which is an item silently disappearing or never arriving.
+# ⚠️ SINGLE-QUOTED, so a future item title containing an ASCII apostrophe
+# would terminate this literal mid-string and surface as a shell syntax error
+# rather than a menu drift. Today's table is clean (verified: no 0x27 byte).
+# If a title ever needs one, move this to a heredoc.
 _menu_table_expected='menu:Kosmos
-  item:About Kosmos	shortcut:-	action:orderFrontStandardAboutPanel:
-  item:Settings…	shortcut:cmd+,	action:openSettings:
-  item:Services	shortcut:-	action:submenuAction:
-  item:Hide Kosmos	shortcut:cmd+h	action:hide:
-  item:Hide Others	shortcut:cmd+opt+h	action:hideOtherApplications:
-  item:Show All	shortcut:-	action:unhideAllApplications:
-  item:Quit Kosmos	shortcut:cmd+q	action:terminate:
+  item:About Kosmos	shortcut:-	action:orderFrontStandardAboutPanel:	target:-
+  sep
+  item:Settings…	shortcut:cmd+,	action:openSettings:	target:set
+  sep
+  item:Services	shortcut:-	action:submenuAction:	target:set
+  sep
+  item:Hide Kosmos	shortcut:cmd+h	action:hide:	target:-
+  item:Hide Others	shortcut:cmd+opt+h	action:hideOtherApplications:	target:-
+  item:Show All	shortcut:-	action:unhideAllApplications:	target:-
+  sep
+  item:Quit Kosmos	shortcut:cmd+q	action:terminate:	target:-
 menu:Edit
-  item:Undo	shortcut:cmd+z	action:undo:
-  item:Redo	shortcut:cmd+shift+z	action:redo:
-  item:Cut	shortcut:cmd+x	action:cut:
-  item:Copy	shortcut:cmd+c	action:copy:
-  item:Paste	shortcut:cmd+v	action:paste:
-  item:Select All	shortcut:cmd+a	action:selectAll:
+  item:Undo	shortcut:cmd+z	action:undo:	target:-
+  item:Redo	shortcut:cmd+shift+z	action:redo:	target:-
+  sep
+  item:Cut	shortcut:cmd+x	action:cut:	target:-
+  item:Copy	shortcut:cmd+c	action:copy:	target:-
+  item:Paste	shortcut:cmd+v	action:paste:	target:-
+  item:Select All	shortcut:cmd+a	action:selectAll:	target:-
 menu:View
-  item:Reload	shortcut:cmd+r	action:reloadBoard:
+  item:Reload	shortcut:cmd+r	action:reloadBoard:	target:set
 menu:Window
-  item:Minimize	shortcut:cmd+m	action:performMiniaturize:
-  item:Zoom	shortcut:-	action:performZoom:
-  item:Close	shortcut:cmd+w	action:performClose:
-  item:Bring All to Front	shortcut:-	action:arrangeInFront:'
+  item:Minimize	shortcut:cmd+m	action:performMiniaturize:	target:-
+  item:Zoom	shortcut:-	action:performZoom:	target:-
+  item:Close	shortcut:cmd+w	action:performClose:	target:-
+  sep
+  item:Kosmos	shortcut:cmd+0	action:showBoardWindow:	target:set
+  sep
+  item:Bring All to Front	shortcut:-	action:arrangeInFront:	target:-'
 # Pre-declared and trapped up top with its siblings (line ~37): a mktemp
 # that is not on the ONE EXIT trap leaks a file per build, including every
 # FAILING build, which is the exact class the single trap exists to prevent.

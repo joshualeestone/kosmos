@@ -807,9 +807,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
      until somebody presses a key, so the gate has to be machine-run.
 
      ⚠️ Most items here are AppKit-supplied ACTIONS with no code of ours
-     behind them -- the item is only what carries the key equivalent. The
-     exceptions are Reload (ours, #965) and Settings (ours, below), and those
-     two are the ones that can break.
+     behind them -- the item is only what carries the key equivalent. FOUR
+     rows are not like that and each is flagged where it lives:
+       · Reload   -- ours (#965), explicit target
+       · Settings -- ours, drives the web page (see openSettings below)
+       · Close    -- routes into OUR windowShouldClose, not AppKit's default
+       · Undo/Redo -- reach the window's undo manager, and can be present and
+                      inert; only a headed press settles them
+     An earlier version of this paragraph named two, which would send a reader
+     past exactly the rows the rest of this file says to check.
      */
     static func makeMainMenu(reloadTarget: AnyObject?, settingsTarget: AnyObject?) -> NSMenu {
         let mainMenu = NSMenu()
@@ -823,14 +829,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // a blank name.
         let appMenu = NSMenu(title: "Kosmos")
         appMenuItem.submenu = appMenu
-        /* About shows the bundle's CFBundleShortVersionString, which
-           install/setup.sh writes at install time.
-           ⚠️ THAT IS THE APP'S VERSION, NOT THE BOARD'S, and the two can
-           differ: the board's number is baked into web/index.html and the
-           footer reads it. Standard About is still the right thing here --
-           it answers "what version of this application am I running" --
-           but do not "fix" a mismatch by pointing one at the other. They
-           are answers to two different questions (#995). */
+        /* About shows the bundle's CFBundleShortVersionString.
+           📌 IT IS THE SAME NUMBER THE FOOTER SHOWS, and an earlier version
+           of this comment said otherwise. Traced: install/setup.sh reads
+           `app/package.json` `.version` into CFBundleShortVersionString, and
+           tools/build-kosmos-bundle.sh reads the SAME field to substitute
+           __KOSMOS_VERSION__ into web/index.html. `make_app` runs on every
+           install, and the in-app update re-runs setup.sh, so it runs then
+           too.
+           ⚠️ SO A MISMATCH IS A DEFECT, NOT A SECOND QUESTION. The old
+           comment told the next maintainer not to "fix" one, which would
+           have suppressed the only signal that a make_app failed and left
+           the previous bundle in place. If these two ever disagree, that
+           IS the bug. */
         appMenu.addItem(withTitle: "About Kosmos",
                         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
                         keyEquivalent: "")
@@ -922,6 +933,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         windowMenu.addItem(withTitle: "Close",
                            action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         windowMenu.addItem(NSMenuItem.separator())
+        /* ⚠️ A WAY BACK, because this branch just added a way out.
+           `Close` orders the window out rather than quitting, and an
+           ordered-out window leaves AppKit's window list -- so after ⌘W the
+           Window menu is empty and offers no route back. Recovery existed
+           (clicking the Dock icon, and now ⌘,) but neither is IN the menu
+           bar, and a Mac user who has just been given a Window menu will
+           look there. The behaviour is not new; the reflexive keyboard route
+           to it is, which is what makes the gap reachable. */
+        let showItem = NSMenuItem(title: "Kosmos",
+                                  action: #selector(AppDelegate.showBoardWindow(_:)), keyEquivalent: "0")
+        showItem.target = reloadTarget
+        windowMenu.addItem(showItem)
+        windowMenu.addItem(NSMenuItem.separator())
         windowMenu.addItem(withTitle: "Bring All to Front",
                            action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
 
@@ -951,6 +975,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
      themselves call) and only navigates when that function is not there,
      which would mean the page is an older build than this binary.
      */
+    /* The counterpart to Close. Same call `applicationShouldHandleReopen`
+       makes when the Dock icon is clicked, so there is one way to bring the
+       window back and the menu item is not a second implementation of it. */
+    @objc func showBoardWindow(_ sender: Any?) {
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     @objc func openSettings(_ sender: Any?) {
         /* ⚠️ THE WINDOW MAY BE HIDDEN. ⌘W (new on this branch) routes through
            `windowShouldClose`, which orders the window out and returns false --
@@ -966,8 +998,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            is the exact harm the fallback's own comment claims to avoid. Now a
            throw from showTab propagates and is REPORTED; only a genuinely
            missing function navigates. */
+        /* 🛑 CLICK THE REAL CONTROL, DO NOT CALL showTab DIRECTLY.
+           An earlier version called `showTab('settings')` and its comment
+           claimed that was "the same function the tabs themselves call". The
+           FUNCTION is the same; the CALL is not. The page's own tab handler
+           does `WATCH += 1; topLevelReset(tab); showTab(tab); … burgerClose()`,
+           and two of those matter here:
+
+           · `WATCH` is the page's "the person walked away" token. index.html
+             carries a comment recording that this exact omission already
+             shipped once: leaving a panel without bumping it left the page
+             polling /api/status every two seconds and repainting a hidden
+             panel. Pressing ⌘, mid-agent-creation would reintroduce that
+             through a new door the existing guard does not cover.
+           · `burgerClose()` — on the narrow layout the burger nav otherwise
+             stays open over the Settings screen.
+
+           The page states the rule itself: go through the real control "so
+           aria-selected, WATCH, and everything else a tab change means stay
+           in the one place that owns them."
+
+           📌 GRADED, MOST-CORRECT FIRST. The control is absent during
+           first-run, where `showTab` is still the honest second choice; the
+           navigation is last because it is the only one that can discard
+           typed text. */
         let js = """
         (function () {
+          try {
+            var tab = document.querySelector('.tab[data-tab="settings"]');
+            if (tab) { tab.click(); return 'clicked'; }
+          } catch (e) { /* fall to the next rung */ }
           var fn = null;
           try { fn = (typeof showTab === 'function') ? showTab : null; } catch (e) { fn = null; }
           if (fn) { fn('settings'); return 'in-place'; }
@@ -984,9 +1044,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                    FileManager.createFile fails, so a log-only failure is
                    invisible to the person AND to field diagnostics -- ⌘,
                    would silently do nothing on a window that never loaded
-                   (about:blank after a startup-failure alert), with the item
-                   permanently enabled because something in the chain always
-                   implements this action. A beep is what `reloadBoard`
+                   (about:blank after a startup-failure alert). The item is
+                   enabled because THIS delegate implements the action, so it
+                   never greys to warn anyone -- not the responder-chain
+                   reason the Undo note gives, which is a different item's
+                   story. A beep is what `reloadBoard`
                    already does for its own can't-act case. */
                 NSSound.beep()
                 logLine("openSettings: the page did not answer (\(error.localizedDescription))")
@@ -1047,23 +1109,25 @@ if CommandLine.arguments.contains("--kosmos-app-reload-decision-selftest") {
 // item is invisible until somebody presses the key it does not have. A person
 // remembering to check is exactly the mechanism that already failed.
 if CommandLine.arguments.contains("--kosmos-app-menu-selftest") {
-    // nil targets because a structural dump has no use for them. (An earlier
-    // comment said a real target "would need a window" -- not true, the binary
-    // constructs an AppDelegate below without one.) What is proven here is
-    // that the item and its key equivalent EXIST; whether the action does
-    // anything is a different question, answered by pressing it.
+    // A SENTINEL, not nil: the dump records whether each item HAS a target,
+    // and passing nil here would make every row read `-` and defeat the
+    // column. Any object will do -- nothing is invoked.
     //
     // ⚠️ ONE LEVEL DEEP, and NSApp.servicesMenu / NSApp.windowsMenu are
     // assigned in buildMenu(), outside what this can see. So a DELETED
-    // services/windows wiring, or a future nested submenu, escapes this gate
-    // even though a rename would not. Stated so the gate is not trusted for
-    // more than it checks.
-    let menu = AppDelegate.makeMainMenu(reloadTarget: nil, settingsTarget: nil)
+    // services/windows wiring, a future nested submenu, or buildMenu() not
+    // being called at all, escapes this gate even though a rename would not.
+    // Stated so the gate is not trusted for more than it checks.
+    let sentinel = NSObject()
+    let menu = AppDelegate.makeMainMenu(reloadTarget: sentinel, settingsTarget: sentinel)
     for top in menu.items {
         guard let sub = top.submenu else { continue }
         print("menu:\(sub.title)")
         for item in sub.items {
-            if item.isSeparatorItem { continue }
+            // Separators are EMITTED, not skipped: their placement is part of
+            // the bar a person reads, and skipping them let Quit land flush
+            // against Show All without the gate noticing.
+            if item.isSeparatorItem { print("  sep"); continue }
             var mods: [String] = []
             if item.keyEquivalentModifierMask.contains(.command) { mods.append("cmd") }
             if item.keyEquivalentModifierMask.contains(.shift) { mods.append("shift") }
@@ -1071,7 +1135,19 @@ if CommandLine.arguments.contains("--kosmos-app-menu-selftest") {
             if item.keyEquivalentModifierMask.contains(.control) { mods.append("ctrl") }
             let key = item.keyEquivalent.isEmpty ? "-" : item.keyEquivalent
             let shortcut = key == "-" ? "-" : (mods.joined(separator: "+") + "+" + key)
-            print("  item:\(item.title)\tshortcut:\(shortcut)\taction:\(item.action.map { NSStringFromSelector($0) } ?? "-")")
+            // ⚠️ `target:` IS THE POINT OF THIS COLUMN. Splitting buildMenu
+            // into a constructor plus an assignment created a failure mode
+            // that did not exist when the menu was built inline: the two
+            // targets are now ARGUMENTS, and passing nil for either is a
+            // silent regression -- ⌘R reverts to the nil-target behaviour
+            // WKWebView swallows, and ⌘, resolves to nothing and greys out
+            // permanently. Both are exactly the "appears and is inert"
+            // failure this card exists to remove, and a target-blind dump
+            // would stay byte-for-byte green through either. The selftest
+            // passes a sentinel so this reads `set` for the rows that need
+            // one and `-` for the rows that must not have one.
+            let target = item.target == nil ? "-" : "set"
+            print("  item:\(item.title)\tshortcut:\(shortcut)\taction:\(item.action.map { NSStringFromSelector($0) } ?? "-")\ttarget:\(target)")
         }
     }
     exit(0)
