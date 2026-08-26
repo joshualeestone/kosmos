@@ -32,6 +32,7 @@ const EXCUSED = {
   setSessionSource: 'test seam: keeps session reads off the real machine',
   setTickInterval: 'test seam (connect pacing)',
   setUnknownGrace: 'test seam (connect pacing)',
+  setAbandonedSigninMs: 'test seam (connect pacing, #727 item 4 abandoned-signin bound)',
   setFreshnessForTests: 'test seam',
   setUnansweredAfterForTests: 'test seam (#185 unanswered constant)',
   setBase: 'test seam (update feed base url)',
