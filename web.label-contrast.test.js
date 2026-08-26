@@ -177,6 +177,44 @@ test('the Settings status glyph clears 3:1 in BOTH themes, on the ground each si
     'the glyph is exposed again, so it is announced beside a sentence that already says it');
 });
 
+/**
+ * The "!" attention glyph, same shape as the .ok test above and the same
+ * reason it exists: .att used to share .ok's exact gold, distinguished only
+ * by the glyph's own shape, easy to skim past (Josh, 2026-08-26 07:12, from
+ * a screenshot of the first-run "Checking this computer" pane).
+ *
+ * ⚠️ THIS COMPONENT NEVER RENDERS INSIDE #firstrun. `chkRow()` output lands
+ * only in `#set-machine` and `#set-applocation` (Settings), both outside the
+ * `#firstrun` subtree -- so its grounds are the ordinary theme grounds, white
+ * in light and the #17191c card surface in dark. An earlier iteration added a
+ * `#firstrun`-scoped pin for this selector on the premise that the dark red
+ * could land on `#firstrun`'s pinned-white ground; that premise was false
+ * (disjoint subtrees) and the pin was removed as dead CSS. The first-run
+ * screen has its own component (`frCheckRow()` -> `.fr-check`) and its own
+ * test below.
+ */
+test('the attention glyph clears 3:1 in BOTH themes', () => {
+  const tick = { light: colour('#b3261e'), dark: colour('#ff8c82') };
+  const tint = { light: { r: 179, g: 38, b: 30, a: 0.13 }, dark: { r: 255, g: 140, b: 130, a: 0.13 } };
+  const ground = { light: over(tint.light, hex('#ffffff')), dark: over(tint.dark, hex('#17191c')) };
+
+  for (const theme of ['light', 'dark']) {
+    const r = ratio(tick[theme], ground[theme]);
+    assert.ok(r >= 3, theme + ' attention glyph is ' + r.toFixed(2) + ', below the 3:1 floor for a graphical indicator');
+  }
+  assert.ok(ratio(tick.light, ground.light) > ratio(tick.dark, ground.light),
+    'the dark glyph colour reads better on the LIGHT ground, so the two are the wrong way round');
+  assert.ok(ratio(tick.dark, ground.dark) > ratio(tick.light, ground.dark),
+    'the light glyph colour reads better on the DARK ground, so the light fix was applied globally');
+
+  assert.match(PAGE, /\.chk\.att \.chk-m[^}]*color:\s*#b3261e/, 'the light glyph colour is not declared');
+  for (const sel of ['\\:root\\:not\\(\\[data-theme="light"\\]\\) \\.chk\\.att \\.chk-m',
+    '\\:root\\[data-theme="dark"\\] \\.chk\\.att \\.chk-m']) {
+    const re = new RegExp(sel.replace(/\\\\/g, '\\') + '[^}]*#ff8c82');
+    assert.match(PAGE, re, 'a dark rule for the glyph is missing or no longer uses the dark attention red: ' + sel);
+  }
+});
+
 test('the one state pill whose SHAPE carries meaning clears 3:1 in both themes, and idle has an edge (#293)', () => {
   /**
    * Six pills, and ten of their twelve theme readings are under 3:1 on
@@ -216,4 +254,50 @@ test('the one state pill whose SHAPE carries meaning clears 3:1 in both themes, 
   assert.match(PAGE, /\.astate\.st-unknown\s*\{[^}]*border-style:\s*dashed/, 'unknown lost its dash, so its edge now means nothing');
   // POSITIVE CONTROL: the instrument sees the old value as the failure it was.
   assert.ok(ratio(colour('rgba(20,22,26,.22)'), surface.light) < 3, 'the contrast helper no longer fails the value this card was filed on');
+});
+
+/**
+ * The FIRST-RUN "!" glyph -- the screen Josh's screenshot was actually of.
+ *
+ * 🛑 NOT THE SAME COMPONENT AS THE `.chk.att` TEST ABOVE. That one paints
+ * Settings > This Mac (`chkRow()` into `#set-machine`); this one paints the
+ * first-run wizard's own machine-check step (`frCheckRow()` into
+ * `#fr-checks`, both inside `#firstrun`). Two near-identical-looking
+ * components with the same bug, caught first on the wrong one in
+ * challenge-loop iteration 1 and traced to the right one in iteration 2 by
+ * checking which function actually renders the screen in the screenshot,
+ * not by which class name looked most likely.
+ *
+ * ⚠️ ONLY ONE GROUND HERE, ON PURPOSE. `#firstrun` pins white in every
+ * theme (its own single-look ruling) and this rule has no dark-mode
+ * variant at all -- confirmed by `tools/sync-forced-theme.js --check`
+ * passing clean with none added. A test asserting a dark-mode split here
+ * would be testing a rule that does not exist.
+ */
+test('the first-run "!" glyph (frCheckRow, not chkRow) clears 3:1 against its real (always-white) ground', () => {
+  const attnRule = PAGE.match(/#firstrun \.fr-check\.attention \.fr-mark\s*\{[^}]*\}/);
+  assert.ok(attnRule, '#firstrun .fr-check.attention .fr-mark rule is missing or moved');
+  assert.doesNotMatch(attnRule[0], /\.fr-check\.ok/,
+    'the .ok and .attention rules are combined again, which is the exact bug this card reported');
+
+  const okRule = PAGE.match(/#firstrun \.fr-check\.ok \.fr-mark\s*\{[^}]*\}/);
+  assert.ok(okRule, '#firstrun .fr-check.ok .fr-mark rule is missing or moved');
+
+  const parse = (rule) => ({
+    tint: colour(rule.match(/background:\s*(rgba\([^)]*\))/)[1]),
+    ink: colour(rule.match(/color:\s*(#[0-9a-fA-F]{6})/)[1]),
+  });
+  const attn = parse(attnRule[0]);
+  const ok = parse(okRule[0]);
+
+  const white = hex('#ffffff');
+  const attnGround = over(attn.tint, white);
+  const r = ratio(attn.ink, attnGround);
+  assert.ok(r >= 3, 'the "!" glyph is ' + r.toFixed(2) + ':1 on its own tint over white, below the 3:1 floor');
+
+  /* THE ACTUAL BUG, as a regression sensor: .ok and .attention must not be
+     the same colour, or the glyph shape is the only thing telling them
+     apart again -- which is Josh's exact complaint. */
+  assert.notEqual(attn.ink.r + ',' + attn.ink.g + ',' + attn.ink.b, ok.ink.r + ',' + ok.ink.g + ',' + ok.ink.b,
+    '.ok and .attention share a colour again -- easy to skim past, which is the bug this card reported');
 });
