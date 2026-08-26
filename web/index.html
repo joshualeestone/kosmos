@@ -1995,12 +1995,21 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* #980 (Josh, 2026-08-26 08:31): NO page scrollbar, ever -- "no matter
    what size... it has a 10% or 15% scroll so you can scroll down and see
    a nothingness space" (the page-level body padding was most of it). The
-   body becomes a viewport-height grid with explicit rows for the four
-   that exist (the head, the rail heads, the lists, the person), the
-   lists' row is the one that flexes, and every region scrolls inside
-   itself. overflow:hidden is the backstop: a future mis-sized child
-   clips instead of resurrecting the page scrollbar.
-   ⚠️ This comment sits ABOVE the media block on purpose: four spec-pin
+   body becomes a viewport-height grid with explicit rows for the three
+   that need one (the rail heads, the lists, the person -- the header is
+   auto-placed among the pre-rail tracks, which is what `repeat(38, auto)`
+   protects), the lists' row is the one that flexes, and every region
+   scrolls inside itself.
+   ⚠️ "EVER" IS THE GOAL, NOT THE MECHANISM, and the distinction is the
+   thing to read before editing this rule. The body is `overflow-y: auto`,
+   NOT `hidden`: `auto` draws nothing while the grid fits, so in every
+   window a person uses there is no page scrollbar, exactly as asked. It
+   is the escape hatch for the one case where honouring the goal would
+   cost REACHABILITY -- a window too short for the flexing row's floor.
+   `hidden` there does not keep the promise, it hides the board. The long
+   comment on the rule itself carries the full reasoning; this paragraph
+   exists so the first thing a reader meets is not the opposite of it.
+   ⚠️ This comment sits ABOVE the media block on purpose: five spec-pin
    tests anchor on the media line being immediately followed by the body
    rule. */
 @media (min-width: 960px) {
@@ -2123,7 +2132,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      view sets `padding: 0` (the body grid rule above), so those -24px stopped cancelling
      anything and became a real offset: measured, `.apphead` and
      `#newsbar` render at left:-24, top:-24. Under this view's
-     `height: 100vh; overflow: hidden` that is CLIPPED rather than
+     `height: 100vh` that was CLIPPED rather than
      scrollable -- the update notice was sliced through the middle with
      its status dot off-screen.
      ⚠️ AND IT CLIPPED EXACTLY WHAT THE COMMENT ABOVE PROMISES STAYS
@@ -2213,7 +2222,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lname, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .ltitle, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lstate { display: none; }
   /* Folded projects: the arrow alone, the list gone. */
   html[data-layout="consolidated"] body.consolidated.fold-p #panel-projects { grid-template-columns: 48px minmax(0, 1fr); }
-  html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects { flex-direction: column; margin-left: 0; }
+  /* ⚠️ `margin-left: 0` HERE OUT-SPECIFIES THE STICKY HEADER'S `margin: 0 -8px`
+     below -- (1,3,2) against (1,2,2) -- so folded, the header kept its right
+     bleed and lost its left, and scrolled rows could peek through the 8px
+     strip the negative margins exist to cover. `margin-inline-start` is the
+     narrow fix: it still cancels the fold's own left inset without
+     re-declaring the shorthand that carries the bleed. */
+  html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects { flex-direction: column; margin-inline-start: -8px; }
   html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects .railacts { flex-direction: column; }
   /* #980 (Josh, 2026-08-26 08:31): "when I collapse projects the header
      should go away and just have the + and the arrow" -- the label was
@@ -2331,7 +2346,18 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      was clipped with no scrollbar and no wheel target -- Project settings'
      own bottom controls (archive, member removal) unreachable, through the
      very "Settings" link this pass renames. Same treatment as the list
-     view; the visible track stays (these are reading columns, not rails). */
+     view; the visible track stays here (these four are reading columns, not
+     rails).
+     ⚠️ SCOPE: this sentence governs THESE FOUR SUB-VIEWS only. The three
+     right-column cards below (members, tasks, files) DO hide their tracks,
+     deliberately and by Josh's own ask -- #867, where he named "projects,
+     members, files, and tasks" alongside the agents rail. That is a real
+     trade and it is worth naming rather than letting the two rules look
+     like a contradiction: those three carry vh caps, so they clip on a
+     short window, and a hidden track means a mouse reader gets no cue that
+     the list continues. Keyboard reach is unaffected (the rows are
+     buttons). If that cost ever outweighs the tidiness, it is his call to
+     reverse, not a defect to fix quietly. */
   html[data-layout="consolidated"] body.consolidated #pj-settings-view, html[data-layout="consolidated"] body.consolidated #pj-task-view,
   html[data-layout="consolidated"] body.consolidated #pj-docs-view, html[data-layout="consolidated"] body.consolidated #pj-add-view { min-height: 0; overflow-y: auto; }
   /* #980 (iteration 2): the projects rail header pins at the top of its
@@ -2408,7 +2434,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   /* #980: the third row (Members, after the Files-above-Members swap) is
      the right column's flexing one; each card scrolls inside itself, so
      tall content bounds instead of growing the page. */
-  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(0, 1fr); height: 100%; min-height: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(120px, 1fr); height: 100%; min-height: 0; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { min-height: 0; align-self: start; }
   /* ⚠️ THE SCROLLER IS THE LIST, NOT THE CARD, on Tasks and Members
      (challenge-loop iteration 6): both cards are grids (piece ten below)
@@ -2449,7 +2475,18 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      each and push Members clean off the bottom). A viewport cap cannot be
      gamed by content: Tasks and Files each stop at 38vh and scroll inside;
      Members' own row is 1fr-bounded by construction, so its 100% cap is
-     against a real track and holds. */
+     against a real track and holds.
+     🛑 THE TWO CAPS BOUND EACH CARD, NOT THEIR SUM, and that is what starved
+     the third row. 38vh + 38vh is 76vh, plus `.pj3`'s 16px row gaps and the
+     cards' own margins, so on a 700px window with both lists full Members
+     computed to roughly one row. Each cap was doing its job and the
+     arithmetic across them was nobody's.
+     ⇒ Members' track now carries a 120px FLOOR (its head plus about two
+     rows). Below that the grid exceeds `.pj3` and the overflow chains out to
+     the body's own scroll -- the same escape hatch, and the same trade, as
+     the body grid's `minmax(200px, 1fr)`: in every window a person uses
+     nothing scrolls, and where the geometry cannot be honoured, reachability
+     wins over the no-scrollbar promise. */
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit), html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child { max-height: 38vh; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { max-height: 100%; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 3; }
@@ -2509,18 +2546,25 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      (:2310 below) that made the tab view's box "fill the page height",
      the reference he could not recall the date of.
      ⚠️ TWO THINGS TRIED AND MEASURED WRONG BEFORE THIS ONE, kept here
-     so the next reader does not retry them: (1) stretching .pjmid to
-     its GRID ROW's height did nothing, because `.pj3`'s rows are
-     `auto`-sized from the RIGHT column's own content -- on a short
-     project the row is short too, so it fed the box the same shortage
-     it was meant to fix. (2) `max-height: calc(100vh - Npx)` alone ALSO
+     so the next reader does not retry them. ⚠️ BOTH DESCRIBE THE PRE-#980
+     LAYOUT and are kept as history, not as a description of this file:
+     (1) stretching .pjmid to its GRID ROW's height did nothing, because
+     `.pj3`'s rows were THEN `auto`-sized from the RIGHT column's own
+     content -- on a short project the row was short too, so it fed the
+     box the same shortage it was meant to fix. That is precisely why
+     #980 replaced it: `.pj3` is `height: 100%` now with a
+     `minmax(0, 1fr)` row, so the reasoning below no longer applies to
+     the shipped rule. (2) `max-height: calc(100vh - Npx)` alone ALSO
      did nothing, on a box with little or no conversation: max-height is
      a ceiling on content that would otherwise be taller, not an
      instruction to grow past a short natural size, so an empty thread
      just sat at its min-height floor with the ceiling unused far above
      it. What actually fills the box: a REAL height on the flex
      container (.pjmid, sized off the viewport, the same idiom #alist
-     already uses at :1955) for .thread to flex-grow INTO. */
+     used) for .thread to flex-grow INTO.
+     🔑 SUPERSEDED BY THE ONE-LINE NOTE BELOW, which is the shipped rule:
+     the height comes from the grid chain, not a viewport calc. Read that
+     first; this paragraph is why the calc was tried, not what runs. */
   /* #980: the box height comes from the grid chain now (body 100vh -> panel
      stretch -> .pj3 100%), not a viewport calc with a tuned offset. */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { height: 100%; min-height: 0; }

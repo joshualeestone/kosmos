@@ -28,10 +28,24 @@ const cons = 'html\\[data-layout="consolidated"\\] body\\.consolidated';
    passed against dead CSS. This scans the stylesheet's comment structure
    instead, which is the cheapest property that actually distinguishes them. */
 function strayCommentTerminators(css) {
+  /* ⚠️ Quoted strings are SKIPPED. A CSS rule whose content property contains
+     a comment delimiter as literal text is valid, and without this it would be
+     reported as a stray terminator. No such rule exists in this file today,
+     but this is the suite's one non-textual guard, and a guard that cries wolf
+     is a guard people learn to ignore.
+     📌 Note the shape of the bug that made this comment awkward to write: the
+     first draft quoted the delimiter, which closed this comment early and
+     broke the file. That is the third time today the same two characters have
+     done that, which is the best argument for the scanner existing at all. */
   const out = [];
   let i = 0, inComment = false, line = 1, openedAt = 0;
   while (i < css.length) {
     if (css[i] === '\n') line += 1;
+    if (!inComment && (css[i] === '"' || css[i] === "'")) {
+      const q = css[i]; i += 1;
+      while (i < css.length && css[i] !== q) { if (css[i] === '\\') i += 1; if (css[i] === '\n') line += 1; i += 1; }
+      i += 1; continue;
+    }
     if (!inComment && css.startsWith('/*', i)) { inComment = true; openedAt = line; i += 2; continue; }
     if (inComment && css.startsWith('*/', i)) { inComment = false; i += 2; continue; }
     if (!inComment && css.startsWith('*/', i)) { out.push(line); i += 2; continue; }
@@ -62,6 +76,11 @@ test('the stylesheet has no stray comment terminator: a rule discarded by the pa
     'control: the scanner no longer catches a planted stray terminator, so the assertion above is inert');
   assert.deepEqual(strayCommentTerminators('a{/* never closed'), [-1],
     'control: the scanner no longer catches an unclosed comment');
+  assert.deepEqual(strayCommentTerminators('a{ content: "*/"; }'), [],
+    'control: a delimiter inside a CSS string is reported as stray, which would make this guard cry wolf');
+  // Three lines: the string on 1, an ordinary comment on 2, the stray on 3.
+  assert.deepEqual(strayCommentTerminators('a{ content: "x"; }\n b{/* one */\n prose */ }'), [3],
+    'control: skipping strings also swallowed a REAL stray terminator after one');
 });
 
 test('the open project stays lit: a persistent .open state, written on click and on repaint', () => {
@@ -78,8 +97,16 @@ test('the open project stays lit: a persistent .open state, written on click and
     'pjMarkOpen no longer toggles aria-current with the class');
   assert.match(PAGE, /pjMarkOpen\(id\);/,
     'openProject no longer marks selection on the click itself (it would wait for the next repaint)');
-  assert.ok((PAGE.match(/pjMarkOpen\(null\)/g) || []).length >= 4,
+  /* ⚠️ COUNTED IN CODE, NOT IN PROSE. The raw-text count matched anywhere in
+     the file, so a comment quoting the call would have satisfied it -- the
+     same hole that let an indexOf find a comment before a declaration
+     elsewhere in this suite. Comments are stripped first, so the number
+     means call sites. */
+  const codeOnly = PAGE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  assert.ok((codeOnly.match(/pjMarkOpen\(null\)/g) || []).length >= 4,
     'a close path lost its pjMarkOpen(null) -- a lit row can outlive its project again');
+  assert.ok((('/* pjMarkOpen(null) */').replace(/\/\*[\s\S]*?\*\//g, '').match(/pjMarkOpen\(null\)/g) || []).length === 0,
+    'control: the comment strip no longer removes a quoted call, so the count above can be satisfied by prose');
 });
 
 /* ⚠️ COMPUTED, NOT MATCHED. A string pin on the box-shadow proves the rule is
@@ -157,7 +184,7 @@ test('the consolidated .apphead override resets margin, or the update notice is 
   const rule = PAGE.match(new RegExp(cons + ' > \\.apphead \\{[^}]*\\}'));
   assert.ok(rule, 'the consolidated .apphead override is gone');
   assert.match(rule[0], /margin:\s*0 0 var\(--space-6\)/,
-    'the consolidated .apphead override stopped resetting margin: .apphead\'s -24px mirror margins no longer cancel anything (this view has padding:0) and become a clip under overflow:hidden, taking the update and offline notices with them');
+    'the consolidated .apphead override stopped resetting margin: .apphead\'s -24px mirror margins no longer cancel anything (this view has padding:0) and become a clip inside the viewport-height grid, taking the update and offline notices with them');
   // The property this depends on, pinned beside it: if the body ever regains
   // padding, the reset above becomes wrong rather than merely unnecessary.
   assert.match(PAGE, new RegExp(cons + '[^{]*\\{[^}]*height: 100vh; overflow-y: auto; overflow-x: hidden; padding: 0'),
