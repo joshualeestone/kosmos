@@ -1605,7 +1605,16 @@ echo "-- the belt: a non-default KOSMOS_HOME whose AGENT_WORKFORCE_DATA is force
 # AGENT_WORKFORCE_DATA at the real path by hand). Forced here by setting
 # AGENT_WORKFORCE_DATA explicitly to the same path the DEFAULT would
 # resolve to, while KOSMOS_HOME stays sandboxed -- the exact mismatch the
-# belt exists to catch.
+# guard exists to catch.
+#
+# DELIBERATELY no fresh install for this scenario: $D924_KHOME no longer
+# exists on disk (scenario 1 already uninstalled and removed it above),
+# and the guard doesn't need it to. It fires on a pure string comparison
+# of env vars before uninstall() ever inspects KOSMOS_HOME's contents --
+# confirmed by reading uninstall() top to bottom, there is no
+# `[ -d "$KOSMOS_HOME" ]` precondition ahead of it. Reusing the variable
+# name (not the directory) keeps this scenario's intent legible: "the
+# same sandboxed KOSMOS_HOME, now with AGENT_WORKFORCE_DATA misconfigured".
 RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
   HOME="$D924_HOME" KOSMOS_HOME="$D924_KHOME" AGENT_WORKFORCE_DATA="$D924_HOME/Library/Application Support" \
   AGENT_WORKFORCE_LAUNCH="$SB/launch924" KOSMOS_HOME_APP_DIR="$SB/d924home-apps" KOSMOS_APP_DIR="$SB/apps924" \
@@ -1637,10 +1646,15 @@ printf 'default-scenario supervisor\n' > "$D924_DEFHOME/Library/Application Supp
 RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_LAUNCH \
   HOME="$D924_DEFHOME" KOSMOS_HOME_APP_DIR="$SB/d924home-apps-c" KOSMOS_APP_DIR="$SB/apps924c" \
   sh > "$SB/d924-default-install.log" 2>&1 || RC=$?
+# Every cat below is guarded with `|| true`: this whole block runs under
+# the file's own set -e, and a failed diagnostic dump (the log it wants to
+# show is itself missing, which is plausible for a board that failed
+# before writing one) must never abort the rest of the suite -- that would
+# turn a debug aid into a second, more confusing failure mode.
 [ "$RC" = 0 ] || {
-  echo "DEBUG #924 control install log:"; cat "$SB/d924-default-install.log";
-  echo "DEBUG #924 control board.log:"; cat "$D924_DEFHOME/.local/share/kosmos/logs/board.log" 2>&1;
-  echo "DEBUG #924 control install.log:"; cat "$D924_DEFHOME/.local/share/kosmos/logs/install.log" 2>&1;
+  echo "DEBUG #924 control install log:"; cat "$SB/d924-default-install.log" 2>&1 || true;
+  echo "DEBUG #924 control board.log:"; cat "$D924_DEFHOME/.local/share/kosmos/logs/board.log" 2>&1 || true;
+  echo "DEBUG #924 control install.log:"; cat "$D924_DEFHOME/.local/share/kosmos/logs/install.log" 2>&1 || true;
 }
 chk "#924 control (default KOSMOS_HOME) install exits 0" "rc_ok $RC"
 HOME="$D924_DEFHOME" "$D924_DEFHOME/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
