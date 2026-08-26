@@ -10942,10 +10942,13 @@ async function paintAccounts() {
        'none' -> a genuine "not signed in", 'unknown' -> "we could not
        check" (deliberately muted, never rendered as a negative -- the
        asymmetry engine/subscription.js's own header is built on).
-       OpenAI rows carry no `connection` field (out of scope for #881,
-       Josh has not ruled on that provider's live-check story) and keep
-       the prior unconditional badge so this fix does not silently
-       regress a path it was never meant to touch. */
+       ⚠️ #960: OpenAI rows now carry a real `connection` field too
+       (openaiaccounts.js's own checkLive(), a direct OpenAI API call --
+       the OpenAI branch of this ternary used to be the exact same
+       hardcoded-Connected shape #881/#959 fixed for the other provider,
+       filed as its own issue the moment #959 shipped and made the
+       contrast visible). One badge vocabulary now means one thing across
+       both providers; no per-provider branch needed here any more. */
     // ⚠️ THE REAL SENTENCE IS BOTH THE VISIBLE TEXT AND THE title, not a
     // fixed label with the reason hidden in a hover-only tooltip -- the
     // same rule taskClaimHtml() already established for exactly this
@@ -10958,8 +10961,7 @@ async function paintAccounts() {
     // style, not just taskClaimHtml()'s shorter precedent.
     const noneWhy = (a.connection && a.connection.because) || 'this account is not connected';
     const unknownWhy = (a.connection && a.connection.because) || 'we could not check this account';
-    const connBadge = isOpenai ? '<span class="acct-connected"><span class="dot" aria-hidden="true"></span>Connected</span>'
-      : a.connection && a.connection.state === 'connected' ? '<span class="acct-connected"><span class="dot" aria-hidden="true"></span>Connected</span>'
+    const connBadge = a.connection && a.connection.state === 'connected' ? '<span class="acct-connected"><span class="dot" aria-hidden="true"></span>Connected</span>'
       : a.connection && a.connection.state === 'none' ? '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>'
       : '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
     return '<div class="acct-box"><div class="acct-box-top"><div class="acct-who"><b>' + who
@@ -14921,14 +14923,13 @@ async function paintConnLive() {
     const res = await fetch('/api/accounts', { cache: 'no-store' });
     if (!res.ok) throw new Error('no');
     const all = ((await res.json()) || {}).accounts || [];
-    /* #881: a Claude row now carries a REAL, live-checked `connection`
-       field -- counting `all.length` here would show this exact box
-       claiming an account is "connected and thinking for your agents"
-       for one that Settings > Accounts, one tab over, correctly says is
-       not. OpenAI rows carry no `connection` field (out of scope for
-       #881), so they keep the old presence-only count -- this line does
-       not regress a provider it never touched. */
-    const list = all.filter((a) => a.provider !== 'anthropic' || (a.connection && a.connection.state === 'connected'));
+    /* #881/#960: every row now carries a REAL, live-checked `connection`
+       field (Claude via #881, OpenAI via #960) -- counting `all.length`
+       here would show this exact box claiming an account is "connected
+       and thinking for your agents" for one that Settings > Accounts, one
+       tab over, correctly says is not. No per-provider branch needed any
+       more: every row's own connection.state decides. */
+    const list = all.filter((a) => a.connection && a.connection.state === 'connected');
     el.textContent = '';
     if (!list.length) {
       // ⚠️ "NOTHING IS CONNECTED YET" IS A CLAIM, and it must be true, not
@@ -14938,8 +14939,9 @@ async function paintConnLive() {
       // `list` above, and that is "we could not tell", not "nothing is
       // connected" -- the exact unknown-must-never-render-as-none rule
       // this same diff enforces everywhere else (checkLive(), the
-      // Settings > Accounts badge). Said honestly here too.
-      const anyUnknown = all.some((a) => a.provider === 'anthropic' && a.connection && a.connection.state === 'unknown');
+      // Settings > Accounts badge). Said honestly here too, now for
+      // either provider.
+      const anyUnknown = all.some((a) => a.connection && a.connection.state === 'unknown');
       el.textContent = anyUnknown
         ? 'We could not check your accounts just now.'
         : 'Nothing is connected yet.';
@@ -19048,18 +19050,18 @@ function fillCreateAccounts() {
   if (!asel) return;
   const openai = document.getElementById('create-provider').value === 'openai';
   const list = CREATE_ACCOUNTS.filter((x) => openai ? x.provider === 'openai' : x.provider !== 'openai');
-  /* #881: an account confirmed NOT signed in is excluded the same way a
-     non-shared-memory account already was -- "an option that always
+  /* #881/#960: an account confirmed NOT signed in is excluded the same way
+     a non-shared-memory account already was -- "an option that always
      fails is worse than an option that is not there" (this file's own
      rule, a few thousand lines up, for exactly this shape). An UNKNOWN
-     check (could not reach Claude Code, a timeout) is NOT excluded --
+     check (could not reach the provider, a timeout) is NOT excluded --
      that would be the asymmetry mistake this whole feature exists to
      prevent, applied here as a false negative instead of a false
      positive -- but it is labelled so the choice is informed, not
-     silent. OpenAI rows carry no `connection` field (out of scope for
-     #881) and are untouched. Caught in challenge-loop iteration 8: this
-     call site was the one of four that never got any of this. */
-  const working = openai ? list : list.filter((x) => !x.connection || x.connection.state !== 'none');
+     silent. Applies to both providers now that OpenAI rows carry a real
+     `connection` field too (#960; #881's own iteration 8 caught this
+     exact call site missing the treatment its Claude-only siblings had). */
+  const working = list.filter((x) => !x.connection || x.connection.state !== 'none');
   const movable = openai ? working : working.filter((x) => x.memoryShared);
   const usable = movable.length ? movable : working;
   const nameOf = (x) => x.email || (x.provider === 'openai' && x.keyTail ? 'API key ending ' + x.keyTail : '') || x.label || x.dir;

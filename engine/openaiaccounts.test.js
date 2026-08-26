@@ -82,3 +82,133 @@ test('what is not a key is refused before anything runs', () => {
   assert.match(openai.addWithKey({ key: 'sk-short', codexBin: FAKE_CODEX }).because, /too short/);
   assert.match(openai.addWithKey({ key: 'sk-proj-fineleng-thkeyhereeeee', codexBin: nodePath.join(SANDBOX, 'no-such-codex') }).because, /could not find the OpenAI runner/);
 });
+
+/* ── live check (#960) ──────────────────────────────────────────────────
+   `codex login status` was measured LOCAL ONLY (a fabricated key still
+   reads "Logged in"), so the live check has to be a real call to OpenAI's
+   own API. `setFetcher` is this module's own seam for that call -- never
+   the real network in a test. */
+
+test('#960: a 200 from OpenAI means connected, and the key is never in the request as anything but the bearer token', () => {
+  writeAuth('.codex-live200', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-realworkingkeyKEY1' });
+  const dir = nodePath.join(SANDBOX, '.codex-live200');
+  let seenUrl = null;
+  let seenAuth = null;
+  openai.setFetcher(async (url, init) => {
+    seenUrl = url;
+    seenAuth = init.headers.authorization;
+    return { status: 200, body: { object: 'list', data: [{ id: 'gpt-4' }] } };
+  });
+  try {
+    return openai.checkLive(dir).then((r) => {
+      assert.equal(r.state, 'connected');
+      assert.equal(r.checkedLive, true);
+      assert.equal(seenUrl, 'https://api.openai.com/v1/models');
+      assert.equal(seenAuth, 'Bearer sk-proj-realworkingkeyKEY1');
+    });
+  } finally { openai.setFetcher(null); }
+});
+
+test('#960: a 401 from OpenAI means not connected, a positively confirmed negative', () => {
+  writeAuth('.codex-live401', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-rejectedkeyKEY2' });
+  const dir = nodePath.join(SANDBOX, '.codex-live401');
+  openai.setFetcher(async () => ({ status: 401, body: { error: { code: 'invalid_api_key' } } }));
+  try {
+    return openai.checkLive(dir).then((r) => {
+      assert.equal(r.state, 'none');
+      assert.match(r.because, /did not accept/);
+    });
+  } finally { openai.setFetcher(null); }
+});
+
+test('#960: a 403 is also a confirmed negative, same as 401', () => {
+  writeAuth('.codex-live403', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-forbiddenkeyKEY3' });
+  const dir = nodePath.join(SANDBOX, '.codex-live403');
+  openai.setFetcher(async () => ({ status: 403, body: null }));
+  try {
+    return openai.checkLive(dir).then((r) => assert.equal(r.state, 'none'));
+  } finally { openai.setFetcher(null); }
+});
+
+test('#960: an unreachable OpenAI (network error) is UNKNOWN, never a false negative', () => {
+  writeAuth('.codex-liveerr', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-somekeyKEY4' });
+  const dir = nodePath.join(SANDBOX, '.codex-liveerr');
+  openai.setFetcher(async () => { throw new Error('getaddrinfo ENOTFOUND api.openai.com'); });
+  try {
+    return openai.checkLive(dir).then((r) => {
+      assert.equal(r.state, 'unknown');
+      assert.match(r.because, /could not reach OpenAI/);
+      assert.ok(!r.because.includes('ENOTFOUND'), 'a raw network error leaked into the sentence; must be hand-written, not relayed');
+    });
+  } finally { openai.setFetcher(null); }
+});
+
+test('#960: an unexpected status from OpenAI is UNKNOWN, not guessed either way', () => {
+  writeAuth('.codex-live500', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-somekeyKEY5' });
+  const dir = nodePath.join(SANDBOX, '.codex-live500');
+  openai.setFetcher(async () => ({ status: 500, body: null }));
+  try {
+    return openai.checkLive(dir).then((r) => assert.equal(r.state, 'unknown'));
+  } finally { openai.setFetcher(null); }
+});
+
+test('#960: a ChatGPT-mode account is honestly UNKNOWN, and never even asks the network', () => {
+  const payload = Buffer.from(JSON.stringify({ email: 'chat@example.com' })).toString('base64url');
+  writeAuth('.codex-livechatgpt', { auth_mode: 'chatgpt', tokens: { id_token: `x.${payload}.y` } });
+  const dir = nodePath.join(SANDBOX, '.codex-livechatgpt');
+  let called = false;
+  openai.setFetcher(async () => { called = true; return { status: 200, body: {} }; });
+  try {
+    return openai.checkLive(dir).then((r) => {
+      assert.equal(r.state, 'unknown');
+      assert.match(r.because, /not yet checked live/);
+      assert.equal(called, false, 'a mode with no verifiable bearer credential must not attempt a network call at all');
+    });
+  } finally { openai.setFetcher(null); }
+});
+
+test('#960: nobody signed in at all reads as a positive NONE, not unknown', () => {
+  const dir = nodePath.join(SANDBOX, '.codex-neversignedin');
+  return openai.checkLive(dir).then((r) => {
+    assert.equal(r.state, 'none');
+    assert.match(r.because, /nobody has signed in/);
+  });
+});
+
+test('#960: listLive() attaches a real connection to every row, live-checked in parallel', () => {
+  writeAuth('.codex-listlive-good', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-goodkeyGOOD' });
+  writeAuth('.codex-listlive-bad', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-badkeyBAD0' });
+  openai.setFetcher(async (url, init) => (init.headers.authorization.endsWith('GOOD')
+    ? { status: 200, body: {} }
+    : { status: 401, body: {} }));
+  try {
+    return openai.listLive().then((rows) => {
+      const good = rows.find((r) => r.label === 'listlive-good');
+      const bad = rows.find((r) => r.label === 'listlive-bad');
+      assert.equal(good.connection.state, 'connected');
+      assert.equal(bad.connection.state, 'none');
+    });
+  } finally { openai.setFetcher(null); }
+});
+
+test('#960: listLive() catches one row throwing so it cannot sink the others', () => {
+  writeAuth('.codex-listlive-throws', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-throwskeyTHROW' });
+  writeAuth('.codex-listlive-fine', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-finekeyFINE' });
+  /* Monkey-patch checkLive itself, exercising listLive()'s OWN catch rather
+     than checkLive()'s internal one (checkLive() never rejects by
+     contract) -- the same distinction #881's accounts.test.js draws for
+     its identical listLive()/checkLive() pair. */
+  const realCheckLive = openai.checkLive;
+  openai.checkLive = (dir) => (String(dir).includes('throws')
+    ? Promise.reject(new Error('boom'))
+    : realCheckLive(dir));
+  openai.setFetcher(async () => ({ status: 200, body: {} }));
+  try {
+    return openai.listLive().then((rows) => {
+      const thrown = rows.find((r) => r.label === 'listlive-throws');
+      const fine = rows.find((r) => r.label === 'listlive-fine');
+      assert.equal(thrown.connection.state, 'unknown');
+      assert.equal(fine.connection.state, 'connected');
+    });
+  } finally { openai.checkLive = realCheckLive; openai.setFetcher(null); }
+});

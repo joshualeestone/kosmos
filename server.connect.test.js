@@ -867,6 +867,26 @@ test('GET /api/accounts confirms each Claude account live, through the real rout
   }
 });
 
+/* ---- #960: GET /api/accounts, OpenAI rows through the real route ------- */
+test('GET /api/accounts confirms each OpenAI account live too, through the real route', async () => {
+  const openaiAccounts = require('./engine/openaiaccounts');
+  const dir = path.join(HOME, '.codex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-route960keyROUT' }));
+  openaiAccounts.setFetcher(async () => ({ status: 200, body: { data: [] } }));
+  try {
+    const got = json(await req('/api/accounts'));
+    assert.ok(Array.isArray(got.accounts), 'no accounts array in the response');
+    const row = got.accounts.find((a) => a.provider === 'openai' && a.keyTail === 'ROUT');
+    assert.ok(row, 'the fixture OpenAI account did not come back through the route');
+    assert.equal(row.connection.state, 'connected', 'the route did not carry the live OpenAI connection through');
+    assert.equal(row.connection.checkedLive, true);
+  } finally {
+    openaiAccounts.setFetcher(null);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('HEAD /api/accounts answers without paying for a live check', async () => {
   /* Caught in challenge-loop iteration 7: the new HEAD short-circuit
      (server.js, added so a HEAD does not pay accounts.listLive()'s real
@@ -874,15 +894,21 @@ test('HEAD /api/accounts answers without paying for a live check', async () => {
      incidental confidence from the GET tests. This exercises it
      directly: an injected runner that would fail the test if it were
      ever actually called proves the live check is genuinely skipped,
-     not just fast. */
+     not just fast. Extended for #960: the OpenAI fetcher must be
+     skipped too, now that GET pays for a real network call on that side
+     as well. */
   const subscription = require('./engine/subscription');
-  let called = false;
-  subscription.setRunner(async () => { called = true; return { stdout: JSON.stringify({ loggedIn: true }), err: null }; });
+  const openaiAccounts = require('./engine/openaiaccounts');
+  let calledClaude = false;
+  let calledOpenai = false;
+  subscription.setRunner(async () => { calledClaude = true; return { stdout: JSON.stringify({ loggedIn: true }), err: null }; });
+  openaiAccounts.setFetcher(async () => { calledOpenai = true; return { status: 200, body: {} }; });
   try {
     const got = await req('/api/accounts', { method: 'HEAD' });
     assert.equal(got.status, 200);
     assert.match(got.type, /application\/json/);
     assert.equal(got.body, '', 'a HEAD response must carry no body');
-    assert.equal(called, false, 'HEAD must not invoke the live check at all');
-  } finally { subscription.setRunner(null); }
+    assert.equal(calledClaude, false, 'HEAD must not invoke the Claude live check at all');
+    assert.equal(calledOpenai, false, 'HEAD must not invoke the OpenAI live check at all');
+  } finally { subscription.setRunner(null); openaiAccounts.setFetcher(null); }
 });

@@ -36,9 +36,10 @@ test('fillCreateAccounts() excludes a confirmed-not-signed-in account and labels
   // of caught. Labelled instead, so the choice stays informed.
   assert.match(fn, /x\.connection\.state === 'unknown'/, 'the could-not-check label is gone');
   assert.match(fn, /could not check just now/, 'the could-not-check account lost its label text');
-  // OpenAI rows carry no `connection` field (out of scope for #881) and
-  // must stay untouched by either filter.
-  assert.match(fn, /openai \? list :/, 'the OpenAI branch no longer bypasses the connection-state filter');
+  // OpenAI rows carry a real connection field too now (#960) -- the filter
+  // must apply to both providers, no per-provider bypass.
+  assert.doesNotMatch(fn, /working = openai \? list :/,
+    'the OpenAI branch bypasses the connection-state filter again -- #960 regressed');
 });
 
 test('loadCreateExtras() shows a loading state before the account list resolves', () => {

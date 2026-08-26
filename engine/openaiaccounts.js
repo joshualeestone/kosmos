@@ -21,6 +21,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const subscription = require('./subscription');
 
 const HOME = process.env.AGENT_WORKFORCE_HOME || os.homedir();
 const PROVIDER = 'openai';
@@ -170,4 +171,116 @@ function addWithKey({ key, label, codexBin }) {
   return { ok: true, account: row };
 }
 
-module.exports = { list, identityOf, addWithKey, nextWorkDir, defaultDir, PROVIDER, PROVIDER_NAME, HOME_FOR_TEST: HOME };
+/* ── live check (#960) ───────────────────────────────────────────────────
+   `codex login status` is LOCAL ONLY -- verified by pointing CODEX_HOME at a
+   directory holding a fabricated, never-valid key and getting "Logged in
+   using an API key" back anyway. It cannot be this module's live check.
+   A raw apikey-mode key can be verified directly against OpenAI's own API
+   (GET /v1/models, the standard cheap verification call: 200 for a working
+   key, 401 for a rejected one), so this module gets its own real live check
+   rather than trusting the shape of a local file -- the exact #881/#959
+   discipline, applied to the other provider. Own fetcher seam, matching
+   tokendoor.js's and subscription.js's per-module convention: each external
+   I/O boundary in this codebase is independently controllable in tests. */
+let fetcher = null;
+function setFetcher(fn) { fetcher = typeof fn === 'function' ? fn : null; }
+
+async function askModels(key) {
+  const f = fetcher || (async (url, init) => {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 8000);
+    try {
+      const res = await fetch(url, { ...init, signal: ctl.signal });
+      let body = null;
+      try { body = await res.json(); } catch { body = null; }
+      return { status: res.status, body };
+    } finally { clearTimeout(t); }
+  });
+  try {
+    return await f('https://api.openai.com/v1/models', { method: 'GET', headers: { authorization: 'Bearer ' + key } });
+  } catch (err) {
+    /* ⚠️ NO RAW err.message HERE -- the same rule subscription.js's checkLive()
+       is built on: a raw network/fetch error can carry anything (a DNS
+       failure string, a stack fragment, a proxy's own error page), and this
+       module's whole reason for existing is sentences a non-technical
+       person can read. Caught by this file's own test before it ever
+       shipped, not by review. */
+    return { status: 0, body: null, unreachable: true, because: 'we could not reach OpenAI to check whether this key still works' };
+  }
+}
+
+/**
+ * `identityOf()`'s file-read answer, but confirmed live with OpenAI.
+ *
+ * @returns {Promise<{state: string, plan: null, because: string, checkedLive: true}>}
+ */
+async function checkLive(dir) {
+  const STATE = subscription.STATE;
+  const who = identityOf(dir);
+  if (!who) {
+    return { state: STATE.NONE, plan: null, checkedLive: true, because: 'nobody has signed in to this account yet' };
+  }
+  if (who.authMode !== 'apikey') {
+    /* ⚠️ UNKNOWN, NOT NONE, AND NOT A GUESSED CONNECTED EITHER. codex's
+       ChatGPT-mode auth hands us an id_token (an identity claim), not a
+       bearer credential usable against OpenAI's API the way apikey mode's
+       raw key is -- there is no real live check to run here yet. Saying so
+       honestly is the whole point of this fix: a badge this codebase cannot
+       actually verify must never claim it did. */
+    return {
+      state: STATE.UNKNOWN, plan: null, checkedLive: true,
+      because: 'this sign-in method is not yet checked live; it may or may not still work',
+    };
+  }
+  let key;
+  try { key = JSON.parse(fs.readFileSync(authFile(dir), 'utf8')).OPENAI_API_KEY; }
+  catch { key = null; }
+  if (typeof key !== 'string' || !key) {
+    return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: 'we could not read this account\'s key to check it' };
+  }
+  const r = await askModels(key);
+  if (r.unreachable) {
+    return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: r.because };
+  }
+  if (r.status === 200) {
+    return { state: STATE.CONNECTED, plan: null, checkedLive: true, because: 'OpenAI confirmed this key still works' };
+  }
+  if (r.status === 401 || r.status === 403) {
+    return { state: STATE.NONE, plan: null, checkedLive: true, because: 'OpenAI did not accept this key' };
+  }
+  return {
+    state: STATE.UNKNOWN, plan: null, checkedLive: true,
+    because: 'we asked OpenAI whether this key still works and it answered ' + (r.status || 'nothing usable'),
+  };
+}
+
+/** Every OpenAI account, live-checked. One bad row's own failure cannot sink
+    the others -- caught individually, falling back to UNKNOWN, never a
+    false NONE. Mirrors accounts.listLive()'s exact contract. */
+async function listLive() {
+  const rows = list();
+  return Promise.all(rows.map(async (row) => {
+    try {
+      // Through module.exports, not the bare local name: this is what lets
+      // a test monkey-patch checkLive() to exercise listLive()'s OWN catch
+      // below specifically, rather than checkLive()'s internal one (which
+      // never rejects by contract) -- the same self-reference #881's
+      // accounts.js/subscription.js pair relies on, applied within one file
+      // since this module has no separate consumer to require it through.
+      return { ...row, connection: await module.exports.checkLive(row.dir) };
+    } catch {
+      return {
+        ...row,
+        connection: {
+          state: subscription.STATE.UNKNOWN, plan: null, checkedLive: true,
+          because: 'we could not check this account just now',
+        },
+      };
+    }
+  }));
+}
+
+module.exports = {
+  list, identityOf, addWithKey, nextWorkDir, defaultDir, PROVIDER, PROVIDER_NAME, HOME_FOR_TEST: HOME,
+  checkLive, listLive, setFetcher,
+};
