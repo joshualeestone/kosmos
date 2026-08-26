@@ -186,9 +186,11 @@ enum StartResult {
 }
 
 // onSpawn hands the just-launched Process to the caller so the caller's
-// watchdog can terminate a hung start (#965) -- terminating also closes the
-// child's stderr, which unblocks the drain below via EOF. Called on the
-// caller's queue, immediately after a successful run().
+// watchdog can terminate a hung start (#965). Terminating a hung CHILD
+// closes its stderr and unblocks the drain below via EOF; it cannot reach a
+// GRANDCHILD holding an inherited fd (see the drain comment), where the
+// caller's re-arm is the only guarantee. Called on the caller's queue,
+// immediately after a successful run().
 func startBoard(kosmosHome: String, port: Int, onSpawn: ((Process) -> Void)? = nil) -> StartResult {
     let kosmosBin = kosmosHome + "/bin/kosmos"
     guard FileManager.default.isExecutableFile(atPath: kosmosBin) else {
@@ -278,10 +280,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // methods below and at the top of loadBoard().
     private var lastLoadFailed = false
     // #965: set when a user-initiated reload takes the plain webView.reload()
-    // branch, consumed by didFailProvisionalNavigation to fall through to
+    // branch, consumed by the shared failure handler to fall through to
     // loadBoard() ONCE -- so the "board died after a good load" case recovers
     // on a single Cmd-R instead of two. Cleared on any successful load.
     private var recoverOnReloadFailure = false
+    // #965: the WKNavigation returned by that webView.reload(), so a failure
+    // callback can be attributed: a failure OF the user's reload is not the
+    // same event as a -999 for some navigation the reload just superseded,
+    // and treating them alike either fires a surprise board restart or robs
+    // the press of its single-press recovery.
+    private var reloadNavigation: WKNavigation?
     // #965: a board start is already running on the background queue; reload
     // requests are ignored until it resolves, so two Cmd-R presses (or the
     // test seam firing during a slow boot) cannot race two `kosmos start`
@@ -353,6 +361,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // fire a full board restart the user never asked for.
         lastLoadFailed = false
         recoverOnReloadFailure = false
+        reloadNavigation = nil
         // Testing shortcut, unchanged from phase 1: point directly at an
         // already-running board (a hand-booted sandbox), skipping the real
         // resolve/start path entirely. Not present in the shipped app's
@@ -399,27 +408,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // block past the child's exit if a future grandchild inherits stderr
         // -- see the comment there), a permanently-true flag would make every
         // future Cmd-R a silent no-op, which is the exact hole #965 fixes.
-        // Two minutes is far beyond any real `kosmos start`; log and re-arm.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 120) { [weak self] in
+        // 300s is a ceiling chosen to sit far beyond any plausible boot,
+        // cold first start included -- asserted, not measured; firing is
+        // LOUD (an alert below), so a too-small value gets noticed in the
+        // field rather than silently eating slow boots.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 300) { [weak self] in
             guard let self = self else { return }
             if self.boardStartInFlight && self.boardStartGeneration == generation {
-                logLine("watchdog: board start gen \(generation) unresolved after 120s; re-arming Reload")
+                logLine("watchdog: board start gen \(generation) unresolved after 300s; re-arming Reload")
                 self.boardStartInFlight = false
-                // Reap the hung work, don't just abandon it: terminate closes
-                // the child's stderr, which unblocks startBoard's drain via
-                // EOF, freeing its queue thread; the orphan child dies too.
+                // Best-effort reap. Terminating a hung CHILD closes its
+                // stderr, unblocks startBoard's drain, and frees the queue
+                // thread. If the hang is instead an inherited fd held open by
+                // a GRANDCHILD (the cross-file case named in startBoard),
+                // this SIGTERM cannot reach it and one drain thread stays
+                // leaked for that attempt -- the re-arm, not this kill, is
+                // the user-facing guarantee.
                 if let s = self.inFlightStart, s.generation == generation {
                     logLine("watchdog: terminating hung kosmos start (pid \(s.process.processIdentifier))")
                     s.process.terminate()
                     self.inFlightStart = nil
                 }
                 // Bump the generation so the hung start, if it EVER resolves,
-                // is stale and reports nothing. Without this, its two-minute-
-                // old failure could surface a "could not start" alert over a
+                // is stale and reports nothing. Without this, its minutes-old
+                // failure could surface a "could not start" alert over a
                 // page the user has long since reloaded to health. Cost: a
                 // late lone SUCCESS is also dropped -- acceptable, the user's
                 // next Cmd-R reaches the now-running board anyway.
                 self.boardStartGeneration += 1
+                // Say so; a silent blank window is the failure mode this
+                // whole feature exists to end.
+                self.showStartupFailureAlert(detail: "Kosmos is taking unusually long to start. Press Cmd-R to try again.")
             }
         }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -496,6 +515,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         lastLoadFailed = false
         recoverOnReloadFailure = false
+        reloadNavigation = nil
         webView.evaluateJavaScript("document.title") { result, _ in
             logLine("PAGE LOADED, document.title=\(result ?? "<nil>")")
         }
@@ -513,25 +533,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        logLine("PAGE LOAD FAILED: \(error.localizedDescription)")
-        if isBenignCancellation(error) {
-            // The reload this press armed is definitively over once its
-            // navigation is cancelled -- a stale one-shot surviving here
-            // would fire a full board restart on some LATER unrelated
-            // failure, exactly the surprise this flag's design forbids.
-            recoverOnReloadFailure = false
-            return
-        }
-        lastLoadFailed = true
-        // Same one-shot fall-through as the provisional case below: a reload
-        // whose navigation committed and THEN failed is still the user's one
-        // press against a dead board, and must not degrade to two presses
-        // just because WebKit delivered the failure through this delegate.
-        if recoverOnReloadFailure {
-            recoverOnReloadFailure = false
-            logLine("reload hit a dead page; falling through to loadBoard() once")
-            loadBoard()
-        }
+        handleNavigationFailure(navigation, error, stage: "PAGE LOAD FAILED")
     }
 
     // A crashed WebContent process leaves a blank window with no navigation
@@ -542,20 +544,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        logLine("PROVISIONAL LOAD FAILED: \(error.localizedDescription)")
+        handleNavigationFailure(navigation, error, stage: "PROVISIONAL LOAD FAILED")
+    }
+
+    // ONE handler for both failure delegates -- they must never drift apart,
+    // or single-press recovery quietly becomes two-press in whichever
+    // delegate missed a future edit (#965).
+    private func handleNavigationFailure(_ navigation: WKNavigation?, _ error: Error, stage: String) {
+        logLine("\(stage): \(error.localizedDescription)")
+        // Attribution: is this failure about the user's reload, or about
+        // something else (most often a navigation the reload superseded)?
+        // Identity against the token webView.reload() returned answers it.
+        // If no token was captured (reload() may return nil), fall back to
+        // unattributed: an armed flag claims the failure, the pre-token
+        // behavior. A nil navigation with a live token cannot be attributed
+        // and is treated as not-ours.
+        let isReloadNav: Bool
+        if let nav = navigation, let ours = reloadNavigation {
+            isReloadNav = nav === ours
+        } else if reloadNavigation == nil {
+            isReloadNav = recoverOnReloadFailure
+        } else {
+            isReloadNav = false
+        }
         if isBenignCancellation(error) {
-            recoverOnReloadFailure = false // same reasoning as didFail above
+            // -999 of the reload's OWN navigation means that reload is over,
+            // disarm -- a stale one-shot would fire a surprise board restart
+            // on some later unrelated failure. -999 of anything ELSE (the
+            // navigation the reload just superseded) says nothing about the
+            // reload still in flight, so the one-shot stays armed for it.
+            if isReloadNav {
+                recoverOnReloadFailure = false
+                reloadNavigation = nil
+            }
             return
         }
         lastLoadFailed = true
-        // One-shot fall-through (#965): the user pressed Cmd-R against a page
-        // that then turned out to be dead (the board died AFTER a good load,
-        // the likeliest field case). Recover on THIS press instead of making
-        // them press twice. Consumed before the retry, so a still-dead board
-        // cannot loop: the retry's own failure lands back here with the flag
-        // already down.
-        if recoverOnReloadFailure {
+        // One-shot fall-through: the user's reload hit a dead page (the
+        // board died AFTER a good load, the likeliest field case). Recover
+        // on THIS press instead of making them press twice, whichever
+        // delegate delivered the failure. Consumed before the retry, so a
+        // still-dead board cannot loop.
+        if recoverOnReloadFailure && isReloadNav {
             recoverOnReloadFailure = false
+            reloadNavigation = nil
             logLine("reload hit a dead page; falling through to loadBoard() once")
             loadBoard()
         }
@@ -599,7 +631,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         case .reload:
             logLine("reload: webView.reload() of \(webView.url?.absoluteString ?? "<committed page>")")
             recoverOnReloadFailure = true
-            webView.reload()
+            reloadNavigation = webView.reload()
         case .startBoard:
             logLine("reload: no healthy page (committed=\(committed), lastLoadFailed=\(lastLoadFailed)), re-running loadBoard()")
             loadBoard()
