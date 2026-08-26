@@ -6146,6 +6146,35 @@ function start(port = PORT) {
  * guard below already exists to prevent.
  */
 if (require.main === module) {
+  /* 🛑 PINNED TO $HOME, NOT AT IMPORT, ONLY WHEN THIS IS THE REAL BOARD
+     PROCESS (#923). Nothing anywhere in this file or engine/ ever calls
+     process.chdir(), so this process's own cwd is whatever directory
+     whoever launched `node server.js` happened to be in -- for a real
+     install, that is install/pkg-scripts/postinstall's own root-descended
+     shell chain, which runs from Installer.app's temporary package-script
+     staging directory. This board process is the ONE thing in that chain
+     that OUTLIVES it (nohup, backgrounded, meant to survive the installer
+     exiting), so its cwd stays pointed at a directory Installer.app tears
+     down once the .pkg finishes -- likely within moments, well before
+     anyone reaches Connect. Nothing here needed that directory for its own
+     file I/O (every write already resolves through store.ROOT or another
+     absolute path) -- but engine/connect.js's `run()` spawns `<binary>
+     install` without an explicit cwd, so that CHILD PROCESS inherits the
+     dead directory and dies at its own startup the moment it tries to
+     resolve anything relative to a cwd that no longer exists. Traced from
+     Josh's exact report (a wiped Mac, first install, Connect for Claude:
+     "the current working directory was deleted so that command didn't
+     work"), corroborated the same evening by a stray dev `node server.js`
+     found with the identical shape from the other direction (its OWN
+     worktree removed out from under it, still running, cwd dead) -- #923.
+     $HOME, not KOSMOS_HOME or store.ROOT: guaranteed to exist for the
+     whole life of the account running this process, no mkdir/install-order
+     dependency, unlike a fresh install's own directories which this exact
+     card is about the timing of. Guarded, matching this whole file's own
+     "not fatal" posture: if even $HOME is somehow unreachable, the board
+     still attempts to start with whatever cwd it already had -- no worse
+     than before this fix, for that one pathological case. */
+  try { process.chdir(os.homedir()); } catch { /* keep whatever cwd we had */ }
   try {
     const put = create.installSupervisor();
     if (!put.ok) {
