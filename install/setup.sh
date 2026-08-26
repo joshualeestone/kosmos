@@ -1583,81 +1583,80 @@ info "macOS $_osver on $ARCH"
 #   genuinely absent                   -> name the install step
 # Extracted as a function so the test runs the shipped code, like the
 # tmux picker.
-check_claude_code() {
+# 🔑 OBSERVES, INSTALLS NOTHING (#979, Josh's ruling 2026-08-26 10:32: "we
+# assume that not everybody is going to have Claude Code... we're not forcing
+# people to have Claude Code as part of the installer").
+#
+# 🛑 RENAMED FROM check_claude_code, DELIBERATELY. It used to be a gate with
+# four arms: found-and-runnable -> ok; something-broken-at-the-path -> die;
+# found-elsewhere -> symlink it; nothing -> `curl https://claude.ai/install.sh
+# | sh` -> or die. Three of those four were the installer doing a provider's
+# job, and Josh watched the fourth happen on a fresh Mac on 2026-08-26 at
+# 14:45: 231MB, no ask, no way to decline. A function still called `check_`
+# that no longer gates is a name that lies, so the name went with the gate.
+#
+# ⚠️ AND IT CANNOT ASK. install/pkg-scripts/postinstall runs this script as
+# `curl -fsSL "$0" | /bin/sh` under `launchctl asuser` -- no terminal, and
+# stdin is this script's own bytes. A confirm step HERE is not hard, it is
+# impossible. The ask belongs on the Connect screen, where a person is.
+#
+# ⚠️ NOTHING IS STRANDED BY THIS. engine/connect.js already probes for a
+# runnable claude and, finding none, downloads it from the vendor, verifies
+# the published per-platform SHA256, refuses an https->http redirect and runs
+# its installer -- shipping since 2026-08-12. So a person who picks Claude
+# still gets it; they just get it when they ask.
+#
+# ⚠️ THE LINK ARM WENT TOO, and that is not an oversight: engine/runners.js's
+# vendor-external `linking` phase does exactly that on Connect. Doing it here
+# as well is one job in two places, which is what #997 exists to end.
+#
+# 📌 AGENT_WORKFORCE_CLAUDE_INSTALL_URL IS RETIRED HERE. It was the operator's
+# mirror override for the download this function no longer performs. The
+# surviving equivalent is engine/connect.js's
+# AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE. Named rather than silently dropped, so
+# an operator who set it learns it moved instead of finding it ignored.
+note_claude_code() {
   _claude_bin="${AGENT_WORKFORCE_CLAUDE_BIN:-$HOME/.local/bin/claude}"
-  # -f AND -x: a DIRECTORY at the path is executable in the -x sense and
-  # sailed through the first draft of this gate, completing an install
-  # whose every agent then fails to start, the exact #133 failure. -f
-  # follows symlinks, so a link to a real binary still passes.
+  # -f AND -x, the #133 shape: a DIRECTORY at the path is executable in the -x
+  # sense. -f follows symlinks, so a link to a real binary still passes.
   if [ -f "$_claude_bin" ] && [ -x "$_claude_bin" ]; then
     info "Claude Code found at $_claude_bin"
     return 0
   fi
-  # Something IS there but cannot run (a broken symlink after a moved npm
-  # prefix, a folder, or a file without execute permission): its own
-  # sentence, or the elsewhere-remedy below would claim "nothing there"
-  # falsely and its pasted ln would fail on File exists, a refusal whose
-  # remedy loops. rm -r covers all three shapes. When a working claude IS
-  # on PATH, the one-shot remedy saves the person a second round trip.
+  # ⚠️ EVERY ARM BELOW USED TO END THE INSTALL. None of them do now. Kosmos
+  # installs; Claude is one provider among several and its absence, or a
+  # broken file at its path, is a fact about that provider rather than a
+  # reason nobody gets Kosmos.
   if [ -e "$_claude_bin" ] || [ -L "$_claude_bin" ]; then
-    _claude_elsewhere="$(command -v claude 2>/dev/null || true)"
-    if [ -n "$_claude_elsewhere" ]; then
-      die "There is something at $_claude_bin but it cannot run (a broken link, a folder, or a file without execute permission), and Claude Code is installed at $_claude_elsewhere. Replace it and run this again:
-  rm -rf \"$_claude_bin\" && ln -s \"$_claude_elsewhere\" \"$_claude_bin\""
-    fi
-    die "There is something at $_claude_bin but it cannot run (a broken link, a folder, or a file without execute permission). Remove it and run this again:
-  rm -rf \"$_claude_bin\""
+    info "There is something at $_claude_bin that cannot run (a broken link, a folder, or a file without execute permission). Kosmos will not use it. Remove it if you want Claude Code set up here:"
+    info "  rm -rf \"$_claude_bin\""
+    return 0
   fi
   _claude_elsewhere="$(command -v claude 2>/dev/null || true)"
   if [ -n "$_claude_elsewhere" ]; then
-    # Carry's spirit applied to the near-miss (#548): the fix is one
-    # symlink into the exact path Kosmos launches from, so make it, and
-    # say so first. Nothing is installed; a link is named as a link.
-    info "Claude Code is installed at $_claude_elsewhere, but Kosmos starts agents from $_claude_bin. Linking it there now."
-    mkdir -p "$(dirname "$_claude_bin")" \
-      && ln -s "$_claude_elsewhere" "$_claude_bin" \
-      && [ -f "$_claude_bin" ] && [ -x "$_claude_bin" ] \
-      && { info "Claude Code linked at $_claude_bin"; return 0; }
-    die "We could not link it. Link it yourself and run this again:
-  mkdir -p \"\$(dirname \"$_claude_bin\")\" && ln -s \"$_claude_elsewhere\" \"$_claude_bin\""
-  fi
-  # 🔑 CARRY (#548, Josh's ruling 2026-08-24 11:06: "let's carry and just
-  # install now"). This used to refuse the whole install (#133), which was
-  # right when Claude Code was the only engine and expired when it stopped
-  # being one. Now the installer installs it, using Anthropic's own
-  # installer into the exact path Kosmos launches from, and SAYS SO FIRST:
-  # nothing is installed beyond what this sentence names. Neutral -- no
-  # engine until first-run picks a provider -- remains the destination and
-  # stacks on top of this unchanged.
-  #
-  # The URL is overridable for sandboxed installs of Kosmos itself, not a
-  # test convenience: an operator mirroring Anthropic's installer points
-  # this at their mirror.
-  _claude_install_url="${AGENT_WORKFORCE_CLAUDE_INSTALL_URL:-https://claude.ai/install.sh}"
-  # ⚠️ THE SAME FACT IN THE SAME WORDS as the #133 refusal a person may
-  # have met yesterday (Mona Lisa's copy ruling): only what FOLLOWS it
-  # changed, from install-it-first to installing-it-now.
-  info "Kosmos needs Claude Code and this Mac does not have it."
-  info "Installing it now with Anthropic's own installer ($_claude_install_url), into $_claude_bin."
-  # ⚠️ The landed binary is PROBED, not trusted: a truncated download
-  # passes -f and -x (measured under #133, Angel), so the carry succeeds
-  # only when the binary ANSWERS. Its version goes into the log in the
-  # same breath (Mona Lisa's breadcrumb: today's incident hinged on a log
-  # that could not say what a run actually installed).
-  if curl -fsSL "$_claude_install_url" | sh >/tmp/kosmos-claude-install.$$.log 2>&1 \
-     && [ -f "$_claude_bin" ] && [ -x "$_claude_bin" ] \
-     && _claude_version="$("$_claude_bin" --version 2>/dev/null | head -1)" \
-     && [ -n "$_claude_version" ]; then
-    info "Claude Code installed at $_claude_bin ($_claude_version)"
-    rm -f "/tmp/kosmos-claude-install.$$.log"
+    info "Claude Code is installed at $_claude_elsewhere. Kosmos starts agents from $_claude_bin and will link it there when you choose Claude."
     return 0
   fi
-  # ⚠️ A FAILED CARRY DIES THE WAY THE OLD GATE DID, in a named sentence
-  # with the self-remedy: finishing here would build the exact
-  # agents-that-never-start machine #133 existed to prevent.
-  die "We tried to install Claude Code and it did not work (the log is at /tmp/kosmos-claude-install.$$.log). Install it yourself (https://claude.com/claude-code puts it at $_claude_bin), then run this install again."
+  # 🛑 SILENT ON PURPOSE, and this is Josh's line rather than a preference.
+  # 2026-08-26 14:59: *"If I immediately hit the page and, before I've even
+  # picked a model (because I don't even use Claude, maybe I only use
+  # OpenAI), it's telling me 'Oh I can't proceed because I don't have Claude
+  # Code installed', it's like 'Why the hell would I install Claude Code?
+  # That doesn't make any sense.'"*
+  #
+  # ⇒ The absence of ONE provider's runner is not the installer's news to
+  # deliver, because at this moment nobody has chosen a provider. Kosmos
+  # raises it on the Connect step for the provider the person actually picked,
+  # with the size and a confirm, and nowhere else. An `info` line here would
+  # be a smaller version of exactly what he objected to.
+  #
+  # ⚠️ The other three arms DO speak, and the difference is deliberate: each
+  # of them describes something ALREADY ON THIS MAC (found, unrunnable, or
+  # somewhere unusual). That is a fact about their machine that explains what
+  # Kosmos does later. "You do not have a thing you never asked for" is not.
+  return 0
 }
-check_claude_code
+note_claude_code
 ok
 
 # ⚠️ IDEMPOTENT, AND IT SAYS SO. Somebody who is not sure whether it worked will
