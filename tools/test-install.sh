@@ -1918,6 +1918,78 @@ chk "control: and the derived localbin was not used" "[ ! -e \"$D928_KHOME/local
 KOSMOS_HOME="$D928_KHOME" "$D928_KHOME/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free after #928's control" "wait_port_free"
 
+echo "== #918: an uninstall sweeps OTHER installs' orphaned board labels too, never a live one =="
+# 🔑 THE EXACT SHAPE. #883 gave every non-default KOSMOS_HOME its own
+# permanent, hash-suffixed launchd label so two sandboxed installs stop
+# colliding -- and, named as follow-up work in that same challenge-loop,
+# traded the collision for a slower leak: nothing ever swept a suffixed
+# label whose KOSMOS_HOME later vanished. A walk convention that deletes
+# its scratch directory directly, rather than running --uninstall against
+# that exact KOSMOS_HOME, leaves the label registered forever. This
+# scenario reproduces it: two sandboxed installs SHARE one launch dir (the
+# way two walk runs on one Mac would), one of the two KOSMOS_HOMEs is
+# deleted directly (no --uninstall), and a plain --uninstall of the OTHER
+# one must sweep the orphan too -- while a THIRD, still-alive install in
+# the same launch dir must survive untouched.
+D918_LAUNCH="$SB/launch918"
+D918_HOME_A="$SB/d918-home-a"
+D918_KHOME_A="$SB/d918-khome-a"
+mkdir -p "$D918_HOME_A"
+RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  HOME="$D918_HOME_A" KOSMOS_HOME="$D918_KHOME_A" AGENT_WORKFORCE_LAUNCH="$D918_LAUNCH" \
+  KOSMOS_HOME_APP_DIR="$SB/d918home-apps-a" KOSMOS_APP_DIR="$SB/apps918a" KOSMOS_BIN_DIR="$SB/bin918a" \
+  sh > "$SB/d918-install-a.log" 2>&1 || RC=$?
+chk "#918 scenario-A install exits 0" "rc_ok $RC"
+KOSMOS_HOME="$D918_KHOME_A" "$D918_KHOME_A/bin/kosmos" stop > /dev/null 2>&1 || true
+chk "the port is genuinely free before #918 scenario-B installs" "wait_port_free"
+
+D918_HOME_B="$SB/d918-home-b"
+D918_KHOME_B="$SB/d918-khome-b"
+mkdir -p "$D918_HOME_B"
+RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  HOME="$D918_HOME_B" KOSMOS_HOME="$D918_KHOME_B" AGENT_WORKFORCE_LAUNCH="$D918_LAUNCH" \
+  KOSMOS_HOME_APP_DIR="$SB/d918home-apps-b" KOSMOS_APP_DIR="$SB/apps918b" KOSMOS_BIN_DIR="$SB/bin918b" \
+  sh > "$SB/d918-install-b.log" 2>&1 || RC=$?
+chk "#918 scenario-B install exits 0" "rc_ok $RC"
+KOSMOS_HOME="$D918_KHOME_B" "$D918_KHOME_B/bin/kosmos" stop > /dev/null 2>&1 || true
+chk "the port is genuinely free before #918 scenario-C installs" "wait_port_free"
+
+D918_HOME_C="$SB/d918-home-c"
+D918_KHOME_C="$SB/d918-khome-c"
+mkdir -p "$D918_HOME_C"
+RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  HOME="$D918_HOME_C" KOSMOS_HOME="$D918_KHOME_C" AGENT_WORKFORCE_LAUNCH="$D918_LAUNCH" \
+  KOSMOS_HOME_APP_DIR="$SB/d918home-apps-c" KOSMOS_APP_DIR="$SB/apps918c" KOSMOS_BIN_DIR="$SB/bin918c" \
+  sh > "$SB/d918-install-c.log" 2>&1 || RC=$?
+chk "#918 scenario-C install exits 0" "rc_ok $RC"
+KOSMOS_HOME="$D918_KHOME_C" "$D918_KHOME_C/bin/kosmos" stop > /dev/null 2>&1 || true
+chk "the port is genuinely free before #918's uninstall runs" "wait_port_free"
+
+chk "three distinct board labels are registered in the shared launch dir before anything is torn down" \
+  "[ \"\$(ls \"$D918_LAUNCH\"/com.kosmos.board.*.plist 2>/dev/null | wc -l | tr -d ' ')\" = 3 ]"
+
+# Scenario A's scratch directory is deleted DIRECTLY -- exactly the walk
+# convention #918 is about, never running --uninstall against it.
+rm -rf "$D918_KHOME_A"
+
+# Uninstalling scenario B (a completely different KOSMOS_HOME) must sweep
+# scenario A's now-orphaned label as a side effect, while scenario C's --
+# still alive, never touched by this uninstall at all -- survives untouched.
+RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
+  HOME="$D918_HOME_B" KOSMOS_HOME="$D918_KHOME_B" AGENT_WORKFORCE_LAUNCH="$D918_LAUNCH" \
+  KOSMOS_HOME_APP_DIR="$SB/d918home-apps-b" KOSMOS_APP_DIR="$SB/apps918b" KOSMOS_BIN_DIR="$SB/bin918b" \
+  sh -s -- --uninstall > "$SB/d918-uninstall-b.log" 2>&1 || RC=$?
+chk "#918 scenario-B uninstall exits 0" "rc_ok $RC"
+chk "scenario B's own label is gone (its normal uninstall)" \
+  "[ ! -f \"$D918_LAUNCH/com.kosmos.board.\$(printf '%s' \"$D918_KHOME_B\" | shasum -a 256 | cut -c1-8).plist\" ]"
+chk "scenario A's ORPHANED label was swept even though this uninstall never named it" \
+  "[ ! -f \"$D918_LAUNCH/com.kosmos.board.\$(printf '%s' \"$D918_KHOME_A\" | shasum -a 256 | cut -c1-8).plist\" ]"
+chk "scenario C's STILL-ALIVE label survives, untouched by a sweep it has no reason to trigger" \
+  "[ -f \"$D918_LAUNCH/com.kosmos.board.\$(printf '%s' \"$D918_KHOME_C\" | shasum -a 256 | cut -c1-8).plist\" ]"
+chk "scenario C's own KOSMOS_HOME directory is untouched (only its label was checked, never removed)" "[ -d \"$D918_KHOME_C\" ]"
+KOSMOS_HOME="$D918_KHOME_C" "$D918_KHOME_C/bin/kosmos" stop > /dev/null 2>&1 || true
+chk "the port is genuinely free after #918's scenario" "wait_port_free"
+
 
 closing_checks
 summary_and_exit
