@@ -149,6 +149,19 @@ function managedRoot() {
  * or the managed path when nothing exists anywhere (so callers always
  * get the place an install would land, never '').
  */
+/**
+ * Present means RUNNABLE: a plain file with an exec bit. A directory or a
+ * stripped file at a runner path reading as present is the exact
+ * folder-sails-through trap setup.sh's check_claude_code documents from
+ * #133 -- status would vouch for a runner that cannot start an agent.
+ */
+function isRunnable(p) {
+  try {
+    const st = fs.statSync(p); // follows symlinks, which is the point
+    return st.isFile() && (st.mode & 0o111) !== 0;
+  } catch { return false; }
+}
+
 function resolveBin(provider, opts) {
   if (provider === 'claude') {
     // Same authoritative-override contract as openai, with Claude's own
@@ -157,12 +170,12 @@ function resolveBin(provider, opts) {
     // there is no Kosmos-managed location for a vendor-installer kind,
     // so `managed` is always false here.
     const envClaude = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
-    if (envClaude) return { bin: envClaude, present: fs.existsSync(envClaude), managed: false, overridden: true };
+    if (envClaude) return { bin: envClaude, present: isRunnable(envClaude), managed: false, overridden: true };
     // AGENT_WORKFORCE_HOME is the same sandbox seam openaiaccounts keys
     // its HOME on -- without it, every test on this fleet Mac would see
     // the real ~/.local/bin/claude and read present. Unset in production.
     const canonical = path.join(process.env.AGENT_WORKFORCE_HOME || HOME, '.local', 'bin', 'claude');
-    return { bin: canonical, present: fs.existsSync(canonical), managed: false, overridden: false };
+    return { bin: canonical, present: isRunnable(canonical), managed: false, overridden: false };
   }
   if (provider !== 'openai') return { bin: null, present: false, managed: false, overridden: false };
   // An operator-set override is AUTHORITATIVE, not a candidate: when the
@@ -174,7 +187,7 @@ function resolveBin(provider, opts) {
   // keys on the RESOLVER'S knowledge rather than re-deriving which env
   // var belongs to which provider.
   const envBin = process.env.AGENT_WORKFORCE_CODEX_BIN;
-  if (envBin) return { bin: envBin, present: fs.existsSync(envBin), managed: false, overridden: true };
+  if (envBin) return { bin: envBin, present: isRunnable(envBin), managed: false, overridden: true };
   const managed = path.join(managedRoot(), 'openai', MANIFEST.openai.binName);
   const candidates = [
     managed,
@@ -184,7 +197,7 @@ function resolveBin(provider, opts) {
     (opts && opts.legacyBin) || '/opt/homebrew/bin/codex',
   ];
   for (const c of candidates) {
-    if (fs.existsSync(c)) return { bin: c, present: true, managed: c === managed, overridden: false };
+    if (isRunnable(c)) return { bin: c, present: true, managed: c === managed, overridden: false };
   }
   return { bin: managed, present: false, managed: true, overridden: false };
 }
@@ -195,10 +208,14 @@ function resolveBin(provider, opts) {
  * the same artifact can only waste the second one's bytes.
  *
  * Job shape, readable at any moment via status():
- *   { phase: 'downloading'|'verifying'|'unpacking'|'proving'|'installed'|'failed',
- *     receivedBytes, totalBytes, version,
+ *   tarball kind:          phase 'downloading'|'verifying'|'unpacking'
+ *   vendor-installer kind: phase 'installing'|'linking'
+ *   both kinds:            -> 'proving' -> 'installed'|'failed'
+ *   { phase, receivedBytes, totalBytes (null for vendor-installer: the
+ *     script reports none), version (tarball only),
  *     because (failed only), proved (installed only: the runner's own
- *     --version line, the receipt that it actually ran) }
+ *     --version line), log (vendor-installer: the installer's output
+ *     file), linked (vendor-installer: the found path a link points at) }
  */
 const jobs = Object.create(null);
 
@@ -214,6 +231,10 @@ function status() {
     if (r.present && jobs[provider] && jobs[provider].phase === 'failed') delete jobs[provider];
     out[provider] = {
       name: m.name,
+      // The screens branch on this: a tarball gets a byte progress bar, a
+      // vendor-installer gets an indeterminate one (its script reports no
+      // counts) -- stated rather than left to be inferred from nulls.
+      kind: m.kind || 'tarball',
       // pinnedVersion, NOT a claim about the binary on disk: presence is
       // existence, and a legacy or older managed runner may answer any
       // version. The install job's `proved` line is the only field that
@@ -578,16 +599,44 @@ function installVendor(provider, m, o, existing) {
   const url = o.url || (m.installUrlEnv && process.env[m.installUrlEnv]) || m.installUrl;
   const prove = o.prove || ((bin, done) => execFile(bin, ['--version'], { timeout: 30000 }, done));
   const findElsewhere = o.findElsewhere || (() => {
+    // `which` under a launchd-started board sees the stock PATH, which
+    // hides Homebrew and npm-global installs -- the very copies setup.sh's
+    // `command -v` (a login shell) finds. So the known homes are probed
+    // explicitly, and `which` is the tail rung for anything else.
+    const candidates = [
+      '/opt/homebrew/bin/' + m.binName,
+      '/usr/local/bin/' + m.binName,
+      path.join(HOME, '.npm-global', 'bin', m.binName),
+    ];
     try {
       const found = String(execFileSync('/usr/bin/which', [m.binName], { timeout: 5000 })).trim();
-      return found && found !== canonical ? found : null;
-    } catch { return null; }
+      if (found) candidates.push(found);
+    } catch { /* not on the server's PATH; the explicit rungs stand */ }
+    for (const c of candidates) {
+      if (c !== canonical && isRunnable(c)) return c;
+    }
+    return null;
   });
   const runInstaller = o.runInstaller || ((u, logFile, done) => {
-    // The same one-liner setup.sh runs, output captured the same way; a
-    // 10-minute ceiling so a wedged vendor endpoint fails the job
-    // instead of parking it forever behind the idempotent join.
-    execFile('/bin/sh', ['-c', `curl -fsSL "${u}" | sh >"${logFile}" 2>&1`], { timeout: 600000 }, done);
+    // setup.sh's mechanism, ported with two deliberate upgrades and one
+    // accepted cost:
+    //   - POSITIONAL ARGS, never string interpolation: a template literal
+    //     inside sh -c would re-parse $(...) in an operator-set URL or a
+    //     runners-dir path as live shell. "$1"/"$2"/"$3" expand inertly,
+    //     which is what setup.sh's own "$_claude_install_url" does.
+    //   - curl-to-file THEN sh, not curl|sh: a pipeline without pipefail
+    //     reports curl's failure as sh's success over an empty script,
+    //     and loses curl's stderr entirely. Sequenced, a network failure
+    //     exits nonzero with curl's own words in the log -- "a log must
+    //     be able to say what a run actually installed".
+    //   - The 10-minute ceiling kills the /bin/sh wrapper; a child mid
+    //     stage can outlive it briefly and exits with its own stage.
+    //     Accepted: bounded, rare, and a process-group kill is machinery
+    //     this path does not earn.
+    const script = `${logFile}.script.sh`;
+    execFile('/bin/sh', ['-c', 'curl -fsSL "$1" >"$3" 2>>"$2" && sh "$3" >>"$2" 2>&1', 'sh', u, logFile, script],
+      { timeout: 600000 },
+      (err) => { try { fs.rmSync(script, { force: true }); } catch { /* tmp sweep gets it */ } done(err); });
   });
 
   const job = { phase: 'installing', receivedBytes: null, totalBytes: null };
@@ -606,6 +655,16 @@ function installVendor(provider, m, o, existing) {
       } else {
         const logDir = path.join(managedRoot(), '.tmp');
         fs.mkdirSync(logDir, { recursive: true });
+        // The same age-gated, provider-prefixed sweep discipline as the
+        // tarball path's staging files, for this kind's logs and script
+        // temps -- the module's bounded-temp-state claim covers every kind.
+        for (const f of fs.readdirSync(logDir)) {
+          if (!f.startsWith(`${provider}-install-`)) continue;
+          try {
+            const p = path.join(logDir, f);
+            if (Date.now() - fs.statSync(p).mtimeMs > 3600000) fs.rmSync(p, { force: true });
+          } catch { /* best effort */ }
+        }
         const logFile = path.join(logDir, `${provider}-install-${process.pid}.log`);
         await new Promise((resolve, reject) => {
           runInstaller(url, logFile, (err) => err
