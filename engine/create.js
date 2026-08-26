@@ -1049,11 +1049,14 @@ function binPaths(opts) {
     tmuxBin: (opts && opts.tmuxBin)
       || process.env.AGENT_WORKFORCE_TMUX_BIN
       || '/opt/homebrew/bin/tmux',
-    // The OpenAI runner (#245). Same resolution shape as the other two, so
-    // the first-run check and creation keep answering the same question.
+    // The OpenAI runner (#245, resolution moved to engine/runners.js for
+    // #979). ONE priority list -- env override, then the managed location
+    // the runner installer stages into, then legacy Homebrew -- shared
+    // with the server's add route, so a runner Kosmos itself installed is
+    // immediately usable for agent creation, and the two callers can
+    // never again disagree about where the runner lives.
     codexBin: (opts && opts.codexBin)
-      || process.env.AGENT_WORKFORCE_CODEX_BIN
-      || '/opt/homebrew/bin/codex',
+      || require('./runners').resolveBin('openai').bin,
   };
 }
 
