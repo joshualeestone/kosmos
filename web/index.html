@@ -5284,15 +5284,25 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <p class="dhint" id="d-runson-why" hidden></p>
     <div class="msteps" role="group" aria-label="Change what this agent runs on" style="margin-top:12px;">
       <div class="frow">
-        <!-- #246: the switch is real now, so this menu takes the same shape
-             as the two below it: a placeholder first (the two tenses rule --
-             a preselected value would read as "is on" and "about to be" with
-             one element), a button that stays down until something OTHER
-             than the current provider is chosen, and nothing happening on
-             pick. The current provider's option is disabled per open, so
-             the only choices offered are ones the engine will not refuse. -->
+        <!-- kosmos#990 (Josh, 2026-08-26): "prepopulate that with what it is
+             currently running on... we don't need to write the words 'change
+             to'". The placeholder is gone and the current provider is
+             SELECTED, so the row answers "what is this agent on?" before it
+             offers to change it. The account select beside it was already
+             built this way, which was the tell.
+             ⚠️ THIS RETIRES the two-tenses reasoning that used to sit here (a
+             preselected value would read as "is on" and "about to be" at
+             once). It is superseded on its own terms by the ruling already in
+             `modelLine`: A TENSE IS ASSERTED BY WORDS, NOT BY A VALUE. The
+             button beside it carries the future tense; the select states the
+             present.
+             ⚠️ The current option is no longer `disabled` -- a disabled option
+             cannot be the selected one, so disabling it would defeat the
+             prepopulation. Nothing is lost: `d-provider`'s change handler
+             already refuses the current provider, so the no-op the disable
+             existed to prevent is still prevented, by the control that
+             actually gates the action. -->
         <select id="d-provider" aria-label="Provider">
-          <option value="">Change to&hellip;</option>
           <option value="anthropic">Anthropic / Claude</option>
           <option value="openai">OpenAI / Codex</option>
           <option value="google" disabled>Google Gemini &middot; coming soon</option>
@@ -19311,10 +19321,33 @@ async function paintModelPicker(a) {
     } catch { /* the control stays empty and disabled, which is honest */ }
     if (!CURRENT || CURRENT.sessionName !== forWhom) return;
   }
-  const html = ['<option value="">Change to&hellip;</option>'].concat(
-    CREATE_MODELS.map((m) => '<option value="' + esc(m.key) + '">' + esc(m.label) + '</option>'),
-  ).join('');
+  /* kosmos#990 (Josh, 2026-08-26): the menu states the model the agent is on
+     instead of the word "Change to". Same ruling as the provider select above.
+     ⚠️ THE MATCH IS BY LABEL AND THAT IS A KNOWN WEAK JOINT, named here rather
+     than discovered later. The picker is built from create.js's MODELS; the
+     agent's `modelName` is rendered from status.js's MODEL_NAMES. Two tables,
+     one fact, which is this codebase's own worst-defect shape -- and they
+     ALREADY DIVERGE: MODEL_NAMES carries `Claude Opus 4.8`, which has no key
+     in MODELS at all. So a real agent can be on a model this menu cannot
+     offer. The unmatched arm below exists for that agent, today, not for a
+     hypothetical one.
+     🔑 The durable fix is the engine handing us the model KEY beside the name,
+     or the two tables becoming one. Raised, not silently papered over. */
+  const runningName = modelLine(a);
+  const currentModel = CREATE_MODELS.find((m) => m.label === runningName) || null;
+  const head = currentModel
+    ? ''
+    /* Unmatched: still ANSWER the question, but with a value of '' so the
+       Switch button stays down. Offering it as a choice would be a lie -- we
+       do not have a key to send. */
+    : '<option value="" selected>' + esc(runningName || 'We cannot tell') + '</option>';
+  const html = head + CREATE_MODELS.map((m) =>
+    '<option value="' + esc(m.key) + '"' + (currentModel && m.key === currentModel.key ? ' selected' : '') + '>'
+    + esc(m.label) + '</option>').join('');
   if (sel.innerHTML !== html) sel.innerHTML = html;
+  /* The change handler needs to know what "no change" IS, and it runs long
+     after this paint, so the answer rides on the element. */
+  sel.dataset.current = currentModel ? currentModel.key : '';
   paintModelWhy('d-model', 'd-model-why');
   /* ⚠️ Only for agents this app started. Anything else has a job we did not
      write and cannot rewrite, and the engine refuses it — so the control says so
@@ -19325,7 +19358,13 @@ async function paintModelPicker(a) {
      before the click, in the state's own words, not the stranger's. */
   const usable = ours && !(a && a.neverRecorded === true);
   sel.disabled = !usable;
-  go.disabled = !usable || !sel.value;
+  /* kosmos#990: the SAME compare as the change handler, and it has to be here
+     too. `!sel.value` used to mean "nothing chosen yet" because the menu
+     opened on an empty placeholder. Prepopulated, sel.value is always set, so
+     this line alone would leave Switch & Restart LIVE ON ARRIVAL -- one click
+     restarting the agent onto the model it is already running. The change
+     handler cannot cover this: it only fires if the person touches the menu. */
+  go.disabled = !usable || !sel.value || sel.value === (sel.dataset.current || '');
   if (msg && !usable && !msg.textContent) {
     msg.textContent = ours
       ? 'Made before Kosmos recorded how it starts, so there is no launch file to change. '
@@ -19579,16 +19618,17 @@ function paintProviderPicker(a) {
   const go = document.getElementById('d-provider-go');
   const msg = document.getElementById('d-provider-msg');
   if (!sel || !go) return;
-  sel.value = '';
   if (msg) msg.textContent = '';
   const current = providerOf(a);
-  /* The current provider is not an offer: picking it would be a no-op the
-     engine refuses, and the button being down is not enough of a reason
-     (the account picker's lesson). Disabled per open, re-enabled for
-     whichever provider is the OTHER one. */
+  /* kosmos#990: the row states what the agent IS on. The two real providers
+     are both selectable -- the current one has to be, or it could not be
+     shown as selected -- and the change handler is what refuses a no-op. */
   for (const opt of sel.options) {
-    if (opt.value === 'anthropic' || opt.value === 'openai') opt.disabled = (opt.value === current);
+    if (opt.value === 'anthropic' || opt.value === 'openai') opt.disabled = false;
   }
+  /* An unrecognised provider leaves the select alone rather than silently
+     showing the first option as though it were the answer. */
+  sel.value = current || '';
   const ours = !!(a && a.isNamedOurs);
   const usable = ours && !(a && a.neverRecorded === true);
   sel.disabled = !usable;
@@ -19734,7 +19774,11 @@ document.getElementById('d-clear-go').addEventListener('click', () => {
 
 document.getElementById('d-model').addEventListener('change', (e) => {
   const go = document.getElementById('d-model-go');
-  if (go) go.disabled = !e.target.value;
+  /* kosmos#990: now that the menu opens on the CURRENT model, "something is
+     selected" no longer means "a change was asked for". Without this compare,
+     prepopulating would leave Switch & Restart live on arrival and a click
+     would restart the agent onto the model it is already running. */
+  if (go) go.disabled = !e.target.value || e.target.value === (e.target.dataset.current || '');
   paintModelWhy('d-model', 'd-model-why');
 });
 document.getElementById('create-model').addEventListener('change', () => paintModelWhy('create-model', 'create-model-why'));
