@@ -1474,6 +1474,12 @@ _plist_env_line() { # $1 = key, reads the plist XML shape <key>K</key><string>V<
 # first version of this test, before this stop was added).
 KOSMOS_HOME="$PETE_HOME" "$PETE_HOME/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free before the reboot simulation" "wait_port_free"
+# board.log is append-only (install/kosmos's own >> ), so it still carries
+# every earlier legitimate start from this same KOSMOS_HOME -- truncated
+# here so the assertion below is scoped to THIS run's output only, not "no
+# refusal anywhere in the file's whole history" (which happened to be true
+# by construction so far, but is a weaker guarantee than it looks like).
+: > "$PETE_HOME/logs/board.log"
 RC=0; env -i \
   HOME="$(_plist_env_line HOME)" \
   PATH="$(_plist_env_line PATH)" \
@@ -1510,8 +1516,16 @@ chk "the port is genuinely free before the override scenario starts" "wait_port_
 
 echo "-- an explicit override still wins over the derived default --"
 export KOSMOS_HOME="$SB/petehome-override" KOSMOS_BIN_DIR="$SB/binpete-override"
+# 🔑 AGENT_WORKFORCE_HALF_SANDBOX_OK="0" DELIBERATELY, not unset: the
+# derivation's own pattern is `[ -n "${VAR:-}" ] || export VAR=1`, and "0"
+# is a non-empty string -- `-n "0"` is true, so this checks the override
+# actually respects a caller's explicit "0" rather than treating it as
+# falsy and silently overwriting it with the derived "1" (challenge-loop
+# iteration 5 asked specifically whether this exact case was covered; it
+# wasn't, until this scenario).
 RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
   AGENT_WORKFORCE_DATA="$SB/petehome-override-data" AGENT_WORKFORCE_LAUNCH="$SB/launchpete-override" \
+  AGENT_WORKFORCE_HALF_SANDBOX_OK="0" \
   KOSMOS_HOME_APP_DIR="$SB/petehome-override-apps" KOSMOS_APP_DIR="$SB/appspete-override" \
   sh > "$SB/pete-override-install.log" 2>&1 || RC=$?
 chk "override-scenario install exits 0" "rc_ok $RC"
@@ -1520,6 +1534,7 @@ OVERRIDE_PLIST="$SB/launchpete-override/com.kosmos.board.$OVERRIDE_SUFFIX.plist"
 chk "an explicit AGENT_WORKFORCE_DATA is carried through as given, not overwritten" "grep -q \"<key>AGENT_WORKFORCE_DATA</key><string>$SB/petehome-override-data</string>\" \"$OVERRIDE_PLIST\""
 chk "AGENT_WORKFORCE_PROJECTS still derives from KOSMOS_HOME when not itself overridden" "grep -q \"<key>AGENT_WORKFORCE_PROJECTS</key><string>$SB/petehome-override/projects</string>\" \"$OVERRIDE_PLIST\""
 chk "AGENT_WORKFORCE_WORKERS still derives from KOSMOS_HOME when not itself overridden" "grep -q \"<key>AGENT_WORKFORCE_WORKERS</key><string>$SB/petehome-override/workers</string>\" \"$OVERRIDE_PLIST\""
+chk "an explicit AGENT_WORKFORCE_HALF_SANDBOX_OK=0 is carried through as given, not overwritten to 1" "grep -q '<key>AGENT_WORKFORCE_HALF_SANDBOX_OK</key><string>0</string>' \"$OVERRIDE_PLIST\""
 KOSMOS_HOME="$SB/petehome-override" "$SB/petehome-override/bin/kosmos" stop > /dev/null 2>&1 || true
 
 closing_checks

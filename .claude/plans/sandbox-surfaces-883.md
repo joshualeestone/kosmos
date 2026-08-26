@@ -102,6 +102,34 @@ Two installs both naming an agent the identical name is the residual gap;
 the issue names the walker's own teardown ledger as the interim defense
 until a fuller shape exists, and that stands.
 
+**A new residual gap this card's own fix introduces, named by challenge-loop
+iteration 5, not fixed here.** Before this fix, every sandboxed install
+shared ONE board-plist label, so an abandoned scratch `KOSMOS_HOME` (a walk
+directory deleted without running `--uninstall` against it) left at most
+one stale, self-overwriting entry -- broken (that overwrite IS #883), but
+self-limiting. After this fix, each distinct `KOSMOS_HOME` gets its OWN
+permanent, uniquely-labeled launchd job. `uninstall()` only derives and
+removes the label for whatever `KOSMOS_HOME` is set to AT uninstall time --
+nothing sweeps for OTHER `com.kosmos.board.*.plist` entries whose
+referenced tree no longer exists. A walk convention that uses a fresh
+scratch directory per run and is torn down by deleting the directory
+(rather than running `--uninstall` against that exact `KOSMOS_HOME`) now
+accumulates one permanently-orphaned launchd job per walk, forever --
+precisely the failure class this file's own header is otherwise paranoid
+about ("an orphan with a new cause, invisible to a person who believes
+they uninstalled the product"), just for a different surface than the one
+that header names. Checked `tools/clean-machine.sh` and `engine/
+machine.js`'s `labelTruthCheck` for an existing sweep that might already
+cover this: neither does -- `labelTruthCheck` catches an IMPOSTOR (a label
+pointing at a file that is not its own), not an orphan whose label still
+correctly points at its own, now-dead file. Traded one collision-prone
+shared label for unbounded per-install accumulation. Worth a real decision
+(a sweep keyed on "does this label's own KOSMOS_HOME still exist on disk",
+likely as part of the same "fuller shape... one explicit sandbox switch"
+the issue already names for the agent-label gap) rather than silently
+shipped as if it were free -- named here explicitly so it is not
+rediscovered later at full cost.
+
 ## Verification plan
 
 - New test (shell-level, extending `tools/test-install.sh` directly): a
