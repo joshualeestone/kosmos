@@ -10,9 +10,13 @@
 # on a machine serving something older, which is the incident class this
 # repo has already paid for three times):
 #
-#   REFUSAL  a genuinely clean HOME has no Claude Code, and the installer
-#            must say so in its named sentence and stop (#133), not finish
-#            and leave agents that never start.
+#   CLEAN    a genuinely clean HOME has no Claude Code, and the installer
+#            must install nothing, say nothing about it, and FINISH anyway
+#            (#979). This description has been wrong twice: it still said
+#            "refuse and stop" (#133) through the whole of #548, when the
+#            leg beneath it was asserting the opposite. A header that
+#            describes a retired ruling is read by whoever is deciding
+#            whether a red leg is a real failure.
 #   WALK     with Claude Code present (a stub at the path the product uses),
 #            the full path runs: download, checksum, staging swap, bundle,
 #            kosmos start, the board answering on the port with the version
@@ -125,30 +129,35 @@ run_setup() {
 
 # ⚠️ RESTATED, NOT DELETED (#548, Josh's carry ruling 2026-08-24 11:06).
 # This phase asserted #133's refusal while Claude Code was the only engine;
-# carry inverts the assertion: a clean HOME gets Claude Code INSTALLED, in
-# a sentence that names what is happening, and the install continues. The
-# CONTROL that proves the no-Claude arm was genuinely exercised is kept
-# explicit: the sandbox HOME is asserted claude-less BEFORE the run, and
-# the pass demands the carry sentence AND a real executable landing at the
-# exact path -- a run that quietly took the found-it arm can produce
-# neither.
-say "== CARRY: a clean HOME has no Claude Code, so the installer installs it =="
+# 🛑 THIS LEG IS INVERTED AGAIN (#979, Josh 2026-08-26 10:32), and the header
+# above it was one revision stale for the same reason. It has now asserted
+# three different things: refuse the install (#133), carry and install it
+# (#548), and now install NOTHING. Each time the product moved, this leg
+# moved with it; leaving it asserting the old behaviour would turn a correct
+# installer into a red release check and send the operator hunting the wrong
+# thing -- and it runs against the SERVED artifact, so it fails late.
+#
+# ⚠️ THE CONTROL IS THE SAME AND IS STILL LOAD-BEARING: the sandbox HOME is
+# asserted claude-less BEFORE the run, or a run that quietly took the
+# found-it arm would satisfy every assertion below by doing nothing.
+say "== CLEAN HOME: no Claude Code, so the installer installs nothing and finishes anyway =="
 if [ -e "$SBHOME/.local/bin/claude" ]; then
   fail "the control is broken: the sandbox HOME already has a claude, so this leg would prove nothing"
 fi
 if run_setup carry; then
-  if grep -q "Installing it now with Anthropic's own installer" "$SB/out.carry.log"; then
-    pass "said what it was doing, in the named sentence"
+  pass "the install COMPLETED on a Mac with no Claude Code (an OpenAI-only person could not get past this before)"
+  if [ -e "$SBHOME/.local/bin/claude" ]; then
+    fail "something still installs Claude Code: it landed at $SBHOME/.local/bin/claude without being asked for"
   else
-    fail "carried, but never said so; tail: $(tail -2 "$SB/out.carry.log" | tr '\n' ' ')"
+    pass "nothing was installed at $SBHOME/.local/bin/claude"
   fi
-  if [ -f "$SBHOME/.local/bin/claude" ] && [ -x "$SBHOME/.local/bin/claude" ]; then
-    pass "Claude Code genuinely landed at the path Kosmos launches from"
+  if grep -qi "claude" "$SB/out.carry.log"; then
+    fail "the installer named Claude Code to somebody who has not chosen a provider; matched: $(grep -i -m1 'claude' "$SB/out.carry.log")"
   else
-    fail "the carry sentence appeared but nothing runnable landed at $SBHOME/.local/bin/claude"
+    pass "said nothing about Claude Code before a provider was chosen"
   fi
 else
-  fail "the installer DIED on a Mac with no Claude Code, the pre-#548 behavior; tail: $(tail -2 "$SB/out.carry.log" | tr '\n' ' ')"
+  fail "the installer DIED on a Mac with no Claude Code; tail: $(tail -2 "$SB/out.carry.log" | tr '\n' ' ')"
 fi
 # The carry leg ran a COMPLETE install (that is the point), so a sandbox
 # board may now be listening. WALK must start from a stopped state or its
