@@ -2584,7 +2584,13 @@ const server = http.createServer((req, res) => {
            nit), matching the approved flow -- install first, then the
            credential. */
         const resolved = runners.resolveBin('openai');
-        if (!resolved.present) {
+        // The proving window counts as not-ready: the symlink is up while
+        // --version may still fail, and a key pasted in that instant would
+        // reach a never-proven binary and surface a confusing login error
+        // instead of this structured answer.
+        const liveJob = (runners.status().openai || {}).job;
+        const midInstall = liveJob && liveJob.phase !== 'installed' && liveJob.phase !== 'failed';
+        if (!resolved.present || midInstall) {
           sendJson(res, 400, {
             error: openaiAccounts.MISSING_RUNNER_SENTENCE,
             needsRunner: true,

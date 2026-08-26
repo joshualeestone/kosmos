@@ -243,7 +243,11 @@ function download(url, file, job, redirectsLeft, getter) {
       }
       if (res.statusCode !== 200) {
         res.resume();
-        bail(new Error(`the download answered ${res.statusCode}`));
+        // A 3xx landing here means the redirect valve is exhausted -- name
+        // the cause, not just the status, for whoever reads the job.
+        bail(new Error(res.statusCode >= 300 && res.statusCode < 400
+          ? `the download redirected too many times (last answer ${res.statusCode})`
+          : `the download answered ${res.statusCode}`));
         return;
       }
       const total = Number(res.headers['content-length']) || null;

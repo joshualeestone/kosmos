@@ -276,7 +276,7 @@ test('#979: the real download function follows a redirect, and refuses non-200 a
   // A redirect storm exhausts the valve and rejects rather than looping.
   await assert.rejects(
     () => runners.download('https://x.invalid/loop', dest, { receivedBytes: 0 }, undefined, (url, cb) => respond(cb, body(302, { location: 'https://x.invalid/loop' }))),
-    /the download answered 302/);
+    /redirected too many times/);
 });
 
 test('#979: a manifest entry the resolver cannot answer is refused loudly, never downloaded invisibly', () => {
