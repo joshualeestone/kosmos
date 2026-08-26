@@ -164,7 +164,14 @@ const MEMBER = 'taskmate';
        must be GONE rather than showing a count that contradicts the column --
        which was Josh's original report. */
     if (!(await p.locator('#pj-alltasks').isHidden())) die('the door shows while every task is already in the column');
-    const chip = (await shown(p.locator('.tkcard-who'))).trim();
+    /* ⚠️ `.nth(0)`, NOT A BARE `.tkcard-who` (#1009). The column used to hold
+       ONE card, so a bare locator was unambiguous; now it holds both open
+       tasks and the same locator is a strict-mode violation that throws
+       before it can assert anything. The assertion two lines up was updated
+       for the new count and this one, three lines from it, was not. The
+       assigned card is first, which is why the unassigned check below already
+       says `.nth(1)`. */
+    const chip = (await shown(p.locator('.tkcard').nth(0).locator('.tkcard-who'))).trim();
     if (!chip.includes(MEMBER)) die('the who chip does not name the member: ' + chip);
     await p.screenshot({ path: path.join(OUT, 'tasks-column.png') });
 
