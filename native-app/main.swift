@@ -113,6 +113,23 @@ func kosmosDefaultPort(uid: uid_t) -> Int {
     return 16180 + 1 + Int(uid % 3999)
 }
 
+// #965: the Reload decision as a pure function of the three observable
+// facts, so the state machine is machine-checkable (the
+// --kosmos-app-reload-decision-selftest hatch at the bottom prints the
+// whole eight-row table) instead of living only inside an @objc method
+// nothing outside a window server can call.
+enum ReloadDecision: String {
+    case ignore      // a board start is already in flight; drop (and beep)
+    case reload      // a committed, un-failed page: plain page reload
+    case startBoard  // no healthy page: re-run the resolve-and-start path
+}
+
+func reloadDecision(startInFlight: Bool, hasCommittedPage: Bool, lastLoadFailed: Bool) -> ReloadDecision {
+    if startInFlight { return .ignore }
+    if hasCommittedPage && !lastLoadFailed { return .reload }
+    return .startBoard
+}
+
 func resolveInstall(config: KosmosInstallConfig?) throws -> ResolvedInstall {
     // Test-only seam: NSHomeDirectory() reads the REAL account's passwd
     // record and does NOT honor an overridden $HOME (confirmed empirically
@@ -168,7 +185,11 @@ enum StartResult {
     case failed(String) // stderr, the die() message, same wording a terminal user would see
 }
 
-func startBoard(kosmosHome: String, port: Int) -> StartResult {
+// onSpawn hands the just-launched Process to the caller so the caller's
+// watchdog can terminate a hung start (#965) -- terminating also closes the
+// child's stderr, which unblocks the drain below via EOF. Called on the
+// caller's queue, immediately after a successful run().
+func startBoard(kosmosHome: String, port: Int, onSpawn: ((Process) -> Void)? = nil) -> StartResult {
     let kosmosBin = kosmosHome + "/bin/kosmos"
     guard FileManager.default.isExecutableFile(atPath: kosmosBin) else {
         return .failed("Kosmos looks incomplete: \(kosmosBin) is missing.")
@@ -199,6 +220,7 @@ func startBoard(kosmosHome: String, port: Int) -> StartResult {
     } catch {
         return .failed("Could not run \(kosmosBin): \(error.localizedDescription)")
     }
+    onSpawn?(process)
     // Drain stderr BEFORE waiting, for the same deadlock reason: this read
     // consumes as the child writes, so stderr can never fill either, and it
     // returns at the child's EOF -- after which the wait is immediate.
@@ -269,6 +291,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // flag.
     private var boardStartInFlight = false
     private var boardStartGeneration = 0
+    // #965: the live `kosmos start` Process of the current generation, kept
+    // so the watchdog can TERMINATE a hung start rather than just abandon it
+    // -- an abandoned start leaks its blocked drain thread and an orphan
+    // child per attempt. Main-thread only, like every flag above.
+    private var inFlightStart: (generation: Int, process: Process)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -378,6 +405,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             if self.boardStartInFlight && self.boardStartGeneration == generation {
                 logLine("watchdog: board start gen \(generation) unresolved after 120s; re-arming Reload")
                 self.boardStartInFlight = false
+                // Reap the hung work, don't just abandon it: terminate closes
+                // the child's stderr, which unblocks startBoard's drain via
+                // EOF, freeing its queue thread; the orphan child dies too.
+                if let s = self.inFlightStart, s.generation == generation {
+                    logLine("watchdog: terminating hung kosmos start (pid \(s.process.processIdentifier))")
+                    s.process.terminate()
+                    self.inFlightStart = nil
+                }
                 // Bump the generation so the hung start, if it EVER resolves,
                 // is stale and reports nothing. Without this, its two-minute-
                 // old failure could surface a "could not start" alert over a
@@ -388,9 +423,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             }
         }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = startBoard(kosmosHome: resolved.kosmosHome, port: resolved.port)
+            let result = startBoard(kosmosHome: resolved.kosmosHome, port: resolved.port) { process in
+                // Register the live process for the watchdog, unless the
+                // watchdog already gave up on this generation (spawn landing
+                // that late is not a real timeline, but the guard is free).
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self, self.boardStartGeneration == generation else { return }
+                    self.inFlightStart = (generation, process)
+                }
+            }
             DispatchQueue.main.async {
                 guard let self = self else { return }
+                // This generation's process is no longer the watchdog's
+                // business once its start resolved, stale or not.
+                if let s = self.inFlightStart, s.generation == generation {
+                    self.inFlightStart = nil
+                }
                 // A start that resolves only after its watchdog re-armed (or
                 // after a newer start superseded it) reports nothing: acting
                 // on its outcome would race the newer attempt's load/alert.
@@ -466,7 +514,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         logLine("PAGE LOAD FAILED: \(error.localizedDescription)")
-        if isBenignCancellation(error) { return }
+        if isBenignCancellation(error) {
+            // The reload this press armed is definitively over once its
+            // navigation is cancelled -- a stale one-shot surviving here
+            // would fire a full board restart on some LATER unrelated
+            // failure, exactly the surprise this flag's design forbids.
+            recoverOnReloadFailure = false
+            return
+        }
         lastLoadFailed = true
         // Same one-shot fall-through as the provisional case below: a reload
         // whose navigation committed and THEN failed is still the user's one
@@ -488,7 +543,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         logLine("PROVISIONAL LOAD FAILED: \(error.localizedDescription)")
-        if isBenignCancellation(error) { return }
+        if isBenignCancellation(error) {
+            recoverOnReloadFailure = false // same reasoning as didFail above
+            return
+        }
         lastLoadFailed = true
         // One-shot fall-through (#965): the user pressed Cmd-R against a page
         // that then turned out to be dead (the board died AFTER a good load,
@@ -521,7 +579,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     //     failure delegate falls through to loadBoard() once -- so that case
     //     too recovers on a single press, not two.
     @objc func reloadBoard(_ sender: Any?) {
-        if boardStartInFlight {
+        // backForwardList.currentItem, not webView.url: the url is non-nil
+        // during an UNCOMMITTED provisional load too, where reload() is a
+        // documented no-op -- a press in that window would silently do
+        // nothing. A committed page is what "reload" means.
+        let committed = webView.backForwardList.currentItem != nil
+        switch reloadDecision(startInFlight: boardStartInFlight,
+                              hasCommittedPage: committed,
+                              lastLoadFailed: lastLoadFailed) {
+        case .ignore:
             // Dropped, not queued, by design: the in-flight start will end in
             // a load or an alert either way, and a queued second start could
             // only duplicate it. The beep is the user-visible half -- the
@@ -530,18 +596,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // this feature answers.
             NSSound.beep()
             logLine("reload: ignored, a board start is already in flight")
-            return
-        }
-        // backForwardList.currentItem, not webView.url: the url is non-nil
-        // during an UNCOMMITTED provisional load too, where reload() is a
-        // documented no-op -- a press in that window would silently do
-        // nothing. A committed page is what "reload" means.
-        if webView.backForwardList.currentItem != nil, !lastLoadFailed {
+        case .reload:
             logLine("reload: webView.reload() of \(webView.url?.absoluteString ?? "<committed page>")")
             recoverOnReloadFailure = true
             webView.reload()
-        } else {
-            logLine("reload: no healthy page (url=\(webView.url?.absoluteString ?? "<nil>"), lastLoadFailed=\(lastLoadFailed)), re-running loadBoard()")
+        case .startBoard:
+            logLine("reload: no healthy page (committed=\(committed), lastLoadFailed=\(lastLoadFailed)), re-running loadBoard()")
             loadBoard()
         }
     }
@@ -683,6 +743,23 @@ if let uidArgIndex = CommandLine.arguments.firstIndex(of: "--kosmos-app-port-sel
    CommandLine.arguments.count > uidArgIndex + 1,
    let uidArg = UInt32(CommandLine.arguments[uidArgIndex + 1]) {
     print(kosmosDefaultPort(uid: uidArg))
+    exit(0)
+}
+
+// #965: same shape as the two hatches above, for the Reload state machine.
+// Prints the whole eight-row decision table so a build-time check or a
+// release walk can diff the machine at once, no window server needed.
+if CommandLine.arguments.contains("--kosmos-app-reload-decision-selftest") {
+    for startInFlight in [false, true] {
+        for committed in [false, true] {
+            for failed in [false, true] {
+                let d = reloadDecision(startInFlight: startInFlight,
+                                       hasCommittedPage: committed,
+                                       lastLoadFailed: failed)
+                print("startInFlight=\(startInFlight) committed=\(committed) lastLoadFailed=\(failed) -> \(d.rawValue)")
+            }
+        }
+    }
     exit(0)
 }
 
