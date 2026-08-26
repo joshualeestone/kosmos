@@ -75,7 +75,7 @@ test('#979: GET /api/runners answers the documented shape, absent runner and hon
   assert.ok(r.openai, 'the openai runner is listed');
   assert.equal(r.openai.present, false, 'the sandboxed override names a missing path, so absent');
   assert.equal(r.openai.bin, MISSING_CODEX, 'and the bin is the path the operator set, not a fallback');
-  assert.equal(typeof r.openai.version, 'string');
+  assert.equal(typeof r.openai.pinnedVersion, 'string');
   assert.ok(r.openai.downloadBytes === null || typeof r.openai.downloadBytes === 'number');
   assert.equal(r.openai.job, null, 'no install has run');
 });

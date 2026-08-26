@@ -2542,7 +2542,9 @@ const server = http.createServer((req, res) => {
    * propagation idiom (the root-cause question of stale screens is #972,
    * deliberately not answered by a new push mechanism here).
    */
-  if (pathname === '/api/runners' && req.method === 'GET') {
+  if (pathname === '/api/runners' && (req.method === 'GET' || req.method === 'HEAD')) {
+    // HEAD like the sibling read routes: cheap route-is-there probe.
+    if (req.method === 'HEAD') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(); return; }
     sendJson(res, 200, { runners: runners.status() });
     return;
   }

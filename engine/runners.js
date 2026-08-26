@@ -86,6 +86,12 @@ const MANIFEST = Object.assign(Object.create(null), {
     downloadBytes: 114152335,
   },
 });
+// The url and integrity above are the trust anchors for bytes this module
+// EXECUTES; frozen so nothing in-process can quietly repoint them. Tests
+// inject fixture manifests through install()'s opts.manifest seam, the
+// same way they replace download and prove.
+for (const k of Object.keys(MANIFEST)) Object.freeze(MANIFEST[k]);
+Object.freeze(MANIFEST);
 
 /**
  * Where managed runners live. An installed Kosmos keeps them inside
@@ -163,9 +169,20 @@ function status() {
   for (const provider of Object.keys(MANIFEST)) {
     const m = MANIFEST[provider];
     const r = resolveBin(provider);
+    // A failed job beside a runner that has since become present (hand
+    // install, env fixed) is a stale contradiction; presence retires it
+    // so a polling screen never shows a failure banner over a working
+    // runner.
+    if (r.present && jobs[provider] && jobs[provider].phase === 'failed') delete jobs[provider];
     out[provider] = {
       name: m.name,
-      version: m.version,
+      // pinnedVersion, NOT a claim about the binary on disk: presence is
+      // existence, and a legacy or older managed runner may answer any
+      // version. The install job's `proved` line is the only field that
+      // certifies what actually ran. (A manifest bump therefore does not
+      // auto-reinstall an existing runner; that flow arrives with the
+      // first real bump, on the card.)
+      pinnedVersion: m.version,
       downloadBytes: m.downloadBytes,
       present: r.present,
       bin: r.bin,
@@ -198,11 +215,14 @@ function fileIntegrity(file) {
 function download(url, file, job, redirectsLeft) {
   const left = redirectsLeft === undefined ? 5 : redirectsLeft;
   return new Promise((resolve, reject) => {
-    // Hoisted so EVERY failure path can close it: a rejected promise that
-    // strands an open write stream leaks one fd per failed download.
+    // Hoisted so EVERY failure path can close BOTH ends: a rejected
+    // promise that strands an open write stream leaks one fd per failed
+    // download, and a stranded socket dangles until the stall timer.
     let out = null;
+    let reqRef = null;
     const bail = (err) => {
       if (out) { try { out.destroy(); } catch { /* already closed */ } }
+      if (reqRef) { try { reqRef.destroy(); } catch { /* already closed */ } }
       reject(err);
     };
     const req = https.get(url, (res) => {
@@ -230,6 +250,7 @@ function download(url, file, job, redirectsLeft) {
     // Confirm, so with no timeout the only recovery would be a board
     // restart. 60s of socket SILENCE (not total time; a slow link that is
     // still moving bytes never trips this).
+    reqRef = req;
     req.setTimeout(60000, () => req.destroy(new Error('the download stalled (no data for 60s)')));
     req.on('error', bail);
   });
@@ -253,11 +274,12 @@ function download(url, file, job, redirectsLeft) {
  * nothing.
  */
 function install(provider, opts) {
+  const o = opts || {};
   // hasOwn, not truthiness: with a URL-supplied provider, a prototype-chain
   // hit ("constructor") must be the SAME refusal as any unknown name.
-  const m = Object.hasOwn(MANIFEST, provider) ? MANIFEST[provider] : null;
+  // opts.manifest is the fixture seam (the shipped MANIFEST is frozen).
+  const m = o.manifest || (Object.hasOwn(MANIFEST, provider) ? MANIFEST[provider] : null);
   if (!m) return { phase: 'failed', because: `we do not know how to install a runner for ${provider}` };
-  const o = opts || {};
   // Join a LIVE job before consulting presence: during `proving` the
   // symlink already exists, and answering a synthetic `installed` for a
   // binary whose prove may still fail would briefly report a runner that
@@ -273,7 +295,11 @@ function install(provider, opts) {
   if (!existing.bin) {
     return { phase: 'failed', because: `the ${provider} runner has a manifest entry but no resolution rule yet, so an install could never be seen; teach resolveBin about it first` };
   }
-  if (existing.present) return { phase: 'installed', version: m.version, receivedBytes: 0, totalBytes: 0 };
+  if (existing.present) {
+    // Presence also retires a stale failed job (see status()).
+    if (jobs[provider] && jobs[provider].phase === 'failed') delete jobs[provider];
+    return { phase: 'installed', version: m.version, receivedBytes: 0, totalBytes: 0 };
+  }
   // An authoritative env override naming a MISSING path would mask the
   // managed location this install stages into: the job would end
   // `installed` while every status read still answers absent, an
@@ -297,7 +323,14 @@ function install(provider, opts) {
 
   const destDir = path.join(managedRoot(), provider);
   const tmpDir = path.join(managedRoot(), '.tmp');
-  const staging = path.join(tmpDir, `${provider}-${m.version}.tgz`);
+  // Per-PROCESS staging name: the managed root is deliberately shared
+  // between a from-source board and an installed board on one Mac, and
+  // the in-memory one-job guard cannot see across processes. Distinct
+  // staging files keep two concurrent installs from interleaving bytes
+  // into one file; the pkg swap below keeps the final tree whole. A
+  // lockfile would close the remaining swap-vs-swap window; accepted as
+  // residual until two boards on one Mac is a real configuration.
+  const staging = path.join(tmpDir, `${provider}-${m.version}-${process.pid}.tgz`);
   const fail = (because) => {
     try { fs.rmSync(staging, { force: true }); } catch { /* the sweep gets it */ }
     job.phase = 'failed';
@@ -307,14 +340,18 @@ function install(provider, opts) {
   const run = (async () => {
     try {
       fs.mkdirSync(tmpDir, { recursive: true });
-      // Sweep THIS PROVIDER'S strays from any earlier interrupted attempt.
-      // Prefix-scoped on purpose: a sweep of the whole shared .tmp would
-      // delete a concurrent sibling provider's in-flight download the
-      // moment a second manifest entry exists.
+      // Sweep THIS PROVIDER'S STALE strays (an hour old or more: nothing
+      // legitimate downloads that long). Scoped twice on purpose -- by
+      // provider prefix so a sibling provider's in-flight bytes survive,
+      // and by age so ANOTHER PROCESS'S live staging file (per-pid names)
+      // survives too.
       for (const f of fs.readdirSync(tmpDir)) {
-        if (f.startsWith(provider + '-') && f !== path.basename(staging)) {
-          try { fs.rmSync(path.join(tmpDir, f), { force: true }); } catch { /* best effort */ }
-        }
+        if (!f.startsWith(provider + '-') || f === path.basename(staging)) continue;
+        try {
+          if (Date.now() - fs.statSync(path.join(tmpDir, f)).mtimeMs > 3600000) {
+            fs.rmSync(path.join(tmpDir, f), { force: true });
+          }
+        } catch { /* best effort */ }
       }
       fs.rmSync(staging, { force: true });
       await doDownload(url, staging, job);
@@ -344,25 +381,38 @@ function install(provider, opts) {
       // stranded from its own tools). /usr/bin/tar ships on every Mac and
       // reads .tgz natively; --strip-components 1 drops the npm "package/"
       // root. A previous version's pkg/ is replaced whole, never merged.
+      // Unpack into a per-process tree, then SWAP it in whole: the pkg/
+      // tree is never half-written at its final name, so a concurrent
+      // reader (or a second board's prove step) can never see a partial
+      // vendor tree that still happens to answer --version.
       const pkgDir = path.join(destDir, 'pkg');
-      fs.rmSync(pkgDir, { recursive: true, force: true });
-      fs.mkdirSync(pkgDir, { recursive: true });
+      const pkgNew = path.join(destDir, `pkg.new-${process.pid}`);
+      const pkgOld = path.join(destDir, `pkg.old-${process.pid}`);
+      fs.rmSync(pkgNew, { recursive: true, force: true });
+      fs.mkdirSync(pkgNew, { recursive: true });
       await new Promise((resolve, reject) => {
-        execFile('/usr/bin/tar', ['-xzf', staging, '-C', pkgDir, '--strip-components', '1'],
+        execFile('/usr/bin/tar', ['-xzf', staging, '-C', pkgNew, '--strip-components', '1'],
           (err, _stdout, stderr) => err ? reject(new Error(String(stderr || err.message).trim())) : resolve());
       });
-      const unpacked = path.join(pkgDir, binInPackage);
-      if (!fs.existsSync(unpacked)) {
+      if (!fs.existsSync(path.join(pkgNew, binInPackage))) {
+        fs.rmSync(pkgNew, { recursive: true, force: true });
         fail(`the archive did not contain the runner at ${binInPackage}, so nothing was installed`);
         return;
       }
-      fs.chmodSync(unpacked, 0o755);
+      fs.chmodSync(path.join(pkgNew, binInPackage), 0o755);
+      fs.rmSync(pkgOld, { recursive: true, force: true });
+      if (fs.existsSync(pkgDir)) fs.renameSync(pkgDir, pkgOld);
+      fs.renameSync(pkgNew, pkgDir);
+      fs.rmSync(pkgOld, { recursive: true, force: true });
+      const unpacked = path.join(pkgDir, binInPackage);
       // ONE stable path for every caller, whatever the package layout is:
-      // a symlink beside the tree. Rust binaries resolve current_exe()
-      // through symlinks, so the runner still finds its siblings.
+      // a symlink beside the tree, RELATIVE so a moved or renamed
+      // KOSMOS_HOME carries it intact. Rust binaries resolve
+      // current_exe() through symlinks, so the runner still finds its
+      // vendored siblings.
       const finalBin = path.join(destDir, m.binName);
       fs.rmSync(finalBin, { force: true });
-      fs.symlinkSync(unpacked, finalBin);
+      fs.symlinkSync(path.relative(destDir, unpacked), finalBin);
 
       job.phase = 'proving';
       // Installed is a CLAIM until the binary itself answers. --version is

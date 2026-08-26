@@ -233,16 +233,21 @@ test('#979: an env override naming a missing path refuses install instead of sta
 });
 
 test('#979: a manifest entry the resolver cannot answer is refused loudly, never downloaded invisibly', () => {
-  runners.MANIFEST.gemini = { name: 'Gemini runner', version: '0.0.1', url: 'https://example.invalid/x.tgz', integrity: 'sha512-x', binInPackage: 'x', binName: 'gemini', downloadBytes: null };
-  try {
-    const job = runners.install('gemini', {
-      download: () => { throw new Error('no bytes may move for an unresolvable provider'); },
-    });
-    assert.equal(job.phase, 'failed');
-    assert.match(job.because, /no resolution rule yet/);
-  } finally {
-    delete runners.MANIFEST.gemini;
-  }
+  // Injected through the opts.manifest seam: the shipped MANIFEST is
+  // frozen (its url and integrity are trust anchors for bytes that get
+  // executed), so a fixture entry rides beside it, never inside it.
+  const job = runners.install('gemini', {
+    manifest: { name: 'Gemini runner', version: '0.0.1', url: 'https://example.invalid/x.tgz', integrity: 'sha512-x', binInPackage: 'x', binName: 'gemini', downloadBytes: null },
+    download: () => { throw new Error('no bytes may move for an unresolvable provider'); },
+  });
+  assert.equal(job.phase, 'failed');
+  assert.match(job.because, /no resolution rule yet/);
+});
+
+test('#979: the shipped manifest is frozen, its trust anchors cannot be repointed in-process', () => {
+  assert.ok(Object.isFrozen(runners.MANIFEST));
+  assert.ok(Object.isFrozen(runners.MANIFEST.openai));
+  assert.throws(() => { runners.MANIFEST.openai.url = 'https://evil.example/x.tgz'; }, TypeError);
 });
 
 test('#979: a Confirm during the proving window joins the live job, never a synthetic installed', async () => {
@@ -256,8 +261,10 @@ test('#979: a Confirm during the proving window joins the live job, never a synt
     prove: (bin, done) => { gate.then(() => done(null, 'ok')); },
   });
   // Wait until the symlink exists and the job is mid-prove: the exact
-  // window where presence would lie.
-  while (first.phase !== 'proving') { await new Promise((r) => setTimeout(r, 5)); }
+  // window where presence would lie. Break on failed so a regression
+  // fails crisply instead of spinning to the runner timeout.
+  while (first.phase !== 'proving' && first.phase !== 'failed') { await new Promise((r) => setTimeout(r, 5)); }
+  assert.equal(first.phase, 'proving', first.because || '');
   assert.ok(fs.existsSync(MANAGED), 'the window is real: the symlink is up while prove is pending');
   const second = runners.install('openai', { legacyBin: LEGACY });
   assert.equal(second, first, 'mid-prove presence must not mint a synthetic installed');
@@ -270,7 +277,8 @@ test('#979: a Confirm during the proving window joins the live job, never a synt
 test('#979: status reports the manifest facts and the honest null for an unmeasured size', () => {
   const s = runners.status();
   assert.ok(s.openai);
-  assert.equal(s.openai.version, runners.MANIFEST.openai.version);
+  assert.equal(s.openai.pinnedVersion, runners.MANIFEST.openai.version);
+  assert.equal(s.openai.version, undefined, 'pinnedVersion, never a bare version claiming to describe the disk');
   // downloadBytes is either a measured number or null -- never undefined,
   // and never an invented value smuggled in as a default.
   assert.ok(s.openai.downloadBytes === null || typeof s.openai.downloadBytes === 'number');
