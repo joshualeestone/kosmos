@@ -29,11 +29,11 @@
  *      mystery.
  *
  * Claude rides here as a second manifest KIND (Josh's 2026-08-26 10:32
- * ruling: a provider like the others): 'vendor-verified', installed by
- * delegating to engine/connect.js's already-verified download (published
- * per-platform SHA256, https-only redirects) rather than a pinned tarball
- * -- see installVendor() for the phases and the die()-replacement
- * contract. The
+ * ruling: a provider like the others): kind 'vendor-external', meaning the
+ * VENDOR owns the binary and its location, not Kosmos's managed dir. On this
+ * branch that kind LINKS a Claude Code already on the Mac and refuses in
+ * words when there is none; downloading it is #997. See installVendor() for
+ * the phases and the die()-replacement contract. The
  * INSTALLER still pre-installs Claude today; removing that is the gated
  * branch B on #979, held until the in-flow path exists end to end so a
  * bare-Mac Claude pick can never dead-end the way OpenAI's used to.
@@ -93,8 +93,16 @@ const MANIFEST = Object.assign(Object.create(null), {
   claude: {
     name: 'Claude Code',
     /**
-     * kind 'vendor-verified' (#979, Josh's 10:32 ruling: Claude is a
-     * provider like the others).
+     * kind 'vendor-external' (#979, Josh's 10:32 ruling: Claude is a
+     * provider like the others). "External" = the VENDOR owns this binary
+     * and where it lives; Kosmos does not manage it the way it manages the
+     * pinned tarball runner.
+     *
+     * ⚠️ IT WAS BRIEFLY CALLED 'vendor-verified', AND THAT NAME WAS A LIE ON
+     * THIS BRANCH. The string is published on the API as `status().<p>.kind`,
+     * so a screen branching on it would have been told a trust property this
+     * path does not deliver: nothing here downloads, so nothing here verifies.
+     * The name has to stay true both before and after #997.
      *
      * 🛑 THE FIRST VERSION OF THIS ENTRY WAS `curl -fsSL https://claude.ai/
      * install.sh | sh`, ported from setup.sh's preflight, and its comment
@@ -119,7 +127,7 @@ const MANIFEST = Object.assign(Object.create(null), {
      * `pinnedVersion` is null for this kind and says so, and `downloadBytes`
      * is null because nothing on this branch downloads.
      */
-    kind: 'vendor-verified',
+    kind: 'vendor-external',
     binName: 'claude',
     downloadBytes: null,
   },
@@ -157,21 +165,6 @@ function managedRoot() {
 }
 
 /**
- * ONE priority list for where a provider's runner binary lives:
- *
- *   1. the env override (AGENT_WORKFORCE_CODEX_BIN), the test-and-harness
- *      contract every other bin path in this codebase honors
- *   2. the managed location this module installs into
- *   3. the legacy Homebrew path, for the Macs that hand-installed codex
- *      before this machinery existed
- *
- * Returns { bin, present, managed, overridden }. With the override set,
- * `bin` is the override, `present` is whether it exists, and `overridden`
- * is true. Otherwise `bin` is the first existing of managed-then-legacy,
- * or the managed path when nothing exists anywhere (so callers always
- * get the place an install would land, never '').
- */
-/**
  * Present means RUNNABLE: a plain file with an exec bit. A directory or a
  * stripped file at a runner path reading as present is the exact
  * folder-sails-through trap setup.sh's check_claude_code documents from
@@ -204,12 +197,37 @@ function homeDir() {
   return process.env.AGENT_WORKFORCE_HOME || HOME;
 }
 
+/**
+ * ONE priority list for where a provider's runner binary lives:
+ *
+ *   1. the env override (AGENT_WORKFORCE_CODEX_BIN), the test-and-harness
+ *      contract every other bin path in this codebase honors
+ *   2. the managed location this module installs into
+ *   3. the legacy Homebrew path, for the Macs that hand-installed codex
+ *      before this machinery existed
+ *
+ * Returns { bin, present, managed, overridden }. With the override set,
+ * `bin` is the override, `present` is whether it exists, and `overridden`
+ * is true. Otherwise `bin` is the first existing of managed-then-legacy,
+ * or the managed path when nothing exists anywhere (so callers always
+ * get the place an install would land, never '').
+ *
+ * ⚠️ THE THREE RUNGS ABOVE ARE THE OPENAI ONES. This function answers for BOTH
+ * providers and the claude branch is different in kind: its rungs are the env
+ * override then the VENDOR's canonical `~/.local/bin/claude`, with `managed`
+ * always false, because a vendor-external kind has no Kosmos-managed location
+ * to install into. Both branches key on homeDir() and on isRunnable().
+ *
+ * 📌 This block was stranded for one iteration -- it sat above isRunnable() and
+ * homeDir() rather than above the function it documents, so it described the
+ * wrong thing to any reader who trusted its position.
+ */
 function resolveBin(provider, opts) {
   if (provider === 'claude') {
     // Same authoritative-override contract as openai, with Claude's own
     // env var (the one every harness in this codebase already sets).
     // Claude's canonical home is the vendor's, ~/.local/bin/claude --
-    // there is no Kosmos-managed location for a vendor-verified kind,
+    // there is no Kosmos-managed location for a vendor-external kind,
     // so `managed` is always false here.
     const envClaude = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
     if (envClaude) return { bin: envClaude, present: isRunnable(envClaude), managed: false, overridden: true };
@@ -251,20 +269,30 @@ function resolveBin(provider, opts) {
  *
  * Job shape, readable at any moment via status():
  *   tarball kind:         phase 'downloading'|'verifying'|'unpacking'
- *   vendor-verified kind: phase 'linking'   (the only fetching phase it
- *                         has until #997 gives it a real install)
+ *   vendor-external kind: phase 'linking'   (the only fetching phase it
+ *                        has until #997 gives it a real install)
  *   both kinds:           -> 'proving' -> 'installed'|'failed'
  *   { phase, receivedBytes, totalBytes (real numbers for the tarball kind;
- *     null for vendor-verified, which moves no bytes -- a link is not a
+ *     null for vendor-external, which moves no bytes -- a link is not a
  *     download and must not draw a bar), version (tarball: the pinned one;
- *     vendor-verified: null), because (failed only), proved (installed
- *     only: the runner's own --version line), linked (vendor-verified: the
+ *     vendor-external: null), because (failed only), proved (installed
+ *     only: the runner's own --version line), linked (vendor-external: the
  *     found path a link points at, null otherwise) }
  *
- * ⚠️ EVERY ABSENCE ABOVE IS SPELLED `null`, NEVER a missing key. An absent
- * field is dropped by JSON.stringify, which makes "this kind has no version"
- * indistinguishable on the wire from "the field was never added" -- so the
- * job is initialised with every field it can ever carry.
+ * ⚠️ THE `null`-NOT-MISSING RULE, AND ITS HONEST SCOPE. An absent field is
+ * dropped by JSON.stringify, which makes "this kind has no version"
+ * indistinguishable on the wire from "the field was never added". So a field
+ * whose ABSENCE IS A FACT ABOUT THE KIND is initialised to null and stays in
+ * the payload: `version`, `linked`, `receivedBytes`, `totalBytes` on the
+ * vendor-external job, and `pinnedVersion`/`downloadBytes` on status().
+ *
+ * 📌 It is NOT a rule that every job carries every field. The tarball job has
+ * no `linked` and the already-present synthetic has no `version` -- both
+ * deliberate, and the second is defended in its own comment. Those absences
+ * say "this shape has no such concept", which is a different statement from
+ * "this kind cannot answer that question", and flattening the two into one
+ * spelling would lose it. Stated because an earlier version of this block
+ * claimed the stronger rule and two shapes in this file already broke it.
  */
 const jobs = Object.create(null);
 
@@ -281,7 +309,7 @@ function status() {
     out[provider] = {
       name: m.name,
       // The screens branch on this: a tarball gets a real byte progress bar,
-      // a vendor-verified kind gets no bar at all, because until #997 its
+      // a vendor-external kind gets no bar at all, because until #997 its
       // only fetching phase is `linking` and a link moves no bytes. Stated
       // rather than left to be inferred from nulls.
       kind: m.kind || 'tarball',
@@ -438,18 +466,22 @@ function install(provider, opts) {
   // fix in hand instead -- keyed on the resolver's own `overridden`
   // flag, so the next provider's override is covered the day it exists.
   if (existing.overridden) {
-    return { phase: 'failed', because: `an operator override points the ${provider} runner at ${existing.bin}, which does not exist; unset the override (or point it at a real runner) before installing` };
+    // "is not something we can run", NOT "does not exist": `present` means
+    // RUNNABLE now, so this arm is also reached by a real file with no exec
+    // bit and by a directory. Telling an operator the file is missing sends
+    // them looking for the wrong problem.
+    return { phase: 'failed', because: `an operator override points the ${provider} runner at ${existing.bin}, which is not something we can run; unset the override (or point it at a real runner) before installing` };
   }
   // Wrong hardware fails in seconds with the CAUSE, not in minutes at
   // the prove step with a symptom: the pinned artifact is arch-specific.
-  // (A vendor-verified entry carries no arch: the vendor's manifest picks
+  // (A vendor-external entry carries no arch: the vendor's manifest picks
   // its own per-platform artifact, so the guard naturally passes.)
   const arch = o.arch || process.arch;
   if (m.arch && arch !== m.arch) {
     return { phase: 'failed', because: `the pinned ${m.name} build is ${m.arch} and this Mac is ${arch}; no download was attempted` };
   }
 
-  if (m.kind === 'vendor-verified') return installVendor(provider, m, o, existing);
+  if (m.kind === 'vendor-external') return installVendor(provider, m, o, existing);
 
   const url = o.url || m.url;
   const integrity = o.integrity || m.integrity;
@@ -626,7 +658,7 @@ function install(provider, opts) {
 }
 
 /**
- * The vendor-verified pipeline (#979, the Claude kind).
+ * The vendor-external pipeline (#979, the Claude kind).
  *
  * 🛑 READ THE MANIFEST ENTRY'S COMMENT BEFORE CHANGING THIS. The first
  * version of this function curl-and-shelled `https://claude.ai/install.sh`
@@ -641,17 +673,15 @@ function install(provider, opts) {
  *                path gets a symlink, not a download -- setup.sh's
  *                near-miss handling carried in-flow ("nothing is
  *                installed; a link is named as a link")
- *   downloading  connect.download(): `<base>/latest`, then that version's
- *                manifest.json for a per-platform SHA256, then the binary,
- *                REFUSED unless its hash matches and refused on any
- *                https->http redirect. Real byte counts, so the job's
- *                receivedBytes/totalBytes are true numbers.
- *   installing   the downloaded binary's own `install` subcommand, which
- *                is what places the launcher at the canonical path. No
- *                shell, no fetched script -- a verified binary we already
- *                hold, run once.
- *   proving      the binary must answer --version before `installed` is
- *                ever claimed -- the same gate the tarball kind gets
+ *   proving      the linked binary must answer --version before `installed`
+ *                is ever claimed -- the same gate the tarball kind gets
+ *
+ * ⚠️ THERE IS NO `downloading` OR `installing` PHASE, AND NO fetchVendor /
+ * runVendorInstall SEAM. An earlier version of this docblock documented both,
+ * and kept documenting them after iteration 3 removed the code -- which is
+ * worse than no comment, because the next reader trusts this block over the
+ * function. Byte counts are hard-null here for the same reason: nothing on
+ * this branch fetches anything.
  *
  * ⚠️ THE die() REPLACEMENT: a failure here is a JOB ANSWER the screen
  * shows. Nothing exits, nothing kills an install, Kosmos keeps running --
@@ -659,9 +689,7 @@ function install(provider, opts) {
  * preflight used to die.
  *
  * Seams (o.): findElsewhere() -> path|null replaces the PATH probe;
- * fetchVendor(onProgress) -> {path, version} replaces connect.download;
- * runVendorInstall(binary, done) replaces the `<binary> install` child;
- * prove(bin, done) as everywhere.
+ * prove(bin, done) as everywhere. Those are the only two.
  */
 function installVendor(provider, m, o, existing) {
   const canonical = existing.bin;
@@ -682,7 +710,11 @@ function installVendor(provider, m, o, existing) {
       path.join(homeDir(), '.npm-global', 'bin', m.binName),
     ];
     try {
-      const found = String(execFileSync('/usr/bin/which', [m.binName], { timeout: 5000 })).trim();
+      // stdio: a routine "not found" from `which` is an ANSWER here, not an
+      // incident, and inheriting stderr writes it into the board's own log on
+      // every miss.
+      const found = String(execFileSync('/usr/bin/which', [m.binName],
+        { timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] })).trim();
       if (found) candidates.push(found);
     } catch { /* not on the server's PATH; the explicit rungs stand */ }
     for (const c of candidates) {
@@ -716,6 +748,11 @@ function installVendor(provider, m, o, existing) {
   const clearForLink = () => {
     let st;
     try { st = fs.lstatSync(canonical); } catch { return null; } // nothing there: nothing to clear
+    // ⚠️ "REPLACEABLE", NOT "OURS". connect.js's vendor install writes a
+    // launcher at this same canonical path, so a symlink here is not provably
+    // something Kosmos put down. Replacing a symlink is still the right call
+    // -- it is a pointer, not content -- but the comment must not claim a
+    // certainty the code cannot have.
     if (st.isSymbolicLink()) {
       try { fs.unlinkSync(canonical); return null; } catch (err) {
         return `something is already at ${canonical} and it could not be replaced: ${String((err && err.message) || err).trim()}`;
@@ -728,6 +765,18 @@ function installVendor(provider, m, o, existing) {
 
   const run = (async () => {
     try {
+      /**
+       * ⚠️ YIELD FIRST, AND IT IS NOT COSMETIC. An async function body runs
+       * SYNCHRONOUSLY up to its first await, and `server.js` calls
+       * `runners.install()` straight from the HTTP handler -- so without this
+       * line the default `findElsewhere`'s `execFileSync('/usr/bin/which')`
+       * blocks the single-threaded board for up to its 5s timeout: the UI
+       * poll, agent supervision and every other request, frozen, on the one
+       * request that was meant to be a background job. Awaiting anything at
+       * all puts the rest of this function on a later tick, where the job
+       * record (already in `jobs[provider]`) is what the poller reads.
+       */
+      await Promise.resolve();
       const elsewhere = findElsewhere();
       if (elsewhere) {
         fs.mkdirSync(path.dirname(canonical), { recursive: true });
@@ -774,7 +823,7 @@ function installVendor(provider, m, o, existing) {
          * provider ruling exists to prevent is a dead end that does not
          * explain itself.
          */
-        fail(`${m.name} is already on this Mac or it is not, and right now Kosmos can only use one that is already here. Downloading it during setup is the next piece of this work; until then, install ${m.name} yourself and Kosmos will find it.`);
+        fail(`We could not find ${m.name} on this Mac. Kosmos can use a copy that is already installed, but it cannot download one yet. Install ${m.name} yourself and Kosmos will find it.`);
         return;
       }
       job.phase = 'proving';
@@ -791,7 +840,14 @@ function installVendor(provider, m, o, existing) {
       // tarball kind's symlink teardown: a broken runner never reads as
       // present. A failed prove after a real install leaves the vendor's
       // file for diagnosis (removing a vendor-owned path is not ours).
-      if (job.linked) { try { fs.rmSync(canonical, { force: true }); } catch { /* best effort */ } }
+      if (job.linked) {
+        try { fs.rmSync(canonical, { force: true }); } catch { /* best effort */ }
+        // ⚠️ AND THE FIELD GOES WITH IT. `linked` is documented as "the found
+        // path a link points at", so leaving it set after the teardown serves
+        // a screen a link that no longer exists -- this module's own
+        // asserting-a-state-nobody-is-producing shape.
+        job.linked = null;
+      }
       fail(String((err && err.message) || err).trim() || 'the install failed');
     }
   })();
