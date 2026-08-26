@@ -49,8 +49,16 @@ const { execFile } = require('child_process');
 const HOME = os.homedir();
 
 /**
- * The pinned artifacts, one per provider this machinery knows how to
- * install. npm's registry publishes a sha512 integrity for every tarball
+ * The artifacts, one per provider this machinery knows about.
+ *
+ * ⚠️ NOT ALL OF THEM ARE PINNED, and this heading used to say they were.
+ * The tarball kind (openai) has a frozen url + integrity, and everything
+ * below about npm integrity describes it. The vendor-external kind (claude)
+ * has NEITHER: its version and checksum are the vendor's, discovered at run
+ * time, and on this branch it is not downloaded at all. Read the per-entry
+ * comments for which is which rather than this heading.
+ *
+ * On the tarball kind: npm's registry publishes a sha512 integrity for every tarball
  * it serves, which makes it the one codex channel with a VENDOR-published
  * checksum (the GitHub release assets for darwin carry none) -- so the
  * npm platform tarball is the source, fetched directly with no npm client
@@ -334,7 +342,9 @@ function status() {
       // added" -- while the sibling honest-absence field, downloadBytes,
       // already travels as null. Two absences, one spelling.
       pinnedVersion: m.version || null,
-      downloadBytes: m.downloadBytes,
+      // `?? null` for the same reason pinnedVersion has it: the next kind
+      // that omits the key would otherwise drop the field off the wire.
+      downloadBytes: m.downloadBytes ?? null,
       present: r.present,
       bin: r.bin,
       managed: r.managed,
@@ -441,7 +451,19 @@ function install(provider, opts) {
   // hit ("constructor") must be the SAME refusal as any unknown name.
   // opts.manifest is the fixture seam (the shipped MANIFEST is frozen).
   const m = o.manifest || (Object.hasOwn(MANIFEST, provider) ? MANIFEST[provider] : null);
-  if (!m) return { phase: 'failed', because: `we do not know how to install a runner for ${provider}` };
+  /**
+   * A refusal that happens BEFORE any job starts, in the shape a job has.
+   *
+   * ⚠️ THESE CROSS THE WIRE. `server.js` answers `{ job }` for both the
+   * refusal arms below and a real job, so a screen polling `job.receivedBytes`
+   * used to get `undefined` from a refusal and `null` from a job -- two
+   * spellings for one absence, which is the thing this module's job-shape
+   * docblock exists to prevent, on the one path a person actually sees. Found
+   * by the route test, which asserted null and got undefined.
+   */
+  const refuse = (because) => ({ phase: 'failed', because, receivedBytes: null, totalBytes: null });
+
+  if (!m) return refuse(`we do not know how to install a runner for ${provider}`);
   // Join a LIVE job before consulting presence: during `proving` the
   // symlink already exists, and answering a synthetic `installed` for a
   // binary whose prove may still fail would briefly report a runner that
@@ -455,7 +477,7 @@ function install(provider, opts) {
   // otherwise download forever (status would never see it as present).
   // Loud refusal here is what keeps that trap from shipping silently.
   if (!existing.bin) {
-    return { phase: 'failed', because: `the ${provider} runner has a manifest entry but no resolution rule yet, so an install could never be seen; teach resolveBin about it first` };
+    return refuse(`the ${provider} runner has a manifest entry but no resolution rule yet, so an install could never be seen; teach resolveBin about it first`);
   }
   if (existing.present) {
     // A completed job for THIS binary carries the truthful receipt
@@ -479,7 +501,9 @@ function install(provider, opts) {
     // RUNNABLE now, so this arm is also reached by a real file with no exec
     // bit and by a directory. Telling an operator the file is missing sends
     // them looking for the wrong problem.
-    return { phase: 'failed', because: `an operator override points the ${provider} runner at ${existing.bin}, which is not something we can run; unset the override (or point it at a real runner) before installing` };
+    const envName = provider === 'claude' ? 'AGENT_WORKFORCE_CLAUDE_BIN' : 'AGENT_WORKFORCE_CODEX_BIN';
+    // Names the variable: a person cannot unset an override we will not name.
+    return refuse(`${envName} points the ${provider} runner at ${existing.bin}, which is not something we can run; unset it (or point it at a real runner) before installing`);
   }
   // Wrong hardware fails in seconds with the CAUSE, not in minutes at
   // the prove step with a symptom: the pinned artifact is arch-specific.
@@ -487,7 +511,7 @@ function install(provider, opts) {
   // its own per-platform artifact, so the guard naturally passes.)
   const arch = o.arch || process.arch;
   if (m.arch && arch !== m.arch) {
-    return { phase: 'failed', because: `the pinned ${m.name} build is ${m.arch} and this Mac is ${arch}; no download was attempted` };
+    return refuse(`the pinned ${m.name} build is ${m.arch} and this Mac is ${arch}; no download was attempted`);
   }
 
   if (m.kind === 'vendor-external') return installVendor(provider, m, o, existing);
@@ -757,7 +781,7 @@ function installVendor(provider, m, o, existing) {
    * else that exists is refused BY NAME, with the path, so a person can see
    * what is in the way instead of reading an errno.
    */
-  const clearForLink = () => {
+  const clearForLink = (elsewhere) => {
     let st;
     try { st = fs.lstatSync(canonical); } catch { return null; } // nothing there: nothing to clear
     // ⚠️ "REPLACEABLE", NOT "OURS". connect.js's vendor install writes a
@@ -766,13 +790,18 @@ function installVendor(provider, m, o, existing) {
     // -- it is a pointer, not content -- but the comment must not claim a
     // certainty the code cannot have.
     if (st.isSymbolicLink()) {
-      try { fs.unlinkSync(canonical); return null; } catch (err) {
-        return `something is already at ${canonical} and it could not be replaced: ${String((err && err.message) || err).trim()}`;
+      // ⚠️ NO ERRNO, AND THE FINDING SURVIVES THE FAILURE. Its two siblings
+      // below are deliberately errno-free and each has a test asserting so;
+      // this arm was not, and returned `EACCES: permission denied, unlink
+      // '/...'` to a person. It also said nothing about where Claude WAS
+      // found, so the useful half of the answer was lost with the failure.
+      try { fs.unlinkSync(canonical); return null; } catch {
+        return `we found ${m.name} at ${elsewhere}, but a link at ${canonical} is in the way and could not be replaced; check that folder's permissions`;
       }
     }
     return st.isDirectory()
-      ? `${canonical} is a folder, not a runner, so nothing was changed; move it aside and try again`
-      : `${canonical} already exists and is not something we put there, so nothing was changed; move it aside and try again`;
+      ? `we found ${m.name} at ${elsewhere}, but ${canonical} is a folder rather than a runner, so nothing was changed; move it aside and try again`
+      : `we found ${m.name} at ${elsewhere}, but ${canonical} already exists and is not something we put there, so nothing was changed; move it aside and try again`;
   };
 
   const run = (async () => {
@@ -813,7 +842,7 @@ function installVendor(provider, m, o, existing) {
           fail(`we found ${m.name} at ${elsewhere} but could not create ${path.dirname(canonical)} to link it into; check that folder's permissions`);
           return;
         }
-        const blocked = clearForLink();
+        const blocked = clearForLink(elsewhere);
         if (blocked) { fail(blocked); return; }
         try {
           fs.symlinkSync(elsewhere, canonical);
@@ -865,7 +894,14 @@ function installVendor(provider, m, o, existing) {
          * provider ruling exists to prevent is a dead end that does not
          * explain itself.
          */
-        fail(`We could not find ${m.name} on this Mac. Kosmos can use a copy that is already installed, but it cannot download one yet. Install ${m.name} yourself and Kosmos will find it.`);
+        /* ⚠️ THE SENTENCE MUST NOT LIE ABOUT THE PRODUCT. An earlier version
+           said "Kosmos ... cannot download one yet", which is true of THIS
+           code path and false of Kosmos: engine/connect.js's sign-in flow
+           downloads Claude Code from the vendor, verifies its published
+           SHA256 and runs its installer, whenever the binary is absent. The
+           reader's subject is the product, not the module -- and the old
+           wording also handed them the worse of the two remedies. */
+        fail(`We could not find ${m.name} on this Mac. Connecting a Claude account will download and set it up for you; this particular step can only use a copy that is already here.`);
         return;
       }
       job.phase = 'proving';
