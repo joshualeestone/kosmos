@@ -116,9 +116,11 @@ function managedRoot() {
  *   3. the legacy Homebrew path, for the Macs that hand-installed codex
  *      before this machinery existed
  *
- * Returns { bin, present, managed }: `bin` is the FIRST EXISTING path, or
- * the managed path when nothing exists anywhere (so callers always get
- * the place an install would land, never '').
+ * Returns { bin, present, managed }. With the override set, `bin` is the
+ * override and `present` is whether it exists. Otherwise `bin` is the
+ * first existing of managed-then-legacy, or the managed path when nothing
+ * exists anywhere (so callers always get the place an install would land,
+ * never '').
  */
 function resolveBin(provider, opts) {
   if (provider !== 'openai') return { bin: null, present: false, managed: false };
@@ -196,6 +198,13 @@ function fileIntegrity(file) {
 function download(url, file, job, redirectsLeft) {
   const left = redirectsLeft === undefined ? 5 : redirectsLeft;
   return new Promise((resolve, reject) => {
+    // Hoisted so EVERY failure path can close it: a rejected promise that
+    // strands an open write stream leaks one fd per failed download.
+    let out = null;
+    const bail = (err) => {
+      if (out) { try { out.destroy(); } catch { /* already closed */ } }
+      reject(err);
+    };
     const req = https.get(url, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && left > 0) {
         res.resume();
@@ -204,17 +213,17 @@ function download(url, file, job, redirectsLeft) {
       }
       if (res.statusCode !== 200) {
         res.resume();
-        reject(new Error(`the download answered ${res.statusCode}`));
+        bail(new Error(`the download answered ${res.statusCode}`));
         return;
       }
       const total = Number(res.headers['content-length']) || null;
       if (total) job.totalBytes = total;
-      const out = fs.createWriteStream(file);
+      out = fs.createWriteStream(file);
       res.on('data', (chunk) => { job.receivedBytes += chunk.length; });
       res.pipe(out);
       out.on('finish', () => out.close(() => resolve()));
-      res.on('error', reject);
-      out.on('error', reject);
+      res.on('error', bail);
+      out.on('error', bail);
     });
     // A wedged connection must FAIL the job, not park it in `downloading`
     // forever -- the idempotent join hands the same job back to every
@@ -222,7 +231,7 @@ function download(url, file, job, redirectsLeft) {
     // restart. 60s of socket SILENCE (not total time; a slow link that is
     // still moving bytes never trips this).
     req.setTimeout(60000, () => req.destroy(new Error('the download stalled (no data for 60s)')));
-    req.on('error', reject);
+    req.on('error', bail);
   });
 }
 
@@ -238,9 +247,10 @@ function download(url, file, job, redirectsLeft) {
  * restart mid-download can strand at most one partial file for exactly
  * one attempt.
  *
- * `opts` is the test seam: { url, integrity, binInArchive, prove } narrow
- * the manifest for a fixture server, and prove(bin) replaces the real
- * --version child. Production callers pass nothing.
+ * `opts` is the test seam: { url, integrity, binInPackage, download,
+ * legacyBin, prove } narrow the manifest and machinery for fixtures, and
+ * prove(bin) replaces the real --version child. Production callers pass
+ * nothing.
  */
 function install(provider, opts) {
   // hasOwn, not truthiness: with a URL-supplied provider, a prototype-chain
@@ -248,10 +258,29 @@ function install(provider, opts) {
   const m = Object.hasOwn(MANIFEST, provider) ? MANIFEST[provider] : null;
   if (!m) return { phase: 'failed', because: `we do not know how to install a runner for ${provider}` };
   const o = opts || {};
-  const existing = resolveBin(provider, o);
-  if (existing.present) return { phase: 'installed', version: m.version, receivedBytes: 0, totalBytes: 0 };
+  // Join a LIVE job before consulting presence: during `proving` the
+  // symlink already exists, and answering a synthetic `installed` for a
+  // binary whose prove may still fail would briefly report a runner that
+  // was never proven. The running job IS the truth of that moment.
   if (jobs[provider] && jobs[provider].phase !== 'failed' && jobs[provider].phase !== 'installed') {
     return jobs[provider];
+  }
+  const existing = resolveBin(provider, o);
+  // The manifest and the resolver must AGREE before any bytes move: a
+  // future manifest entry whose provider resolveBin cannot answer would
+  // otherwise download forever (status would never see it as present).
+  // Loud refusal here is what keeps that trap from shipping silently.
+  if (!existing.bin) {
+    return { phase: 'failed', because: `the ${provider} runner has a manifest entry but no resolution rule yet, so an install could never be seen; teach resolveBin about it first` };
+  }
+  if (existing.present) return { phase: 'installed', version: m.version, receivedBytes: 0, totalBytes: 0 };
+  // An authoritative env override naming a MISSING path would mask the
+  // managed location this install stages into: the job would end
+  // `installed` while every status read still answers absent, an
+  // unwinnable loop that re-downloads on each Confirm. Refuse with the
+  // fix in hand instead.
+  if (process.env.AGENT_WORKFORCE_CODEX_BIN && provider === 'openai') {
+    return { phase: 'failed', because: `AGENT_WORKFORCE_CODEX_BIN is set to ${process.env.AGENT_WORKFORCE_CODEX_BIN}, which does not exist; unset it (or point it at a real runner) before installing` };
   }
 
   const url = o.url || m.url;

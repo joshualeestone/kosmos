@@ -2579,7 +2579,7 @@ const server = http.createServer((req, res) => {
         const resolved = runners.resolveBin('openai');
         if (!resolved.present) {
           sendJson(res, 400, {
-            error: 'we could not find the OpenAI runner on this computer, so there is nothing to sign in to',
+            error: openaiAccounts.MISSING_RUNNER_SENTENCE,
             needsRunner: true,
             provider: 'openai',
           });

@@ -17,6 +17,8 @@ process.env.AGENT_WORKFORCE_RUNNERS_DIR = nodePath.join(SANDBOX, 'runners');
 delete process.env.AGENT_WORKFORCE_CODEX_BIN;
 const runners = require('./runners');
 
+test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+
 const LEGACY = nodePath.join(SANDBOX, 'legacy', 'codex'); // does not exist unless a test makes it
 const MANAGED = nodePath.join(SANDBOX, 'runners', 'openai', 'codex');
 
@@ -199,6 +201,67 @@ test('#979: a second install request joins the running job instead of starting a
   });
   assert.equal(second, first, 'one job per provider while it runs');
   releaseFirst();
+  await first.settled;
+  assert.equal(first.phase, 'installed', first.because || '');
+  fs.rmSync(MANAGED, { force: true });
+});
+
+test('#979: a truncated-but-clean download fails as truncation with byte counts, not as a tamper accusation', async () => {
+  const job = runners.install('openai', {
+    legacyBin: LEGACY,
+    download: (url, file, j) => { j.totalBytes = 1000; j.receivedBytes = 400; fs.writeFileSync(file, 'short'); return Promise.resolve(); },
+    prove: () => { throw new Error('prove must never run on a truncated download'); },
+  });
+  await job.settled;
+  assert.equal(job.phase, 'failed');
+  assert.match(job.because, /ended early \(400 of 1000 bytes\)/);
+  assert.doesNotMatch(job.because, /checksum/, 'a network fact must not be named as a tamper fact');
+});
+
+test('#979: an env override naming a missing path refuses install instead of staging bytes the resolver will never answer', () => {
+  process.env.AGENT_WORKFORCE_CODEX_BIN = nodePath.join(SANDBOX, 'env', 'gone-codex');
+  try {
+    const job = runners.install('openai', {
+      legacyBin: LEGACY,
+      download: () => { throw new Error('no bytes may move behind a masking override'); },
+    });
+    assert.equal(job.phase, 'failed');
+    assert.match(job.because, /AGENT_WORKFORCE_CODEX_BIN is set to .*gone-codex/);
+  } finally {
+    delete process.env.AGENT_WORKFORCE_CODEX_BIN;
+  }
+});
+
+test('#979: a manifest entry the resolver cannot answer is refused loudly, never downloaded invisibly', () => {
+  runners.MANIFEST.gemini = { name: 'Gemini runner', version: '0.0.1', url: 'https://example.invalid/x.tgz', integrity: 'sha512-x', binInPackage: 'x', binName: 'gemini', downloadBytes: null };
+  try {
+    const job = runners.install('gemini', {
+      download: () => { throw new Error('no bytes may move for an unresolvable provider'); },
+    });
+    assert.equal(job.phase, 'failed');
+    assert.match(job.because, /no resolution rule yet/);
+  } finally {
+    delete runners.MANIFEST.gemini;
+  }
+});
+
+test('#979: a Confirm during the proving window joins the live job, never a synthetic installed', async () => {
+  let releaseProve;
+  const gate = new Promise((resolve) => { releaseProve = resolve; });
+  const { tgz, integrity } = fixtureTarball('package/vendor/aarch64-apple-darwin/bin/codex', '#!/bin/sh\nexit 0\n');
+  const first = runners.install('openai', {
+    legacyBin: LEGACY,
+    download: downloadFrom(tgz),
+    integrity,
+    prove: (bin, done) => { gate.then(() => done(null, 'ok')); },
+  });
+  // Wait until the symlink exists and the job is mid-prove: the exact
+  // window where presence would lie.
+  while (first.phase !== 'proving') { await new Promise((r) => setTimeout(r, 5)); }
+  assert.ok(fs.existsSync(MANAGED), 'the window is real: the symlink is up while prove is pending');
+  const second = runners.install('openai', { legacyBin: LEGACY });
+  assert.equal(second, first, 'mid-prove presence must not mint a synthetic installed');
+  releaseProve();
   await first.settled;
   assert.equal(first.phase, 'installed', first.because || '');
   fs.rmSync(MANAGED, { force: true });
