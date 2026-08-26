@@ -95,6 +95,25 @@
      flagged rather than silently taken. */
   --k-optline: #82878f;
   --gold: #d6a62e; --gold-bright: #e3b341; --gold-deep: #b88920;
+  /* ⚠️ THE EDGE OF A GOLD BUTTON, AND IT IS A CONTRAST FLOOR RATHER THAN A
+     PREFERENCE (kosmos#1044). `.uprime` painted its border the same colour as
+     its fill, and `--gold-bright` measures 1.95:1 against a white card and
+     1.85:1 against the page -- under the 3:1 WCAG SC 1.4.11 asks of anything
+     that identifies a control. The TEXT was never the problem (ink on gold is
+     9.31:1); the button itself was the thing that disappeared, on the primary
+     action of nearly every screen that decides something.
+     🛑 THE GOLD IS NOT CHANGED. It is brand, Josh picked it, and darkening a
+     fill to clear a ratio trades an identity decision for an arithmetic one.
+     The EDGE carries the floor instead.
+     📌 MEASURED ON EVERY GROUND IT SITS ON, because a colour has as many
+     ratios as it has backgrounds, and no single value clears 3:1 in both
+     themes -- which is why this is a token and not a literal:
+       #8a6614  card 5.26  page 5.00  side 4.66   (light: all clear)
+       #b88920  card 3.16  page 3.01  side 2.80   (light: side FAILS)
+       #d6a62e  dark card 6.21  dark page 7.84    (dark: clears)
+     `--gold-deep` was the obvious candidate and is the one that fails, on the
+     `--k-side` ground the consolidated rails use. */
+  --gold-edge: #8a6614;
   --k-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --font-ui: -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif;
@@ -176,6 +195,10 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    /* kosmos#1044: on a dark ground the fill is the light thing, so the edge
+       goes the other way. `--gold` measures 6.21:1 on a dark card and 7.84:1
+       on the dark page; the light value (#8a6614) would be 2.65:1 there. */
+    --gold-edge: #d6a62e;
     --bg:            #1c1c1e;
     --bg-elevated:   #2c2c2e;
     --bg-sunken:     #141416;
@@ -776,7 +799,7 @@ html { scroll-padding-top: 132px; }
 /* The pack's gold ACTION colour, one home for both the toast's Install and
    the confirm's Update. Two selectors so it outweighs .btn regardless of
    declaration order. */
-button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; border-color: #e3b341; color: #14161a; }
+button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: var(--gold-bright); border-color: var(--gold-edge); color: #14161a; }
 /* ⚠️ THE FLOW'S PRIMARY, at the pack's own size (`.btn-gold`: 1.0625rem,
    .9em/1.75em padding, 10px radius). Scoped to `.big` rather than widened onto
    every `.uprime`, because this is the create flow's weight and not a change to
@@ -4712,7 +4735,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    panel whose whole job is to make an affirmative choice deliberate. Scoped here
    rather than raising .uprime globally, which would repaint buttons on screens
    nobody asked about. */
-#firstrun .fr-confirm .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-deep); }
+#firstrun .fr-confirm .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-edge); }
 #firstrun .fr-confirm .btn.uprime:hover { background: var(--gold); }
 #firstrun .fr-msg { color: var(--k-ink); }
 #firstrun .fr-youfine { color: var(--k-ink-2); }
@@ -4776,6 +4799,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
 :root[data-theme="dark"] {
+    /* kosmos#1044: on a dark ground the fill is the light thing, so the edge
+       goes the other way. `--gold` measures 6.21:1 on a dark card and 7.84:1
+       on the dark page; the light value (#8a6614) would be 2.65:1 there. */
+    --gold-edge: #d6a62e;
     --bg:            #1c1c1e;
     --bg-elevated:   #2c2c2e;
     --bg-sunken:     #141416;
