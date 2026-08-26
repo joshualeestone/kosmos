@@ -357,7 +357,7 @@ if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
   # first two is a false accusation that stops a cut; exonerating the product
   # for the third is worse.
   #
-  # So the four arms are named, and the FIRST ONE MISSING is the message. A run
+  # So each arm is named, and the FIRST ONE MISSING is the message. A run
   # that printed none of them never got going and is the only case where the
   # product is genuinely not implicated.
   _fp_missing=""
@@ -368,11 +368,19 @@ if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
     esac
   done
   if [ -n "$_fp_missing" ]; then
+    # ⚠️ TIMED OUT IS TESTED FIRST, AND THE ORDER IS THE WHOLE POINT. The hatch
+    # prints `uiDelegate:...` as its first statement, before any async work, so
+    # EVERY run that can reach its own watchdog has already printed it. With the
+    # product arm first, a genuine hang matched `*"uiDelegate:"*` and was
+    # reported as "the file picker is broken" -- the one shape the comment above
+    # says must not be blamed on the + button was the shape that got blamed.
+    # A dead branch that reads as a live guard is worse than no branch.
+    # tools.filepanel-gate.test.js fails if this order is put back.
     case "$_fp_out" in
+      *"TIMED OUT"*)
+        echo "the #1032 file-picker gate hung and killed itself (exit $_fp_rc). Something in the gate stopped answering; the product is NOT implicated by this." >&2 ;;
       *"press:"*|*"uiDelegate:"*)
         printf '%s\n' "the native app's file picker is broken (#1032). The gate got as far as it could and then this did not hold:" "    $_fp_missing" "A + button will do nothing, or Cancel will take the app down with it. Output above; exit $_fp_rc." >&2 ;;
-      *"TIMED OUT"*)
-        echo "the #1032 file-picker gate hung (exit $_fp_rc). The hatch flag may have drifted and fallen through to app.run(); the product is NOT implicated." >&2 ;;
       *)
         echo "the #1032 file-picker gate never ran (exit $_fp_rc) and printed none of its arms. Its output is above; the product is NOT implicated." >&2 ;;
     esac

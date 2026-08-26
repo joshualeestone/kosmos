@@ -591,11 +591,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// nil in every shipped run, which is the only state a person ever sees.
     static var openPanelPresenter: ((WKOpenPanelParameters, @escaping ([URL]?) -> Void) -> Void)?
 
+    /// One open panel at a time, because a second one is not queued -- it is
+    /// dropped, and a dropped request is a crash.
+    private var openPanelOutstanding = false
+
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
                  initiatedByFrame frame: WKFrameInfo,
                  completionHandler: @escaping ([URL]?) -> Void) {
+        /* 🛑 A RE-ENTRANT REQUEST IS ANSWERED IMMEDIATELY, NOT IGNORED.
+           MEASURED on macOS 26: a second `beginSheetModal(for:)` on a window
+           that already has a sheet is SILENTLY DROPPED. The panel never becomes
+           a sheet, it is not queued, and its completion handler is never
+           called -- which, by the rule two comments down, TERMINATES THE APP.
+           Refusing the second request with nil costs the person nothing (the
+           first panel is still up and still theirs) and removes the whole
+           class. Narrow today, because clicking a second + through a sheet is
+           hard; free to close. */
+        if openPanelOutstanding {
+            completionHandler(nil)
+            return
+        }
+        openPanelOutstanding = true
         if let present = AppDelegate.openPanelPresenter {
-            present(parameters, completionHandler)
+            present(parameters) { [weak self] urls in
+                self?.openPanelOutstanding = false
+                completionHandler(urls)
+            }
             return
         }
         let panel = NSOpenPanel()
@@ -619,7 +640,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            the next press; that was a guess and it was wrong in the direction
            that matters. */
         let host = webView.window
-        let answer: (NSApplication.ModalResponse) -> Void = { resp in
+        let answer: (NSApplication.ModalResponse) -> Void = { [weak self] resp in
+            self?.openPanelOutstanding = false
             completionHandler(resp == .OK ? panel.urls : nil)
         }
         if let host {
@@ -1285,7 +1307,20 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
         web.evaluateJavaScript("document.getElementById('b\(k)').click()") { _, _ in }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: then)
     }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+    /* ⚠️ WAIT FOR THE PAGE, DO NOT GUESS AT IT. A fixed sleep here is a race
+       the gate loses by ACCUSING A GOOD BINARY: measured, at 0.05s an
+       otherwise-unmodified build prints asked-for-panel:no and the shell
+       renders that as "the + button will do nothing". This gate runs mid-build,
+       after a Node download and a codesign, on whatever the box is doing. So
+       it polls for the button the presses need and only then starts. */
+    func whenReady(_ go: @escaping () -> Void, tries: Int = 60) {
+        web.evaluateJavaScript("!!document.getElementById('bvisible')") { r, _ in
+            if (r as? Bool) == true { go(); return }
+            guard tries > 0 else { print("filepanel selftest: the probe page never loaded"); exit(1) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenReady(go, tries: tries - 1) }
+        }
+    }
+    whenReady {
         press("hidden") {
             press("visible") {
                 print("press:hidden-input\tasked-for-panel:\(fired["hidden"]! ? "yes" : "no")")
@@ -1301,7 +1336,10 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
                 current = "real"
                 web.evaluateJavaScript("document.getElementById('bvisible').click()") { _, _ in }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    let panel = NSApp.windows.first { $0 is NSOpenPanel }
+                    /* `isVisible`, not merely present in NSApp.windows: the
+                       line is called panel-on-screen and it should mean it. A
+                       panel constructed and never presented IS in that array. */
+                    let panel = NSApp.windows.first { $0 is NSOpenPanel && $0.isVisible }
                     print("press:real-presenter\tpanel-on-screen:\((panel != nil) ? "yes" : "no")")
                     guard let p = panel as? NSOpenPanel else { exit(1) }
                     // Dismiss it, or the build hangs behind a dialog.
@@ -1338,6 +1376,14 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
         exit(1)
     }
     withExtendedLifetime(d) { app.run() }
+    /* 🛑 EVERY OTHER HATCH IN THIS FILE ENDS IN exit(). Without this, a run
+       loop that ever returns falls straight through into the real app below --
+       launched .accessory, and with `openPanelPresenter` still pointing at the
+       stub that answers nil, which is this bug reproduced silently by the code
+       that fixes it. I could not make app.run() return here, so this is latent
+       rather than live; it is one line and the blast radius is the whole
+       product. */
+    exit(1)
 }
 
 let app = NSApplication.shared

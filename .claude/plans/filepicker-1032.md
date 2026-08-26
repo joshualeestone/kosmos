@@ -56,11 +56,24 @@ row permanently so the next reader who reaches for it is answered by a measureme
    so a webView can never again be built with one wired and the other forgotten.
 3. `AppDelegate.openPanelPresenter`, a nil-in-production seam so the gate can prove
    the delegate fires without a modal panel on a build machine.
-4. `--kosmos-app-filepanel-selftest`, builds a real webView via the shipped
-   constructor, loads a page, presses a hidden input and a visible one, then presses
-   once more **with the real presenter restored** and checks an `NSOpenPanel` is on
-   screen. Window offscreen so a release cut does not flash a window.
-5. `tools/build-kosmos-bundle.sh` runs it beside the menu gate.
+4. `--kosmos-app-filepanel-selftest`, **five arms, not three**: `uiDelegate:set`;
+   a press on a `hidden` input; a press on a visible one; a press **with the real
+   presenter restored** requiring a *visible* `NSOpenPanel`; and **a press AFTER
+   that panel is cancelled**, which is the one that proves the completion handler
+   was answered. Waits for the probe page rather than sleeping at it, because a
+   fixed delay on a busy build box accuses a good binary. Window offscreen so a
+   release cut does not flash one, and the hatch `exit()`s like its four siblings
+   rather than falling through into the real app.
+5. A re-entrancy guard on `runOpenPanelWith`. A second request while a panel is
+   up is answered `nil` immediately: measured on macOS 26, a second
+   `beginSheetModal` on a window that already has a sheet is silently dropped and
+   its handler is never called, and an unanswered handler terminates the app.
+6. `tools.filepanel-gate.test.js` tests the bundle gate's verdict logic against
+   the real output shapes. It exists because the first version tested the product
+   arm before the timeout arm, and the hatch prints `uiDelegate:` first, so a
+   genuine hang was reported as "the + button will do nothing". A dead branch that
+   reads as a live guard is worse than no branch.
+7. `tools/build-kosmos-bundle.sh` runs it beside the menu gate.
 
 ## Out of scope
 
