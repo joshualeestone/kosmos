@@ -287,8 +287,25 @@ function installedCheck(opts) {
    * agent at all. The two are not symmetrical and this list is where that is
    * recorded.
    */
-  const parts = [['tmux', tmuxBin]];
-  const informational = [['Claude Code', claudeBin]];
+  const { codexBin } = create.binPaths(opts);
+  const parts = [['tmux', 'tmux', tmuxBin, true]];
+  /**
+   * ⚠️ BOTH RUNNERS, and the keys are STABLE IDENTIFIERS rather than the
+   * display labels. Two reasons, both learned the hard way in this file:
+   *
+   *   - #979 was filed because Josh picked OPENAI on a fresh Mac and nothing
+   *     happened, so a presence map that answers for Claude and not codex
+   *     omits the runner the card is about.
+   *   - the labels are the same strings the row's sentences are built from,
+   *     so a copy edit would silently rename a JSON key. The consumer then
+   *     reads `undefined`, which is falsy, which reads as ABSENT -- collapsing
+   *     the null-vs-false distinction the rest of this function exists to
+   *     protect. `label` stays for the sentences; `key` is the contract.
+   */
+  const informational = [
+    ['claude', 'Claude Code', claudeBin, false],
+    ['codex', 'Codex', codexBin, false],
+  ];
 
   const missing = [];
   const unreadable = [];
@@ -298,10 +315,7 @@ function installedCheck(opts) {
      twice would be two definitions of "installed", which is the mistake this
      function's own header warns about. */
   const present = Object.create(null);
-  for (const [label, bin, required] of [
-    ...parts.map(([l, b]) => [l, b, true]),
-    ...informational.map(([l, b]) => [l, b, false]),
-  ]) {
+  for (const [key, label, bin, required] of [...parts, ...informational]) {
     /**
      * ⚠️ `statSync`, NOT `existsSync`, AND THE DIFFERENCE IS THE WHOLE POINT OF
      * THE CATCH.
@@ -332,7 +346,7 @@ function installedCheck(opts) {
      * the screen says it is not, and the actual cause -- a quote or a newline in
      * the path -- is never named anywhere.
      */
-    if (create.unusablePath(bin)) { present[label] = null; if (required) unusable.push({ label, bin }); continue; }
+    if (create.unusablePath(bin)) { present[key] = null; if (required) unusable.push({ label, bin }); continue; }
 
     /**
      * ⚠️ TWO PROBES, BECAUSE `EACCES` MEANS TWO DIFFERENT THINGS HERE and
@@ -352,20 +366,24 @@ function installedCheck(opts) {
     try {
       st = fs.statSync(bin);
     } catch (err) {
-      if (err && err.code === 'ENOENT') { present[label] = false; if (required) missing.push({ label, bin }); continue; }
+      if (err && err.code === 'ENOENT') { present[key] = false; if (required) missing.push({ label, bin }); continue; }
       /**
        * ⚠️ RECORDED, NOT RETURNED. Returning here threw away whatever the OTHER
        * probe had already established: with Claude genuinely absent and tmux
        * unreadable, the whole check came back "We could not check what is
        * installed", naming only tmux — and `attention` dropped to zero, so the
        * screen said nothing needed doing while Claude was definitively missing.
+       * 📌 That pairing can no longer be built (#979 left one required
+       * part), so the illustration is history rather than a live case. The
+       * decision it justifies, continue rather than return, is unchanged and
+       * is what a second required part would rely on.
        *
        * That is the identical defect `sleepCheck` above documents fixing, in
        * its sibling function, written the same afternoon. Half the answer was
        * read and none of it was reported.
        */
       // `null`, not false: we could not look, which is not the same as absent.
-      present[label] = null;
+      present[key] = null;
       if (required) unreadable.push({ label, bin, because: String((err && err.message) || err) });
       continue;
     }
@@ -378,14 +396,14 @@ function installedCheck(opts) {
      * will work. launchd would then start the job and it would fail silently,
      * which is the worst available outcome: nothing on screen, nothing running.
      */
-    if (!st.isFile()) { present[label] = false; if (required) missing.push({ label, bin }); continue; }
+    if (!st.isFile()) { present[key] = false; if (required) missing.push({ label, bin }); continue; }
     try {
       fs.accessSync(bin, fs.constants.X_OK);
-      present[label] = true;
+      present[key] = true;
     } catch {
       // Present means RUNNABLE here too: a file with no execute bit is not
       // something Connect can skip installing.
-      present[label] = false;
+      present[key] = false;
       if (required) missing.push({ label, bin });
     }
   }
@@ -411,6 +429,12 @@ function installedCheck(opts) {
    * "/opt/home'brew/bin/tmux"})` reported ONLY the quoted tmux path and never
    * mentioned that Claude Code was absent. Measured. Reachable in real life by
    * a home directory with an apostrophe in it.
+   *
+   * ⚠️ DO NOT RUN THAT REPRO AND CONCLUDE THE FIX REGRESSED (#979). That
+   * exact call now produces that exact output, and it is CORRECT: Claude
+   * Code is no longer a required part, so not naming it is the point rather
+   * than the bug. The example is kept because the reasoning it justifies,
+   * collect every bucket and return once, is unchanged.
    *
    * `sleepCheck` above documents fixing this same shape twice. The lesson that
    * did not travel is that the fix has to be structural: assemble the sentence

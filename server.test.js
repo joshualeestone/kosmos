@@ -4720,6 +4720,25 @@ test('the machine route always answers, with renderable checks and never an erro
   // forever and no test anywhere would notice.
   assert.equal(got.appLocation && got.appLocation.key, 'app-location',
     'the /api/machine response must carry the appLocation field beside the rows');
+
+  /* ⚠️ THE SAME WIRE PIN, FOR `present` (#979). The engine tests exercise
+     installedCheck() directly, so without this line a route or a serializer
+     that dropped the map would leave the Connect step unable to tell whether
+     pressing Connect downloads anything, and nothing anywhere would fail.
+     Keys are asserted as STABLE IDS, not display labels: the labels are the
+     same strings the row's sentences are built from, so a copy edit must not
+     be able to rename a JSON key. */
+  const installed = got.checks.find((c) => c.key === 'installed');
+  assert.ok(installed, 'the installed row vanished from the machine route');
+  assert.ok(installed.present && typeof installed.present === 'object',
+    'the installed row must carry a present map for the Connect step to read');
+  for (const k of ['tmux', 'claude', 'codex']) {
+    assert.ok(k in installed.present, `present must answer for ${k}`);
+    assert.ok(installed.present[k] === true || installed.present[k] === false || installed.present[k] === null,
+      `present.${k} must be true, false, or null for could-not-look, got ${installed.present[k]}`);
+  }
+  assert.equal('Claude Code' in installed.present, false,
+    'present is keyed on display labels again, so a copy edit renames a wire field');
 });
 
 test('leaving the return step really retires its pane (the bumps exist in production code)', () => {
