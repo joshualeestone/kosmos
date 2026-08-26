@@ -431,80 +431,43 @@ const withClaudeHome = async (fn) => {
   }
 };
 
-test('#979: the vendor-verified happy path walks downloading, installing, proving, installed, with REAL byte counts', async () => {
-  await withClaudeHome(async () => {
-    const downloaded = nodePath.join(SANDBOX, 'vendor', 'claude-binary');
-    put(downloaded);
-    /* The fetch is held open deliberately. A seam that resolves immediately
-       would let every assertion run against the TERMINAL state, and a job
-       that never published an intermediate phase would pass it -- the screen
-       would have nothing to bind a progress bar to and the test would not
-       notice. Holding it open is what makes 'downloading' observable. */
-    let release;
-    let progress;
-    const fetchStarted = new Promise((r) => { progress = r; });
-    const held = new Promise((r) => { release = r; });
-    const job = runners.install('claude', {
-      findElsewhere: () => null,
-      fetchVendor: (onProgress) => { progress(onProgress); return held; },
-      runVendorInstall: (binary, done) => {
-        assert.equal(binary, downloaded, 'the verified binary is what gets run, not a fetched script');
-        put(CANONICAL, '#!/bin/sh\necho claude 9.9\n');
-        done(null);
-      },
-      prove: (bin, done) => done(null, 'claude 9.9\n'),
-    });
-    const onProgress = await fetchStarted;
-    assert.equal(job.phase, 'downloading', 'the job is observably downloading while the fetch is in flight');
-    onProgress(50, 200);
-    assert.deepEqual([job.receivedBytes, job.totalBytes], [50, 200],
-      'progress reaches the job as it happens, not only at the end');
-    onProgress(200, 200);
-    release({ path: downloaded, version: '2.1.229' });
-    await job.settled;
-    assert.equal(job.phase, 'installed', job.because || '');
-    assert.equal(job.proved, 'claude 9.9');
-    assert.equal(job.version, '2.1.229', 'the discovered version rides in the job');
-    assert.equal(job.receivedBytes, 200);
-    assert.equal(job.totalBytes, 200);
-  });
-});
-
-test('#979: a failed vendor download is a JOB ANSWER, never a death, and prove never runs', async () => {
+test('#979: with no claude anywhere, the install REFUSES in words and never claims installed', async () => {
   await withClaudeHome(async () => {
     const job = runners.install('claude', {
       findElsewhere: () => null,
-      fetchVendor: async () => { throw new Error('the downloaded file did not match its checksum, so it was not kept'); },
-      runVendorInstall: () => { throw new Error('install must never run after a failed download'); },
-      prove: () => { throw new Error('prove must never run after a failed download'); },
+      prove: () => { throw new Error('prove must never run when nothing was installed'); },
     });
     await job.settled;
     assert.equal(job.phase, 'failed');
-    assert.match(job.because, /did not match its checksum/,
-      "connect.js's refusal reaches the person verbatim rather than being reworded into a generic failure");
+    // The refusal has to be usable by a person, not just non-crashing: it
+    // says what Kosmos can do and what they can do. A dead end that does
+    // not explain itself is the thing the provider ruling exists to kill.
+    assert.match(job.because, /can only use one that is already here/);
+    assert.match(job.because, /install Claude Code yourself/);
+    assert.equal(job.receivedBytes, null, 'nothing was downloaded, so no count is invented');
   });
 });
 
-test('#979: an installer that finishes but lands nothing RUNNABLE is failed naming the canonical path', async () => {
+test('#979: the refusal path spawns NOTHING -- no fetch, no child, no shell', async () => {
+  /* The guard against #996 being half-reintroduced by accident. Two earlier
+     versions of this branch reached the network here: one curl|sh, one a
+     borrowed download that shared a directory with the sign-in flow. If a
+     future edit puts either back without the shared-install work, this test
+     is what fails. It stubs the module registry entries a download would
+     have to come through, and asserts they are never touched. */
   await withClaudeHome(async () => {
-    const downloaded = nodePath.join(SANDBOX, 'vendor', 'claude-binary');
-    put(downloaded);
-    const job = runners.install('claude', {
-      findElsewhere: () => null,
-      fetchVendor: async () => ({ path: downloaded, version: '2.1.229' }),
-      runVendorInstall: (binary, done) => {
-        // Lands a file with NO exec bit: existsSync would have passed this
-        // and failed one step later with a raw shell error.
-        fs.mkdirSync(nodePath.dirname(CANONICAL), { recursive: true });
-        fs.writeFileSync(CANONICAL, 'not executable');
-        fs.chmodSync(CANONICAL, 0o644);
-        done(null);
-      },
-      prove: () => { throw new Error('prove must never run on a non-runnable file'); },
-    });
-    await job.settled;
-    assert.equal(job.phase, 'failed');
-    assert.match(job.because, /nothing runnable landed at/);
+    const connect = require('./connect');
+    const realDownload = connect.download;
+    let touched = 0;
+    connect.download = () => { touched += 1; throw new Error('must not download on this branch'); };
+    try {
+      const job = runners.install('claude', { findElsewhere: () => null });
+      await job.settled;
+      assert.equal(job.phase, 'failed');
+      assert.equal(touched, 0, 'the refusal path must not reach connect.download()');
+    } finally {
+      connect.download = realDownload;
+    }
   });
 });
 
@@ -514,7 +477,6 @@ test('#979: a claude found elsewhere is LINKED, not downloaded, and a failed pro
   await withClaudeHome(async () => {
     const job = runners.install('claude', {
       findElsewhere: () => elsewhere,
-      fetchVendor: () => { throw new Error('a link case must not download'); },
       prove: (bin, done) => done(null, 'claude 8.8'),
     });
     await job.settled;
@@ -530,7 +492,6 @@ test('#979: a claude found elsewhere is LINKED, not downloaded, and a failed pro
     fs.rmSync(CANONICAL, { force: true });
     const bad = runners.install('claude', {
       findElsewhere: () => elsewhere,
-      fetchVendor: () => { throw new Error('a link case must not download'); },
       prove: (bin, done) => done(new Error('exec format error')),
     });
     await bad.settled;
@@ -551,7 +512,6 @@ test('#979: the link step REFUSES a canonical path it does not own, by name, ins
     fs.chmodSync(CANONICAL, 0o644); // not runnable, which is how we reach the link branch
     const job = runners.install('claude', {
       findElsewhere: () => elsewhere,
-      fetchVendor: () => { throw new Error('a link case must not download'); },
       prove: () => { throw new Error('prove must never run after a refusal'); },
     });
     await job.settled;
@@ -569,7 +529,6 @@ test('#979: a DIRECTORY at the canonical path is refused in words, not as a raw 
     fs.mkdirSync(CANONICAL, { recursive: true });
     const job = runners.install('claude', {
       findElsewhere: () => elsewhere,
-      fetchVendor: () => { throw new Error('a link case must not download'); },
       prove: () => { throw new Error('prove must never run after a refusal'); },
     });
     await job.settled;
@@ -584,12 +543,11 @@ test('#979: the arch guard does not apply to the vendor-verified kind', async ()
     const job = runners.install('claude', {
       arch: 'x64', // would refuse the tarball kind; the vendor manifest is per-platform
       findElsewhere: () => null,
-      fetchVendor: async () => { throw new Error('stop here'); },
     });
     await job.settled;
     assert.equal(job.phase, 'failed');
     assert.doesNotMatch(job.because, /arm64|x64/, 'the refusal must not be an arch refusal');
-    assert.match(job.because, /stop here/);
+    assert.match(job.because, /already on this Mac/, 'it reaches the kind\'s own refusal, not the arch guard');
   });
 });
 
@@ -636,5 +594,32 @@ test('#979: create.binPaths().claudeBin IS the resolver, so the two cannot drift
     else process.env.AGENT_WORKFORCE_HOME = prevHome;
     if (prevBin === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
     else process.env.AGENT_WORKFORCE_CLAUDE_BIN = prevBin;
+  }
+});
+
+test('#979/#133: a codex binary that is not executable BY US reads absent, on every rung', () => {
+  /* isRunnable replaced existsSync on the OpenAI rungs too, which is a live
+     behavior change on a path this branch is otherwise not about: a
+     partially-extracted managed runner, or a root-owned 0o700 codex, used to
+     read present and then fail at launch. Asserted here because the #133
+     test above only covers the claude rung, and an untested behavior change
+     is how a fix becomes a regression. */
+  const prevBin = process.env.AGENT_WORKFORCE_CODEX_BIN;
+  const spot = nodePath.join(SANDBOX, 'codexmode', 'codex');
+  try {
+    put(spot);
+    process.env.AGENT_WORKFORCE_CODEX_BIN = spot;
+    // Positive control FIRST, so "absent" below is a verdict about the mode
+    // bits rather than about a path that could never read present.
+    assert.equal(runners.resolveBin('openai').present, true, 'a runnable codex reads present');
+    fs.chmodSync(spot, 0o644);
+    assert.equal(runners.resolveBin('openai').present, false, 'a non-executable codex reads absent');
+    fs.rmSync(spot, { force: true });
+    fs.mkdirSync(spot, { recursive: true });
+    assert.equal(runners.resolveBin('openai').present, false, 'a directory at the codex path reads absent');
+  } finally {
+    if (prevBin === undefined) delete process.env.AGENT_WORKFORCE_CODEX_BIN;
+    else process.env.AGENT_WORKFORCE_CODEX_BIN = prevBin;
+    fs.rmSync(spot, { recursive: true, force: true });
   }
 });
