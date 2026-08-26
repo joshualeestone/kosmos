@@ -78,6 +78,24 @@ the verification section lists the measurements.
 - sync-forced-theme.js --check clean after any dark-section change
   (regenerate via the tool, never hand-edit).
 
+## Item 10 measured (challenge-loop iteration 7 asked for the evidence)
+
+Driven headlessly with real clicks against the sandboxed fixture board,
+twice (before iteration 1 and re-run at iteration 7, same numbers):
+
+- Agents folded: the railhead sits at the column top (top 0, height 82),
+  the + and the arrow stack INSIDE the 48px column (acts occupy 34-82
+  within column width 48), not centered mid-column and not spilling over
+  the neighbor. The letter-wrapped empty-state card is hidden.
+- Unfold: the agents railhead's top is 0 before and after (no vertical
+  jump).
+- Projects folded: the PROJECTS label is display:none, the + and the
+  arrow remain.
+
+The mid-column float and the cross-rail label blanking were real on the
+pre-#980 code (screenshotted during iteration 0 recon); the flat-column
+grid plus the scoped railname hides are what removed them.
+
 ## Recorded, not fixed (challenge-loop iteration 3)
 
 - While a pointer hovers a DIFFERENT row, the open project's row differs

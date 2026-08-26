@@ -2050,9 +2050,14 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      (--k-side-2, the .me treatment), full column width with no radius or
      float-gap, so the agents column reads as ONE column with the person
      pinned at its foot and the rule running unbroken down its edge. */
+  /* The pin is STRUCTURAL: row 41 is the body grid's last track, sized by
+     this element, under a 100vh overflow-hidden grid -- so the strip sits
+     at the viewport foot by construction. No sticky: a grid item whose
+     containing block is its own exactly-fitting row has zero sticky travel
+     (the same fact iteration 6 proved on the card heads), so a sticky here
+     would be dead code wearing a load-bearing look. */
   html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 41; display: flex; align-items: center; gap: 6px;
-    margin: 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 0; background: var(--k-side-2, #ebe8e2);
-    position: sticky; bottom: 0; z-index: 5; }
+    margin: 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 0; background: var(--k-side-2, #ebe8e2); }
   html[data-layout="consolidated"] body.consolidated .railme-go { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
   html[data-layout="consolidated"] body.consolidated .railme-face { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; overflow: hidden;
     background: var(--k-surface); border: 1px solid var(--k-rule); font: 700 10px/1 var(--font-ui); color: var(--k-ink-2); }
@@ -10897,7 +10902,7 @@ function showTab(tab) {
     // Capture the markup's own long wording once, so the tab-view restore
     // is correct by construction: an edit to the placeholder in the HTML
     // can never be silently reverted by a round-trip through this view.
-    if (!roomSearch.dataset.longPlaceholder) roomSearch.dataset.longPlaceholder = roomSearch.placeholder;
+    if (!('longPlaceholder' in roomSearch.dataset)) roomSearch.dataset.longPlaceholder = roomSearch.placeholder;
     roomSearch.placeholder = cons ? 'Search' : roomSearch.dataset.longPlaceholder;
   }
   document.getElementById('rail-agents').hidden = !cons;
@@ -21225,7 +21230,7 @@ function projectCard(p, unreadable) {
      nothing about WHICH project is on screen). The tab view ignores the
      class; openProject() also toggles it directly so selection paints on
      the click, not on the next list repaint. */
-  return '<button class="pj-row' + (pill.cls === 'attn' ? ' attn' : '') + (p.id === PJ_CURRENT ? ' open' : '') + '" type="button" data-project="' + esc(p.id) + '">'
+  return '<button class="pj-row' + (pill.cls === 'attn' ? ' attn' : '') + (p.id === PJ_CURRENT ? ' open' : '') + '"' + (p.id === PJ_CURRENT ? ' aria-current="true"' : '') + ' type="button" data-project="' + esc(p.id) + '">'
     + '<span class="pjcard-h"><span class="pjname"><b>' + esc(p.name) + '</b>'
     /* The room the person is looking at has no unread: the engine's cursor
        moves when the room paints, and the poll between could otherwise flash
@@ -23007,7 +23012,15 @@ document.getElementById('pj-docs-all').addEventListener('click', () => {
    no call: they await loadProjects(), whose repaint writes .open from the
    already-nulled PJ_CURRENT. */
 function pjMarkOpen(id) {
-  document.querySelectorAll('#pj-list .pj-row').forEach((r) => r.classList.toggle('open', r.dataset.project === id));
+  // aria-current travels with the class (iteration 7): the ring answers
+  // "which one is open" for sighted users only -- and during a hover
+  // collision it is sub-threshold, so the non-visual channel is not a
+  // nicety. Same aria-current pattern the tab bars and nav already use.
+  document.querySelectorAll('#pj-list .pj-row').forEach((r) => {
+    const on = r.dataset.project === id;
+    r.classList.toggle('open', on);
+    if (on) r.setAttribute('aria-current', 'true'); else r.removeAttribute('aria-current');
+  });
 }
 function openProject(id) {
   // ⚠️ Only opens a project we actually HAVE. `paintOneProject` bails back to

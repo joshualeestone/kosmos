@@ -38,14 +38,19 @@ test('the agents and projects rail titles sit at the same height', () => {
 });
 
 test('the person\'s own row stays on screen under a tall right column', () => {
-  // #980 rebased this from a sticky float (bottom: 8px, its own rounded
-  // box) to the viewport-height grid: rail-me is the column's own last
-  // row (grid-row 41, body rows auto/1fr/auto), pinned by structure, with
-  // sticky bottom 0 kept as the belt for any overflow inside the row.
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated > #rail-me \{[^}]*position: sticky; bottom: 0;/s,
-    'rail-me is no longer pinned at the column foot');
+  // #980 rebased this from a sticky float to a STRUCTURAL pin: rail-me is
+  // the body grid's last track (grid-row 41, rows auto/1fr/auto) under a
+  // 100vh overflow-hidden grid, so it sits at the viewport foot by
+  // construction. No sticky is pinned here on purpose -- a grid item
+  // whose containing block is its own exactly-fitting row has zero
+  // sticky travel, so a sticky would be dead code wearing a load-bearing
+  // look (the same fact that made the card-head stickies inert).
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated > #rail-me \{ grid-column: 1; grid-row: 41;/,
+    'rail-me left its last-track row, the structure that pins it at the column foot');
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \{[^}]*height: 100vh; overflow: hidden;/s,
     'the body lost its viewport-height no-page-scroll grid, the structure that pins the person\'s row');
+  assert.doesNotMatch(PAGE, /> #rail-me \{[^}]*position: sticky/s,
+    'a dead sticky is back on rail-me, claiming a job the grid structure does');
 });
 
 test('the agents rail scrolls without showing a scrollbar', () => {

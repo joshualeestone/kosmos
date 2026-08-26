@@ -20,16 +20,25 @@ test('the open project stays lit: a persistent .open state, written on click and
     'the selected-project style is gone; hover alone cannot say which project is on screen');
   assert.match(PAGE, /p\.id === PJ_CURRENT \? ' open' : ''/,
     'the painter no longer writes .open on repaints');
-  assert.match(PAGE, /querySelectorAll\('#pj-list \.pj-row'\)\.forEach\(\(r\) => r\.classList\.toggle\('open', r\.dataset\.project === id\)\)/,
-    'openProject no longer toggles .open on the click itself (selection would wait for the next repaint)');
+  assert.match(PAGE, /p\.id === PJ_CURRENT \? ' aria-current="true"' : ''/,
+    'the painter no longer writes aria-current with the class -- the ring answers sighted users only');
+  const pm = PAGE.slice(PAGE.indexOf('function pjMarkOpen(id)'), PAGE.indexOf('function pjMarkOpen(id)') + 600);
+  assert.match(pm, /classList\.toggle\('open', on\)/,
+    'pjMarkOpen no longer toggles the class');
+  assert.match(pm, /setAttribute\('aria-current', 'true'\)/,
+    'pjMarkOpen no longer toggles aria-current with the class');
+  assert.match(PAGE, /pjMarkOpen\(id\);/,
+    'openProject no longer marks selection on the click itself (it would wait for the next repaint)');
+  assert.ok((PAGE.match(/pjMarkOpen\(null\)/g) || []).length >= 4,
+    'a close path lost its pjMarkOpen(null) -- a lit row can outlive its project again');
 });
 
 test('the search placeholder follows the EFFECTIVE view, in showTab, not the saved layout', () => {
   const st = PAGE.slice(PAGE.indexOf("document.body.classList.toggle('consolidated', cons)"), PAGE.indexOf("document.body.classList.toggle('consolidated', cons)") + 1400);
   assert.match(st, /roomSearch\.placeholder = cons \? 'Search' : roomSearch\.dataset\.longPlaceholder/,
     'the placeholder swap left showTab (or the tab-view restore stopped reading the markup-captured wording, so a markup edit could be silently reverted)');
-  assert.match(st, /if \(!roomSearch\.dataset\.longPlaceholder\) roomSearch\.dataset\.longPlaceholder = roomSearch\.placeholder/,
-    'the long wording is no longer captured from the markup once at first toggle');
+  assert.match(st, /if \(!\('longPlaceholder' in roomSearch\.dataset\)\) roomSearch\.dataset\.longPlaceholder = roomSearch\.placeholder/,
+    'the long wording is no longer captured from the markup exactly once (an in-check, so even an empty captured value never re-fires the capture)');
   const al = PAGE.slice(PAGE.indexOf('function applyLayout('), PAGE.indexOf('function applyLayout(') + 1200);
   assert.doesNotMatch(al, /placeholder =/,
     'applyLayout swaps the placeholder again -- that keys on the SAVED layout and goes stale across the 960px resize');
@@ -75,6 +84,9 @@ test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able
     .replace(/(<script\b[^>]*>)[\s\S]*?(<\/script>)/g, '$1$2');
   let depth = 0, children = 0;
   const tagRe = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:"[^"]*"|'[^']*'|[^"'>])*)>/g;
+  // True HTML void elements plus, for readability, the SVG shape names this
+  // page writes self-closing (those are already handled by the trailing-/
+  // check; the depth-0 tripwire below is the actual protection either way).
   const voidTags = new Set(['img', 'input', 'br', 'hr', 'meta', 'link', 'source', 'path', 'circle', 'rect', 'use', 'stop',
     'area', 'base', 'col', 'embed', 'track', 'wbr', 'param']);
   let m2;
