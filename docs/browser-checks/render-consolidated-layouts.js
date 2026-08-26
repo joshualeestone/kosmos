@@ -52,7 +52,16 @@ const path = require('path');
      than a real click: the door out of an open project (#pj-back) is
      itself hidden in the consolidated view, so there is no real click
      that reaches this state from here. */
-  const forceNothingOpen = () => pg.evaluate(() => { PJ_CURRENT = null; pjView('list'); paintPjNone(); });
+  /* ⚠️ pjMarkOpen(null) IS PART OF REACHING THIS STATE, not decoration. #980
+     gave the rail a persistent open marker (class + aria-current), and every
+     real route out of a project clears it: #pj-back and the projects-tab
+     re-click both call pjMarkOpen(null). Resetting PJ_CURRENT alone left the
+     previously-open row still lit and still aria-current="true", so this
+     check screenshotted a "nothing is open" state with one project marked
+     open -- a combination no person can reach, pinned as if it were correct.
+     🔑 A forced state has to force EVERY write the real route performs, or
+     the check certifies a screen that does not exist. */
+  const forceNothingOpen = () => pg.evaluate(() => { PJ_CURRENT = null; pjView('list'); pjMarkOpen(null); paintPjNone(); });
 
   let seedFolder = '';
   let savedLayout = 'tabs';

@@ -16,7 +16,7 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const cons = 'html\\[data-layout="consolidated"\\] body\\.consolidated';
 
 test('the open project stays lit: a persistent .open state, written on click and on repaint', () => {
-  assert.match(PAGE, new RegExp(cons + ' \\.pj-row\\.open \\{ background: var\\(--k-surface\\); box-shadow: 0 0 0 1px var\\(--k-rule\\); \\}'),
+  assert.match(PAGE, new RegExp(cons + ' \\.pj-row\\.open \\{ background: var\\(--k-surface\\); box-shadow: inset 3px 0 0 0 var\\(--k-ink-2\\), 0 0 0 1px var\\(--k-rule\\); \\}'),
     'the selected-project style is gone; hover alone cannot say which project is on screen');
   assert.match(PAGE, /p\.id === PJ_CURRENT \? ' open' : ''/,
     'the painter no longer writes .open on repaints');
@@ -33,6 +33,85 @@ test('the open project stays lit: a persistent .open state, written on click and
     'a close path lost its pjMarkOpen(null) -- a lit row can outlive its project again');
 });
 
+/* ⚠️ COMPUTED, NOT MATCHED. A string pin on the box-shadow proves the rule is
+   still written; it cannot notice that a token edit dropped the marker back
+   under the accessibility floor, which is the failure that actually happened
+   here (the fill and ring were pinned all along and were 1.13:1 and 1.16:1).
+   So this reads the real hex out of the real token blocks and does the real
+   arithmetic. Its positive control is the OLD carrier: --k-rule on --k-side
+   must still measure UNDER 3:1, which proves the formula and the extraction
+   both work and that the test is not passing on a lookup that quietly failed. */
+/* ⚠️ ANCHORED TO BLOCK BOUNDARIES, not to a byte count. The first version of
+   this sliced a fixed 1200 characters forward from the first token, and a long
+   comment sitting between --k-bg and --k-side pushed --k-side outside the
+   window. The control below caught it (it reported the extraction broken
+   rather than a comfortable ratio), which is the only reason this is anchored
+   properly now instead of silently measuring three of the four grounds. */
+const LIGHT_START = PAGE.indexOf('--k-bg: #faf9f7');
+const DARK_MEDIA = PAGE.indexOf('@media (prefers-color-scheme: dark)');
+const DARK_END = PAGE.indexOf('@media (prefers-contrast: more) and (prefers-color-scheme: dark)');
+assert.ok(LIGHT_START > 0 && DARK_MEDIA > LIGHT_START && DARK_END > DARK_MEDIA,
+  'the token-block anchors moved; every contrast reading below would be measuring the wrong block');
+const TOKEN_BLOCKS = {
+  light: PAGE.slice(LIGHT_START, DARK_MEDIA),
+  dark: PAGE.slice(DARK_MEDIA, DARK_END),
+};
+function token(theme, name) {
+  const m = TOKEN_BLOCKS[theme].match(new RegExp('--' + name + ':\\s*(#[0-9a-fA-F]{6})'));
+  assert.ok(m, 'token --' + name + ' not found in the ' + theme + ' block -- extraction broke, so any ratio below is meaningless');
+  return m[1];
+}
+function ratio(a, b) {
+  const lum = (h) => {
+    const p = [1, 3, 5].map((i) => {
+      const c = parseInt(h.substr(i, 2), 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+test('the open-project marker clears 3:1 on BOTH grounds it touches, in BOTH themes (SC 1.4.11)', () => {
+  for (const theme of ['light', 'dark']) {
+    const bar = token(theme, 'k-ink-2');
+    const rowFill = token(theme, 'k-surface');
+    const railGround = token(theme, 'k-side');
+    // The bar is drawn inset on the open row, so its inner ground is that
+    // row's fill and its outer edge abuts the rail. BOTH are adjacent.
+    for (const [what, ground] of [['the row fill it sits on', rowFill], ['the rail ground it abuts', railGround]]) {
+      const r = ratio(bar, ground);
+      assert.ok(r >= 3, `${theme}: the open marker ${bar} measures ${r.toFixed(2)}:1 against ${what} (${ground}), under the 3:1 this file declares at :60 for anything identifying a control's state`);
+    }
+    // POSITIVE CONTROL: the carriers this fix replaced must still measure
+    // under the floor. If this ever passes, the extraction or the formula is
+    // broken and every assertion above is worthless.
+    const oldRing = ratio(token(theme, 'k-rule'), railGround);
+    assert.ok(oldRing < 3, `${theme}: control failed -- --k-rule on --k-side measured ${oldRing.toFixed(2)}:1, which should be under 3:1. The token extraction or the contrast formula is wrong, so the assertions above prove nothing.`);
+  }
+});
+
+test('the consolidated .apphead override resets margin, or the update notice is clipped away', () => {
+  /* 🛑 `.apphead` carries `margin: calc(-1 * --space-8)` on both sides for ONE
+     reason: to cancel the body's own --space-8 padding. This view sets
+     `padding: 0`, so those -24px stop cancelling and become a real offset,
+     and under this view's `height: 100vh; overflow: hidden` the result is
+     clipped rather than scrollable. Measured before the fix: .apphead and
+     #newsbar rendered at left:-24, top:-24, slicing the update notice through
+     the middle with its status dot off-screen.
+     The surfaces this protects are named in the :2071 comment as the reason
+     the header is allowed to give way at all. */
+  const rule = PAGE.match(new RegExp(cons + ' > \\.apphead \\{[^}]*\\}'));
+  assert.ok(rule, 'the consolidated .apphead override is gone');
+  assert.match(rule[0], /margin:\s*0 0 var\(--space-6\)/,
+    'the consolidated .apphead override stopped resetting margin: .apphead\'s -24px mirror margins no longer cancel anything (this view has padding:0) and become a clip under overflow:hidden, taking the update and offline notices with them');
+  // The property this depends on, pinned beside it: if the body ever regains
+  // padding, the reset above becomes wrong rather than merely unnecessary.
+  assert.match(PAGE, new RegExp(cons + '[^{]*\\{[^}]*height: 100vh; overflow: hidden; padding: 0'),
+    'the consolidated body no longer sets padding:0 -- re-check the .apphead margin reset above, which exists only to compensate for it');
+});
+
 test('the search placeholder follows the EFFECTIVE view, in showTab, not the saved layout', () => {
   const st = PAGE.slice(PAGE.indexOf("document.body.classList.toggle('consolidated', cons)"), PAGE.indexOf("document.body.classList.toggle('consolidated', cons)") + 1400);
   assert.match(st, /roomSearch\.placeholder = cons \? 'Search' : roomSearch\.dataset\.longPlaceholder/,
@@ -44,11 +123,32 @@ test('the search placeholder follows the EFFECTIVE view, in showTab, not the sav
     'applyLayout swaps the placeholder again -- that keys on the SAVED layout and goes stale across the 960px resize');
 });
 
-test('the state chatter is hidden, but a needs-you row keeps its inline Answer action', () => {
-  assert.match(PAGE, new RegExp(cons + ' \\.lrow > \\.lstate:not\\(:has\\(\\.ansgo\\)\\) \\{ display: none; \\}'),
-    'the .lstate hide lost its Answer carve-out (or hides unconditionally again, severing the needs-you action)');
+test('the state chatter is hidden from the EYE only, and a needs-you row keeps its inline Answer action', () => {
+  /* 🛑 THE HIDE MUST NOT BE `display: none`, and this is the pin that says so.
+     `display: none` removes the element from the ACCESSIBILITY TREE as well as
+     the screen, so a rail row announced its name and role and then said
+     nothing about state at all -- working, idle and Not running alike, with
+     only `attn` surviving via its triangle's own aria-label.
+     Josh's ask was visual ("we don't want to put a status bubble in there").
+     The states he listed -- idle, working, needs you, is there a problem --
+     are exactly what a screen-reader user has no glyph to fall back on for. */
+  const rule = PAGE.match(new RegExp(cons + ' \\.lrow > \\.lstate:not\\(:has\\(\\.ansgo\\)\\) \\{[^}]*\\}'));
+  assert.ok(rule, 'the .lstate hide lost its Answer carve-out (or the rule is gone, so the chatter is visible again)');
+  assert.doesNotMatch(rule[0], /display:\s*none/,
+    'the .lstate hide went back to display:none, which takes the agent\'s state out of the accessibility tree as well as off the screen');
+  assert.match(rule[0], /clip-path:\s*inset\(50%\)/,
+    'the .lstate hide is no longer the visually-hidden clip, so it is not keeping the state word for screen readers');
+  /* The chatter itself SHOULD be gone from both channels: it is the quoted
+     last-words line Josh called nonsense, not a state. */
+  assert.match(PAGE, new RegExp(cons + ' \\.lrow > \\.lstate \\.lsaid \\{ display: none; \\}'),
+    'the quoted last-words line is no longer hidden outright -- Josh cut it, and it should not survive for screen readers either');
   assert.match(PAGE, new RegExp(cons + ' \\.lrow:has\\(\\.lstate \\.ansgo\\) > \\.lav \\{ grid-row: 1 \\/ span 3; \\}'),
     'the avatar no longer spans the Answer row, so the kept .lstate misaligns');
+  /* Every state glyph stays aria-hidden, or the clip above starts announcing
+     decorative markup alongside the word. */
+  const g = PAGE.slice(PAGE.indexOf('const GLYPH = {'), PAGE.indexOf('const GLYPH = {') + 700);
+  assert.equal((g.match(/aria-hidden="true"/g) || []).length, 6,
+    'a GLYPH lost its aria-hidden: the visually-hidden .lstate would announce decoration with the state word');
 });
 
 test('each fold hides its OWN rail label, and only its own', () => {

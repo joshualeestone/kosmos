@@ -2020,6 +2020,17 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
        the difference, so the no-page-scroll invariant holds either way. */
     grid-template-rows: repeat(38, auto) auto minmax(0, 1fr) auto; }
   html[data-layout="consolidated"] body.consolidated > * { grid-column: 1 / -1; }
+  /* ⚠️ #conn CARRIES NO HORIZONTAL MARGIN OF ITS OWN (:319-325, margin-bottom
+     only): it is a rounded, bordered card drawn against the body's
+     `--space-8` inset, and this view sets `padding: 0`. Measured, it
+     rendered `left: 0; width: 1280` at a 1280px viewport, so its rounded
+     corners sat flush against the window edges.
+     📌 The sibling in the same pre-rail run does NOT need this, and the
+     difference is the tell: `.askcard` (:329) carries `margin: 10px 24px 0`
+     itself, so it kept its inset when the padding went. Matching that
+     inset here rather than inventing one keeps the two cards, which
+     appear in the same place, agreeing about where the edge is. */
+  html[data-layout="consolidated"] body.consolidated > #conn { margin-left: var(--space-8); margin-right: var(--space-8); }
   html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 39; }
   /* #867 (Josh, 2026-08-25 11:02): "hide that scrollbar inside of
      agents." Still scrolls -- scrollbar-width/-ms-overflow-style hide
@@ -2073,7 +2084,21 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      for"). Its notice slots stay in the flow, so an update note or the
      offline warning still has somewhere to appear; the tabs, the K link,
      the status line and the theme pill are elsewhere in this view. */
-  html[data-layout="consolidated"] body.consolidated > .apphead { position: static; padding: 0; border: 0; min-height: 0; }
+  /* 🛑 margin MUST be reset here, and its absence was a shipped clip.
+     `.apphead`'s margin (:813) is `calc(-1 * --space-8)` on both sides
+     PURELY to cancel the body's own `--space-8` padding -- its comment
+     says so, and says a body-padding breakpoint needs one here too. This
+     view sets `padding: 0` (:2012), so those -24px stopped cancelling
+     anything and became a real offset: measured, `.apphead` and
+     `#newsbar` render at left:-24, top:-24. Under this view's
+     `height: 100vh; overflow: hidden` that is CLIPPED rather than
+     scrollable -- the update notice was sliced through the middle with
+     its status dot off-screen.
+     ⚠️ AND IT CLIPPED EXACTLY WHAT THE COMMENT ABOVE PROMISES STAYS
+     VISIBLE: #utoast-slot, #unote-slot, #unews-slot, #uoffline-slot. A
+     sentence asserting a property is not a guard on it; `web.consolidated-980`
+     now pins this so the promise can fail loudly instead of quietly. */
+  html[data-layout="consolidated"] body.consolidated > .apphead { position: static; margin: 0 0 var(--space-6); padding: 0; border: 0; min-height: 0; }
   html[data-layout="consolidated"] body.consolidated > .apphead header { padding: 0; min-height: 0; }
   html[data-layout="consolidated"] body.consolidated > .apphead .klink, html[data-layout="consolidated"] body.consolidated > .apphead h1,
   html[data-layout="consolidated"] body.consolidated > .apphead .tabs, html[data-layout="consolidated"] body.consolidated > .apphead .headright { display: none; }
@@ -2101,7 +2126,31 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   /* #980: the OPEN project stays lit (the mock's .pj.on): surface on the
      side ground with a hairline ring, stronger than hover and persistent,
      so the rail always answers "which one am I looking at". */
-  html[data-layout="consolidated"] body.consolidated .pj-row.open { background: var(--k-surface); box-shadow: 0 0 0 1px var(--k-rule); }
+  /* 🛑 THE FILL AND THE RING CANNOT CARRY THIS STATE ALONE. Measured against
+     the grounds by name, not by eye:
+         light  --k-surface #ffffff on --k-side #f3f1ec  1.13:1
+         light  --k-rule    #e3e1dc on --k-side #f3f1ec  1.16:1
+         dark   --k-surface #17191c on --k-side #111316  1.06:1
+         dark   --k-rule    #2a2d31 on --k-side #111316  1.35:1
+     This file declares the floor itself at :60 -- SC 1.4.11 asks 3:1 of
+     anything that identifies a control, and that covers a control's STATE.
+     ⚠️ The plan recorded this as hover-collision only and called the resting
+     state fine. It is not: the resting state is carried by those same two
+     hairlines, and dark is the worse of the two. `aria-current` (:23082)
+     closes it for assistive tech and does nothing for a sighted low-vision
+     reader, who is the person "which one am I looking at" was added for.
+     🔑 THE BAR IS INK, NOT GOLD, and that is the file's own semantic rather
+     than my preference: the first-run progress strip uses `--k-ink` for the
+     step you are ON (`.fr-seg.now`) and gold for steps DONE (`.fr-seg.done`).
+     Open is a now, not a done. Gold would also have failed: every one of the
+     pack's five golds measures under 3:1 on the light rail ground, deepest
+     included at 2.80:1, and [[the pack is the source]] so inventing a sixth
+     is not available.
+     ✅ --k-ink-2 clears the floor on BOTH adjacent grounds in BOTH themes --
+     the row fill it sits on and the rail ground its outer edge abuts:
+     8.24:1 / 7.30:1 light, 7.81:1 / 8.25:1 dark. Pinned in
+     web.consolidated-980 so a token edit cannot quietly drop it back under. */
+  html[data-layout="consolidated"] body.consolidated .pj-row.open { background: var(--k-surface); box-shadow: inset 3px 0 0 0 var(--k-ink-2), 0 0 0 1px var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated #pj-list { gap: 2px; }
   /* The rail heads: a name, a +, and the fold arrow. Folded, the arrow (and
      the +) stack and the name goes. */
@@ -2184,7 +2233,31 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      SC 2.5.3 name contract wants it legible). .lsaid inside the row is
      still hidden by the rule below. */
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate { grid-column: 2; grid-row: 3; font-size: .625rem; }
-  html[data-layout="consolidated"] body.consolidated .lrow > .lstate:not(:has(.ansgo)) { display: none; }
+  /* 🛑 VISUALLY HIDDEN, NOT `display: none`, and the difference is the whole
+     point. `display: none` takes the element out of the ACCESSIBILITY TREE as
+     well as off the screen, so a rail row announced its name and role and then
+     said nothing at all about state -- for working, idle and Not running
+     alike. Only `attn` survived, by luck: its triangle carries its own
+     `aria-label` (:9328).
+     🔑 Josh's ask was about the EYE ("we don't want to put a status bubble in
+     there", and the quoted last-words line is "sort of nonsense to show"). It
+     was never about the ear, and the states he listed -- idle, working, needs
+     you, is there a problem -- are exactly what a screen-reader user needs
+     MOST, having no glyph to look at.
+     📌 This file already owns the idiom and names it at :9437: "shape and word
+     for the eye, sentence for the ear". These are `.vh`'s own declarations
+     (:3841), inlined rather than adding a class, because the element is
+     painted in two places (:9409, :9477) and a CSS-only fix cannot be
+     forgotten by one of them.
+     ⚠️ `.lsaid` stays `display: none` (below) DELIBERATELY: the quoted chatter
+     is the thing Josh cut, and it should be gone from both channels. The state
+     WORD is what survives. Every GLYPH is already `aria-hidden` (:8409-8414),
+     so what is announced here is `copy.label` and nothing else. */
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate:not(:has(.ansgo)) {
+    position: absolute; width: 1px; height: 1px;
+    margin: -1px; padding: 0; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap; border: 0;
+  }
   html[data-layout="consolidated"] body.consolidated .lrow:has(.lstate .ansgo) > .lav { grid-row: 1 / span 3; }
   html[data-layout="consolidated"] body.consolidated .lrow > :not(.lav):not(.lname):not(.ltitle):not(.lstate) { display: none; }
   /* The face shrinks to 24px inside its 34px cell so the ring sits OUTSIDE
@@ -2316,14 +2389,25 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      inside (Tasks keeps its finished-tasks door pinned in a third row).
      Files is not a grid, so it stays a plain card scroller with a sticky
      label, which genuinely pins there. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { overflow: hidden; grid-template-rows: auto minmax(0, 1fr); align-items: start; }
+  /* ⚠️ NO `align-items: start` HERE, and its removal is a fix rather than a
+     tidy. It outranked the deliberate `align-items: center` at :2526 --
+     (0,6,2) against (0,5,2) -- which exists so the 22px `+` control (:2529,
+     `margin: 0 0 6px`) lines up with its `.dlab`. Measured, the + centre
+     moved 3px above the label centre to 3px below it on both cards.
+     🔑 It was never needed: the only child that must not be centred is the
+     scrolling list, and that child sets `align-self: stretch` on itself
+     immediately below, with its own measured reason. Setting the property on
+     the PARENT to fix ONE child is what reached the head row as well. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { overflow: hidden; grid-template-rows: auto minmax(0, 1fr); }
   /* align-self: stretch, or the list sizes to its CONTENT instead of its
      bounded track and the scroll never engages (measured: 1314px of rows
      rendering into a 301px track, clipped unreachable). */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child > .pj-members { overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child > .pj-members::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { overflow: hidden; display: flex; flex-direction: column; }
-  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field { flex: 1 1 auto; min-height: 0; grid-template-rows: auto minmax(0, 1fr) auto; align-items: start; }
+  /* Same removal, same reason, for Tasks: (1,3,2) outranked (1,2,2), and
+     `.tkcards` sets its own `align-self: stretch` on the next line. */
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field { flex: 1 1 auto; min-height: 0; grid-template-rows: auto minmax(0, 1fr) auto; }
   html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > .tkcards { overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > .tkcards::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child { overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }

@@ -109,12 +109,30 @@ test('piece four: the row draws its ring only with a known memory and its warnin
   assert.match(PAGE, /body\.consolidated \.lrow > \.lav > \.lwarn \{ display: block/);
 });
 
+/* ⚠️ THE "IS IT STYLED AWAY" GUARDS MUST READ DECLARATIONS, NOT PROSE.
+   They are `doesNotMatch` on the raw block, so they fire on any occurrence of a
+   slot's id -- including one inside a COMMENT. That is not hypothetical: a
+   comment added beside the .apphead override, explaining that those very slots
+   are what the override protects, turned both guards red while the CSS was
+   correct. A guard that a correct explanation can break teaches people to stop
+   explaining, which is the opposite of what it is for.
+   🔑 Stripping comments is what makes the assertion mean what its message says.
+   The positive control below proves the strip did not also remove the guard's
+   teeth: a planted `display: none` on a real slot must still be caught. */
+const stripCssComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '');
+
 test('piece five: the header folds to its notice slots, the K mark is the header\'s own image at the rail top, and the rails go flat', () => {
   const start = PAGE.indexOf('@media (min-width: 960px) {\n  html[data-layout="consolidated"]');
   const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
+  const decls = stripCssComments(block);
   assert.match(block, /> \.apphead \.klink, [^{]*> \.apphead h1,\n[^{]*> \.apphead \.tabs, [^{]*> \.apphead \.headright \{ display: none; \}/, 'the header does not fold to its slots');
-  assert.doesNotMatch(block, /> \.apphead \{[^}]*display: none/, 'the whole header is hidden, and with it the update and offline notices');
-  assert.doesNotMatch(block, /#utoast-slot|#unote-slot|#uoffline-slot/, 'a notice slot is styled away');
+  assert.doesNotMatch(decls, /> \.apphead \{[^}]*display: none/, 'the whole header is hidden, and with it the update and offline notices');
+  assert.doesNotMatch(decls, /#utoast-slot|#unote-slot|#uoffline-slot/, 'a notice slot is styled away');
+  // CONTROL: the strip must not have disarmed the check.
+  assert.match(stripCssComments('/* #utoast-slot is fine */\n  #utoast-slot { display: none; }'), /#utoast-slot/,
+    'stripCssComments removed a real declaration, so the two guards above can no longer catch a styled-away slot');
+  assert.doesNotMatch(stripCssComments('/* mentions #utoast-slot in prose only */'), /#utoast-slot/,
+    'stripCssComments no longer strips comments, so a comment naming a slot will fail the guards again');
   assert.match(PAGE, /<button class="railk" id="rail-k" type="button" aria-label="Go to your agents"><img id="rail-k-img"/);
   assert.match(SCRIPT, /k\.src = src\.src/, 'the rail K is not the header\'s own image');
   assert.match(SCRIPT, /getElementById\('rail-k'\)\.addEventListener\('click', \(\) => document\.getElementById\('klink'\)\.click\(\)\)/);
@@ -125,8 +143,10 @@ test('piece six: the board notice bars do not sit over the consolidated grid', (
   const start = PAGE.indexOf('@media (min-width: 960px) {\n  html[data-layout="consolidated"]');
   const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
   assert.match(block, /> #found-wrap, [^{]*> #removed-wrap, [^{]*> #restart-wrap \{ display: none; \}/, 'the found/removed/restart bars still stack over the grid');
-  /* Control: the news line is NOT hidden here; it has a home in the header slot. */
-  assert.doesNotMatch(block, /#unews-slot|#newsbar[^-]/, 'the news line was hidden rather than relocated');
+  /* Control: the news line is NOT hidden here; it has a home in the header slot.
+     Comments stripped for the same reason as piece five above -- a comment
+     explaining what this protects must not be able to fail it. */
+  assert.doesNotMatch(stripCssComments(block), /#unews-slot|#newsbar[^-]/, 'the news line was hidden rather than relocated');
 });
 
 /**
