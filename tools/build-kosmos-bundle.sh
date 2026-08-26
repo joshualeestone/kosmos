@@ -251,9 +251,13 @@ startInFlight=true committed=false lastLoadFailed=false -> ignore
 startInFlight=true committed=false lastLoadFailed=true -> ignore
 startInFlight=true committed=true lastLoadFailed=false -> ignore
 startInFlight=true committed=true lastLoadFailed=true -> ignore'
-# stdout only: folding stderr in would let incidental runtime noise from a
-# clean-exiting binary masquerade as a drifted table.
-_reload_table_actual="$("$STAGE/app/bin/kosmos-app" --kosmos-app-reload-decision-selftest 2>/dev/null)" || { echo "the native app's --kosmos-app-reload-decision-selftest failed to run" >&2; exit 1; }
+# stdout only in the comparison: folding stderr in would let incidental
+# runtime noise from a clean-exiting binary masquerade as a drifted table.
+# stderr is kept aside and shown only on the failed-to-run branch, where it
+# is the one clue a broken build machine has.
+_reload_table_stderr="$(mktemp "${TMPDIR:-/tmp}/reload-table-stderr.XXXXXXXXXX")"
+_reload_table_actual="$("$STAGE/app/bin/kosmos-app" --kosmos-app-reload-decision-selftest 2>"$_reload_table_stderr")" || { echo "the native app's --kosmos-app-reload-decision-selftest failed to run; its stderr:" >&2; cat "$_reload_table_stderr" >&2; rm -f "$_reload_table_stderr"; exit 1; }
+rm -f "$_reload_table_stderr"
 [ "$_reload_table_actual" = "$_reload_table_expected" ] || { printf '%s\n' "the native app's Reload decision table drifted from the expected eight rows (#965):" "$_reload_table_actual" >&2; exit 1; }
 _app_bin_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')"
 echo "==> native app: kosmos-app signed $_app_bin_sha"

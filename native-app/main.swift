@@ -430,7 +430,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 // a GRANDCHILD (the cross-file case named in startBoard),
                 // this SIGTERM cannot reach it and one drain thread stays
                 // leaked for that attempt -- the re-arm, not this kill, is
-                // the user-facing guarantee.
+                // the user-facing guarantee. ACCEPTED including accumulation:
+                // if the cross-file invariant regresses, EVERY start hangs
+                // this way and repeated presses leak one thread per 300s
+                // cycle toward GCD's ~64-thread pool. That is hours of
+                // retrying against an already-broken install whose tripwire
+                // comment (startBoard) is the fix pointer; a firing cap here
+                // would be machinery for a regression two layers deep.
                 if let s = self.inFlightStart, s.generation == generation {
                     if s.process.isRunning {
                         logLine("watchdog: terminating hung kosmos start (pid \(s.process.processIdentifier))")
@@ -438,7 +444,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     } else {
                         // The child already exited; the hang is the drain
                         // (a grandchild holding stderr). Nothing to kill
-                        // safely -- and no SIGTERM at a possibly-recycled pid.
+                        // safely -- the isRunning check narrows the
+                        // recycled-pid window to microseconds (it cannot
+                        // close a TOCTOU entirely; nothing in userspace can).
                         logLine("watchdog: hung start's child already exited; drain blocked by an inherited fd, leaving it")
                     }
                     self.inFlightStart = nil
@@ -655,9 +663,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             if reloadNavigation == nil {
                 // reload() declined -- no navigation started, so there is
                 // nothing to attribute and the one-shot must not survive to
-                // claim some later unrelated failure.
+                // claim some later unrelated failure. Effectively
+                // unreachable (a committed page was just established on this
+                // same runloop turn), but if it ever happens the press must
+                // still DO something, so fall through to the full path
+                // rather than dying silently.
                 recoverOnReloadFailure = false
-                logLine("reload: webView.reload() returned no navigation; one-shot disarmed")
+                logLine("reload: webView.reload() returned no navigation; falling through to loadBoard()")
+                loadBoard()
             }
         case .startBoard:
             logLine("reload: no healthy page (committed=\(committed), lastLoadFailed=\(lastLoadFailed)), re-running loadBoard()")
