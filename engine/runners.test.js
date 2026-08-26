@@ -371,7 +371,7 @@ test('#979: status reports the manifest facts and the honest null for an unmeasu
   assert.equal(typeof s.openai.present, 'boolean');
 });
 
-/* ---- the Claude (vendor-verified) kind, #979 branch A ---------------- */
+/* ---- the Claude (vendor-external) kind, #979 branch A ---------------- */
 
 const CLAUDE_HOME = nodePath.join(SANDBOX, 'claude-home');
 const CANONICAL = nodePath.join(CLAUDE_HOME, '.local', 'bin', 'claude');
@@ -410,13 +410,15 @@ test('#979: claude resolution is env-authoritative, then the vendor canonical pa
   }
 });
 
-/* ── the vendor-verified install ──────────────────────────────────────────
-   ⚠️ THESE TESTS REPLACED A SET THAT DROVE A `curl | sh` INSTALLER. That
-   mechanism was removed in review: engine/connect.js already installs
-   Claude Code against a published per-platform SHA256, so a second
-   unverified path for the same product had no right to exist. What is
-   seamed here is the DELEGATION to that verified fetch, not a re-implementation
-   of it -- connect.js owns and tests the checksum and redirect refusals.
+/* ── the vendor-external install ──────────────────────────────────────────
+   ⚠️ THESE TESTS REPLACED TWO EARLIER SETS, and neither mechanism survives.
+   The first drove a `curl | sh` installer with no integrity check; the second
+   borrowed connect.js's verified download and hand-assembled the rest beside
+   it. Both were removed in review (#997 is the shared-install extraction that
+   replaces them). 🛑 SO THERE IS NO DELEGATION TO TEST HERE: `installVendor`
+   does not reference `connect.js` at all on this branch. What these pin is
+   the LINK-or-REFUSE behaviour that ships, plus a guard that the download
+   cannot creep back in unnoticed.
 
    Every test save-and-restores AGENT_WORKFORCE_HOME rather than deleting it,
    so a future preamble that sets it is not silently cleared by the first
@@ -482,6 +484,13 @@ test('#979: the refusal path reaches no NETWORK -- connect.download is never cal
       const job = runners.install('claude', { findElsewhere: () => null });
       await job.settled;
       assert.equal(job.phase, 'failed');
+      // ⚠️ PIN THE REFUSAL TO THIS BRANCH. Without this line the test passes
+      // by construction and would go on passing with the whole Claude entry
+      // DELETED -- `install('claude')` would then fail through the
+      // unknown-provider arm, `touched` would still be 0, and both remaining
+      // assertions would hold. A guard that cannot fail guards nothing.
+      assert.match(job.because, /could not find Claude Code/,
+        'the failure observed is the vendor-external refusal, not some other arm');
       assert.equal(touched, 0, 'the refusal path must not reach connect.download()');
     } finally {
       connect.download = realDownload;
@@ -543,6 +552,35 @@ test('#979: the link step REFUSES a canonical path it does not own, by name, ins
     assert.match(job.because, /already exists and is not something we put there/);
     assert.equal(fs.readFileSync(CANONICAL, 'utf8'), 'a real vendor file',
       'the file we did not put there is still on disk');
+  });
+});
+
+test('#979: a link we cannot WRITE is refused in words too, not as a raw errno', async () => {
+  const elsewhere = nodePath.join(SANDBOX, 'elsewhere', 'claude');
+  put(elsewhere);
+  await withClaudeHome(async () => {
+    // Make the parent unwritable so symlinkSync throws EACCES. The directory
+    // case beside this one is already errno-free and asserted so; this is the
+    // other way the link step can fail, and it used to fall through to the
+    // generic catch and hand a person `EACCES: permission denied, symlink
+    // '/...' -> '/...'`.
+    const dir = nodePath.dirname(CANONICAL);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.chmodSync(dir, 0o500);
+    try {
+      const job = runners.install('claude', {
+        findElsewhere: () => elsewhere,
+        prove: () => { throw new Error('prove must never run after a failed link'); },
+      });
+      await job.settled;
+      assert.equal(job.phase, 'failed');
+      assert.match(job.because, /could not put a link to it/);
+      assert.doesNotMatch(job.because, /EACCES|EPERM|ENOSPC/, 'a person must not be shown an errno');
+      assert.match(job.because, new RegExp(elsewhere.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+        'and it names where we DID find it, so the finding is not lost with the failure');
+    } finally {
+      fs.chmodSync(dir, 0o700);
+    }
   });
 });
 
