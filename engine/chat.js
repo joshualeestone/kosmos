@@ -994,11 +994,25 @@ function questionIn(text) {
 // One digit, 1-9, not `\d+`. The count is capped at 9 anyway, and `\d+`
 // accepted `01.` as option 1 through Number() -- a shape no menu draws and one
 // more way for prose to look like a list.
-const OPTION_LINE = /^(❯\s*)?([1-9])[.)]\s+(\S.*)$/;
+/* ⚠️ The glyph class comes from status.js (#998), NOT a literal here. Two
+   parsers keyed on this separately and disagreed: this one knew only Claude's
+   ❯, while the needs-you markers knew Codex draws ›, so every Codex choice
+   prompt was DETECTED and then drew no buttons.
+
+   📌 SCOPE, STATED RATHER THAN OVERCLAIMED: this constant governs the three
+   MENU-PARSING patterns in this file. It is deliberately NOT the marker lists
+   in status.js -- those stay per-runner because each is an OBSERVED capture
+   from a specific CLI and its docblock records what was seen, which is a
+   different kind of fact from "these characters can precede an option". So
+   "one source" is true of the parser, not of every glyph in the codebase. */
+const OPTION_LINE = new RegExp(`^([${status.SELECTOR_GLYPHS}]\\s*)?([1-9])[.)]\\s+(\\S.*)$`);
 // ⚠️ ANY digit count, deliberately wider than OPTION_LINE. It is what sees a
 // line the single-digit pattern cannot read -- a tenth option -- so a menu
 // longer than we can read is refused rather than served as its first nine.
-const ANY_NUMBERED = /^(?:❯\s*)?\d+[.)]\s+\S/;
+/* 📌 Widened with its siblings for one-source consistency; like CONTINUATION,
+   inert in practice -- the line it guards on is below the run and therefore
+   unmarked, and the selector group was already optional. */
+const ANY_NUMBERED = new RegExp(`^(?:[${status.SELECTOR_GLYPHS}]\\s*)?\\d+[.)]\\s+\\S`);
 
 /**
  * The text ABOVE a confident option run, which is what tells two menus with the
@@ -1024,7 +1038,19 @@ function questionAbove(questionText) {
   const opts = optionsIn(questionText);
   if (!opts) return null;
   const lines = String(questionText == null ? '' : questionText).split('\n');
-  const first = lines.findIndex((l) => /^(?:❯\s*)?[1-9][.)]\s+\S.*$/.test(
+  /* Same glyph class as OPTION_LINE (#998), and it MUST be: this finds where
+     the option run starts so the question above it can be sliced off.
+     ⚠️ MEASURED, because the first version of this comment guessed the
+     mechanism and guessed wrong. Left on ❯ only, against
+     `Edit file src/a.js?\n› 1. Yes\n  2. No`, `first` is 2 -- NOT -1. The
+     marked line is skipped and the run appears to start at the UNMARKED
+     second option, so the "question above" becomes
+     `Edit file src/a.js?\n› 1. Yes`: the option line gets absorbed into the
+     question's identity. That value is what the 409 screen-check compares, so
+     the consequence is a refused press, not a wrong one -- but a half-widened
+     parser is still worse than an unwidened one. */
+  const OPTION_START = new RegExp(`^(?:[${status.SELECTOR_GLYPHS}]\\s*)?[1-9][.)]\\s+\\S.*$`);
+  const first = lines.findIndex((l) => OPTION_START.test(
     l.replace(/^\s*│\s?/, '').replace(/[\s│]+$/, '').replace(/^\s+/, '')));
   /**
    * ⚠️ EVERY MEANINGFUL LINE ABOVE THE RUN, and this rule has had three shapes.
@@ -1182,7 +1208,20 @@ function optionsIn(questionText) {
    * `found.length + 1` is the signature of a list this pattern truncated, and
    * almost nothing else.
    */
-  const CONTINUATION = new RegExp('^(?:❯\\s*)?0*' + (found.length + 1) + '[.)]\\s+\\S');
+  /* The truncation guard: a line numbered one past the run means this pattern
+     read only part of a list, and refusing beats serving a ten-option menu as
+     its first nine.
+     📌 THE GLYPH CLASS HERE IS FOR CONSISTENCY, NOT FOR A BUG (#998). An
+     earlier comment claimed leaving it on ❯ would let a truncated Codex menu
+     slip past. It would not, and I checked rather than kept asserting: the
+     selector group is OPTIONAL, and a continuation line is unmarked BY
+     CONSTRUCTION -- only one row in a menu carries the cursor and it is inside
+     the run. Measured: the ❯-only pattern matches `10. option 10`. So this
+     widening is inert. It stays because three patterns deriving one fact
+     should derive it from one place, which is the whole point of #998; it is
+     not load-bearing, and a comment claiming a harm that cannot occur is what
+     the next maintainer would trust. */
+  const CONTINUATION = new RegExp(`^(?:[${status.SELECTOR_GLYPHS}]\\s*)?0*${found.length + 1}[.)]\\s+\\S`);
   for (let i = lastRun.at + 1; i < lines.length; i += 1) {
     const bare = lines[i].replace(/^\s*│\s?/, '').replace(/[\s│]+$/, '').replace(/^\s+/, '');
     if (CONTINUATION.test(bare)) return null;

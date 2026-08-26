@@ -7586,6 +7586,15 @@ test('talkKey reads the option run exactly where optionsIn does, decoys included
     'Which one?\n' + MENU,
     'Edit file src/a.js?\n❯ 1. Yes\n  2. No',
     '│ boxed and framed\n│ ❯ 1. Yes\n│   2. No',
+    /* ⭐ CODEX'S GLYPH IS › (U+203A), NOT CLAUDE'S ❯ (U+276F), and this row is
+       the whole reason #998 could not merge on the engine alone. Widening the
+       engine to read both while the page still read one would draw buttons on
+       a Codex menu whose every press the 409 screen-check refuses, blaming the
+       agent's screen for a disagreement between two copies of our own rule.
+       This row FAILED before the page was widened, which is the only reason it
+       is worth having. */
+    'Run this command?\n› 1. Yes, continue\n  2. No, quit',
+    '│ boxed and framed\n│ › 1. Yes, continue\n│   2. No, quit',
     MENU,
   ]) {
     const key = talkKey({

@@ -1155,6 +1155,36 @@ const NEEDS_YOU_MARKERS = Object.freeze([
 ]);
 
 /**
+ * The selector glyphs a runner draws beside the highlighted option, as a
+ * character class two files can share.
+ *
+ * 🛑 IT LIVES HERE, EXPORTED, BECAUSE TWO PARSERS KEYED ON THIS SEPARATELY
+ * AND DISAGREED (#998). This file's markers knew Codex draws › (U+203A) and
+ * Claude draws ❯ (U+276F) -- #249 exists entirely because of that difference.
+ * `engine/chat.js`'s option parser knew only ❯. So a Codex agent's choice
+ * prompt was correctly detected as "waiting on an answer" and then produced
+ * NO buttons, because the option lines never matched: the person was told
+ * their agent was stuck and given nothing to unstick it with.
+ *
+ * ⚠️ ADD TO THIS BY OBSERVING, exactly as the marker lists above demand. A
+ * guessed glyph is the same 0-for-1 bet as a guessed wording. Plain ASCII `>`
+ * is deliberately NOT here: no runner has been observed drawing it.
+ */
+const SELECTOR_GLYPHS = '❯›';
+/* ⚠️ VALIDATED AT LOAD, because this string is interpolated into a CHARACTER
+   CLASS in engine/chat.js and the docblock above invites future additions. A
+   `^` added here would yield `[^❯›]`, which matches ANY leading character and
+   so sets the menu-vs-prose `marked` gate on plain prose -- the parser that
+   types into a live terminal, failing OPEN. `]`, `-` and `\` break the class
+   the same way. Cheap, load-time, and it turns a silent widening into a crash
+   on the line that caused it. */
+if (typeof SELECTOR_GLYPHS !== 'string' || !SELECTOR_GLYPHS.length
+    || /[\\\]^-]/.test(SELECTOR_GLYPHS)) {
+  throw new Error('SELECTOR_GLYPHS must be a non-empty string of plain characters: '
+    + 'it is interpolated into a regex character class, where ^ ] - and \\ change its meaning');
+}
+
+/**
  * Codex's needs-you shapes (#249). OBSERVED, per this file's own rule that
  * guessed wordings are 0 for 1 against reality: captured from a live
  * codex-cli 0.149.0 pane on this machine, 2026-08-23. Its selection dialog
@@ -1293,6 +1323,11 @@ function matchedLine(text, markers) {
        ❯ (U+276F) and Codex's › (U+203A), or evidence captured from the line
        the prompt prefixes renders as "❯ 401 {...}" on a person's screen.
        Observed live on 0.5.31's #880 walk. */
+    /* 📌 NOT SELECTOR_GLYPHS, deliberately (#998): this strips FRAME and
+       prompt characters as well as selectors, and it includes plain `>`,
+       which the glyph class excludes because no runner has been observed
+       drawing it as a selector. Two overlapping sets with different jobs;
+       collapsing them would widen one of them by accident. */
     const line = raw.replace(/^[\s>│├└─*❯›]+/, '').trim();
     if (!line) continue;
     return line.length > 240 ? line.slice(0, 240) + '…' : line;
@@ -3110,6 +3145,7 @@ module.exports = {
   NEEDS_YOU_MARKERS,
   CODEX_NEEDS_YOU_MARKERS,
   ALL_NEEDS_YOU_MARKERS,
+  SELECTOR_GLYPHS,
   isCodexCommand,
 };
 

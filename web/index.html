@@ -13674,7 +13674,16 @@ function talkKey(body) {
          frame-only line `│ 1. │` matched here while `optionsIn`, which strips
          the trailing frame BEFORE requiring a label, produced no option.
      The three replaces and the pattern below are `optionsIn`'s, verbatim. */
-  const first = lines.findIndex((l) => /^(?:❯\s*)?[1-9][.)]\s+\S.*$/.test(
+  /* ⚠️ [❯›], BOTH GLYPHS: ❯ is Claude's (U+276F) and › is Codex's (U+203A),
+     and the engine's `optionsIn` reads both from `status.SELECTOR_GLYPHS`
+     (#998). This literal is the FOURTH copy of that rule and the only one that
+     cannot import it, so it is spelled out here and pinned by the cross-check
+     in server.test.js, which asks the page and the engine the same text. A
+     page reading one glyph while the engine reads two is not a cosmetic drift:
+     it draws buttons on a Codex menu whose every press the 409 screen-check
+     then refuses, and the refusal blames the agent's screen for a
+     disagreement between two copies of our own rule. */
+  const first = lines.findIndex((l) => /^(?:[❯›]\s*)?[1-9][.)]\s+\S.*$/.test(
     l.replace(/^\s*│\s?/, '').replace(/[\s│]+$/, '').replace(/^\s+/, '')));
   /* ⚠️ NOTHING ABOVE THE RUN IS NOT THE SAME AS NO IDENTITY. `questionIn`
      normally hands over six lines above the marker, so `first` is normally
@@ -22722,8 +22731,21 @@ function paintOneProject() {
      projects cannot carry one project's open state onto the next. */
   const pjTitle = desc.closest('.pjtitle');
   const pjMore = document.getElementById('pj-one-more');
-  if (pjTitle) pjTitle.classList.remove('is-open');
-  if (pjMore) pjMore.setAttribute('aria-expanded', 'false');
+  /* 🛑 AN EMPTY DESCRIPTION OPENS. Closed-by-default was right for Josh's
+     complaint (three lines of body copy above every project, every visit) and
+     WRONG for a project that has no description at all: the only thing telling
+     you a description exists, and where to add one, is the placeholder -- and
+     collapsing it hid the affordance along with the copy. A new project would
+     open looking like it simply has nothing.
+     🔑 The rule that decides it: hide what the person has already read, never
+     hide the only thing telling them a thing exists. There is no body copy to
+     compress here, so the compaction has nothing to buy and something to cost.
+     ⚠️ Keyed on the DESCRIPTION being empty, not on the project being new: a
+     described project that is later emptied gets the same help, and this needs
+     no state to remember. */
+  const isEmpty = !p.description;
+  if (pjTitle) pjTitle.classList.toggle('is-open', isEmpty);
+  if (pjMore) pjMore.setAttribute('aria-expanded', isEmpty ? 'true' : 'false');
   /* Agent-made projects say so (#327). `by` is the pane's agent when one was
      offered and resolved; otherwise the honest generic. Screen-made shows
      nothing: "made by you" under everything is furniture. */

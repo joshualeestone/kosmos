@@ -150,20 +150,26 @@ const MEMBER = 'taskmate';
     if (who2 !== '') die('a clean open resurrected the previous assignee: "' + who2 + '"');
     await p.fill('#nt-what', 'Check it against the live flow');
     await p.click('#nt-go');
-    await p.waitForSelector('#pj-alltasks:not([hidden])', { timeout: 10000 });
+    await p.waitForSelector('.tkcard >> nth=1', { timeout: 10000 });
 
-    // The column shows ONLY the assigned open task; the door counts both.
+    /* kosmos#1009 INVERTED THIS BLOCK, and the inversion is the fix rather than
+       a broken check. The column used to require `assigned > 0`, so the
+       unassigned task sat behind the door and this asserted exactly that. On a
+       first run EVERY task is unassigned, so a new person met an empty Tasks
+       column above a link counting the tasks they had just made. The column is
+       headed TASKS and now shows every OPEN task. */
     const cards = await p.locator('.tkcard').count();
-    if (cards !== 1) die('the column shows ' + cards + ' cards; the unassigned one belongs behind the door');
-    const doorTxt = (await shown(p.locator('#pj-alltasks'))).trim();
-    if (!/View all tasks \(2\)/.test(doorTxt)) die('door text: ' + doorTxt);
+    if (cards !== 2) die('the column shows ' + cards + ' cards; both open tasks belong in it now');
+    /* And with nothing finished there is nothing behind the door, so the door
+       must be GONE rather than showing a count that contradicts the column --
+       which was Josh's original report. */
+    if (!(await p.locator('#pj-alltasks').isHidden())) die('the door shows while every task is already in the column');
     const chip = (await shown(p.locator('.tkcard-who'))).trim();
     if (!chip.includes(MEMBER)) die('the who chip does not name the member: ' + chip);
     await p.screenshot({ path: path.join(OUT, 'tasks-column.png') });
 
-    // Behind the door: the unassigned card says the only allowed state word.
-    await p.click('#pj-alltasks');
-    if ((await p.locator('.tkcard').count()) !== 2) die('the door did not reveal the whole list');
+    // The unassigned card is IN the column now, and still says the one allowed
+    // state word. No door click needed to reach it.
     const nobody = await shown(p.locator('.tkcard').nth(1).locator('.tkcard-who'));
     if (nobody.trim() !== 'Nobody yet') die('unassigned state word: ' + nobody);
 
@@ -213,7 +219,11 @@ const MEMBER = 'taskmate';
     await p.click('#pj-back');
     await p.locator('#pj-list').getByText('Task Drive').first().click();
     await p.waitForSelector('#pj-tasks-field', { state: 'visible', timeout: 10000 });
-    if ((await p.locator('.tkcard').count()) !== 0) die('a done or unassigned task sits in the fresh column');
+    /* kosmos#1009: the UNASSIGNED open task now belongs in the fresh column;
+       only the DONE one is behind the door. This asserted 0 when unassigned
+       tasks were hidden too. */
+    if ((await p.locator('.tkcard').count()) !== 1) die('the fresh column should hold exactly the one open task');
+    if ((await p.locator('.tkcard.closed').count()) !== 0) die('a done task sits in the fresh column instead of behind the door');
     const doorAfter = (await shown(p.locator('#pj-alltasks'))).trim();
     if (!/View all tasks \(2\)/.test(doorAfter)) die('door after done: ' + doorAfter);
     await p.click('#pj-alltasks');
