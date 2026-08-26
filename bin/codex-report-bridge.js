@@ -8,7 +8,14 @@
  * board's /api/report — the same record `kosmos report` writes, arriving
  * with the same evidence property, because codex runs INSIDE the agent's
  * tmux pane and this child inherits TMUX_PANE, which is the identity the
- * route resolves. No sender argument exists to forge.
+ * route resolves. Nothing here invents a sender: there is no name to pass.
+ *
+ * ⚠️ THIS LINE USED TO END "No sender argument exists to forge", which read
+ * as unforgeable and is stronger than the code. A PANE ID IS ITSELF A CLAIM:
+ * ids are enumerable and the board has no auth, so a local process can pass
+ * another agent's pane and be recorded as that agent. True of this bridge
+ * and of `kosmos report` alike. The correction has been in the `/api/reply`
+ * comment for a while; this was a copy it never reached (#570).
  *
  * 🔑 ONE OBSERVED EVENT, ONE HONEST WORD. codex-cli 0.149.x emits
  * `agent-turn-complete` (measured on this machine, 2026-08-24, with a spy
