@@ -591,8 +591,20 @@ async function killSession() {
 let driver = null;   // { timer, pendingCode, lastActed, unknownTicks, ... }
 let TICK_MS = 700;
 let UNKNOWN_GRACE_MS = 10000;
+/**
+ * ⚠️ #727 item 4: the paste prompt and the browser-wait screen legitimately
+ * sit unchanged for as long as a person dawdles -- but an abandoned browser
+ * leg (Josh, 2026-08-24: switched Claude account inside the OAuth tab,
+ * landed on claude.ai, "I've refreshed several times but I can't get out of
+ * this") shows the exact same pane text a genuinely slow person also shows.
+ * Only elapsed time can tell them apart. 15 minutes matches this file's own
+ * existing `FRESH_BOUND_MS` -- already this codebase's definition of "dead"
+ * for a parked flow -- reused here instead of inventing a second number.
+ */
+let ABANDONED_SIGNIN_MS = 15 * 60 * 1000;
 function setTickInterval(ms) { TICK_MS = ms; }
 function setUnknownGrace(ms) { UNKNOWN_GRACE_MS = ms; }
+function setAbandonedSigninMs(ms) { ABANDONED_SIGNIN_MS = ms || 15 * 60 * 1000; }
 
 /**
  * ⚠️ Codes are typed into a terminal by us on the user's behalf, so they are
@@ -1036,6 +1048,44 @@ async function tickBody(owner) {
   }
   owner.lastSig = sig;
 
+  /**
+   * ⚠️ #727 item 4 / #897: THE CONFIG OUTRANKS THE SCREEN HERE TOO, not just
+   * in the unknown-escalation arm above. A completed sign-in whose pane
+   * never redraws to a recognised 'login-done'/'repl' screen within this
+   * driver's own window (Josh, #897: "the page kept showing 'Enter the code
+   * from your email'"... though the account had in fact been added in the
+   * background) was invisible to every tick that landed here, because
+   * browser-open and awaiting-code were the two screens this outranking
+   * check was never wired into. Checked first, before anything the switch
+   * below does with the pane text -- and before the abandoned-leg expiry
+   * just below it, so a sign-in that actually landed is never raced against
+   * its own expiry clock.
+   */
+  if (seen.kind === 'browser-open' || seen.kind === 'awaiting-code') {
+    const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
+    if (sub.state === subscription.STATE.CONNECTED) {
+      finishConnected(owner, sub);
+      return;
+    }
+    /**
+     * ⚠️ #727 item 4: AN ABANDONED BROWSER LEG shows the exact same pane
+     * text a genuinely slow person also shows, so only elapsed time can
+     * tell them apart (see ABANDONED_SIGNIN_MS above). Set the first tick
+     * this stage is seen, reset on every code actually submitted
+     * (submitCode() clears it) so someone genuinely retrying wrong codes is
+     * never punished for staying engaged, and cleared entirely once the
+     * flow moves on (the `else` branch below).
+     */
+    if (!owner.browserWaitSince) owner.browserWaitSince = Date.now();
+    if (Date.now() - owner.browserWaitSince > ABANDONED_SIGNIN_MS) {
+      becomeStuck(owner, 'this sign-in was not finished in the browser, so it expired',
+        tailOf(cap.stdout));
+      return;
+    }
+  } else {
+    owner.browserWaitSince = null;
+  }
+
   switch (seen.kind) {
     case 'blank':
       /**
@@ -1402,6 +1452,10 @@ function submitCode(code) {
     return { ok: false, kind: 'format', because: 'that does not look like a sign-in code' };
   }
   driver.pendingCode = code;
+  // #727 item 4: a code actually submitted is evidence the person is still
+  // there, so the abandoned-leg clock (see ABANDONED_SIGNIN_MS) re-arms
+  // fresh from this moment rather than counting a retry against them.
+  driver.browserWaitSince = null;
   return { ok: true };
 }
 
@@ -1476,6 +1530,6 @@ module.exports = {
   state, start, submitCode, cancel,
   classifyPane, extractOauthUrl, tailOf, validCode, redirectDowngrades,
   download, platformKey,
-  setRunner, setDryRun, setTickInterval, setUnknownGrace, setFreshnessForTests, resetForTests,
+  setRunner, setDryRun, setTickInterval, setUnknownGrace, setAbandonedSigninMs, setFreshnessForTests, resetForTests,
   STATE_FILE,
 };

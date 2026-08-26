@@ -523,6 +523,7 @@ function driverTest(name, fn) {
       connect.setRunner(null);
       connect.setTickInterval(700);
       connect.setUnknownGrace(10000);
+      connect.setAbandonedSigninMs(15 * 60 * 1000);
       delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
       clearClaudeConfig();
       subscription.resetCache();
@@ -733,6 +734,102 @@ driverTest('a login that completes in the browser, with no code ever pasted, sti
   // Now the CLI writes the config, and the flow finishes from evidence.
   writeClaudeConfig(CONNECTED_CONFIG);
   await until(() => connect.state().phase === connect.PHASE.CONNECTED, 10000);
+});
+
+driverTest('#897: a login that succeeds while the pane NEVER shows login-done still connects', async () => {
+  /**
+   * ⚠️ THE PANE TEXT NEVER CHANGES IN THIS TEST -- that is the point. The
+   * prior test ("with no code ever pasted") still relies on the pane
+   * eventually showing SCREEN_LOGIN_DONE; this one proves the config alone
+   * is enough, because #897's report was exactly a pane that never got that
+   * far ("the page kept showing 'Enter the code from your email'... though
+   * the account had in fact been added in the background"). If the
+   * config-outranks-screen check regresses back to only the unknown/
+   * login-done arms, this test hangs at awaiting-code and times out.
+   */
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+
+  await connect.start();
+  await until(() => connect.state().phase === connect.PHASE.SIGNIN_AWAITING_CODE);
+
+  // The pane stays exactly SCREEN_PASTE. Only the config changes, as if the
+  // browser leg finished on Anthropic's side with no local terminal signal.
+  writeClaudeConfig(CONNECTED_CONFIG);
+  await until(() => connect.state().phase === connect.PHASE.CONNECTED, 5000);
+  assert.equal(term.screen, SCREEN_PASTE, 'the pane text changed; this test needs it to stay put');
+});
+
+driverTest('#727 item 4: an abandoned browser leg expires instead of waiting forever', async () => {
+  /**
+   * ⚠️ THE ACTUAL BUG REPRODUCTION. The pane sits at awaiting-code forever
+   * (nobody ever pastes a code -- the browser leg went to claude.ai instead)
+   * and the config never flips (nobody actually finished signing in). Before
+   * this fix, nothing in this file ever declared this stuck; the record just
+   * sat there, exactly matching Josh's "I've refreshed several times but I
+   * can't get out of this".
+   */
+  connect.setAbandonedSigninMs(200);
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+
+  await connect.start();
+  await until(() => connect.state().phase === connect.PHASE.SIGNIN_AWAITING_CODE);
+
+  await until(() => connect.state().phase === connect.PHASE.STUCK, 5000);
+  const st = connect.state();
+  assert.match(st.because, /expired/, `expected an honest expiry sentence, got: ${st.because}`);
+  assert.ok(term.killed >= 1, 'the abandoned sign-in window was left running');
+});
+
+driverTest('#727 item 4: submitting a code re-arms the expiry, so an engaged retry is not punished', async () => {
+  /**
+   * ⚠️ PROVES THE RESET IS REAL, NOT A NO-OP. submitCode() clears
+   * browserWaitSince the instant a code is accepted for typing; the very
+   * next tick re-arms the clock from THAT moment. The math below is chosen
+   * so the two outcomes diverge: by the time this test asserts, the
+   * ORIGINAL (un-reset) window would already have expired, but the
+   * RESET window has not -- so a passing assertion here is only possible if
+   * the reset actually happened, not just "nothing got stuck yet".
+   */
+  connect.setAbandonedSigninMs(500);
+  const term = fakeTerminal();
+  term.onCode = () => { term.screen = SCREEN_PASTE; }; // rejected: still parked, pane unchanged
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+
+  await connect.start();
+  await until(() => connect.state().phase === connect.PHASE.SIGNIN_AWAITING_CODE);
+
+  // Submitted at ~300ms (well inside the original 500ms window either way).
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(connect.submitCode('retryCode#111111').ok, true);
+  // Now 300 + 350 = 650ms since start() -- past the ORIGINAL window's 500ms
+  // deadline -- but only ~350ms since the reset armed at ~300ms, inside its
+  // own 500ms window. Still not stuck: the reset, not luck, is what saved it.
+  await new Promise((r) => setTimeout(r, 350));
+  assert.notEqual(connect.state().phase, connect.PHASE.STUCK,
+    'a code submitted before the bound did not re-arm the expiry clock');
+});
+
+driverTest('#727 item 4: a person genuinely still there, well within the bound, is not disturbed', async () => {
+  /**
+   * The regression guard for this file's own pre-existing rule: the paste
+   * prompt and the browser wait legitimately sit unchanged for as long as a
+   * person dawdles, for any duration that is actually plausible.
+   */
+  connect.setAbandonedSigninMs(60 * 1000);
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+
+  await connect.start();
+  await until(() => connect.state().phase === connect.PHASE.SIGNIN_AWAITING_CODE);
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(connect.state().phase, connect.PHASE.SIGNIN_AWAITING_CODE,
+    'a flow well within the abandoned-signin bound was disturbed');
 });
 
 test('a secure fetch never follows a redirect down to plain http', () => {
