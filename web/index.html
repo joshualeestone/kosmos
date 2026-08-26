@@ -10839,17 +10839,20 @@ async function paintAccounts() {
     const who = esc(a.email || (isOpenai && a.keyTail ? 'API key ending ' + a.keyTail : '') || a.label || a.dir);
     const org = a.organization && a.organization !== a.email
       ? '<span class="acct-org">' + esc(a.organization) + '</span>' : '';
-    /* Both arms in the reader's world (run-through 2026-08-23): what happens
-       to an agent MOVED to this account, which is the only moment the fact
-       matters. "History follows agents here" named the mechanism and nobody
-       outside the team could say what it meant. */
+    /* #864 (Josh, 2026-08-26): "kill the line." The positive arm ("An agent
+       moved here keeps its conversation history") was filler nobody outside
+       the team could parse, per his own words at the time it was reviewed --
+       true, but a fact this box does not otherwise need to state. Says
+       nothing when there is nothing to fix, the same rule this app uses
+       everywhere else a state needs no remedy.
+       ⚠️ THE NEGATIVE ARM STAYS. It is a real, working "Fix this" button for
+       an account that does not share history, not the filler he meant --
+       removing the whole conditional would take a working action with it. */
     /* #540: the history arm is a Claude fact with a Claude ruling behind it.
        Whether codex history is shared across accounts is Josh's call and has
        not been made, so an OpenAI row says nothing about it rather than
        guessing either way. */
-    const shared = isOpenai ? ''
-      : a.memoryShared
-      ? '<span class="acct-ok">An agent moved here keeps its conversation history</span>'
+    const shared = isOpenai || a.memoryShared ? ''
       : '<button class="linkish" type="button" data-share="' + esc(a.dir) + '">An agent moved here would start with no history. Fix this</button>';
     // The provider, on every row (#382): today every account is Anthropic's,
     // and the row says so rather than the heading assuming it.
