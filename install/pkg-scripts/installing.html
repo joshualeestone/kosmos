@@ -17,12 +17,15 @@
      nothing on screen but static text. The mark and bar now stay up in
      every state; only their MOTION changes, because a hung "still
      working" animation over a state that has actually settled would be
-     the opposite lie. */
-  .mark{width:56px;height:56px;margin:0 auto 1.25rem;border-radius:14px;background:#d6a62e;color:#1c1b19;
-    display:flex;align-items:center;justify-content:center;font:700 28px/1 -apple-system,Helvetica,Arial,sans-serif;
-    animation:breathe 2.4s ease-in-out infinite}
-  @keyframes breathe{0%,100%{opacity:1}50%{opacity:.72}}
-  .mark.settled{animation:none;opacity:1}
+     the opposite lie.
+     🔑 THE MARK IS NOW THE REAL K LOADER (Josh, 2026-08-26, seeing the
+     static yellow-square badge live: "let's put our animated K that turns
+     into a circle there"), ported from the pack's `startKLoader` -- the
+     same 155-dot gather-and-scatter canvas already used on the create-
+     an-agent screen and the update overlay. Same dimensions as the
+     create screen's mark (66x77 CSS px, 132x154 canvas px) so the badge
+     reads as one identity across the app, not a fourth variant. */
+  .mark{display:block;width:66px;height:77px;margin:0 auto 1.25rem}
   .bar{width:100%;max-width:16rem;height:6px;margin:0 auto 1.25rem;border-radius:3px;background:#e6e2da;overflow:hidden}
   .bar>i{display:block;height:100%;width:40%;border-radius:3px;background:#d6a62e;animation:slide 1.3s ease-in-out infinite}
   @keyframes slide{0%{margin-left:-40%}100%{margin-left:100%}}
@@ -33,10 +36,10 @@
     font-weight:600;text-decoration:none}
   .go:hover{background:#e3b341}
   @media (prefers-color-scheme:dark){body{background:#151412;color:#ece9e2}.muted{color:#a29e95}.bar{background:#3a3833}}
-  @media (prefers-reduced-motion:reduce){.mark,.bar>i{animation:none}}
+  @media (prefers-reduced-motion:reduce){.bar>i{animation:none}}
 </style></head>
 <body><main>
-  <div class="mark" id="mark" aria-hidden="true">K</div>
+  <canvas class="mark" id="mark" width="132" height="154" aria-hidden="true"></canvas>
   <div class="bar" id="bar" role="progressbar" aria-label="Installing"><i></i></div>
   <h1 id="title">Installing Kosmos</h1>
   <p id="steps">Setting up. This usually takes a minute or two.</p>
@@ -71,6 +74,216 @@
 </main>
 <script>
 (function(){
+  /* ---- the K loader, ported verbatim from web/index.html's startKLoader
+     (Josh, 2026-08-26, seeing the static badge live: "let's put our
+     animated K that turns into a circle there") -----------------------
+     ⚠️ THIS FILE CANNOT SHARE THE PACK'S ONE IMPLEMENTATION. installing.html
+     is a standalone page opened by a LaunchAgent, not part of the served
+     app's bundle -- the "one implementation, two mounts" the source
+     comment describes is a promise about *that* file's single <script>,
+     not across separately-deployed files. So this is a real third copy,
+     kept byte-for-byte identical to the source's math (only the stop()
+     addition below is new) rather than reimplemented, to avoid the two
+     drifting the first time the mark changes anywhere.
+     CHECK_LOAD/finish() are kept rather than trimmed, even though this
+     page never calls finish() (see why below) -- so a future reader
+     diffing the two copies sees the same function, not an unexplained
+     partial port. */
+  var K_LOAD = [6,5,2.9,14,4,3.5,22,6,3.2,29,6,2.6,93,5,2.1,100,6,2.9,108,5,2.9,117,5,3.2,5,12,2.8,13,14,3.1,21,12,3.2,29,12,2.8,85,12,2.8,93,13,3.5,101,12,3.6,108,14,2.2,6,21,3.5,13,22,2.4,21,22,3.2,29,21,2.3,77,20,2.8,84,21,3.4,93,21,3.6,102,21,3.4,5,30,3.4,14,29,3.6,22,28,2.5,29,29,3.5,69,29,2.5,76,28,2.8,84,28,2.7,93,30,3.1,4,37,2.5,12,37,2.7,20,36,2.8,29,38,3.4,61,38,2.8,70,37,3.5,77,37,3.5,86,38,2.7,92,36,2.7,5,45,3.5,14,45,3.5,21,45,2.8,30,46,2.9,61,44,2.7,69,44,3.0,77,46,3.6,86,45,2.6,6,53,2.5,14,53,3.4,21,53,3.0,29,53,2.4,53,54,2.8,61,52,3.3,69,53,2.7,77,54,2.2,5,62,2.2,13,62,3.0,21,62,3.0,29,62,2.6,46,61,2.7,54,62,3.5,61,62,3.7,69,61,2.8,5,69,3.0,13,70,2.4,22,69,2.4,29,70,2.6,38,69,2.5,45,69,3.4,54,69,2.9,61,69,2.3,69,70,2.3,5,78,2.6,12,77,3.0,20,77,2.1,30,78,3.1,38,77,3.6,45,77,3.2,53,78,3.4,61,78,2.6,68,76,2.6,6,86,3.7,13,86,2.5,20,86,2.2,29,86,2.9,37,84,2.9,46,85,2.3,54,85,2.8,61,86,2.5,70,85,2.1,76,86,2.2,4,94,3.5,13,92,2.9,22,93,3.6,30,92,2.5,38,93,3.5,52,93,2.6,61,93,2.3,70,93,2.7,77,92,2.2,86,93,2.3,5,101,3.4,13,101,2.9,21,101,3.2,30,101,2.3,62,100,2.3,70,101,2.7,76,101,2.3,84,101,2.8,93,101,2.8,5,109,2.5,13,109,2.7,21,110,3.3,29,110,3.6,69,109,2.8,76,110,3.5,85,109,3.6,93,109,2.5,4,117,2.8,13,117,3.4,22,117,3.4,29,116,2.5,69,117,2.2,77,116,3.2,85,117,2.3,92,117,2.9,101,118,2.5,5,125,2.2,13,126,3.3,22,125,2.3,29,124,2.7,77,124,2.6,84,125,3.2,93,126,2.4,100,125,3.1,110,125,3.0,5,133,3.5,12,133,3.0,21,134,3.3,29,134,2.5,84,133,2.9,93,134,2.2,101,132,3.3,110,133,3.5,4,141,3.6,12,141,3.0,22,142,3.1,29,141,3.3,86,141,2.2,93,142,3.0,102,141,2.8,109,140,3.3,117,141,2.3];
+  function startKLoader(cv) {
+    if (!cv || !cv.getContext) return;
+    var g = cv.getContext('2d');
+    var W = cv.width, H = cv.height;
+    var slow = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    /* ⚠️ WHY THE RESTING STATE IS A RING AND NOT A SCATTER.
+       The first version scattered the dots to `20 + random*44` from centre,
+       which is an ANNULUS -- so its rest state was, precisely, a lumpy gold
+       doughnut with a hole in it. It read as a shape because it WAS a shape,
+       just not one anybody chose. It went unnoticed on the way up, because the
+       dots leave it immediately; on the way down they land back in it and stop,
+       which is the only moment you get a clear look.
+
+       So the rest state is now a deliberate mark instead of leftover geometry:
+       an even ring at a single radius, which is the Kosmos badge. Even angles,
+       not random ones -- randomness at this dot count reads as clumping, and
+       clumping is what made the old one look chewed. Same dots, one circle,
+       swirling into the K and opening back out to the circle. */
+    var CX = W / 2, CY = H / 2, RING = Math.min(W, H) * 0.40;
+
+    var pts = [];
+    var N = K_LOAD.length / 3;
+    for (var i = 0; i < K_LOAD.length; i += 3) {
+      var j = i / 3;
+      pts.push({
+        hx: K_LOAD[i] * (W / 128.28),
+        hy: K_LOAD[i+1] * (H / 150.28),
+        /* Even spacing round the circle, with a jitter far too small to break
+           the ring but enough that it does not look printed. */
+        ang: (j / N) * Math.PI * 2,
+        rr: RING * (0.965 + Math.random() * 0.07),
+        r: Math.max(0.9, K_LOAD[i+2] * (W / 128.28) * 0.8),
+        d: (K_LOAD[i+1] / 150.28) * 0.42 + Math.random() * 0.10,
+        g: i % 5
+      });
+    }
+    var GOLD = ['214,166,46', '227,179,65', '198,154,50', '216,182,90', '184,137,32'];
+    function ease(n) { return n < 0.5 ? 4*n*n*n : 1 - Math.pow(-2*n + 2, 3)/2; }
+
+    /* The swirl. The dot's ORIGIN rotates as it travels, so the path bends into
+       an arc instead of a straight line to the middle. Straight lines at this
+       count look like an implosion; arcs look like the mark gathering. */
+    var SWIRL = 1.15;
+
+    function frame(p, spin) {
+      g.clearRect(0, 0, W, H);
+      for (var b = 0; b < 5; b++) {
+        /* The ring is never invisible -- it is the badge, not a loading state
+           of the badge -- so alpha opens at a readable floor rather than 0. */
+        g.fillStyle = 'rgba(' + GOLD[b] + ',' + (0.42 + 0.45 * p).toFixed(2) + ')';
+        g.beginPath();
+        var any = false;
+        for (var k = 0; k < pts.length; k++) {
+          var d = pts[k];
+          if (d.g !== b) continue;
+          any = true;
+          var t = ease(Math.max(0, Math.min(1, (p - d.d) / 0.58)));
+          var a = d.ang + spin + (1 - t) * SWIRL;
+          var sx = CX + Math.cos(a) * d.rr, sy = CY + Math.sin(a) * d.rr;
+          var x = sx + (d.hx - sx) * t, y = sy + (d.hy - sy) * t;
+          g.moveTo(x + d.r, y);
+          g.arc(x, y, d.r, 0, Math.PI * 2);
+        }
+        if (any) g.fill();
+      }
+    }
+
+    /* ---- the finish ------------------------------------------------------
+       🔑 THE SAME 155 DOTS BECOME A TICK. Not a new drawing that replaces the
+       mark: every dot travels from where it sits in the K to where it sits in
+       the check, so nothing appears and nothing vanishes. That only works
+       because the two arrays are the same length AND SORTED THE SAME WAY.
+
+       🛑 THE ORDER IS THE WHOLE THING, and the first version of the check array
+       was wrong about it. It was ordered along the stroke path; `K_LOAD` is
+       raster order, rows of increasing y and left to right within a row. Paired
+       index for index those two are a SHUFFLE: every dot crosses the frame to
+       reach a partner chosen by nothing. Measured, after Mona Lisa re-sorted it:
+
+         path order,   paired by index          69.8px mean travel
+         raster order, paired by index          41.8px
+         greedy nearest-neighbour (a floor)     40.7px
+
+       Raster lands within 3% of the floor, so no matching algorithm is worth
+       running. Sort both the same way and pair by index.
+
+       ⚠️ AND IT IS ONLY EVER CALLED ON A CLEAN FINISH. A completed mark is a
+       claim that the thing finished; a partial creation resolves to the failed
+       heading with the mark still breathing, which is true and is the point.
+       ⚠️ NOT CALLED ANYWHERE IN THIS FILE. Neither of installing.html's own
+       endings is the pack's "clean finish": the taken branch found someone
+       else's board, which is not success, and the real-ready branch calls
+       location.replace() in the same tick settle() runs, so a 900ms tick
+       animation would never be seen before the page navigates away. Kept
+       so this stays the one true copy of the function rather than a
+       silently-diverged one. */
+    var CHECK_LOAD = [99.1,27.2,2.4,103.1,27.9,2.2,94.1,35.8,2.4,99.7,34.2,2.8,99.9,32.3,3.6,101.4,34.8,3.6,101.5,36,2.8,106.1,31,3.5,108.8,35.4,3.4,92.4,39.9,3.5,95.5,38.6,3.3,97,40.8,2.2,98.9,37.2,3.1,104.1,43.7,3.4,105.2,43.2,3.5,109.9,36.5,3.1,84.5,51,3.6,86.4,50.8,3.6,90.1,46.8,3.4,93.5,46.9,2.3,95.4,50.3,3.4,95.6,46.4,3.6,97.3,45.5,3.6,99.1,48.6,2.7,100.5,49.2,3.2,101.5,48.3,3,101.8,47.8,2.9,102.5,46.8,2.6,78.4,59.8,2.9,82.1,59.8,3.5,82.7,58,2.1,83.2,55.3,3.5,87.4,57.8,3.3,87.5,55.6,2.5,88.5,53.5,2.7,91.6,52.5,2.9,93.1,52.9,3.2,96.3,58.6,3.1,97.8,55.8,2.3,74.7,67.1,3.6,77,66,3.4,81.4,63.4,2.7,81.8,63.7,2.3,85.6,64.7,3.6,85.6,62.2,3.6,88.5,63.6,2.5,88.6,63.9,3.1,93.2,63.7,3.3,24.1,75.5,2.1,73.1,71,3.6,77,75.8,2.6,78.8,74.3,3.5,78.8,73.4,2.6,79.7,69.5,2.3,84.2,70.8,3.2,85.8,74.3,2.9,85.8,69.4,3.5,88.8,69.9,3.2,26.4,78.4,3.5,27.1,83.3,3.6,27.4,82.7,3.1,30.2,83.4,2.7,65.8,83.8,2.4,67.6,77.8,3.1,67.9,82.2,3.1,67.9,80.4,3.6,73.4,77,3.5,73.7,77.2,3.4,77.9,81,2.4,79.8,81.1,2.2,80,77.2,3,82.4,79.6,3.3,15.7,87.4,3.3,20.3,88.2,2.5,22,89.8,3.2,27.8,85.8,2.9,28.2,88.4,3.4,29.4,91.4,2.3,30,84.9,3.6,33.5,89.6,3.6,33.7,89.7,2.9,60.3,89.7,2.3,62.6,84.3,2.6,62.7,86,3,65.2,85.6,3.3,65.9,88.7,3.5,69.5,88,2.2,70.9,85.9,3.5,72.5,85.9,3.4,74.4,85.3,2.8,77.7,85.4,3.6,79.5,84.2,2.8,20.7,93,2.3,28.2,92.1,3.4,29.8,98.7,3.6,30.4,98.3,3.5,31.7,97.1,3,32.1,92.2,3.2,32.4,93.7,2.6,34.1,99.6,3.5,34.2,93.7,2.6,35.8,94.2,3.3,37.2,93.1,2.2,41.3,94.2,3.4,41.6,97.5,2.8,44.4,95.8,3.1,54.3,96.7,3.1,57.2,95.4,3.6,58.2,95.6,3.4,58.4,95.6,3.2,59.1,97.3,2.7,61.5,92.4,3.4,62.5,98.8,2.9,65.3,93.7,3.2,65.4,97.7,2.3,66.5,93.6,2.9,67.5,92.5,3.6,70.4,93.6,2.7,71,94.1,3.6,36.5,103.8,2.4,37.3,107,3.6,38.4,102.1,3.6,39.4,101.2,2.8,40.4,106.8,2.4,41.5,106.5,3.1,43.4,105.2,2.2,45.6,106.8,3.3,47,100.5,3.5,47.2,104.7,3.4,51.6,106.4,3.6,52.8,106.5,2.6,57.1,103.4,2.5,58.1,107,2.1,58.2,107.5,3.5,58.9,107.6,3.3,59.3,105,3.3,60,102.7,3.5,60.9,101.4,3.6,42.6,111,3,42.9,109.9,3.5,43.3,113.5,2.6,43.8,115.7,3.6,46.5,115.9,3.6,46.6,113.4,2.9,46.9,109.6,2.3,47.5,109,3.5,48.2,110.2,3.2,51.2,109.1,2.9,52.3,111,2.7,53.7,112.9,3.6,55.6,112.5,3.4,56,110.4,2.3,60,108.2,2.5,61.9,110.7,3.1,47.4,117.8,3.2];
+    for (var ci = 0; ci < CHECK_LOAD.length; ci += 3) {
+      var cp = pts[ci / 3];
+      if (!cp) break;
+      cp.cx = CHECK_LOAD[ci] * (W / 128.28);
+      cp.cy = CHECK_LOAD[ci+1] * (H / 150.28);
+      cp.cr = Math.max(0.9, CHECK_LOAD[ci+2] * (W / 128.28) * 0.8);
+    }
+    /* The app's own success green, in five bands like the gold, so the dots
+       keep the depth they had rather than flattening into one flat colour. */
+    var GREEN = ['47,125,90', '58,143,104', '38,110,78', '70,158,118', '32,96,68'];
+
+    var finishing = 0;       // 0 while working, then 0 -> 1 as it becomes a tick
+    var finishFrom = null;   // the moment the finish started, in frame time
+
+    function checkFrame(m) {
+      g.clearRect(0, 0, W, H);
+      var e = ease(Math.max(0, Math.min(1, m)));
+      for (var b = 0; b < 5; b++) {
+        var col = e < 0.5 ? GOLD[b] : GREEN[b];
+        g.fillStyle = 'rgba(' + col + ',' + (0.87 + 0.13 * e).toFixed(2) + ')';
+        g.beginPath();
+        var any = false;
+        for (var k = 0; k < pts.length; k++) {
+          var d = pts[k];
+          if (d.g !== b || d.cx === undefined) continue;
+          any = true;
+          var x = d.hx + (d.cx - d.hx) * e;
+          var y = d.hy + (d.cy - d.hy) * e;
+          var rr = d.r + (d.cr - d.r) * e;
+          g.moveTo(x + rr, y);
+          g.arc(x, y, rr, 0, Math.PI * 2);
+        }
+        if (any) g.fill();
+      }
+    }
+
+    /* ⚠️ stop() IS NEW, NOT IN THE PACK'S SOURCE. Its own comment there says a
+       stop handle is deliberate ceremony, true for its two mounts (the update
+       overlay reloads the page; the create screen always ends in finish()).
+       installing.html's "taken" branch is a third ending neither of those
+       covers: no reload, and finish()'s green tick would be a false claim of
+       success for "we found something and are not sure it is yours". Without
+       a stop, the mark would keep breathing forever under text that says the
+       search has concluded -- exactly the "hung working animation over a
+       settled state" this file's settle() exists to prevent everywhere else. */
+    var stopped = 0;
+
+    if (slow) {
+      /* Reduced motion still gets both STATES, because they are information:
+         the mark, and the mark completed. It just does not travel between them. */
+      frame(1, 0);
+      return { finish: function () { checkFrame(1); }, stop: function () {} };
+    }
+
+    var t0 = null;
+    function tick(ts) {
+      if (t0 === null) t0 = ts;
+      var el = ts - t0;
+      if (finishing) {
+        if (finishFrom === null) finishFrom = el;
+        var m = (el - finishFrom) / 900;
+        checkFrame(m);
+        if (m < 1) requestAnimationFrame(tick);
+        return;
+      }
+      if (stopped) return;
+      var cycle = (el % 4400) / 4400;
+      /* Gather, hold, open back out. The old timing gave the collapse a third
+         of the time the build got, so the mark fell apart three times faster
+         than it came together and snapped to a stop. Opening out is now nearly
+         as long as gathering, which is what makes it read as breathing. */
+      var p = cycle < 0.52 ? cycle / 0.52
+            : cycle < 0.70 ? 1
+            : 1 - (cycle - 0.70) / 0.30;
+      frame(Math.max(0, Math.min(1, p)), el / 5200);
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+    /* ⚠️ THE HANDLE IS RETURNED RATHER THAN THE LOOP BEING RESTARTED. The
+       update overlay's caller ignores it, which is why this stayed a bare
+       function for so long; the create screen needs to say "it worked" to a
+       loop that is already running. */
+    return {
+      finish: function () {
+        if (finishing) return;
+        finishing = 1;
+        /* ⚠️ IT DOES NOT WAIT FOR THE BREATH TO REACH THE TOP. Waiting would
+           put up to four seconds between the last row resolving and the mark
+           completing, and the mark would be describing something that finished
+           a while ago. It travels from wherever the dots are to the tick. */
+        requestAnimationFrame(tick);
+      },
+      stop: function () { stopped = 1; },
+    };
+  }
+
   // The board is polled with an IMAGE, not fetch: a file:// page may not fetch
   // http://127.0.0.1 (CORS / private-network rules), but an <img> load answers
   // the one question that matters, "is something serving the board's icon?",
@@ -78,12 +291,15 @@
   var PORT = "__KOSMOS_PORT__";
   var base = "http://127.0.0.1:" + PORT;
   var started = Date.now(), n = 0, first = true;
+  var loader = startKLoader(document.getElementById("mark"));
   function show(id){ document.getElementById(id).style.display = "block"; }
-  // Settles the mark and bar in place rather than hiding them: a state
-  // that has actually concluded (found something, or arrived) should
-  // read as REACHED, not as motion that was simply switched off mid-page.
+  // Settles the bar in place, and stops the K loader where it sits, rather
+  // than hiding either: a state that has actually concluded (found
+  // something, or arrived) should read as REACHED, not as motion that was
+  // simply switched off mid-page. The mark freezes instead of finishing
+  // into a checkmark on EITHER ending -- see the note above stop().
   function settle(){
-    document.getElementById("mark").classList.add("settled");
+    if (loader) loader.stop();
     document.getElementById("bar").classList.add("settled");
   }
   function tick(){

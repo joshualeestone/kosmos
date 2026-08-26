@@ -21,25 +21,43 @@ const fs = require('node:fs');
 const path = require('node:path');
 const HTML = fs.readFileSync(path.join(__dirname, 'install', 'pkg-scripts', 'installing.html'), 'utf8');
 
-test('the mark and progress bar exist and are always in the markup, not only for the ordinary wait', () => {
-  assert.match(HTML, /<div class="mark" id="mark" aria-hidden="true">K<\/div>/, 'the K mark is gone');
+test('the mark is the real K loader canvas, and the progress bar exists, both always in the markup', () => {
+  // #892/#893 shipped a static badge; #905 (Josh, 2026-08-26, seeing it
+  // live: "let's put our animated K that turns into a circle there")
+  // replaced it with the same 155-dot canvas loader the create-an-agent
+  // screen uses. Same dimensions, so the badge reads as one identity.
+  assert.match(HTML, /<canvas class="mark" id="mark" width="132" height="154" aria-hidden="true"><\/canvas>/, 'the K loader canvas is gone');
   assert.match(HTML, /<div class="bar" id="bar" role="progressbar" aria-label="Installing"><i><\/i><\/div>/, 'the progress bar is gone');
   // Neither carries its own display:none the way #late/#taken do -- they
   // are meant to be visible from the very first paint.
-  assert.doesNotMatch(HTML, /#mark\s*{[^}]*display:\s*none/, 'the mark starts hidden');
+  assert.doesNotMatch(HTML, /\.mark\s*{[^}]*display:\s*none/, 'the mark starts hidden');
   assert.doesNotMatch(HTML, /#bar\s*{[^}]*display:\s*none/, 'the bar starts hidden');
+  // The ported loader itself: pinned by name and by its two distinctive
+  // data arrays, not by re-checking its internal math line for line here
+  // (that risk belongs to the source file's own tests).
+  assert.match(HTML, /function startKLoader\(cv\) \{/, 'the ported K loader function is gone');
+  assert.match(HTML, /var K_LOAD = \[/, 'the K loader lost its dot data');
+  assert.match(HTML, /var CHECK_LOAD = \[/, 'the loader lost the finish/tick data it keeps for fidelity with the source');
 });
 
-test('settling freezes the mark and bar in place instead of hiding them', () => {
+test('settling stops the K loader where it sits, and freezes the bar in place, instead of hiding either', () => {
   assert.match(HTML, /function settle\(\)\{/, 'the settle() function is gone');
   const at = HTML.indexOf('function settle(){');
   const fn = HTML.slice(at, HTML.indexOf('}', at) + 1);
-  assert.match(fn, /mark.*classList\.add\("settled"\)/, 'settle() no longer freezes the mark');
+  assert.match(fn, /loader\.stop\(\)/, 'settle() no longer stops the K loader');
   assert.match(fn, /bar.*classList\.add\("settled"\)/, 'settle() no longer freezes the bar');
   assert.doesNotMatch(fn, /display\s*=\s*"none"/, 'settle() hides an element instead of freezing it in place');
   // Called on BOTH conclusions: the taken branch, and the real ready-to-open path.
   const onload = HTML.slice(HTML.indexOf('img.onload = function(){'), HTML.indexOf('img.onerror'));
   assert.equal((onload.match(/settle\(\);/g) || []).length, 2, 'settle() is not called on both the taken branch and the ready branch');
+});
+
+test('the loader never finishes into a checkmark on either ending -- neither is the pack\'s "clean finish"', () => {
+  // The taken branch found someone else's board (not success); the real
+  // ready branch calls location.replace() in the same tick settle() runs,
+  // so a 900ms tick animation would never be seen. finish() stays unused.
+  assert.doesNotMatch(HTML, /loader\.finish\(\)/, 'something now calls finish() -- confirm that ending is a genuine clean success before keeping this');
+  assert.match(HTML, /stop: function \(\) \{ stopped = 1; \}/, 'the stop() capability this file adds on top of the ported source is gone');
 });
 
 test('a real link is offered, wired to the actual address, never auto-navigated', () => {
@@ -81,6 +99,14 @@ test('the ordinary wait keeps its own copy: unreadable time, then a slow-downloa
 });
 
 test('reduced motion turns off both animations, and dark mode is accounted for', () => {
-  assert.match(HTML, /@media \(prefers-reduced-motion:reduce\)\{\.mark,\.bar>i\{animation:none\}\}/);
+  // The bar's spinner is still CSS, so it still turns off in CSS. The K
+  // loader's motion is entirely canvas/JS now (startKLoader reads
+  // prefers-reduced-motion itself and draws one still frame instead of
+  // animating), so there is nothing left for a CSS rule to disable on
+  // .mark -- pinned in the loader's own `slow` branch instead.
+  assert.match(HTML, /@media \(prefers-reduced-motion:reduce\)\{\.bar>i\{animation:none\}\}/);
+  assert.match(HTML, /var slow = window\.matchMedia && window\.matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches;/,
+    'the K loader stopped reading reduced-motion itself');
+  assert.match(HTML, /if \(slow\) \{/, 'the loader lost its reduced-motion branch (one still frame instead of animating)');
   assert.match(HTML, /@media \(prefers-color-scheme:dark\)/);
 });
