@@ -1272,7 +1272,11 @@ function matchedLine(text, markers) {
   const lines = String(text == null ? '' : text).split('\n');
   for (const raw of lines) {
     if (!markers.some((re) => re.test(raw))) continue;
-    const line = raw.replace(/^[\s>│├└─*]+/, '').trim();
+    /* #887: the class must also cover the two PROMPT glyphs, Claude Code's
+       ❯ (U+276F) and Codex's › (U+203A), or evidence captured from the line
+       the prompt prefixes renders as "❯ 401 {...}" on a person's screen.
+       Observed live on 0.5.31's #880 walk. */
+    const line = raw.replace(/^[\s>│├└─*❯›]+/, '').trim();
     if (!line) continue;
     return line.length > 240 ? line.slice(0, 240) + '…' : line;
   }
@@ -2705,6 +2709,11 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      hole (a question asked through the runtime's question tool fires no
  *      hook, so the reporter can honestly not know) -- and false calm is the
  *      failure that ships, four times now on this fleet.
+ *   3b. NOR IS A DEAD TOKEN OR A RATE LIMIT (#886). A scraped `auth_failed`
+ *      or `rate_limited` stands over any report: no hook fires once the
+ *      request itself is refused, so the reporter cannot know, and an idle
+ *      report never decays (rule 6), which would render a 401 loop as
+ *      "at rest" forever.
  *   4. A fresh reported `working` is working, in the agent's own words.
  *   5. A STALE `working` DECAYS TO UNKNOWN, NEVER TO IDLE. A report that
  *      stopped arriving says the REPORTER stopped, not that the agent
@@ -2740,6 +2749,16 @@ function reconcileReport(reported, scraped, nowMs) {
   // Rule 2, the other direction: it said goodbye and is visibly still here.
   if (reported.state === 'stopped') {
     return { ...scraped, reported: false, conflict: 'it reported stopping, but it is still running' };
+  }
+  // Rule 3b (#886): a DEAD TOKEN or a RATE LIMIT read off the screen stands
+  // over ANY report. Once the token is rejected no hook fires, so the
+  // reporter's last word (an idle that never decays, rule 6, or a fresh
+  // working) is precisely the thing it cannot know is stale; rendering
+  // "at rest and nothing is needed" over a 401 retry loop is the same false
+  // calm rule 3 exists for, one state over. Observed live on 0.5.31 (#880).
+  if (scraped.state === STATE.AUTH_FAILED || scraped.state === STATE.RATE_LIMITED) {
+    const what = scraped.state === STATE.AUTH_FAILED ? 'its Claude sign-in is being rejected' : 'it has hit a usage limit';
+    return { ...scraped, reported: false, conflict: 'its screen shows ' + what + ', which its reports cannot know about' };
   }
   // Rule 3: the red stands.
   if (scraped.state === STATE.NEEDS_YOU && reported.state !== 'needs_you') {

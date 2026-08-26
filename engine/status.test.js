@@ -2455,7 +2455,7 @@ test('the wording Claude Code actually uses for a spent limit reads as paused, n
 
     /* Trimmed of the tree glyph Claude Code prefixes its notices with, and
        nothing from the healthy pane. */
-    assert.doesNotMatch(card.stateEvidence, /^[\s>│├└─*]/,
+    assert.doesNotMatch(card.stateEvidence, /^[\s>│├└─*❯›]/,
       'the terminal drawing characters reached a product surface');
 
     /* 🔑 THE CONTROL: an ordinary working pane must not trip it, or the fix is
@@ -2467,6 +2467,19 @@ test('the wording Claude Code actually uses for a spent limit reads as paused, n
   } finally {
     setPaneSource(null);
     setPaneCapture(null);
+  }
+});
+
+test('#887: the prompt glyph ❯ (and Codex\'s ›) is stripped from the evidence line', () => {
+  /* Observed live on 0.5.31's #880 walk: the API's stateEvidence read
+     "❯ 401 {...}" because the strip class covered ASCII > and the box glyphs
+     but not Claude Code's own prompt marker U+276F, nor Codex's U+203A. */
+  for (const glyph of ['❯', '›']) {
+    const text = glyph + ' 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth access token is invalid."},"request_id":null}\n'
+      + '  └ Retrying in 30 seconds… (attempt 7/10)\n';
+    const r = classify(pane(), text);
+    assert.equal(r.state, STATE.AUTH_FAILED);
+    assert.match(r.evidence, /^401 /, 'the prompt glyph ' + glyph + ' reached a product surface: ' + JSON.stringify(r.evidence));
   }
 });
 
@@ -2496,7 +2509,7 @@ test('#874: a rejected OAuth token reads as auth_failed, not working forever', (
   assert.equal(r.confidence, CONFIDENCE.SCRAPED);
   assert.match(r.evidence, /OAuth access token is invalid/,
     'the matched line is not coming back, so the screen can only assert rather than show');
-  assert.doesNotMatch(r.evidence, /^[\s>│├└─*]/,
+  assert.doesNotMatch(r.evidence, /^[\s>│├└─*❯›]/,
     'the terminal drawing characters reached a product surface');
 
   /* 🔑 THE CONTROL: an ordinary working pane must not trip it, or the fix is
@@ -2732,6 +2745,51 @@ test('reconcile: a live process that reported stopping renders as what the pane 
   const got = reconcileReport(rep('stopped'), scr(STATE.WORKING, CONFIDENCE.SCRAPED), T0 + 1000);
   assert.equal(got.state, STATE.WORKING);
   assert.match(got.conflict, /reported stopping/);
+});
+
+test('#886: a scraped auth_failed stands over a reported idle, conflict surfaced (a dead token is the thing the reporter cannot know)', () => {
+  /**
+   * Observed live on 0.5.31's #880 walk: an instrumented agent reported idle,
+   * its token was then revoked, the operator messaged it and the pane showed
+   * the #874 401 retry loop. Rule 6 says idle never decays, so before this
+   * the board rendered "it is at rest and nothing is needed" at STRUCTURED
+   * confidence, indefinitely. The false calm rule 3 exists for, one state
+   * over.
+   */
+  const got = reconcileReport(rep('idle'),
+    scr(STATE.AUTH_FAILED, CONFIDENCE.SCRAPED, 'OAuth access token is invalid.'), T0 + 60_000);
+  assert.equal(got.state, STATE.AUTH_FAILED, 'a dead token is rendered as at rest because the last report said idle');
+  assert.equal(got.confidence, CONFIDENCE.SCRAPED);
+  assert.equal(got.because, 'OAuth access token is invalid.');
+  assert.equal(got.reported, false);
+  assert.match(got.conflict, /sign-in is being rejected/, 'the contradiction must be surfaced, never silently resolved');
+
+  /* A FRESH working report loses too: the reporter's last word predates the
+     refusal by definition, since no hook fires once requests are refused. */
+  const fresh = reconcileReport(rep('working'),
+    scr(STATE.AUTH_FAILED, CONFIDENCE.SCRAPED, 'OAuth access token is invalid.'), T0 + 1000);
+  assert.equal(fresh.state, STATE.AUTH_FAILED);
+
+  /* And `started`, the supervisor's restart, which reconciles to the same
+     at-rest verdict idle does. */
+  const started = reconcileReport(rep('started'),
+    scr(STATE.AUTH_FAILED, CONFIDENCE.SCRAPED, 'OAuth access token is invalid.'), T0 + 1000);
+  assert.equal(started.state, STATE.AUTH_FAILED);
+});
+
+test('#886: a scraped rate_limited stands over a stale working report rather than decaying to unknown', () => {
+  /* Before: rule 5 decayed the stale working to UNKNOWN, discarding the one
+     certain thing on the screen. The screen's sentence is the answer. */
+  const got = reconcileReport(rep('working'),
+    scr(STATE.RATE_LIMITED, CONFIDENCE.SCRAPED, "You've reached your Fable 5 limit."),
+    T0 + REPORT_WORKING_DECAY_MS + 60_000);
+  assert.equal(got.state, STATE.RATE_LIMITED);
+  assert.match(got.conflict, /usage limit/);
+  /* Control: a calm scrape beside a reported idle still reads idle, so the
+     rule is about these two states and not "the scrape always wins". */
+  const calm = reconcileReport(rep('idle'), scr(STATE.IDLE, CONFIDENCE.SCRAPED), T0);
+  assert.equal(calm.state, STATE.IDLE);
+  assert.equal(calm.reported, true);
 });
 
 test('reconcile: the red is never suppressed -- a scraped needs_you beside a calm report stands, conflict surfaced', () => {
