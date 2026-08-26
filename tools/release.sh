@@ -393,7 +393,15 @@ if [ -f "$SITE/dist/kosmos-$V-arm64.tar.gz" ] && ! cmp -s "$REPO/dist/kosmos-arm
   echo "refusing to republish $V with different bytes (the versioned name is cache-immutable); bump the version"; exit 1
 fi
 cp "$REPO/dist/kosmos-arm64.tar.gz" "$SITE/dist/kosmos-$V-arm64.tar.gz"
-cp "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256"
+# The versioned .sha256 NAMES THE VERSIONED FILE (#930): a copy of the build's
+# checksum carried the build-local name, so `shasum -c` on the served pair
+# failed on good bytes for 35 releases. sha256_publish_as rewrites the name
+# and proves the pair with shasum -c in place; a pair that cannot verify
+# itself is a refusal, not a publish.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/sha256-name.sh"
+sha256_publish_as "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" || exit 1
+(cd "$SITE/dist" && shasum -a 256 --status -c kosmos-arm64.tar.gz.sha256) || { echo "the plain pair in $SITE/dist does not verify with shasum -c" >&2; exit 1; }
+echo "   kosmos-$V-arm64.tar.gz.sha256 names its file and verifies in place (shasum -c)"
 node -e "require('node:fs').writeFileSync('$SITE/dist/latest.json', JSON.stringify({version:'$V'})+'\n')"
 echo "   latest.json -> $(cat "$SITE/dist/latest.json")"
 
