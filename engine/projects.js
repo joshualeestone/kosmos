@@ -4,7 +4,7 @@
  * #863 (Josh, 2026-08-25 10:41): a comma-joined project list with no "and"
  * before the last item reads as a run-on list with no ending -- worse, the
  * sentence this list sits inside (WROTE_WHY.on, below) is itself appended
- * to with ", and told it on its screen" (projects.js:2131), so with no "and"
+ * to with ", and told it on its screen" (projects.js:2155), so with no "and"
  * of its own the last project name and "told it on its screen" read as the
  * SAME kind of list item. One item: the name alone. Two: "A and B". Three
  * or more: an Oxford comma before the final "and", the plainer of the two
@@ -2130,9 +2130,9 @@ function syncAgent(sessionName, roster) {
   return verdict;
 }
 
-/** The staleness verdict, with the pane's word in it (#732). A membership
+/** The staleness verdict, with the screen's word in it (#732). A membership
  * change rewrites the agent's instruction file (a real edit after its start)
- * AND tells the agent in its pane; the page then said "Restart it so it knows"
+ * AND tells the agent on its screen; the page then said "Restart it so it knows"
  * about an agent that had just been told. When the edit was Kosmos's own and a
  * project's told record for this agent is TOLD at or after that edit, the
  * verdict is `told`, not `stale`: it knows, and the restart button would be
