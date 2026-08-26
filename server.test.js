@@ -10507,8 +10507,16 @@ test('the report route derives the sender from the pane, records, and the board 
     assert.equal(JSON.parse(r.body).recorded, true, 'the report was not kept: ' + r.body);
 
     /* Kept under the PANE-derived name. The body carries no sender field at
-       all, which is the property (not a detail): an agent can only ever
-       report as itself, so the record is evidence rather than typing. */
+       all, which is the property (not a detail): an agent cannot NAME
+       itself, so the record is derived rather than typed.
+
+       ⚠️ NOT "an agent can only ever report as itself", which is what this
+       comment used to say. Pane ids are enumerable and this server has no
+       auth, so a local process CAN report as another agent by passing its
+       pane. The `/api/reply` comment has said so since its own too-strong
+       wording was corrected; this was one of the copies that never got the
+       correction (#570). What the missing `from` field buys is the end of
+       self-naming, which is real and is not the same as unforgeable. */
     const kept = selfreportEngine.read('peteworker');
     assert.equal(kept.state, 'working');
     assert.equal(kept.because, 'wiring the report route');
