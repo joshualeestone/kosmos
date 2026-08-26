@@ -873,7 +873,20 @@ uninstall() {
       # fragile code this file avoids everywhere else.
       _orphan_home_bin="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:1' "$_orphan_plist" 2>/dev/null)"
       case "$_orphan_home_bin" in
-        */bin/kosmos) _orphan_home="${_orphan_home_bin%/bin/kosmos}" ;;
+        # ⚠️ `*` MATCHES ZERO-WIDTH: a ProgramArguments[1] of exactly
+        # "/bin/kosmos" (no home prefix at all) still matches `*/bin/kosmos`
+        # and would strip to an EMPTY `_orphan_home`. That empty string then
+        # defeats both signals below: `[ -d "" ]` reads false ("gone"), and
+        # `dirname ""` is POSIX-defined as "." -- a directory that always
+        # exists -- so the parent-readability guard passes unconditionally
+        # too. Caught in challenge-loop iteration 2: a degenerate plist
+        # (hand-edited, or corrupted) would sail through both checks that
+        # exist specifically to refuse an uncertain read. Required absolute
+        # up front instead: a real KOSMOS_HOME this file ever derives is
+        # always an absolute path, so anything else is already "not shaped
+        # like this file's own writer produced" and refused the same way
+        # the shape-mismatch arm below already refuses one.
+        /*/bin/kosmos) _orphan_home="${_orphan_home_bin%/bin/kosmos}" ;;
         # Not shaped like this file's own writer produced (a hand-edited or
         # future-format plist) -- leave it alone rather than guess.
         *) continue ;;

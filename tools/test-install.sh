@@ -1993,6 +1993,31 @@ chk "the port is genuinely free before #918's uninstall runs" "wait_port_free"
 chk "four distinct board labels (three suffixed, one bare default) are registered in the shared launch dir before anything is torn down" \
   "[ \"\$(ls \"$D918_LAUNCH\"/com.kosmos.board*.plist 2>/dev/null | wc -l | tr -d ' ')\" = 4 ]"
 
+# 🔑 CHALLENGE-LOOP ITERATION 2: a plist shaped nothing like this file's own
+# writer produces -- ProgramArguments[1] is exactly "/bin/kosmos", no home
+# prefix at all -- used to slip past BOTH refusal signals at once: an empty
+# derived `_orphan_home` reads `[ -d "" ]` as false ("gone"), and
+# `dirname ""` is POSIX-defined as "." -- a directory that always exists --
+# so the parent-readability guard passed unconditionally too. Placed here,
+# in the SAME shared launch dir the real sweep below is about to run
+# against, so this is a genuine end-to-end proof through the shipped loop,
+# not an isolated unit check.
+cat > "$D918_LAUNCH/com.kosmos.board.degenerate.plist" <<'D918_DEGENERATE'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.kosmos.board.degenerate</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/bin/kosmos</string>
+    <string>start</string>
+  </array>
+</dict>
+</plist>
+D918_DEGENERATE
+
 # Scenario A's scratch directory is deleted DIRECTLY -- exactly the walk
 # convention #918 is about, never running --uninstall against it.
 rm -rf "$D918_KHOME_A"
@@ -2019,6 +2044,8 @@ chk "scenario C's own KOSMOS_HOME directory is untouched (only its label was che
 chk "the bare default label (scenario D, a real install's own board) survives the sweep untouched" \
   "[ -f \"$D918_LAUNCH/com.kosmos.board.plist\" ]"
 chk "scenario D's own KOSMOS_HOME directory is untouched too" "[ -d \"$D918_HOME_D/.local/share/kosmos\" ]"
+chk "a degenerate plist (ProgramArguments[1] with no home prefix) is left alone, not guessed at" \
+  "[ -f \"$D918_LAUNCH/com.kosmos.board.degenerate.plist\" ]"
 HOME="$D918_HOME_D" "$D918_HOME_D/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
 KOSMOS_HOME="$D918_KHOME_C" "$D918_KHOME_C/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free after #918's scenario" "wait_port_free"

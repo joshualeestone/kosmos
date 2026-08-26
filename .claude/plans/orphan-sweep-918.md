@@ -59,12 +59,26 @@ inline loop:
    this glob by construction -- confirmed the exact character-count reasoning, not assumed.
 2. For each match, reads `ProgramArguments[1]` via `PlistBuddy` and strips the trailing
    `/bin/kosmos` to recover that label's own `KOSMOS_HOME`. A plist not shaped this way (a
-   future format, a hand-edit) is left alone rather than guessed at.
-3. **The only signal: does that `KOSMOS_HOME` still exist on disk.** If it does, the label
-   is left completely alone -- this is what protects a live walk in progress (its home
+   future format, a hand-edit) is left alone rather than guessed at -- and the shape check
+   itself requires an ABSOLUTE path (`/*/bin/kosmos`, not the looser `*/bin/kosmos`):
+   caught in challenge-loop iteration 2, the looser pattern's `*` can match zero-width, so a
+   degenerate `ProgramArguments[1]` of exactly `/bin/kosmos` (no home prefix) derived an
+   EMPTY `KOSMOS_HOME`, which then defeated both refusal signals below at once (an empty
+   string reads `[ -d ]` false, and `dirname ""` is POSIX-defined as `.` -- a directory that
+   always exists).
+3. **The primary signal: does that `KOSMOS_HOME` still exist on disk.** If it does, the
+   label is left completely alone -- this is what protects a live walk in progress (its home
    present, its own `--uninstall` just not yet run) from ever being booted out from under
    it. Only a confirmed-gone home is swept.
-4. Under a real (non-sandboxed) launch dir, the same `launchctl enable` + `bootout` +
+4. **A second signal, added in challenge-loop iteration 1: is the home's PARENT directory
+   also readable right now.** A bare `[ -d ]` alone cannot tell a genuinely-deleted home
+   apart from one that is merely transiently unreachable (an unmounted volume, a network
+   share hiccup, an ancestor directory the process briefly cannot stat) -- and this sweep
+   runs on every uninstall, unscoped to the one `KOSMOS_HOME` the caller actually named. If
+   the parent is also unreadable, that reads as "cannot tell" (a `KOSMOS_HOME`'s own parent
+   does not vanish on its own) and the label is left alone, rather than acted on as a
+   confirmed negative.
+5. Under a real (non-sandboxed) launch dir, the same `launchctl enable` + `bootout` +
    `rm -f` sequence the current install's own label removal already uses. Under
    `AGENT_WORKFORCE_LAUNCH` (a test harness), `launchctl` is skipped entirely (there is no
    real registration in a sandboxed dir to touch) and only the file is removed -- the same
@@ -90,13 +104,26 @@ second, separately-invoked tool.
 
 ## Test plan
 
-`tools/test-install.sh`, a new `#918` section following the established fixture style: two
-sandboxed installs sharing ONE launch dir (the way two walk runs on one Mac would), a THIRD
-install in the same shared launch dir to prove a still-alive label survives, one of the
-homes deleted directly (no `--uninstall`, reproducing the exact walk-convention shape),
-then a plain `--uninstall` of a completely different `KOSMOS_HOME` in that same launch dir
--- confirms the orphan is swept as a side effect, the live one survives untouched, and its
-own `KOSMOS_HOME` directory is never touched (only its label was checked).
+`tools/test-install.sh`, a new `#918` section following the established fixture style, five
+scenarios sharing ONE launch dir (the way multiple walk runs on one Mac would):
+
+- **A and B** -- two sandboxed installs. A's `KOSMOS_HOME` is deleted directly (no
+  `--uninstall`, reproducing the exact walk-convention shape #918 is about); a plain
+  `--uninstall` of B (a completely different `KOSMOS_HOME`) must sweep A's now-orphaned
+  label as a side effect, even though the uninstall never named it.
+- **C** -- a third sandboxed install, left alive the whole time, to prove a still-live
+  label survives a sweep it has no reason to trigger, and that its own `KOSMOS_HOME`
+  directory is never touched (only its label is checked).
+- **D, added in challenge-loop iteration 1** -- a genuinely DEFAULT `KOSMOS_HOME` install in
+  the same shared launch dir, giving the sweep a REAL, unsuffixed `com.kosmos.board.plist`
+  (the one label every normal end-user install has) to prove survives the actual shipped
+  loop, not just the glob-exclusion reasoning in `setup.sh`'s own comment -- the single
+  highest-stakes property this fix has, since a bug here would stop a real person's board
+  from launching at their next login.
+- **A hand-crafted degenerate plist, added in challenge-loop iteration 2** -- a
+  `ProgramArguments[1]` of exactly `/bin/kosmos` (no home prefix at all), placed in the same
+  shared launch dir, proving it survives the sweep untouched rather than being misread as a
+  confirmed orphan through the empty-string derivation described above.
 
 `AGENT_WORKFORCE_LAUNCH` is pinned to a sandboxed directory for every step in this
 scenario, matching the file's own `#946` safety rule (an unpinned launch dir with a
