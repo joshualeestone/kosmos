@@ -8391,19 +8391,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <label class="flabel" for="style-theme">Theme</label>
       <select class="tk-inp" id="style-theme"></select>
       <p class="fhint">Changes apply as soon as you pick one.</p>
-    </div>
-
-    <div class="field" style="margin-top:16px;">
-      <label class="flabel" for="style-custom">A style of your own</label>
-      <p class="fhint">Ask one of your agents to write you a style file:
-      lines of <code>--name: value;</code>, one color or size per line.
-      Paste it here and it applies on top of the theme, in light and dark
-      alike.</p>
-      <textarea class="tk-inp" id="style-custom" rows="6" spellcheck="false"></textarea>
-      <div class="frow" style="margin-top:8px;">
-        <button class="btn uprime" type="button" id="style-apply">Apply</button>
-        <button class="btn" type="button" id="style-clear" hidden>Remove my style</button>
-      </div>
+      <!-- 🛑 #style-msg LIVES HERE NOW, and moving it was not optional
+           (kosmos#1001). It used to sit inside the "A style of your own" block
+           that this card removes, but it was never that block's message slot --
+           the THEME picker writes its save failures here, and so does the
+           corrupt-saved-style notice. Deleting the block with it inside, which
+           is what the card literally described, leaves
+           `document.getElementById('style-msg').textContent = ''` running
+           against null and throws on every theme change.
+           ⚠️ A removal is two changes: what goes, and what was quietly leaning
+           on it. -->
       <p class="fmsg" id="style-msg" role="alert" aria-live="assertive"></p>
     </div>
   </section>
@@ -18845,7 +18842,6 @@ async function paintStyles(apply) {
     const html = (r.themes || []).map((t) => '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>').join('');
     if (sel.innerHTML !== html) sel.innerHTML = html;
     sel.value = r.theme;
-    document.getElementById('style-clear').hidden = !(r.customCount > 0);
   }
   /* A corrupt saved style falls back to the shipped look AND says so
      here, the promise the engine's because field exists to keep. */
@@ -18870,41 +18866,8 @@ if (document.getElementById('style-theme')) document.getElementById('style-theme
        standing, never a pick that neither saved nor applied. */
     if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; paintStyles(false); return; }
     applyStyle(body.tokens);
-    document.getElementById('style-clear').hidden = !(body.customCount > 0);
   } catch { msg.textContent = 'we could not save the style'; paintStyles(false); }
 });
-if (document.getElementById('style-apply')) document.getElementById('style-apply').addEventListener('click', async () => {
-  const msg = document.getElementById('style-msg');
-  msg.textContent = '';
-  const text = document.getElementById('style-custom').value;
-  try {
-    STYLE_REQ += 1;
-    const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ customText: text }) });
-    const body = await res.json().catch(() => null);
-    if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; return; }
-    applyStyle(body.tokens);
-    document.getElementById('style-clear').hidden = !(body.customCount > 0);
-    STYLE_STORE_MSG = false;
-    msg.textContent = body.customCount === 1 ? 'Applied: 1 token.'
-      : body.customCount > 0 ? 'Applied: ' + body.customCount + ' tokens.' : 'Applied.';
-  } catch { msg.textContent = 'we could not save the style'; }
-});
-if (document.getElementById('style-clear')) document.getElementById('style-clear').addEventListener('click', async () => {
-  const msg = document.getElementById('style-msg');
-  msg.textContent = '';
-  try {
-    STYLE_REQ += 1;
-    const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ customText: '' }) });
-    const body = await res.json().catch(() => null);
-    if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; return; }
-    document.getElementById('style-custom').value = '';
-    applyStyle(body.tokens);
-    document.getElementById('style-clear').hidden = true;
-    STYLE_STORE_MSG = false;
-    msg.textContent = 'Your style is removed; the theme stays.';
-  } catch { msg.textContent = 'we could not save the style'; }
-});
-
 /* ---- Plus Account (the relay service's Settings home) -----------------
    The holding place is the RESTING state: the flow renders only when this
    machine actually has a relay configured, so nothing on the tab can look

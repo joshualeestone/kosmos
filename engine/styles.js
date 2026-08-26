@@ -96,44 +96,6 @@ function valueProblem(value) {
   return null;
 }
 
-function parseTokens(text) {
-  const raw = String(text == null ? '' : text);
-  if (raw.length > 8000) return { ok: false, because: 'that style is too long; keep it under 8000 characters' };
-  const byName = new Map();
-  const lines = raw.split('\n');
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    /* Lazy, then end-anchored: a line carrying a declaration AFTER its
-       comment is not a comment line, and falls through to be refused by
-       name rather than silently dropped. */
-    if (!line.trim() || /^\s*\/\*.*?\*\/\s*$/.test(line)) continue;
-    if (/^\s*\/\*/.test(line) && !line.includes('*/')) {
-      return { ok: false, because: 'line ' + (i + 1) + ' opens a comment it does not close on the same line' };
-    }
-    const m = LINE.exec(line);
-    if (!m) {
-      const nm = /^\s*--[a-z0-9-]{1,40}\s*:\s*(.*)$/i.exec(line);
-      if (nm && nm[1].replace(/;\s*$/, '').trim().length > 120) {
-        return { ok: false, because: 'line ' + (i + 1) + ' sets a value longer than 120 characters' };
-      }
-      return { ok: false, because: 'line ' + (i + 1) + ' is not a token line; every line looks like --name: value;' };
-    }
-    if (!m[2].trim()) {
-      return { ok: false, because: 'line ' + (i + 1) + ' sets no value' };
-    }
-    const bad = valueProblem(m[2]);
-    if (bad) return { ok: false, because: 'line ' + (i + 1) + ' ' + bad };
-    /* Lowercased deliberately: custom properties are case-sensitive in
-       CSS, but every token this page ships is lowercase, so one casing
-       means a paste always hits the token it names. Last value wins,
-       as it would in a real style sheet, so the count reported is the
-       count actually in force. */
-    byName.set(m[1].toLowerCase(), m[2]);
-    if (byName.size > 60) return { ok: false, because: 'that style sets more than 60 tokens, which is more than the whole page uses' };
-  }
-  return { ok: true, tokens: [...byName].map(([name, value]) => ({ name, value })) };
-}
-
 function read() {
   try {
     const data = JSON.parse(fs.readFileSync(FILE(), 'utf8'));
@@ -177,7 +139,7 @@ function write(next) {
 
 /* One request, one write: both halves validated BEFORE anything lands,
    so a refused paste can never leave a half-applied theme behind it. */
-function set({ theme, customText, layout }) {
+function set({ theme, layout }) {
   const now = read();
   let nextTheme = now.theme;
   if (theme !== undefined) {
@@ -186,12 +148,12 @@ function set({ theme, customText, layout }) {
     if (typeof theme !== 'string' || !Object.hasOwn(THEMES, theme)) return { ok: false, because: 'pick a theme from the list' };
     nextTheme = theme;
   }
-  let nextCustom = now.custom;
-  if (customText !== undefined) {
-    const parsed = parseTokens(customText);
-    if (!parsed.ok) return parsed;
-    nextCustom = parsed.tokens;
-  }
+  /* kosmos#1001: the paste-your-own-tokens box is gone, so nothing can SET
+     this any more. The stored value is carried through untouched rather than
+     dropped: removing a feature is not a licence to delete what somebody
+     already saved, and a `custom` key sitting unread costs nothing while
+     rewriting the file without it is irreversible. */
+  const nextCustom = now.custom;
   let nextLayout = now.layout;
   if (layout !== undefined) {
     if (layout !== 'tabs' && layout !== 'consolidated') return { ok: false, because: 'the layout is tabs or consolidated' };
@@ -201,18 +163,20 @@ function set({ theme, customText, layout }) {
   catch { return { ok: false, because: 'we could not save the style' }; }
 }
 
-/* What the page actually applies: the theme's set with the custom set on
-   top, custom winning, because the pasted file is the person's own last
-   word. */
+/* What the page applies: the theme's set. kosmos#1001 removed the pasted
+   overrides that used to be merged on top -- Josh, 2026-08-26, and the reason
+   is the product's own test: it asked a non-technical person to obtain a CSS
+   variable file from an agent and paste it into a textarea. There is no
+   version of the training-room walkthrough where that is a step.
+   ⚠️ `customCount` goes with it. It was only ever read to decide whether to
+   show "Remove my style", and that button is gone. */
 function effective() {
   const now = read();
-  const out = { ...THEMES[now.theme].tokens };
-  for (const t of now.custom) out[t.name] = t.value;
-  return { theme: now.theme, tokens: out, customCount: now.custom.length, layout: now.layout || 'tabs', ok: now.ok, because: now.because || null };
+  return { theme: now.theme, tokens: { ...THEMES[now.theme].tokens }, layout: now.layout || 'tabs', ok: now.ok, because: now.because || null };
 }
 
 function themeList() {
   return Object.entries(THEMES).map(([key, t]) => ({ key, label: t.label }));
 }
 
-module.exports = { read, set, effective, themeList, parseTokens, FILE, THEMES };
+module.exports = { read, set, effective, themeList, FILE, THEMES };

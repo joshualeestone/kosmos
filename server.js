@@ -2422,15 +2422,20 @@ const server = http.createServer((req, res) => {
         if (typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         /* A present-but-mistyped field is a 400 naming the field, never
            a silent no-change 200 a scripted client reads as saved. */
+        /* 🛑 REFUSED BY NAME, NOT IGNORED (kosmos#1001). The paste-your-own-
+           style box is gone, so this field can no longer do anything -- and
+           accepting it with a 200 that changes nothing is the exact shape this
+           route's own tests forbid: "never a silent no-change 200 a scripted
+           client would read as saved". Whatever sent it believes it applied a
+           style; it did not, and it deserves to be told. */
+        if ('customText' in body) { sendJson(res, 400, { error: 'customText is no longer accepted: the paste-your-own-style box was removed' }); return; }
         if ('theme' in body && typeof body.theme !== 'string') { sendJson(res, 400, { error: 'theme must be a string' }); return; }
-        if ('customText' in body && typeof body.customText !== 'string') { sendJson(res, 400, { error: 'customText must be a string' }); return; }
         if ('layout' in body && typeof body.layout !== 'string') { sendJson(res, 400, { error: 'layout must be a string' }); return; }
         /* One validated write for the whole request: sequential setters
            left a half-applied theme behind a refused paste, and the 400
            then named only the paste while the store had already moved. */
         const saved = styles.set({
           theme: typeof body.theme === 'string' ? body.theme : undefined,
-          customText: typeof body.customText === 'string' ? body.customText : undefined,
           layout: typeof body.layout === 'string' ? body.layout : undefined,
         });
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
