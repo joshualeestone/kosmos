@@ -188,17 +188,25 @@ func startBoard(kosmosHome: String, port: Int) -> StartResult {
     process.environment = env
     let stderrPipe = Pipe()
     process.standardError = stderrPipe
-    process.standardOutput = Pipe() // discarded; `say()` output is not shown, matching the bash launcher (>/dev/null 2>&1)
+    // The null device, NOT a Pipe(): a Pipe nobody drains has a ~64KB kernel
+    // buffer, and a chatty child blocks on write against it, deadlocking the
+    // wait below forever (#965 review). /dev/null has no buffer to fill.
+    // Output is still discarded either way, matching the bash launcher's
+    // >/dev/null 2>&1 for `say()` chatter.
+    process.standardOutput = FileHandle.nullDevice
     do {
         try process.run()
-        process.waitUntilExit()
     } catch {
         return .failed("Could not run \(kosmosBin): \(error.localizedDescription)")
     }
+    // Drain stderr BEFORE waiting, for the same deadlock reason: this read
+    // consumes as the child writes, so stderr can never fill either, and it
+    // returns at the child's EOF -- after which the wait is immediate.
+    let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
     if process.terminationStatus == 0 {
         return .alreadyRunningOrStarted
     }
-    let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
     let errText = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return .failed(errText.isEmpty ? "kosmos start exited \(process.terminationStatus)" : errText)
 }
@@ -240,6 +248,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // loadBoard() re-run; set/cleared ONLY in the three navigation delegate
     // methods below and at the top of loadBoard().
     private var lastLoadFailed = false
+    // #965: set when a user-initiated reload takes the plain webView.reload()
+    // branch, consumed by didFailProvisionalNavigation to fall through to
+    // loadBoard() ONCE -- so the "board died after a good load" case recovers
+    // on a single Cmd-R instead of two. Cleared on any successful load.
+    private var recoverOnReloadFailure = false
+    // #965: a board start is already running on the background queue; reload
+    // requests are ignored until it resolves, so two Cmd-R presses (or the
+    // test seam firing during a slow boot) cannot race two `kosmos start`
+    // invocations.
+    private var boardStartInFlight = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -251,11 +269,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // fire reloadBoard() once after N seconds, so a harness can drive the
         // reload decision path end to end without Accessibility permission for
         // synthetic Cmd-R keystrokes. Never set by the installer.
-        if let after = ProcessInfo.processInfo.environment["KOSMOS_APP_TEST_RELOAD_AFTER"],
-           let seconds = Double(after), seconds >= 0 {
-            logLine("KOSMOS_APP_TEST_RELOAD_AFTER=\(seconds): scheduling one test reload")
-            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
-                self?.reloadBoard(nil)
+        if let after = ProcessInfo.processInfo.environment["KOSMOS_APP_TEST_RELOAD_AFTER"] {
+            if let seconds = Double(after), seconds >= 0 {
+                logLine("KOSMOS_APP_TEST_RELOAD_AFTER=\(seconds): scheduling one test reload")
+                DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+                    self?.reloadBoard(nil)
+                }
+            } else {
+                // A bad value logs its rejection rather than vanishing, in the
+                // file's observe-everything style -- a harness with a typo'd
+                // value should see WHY nothing fired.
+                logLine("KOSMOS_APP_TEST_RELOAD_AFTER=\(after): rejected (not a non-negative number of seconds)")
             }
         }
     }
@@ -321,23 +345,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         logLine("resolved kosmosHome=\(resolved.kosmosHome) port=\(resolved.port)")
 
-        switch startBoard(kosmosHome: resolved.kosmosHome, port: resolved.port) {
-        case .failed(let message):
-            logLine("startBoard failed: \(message)")
-            // Bash launcher wording verbatim, including its ONE distinction:
-            // "your Kosmos" only for a different account opening its OWN
-            // install (isOwnAccount == false); the generic "Kosmos" for
-            // every other failure, override included.
-            let whose = resolved.isOwnAccount ? "Kosmos" : "your Kosmos"
-            showStartupFailureAlert(detail: "Something went wrong while \(whose) was starting. Installing it again usually fixes this: open installkosmos.com and click Download for macOS. Your agents and settings stay on this Mac; installing again does not remove them.")
-        case .alreadyRunningOrStarted:
-            let urlString = "http://127.0.0.1:\(resolved.port)"
-            guard let url = URL(string: urlString) else {
-                showStartupFailureAlert(detail: "The address \(urlString) is not a valid URL.")
-                return
+        // #965: `bin/kosmos start` health-checks and, when the board is down,
+        // runs a full boot -- seconds of wall clock. At launch that block was
+        // invisible; now that Cmd-R re-enters this path mid-session, running
+        // it on the main thread would beachball the app for the whole boot.
+        // Run it off the main thread; every UI outcome marshals back.
+        boardStartInFlight = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = startBoard(kosmosHome: resolved.kosmosHome, port: resolved.port)
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.boardStartInFlight = false
+                switch result {
+                case .failed(let message):
+                    logLine("startBoard failed: \(message)")
+                    // Bash launcher wording verbatim, including its ONE distinction:
+                    // "your Kosmos" only for a different account opening its OWN
+                    // install (isOwnAccount == false); the generic "Kosmos" for
+                    // every other failure, override included.
+                    let whose = resolved.isOwnAccount ? "Kosmos" : "your Kosmos"
+                    self.showStartupFailureAlert(detail: "Something went wrong while \(whose) was starting. Installing it again usually fixes this: open installkosmos.com and click Download for macOS. Your agents and settings stay on this Mac; installing again does not remove them.")
+                case .alreadyRunningOrStarted:
+                    let urlString = "http://127.0.0.1:\(resolved.port)"
+                    guard let url = URL(string: urlString) else {
+                        self.showStartupFailureAlert(detail: "The address \(urlString) is not a valid URL.")
+                        return
+                    }
+                    logLine("LOADING \(url.absoluteString)")
+                    self.webView.load(URLRequest(url: url))
+                }
             }
-            logLine("LOADING \(url.absoluteString)")
-            webView.load(URLRequest(url: url))
         }
     }
 
@@ -367,19 +404,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         lastLoadFailed = false
+        recoverOnReloadFailure = false
         webView.evaluateJavaScript("document.title") { result, _ in
             logLine("PAGE LOADED, document.title=\(result ?? "<nil>")")
         }
     }
 
+    // A cancelled navigation (NSURLErrorCancelled, -999) is delivered for
+    // benign superseded loads -- a new request starting while one is still in
+    // flight, some JS-driven redirects -- and says nothing about the page's
+    // health. Counting it as a failure would leave a healthy page flagged,
+    // and the next Cmd-R would take the heavy loadBoard() branch and throw
+    // away the user's current place in the app (#965 review).
+    private func isBenignCancellation(_ error: Error) -> Bool {
+        let e = error as NSError
+        return e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled
+    }
+
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        lastLoadFailed = true
         logLine("PAGE LOAD FAILED: \(error.localizedDescription)")
+        if isBenignCancellation(error) { return }
+        lastLoadFailed = true
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        lastLoadFailed = true
         logLine("PROVISIONAL LOAD FAILED: \(error.localizedDescription)")
+        if isBenignCancellation(error) { return }
+        lastLoadFailed = true
+        // One-shot fall-through (#965): the user pressed Cmd-R against a page
+        // that then turned out to be dead (the board died AFTER a good load,
+        // the likeliest field case). Recover on THIS press instead of making
+        // them press twice. Consumed before the retry, so a still-dead board
+        // cannot loop: the retry's own failure lands back here with the flag
+        // already down.
+        if recoverOnReloadFailure {
+            recoverOnReloadFailure = false
+            logLine("reload hit a dead page; falling through to loadBoard() once")
+            loadBoard()
+        }
     }
 
     // MARK: Reload (#965) -- Cmd-R / View > Reload
@@ -395,9 +457,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     //     also RECOVERS a window whose board needs starting -- the actual
     //     "stuck in a spot" from the report, where relaunching the app was
     //     previously the only way out.
+    //   - The page LOOKED fine but the board died after it loaded: the
+    //     reload() branch runs, its navigation fails, and the provisional-
+    //     failure delegate falls through to loadBoard() once -- so that case
+    //     too recovers on a single press, not two.
     @objc func reloadBoard(_ sender: Any?) {
+        if boardStartInFlight {
+            logLine("reload: ignored, a board start is already in flight")
+            return
+        }
         if let url = webView.url, !lastLoadFailed {
             logLine("reload: webView.reload() of \(url.absoluteString)")
+            recoverOnReloadFailure = true
             webView.reload()
         } else {
             logLine("reload: no healthy page (url=\(webView.url?.absoluteString ?? "<nil>"), lastLoadFailed=\(lastLoadFailed)), re-running loadBoard()")
