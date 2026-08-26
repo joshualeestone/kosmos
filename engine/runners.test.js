@@ -516,3 +516,46 @@ test('#979: the arch guard does not apply to the vendor-installer kind', async (
     delete process.env.AGENT_WORKFORCE_HOME;
   }
 });
+
+test('#979: present means RUNNABLE, a directory or stripped file at a runner path reads absent (#133 trap)', () => {
+  delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
+  try {
+    fs.mkdirSync(CANONICAL, { recursive: true }); // a DIRECTORY at the runner path
+    let r = runners.resolveBin('claude');
+    assert.equal(r.present, false, 'a directory must not read as a runnable runner');
+    fs.rmSync(CANONICAL, { recursive: true, force: true });
+    put(CANONICAL); fs.chmodSync(CANONICAL, 0o644); // a file with no exec bit
+    r = runners.resolveBin('claude');
+    assert.equal(r.present, false, 'a stripped file must not read as a runnable runner');
+  } finally {
+    delete process.env.AGENT_WORKFORCE_HOME;
+    fs.rmSync(CANONICAL, { recursive: true, force: true });
+  }
+});
+
+test('#979: the REAL sequenced installer names a curl failure with curl\'s own words in the log', async () => {
+  /* No seam here on purpose: this drives the default runInstaller (the
+     positional-args curl-then-sh line) against a domain that cannot
+     resolve, so the sequencing fix is what is under test -- a piped
+     curl|sh would have reported success over an empty script and lost
+     the DNS error entirely. No network side effects: the lookup fails. */
+  runners.resetForTests();
+  delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
+  try {
+    const job = runners.install('claude', {
+      url: 'https://kosmos-test-979.invalid/install.sh',
+      findElsewhere: () => null,
+      prove: () => { throw new Error('prove must never run after a failed installer'); },
+    });
+    await job.settled;
+    assert.equal(job.phase, 'failed');
+    assert.match(job.because, /installer did not finish/);
+    const logPath = job.because.match(/its log is at (\S+)\)/)[1];
+    const log = fs.readFileSync(logPath, 'utf8');
+    assert.match(log, /curl|resolve/i, 'the log must carry the network failure, not be empty');
+  } finally {
+    delete process.env.AGENT_WORKFORCE_HOME;
+  }
+});

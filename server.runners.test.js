@@ -139,4 +139,6 @@ test('#979: claude is listed beside openai with the documented shape (vendor-ins
   // download size: the vendor's script installs the vendor's latest.
   assert.equal(r.claude.pinnedVersion, undefined);
   assert.equal(r.claude.downloadBytes, null);
+  assert.equal(r.claude.kind, 'vendor-installer');
+  assert.equal(r.openai.kind, 'tarball');
 });
