@@ -206,6 +206,67 @@ function list() {
 }
 
 /**
+ * `list()`, with each row's connection LIVE-CHECKED against Anthropic (#881).
+ *
+ * 🛑 NOT `list()` ITSELF. `list()` is called once per 5-second board-status
+ * tick (server.js) specifically because that poll cannot afford anything
+ * heavier than a directory stat; layering a live subprocess call in there
+ * would repeat the mistake `subscription.js`'s own file-cache header warns
+ * against, worse. This function exists ONLY for the on-demand `GET
+ * /api/accounts` route -- opened deliberately (Settings > Accounts), never
+ * ticked -- where paying a real check's cost is the entire point.
+ *
+ * Parallel, not serial: one account's live check taking the full timeout
+ * must not make every other account's row wait behind it.
+ */
+async function listLive() {
+  // Lazy require, matching subscription.js's own `require('./accounts')`
+  // inside check() -- these two modules require each other, and a
+  // top-level require on either side would deadlock on load order.
+  const subscription = require('./subscription');
+  const rows = list();
+  const checked = await Promise.all(rows.map(async (row) => {
+    try {
+      /* 🛑 THE DEFAULT ROW IS NOT `configDir: row.dir`. Measured directly,
+         not assumed: `configFile()` above already special-cases the
+         default account's config as `<HOME>/.claude.json`, a file
+         BESIDE `<HOME>/.claude`, not inside it -- and confirmed live on
+         this machine, `CLAUDE_CONFIG_DIR=<HOME>/.claude` makes the real
+         `claude` binary read `<HOME>/.claude/.claude.json` instead (a
+         stale, near-empty decoy file here, 464 bytes, next to the real
+         132KB one `check()` already knows to read at the sibling path).
+         Passing row.dir for the default account would make the single
+         most common install ALWAYS read as not-signed-in -- exactly the
+         "tell a paying customer they are not connected" failure this
+         whole feature exists to prevent, reintroduced by the fix meant
+         to catch it. Omitting configDir for the default row lets `claude
+         auth status` use its own built-in default resolution instead,
+         which this machine confirms lands on the real account. */
+      const connection = row.isDefault
+        ? await subscription.checkLive()
+        : await subscription.checkLive({ configDir: row.dir });
+      return { ...row, connection };
+    } catch {
+      // ⚠️ ONE ACCOUNT'S CHECK FAILING NEVER SINKS THE WHOLE LIST. `unknown`,
+      // never `none` -- the same asymmetry subscription.js is built on.
+      // ⚠️ NO RAW err.message HERE EITHER (same rule, same challenge-loop
+      // pass that fixed subscription.js's own catch): checkLive() never
+      // rejects by contract, so this is defense in depth against that
+      // contract regressing, not a path that fires today -- but the
+      // sentence still has to be hand-written for the day it does.
+      return {
+        ...row,
+        connection: {
+          state: subscription.STATE.UNKNOWN, plan: null, checkedLive: true,
+          because: 'we could not check this account just now',
+        },
+      };
+    }
+  }));
+  return checked;
+}
+
+/**
  * Make a directory a Kosmos account can be signed in to.
  *
  * 🔑 THE RULE THIS ENCODES IS JOSH'S, 2026-08-22, and it is a principle rather
@@ -333,4 +394,4 @@ function nextWorkDir() {
   return null;
 }
 
-module.exports = { list, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, HOME_FOR_TEST: HOME };
+module.exports = { list, listLive, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, HOME_FOR_TEST: HOME };

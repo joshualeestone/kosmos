@@ -384,3 +384,194 @@ test('#527: the scoped check answers for the DEFAULT account from its real recor
     JSON.stringify({ oauthAccount: { organizationType: 'claude_pro', emailAddress: 'o@example.com' } }));
   assert.equal(sub.check({ configDir: other }).state, sub.STATE.CONNECTED);
 });
+
+/* ---- #881: the live check --------------------------------------------
+   Injected runner throughout, never the real `claude` binary -- setRunner
+   is the same per-module test seam tokendoor.js's `fetcher` and
+   githubdevice.js's `fetcher` already establish for this codebase's other
+   external-I/O boundaries. The runner returns `{stdout, err}`, mirroring
+   what the real execFile callback resolves (see runAuthStatus's own
+   comment for why `err` is carried through rather than discarded).
+   Always reset in a `finally` so one test's fixture can never leak into
+   the next. */
+const okRunner = (obj) => async () => ({ stdout: JSON.stringify(obj), err: null });
+
+test('#881: checkLive() reads a logged-in answer as CONNECTED, live-flagged', async () => {
+  sub.setRunner(okRunner({ loggedIn: true, subscriptionType: 'max', email: 'a@example.com' }));
+  try {
+    const got = await sub.checkLive();
+    assert.equal(got.state, sub.STATE.CONNECTED);
+    assert.equal(got.checkedLive, true);
+    assert.match(got.because, /Anthropic confirmed/);
+  } finally { sub.setRunner(null); }
+});
+
+test('#881: checkLive() reads a logged-out answer as NONE, not UNKNOWN', () => {
+  sub.setRunner(okRunner({ loggedIn: false, authMethod: 'none' }));
+  return sub.checkLive().then((got) => {
+    assert.equal(got.state, sub.STATE.NONE);
+    assert.equal(got.checkedLive, true);
+  }).finally(() => sub.setRunner(null));
+});
+
+test('#881: checkLive() reads a MISSING loggedIn field as UNKNOWN, never NONE', async () => {
+  /* 🛑 THE BLOCKER CHALLENGE-LOOP ITERATION 1 CAUGHT, reproduced directly:
+     the first version treated anything other than `loggedIn === true` as
+     NONE, so a schema change, a warning envelope, or any valid-JSON
+     response missing this field would confidently tell a possibly-signed-in
+     account "not signed in" -- the exact mistake check()'s own asymmetry
+     (assert NONE only from a positively recognised negative) exists to
+     prevent, broken by the function meant to extend that discipline live. */
+  sub.setRunner(okRunner({ authMethod: 'none' }));
+  try {
+    const got = await sub.checkLive();
+    assert.equal(got.state, sub.STATE.UNKNOWN, 'a response with no loggedIn field must never read as a confirmed negative');
+  } finally { sub.setRunner(null); }
+});
+
+test('#881: checkLive() reads a non-boolean loggedIn as UNKNOWN, never NONE', async () => {
+  sub.setRunner(okRunner({ loggedIn: null }));
+  try {
+    assert.equal((await sub.checkLive()).state, sub.STATE.UNKNOWN);
+  } finally { sub.setRunner(null); }
+  sub.setRunner(okRunner({ loggedIn: 'yes' }));
+  try {
+    assert.equal((await sub.checkLive()).state, sub.STATE.UNKNOWN);
+  } finally { sub.setRunner(null); }
+});
+
+test('#881: checkLive() reads a thrown/rejected runner as UNKNOWN, never NONE, with a hand-written sentence', async () => {
+  /* ⚠️ THE ASYMMETRY THIS WHOLE MODULE IS BUILT ON, applied to the live
+     path too: a network failure is not evidence the account is signed
+     out, and rendering it that way would be the exact mistake the file
+     header calls out for the paying-customer case. */
+  sub.setRunner(async () => { throw new Error('ECONNRESET'); });
+  try {
+    const got = await sub.checkLive();
+    assert.equal(got.state, sub.STATE.UNKNOWN);
+    assert.equal(got.checkedLive, true);
+    // ⚠️ NOT `err.message`. Caught in challenge-loop iteration 2: the first
+    // version embedded the raw thrown error into the sentence
+    // (`/ECONNRESET/` used to be the assertion here), breaking this
+    // module's own "no jargon in a user-facing sentence" rule for a
+    // real-world error like a stack trace or an errno name. The sentence
+    // must be hand-written and identical regardless of what the runner
+    // actually threw.
+    assert.doesNotMatch(got.because, /ECONNRESET/);
+    assert.match(got.because, /could not reach Claude Code/);
+  } finally { sub.setRunner(null); }
+});
+
+test('#881: checkLive() reads unparseable output as UNKNOWN, never NONE', async () => {
+  sub.setRunner(async () => ({ stdout: 'not json at all', err: null }));
+  try {
+    const got = await sub.checkLive();
+    assert.equal(got.state, sub.STATE.UNKNOWN);
+    assert.match(got.because, /could not make sense/);
+  } finally { sub.setRunner(null); }
+});
+
+test('#881: checkLive() distinguishes a real subprocess failure from a clean negative', async () => {
+  /* Iteration 1 also caught this: the real execFile callback's `err` was
+     discarded entirely, so a missing binary and an unparseable-but-clean
+     answer produced the identical generic message. `runAuthStatus` now
+     carries `err` through; this exercises the two failure shapes execFile
+     itself produces (ENOENT for a missing binary, `killed: true` for a
+     timeout -- NOT `code: 'ETIMEDOUT'`, which Node does not set here,
+     caught in iteration 2) via the injected runner, since spawning a
+     genuinely missing binary for real is covered separately below (the
+     real, un-injected path). */
+  sub.setRunner(async () => ({ stdout: '', err: { code: 'ENOENT', message: 'spawn claude ENOENT' } }));
+  try {
+    const got = await sub.checkLive();
+    assert.equal(got.state, sub.STATE.UNKNOWN);
+    assert.match(got.because, /could not find Claude Code/);
+  } finally { sub.setRunner(null); }
+
+  sub.setRunner(async () => ({ stdout: '', err: { killed: true, signal: 'SIGTERM' } }));
+  try {
+    const got = await sub.checkLive();
+    assert.equal(got.state, sub.STATE.UNKNOWN);
+    assert.match(got.because, /took too long/);
+  } finally { sub.setRunner(null); }
+
+  // ⚠️ THE THIRD BRANCH, untested until challenge-loop iteration 4 caught
+  // it: neither an ENOENT (missing binary) nor a killed/timeout, but a
+  // real subprocess error all the same (e.g. EACCES, a permissions
+  // problem). Every other checkLive() branch already had its own test;
+  // this one slipped through.
+  sub.setRunner(async () => ({ stdout: '', err: { code: 'EACCES', message: 'permission denied' } }));
+  try {
+    const got = await sub.checkLive();
+    assert.equal(got.state, sub.STATE.UNKNOWN);
+    assert.match(got.because, /did not answer/);
+    assert.doesNotMatch(got.because, /EACCES|permission denied/, 'no raw errno/message leaking into the sentence');
+  } finally { sub.setRunner(null); }
+});
+
+test('#881: checkLive({configDir}) threads CLAUDE_CONFIG_DIR to the runner, scoped like check()', async () => {
+  let seenEnv = null;
+  sub.setRunner(async (env) => { seenEnv = env; return { stdout: JSON.stringify({ loggedIn: true }), err: null }; });
+  // ⚠️ SAVE/CLEAR THE AMBIENT VAR: this agent's own session runs under a
+  // real CLAUDE_CONFIG_DIR (a Kosmos-managed multi-account machine), so
+  // the "no override" control below would otherwise assert against
+  // whatever this dev/CI environment happens to be, not against the
+  // absence checkLive() is actually supposed to preserve.
+  const hadAmbient = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_CONFIG_DIR');
+  const ambient = process.env.CLAUDE_CONFIG_DIR;
+  delete process.env.CLAUDE_CONFIG_DIR;
+  try {
+    const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'sub-live-dir-'));
+    await sub.checkLive({ configDir: dir });
+    assert.equal(seenEnv.CLAUDE_CONFIG_DIR, dir);
+    fs.rmSync(dir, { recursive: true, force: true });
+    // CONTROL: no configDir means no override -- confirms the field above
+    // is really threading the option, not always present regardless.
+    seenEnv = null;
+    await sub.checkLive();
+    assert.equal(seenEnv.CLAUDE_CONFIG_DIR, undefined);
+  } finally {
+    sub.setRunner(null);
+    if (hadAmbient) process.env.CLAUDE_CONFIG_DIR = ambient;
+  }
+});
+
+test('#881: setRunner(null) restores real execFile behavior (not left permanently stubbed)', async () => {
+  /* Not a network test: AGENT_WORKFORCE_CLAUDE_BIN pointed at a binary
+     that certainly is not `claude` proves the real execFile path runs
+     (and fails honestly) once the injected runner is cleared, rather
+     than silently continuing to use a stale stub -- and that the real
+     ENOENT execFile gives is correctly surfaced as the distinct
+     "could not find Claude Code" message, not the generic one. */
+  sub.setRunner(okRunner({ loggedIn: true }));
+  await sub.checkLive();
+  sub.setRunner(null);
+  const oldBin = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/nonexistent/not-claude';
+  try {
+    const got = await sub.checkLive();
+    assert.equal(got.state, sub.STATE.UNKNOWN, 'a missing binary must read as unknown, not a crash and not none');
+    assert.match(got.because, /could not find Claude Code/, 'a real ENOENT must produce the distinct message, not the generic parse-failure one');
+  } finally {
+    if (oldBin === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    else process.env.AGENT_WORKFORCE_CLAUDE_BIN = oldBin;
+  }
+});
+
+test('#881: no user-facing checkLive()/listLive() sentence uses developer jargon', async () => {
+  /* Same JARGON regex the file's own earlier test already applies to
+     check()'s sentences -- checkLive()'s because strings reach the same
+     Settings-page tooltip and must clear the same bar. Defined locally,
+     matching that test's own scoping (not hoisted to module level). */
+  const JARGON = /\b(json|parse[sd]?|null|undefined|oauth|api|token|schema|enum|uuid|stderr|stdout|exit code|regex|config file|stack trace)\b/i;
+  const sentences = [];
+  sub.setRunner(okRunner({ loggedIn: true })); sentences.push((await sub.checkLive()).because); sub.setRunner(null);
+  sub.setRunner(okRunner({ loggedIn: false })); sentences.push((await sub.checkLive()).because); sub.setRunner(null);
+  sub.setRunner(okRunner({})); sentences.push((await sub.checkLive()).because); sub.setRunner(null);
+  sub.setRunner(async () => ({ stdout: 'garbage', err: null })); sentences.push((await sub.checkLive()).because); sub.setRunner(null);
+  sub.setRunner(async () => ({ stdout: '', err: { code: 'ENOENT' } })); sentences.push((await sub.checkLive()).because); sub.setRunner(null);
+  assert.ok(sentences.length >= 5, `only collected ${sentences.length} sentences`);
+  for (const t of sentences) {
+    assert.ok(!JARGON.test(t), `user-facing sentence uses jargon: "${t}"`);
+  }
+});

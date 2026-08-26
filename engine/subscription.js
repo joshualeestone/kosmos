@@ -34,6 +34,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { execFile } = require('node:child_process');
 
 const HOME = os.homedir();
 
@@ -234,6 +235,155 @@ function check(opts) {
   };
 }
 
+/* ---- the live check (#881) -----------------------------------------------
+   ⚠️ check()/checkCached() above answer "does the SAVED CONFIG on this
+   computer look like a subscription" -- a shape-check, never a call to
+   Anthropic. This answers the harder, truer question: does the held token
+   actually still work. Built on `claude auth status --json`, Anthropic's
+   own first-party command for this -- not a hand-rolled HTTP call against
+   an undocumented endpoint, and not Keychain access from this codebase
+   (the real OAuth token lives in macOS Keychain, `Claude Code-credentials`,
+   never in the file check() reads; `claude auth status` already owns
+   reading it safely, so this module does not need to).
+
+   🔑 SCOPED THE SAME WAY check() IS: CLAUDE_CONFIG_DIR is the env var
+   engine/accounts.js already documents as selecting which account a
+   Claude Code process reads -- so a per-account live check reuses an
+   existing seam rather than inventing new attribution logic.
+
+   🛑 NEVER CALLED FROM THE 5-SECOND STATUS TICK. Traced every caller of
+   accounts.list() (which is what would feed a live check into that tick)
+   before writing this: server.js's board-status poll reads accounts.list()
+   once per tick specifically to AVOID paying a cost "the five-second poll
+   would pay forever" for a plain file stat -- a live subprocess call
+   there, once per account, forever, would be exactly that anti-pattern,
+   worse. This is wired ONLY into the on-demand GET /api/accounts route
+   (accounts.listLive()), which every caller in web/index.html fires on a
+   deliberate action (opening Settings > Accounts, adding an account), never
+   a poll loop. */
+let runner = null;
+/** Tests only: inject a fake `claude auth status` runner. Own seam, not
+    shared with connect.js's `run()` -- see the plan for why (each
+    external-I/O boundary in this codebase gets its own independently
+    controllable seam, matching tokendoor.js's and githubdevice.js's
+    per-module `fetcher`). Pass null to restore the real subprocess call. */
+function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; }
+
+function claudeBinPath() {
+  return process.env.AGENT_WORKFORCE_CLAUDE_BIN || path.join(HOME, '.local', 'bin', 'claude');
+}
+
+function runAuthStatus(env) {
+  if (runner) return Promise.resolve(runner(env));
+  return new Promise((resolve) => {
+    execFile(claudeBinPath(), ['auth', 'status', '--json'], { env, timeout: 8000 }, (err, stdout) => {
+      // ⚠️ `err` IS CARRIED THROUGH, NOT DISCARDED, but it is not treated as
+      // failure by itself: `claude auth status` exits 1 for a genuine,
+      // well-formed "not logged in" answer (measured) -- so an exit-code
+      // error with valid JSON on stdout is not a real failure. checkLive()
+      // below only consults `err` when stdout could NOT be parsed into a
+      // usable answer, so a REAL failure (a missing binary, a timeout) gets
+      // its own honest message instead of being folded into the generic
+      // "could not make sense of the answer" one alongside a clean negative.
+      resolve({ stdout: String(stdout || ''), err: err || null });
+    });
+  });
+}
+
+/**
+ * `check()`'s file-read answer, but confirmed live with Anthropic.
+ *
+ * @param {{configDir?: string}} [opts] same contract as check()'s configDir.
+ * @returns {Promise<{state: string, plan: string|null, because: string, checkedLive: true}>}
+ */
+async function checkLive(opts) {
+  const configDir = opts && typeof opts.configDir === 'string' && opts.configDir ? opts.configDir : null;
+  // ⚠️ NO configDir MEANS "the true default account", NOT "whatever
+  // CLAUDE_CONFIG_DIR this process happens to have ambiently" -- this
+  // agent's OWN session runs under a real CLAUDE_CONFIG_DIR (a
+  // Kosmos-managed multi-account machine), which is exactly the kind of
+  // ambient value that would otherwise leak into a caller who explicitly
+  // asked for the unscoped default. check() never has this problem (it
+  // reads a fixed CONFIG path derived only from AGENT_WORKFORCE_CLAUDE_CONFIG,
+  // never CLAUDE_CONFIG_DIR); checkLive() matches that guarantee by
+  // deleting the key rather than trusting it to be unset.
+  const env = { ...process.env };
+  if (configDir) env.CLAUDE_CONFIG_DIR = configDir;
+  else delete env.CLAUDE_CONFIG_DIR;
+  let result;
+  try {
+    result = await runAuthStatus(env);
+  } catch {
+    // ⚠️ NO RAW err.message HERE. Caught in challenge-loop iteration 2: this
+    // module's own header rule ("the warnings can't talk about JSON for
+    // non-technical people") applies to every because string, and a raw
+    // subprocess error can carry anything -- a stack trace, a path, an
+    // errno name. Unreachable from the real execFile path today (it
+    // resolves, never rejects; only an injected test runner can throw),
+    // but the sentence still has to be hand-written for the day something
+    // does reach it.
+    return {
+      state: STATE.UNKNOWN, plan: null, checkedLive: true,
+      because: 'we could not reach Claude Code to check whether this account is signed in',
+    };
+  }
+  let parsed;
+  try { parsed = JSON.parse(result.stdout); } catch { parsed = null; }
+  // ⚠️ THE ONLY WAY IN IS A REAL BOOLEAN `loggedIn`. Caught in challenge-loop
+  // iteration 1, reproduced directly: the first version treated anything
+  // OTHER than `loggedIn === true` as NONE -- so a missing `loggedIn` key,
+  // `null`, or any future schema change that still parses as valid JSON
+  // would confidently tell a possibly-signed-in account "Anthropic says
+  // this account is not signed in". `check()` right above this function is
+  // built entirely around the opposite discipline (assert NONE only from a
+  // POSITIVELY recognised negative, default everything else to UNKNOWN);
+  // this now matches it exactly.
+  if (!parsed || typeof parsed !== 'object' || typeof parsed.loggedIn !== 'boolean') {
+    // A real subprocess failure (missing binary, timeout) earns its own
+    // honest message instead of the generic "could not make sense" one --
+    // only reached here, never for `claude auth status`'s clean "not
+    // logged in" answer, which is exit 1 with well-formed JSON and is
+    // handled by the boolean branch below, not this one.
+    if (result.err) {
+      // ⚠️ `killed === true` ONLY, NOT `code === 'ETIMEDOUT'`. Verified
+      // against Node's own documented execFile behavior (challenge-loop
+      // iteration 2 caught the first version asserting a code Node never
+      // actually sets here): a timeout kill sets `killed: true` and
+      // `signal` (SIGTERM by default), never `error.code = 'ETIMEDOUT'`
+      // -- that string is an errno convention from other subsystems this
+      // path does not go through.
+      const because = result.err.code === 'ENOENT'
+        ? 'we could not find Claude Code on this computer to check with'
+        : result.err.killed === true
+          ? 'Claude Code took too long to answer whether this account is signed in'
+          : 'we asked Claude Code whether this account is signed in and it did not answer';
+      return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because };
+    }
+    return {
+      state: STATE.UNKNOWN, plan: null, checkedLive: true,
+      because: 'we asked Claude Code whether this account is signed in and could not make sense of the answer',
+    };
+  }
+  if (parsed.loggedIn === true) {
+    // ⚠️ `plan: null`, DELIBERATELY, NOT A GUESSED MAPPING. `claude auth
+    // status`'s `subscriptionType` ("max") is a different vocabulary from
+    // check()'s `organizationType` ("claude_max") that planName() expects
+    // -- not verified to correspond 1:1 across every plan, and nothing
+    // that currently calls checkLive() displays this field anyway.
+    return {
+      state: STATE.CONNECTED, plan: null, checkedLive: true,
+      because: 'Anthropic confirmed this account is signed in',
+    };
+  }
+  // Only reached when parsed.loggedIn is the literal boolean false --
+  // guarded by the typeof check above, so this is a positively recognised
+  // negative, never a guess.
+  return {
+    state: STATE.NONE, plan: null, checkedLive: true,
+    because: 'Anthropic says this account is not signed in',
+  };
+}
+
 /** What to call the plan on screen. Never a raw enum. */
 function planName(org, tier) {
   const base = {
@@ -311,4 +461,5 @@ function resetCache() { cached = null; }
 
 module.exports = {
   check, checkCached, resetCache, planName, STATE, CONFIG_PATH: CONFIG,
+  checkLive, setRunner,
 };

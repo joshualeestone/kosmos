@@ -451,6 +451,18 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 @media (prefers-reduced-motion: reduce) {
   .acct-connected .dot { animation: none; }
 }
+/* #881: the two states a live check can also confirm, alongside .acct-connected.
+   Neither dot pulses -- pulsing is reserved for "actively connected" (Josh's own
+   framing for .acct-connected above); a static dot reads as a fact, not a
+   heartbeat. .acct-none is the genuine negative (warn tokens, same as this
+   file's other danger states); .acct-unknown is deliberately muted, not red --
+   "we could not check" must never look as alarming as a confirmed problem. */
+.acct-none { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
+  font-weight: 600; color: var(--warn-ink); white-space: nowrap; }
+.acct-none .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); flex: 0 0 8px; }
+.acct-unknown { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
+  font-weight: 600; color: var(--label-2); white-space: nowrap; }
+.acct-unknown .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-2); flex: 0 0 8px; }
 .acct-disconnect { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: .8125rem;
   color: var(--label-2); text-decoration: underline; cursor: pointer; min-height: 24px; }
 .acct-disconnect[disabled] { cursor: not-allowed; text-decoration: none; opacity: .7; }
@@ -10816,7 +10828,16 @@ async function paintSettings() {
   } catch {
     // The card keeps its last honest paint; the poll repaints it.
   }
-  await paintAccounts();
+  /* #881: NOT awaited here, deliberately. GET /api/accounts now confirms
+     each account live with Anthropic (a real subprocess call per account,
+     parallel across accounts but each with its own timeout) instead of
+     the instant directory-stat read this used to be. Awaiting it in this
+     sequential chain would stall refreshHistory/refreshYou/paintLimits/
+     refreshEngMode behind it too -- unrelated panels frozen for a check
+     none of them need. paintAccounts() paints its own loading state
+     immediately and fills in the real answer whenever it lands; nothing
+     later in this function reads its result. */
+  paintAccounts();
   await refreshHistory();
   await refreshYou();
   await paintLimits();
@@ -10834,16 +10855,43 @@ async function paintSettings() {
  * button is the shape this app keeps having to remove: an admission that leaves
  * somebody nowhere to go.
  */
+let ACCT_EPOCH = 0;
 async function paintAccounts() {
   const box = document.getElementById('set-accounts');
   const msg = document.getElementById('set-accounts-msg');
   if (!box) return;
+  /* #881: GET /api/accounts now confirms each account live with Anthropic
+     (a real check per account, not an instant directory stat), so this
+     box can sit empty/stale for a real, visible span rather than the
+     immediate paint it used to be. Said plainly rather than left blank --
+     same "Checking…" language the token-door rows already use for the
+     same wait.
+     ⚠️ EPOCH-GUARDED, same pattern as paintLimits()/LIM_EPOCH: this box
+     now has real, multi-second concurrent callers (Settings-tab open,
+     the post-share/post-add refreshes, paintConnLive's own tab), and a
+     slower older fetch resolving after a faster newer one used to be
+     able to paint stale data over fresh -- unlikely when this was an
+     instant stat, a real risk now. */
+  const mine = ++ACCT_EPOCH;
+  box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">Checking…</p>';
+  // ⚠️ THE ANNOUNCEMENT GOES THROUGH #set-accounts-msg (already
+  // role="status"), NOT the list box itself. Making the whole account
+  // list a live region would read out every account row on every
+  // repaint; the msg line is the one place this page already commits to
+  // announcing state changes politely. Caught in challenge-loop
+  // iteration 6: this box went from an effectively-instant paint to a
+  // real, multi-second one and had no announcement for that span at all.
+  if (msg) msg.textContent = 'Checking your accounts…';
   let list = [];
   try {
     const res = await fetch('/api/accounts', { cache: 'no-store' });
+    if (mine !== ACCT_EPOCH) return;
     if (!res.ok) throw new Error('no');
     list = ((await res.json()) || {}).accounts || [];
+    if (mine !== ACCT_EPOCH) return;
   } catch {
+    if (mine !== ACCT_EPOCH) return;
+    if (msg) msg.textContent = '';
     // ⚠️ Never "one account": a failed read must not shrink the list.
     box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">We could not read the accounts on this computer.</p>';
     return;
@@ -10885,10 +10933,39 @@ async function paintAccounts() {
        would be exactly the "nothing that looks live may do nothing"
        shape this file already refuses for the external-person/agent
        doors. Wire the modal when that route exists. */
+    /* #881: THREE STATES, NOT A HARDCODED ONE. This badge used to be
+       unconditional markup -- every account row said "Connected" no
+       matter what. GET /api/accounts now confirms each Claude row live
+       with Anthropic (engine/accounts.js's listLive()), so a.connection
+       is real evidence, not a guess: 'connected' -> the same green mark
+       as before (unchanged for anyone whose token actually works),
+       'none' -> a genuine "not signed in", 'unknown' -> "we could not
+       check" (deliberately muted, never rendered as a negative -- the
+       asymmetry engine/subscription.js's own header is built on).
+       OpenAI rows carry no `connection` field (out of scope for #881,
+       Josh has not ruled on that provider's live-check story) and keep
+       the prior unconditional badge so this fix does not silently
+       regress a path it was never meant to touch. */
+    // ⚠️ THE REAL SENTENCE IS BOTH THE VISIBLE TEXT AND THE title, not a
+    // fixed label with the reason hidden in a hover-only tooltip -- the
+    // same rule taskClaimHtml() already established for exactly this
+    // shape ("the real sentence is what a screen reader gets and what a
+    // hover reveals -- never a paraphrase invented client-side"), caught
+    // in challenge-loop iteration 2 for not yet applying it here.
+    // The fallback below is unreachable in practice -- listLive() always
+    // attaches a because sentence -- kept as a real sentence anyway
+    // rather than a terse fragment, matching this feature's own house
+    // style, not just taskClaimHtml()'s shorter precedent.
+    const noneWhy = (a.connection && a.connection.because) || 'this account is not connected';
+    const unknownWhy = (a.connection && a.connection.because) || 'we could not check this account';
+    const connBadge = isOpenai ? '<span class="acct-connected"><span class="dot" aria-hidden="true"></span>Connected</span>'
+      : a.connection && a.connection.state === 'connected' ? '<span class="acct-connected"><span class="dot" aria-hidden="true"></span>Connected</span>'
+      : a.connection && a.connection.state === 'none' ? '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>'
+      : '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
     return '<div class="acct-box"><div class="acct-box-top"><div class="acct-who"><b>' + who
       // No "your first account" tag (#394): the email is the answer, whole.
       + '</b>' + provider + org + '</div>'
-      + '<span class="acct-connected"><span class="dot" aria-hidden="true"></span>Connected</span></div>'
+      + connBadge + '</div>'
       + shared
       + '<button class="acct-disconnect" type="button" disabled '
       + 'aria-label="Disconnect ' + who + '" '
@@ -14843,10 +14920,29 @@ async function paintConnLive() {
   try {
     const res = await fetch('/api/accounts', { cache: 'no-store' });
     if (!res.ok) throw new Error('no');
-    const list = ((await res.json()) || {}).accounts || [];
+    const all = ((await res.json()) || {}).accounts || [];
+    /* #881: a Claude row now carries a REAL, live-checked `connection`
+       field -- counting `all.length` here would show this exact box
+       claiming an account is "connected and thinking for your agents"
+       for one that Settings > Accounts, one tab over, correctly says is
+       not. OpenAI rows carry no `connection` field (out of scope for
+       #881), so they keep the old presence-only count -- this line does
+       not regress a provider it never touched. */
+    const list = all.filter((a) => a.provider !== 'anthropic' || (a.connection && a.connection.state === 'connected'));
     el.textContent = '';
     if (!list.length) {
-      el.textContent = 'Nothing is connected yet.';
+      // ⚠️ "NOTHING IS CONNECTED YET" IS A CLAIM, and it must be true, not
+      // just the shape a zero count happens to take. Caught in
+      // challenge-loop iteration 4: an unknown live check (a `claude auth
+      // status` timeout, a missing binary) also lands zero rows in
+      // `list` above, and that is "we could not tell", not "nothing is
+      // connected" -- the exact unknown-must-never-render-as-none rule
+      // this same diff enforces everywhere else (checkLive(), the
+      // Settings > Accounts badge). Said honestly here too.
+      const anyUnknown = all.some((a) => a.provider === 'anthropic' && a.connection && a.connection.state === 'unknown');
+      el.textContent = anyUnknown
+        ? 'We could not check your accounts just now.'
+        : 'Nothing is connected yet.';
       return;
     }
     const what = list.length === 1
@@ -18596,6 +18692,7 @@ function paintReportsTo(a) {
   if (sel.innerHTML !== html) sel.innerHTML = html;
 }
 let ACCOUNTS = [];
+let ACCT_PICKER_FETCH = null; // #881: the one in-flight GET /api/accounts, so a second caller shares it
 async function paintAccountPicker(a) {
   const sel = document.getElementById('d-account');
   const go = document.getElementById('d-account-go');
@@ -18607,11 +18704,31 @@ async function paintAccountPicker(a) {
        continuation paint its sentence onto the NEW agent's panel,
        which the switch-time clear had just emptied for it. */
     const forAgent = a && a.sessionName;
+    /* #881: GET /api/accounts now confirms each account live with
+       Anthropic, so this first-open fetch can take a real, visible span
+       instead of the instant directory stat it used to be. Said plainly
+       rather than a silently unresponsive dropdown -- same "Checking…"
+       language paintAccounts() already uses for the same wait.
+       ⚠️ ONE IN-FLIGHT FETCH, SHARED. Caught in challenge-loop iteration
+       7: before this, switching to a second agent's detail panel while
+       the first was still waiting on ACCOUNTS.length fired a SECOND,
+       fully duplicate round of live checks (this used to be free when
+       the route was an instant stat; now it is a real subprocess call
+       per account). ACCT_PICKER_FETCH holds the one in-flight promise so
+       a second caller awaits the SAME fetch instead of starting a new
+       one. */
+    if (msg) msg.textContent = 'Checking…';
     try {
-      const res = await fetch('/api/accounts', { cache: 'no-store' });
-      if (res.ok) ACCOUNTS = ((await res.json()) || {}).accounts || [];
+      if (!ACCT_PICKER_FETCH) {
+        ACCT_PICKER_FETCH = fetch('/api/accounts', { cache: 'no-store' })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((body) => (body || {}).accounts || [])
+          .finally(() => { ACCT_PICKER_FETCH = null; });
+      }
+      ACCOUNTS = await ACCT_PICKER_FETCH;
     } catch { /* the control stays empty and disabled, which is honest */ }
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
+    if (msg) msg.textContent = '';
   }
   const acct = a && a.account;
   /* The comments below predate the Signed-in-as line's removal. The
@@ -18931,12 +19048,25 @@ function fillCreateAccounts() {
   if (!asel) return;
   const openai = document.getElementById('create-provider').value === 'openai';
   const list = CREATE_ACCOUNTS.filter((x) => openai ? x.provider === 'openai' : x.provider !== 'openai');
-  const movable = openai ? list : list.filter((x) => x.memoryShared);
-  const usable = movable.length ? movable : list;
+  /* #881: an account confirmed NOT signed in is excluded the same way a
+     non-shared-memory account already was -- "an option that always
+     fails is worse than an option that is not there" (this file's own
+     rule, a few thousand lines up, for exactly this shape). An UNKNOWN
+     check (could not reach Claude Code, a timeout) is NOT excluded --
+     that would be the asymmetry mistake this whole feature exists to
+     prevent, applied here as a false negative instead of a false
+     positive -- but it is labelled so the choice is informed, not
+     silent. OpenAI rows carry no `connection` field (out of scope for
+     #881) and are untouched. Caught in challenge-loop iteration 8: this
+     call site was the one of four that never got any of this. */
+  const working = openai ? list : list.filter((x) => !x.connection || x.connection.state !== 'none');
+  const movable = openai ? working : working.filter((x) => x.memoryShared);
+  const usable = movable.length ? movable : working;
   const nameOf = (x) => x.email || (x.provider === 'openai' && x.keyTail ? 'API key ending ' + x.keyTail : '') || x.label || x.dir;
+  const labelOf = (x) => x.connection && x.connection.state === 'unknown' ? esc(nameOf(x)) + ' (could not check just now)' : esc(nameOf(x));
   asel.innerHTML = usable.length
     ? usable.map((x) =>
-      `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${esc(nameOf(x))}</option>`).join('')
+      `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${labelOf(x)}</option>`).join('')
     : (openai ? '<option value="">The OpenAI sign-in on this Mac</option>' : '<option value="">Your Claude account</option>');
 }
 document.getElementById('create-provider').addEventListener('change', () => {
@@ -19784,6 +19914,14 @@ async function loadCreateExtras() {
   ).join('');
 
   const asel = document.getElementById('create-account');
+  /* #881: GET /api/accounts now confirms each account live with Anthropic,
+     so this select can sit genuinely empty for a real span instead of the
+     instant directory stat it used to be -- an empty dropdown reads as
+     broken, not as "nothing to choose from yet". A single disabled option
+     says so; fillCreateAccounts() below replaces it once the real list is
+     in. Caught in challenge-loop iteration 8: this call site was the one
+     of four that never got this treatment. */
+  if (asel) asel.innerHTML = '<option value="" disabled selected>Checking…</option>';
   (async () => {
     let list = [];
     try {

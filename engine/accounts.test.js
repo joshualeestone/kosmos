@@ -242,3 +242,110 @@ test('#248: nextWorkDir finds the first free spot, reuses unclaimed leftovers, s
   fs.symlinkSync(nodePath.join(home, 'nowhere-real'), nodePath.join(home, '.claude-work4', 'projects'));
   assert.equal(accounts.nextWorkDir().label, 'work5');
 });
+
+/* ---- #881: listLive() ---------------------------------------------------
+   Injected runner throughout (subscription.js's own test seam), never a
+   real `claude auth status` call. */
+test('#881: listLive() attaches a live connection to every row, in parallel', async () => {
+  // ⚠️ FOUND BY name, NOT array position/length: this suite shares one
+  // sandbox HOME across every test() in the file (earlier tests, e.g.
+  // #248's nextWorkDir sweep, leave their own .claude-workN accounts
+  // behind), matching the pattern the file's own earlier tests already use
+  // (`.find((a) => a.email === ...)`) rather than assuming a clean slate.
+  fs.mkdirSync(nodePath.join(SANDBOX, '.claude', 'projects'), { recursive: true });
+  write('.claude.json', { oauthAccount: { emailAddress: 'default-881@example.com' } });
+  fs.mkdirSync(nodePath.join(SANDBOX, '.claude-live881', 'projects'), { recursive: true });
+  write('.claude-live881/.claude.json', { oauthAccount: { emailAddress: 'second-881@example.com' } });
+
+  const subscription = require('./subscription');
+  const seenConfigDirs = {}; // keyed by dir, since Promise.all resolution order is not row order
+  subscription.setRunner(async (env) => {
+    // The runner alone cannot see which row it is answering for -- inferred
+    // here from the presence/absence of the override itself, which is
+    // exactly the thing under test.
+    seenConfigDirs[env.CLAUDE_CONFIG_DIR || '<none>'] = true;
+    return { stdout: JSON.stringify({ loggedIn: true }), err: null };
+  });
+  try {
+    const got = await accounts.listLive();
+    const def = got.find((a) => a.email === 'default-881@example.com');
+    const other = got.find((a) => a.email === 'second-881@example.com');
+    assert.ok(def && other, 'both fixture accounts must be found');
+    assert.equal(def.connection.state, subscription.STATE.CONNECTED);
+    assert.equal(def.connection.checkedLive, true);
+    assert.equal(other.connection.state, subscription.STATE.CONNECTED);
+
+    /* 🛑 THE ASSERTION THAT WOULD HAVE CAUGHT THE BUG THIS CARD FOUND ITSELF:
+       the default row must NOT pass its own `dir` as CLAUDE_CONFIG_DIR.
+       Measured live (see the plan): configFile() already treats the default
+       account's record as a SIBLING of <HOME>/.claude, not a file inside
+       it, and CLAUDE_CONFIG_DIR=<HOME>/.claude makes the real `claude`
+       binary look INSIDE that directory instead -- landing on a stale or
+       absent file even when the account is genuinely signed in. */
+    assert.ok(seenConfigDirs['<none>'], 'at least one check (the default row) must run with no CLAUDE_CONFIG_DIR override');
+    assert.ok(seenConfigDirs[nodePath.join(SANDBOX, '.claude-live881')],
+      'the non-default row must be scoped to its own directory');
+  } finally { subscription.setRunner(null); }
+});
+
+test('#881: listLive() answers UNKNOWN for one account\'s failed check without sinking the others', async () => {
+  /* ⚠️ THIS EXERCISES checkLive()'s OWN internal catch (a thrown runner),
+     NOT listLive()'s try/catch around it -- checkLive() never rejects by
+     contract (every internal failure resolves to {state: UNKNOWN, ...}),
+     so listLive()'s own catch is unreachable from here. See the separate
+     test below for that one, which monkey-patches subscription.checkLive
+     itself to actually reject. */
+  fs.mkdirSync(nodePath.join(SANDBOX, '.claude', 'projects'), { recursive: true });
+  write('.claude.json', { oauthAccount: { emailAddress: 'default-881b@example.com' } });
+  fs.mkdirSync(nodePath.join(SANDBOX, '.claude-live881b', 'projects'), { recursive: true });
+  write('.claude-live881b/.claude.json', { oauthAccount: { emailAddress: 'second-881b@example.com' } });
+
+  const subscription = require('./subscription');
+  subscription.setRunner(async (env) => {
+    if (env.CLAUDE_CONFIG_DIR) throw new Error('simulated failure for the non-default account only');
+    return { stdout: JSON.stringify({ loggedIn: true }), err: null };
+  });
+  try {
+    const got = await accounts.listLive();
+    const def = got.find((a) => a.isDefault);
+    const other = got.find((a) => a.email === 'second-881b@example.com');
+    assert.ok(def && other, 'both fixture accounts must be found');
+    assert.equal(def.connection.state, subscription.STATE.CONNECTED, 'the default row is unaffected by the other row\'s failure');
+    assert.equal(other.connection.state, subscription.STATE.UNKNOWN, 'a failed check reads as unknown, never none');
+    assert.match(other.connection.because, /could not reach Claude Code/);
+  } finally { subscription.setRunner(null); }
+});
+
+test('#881: listLive()\'s OWN catch answers UNKNOWN if checkLive() itself ever rejected', async () => {
+  /* checkLive() never rejects today (verified in subscription.test.js),
+     but listLive()'s Promise.all wraps each call in its own try/catch as
+     defense in depth against that contract ever regressing -- untested
+     until now, since nothing could make checkLive() itself throw. Module
+     caching makes this safe to monkey-patch: accounts.js's own
+     require('./subscription') inside listLive() returns this exact same
+     object. */
+  fs.mkdirSync(nodePath.join(SANDBOX, '.claude', 'projects'), { recursive: true });
+  write('.claude.json', { oauthAccount: { emailAddress: 'default-881c@example.com' } });
+  fs.mkdirSync(nodePath.join(SANDBOX, '.claude-live881c', 'projects'), { recursive: true });
+  write('.claude-live881c/.claude.json', { oauthAccount: { emailAddress: 'second-881c@example.com' } });
+
+  const subscription = require('./subscription');
+  const real = subscription.checkLive;
+  subscription.checkLive = async () => { throw new Error('checkLive itself rejected, not just its internal runner'); };
+  try {
+    const got = await accounts.listLive();
+    const def = got.find((a) => a.email === 'default-881c@example.com');
+    const other = got.find((a) => a.email === 'second-881c@example.com');
+    assert.ok(def && other, 'both fixture accounts must be found');
+    assert.equal(def.connection.state, subscription.STATE.UNKNOWN, 'listLive()\'s own catch must answer unknown, never none, and never throw');
+    assert.equal(other.connection.state, subscription.STATE.UNKNOWN);
+    assert.match(def.connection.because, /could not check this account/);
+  } finally { subscription.checkLive = real; }
+});
+
+test('#881: list() itself is unchanged -- no connection field, no live check', () => {
+  fs.mkdirSync(nodePath.join(SANDBOX, '.claude', 'projects'), { recursive: true });
+  write('.claude.json', { oauthAccount: { emailAddress: 'default@example.com' } });
+  const got = accounts.list();
+  assert.equal(got[0].connection, undefined, 'list() must stay exactly as fast/cheap as the 5-second status tick needs');
+});
