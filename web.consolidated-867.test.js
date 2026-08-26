@@ -40,7 +40,11 @@ test('the agents and projects rail titles sit at the same height', () => {
 test('the person\'s own row stays on screen under a tall right column', () => {
   // #980 rebased this from a sticky float to a STRUCTURAL pin: rail-me is
   // the body grid's last track (grid-row 41, rows auto/1fr/auto) under a
-  // 100vh overflow-hidden grid, so it sits at the viewport foot by
+  // 100vh grid, so WHILE THE GRID FITS THE VIEWPORT it sits at the foot by
+  // construction. The body is overflow-y: auto since #980's floor fix, so in a
+  // window too short for the floor the page scrolls and this strip scrolls with
+  // it; a sticky cannot help (zero travel in an exactly-fitting row). Stated
+  // rather than assumed, because this file's whole job is the pin.
   // construction. No sticky is pinned here on purpose -- a grid item
   // whose containing block is its own exactly-fitting row has zero
   // sticky travel, so a sticky would be dead code wearing a load-bearing

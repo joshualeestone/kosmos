@@ -15,6 +15,55 @@ const fs = require('node:fs');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const cons = 'html\\[data-layout="consolidated"\\] body\\.consolidated';
 
+/* 🛑 THE ONE GUARD THAT IS NOT A TEXT MATCH, and the reason it exists is a
+   BLOCKER this suite passed straight through. A paragraph appended AFTER a
+   comment's closing delimiter left six lines of raw prose inside a declaration
+   block. CSS error recovery then discards from there to the next semicolon --
+   (and note: the first draft of THIS comment closed itself early the same way,
+   by quoting the delimiter literally, which is how cheap the mistake is) --
+   which was the one ending `grid-template-rows` -- so the entire row template
+   was DROPPED by every browser while the file still contained the text.
+   ⚠️ Every other pin in this branch is `readFileSync` + regex, so not one of
+   them can tell "the rule is written" from "the rule takes effect". All 11
+   passed against dead CSS. This scans the stylesheet's comment structure
+   instead, which is the cheapest property that actually distinguishes them. */
+function strayCommentTerminators(css) {
+  const out = [];
+  let i = 0, inComment = false, line = 1, openedAt = 0;
+  while (i < css.length) {
+    if (css[i] === '\n') line += 1;
+    if (!inComment && css.startsWith('/*', i)) { inComment = true; openedAt = line; i += 2; continue; }
+    if (inComment && css.startsWith('*/', i)) { inComment = false; i += 2; continue; }
+    if (!inComment && css.startsWith('*/', i)) { out.push(line); i += 2; continue; }
+    i += 1;
+  }
+  if (inComment) out.push(-openedAt); // negative = a comment left open
+  return out;
+}
+
+test('the stylesheet has no stray comment terminator: a rule discarded by the parser still reads correctly in the file', () => {
+  const open = PAGE.indexOf('<style>');
+  const close = PAGE.lastIndexOf('</style>');
+  assert.ok(open > 0 && close > open, 'could not find the <style> block; this guard is measuring nothing');
+  const css = PAGE.slice(open + 7, close);
+
+  const stray = strayCommentTerminators(css);
+  const unclosed = stray.filter((n) => n < 0).map((n) => -n);
+  const closers = stray.filter((n) => n > 0);
+  assert.deepEqual(unclosed, [], `a comment is left OPEN (started near stylesheet line ${unclosed[0]}), so every rule after it is swallowed`);
+  assert.deepEqual(closers, [],
+    `stray '*/' at stylesheet line(s) ${closers.join(', ')}: text after a comment's closer sits raw inside a declaration block, and CSS error recovery discards through the next semicolon. The rule that follows is dead in the browser while still matching every text pin in this file.`);
+
+  // CONTROLS, both directions. Without these the scanner could be returning
+  // [] because it never matches anything, which is the failure it exists to catch.
+  assert.deepEqual(strayCommentTerminators('a{/* fine */ color: red; }'), [],
+    'control: the scanner flags a well-formed comment, so its empty result above proves nothing');
+  assert.deepEqual(strayCommentTerminators('a{/* one */\n prose */\n color: red; }'), [2],
+    'control: the scanner no longer catches a planted stray terminator, so the assertion above is inert');
+  assert.deepEqual(strayCommentTerminators('a{/* never closed'), [-1],
+    'control: the scanner no longer catches an unclosed comment');
+});
+
 test('the open project stays lit: a persistent .open state, written on click and on repaint', () => {
   assert.match(PAGE, new RegExp(cons + ' \\.pj-row\\.open \\{ background: var\\(--k-surface\\); box-shadow: inset 3px 0 0 0 var\\(--k-ink-2\\), 0 0 0 1px var\\(--k-rule\\); \\}'),
     'the selected-project style is gone; hover alone cannot say which project is on screen');
@@ -149,7 +198,14 @@ test('the state chatter is hidden from the EYE only, and a needs-you row keeps i
     'the avatar no longer spans the Answer row, so the kept .lstate misaligns');
   /* Every state glyph stays aria-hidden, or the clip above starts announcing
      decorative markup alongside the word. */
-  const g = PAGE.slice(PAGE.indexOf('const GLYPH = {'), PAGE.indexOf('const GLYPH = {') + 700);
+  /* ⚠️ ANCHORED AT A LINE START. A plain indexOf('const GLYPH = {') found a
+     COMMENT that names the declaration before finding the declaration, and the
+     slice then counted zero glyphs and failed with a message about aria-hidden
+     -- a true-sounding error about the wrong thing. Prose can quote any string;
+     it cannot start a line at column zero inside this file's indented CSS. */
+  const at = PAGE.indexOf('\nconst GLYPH = {');
+  assert.ok(at > 0, 'the GLYPH declaration moved or was renamed; the count below would be measuring nothing');
+  const g = PAGE.slice(at, at + 700);
   assert.equal((g.match(/aria-hidden="true"/g) || []).length, 6,
     'a GLYPH lost its aria-hidden: the visually-hidden .lstate would announce decoration with the state word');
 });
@@ -227,7 +283,8 @@ test('the remaining #980 rulings each keep their pin', () => {
 });
 
 test('every projects sub-view scrolls inside the no-page-scroll grid', () => {
-  // The page used to grow and scroll; with body overflow hidden, a view
+  // The page used to grow and scroll; with the body's scroll now reserved for
+  // the too-short-window case only (overflow-y: auto + a 200px floor), a view
   // without its own overflow is clipped with no scrollbar and no wheel
   // target -- Project settings' bottom controls unreachable.
   assert.match(PAGE, new RegExp(cons + ' #pj-settings-view, ' + cons + ' #pj-task-view,\\n\\s*' + cons + ' #pj-docs-view, ' + cons + ' #pj-add-view \\{ min-height: 0; overflow-y: auto; \\}'),
