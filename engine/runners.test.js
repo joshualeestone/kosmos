@@ -553,7 +553,16 @@ test('#979: a claude found elsewhere is LINKED, not downloaded, and a failed pro
     // clearForLink refusal, say) -- "it is gone" would then be true of
     // something that was never there, which proves no teardown ran.
     assert.equal(bad.linked, null, 'the linked field comes down with the link it names');
-    assert.match(bad.because, /did not run/, 'it failed at prove, which is the branch under test');
+    assert.match(bad.because, /did not run when we tried it/, 'it failed at prove, which is the branch under test');
+    /* ⚠️ THE REAL prove IS NEVER EXERCISED BY THIS SUITE -- every case injects
+       one -- so nothing here would catch a raw `Command failed: … EACCES`
+       reaching a person from the production path. Asserted against the shape
+       instead: whatever prove hands back, the sentence a person reads carries
+       no errno and names the act that actually happened. */
+    assert.doesNotMatch(bad.because, /EACCES|EPERM|ENOENT|Command failed|spawn /,
+      'a raw subprocess error reached the person-facing sentence');
+    assert.doesNotMatch(bad.because, /installed/,
+      'it says installed, and nothing on this branch installs; a copy was linked');
     assert.equal(fs.existsSync(CANONICAL), false, 'a broken link must not read as present');
   });
 });
