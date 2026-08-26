@@ -870,6 +870,7 @@ test('GET /api/accounts confirms each Claude account live, through the real rout
 /* ---- #960: GET /api/accounts, OpenAI rows through the real route ------- */
 test('GET /api/accounts confirms each OpenAI account live too, through the real route', async () => {
   const openaiAccounts = require('./engine/openaiaccounts');
+  const subscription = require('./engine/subscription');
   const dir = path.join(HOME, '.codex');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-route960keyROUT' }));
@@ -879,7 +880,7 @@ test('GET /api/accounts confirms each OpenAI account live too, through the real 
     assert.ok(Array.isArray(got.accounts), 'no accounts array in the response');
     const row = got.accounts.find((a) => a.provider === 'openai' && a.keyTail === 'ROUT');
     assert.ok(row, 'the fixture OpenAI account did not come back through the route');
-    assert.equal(row.connection.state, 'connected', 'the route did not carry the live OpenAI connection through');
+    assert.equal(row.connection.state, subscription.STATE.CONNECTED, 'the route did not carry the live OpenAI connection through');
     assert.equal(row.connection.checkedLive, true);
   } finally {
     openaiAccounts.setFetcher(null);

@@ -44,13 +44,31 @@ function authFile(dir) {
   return path.join(path.resolve(String(dir || '')), 'auth.json');
 }
 
-/** What codex wrote about who this is; null when nobody is signed in here. */
-function identityOf(dir) {
+/**
+ * The one read of auth.json, shared by identityOf() and checkLive() so
+ * "the file is absent" and "the file is present but corrupted/unreadable"
+ * stay two DIFFERENT facts everywhere in this module, not just where it
+ * happened to matter first -- the same distinction subscription.js's own
+ * readConfig() draws (absent -> a real NONE; unreadable -> UNKNOWN, never
+ * silently folded into the same negative). Caught in challenge-loop
+ * iteration 1: checkLive()'s first version treated both the same way,
+ * which is exactly the asymmetry this module's own header rules against.
+ */
+function readAuthFile(dir) {
   let raw;
-  try { raw = fs.readFileSync(authFile(dir), 'utf8'); } catch { return null; }
+  try { raw = fs.readFileSync(authFile(dir), 'utf8'); } catch { return { kind: 'absent' }; }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { return null; }
-  if (!parsed || typeof parsed !== 'object') return null;
+  try { parsed = JSON.parse(raw); } catch { return { kind: 'unreadable' }; }
+  if (!parsed || typeof parsed !== 'object') return { kind: 'unreadable' };
+  return { kind: 'ok', data: parsed };
+}
+
+/** What codex wrote about who this is; null when nobody is signed in here,
+    or when auth.json exists but is unreadable/unrecognized. */
+function identityOf(dir) {
+  const got = readAuthFile(dir);
+  if (got.kind !== 'ok') return null;
+  const parsed = got.data;
   const mode = typeof parsed.auth_mode === 'string' ? parsed.auth_mode : null;
   const key = typeof parsed.OPENAI_API_KEY === 'string' ? parsed.OPENAI_API_KEY : '';
   if (mode === 'apikey' || (!mode && key)) {
@@ -216,9 +234,25 @@ async function askModels(key) {
  */
 async function checkLive(dir) {
   const STATE = subscription.STATE;
+  const got = readAuthFile(dir);
+  /* ⚠️ ABSENT AND UNREADABLE ARE TWO DIFFERENT FACTS. No file at all is a
+     real, positively confirmed NONE -- nobody has ever signed in here. A
+     file that exists but does not parse (corrupted, half-written, a future
+     codex version writing a shape this file cannot read) is UNKNOWN: we
+     genuinely cannot tell, and asserting NONE for it would be exactly the
+     false negative this whole feature exists to prevent. */
+  if (got.kind === 'absent') {
+    return { state: STATE.NONE, plan: null, checkedLive: true, because: 'nobody has signed in to this account yet' };
+  }
+  if (got.kind === 'unreadable') {
+    return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: 'we could not read this account\'s settings' };
+  }
   const who = identityOf(dir);
   if (!who) {
-    return { state: STATE.NONE, plan: null, checkedLive: true, because: 'nobody has signed in to this account yet' };
+    // The file parses, but not into a shape this module recognises (an
+    // auth_mode neither apikey nor chatgpt, or an apikey entry with no
+    // usable key) -- unrecognised, not absent, so this is UNKNOWN too.
+    return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: 'we could not find a usable sign-in in this account\'s settings' };
   }
   if (who.authMode !== 'apikey') {
     /* ⚠️ UNKNOWN, NOT NONE, AND NOT A GUESSED CONNECTED EITHER. codex's
@@ -232,9 +266,9 @@ async function checkLive(dir) {
       because: 'this sign-in method is not yet checked live; it may or may not still work',
     };
   }
-  let key;
-  try { key = JSON.parse(fs.readFileSync(authFile(dir), 'utf8')).OPENAI_API_KEY; }
-  catch { key = null; }
+  // The key, from the SAME parsed read readAuthFile() already did above --
+  // no second file read, unlike the version challenge-loop iteration 1 flagged.
+  const key = got.data.OPENAI_API_KEY;
   if (typeof key !== 'string' || !key) {
     return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: 'we could not read this account\'s key to check it' };
   }
