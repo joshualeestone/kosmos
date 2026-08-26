@@ -1853,8 +1853,17 @@ const server = http.createServer((req, res) => {
               name: 'Getting started',
               agents: [],
               roster: safeRoster(),
+              /* kosmos#1005: the removability sentence is NOT here any more, and it
+                 was not moved -- the room note below already said it, better
+                 ("Delete this project whenever you like, it is only here to show
+                 you around"). This was a second copy of one fact.
+                 🔑 Why it had to go from THIS side specifically: the project
+                 description now sits behind a closed disclosure on the title, so
+                 a sentence living only here is invisible to a new person, who is
+                 exactly who it was written for. The room note is in the
+                 conversation, is not collapsible, and is the first thing read. */
               description: 'Kosmos made this so your first agent has somewhere to work with you. '
-                + 'Post below and everyone on it answers here. It is only an example: remove it whenever you like.',
+                + 'Post below and everyone on it answers here.',
               made: { via: 'kosmos' },
             });
             projectsToJoin.push(home.id);

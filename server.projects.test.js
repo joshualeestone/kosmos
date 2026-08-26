@@ -2476,7 +2476,15 @@ test('the first agent brings its own home, once, and never regrows a removed one
   const home = all[0];
   assert.equal(home.name, 'Getting started');
   assert.deepEqual(home.agents, ['first-ever']);
-  assert.match(home.description, /remove it whenever you like/i, 'the seed does not say it is removable');
+  /* kosmos#1005: the removability fact moved OFF the description, because the
+     description is now behind a closed disclosure and a new person would never
+     see it. It was always duplicated in the room note, so this pin follows the
+     fact rather than being deleted -- asserting it in its new home is what
+     stops the fact vanishing from BOTH places in one careless edit. */
+  assert.doesNotMatch(home.description, /remove it whenever you like/i,
+    'the removability sentence is back on the description, where the disclosure hides it from a new person');
+  assert.match(home.description, /Post below and everyone on it answers here/,
+    'the seed description lost the part that explains what the room is for');
   assert.equal(home.made && home.made.via, 'kosmos', 'the seed does not say Kosmos made it');
   const row = (out.projects || []).find((p) => p.seeded);
   assert.ok(row && row.added && row.told && row.told.state === 'not_tried',
