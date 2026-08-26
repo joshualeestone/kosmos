@@ -371,7 +371,7 @@ test('#979: status reports the manifest facts and the honest null for an unmeasu
   assert.equal(typeof s.openai.present, 'boolean');
 });
 
-/* ---- the Claude (vendor-installer) kind, #979 branch A ---------------- */
+/* ---- the Claude (vendor-verified) kind, #979 branch A ---------------- */
 
 const CLAUDE_HOME = nodePath.join(SANDBOX, 'claude-home');
 const CANONICAL = nodePath.join(CLAUDE_HOME, '.local', 'bin', 'claude');
@@ -402,78 +402,119 @@ test('#979: claude resolution is env-authoritative, then the vendor canonical pa
   }
 });
 
-test('#979: the vendor-installer happy path walks installing, proving, installed, with the log recorded and no invented numbers', async () => {
-  runners.resetForTests();
+/* ── the vendor-verified install ──────────────────────────────────────────
+   ⚠️ THESE TESTS REPLACED A SET THAT DROVE A `curl | sh` INSTALLER. That
+   mechanism was removed in review: engine/connect.js already installs
+   Claude Code against a published per-platform SHA256, so a second
+   unverified path for the same product had no right to exist. What is
+   seamed here is the DELEGATION to that verified fetch, not a re-implementation
+   of it -- connect.js owns and tests the checksum and redirect refusals.
+
+   Every test save-and-restores AGENT_WORKFORCE_HOME rather than deleting it,
+   so a future preamble that sets it is not silently cleared by the first
+   Claude test to run. */
+
+const withClaudeHome = async (fn) => {
+  const prevHome = process.env.AGENT_WORKFORCE_HOME;
+  const prevBin = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
+  runners.resetForTests();
   try {
+    return await fn();
+  } finally {
+    if (prevHome === undefined) delete process.env.AGENT_WORKFORCE_HOME;
+    else process.env.AGENT_WORKFORCE_HOME = prevHome;
+    if (prevBin === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    else process.env.AGENT_WORKFORCE_CLAUDE_BIN = prevBin;
+    fs.rmSync(CANONICAL, { recursive: true, force: true });
+  }
+};
+
+test('#979: the vendor-verified happy path walks downloading, installing, proving, installed, with REAL byte counts', async () => {
+  await withClaudeHome(async () => {
+    const downloaded = nodePath.join(SANDBOX, 'vendor', 'claude-binary');
+    put(downloaded);
+    /* The fetch is held open deliberately. A seam that resolves immediately
+       would let every assertion run against the TERMINAL state, and a job
+       that never published an intermediate phase would pass it -- the screen
+       would have nothing to bind a progress bar to and the test would not
+       notice. Holding it open is what makes 'downloading' observable. */
+    let release;
+    let progress;
+    const fetchStarted = new Promise((r) => { progress = r; });
+    const held = new Promise((r) => { release = r; });
     const job = runners.install('claude', {
       findElsewhere: () => null,
-      runInstaller: (url, logFile, done) => {
-        fs.writeFileSync(logFile, 'installed ok\n');
+      fetchVendor: (onProgress) => { progress(onProgress); return held; },
+      runVendorInstall: (binary, done) => {
+        assert.equal(binary, downloaded, 'the verified binary is what gets run, not a fetched script');
         put(CANONICAL, '#!/bin/sh\necho claude 9.9\n');
         done(null);
       },
       prove: (bin, done) => done(null, 'claude 9.9\n'),
     });
+    const onProgress = await fetchStarted;
+    assert.equal(job.phase, 'downloading', 'the job is observably downloading while the fetch is in flight');
+    onProgress(50, 200);
+    assert.deepEqual([job.receivedBytes, job.totalBytes], [50, 200],
+      'progress reaches the job as it happens, not only at the end');
+    onProgress(200, 200);
+    release({ path: downloaded, version: '2.1.229' });
     await job.settled;
     assert.equal(job.phase, 'installed', job.because || '');
     assert.equal(job.proved, 'claude 9.9');
-    assert.ok(job.log, 'the installer log path rides in the job');
-    assert.equal(job.receivedBytes, null, 'no byte counts are invented for a script that reports none');
-  } finally {
-    delete process.env.AGENT_WORKFORCE_HOME;
-    fs.rmSync(CANONICAL, { force: true });
-  }
+    assert.equal(job.version, '2.1.229', 'the discovered version rides in the job');
+    assert.equal(job.receivedBytes, 200);
+    assert.equal(job.totalBytes, 200);
+  });
 });
 
-test('#979: a failed vendor install is a JOB ANSWER naming the log, never a death', async () => {
-  runners.resetForTests();
-  delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
-  process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
-  try {
+test('#979: a failed vendor download is a JOB ANSWER, never a death, and prove never runs', async () => {
+  await withClaudeHome(async () => {
     const job = runners.install('claude', {
       findElsewhere: () => null,
-      runInstaller: (url, logFile, done) => { fs.writeFileSync(logFile, 'curl: (22) 404\n'); done(new Error('exit 22')); },
-      prove: () => { throw new Error('prove must never run after a failed installer'); },
+      fetchVendor: async () => { throw new Error('the downloaded file did not match its checksum, so it was not kept'); },
+      runVendorInstall: () => { throw new Error('install must never run after a failed download'); },
+      prove: () => { throw new Error('prove must never run after a failed download'); },
     });
     await job.settled;
     assert.equal(job.phase, 'failed');
-    assert.match(job.because, /installer did not finish/);
-    assert.match(job.because, /its log is at/);
-  } finally {
-    delete process.env.AGENT_WORKFORCE_HOME;
-  }
+    assert.match(job.because, /did not match its checksum/,
+      "connect.js's refusal reaches the person verbatim rather than being reworded into a generic failure");
+  });
 });
 
-test('#979: an installer that finishes but lands nothing is failed naming the canonical path', async () => {
-  runners.resetForTests();
-  delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
-  process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
-  try {
+test('#979: an installer that finishes but lands nothing RUNNABLE is failed naming the canonical path', async () => {
+  await withClaudeHome(async () => {
+    const downloaded = nodePath.join(SANDBOX, 'vendor', 'claude-binary');
+    put(downloaded);
     const job = runners.install('claude', {
       findElsewhere: () => null,
-      runInstaller: (url, logFile, done) => { fs.writeFileSync(logFile, 'said ok, did nothing\n'); done(null); },
-      prove: () => { throw new Error('prove must never run on nothing'); },
+      fetchVendor: async () => ({ path: downloaded, version: '2.1.229' }),
+      runVendorInstall: (binary, done) => {
+        // Lands a file with NO exec bit: existsSync would have passed this
+        // and failed one step later with a raw shell error.
+        fs.mkdirSync(nodePath.dirname(CANONICAL), { recursive: true });
+        fs.writeFileSync(CANONICAL, 'not executable');
+        fs.chmodSync(CANONICAL, 0o644);
+        done(null);
+      },
+      prove: () => { throw new Error('prove must never run on a non-runnable file'); },
     });
     await job.settled;
     assert.equal(job.phase, 'failed');
-    assert.match(job.because, /nothing landed at/);
-  } finally {
-    delete process.env.AGENT_WORKFORCE_HOME;
-  }
+    assert.match(job.because, /nothing runnable landed at/);
+  });
 });
 
 test('#979: a claude found elsewhere is LINKED, not downloaded, and a failed prove takes the link down', async () => {
-  runners.resetForTests();
-  delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
-  process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
   const elsewhere = nodePath.join(SANDBOX, 'elsewhere', 'claude');
   put(elsewhere, '#!/bin/sh\necho claude 8.8\n');
-  try {
+  await withClaudeHome(async () => {
     const job = runners.install('claude', {
       findElsewhere: () => elsewhere,
-      runInstaller: () => { throw new Error('a link case must not download'); },
+      fetchVendor: () => { throw new Error('a link case must not download'); },
       prove: (bin, done) => done(null, 'claude 8.8'),
     });
     await job.settled;
@@ -481,43 +522,80 @@ test('#979: a claude found elsewhere is LINKED, not downloaded, and a failed pro
     assert.equal(job.linked, elsewhere);
     assert.equal(fs.readlinkSync(CANONICAL), elsewhere, 'the canonical path is a link to the found install');
 
-    // And the teardown: a link whose prove fails must come down.
+    // And the teardown: a link whose prove fails must come down. Asserted
+    // present first, so "it is gone" is proof of a teardown rather than of
+    // a link that was never made.
     runners.resetForTests();
+    assert.equal(fs.existsSync(CANONICAL), true, 'the link is there before the teardown case runs');
     fs.rmSync(CANONICAL, { force: true });
     const bad = runners.install('claude', {
       findElsewhere: () => elsewhere,
-      runInstaller: () => { throw new Error('a link case must not download'); },
+      fetchVendor: () => { throw new Error('a link case must not download'); },
       prove: (bin, done) => done(new Error('exec format error')),
     });
     await bad.settled;
     assert.equal(bad.phase, 'failed');
     assert.equal(fs.existsSync(CANONICAL), false, 'a broken link must not read as present');
-  } finally {
-    delete process.env.AGENT_WORKFORCE_HOME;
-    fs.rmSync(CANONICAL, { force: true });
-  }
+  });
 });
 
-test('#979: the arch guard does not apply to the vendor-installer kind', async () => {
-  runners.resetForTests();
-  delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
-  process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
-  try {
+test('#979: the link step REFUSES a canonical path it does not own, by name, instead of deleting it', async () => {
+  const elsewhere = nodePath.join(SANDBOX, 'elsewhere', 'claude');
+  put(elsewhere);
+  // A real file at the canonical path -- e.g. the truncated launcher a
+  // crashed connect.js install leaves behind. The version this replaces
+  // did rmSync(force) here and destroyed it.
+  await withClaudeHome(async () => {
+    fs.mkdirSync(nodePath.dirname(CANONICAL), { recursive: true });
+    fs.writeFileSync(CANONICAL, 'a real vendor file');
+    fs.chmodSync(CANONICAL, 0o644); // not runnable, which is how we reach the link branch
     const job = runners.install('claude', {
-      arch: 'x64', // would refuse the tarball kind; the vendor script picks its own artifact
+      findElsewhere: () => elsewhere,
+      fetchVendor: () => { throw new Error('a link case must not download'); },
+      prove: () => { throw new Error('prove must never run after a refusal'); },
+    });
+    await job.settled;
+    assert.equal(job.phase, 'failed');
+    assert.match(job.because, /already exists and is not something we put there/);
+    assert.equal(fs.readFileSync(CANONICAL, 'utf8'), 'a real vendor file',
+      'the file we did not put there is still on disk');
+  });
+});
+
+test('#979: a DIRECTORY at the canonical path is refused in words, not as a raw errno', async () => {
+  const elsewhere = nodePath.join(SANDBOX, 'elsewhere', 'claude');
+  put(elsewhere);
+  await withClaudeHome(async () => {
+    fs.mkdirSync(CANONICAL, { recursive: true });
+    const job = runners.install('claude', {
+      findElsewhere: () => elsewhere,
+      fetchVendor: () => { throw new Error('a link case must not download'); },
+      prove: () => { throw new Error('prove must never run after a refusal'); },
+    });
+    await job.settled;
+    assert.equal(job.phase, 'failed');
+    assert.match(job.because, /is a folder, not a runner/);
+    assert.doesNotMatch(job.because, /EISDIR|ERR_FS/, 'a person must not be shown an errno');
+  });
+});
+
+test('#979: the arch guard does not apply to the vendor-verified kind', async () => {
+  await withClaudeHome(async () => {
+    const job = runners.install('claude', {
+      arch: 'x64', // would refuse the tarball kind; the vendor manifest is per-platform
       findElsewhere: () => null,
-      runInstaller: (url, logFile, done) => { fs.writeFileSync(logFile, ''); done(new Error('stop here')); },
+      fetchVendor: async () => { throw new Error('stop here'); },
     });
     await job.settled;
     assert.equal(job.phase, 'failed');
     assert.doesNotMatch(job.because, /arm64|x64/, 'the refusal must not be an arch refusal');
-    assert.match(job.because, /installer did not finish/);
-  } finally {
-    delete process.env.AGENT_WORKFORCE_HOME;
-  }
+    assert.match(job.because, /stop here/);
+  });
 });
 
 test('#979: present means RUNNABLE, a directory or stripped file at a runner path reads absent (#133 trap)', () => {
+  const prevHome = process.env.AGENT_WORKFORCE_HOME;
+  const prevBin = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
   try {
@@ -528,34 +606,35 @@ test('#979: present means RUNNABLE, a directory or stripped file at a runner pat
     put(CANONICAL); fs.chmodSync(CANONICAL, 0o644); // a file with no exec bit
     r = runners.resolveBin('claude');
     assert.equal(r.present, false, 'a stripped file must not read as a runnable runner');
+    // And the positive control, so "absent" above is a real verdict rather
+    // than a path that could never read present.
+    fs.chmodSync(CANONICAL, 0o755);
+    assert.equal(runners.resolveBin('claude').present, true, 'a runnable file at the same path DOES read present');
   } finally {
-    delete process.env.AGENT_WORKFORCE_HOME;
+    if (prevHome === undefined) delete process.env.AGENT_WORKFORCE_HOME;
+    else process.env.AGENT_WORKFORCE_HOME = prevHome;
+    if (prevBin === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    else process.env.AGENT_WORKFORCE_CLAUDE_BIN = prevBin;
     fs.rmSync(CANONICAL, { recursive: true, force: true });
   }
 });
 
-test('#979: the REAL sequenced installer names a curl failure with curl\'s own words in the log', async () => {
-  /* No seam here on purpose: this drives the default runInstaller (the
-     positional-args curl-then-sh line) against a domain that cannot
-     resolve, so the sequencing fix is what is under test -- a piped
-     curl|sh would have reported success over an empty script and lost
-     the DNS error entirely. No network side effects: the lookup fails. */
-  runners.resetForTests();
+test('#979: create.binPaths().claudeBin IS the resolver, so the two cannot drift', () => {
+  const prevHome = process.env.AGENT_WORKFORCE_HOME;
+  const prevBin = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
   try {
-    const job = runners.install('claude', {
-      url: 'https://kosmos-test-979.invalid/install.sh',
-      findElsewhere: () => null,
-      prove: () => { throw new Error('prove must never run after a failed installer'); },
-    });
-    await job.settled;
-    assert.equal(job.phase, 'failed');
-    assert.match(job.because, /installer did not finish/);
-    const logPath = job.because.match(/its log is at (\S+)\)/)[1];
-    const log = fs.readFileSync(logPath, 'utf8');
-    assert.match(log, /curl|resolve/i, 'the log must carry the network failure, not be empty');
+    // The consolidation's whole point. The create.js suites all pass
+    // claudeBin explicitly, so nothing there exercises the default arm
+    // this branch changed; this is the assertion that does.
+    assert.equal(require('./create').binPaths().claudeBin, runners.resolveBin('claude').bin);
+    // And it honours the sandbox seam on both sides, not just one.
+    assert.equal(require('./create').binPaths().claudeBin, CANONICAL);
   } finally {
-    delete process.env.AGENT_WORKFORCE_HOME;
+    if (prevHome === undefined) delete process.env.AGENT_WORKFORCE_HOME;
+    else process.env.AGENT_WORKFORCE_HOME = prevHome;
+    if (prevBin === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    else process.env.AGENT_WORKFORCE_CLAUDE_BIN = prevBin;
   }
 });
