@@ -63,7 +63,12 @@ test('the consolidated CSS re-lays the board list and the projects panel; it hid
      hidden scrollbar TRACK on the composer's textarea is a #980 ask, not
      the composer being hidden. The guard still catches the real thing:
      any of these elements themselves carrying display: none. */
-  assert.doesNotMatch(block, /(?:#pj-room|#pj-room-search|\.composer)(?:(?!scrollbar)[^{])*\{[^}]*display: none/, 'the room, its search or its composer is hidden in the consolidated view');
+  assert.doesNotMatch(stripCssComments(block), /(?:#pj-room|#pj-room-search|\.composer)(?:(?!scrollbar)[^{])*\{[^}]*display: none/, 'the room, its search or its composer is hidden in the consolidated view');
+  /* Comment-stripped like its two siblings below, and given the positive
+     control they gained in the same pass: a guard with no proof it can fire
+     is a claim. */
+  assert.match(stripCssComments('a{} .composer { display: none; }'), /\.composer[^{]*\{[^}]*display: none/,
+    'control: the composer guard can no longer catch a real display:none on .composer');
 });
 
 test('no em dash in what a person reads', () => {

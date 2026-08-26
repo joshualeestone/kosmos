@@ -2226,13 +2226,15 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lname, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .ltitle, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lstate { display: none; }
   /* Folded projects: the arrow alone, the list gone. */
   html[data-layout="consolidated"] body.consolidated.fold-p #panel-projects { grid-template-columns: 48px minmax(0, 1fr); }
-  /* ⚠️ `margin-left: 0` HERE OUT-SPECIFIES THE STICKY HEADER'S `margin: 0 -8px`
-     below -- (1,3,2) against (1,2,2) -- so folded, the header kept its right
-     bleed and lost its left, and scrolled rows could peek through the 8px
-     strip the negative margins exist to cover. `margin-inline-start` is the
-     narrow fix: it still cancels the fold's own left inset without
-     re-declaring the shorthand that carries the bleed. */
-  html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects { flex-direction: column; margin-inline-start: -8px; }
+  /* ⚠️ NO MARGIN DECLARATION HERE ANY MORE. It used to say `margin-left: 0`,
+     which out-specified the sticky header's `margin: 0 -8px` below ((1,3,2)
+     against (1,2,2)), so a folded header kept its right bleed and lost its
+     left. The first fix restated the bleed as `margin-inline-start: -8px`,
+     which was inert: `#rail-projects`'s own rule already supplies it and
+     already beats `.railhead`, so the "fold's own left inset" that
+     declaration claimed to cancel does not exist. A declaration whose comment
+     asserts a job nothing is doing is worse than its absence. */
+  html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects { flex-direction: column; }
   html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects .railacts { flex-direction: column; }
   /* #980 (Josh, 2026-08-26 08:31): "when I collapse projects the header
      should go away and just have the + and the arrow" -- the label was
@@ -2492,7 +2494,19 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      nothing scrolls, and where the geometry cannot be honoured, reachability
      wins over the no-scrollbar promise. */
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit), html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child { max-height: 38vh; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { max-height: 100%; }
+  /* 🛑 `calc(100% - 12px)`, NOT `100%`, AND THIS ONE IS NOT WINDOW-DEPENDENT.
+     `max-height` resolves against the grid AREA, but this card also carries
+     `margin: 0 12px 12px` below, so at the cap its MARGIN BOX is 12px taller
+     than its own track. A full Members list then spills 12px past `.pj3`
+     (height: 100%, no overflow) and out through #pj-one-view and
+     #panel-projects, neither of which has a bottom padding to absorb it --
+     straight to the body scroll.
+     ⚠️ That is a page scrollbar in exactly the state this branch exists to
+     remove, and unlike the two documented escape hatches it does not need a
+     short window: it fires whenever Members overflows. The sibling caps are
+     safe by contrast, because Tasks and Files sit in `auto` tracks, which size
+     to the margin box rather than against it. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { max-height: calc(100% - 12px); }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 3; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit { display: contents; }
   /* #980 (Josh, 2026-08-26 08:31): Files ABOVE Project members.
@@ -2572,7 +2586,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   /* #867 (Josh, 2026-08-25 11:02): "make the dialog box fit the height
      of the page. Right now you can see it has a big empty gap... match
      up with the design that we did yesterday" -- the 2026-08-19 pass
-     (:2310 below) that made the tab view's box "fill the page height",
+     (grep `.pjmid .thread`) that made the tab view's box "fill the page height",
      the reference he could not recall the date of.
      ⚠️ TWO THINGS TRIED AND MEASURED WRONG BEFORE THIS ONE, kept here
      so the next reader does not retry them. ⚠️ BOTH DESCRIBE THE PRE-#980
@@ -2636,6 +2650,15 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .pj-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   /* #980: no visible scrollbar inside "Write to the project" -- the same
      track-hiding #alist already uses; typing and wheeling still scroll. */
+  /* ⚠️ THIS ONE DIFFERS IN KIND FROM THE LIST SCROLLERS, and the difference is
+     worth naming rather than folding in under "the same treatment #alist gets".
+     `.cinput` is `max-height: 9rem; overflow-y: auto`, so on a long post the
+     track was the only signal that text the PERSON WROTE has scrolled out of
+     view. The caret covers typing; it does not cover re-reading what you have
+     already written before pressing Post.
+     📌 Kept because hiding it is Josh's #867 ask and this is his composer, but
+     recorded as a trade so the next person meets the reasoning rather than
+     rediscovering the cost. */
   html[data-layout="consolidated"] body.consolidated .pjmid .composerbox textarea.cinput { scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated .pjmid .composerbox textarea.cinput::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
@@ -6821,7 +6844,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       </div>
       <!-- The door to settings, in the pack's pjhead corner: what lives
            there is what has nowhere else to live. -->
-      <button class="linkish" id="pj-settings-link" type="button">Settings</button>
+      <!-- ⚠️ VISIBLE "Settings", ACCESSIBLE NAME "Project settings", and the two
+           differ on purpose. Josh asked for the shorter visible label (#980), but
+           the consolidated view puts this control on the same screen as the
+           person's row, whose accessible name is also "Open Settings" and which
+           opens the APP's settings. A screen-reader user listing the buttons
+           would hear "Settings" twice, going to two different places, with
+           nothing to tell them apart.
+           📌 It also keeps the door matching its destination: the page this
+           opens still titles itself "Project settings". The eye gets the trim;
+           the ear keeps the noun that says which settings these are. -->
+      <button class="linkish" id="pj-settings-link" type="button" aria-label="Project settings">Settings</button>
     </div>
 
     <div class="pj3">
