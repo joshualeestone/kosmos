@@ -4575,6 +4575,18 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                        font-family: var(--font-ui); cursor: pointer; }
 #firstrun .connect-b:hover { background: var(--gold); }
 #firstrun .connect-b:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
+/* 🛑 CONNECTED IS A STATE OF THE BUTTON, NOT A SENTENCE BESIDE IT. Josh,
+   2026-08-26 09:27: green with a check, "We don't have to say 'Claude is
+   connected' underneath it. We just indicate it with the green button and
+   check mark." Reconfirmed 14:31 and drawn as step 5 of his own flow.
+   ⚠️ IT MUST NOT LOOK DISABLED, which is what it did before: a greyed-out
+   control reads as "this stopped working", the opposite of the news. Green
+   fill, white check, full contrast.
+   📌 The check glyph is aria-hidden and the word Connected carries the
+   meaning, so a screen reader hears "Connected" once rather than a
+   decoration plus a word. */
+#firstrun .connect-b.is-connected { background: #1f7a4d; color: #ffffff; cursor: default; }
+#firstrun .connect-b.is-connected:hover { background: #1f7a4d; }
 /* The shared action buttons take the pack's identity without touching
    frActions: the primary is gold, the alt quiet, Back a plain quiet link. */
 #firstrun #fr-next {
@@ -4647,6 +4659,30 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 #firstrun .fr-note { color: var(--k-ink-2); background: rgba(184,137,32,.08);
                      border: 1px solid var(--k-rule); }
 #firstrun .fr-note b { color: var(--k-ink); }
+/* The install confirm, on the row it belongs to. Deliberately the SAME gold
+   wash as .fr-note above rather than a new tone: this is the pack's
+   attention treatment and a second one would say "different kind of thing"
+   about something that is the same kind of thing. Sits directly under its
+   provider row (Josh: "it pops down right below it"), with the row's own
+   margin closed up so it reads as part of that row and not as a page-level
+   banner. */
+#firstrun .fr-confirm { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
+  background: rgba(184,137,32,.08); border: 1px solid rgba(184,137,32,.28); }
+#firstrun .fr-confirm[hidden] { display: none; }
+/* ⚠️ `.fr-body p.fr-confirm-t`, NOT `.fr-confirm-t`. At (1,1,0) it lost every
+   declaration to `#firstrun .fr-body p` at (1,1,1), so the confirm sentence
+   rendered as ordinary muted body copy on the one panel whose job is to be
+   read. This file documents the same trap twice already, and this branch caught
+   it for the BUTTON and missed it for the paragraph beside it. */
+#firstrun .fr-body p.fr-confirm-t { margin: 0 0 8px; color: var(--k-ink); font: var(--text-body) var(--font-ui); max-width: 60ch; }
+/* ⚠️ `.btn.uprime` (0,2,0) LOSES to `#firstrun .btn` (1,1,0), which paints every
+   button in the wizard white. This is the first uprime used under #firstrun, so
+   nothing caught it before: Confirm and Not now rendered identically, on the one
+   panel whose whole job is to make an affirmative choice deliberate. Scoped here
+   rather than raising .uprime globally, which would repaint buttons on screens
+   nobody asked about. */
+#firstrun .fr-confirm .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-deep); }
+#firstrun .fr-confirm .btn.uprime:hover { background: var(--gold); }
 #firstrun .fr-msg { color: var(--k-ink); }
 #firstrun .fr-youfine { color: var(--k-ink-2); }
 #firstrun .fr-revealrow { margin: 18px 0 22px; }
@@ -6143,8 +6179,47 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              see `.pmark` above for why Claude is in colour and the rest are
              monochrome by filter. -->
         <div class="llm on"><span class="llm-m pmark live" data-pmark="claude" role="img" aria-label="Claude"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 125 125" fill="currentColor" aria-label="Claude"><path d="M54.375 118.75L56.125 111L58.125 101L59.75 93L61.25 83.125L62.125 79.875L62 79.625L61.375 79.75L53.875 90L42.5 105.375L33.5 114.875L31.375 115.75L27.625 113.875L28 110.375L30.125 107.375L42.5 91.5L50 81.625L54.875 76L54.75 75.25H54.5L21.5 96.75L15.625 97.5L13 95.125L13.375 91.25L14.625 90L24.5 83.125L49.125 69.375L49.5 68.125L49.125 67.5H47.875L43.75 67.25L29.75 66.875L17.625 66.375L5.75 65.75L2.75 65.125L0 61.375L0.25 59.5L2.75 57.875L6.375 58.125L14.25 58.75L26.125 59.5L34.75 60L47.5 61.375H49.5L49.75 60.5L49.125 60L48.625 59.5L36.25 51.25L23 42.5L16 37.375L12.25 34.75L10.375 32.375L9.625 27.125L13 23.375L17.625 23.75L18.75 24L23.375 27.625L33.25 35.25L46.25 44.875L48.125 46.375L49 45.875V45.5L48.125 44.125L41.125 31.375L33.625 18.375L30.25 13L29.375 9.75C29.0417 8.625 28.875 7.375 28.875 6L32.75 0.750006L34.875 0L40.125 0.750006L42.25 2.625L45.5 10L50.625 21.625L58.75 37.375L61.125 42.125L62.375 46.375L62.875 47.75H63.75V47L64.375 38L65.625 27.125L66.875 13.125L67.25 9.125L69.25 4.375L73.125 1.87501L76.125 3.25L78.625 6.875L78.25 9.125L76.875 18.75L73.875 33.875L72 44.125H73.125L74.375 42.75L79.5 36L88.125 25.25L91.875 21L96.375 16.25L99.25 14H104.625L108.5 19.875L106.75 26L101.25 33L96.625 38.875L90 47.75L86 54.875L86.375 55.375H87.25L102.125 52.125L110.25 50.75L119.75 49.125L124.125 51.125L124.625 53.125L122.875 57.375L112.625 59.875L100.625 62.25L82.75 66.5L82.5 66.625L82.75 67L90.75 67.75L94.25 68H102.75L118.5 69.125L122.625 71.875L125 75.125L124.625 77.75L118.25 80.875L109.75 78.875L89.75 74.125L83 72.5H82V73L87.75 78.625L98.125 88L111.25 100.125L111.875 103.125L110.25 105.625L108.5 105.375L97 96.625L92.5 92.75L82.5 84.375H81.875V85.25L84.125 88.625L96.375 107L97 112.625L96.125 114.375L92.875 115.5L89.5 114.875L82.25 104.875L74.875 93.5L68.875 83.375L68.25 83.875L64.625 121.625L63 123.5L59.25 125L56.125 122.625L54.375 118.75Z"/></svg></span><div class="llm-w"><b>Claude</b><small>Anthropic &middot; works today</small></div>
-          <button class="connect-b" type="button" id="fr-llm-connect">Connect</button></div>
-        <div class="llm off"><span class="llm-m pmark dim" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#pmark-gemini-g)"/> <defs> <radialGradient id="pmark-gemini-g" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(2.77876 11.3795) rotate(18.6832) scale(29.8025 238.737)"> <stop offset="0.0671246" stop-color="#9168C0"/> <stop offset="0.342551" stop-color="#5684D1"/> <stop offset="0.672076" stop-color="#1BA1E3"/> </radialGradient> </defs> </svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><span class="soon">Coming soon</span></div>
+          <button class="connect-b" type="button" id="fr-llm-connect" aria-expanded="false" aria-controls="fr-claude-confirm">Connect</button></div>
+        <!-- 🛑 THE CONFIRM, and it is the point of this whole step. Josh, 2026-08-26
+             14:44, watching a fresh install: "it downloaded 231MB without asking...
+             total chaos". And 14:59: "I should be notified before an almost-quarter-
+             of-a-gig download that's about to happen."
+             ⚠️ Same reveal contract as #fr-openai-flow below (hidden, aria-expanded
+             on the button, aria-controls pointing here), because the two rows sit
+             next to each other and a person should not meet two different ideas of
+             what pressing Connect does. Josh described the behaviour as "it pops
+             down right below it" -- OpenAI already did that; Claude did not.
+             📌 THE SIZE IS ROUGH ON PURPOSE, and it is in the SENTENCE rather than
+             only on the bar. Being told how big it is once the bar is already
+             moving is being told too late to decline, which makes the confirm a
+             formality. But Josh, 15:27: "a white collar person doesnt care if its
+             108 or 127MB.. they just want to know its making progress installing."
+             ⇒ Say it is large, then show it moving. "Around 230MB" is enough to
+             decide whether to do this now or on better wifi, which is the decision
+             he described wanting to make. An exact figure serves nobody reading it
+             and is one more number that has to stay true.
+             ⚠️ No time estimate: dropped at 15:07 ("that seems hard"). We cannot
+             know somebody's connection, so any figure is a promise the product
+             breaks on the screen where trust is being decided.
+             ⚠️ STALENESS: the figure is hardcoded in frClaudeDownloadBytes, not
+             in this markup. It is rough, so a small drift in
+             the real artifact does not make it a lie, but a large one would. The
+             durable version reads the size the engine already knows before it
+             downloads; worth doing when that field exists rather than inventing a
+             second source of truth for it now. -->
+        <div id="fr-claude-confirm" class="fr-confirm" role="group" aria-labelledby="fr-claude-confirm-t" hidden>
+          <p class="fr-confirm-t" id="fr-claude-confirm-t">In order to connect to Claude, we need to install Claude Code first.</p>
+          <div class="frow">
+            <button class="btn uprime" type="button" id="fr-claude-confirm-go" aria-describedby="fr-claude-confirm-t">Confirm</button>
+            <button class="btn" type="button" id="fr-claude-confirm-no">Not now</button>
+          </div>
+        </div>
+        <!-- ⚠️ ORDER IS CLAUDE, GPT, GEMINI (Josh, 2026-08-26 14:30: "lets put
+             GPT under Claude, and then Gemini 3rd"). Beyond his preference it
+             is the right shape: Gemini is a `llm off` Coming soon row, and it
+             previously sat BETWEEN the only two providers that work, so the eye
+             hit a dead row on the way to the second live one. Both working rows
+             now come first. Move this only if a provider changes state. -->
         <div class="llm on"><span class="llm-m pmark live" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="black"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI &middot; works today</small></div>
           <button class="connect-b" type="button" id="fr-openai-connect" aria-expanded="false" aria-controls="fr-openai-flow">Connect</button></div>
         <!-- #944-adjacent: OpenAI is a pasted API key, not an OAuth popup like
@@ -6176,6 +6251,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              display:none subtree -- invisible, and the aria-live announcement
              never fired. The message must survive the form it reports on. -->
         <p class="dhint" id="fr-openai-msg" role="status" aria-live="polite" style="margin:-4px 0 10px;"></p>
+        <!-- ⚠️ OUTSIDE #fr-openai-flow, and this row was briefly INSIDE it. The
+             reorder moved it past the wrong closing tag, so the list showed five
+             rows instead of six: Gemini vanished until somebody pressed Connect on
+             GPT, appeared inside the API-key form, then vanished again when the
+             form hid itself on success. The order test still passed, because it
+             read source order and not whether a hidden container opened in between. -->
+        <div class="llm off"><span class="llm-m pmark dim" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#pmark-gemini-g)"/> <defs> <radialGradient id="pmark-gemini-g" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(2.77876 11.3795) rotate(18.6832) scale(29.8025 238.737)"> <stop offset="0.0671246" stop-color="#9168C0"/> <stop offset="0.342551" stop-color="#5684D1"/> <stop offset="0.672076" stop-color="#1BA1E3"/> </radialGradient> </defs> </svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><span class="soon">Coming soon</span></div>
         <p class="smore-t">Runs on this computer</p>
         <div class="llm off"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon">Coming soon</span></div>
         <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
@@ -27140,7 +27222,41 @@ function frConnWatch() {
   }, 1000);
 }
 
-async function frConnectStart() {
+/**
+ * 🛑 THE GATE LIVES HERE, NOT IN A LISTENER, and putting it in a listener was a
+ * shipped defect. The confirm originally guarded only `#fr-llm-connect`. The
+ * button a clean Mac actually presses is the footer primary in the `none` arm
+ * ("Connect Claude"), which called the worker directly -- so the exact machine
+ * this panel exists to protect went straight to a 231MB download with no
+ * warning, while the row button beside it was gated.
+ *
+ * ⇒ Every caller now passes through this. A new call site cannot forget the
+ * confirm, because there is no ungated entry to forget it with.
+ *
+ * `opts.confirmed` is ONLY for the Confirm button itself. Everything else,
+ * including the retries, gates on `FR_CONN_CONFIRMED`, which is per-session.
+ *
+ * 🛑 THE RETRIES USED TO PASS `confirmed: true` AND THAT WAS A CROSS-SESSION
+ * BYPASS. "Try again" and "Start again" look like post-attempt retries, and in
+ * the same session they are. But the `stuck` and `interrupted` arms they live
+ * on are painted on a FRESH PAGE LOAD, from the persisted connect record --
+ * so a person who has seen no confirm at all could press "Start again" on an
+ * interrupted download and begin ~230MB with no size anywhere on screen. The
+ * session flag does not survive a restart; the literal did.
+ * ⇒ Gating on the flag alone gets both cases right for free: a same-session
+ * retry stays silent because the flag is already true, and a cross-session one
+ * asks because it is not.
+ */
+let FR_CONN_CONFIRMED = false;
+
+async function frConnectStart(opts) {
+  const confirmed = (opts && opts.confirmed) || FR_CONN_CONFIRMED;
+  if (!confirmed && frClaudeInstallNeeded()) { frClaudeConfirmOpen(opts && opts.opener); return; }
+  FR_CONN_CONFIRMED = true;
+  return frConnectStartConfirmed();
+}
+
+async function frConnectStartConfirmed() {
   const msg = document.getElementById('fr-sub-msg');
   msg.textContent = '';
   const next = document.getElementById('fr-next');
@@ -27400,7 +27516,7 @@ function frPaintConnect(st) {
          and is the honest way forward from here. */
       : ', or carry on and connect later from Settings.')
     + '</div>';
-    frActions({ label: 'Try again', go: () => frConnectStart() }, { label: 'Continue anyway', go: () => frGo(4) });
+    frActions({ label: 'Try again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(4) });
     return;
   }
 
@@ -27427,7 +27543,7 @@ function frPaintConnect(st) {
       title: 'A connection attempt was interrupted',
       detail: 'Kosmos was closed while it was ' + frConnBefore(before) + '. ' + afterSentence,
     });
-    frActions({ label: 'Start again', go: () => frConnectStart() }, { label: 'Continue anyway', go: () => frGo(4) });
+    frActions({ label: 'Start again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(4) });
     return;
   }
 
@@ -27519,13 +27635,192 @@ document.getElementById('fr-pane-1').addEventListener('click', async (e) => {
   }
 });
 
+/**
+ * Will pressing Connect on Claude actually DOWNLOAD something?
+ *
+ * 🛑 TODAY THE PAGE CANNOT TELL, AND THIS SAYS SO RATHER THAN PRETENDING.
+ * An earlier version of this read `/api/machine` for a Claude Code row. That
+ * was wrong twice over and shipped green:
+ *   1. it guessed the row shape (`name`/`label`/`[0]`); real rows carry
+ *      `key`/`state`/`title`/`detail`, so the lookup never matched and the
+ *      function could only ever return true;
+ *   2. even a correct lookup is the WRONG GRAIN -- `installedCheck`
+ *      (engine/machine.js) reports Claude Code and tmux in ONE row, so its
+ *      state is not a Claude Code answer at all.
+ *
+ * ⚠️ AND THE QUESTION IS NOT PRESENCE. "Is Claude Code on this Mac" and "will
+ * Connect download something" come apart at present-but-not-signed-in, which
+ * downloads nothing and goes straight to sign-in. Angel is exposing that
+ * ANSWER as its own engine field rather than leaving the page to assemble it
+ * from ingredients, which is how a page and an engine end up disagreeing.
+ *
+ * Until that field exists the honest answer is "we do not know", and the
+ * honest behaviour is to ASK: asking needlessly costs one click, and not
+ * asking is the thing this whole panel exists to prevent.
+ *
+ * 🔑 WHEN THE FIELD LANDS this becomes a read of it and nothing else changes.
+ */
+function frClaudeInstallNeeded() {
+  const st = (FR && FR.connect) || null;
+  if (st && typeof st.willInstall === 'boolean') return st.willInstall;
+  return true;   // we cannot tell -> ask
+}
+
+/**
+ * How big is the thing Connect is about to fetch?
+ *
+ * ⚠️ THE NUMBER BELOW IS HARDCODED AND THAT IS THE HAZARD, stated plainly
+ * rather than dressed up. An earlier version of this comment claimed the size
+ * was "asked, not typed"; it was not -- no field carried it, so the constant
+ * was the only reachable return and the claim was false. Moving a hardcoded
+ * number from markup into JavaScript does not make it asked for.
+ *
+ * 🔑 THE REAL ANSWER EXISTS AND IS ONE FIELD AWAY. The vendor's own manifest,
+ * which Kosmos ALREADY downloads for the checksum before a single byte of the
+ * payload, publishes the size per machine kind (230,824,016 for arm64 at the
+ * current release). When the engine surfaces it, delete the constant: the
+ * figure then describes the exact file THIS Mac is about to get, on machines
+ * we have never seen, and cannot drift because we do not maintain it.
+ *
+ * ⚠️ RETURNS A NUMBER ALWAYS, today. The null arm exists for the day the engine
+ * answers and can answer "no idea"; while the constant is the fallback there is
+ * no path to it, and an earlier version of this line claimed otherwise. Saying
+ * a function can return null when it cannot is how a dead branch gets pinned by
+ * a test that can never fail for the reason it states.
+ */
+function frClaudeDownloadBytes() {
+  const st = (FR && FR.connect) || null;
+  const n = st && st.willInstallBytes;
+  if (Number.isFinite(n) && n > 0) return n;
+  /* ⚠️ ARM64 ONLY. engine/connect.js picks arm64 or x64 from os.arch(), and the
+     manifest publishes a different size for each. Stating this figure on an
+     Intel Mac describes a file that machine will not download, so it is
+     withheld there rather than guessed: the sentence falls back to "a large
+     download", which is true everywhere. Delete all of this the day the engine
+     answers per machine. */
+  try { if (navigator && /Intel/i.test(navigator.userAgent || '')) return null; } catch { /* no navigator: keep the arm64 figure */ }
+  return 230824016;   // ⚠️ replace with the engine's answer; see above.
+  // The real arm64 artifact, so this reads 231MB and AGREES with the download
+  // bar beside it, which counts the engine's own bytes. 230e6 rendered 230MB
+  // and the two disagreed by a megabyte on the same screen.
+}
+
+/** Megabytes, never bytes. Josh, 15:27: a person "doesnt care if its 108 or
+    127MB", and "about" carries the roughness. 230,824,016 -> "231MB". */
+function frRoughMB(bytes) {
+  return Math.round(bytes / 1e6) + 'MB';
+}
+
+/**
+ * 🛑 THE SENTENCE MUST NOT ASSERT AN INSTALL WE CANNOT CONFIRM WILL HAPPEN.
+ * While `frClaudeInstallNeeded` can only answer "we do not know", a flat "we
+ * need to install Claude Code first" is FALSE on any Mac that already has it
+ * -- including the working Claude Max machine the `unknown` verdict arm spends
+ * three paragraphs protecting. Someone could decline a download that was never
+ * going to happen, on the screen that decides whether they continue.
+ *
+ * ⇒ Conditional while unknown, flat once the engine can tell us. Josh's
+ * approved wording is the flat form; this is the same sentence with the one
+ * clause honesty requires until the answer exists.
+ */
+function frClaudeConfirmSentence() {
+  const bytes = frClaudeDownloadBytes();
+  const size = bytes === null ? 'a large download' : 'a large download, about ' + frRoughMB(bytes);
+  const st = (FR && FR.connect) || null;
+  const known = st && typeof st.willInstall === 'boolean';
+  return known
+    ? 'In order to connect to Claude, we need to install Claude Code first. It is ' + size + '.'
+    : 'Connecting to Claude needs Claude Code on this Mac. If it is not here already we will install it, ' + size + '.';
+}
+
+/* ⚠️ THE OPENER IS TRACKED, because there are two of them. The panel is opened
+   from the row's Connect AND from the footer primary in the `none` arm -- which
+   is the button a clean Mac actually presses. Hard-wiring the reveal contract
+   to the row button put aria-expanded on a control nobody had pressed, and sent
+   focus back up several rows on Not now, to a different button. */
+let FR_CONFIRM_OPENER = null;
+
+function frClaudeConfirmOpen(opener) {
+  const box = document.getElementById('fr-claude-confirm');
+  const t = document.getElementById('fr-claude-confirm-t');
+  const btn = opener || document.getElementById('fr-llm-connect');
+  if (!box) return;
+  FR_CONFIRM_OPENER = btn || null;
+  if (t) t.textContent = frClaudeConfirmSentence();
+  box.hidden = false;
+  if (btn && btn.setAttribute) btn.setAttribute('aria-expanded', 'true');
+  /* Focus moves INTO the panel. A reveal that leaves focus on the trigger is
+     invisible to a screen reader and to anyone driving this by keyboard: they
+     press Connect and, as far as they can tell, nothing happened. */
+  const go = document.getElementById('fr-claude-confirm-go');
+  if (go) go.focus();
+}
+
+function frClaudeConfirmClose() {
+  const box = document.getElementById('fr-claude-confirm');
+  const btn = FR_CONFIRM_OPENER || document.getElementById('fr-llm-connect');
+  if (box) box.hidden = true;
+  FR_CONFIRM_OPENER = null;
+  if (!btn || !btn.setAttribute) return;
+  btn.setAttribute('aria-expanded', 'false');
+  /* ⚠️ NOT UNCONDITIONALLY. A background recheck can repaint to `connected`
+     while this panel is open, which disables the button and turns it green.
+     Re-enabling blindly then hands back a clickable green "Connected" that
+     reopens the confirm for a download nobody needs. */
+  if (!btn.classList || !btn.classList.contains('is-connected')) btn.disabled = false;
+}
+
 document.getElementById('fr-pane-3').addEventListener('click', (e) => {
   const b = e.target.closest('#fr-llm-connect');
   if (!b) return;
+  /* A second press while the panel is open closes it again, which is the
+     behaviour the aria-expanded contract promises. Otherwise this is just the
+     gated entry; the confirm decision lives in frConnectStart. */
+  const box = document.getElementById('fr-claude-confirm');
+  if (box && !box.hidden) { frClaudeConfirmClose(); return; }
   // The same one-press guard the primary has: start() is idempotent under
   // it anyway, but the list button should not LOOK pressable twice.
   b.disabled = true;
-  Promise.resolve(frConnectStart()).finally(() => { b.disabled = false; });
+  Promise.resolve(frConnectStart({ opener: b })).finally(() => { b.disabled = false; });
+});
+
+document.getElementById('fr-claude-confirm-go').addEventListener('click', (e) => {
+  /* currentTarget, not target: the sibling handler already does this, and
+     `target` becomes the wrong node the day this button gains a child span --
+     which is exactly what happened to #fr-llm-connect when it grew a check. */
+  const b = e.currentTarget;
+  b.disabled = true;
+  const box = document.getElementById('fr-claude-confirm');
+  if (box) box.hidden = true;
+  const connect = document.getElementById('fr-llm-connect');
+  if (connect) { connect.setAttribute('aria-expanded', 'false'); connect.disabled = true; }
+  /* ⚠️ FOCUS MUST GO SOMEWHERE. Hiding the panel and disabling the button focus
+     is sitting on drops it to <body>, which is the same defect the open path
+     guards against: the person presses Confirm and, for a screen reader or a
+     keyboard, the screen goes quiet. The status line is where the flow speaks
+     next, so focus follows the story. */
+  /* ⚠️ #fr-sub, NOT #fr-sub-msg. The message line is cleared by the worker one
+     line later and only ever carries an error, so on the success path focus
+     landed on an empty element -- and it sits AFTER the container that receives
+     the phase panel, so a screen reader reading forward started below the news. */
+  const say = document.getElementById('fr-sub');
+  if (say) { if (!say.hasAttribute('tabindex')) say.setAttribute('tabindex', '-1'); say.focus(); }
+  Promise.resolve(frConnectStart({ confirmed: true })).finally(() => {
+    b.disabled = false;
+    if (connect && !connect.classList.contains('is-connected')) connect.disabled = false;
+  });
+});
+
+/* "Not now" backs out and leaves the person exactly where they were, with the
+   Connect button live again. It does NOT advance the wizard and it does not
+   record a refusal: they have declined a download, not declined Claude. */
+document.getElementById('fr-claude-confirm-no').addEventListener('click', () => {
+  /* Focus returns to whoever opened it, captured BEFORE close clears it.
+     Always returning to the row button dropped a keyboard user several rows up
+     the page, into a control they had not pressed. */
+  const back = FR_CONFIRM_OPENER || document.getElementById('fr-llm-connect');
+  frClaudeConfirmClose();
+  if (back && back.focus) back.focus();
 });
 
 /* #944-adjacent: OpenAI's own reveal/submit. Each gets its own direct
@@ -27650,8 +27945,15 @@ async function frPaintOpenai(known) {
       deadWhy = a && a.connection && a.connection.state === 'none' ? a.connection.because : null;
     } catch { return; } // same: a read failure is not a "no"
   }
-  connectBtn.textContent = connected ? 'Connected' : 'Connect';
+  /* ⚠️ THE SAME TREATMENT AS CLAUDE'S ROW, two rows above it on the same
+     screen. This used to relabel and disable, which reads as "this stopped
+     working" -- the exact greying Josh ruled against at 09:27 and the reason
+     the Claude row went green with a check. Two providers giving opposite
+     signals for the same outcome, side by side, is worse than either signal. */
+  connectBtn.innerHTML = connected ? '<span aria-hidden="true">\u2713</span> Connected' : 'Connect';
   connectBtn.disabled = connected;
+  if (connectBtn.classList) connectBtn.classList.toggle('is-connected', !!connected);
+  if (connectBtn.setAttribute) connectBtn.setAttribute('aria-disabled', String(!!connected));
   if (connected) {
     flow.hidden = true;
     // The cold-read path can hide the form with a half-typed key still in
@@ -27697,18 +27999,42 @@ function frPaintSubscription() {
      sent her looking for reassurance in the first place. Changing accounts lives
      on its own screen. */
   const connectBtn = document.getElementById('fr-llm-connect');
+  /* ⚠️ GREEN WITH A CHECK, NOT GREY (Josh, 09:27: "instead of it being grayed
+     out where it looks like it's deactivated, let's put a check mark up there
+     and make that box green"). `disabled` alone reads as "this stopped
+     working", which is the opposite of the news. The fill carries the state
+     and the word carries the meaning; the check is decoration and is
+     aria-hidden, so a screen reader hears "Connected" once. White on #1f7a4d
+     measures 5.32:1, over the 4.5 text floor, and the fill is 5.32:1 against
+     the card it sits on, over the 3:1 a control boundary needs.
+     📌 aria-disabled as well as disabled: some browse modes skip a disabled
+     control, and this one carries the outcome the person is waiting for. */
+  /* ⚠️ CLOSE THE CONFIRM ON ANY REPAINT. Reachable: open the panel from the
+     unknown arm, press Check again, and if the verdict flips to connected the
+     button goes green and disabled while the panel stays open beneath it with a
+     live Confirm and a stale aria-expanded. That is the two-answers-on-one-
+     screen defect this block exists to prevent, reintroduced by the new panel. */
+  frClaudeConfirmClose();
+
   if (connectBtn) {
     const done = sub.state === 'connected';
-    connectBtn.textContent = done ? 'Connected' : 'Connect';
+    connectBtn.innerHTML = done ? '<span aria-hidden="true">\u2713</span> Connected' : 'Connect';
     connectBtn.disabled = done;
+    if (connectBtn.classList) connectBtn.classList.toggle('is-connected', done);
+    if (connectBtn.setAttribute) connectBtn.setAttribute('aria-disabled', String(done));
   }
 
   if (sub.state === 'connected') {
     box.innerHTML = frCheckRow({
       state: 'ok',
       title: (sub.plan || 'A Claude subscription') + ' is connected',
-      detail: 'Your agents think with Claude, and this computer is signed in.',
+      detail: 'This computer is signed in.',
     });
+    /* ⚠️ The detail sentence above lost "Your agents think with Claude" -- it
+       is no longer true. An agent set to GPT runs on Codex and never touches
+       the Claude binary, so a screen asserting that every agent thinks with
+       Claude describes a product that had one provider. The same sentence is
+       corrected in the `none` arm below. */
     frActions({ label: 'Continue', go: () => frGo(4) },
       { label: 'Check again', go: frRecheck });
     return;
@@ -27749,9 +28075,9 @@ function frPaintSubscription() {
   box.innerHTML = frCheckRow({
     state: 'attention',
     title: 'No Claude subscription is connected yet',
-    detail: 'Your agents think with Claude, so they need one before they can do anything. '
+    detail: 'A Claude agent thinks with Claude, so a Claude subscription is what one needs. '
       + 'If you have a subscription at claude.ai, Connect Claude does the rest here; '
-      + 'if you do not, get one there first.',
+      + 'if you do not, get one there first. If you would rather use GPT, you do not need this at all.',
   })
   /**
    * ⚠️ SAYS WHAT CARRYING ON ACTUALLY GETS THEM. "Continue anyway" with no
@@ -27780,7 +28106,7 @@ function frPaintSubscription() {
    * second sign-in) is preserved by the drive's honesty, not by a
    * short-circuit; the markup comment on the list says the same.
    */
-  frActions({ label: 'Connect Claude', go: () => frConnectStart() }, { label: 'Continue anyway', go: () => frGo(4) });
+  frActions({ label: 'Connect Claude', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(4) });
 }
 
 /* --------------------------------------------------------------------------
