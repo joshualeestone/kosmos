@@ -2109,6 +2109,25 @@ test('questionAbove is the identity of a question, and never an empty one', () =
     'a menu with nothing above it cannot be told from another menu with nothing above it');
 });
 
+test('#998: the shared glyph class is regex-SAFE, since it is interpolated into a character class', () => {
+  /* The parser this feeds types a digit into a live terminal session, and the
+     docblock beside the constant invites future additions ("add to this list
+     by OBSERVING"). A `^` added there yields `[^❯›]`, which matches any
+     leading character and so sets the menu-vs-prose `marked` gate on plain
+     prose -- failing OPEN, in the one parser where that matters most. `]`,
+     `-` and `\\` break the class the same way. status.js throws at load on
+     those; this asserts the property from outside, so the rule is visible to
+     whoever adds the next glyph. */
+  assert.equal(typeof status.SELECTOR_GLYPHS, 'string');
+  assert.ok(status.SELECTOR_GLYPHS.length > 0, 'an empty class would match nothing');
+  assert.doesNotMatch(status.SELECTOR_GLYPHS, /[\\\]^-]/,
+    'no character that changes the meaning of a regex character class');
+  // And the property that actually matters, asserted through the parser rather
+  // than the constant: prose is still not a menu.
+  assert.equal(chat.optionsIn('Steps:\nx 1. Yes\n  2. No'), null,
+    'a stray leading character must not read as a selector');
+});
+
 test("#998: a CODEX menu gets buttons too -- the option parser reads › as well as ❯", () => {
   /* 🛑 THE REGRESSION THIS PINS. `status.js` has known since #249 that Codex
      draws its selector as › (U+203A) and Claude as ❯ (U+276F) -- captured
