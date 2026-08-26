@@ -120,11 +120,12 @@ running; the card leaves when the sign-in finishes. A sign-in nobody finishes
 does not have to be found and ended by hand: walking away mid-flow ("Continue
 anyway") keeps the window open, and the way to end it early is back on setup
 step 3 (Cancel), or `tmux kill-session -t "=kosmos-connect"` from Terminal —
-but a sign-in that never reaches the browser or paste-code step again on its
-own (the account switched inside the browser tab, the tab was closed, or
-anything else abandons that leg) also expires by itself after 15 minutes,
-with an honest reason shown, so a walked-away sign-in does not sit waiting
-for a code that is never coming (kosmos#727). The name is reserved
+but a sign-in that gets stuck waiting at the browser or paste-code step and
+never moves past it on its own (the account switched inside the browser tab,
+the tab was closed, or anything else abandons that leg) also expires by
+itself after 15 minutes, with an honest reason shown, so a walked-away
+sign-in does not sit waiting for a code that is never coming (kosmos#727).
+The name is reserved
 (you cannot create an agent called `kosmos-connect`), and every command the
 flow sends is pinned to the exact session name. The reservation also means the flow
 treats any session with that exact name as its own: a `tmux new -s

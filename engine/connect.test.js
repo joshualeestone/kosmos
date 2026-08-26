@@ -514,6 +514,7 @@ function driverTest(name, fn) {
     subscription.resetCache();
     connect.setTickInterval(15);
     connect.setUnknownGrace(300);
+    connect.setAbandonedSigninMs(15 * 60 * 1000);
     // The node binary exists and is executable, which is all "already
     // installed" means to `start` -- no download in these tests.
     process.env.AGENT_WORKFORCE_CLAUDE_BIN = process.execPath;
@@ -956,6 +957,32 @@ driverTest('#727 item 4: submitting a code re-arms the expiry, so an engaged ret
     'a code submitted before the bound did not re-arm the expiry clock');
 });
 
+driverTest('#727 item 4: the expiry message is honest about a code that WAS tried and rejected', async () => {
+  /**
+   * "no code was entered" would overstate a flow that had real engagement
+   * earlier -- a code was typed, it was rejected, and then the person gave
+   * up rather than trying again. `owner.codeTyped` (the same flag the
+   * rejection-message logic already uses) distinguishes this from a flow
+   * where literally nothing was ever submitted.
+   */
+  connect.setAbandonedSigninMs(500);
+  const term = fakeTerminal();
+  term.onCode = () => { term.screen = SCREEN_PASTE; }; // rejected: still parked, pane unchanged
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+
+  await connect.start();
+  await until(() => connect.state().phase === connect.PHASE.SIGNIN_AWAITING_CODE);
+  assert.equal(connect.submitCode('onlyCode#111111').ok, true);
+  // No further code is ever submitted -- let the (reset) clock run out.
+
+  await until(() => connect.state().phase === connect.PHASE.STUCK, 3000);
+  assert.match(connect.state().because, /did not work/,
+    `expected a message honest about the earlier rejected code, got: ${connect.state().because}`);
+  assert.doesNotMatch(connect.state().because, /^no code was entered/,
+    'overstated "no code was entered" when a code actually was, and was rejected');
+});
+
 driverTest('#727 item 4: a person genuinely still there, well within the bound, is not disturbed', async () => {
   /**
    * The regression guard for this file's own pre-existing rule: the paste
@@ -984,9 +1011,14 @@ driverTest('#727 item 4: the abandonment clock survives the real-world browser-o
    * awaiting-code. The math below only lets the CORRECT (un-restarted)
    * behavior pass: by the time this test asserts STUCK, a clock that
    * restarted at the transition would still have most of its own fresh
-   * 400ms budget left and this would time out instead.
+   * 2000ms budget left and this would time out instead. Scaled up (rather
+   * than kept at the suite's usual 200-500ms) so there is real headroom on
+   * both sides against machine jitter -- a fresh review flagged the
+   * original tighter version as flake-prone under load, and the fix is
+   * more absolute margin, not a wider poll window (a wider window alone
+   * would let the restarted-clock case pass too, defeating the point).
    */
-  connect.setAbandonedSigninMs(400);
+  connect.setAbandonedSigninMs(2000);
   const term = {
     screen: SCREEN_THEME,
     killed: 0,
@@ -1008,17 +1040,18 @@ driverTest('#727 item 4: the abandonment clock survives the real-world browser-o
   await connect.start();
   await until(() => connect.state().phase === connect.PHASE.SIGNIN_BROWSER_OPEN);
 
-  // Spend most of the 400ms budget at browser-open, THEN the pane advances
+  // Spend most of the 2000ms budget at browser-open, THEN the pane advances
   // on its own (no code, no send-keys -- just the CLI's own next line).
-  await new Promise((r) => setTimeout(r, 250));
+  await new Promise((r) => setTimeout(r, 1200));
   term.screen = SCREEN_PASTE;
   await until(() => connect.state().phase === connect.PHASE.SIGNIN_AWAITING_CODE);
 
-  // Only ~150ms of the original budget remains. A correct (un-restarted)
-  // clock reaches STUCK well inside this 250ms window; a clock that
-  // restarted at the transition would need its own fresh 400ms and would
-  // still be sitting at awaiting-code when this poll gives up.
-  await until(() => connect.state().phase === connect.PHASE.STUCK, 250);
+  // Only ~800ms of the original budget remains. A correct (un-restarted)
+  // clock reaches STUCK comfortably inside this 1400ms window (~600ms of
+  // jitter headroom above the expected ~800ms); a clock that restarted at
+  // the transition would need its own fresh 2000ms and would still be
+  // sitting at awaiting-code when this poll gives up.
+  await until(() => connect.state().phase === connect.PHASE.STUCK, 1400);
   assert.match(connect.state().because, /expired/, 'expected an honest expiry sentence');
 });
 

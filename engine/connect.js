@@ -1106,9 +1106,19 @@ async function tickBody(owner) {
      */
     if (!owner.browserWaitSince) owner.browserWaitSince = Date.now();
     if (Date.now() - owner.browserWaitSince > ABANDONED_SIGNIN_MS) {
+      /* ⚠️ TRUE OF THIS WINDOW, NOT OVERCLAIMED ACROSS THE WHOLE FLOW: every
+         submitted code resets browserWaitSince (see above), so reaching
+         here always means nothing was submitted in the final window -- but
+         `owner.codeTyped` (set once a code is ever accepted for typing,
+         used identically by the rejection-message logic below) still
+         remembers whether an EARLIER code was tried and rejected before the
+         person gave up. "No code was entered" would overstate a flow that
+         had some real engagement earlier. */
       becomeStuck(owner,
         seen.kind === 'awaiting-code'
-          ? 'no code was entered for this sign-in, so it expired'
+          ? (owner.codeTyped
+            ? 'the code entered did not work, and no other was entered before this sign-in expired'
+            : 'no code was entered for this sign-in, so it expired')
           : 'this sign-in was not finished in the browser, so it expired',
         tailOf(cap.stdout));
       return;
