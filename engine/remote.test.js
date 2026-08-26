@@ -393,3 +393,29 @@ test('#733: a second-factor reset is the enrolled Mac\'s own signed request, and
   assert.ok(call, 'the reset never reached the connector: ' + JSON.stringify(recorded()));
   remote.resetForTests();
 });
+
+test('enrolment that lands without an ensure() call rests at "has not started" until the next ensure(), which heals it (Josh, 2026-08-26 08:50)', async () => {
+  /* The exact resting state from the fresh Mac: switch on, every enrolment
+     file present, a relay address, no child, no restart pending. Produced
+     here the only way it can be: the state dir filled in WITHOUT going
+     through setupComplete (whose own ensure() would have started the
+     tunnel). The server's ensure tick is what makes the second half true in
+     production; this proves ensure() itself is enough. */
+  // remote.js: STATE_DIR() is AGENT_WORKFORCE_TUNNEL_STATE or <data>/remote; this file sandboxes the data dir.
+  const dir = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'remote');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(true);
+  remote.ensure(4500);            // boot: switched on, not yet enrolled, nothing spawns
+  assert.equal(remote.status().state, 'connecting');
+  for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(nodePath.join(dir, f), f === 'address' ? 'hers.kosmos.invalid\n' : 'x\n');
+  assert.equal(remote.enrolled(), true);
+  const resting = remote.status();
+  assert.equal(resting.state, 'off');
+  assert.equal(resting.because, 'the board has not started the tunnel');
+  remote.ensure();                // what the tick does
+  assert.notEqual(remote.status().because, 'the board has not started the tunnel');
+  await until(() => ['connecting', 'up'].includes(remote.status().state), 'the tunnel to leave the resting state');
+  remote.setOn(false);
+});
