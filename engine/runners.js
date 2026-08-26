@@ -309,18 +309,27 @@ function resolveBin(provider, opts) {
  * the payload: `version`, `linked`, `receivedBytes`, `totalBytes` on the
  * vendor-external job, and `pinnedVersion`/`downloadBytes` on status().
  *
- * 📌 It is NOT a rule that every job carries every field. The tarball job has
- * no `linked` and the already-present synthetic has no `version` -- both
- * deliberate, and the second is defended in its own comment. Those absences
- * say "this shape has no such concept", which is a different statement from
- * "this kind cannot answer that question", and flattening the two into one
- * spelling would lose it. Stated because an earlier version of this block
- * claimed the stronger rule and two shapes in this file already broke it.
+ * 📌 IT IS NOW EXACTLY THAT RULE, and this paragraph used to say the opposite.
+ * It claimed the tarball job has no `linked` and the synthetic no `version`,
+ * as deliberate exceptions. Both were true of `main` and neither survived the
+ * fix below: `blankJob()` is spread into every shape, so the tarball job DOES
+ * carry `linked: null` and the synthetic DOES carry `version: null` -- and
+ * this branch's own test asserts that second one. A screen author reading the
+ * retired wording would have used `'linked' in job` to tell the kinds apart
+ * and been wrong on every arm.
+ *
+ * ⚠️ TELL THE KINDS APART BY `kind`, WHICH IS PUBLISHED FOR EXACTLY THAT, not
+ * by which fields happen to be present.
  */
 const jobs = Object.create(null);
 
 /**
- * Every field a job can ever carry, all spelled `null`.
+ * The fields whose ABSENCE IS A FACT ABOUT THE ARM, all spelled `null`.
+ *
+ * ⚠️ Not literally every field a job carries: `because` (failed only) and
+ * `proved` (installed only) belong to the arm that has something to say. The
+ * heading used to claim all of them, which is the kind of small overstatement
+ * that makes a reader distrust the rest of the block.
  *
  * 🛑 IT EXISTS BECAUSE THE ABSENCES HAD FOUR SPELLINGS. `receivedBytes` was
  * missing from the refusal arms while every real job spelled it `null`;
@@ -340,7 +349,17 @@ const jobs = Object.create(null);
  * proved. `null` asserts nothing -- it says the question has no answer here,
  * which is exactly the fact.
  */
-const blankJob = () => ({ receivedBytes: null, totalBytes: null, version: null, linked: null });
+const blankJob = () => ({
+  receivedBytes: null, totalBytes: null, version: null, linked: null,
+  // ⚠️ `proved` TOO, and it was the surviving fifth spelling. Two arms answer
+  // phase 'installed' through the same `{ job }` response: a real install sets
+  // this to the runner's own --version line, and the already-present synthetic
+  // omitted the key, so JSON.stringify dropped it and a screen read `undefined`
+  // from one arm and a string from the other, for the same field. Four
+  // spellings were fixed and this one survived because it is set LATER rather
+  // than never, which is exactly how it stayed invisible.
+  proved: null,
+});
 
 function status() {
   const out = {};
@@ -514,10 +533,14 @@ function install(provider, opts) {
   if (existing.present) {
     // A completed job for THIS binary carries the truthful receipt
     // (`proved`, real byte counts) -- hand that back rather than a
-    // synthetic. Otherwise: byte counts null, not zero, and NO version
-    // field at all -- nothing was downloaded, nothing was proved, and a
-    // present legacy binary may be any age; claiming the pinned version
+    // synthetic. Otherwise: byte counts null, not zero, and `version` NULL
+    // rather than absent -- nothing was downloaded, nothing was proved, and a
+    // present legacy binary may be any age, so claiming the PINNED version
     // would be the exact overclaim status() renamed its field to avoid.
+    // ⚠️ This said "NO version field at all", which was true of main and was
+    // falsified by the blankJob() spread on this branch -- three lines from a
+    // test asserting the null. The guard is against claiming a VALUE, and
+    // `null` claims nothing.
     if (jobs[provider] && jobs[provider].phase === 'installed') return jobs[provider];
     if (jobs[provider] && jobs[provider].phase === 'failed') delete jobs[provider];
     return { ...blankJob(), phase: 'installed' };
@@ -865,11 +888,16 @@ function installVendor(provider, m, o, existing) {
        * earlier version of this line said "three statSync calls", which was
        * wrong twice over: those run in the loop on the FAR SIDE of the await,
        * and the cost that remains synchronous is `execFile`'s fork/exec.
-       * Measured on this Mac: three statSync = 0.08ms, the execFile spawn =
-       * 2.81ms, install()'s whole synchronous return = 2.37ms. Milliseconds
-       * rather than seconds, which is the point -- but a comment whose only
-       * job is to stop the next person reintroducing a block has to name the
-       * operation that actually carries the cost. ⚠️ THE GUARANTEE
+       * ⚠️ NO FIGURES QUOTED HERE, DELIBERATELY. An earlier version gave three
+       * from separate runs, and one pair was impossible on this call path: it
+       * reported the spawn costing MORE than install()'s whole synchronous
+       * return, when the Promise executor runs synchronously and so the spawn
+       * is INSIDE that return rather than beside it. A number that cannot be
+       * true tells the reader the comment was not checked, in the one comment
+       * whose job is to stop the next person reintroducing a block. What
+       * survives measurement is the ordering: milliseconds rather than the
+       * seconds a synchronous `which` can cost, and the spawn dominating the
+       * stat()s. ⚠️ THE GUARANTEE
        * THEREFORE LIVES IN THE PROBE, NOT AT THIS CALL SITE: a seam, or a
        * future default, that did slow synchronous work would block the board
        * again and nothing here would stop it. If that ever needs enforcing,
@@ -949,7 +977,21 @@ function installVendor(provider, m, o, existing) {
       job.phase = 'proving';
       await new Promise((resolve, reject) => {
         prove(canonical, (err, stdout) => {
-          if (err) { reject(new Error(`the installed runner did not run: ${String(err.message || err).trim()}`)); return; }
+          if (err) {
+            /* ⚠️ NO RAW err.message. The production prove is
+               `execFile(bin, ['--version'])`, whose message is
+               `Command failed: <path> --version\n<stderr>` or `spawn EACCES`.
+               Its three sibling arms in this function are deliberately
+               errno-free and each has a test asserting so; this one had
+               neither, because EVERY test injects `prove`, so nothing
+               exercised the real string. engine/subscription.js states the
+               rule: a raw subprocess error can carry anything.
+               📌 "linked", not "installed": nothing was installed on this
+               branch, a copy already on the Mac was linked, and naming the
+               wrong act sends a person looking in the wrong place. */
+            reject(new Error(`we linked ${m.name} at ${canonical} but it did not run when we tried it; the copy it points at may be broken`));
+            return;
+          }
           job.proved = String(stdout || '').trim();
           resolve();
         });
