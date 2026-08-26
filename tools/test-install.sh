@@ -512,7 +512,13 @@ chk "and this icon's launcher log did not grow (nothing real was opened)" "[ \"\
 
 echo "== update (stale file must not survive; board must restart) =="
 touch "$SB/home/app/engine/stale-marker.js"
-PID1="$(cat "$SB/home/board.pid")"
+# #935: a bare `cat` here aborted the WHOLE SUITE under set -e when the pid
+# file was not there yet (three times in a row under load 13-16, and once
+# at load 2 on 2026-08-26), with no chk line to say why. Bounded wait, and
+# an absent file becomes a NAMED value the "new pid" check below still
+# compares against, so the run continues and the red says what it saw.
+wait_for_file "$SB/home/board.pid" 30 || echo "note: $SB/home/board.pid absent after 30s before the update (the board from the install is not running or has not written its pid)"
+PID1="$(cat "$SB/home/board.pid" 2>/dev/null || echo none)"
 RC=0; cat "$SETUP" | sh > "$SB/update.log" 2>&1 || RC=$?
 chk "update exits 0" "rc_ok $RC"
 chk "stale file gone (swap, not merge)" "[ ! -e \"$SB/home/app/engine/stale-marker.js\" ]"
@@ -528,7 +534,12 @@ OUT="$(sh -s -- --uninstal < "$SETUP" 2>&1 || true)"
 chk "typo flag refuses instead of installing" "echo \"\$OUT\" | grep -q 'The only option is --uninstall'"
 
 echo "== uninstall reverses the machine =="
-printf '<plist/>' > "$SB/launch/com.kosmos.agent.tiharness.plist"
+# ⚠️ SEEDED THE WAY plistFor WRITES IT (#931): the uninstall now removes
+# only a job whose ProgramArguments name THIS install's supervisor, so an
+# empty <plist/> is, correctly, nobody's and survives. One of each here:
+# ours must go, and the anonymous one must stay.
+printf '<plist version="1.0"><dict><key>ProgramArguments</key><array><string>/bin/bash</string><string>%s/AgentWorkforce/bin/agent-supervisor.sh</string><string>tiharness</string></array></dict></plist>\n' "$SB/data" > "$SB/launch/com.kosmos.agent.tiharness.plist"
+printf '<plist/>' > "$SB/launch/com.kosmos.agent.tinobody.plist"
 seed_residue "$SB/apps/.Kosmos.app.stage.333" "$SB/home"
 seed_residue "$SB/apps/.Kosmos.app.old.444" "$SB/home"
 # 🔑 #891: THE APP'S OWN REMEMBERED ANSWERS, SEEDED THE WAY A REAL RUN WOULD
@@ -563,6 +574,7 @@ chk "first-run.json swept" "[ ! -e \"$SB/data/AgentWorkforce/first-run.json\" ]"
 chk "seen-version.json swept" "[ ! -e \"$SB/data/AgentWorkforce/seen-version.json\" ]"
 chk "found-agents-dismissed.json swept" "[ ! -e \"$SB/data/AgentWorkforce/found-agents-dismissed.json\" ]"
 chk "agent plist removed" "[ ! -e \"$SB/launch/com.kosmos.agent.tiharness.plist\" ]"
+chk "a job naming no supervisor of ours survives the uninstall (#931)" "[ -e \"$SB/launch/com.kosmos.agent.tinobody.plist\" ]"
 # ⚠️ THE BOARD'S JOB DOES NOT MATCH THE AGENTS' GLOB, so it needs its own
 # removal and its own check. Left behind it runs a deleted `kosmos` at every
 # login forever, invisible to somebody who believes they uninstalled Kosmos.
@@ -589,7 +601,11 @@ if [ "$(data_hashes)" = "$DATA_FINGERPRINT" ]; then
 else
   chk "every user file survives the uninstall byte for byte" false
   echo "      the data folder is not byte for byte what was seeded (< before install, > after uninstall):"
-  diff <(printf '%s\n' "$DATA_FINGERPRINT") <(data_hashes) | sed 's/^/      /'
+  # ⚠️ `|| true`, or this diagnostic ends the suite: diff exits 1 whenever
+  # the folders differ (which is the only time this branch runs), pipefail
+  # carries it, and set -e aborts with ~200 checks unrun and no summary
+  # line (seen 2026-08-26, #891's red, twice in a row).
+  diff <(printf '%s\n' "$DATA_FINGERPRINT") <(data_hashes) | sed 's/^/      /' || true
 fi
 # POSITIVE CONTROL: the fingerprint is not empty, so the comparison above is
 # comparing something. An empty string equals an empty string.
