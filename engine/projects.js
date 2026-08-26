@@ -4,8 +4,8 @@
  * #863 (Josh, 2026-08-25 10:41): a comma-joined project list with no "and"
  * before the last item reads as a run-on list with no ending -- worse, the
  * sentence this list sits inside (WROTE_WHY.on, below) is itself appended
- * to with ", and told it in its pane" (projects.js:2131), so with no "and"
- * of its own the last project name and "told it in its pane" read as the
+ * to with ", and told it on its screen" (projects.js:2131), so with no "and"
+ * of its own the last project name and "told it on its screen" read as the
  * SAME kind of list item. One item: the name alone. Two: "A and B". Three
  * or more: an Oxford comma before the final "and", the plainer of the two
  * common English conventions and the one that keeps the last item visually
@@ -1478,7 +1478,7 @@ function create({ name, folder, agents, roster, description, made } = {}) {
   // symlink into temp is caught; skipped when the store is itself temp (a
   // test/sandbox), which is where temp project folders are legitimate.
   if (tmpFolderRefused(state.real || given, store.ROOT)) {
-    throw new Error('that folder is inside a temporary directory, which the system clears; point Kosmos at a folder you keep your work in');
+    throw new Error('that folder is inside a temporary folder, which the system clears; point Kosmos at a folder you keep your work in');
   }
 
   const all = readAll();
@@ -2152,7 +2152,7 @@ function toldOverride(verdict, sessionName) {
       .filter((at) => Math.floor(at / 1000) >= Math.floor(editedAt / 1000));
     if (!told.length) return verdict;
     return { ...verdict, state: 'told', toldAt: new Date(Math.max(...told)).toISOString(),
-      because: `${verdict.wroteBy.because || 'Kosmos changed its instructions'}, and told it in its pane` };
+      because: `${verdict.wroteBy.because || 'Kosmos changed its instructions'}, and told it on its screen` };
   } catch { return verdict; }
 }
 
