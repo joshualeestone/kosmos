@@ -2558,6 +2558,7 @@ const server = http.createServer((req, res) => {
   {
     const m = pathname.match(/^\/api\/runners\/([a-z]+)\/install$/);
     if (m && req.method === 'POST') {
+      req.resume(); // no body is expected; drain anything sent so keep-alive survives
       const job = runners.install(m[1]);
       sendJson(res, job.phase === 'failed' ? 400 : 200, { job });
       return;
@@ -2577,7 +2578,11 @@ const server = http.createServer((req, res) => {
            runner is missing the answer is STRUCTURED -- needsRunner tells
            the screen to reveal the install step in place, and the error
            string stays exactly what it was so today's UI keeps working
-           until Mona Lisa's flow binds the richer shape. */
+           until Mona Lisa's flow binds the richer shape. DELIBERATE
+           ordering change: the runner check now precedes key validation
+           (a bad key with no runner answers needsRunner, not the key
+           nit), matching the approved flow -- install first, then the
+           credential. */
         const resolved = runners.resolveBin('openai');
         if (!resolved.present) {
           sendJson(res, 400, {

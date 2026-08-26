@@ -274,6 +274,41 @@ test('#979: a Confirm during the proving window joins the live job, never a synt
   fs.rmSync(MANAGED, { force: true });
 });
 
+test('#979: the FIRST install on a fresh machine works, no directory pre-created by anything', async () => {
+  /* The #979 target scenario exactly: a runners root nothing has ever
+     touched (earlier tests in this file create runners/openai as a side
+     effect, which once masked a fresh-machine ENOENT in the stray
+     sweep). A dedicated pristine root keeps this path honest forever. */
+  const FRESH = fs.mkdtempSync(nodePath.join(SANDBOX, 'fresh-root-'));
+  process.env.AGENT_WORKFORCE_RUNNERS_DIR = nodePath.join(FRESH, 'runners');
+  try {
+    const { tgz, integrity } = fixtureTarball('package/vendor/aarch64-apple-darwin/bin/codex', '#!/bin/sh\necho fresh 1.0\n');
+    const job = runners.install('openai', {
+      legacyBin: LEGACY,
+      download: downloadFrom(tgz),
+      integrity,
+      prove: (bin, done) => done(null, 'fresh 1.0'),
+    });
+    await job.settled;
+    assert.equal(job.phase, 'installed', job.because || '');
+    assert.ok(fs.existsSync(nodePath.join(FRESH, 'runners', 'openai', 'codex')));
+  } finally {
+    process.env.AGENT_WORKFORCE_RUNNERS_DIR = nodePath.join(SANDBOX, 'runners');
+  }
+});
+
+test('#979: the already-present answer claims no version, nothing was downloaded or proved', () => {
+  put(MANAGED);
+  try {
+    const job = runners.install('openai', { legacyBin: LEGACY });
+    assert.equal(job.phase, 'installed');
+    assert.equal(job.version, undefined, 'a present legacy binary may be any age; claiming the pin would be the status() overclaim again');
+    assert.equal(job.receivedBytes, null);
+  } finally {
+    fs.rmSync(MANAGED, { force: true });
+  }
+});
+
 test('#979: status reports the manifest facts and the honest null for an unmeasured size', () => {
   const s = runners.status();
   assert.ok(s.openai);

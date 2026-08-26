@@ -299,10 +299,12 @@ function install(provider, opts) {
   }
   if (existing.present) {
     // Presence also retires a stale failed job (see status()). Byte
-    // counts are null, not zero: nothing was downloaded, and "0 of 0"
-    // would be an invented number on a progress bar.
+    // counts are null, not zero, and NO version field at all: nothing
+    // was downloaded, nothing was proved, and the present binary may be
+    // a legacy install of any age -- claiming the pinned version here
+    // would be the exact overclaim status() renamed its field to avoid.
     if (jobs[provider] && jobs[provider].phase === 'failed') delete jobs[provider];
-    return { phase: 'installed', version: m.version, receivedBytes: null, totalBytes: null };
+    return { phase: 'installed', receivedBytes: null, totalBytes: null };
   }
   // An authoritative env override naming a MISSING path would mask the
   // managed location this install stages into: the job would end
@@ -395,10 +397,17 @@ function install(provider, opts) {
       // Unpack into a per-process tree, then SWAP it in whole: the pkg/
       // tree is never half-written at its final name, so a concurrent
       // reader (or a second board's prove step) can never see a partial
-      // vendor tree that still happens to answer --version.
+      // vendor tree that still happens to answer --version. (On a
+      // RE-install, the instant between the two renames can read as
+      // absent through the symlink -- the safe direction; a partial tree
+      // is the dangerous one, and that stays impossible.)
       const pkgDir = path.join(destDir, 'pkg');
       const pkgNew = path.join(destDir, `pkg.new-${process.pid}`);
       const pkgOld = path.join(destDir, `pkg.old-${process.pid}`);
+      // destDir FIRST: on a fresh machine (the exact #979 scenario) nothing
+      // has created it yet, and the sweep's readdir would ENOENT the whole
+      // install before a byte of the runner ever staged.
+      fs.mkdirSync(destDir, { recursive: true });
       // Sweep STALE per-pid trees from crashed or restarted attempts, the
       // same age-gated discipline as the .tmp sweep: a restarted board has
       // a new pid, so its old strays would otherwise sit forever, and each
@@ -425,6 +434,11 @@ function install(provider, opts) {
         fail(`the archive did not contain the runner at ${binInPackage}, so nothing was installed`);
         return;
       }
+      // One deliberate chmod, on the one file the symlink's execution
+      // depends on. The vendored siblings keep whatever modes the vendor
+      // packed and tar preserved -- the live proof ran the real binary
+      // through exactly that, so re-moding the whole tree would be
+      // defending against a problem the artifact does not have.
       fs.chmodSync(path.join(pkgNew, binInPackage), 0o755);
       fs.rmSync(pkgOld, { recursive: true, force: true });
       if (fs.existsSync(pkgDir)) fs.renameSync(pkgDir, pkgOld);
