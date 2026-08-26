@@ -57,6 +57,29 @@ else
   echo "  SKIP branch: this Mac is macOS $HOST, at or below the $FLOOR floor, so an untargeted build cannot exceed it here"
 fi
 
+# --- 1b. every slice of a universal binary is gated (#936) ---------------------
+# lipo puts x86_64 first whichever order it is given, so a gate that reads one
+# minos per file reads the architecture this bundle does not ship and never
+# sees arm64. An arm64 slice above the floor beside an x86_64 slice at it must
+# be refused. Skips out loud if this swiftc cannot target x86_64.
+if swiftc -target "x86_64-apple-macos$FLOOR" "$T/src/probe.swift" -o "$T/x86-at-floor" >/dev/null 2>&1; then
+  swiftc -target "arm64-apple-macos$((FLOOR_MAJOR + 1)).0" "$T/src/probe.swift" -o "$T/arm-above" >/dev/null 2>&1 \
+    || fail "could not compile the arm64 above-floor slice for the universal probe"
+  mkdir -p "$T/fat/app/bin"
+  lipo -create "$T/x86-at-floor" "$T/arm-above" -output "$T/fat/app/bin/universal" \
+    || fail "lipo could not build the universal probe"
+  [ "$(lipo -archs "$T/fat/app/bin/universal")" = "x86_64 arm64" ] || fail "the universal probe is not x86_64-first as lipo canonicalises: $(lipo -archs "$T/fat/app/bin/universal")"
+  gate_tree "$T/fat" && fail "the walk certified a universal binary whose arm64 slice is above the floor (it read the x86_64 slice)"
+  grep -q "universal requires macOS $((FLOOR_MAJOR + 1)).0" "$T/err" || fail "the refusal did not name the above-floor slice: $(cat "$T/err")"
+  # control: the same shape with both slices at the floor passes
+  swiftc -target "arm64-apple-macos$FLOOR" "$T/src/probe.swift" -o "$T/arm-at-floor" >/dev/null 2>&1
+  lipo -create "$T/x86-at-floor" "$T/arm-at-floor" -output "$T/fat/app/bin/universal"
+  gate_tree "$T/fat" || fail "CONTROL: a universal binary with both slices at the floor was refused: $(cat "$T/err")"
+  echo "  universal probe (x86_64 at $FLOOR, arm64 at $((FLOOR_MAJOR + 1)).0) refused; both-at-floor control passes"
+else
+  echo "  SKIP branch: this swiftc cannot target x86_64, so the universal-slice probe cannot be built here"
+fi
+
 # --- 2. the real app source compiles at the floor and reads back at it -------
 swiftc -target "arm64-apple-macos$FLOOR" -O native-app/main.swift -o "$T/kosmos-app" 2>"$T/swift.err" \
   || fail "native-app/main.swift does not compile -target arm64-apple-macos$FLOOR: $(head -5 "$T/swift.err")"
