@@ -82,7 +82,7 @@ test('the open-project marker clears 3:1 on BOTH grounds it touches, in BOTH the
     // row's fill and its outer edge abuts the rail. BOTH are adjacent.
     for (const [what, ground] of [['the row fill it sits on', rowFill], ['the rail ground it abuts', railGround]]) {
       const r = ratio(bar, ground);
-      assert.ok(r >= 3, `${theme}: the open marker ${bar} measures ${r.toFixed(2)}:1 against ${what} (${ground}), under the 3:1 this file declares at :60 for anything identifying a control's state`);
+      assert.ok(r >= 3, `${theme}: the open marker ${bar} measures ${r.toFixed(2)}:1 against ${what} (${ground}), under the 3:1 this file declares at :78 for anything identifying a control's state`);
     }
     // POSITIVE CONTROL: the carriers this fix replaced must still measure
     // under the floor. If this ever passes, the extraction or the formula is
@@ -96,11 +96,14 @@ test('the consolidated .apphead override resets margin, or the update notice is 
   /* 🛑 `.apphead` carries `margin: calc(-1 * --space-8)` on both sides for ONE
      reason: to cancel the body's own --space-8 padding. This view sets
      `padding: 0`, so those -24px stop cancelling and become a real offset,
-     and under this view's `height: 100vh; overflow: hidden` the result is
-     clipped rather than scrollable. Measured before the fix: .apphead and
+     and under this view's `height: 100vh` the result was clipped rather
+     than scrollable (the view was `overflow: hidden` when this was found;
+     it is `overflow-y: auto` now, but the margin reset is still what keeps
+     the notice in its own box rather than 24px outside it).
+     Measured before the fix: .apphead and
      #newsbar rendered at left:-24, top:-24, slicing the update notice through
      the middle with its status dot off-screen.
-     The surfaces this protects are named in the :2071 comment as the reason
+     The surfaces this protects are named in the header-gives-way comment as the reason
      the header is allowed to give way at all. */
   const rule = PAGE.match(new RegExp(cons + ' > \\.apphead \\{[^}]*\\}'));
   assert.ok(rule, 'the consolidated .apphead override is gone');
@@ -108,7 +111,7 @@ test('the consolidated .apphead override resets margin, or the update notice is 
     'the consolidated .apphead override stopped resetting margin: .apphead\'s -24px mirror margins no longer cancel anything (this view has padding:0) and become a clip under overflow:hidden, taking the update and offline notices with them');
   // The property this depends on, pinned beside it: if the body ever regains
   // padding, the reset above becomes wrong rather than merely unnecessary.
-  assert.match(PAGE, new RegExp(cons + '[^{]*\\{[^}]*height: 100vh; overflow: hidden; padding: 0'),
+  assert.match(PAGE, new RegExp(cons + '[^{]*\\{[^}]*height: 100vh; overflow-y: auto; overflow-x: hidden; padding: 0'),
     'the consolidated body no longer sets padding:0 -- re-check the .apphead margin reset above, which exists only to compensate for it');
 });
 
@@ -164,7 +167,14 @@ test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able
   // painted under the rails' opaque grounds -- a pairing request nobody
   // can see. auto tracks collapse while hidden and give them height the
   // moment they show; this is the layout's load-bearing safety property.
-  assert.match(PAGE, new RegExp(cons + ' \\{[^}]*grid-template-rows: repeat\\(38, auto\\) auto minmax\\(0, 1fr\\) auto;', 's'),
+  /* ⚠️ The flexing row is minmax(200px, 1fr), NOT minmax(0, 1fr). At 0 it
+     could be squeezed away entirely by the auto notice tracks above it, and
+     with the old `overflow: hidden` the board was then unreachable -- no page
+     scroll to fall back on, because this view removed it. The floor and the
+     body's `overflow-y: auto` are one fix: the row stays recognisably itself,
+     and if the window is too short for that the page scrolls rather than
+     clipping. A 0 floor here silently reopens that hole. */
+  assert.match(PAGE, new RegExp(cons + ' \\{[^}]*grid-template-rows: repeat\\(38, auto\\) auto minmax\\(200px, 1fr\\) auto;', 's'),
     'the pre-rail rows are not auto tracks -- a visible notice surface can vanish under the rails again');
   for (const id of ['id="askcard"', 'id="conn"', 'id="board-msg"']) {
     assert.ok(PAGE.includes(id), id + ' is gone; re-derive whether the auto-rows invariant still protects the right surfaces');

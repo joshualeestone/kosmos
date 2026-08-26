@@ -47,7 +47,14 @@ test('the person\'s own row stays on screen under a tall right column', () => {
   // look (the same fact that made the card-head stickies inert).
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated > #rail-me \{ grid-column: 1; grid-row: 41;/,
     'rail-me left its last-track row, the structure that pins it at the column foot');
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \{[^}]*height: 100vh; overflow: hidden;/s,
+  /* ⚠️ overflow-y: auto, NOT hidden, since #980's floor fix. "No page
+     scrollbar" and "always reachable" cannot both hold at every window
+     height: `auto` draws nothing while the content fits, so the no-page-
+     scroll outcome Josh asked for is unchanged in every window a person
+     uses, and the scrollbar exists only as the escape hatch when the
+     grid genuinely cannot fit. What this pin protects is the viewport-
+     height grid, which is what pins the person's row. */
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \{[^}]*height: 100vh; overflow-y: auto; overflow-x: hidden;/s,
     'the body lost its viewport-height no-page-scroll grid, the structure that pins the person\'s row');
   assert.doesNotMatch(PAGE, /> #rail-me \{[^}]*position: sticky/s,
     'a dead sticky is back on rail-me, claiming a job the grid structure does');
