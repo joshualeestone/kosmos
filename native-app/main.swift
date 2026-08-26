@@ -789,26 +789,103 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         return true
     }
 
-    // MARK: Menu (minimal: Quit needs a Cmd-Q accelerator to exist at all)
+    // MARK: Menu
 
-    private func buildMenu() {
+    /**
+     ⚠️ THIS USED TO BE SIX SHORTCUTS AND THAT WAS THE WHOLE APP: Quit, Cut,
+     Copy, Paste, Select All, Reload. Not six that worked out of a longer list
+     -- six declared, in one function, and nothing else anywhere in the binary.
+     So ⌘H did nothing, ⌘M did nothing, ⌘W did nothing, ⌘, did nothing, and
+     ⌘Z did nothing in an app people type paragraphs of agent instructions
+     into. Josh hit two of them in a row on 2026-08-26 and asked for "the most
+     basic generic set of app features that have to exist" (#994).
+
+     📌 CONSTRUCTED, NOT ASSIGNED, so it can be inspected without a window
+     server: `--kosmos-app-menu-selftest` walks what this returns and prints
+     it, and a release check diffs that against the expected table. The whole
+     reason this card exists is that a nearly-empty menu bar is invisible
+     until somebody presses a key, so the gate has to be machine-run.
+
+     ⚠️ Most items here are AppKit-supplied ACTIONS with no code of ours
+     behind them -- the item is only what carries the key equivalent. The
+     exceptions are Reload (ours, #965) and Settings (ours, below), and those
+     two are the ones that can break.
+     */
+    static func makeMainMenu(reloadTarget: AnyObject?, settingsTarget: AnyObject?) -> NSMenu {
         let mainMenu = NSMenu()
 
+        // ── Kosmos ────────────────────────────────────────────────────────
         let appMenuItem = NSMenuItem()
         mainMenu.addItem(appMenuItem)
-        let appMenu = NSMenu()
+        // Titled "Kosmos" for the SELFTEST's benefit, not the screen's: AppKit
+        // draws the application menu using the bundle name and ignores this
+        // string, but an untitled menu dumps as `menu:` and a gate cannot diff
+        // a blank name.
+        let appMenu = NSMenu(title: "Kosmos")
         appMenuItem.submenu = appMenu
-        appMenu.addItem(withTitle: "Quit Kosmos", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        /* About shows the bundle's CFBundleShortVersionString, which
+           install/setup.sh writes at install time.
+           ⚠️ THAT IS THE APP'S VERSION, NOT THE BOARD'S, and the two can
+           differ: the board's number is baked into web/index.html and the
+           footer reads it. Standard About is still the right thing here --
+           it answers "what version of this application am I running" --
+           but do not "fix" a mismatch by pointing one at the other. They
+           are answers to two different questions (#995). */
+        appMenu.addItem(withTitle: "About Kosmos",
+                        action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+                        keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        let settingsItem = NSMenuItem(title: "Settings…",
+                                      action: #selector(AppDelegate.openSettings(_:)),
+                                      keyEquivalent: ",")
+        settingsItem.target = settingsTarget
+        appMenu.addItem(settingsItem)
+        appMenu.addItem(NSMenuItem.separator())
+        let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
+        let servicesMenu = NSMenu(title: "Services")
+        servicesItem.submenu = servicesMenu
+        appMenu.addItem(servicesItem)
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "Hide Kosmos",
+                        action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        let hideOthers = NSMenuItem(title: "Hide Others",
+                                    action: #selector(NSApplication.hideOtherApplications(_:)),
+                                    keyEquivalent: "h")
+        hideOthers.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(hideOthers)
+        appMenu.addItem(withTitle: "Show All",
+                        action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "Quit Kosmos",
+                        action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
+        // ── Edit ──────────────────────────────────────────────────────────
         let editMenuItem = NSMenuItem()
         mainMenu.addItem(editMenuItem)
         let editMenu = NSMenu(title: "Edit")
         editMenuItem.submenu = editMenu
+        /* ⚠️ UNDO IS THE ONE ROW HERE THAT IS NOT A FORMALITY, and it is the
+           one Mona Lisa said to fix first if only one got fixed: this is an
+           app people type agent instructions and project descriptions into,
+           and none of those fields could be undone.
+           📌 There is no `NSText.undo:`. Undo inside a WKWebView comes from
+           the WEB CONTENT's own undo manager, so these two are deliberately
+           nil-targeted and travel the responder chain to the web view.
+           🛑 A MENU ITEM THAT EXISTS IS NOT A MENU ITEM THAT WORKS. These two
+           can compile, appear, and still do nothing, which is worse than
+           absent because it looks answered. They are pressed by hand in the
+           verification, not just asserted structurally. */
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redoItem = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redoItem.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(redoItem)
+        editMenu.addItem(NSMenuItem.separator())
         editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
 
+        // ── View ──────────────────────────────────────────────────────────
         // #965: standard macOS menu order puts View after Edit. The item
         // targets the delegate explicitly rather than relying on the
         // responder chain, so Reload works even when focus is inside the
@@ -818,11 +895,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         mainMenu.addItem(viewMenuItem)
         let viewMenu = NSMenu(title: "View")
         viewMenuItem.submenu = viewMenu
-        let reloadItem = NSMenuItem(title: "Reload", action: #selector(AppDelegate.reloadBoard(_:)), keyEquivalent: "r")
-        reloadItem.target = self
+        let reloadItem = NSMenuItem(title: "Reload",
+                                    action: #selector(AppDelegate.reloadBoard(_:)), keyEquivalent: "r")
+        reloadItem.target = reloadTarget
         viewMenu.addItem(reloadItem)
 
+        // ── Window ────────────────────────────────────────────────────────
+        let windowMenuItem = NSMenuItem()
+        mainMenu.addItem(windowMenuItem)
+        let windowMenu = NSMenu(title: "Window")
+        windowMenuItem.submenu = windowMenu
+        windowMenu.addItem(withTitle: "Minimize",
+                           action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "Zoom",
+                           action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        /* ⌘W goes through `performClose:`, which fires `windowShouldClose` --
+           the SAME path the red button takes. That is deliberate: this app
+           deliberately distinguishes closing the window from quitting
+           (QuitBehavior.closingWindowQuits), and routing ⌘W anywhere else
+           would give the keyboard a different meaning from the button. */
+        windowMenu.addItem(withTitle: "Close",
+                           action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowMenu.addItem(NSMenuItem.separator())
+        windowMenu.addItem(withTitle: "Bring All to Front",
+                           action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
+
+        return mainMenu
+    }
+
+    private func buildMenu() {
+        let mainMenu = AppDelegate.makeMainMenu(reloadTarget: self, settingsTarget: self)
         NSApp.mainMenu = mainMenu
+        // Handed to AppKit by ROLE, not by title: it fills the Services
+        // submenu and adds the window list, and it finds them by these
+        // properties rather than by looking for a menu called "Window".
+        if let appSub = mainMenu.items.first?.submenu {
+            NSApp.servicesMenu = appSub.items.first(where: { $0.title == "Services" })?.submenu
+        }
+        NSApp.windowsMenu = mainMenu.items.first(where: { $0.submenu?.title == "Window" })?.submenu
+    }
+
+    /**
+     ⌘, opens Kosmos's own Settings, which lives in the WEB app, so this is
+     not an AppKit action and there is no standard one to borrow.
+
+     ⚠️ IT MUST NOT DISCARD A DRAFT. The obvious implementation -- navigate to
+     `/?tab=settings` -- would throw away whatever the person had typed into
+     an instructions or description field, and this app is full of them. So it
+     asks the PAGE to switch tabs in place first (the same function the tabs
+     themselves call) and only navigates when that function is not there,
+     which would mean the page is an older build than this binary.
+     */
+    @objc func openSettings(_ sender: Any?) {
+        let js = """
+        (function () {
+          try {
+            if (typeof showTab === 'function') { showTab('settings'); return 'in-place'; }
+          } catch (e) { /* fall through to the navigation below */ }
+          location.assign('/?tab=settings');
+          return 'navigated';
+        })()
+        """
+        // logLine is a free function in this file, not a method: no `self`,
+        // and so no capture list is needed either.
+        webView.evaluateJavaScript(js) { result, error in
+            if let error = error {
+                logLine("openSettings: the page did not answer (\(error.localizedDescription))")
+            } else {
+                logLine("openSettings: \(result as? String ?? "no answer")")
+            }
+        }
     }
 }
 
@@ -862,6 +1004,38 @@ if CommandLine.arguments.contains("--kosmos-app-reload-decision-selftest") {
                                        lastLoadFailed: failed)
                 print("startInFlight=\(startInFlight) committed=\(committed) lastLoadFailed=\(failed) -> \(d.rawValue)")
             }
+        }
+    }
+    exit(0)
+}
+
+// #994: same shape as the three hatches above, for the MENU BAR. Prints every
+// menu, every item and every shortcut so a build-time check or a release walk
+// can diff the whole bar at once, no window server needed.
+//
+// 🛑 THIS GATE IS THE POINT OF THE CARD, not a nicety. The bar sat at six
+// shortcuts for the life of the app and nobody noticed, because a missing menu
+// item is invisible until somebody presses the key it does not have. A person
+// remembering to check is exactly the mechanism that already failed.
+if CommandLine.arguments.contains("--kosmos-app-menu-selftest") {
+    // nil targets: this is a STRUCTURAL dump, and a real target would need a
+    // delegate, which would need a window. What is being proven here is that
+    // the item and its key equivalent exist; whether the action does anything
+    // is a different question and is answered by pressing it.
+    let menu = AppDelegate.makeMainMenu(reloadTarget: nil, settingsTarget: nil)
+    for top in menu.items {
+        guard let sub = top.submenu else { continue }
+        print("menu:\(sub.title)")
+        for item in sub.items {
+            if item.isSeparatorItem { continue }
+            var mods: [String] = []
+            if item.keyEquivalentModifierMask.contains(.command) { mods.append("cmd") }
+            if item.keyEquivalentModifierMask.contains(.shift) { mods.append("shift") }
+            if item.keyEquivalentModifierMask.contains(.option) { mods.append("opt") }
+            if item.keyEquivalentModifierMask.contains(.control) { mods.append("ctrl") }
+            let key = item.keyEquivalent.isEmpty ? "-" : item.keyEquivalent
+            let shortcut = key == "-" ? "-" : (mods.joined(separator: "+") + "+" + key)
+            print("  item:\(item.title)\tshortcut:\(shortcut)\taction:\(item.action.map { NSStringFromSelector($0) } ?? "-")")
         }
     }
     exit(0)
