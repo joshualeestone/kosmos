@@ -871,7 +871,26 @@ uninstall() {
       # already-installed macOS tool for a structured read -- a homegrown XML
       # parse of a plist whose exact shape could drift is exactly the kind of
       # fragile code this file avoids everywhere else.
-      _orphan_home_bin="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:1' "$_orphan_plist" 2>/dev/null)"
+      # ⚠️ `|| _orphan_home_bin=""`, NOT A BARE ASSIGNMENT -- this file runs
+      # under `set -euo pipefail`. PlistBuddy exits non-zero (not just an
+      # empty string) whenever a plist genuinely fails to read: no
+      # `ProgramArguments` key, a truncated file, or anything not valid XML
+      # -- all explicitly anticipated by this very block's own "a future
+      # format, a hand-edit" comment two lines below. Without the fallback,
+      # a failing command substitution in a plain assignment is NOT exempt
+      # from `set -e` (verified directly: the same shape aborts the whole
+      # script mid-function, silently, the instant it runs) -- so ANY
+      # unrelated malformed `com.kosmos.board.*.plist` sitting in a real
+      # person's LaunchAgents would crash their entirely normal, healthy
+      # uninstall partway through, before the agents' jobs, `bin/kosmos`
+      # link, PATH line, and KOSMOS_HOME itself are ever removed. Caught in
+      # challenge-loop iteration 3: rounds 1-2 hardened what happens when
+      # PlistBuddy SUCCEEDS but returns something unexpected; nobody had
+      # yet tested what happens when it fails to read at all. The `|| ""`
+      # lets that failure land in the SAME `*) continue` arm a shape
+      # mismatch already falls into -- "leave it alone rather than guess"
+      # becomes true for a read failure too, not just a wrong shape.
+      _orphan_home_bin="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:1' "$_orphan_plist" 2>/dev/null)" || _orphan_home_bin=""
       case "$_orphan_home_bin" in
         # ⚠️ `*` MATCHES ZERO-WIDTH: a ProgramArguments[1] of exactly
         # "/bin/kosmos" (no home prefix at all) still matches `*/bin/kosmos`

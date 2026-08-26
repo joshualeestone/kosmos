@@ -2018,6 +2018,28 @@ cat > "$D918_LAUNCH/com.kosmos.board.degenerate.plist" <<'D918_DEGENERATE'
 </plist>
 D918_DEGENERATE
 
+# 🔑 THE ACTUAL BLOCKER, REPRODUCED. Challenge-loop iteration 3: rounds 1-2
+# hardened what happens when PlistBuddy SUCCEEDS but returns something
+# unexpected; nobody had tested what happens when it FAILS TO READ at all.
+# Verified directly: PlistBuddy exits non-zero (not empty output) for a
+# plist with no ProgramArguments key, and under this file's `set -e`, an
+# unguarded command substitution assignment aborts the WHOLE SCRIPT right
+# there -- silently, mid-uninstall, before the agents' jobs, `bin/kosmos`
+# link, PATH line, and KOSMOS_HOME itself are ever removed. This plist is
+# syntactically valid XML with a real Label, just missing the one key this
+# sweep reads -- exactly the "a future format, a hand-edit" shape the
+# surrounding comment already anticipated, and exactly what PlistBuddy
+# itself refuses to read.
+cat > "$D918_LAUNCH/com.kosmos.board.noargs.plist" <<'D918_NOARGS'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.kosmos.board.noargs</string>
+</dict>
+</plist>
+D918_NOARGS
+
 # Scenario A's scratch directory is deleted DIRECTLY -- exactly the walk
 # convention #918 is about, never running --uninstall against it.
 rm -rf "$D918_KHOME_A"
@@ -2046,6 +2068,14 @@ chk "the bare default label (scenario D, a real install's own board) survives th
 chk "scenario D's own KOSMOS_HOME directory is untouched too" "[ -d \"$D918_HOME_D/.local/share/kosmos\" ]"
 chk "a degenerate plist (ProgramArguments[1] with no home prefix) is left alone, not guessed at" \
   "[ -f \"$D918_LAUNCH/com.kosmos.board.degenerate.plist\" ]"
+# The BLOCKER's own proof: the uninstall above already had to run past this
+# plist to reach this line at all -- "#918 scenario-B uninstall exits 0"
+# would itself have failed had the unguarded PlistBuddy read still crashed
+# the script mid-function. This assertion confirms the SPECIFIC outcome the
+# fix promises (left alone, not guessed at), not just that the process
+# survived.
+chk "a plist PlistBuddy cannot even read (no ProgramArguments key) does not crash the uninstall, and is left alone" \
+  "[ -f \"$D918_LAUNCH/com.kosmos.board.noargs.plist\" ]"
 HOME="$D918_HOME_D" "$D918_HOME_D/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
 KOSMOS_HOME="$D918_KHOME_C" "$D918_KHOME_C/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free after #918's scenario" "wait_port_free"
