@@ -2514,7 +2514,12 @@ const server = http.createServer((req, res) => {
        ⚠️ listLive(), NOT list(): this route is the one place a live,
        per-account check is safe to pay for -- it fires on a deliberate
        Settings > Accounts open, never the 5-second status tick (which still
-       calls the plain, fast list() elsewhere in this file, untouched). */
+       calls the plain, fast list() elsewhere in this file, untouched).
+       ⚠️ HEAD SKIPS THE LIVE CHECK. Nothing in web/index.html sends one
+       today, but a HEAD is conventionally cheap/side-effect-light, and
+       nothing about it needs a per-account subprocess call to answer --
+       it only asks whether the route is there. */
+    if (req.method === 'HEAD') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(); return; }
     accounts.listLive()
       .then((rows) => {
         const claude = rows.map((a) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', ...a }));

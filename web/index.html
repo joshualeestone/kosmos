@@ -10943,8 +10943,12 @@ async function paintAccounts() {
     // shape ("the real sentence is what a screen reader gets and what a
     // hover reveals -- never a paraphrase invented client-side"), caught
     // in challenge-loop iteration 2 for not yet applying it here.
-    const noneWhy = (a.connection && a.connection.because) || 'not connected';
-    const unknownWhy = (a.connection && a.connection.because) || 'could not check';
+    // The fallback below is unreachable in practice -- listLive() always
+    // attaches a because sentence -- kept as a real sentence anyway
+    // rather than a terse fragment, matching this feature's own house
+    // style, not just taskClaimHtml()'s shorter precedent.
+    const noneWhy = (a.connection && a.connection.because) || 'this account is not connected';
+    const unknownWhy = (a.connection && a.connection.because) || 'we could not check this account';
     const connBadge = isOpenai ? '<span class="acct-connected"><span class="dot" aria-hidden="true"></span>Connected</span>'
       : a.connection && a.connection.state === 'connected' ? '<span class="acct-connected"><span class="dot" aria-hidden="true"></span>Connected</span>'
       : a.connection && a.connection.state === 'none' ? '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>'
