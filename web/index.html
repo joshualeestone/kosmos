@@ -1503,14 +1503,24 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; 
    📌 Scoped to `.chk-m` rather than moved at the token: `--gold-deep` is brand
    and this is one use of it. */
 .chk.ok .chk-m   { background: rgba(184,137,32,.13); border-color: rgba(184,137,32,.4); color: #9c741b; }
-.chk.att .chk-m  { background: rgba(184,137,32,.13); border-color: rgba(184,137,32,.45); color: #9c741b; }
+/* Josh, 2026-08-26 07:12: the "!" row read as another checkmark at a
+   glance, easy to skim past and hit Continue. Given its own color rather
+   than sharing gold with .ok -- the same red already used everywhere else
+   in this file for attention/failed (.astate.st-attn, .delivery.failed,
+   .acard.attn: rgba(179,38,30,...) in light, rgba(255,140,130,...) in
+   dark), not a new one invented for this row. Measured against this row's
+   own 13%-tinted background: 5.05:1 in light, 7.3:1 in dark -- both clear
+   the 3:1 floor a status glyph needs, the same discipline the gold comment
+   below already holds itself to. */
+.chk.att .chk-m  { background: rgba(179,38,30,.13); border-color: rgba(179,38,30,.45); color: #b3261e; }
 .chk.unk .chk-m  { background: rgba(20,22,26,.04); color: var(--k-ink-2); }
 
 /* The brand gold comes back in dark, where the light darkening would hurt.
    Measured: brand gold on the tint over #17191c is 4.67; the light value
-   #9c741b is 3.47 there. */
+   #9c741b is 3.47 there. .att's red gets the same dark-mode treatment. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .chk.ok .chk-m, :root:not([data-theme="light"]) .chk.att .chk-m { color: var(--gold-deep); }
+  :root:not([data-theme="light"]) .chk.ok .chk-m { color: var(--gold-deep); }
+  :root:not([data-theme="light"]) .chk.att .chk-m { background: rgba(255,140,130,.13); border-color: rgba(255,140,130,.5); color: #ff8c82; }
 }
 .chk-t { font-size: 1rem; font-weight: 600; margin-bottom: 2px; }
 .chk-d { font-size: .9375rem; color: var(--k-ink-2); line-height: 1.5; }
@@ -4256,7 +4266,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .onode.work::after { border-color: transparent; border-top-color: #6fd3a0; }
 :root[data-theme="dark"] .onode .face { background: #3a3d42; }
 
-:root[data-theme="dark"] .chk.ok .chk-m, :root[data-theme="dark"] .chk.att .chk-m { color: var(--gold-deep); }
+:root[data-theme="dark"] .chk.ok .chk-m { color: var(--gold-deep); }
+:root[data-theme="dark"] .chk.att .chk-m { background: rgba(255,140,130,.13); border-color: rgba(255,140,130,.5); color: #ff8c82; }
 
 :root[data-theme="dark"] .msg-av { background: rgba(245,245,244,.10); }
 
