@@ -14918,7 +14918,18 @@ async function paintConnLive() {
     const list = all.filter((a) => a.provider !== 'anthropic' || (a.connection && a.connection.state === 'connected'));
     el.textContent = '';
     if (!list.length) {
-      el.textContent = 'Nothing is connected yet.';
+      // ⚠️ "NOTHING IS CONNECTED YET" IS A CLAIM, and it must be true, not
+      // just the shape a zero count happens to take. Caught in
+      // challenge-loop iteration 4: an unknown live check (a `claude auth
+      // status` timeout, a missing binary) also lands zero rows in
+      // `list` above, and that is "we could not tell", not "nothing is
+      // connected" -- the exact unknown-must-never-render-as-none rule
+      // this same diff enforces everywhere else (checkLive(), the
+      // Settings > Accounts badge). Said honestly here too.
+      const anyUnknown = all.some((a) => a.provider === 'anthropic' && a.connection && a.connection.state === 'unknown');
+      el.textContent = anyUnknown
+        ? 'We could not check your accounts just now.'
+        : 'Nothing is connected yet.';
       return;
     }
     const what = list.length === 1

@@ -494,6 +494,19 @@ test('#881: checkLive() distinguishes a real subprocess failure from a clean neg
     assert.equal(got.state, sub.STATE.UNKNOWN);
     assert.match(got.because, /took too long/);
   } finally { sub.setRunner(null); }
+
+  // ⚠️ THE THIRD BRANCH, untested until challenge-loop iteration 4 caught
+  // it: neither an ENOENT (missing binary) nor a killed/timeout, but a
+  // real subprocess error all the same (e.g. EACCES, a permissions
+  // problem). Every other checkLive() branch already had its own test;
+  // this one slipped through.
+  sub.setRunner(async () => ({ stdout: '', err: { code: 'EACCES', message: 'permission denied' } }));
+  try {
+    const got = await sub.checkLive();
+    assert.equal(got.state, sub.STATE.UNKNOWN);
+    assert.match(got.because, /did not answer/);
+    assert.doesNotMatch(got.because, /EACCES|permission denied/, 'no raw errno/message leaking into the sentence');
+  } finally { sub.setRunner(null); }
 });
 
 test('#881: checkLive({configDir}) threads CLAUDE_CONFIG_DIR to the runner, scoped like check()', async () => {
