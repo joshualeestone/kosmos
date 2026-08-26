@@ -735,6 +735,39 @@ uninstall() {
   # new comparison instead of the ones that comment already fixed.
   _kosmos_home_default="$(printf '%s' "$HOME/.local/share/kosmos" | /usr/bin/tr -s '/')"
   _kosmos_home_default="${_kosmos_home_default%/}"
+  # 🔑 SAME DERIVATION AS THE INSTALL PATH (#883), NOW FOR THE DATA ROOT TOO,
+  # NOT JUST THE LABEL ABOVE (#924). The label duplication above already
+  # protects the launchd plist; it does nothing for `_remote_state` and
+  # `_support` below, which key on AGENT_WORKFORCE_DATA. A caller who ran
+  # this uninstall with KOSMOS_HOME set (a sandboxed walk) but
+  # AGENT_WORKFORCE_DATA unset fell through to
+  # `$HOME/Library/Application Support` -- the REAL, unsandboxed data root
+  # -- while KOSMOS_HOME itself stayed correctly scoped, so the run LOOKED
+  # targeted and swept somebody else's shared supervisor and remembered-
+  # answer files instead. Measured live (#924): Pete's act-three uninstall
+  # did exactly this. Caller's explicit choice still always wins, same as
+  # every other ${VAR:-default} in this file.
+  if [ -z "${AGENT_WORKFORCE_DATA:-}" ] && [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
+    export AGENT_WORKFORCE_DATA="$KOSMOS_HOME/data"
+  fi
+  # 🔒 THE BELT, NOT JUST THE BUCKLE. The derivation above is the fix; this
+  # is defense in depth for the day it doesn't fire (a future reorder, an
+  # env quirk, a caller setting AGENT_WORKFORCE_DATA to the real path by
+  # hand while also sandboxing KOSMOS_HOME by mistake). Same proof the
+  # launchd label above already demands of itself: a non-default KOSMOS_HOME
+  # must never resolve to the DEFAULT Application Support. If it somehow
+  # does, refuse to touch it rather than silently sweep a different
+  # install's shared data.
+  _default_support="$(printf '%s' "$HOME/Library/Application Support" | /usr/bin/tr -s '/')"
+  _default_support="${_default_support%/}"
+  _resolved_support="$(printf '%s' "${AGENT_WORKFORCE_DATA:-$HOME/Library/Application Support}" | /usr/bin/tr -s '/')"
+  _resolved_support="${_resolved_support%/}"
+  if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ] && [ "$_resolved_support" = "$_default_support" ]; then
+    info "refusing to touch $_default_support: this uninstall is for a sandboxed"
+    info "install ($KOSMOS_HOME), and the real Application Support folder is not part of it."
+    info "If you meant to remove the real install, run --uninstall with KOSMOS_HOME unset."
+    exit 1
+  fi
   _board_label=com.kosmos.board
   if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
     _board_label="com.kosmos.board.$(printf '%s' "$KOSMOS_HOME" | shasum -a 256 | cut -c1-8)"
