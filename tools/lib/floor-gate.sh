@@ -20,12 +20,25 @@ floor_gate_load() {
   FLOOR_MINOR="${FLOOR#*.}"
 }
 
+# EVERY SLICE IS GATED (#936, Shredder). The first version read ONE minos per
+# file and stopped: on a universal binary that is the x86_64 slice, because
+# lipo canonicalises slice order to x86_64 first whichever order it was given,
+# so an arm64 slice stamped 26.0 beside an x86_64 slice at 13.5 was certified
+# by the architecture this bundle does not ship. It only landed on arm64 for
+# the tunnel by accident (its x86_64 slice carries the old LC_VERSION_MIN_MACOSX
+# spelling, which the old first pattern skipped). One pattern for both
+# spellings, one minos per slice, and each one is compared.
+floor_gate_minos_of() {
+  otool -l "$1" 2>/dev/null | awk '
+    /LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX/ { want=1; next }
+    want && /(minos|version) / { print $2; want=0 }'
+}
+
 floor_gate() {
-  local f minos major minor
+  local f minos major minor slices
   for f in "$@"; do
-    minos="$(otool -l "$f" 2>/dev/null | awk '/LC_BUILD_VERSION/{v=1} v && /minos/{print $2; exit}')"
-    [ -n "$minos" ] || minos="$(otool -l "$f" 2>/dev/null | awk '/LC_VERSION_MIN_MACOSX/{v=1} v && /version/{print $2; exit}')"
-    if [ -z "$minos" ]; then
+    slices="$(floor_gate_minos_of "$f")"
+    if [ -z "$slices" ]; then
       if [ -n "${KOSMOS_ALLOW_MINOS:-}" ]; then
         echo "    WARN: cannot read a deployment target from $(basename "$f") (allowed: TEST BUILD)"
         continue
@@ -33,16 +46,18 @@ floor_gate() {
       echo "FAIL: cannot read a deployment target from $(basename "$f"); refusing to certify the floor." >&2
       exit 1
     fi
-    major="${minos%%.*}"; minor="${minos#*.}"; minor="${minor%%.*}"
-    if [ "$major" -gt "$FLOOR_MAJOR" ] || { [ "$major" -eq "$FLOOR_MAJOR" ] && [ "$minor" -gt "$FLOOR_MINOR" ]; }; then
-      if [ -n "${KOSMOS_ALLOW_MINOS:-}" ]; then
-        echo "    WARN: $(basename "$f") needs macOS $minos > floor $FLOOR_MAJOR.$FLOOR_MINOR (allowed: TEST BUILD)"
-      else
-        echo "FAIL: $(basename "$f") requires macOS $minos, above the installer's $FLOOR_MAJOR.$FLOOR_MINOR floor." >&2
-        echo "      Source a binary built for the floor, or KOSMOS_ALLOW_MINOS=1 for a local test build." >&2
-        exit 1
+    for minos in $slices; do
+      major="${minos%%.*}"; minor="${minos#*.}"; minor="${minor%%.*}"
+      if [ "$major" -gt "$FLOOR_MAJOR" ] || { [ "$major" -eq "$FLOOR_MAJOR" ] && [ "$minor" -gt "$FLOOR_MINOR" ]; }; then
+        if [ -n "${KOSMOS_ALLOW_MINOS:-}" ]; then
+          echo "    WARN: $(basename "$f") needs macOS $minos > floor $FLOOR_MAJOR.$FLOOR_MINOR (allowed: TEST BUILD)"
+        else
+          echo "FAIL: $(basename "$f") requires macOS $minos (one of its slices), above the installer's $FLOOR_MAJOR.$FLOOR_MINOR floor." >&2
+          echo "      Source a binary built for the floor, or KOSMOS_ALLOW_MINOS=1 for a local test build." >&2
+          exit 1
+        fi
       fi
-    fi
+    done
   done
 }
 
