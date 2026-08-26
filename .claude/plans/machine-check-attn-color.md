@@ -21,11 +21,15 @@ similarly-shaped `.fr-check`/`.fr-mark` pair, styled at
 `#firstrun .fr-check.ok .fr-mark, #firstrun .fr-check.attention .fr-mark`
 (one shared rule, `color: #6e5311`, the actual bug) -- confirmed by DOM
 nesting that `#firstrun` and `#set-machine` are disjoint subtrees. The
-`.chk.att`-scoped dark-mode work from iteration 1 (the `#firstrun`-scoped
-pin, the `sync-forced-theme.js` regeneration) was real, correct engineering
-against the wrong screen -- dead code relative to Josh's actual report,
-kept because it fixes a real second instance of the bug, not because it
-answers the card.
+base `.chk.att` light/dark split from iteration 1 is KEPT: it fixes a real
+second instance of the bug, live in Settings > This Mac. The
+`#firstrun`-scoped pin from that same iteration is NOT kept: iteration 3
+established that the very disjointness that proved iteration 1 targeted
+the wrong screen also proves the pin could never match anything
+(`.chk` rows never render inside `#firstrun`), so the pin was dead CSS
+built on a false premise, removed and the generated dark section
+regenerated. The test that had hard-required the pin was corrected in the
+same pass; a test enforcing dead CSS actively resists its removal.
 
 ## The real change
 
