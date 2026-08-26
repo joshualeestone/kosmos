@@ -128,18 +128,44 @@ function chk(ok, label, extra) {
       const toast = await pg.$eval('#utoast-slot', (el) => el.innerText).catch(() => '');
       chk(/Kosmos updated/.test(toast) && /Reload/.test(toast), 'stale: before the press, the top-left toast already offers the reload', JSON.stringify(toast));
     }
-    await pg.click('#upd-btn');
-    await pg.waitForFunction(() => !/Checking\.$/.test(document.getElementById('upd-line').textContent), null, { timeout: 12000 });
-    const line = await pg.$eval('#upd-line', (el) => el.textContent);
     if (state === 'stale') {
-      chk(line === 'This page is older than the Kosmos running it. Reload the page to get the newer one.',
-        'stale: the press says reload, not "Up to date"', JSON.stringify(line));
+      /* The stale press RELOADS (dataset.act='reload' -> location.reload()), so it
+         never runs an update check and #upd-line legitimately reads "" on the fresh
+         page. Asserting that text can never be meaningful in this state again, so
+         assert the NAVIGATION, which is the whole of reload-button-995. */
+      const label = await pg.$eval('#upd-btn', (el) => el.textContent.trim());
+      chk(label === 'Reload', 'stale: the control offers Reload, not Check for Update', JSON.stringify(label));
+
+      /* 🔑 THE SENTINEL IS THE ASSERTION THAT CANNOT FALSE-PASS ON A SAME-URL
+         RELOAD. A reload destroys the JS context and nothing else in this flow
+         does. waitForNavigation alone is weaker (PigeonPete, who ran it). */
+      await pg.evaluate(() => { window.__preReload = 1; });
+      const before = errs.length;
+      const navigated = pg.waitForNavigation({ timeout: 12000 }).then(() => true).catch(() => false);
+      await pg.click('#upd-btn');
+      const didNavigate = await navigated;
+      chk(didNavigate, 'stale: pressing Reload actually reloads the page', 'navigated=' + didNavigate);
+      const survived = await pg.evaluate(() => window.__preReload === 1).catch(() => false);
+      chk(!survived, 'stale: the JS context was destroyed (sentinel gone)', 'sentinel survived=' + survived);
+
+      /* GUARDS, NOT PROOFS. Both of these PASS with nothing pressed (PigeonPete's
+         negative control), so they do not evidence the reload. They exist because
+         the old shared tail did `if (box)`, which after a reload skips silently and
+         leaves a green check with its screenshot missing. */
+      await pg.waitForSelector('#s-sec-updates', { state: 'visible', timeout: 12000 });
+      const box = await pg.$('#s-sec-updates');
+      chk(!!box, 'stale: the updates card repainted after the reload', String(!!box));
+      await box.screenshot({ path: path.join(OUT, 'updates-stale.png') });
+      chk(errs.length === before, 'stale: no console errors on the reloaded page', errs.slice(before).join(' | '));
     } else {
+      await pg.click('#upd-btn');
+      await pg.waitForFunction(() => !/Checking\.$/.test(document.getElementById('upd-line').textContent), null, { timeout: 12000 });
+      const line = await pg.$eval('#upd-line', (el) => el.textContent);
       chk(line === 'Up to date.', 'CONTROL current: the press still says "Up to date."', JSON.stringify(line));
+      const box = await pg.$('#s-sec-updates');
+      if (box) await box.screenshot({ path: path.join(OUT, 'updates-' + state + '.png') });
+      chk(errs.length === 0, state + ': no console errors', errs.join(' | '));
     }
-    const box = await pg.$('#s-sec-updates');
-    if (box) await box.screenshot({ path: path.join(OUT, 'updates-' + state + '.png') });
-    chk(errs.length === 0, state + ': no console errors', errs.join(' | '));
     await pg.close();
   }
   await b.close();
