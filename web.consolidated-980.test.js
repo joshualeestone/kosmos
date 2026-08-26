@@ -75,7 +75,8 @@ test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able
     .replace(/(<script\b[^>]*>)[\s\S]*?(<\/script>)/g, '$1$2');
   let depth = 0, children = 0;
   const tagRe = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:"[^"]*"|'[^']*'|[^"'>])*)>/g;
-  const voidTags = new Set(['img', 'input', 'br', 'hr', 'meta', 'link', 'source', 'path', 'circle', 'rect', 'use', 'stop']);
+  const voidTags = new Set(['img', 'input', 'br', 'hr', 'meta', 'link', 'source', 'path', 'circle', 'rect', 'use', 'stop',
+    'area', 'base', 'col', 'embed', 'track', 'wbr', 'param']);
   let m2;
   while ((m2 = tagRe.exec(bodyHtml)) !== null) {
     const [, close, tag, attrs] = m2;
@@ -84,7 +85,7 @@ test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able
     if (depth === 0) children++;
     if (!voidTags.has(tag.toLowerCase()) && !/\/\s*$/.test(attrs)) depth++;
   }
-  assert.ok(children <= 38, 'the body has ' + children + ' direct children; the consolidated grid reserves 38 pre-rail auto rows, and past it a visible notice can be silently clipped -- widen repeat(38, auto) with the count');
+  assert.ok(children <= 38, 'the body has ' + children + ' direct children; the consolidated grid reserves 38 pre-rail auto rows, and past it a visible notice can be silently clipped. Widening repeat(38, auto) is a FIVE-site renumbering: the rails\' explicit rows must move with it (#rail-agents 39, #alist 40, #rail-me 41, #panel-projects 39 / span 3), or all four land inside the widened pre-rail range');
   assert.ok(children >= 20, 'the body child counter read ' + children + ', implausibly low -- the counter itself has likely broken, re-derive before trusting the headroom claim');
   assert.equal(depth, 0, 'the child counter ended at depth ' + depth + ', not 0 -- it is mis-parsing the markup and its count cannot be trusted');
 });

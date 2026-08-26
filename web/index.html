@@ -2300,8 +2300,29 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      the right column's flexing one; each card scrolls inside itself, so
      tall content bounds instead of growing the page. */
   html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(0, 1fr); height: 100%; min-height: 0; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; align-self: start; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard::-webkit-scrollbar, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit)::-webkit-scrollbar { display: none; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { min-height: 0; align-self: start; }
+  /* ⚠️ THE SCROLLER IS THE LIST, NOT THE CARD, on Tasks and Members
+     (challenge-loop iteration 6): both cards are grids (piece ten below)
+     whose head sits in grid row 1, and a sticky grid item cannot travel
+     outside its own grid area -- sticky heads there were provably inert
+     and the + control scrolled away with the content. With the CONTENT
+     region as the scroll container the head never moves by construction:
+     card overflow hidden, head row auto, list row minmax(0,1fr) scrolling
+     inside (Tasks keeps its finished-tasks door pinned in a third row).
+     Files is not a grid, so it stays a plain card scroller with a sticky
+     label, which genuinely pins there. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child { overflow: hidden; grid-template-rows: auto minmax(0, 1fr); align-items: start; }
+  /* align-self: stretch, or the list sizes to its CONTENT instead of its
+     bounded track and the scroll never engages (measured: 1314px of rows
+     rendering into a 301px track, clipped unreachable). */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child > .pj-members { overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:first-child > .pj-members::-webkit-scrollbar { display: none; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { overflow: hidden; display: flex; flex-direction: column; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field { flex: 1 1 auto; min-height: 0; grid-template-rows: auto minmax(0, 1fr) auto; align-items: start; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > .tkcards { overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > .tkcards::-webkit-scrollbar { display: none; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child { overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child::-webkit-scrollbar { display: none; }
   /* ⚠️ vh CAPS ON THE TWO auto-ROW CARDS, NOT max-height: 100% (challenge-
      loop iteration 1, then MEASURED: with 30 rows stuffed into Tasks and
      Files, %-caps against content-sized tracks let the two grow to ~460px
@@ -2351,14 +2372,12 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      (glaring in dark: #17191c on #0c0d0f), a sliver of the boxed look
      this pass removes. The bordered composerbox inside it is unchanged. */
   html[data-layout="consolidated"] body.consolidated .pjmid .composer { background: var(--k-bg); }
-  /* #980 (iteration 5): the card heads pin while their card scrolls, the
-     same answer the rail headers give the same gesture -- a tall Tasks
-     list was scrolling its own + control away. The head is a label plus
-     its small + (grid row 1 of the card, per the piece-ten rule below),
-     so BOTH stick, on the card's own surface. Tasks' label nests inside
-     .field, hence the descendant selector. */
-  html[data-layout="consolidated"] body.consolidated .pj3 .pjcard .dlab, html[data-layout="consolidated"] body.consolidated .pj3 aside.pjcol:not(.pjsplit) .dlab,
-  html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask, html[data-layout="consolidated"] body.consolidated .pj3 .pjsplit .pjcard:first-child > .pj-addmem { position: sticky; top: 0; z-index: 3; background: var(--k-surface); }
+  /* #980 (iterations 5-6): Tasks' and Members' heads never move because
+     their LIST is the scroller (see the scroller-is-the-list rule above;
+     sticky was provably inert on grid items whose containing block is
+     their own row). Files, a plain card scroller, pins its label the
+     ordinary sticky way. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard:last-child > .dlab { position: sticky; top: 0; z-index: 3; background: var(--k-surface); }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem, html[data-layout="consolidated"] body.consolidated .pj3 .fi, html[data-layout="consolidated"] body.consolidated .pj3 .tkrow { padding: 6px 8px; border-radius: 9px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem:hover, html[data-layout="consolidated"] body.consolidated .pj3 .fi:hover { background: var(--k-surface); }
   /* The add/remove actions match the rail heads: a quiet + rather than a
@@ -11961,6 +11980,10 @@ document.getElementById('tabs').addEventListener('click', (e) => {
        Same three steps the project Back button does, so arriving by the tab and
        arriving by Back leave the screen in one state rather than two. */
     topLevelReset(btn.dataset.tab);
+    // #980: clear the rail's lit row here, beside the reset (which stays
+    // DOM-free by its own contract) -- without this the row stayed lit for
+    // one loadProjects round-trip after a tab re-click closed the project.
+    if (btn.dataset.tab === 'projects') pjMarkOpen(null);
     showTab(btn.dataset.tab);
     /* Choosing from the OPEN menu display:none's the element focus is on --
        the same hazard the Escape path below guards -- and this is the common
@@ -22977,11 +23000,12 @@ document.getElementById('pj-docs-all').addEventListener('click', () => {
 });
 
 /* #980: the ONE writer of the rail's .open selected state outside the
-   painter -- called with an id on open, with null on every path that
-   closes a project without an immediate list repaint, so a lit row can
-   never outlive the project it points at (iteration 5: topLevelReset and
-   the missing-project path nulled PJ_CURRENT and left the row lit until
-   the next poll). */
+   painter -- called with an id on open, with null beside each close path
+   that repaints nothing synchronously (the task-view fallback, the
+   missing-project path, the Back button, and the projects tab re-click
+   next to its DOM-free topLevelReset). The two delete/archive paths need
+   no call: they await loadProjects(), whose repaint writes .open from the
+   already-nulled PJ_CURRENT. */
 function pjMarkOpen(id) {
   document.querySelectorAll('#pj-list .pj-row').forEach((r) => r.classList.toggle('open', r.dataset.project === id));
 }
