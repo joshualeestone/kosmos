@@ -719,7 +719,26 @@ uninstall() {
   # not match their glob. Left behind, it is a launchd entry that runs a
   # deleted `kosmos` at every login forever — an orphan with a new cause, and
   # invisible to a person who believes they uninstalled the product.
+  # ⚠️ SAME DERIVATION AS THE INSTALL PATH (#883), NOT THE BARE LABEL, or an
+  # uninstall of a non-default KOSMOS_HOME install would look for
+  # `com.kosmos.board.plist`, never find the suffixed file the install path
+  # actually wrote, and leave it registered forever -- precisely the orphan
+  # this whole block exists to prevent, just for the label instead of the
+  # file. `_kosmos_home_default` matches the install path's own definition
+  # exactly (both compare against the real, unsandboxed default), including
+  # the SAME slash-normalization $KOSMOS_HOME itself already went through a
+  # few lines up: a raw, un-normalized $HOME/.local/share/kosmos would not
+  # string-equal a normalized $KOSMOS_HOME on a $HOME carrying a trailing or
+  # doubled slash, which this file's own header already measured once
+  # ("a trailing slash on $HOME made every ownership and board proof in
+  # this file use //-flavored paths") -- the exact bug class, just for this
+  # new comparison instead of the ones that comment already fixed.
+  _kosmos_home_default="$(printf '%s' "$HOME/.local/share/kosmos" | /usr/bin/tr -s '/')"
+  _kosmos_home_default="${_kosmos_home_default%/}"
   _board_label=com.kosmos.board
+  if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
+    _board_label="com.kosmos.board.$(printf '%s' "$KOSMOS_HOME" | shasum -a 256 | cut -c1-8)"
+  fi
   _board_plist="${AGENT_WORKFORCE_LAUNCH:-$HOME/Library/LaunchAgents}/$_board_label.plist"
   if [ -f "$_board_plist" ]; then
     info "removing the login job for the board"
@@ -2291,6 +2310,59 @@ else
 fi
 
 # ---- start ------------------------------------------------------------------
+# 🔑 DERIVED HERE, BEFORE THE BOARD FIRST STARTS, NOT JUST WRITTEN INTO THE
+# LOGIN-JOB PLIST BELOW (#883). `kosmos start` on the next line is a plain
+# child of THIS shell -- it inherits whatever is `export`ed right here, not
+# what a launchd job's EnvironmentVariables carries (that only applies to a
+# FUTURE reboot or self-update run). Deriving these only at the "Keeping
+# Kosmos running" step further down left THIS SAME session's board starting
+# with the caller's original (still machine-global) environment -- and once
+# `engine/create.js`'s own #634 guard existed to catch a half-sandboxed
+# mix (AGENT_WORKFORCE_LAUNCH set, the other three not), that combination is
+# exactly what a naive install-time-only derivation produces when
+# AGENT_WORKFORCE_LAUNCH happens to be set for file-write safety but the
+# store/projects/workers roots are not yet derived -- the board refused to
+# start at all. Measured while testing this fix, not assumed.
+# Same non-default-KOSMOS_HOME gate as the label below; an explicit override
+# from the caller always wins, matching every other ${VAR:-default} in this
+# file. `_kosmos_home_default` is computed once here and reused at "Keeping
+# Kosmos running" so the two steps can never disagree about which case they
+# are in. Slash-normalized the SAME WAY $KOSMOS_HOME itself already was a
+# few lines up top, or a $HOME carrying a trailing/doubled slash would make
+# a genuinely-default install compare as non-default -- the exact bug this
+# file's own header already measured once for a different comparison.
+_kosmos_home_default="$(printf '%s' "$HOME/.local/share/kosmos" | /usr/bin/tr -s '/')"
+_kosmos_home_default="${_kosmos_home_default%/}"
+if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
+  [ -n "${AGENT_WORKFORCE_DATA:-}" ] || export AGENT_WORKFORCE_DATA="$KOSMOS_HOME/data"
+  [ -n "${AGENT_WORKFORCE_PROJECTS:-}" ] || export AGENT_WORKFORCE_PROJECTS="$KOSMOS_HOME/projects"
+  [ -n "${AGENT_WORKFORCE_WORKERS:-}" ] || export AGENT_WORKFORCE_WORKERS="$KOSMOS_HOME/workers"
+  # 🛑 WITHOUT THIS, THE BOARD REFUSES TO START AT ALL (#883, caught in
+  # challenge-loop, not assumed). `engine/sandbox.js`'s `audit()` (#634) is
+  # symmetric: ANY of {DATA, PROJECTS, WORKERS, LAUNCH} sandboxed while ANY
+  # stays live -- in EITHER direction -- is "half-sandboxed" and refused.
+  # This card deliberately does not touch AGENT_WORKFORCE_LAUNCH (moving
+  # agent-job plists off the one directory macOS actually auto-scans at
+  # login is a real, separate change, see the plan's "deliberately not
+  # touched" section) or tmux (Pete's walk needs a genuinely working board,
+  # so making tmux inert would defeat the point). So the three lines above,
+  # by themselves, derive exactly 3 of the 4 knobs #634 checks, leaving
+  # AGENT_WORKFORCE_LAUNCH and tmux live -- which #634 was built to refuse.
+  # `AGENT_WORKFORCE_HALF_SANDBOX_OK=1` is that file's own named escape
+  # hatch, "for the person who has read this and means it" -- and a
+  # non-default KOSMOS_HOME choosing to derive these three IS exactly that
+  # person, deliberately, not by accident. This does not reopen #634's
+  # original incident: that incident was AGENT_WORKFORCE_WORKERS staying
+  # live while DATA/PROJECTS were sandboxed, which corrupted real agents'
+  # CLAUDE.md files over real tmux sends -- WORKERS is one of the three
+  # derived here, so that exact exposure stays closed. What remains open
+  # (an agent job or tmux session created under this KOSMOS_HOME could
+  # collide by NAME with a real one) is the same class of gap #910 and the
+  # deferred agent-job-label work already name, not something this line
+  # newly creates. An explicit caller override still wins, same as the
+  # three lines above.
+  [ -n "${AGENT_WORKFORCE_HALF_SANDBOX_OK:-}" ] || export AGENT_WORKFORCE_HALF_SANDBOX_OK=1
+fi
 step "Starting Kosmos."
 KOSMOS_SAY_INDENT="     " "$KOSMOS_HOME/bin/kosmos" start || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
 ok
@@ -2323,12 +2395,95 @@ ok
 # want and it needs `kosmos` to grow a foreground mode; it is not this change.
 step "Keeping Kosmos running after a restart."
 _launch_dir="${AGENT_WORKFORCE_LAUNCH:-$HOME/Library/LaunchAgents}"
+# ⚠️ THE LABEL IS UNIQUE ONLY WHEN KOSMOS_HOME IS NOT THE REAL DEFAULT (#883).
+# A default install's label MUST stay the literal `com.kosmos.board` --
+# EVERY existing real user's board is already registered under that exact
+# string, and this same script runs again on every self-update
+# (engine/update.js spawns the installer), so relabeling a default install
+# would orphan every real user's login job on their next reboot. That is a
+# strictly worse regression than the collision this guards against. Pinned
+# by a dedicated test that the default-KOSMOS_HOME plist is byte-identical
+# to before this change.
+# A sandboxed/walk install (KOSMOS_HOME pointed at a scratch dir) is where
+# the collision actually happened: Pete's release-walk convention sets only
+# KOSMOS_HOME + KOSMOS_HOME_APP_DIR + KOSMOS_PORT, never AGENT_WORKFORCE_LAUNCH,
+# so its plist file lands in the SAME real ~/Library/LaunchAgents as any real
+# install -- and with the same fixed label, launchd's registry treats the
+# second install's job as the first one, silently overwriting the file a
+# real, hand-registered board depended on (observed live, 0.5.30/0.5.31
+# walks). The suffix is a short hash of KOSMOS_HOME, not a counter or a
+# timestamp, so the SAME sandboxed install re-run (a walk's own update tick)
+# derives the SAME label every time -- required for the "already-loaded job
+# is left alone" idempotency check a few lines below to keep meaning that,
+# rather than accumulating a fresh orphaned label on every re-run.
 _board_label=com.kosmos.board
+if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
+  _board_label="com.kosmos.board.$(printf '%s' "$KOSMOS_HOME" | shasum -a 256 | cut -c1-8)"
+fi
 _board_plist="$_launch_dir/$_board_label.plist"
 # Paths are user-controlled (KOSMOS_HOME is overridable) and this is XML, so
 # they are escaped rather than trusted to be boring. Five characters, in the
 # order that keeps `&` from eating the escapes it introduces.
 _xmlq() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'; }
+# ⚠️ THE STORE, PROJECTS FOLDER, AND WORKERS FOLDER ARE NOT SANDBOXED EITHER
+# (#883, escalated by Josh past the label alone: a sandboxed board and the
+# real board on one machine share ONE store -- projects.json records,
+# avatars, chats, selfreports, all real data a real user meets). Persisted
+# here into the login job so a FUTURE reboot or self-update (engine/
+# update.js re-runs this exact script) carries the same roots the "Starting
+# Kosmos" step above already exported for THIS session -- a launchd job
+# inherits only what EnvironmentVariables carries, nothing from the shell
+# that wrote it. engine/create.js, engine/projects.js, and engine/store.js
+# already read AGENT_WORKFORCE_WORKERS / _PROJECTS / _DATA correctly when
+# present (confirmed by reading each).
+# Emitted whenever KOSMOS_HOME is non-default: by this point in the script
+# the three vars are ALREADY resolved one way or another (either the
+# caller's own explicit override, or the derivation above) -- there is
+# nothing left to conditionally check here. A default install gets none of
+# these three keys at all, not merely empty ones -- same byte-identical
+# invariant as the label above.
+_env_kv() { # $1 = key name, $2 = value (already the final, unescaped path)
+  printf '    <key>%s</key><string>%s</string>\n' "$1" "$(_xmlq "$2")"
+}
+# ⚠️ ONE PRE-BUILT BLOCK, NOT THREE SEPARATE LINES, so a default install's
+# plist carries ZERO added bytes -- three individually-empty variables would
+# each still leave their own blank/whitespace line in the heredoc, breaking
+# the byte-identical invariant above for every real install even when none
+# of the three keys apply. Empty string here means "nothing inserted here
+# at all", not "three blank lines".
+_extra_env_kv=""
+if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
+  # ⚠️ FOUR KEYS, NOT THREE. `AGENT_WORKFORCE_HALF_SANDBOX_OK` (#883,
+  # challenge-loop iteration 4, caught by a direct reproduction, not a
+  # reading) is exported into THIS session above, before "Starting
+  # Kosmos.", so the immediate same-session start clears #634's guard --
+  # but that export dies with this script's process. The launchd job
+  # written below inherits ONLY what its own EnvironmentVariables dict
+  # carries; at the NEXT login or self-update, `kosmos start` runs as a
+  # fresh process whose entire environment IS that dict, nothing more. The
+  # first version of this fix persisted DATA/PROJECTS/WORKERS there but
+  # not the override that makes them safe together -- so a real Pete-
+  # convention board would start fine today and refuse to start half-
+  # sandboxed at the very next reboot, the identical #634 refusal this
+  # whole fix exists to clear, just deferred. Reproduced directly: invoked
+  # `bin/kosmos start` with ONLY the plist's own EnvironmentVariables (no
+  # override key) and watched it die with exactly that sentence.
+  # ⚠️ ALL FOUR CAPTURED IN ONE COMMAND SUBSTITUTION, WITH A SENTINEL, so
+  # the newline AFTER THE LAST line survives. Command substitution strips
+  # EVERY trailing newline from what it captures -- calling `_env_kv`
+  # four times as four SEPARATE $(...) each loses its own trailing \n
+  # before the strings are even concatenated (every key/string pair lands
+  # on one physical line, valid XML but not the one-key-per-line shape
+  # every other entry in this dict has), and even one outer $(...) around
+  # all four would still strip the LAST \n, running the HALF_SANDBOX_OK
+  # line straight into the "  </dict>" this variable sits beside in the
+  # heredoc below. Appending a literal `X` after the real content,
+  # capturing THAT, then stripping the `X` with `${var%X}` is the standard
+  # portable way to keep a command substitution's trailing newlines: the
+  # `X` is not a newline, so nothing gets stripped until `%X` removes it.
+  _extra_env_kv="$( { _env_kv AGENT_WORKFORCE_DATA "$AGENT_WORKFORCE_DATA"; _env_kv AGENT_WORKFORCE_PROJECTS "$AGENT_WORKFORCE_PROJECTS"; _env_kv AGENT_WORKFORCE_WORKERS "$AGENT_WORKFORCE_WORKERS"; _env_kv AGENT_WORKFORCE_HALF_SANDBOX_OK "$AGENT_WORKFORCE_HALF_SANDBOX_OK"; printf 'X'; } )"
+  _extra_env_kv="${_extra_env_kv%X}"
+fi
 _board_ok=no
 # 🛑 THIS HEREDOC IS UNQUOTED, so every $(...) and every backtick in its body
 # RUNS while the plist is written. That is REQUIRED for the $(_xmlq ...) escaping
@@ -2336,7 +2491,13 @@ _board_ok=no
 # containing `kosmos start` literally RAN kosmos start on every update (mid-swap,
 # with kosmos on PATH) and "kosmos: command not found" on a fresh Mac (#666/#667).
 # RULE: nothing in this heredoc body may use a backtick or a bare $word; the only
-# expansions allowed are the intended $(_xmlq ...) and $_board_label. Guarded by
+# expansions allowed are the intended $(_xmlq ...), $_board_label, and the
+# pre-built $_extra_env_kv block -- already fully XML-escaped by _env_kv above
+# (which itself only ever calls _xmlq, never prints anything raw), so a bare
+# reference to it here is exactly as safe as $(_xmlq ...) inline, just built
+# ahead of time because a heredoc alone cannot conditionally omit a whole line
+# the way an empty _extra_env_kv can (a default install must add zero bytes,
+# not blank lines, #883). Guarded by
 # tools/test-plist-heredoc-clean.sh.
 if mkdir -p "$_launch_dir" 2>/dev/null && cat > "$_board_plist.new" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -2356,7 +2517,7 @@ if mkdir -p "$_launch_dir" 2>/dev/null && cat > "$_board_plist.new" <<PLIST
     <key>PATH</key><string>$(_xmlq "$KOSMOS_HOME/tmux/bin"):/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>LANG</key><string>en_US.UTF-8</string>
     <key>KOSMOS_PORT</key><string>$(_xmlq "$PORT")</string>
-  </dict>
+$_extra_env_kv  </dict>
   <!-- Whose background item this is, so macOS files it under Kosmos in Login
        Items rather than as an anonymous entry the person cannot place. Same
        identifier the agents' jobs carry. -->

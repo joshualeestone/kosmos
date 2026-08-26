@@ -38,6 +38,19 @@ test('all four directories with tmux still real is refused: the tmux leg has no 
 test('the override is a sentence in the environment, and it works', () => {
   assert.equal(audit(clean({ AGENT_WORKFORCE_DATA: sb, AGENT_WORKFORCE_HALF_SANDBOX_OK: '1' })).partial, false);
 });
+test('#883: a non-default KOSMOS_HOME derives DATA/PROJECTS/WORKERS but deliberately leaves LAUNCH and tmux real, and sets the override', () => {
+  // install/setup.sh's own shape for this exact case (found in #883's own
+  // challenge-loop: without AGENT_WORKFORCE_HALF_SANDBOX_OK, this env is
+  // "the incident shape" above with a third leg sandboxed too -- refused,
+  // and Pete's real release-walk convention (KOSMOS_HOME + _APP_DIR + PORT,
+  // nothing else) never sets AGENT_WORKFORCE_LAUNCH or a tmux-inert flag,
+  // so it would hit this exact refusal on every walk without the override).
+  const a = audit(clean({
+    AGENT_WORKFORCE_DATA: sb, AGENT_WORKFORCE_PROJECTS: sb, AGENT_WORKFORCE_WORKERS: sb,
+    AGENT_WORKFORCE_HALF_SANDBOX_OK: '1',
+  }));
+  assert.equal(a.partial, false, 'the derived shape must not refuse to start');
+});
 test('server.js as a program refuses a half-sandboxed environment with exit 2 and the sentence, before listening', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-half-'));
   const env = {};
