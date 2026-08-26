@@ -334,6 +334,23 @@ test('the projects rail header pins over its scrolling list, like the agents hea
     'the projects header scrolls away with a long list while the agents header stays -- the two rails answer the same gesture differently');
 });
 
+test('the right-column cards stretch into their tracks, or they overlap each other on a small laptop', () => {
+  /* 🛑 MEASURED, NOT REASONED. With `align-self: start` a card is sized by its
+     own content under the 38vh cap, never by its track. The two `minmax(0,auto)`
+     tracks have a base size of 0, so under pressure grid splits the leftover
+     equally and they land below their content; the track shrinks faster than the
+     cap, and past roughly 770px of viewport the cards overflow their areas. They
+     are opaque and paint in DOM order, so Tasks covered the top of Files and
+     Files covered the top of Members -- the sticky Files label and the
+     + Add member control disappeared under an opaque card.
+     ⚠️ The body's overflow-y escape hatch cannot catch this: the tracks SHRINK,
+     so the grid never exceeds the viewport and no page scrollbar ever appears.
+     Headless at 1280 wide, 14 rows per card: `start` overlapped by 8px at 720
+     and 22px at 600; `stretch` overlapped at none of 900/720/600. */
+  assert.match(PAGE, new RegExp(cons + ' \\.pj3 > \\.pjsplit > \\.pjcard, ' + cons + ' \\.pj3 > aside\\.pjcol:not\\(\\.pjsplit\\) \\{ min-height: 0; align-self: stretch; \\}'),
+    'the right-column cards no longer stretch into their tracks: below ~770px they overflow and cover each other, and the page-scroll safety valve cannot fire because the tracks shrink rather than grow');
+});
+
 test('the two auto-row cards carry viewport caps a tall list cannot game', () => {
   // Measured in review: with 30 rows in Tasks and Files, %-caps against
   // content-sized tracks let both grow ~460px and push Members off-screen.

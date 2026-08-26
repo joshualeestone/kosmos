@@ -2441,7 +2441,26 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      the right column's flexing one; each card scrolls inside itself, so
      tall content bounds instead of growing the page. */
   html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(168px, 1fr); height: 100%; min-height: 0; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { min-height: 0; align-self: start; }
+  /* 🛑 `stretch`, NOT `start`, AND THIS ONE OVERLAPPED CARDS ON A SMALL LAPTOP.
+     With `start` a card is never sized to its track: its height is its own
+     content clamped by the 38vh cap. But the two `minmax(0, auto)` tracks have a
+     base size of 0, so when space is tight grid splits the leftover EQUALLY and
+     they land below their content. The track shrinks faster than the cap does,
+     the two cross at about 770px of viewport, and past that the cards overflow
+     their areas. `.pjcard`/`.pjcol` are opaque and paint in DOM order, so Tasks
+     covered the top of Files and Files covered the top of Members -- the sticky
+     Files label and the + Add member control went UNDER an opaque card.
+     ⚠️ AND THE BODY'S ESCAPE HATCH CANNOT SAVE IT: because the tracks shrink
+     rather than grow, the grid never exceeds the viewport, so no page scrollbar
+     appears and `overflow-y: auto` never fires. A safety valve that cannot be
+     reached by a failure is not a safety valve for that failure.
+     ✅ MEASURED, headless at 1280 wide with 14 rows in each card, before and
+     after: `start` overlapped by 8px at 720px and 22px at 600px; `stretch`
+     overlaps at no height tested (900/720/600). The probe was controlled with a
+     planted overlap first, so a clean result means clean rather than blind.
+     `stretch` makes each card compress into its track and scroll inside, which
+     both already support. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { min-height: 0; align-self: stretch; }
   /* ⚠️ THE SCROLLER IS THE LIST, NOT THE CARD, on Tasks and Members
      (challenge-loop iteration 6): both cards are grids (piece ten below)
      whose head sits in grid row 1, and a sticky grid item cannot travel
