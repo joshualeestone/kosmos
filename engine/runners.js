@@ -109,7 +109,7 @@ const MANIFEST = Object.assign(Object.create(null), {
      * So this kind does not install anything itself, and on this branch it
      * does not download either: it LINKS a Claude Code that is already on
      * the Mac, and refuses in words when there is none. The download half
-     * is #996, where connect.js's verified download+install is extracted
+     * is #997, where connect.js's verified download+install is extracted
      * into one function both callers share. Reassembling it here is what
      * the second wrong version did; see installVendor().
      *
@@ -252,7 +252,7 @@ function resolveBin(provider, opts) {
  * Job shape, readable at any moment via status():
  *   tarball kind:         phase 'downloading'|'verifying'|'unpacking'
  *   vendor-verified kind: phase 'linking'   (the only fetching phase it
- *                         has until #996 gives it a real install)
+ *                         has until #997 gives it a real install)
  *   both kinds:           -> 'proving' -> 'installed'|'failed'
  *   { phase, receivedBytes, totalBytes (real numbers for the tarball kind;
  *     null for vendor-verified, which moves no bytes -- a link is not a
@@ -281,7 +281,7 @@ function status() {
     out[provider] = {
       name: m.name,
       // The screens branch on this: a tarball gets a real byte progress bar,
-      // a vendor-verified kind gets no bar at all, because until #996 its
+      // a vendor-verified kind gets no bar at all, because until #997 its
       // only fetching phase is `linking` and a link moves no bytes. Stated
       // rather than left to be inferred from nulls.
       kind: m.kind || 'tarball',
@@ -691,7 +691,7 @@ function installVendor(provider, m, o, existing) {
     return null;
   });
   // `linking` from the start, and for this kind that is the ONLY fetching
-  // phase there is until #996 lands. Byte counts are null and stay null:
+  // phase there is until #997 lands. Byte counts are null and stay null:
   // a link moves no bytes, and inventing a count would be the same lie the
   // tarball kind's real numbers exist to avoid.
   const job = { phase: 'linking', receivedBytes: null, totalBytes: null, version: null, linked: null };
@@ -738,7 +738,7 @@ function installVendor(provider, m, o, existing) {
       } else {
         /**
          * 🛑 THE DOWNLOAD-AND-INSTALL BRANCH IS DELIBERATELY NOT HERE, and
-         * this refusal is the honest placeholder for it (#996).
+         * this refusal is the honest placeholder for it (#997).
          *
          * Two earlier versions of it lived here and both were wrong in the
          * same way, one level apart. The first curl-and-shelled the vendor's
@@ -765,7 +765,7 @@ function installVendor(provider, m, o, existing) {
          * both callers use it -- which means extracting that block out of
          * `runFlow`, where it is currently woven into the sign-in state
          * machine. That is a real change to the most delicate shipped path in
-         * Kosmos and it gets its own branch and its own review (#996), rather
+         * Kosmos and it gets its own branch and its own review (#997), rather
          * than riding along with a consolidation.
          *
          * ⚠️ SO WHAT THIS KIND CAN DO TODAY IS LINK, NOT INSTALL, and the

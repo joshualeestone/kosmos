@@ -449,7 +449,7 @@ test('#979: with no claude anywhere, the install REFUSES in words and never clai
 });
 
 test('#979: the refusal path spawns NOTHING -- no fetch, no child, no shell', async () => {
-  /* The guard against #996 being half-reintroduced by accident. Two earlier
+  /* The guard against #997 being half-reintroduced by accident. Two earlier
      versions of this branch reached the network here: one curl|sh, one a
      borrowed download that shared a directory with the sign-in flow. If a
      future edit puts either back without the shared-install work, this test
