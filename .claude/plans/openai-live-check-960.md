@@ -87,6 +87,25 @@ connection object, so one badge vocabulary keeps one meaning across providers."
 - `codex login status` itself is untouched; it remains a purely local presence check and is
   not this fix's mechanism.
 
+## Deferred, surfaced by challenge-loop, not code defects
+
+- **Whether `invalid_api_key` is the only OpenAI error code that should confirm a dead key.**
+  A fresh review raised the possibility that other conditions (an expired key, an account
+  suspension) might also permanently kill a credential while answering 401/403 with a
+  different or absent error code -- which this fix would currently read as UNKNOWN rather
+  than NONE. Could not be verified against the live API from this machine (no suspended/
+  deactivated account to test against), so nothing was guessed at. Explicitly the SAFE
+  direction per this module's own asymmetry rule: the cost, if real, is a truly-dead key
+  staying "we could not check" instead of a clear "not connected" -- a UX gap, not a false
+  Connected badge. Worth a follow-up issue with a real test case if it turns out to matter in
+  practice, not a blocker here.
+- **`askModels()`'s real production fetcher path (the actual `fetch`/`AbortController`/8s
+  timeout branch, not the `setFetcher()` test seam) has no direct test.** Every test in this
+  branch installs a fake fetcher. Confirmed this is not a new gap: `engine/tokendoor.js`, the
+  established sibling module this pattern was copied from, has the identical shape (its own
+  real fetcher branch is also never directly exercised by `engine/tokendoors.test.js`). Left
+  consistent with that existing convention rather than fixed in isolation.
+
 ## Test plan
 
 - `engine/openaiaccounts.test.js` (new or extended, matching `engine/subscription.test.js`'s
