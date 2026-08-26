@@ -2552,19 +2552,24 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 3; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit { display: contents; }
   /* #980 (Josh, 2026-08-26 08:31): Files ABOVE Project members.
-     🛑 ACCEPTED TRADE, NAMED RATHER THAN LEFT TO BE FOUND: swapping by grid row
-     desynchronises TAB order from VISUAL order in this view. DOM order is
-     Members then Files, so the keyboard runs Members -> Files while the eye
-     reads Files -> Members (WCAG 2.4.3 / 1.3.2). Before this change the two
-     agreed; the mismatch is introduced here.
-     ⚠️ The durable fix is swapping the two children in MARKUP -- `display:
-     contents` makes that free visually -- but that also reorders the TAB view,
-     a screen Josh did not ask about and has not seen. Reordering an unrequested
-     screen inside a styling pass is the worse of the two, so the mismatch is
-     recorded here and carded rather than taken silently.
-     The split's first child is Members, last is Files; rows swap, DOM untouched, tab
-     view untouched -- the third re-ordering of this same shared markup,
-     same display:contents technique as the first two. */
+     ✅ THE ACCEPTED TRADE THAT USED TO BE RECORDED HERE IS PAID OFF (kosmos#1017).
+     #980 achieved this order by swapping GRID ROWS and leaving the DOM alone,
+     which desynchronised tab order from visual order: the keyboard ran Members
+     -> Files while the eye read Files -> Members (WCAG 2.4.3 / 1.3.2). The
+     markup is now Files then Members, so the two agree again.
+     🔑 The reason it was deferred was that a markup swap also reorders the TAB
+     view, which nobody had asked about. Josh's 18:31 ruling ("use your best
+     judgement") settled it: Files first in BOTH views, because two views of one
+     project showing the same panels in opposite orders is itself a defect.
+     ⚠️ THESE TWO ROWS ARE NOW DECLARATIVE, NOT A SWAP. They name the cards, so
+     they say what they mean and stay correct however the children are ordered.
+     Do not reintroduce `:first-child` / `:last-child` here: fifteen rules used
+     to identify these cards by position, which is what made the markup swap
+     dangerous rather than free.
+     📌 Measured rather than reasoned, headless at 1280 wide, in both views:
+     DOM order and visual order both read files-then-members, with a control
+     confirming the consolidated rules were actually active in one run
+     (`gridRow: 2`) and not the other (`auto`). */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members { grid-column: 2; grid-row: 3; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files { grid-column: 2; grid-row: 2; }
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { grid-column: 2; grid-row: 1; }
@@ -7040,7 +7045,43 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          not two headings in one. The aside keeps the layout column; the
          cards carry the chrome. -->
     <aside class="pjcol pjsplit">
-      <div class="pjcard pjcard-members">
+            <!-- 🛑 FILES BEFORE MEMBERS IN THE MARKUP (kosmos#1017), so the order a
+           keyboard user tabs matches the order the eye reads. The #980 restyle
+           put Files above Members by swapping GRID ROWS and leaving the DOM
+           alone, which made a sighted user read Files then Members while a
+           keyboard user tabbed Members then Files -- WCAG 2.4.3 and 1.3.2, and
+           introduced by that branch rather than inherited.
+           🔑 Josh's decision (18:31, "use your best judgement"): Files first in
+           BOTH views. Two views of one project showing the same panels in
+           opposite orders is itself a defect -- switch view and they swap, with
+           nothing explaining why.
+           📌 THIS IS A PURE DOM CHANGE AND MOVES NO PIXELS. It is safe only
+           because the commit before it replaced fifteen `:first-child` /
+           `:last-child` rules with `.pjcard-members` / `.pjcard-files`. Reorder
+           these two while anything still selects them by position and you
+           silently repoint the members scroller onto Files. -->
+<div class="pjcard pjcard-files">
+        <!-- 🛑 "Project documents" WAS THE ONLY THING ON THIS SECTION THAT
+             LIED. Every sentence under it is already honest that it reads the
+             project FOLDER; the heading promised something else. Josh, on what
+             he actually meant: "They are all files in the conversation that I'm
+             referring to" -- and that is a DIFFERENT feature with its own card
+             (the attachment path). Naming this section for what it really shows
+             is what stops it looking like the other one arrived. (#110, heading
+             from Mona Lisa.) -->
+        <h3 class="dlab">Files in this project</h3>
+        <div id="pj-docs" class="pj-docs"></div>
+        <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
+        <!-- ⚠️ "Show them all in Finder", NOT "see all files". Josh asked for a
+             view-all that opens a SCREEN listing everything. That screen is a
+             later slice; this control does something real and says exactly what
+             it does instead of wearing the label of the thing not built yet. -->
+        <!-- The door's label finally matches its handler (#535): it has
+             opened the in-app Documents view since #134 landed, while the
+             words still promised Finder. Finder lives INSIDE that view. -->
+        <button class="linkish" id="pj-docs-all" type="button" hidden>View all</button>
+      </div>
+<div class="pjcard pjcard-members">
       <h3 class="dlab">Project members</h3>
       <div id="pj-one-agents" class="pj-members"></div>
       <!-- ⚠️ The picker hides behind the button, not the other way round: the
@@ -7111,28 +7152,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            time tonight a comment naming its subject broke the check that reads
            for it. -->
       </div>
-      <div class="pjcard pjcard-files">
-        <!-- 🛑 "Project documents" WAS THE ONLY THING ON THIS SECTION THAT
-             LIED. Every sentence under it is already honest that it reads the
-             project FOLDER; the heading promised something else. Josh, on what
-             he actually meant: "They are all files in the conversation that I'm
-             referring to" -- and that is a DIFFERENT feature with its own card
-             (the attachment path). Naming this section for what it really shows
-             is what stops it looking like the other one arrived. (#110, heading
-             from Mona Lisa.) -->
-        <h3 class="dlab">Files in this project</h3>
-        <div id="pj-docs" class="pj-docs"></div>
-        <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
-        <!-- ⚠️ "Show them all in Finder", NOT "see all files". Josh asked for a
-             view-all that opens a SCREEN listing everything. That screen is a
-             later slice; this control does something real and says exactly what
-             it does instead of wearing the label of the thing not built yet. -->
-        <!-- The door's label finally matches its handler (#535): it has
-             opened the in-app Documents view since #134 landed, while the
-             words still promised Finder. Finder lives INSIDE that view. -->
-        <button class="linkish" id="pj-docs-all" type="button" hidden>View all</button>
-      </div>
-    </aside>
+          </aside>
 
     <section class="pjcol pjmid">
       <div class="pjmidhead"><h3 class="dlab">Conversation</h3>
