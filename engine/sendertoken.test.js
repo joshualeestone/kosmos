@@ -97,14 +97,85 @@ test('a revoked token stops resolving, which is how a deleted agent stops being 
   } finally { board.restore(); }
 });
 
-test('minting rotates: a recreated agent does not inherit the old one\'s ability to speak', () => {
+test('#570: two launches of one agent BOTH resolve, and are told apart by instance', () => {
+  /* The point of the change. Under #1000 the second mint invalidated the
+     first, so two live runs were indistinguishable AND one of them silently
+     stopped being able to speak. Both are wrong: two runs is a real situation
+     and the record has to be able to show it. */
+  const board = fleet.install([fleet.agent('twice', { state: 'idle' })]);
+  try {
+    const one = sendertoken.mint('twice');
+    const two = sendertoken.mint('twice');
+    assert.notEqual(one.token, two.token);
+    assert.notEqual(one.instance, two.instance, 'two launches share an instance id');
+
+    const a = sendertoken.resolve(one.token, board.roster);
+    const b = sendertoken.resolve(two.token, board.roster);
+    assert.equal(a.ok, true); assert.equal(b.ok, true);
+    assert.equal(a.card.sessionName, b.card.sessionName, 'they are the same agent');
+    assert.equal(a.instance, one.instance);
+    assert.equal(b.instance, two.instance);
+  } finally { board.restore(); }
+});
+
+test('#570: live() is the detection -- a second run of one agent is VISIBLE, not silent', () => {
+  const board = fleet.install([fleet.agent('doubled', { state: 'idle' })]);
+  try {
+    assert.deepEqual(sendertoken.live('doubled'), [], 'an agent that never launched has no live run');
+    const one = sendertoken.mint('doubled');
+    assert.equal(sendertoken.live('doubled').length, 1);
+    const two = sendertoken.mint('doubled');
+    /* THIS is the line that answers the question four external checks could not
+       on 2026-08-26: is more than one of this agent running right now. */
+    assert.equal(sendertoken.live('doubled').length, 2, 'a second live run did not show');
+
+    sendertoken.retire('doubled', one.instance);
+    assert.deepEqual(sendertoken.live('doubled'), [two.instance], 'retiring one run took the other with it');
+    assert.equal(sendertoken.resolve(one.token, board.roster).ok, false, 'a retired run can still speak');
+    assert.equal(sendertoken.resolve(two.token, board.roster).ok, true, 'the surviving run was silenced');
+  } finally { board.restore(); }
+});
+
+test('#570: revoke carries the guarantee mint used to -- a recreated agent inherits nothing', () => {
+  /* 🛑 THE SEMANTIC THAT MOVED. #1000 relied on mint rotating. Minting now
+     appends, so the creation path MUST revoke. This test is the contract. */
   const board = fleet.install([fleet.agent('recreated', { state: 'idle' })]);
   try {
     const first = sendertoken.mint('recreated');
+    assert.equal(sendertoken.resolve(first.token, board.roster).ok, true);
+    sendertoken.revoke('recreated');
     const second = sendertoken.mint('recreated');
-    assert.notEqual(first.token, second.token);
-    assert.equal(sendertoken.resolve(first.token, board.roster).ok, false);
+    assert.equal(sendertoken.resolve(first.token, board.roster).ok, false, 'the old run kept its voice through a recreate');
     assert.equal(sendertoken.resolve(second.token, board.roster).ok, true);
+  } finally { board.restore(); }
+});
+
+test('#570: a #1000 single-token file still resolves, read as the `legacy` instance', () => {
+  /* Migration is silent and one-way, so an agent holding a token minted before
+     this change does not go mute. `legacy` rather than null, so a reader can
+     see WHAT it is instead of guessing. */
+  const board = fleet.install([fleet.agent('oldshape', { state: 'idle' })]);
+  try {
+    fs.mkdirSync(sendertoken.DIR, { recursive: true });
+    const old = 'e'.repeat(64);
+    fs.writeFileSync(path.join(sendertoken.DIR, 'oldshape.json'),
+      JSON.stringify({ token: old, mintedAt: '2026-08-26T20:00:00.000Z' }), { mode: 0o600 });
+    const who = sendertoken.resolve(old, board.roster);
+    assert.equal(who.ok, true);
+    assert.equal(who.instance, 'legacy');
+    assert.deepEqual(sendertoken.live('oldshape'), ['legacy']);
+  } finally { board.restore(); }
+});
+
+test('#570: the live list is capped, and it is the OLDEST run that is dropped', () => {
+  /* A backstop against an agent restarted in a loop, not a policy. The newest
+     run is the one still speaking, so age is the right thing to drop on. */
+  const board = fleet.install([fleet.agent('loopy', { state: 'idle' })]);
+  try {
+    const first = sendertoken.mint('loopy');
+    for (let i = 0; i < sendertoken.MAX_LIVE; i++) sendertoken.mint('loopy');
+    assert.equal(sendertoken.live('loopy').length, sendertoken.MAX_LIVE);
+    assert.equal(sendertoken.resolve(first.token, board.roster).ok, false, 'the oldest run survived the cap');
   } finally { board.restore(); }
 });
 

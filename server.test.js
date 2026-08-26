@@ -10642,6 +10642,43 @@ test('#570: an agent with NO pane reports using only its launch token, and the b
   }
 });
 
+test('#570: two runs of one agent report, and the record says WHICH RUN said each', async () => {
+  /* The hole #1000 shipped with: one token per agent meant two live runs were
+     one agent to the record, interleaving with nothing marking two actors. On
+     2026-08-26 two claudebot sessions ran on one credential for ten hours and
+     the symptom was a third agent quoting messages the first never sent. */
+  const sendertokenEngine = require('./engine/sendertoken');
+  const selfreportEngine = require('./engine/selfreport');
+  const board = fleet.install([fleet.agent('doubled', { state: 'idle' })]);
+  try {
+    const runA = sendertokenEngine.mint('doubled');
+    const runB = sendertokenEngine.mint('doubled');
+    assert.notEqual(runA.instance, runB.instance);
+
+    const say = (tok, state, text) => req('/api/report', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok },
+      body: JSON.stringify({ state, text }),
+    });
+
+    assert.equal(JSON.parse((await say(runA.token, 'working', 'run A is working')).body).recorded, true);
+    const afterA = selfreportEngine.read('doubled');
+    assert.equal(afterA.instance, runA.instance, 'the record did not say which run reported');
+
+    assert.equal(JSON.parse((await say(runB.token, 'blocked', 'run B is blocked')).body).recorded, true);
+    const afterB = selfreportEngine.read('doubled');
+    assert.equal(afterB.state, 'blocked');
+    assert.equal(afterB.instance, runB.instance,
+      'the second run is indistinguishable from the first, which is the whole defect');
+
+    /* ⭐ AND THE DETECTION ITSELF: the thing four external checks could not
+       answer that afternoon is now one call. */
+    assert.equal(sendertokenEngine.live('doubled').length, 2, 'a second live run is still invisible');
+  } finally {
+    board.restore();
+  }
+});
+
 test('the report route refuses an unknown state word with the closed list, and a caller with no pane with the identity sentence', async () => {
   const messagesEngine = require('./engine/messages');
   const board = fleet.install([fleet.agent('peteworker', { state: 'idle' })]);

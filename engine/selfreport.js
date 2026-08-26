@@ -49,7 +49,7 @@ const TAIL_BYTES = 64 * 1024;
    `because` is a sentence, not a transcript: the words live on this Mac
    (unlike notify.js's payload, which strips them before anything leaves),
    but a report is still a claim about state, not a place to store output. */
-const CAPS = { because: 1000, on: 200, owner: 200, until: 100, project: 120 };
+const CAPS = { because: 1000, on: 200, owner: 200, until: 100, project: 120, instance: 40 };
 
 const NO_READING = {
   NEVER_REPORTED: 'it has never reported',
@@ -96,6 +96,13 @@ function record(sessionName, entry) {
        says. A needs_you that names one lights that project alone; one that
        names none lights no project and is read on the Agents page. */
     project: capped(entry.project, CAPS.project),
+    /* #570: WHICH RUN of this agent said it. Two live runs of one agent used to
+       interleave into this file with nothing marking two actors, so a pair of
+       them disagreeing read as one agent changing its mind. The route fills
+       this from the launch token it resolved; a pane-derived sender has no
+       instance and leaves it null, which is the honest answer rather than a
+       manufactured one. */
+    instance: capped(entry.instance, CAPS.instance),
     at,
   };
   try {
@@ -187,6 +194,9 @@ function read(sessionName) {
     owner: latest.owner || null,
     until: latest.until || null,
     at: latest.at || null,
+    /* Null for a pane-derived report, which is most of them: the pane arm has
+       no notion of a run. Null means "not known", never "only one run". */
+    instance: latest.instance || null,
     project,
     /* Whether the project came from the latest report itself (stated) or from
        an earlier one (inferred: no report attributed THIS reading to it). A tile lit by an inference must
