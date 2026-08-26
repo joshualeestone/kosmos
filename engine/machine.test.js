@@ -247,7 +247,10 @@ test('a binary we cannot LOOK at is unknown, not "not installed"', () => {
     try { fs.statSync(hidden); } catch (err) { code = err.code; }
     if (code === null || code === 'ENOENT') return;   // running as root; nothing to test
 
-    const got = machine.installedCheck({ claudeBin: hidden, tmuxBin: REAL_BIN });
+    // ⚠️ tmuxBin, not claudeBin (#979): Claude Code no longer drives this
+    // row's verdict, so pointing the unreadable path at it would assert
+    // `unknown` on a check that now correctly answers `ok`.
+    const got = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: hidden });
     assert.equal(got.state, 'unknown',
       'a path we could not read was reported as a definite "not installed"');
     assert.match(got.detail, /could not see it|did not work/);
@@ -281,24 +284,58 @@ test('the installed check asks the same question creation asks', () => {
   assert.equal(typeof create.binPaths, 'function');
 });
 
-test('both present is a pass; a missing one names it and says where we looked', () => {
-  const nowhere = '/definitely/not/here/claude';
-
+test('a missing REQUIRED thing names it and says where we looked', () => {
   const good = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: REAL_BIN });
   assert.equal(good.state, 'ok');
 
-  const bad = machine.installedCheck({ claudeBin: nowhere, tmuxBin: REAL_BIN });
+  const bad = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: '/definitely/not/here/tmux' });
   assert.equal(bad.state, 'attention');
-  assert.match(bad.title, /Claude Code/);
-  assert.match(bad.detail, /\/definitely\/not\/here\/claude/,
+  assert.match(bad.title, /tmux/);
+  assert.match(bad.detail, /\/definitely\/not\/here\/tmux/,
     'told somebody something is missing without saying where it looked, which is the '
     + 'one piece of information that lets anybody fix it');
-  assert.ok(!/tmux/.test(bad.title), 'named a thing that is present as missing');
+  assert.ok(!/Claude/.test(bad.title), 'named a thing that is present as missing');
+});
 
-  const both = machine.installedCheck({ claudeBin: nowhere, tmuxBin: '/nope/tmux' });
-  assert.equal(both.state, 'attention');
-  assert.match(both.detail, /Claude Code/);
-  assert.match(both.detail, /tmux/);
+test('⭐ #979: a Mac with no Claude Code is OK, and its absence is still REPORTED', () => {
+  /* 🛑 THIS ASSERTION IS INVERTED FROM WHAT THIS FILE USED TO SAY. Claude Code
+     sat beside tmux as a thing the MACHINE needs, whichever provider was
+     chosen, so somebody who picked GPT was told their Mac was missing
+     something it does not need -- on the screen whose job is to say whether
+     they can proceed. They can: an OpenAI agent runs on codex and never
+     touches the Claude binary. Josh, 2026-08-26 10:32.
+
+     ⚠️ AND THE FACT IS NOT DELETED WITH THE REQUIREMENT. The Connect step has
+     to know whether pressing Connect will download anything, so presence is
+     published on `present` and simply stops deciding the verdict. */
+  const got = machine.installedCheck({ claudeBin: '/definitely/not/here/claude', tmuxBin: REAL_BIN });
+  assert.equal(got.state, 'ok', 'a GPT-only Mac is told it is missing something it does not need');
+  assert.doesNotMatch(got.title + ' ' + got.detail, /Claude/,
+    'the row still names Claude Code to somebody who may never want it');
+  assert.equal(got.present['Claude Code'], false, 'the fact went with the requirement');
+  assert.equal(got.present.tmux, true);
+
+  // CONTROL: present is a real reading, not a constant. Same call, real path.
+  const has = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: REAL_BIN });
+  assert.equal(has.present['Claude Code'], true,
+    'present answers false for everything, so the assertion above proves nothing');
+});
+
+test('#979: an unrunnable Claude Code reads absent in `present`, and still does not block', () => {
+  /* Present means RUNNABLE here too, or Connect would skip installing over a
+     directory named claude. The #133 trap, on the informational side. */
+  const fs2 = require('node:fs');
+  const np = require('node:path');
+  const dir = fs2.mkdtempSync(np.join(require('node:os').tmpdir(), 'mach979-'));
+  try {
+    const asDir = np.join(dir, 'claude');
+    fs2.mkdirSync(asDir);
+    const got = machine.installedCheck({ claudeBin: asDir, tmuxBin: REAL_BIN });
+    assert.equal(got.state, 'ok', 'an unrunnable Claude Code blocked a machine that does not need it');
+    assert.equal(got.present['Claude Code'], false, 'a directory named claude read as present');
+  } finally {
+    fs2.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('something at the path is not the same as something we could run', () => {
@@ -316,6 +353,8 @@ test('something at the path is not the same as something we could run', () => {
   try {
     const asDir = nodePath.join(dir, 'claude');
     fs2.mkdirSync(asDir);
+    const asDirTmux = nodePath.join(dir, 'tmuxdir');
+    fs2.mkdirSync(asDirTmux);
     const notExec = nodePath.join(dir, 'tmux');
     fs2.writeFileSync(notExec, '#!/bin/sh\n');
     fs2.chmodSync(notExec, 0o644);
@@ -324,10 +363,18 @@ test('something at the path is not the same as something we could run', () => {
     assert.ok(fs2.existsSync(asDir) && fs2.existsSync(notExec),
       'the fixture no longer contains things that exist but cannot be run');
 
-    const got = machine.installedCheck({ claudeBin: asDir, tmuxBin: notExec });
-    assert.equal(got.state, 'attention',
-      'a directory named claude and a tmux with no execute bit were both reported as installed');
-    assert.match(got.detail, /claude/);
+    /* ⚠️ NARROWED (#979). This used to point claudeBin at the directory and
+       tmuxBin at the non-executable file and assert BOTH were named. Claude
+       Code no longer decides this row, so the both-named half moved to the
+       `present` assertions in the #979 tests above. The original point is
+       untouched and still driven, twice: a thing that EXISTS but cannot RUN
+       is not installed. */
+    let got = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: asDirTmux });
+    assert.equal(got.state, 'attention', 'a directory named tmux was reported as installed');
+    assert.match(got.detail, /tmux/);
+
+    got = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: notExec });
+    assert.equal(got.state, 'attention', 'a tmux with no execute bit was reported as installed');
     assert.match(got.detail, /tmux/);
   } finally {
     fs2.rmSync(dir, { recursive: true, force: true });
@@ -359,14 +406,22 @@ test('a definite finding survives the other probe being unreadable', () => {
     try { fs2.statSync(blocked); } catch (err) { code = err.code; }
     if (code === null || code === 'ENOENT') return;    // root; nothing to test
 
+    /* ⚠️ RE-AIMED (#979), and what it guards is unchanged. The original pairing
+       (Claude absent + tmux unreadable) cannot be built any more: only tmux
+       decides this row, so there is no second required part to be the other
+       half. What is still true and still worth pinning is the sleep-fix
+       sibling this test was written for -- an unreadable REQUIRED probe
+       reports as UNKNOWN rather than as a definite "not installed" -- plus the
+       new half, that an informational part still answers even when the
+       required probe could not be read. */
     const got = machine.installedCheck({ claudeBin: '/definitely/not/here/claude', tmuxBin: blocked });
-    assert.equal(got.state, 'attention',
-      'a definitely-missing Claude was demoted to "we could not check" because the OTHER '
-      + 'probe was unreadable');
-    assert.match(got.detail, /\/definitely\/not\/here\/claude/,
-      'the definite finding was dropped entirely');
-    assert.match(got.detail, /could not check tmux/,
+    assert.equal(got.state, 'unknown',
+      'an unreadable required probe was reported as a definite "not installed"');
+    assert.match(got.detail, /could not check|did not work/,
       'the unreadable half went unmentioned, so the screen looks like a complete answer');
+    assert.equal(got.present.tmux, null, 'we could not look, which is not the same as absent');
+    assert.equal(got.present['Claude Code'], false,
+      'the informational part stopped answering when the required probe could not be read');
   } finally {
     fs2.chmodSync(inner, 0o755);
     fs2.rmSync(dir, { recursive: true, force: true });
@@ -503,8 +558,11 @@ test('four checks come back, and the two kinds of not-ok are counted apart', () 
   const sb2 = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-check2-'));
   const mixed = machine.check({
     pmset: 'nonsense',
-    claudeBin: '/nope/claude',
-    tmuxBin: REAL_BIN,
+    // tmuxBin is the missing one (#979): Claude Code no longer makes this row
+    // attention, so pointing the absent path at it would leave nothing for
+    // the count assertions below to count.
+    claudeBin: REAL_BIN,
+    tmuxBin: '/nope/tmux',
     runner: okRunner,
     // Deliberately EMPTY, so the app-location answer is attention -- and the
     // counts below prove that attention is not added to the rows'. Folding it
@@ -625,15 +683,31 @@ test('every bucket gets said, not just the first one that returns', () => {
    * The two earlier fixes were local; this asserts the structural property, so
    * a fourth bucket added later cannot quietly reintroduce it.
    */
+  /* 🛑 THIS TEST LOST ITS SUBJECT TO #979, AND SAYING SO IS THE POINT.
+     It asserted that TWO required findings (a definitely-absent Claude and a
+     refused tmux path) are BOTH said rather than the first one winning. With
+     Claude Code demoted to informational there is exactly ONE required part,
+     and one part lands in exactly one bucket, so two simultaneous required
+     findings can no longer be constructed at all.
+
+     ⚠️ THE MACHINERY IS KEPT, NOT REMOVED, and that is a deliberate trade: it
+     is correct code that three separate incidents paid for, and a second
+     required part is a plausible future. But it is now UNREACHABLE by test,
+     which is a real cost and is recorded on the plan rather than left for
+     someone to discover as dead code.
+
+     What is still reachable, and still worth pinning, is the half that does
+     not need two parts: a refused path is SAID rather than silently dropped,
+     and the informational part is not named at somebody who never chose it. */
   const quoted = `/opt/home${String.fromCharCode(39)}brew/bin/tmux`;
   const got = machine.installedCheck({ claudeBin: '/definitely/not/here/claude', tmuxBin: quoted });
   assert.equal(got.state, 'attention');
-  assert.match(got.detail, /\/definitely\/not\/here\/claude/,
-    'a definitely-absent Claude went unmentioned because the OTHER path was refused');
   assert.match(got.detail, /home.brew\/bin\/tmux/,
-    'the refused path went unmentioned');
-  assert.match(got.title, /Some of what it needs/,
-    'the heading names one problem when there are two');
+    'the refused path went unmentioned, which is how it went unfixed');
+  assert.doesNotMatch(got.title + ' ' + got.detail, /Claude/,
+    'an absent Claude Code was named to somebody who may only want GPT');
+  assert.equal(got.present['Claude Code'], false,
+    'and the fact is still reported, it just no longer accuses');
 });
 
 test('the app-location check looks in both folders and answers all four states', () => {
