@@ -147,6 +147,7 @@ const limits = require('./engine/limits');
 const engmode = require('./engine/engmode');
 const accounts = require('./engine/accounts');
 const openaiAccounts = require('./engine/openaiaccounts');
+const runners = require('./engine/runners');
 const github = require('./engine/github');
 const vercel = require('./engine/vercel');
 const cloudflare = require('./engine/cloudflare');
@@ -2534,6 +2535,35 @@ const server = http.createServer((req, res) => {
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;
   }
+  /**
+   * The provider runners (#979): what is installed, what is installing,
+   * and the numbers a progress bar needs. The wizard and Settings both
+   * poll this while an install runs -- polling is the board's existing
+   * propagation idiom (the root-cause question of stale screens is #972,
+   * deliberately not answered by a new push mechanism here).
+   */
+  if (pathname === '/api/runners' && (req.method === 'GET' || req.method === 'HEAD')) {
+    // HEAD like the sibling read routes: cheap route-is-there probe.
+    if (req.method === 'HEAD') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(); return; }
+    sendJson(res, 200, { runners: runners.status() });
+    return;
+  }
+  /**
+   * Start (or join) a runner install. Idempotent on purpose: a second
+   * Confirm while a download runs gets the RUNNING job, and Confirm on an
+   * already-present runner answers `installed` without touching the
+   * network. The response is the job's state right now; progress is read
+   * from GET /api/runners.
+   */
+  {
+    const m = pathname.match(/^\/api\/runners\/([a-z]+)\/install$/);
+    if (m && req.method === 'POST') {
+      req.resume(); // no body is expected; drain anything sent so keep-alive survives
+      const job = runners.install(m[1]);
+      sendJson(res, job.phase === 'failed' ? 400 : 200, { job });
+      return;
+    }
+  }
   /* Add an OpenAI account from a pasted key (#540). The key goes to codex's
      own login on stdin and is never echoed, logged, or answered back. */
   if (pathname === '/api/accounts/openai' && req.method === 'POST') {
@@ -2542,10 +2572,36 @@ const server = http.createServer((req, res) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
         if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* ONE resolver (engine/runners.js), not a hardcoded default: this
+           route refusing while create.js would have accepted (or the
+           reverse) is half of how the #979 dead end shipped. When the
+           runner is missing the answer is STRUCTURED -- needsRunner tells
+           the screen to reveal the install step in place, and the error
+           string stays exactly what it was so today's UI keeps working
+           until Mona Lisa's flow binds the richer shape. DELIBERATE
+           ordering change: the runner check now precedes key validation
+           (a bad key with no runner answers needsRunner, not the key
+           nit), matching the approved flow -- install first, then the
+           credential. */
+        const resolved = runners.resolveBin('openai');
+        // The proving window counts as not-ready: the symlink is up while
+        // --version may still fail, and a key pasted in that instant would
+        // reach a never-proven binary and surface a confusing login error
+        // instead of this structured answer.
+        const liveJob = (runners.status().openai || {}).job;
+        const midInstall = liveJob && liveJob.phase !== 'installed' && liveJob.phase !== 'failed';
+        if (!resolved.present || midInstall) {
+          sendJson(res, 400, {
+            error: openaiAccounts.MISSING_RUNNER_SENTENCE,
+            needsRunner: true,
+            provider: 'openai',
+          });
+          return;
+        }
         const out = openaiAccounts.addWithKey({
           key: body.key,
           label: body.label,
-          codexBin: process.env.AGENT_WORKFORCE_CODEX_BIN || '/opt/homebrew/bin/codex',
+          codexBin: resolved.bin,
         });
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
         sendJson(res, 200, { account: out.account });

@@ -158,6 +158,14 @@ function keyProblem(key) {
   return null;
 }
 
+/* ONE copy of the missing-runner sentence (#979): the server's add route
+   pre-checks with the shared resolver and answers this refusal itself
+   (with the structured needsRunner shape around it), and addWithKey keeps
+   its own last-line check for direct callers. Exported so both say the
+   same words forever; the UI displays this sentence verbatim, so one
+   source keeps the on-screen wording identical whichever path refused. */
+const MISSING_RUNNER_SENTENCE = 'we could not find the OpenAI runner on this computer, so there is nothing to sign in to';
+
 /**
  * Add an OpenAI account from an API key, through codex's own login so the
  * file it writes is the file it reads. Returns the new row, never the key.
@@ -166,7 +174,7 @@ function addWithKey({ key, label, codexBin }) {
   const problem = keyProblem(key);
   if (problem) return { ok: false, because: problem };
   const bin = String(codexBin || '');
-  if (!bin || !fs.existsSync(bin)) return { ok: false, because: 'we could not find the OpenAI runner on this computer, so there is nothing to sign in to' };
+  if (!bin || !fs.existsSync(bin)) return { ok: false, because: MISSING_RUNNER_SENTENCE };
   let spot;
   if (label != null && String(label).trim()) {
     const clean = cleanLabel(label);
@@ -356,5 +364,5 @@ async function listLive() {
 
 module.exports = {
   list, identityOf, addWithKey, nextWorkDir, defaultDir, PROVIDER, PROVIDER_NAME, HOME_FOR_TEST: HOME,
-  checkLive, listLive, setFetcher,
+  checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
 };
