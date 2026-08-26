@@ -96,13 +96,29 @@ git diff --stat | tail -1 | sed 's/^/    changed: /'
 _changed_shell="$(git diff --name-only | grep -E '\.sh$|^install/kosmos$' || true)"
 case "$TESTFILE" in
   *.test.js)
-    if [ -n "$_changed_shell" ] && [ "${SHELL_READ_ONLY:-}" != "1" ]; then
-      echo "    🛑 THIS MUTATION CHANGED SHELL, AND $TESTFILE CANNOT EXECUTE IT."
+    # #590: the old rule assumed no JS test ever runs a shell file, and it was
+    # false in the same tree (engine/create.test.js runs bin/agent-supervisor.sh
+    # through runLauncher and asserts on it). A refusal that names the wrong
+    # reason teaches the override as the habit. So the question is asked of
+    # the test file itself: a test that NAMES the changed script is treated as
+    # executing it and the proof runs, stated out loud; a test that does not
+    # name it is refused as before, with the override kept for the read-only
+    # case. Naming is evidence, not proof (a test can mention a script it
+    # never runs), which is why the run says which case it took.
+    _executed=""
+    for _f in $_changed_shell; do
+      if grep -qF -- "$(basename "$_f")" "$TESTFILE" 2>/dev/null; then _executed="$_executed $_f"; fi
+    done
+    if [ -n "$_changed_shell" ] && [ -n "$_executed" ] && [ "${SHELL_READ_ONLY:-}" != "1" ]; then
+      echo "    (shell changed and $TESTFILE names it, so the proof runs:$_executed)"
+    elif [ -n "$_changed_shell" ] && [ "${SHELL_READ_ONLY:-}" != "1" ]; then
+      echo "    🛑 THIS MUTATION CHANGED SHELL, AND $TESTFILE DOES NOT NAME IT, SO IT CANNOT EXECUTE IT."
       echo "$_changed_shell" | sed 's/^/       changed: /'
-      echo "       yarn test never RUNS these files, so if your guard is about what"
-      echo "       the script DOES, a green result here would mean the runner never"
-      echo "       touched the break. Point it at tools/test-install.sh, which really"
-      echo "       installs (minutes, not seconds)."
+      echo "       A JS test that never mentions the script cannot be running it, so if"
+      echo "       your guard is about what the script DOES, a green result here would"
+      echo "       mean the runner never touched the break. Point it at a test that"
+      echo "       runs the script (engine/create.test.js runs the supervisor), or at"
+      echo "       tools/test-install.sh, which really installs (minutes, not seconds)."
       echo
       echo "       If your guard READS the file instead — the port copies, a banned"
       echo "       phrase, an ordering check — that is a legitimate proof and this"
@@ -112,7 +128,7 @@ case "$TESTFILE" in
       echo "    restored"
       exit 1
     fi
-    if [ -n "$_changed_shell" ]; then
+    if [ -n "$_changed_shell" ] && [ "${SHELL_READ_ONLY:-}" = "1" ]; then
       # Stated, so the run's own record says which case it was. A claim made
       # out loud can be wrong and be seen to be wrong; an assumption cannot.
       echo "    (SHELL_READ_ONLY: this test reads the shell file rather than running it)"
