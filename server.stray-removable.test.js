@@ -123,7 +123,7 @@ test('#500: both profile-less strays are visible, with the no-record sentence', 
   const sj = rows.get('strayjob');
   assert.ok(sj, 'the label-namespace stray job is absent: the survey still enumerates from profiles only');
   assert.match(sj.because, /no longer has this agent set up/, sj.because);
-  assert.match(sj.because, /a startup job was found/, sj.because);
+  assert.match(sj.because, /an auto-start file was found/, sj.because);
   assert.doesNotMatch(sj.because, /free the name/, sj.because);
 });
 
