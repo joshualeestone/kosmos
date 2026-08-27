@@ -5,6 +5,17 @@
 # sandbox laid out like the store (bin/ beside secrets/), against a stub
 # tmux that records what new-session was asked for. The engine side is
 # engine/tokendoors.test.js; this is the half nobody sees.
+# 🛑 SANDBOX THE STORE. #1077 made the supervisor MINT a sender token at launch,
+# which turned this from a store-free test into one that writes to the REAL
+# store: running it put four tokens into the live sendertokens directory under
+# this test's own session name, and they looked exactly like somebody else's
+# probe on a sweep.
+# ⇒ it copies the supervisor to a sandbox with no engine sibling, so the mint is skipped TODAY -- sandboxed anyway, because that is luck rather than design.
+# Same rule every store-using test in this repo already follows: sandbox BEFORE
+# anything can resolve the store root.
+AGENT_WORKFORCE_DATA="$(mktemp -d)"; export AGENT_WORKFORCE_DATA
+trap 'rm -rf "$AGENT_WORKFORCE_DATA"' EXIT
+
 set -u
 cd "$(dirname "$0")/.." || exit 1
 FAILS=0
