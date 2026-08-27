@@ -160,6 +160,7 @@ const ping = require('./engine/ping');
 const notify = require('./engine/notify');
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
+const liveness = require('./engine/liveness');
 const connections = require('./engine/connections');
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
@@ -225,6 +226,54 @@ const os = require('node:os');
    characters. ONE derivation, because GET and all three mutations answer the
    same list and two spellings of it would drift. Pass a fresh read() to
    avoid a second disk read when the caller already holds one. */
+
+/**
+ * Who is sending this? One derivation, used by every route that needs it.
+ *
+ * 🛑 THREE EVIDENCE PATHS, IN ORDER, AND THE THIRD IS NEW (#1112).
+ *   1. a token that resolves to a ROSTER CARD  -- an agent that is a live,
+ *      tied, listable tmux pane. Unchanged, and still the strongest.
+ *   2. a token that resolves to a NAME plus a LIVE HEARTBEAT -- an agent with
+ *      no pane at all, which is every agent on a machine without tmux.
+ *   3. no token: the pane, as before.
+ *
+ * ⚠️ PATH 2 IS NOT A RELAXATION OF PATH 1. `resolve` refuses a cardless agent
+ * on purpose, and that refusal still stands on its own evidence. What path 2
+ * adds is DIFFERENT evidence for the same fact: the pane proves an agent is
+ * running BY EXISTING; a heartbeat proves it BY BEATING. Without a beat inside
+ * the window there is no path 2 at all, so nothing here lets a token alone
+ * speak for an agent that is not running.
+ *
+ * 🔑 `alive()` RETURNS null FOR "NO RECORD", AND null IS NOT true. Every Mac
+ * agent has no heartbeat record, so path 2 simply never fires for them and
+ * they keep taking path 1 exactly as before. That is what makes this additive.
+ *
+ * 📌 LIMITATION, STATED RATHER THAN HIDDEN: the token store is keyed by
+ * `store.safeKey(sessionName)`, so a paneless card carries the SAFEKEY'D name,
+ * not the original. For every name that survives safeKey unchanged they are
+ * the same string. A name that does not survive it would key its records under
+ * the safe form -- correct and consistent, but not identical to what a pane
+ * would have reported. Worth fixing by storing the original name at mint time
+ * if it ever matters; it does not yet.
+ */
+function resolveAgentSender(req, body, roster) {
+  const presented = (req && req.headers && req.headers['x-kosmos-agent-token']) || (body && body.token);
+  if (!presented) return messages.resolveSender(body && body.from_pane, roster);
+
+  const carded = sendertoken.resolve(presented, roster);
+  if (carded.ok) return carded;
+
+  const byName = sendertoken.resolveName(presented);
+  if (byName.ok && liveness.alive(byName.key) === true) {
+    return { ok: true, card: { sessionName: byName.key, isNamedOurs: true }, instance: byName.instance || null, paneless: true };
+  }
+  /* The original refusal, verbatim: `resolve` deliberately gives the same
+     sentence for "never issued" and "issued but no card", so that a probe
+     cannot confirm a token was ever real. Substituting a message here would
+     undo that. */
+  return carded;
+}
+
 function policySummaries(r) {
   const got = r || policyEngine.read();
   return got.policies.map((p) => ({
@@ -3547,10 +3596,7 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { recorded: false, because: 'we could not check which agents are running, so we could not tell who this is from' });
           return;
         }
-        const presented = req.headers['x-kosmos-agent-token'] || body.token;
-        const sender = presented
-          ? sendertoken.resolve(presented, roster)
-          : messages.resolveSender(body.from_pane, roster);
+        const sender = resolveAgentSender(req, body, roster);
         if (!sender.ok) { sendJson(res, 200, { recorded: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
@@ -3626,10 +3672,7 @@ const server = http.createServer((req, res) => {
            🛑 AND IT IS ALSO A CONTAINMENT GAP: a pane name is guessable, so
            retiring the fallback on /api/report alone would have left this route
            forging-capable. The pane path has to leave BOTH or neither. */
-        const presented = req.headers['x-kosmos-agent-token'] || body.token;
-        const sender = presented
-          ? sendertoken.resolve(presented, roster)
-          : messages.resolveSender(body.from_pane, roster);
+        const sender = resolveAgentSender(req, body, roster);
         if (!sender.ok) { sendJson(res, 200, { kept: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
