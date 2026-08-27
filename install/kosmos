@@ -680,8 +680,26 @@ cmd_report() {
   esc_until=$(printf '%s' "$until" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   esc_project=$(printf '%s' "$project" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  # ⭐ PRESENT THE LAUNCH TOKEN IF KOSMOS GAVE US ONE (#570 step 1.5).
+  # `bin/agent-supervisor.sh` mints per launch and exports KOSMOS_AGENT_TOKEN
+  # into the pane (#1077); `server.js` accepts it on /api/report and
+  # /api/reply (#1117). NOTHING READ IT BACK OUT. Kosmos minted a credential,
+  # put it in the environment, and no client ever presented it -- so the
+  # token arm has carried zero traffic since it merged, and would have carried
+  # zero after any number of restarts.
+  #
+  # 🛑 ONLY A HEX TOKEN IS SENT. An empty or malformed value is dropped rather
+  # than forwarded: /api/report reads `header || body.token`, so a junk header
+  # would take the token arm and fail there instead of falling through to the
+  # pane, turning a working report into a refused one.
+  _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
   body=$(curl -sS -m 15 -X POST "$URL/api/report" \
     -H 'content-type: application/json' \
+    ${_tok:+-H "x-kosmos-agent-token: $_tok"} \
     --data "{\"state\":\"$esc_state\",\"text\":\"$esc_text\",\"on\":\"$esc_on\",\"owner\":\"$esc_owner\",\"until\":\"$esc_until\",\"project\":\"$esc_project\",\"auto\":$([ "$auto" = 1 ] && printf 'true' || printf 'false'),\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
     say "We could not reach Kosmos to record that. Is it running at $URL?"
     exit 1
