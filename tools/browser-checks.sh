@@ -193,6 +193,53 @@ write_fleet() {
 # __dirname, so the form of the invocation changes nothing it does.)
 # Boot ./server.js sandboxed on $port with the fixture fleet. Echoes nothing;
 # records the pid. Waits until /api/status answers.
+# ⭐ THE FIXTURE FOUR CHECKS WERE BLOCKED ON (#1072). write_fleet seeds TWO
+# running agents and nothing else, which is all most checks need. Four of the
+# ten unwired checks are unwired for want of a richer board, and NONE of them
+# was a product defect -- they were never run because the shared boards cannot
+# show them their subject:
+#   render-org-chart    wants FOUR or more agents (measured: it fails at 3)
+#   render-not-running  wants an agent that EXISTS and is NOT running
+#   render-survival     wants the same
+#   render-list-row     wants BOTH, so it can compare the two row kinds
+# An agent that exists and is not running is a PROFILE with no pane. That is
+# the whole trick, and it is why a roster-only fixture cannot produce one.
+write_fleet_rich() {
+  local sb="$1"
+  # 🛑 THREE RUNNING, AND THE COUNT IS LOAD-BEARING. With the two not-running
+  # agents below this board holds FIVE agents, and render-org-chart asserts the
+  # drawing fills more than a third of its canvas — which is a function of how
+  # many nodes there are. MEASURED across sizes against this exact check:
+  #     3 agents  fail        4 agents  59%  pass
+  #     5 agents  59%  pass   6 agents  53%  FAIL
+  # So it passes in a BAND, not above a floor. Adding an agent here to make
+  # some future check happy will take org-chart red, and it will look like a
+  # layout regression rather than a fixture change.
+  node -e "const f=require('./test-support/fleet');process.stdout.write(['april','mikey','donnie'].map((n)=>f.line({session:n+'-discord'})).join('\n')+'\n')" \
+    > "$sb/panes.txt"
+  # The not-running ones: a profile and a worker dir, and deliberately NO pane.
+  # ⚠️ TWO OF THEM, AND THE NAMES ARE NOT INTERCHANGEABLE. render-not-running
+  # matches /ghosty/ and render-survival matches /brigitte/, each hardcoded in
+  # the check. Seeding only one made render-survival fail IN THE RUNNER after
+  # passing on a board booted by hand — the exact fresh-board-versus-in-sequence
+  # gap this whole card is about, reproduced in the fix for it.
+  mkdir -p "$sb/data/AgentWorkforce/profiles" "$sb/workers/ghosty" "$sb/workers/brigitte"
+  printf '%s\n' '{"role":"Copywriter","displayName":"Ghosty"}' \
+    > "$sb/data/AgentWorkforce/profiles/ghosty.json"
+  printf '%s\n' '{"role":"helper"}' \
+    > "$sb/data/AgentWorkforce/profiles/brigitte.json"
+}
+boot_board_rich() {
+  local sb="$1" port="$2"
+  write_fleet_rich "$sb"
+  AGENT_WORKFORCE_DATA="$sb/data" AGENT_WORKFORCE_WORKERS="$sb/workers" \
+    AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
+    AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
+    AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
+    PORT="$port" node ./server.js > "$sb/server.log" 2>&1 &
+  SERVER_PIDS+=("$!")
+  wait_up "$port" "$sb/server.log"
+}
 boot_board() {
   local sb="$1" port="$2"
   write_fleet "$sb"
@@ -283,15 +330,15 @@ free_port() {
 }
 pick_ports() {
   local picked=() p n
-  while [ "${#picked[@]}" -lt 10 ]; do
+  while [ "${#picked[@]}" -lt 11 ]; do
     p="$(free_port)"
     for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
     [ -n "$p" ] && picked+=("$p")
   done
-  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"
 }
 pick_ports
-log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 (chosen by the OS, #633)"
+log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 (chosen by the OS, #633)"
 
 # --- 1. regress-a-night: a night's releases still COMPOSE --------------------
 # The one check that asserts the whole board still hangs together (three
@@ -520,6 +567,21 @@ fi
 for n in live-connect render-agent-nav render-busy-line render-head-row render-room-scroll render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
+# --- the rich board: four checks that could not be wired for want of a fixture
+# --- (#1072). Each was verified green against this exact shape by hand first;
+# --- what none of them had was a board in the RUNNER that could show them
+# --- their subject. A fresh-board green and an in-sequence green are different
+# --- claims, so these run here, in position, and not on my word.
+sbr="$(new_sandbox)"
+if boot_board_rich "$sbr" "$P11"; then
+  run_one "render-org-chart"   env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-org-chart.js
+  run_one "render-not-running" env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-not-running.js
+  run_one "render-list-row"    env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-list-row.js
+  run_one "render-survival"    env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-survival.js "$sbr/shots-survival"
+else
+  FAILED+=("render-org-chart render-not-running render-list-row render-survival (rich board did not boot)")
+fi
+
 sb3="$(new_sandbox)"
 if boot_thread_server "$sb3" "$P3"; then
   run_one "render-thread" node docs/browser-checks/render-thread.js \
