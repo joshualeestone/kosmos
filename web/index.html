@@ -2930,6 +2930,26 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pjtitle-row .dname { min-width: 0; }
 .pjtitle:not(.is-open) #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pjtitle:not(.is-open) #pj-one-desc { display: none; }
+/* 🛑 THE EXPANDER HAS TO UNDO THE CLAMP, NOT JUST REVEAL THE ELEMENT
+   (Josh, 2026-08-26 19:53). #980 clamped the header description to one
+   ellipsised line and mitigated it with a `title` on hover. That clamp is not
+   scoped to a state, so kosmos#1005's disclosure opened onto the SAME
+   truncated line -- the expander revealed nothing you could not already see.
+   ⚠️ MINE BY OMISSION. I added a control that reveals a thing and never asked
+   what else was already acting on that thing. Hiding it when closed was the
+   half I wrote; un-clamping it when open is the half I did not.
+   📌 Additive rather than editing #980's rule: that selector also serves the
+   collapsed state and other `.pj-desc` elements in the header, and the ID here
+   outranks it (1,2,0 beats 0,5,2) without touching what it does elsewhere.
+   Verified by rendering, not by counting specificity. */
+.pjtitle.is-open #pj-one-desc {
+  white-space: normal; overflow: visible; text-overflow: clip;
+  max-width: var(--k-measure, 68ch);
+}
+/* Josh asked for a bigger arrow: it was inheriting the title's size through a
+   bare glyph and read as a speck beside a 1.375rem heading. */
+.pjdisc { font-size: 1rem; }
+.pjdisc-ar { font-size: 1.05rem; line-height: 1; }
 .pjdisc { flex: 0 0 auto; border: 0; background: none; padding: 2px 2px 2px 0; margin: 0;
   color: var(--k-ink-2); font: inherit; line-height: 1; cursor: pointer; }
 .pjdisc:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; border-radius: 4px; }
