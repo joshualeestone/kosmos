@@ -54,6 +54,20 @@ sec()  { printf '\n=== %s ===\n' "$*"; }
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
+# 🛑 REFUSE A SECOND CONCURRENT PAGE LAYER. The header above blames "a release
+# cut", but re-read what it measured: FOUR CONCURRENT PLAYWRIGHT BOARDS starved
+# the run of CPU. The cut was how a second run came to exist, not the thing that
+# broke it. Measured 2026-08-27 13:17Z: a hand-run `bash tools/browser-checks.sh`
+# had been live 8m29s, there was NO cut, `pgrep release.sh` correctly returned
+# nothing, and the cut guard said clear -- so nothing on this Mac would have
+# stopped a second run from starting. This asks about the thing that breaks.
+# The escape hatch is the one the cut guard already uses, deliberately: an
+# operator who has decided to override does not want to learn a second name.
+. "$REPO/tools/lib/cut-guard.sh"
+if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
+  kosmos_refuse_if_browser_run_live "this page-layer run" || exit 1
+fi
+
 # --- freeze against a concurrent merge (#758) --------------------------------
 # Every check below reads CODE straight from $REPO (boot_board only sandboxes
 # DATA dirs), so a merge landing in a shared, mutable checkout WHILE this runs

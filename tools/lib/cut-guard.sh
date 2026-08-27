@@ -46,3 +46,45 @@ kosmos_refuse_if_cut_live() {
   fi
   return 0
 }
+
+# ⚠️ A SECOND SHAPE OF THE SAME HAZARD, AND THE RULE NAMED THE WRONG ONE.
+# The fleet rule reads "do not run browser checks while a CUT is running",
+# and this file detects a CUT. But what actually cost cut three was not a
+# cut: it was TWO CONCURRENT PLAYWRIGHT RUNS competing for CPU, and the
+# losing run failed six arms with errors that read exactly like missing code.
+# A cut is only the most common way to have a second run. A hand-run page
+# layer -- a pre-verify, someone re-running one check -- is equally fatal and
+# is INVISIBLE to `kosmos_refuse_if_cut_live`, because there is no release.sh
+# in it. Measured 2026-08-27 13:17Z: a peer's `bash tools/browser-checks.sh`
+# had been live for 8m29s, `pgrep release.sh` returned rc=1 CORRECTLY, and
+# the cut guard said clear. Nothing on this Mac would have stopped a second
+# run. So the guard has to ask about the thing that breaks, not its cause.
+# Same posture as above: a probe that cannot answer is a refusal, and the
+# seam exists so this can be shown red and green without a real run.
+kosmos_refuse_if_browser_run_live() {
+  local what="${1:-this run}" probe="${KOSMOS_BC_PROBE:-}" raw out rc self
+  self="${KOSMOS_BC_SELF_PID:-$$}"
+  if [ -n "$probe" ]; then
+    out="$("$probe" 2>/dev/null)"; rc=$?
+  else
+    raw="$(pgrep -fl 'browser-checks\.sh' 2>/dev/null)"; rc=$?
+    out="$(printf '%s\n' "$raw" | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/browser-checks\.sh( |$)' || true)"
+    if [ "$rc" -le 1 ]; then rc=0; [ -n "$out" ] || rc=1; fi
+  fi
+  # ⚠️ SELF-EXCLUSION IS LOAD-BEARING HERE FOR THE SAME REASON IT IS ABOVE:
+  # browser-checks.sh IS a `bash tools/browser-checks.sh`, so wired in without
+  # this the gate refuses EVERY page-layer run on a Mac with no other run --
+  # a total page-layer outage that reads exactly like the guard working.
+  if [ -n "$out" ] && [ -n "$self" ]; then
+    out="$(printf '%s\n' "$out" | grep -v -E "^${self} " || true)"
+  fi
+  if [ "$rc" -ge 2 ]; then
+    echo "could not tell whether another browser run is live (the probe exited $rc); refusing to guess for $what. KOSMOS_HARNESS_IGNORE_CUT=1 runs anyway." >&2
+    return 1
+  fi
+  if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
+    echo "another browser-checks run is already live on this Mac ($(printf '%s\n' "$out" | grep -c . ) live; first: $(printf '%s\n' "$out" | head -1 | cut -c1-80)); two Playwright runs starve each other of CPU and the loser fails with errors that read like missing code, so $what would produce a verdict you cannot trust. Wait for it to finish, or KOSMOS_HARNESS_IGNORE_CUT=1 to run anyway." >&2
+    return 1
+  fi
+  return 0
+}
