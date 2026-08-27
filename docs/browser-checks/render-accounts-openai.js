@@ -20,6 +20,9 @@
  * clicking a paragraph.
  */
 const pw = require('playwright');
+/* #1156: this check POSTs /api/first-run/complete to whatever BASE it is
+   given, so it declines rather than mutating a board that is not a fixture. */
+require('./lib-sandbox-guard.js').requireSandbox('render-accounts-openai.js');
 const BASE = process.argv[2] || 'http://127.0.0.1:4399';
 let failed = 0;
 (async () => {

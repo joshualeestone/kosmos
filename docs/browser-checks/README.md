@@ -208,6 +208,28 @@ and three live typed a test message into two real agents' panes and rewrote thei
 `CLAUDE.md` files; the recipe below used to leave tmux real in exactly that way.
 `AGENT_WORKFORCE_HALF_SANDBOX_OK=1` overrides, for somebody who has read this.
 
+### `lib-sandbox-guard.js` is a library, not a check
+
+It is the only `.js` in here that does not drive a browser. **Five checks take their
+base URL as `argv[2]` and POST to it**, and one of those completes first run. A bare
+invocation fails with `fetch failed`, and the obvious next move is to hand it a board
+that already exists, which is how a command that reads like a test changes a running
+system.
+
+So those five call `requireSandbox()` before their first POST. It refuses unless
+`AGENT_WORKFORCE_DATA` is under a temp root, **exits 2 rather than 1** so a runner can
+tell "declined to run" from "found a defect", and **refuses rather than throwing**:
+an error takes a whole file down, which on the same discriminator once failed 161
+tests while running 137 fewer than the fail-safe version.
+
+**The other five checks self-boot a sandboxed server and are deliberately NOT guarded**,
+because they create their own data root for the child and never set one in their own
+environment. Guarding them would refuse a check that was never dangerous.
+
+The temp-root test mirrors `engine/status.js` and carries its two corrections: `/tmp`
+is not `os.tmpdir()` on macOS, and both sides need resolving because `/var` is a symlink
+to `/private/var`.
+
 ## Running them
 
 ```sh
