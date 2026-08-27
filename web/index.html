@@ -28104,7 +28104,7 @@ function frPaintConnect(st) {
       + '<div class="fr-cdetail">'
       + (phase === 'signin-completing'
         ? 'Checking the connection. This screen will change on its own.'
-        : 'Sign in to Claude there. This screen will notice when it is done.')
+        : 'Sign in to Claude there. This screen will update when it is done.')
       + '</div>' + urlLine;
     frConnPaintUrl(st && st.url);
     frActions(null, { label: 'Cancel', go: frConnCancel });
@@ -28225,8 +28225,8 @@ function frConnPaintUrl(url) {
   if (box.__frUrl === key) return;
   box.__frUrl = key;
   box.innerHTML = key
-    ? '<div class="fr-cdetail">Browser did not open? '
-      + '<a href="' + esc(key) + '" target="_blank" rel="noopener">Use this link to sign in</a>.</div>'
+    ? '<div class="fr-cdetail">Browser did not open?</div>'
+      + '<a class="btn" href="' + esc(key) + '" target="_blank" rel="noopener">Open the sign-in page</a>'
     : '';
 }
 
