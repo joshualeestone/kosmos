@@ -217,13 +217,26 @@ test('a download service answering nonsense is an error, not a hang', async (t) 
   await assert.rejects(() => connect.download(), /did not answer with a version/);
 });
 
-test('a stuck install does not strand the 281MB download in app data', async (t) => {
+test('a stuck install keeps ONE verified download, and never accumulates them', async (t) => {
   /**
-   * ⚠️ The success path deletes the binary after install for exactly this
-   * reason; the FAILURE path forgot to, stranding one file per attempted
-   * version with nothing that would ever clean it. Driven end to end: a real
-   * (fixture) download through the real flow, an install that fails through
-   * the seam, and the downloads dir asked afterwards.
+   * ⚠️ THIS TEST USED TO ASSERT THE OPPOSITE, AND #875 REVERSED THE DECISION IT
+   * GUARDED. It read "a stuck install does not strand the 281MB download",
+   * because the failure path deleted the artifact just as the success path
+   * does. Josh, 2026-08-25: "it downloaded the whole 376MB, then i hit connect
+   * and it started the whole download again."
+   *
+   * 🛑 THE GUARD IS NOT DELETED, BECAUSE ITS CONCERN IS STILL REAL. What
+   * changed is which fact answers it. Its own comment said the stranded file
+   * had "nothing that would ever clean it" -- and that is not so: `download()`
+   * deletes every OTHER version's leftovers on the next attempt. The exposure
+   * was never unbounded accumulation, it was ONE file for the CURRENT version.
+   * The concern was accumulation; the assertion was zero.
+   *
+   * ⇒ It now asserts the BOUND rather than the absence: exactly one artifact
+   * survives, it is byte-identical to what was served (which is what makes
+   * reusing it safe, rather than the stale-binary dead-end this module already
+   * learned about), and a download of a DIFFERENT version clears it. That last
+   * assertion is the one the original test actually wanted.
    */
   connect.resetForTests();
   clearClaudeConfig();
@@ -252,9 +265,29 @@ test('a stuck install does not strand the 281MB download in app data', async (t)
   assert.match(connect.state().because, /did not finish setting itself up/);
 
   const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'downloads');
-  const leftovers = (() => { try { return fs.readdirSync(dir); } catch { return []; } })()
-    .filter((f) => f.includes('9.9.7'));
-  assert.deepEqual(leftovers, [], `the failed install stranded: ${leftovers.join(', ')}`);
+  const listing = () => { try { return fs.readdirSync(dir); } catch { return []; } };
+
+  const kept = listing().filter((f) => f.includes('9.9.7'));
+  assert.equal(kept.length, 1, `expected exactly one kept artifact, saw: ${kept.join(', ') || 'none'}`);
+  // Kept because it is PROVEN, not merely because it is there. An artifact we
+  // cannot verify would be the stale-binary dead-end wearing a new hat.
+  assert.equal(
+    crypto.createHash('sha256').update(fs.readFileSync(nodePath.join(dir, kept[0]))).digest('hex'),
+    checksum, 'the kept artifact is not what was served, so reusing it would be unsafe');
+  // ⭐ THE ORIGINAL CONCERN, ASSERTED DIRECTLY: it must not ACCUMULATE. A
+  // download of a different version clears the old one, so the store holds at
+  // most one whatever happens.
+  const other = crypto.randomBytes(32 * 1024);
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, {
+    version: '9.9.5', binary: other,
+    checksum: crypto.createHash('sha256').update(other).digest('hex'),
+  });
+  await connect.download();
+  const after = listing();
+  assert.deepEqual(after.filter((f) => f.includes('9.9.7')), [],
+    `the previous version's artifact accumulated: ${after.join(', ')}`);
+  assert.equal(after.filter((f) => f.includes('9.9.5')).length, 1,
+    `the store should hold exactly one artifact, saw: ${after.join(', ')}`);
 });
 
 test('cancel mid-download aborts the stream and leaves nothing behind', async (t) => {
