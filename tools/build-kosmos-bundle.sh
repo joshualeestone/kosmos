@@ -415,11 +415,20 @@ _stale_out="$(perl -e 'alarm 20; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-ap
 # It reported EVERY non-zero exit as "the comparison is wrong", which is false
 # for a 20s SIGALRM (142), an exec failure (127), and a missing or
 # non-executable binary. The #1032 gate fifty lines above exists to not do that
-# and says so at length; this one reintroduced the shape it warns about. Same
-# ordering rule too: the timeout arm is tested FIRST, because the selftest
-# prints its rows before it could ever hang, so a later arm would match them.
+# and says so at length; this one reintroduced the shape it warns about.
+# ⚠️ THE ORDER IS MOST-SPECIFIC FIRST, NOT "timeout first". An earlier version of
+# this comment said the timeout arm was tested first; it is the DEFAULT arm and
+# is tested last, and the comment was wrong about the code directly beneath it.
+# The order that matters is that the selftest's own integrity guards are matched
+# BEFORE the product arm, because both of them print a line containing
+# `stale-check:` and would otherwise be reported as a broken product.
 if [ "$_stale_rc" -ne 0 ]; then
   case "$_stale_out" in
+    *"proved nothing"*|*"row is gone"*)
+      # The selftest's OWN integrity guards firing: somebody removed rows, so
+      # it could not judge the comparison. Not a verdict on the product either,
+      # and it was landing in the arm below until this arm existed.
+      printf '%s\n' "the #1042 selftest is no longer testing anything, so it cannot vouch for the comparison:" "$_stale_out" >&2 ;;
     *"stale-check:"*)
       printf '%s\n' "the native app's stale-version comparison is wrong (#1042). Its own rows:" "$_stale_out" >&2 ;;
     *)

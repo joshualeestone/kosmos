@@ -681,7 +681,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        measured as a non-event on the coordinator: same mac id, every paired
        device stays paired, nothing to sign in to again. So it is safe advice,
        which is the only reason it is offered here. */
+    /* 🔑 THE BUTTONS AS DATA, so a gate can read which one holds Return WITHOUT
+       a window server. This file already argues the case at the menu bar: a key
+       equivalent is invisible until somebody presses it, so the check has to be
+       machine-run. The notice's own buttons were the one thing in this change
+       no selftest could reach, because they were built at the use site.
+       ⚠️ Kept PURE deliberately. Constructing an NSAlert here would make the
+       #1042 gate need a window server, and it would then SKIP on a headless
+       build box, which is exactly the property that makes this gate better than
+       its sibling. */
+    static let relaunchButtons: (titles: [String], returnIndex: Int, destructiveIndex: Int) =
+        (["Quit and Open Again", "Not Now"], 1, 0)
+
     private var staleAppNoticeShown = false
+    /// The app-AHEAD-of-board case says nothing to the person, so nothing
+    /// latches -- and the request repeats on every navigation, so without this
+    /// the log line repeated with it, forever, in the app's single diagnostic
+    /// file. Logged once, like the notice.
+    private var loggedVersionMismatch = false
     /// The port the board was resolved to, kept so the #1042 check can ask it
     /// its version after the page loads. Written once, where the install is
     /// resolved; nil until then, and the check simply does not run.
@@ -716,7 +733,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            true for the inputs nobody expects, or it is decoration. */
         let bits = s.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
         guard bits.count == 3 else { return nil }
-        guard bits.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isASCII) && $0.allSatisfy(\.isNumber) }) else { return nil }
+        /* ⚠️ `isNumber` IS THE ONLY CLAUSE THAT DECIDES ANYTHING, and it is here
+           alone for that reason. An earlier version also required non-empty and
+           ASCII. Both were DEAD, proven by mutation: removing either, or both,
+           leaves the selftest fully green, because `omittingEmptySubsequences:
+           false` already turns a dotted edge case into four pieces that the
+           count guard rejects, and Swift's `Int(String)` already accepts ASCII
+           digits only. What `isNumber` catches that `Int` does not is a SIGN:
+           `Int("-1")` and `Int("+5")` both succeed, and `0.5.-1` then answered
+           BEHIND. Guards nothing can detect the removal of are not protection,
+           they are decoration that makes a reader stop looking. */
+        guard bits.allSatisfy({ $0.allSatisfy(\.isNumber) }) else { return nil }
         let nums = bits.compactMap { Int($0) }
         return nums.count == 3 ? nums : nil
     }
@@ -758,6 +785,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                    the app's single diagnostic file: the file every other fault
                    would be read from. */
                 DispatchQueue.main.async {
+                    guard !self.loggedVersionMismatch else { return }
+                    self.loggedVersionMismatch = true
                     logLine("version mismatch, app \(mine) board \(theirs), not the behind case; saying nothing")
                 }
                 return
@@ -787,13 +816,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             + "Kosmos is on \(theirs). Opening it again should catch it up. Your agents keep "
             + "running and nothing needs signing in to again."
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "Quit and Open Again")
-        let notNow = alert.addButton(withTitle: "Not Now")
-        /* 🔑 ENTER LANDS ON THE HARMLESS CHOICE, the same rule showQuitDialog
-           states for itself. This notice arrives UNBIDDEN over whatever the
-           person was doing, so a reflexive Return must not quit their app. */
-        alert.buttons.first?.keyEquivalent = ""
+        let spec = AppDelegate.relaunchButtons
+        let quitAndOpen = alert.addButton(withTitle: spec.titles[0])
+        let notNow = alert.addButton(withTitle: spec.titles[1])
+        /* 🔑 ENTER LANDS ON THE HARMLESS CHOICE. This notice arrives UNBIDDEN
+           over whatever the person was doing, so a reflexive Return must not
+           quit their app. `showQuitDialog` states this rule for itself, though
+           it does not demonstrate it (its only button is the one that quits),
+           so this is the rule applied rather than a pattern copied.
+           ⚠️ THE BUTTONS ARE CAPTURED, NOT LOOKED UP. `alert.buttons.first?`
+           no-ops if the array is ever empty, and the failure mode is BOTH
+           buttons holding Return with the destructive one winning: silent, and
+           in the dangerous direction. */
+        quitAndOpen.keyEquivalent = ""
         notNow.keyEquivalent = "\r"
+        _ = spec.destructiveIndex   // named in the spec so the gate can assert it
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
         /* 🛑 NEVER QUIT UNTIL THE REPLACEMENT IS ACTUALLY COMING. Terminating
@@ -1630,17 +1667,22 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     check("0.5.73-rc1", "0.5.73", nil, "a shape we cannot read is UNKNOWN, never a guess")
     check("nonsense", "0.5.73", nil,  "and so is a value nobody parsed")
     check("0.5.73", "",       nil,   "an empty answer from the board is unknown too")
-    /* ⭐ THE ROWS THE PROMISE WAS FALSE ON. `split` drops empty pieces by
-       default, so every one of these parsed CONFIDENTLY as a version before the
-       fix, and the last answered BEHIND. The doc said "never a guess" and the
-       code guessed; nothing here tested it, which is how a promise becomes
-       decoration. */
+    /* ⭐ THE ROWS THE PROMISE WAS FALSE ON, and stated exactly rather than
+       broadly, because an earlier version of this comment claimed more than was
+       measured. Run against the pre-fix parser:
+         .0.5.73  0..5.73  0.5.73.   parsed as [0,5,73], answering NOT-BEHIND
+         0.5.-1                      parsed as [0,5,-1], answering BEHIND
+         0.+5.9                      parsed as [0,5,9],  answering BEHIND
+         0.5.٧                       ALREADY nil before the fix
+       So five were guesses, two of those were wrong in the dangerous
+       direction, and the last row is a control rather than new coverage: it
+       passes on the old parser too, and it is kept to pin that behaviour. */
     check(".0.5.73", "0.5.73", nil,  "a leading dot is not a version")
     check("0..5.73", "0.5.73", nil,  "nor is an empty middle")
     check("0.5.73.", "0.5.73", nil,  "nor a trailing dot")
     check("0.5.-1",  "0.5.73", nil,  "a NEGATIVE part used to answer behind")
     check("0.+5.9",  "0.5.10", nil,  "and a signed one used to parse")
-    check("0.5.٧",   "0.5.73", nil,  "non-ASCII digits are not our version shape")
+    check("0.5.٧",   "0.5.73", nil,  "CONTROL: already nil before the fix, pinned so it stays nil")
     /* 🛑 A POPULATION FLOOR, because `bad == 0` is ALSO true of zero checks.
        An edit that deletes every row would print "all good" and pass the
        release gate having proved nothing: an instrument for silent failures
@@ -1649,7 +1691,18 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
        ⭐ And the load-bearing row is named, not merely counted: 0.5.9 vs
        0.5.10 is the one the whole file is justified by, so its absence must be
        a failure rather than a smaller number. */
-    if ran < 16 { print("\nstale-check: only \(ran) checks ran, so this proved nothing"); exit(1) }
+    /* The notice's buttons, checked as data. Return must land on the harmless
+       one, and this is the only way to assert that without a window server. */
+    let btn = AppDelegate.relaunchButtons
+    let returnIsHarmless = btn.returnIndex != btn.destructiveIndex
+        && btn.titles.indices.contains(btn.returnIndex)
+        && btn.titles.indices.contains(btn.destructiveIndex)
+    print((returnIsHarmless ? "PASS  " : "FAIL  ")
+          + "Return lands on \"\(btn.titles[btn.returnIndex])\", not \"\(btn.titles[btn.destructiveIndex])\"")
+    if !returnIsHarmless { bad += 1 }
+    ran += 1
+
+    if ran < 17 { print("\nstale-check: only \(ran) checks ran, so this proved nothing"); exit(1) }
     if !sawLexicalRow { print("\nstale-check: the 0.5.9 vs 0.5.10 row is gone, which is the row this file exists for"); exit(1) }
     print(bad == 0 ? "\nstale-check: all good, \(ran) checks" : "\nstale-check: \(bad) FAILED")
     exit(bad == 0 ? 0 : 1)
