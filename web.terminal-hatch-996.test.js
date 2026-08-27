@@ -67,6 +67,15 @@ test('the imperative reaches a reader nowhere on the page', () => {
   /* ⚠️ The disclosures are BUILT as concatenated strings too, so strip that
      shape as well or the connect step's own hatch reads as an offender. */
   text = text.replace(/'<details[\s\S]{0,600}?<\/details>'/g, ' ');
+  /* 🛑 NORMALISE BEFORE MATCHING, OR A TAG OR A LINE WRAP HIDES THE PHRASE.
+     Measured 2026-08-27, both directions, on this file: `open <b>Terminal</b>`
+     and `open\n      Terminal` BOTH slipped past the un-normalised scan --
+     two more false zeros, both failing toward all-clear.
+     ⭐ Ice Cream Kitty found the tag half on a different file entirely: grep is
+     LINE-oriented and blind to markup, so a phrase split by a wrap OR BY A TAG
+     returns zero from a file that contains it. Copy on this page is wrapped at
+     78 columns and freely bolded, so BOTH are ordinary here, not contrived. */
+  text = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
   const hit = text.match(IMPERATIVE);
   assert.equal(hit, null,
