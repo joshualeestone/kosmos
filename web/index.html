@@ -129,6 +129,16 @@
      📌 Dark measured on every dark ground: #ff6b5e is 6.30 card, 6.96 page,
      6.66 side, 4.99 elevated. */
   --danger: #b3261e;
+  /* 🔑 GREEN AS TEXT NEEDS ITS OWN VALUE, and the connected BUTTON does not.
+     The button is white on a #1f7a4d fill, so it carries its own ground and
+     measures 5.32:1 in either theme. Green TEXT sits on whatever is behind it:
+     #1f7a4d is 5.32 on a card and 5.05 on the page, but only 3.31 on the DARK
+     card -- under the 4.5 a text colour needs.
+     ⚠️ SAME TRAP AS `--danger` ONE LINE UP, met twice in one evening: a colour
+     that is correct in one arrangement is not automatically correct in
+     another, and "we already use this green" is not a measurement.
+     Dark #4ade80 is 10.11 on the dark card and 11.16 on the dark page. */
+  --ok: #1f7a4d;
   --k-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --font-ui: -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif;
@@ -213,6 +223,8 @@
     /* kosmos#976: the light red is 2.69:1 here. This one clears 4.5 on every
        dark ground, elevated cards included. */
     --danger: #ff6b5e;
+    /* kosmos#977: the light green is 3.31:1 here. */
+    --ok: #4ade80;
     /* kosmos#1044: on a dark ground the fill is the light thing, so the edge
        goes the other way. `--gold` measures 6.21:1 on a dark card and 7.84:1
        on the dark page; the light value (#8a6614) would be 2.65:1 there. */
@@ -740,6 +752,11 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    it. Same size as .dhint so it does not shout, but in full ink with a red
    marker, because the defect was that it looked like advice. */
 .dwarn { font: var(--text-callout) var(--font-ui); color: var(--k-ink); }
+/* kosmos#977: the connected note wears the same green as the Connect button's
+   connected state, which this file already measured at 5.32:1 for white on
+   #1f7a4d. One vocabulary for one outcome. */
+.acct-ok { color: var(--ok, #1f7a4d); font-weight: 700; margin-right: 6px; }
+.fmsg.is-connected, .dhint.is-connected { color: var(--ok, #1f7a4d); font-weight: 600; }
 .dwarn-m { color: var(--danger, #b3261e); font-weight: 700; margin-right: 6px; }
 /* #727: the provider choice on Accounts; the pressed one reads pressed. */
 .acct-pick .btn[aria-pressed="true"] { background: var(--attn-bg); border-color: var(--border-strong); font-weight: 600; }
@@ -4825,6 +4842,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     /* kosmos#976: the light red is 2.69:1 here. This one clears 4.5 on every
        dark ground, elevated cards included. */
     --danger: #ff6b5e;
+    /* kosmos#977: the light green is 3.31:1 here. */
+    --ok: #4ade80;
     /* kosmos#1044: on a dark ground the fill is the light thing, so the edge
        goes the other way. `--gold` measures 6.21:1 on a dark card and 7.84:1
        on the dark page; the light value (#8a6614) would be 2.65:1 there. */
@@ -11805,7 +11824,13 @@ const ACCT_FLOW_SAY = {
   'installing': 'Getting the sign-in ready…',
   'signin-launching': 'Opening the sign-in in your browser…',
   'signin-browser-open': 'Finish signing in, in the browser window that just opened.',
-  'signin-awaiting-code': 'Enter the code from your email to finish.',
+  /* kosmos#977 (Josh): "Enter the code from your email to finish" sent him
+     looking for an email that never arrives -- Claude does not always send one,
+     and an instruction phrased as a requirement makes its absence read as a
+     failure. Softened to the CONDITIONAL, which is the wording the first-run
+     flow has used all along (grep `If Claude gives you a code`): Settings was
+     the outlier of the two, not the pattern. */
+  'signin-awaiting-code': 'If Claude gives you a code, paste it here. If it does not, the sign-in finishes on its own.',
   'signin-completing': 'Finishing…',
 };
 function acctFlowStop() {
@@ -11832,7 +11857,7 @@ function acctFlowPaint(st) {
     // phase would come from the ENGINE's own path (e.g. a code expiring);
     // honoured the same way if it ever arrives: say it, empty the field.
     if (wantCode && st && st.because) {
-      say.textContent = st.because + ' Enter the code from your email to try again.';
+      say.textContent = st.because + ' If Claude gave you a code, paste it here to try again.';
       document.getElementById('acct-code').value = '';
     }
     codeRow.hidden = !wantCode;
@@ -11845,9 +11870,21 @@ function acctFlowPaint(st) {
   codeRow.hidden = true;
   btn.disabled = false;
   if (phase === 'connected') {
-    note.textContent = 'Connected. The new account is on the list above.';
+    /* kosmos#977: say the STATE, not where to go looking for it. "The new
+       account is on the list above" asks the person to verify the outcome
+       themselves, on the screen that just did the work -- so they sit there
+       wondering whether it worked. "Connected" is the answer.
+       ⚠️ The check is aria-hidden and the word carries the meaning, so a
+       screen reader hears "Connected" once rather than a glyph and a word. */
+    note.innerHTML = '<span class="acct-ok" aria-hidden="true">\u2713</span> Connected';
+    note.classList.add('is-connected');
     paintAccounts();
   } else if (phase === 'stuck' || phase === 'interrupted' || phase === 'failed') {
+    /* ⚠️ EVERY OTHER ARM PUTS THE GREEN BACK. A recheck can move from connected
+       to a failure, and a note left wearing the tick after that is the same
+       defect with the states swapped -- the rule this whole panel is built on
+       is that a state must never render as an answer it no longer holds. */
+    note.classList.remove('is-connected');
     note.textContent = (st && st.because)
       ? pjSentence(st.because) : 'That sign-in did not finish. Nothing changed; you can try again.';
   }
@@ -12006,7 +12043,7 @@ document.getElementById('acct-code-go').addEventListener('click', async () => {
     if (!res.ok) {
       const out = await res.json().catch(() => null);
       say.textContent = ((out && (out.error || out.because)) || 'That code did not work.')
-        + ' Enter the code from your email to try again.';
+        + ' If Claude gave you a code, paste it here to try again.';
       const field = document.getElementById('acct-code');
       field.value = '';
       field.focus();
