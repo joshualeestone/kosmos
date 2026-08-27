@@ -86,11 +86,25 @@ const { chromium } = require('playwright');
      text again here would need a rate-limited agent on the board, and the agent
      COUNT is load-bearing -- org-chart passes in a band and a sixth agent takes
      it red. So the unit test owns the meaning and this owns the appearance.
+     ⚠️ AND MOST OF WHAT IT ASSERTS IS ALREADY GUARANTEED BY CONSTRUCTION, WHICH
+     IS WORTH KNOWING BEFORE ANYONE TRUSTS A GREEN. `.lrow` declares seven
+     explicit tracks, every one of them fixed or `minmax(...)` with a floor, so
+     an empty cell CANNOT collapse its track at this width no matter what it
+     contains. These lines therefore guard the TEMPLATE, not the content: they
+     go red if somebody changes a track to `auto`, and they cannot go red from
+     the emptying itself.
+     🛑 SO THE CASE #986 ACTUALLY CHANGED IS NOT COVERED HERE, AND SAYING SO IS
+     the point of this paragraph. Under 900px `.lrow` collapses to `34px 1fr`
+     and `.lstate`, `.ltask` and `.lmem` stack in column 2 as separate rows. An
+     empty `.ltask` there is an empty ROW, and `row-gap: 8px` is still spent on
+     it. This check runs at 1400x900 and will never see that. It has been true
+     of the not-running row since before #986 and nobody has reported it, which
+     is a reason to keep it in proportion, not a reason to leave it unwritten.
      ⚠️ NOT YET PROVEN TO FAIL. Written during the 2026-08-27 demo freeze, when
      browser checks were not allowed to run. Before trusting a green here, break
-     it on purpose: give `.ltask` `display:none` in the rendered page and confirm
-     these two lines go red. A check whose failing direction has never been seen
-     is a claim, not an instrument. */
+     it on purpose: change a track to `auto` in the rendered page and confirm
+     these lines go red. A check whose failing direction has never been seen is
+     a claim, not an instrument. */
   say(seen.onTaskCell, 'the running row still HAS a task cell', JSON.stringify(seen.onTaskText));
   say(seen.offModel && seen.onModel && seen.offModel.left === seen.onModel.left,
     'the model column lines up, so an empty task cell did not collapse',
