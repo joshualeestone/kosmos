@@ -403,6 +403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let resolved: ResolvedInstall
         do {
             resolved = try resolveInstall(config: config)
+            resolvedPort = resolved.port
         } catch InstallResolutionError.noOwnInstallForOtherUser {
             // Logged before the modal so a test double can observe the
             // refusal without needing to click the dialog it is about to
@@ -661,6 +662,130 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
+
+    // MARK: The app and the board are different processes (kosmos#1042)
+
+    /* 🛑 THERE IS NO SINGLE "VERSION OF KOSMOS", AND THAT IS THE WHOLE CARD.
+       Measured by Ice Cream Kitty on the coordinator, 2026-08-26:
+
+         an update           restarts the BOARD and leaves this app running
+         a quit-and-reopen   restarts this APP and leaves the board running
+
+       Neither half ever restarts the other, so the two can be, and normally
+       are, different versions. Josh spent an hour on it: the page was current,
+       the menu bar was a week old, and every version on screen was the BOARD's,
+       so nothing he could look at would have told him.
+
+       ⚠️ AND IT IS WHY THIS CANNOT SAY "RELOAD". Reloading updates one half.
+       The remedy for a stale app is to quit and open it again, which Kitty also
+       measured as a non-event on the coordinator: same mac id, every paired
+       device stays paired, nothing to sign in to again. So it is safe advice,
+       which is the only reason it is offered here. */
+    private var staleAppNoticeShown = false
+    /// The port the board was resolved to, kept so the #1042 check can ask it
+    /// its version after the page loads. Written once, where the install is
+    /// resolved; nil until then, and the check simply does not run.
+    private var resolvedPort: Int?
+
+    /// This app's own version, from the bundle it was LAUNCHED from.
+    /// ⚠️ Measured, in a real .app, with the plist rewritten underneath a live
+    /// process in both orders: `Bundle.main` reports the code actually running,
+    /// never the newer one the installer wrote to disk. That is what makes the
+    /// comparison below mean anything.
+    private func runningAppVersion() -> String? {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    }
+
+    /// `a.b.c` as integers, or nil when it is not that shape.
+    /// 📌 No semver cleverness: a prerelease suffix or a hand-edited value gives
+    /// nil, and nil means "differ, direction unknown", which shows nothing. An
+    /// invented ordering would produce a confident instruction in the one case
+    /// we cannot read.
+    private static func versionParts(_ s: String) -> [Int]? {
+        let bits = s.split(separator: ".").map(String.init)
+        guard bits.count == 3 else { return nil }
+        let nums = bits.compactMap { Int($0) }
+        return nums.count == 3 ? nums : nil
+    }
+
+    /// The hatch's only door in. `private` otherwise: nothing in the product
+    /// calls this except the check above.
+    static func isBehindForTest(_ mine: String, _ theirs: String) -> Bool? { isBehind(mine, theirs) }
+
+    private static func isBehind(_ mine: String, _ theirs: String) -> Bool? {
+        guard let a = versionParts(mine), let b = versionParts(theirs) else { return nil }
+        for (x, y) in zip(a, b) where x != y { return x < y }
+        return false
+    }
+
+    /// Ask the board what version it is, once, after the page has loaded.
+    func checkWhetherThisAppIsBehind(port: Int) {
+        guard !staleAppNoticeShown else { return }
+        guard let mine = runningAppVersion(),
+              let url = URL(string: "http://127.0.0.1:\(port)/api/status") else { return }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 8
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
+            guard let self, let data else { return }
+            guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let theirs = obj["version"] as? String, !theirs.isEmpty else { return }
+            guard theirs != mine else { return }
+            /* ⚠️ ONLY THE DIRECTION WE HAVE A MEASURED REMEDY FOR. A board that
+               is BEHIND this app is a real mismatch and we have no verified fix
+               for it, so it is logged and the person is told nothing. Inventing
+               an instruction for the case we have not measured is how a screen
+               starts saying things that are not true, which is the defect this
+               card is about. */
+            guard Self.isBehind(mine, theirs) == true else {
+                logLine("version mismatch, app \(mine) board \(theirs), not the behind case; saying nothing")
+                return
+            }
+            DispatchQueue.main.async {
+                guard !self.staleAppNoticeShown else { return }
+                self.staleAppNoticeShown = true
+                self.offerRelaunch(mine: mine, theirs: theirs)
+            }
+        }.resume()
+    }
+
+    private func offerRelaunch(mine: String, theirs: String) {
+        window?.makeKeyAndOrderFront(nil)
+        let alert = NSAlert()
+        alert.messageText = "Kosmos updated while this window was open"
+        alert.informativeText = "This window is still running version \(mine). The rest of "
+            + "Kosmos is on \(theirs). Opening it again catches it up. Your agents keep "
+            + "running and nothing needs signing in to again."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Quit and Open Again")
+        alert.addButton(withTitle: "Not Now")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        /* 🛑 NEVER QUIT UNTIL THE REPLACEMENT IS ACTUALLY COMING. Terminating
+           first and hoping is how a person ends up with no Kosmos at all, which
+           is far worse than the stale menu bar this fixes. The new instance is
+           launched FIRST, and this one only exits once macOS confirms it. */
+        let conf = NSWorkspace.OpenConfiguration()
+        conf.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: conf) { app, err in
+            DispatchQueue.main.async {
+                if app != nil, err == nil {
+                    logLine("relaunch: replacement started, this instance is exiting")
+                    NSApp.terminate(nil)
+                    return
+                }
+                logLine("relaunch FAILED: \(err?.localizedDescription ?? "no app handle"); staying open")
+                let f = NSAlert()
+                f.messageText = "Kosmos could not open a new window"
+                f.informativeText = "This window is still working and still on version \(mine). "
+                    + "Quit Kosmos and open it from your Applications folder when you get a moment."
+                f.alertStyle = .warning
+                f.addButton(withTitle: "OK")
+                f.runModal()
+            }
+        }
+    }
+
     // MARK: WKNavigationDelegate -- instrumentation only, proves the request
     // actually landed rather than inferring it from process/network state.
 
@@ -676,6 +801,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         webView.evaluateJavaScript("document.title") { result, _ in
             logLine("PAGE LOADED, document.title=\(result ?? "<nil>")")
         }
+        /* #1042: asked ONCE, after the board has actually answered, and never
+           on a timer. The person is told at the moment the two halves are
+           demonstrably out of step, not nagged about it. */
+        if let port = resolvedPort { checkWhetherThisAppIsBehind(port: port) }
     }
 
     // A cancelled navigation (NSURLErrorCancelled, -999) is delivered for
@@ -1413,6 +1542,42 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
        rather than live; it is one line and the blast radius is the whole
        product. */
     exit(1)
+}
+
+// #1042: the version comparison that decides whether a person is TOLD anything.
+//
+// 🛑 IT IS TESTED BECAUSE GETTING IT WRONG IS SILENT IN BOTH DIRECTIONS. Too
+// eager and the app nags about a mismatch that is not there; too shy and it
+// stays quiet on exactly the state that cost an hour. Neither shows up on any
+// screen as a fault.
+//
+// ⭐ THE ROW THAT EARNS THIS FILE IS 0.5.9 vs 0.5.10. A string comparison says
+// "0.5.9" > "0.5.10", because "9" sorts after "1". So a lexical check goes
+// SILENT at exactly the version where the minor number gains a digit, and it
+// would have looked correct on every version we have shipped so far.
+if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
+    var bad = 0
+    func check(_ mine: String, _ theirs: String, _ want: Bool?, _ why: String) {
+        let got = AppDelegate.isBehindForTest(mine, theirs)
+        let ok = got == want
+        if !ok { bad += 1 }
+        let show = { (v: Bool?) in v == nil ? "unknown" : (v! ? "behind" : "not-behind") }
+        print((ok ? "PASS  " : "FAIL  ") + mine.padding(toLength: 12, withPad: " ", startingAt: 0)
+              + "vs " + theirs.padding(toLength: 12, withPad: " ", startingAt: 0)
+              + "-> " + show(got).padding(toLength: 12, withPad: " ", startingAt: 0) + why)
+    }
+    check("0.5.71", "0.5.73", true,  "the reported case: the app is a release behind")
+    check("0.5.73", "0.5.73", false, "same version is not behind")
+    check("0.5.74", "0.5.73", false, "AHEAD is not behind, and gets no dialog")
+    check("0.5.9",  "0.5.10", true,  "NUMERIC, not lexical: a string compare says otherwise")
+    check("0.5.10", "0.5.9",  false, "and the inverse of that row")
+    check("0.6.0",  "0.5.99", false, "the major-minor beats the patch")
+    check("1.0.0",  "0.9.9",  false, "same, one level up")
+    check("0.5.73-rc1", "0.5.73", nil, "a shape we cannot read is UNKNOWN, never a guess")
+    check("nonsense", "0.5.73", nil,  "and so is a value nobody parsed")
+    check("0.5.73", "",       nil,   "an empty answer from the board is unknown too")
+    print(bad == 0 ? "\nstale-check: all good" : "\nstale-check: \(bad) FAILED")
+    exit(bad == 0 ? 0 : 1)
 }
 
 let app = NSApplication.shared

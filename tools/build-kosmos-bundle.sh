@@ -402,6 +402,26 @@ else
   echo "==> SKIPPED the #1032 file-picker gate: no console session for this user, so a WKWebView cannot be built here. The + button is UNCHECKED in this bundle." >&2
 fi
 
+# ---- the app can tell when it is the stale half (kosmos#1042) --------------
+# The app and the board are separate processes on independent update paths: an
+# update restarts the board and leaves the app running, a quit-and-reopen does
+# the reverse (measured on the coordinator by Ice Cream Kitty). So the two are
+# routinely different versions, and the app comparing itself against the board
+# is the only thing that can say so. This gate is the comparison, not the
+# dialog: pure, fast, and it needs no window server, unlike the #1032 one.
+_stale_out="$(perl -e 'alarm 20; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-stale-selftest 2>&1)" || {
+  printf '%s\n' "the native app's stale-version comparison is wrong (#1042):" "$_stale_out" >&2
+  exit 1
+}
+printf '%s\n' "$_stale_out" | sed 's/^/    /'
+# 🛑 THE EXIT STATUS IS NOT ENOUGH, same reason as the #1032 gate above: a
+# future edit that returns early would go green having proved nothing.
+case "$_stale_out" in
+  *"stale-check: all good"*) ;;
+  *) echo "the #1042 gate exited 0 without reporting a verdict. Treat that as the gate being broken, not as a pass." >&2; exit 1 ;;
+esac
+echo "==> native app: it knows when it is the stale half (#1042)"
+
 _app_bin_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')"
 echo "==> native app: kosmos-app signed $_app_bin_sha"
 
