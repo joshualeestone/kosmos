@@ -27,7 +27,20 @@ const fs = require('node:fs');
 const nodePath = require('node:path');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-const STEP = PAGE.slice(PAGE.indexOf('id="fr-pane-3"'), PAGE.indexOf('id="fr-sub"'));
+/* ⚠️ THE END ANCHOR WAS `id="fr-sub"` AND CANNOT BE ANY MORE. That element
+   used to sit after every provider row, so it doubled as "end of the list".
+   On 2026-08-26 it moved UP, to directly under the Claude row, so the connect
+   panel and the progress bar render beside the thing the person pressed
+   instead of below four providers they did not (Josh's items 8, 9, 10).
+   Anchoring here now would cut the slice off after Claude and quietly stop
+   this file testing GPT, Gemini, Llama, Qwen or Mistral at all -- which is
+   exactly what it did for one run, reporting "GPT is missing from the step".
+
+   `id="fr-pane-5"` is the next pane in FILE order (the panes are not in
+   numeric order; fr-pane-4 sits above fr-pane-3). The length guard below is
+   what protects this: a slice that runs into the rest of the page fails
+   loudly rather than passing on more text than it should. */
+const STEP = PAGE.slice(PAGE.indexOf('id="fr-pane-3"'), PAGE.indexOf('id="fr-pane-5"'));
 
 test('the step is a real slice of the model pane', () => {
   /* The whole file would satisfy every assertion below, since the slice
@@ -42,7 +55,7 @@ test('the step is a real slice of the model pane', () => {
      again if this step legitimately grows; do NOT remove it, and do not raise
      it to a number that would swallow the create form. Measured after the
      confirm landed: ~16.4k. */
-  assert.ok(STEP.length > 200 && STEP.length < 18000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
+  assert.ok(STEP.length > 200 && STEP.length < 24000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
   assert.match(STEP, /Your agents run on your own subscription/, 'the slice does not contain the model step');
   assert.ok(!STEP.includes('id="create-model"'), 'the slice ran past this step into the create form');
 });
@@ -380,4 +393,49 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   assert.match(els['fr-openai-connect'].innerHTML, /Connected/,
     'a pre-add read resolving late repainted a just-connected row back to Connect');
   assert.equal(els['fr-openai-connect'].disabled, true);
+});
+
+// ---------------------------------------------------------------------------
+// Josh, 2026-08-26, items 8, 9 and 10 — from a live run of the connect flow.
+// "the download progress bar was supposed to be up in that area where I had
+// just clicked to confirm... instead it's showing below all of the models in
+// the wrong spot."
+// ---------------------------------------------------------------------------
+
+test("the connect panel renders under Claude, not under the whole list", () => {
+  /* One assertion for three of his items, because they were one bug with
+     three symptoms: the panel, the progress bar and the connected verdict all
+     render into #fr-sub, so where that element SITS decides all three. */
+  const claudeRow = PAGE.indexOf('class="llm on"><span class="llm-m pmark live" data-pmark="claude"');
+  const gptRow = PAGE.indexOf('class="llm on"><span class="llm-m pmark live" data-pmark="openai"');
+  const panel = PAGE.indexOf('<div id="fr-sub"></div>');
+
+  /* ⚠️ Anchored on the MARKUP, not on `data-pmark="openai"` alone. That
+     attribute appears in a CSS rule far earlier in the file, and matching it
+     compared a stylesheet selector against markup positions -- which reported
+     the order as wrong when it was right. */
+  assert.ok(claudeRow > 0 && gptRow > 0 && panel > 0, 'one of the three anchors is missing');
+  assert.ok(panel > claudeRow,
+    'the connect panel renders BEFORE the Claude row, so it is not beside the thing pressed');
+  assert.ok(panel < gptRow,
+    'the connect panel still renders after the provider rows, so pressing Confirm on Claude '
+    + 'paints the progress bar and the verdict at the bottom of the screen (his items 8, 9, 10)');
+});
+
+test("the panel sits outside the confirm block, not inside it", () => {
+  /* 🛑 My first attempt at the move inserted it INSIDE #fr-claude-confirm,
+     because I took the first </div> after that element -- which closes the
+     <div class="frow"> holding Confirm and Not now. The section stopped
+     parsing and four unrelated tests went red. The confirm block is hidden
+     until pressed, so a panel inside it would be invisible exactly when it
+     matters. */
+  const confirmId = PAGE.indexOf('id="fr-claude-confirm" class="fr-confirm"');
+  const confirm = PAGE.lastIndexOf('<div', confirmId);
+  const panel = PAGE.indexOf('<div id="fr-sub"></div>');
+  const between = PAGE.slice(confirm, panel);
+  const opens = (between.match(/<div\b/g) || []).length;
+  const closes = (between.match(/<\/div>/g) || []).length;
+  assert.equal(opens, closes,
+    'the panel is nested inside the confirm block (' + opens + ' opens vs ' + closes
+    + ' closes between them), so it would be hidden until Confirm is pressed');
 });

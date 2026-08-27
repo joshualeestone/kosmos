@@ -4755,6 +4755,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   transition: background .12s ease;
 }
 #firstrun #fr-alt:hover { background: rgba(198,154,50,.14); }
+/* The quiet variant (Josh, item 5). Still a real button and still focusable;
+   it just stops competing with the primary for the eye. */
+#firstrun #fr-alt.is-link {
+  background: transparent; border: 0; padding: .4em .2em;
+  font: 500 .9375rem/1.6 var(--font-ui); color: var(--k-ink-2);
+  text-decoration: underline; text-underline-offset: 3px;
+}
+#firstrun #fr-alt.is-link:hover { background: transparent; color: var(--k-ink); }
 #firstrun #fr-alt:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
 /* The heading still TAKES focus on each step (SC 4.1.3); the pack draws no
    ring on it, and a heading is not interactive, so the ring goes. */
@@ -6445,6 +6453,28 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
             <button class="btn" type="button" id="fr-claude-confirm-no">Not now</button>
           </div>
         </div>
+        <!-- 🛑 THE CONNECT PANEL LIVES UNDER CLAUDE, NOT UNDER THE WHOLE LIST
+             (Josh, 2026-08-26, items 8, 9 and 10). It used to sit after every
+             provider row, so pressing Confirm on Claude painted the progress bar,
+             every status line and finally the connected verdict at the BOTTOM of
+             the screen -- far from the thing he had just pressed, and below four
+             providers he had not. His words: "it is showing below all of the
+             models in the wrong spot".
+
+             ⚠️ ONE MOVE FIXES ALL THREE OF HIS ITEMS, because they were one bug
+             with three symptoms: the panel, the progress and the verdict all
+             render into #fr-sub. No JavaScript changed.
+
+             📌 If a future provider needs its own panel, give it its own
+             container rather than moving this one back down. -->
+        <div id="fr-sub"></div>
+        <div class="fr-msg" id="fr-sub-msg" role="status" aria-live="polite"></div>
+        <!-- ⚠️ The connect flow's phase announcements, VISUALLY HIDDEN on
+             purpose. Each phase panel already says what is happening in its
+             title; speaking the change needs a live region, but rendering the
+             same sentence twice is the said-it-twice copy defect the
+             connection notice was already caught by once. -->
+        <div class="vh" id="fr-conn-say" role="status" aria-live="polite"></div>
         <!-- ⚠️ ORDER IS CLAUDE, GPT, GEMINI (Josh, 2026-08-26 14:30: "lets put
              GPT under Claude, and then Gemini 3rd"). Beyond his preference it
              is the right shape: Gemini is a `llm off` Coming soon row, and it
@@ -6461,6 +6491,23 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              here. Hidden until Connect is pressed; the row's own message line
              (#fr-openai-msg) carries the outcome, same shape as Claude's
              #fr-sub beneath it. -->
+        <!-- 🛑 PREREQUISITES BEFORE CREDENTIALS, for GPT too (Josh, 2026-08-26
+             item 7, from a live run: "it immediately jumped to asking me for an
+             API key"). Claude's row already said what it needed to install and
+             offered Not now; Settings' OpenAI flow already did the same. This
+             row was the one place the pattern was missing, so a person met the
+             requirement only AFTER finding and pasting a key.
+             ⚠️ Settings' own comment beside #acct-openai-install says "the
+             first-run wizard already learned this: prerequisites go before
+             credentials." It had -- for Claude. -->
+        <div id="fr-openai-confirm" class="fr-confirm" role="group" aria-labelledby="fr-openai-confirm-t" hidden>
+          <p class="fr-confirm-t" id="fr-openai-confirm-t">Kosmos needs the OpenAI runner on this computer before a key is any use. It is a one-time download.</p>
+          <div class="frow">
+            <button class="btn uprime" type="button" id="fr-openai-confirm-go" aria-describedby="fr-openai-confirm-t">Download and install it</button>
+            <button class="btn" type="button" id="fr-openai-confirm-no">Not now</button>
+          </div>
+          <p class="dhint" id="fr-openai-confirm-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+        </div>
         <div id="fr-openai-flow" hidden style="margin: -2px 0 10px;">
           <p class="dhint" style="margin:0 0 8px;">Paste an OpenAI API key. It stays on this Mac with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
           <!-- Josh, 2026-08-26 07:01, from the options page: one row, key
@@ -6493,14 +6540,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <div class="llm off"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon">Coming soon</span></div>
         <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
         <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
-        <div id="fr-sub"></div>
-        <div class="fr-msg" id="fr-sub-msg" role="status" aria-live="polite"></div>
-        <!-- ⚠️ The connect flow's phase announcements, VISUALLY HIDDEN on
-             purpose. Each phase panel already says what is happening in its
-             title; speaking the change needs a live region, but rendering the
-             same sentence twice is the said-it-twice copy defect the
-             connection notice was already caught by once. -->
-        <div class="vh" id="fr-conn-say" role="status" aria-live="polite"></div>
       </div>
 
       <!-- 4. About you. The pack's step, its copy verbatim: two required
@@ -8411,23 +8450,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            not, and both are real. -->
       <!-- The standing answer for the same thing (#238). The box on the create
            page answers for one agent; this answers for good, and it wins. -->
-      <div class="setrow" id="tell-row" style="margin-top:12px;">
-        <div><b>Let the Kosmos team know when you create an agent</b>
-          <p class="dhint" style="margin:2px 0 0;">One small message each time: that an agent was made, when, which Kosmos version and which macOS, and a random ID for this install, so we can count how many people use Kosmos. Nothing about the agent, and nothing it does.</p></div>
-        <button class="toggle" id="tell-toggle" role="switch" aria-label="Let the Kosmos team know when you create an agent" hidden><i></i></button>
-      </div>
-      <p class="dhint" id="tell-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- The outbound "something happened" switch (engine/notify.js): the
            seam a phone notification will ride on, decided now so the web
            version and the app do not fight later (Josh, 2026-08-23). Off by
            default, and the copy says exactly what leaves the Mac: who, what,
            when, never the words. Same row shape as the created ping above. -->
-      <div class="setrow" id="notify-row" style="margin-top:12px;">
-        <div><b>Let the Kosmos team know when an agent posts or answers you</b>
-          <p class="dhint" style="margin:2px 0 0;">Off by default. One small message each time: which agent, whether it posted or answered, which project, when, and a random ID for this install. Never the words. This is what a phone notification will ride on once Kosmos can reach your phone.</p></div>
-        <button class="toggle" id="notify-toggle" role="switch" aria-label="Let the Kosmos team know when an agent posts or answers you" hidden><i></i></button>
-      </div>
-      <p class="dhint" id="notify-msg" role="status" style="margin:8px 0 0;"></p>
 
       <div class="setrow" id="auto-row" style="margin-top:12px;">
         <div><b>Update Kosmos automatically</b>
@@ -12506,27 +12533,23 @@ function paintSwitch(togId, on) {
   tog.hidden = false;
 }
 
-function tellPaint(r) {
-  /* Three states, and the third is the absence of a control rather than a
-     third position. `null` means we have not read it, not off. */
-  const unread = !r;
-  paintSwitch('tell-toggle', unread ? null : r.on === true);
-  document.getElementById('tell-msg').textContent = unread
-    ? 'We could not read this setting just now.'
-    : (r.ok === false ? 'We could not read this setting, so nothing is sent.' : '');
-}
 /**
  * The create page's copy of the standing answer (#258).
  *
- * ⚠️ THREE STATES, AND THE THIRD IS NOT "ON". `tellPaint` beside this already
- * says why: `null` means we have not read it, which is not off, and the
+ * ⚠️ THREE STATES, AND THE THIRD IS NOT "ON". the Settings row that used to sit beside this said why: `null` means we have not read it, which is not off, and the
  * setting's own message for that case is that nothing is sent. So an
  * unreadable preference disables the box here too, because the engine will
  * refuse on `!pref.on` either way and a checked box would be describing a send
  * that cannot happen.
  *
- * 🔑 IT NEVER WRITES THE SETTING. Unchecking here is about this one agent;
- * the standing answer is changed in Settings and nowhere else.
+ * 🔑 IT NEVER WRITES THE SETTING. Unchecking here is about this one agent.
+ *
+ * ⚠️ AND SINCE 2026-08-26 THIS BOX IS THE ONLY PLACE THE PERSON MEETS THIS
+ * SETTING AT ALL. Josh had both Settings > Updates rows removed (his item 3);
+ * this one stayed because the created-ping defaults to ON (engine/ping.js
+ * returns `{ on: true }` when no preference file exists), and removing every
+ * control while the send stays on is not a tidy-up, it is a removed opt-out.
+ * If this box ever goes too, turn the default off in the same change.
  */
 function createTellPaint(r) {
   const box = document.getElementById('create-tell');
@@ -12551,85 +12574,8 @@ async function refreshCreateTell() {
   } catch { createTellPaint(null); }
 }
 
-async function refreshTell() {
-  const mine = ++TELL_EPOCH;
-  try {
-    const r = await (await fetch('/api/ping-setting')).json();
-    if (mine !== TELL_EPOCH) return;
-    tellPaint(r);
-  } catch {
-    /* 🛑 "THE SWITCH KEEPS ITS LAST HONEST POSITION" WAS TRUE OF EVERY PAINT
-       BUT THE FIRST, and the first is the one that matters: there is no last
-       position, so it kept the static markup and said nothing. From the
-       person's side a throw and an unreadable file are the same situation, so
-       they get the same answer. */
-    if (mine === TELL_EPOCH) tellPaint(null);
-  }
-}
-let TELL_SAVING = false;
-async function tellToggleClick() {
-  if (TELL_SAVING) return;
-  TELL_SAVING = true;
-  const mine = ++TELL_EPOCH;
-  const msg = document.getElementById('tell-msg');
-  try {
-    const on = document.getElementById('tell-toggle').getAttribute('aria-checked') !== 'true';
-    const res = await fetch('/api/ping-setting', {
-      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (mine !== TELL_EPOCH) return;
-    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; return; }
-    tellPaint(body);
-  } catch {
-    msg.textContent = 'We could not save that setting.';
-  } finally {
-    TELL_SAVING = false;
-  }
-}
-document.getElementById('tell-toggle').addEventListener('click', tellToggleClick);
 /* The "something happened" switch, the same three pieces as the created ping
    above: paint from a read, refresh on arrival, save on click. */
-let NOTIFY_EPOCH = 0;
-let NOTIFY_SAVING = false;
-function notifyPaint(r) {
-  const unread = !r;
-  paintSwitch('notify-toggle', unread ? null : r.on === true);
-  document.getElementById('notify-msg').textContent = unread
-    ? 'We could not read this setting just now.'
-    : (r.ok === false ? 'We could not read this setting, so nothing is sent.' : '');
-}
-async function refreshNotify() {
-  const mine = ++NOTIFY_EPOCH;
-  try {
-    const r = await (await fetch('/api/notify-setting')).json();
-    if (mine !== NOTIFY_EPOCH) return;
-    notifyPaint(r);
-  } catch {
-    if (mine === NOTIFY_EPOCH) notifyPaint(null);
-  }
-}
-async function notifyToggleClick() {
-  if (NOTIFY_SAVING) return;
-  NOTIFY_SAVING = true;
-  const mine = ++NOTIFY_EPOCH;
-  const msg = document.getElementById('notify-msg');
-  try {
-    const on = document.getElementById('notify-toggle').getAttribute('aria-checked') !== 'true';
-    const res = await fetch('/api/notify-setting', {
-      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (mine !== NOTIFY_EPOCH) return;
-    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; return; }
-    notifyPaint(body);
-  } catch {
-    msg.textContent = 'We could not save that setting.';
-  } finally {
-    NOTIFY_SAVING = false;
-  }
-}
-document.getElementById('notify-toggle').addEventListener('click', notifyToggleClick);
 
 let AUTO_EPOCH = 0;
 function autoPaint(r) {
@@ -12714,8 +12660,6 @@ function pjScreenOnScreen() {
 }
 refreshEngMode();
 refreshAutoUpdate();
-refreshTell();
-refreshNotify();
 refreshYou();
 document.getElementById('set-reveal').addEventListener('click', async () => {
   const msg = document.getElementById('set-reveal-msg');
@@ -27176,6 +27120,13 @@ function frActions(primary, alt) {
     // while its request is in flight, and without this the next step arrived
     // with its own (different) second button still greyed out.
     other.disabled = false;
+    /* `link: true` draws it as a quiet text link rather than a bordered
+       button (Josh, 2026-08-26 item 5: skipping should read as a small text
+       link, not as the second half of a pair of equal choices). It stays a
+       <button> -- it does something rather than going somewhere, so the
+       element is right and only the paint changes. Toggled BOTH ways: this
+       element is shared by every step and a token left on leaks forward. */
+    other.classList.toggle('is-link', alt.link === true);
   } else {
     other.hidden = true;
     other.onclick = null;
@@ -27981,7 +27932,7 @@ function frPaintConnect(st) {
       + '<div class="fr-cdetail" id="fr-conn-prog"></div>'
       + '<div class="fr-cdetail">This is the one big download. Everything after it is quick.</div>';
     frConnPaintProgress(st.progress);
-    frActions({ label: 'Continue anyway', go: () => frGo(4) }, { label: 'Cancel', go: frConnCancel });
+    frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
 
@@ -27990,7 +27941,7 @@ function frPaintConnect(st) {
       + (phase === 'installing' ? 'Setting Claude up on this computer&#8230;' : 'Getting the sign-in ready&#8230;')
       + '</div>'
       + '<div class="fr-cdetail">A moment or two.</div>';
-    frActions({ label: 'Continue anyway', go: () => frGo(4) }, { label: 'Cancel', go: frConnCancel });
+    frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
 
@@ -28004,7 +27955,7 @@ function frPaintConnect(st) {
         : 'Sign in to Claude there. This screen will notice when it is done.')
       + '</div>' + urlLine;
     frConnPaintUrl(st && st.url);
-    frActions({ label: 'Continue anyway', go: () => frGo(4) }, { label: 'Cancel', go: frConnCancel });
+    frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
 
@@ -28028,7 +27979,7 @@ function frPaintConnect(st) {
       if (e.key === 'Enter' && !(go && go.disabled)) frConnSubmitCode();
     };
     frConnPaintUrl(st && st.url);
-    frActions({ label: 'Continue anyway', go: () => frGo(4) }, { label: 'Cancel', go: frConnCancel });
+    frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
 
@@ -28288,11 +28239,46 @@ function frClaudeConfirmSentence() {
    focus back up several rows on Not now, to a different button. */
 let FR_CONFIRM_OPENER = null;
 
+/**
+ * Close every provider's panel except the one being opened (Josh, 2026-08-26
+ * item 7: "when I opened the ChatGPT one, it should have automatically
+ * collapsed the Claude one but it left the Claude one open").
+ *
+ * ⚠️ Two panels, two DIFFERENT reveal mechanisms -- Claude's is driven by
+ * frClaudeConfirmOpen/Close with an opener it remembers, OpenAI's is an inline
+ * hidden toggle. This closes BOTH by their own means rather than reaching in
+ * and setting `hidden` on each: Claude's close also clears FR_CONFIRM_OPENER
+ * and restores aria-expanded on whichever button actually opened it, and
+ * skipping that is how the row button ends up claiming to control a panel
+ * nobody opened.
+ *
+ * 🔑 It never closes the panel it is asked to keep, so an opener can call it
+ * unconditionally before showing its own.
+ */
+function frCollapseProviders(keep) {
+  if (keep !== 'claude') {
+    const box = document.getElementById('fr-claude-confirm');
+    if (box && !box.hidden) frClaudeConfirmClose();
+  }
+  if (keep !== 'openai') {
+    let shut = false;
+    for (const id of ['fr-openai-confirm', 'fr-openai-flow']) {
+      const el = document.getElementById(id);
+      if (el && !el.hidden) { el.hidden = true; shut = true; }
+    }
+    if (shut) {
+      const btn = document.getElementById('fr-openai-connect');
+      if (btn && btn.setAttribute) btn.setAttribute('aria-expanded', 'false');
+    }
+  }
+}
+
 function frClaudeConfirmOpen(opener) {
   const box = document.getElementById('fr-claude-confirm');
   const t = document.getElementById('fr-claude-confirm-t');
   const btn = opener || document.getElementById('fr-llm-connect');
   if (!box) return;
+  frCollapseProviders('claude');
   FR_CONFIRM_OPENER = btn || null;
   if (t) t.textContent = frClaudeConfirmSentence();
   box.hidden = false;
@@ -28375,11 +28361,65 @@ document.getElementById('fr-claude-confirm-no').addEventListener('click', () => 
    listener rather than the delegated pattern fr-llm-connect uses above --
    there is exactly one button per id here, so delegation would add
    indirection with nothing to share it with. */
-document.getElementById('fr-openai-connect').addEventListener('click', (e) => {
-  const flow = document.getElementById('fr-openai-flow');
-  flow.hidden = false;
-  e.currentTarget.setAttribute('aria-expanded', 'true');
-  document.getElementById('fr-openai-key').focus();
+/* Which panel Connect opens depends on whether the runner is already here.
+   ⚠️ ASKED EVERY TIME, not cached: a runner can arrive or leave between
+   presses, and Settings' equivalent says the same in its own comment.
+   📌 If the question cannot be answered we show the CONFIRM, not the key box.
+   Being asked to approve a download that turns out to be unnecessary costs a
+   press; being asked for a key that is no use costs finding one first, which
+   is the dead end Josh actually hit. */
+async function frOpenaiRunnerPresent() {
+  try {
+    const r = await (await fetch('/api/runners', { cache: 'no-store' })).json();
+    const o = r && r.runners && r.runners.openai;
+    return o ? !!o.present : false;
+  } catch { return false; }
+}
+function frOpenaiShowKey() {
+  document.getElementById('fr-openai-confirm').hidden = true;
+  document.getElementById('fr-openai-flow').hidden = false;
+  const k = document.getElementById('fr-openai-key');
+  if (k) k.focus();
+}
+document.getElementById('fr-openai-connect').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  frCollapseProviders('openai');
+  btn.setAttribute('aria-expanded', 'true');
+  if (await frOpenaiRunnerPresent()) { frOpenaiShowKey(); return; }
+  document.getElementById('fr-openai-flow').hidden = true;
+  const box = document.getElementById('fr-openai-confirm');
+  box.hidden = false;
+  const go = document.getElementById('fr-openai-confirm-go');
+  if (go) { go.disabled = false; go.focus(); }
+});
+document.getElementById('fr-openai-confirm-no').addEventListener('click', () => {
+  document.getElementById('fr-openai-confirm').hidden = true;
+  const btn = document.getElementById('fr-openai-connect');
+  if (btn) { btn.setAttribute('aria-expanded', 'false'); btn.focus(); }
+});
+document.getElementById('fr-openai-confirm-go').addEventListener('click', async (e) => {
+  const go = e.currentTarget;
+  const msg = document.getElementById('fr-openai-confirm-msg');
+  go.disabled = true;
+  if (msg) msg.textContent = 'Starting\u2026';
+  try {
+    const res = await fetch('/api/runners/openai/install', { method: 'POST' });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not start that install');
+    if (msg) msg.textContent = 'Installing\u2026 this screen will move on when it is done.';
+    /* Rough on purpose, and said out loud: this polls for the runner rather
+       than following the install job's own phases the way Settings does. It
+       is a holding shape for tonight -- the key box appears when the runner
+       appears. If it never does, the sentence above stays and nothing lies. */
+    const started = Date.now();
+    const tick = setInterval(async () => {
+      if (await frOpenaiRunnerPresent()) { clearInterval(tick); if (msg) msg.textContent = ''; frOpenaiShowKey(); return; }
+      if (Date.now() - started > 300000) { clearInterval(tick); if (msg) msg.textContent = 'That is taking longer than expected. Settings > Accounts can finish it.'; }
+    }, 2000);
+  } catch (err) {
+    go.disabled = false;
+    if (msg) msg.textContent = String((err && err.message) || 'We could not start that install.');
+  }
 });
 // Paste-then-Enter is the natural gesture for this screen's non-technical
 // audience, and with no form around the field it failed silently -- flagged
@@ -28632,7 +28672,16 @@ function frPaintSubscription() {
      behind a claim we no longer make. */
   box.innerHTML = '<div class="fr-note">You can carry on and look around. An agent made before '
     + 'you connect a model will sit there doing nothing until you do.</div>';
-  frActions({ label: 'Connect Claude', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue', go: () => frGo(4) });
+  /* 🛑 NO PRIMARY UNTIL SOMETHING IS CONNECTED (Josh, 2026-08-26, items 5 and
+     11). This used to read "Connect Claude" before anything was chosen, and
+     "Continue anyway" once a connection was under way -- so the biggest button
+     on the screen was either a fifth way to start Claude specifically, on a
+     screen offering four providers, or an invitation to leave before the thing
+     you started had finished.
+     ⚠️ Removing it strands nobody: every provider row carries its own Connect
+     (#fr-llm-connect for Claude, #fr-openai-connect for GPT), which is where a
+     person actually starts. Checked before deleting it. */
+  frActions(null, { label: 'Skip connecting a model', go: () => frGo(4), link: true });
 }
 
 /* --------------------------------------------------------------------------

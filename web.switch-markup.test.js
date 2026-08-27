@@ -38,7 +38,7 @@ function openingTag(id) {
 
 // Every switch on the Settings surface. The card names the update switch, but
 // the defect class is shared, and #229's paint fix generalised to all of them.
-const SWITCHES = ['auto-toggle', 'tell-toggle', 'notify-toggle', 'lim-toggle', 'eng-toggle'];
+const SWITCHES = ['auto-toggle', 'lim-toggle', 'eng-toggle'];
 
 test('#229: no switch carries a static aria-checked in the markup', () => {
   for (const id of SWITCHES) {

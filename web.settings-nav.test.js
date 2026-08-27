@@ -37,7 +37,7 @@ test('each settings box lives in the section the mock puts it in', () => {
     'set-accounts': 'accounts',
     'lim-toggle': 'talking', 'lim-tier': 'talking',
     'set-applocation': 'mac', 'set-reveal': 'mac', 'set-machine': 'mac',
-    'upd-btn': 'updates', 'tell-toggle': 'updates', 'auto-toggle': 'updates',
+    'upd-btn': 'updates', 'auto-toggle': 'updates',
     'eng-toggle': 'advanced', 'hist-go': 'advanced', 'hist-count': 'advanced',
   };
   for (const [id, sec] of Object.entries(want)) {
