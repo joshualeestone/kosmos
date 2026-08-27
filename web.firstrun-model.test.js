@@ -440,3 +440,81 @@ test("the panel sits outside the confirm block, not inside it", () => {
     'the panel is nested inside the confirm block (' + opens + ' opens vs ' + closes
     + ' closes between them), so it would be hidden until Confirm is pressed');
 });
+
+/**
+ * 🛑 TWO BUTTONS CALLED "Connect", AND A SCREEN READER HEARS ONLY THE BUTTON.
+ *
+ * Found by the page layer on 2026-08-27: `named-controls` failed with
+ * "first run step 3: no two controls answer to the same name  Connect x2",
+ * and Baron confirmed the same red would have killed his cut's 3b twenty
+ * minutes later, where it would have looked like run contention.
+ *
+ * The rows ARE distinguishable on screen -- each carries its vendor mark,
+ * `<span class="llm-m pmark" role="img" aria-label="Claude">` and the OpenAI
+ * one beside it. But that name belongs to the IMAGE, not to the button, and
+ * a person moving by control hears "Connect, Connect" with nothing to choose
+ * between them.
+ *
+ * ⚠️ THE VISIBLE WORD DOES NOT CHANGE, deliberately. `aria-label` starts with
+ * the visible label ("Connect Claude", not "Claude"), so WCAG 2.5.3's
+ * label-in-name still holds for anyone driving the page by voice: saying
+ * "click Connect" still matches.
+ */
+test('first run step 3: the two Connect buttons do not answer to the same name', () => {
+  const step = PAGE.slice(PAGE.indexOf('id="fr-llm-connect"') - 4000,
+                          PAGE.indexOf('id="fr-openai-connect"') + 4000);
+  // ⚠️ PRESENCE FIRST. An absence assertion over a slice that does not contain
+  // the buttons passes for the wrong reason, and this file's own end-anchor
+  // comment records that exact trap one screen up.
+  assert.match(step, /id="fr-llm-connect"/, 'the Claude connect button is in the slice');
+  assert.match(step, /id="fr-openai-connect"/, 'the OpenAI connect button is in the slice');
+
+  const nameOf = (id) => {
+    const m = PAGE.match(new RegExp('<button[^>]*id="' + id + '"[^>]*>', ''));
+    assert.ok(m, id + ' has a button tag');
+    const lab = m[0].match(/aria-label="([^"]*)"/);
+    return lab ? lab[1] : 'Connect';   // no aria-label => the visible word IS the name
+  };
+  const claude = nameOf('fr-llm-connect');
+  const openai = nameOf('fr-openai-connect');
+
+  assert.notEqual(claude, openai,
+    'the two connect buttons must not answer to the same name (both were "Connect")');
+  // Label-in-name: the visible word must still start the accessible name.
+  assert.ok(claude.startsWith('Connect'), 'Claude button name starts with the visible word: ' + claude);
+  assert.ok(openai.startsWith('Connect'), 'OpenAI button name starts with the visible word: ' + openai);
+  // And each must actually say WHICH, or the names are merely different.
+  assert.match(claude, /Claude/i, 'the Claude button names its provider: ' + claude);
+  assert.match(openai, /OpenAI/i, 'the OpenAI button names its provider: ' + openai);
+});
+
+/**
+ * The same defect at N instead of 2, found by Mona Lisa reviewing the fix above.
+ *
+ * The service rows build their Connect button in a LOOP from a service name, so
+ * a machine with five connectors draws five buttons all answering to "Connect",
+ * on a screen where the rows differ only by a heading the button does not carry.
+ * ⚠️ The test above cannot see these and must not try: it pins step 3 by id, and
+ * these have no ids, they are built at render time. So this one asserts the
+ * RENDER SITE instead -- the only place a static test can reach them.
+ * 📌 The input beside one of them already did this (`esc(name) + ' API token'`),
+ * so the per-service naming pattern was established here before the button used it.
+ */
+test('no button whose whole label is "Connect" goes unnamed', () => {
+  /* ⚠️ FOUND BY THE TEST FAILING ON THE FIXED PAGE. My first version took the
+     FIRST `data-svc-connect` render site by indexOf -- and that one draws
+     "Connect without installing anything", a button that is already
+     distinguishable and was never the defect. It asserted against the wrong
+     button and went red on code that was correct.
+     ⭐ So the rule is stated as the rule instead of as two addresses: a button
+     whose ENTIRE visible label is the bare word "Connect" carries no
+     information on its own, so it must carry an accessible name. Buttons whose
+     label already says more ("Connect without installing anything") are fine
+     and this leaves them alone. */
+  const bare = [...PAGE.matchAll(/<button\b[^>]*>Connect<\/button>/g)].map((m) => m[0]);
+  assert.ok(bare.length >= 4, 'the bare-Connect buttons are present to be checked (found ' + bare.length + ')');
+  const unnamed = bare.filter((t) => !/aria-label="/.test(t));
+  assert.deepEqual(unnamed, [],
+    'every button labelled only "Connect" needs an accessible name, or a screen '
+    + 'reader hears the same word for all of them');
+});
