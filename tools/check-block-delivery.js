@@ -84,7 +84,17 @@ if (!agents.length) {
 }
 
 const text = Object.fromEntries(agents.map((a) => [a, fs.readFileSync(path.join(WORKERS, a, 'CLAUDE.md'), 'utf8')]));
-console.log('agents: ' + agents.length + '   (' + WORKERS + ')\n');
+/* 🔑 NAME BOTH SUBJECTS, NOT JUST ONE (Ice Cream Kitty's rule, 2026-08-27:
+   publish the query with the count, the endpoint with the reading). This tool
+   reads TWO different things -- the agents' files, and the ENGINE that says
+   what should have been delivered -- and they can come from different places.
+   The engine is whatever repo this script sits in, so running it from a
+   worktree answers about THAT worktree's state while the fleet dir is shared.
+   ⚠️ Four people spent this morning confidently measuring the wrong host. A
+   verdict that does not name its subjects is one override away from that. */
+console.log('fleet:  ' + WORKERS + '   (' + agents.length + ' agents)');
+console.log('engine: ' + REPO);
+console.log('');
 console.log('block'.padEnd(14) + 'has it'.padEnd(9) + 'entitled'.padEnd(10) + 'verdict');
 
 let undelivered = 0; let stale = 0; let cannotTell = 0;
