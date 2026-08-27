@@ -4,7 +4,9 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
-const BASE = 'http://127.0.0.1:4399';
+/* KOSMOS_URL so this can join the release runner, which asks the kernel for a
+   free port (#633/#708). The literal stays as the hand-run fallback. */
+const BASE = process.env.KOSMOS_URL || 'http://127.0.0.1:4399';
 const FLAG = process.argv[2];   // the sandboxed first-run.json
 // The About-you record lives at the DATA root (the flag's grandparent, per
 // engine/you.js's BASE), and it is first-run state: left behind by an
@@ -45,7 +47,13 @@ async function fresh(browser, opts = {}) {
     // sentence is the ruled drag line, never the unreachable Keep in Dock.
     await page.waitForSelector('#fr-return-row .fr-check:not(.checking)', { timeout: 5000 });
     const introText = await page.locator('#fr-return').textContent();
-    ok(/Drag Kosmos onto the Dock, the strip of icons/.test(introText), 'the ruled Dock drag line is on the Success screen');
+  /* 🛑 THE DOCK LINE LEFT THIS SCREEN ON 2026-08-22, on two written rulings:
+     step 1 answers "did the install work", and the Dock line is about
+     RETURNING, so it moved to the LAST step. This asserted it here and had
+     been red ever since -- unnoticed, because nothing runs this check.
+     ⇒ Asserted as ABSENT, matching render-first-run, which now also asserts it
+     PRESENT on the last step so the sentence cannot vanish from the product. */
+    ok(!/Drag Kosmos onto the Dock, the strip of icons/.test(introText), 'the Dock drag line is NOT on the Success screen (it moved to the last step)');
     ok(!/Checking where the Kosmos icon is/.test(introText), 'the live answer replaced the checking placeholder');
     ok(!/right now/.test(introText), 'and it is the route\'s answer, not the could-not-ask fallback -- this walk is the one place the LIVE route is proven');
     ok(!/Keep in Dock/.test(introText), 'and never the unreachable Keep in Dock');
