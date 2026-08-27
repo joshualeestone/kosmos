@@ -3618,7 +3618,18 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { kept: false, because: 'we could not check which agents are running, so we could not tell who this is from' });
           return;
         }
-        const sender = messages.resolveSender(body.from_pane, roster);
+        /* ⭐ SAME RESOLVER CHAIN AS /api/report, TOKEN FIRST, PANE SECOND (#570).
+           Reply was pane-only, which made it the half an agent without a
+           terminal could not do: it could say what it was doing and could not
+           answer you. That is half of #570's closing condition, and it is what
+           "talk to my agents from my phone" needs from a Windows or SDK runner.
+           🛑 AND IT IS ALSO A CONTAINMENT GAP: a pane name is guessable, so
+           retiring the fallback on /api/report alone would have left this route
+           forging-capable. The pane path has to leave BOTH or neither. */
+        const presented = req.headers['x-kosmos-agent-token'] || body.token;
+        const sender = presented
+          ? sendertoken.resolve(presented, roster)
+          : messages.resolveSender(body.from_pane, roster);
         if (!sender.ok) { sendJson(res, 200, { kept: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
