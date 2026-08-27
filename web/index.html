@@ -14995,6 +14995,17 @@ async function paintTalk(sessionName, agentName) {
      it either, because that path declines to touch anything once the flight has
      moved. The flag is about a NAME, so it is read against one. */
   say.disabled = body.presence === 'off';
+  /* 🛑 #991: A CLOSED BOX MUST NOT STILL SAY "Message casey…". The composer is
+     correctly disabled here and the reason is on screen above it, but the
+     placeholder was set before the fetch and kept inviting a message the box
+     refuses. RENDERED AND LOOKED AT: disabled input, greyed Send, and the words
+     "Message casey…" sitting inside it.
+     ⭐ It says what is true of the BOX, not the agent's whole situation: the
+     reason line above already carries the why, and repeating it here would say
+     the same thing twice in the same glance. */
+  say.placeholder = say.disabled
+    ? name + ' cannot be reached right now'
+    : 'Message ' + name + '\u2026';
   document.getElementById('d-send').disabled = body.presence === 'off' || flying;
   // The parked draft comes back, and never over words already in the box.
   if (!say.disabled && !say.value && TALK_DRAFTS[sessionName]) say.value = TALK_DRAFTS[sessionName];
