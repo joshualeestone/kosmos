@@ -28967,7 +28967,16 @@ function foundRowsHtml(agents) {
          ticked box which does nothing is worse than no box, because ticked says
          a decision has been made while inert says it has not, on the same pixel.
          The rule has not changed -- the route arrived. */
-      '<div class="fr-foundrow" data-found-dir="' + esc(a.dir) + '" data-found-name="' + esc(a.name) + '">'
+      /* 🔑 THE HAYSTACK RIDES THE ROW, so filtering hides rows rather than
+         rebuilding them. Rebuilding is forbidden here for a reason that has
+         nothing to do with search: each row carries the state of a button
+         somebody already pressed, and this screen is the one place a person
+         presses four in a row. Folder included deliberately -- the design's
+         412-row drawing matches `patrick-notes` on its PATH, and on a machine
+         with that many agents the folder is often the only thing the person
+         remembers, even though it is not shown. */
+      '<div class="fr-foundrow" data-found-dir="' + esc(a.dir) + '" data-found-name="' + esc(a.name) + '"'
+      + ' data-found-hay="' + esc(((a.name || '') + ' ' + (a.role || '') + ' ' + (a.dir || '')).toLowerCase()) + '">'
       + '<span class="fr-foundtext">'
       + '<span class="fr-foundname">' + esc(a.name) + '</span>'
       /* Role is optional by ruling ("even if it's just title unknown"): an agent
@@ -29021,9 +29030,32 @@ function frPaintFound() {
      them here", written when the rows were a list with nothing behind them --
      a sentence that went quietly false the day the route landed, on the screen
      it describes. */
+  /* 🛑 THE SEARCH BOX APPEARS AT A THRESHOLD, NOT ALWAYS (design,
+     Josh-Brain/Projects/kosmos-design/kosmos-found-agents-2026-08-22.html).
+     On fourteen rows it is furniture that makes a simple screen look like an
+     admin tool. The design says "somewhere around thirty it starts earning
+     itself", so thirty is where it is, and the number lives here rather than
+     inline so the next person can move it in one place.
+     ⭐ WHY IT IS A SEARCH BOX AND NOT A DRAWER, which is a ruling already made
+     and is not reopened here: a drawer is US deciding what you do not need to
+     see; a search box is YOU deciding, and it is reversible in one keystroke.
+     That is why the count line below always says BOTH numbers and how to get
+     back. And it only ever RANKS -- a heuristic may rank, it may not act, which
+     is the same rule that killed pre-ticked boxes and Add all. */
+  const search = n >= FOUND_SEARCH_AT
+    ? '<p class="fr-foundsearchwrap"><input type="search" id="fr-foundsearch" class="fld"'
+      + ' autocomplete="off" placeholder="Search your agents"'
+      + ' aria-label="Search the agents found on this Mac"></p>'
+    : '';
   box.innerHTML = '<p>They are not in Kosmos yet. Adding one leaves it exactly '
     + 'where it is, in its own folder with its own instructions.</p>'
-    + foundRowsHtml(FR_FOUND.agents);
+    + search
+    + foundRowsHtml(FR_FOUND.agents)
+    /* ⚠️ THE COUNT LINE IS IN THE DESIGN AND WAS NEVER BUILT. It is the only
+       thing on the screen that says how many rows there are when the list runs
+       past the fold, and the only thing that says how to get back once a search
+       has narrowed it. */
+    + '<p class="dhint" id="fr-foundcount">' + esc(foundCountLine(n, n, '')) + '</p>';
   /* 🛑 `Continue`, NOT "Take me to my agents". Nothing has been added, so the
      board still shows what tmux shows -- and somebody whose agent has not run
      since Tuesday would press that button and land on a board without them,
@@ -29044,27 +29076,54 @@ function frPaintFound() {
  * already pressed -- and this screen is the one place where a person may press
  * four buttons in a row. The row edits itself instead.
  */
+/* The design's threshold for the search box, in one place. */
+const FOUND_SEARCH_AT = 30;
+
 /**
- * The "I already have agents" disclosure on the empty arm (kosmos#1078).
+ * The line under the found list. Says both numbers and the way back.
  *
- * 🛑 PAGE SCOPE AND DELEGATED, NOT WIRED INSIDE THE PAINTER, and the first
- * version was wired inside it. `frPaintFleet` runs under a harness that stubs
- * the DOM, and the stub elements have no `addEventListener` -- so binding
- * during the paint threw `link.addEventListener is not a function` and took
- * down `server.test.js`'s "somebody who already has agents is never told they
- * have none", which is THE test for the defect this control exists to soften.
- * ⭐ THE TEST THAT BROKE WAS THE ONE THAT MATTERED, which is the only reason I
- * ran it. Same shape as every other painted control on this screen: the found
- * list delegates too, for its own reason, and the reasons agree.
+ * 🛑 IT NEVER CLAIMS A LIST IS COMPLETE WHEN IT IS NOT. `shown` and `total` are
+ * both stated whenever they differ, because the whole reason a search box is
+ * allowed on this screen rather than a drawer is that the person can always see
+ * they are looking at a subset and can undo it in one keystroke.
+ * ⚠️ THE EMPTY-MATCH ARM IS NOT IN THE DESIGN and is written to the same rule:
+ * it names what was typed, gives the total, and says how to get back. "No
+ * results" alone would be the one arm on this screen with no way out.
  */
-document.addEventListener('click', (e) => {
-  const link = e.target.closest && e.target.closest('#fr-havealready');
-  if (!link) return;
-  const note = document.getElementById('fr-havealready-note');
-  if (!note) return;
-  const opening = note.hidden;
-  note.hidden = !opening;
-  link.setAttribute('aria-expanded', opening ? 'true' : 'false');
+function foundCountLine(shown, total, term) {
+  const agentWord = total === 1 ? '1 agent' : total + ' agents';
+  if (!term) return total === 1 ? '1 agent.' : agentWord + '. Scroll to see them all.';
+  if (shown === 0) return 'Nothing matches \u201C' + term + '\u201D. Clear the box to see all ' + agentWord + '.';
+  return 'Showing ' + shown + ' of ' + total + '. Clear the box to see them all.';
+}
+
+/**
+ * Filtering the found list.
+ *
+ * 🛑 IT HIDES ROWS, IT DOES NOT REBUILD THEM, and that is not a performance
+ * choice. Every row carries the state of a button somebody may already have
+ * pressed -- this screen is the one place a person presses four in a row -- and
+ * `frPaintFound` rebuilds from `FR_FOUND`, which would throw that away. Same
+ * reason the success arm edits its own row instead of repainting.
+ *
+ * 📌 Page scope and delegated, for the reason the disclosure above it is: the
+ * first-run harness stubs the DOM with plain objects that have no
+ * `addEventListener`, so binding inside a painter takes the harness down.
+ */
+document.addEventListener('input', (e) => {
+  const box = e.target.closest && e.target.closest('#fr-foundsearch');
+  if (!box) return;
+  const term = String(box.value || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('.fr-foundrow');
+  let shown = 0;
+  rows.forEach((row) => {
+    const hay = row.dataset.foundHay || '';
+    const hit = !term || hay.indexOf(term) > -1;
+    row.hidden = !hit;
+    if (hit) shown += 1;
+  });
+  const line = document.getElementById('fr-foundcount');
+  if (line) line.textContent = foundCountLine(shown, rows.length, String(box.value || '').trim());
 });
 
 document.addEventListener('click', async (e) => {
@@ -29333,7 +29392,13 @@ function frPaintFleet() {
        ⚠️ AND SILENCE IS NOT FREE IN ONE CASE (kosmos#1078): discovery reaches a
        folder only through a transcript, so an agent that has never been RUN is
        invisible, and this arm then tells somebody who has agents to create their
-       first one. Awaiting Josh's ruling on the wording, drafted on the card. */
+       first one.
+       🛑 A DISCLOSURE LINK WAS BUILT HERE AND RULED OUT. Josh, 2026-08-27:
+       "There is no link to appear, even. It just pulls them in." He is right,
+       and the reason is worth keeping: a link explaining why the list is empty
+       is a worse product than a list that is not empty. The fix belongs in
+       DETECTION, not in a sentence on this screen, and this arm stays silent
+       until detection can no longer be wrong about it. */
     /* 🛑 ONE SENTENCE, AND FOUR THINGS DELETED (Josh, 2026-08-26 22:05, item 13).
        This screen was reporting on ITSELF rather than telling a person what to
        do next. What went:
@@ -29384,13 +29449,7 @@ function frPaintFleet() {
        📌 Built hidden rather than built on click, same rule as the found list's
        undo: an element that already exists cannot be the element a later edit
        forgets to create. */
-    box.innerHTML = '<p>Let\u2019s get started.</p>'
-      + '<p style="margin:10px 0 0;"><button class="linkish" type="button"'
-      + ' id="fr-havealready" aria-expanded="false" aria-controls="fr-havealready-note">'
-      + 'I already have agents</button></p>'
-      + '<p class="dhint" id="fr-havealready-note" style="margin:6px 0 0;" hidden>'
-      + 'Agents you have already made show up here once they have been run at'
-      + ' least once.</p>';
+    box.innerHTML = '<p>Let\u2019s get started.</p>';
     frForkActions();
     return;
   }
