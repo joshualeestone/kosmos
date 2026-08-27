@@ -20,6 +20,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const HTML = fs.readFileSync(path.join(__dirname, 'install', 'pkg-scripts', 'installing.html'), 'utf8');
+const { codeOnly } = require('./test-support/code-only');
+const CODE = codeOnly(HTML);
 
 test('the mark is the real K loader canvas, and the progress bar exists, both always in the markup', () => {
   // #892/#893 shipped a static badge; #905 (Josh, 2026-08-26, seeing it
@@ -109,4 +111,44 @@ test('reduced motion turns off both animations, and dark mode is accounted for',
     'the K loader stopped reading reduced-motion itself');
   assert.match(HTML, /if \(slow\) \{/, 'the loader lost its reduced-motion branch (one still frame instead of animating)');
   assert.match(HTML, /@media \(prefers-color-scheme:dark\)/);
+});
+
+/**
+ * 🛑 ITEM 4, AND IT WAS LEFT UNGUARDED BY ME FOR A REASON THAT WAS HALF WRONG.
+ * Josh, 2026-08-26 22:05: delete the sentence "Nothing to do." from the install
+ * screen. Done -- in THIS file, not in web/index.html.
+ *
+ * When I pinned his other rulings (#1081) I recorded item 4 as unguardable and
+ * moved on, because tools/check-served.js extracts only app/web/index.html and
+ * app/bin/kosmos-app from the tarball, so the .pkg installer's own page is
+ * outside the served population entirely. That part is true and still is.
+ *
+ * ⚠️ THE MISTAKE WAS TREATING "CANNOT BE GUARDED IN THE SERVED BYTES" AS
+ * "CANNOT BE GUARDED AT ALL". Merge-time is a different population and this
+ * file already reads the page. One layer being blind is not both layers being
+ * blind, and writing the limitation down made it feel handled.
+ *
+ * 📌 NEGATIVE CONTROL, and it needed a second look. `git log -S "Nothing to do."`
+ * on this path reports only the commit that ADDED it (bd96c65f, 2026-08-24) and
+ * no removal -- because the deletion moved the string from the <p> into the
+ * comment that explains the deletion, so the occurrence COUNT never changed and
+ * the pickaxe saw nothing. The real control is the two-sided one below: present
+ * in the raw file, absent once comments are stripped.
+ */
+test('item 4 -- "Nothing to do." stays deleted, and only that sentence went', () => {
+  assert.ok(!CODE.includes('Nothing to do.'),
+    'item 4 is back on the install screen. It is deleted from the page and quoted in the comment above #hint; if this fails, the sentence returned to the markup');
+
+  /* ⚠️ HE DELETED ONE SENTENCE, NOT THE LINE. The rest is the only copy that
+     tells a person what this page BECOMES, which is the reason to leave it
+     open. A guard on the deletion alone would be satisfied by removing the
+     whole paragraph, which is a different and worse change. */
+  assert.match(CODE, /This page becomes your dashboard when Kosmos is ready\./,
+    'the surviving half of the hint line went with the deleted sentence; item 4 removed one sentence, not the paragraph');
+
+  /* And the node itself has to stay: the finish path hides #hint by id, so
+     deleting the element turns that into a null dereference on the happy
+     path -- the one path nobody re-tests. */
+  assert.match(CODE, /id="hint"/,
+    'the #hint element is gone; the finish path hides it by id and would null-deref');
 });
