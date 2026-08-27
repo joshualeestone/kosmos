@@ -19,9 +19,18 @@
  * or no Trash directory) are they deleted for good, and the plan says which
  * BEFORE the click, so the confirmation is never lighter than the act.
  *
- * What it touches, and nothing else: `<WORKERS_DIR>/<name>` and
- * `<AGENTS_DIR>/<label>.plist`, both resolved by `create.js` (one definition
- * of where an agent lives). A folder that is a symlink, or that resolves
+ * What it touches, and nothing else: `<WORKERS_DIR>/<name>`,
+ * `<AGENTS_DIR>/<label>.plist` (both resolved by `create.js`, one definition
+ * of where an agent lives), and the agent's SENDER TOKENS.
+ *
+ * 🛑 THE TOKENS ARE HERE BECAUSE OF #1131, AND THE LAST LINE OF THIS FILE IS
+ * WHY. On success it says "The name is free." A freed name is re-usable, and
+ * until this call the token store was the one thing that outlived the files:
+ * `resolve()` matches a token to a NAME, so a credential minted for the old
+ * agent re-attached to the next agent that took the name. `sendertoken`'s own
+ * header has always said a caller that deletes an agent MUST call `revoke()`.
+ * Nothing did. Deleting the files while leaving the credential is the half of
+ * the job that looks finished. A folder that is a symlink, or that resolves
  * outside WORKERS_DIR, is refused rather than followed. A name with a live
  * session is refused: this is for leftovers, and a running agent is not one.
  */
@@ -32,6 +41,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const create = require('./create');
 const remove = require('./remove');
+const sendertoken = require('./sendertoken');
 const status = require('./status');
 
 const OUTCOME = { DELETED: 'deleted', REFUSED: 'refused', PARTIAL: 'partial' };
@@ -246,6 +256,24 @@ function del(name, opts) {
   /* The removed-list record, if any, is what keeps a name hidden on the
      board; with the files gone it has nothing to point at. */
   try { remove.forget(p.name); } catch { /* the record is inert without files */ }
+  /* #1131. NOT best-effort, unlike `forget` above: a removal record with no
+     files is inert, but a TOKEN with no files is a live credential for a name
+     we are about to advertise as free. A failure here belongs in `stuck`, so
+     the outcome is PARTIAL and says so, rather than DELETED with a sentence
+     promising the name is free.
+     ⚠️ An agent that never had a token is the COMMON case and is not a
+     failure: `revoke` answers ENOENT with `ok: true`, so this stays quiet for
+     every agent that never spoke. */
+  let tokens;
+  try { tokens = sendertoken.revoke(p.name); } catch (err) {
+    tokens = { ok: false, because: String((err && err.message) || err) };
+  }
+  if (tokens && tokens.ok === true) {
+    steps.push({ step: 'its sender tokens', ok: true });
+  } else {
+    stuck.push('its sender tokens');
+    steps.push({ step: 'its sender tokens', ok: false, because: (tokens && tokens.because) || 'no reason given' });
+  }
   if (stuck.length) {
     return {
       outcome: gone.length ? OUTCOME.PARTIAL : OUTCOME.REFUSED,
