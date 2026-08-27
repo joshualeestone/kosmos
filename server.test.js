@@ -9335,8 +9335,13 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
     return new Function('document', helper + '\n' + sc3.slice(at, end) + '\nreturn ' + name + ';')({ getElementById: el });
   };
 
-  for (const [paint, toggle, msg] of [['tellPaint', 'tell-toggle', 'tell-msg'],
-    ['autoPaint', 'auto-toggle', 'auto-msg']]) {
+  /* 📌 THE TELL SWITCH IS GONE (Josh, 2026-08-26, item 3): both telemetry rows
+     were removed from Settings and `tellPaint` went with them, so this loop was
+     lifting a function that is not in the page and reporting "tellPaint
+     vanished" as a failure. The rule it checks is unchanged and still worth
+     checking on the switch that survives. engine/notify.test.js pins that the
+     rows stay gone. */
+  for (const [paint, toggle, msg] of [['autoPaint', 'auto-toggle', 'auto-msg']]) {
     const p = lift(paint);
 
     /* Presence before absence: prove it CAN say a real position first, or the
@@ -9374,8 +9379,8 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
    * they drive the painter directly. The defect lives in the seam between the
    * two, which is exactly where a test that only exercises one half cannot see.
    */
-  for (const [refresh, toggle, url] of [['refreshTell', 'tell-toggle', '/api/ping-setting'],
-    ['refreshAutoUpdate', 'auto-toggle', '/api/autoupdate']]) {
+  /* Same removal as above: refreshTell went with the row it refreshed. */
+  for (const [refresh, toggle, url] of [['refreshAutoUpdate', 'auto-toggle', '/api/autoupdate']]) {
     el(toggle).setAttribute('aria-checked', 'false');   // the static markup's lie
     const at = sc3.indexOf('async function ' + refresh + '(');
     assert.ok(at > -1, refresh + ' vanished from the page');

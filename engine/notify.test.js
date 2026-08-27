@@ -111,16 +111,26 @@ test('CONTROL: with no injected sender under test, nothing is sent even when on,
   }
 });
 
-test('the Settings copy says what the payload carries and nothing it does not', () => {
+test('both telemetry rows are GONE from Settings, and stay gone', () => {
+  /* 🛑 THIS ASSERTED THE OPPOSITE UNTIL 2026-08-26. Josh, his item 3: "We are
+     still showing the 'Let Kosmos team know when an agent posts or answers you'
+     section, and the 'Let the Kosmos team know when you create an agent' - they
+     both need to be removed." They were, and this test then failed on copy that
+     no longer existed, taking the whole suite red and refusing every cut.
+     ⭐ It now pins his deletion instead, which is the version of this test that
+     can still be wrong in a useful direction. */
   const page = fs.readFileSync(nodePath.join(__dirname, '..', 'web', 'index.html'), 'utf8');
-  const at = page.indexOf('id="notify-row"');
-  const row = page.slice(at, page.indexOf('id="notify-msg"', at));
-  assert.match(row, /Off by default/);
-  /* Derived from the payload's keys, so a field added to the payload and not
-     to the copy fails here rather than shipping unsaid. */
+  for (const id of ['id="notify-row"', 'id="notify-msg"', 'id="tell-row"']) {
+    assert.equal(page.includes(id), false,
+      'a telemetry row is back in Settings (' + id + '); Josh removed both by name');
+  }
+  /* The control on the control: the section that HELD them must still exist, or
+     this passes because Settings itself went missing. */
+  assert.match(page, /id="auto-row"/,
+    'the Updates section is gone entirely, so the absences above prove nothing');
+  /* ⚠️ And the payload is still shaped, deliberately: engine/notify.js is
+     required by nothing but this file. If a row ever returns, the copy-matches-
+     payload check this replaced is the one to re-derive, not to reinvent. */
   const keys = Object.keys(notify.payload({ kind: 'posted', agent: 'x', project: 'y' }));
-  const said = { agent: /which agent/, kind: /whether it posted or answered/, project: /which project/, at: /when/, installId: /random ID for this install/, id: /one small message each time/i, session: /which agent/ };
-  for (const k of keys) { assert.ok(said[k], 'the payload carries `' + k + '` and the copy has no phrase for it'); assert.match(row, said[k], 'the copy does not say `' + k + '`'); }
-  assert.match(row, /Never the words/);
-  assert.match(page, /\/api\/notify-setting/, 'the switch is not wired to its route');
+  assert.ok(keys.length > 0, 'the payload lost its shape while nothing was watching');
 });

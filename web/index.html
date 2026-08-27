@@ -8467,13 +8467,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            — admitting the gap is the first half, and the second half is
            whether the person can ACT. Now they can: it installs, or it does
            not, and both are real. -->
-      <!-- The standing answer for the same thing (#238). The box on the create
-           page answers for one agent; this answers for good, and it wins. -->
-      <!-- The outbound "something happened" switch (engine/notify.js): the
-           seam a phone notification will ride on, decided now so the web
-           version and the app do not fight later (Josh, 2026-08-23). Off by
-           default, and the copy says exactly what leaves the Mac: who, what,
-           when, never the words. Same row shape as the created ping above. -->
+      <!-- 📌 BOTH TELEMETRY ROWS ARE GONE (Josh, 2026-08-26, his item 3), and
+           their comments went with them. The prose here described two switches
+           that no longer exist, and one line of it still read "Off by
+           default" -- so a search of this file for that copy found it and
+           concluded the rows were still shipping. A comment that outlives its
+           subject is not neutral; it answers questions about code that is not
+           there. engine/notify.js stays on disk, required by nothing but its
+           own test, off by default, with no relay to answer it. -->
 
       <div class="setrow" id="auto-row" style="margin-top:12px;">
         <div><b>Update Kosmos automatically</b>

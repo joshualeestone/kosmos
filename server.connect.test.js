@@ -415,7 +415,16 @@ function connectHarness(st) {
     const frConnPaintProgress = ${realProgress.toString()};
     const frConnPaintUrl = ${realPaintUrl.toString()};
     let __actions = null;
-    function frActions(primary, alt) { __actions = { primary: primary.label, alt: alt && alt.label }; }
+    /* ⚠️ THIS STUB MUST MIRROR THE REAL frActions, INCLUDING ITS GUARD. The page
+       gained "no primary means no action yet" for the screen that searches for
+       agents already on this computer: it paints before it has an answer, and
+       any button it offered then would be a guess. This copy still dereferenced
+       primary.label, so FIVE tests died with "Cannot read properties of null"
+       on a product that was correct -- and a red suite refuses a cut.
+       📌 A stub is a copy of a contract, and it goes stale silently. */
+    function frActions(primary, alt) {
+      __actions = primary ? { primary: primary.label, alt: alt && alt.label } : null;
+    }
     function frGo() {}
     function frRecheck() {}
     function frConnectStart() {}
