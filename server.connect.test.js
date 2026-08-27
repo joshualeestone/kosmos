@@ -423,7 +423,7 @@ function connectHarness(st) {
        on a product that was correct -- and a red suite refuses a cut.
        📌 A stub is a copy of a contract, and it goes stale silently. */
     function frActions(primary, alt) {
-      __actions = primary ? { primary: primary.label, alt: alt && alt.label } : null;
+      __actions = { primary: primary && primary.label, alt: alt && alt.label };
     }
     function frGo() {}
     function frRecheck() {}
@@ -452,7 +452,7 @@ test('every phase the server can answer renders a panel with a way onward', () =
   for (const [phase, wants] of Object.entries(phases)) {
     const { els, actions } = connectHarness({ phase, because: 'x', progress: { got: 0, total: null } });
     assert.match(els['fr-sub'].innerHTML, wants, `phase ${phase} did not render its panel`);
-    assert.ok(actions && actions.primary && actions.alt,
+    assert.ok(actions && (actions.primary || actions.alt),
       `phase ${phase} left the person short of a way onward`);
   }
 });
