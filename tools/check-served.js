@@ -131,6 +131,38 @@ function argAll(name) {
   }
   console.log('bundle self-reports: ' + stamp + '  (agrees with the pointer)');
 
+  /* 🛑 AND NOW READ BACK: DOES THE REPO KNOW ABOUT WHAT WE SHIPPED?
+     Angel's finding, 2026-08-27, and it is the gap every check here had. On the
+     night of the 26th we proved the artifact matched the manifest and the
+     bundle matched its own stamp -- outward, outward, outward. Nobody asked the
+     opposite question, and for five hours `origin/main` said 0.5.76 while
+     0.5.77 was served, WHILE ALL OF US REPORTED THE RELEASE AS VERIFIED.
+     ⚠️ THE COST IS A COLLIDING RELEASE, not an untidy repo. A cut taken from a
+     main that does not know about the shipped version bumps to that SAME
+     version again and publishes a second, different build over it. That is the
+     stacked-versions.html failure one layer up, and it killed a cut the night
+     before.
+     📌 Best-effort: no git, a shallow clone or a detached checkout gives a
+     warning rather than a failure. This tool's job is the served bytes; this
+     arm is a second opinion, and a second opinion that cannot be obtained is
+     not a defect in the first. */
+  try {
+    const head = execFileSync('git', ['show', 'origin/main:package.json'], { cwd: __dirname, encoding: 'utf8' });
+    const repoVersion = JSON.parse(head).version;
+    if (repoVersion !== version) {
+      console.log('');
+      console.error('FAIL  origin/main says ' + repoVersion + ' but ' + version + ' is SERVED.');
+      console.error('      The repo does not know about the build that shipped. A cut taken from');
+      console.error('      main now bumps to ' + version + ' again and publishes a second, different');
+      console.error('      build over the served one. Push the version bump before cutting.');
+      process.exit(1);
+    }
+    console.log('origin/main agrees:  ' + repoVersion + '  (the repo knows what shipped)');
+  } catch (e) {
+    if (/FAIL  origin/.test(String(e && e.message))) throw e;
+    console.log('note: could not read origin/main package.json (' + String(e && e.code || e).slice(0, 40) + '); skipping the repo cross-check.');
+  }
+
   /* 🔑 A FLOOR ON THE POPULATION. A check that counts occurrences and reports
      zero says "I looked and found none" and "I did not look" in the same word.
      If the page came back tiny the extraction is broken, and every ABSENT
