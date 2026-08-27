@@ -488,7 +488,12 @@ fi
 # AGENT_WORKFORCE_DRY_RUN=1, so it is genuinely self-contained the same as
 # render-memory-controls. Proven standalone (9/9, matching #832's own proof)
 # before being added here.
-for n in live-connect render-agent-nav render-busy-line render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change; do
+# render-head-row joins the same way (#1043): its own mktemp roots, its own
+# OS-chosen port, server.js in-process, runs bare. Proven standalone 9/9 --
+# including its 700px negative control, which is the arm that makes the other
+# eight mean anything: a row check that cannot report "not one row" is
+# decoration, and this one was MEASURED reporting it.
+for n in live-connect render-agent-nav render-busy-line render-head-row render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
 sb3="$(new_sandbox)"
