@@ -18,7 +18,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { scriptOf, liftAll, liftConst } = require('./test-support/page');
+const { scriptOf, liftAll, liftConst, FOUND_PAINTER_FNS } = require('./test-support/page');
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = scriptOf(PAGE);
@@ -38,7 +38,7 @@ function paint(agents) {
      Both are lifted REAL rather than stubbed: a copy of either here could drift
      from the shipped screen while this file stayed green. */
   const src = liftConst(SCRIPT, 'FOUND_SEARCH_AT') + '\n'
-    + liftAll(SCRIPT, ['esc', 'foundCountLine', 'foundRowsHtml', 'frPaintFound']);
+    + liftAll(SCRIPT, FOUND_PAINTER_FNS.concat(['frPaintFound']));
   const run = new Function('document', 'FR_FOUND', 'frActions', 'frFinish', 'showTab',
     `${src}\nfrPaintFound();`);
   run(sandbox.document, sandbox.FR_FOUND, sandbox.frActions, sandbox.frFinish, sandbox.showTab);

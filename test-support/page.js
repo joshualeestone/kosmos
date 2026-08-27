@@ -141,4 +141,17 @@ function liftConst(script, name) {
   return m[0].trim();
 }
 
-module.exports = { scriptOf, lift, liftAll, liftConst };
+/**
+ * Everything `frPaintFound` reaches for at page scope.
+ *
+ * 🛑 THREE HARNESSES BUILD THAT PAINTER AND EACH USED TO CARRY ITS OWN LIST. On
+ * 2026-08-27 the painter gained a page-scope helper three separate times, and
+ * each time two harnesses broke with a ReferenceError that READ AS A PRODUCT
+ * DEFECT: "the row paints no undo control, so the success arm has nothing to
+ * reveal". Five tests, all naming a control that was fine.
+ * ⭐ THE COST WAS NEVER THE FIX, IT WAS THE DIAGNOSIS. One list means the next
+ * helper costs one edit, and a missing one fails in a place that names it.
+ */
+const FOUND_PAINTER_FNS = ['esc', 'foundCountLine', 'foundOverflows', 'foundCountRefresh', 'foundRowsHtml'];
+
+module.exports = { scriptOf, lift, liftAll, liftConst, FOUND_PAINTER_FNS };

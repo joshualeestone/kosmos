@@ -47,8 +47,26 @@ test('CONTROL: the extracted function is the real one and can be wrong', () => {
   assert.notEqual(foundCountLine(1, 2, 'x'), foundCountLine(2, 2, ''));
 });
 
-test('with nothing typed, the line says the total and that scrolling reaches it', () => {
-  assert.equal(foundCountLine(14, 14, ''), '14 agents. Scroll to see them all.');
+test('the scroll instruction is a MEASUREMENT, not a row count', () => {
+  /* 🛑 I SHIPPED THIS AS A CONSTANT AND IT WAS FALSE AT SMALL COUNTS. The
+     design's line was written for fourteen rows, which do run past the fold. At
+     three they do not, and the sentence told a person to scroll a list that ends
+     in front of them. ⭐ A false instruction on a screen that is otherwise right
+     is worse than none: it is the READER who ends up feeling wrong.
+     🔑 And a row-count threshold would have been a second wrong constant --
+     where the fold falls depends on the window, not on how many agents somebody
+     has. */
+  assert.equal(foundCountLine(14, 14, '', true), '14 agents. Scroll to see them all.');
+  assert.equal(foundCountLine(3, 3, '', false), '3 agents.');
+  assert.equal(foundCountLine(14, 14, '', false), '14 agents.',
+    'fourteen rows in a tall window do not scroll either');
+});
+
+test('when we cannot tell whether it scrolls, we do not say it does', () => {
+  /* Absent geometry (a stub, a hidden card, a list not yet laid out) arrives
+     undefined, and the arm that says LESS is the one that cannot be wrong. */
+  assert.equal(foundCountLine(3, 3, ''), '3 agents.');
+  assert.equal(foundCountLine(3, 3, '', undefined), '3 agents.');
 });
 
 test('one agent is not "1 agents", and is not told to scroll', () => {
