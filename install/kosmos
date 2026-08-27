@@ -738,6 +738,60 @@ cmd_room() {
   fi
 }
 
+# ⭐ ONE-TIME ADOPTION (#570). Josh ruled it 2026-08-27: mint once for agents
+# Kosmos can already vouch for, then strict from then on.
+#
+# 🛑 DRY RUN BY DEFAULT. `--confirm` is the whole safety design: a one-time
+# widening of trust that can happen by mistyping is not one-time. Nothing else
+# may call this -- not a hook, not startup, not a sync. A sync minting ids for
+# all seventeen agents as a side effect is not hypothetical; it happened on
+# 2026-08-26 at 23:17.
+cmd_adopt() {
+  local confirm=0
+  case "${1:-}" in
+    --confirm) confirm=1 ;;
+    "") ;;
+    *) say "kosmos adopt [--confirm]"; exit 2 ;;
+  esac
+  if [ ! -x "$NODE" ] || [ ! -d "$KOSMOS_HOME/app" ]; then
+    say "Kosmos cannot find its own runtime, so it cannot vouch for anything."
+    exit 2
+  fi
+  KOSMOS_ADOPT_CONFIRM="$confirm" KOSMOS_ADOPT_BY="${USER:-unknown}" \
+  "$NODE" -e '
+    const base = process.argv[1];
+    const status = require(base + "/engine/status");
+    const adopt  = require(base + "/engine/adopt");
+    let rows;
+    try { rows = status.paneRoster(); }
+    catch (e) {
+      /* paneRoster THROWS when tmux could not be asked, rather than answering
+         "no agents". Adoption must refuse there: vouching for a machine we
+         cannot see is the one thing this must never do. */
+      console.log("could not read the agents on this computer, so nothing was vouched for.");
+      process.exit(2);
+    }
+    const p = adopt.plan(rows);
+    if (!p.eligible.length) {
+      console.log("nothing to adopt: " + p.skipped.length + " agent(s) already have provenance or are not ours.");
+      for (const s of p.skipped) console.log("  skip " + s.name + " -- " + s.because);
+      process.exit(0);
+    }
+    console.log(p.eligible.length + " agent(s) would be adopted:");
+    for (const e of p.eligible) console.log("  " + e.name);
+    for (const s of p.skipped) console.log("  skip " + s.name + " -- " + s.because);
+    if (process.env.KOSMOS_ADOPT_CONFIRM !== "1") {
+      console.log("");
+      console.log("Nothing was written. Run: kosmos adopt --confirm");
+      process.exit(0);
+    }
+    const done = adopt.apply(rows, process.env.KOSMOS_ADOPT_BY);
+    for (const d of done) console.log((d.ok ? "  adopted " : "  FAILED  ") + d.name + (d.ok ? " (" + d.instance + ")" : " -- " + d.because));
+    const bad = done.filter((d) => !d.ok).length;
+    process.exit(bad ? 1 : 0);
+  ' "$KOSMOS_HOME/app"
+}
+
 case "${1:-}" in
   start)   cmd_start ;;
   stop)    cmd_stop ;;
@@ -745,6 +799,7 @@ case "${1:-}" in
   status)  cmd_status ;;
   open)    cmd_open ;;
   agents)  cmd_agents ;;
+  adopt)   shift; cmd_adopt "$@" ;;
   version) cmd_version ;;
   msg)     shift; cmd_msg "$@" ;;
   reply)   shift; cmd_reply "$@" ;;

@@ -8528,10 +8528,18 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            same tab. The router half stays: the tunnel is outbound only. -->
       <p>Every phone and computer asks this Mac before it gets in, and you
       can take any of them back here at any time.</p>
-      <p><b>Sign-up is not open yet.</b> When it opens, this is where it
-      happens: your email, a code to confirm it, and this Mac gets an
-      address of its own. Nothing to configure on your router. Plus will
-      be a monthly subscription; the price is not set yet.</p>
+      <!-- #1115. Josh, 2026-08-27 10:50: "Sign-up for the relay will happen
+           ON THE SITE NOT IN THE APP and we'll do it." This paragraph said
+           the opposite, and a person reading it waits HERE for a thing that
+           is going to happen somewhere they have never been shown.
+           ⚠️ THE PRICE IS DELIBERATELY NOT REPEATED HERE. The site publishes
+           it, and a number kept in two places goes wrong in the one nobody
+           is looking at. The old sentence ("the price is not set yet") had
+           already gone false that way. -->
+      <p><b>Sign-up is not open yet.</b> When it opens it happens on the
+      Kosmos website, not in here: your email, a code to confirm it, and
+      your card. Then you sign in to that account here, and this Mac gets
+      an address of its own. Nothing to configure on your router.</p>
     </div>
 
     <div id="plus-flow" hidden>
@@ -13049,8 +13057,13 @@ function paintOrg() {
     /* ⚠️ NOT "nobody reports to anybody": an empty board and a board we have
        not read yet are different, and BOARD_SEEN is the only thing that knows.
        This product's own rule, on a screen that would otherwise draw a lone
-       hub and look complete. */
-    note.textContent = BOARD_SEEN ? 'No agents on this computer yet.' : 'Looking…';
+       hub and look complete.
+       ⚠️ And the noun is "in Kosmos", never "on this computer". We cannot see
+       the computer: discover.js skips an agent with no transcript, and the
+       line above drops one with no sessionName. Both are real agents someone
+       made. "On this computer" is a reading that can be false; what we set up
+       is a record that cannot. */
+    note.textContent = BOARD_SEEN ? 'No agents set up in Kosmos yet.' : 'Looking…';
     // Same correction as the failure path: the container, never its children.
     document.getElementById('orgmap').innerHTML = '';
     ORG_HTML = null;
@@ -13519,8 +13532,19 @@ function boardEmpty() {
       /* #274: the moment a person most needs to look for themselves is the
          moment `tmux ls` says "command not found", because Kosmos ships its
          own tmux off PATH (deliberately). The CLI knows the path, so the
-         command named here is the CLI's own, not the path. */
-      + '<p class="fhint">To look directly, open Terminal and run <code>kosmos agents</code>.</p>'
+         command named here is the CLI's own, not the path.
+         🛑 BEHIND A DISCLOSURE NOW, NOT STANDING (#996). Josh's rule is that we
+         do not tell a non-technical person to open a Terminal, and this was the
+         last place on the page that still did it as a plain instruction. It is
+         also a REAL ESCAPE HATCH from the one screen that has just admitted it
+         cannot see the agents, so deleting it would cost somebody the only way
+         to look for themselves.
+         ⭐ THE DISCLOSURE KEEPS BOTH: invisible to the person the rule protects,
+         and one click away for the person who was already going to type it. The
+         same shape the connect step already uses for "Already use Terminal?",
+         which is the pattern rather than an invention. */
+      + '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
+      + 'Run <code>kosmos agents</code> to look for yourself.</details>'
       + '<button class="btn" type="button" data-board-retry>Try again</button>'
       + '</div>';
   }
