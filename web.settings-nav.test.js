@@ -52,7 +52,16 @@ test('the nav is in the ruled order, only You shows before a click, and the two 
   const gos = [...BODY.matchAll(/<button type="button" data-go="([a-z]+)"/g)].map((m) => m[1]);
   /* Global skills joined after Connections (#478); Plus Account before
      Advanced (Josh, 2026-08-23 19:15). Union merged in landing order. */
-  assert.deepEqual(gos, ['you', 'accounts', 'connect', 'gskills', 'policy', 'talking', 'mac', 'updates', 'plus', 'styles', 'advanced']); // AI policy after Global Skills (#479); Styles before Advanced (#480)
+  /* Token Usage after This computer, before Updates (#853). The SECTION rather
+     than a top-level tab is a ruling with reasoning, not a preference: Josh
+     parked a top-level analytics tab on #250 ("at some point ... but not now"),
+     and today's line reads "I think we have one somewhere but THIS WOULD BE THE
+     BASIS FOR IT" -- the engine feeds that tab, it is not an order to build it.
+     Splinter, 2026-08-27 18:12, recorded so it can be overturned rather than
+     obeyed. ⚠️ The POSITION within the nav is mine and carries no ruling: it sits
+     with the other machine-wide, non-account sections. Moving it costs one line
+     here and one in the page; the SHAPE is the part with a decision behind it. */
+  assert.deepEqual(gos, ['you', 'accounts', 'connect', 'gskills', 'policy', 'talking', 'mac', 'usage', 'updates', 'plus', 'styles', 'advanced']); // AI policy after Global Skills (#479); Styles before Advanced (#480)
   const secs = [...BODY.matchAll(/<section class="dsec" id="s-sec-[a-z]+" data-sec="([a-z]+)"[^>]*?( hidden)?>/g)]
     .map((m) => ({ key: m[1], hidden: !!m[2] }));
   assert.deepEqual(secs.map((s) => s.key), gos, 'the sections are not in the order the nav lists them');

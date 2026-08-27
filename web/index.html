@@ -8503,6 +8503,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <p class="dhint">What your agents actually used, per model, per day. Read from the transcripts on this computer. Nothing here leaves the machine.</p>
       <p id="usage-msg" class="dhint">Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.</p>
       <div id="usage-table"></div>
+      <!-- The engineering-equivalent line, quoted against OUTPUT tokens and
+           saying so in the sentence itself. It sits BELOW the table on purpose:
+           the four classes are the measurement, this is one interpretation of
+           one of them, and putting the interpretation first would make the
+           derived number look like the finding. -->
+      <p id="usage-worth" class="dhint"></p>
     </section>
   </section>
   <section class="dsec" id="s-sec-updates" data-sec="updates" tabindex="-1" aria-label="Updates" hidden>
@@ -16033,6 +16039,50 @@ function settingsGo(section, opts) {
    rescanned on every call and cannot be frozen while it is still accruing), and
    this section repaints on every arrival, so without the guard a person tabbing
    in and out queues a minute of work per visit. */
+/* #853's second half, in Josh's words: "tracking how many tokens they are
+   using and then showing them the dollar engineering costs next to it."
+   🛑 QUOTED AGAINST OUTPUT TOKENS ALONE, AND THE CLASS IS NAMED AT THE NUMBER.
+   The tokens page states the rule this follows: "the class is named at every
+   number on this page rather than explained once at the top", because a caveat
+   at the top does not travel with a figure somebody screenshots. Output is what
+   the models actually produced; cache reads are the same context re-read on
+   every turn, ran 98% of one measured total, and are NOT work. Feeding a
+   combined total into this formula gives an answer about 440x too large, and a
+   number that size reads as a triumph rather than an error, so nobody
+   challenges it.
+   ⚠️ BOTH CONSTANTS ARE DISPLAY LAYER AND BELONG TO A PERSON, NOT TO THE ENGINE.
+   The rate is Josh's own ($100/hr) and the conversion is Koalr's (750,000
+   tokens to an eight-hour engineer-day), the same pair the published page uses.
+   They are here, together, so changing them is one edit in one place and so
+   that nobody has to reverse-engineer where a dollar figure came from. */
+const USAGE_TOKENS_PER_ENGINEER_DAY = 750000;
+const USAGE_HOURS_PER_ENGINEER_DAY = 8;
+const USAGE_RATE_PER_HOUR = 100;
+function paintUsageWorth(byDay) {
+  const el = document.getElementById('usage-worth');
+  if (!el) return;
+  let output = 0;
+  let cacheRead = 0;
+  for (const day of Object.keys(byDay || {})) {
+    for (const model of Object.keys(byDay[day] || {})) {
+      output += Number((byDay[day][model] || {}).output_tokens) || 0;
+      cacheRead += Number((byDay[day][model] || {}).cache_read_input_tokens) || 0;
+    }
+  }
+  if (!output) { el.textContent = ''; return; }
+  const days = output / USAGE_TOKENS_PER_ENGINEER_DAY;
+  const dollars = days * USAGE_HOURS_PER_ENGINEER_DAY * USAGE_RATE_PER_HOUR;
+  /* The ratio is shown rather than described, because it is the whole reason
+     the smaller number is the honest one and a reader who is not told the size
+     of the gap has no way to judge the claim. */
+  const ratio = output ? Math.round(cacheRead / output) : 0;
+  el.innerHTML = '<b>' + usageNum(output) + ' output tokens</b>, which is what the models actually produced. '
+    + 'At ' + usageNum(USAGE_TOKENS_PER_ENGINEER_DAY) + ' output tokens to an '
+    + USAGE_HOURS_PER_ENGINEER_DAY + '-hour engineer-day and $' + USAGE_RATE_PER_HOUR + ' an hour, that is about '
+    + days.toFixed(1) + ' engineer-days, or $' + usageNum(Math.round(dollars)) + '.'
+    + (ratio > 1 ? ' <span class="dhint">Cache reads over the same period were ' + usageNum(ratio)
+        + ' times larger. They are the same context read again on every turn, so they are deliberately not in this figure.</span>' : '');
+}
 let USAGE_BUSY = false;
 function usageNum(n) {
   const v = Number(n) || 0;
@@ -16082,6 +16132,7 @@ async function paintUsage() {
     msg.textContent = roots === null
       ? 'Counted from the transcripts on this computer.'
       : 'Counted from ' + roots + (roots === 1 ? ' place' : ' places') + ' on this computer that hold transcripts.';
+    paintUsageWorth(byDay);
   } catch (e) {
     msg.textContent = 'We could not read token usage just now.';
     box.innerHTML = '';
