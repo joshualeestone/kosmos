@@ -8367,23 +8367,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            not, and both are real. -->
       <!-- The standing answer for the same thing (#238). The box on the create
            page answers for one agent; this answers for good, and it wins. -->
-      <div class="setrow" id="tell-row" style="margin-top:12px;">
-        <div><b>Let the Kosmos team know when you create an agent</b>
-          <p class="dhint" style="margin:2px 0 0;">One small message each time: that an agent was made, when, which Kosmos version and which macOS, and a random ID for this install, so we can count how many people use Kosmos. Nothing about the agent, and nothing it does.</p></div>
-        <button class="toggle" id="tell-toggle" role="switch" aria-label="Let the Kosmos team know when you create an agent" hidden><i></i></button>
-      </div>
-      <p class="dhint" id="tell-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- The outbound "something happened" switch (engine/notify.js): the
            seam a phone notification will ride on, decided now so the web
            version and the app do not fight later (Josh, 2026-08-23). Off by
            default, and the copy says exactly what leaves the Mac: who, what,
            when, never the words. Same row shape as the created ping above. -->
-      <div class="setrow" id="notify-row" style="margin-top:12px;">
-        <div><b>Let the Kosmos team know when an agent posts or answers you</b>
-          <p class="dhint" style="margin:2px 0 0;">Off by default. One small message each time: which agent, whether it posted or answered, which project, when, and a random ID for this install. Never the words. This is what a phone notification will ride on once Kosmos can reach your phone.</p></div>
-        <button class="toggle" id="notify-toggle" role="switch" aria-label="Let the Kosmos team know when an agent posts or answers you" hidden><i></i></button>
-      </div>
-      <p class="dhint" id="notify-msg" role="status" style="margin:8px 0 0;"></p>
 
       <div class="setrow" id="auto-row" style="margin-top:12px;">
         <div><b>Update Kosmos automatically</b>
@@ -12462,27 +12450,23 @@ function paintSwitch(togId, on) {
   tog.hidden = false;
 }
 
-function tellPaint(r) {
-  /* Three states, and the third is the absence of a control rather than a
-     third position. `null` means we have not read it, not off. */
-  const unread = !r;
-  paintSwitch('tell-toggle', unread ? null : r.on === true);
-  document.getElementById('tell-msg').textContent = unread
-    ? 'We could not read this setting just now.'
-    : (r.ok === false ? 'We could not read this setting, so nothing is sent.' : '');
-}
 /**
  * The create page's copy of the standing answer (#258).
  *
- * ⚠️ THREE STATES, AND THE THIRD IS NOT "ON". `tellPaint` beside this already
- * says why: `null` means we have not read it, which is not off, and the
+ * ⚠️ THREE STATES, AND THE THIRD IS NOT "ON". the Settings row that used to sit beside this said why: `null` means we have not read it, which is not off, and the
  * setting's own message for that case is that nothing is sent. So an
  * unreadable preference disables the box here too, because the engine will
  * refuse on `!pref.on` either way and a checked box would be describing a send
  * that cannot happen.
  *
- * 🔑 IT NEVER WRITES THE SETTING. Unchecking here is about this one agent;
- * the standing answer is changed in Settings and nowhere else.
+ * 🔑 IT NEVER WRITES THE SETTING. Unchecking here is about this one agent.
+ *
+ * ⚠️ AND SINCE 2026-08-26 THIS BOX IS THE ONLY PLACE THE PERSON MEETS THIS
+ * SETTING AT ALL. Josh had both Settings > Updates rows removed (his item 3);
+ * this one stayed because the created-ping defaults to ON (engine/ping.js
+ * returns `{ on: true }` when no preference file exists), and removing every
+ * control while the send stays on is not a tidy-up, it is a removed opt-out.
+ * If this box ever goes too, turn the default off in the same change.
  */
 function createTellPaint(r) {
   const box = document.getElementById('create-tell');
@@ -12507,85 +12491,8 @@ async function refreshCreateTell() {
   } catch { createTellPaint(null); }
 }
 
-async function refreshTell() {
-  const mine = ++TELL_EPOCH;
-  try {
-    const r = await (await fetch('/api/ping-setting')).json();
-    if (mine !== TELL_EPOCH) return;
-    tellPaint(r);
-  } catch {
-    /* 🛑 "THE SWITCH KEEPS ITS LAST HONEST POSITION" WAS TRUE OF EVERY PAINT
-       BUT THE FIRST, and the first is the one that matters: there is no last
-       position, so it kept the static markup and said nothing. From the
-       person's side a throw and an unreadable file are the same situation, so
-       they get the same answer. */
-    if (mine === TELL_EPOCH) tellPaint(null);
-  }
-}
-let TELL_SAVING = false;
-async function tellToggleClick() {
-  if (TELL_SAVING) return;
-  TELL_SAVING = true;
-  const mine = ++TELL_EPOCH;
-  const msg = document.getElementById('tell-msg');
-  try {
-    const on = document.getElementById('tell-toggle').getAttribute('aria-checked') !== 'true';
-    const res = await fetch('/api/ping-setting', {
-      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (mine !== TELL_EPOCH) return;
-    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; return; }
-    tellPaint(body);
-  } catch {
-    msg.textContent = 'We could not save that setting.';
-  } finally {
-    TELL_SAVING = false;
-  }
-}
-document.getElementById('tell-toggle').addEventListener('click', tellToggleClick);
 /* The "something happened" switch, the same three pieces as the created ping
    above: paint from a read, refresh on arrival, save on click. */
-let NOTIFY_EPOCH = 0;
-let NOTIFY_SAVING = false;
-function notifyPaint(r) {
-  const unread = !r;
-  paintSwitch('notify-toggle', unread ? null : r.on === true);
-  document.getElementById('notify-msg').textContent = unread
-    ? 'We could not read this setting just now.'
-    : (r.ok === false ? 'We could not read this setting, so nothing is sent.' : '');
-}
-async function refreshNotify() {
-  const mine = ++NOTIFY_EPOCH;
-  try {
-    const r = await (await fetch('/api/notify-setting')).json();
-    if (mine !== NOTIFY_EPOCH) return;
-    notifyPaint(r);
-  } catch {
-    if (mine === NOTIFY_EPOCH) notifyPaint(null);
-  }
-}
-async function notifyToggleClick() {
-  if (NOTIFY_SAVING) return;
-  NOTIFY_SAVING = true;
-  const mine = ++NOTIFY_EPOCH;
-  const msg = document.getElementById('notify-msg');
-  try {
-    const on = document.getElementById('notify-toggle').getAttribute('aria-checked') !== 'true';
-    const res = await fetch('/api/notify-setting', {
-      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (mine !== NOTIFY_EPOCH) return;
-    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; return; }
-    notifyPaint(body);
-  } catch {
-    msg.textContent = 'We could not save that setting.';
-  } finally {
-    NOTIFY_SAVING = false;
-  }
-}
-document.getElementById('notify-toggle').addEventListener('click', notifyToggleClick);
 
 let AUTO_EPOCH = 0;
 function autoPaint(r) {
@@ -12670,8 +12577,6 @@ function pjScreenOnScreen() {
 }
 refreshEngMode();
 refreshAutoUpdate();
-refreshTell();
-refreshNotify();
 refreshYou();
 document.getElementById('set-reveal').addEventListener('click', async () => {
   const msg = document.getElementById('set-reveal-msg');
