@@ -29055,7 +29055,11 @@ function frPaintFound() {
        thing on the screen that says how many rows there are when the list runs
        past the fold, and the only thing that says how to get back once a search
        has narrowed it. */
-    + '<p class="dhint" id="fr-foundcount">' + esc(foundCountLine(n, n, '')) + '</p>';
+    + '<p class="dhint" id="fr-foundcount">' + esc(foundCountLine(n, n, '', false)) + '</p>';
+  /* Painted without the scroll clause, then corrected once the browser has laid
+     the list out. One transition, and neither state is a false claim: the first
+     says less than it could, the second says what is true. */
+  foundCountRefresh();
   /* 🛑 `Continue`, NOT "Take me to my agents". Nothing has been added, so the
      board still shows what tmux shows -- and somebody whose agent has not run
      since Tuesday would press that button and land on a board without them,
@@ -29076,6 +29080,31 @@ function frPaintFound() {
  * already pressed -- and this screen is the one place where a person may press
  * four buttons in a row. The row edits itself instead.
  */
+/**
+ * Does the found list actually run past the fold?
+ *
+ * 🔑 THE SCROLLING ELEMENT IS `.fr-body`, not the list: the sticky-footer layout
+ * makes the card a bounded flex column whose body scrolls while Continue stays
+ * put. Asking the list would compare it against its own height and always say no.
+ *
+ * ⚠️ IT RETURNS FALSE WHEN IT CANNOT TELL, which is the arm that says less. A
+ * stub with no geometry, a hidden card, a list not yet laid out: all of those
+ * answer "no scrolling", so the sentence is dropped rather than asserted.
+ */
+function foundOverflows() {
+  const body = document.querySelector && document.querySelector('#firstrun .fr-body');
+  if (!body || typeof body.scrollHeight !== 'number' || typeof body.clientHeight !== 'number') return false;
+  return body.scrollHeight > body.clientHeight + 1;
+}
+
+/** Re-state the count line against the geometry as laid out. */
+function foundCountRefresh() {
+  const line = document.getElementById('fr-foundcount');
+  const rows = document.querySelectorAll ? document.querySelectorAll('.fr-foundrow') : null;
+  if (!line || !rows || !rows.length) return;
+  line.textContent = foundCountLine(rows.length, rows.length, '', foundOverflows());
+}
+
 /* The design's threshold for the search box, in one place. */
 const FOUND_SEARCH_AT = 30;
 
@@ -29090,9 +29119,24 @@ const FOUND_SEARCH_AT = 30;
  * it names what was typed, gives the total, and says how to get back. "No
  * results" alone would be the one arm on this screen with no way out.
  */
-function foundCountLine(shown, total, term) {
+function foundCountLine(shown, total, term, overflows) {
   const agentWord = total === 1 ? '1 agent' : total + ' agents';
-  if (!term) return total === 1 ? '1 agent.' : agentWord + '. Scroll to see them all.';
+  /* 🛑 "SCROLL TO SEE THEM ALL" IS A CLAIM ABOUT THE SCREEN, AND I SHIPPED IT AS
+     A CONSTANT. The design's line was written for fourteen rows, which do run
+     past the fold; at three they do not, and the sentence told a person to
+     scroll a list that ends in front of them. A false instruction on a screen
+     that is otherwise right is worse than no instruction: it is the reader who
+     ends up feeling wrong.
+     ⭐ MEASURED, NOT GUESSED AT WITH A ROW COUNT. Where the fold falls depends
+     on the window, not on how many agents somebody has, so a threshold here
+     would be a second wrong constant replacing the first. `overflows` comes from
+     the element that actually scrolls.
+     ⚠️ ABSENT MEANS ABSENT, DELIBERATELY. Under a harness with stubbed elements
+     there is no geometry to read, so this arrives undefined and the clause is
+     dropped -- the arm that says LESS. A default of true would have every test
+     asserting an instruction no test can see. */
+  if (!term) return total === 1 ? '1 agent.'
+    : agentWord + (overflows ? '. Scroll to see them all.' : '.');
   if (shown === 0) return 'Nothing matches \u201C' + term + '\u201D. Clear the box to see all ' + agentWord + '.';
   return 'Showing ' + shown + ' of ' + total + '. Clear the box to see them all.';
 }
@@ -29123,7 +29167,7 @@ document.addEventListener('input', (e) => {
     if (hit) shown += 1;
   });
   const line = document.getElementById('fr-foundcount');
-  if (line) line.textContent = foundCountLine(shown, rows.length, String(box.value || '').trim());
+  if (line) line.textContent = foundCountLine(shown, rows.length, String(box.value || '').trim(), foundOverflows());
 });
 
 document.addEventListener('click', async (e) => {

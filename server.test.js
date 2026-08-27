@@ -5077,7 +5077,8 @@ function firstRunHarness(name, state, opts = {}) {
        number and the suite would stay green while the screen changed. The
        constant is injected as its own SOURCE LINE out of the page. */
     ${pageConst('FOUND_SEARCH_AT')}
-    const foundCountLine = ${pageFunction('foundCountLine').toString()};
+    ${require('./test-support/page').FOUND_PAINTER_FNS.filter((n) => n !== 'esc' && n !== 'foundRowsHtml')
+        .map((n) => 'const ' + n + ' = ' + pageFunction(n, 'const esc = ' + realEsc.toString() + ';').toString() + ';').join('\n    ')}
     /* The REAL row painter, shared with the board's own found list. Stubbing it
        would put every assertion below about a row against markup written here
        instead of the markup that ships. */
@@ -5089,7 +5090,8 @@ function firstRunHarness(name, state, opts = {}) {
       'const esc = ' + realEsc.toString() + ';\nlet FR_FOUND = null; function frActions() {} '
       + 'function frFinish() {} function showTab() {} const document = { getElementById: () => ({}) };\n'
       + pageConst('FOUND_SEARCH_AT') + '\n'
-      + 'const foundCountLine = ' + pageFunction('foundCountLine').toString() + ';\n'
+      + require('./test-support/page').FOUND_PAINTER_FNS.filter((n) => n !== 'esc' && n !== 'foundRowsHtml')
+          .map((n) => 'const ' + n + ' = ' + pageFunction(n, 'const esc = ' + realEsc.toString() + ';').toString() + ';').join('\n') + '\n'
       + 'const foundRowsHtml = ' + pageFunction('foundRowsHtml', 'const esc = ' + realEsc.toString() + ';').toString() + ';').toString() + ';'}
     
     let __actions = null;
