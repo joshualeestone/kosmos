@@ -7475,7 +7475,19 @@ test('the search is wired: pack markup verbatim, instant repaint, reset on switc
      asserting the BRACE STYLE of a line whose behaviour had not changed. The
      guard is the condition; how many statements sit under it is not this test's
      business. */
-  assert.match(paint, /if \(!filtering\)\s*\{?\s*box\.scrollTop/,
+  /* 🛑 AND IT MOVED AGAIN (2026-08-27). The markup write and the scroll decision
+     used to sit apart inside paintRoom, and nothing put a reader back after the
+     write that clamped them -- Josh's bounce, all three triggers. They are one
+     function now, paintThreadInto. This asserts the same guard at its new
+     address, AND that paintRoom still hands the flag over: a guard nobody passes
+     `filtering` to is not a guard, and splitting the check in two is what let
+     the room drift from the thread in the first place.
+     ⭐ The BEHAVIOURAL version of this line is in web.room-scroll.test.js, which
+     drives a container that clamps. A source match cannot see a reader move; if
+     the two ever disagree, believe the one that measures. */
+  assert.match(paint, /paintThreadInto\(box, html, [^)]*filtering\)/,
+    'paintRoom no longer hands the filtering flag to the painter, so nothing can honour it');
+  assert.match(pageFnSource('paintThreadInto'), /if \(!filtering\s*&&/,
     'a filtered paint scrolls the reader to the tail');
   // The no-match state is HER sentence (ruled 10:16 PM): names the
   // query, says the way out.
