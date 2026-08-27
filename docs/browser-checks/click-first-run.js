@@ -199,9 +199,23 @@ async function fresh(browser, opts = {}) {
     await page.fill('#fr-you-do', 'Testing the create path');
     await page.click('#fr-next');
     await page.waitForSelector('#fr-pane-5', { state: 'hidden', timeout: 5000 });
-    ok(/Create your first agent/.test(await page.locator('#fr-title').textContent()), 'on the create ending');
-    ok(/Create my first agent/.test(await page.locator('#fr-next').textContent()),
-      'the create ending carries the pack\'s single action');
+    /* 🛑 THE CREATE ARM PAINTS TWICE AND THIS ASSERTED ON THE FIRST PAINT.
+       It renders "Looking for agents already here" and RETURNS while
+       frFindAgents() reads the disk, then repaints to the real ending. Reading
+       the title the moment the pane hides catches the interim screen.
+       ⭐ THE FAILURE SHAPE SAID SO AND I MISREAD IT ONCE ALREADY: the title and
+       the button failed while the CLICK immediately after them passed and
+       opened the create panel. A screen that is wrong and then right is a
+       race; a screen that is wrong throughout is a wrong screen. */
+    await page.waitForFunction(
+      () => !/Looking for agents/i.test((document.querySelector('#fr-title') || {}).textContent || ''),
+      null, { timeout: 5000 });
+    const endTitle = await page.locator('#fr-title').textContent();
+    const endAction = await page.locator('#fr-next').textContent();
+    // The seen text rides the message: a future failure should say what it saw.
+    ok(/Create your first agent/.test(endTitle), `on the create ending (saw ${JSON.stringify(endTitle)})`);
+    ok(/Create my first agent/.test(endAction),
+      `the create ending carries the pack's single action (saw ${JSON.stringify(endAction)})`);
     await page.click('#fr-next');
     await page.waitForTimeout(800);
     ok(await page.isHidden('#firstrun'), 'the overlay got out of the way');

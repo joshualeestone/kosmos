@@ -258,6 +258,19 @@ write_fleet_rich() {
   printf '%s\n' '{"role":"helper"}' \
     > "$sb/data/AgentWorkforce/profiles/brigitte.json"
 }
+# 🛑 THE BOARD SCANS THE OPERATOR'S REAL $HOME UNLESS THIS IS SET.
+# `status.configRoots()` (engine/status.js:56) returns [CONFIG_ROOT] when the
+# variable is set and otherwise walks $HOME for `.claude*`. This harness set it
+# NOWHERE, so every board booted here has been reading whatever agents happen to
+# live on the machine running the checks.
+# ⭐ IT IS A FALSE-GREEN MACHINE, NOT JUST NOISE: the first-run create ending
+# calls frFindAgents() and paints the FOUND screen instead whenever that scan
+# returns anything, so a check asserting the create ending passes or fails on
+# how many agents the operator happens to have. Mine passed on my own sandboxed
+# board and failed in the suite for exactly this reason, and the difference was
+# invisible in both transcripts.
+# 📌 Same defect as #1134, which fixed only docs/browser-checks/thread-server.js.
+# The default is per-sandbox so each board is isolated; a caller may override.
 boot_board_rich() {
   local sb="$1" port="$2"
   write_fleet_rich "$sb"
@@ -265,6 +278,7 @@ boot_board_rich() {
     AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
     AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
+    AGENT_WORKFORCE_CONFIG_ROOT="${AGENT_WORKFORCE_CONFIG_ROOT:-$sb/config}" \
     PORT="$port" node ./server.js > "$sb/server.log" 2>&1 &
   SERVER_PIDS+=("$!")
   wait_up "$port" "$sb/server.log"
@@ -276,6 +290,7 @@ boot_board() {
     AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
     AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
+    AGENT_WORKFORCE_CONFIG_ROOT="${AGENT_WORKFORCE_CONFIG_ROOT:-$sb/config}" \
     PORT="$port" node ./server.js > "$sb/server.log" 2>&1 &
   SERVER_PIDS+=("$!")
   wait_up "$port" "$sb/server.log"
@@ -359,15 +374,15 @@ free_port() {
 }
 pick_ports() {
   local picked=() p n
-  while [ "${#picked[@]}" -lt 11 ]; do
+  while [ "${#picked[@]}" -lt 12 ]; do
     p="$(free_port)"
     for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
     [ -n "$p" ] && picked+=("$p")
   done
-  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"
 }
 pick_ports
-log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 (chosen by the OS, #633)"
+log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 (chosen by the OS, #633)"
 
 # --- 1. regress-a-night: a night's releases still COMPOSE --------------------
 # The one check that asserts the whole board still hangs together (three
@@ -630,6 +645,24 @@ fi
 # 2026-08-27 (exit 0, "TOAST DRIVE OK"); wired here so it runs in position like
 # everything else rather than only when somebody remembers it (#1072).
 run_one "render-update-toast" env SHOT_DIR="$RUN_DIR/shots-toast" node docs/browser-checks/render-update-toast.js
+
+# --- click-first-run: the whole wizard, clicked like a person -------------
+# 🛑 ITS OWN BOARD, NOT THE SHARED RICH ONE. `fresh()` deletes the first-run
+# flag and the you.json before EVERY section, and the walk completes onboarding
+# and opens the create panel. On a board its siblings also use, that is a check
+# rewriting the fixture underneath them.
+# ⚠️ AND IT NEEDS A FLEET: the step-6 ending is chosen by fleetCount, so on an
+# empty board it takes the neutral two-action arm and the adopt assertions fail
+# for a reason that is about the fixture. boot_board_rich supplies one.
+# The FLAG argument is the sandboxed first-run.json, so nothing touches the
+# operator's own.
+sbc="$(new_sandbox)"
+if boot_board_rich "$sbc" "$P12"; then
+  run_one "click-first-run" env KOSMOS_URL="http://127.0.0.1:$P12" HEADED=0 \
+    node docs/browser-checks/click-first-run.js "$sbc/data/AgentWorkforce/first-run.json"
+else
+  FAILED+=("click-first-run (board did not boot)")
+fi
 
 sb3="$(new_sandbox)"
 if boot_thread_server "$sb3" "$P3"; then

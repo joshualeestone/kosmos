@@ -56,6 +56,73 @@ function configRoots() {
   if (process.env.AGENT_WORKFORCE_CONFIG_ROOT) {
     return [process.env.AGENT_WORKFORCE_CONFIG_ROOT];
   }
+
+  /* 🛑 A SANDBOXED PROCESS MUST NOT READ THE OPERATOR'S REAL AGENTS.
+     Setting the variable in one harness fixes that harness. This refuses for
+     every harness anyone writes next, including the one that does not exist
+     yet and will forget, which is exactly what happened when #1134 fixed
+     docs/browser-checks/thread-server.js and left tools/browser-checks.sh
+     reading this Mac for weeks.
+
+     ⭐ IT KEYS ON AN INCONSISTENT SANDBOX, NOT ON "am I a test". A process
+     whose data dir is a temp dir has declared itself a fixture; if its HOME is
+     still the real one, the scan below is about to walk the operator's machine
+     and every assertion downstream becomes a fact about whoever ran it.
+
+     ⚠️ DIRECTION IS DELIBERATE: it can only ever stop a fixture, never a user.
+     Production sets AGENT_WORKFORCE_DATA to Application Support, which is not
+     under the temp dir, so this cannot fire for somebody running Kosmos. A
+     test that sandboxes HOME instead of CONFIG_ROOT is already safe and is
+     left alone.
+
+     🛑 THE ONE SHAPE THAT WOULD BREAK THIS, WRITTEN DOWN BECAUSE IT DOES NOT
+     EXIST YET AND SO CANNOT BE TESTED: a caller that stages its data dir in
+     temp while doing REAL work needing the operator's own `~/.claude`.
+     First-run import is exactly that kind of work. Safe today, checked
+     rather than assumed: install/setup.sh uses "$KOSMOS_HOME/data" and
+     cannot fire, and tools/build-kosmos-bundle.sh stages to mktemp and DOES
+     fire, which is correct because its smoke asserts only that the app
+     announces a port, answers, and returns its own page, nothing about the
+     roster. If you are adding an installer smoke that stages to temp AND
+     asserts the import found real agents, this guard is what fails it, and
+     the fix is to set AGENT_WORKFORCE_CONFIG_ROOT deliberately rather than
+     to widen the condition. */
+  /* ⚠️ `/tmp` IS NOT `os.tmpdir()` ON macOS, and keying on one of them
+     alone leaves the other wide open. os.tmpdir() here is /var/folders/.../T,
+     so a fixture sandboxed to /tmp was NOT caught: my own board did exactly
+     that and reported "We found 17 agents on this Mac". I only saw it because
+     of the seen-text I had added to the assertion minutes earlier. Both roots
+     count, and they are resolved because /tmp is a symlink to /private/tmp. */
+  /* 🛑 COMPARE BOTH RESOLVED AND UNRESOLVED, ON BOTH SIDES. My first version
+     realpath'd only the ROOTS, and on macOS /var is a symlink to /private/var,
+     so the root became /private/var/folders/.../T while the candidate stayed
+     /var/folders/.../T and the guard stopped firing entirely. My own probe
+     caught it one command after I wrote it; nothing else would have, because a
+     guard that has quietly stopped firing looks exactly like a guard with
+     nothing to catch. */
+  const TMP_ROOTS = [];
+  for (const d of [os.tmpdir(), '/tmp']) {
+    const r = path.resolve(d);
+    TMP_ROOTS.push(r);
+    try { const rp = fs.realpathSync(d); if (rp !== r) TMP_ROOTS.push(rp); } catch { /* absent is fine */ }
+  }
+  const under = (d) => {
+    if (!d) return false;
+    const cands = [path.resolve(d)];
+    try { cands.push(path.join(fs.realpathSync(path.dirname(d)), path.basename(d))); } catch { /* parent may not exist yet */ }
+    return cands.some((c) => TMP_ROOTS.some((t) => c === t || c.startsWith(t + path.sep)));
+  };
+  if (under(process.env.AGENT_WORKFORCE_DATA) && !under(HOME)) {
+    /* ⚠️ IT RETURNS AN EMPTY SANDBOX RATHER THAN THROWING, AND THE DIFFERENCE
+       IS MEASURED, NOT PREFERRED. Throwing here failed 161 of 2374 tests, so
+       it could not land; and 161 reds all saying the same thing would have
+       been read as "the guard is wrong" rather than as the exposure it is.
+       Returning a path that does not exist gives a fixture the answer a
+       fixture should get, nothing, and leaves exactly the tests that really
+       depended on the operator's machine failing, which is the list worth
+       having. */
+    return [path.join(process.env.AGENT_WORKFORCE_DATA, 'no-config-root-sandbox')];
+  }
   const roots = [];
   let entries = [];
   try {
