@@ -152,6 +152,11 @@ function utcDay(isoTimestamp) {
  * config roots read" rather than imply completeness it cannot back up.
  */
 async function scanUsage({ sinceDay, untilDay }) {
+  /* Scan-wide, not per file: a message id identifies one assistant message
+     across the whole read, and the same message can appear in more than one
+     file (a session transcript and a resumed copy of it). Per-file dedup would
+     leave that case counted twice. */
+  const seenIds = new Set();
   const roots = configRoots();
   const days = {};
   for (const root of roots) {
@@ -169,6 +174,25 @@ async function scanUsage({ sinceDay, untilDay }) {
         if (!day) continue;
         if (sinceDay && day < sinceDay) continue;
         if (untilDay && day > untilDay) continue;
+            /* 🛑 ONE MESSAGE IS COUNTED ONCE, NOT ONCE PER LINE THAT MENTIONS IT.
+               A transcript writes the SAME assistant message's usage on more than one
+               line, with identical numbers. Measured 2026-08-27 across 40 transcripts
+               on this machine: 27,139 usage-bearing rows carrying only 12,169 distinct
+               message ids, a ratio of 2.23; of the repeats, 9,256 were identical and
+               ZERO differed. They are not increments to add up, they are the same fact
+               restated, and summing them multiplied every token count by about 2.2.
+               ⇒ NOT A ROUNDING PROBLEM. This figure feeds a dollar amount on a page
+               shown to people, and a number 2.2x too large reads as an achievement
+               rather than an error, so nobody challenges it. Caught only because a
+               second surface existed to disagree: the published tokens page reported
+               FEWER output tokens over 38 days than this engine reported over 7, which
+               is impossible on one population.
+               ⚠️ A row with no message id cannot be deduplicated and is still counted:
+               dropping it would trade an overcount for a SILENT undercount. */
+            if (message.id) {
+              if (seenIds.has(message.id)) continue;
+              seenIds.add(message.id);
+            }
         const model = message.model || 'unknown';
         if (!days[day]) days[day] = {};
         if (!days[day][model]) days[day][model] = emptyBuckets();
@@ -190,7 +214,18 @@ function frozenDayPath(day) {
   // day is always a YYYY-MM-DD string produced by utcDay()/todayUtc(), never
   // caller-supplied, so no path-traversal guard is needed the way safeKey()
   // guards an untrusted agent name elsewhere in this codebase.
-  return path.join(USAGE_DIR, `${day}.json`);
+  /* 🛑 THE `.v2` IS A CACHE INVALIDATION AND IT IS LOAD-BEARING. Every frozen
+     file written before the message-id deduplication above holds a figure about
+     TEN TIMES too large, and a completed day is never rescanned once frozen. So
+     shipping the dedup alone would fix today and leave every past day wrong
+     forever, which is the worse failure: a number that is right at the front and
+     wrong behind it invites nobody to check.
+     Versioning the FILENAME rather than adding a field inside means old files
+     are simply never read again. No migration, no shape change, and if this
+     count is ever corrected again the next author bumps one string. The orphans
+     are small JSON and harmless; deleting them is a separate tidy, not a
+     correctness step. */
+  return path.join(USAGE_DIR, `${day}.v2.json`);
 }
 
 function todayUtc() {
