@@ -205,7 +205,17 @@ async function measure(engine, scheme) {
           const bgDecl = (rule.style.getPropertyValue('background')
             || rule.style.getPropertyValue('background-color') || '').trim();
           if (/^(none|transparent|rgba\(0,\s*0,\s*0,\s*0\))$/i.test(bgDecl)) {
-            for (const m of rule.selectorText.matchAll(/[.#]([a-z][a-z0-9_-]*)/gi)) BARE.add(m[0]);
+            /* ⚠️ THE SUBJECT OF THE SELECTOR, NOT EVERY TOKEN IN IT. The first
+               version took all of them, so `.dbox .btn { background:
+               transparent }` marked `.dbox` -- an ANCESTOR that paints a real
+               surface -- as transparent by declaration, and the exemption then
+               excused a container that was never excused. A red control caught
+               it: with `.dbox`'s own background stripped it still passed. The
+               declaration belongs to the last compound of each comma-part. */
+            for (const part of rule.selectorText.split(',')) {
+              const subject = part.trim().split(/[\s>+~]+/).filter(Boolean).pop() || '';
+              for (const m of subject.matchAll(/[.#]([a-z][a-z0-9_-]*)/gi)) BARE.add(m[0]);
+            }
           }
           if (!rule.style.getPropertyValue('--field-fill')) continue;
           for (const m of rule.selectorText.matchAll(/[.#]([a-z][a-z0-9_-]*)/gi)) {
