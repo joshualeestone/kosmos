@@ -29044,6 +29044,29 @@ function frPaintFound() {
  * already pressed -- and this screen is the one place where a person may press
  * four buttons in a row. The row edits itself instead.
  */
+/**
+ * The "I already have agents" disclosure on the empty arm (kosmos#1078).
+ *
+ * 🛑 PAGE SCOPE AND DELEGATED, NOT WIRED INSIDE THE PAINTER, and the first
+ * version was wired inside it. `frPaintFleet` runs under a harness that stubs
+ * the DOM, and the stub elements have no `addEventListener` -- so binding
+ * during the paint threw `link.addEventListener is not a function` and took
+ * down `server.test.js`'s "somebody who already has agents is never told they
+ * have none", which is THE test for the defect this control exists to soften.
+ * ⭐ THE TEST THAT BROKE WAS THE ONE THAT MATTERED, which is the only reason I
+ * ran it. Same shape as every other painted control on this screen: the found
+ * list delegates too, for its own reason, and the reasons agree.
+ */
+document.addEventListener('click', (e) => {
+  const link = e.target.closest && e.target.closest('#fr-havealready');
+  if (!link) return;
+  const note = document.getElementById('fr-havealready-note');
+  if (!note) return;
+  const opening = note.hidden;
+  note.hidden = !opening;
+  link.setAttribute('aria-expanded', opening ? 'true' : 'false');
+});
+
 document.addEventListener('click', async (e) => {
   const go = e.target.closest && e.target.closest('.fr-foundgo');
   if (!go || go.disabled) return;
@@ -29368,15 +29391,6 @@ function frPaintFleet() {
       + '<p class="dhint" id="fr-havealready-note" style="margin:6px 0 0;" hidden>'
       + 'Agents you have already made show up here once they have been run at'
       + ' least once.</p>';
-    {
-      const link = document.getElementById('fr-havealready');
-      const note = document.getElementById('fr-havealready-note');
-      link.addEventListener('click', () => {
-        const open = note.hidden;
-        note.hidden = !open;
-        link.setAttribute('aria-expanded', open ? 'true' : 'false');
-      });
-    }
     frForkActions();
     return;
   }
