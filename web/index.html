@@ -27519,10 +27519,14 @@ async function frPaintMachine() {
   box.innerHTML = checks.map((c) => frCheckRow(c)).join('')
     // ⚠️ Says what to do about it, and says it is not a wall. §125: guide, do
     // not error — first run never blocks on anything it finds here.
-    + (checks.some((c) => c.state !== 'ok')
-      ? '<div class="fr-note">You can carry on either way. Nothing here stops you setting up '
-        + 'an agent, and you can change any of it later.</div>'
-      : '');
+    /* 🛑 GONE (Josh, item 12): "Let's remove all of that as well as the bounding
+       box that that message is in."
+       The rule it served -- first run GUIDES, it never blocks -- is not carried
+       by a reassurance paragraph. It is carried by nothing on this screen
+       stopping you, which a person discovers by pressing Continue and having it
+       work. A sentence saying "this is not a wall" is only needed on a screen
+       that looks like one. */
+    + '';
   /**
    * ⚠️ COUNTED APART, never added together. "Two things need your attention"
    * over one real problem and one thing we could not read is false about half
@@ -28893,6 +28897,20 @@ function frPaintFleet() {
      machine, so the miss would be invisible to whoever tested it. The pack
      copy is unchanged from when this line opened the flow: it names no
      folder, so it is true in every app-location state and needs no variants. */
+  /* 🛑 NOT DELETED, AND THIS IS THE ONE PLACE I HAVE GONE AGAINST JOSH'S LIST.
+     Item 13: "Let's delete all of that text as well because we already covered
+     that in the very first initial step."
+     ⚠️ IT IS NOT COVERED THERE. Searched the whole first-run flow: the only
+     other mention of the Dock before this step is the COMMENT above explaining
+     why the line was moved HERE, and Settings has its own separate line on the
+     This computer page. Deleting this removes the only way back from the entire
+     first-run flow, on all three endings, and `server.test.js` asserts it on
+     each of them by name.
+     📌 The reason it sits on the last step is recorded and answers his premise
+     directly: "you drag something to your Dock because you expect to want it
+     again, and before they have used it they don't have the motive" (#2026-08-22).
+     ⇒ Raised with him rather than executed. If he still wants it gone once he
+     knows it is the only copy, it is one line. */
   document.getElementById('fr-fleet-dock').innerHTML =
     '<p><b>Keep it one click away.</b> Drag Kosmos onto the Dock, the strip '
     + 'of icons along the edge of your screen.</p>';
@@ -28991,20 +29009,38 @@ function frPaintFleet() {
        round, because the pack was the thing that was wrong. The outstanding-
        check notes stay beneath: the check screen must never be contradicted
        one screen later. */
-    box.innerHTML = (FR_FOUND.ok
-        ? '<p>We looked, and did not find any agents already here.</p>'
-        : '<p>We could not look for agents already on this computer, so we cannot say whether there are any.</p>')
-      + '<p>Two questions: what it is for, and what to call it.</p>'
-      + (!checked
-        ? '<div class="fr-note">We did not get to look over this computer, so we cannot say '
-          + 'in advance whether everything an agent needs is in place. You will find out when '
-          + 'you make one, and it will tell you.</div>'
-        : snags.length
-          ? '<div class="fr-note"><b>' + (snags.length === 1 ? 'One thing' : snags.length + ' things')
-            + ' from the earlier screen ' + (snags.length === 1 ? 'is' : 'are') + ' still outstanding.</b> '
-            + snags.map((c) => esc(c.title)).join('. ') + '. An agent made now may not run until '
-            + 'that is sorted.</div>'
-          : '');
+    /* 🛑 ONE SENTENCE, AND FOUR THINGS DELETED (Josh, 2026-08-26 22:05, item 13).
+       This screen was reporting on ITSELF rather than telling a person what to
+       do next. What went:
+         - "We could not look for agents already on this computer" -- his rule,
+           verbatim: "If we can't look for agents on their computer, let's not
+           indicate that." A screen that opens by confessing what it failed to
+           check reads as broken before anything has gone wrong.
+         - "Two questions: what it is for, and what to call it." He is blunt
+           about this one: "Those are not the two questions. That's remnant
+           copy." It described a form that no longer asks that.
+         - The outstanding-snags note. "I'm still seeing this: this computer
+           goes to sleep after 1 minute... Let's delete that whole message."
+         - The could-not-check note.
+       ⚠️ THE LAST ONE HE DID NOT NAME, and I am flagging rather than hiding it.
+       It is the same sentence as the first in a different costume -- it exists
+       only to say we did not manage to look -- so his stated rule covers it.
+       If he wants a warning back on this screen it should be a warning about
+       HIS machine, not a report on our own uncertainty.
+       ⚠️ AND A REAL WARNING WENT WITH IT: a machine that sleeps after a minute
+       may not run the agent this screen is about to create. He ruled it goes,
+       having read that exact sentence on his own screen. Recorded because the
+       check screen still says it one step earlier, so the fact is not lost --
+       only the repetition. */
+    /* ⚠️ HIS WORDS WERE "something like: Everything's connected. Let's get
+       started." I have kept the second sentence and dropped the first, and the
+       reason is that the first is a CLAIM this screen cannot make on two of its
+       paths: somebody who skipped the check screen, and somebody whose search
+       could not run. Two existing tests catch exactly that -- "a person who
+       never saw the check screen was told everything is in place" -- and they
+       are right. "something like" is latitude, so I took the invitation and
+       left out the assertion. Flagged to him rather than assumed. */
+    box.innerHTML = '<p>Let\u2019s get started.</p>';
     frForkActions();
     return;
   }

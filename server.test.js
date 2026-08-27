@@ -5471,17 +5471,36 @@ test('the fork step does not promise a working agent over a check screen that di
     },
   });
   const out = snagged.els['fr-fleet'].innerHTML;
-  assert.match(out, /still outstanding/, 'made the promise over the top of a real finding');
-  assert.match(out, /Claude Code is not where we expected it/);
-  assert.match(out, /We could not tell whether your agents/,
-    'the "we could not check" rows were dropped, so only two of the three states are honoured');
+  /* 🛑 JOSH OVERRULED THIS ON 2026-08-26 22:05, having read the sentence on his
+     own screen: "I'm still seeing this: this computer goes to sleep after 1
+     minute. An agent made now may not run until I sort. Let's delete that whole
+     message."
+     The ruling this test encoded -- that the fork step must repeat anything the
+     check screen found, so it never promises a working agent over a real
+     finding -- was a good one and it is now his to overrule. The assertion is
+     INVERTED rather than deleted, so the change is a recorded decision instead
+     of a test that quietly stopped existing.
+     📌 THE FACT IS NOT LOST: the check screen one step earlier still states it.
+     What went was the repetition, not the warning. */
+  assert.doesNotMatch(out, /still outstanding/,
+    'the outstanding-snags note is back on the fork step; Josh deleted it by name');
+  assert.doesNotMatch(out, /Claude Code is not where we expected it/,
+    'the check screen\'s findings are being repeated here again');
 
   const never = firstRunHarness('frPaintFleet', {
     FR: { path: 'create', fleetCount: 0, fleetNames: [] },
     FR_MACHINE: null,
   });
-  assert.match(never.els['fr-fleet'].innerHTML, /did not get to look/,
-    'a person who never saw the check screen was told everything is in place');
+  /* 🔑 THE CONCERN SURVIVES, THE MECHANISM CHANGES. This asserted a CONFESSION
+     ("we did not get to look") so nobody would be told everything is fine after
+     skipping the check. Josh deleted the confessions; the copy now makes NO
+     claim at all, so there is nothing to caveat. Asserting the absence of the
+     claim is the stronger form -- it fails if anyone puts an "everything is
+     ready" back, which a confession-shaped test never could. */
+  assert.doesNotMatch(never.els['fr-fleet'].innerHTML, /everything is (connected|in place|ready)/i,
+    'a person who never saw the check screen is being told everything is in place');
+  assert.doesNotMatch(never.els['fr-fleet'].innerHTML, /did not get to look/,
+    'the could-not-check confession is back; Josh removed the screen reporting on itself');
 });
 
 test('the first-run routes answer, and the completion route reports what stuck', async () => {
@@ -9472,9 +9491,22 @@ test('somebody who already has agents is never told they have none', () => {
   /* Looked and found none: says what the search did, not what the machine
      holds (#320). "None on this computer" was a claim about the computer. */
   const empty = firstRunHarness('frPaintFleet', { FR: create, FR_FOUND: { ok: true, agents: [] } });
-  assert.match(empty.els['fr-fleet'].innerHTML, /did not find any agents already here/i);
-  assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /none on this computer/i,
-    'the sentence about the computer is back');
+  /* 🛑 JOSH, item 13: "If we can't look for agents on their computer, let's not
+     indicate that. Let's just have a generic message." Both arms -- looked-and-
+     found-none, and could-not-look -- collapse to one sentence that reports on
+     the PERSON'S state rather than on ours.
+     ⚠️ The distinction this used to guard was real and careful: a search that
+     found nothing is not the same as a search that could not run. It is still
+     real. His point is that neither belongs on the screen that asks somebody to
+     make their first agent, because both are the product talking about itself. */
+  assert.match(empty.els['fr-fleet'].innerHTML, /Let\u2019s get started/i,
+    'the generic opening line is gone from the create-first-agent step');
+  assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /everything is connected|everything is in place/i,
+    'the screen claims everything is connected, which it cannot know on the skipped-check or failed-search paths');
+  assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /could not look|did not find any agents/i,
+    'the screen is reporting on its own search again rather than telling the person what to do');
+  assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /Two questions/i,
+    'the remnant "two questions" copy is back; Josh: "Those are not the two questions"');
   assert.match(empty.els['fr-title'].textContent, /Create your first agent/i);
 
   /* ⚠️ AND A SEARCH THAT COULD NOT RUN IS NOT AN EMPTY MACHINE. This is the same
@@ -9484,10 +9516,15 @@ test('somebody who already has agents is never told they have none', () => {
   const blind = firstRunHarness('frPaintFleet', {
     FR: create, FR_FOUND: { ok: false, agents: [], because: 'we could not look' },
   });
-  assert.match(blind.els['fr-fleet'].innerHTML, /could not look for agents already on this computer/i,
-    'a search that could not run is reported as an empty machine');
+  /* Same inversion, same reason: a failed search must still not CLAIM a result,
+     but it no longer announces that it failed either. Both sentences are gone
+     and the remaining line is neutral on every path. */
   assert.doesNotMatch(blind.els['fr-fleet'].innerHTML, /did not find|none on this computer/i,
     'a failed search is claiming a result');
+  assert.doesNotMatch(blind.els['fr-fleet'].innerHTML, /could not look/i,
+    'the failed-search confession is back on the create-first-agent step');
+  assert.match(blind.els['fr-fleet'].innerHTML, /Let\u2019s get started/i,
+    'the neutral line is missing on the could-not-look path');
   assert.match(blind.els['fr-title'].textContent, /Create your first agent/i,
     'the way forward is gone on a failed search');
 });
