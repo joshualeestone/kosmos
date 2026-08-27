@@ -78,9 +78,22 @@ test('the board-failure escape hatch is a disclosure, and it still exists', () =
   /* 🛑 BOTH HALVES, BECAUSE DELETING THE LINE WOULD ALSO PASS THE TEST ABOVE.
      #274: the moment a person most needs to look for themselves is the moment
      `tmux ls` says "command not found", since Kosmos ships its own tmux off
-     PATH. The escape must survive; only the instruction goes. */
-  const board = PAGE.slice(PAGE.indexOf('boardfail'), PAGE.indexOf('data-board-retry') + 200);
-  assert.ok(board.length > 200, 'the board-failure block moved; re-derive this test');
+     PATH. The escape must survive; only the instruction goes.
+
+     ⚠️ ANCHORED ON THE SENTENCE, NOT ON `boardfail`. The first version sliced
+     from `PAGE.indexOf('boardfail')`, which lands on the CSS RULE 10,000 lines
+     earlier, so the slice was 652,184 characters -- effectively the whole page.
+     It asserted that a hatch exists SOMEWHERE, which was true and meaningless,
+     and it would have stayed green while this block lost its escape entirely.
+     ⭐ A TRUE QUESTION ABOUT THE WRONG SCOPE. Caught by printing the slice
+     length instead of trusting a passing assertion. */
+  const start = PAGE.indexOf('We cannot read your agents right now.');
+  assert.ok(start > -1, 'the board-failure block moved; re-derive this test');
+  const end = PAGE.indexOf('data-board-retry', start);
+  assert.ok(end > start, 'the retry button left this block; re-derive this test');
+  const board = PAGE.slice(start, end + 60);
+  assert.ok(board.length < 4000,
+    `the slice is ${board.length} characters, so it is not this block any more`);
   assert.match(board, /kosmos agents/, 'the escape hatch is gone: nobody can look for themselves any more');
   assert.match(board, /<details class="fr-hatch"><summary>[^<]*Terminal/,
     'the escape is no longer behind a disclosure, so it reads as an instruction again');
