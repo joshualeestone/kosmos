@@ -258,6 +258,19 @@ write_fleet_rich() {
   printf '%s\n' '{"role":"helper"}' \
     > "$sb/data/AgentWorkforce/profiles/brigitte.json"
 }
+# 🛑 THE BOARD SCANS THE OPERATOR'S REAL $HOME UNLESS THIS IS SET.
+# `status.configRoots()` (engine/status.js:56) returns [CONFIG_ROOT] when the
+# variable is set and otherwise walks $HOME for `.claude*`. This harness set it
+# NOWHERE, so every board booted here has been reading whatever agents happen to
+# live on the machine running the checks.
+# ⭐ IT IS A FALSE-GREEN MACHINE, NOT JUST NOISE: the first-run create ending
+# calls frFindAgents() and paints the FOUND screen instead whenever that scan
+# returns anything, so a check asserting the create ending passes or fails on
+# how many agents the operator happens to have. Mine passed on my own sandboxed
+# board and failed in the suite for exactly this reason, and the difference was
+# invisible in both transcripts.
+# 📌 Same defect as #1134, which fixed only docs/browser-checks/thread-server.js.
+# The default is per-sandbox so each board is isolated; a caller may override.
 boot_board_rich() {
   local sb="$1" port="$2"
   write_fleet_rich "$sb"
@@ -265,6 +278,7 @@ boot_board_rich() {
     AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
     AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
+    AGENT_WORKFORCE_CONFIG_ROOT="${AGENT_WORKFORCE_CONFIG_ROOT:-$sb/config}" \
     PORT="$port" node ./server.js > "$sb/server.log" 2>&1 &
   SERVER_PIDS+=("$!")
   wait_up "$port" "$sb/server.log"
@@ -276,6 +290,7 @@ boot_board() {
     AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
     AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
+    AGENT_WORKFORCE_CONFIG_ROOT="${AGENT_WORKFORCE_CONFIG_ROOT:-$sb/config}" \
     PORT="$port" node ./server.js > "$sb/server.log" 2>&1 &
   SERVER_PIDS+=("$!")
   wait_up "$port" "$sb/server.log"
