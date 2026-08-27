@@ -28174,11 +28174,43 @@ function frClaudeConfirmSentence() {
    focus back up several rows on Not now, to a different button. */
 let FR_CONFIRM_OPENER = null;
 
+/**
+ * Close every provider's panel except the one being opened (Josh, 2026-08-26
+ * item 7: "when I opened the ChatGPT one, it should have automatically
+ * collapsed the Claude one but it left the Claude one open").
+ *
+ * ⚠️ Two panels, two DIFFERENT reveal mechanisms -- Claude's is driven by
+ * frClaudeConfirmOpen/Close with an opener it remembers, OpenAI's is an inline
+ * hidden toggle. This closes BOTH by their own means rather than reaching in
+ * and setting `hidden` on each: Claude's close also clears FR_CONFIRM_OPENER
+ * and restores aria-expanded on whichever button actually opened it, and
+ * skipping that is how the row button ends up claiming to control a panel
+ * nobody opened.
+ *
+ * 🔑 It never closes the panel it is asked to keep, so an opener can call it
+ * unconditionally before showing its own.
+ */
+function frCollapseProviders(keep) {
+  if (keep !== 'claude') {
+    const box = document.getElementById('fr-claude-confirm');
+    if (box && !box.hidden) frClaudeConfirmClose();
+  }
+  if (keep !== 'openai') {
+    const flow = document.getElementById('fr-openai-flow');
+    if (flow && !flow.hidden) {
+      flow.hidden = true;
+      const btn = document.getElementById('fr-openai-connect');
+      if (btn && btn.setAttribute) btn.setAttribute('aria-expanded', 'false');
+    }
+  }
+}
+
 function frClaudeConfirmOpen(opener) {
   const box = document.getElementById('fr-claude-confirm');
   const t = document.getElementById('fr-claude-confirm-t');
   const btn = opener || document.getElementById('fr-llm-connect');
   if (!box) return;
+  frCollapseProviders('claude');
   FR_CONFIRM_OPENER = btn || null;
   if (t) t.textContent = frClaudeConfirmSentence();
   box.hidden = false;
@@ -28263,6 +28295,7 @@ document.getElementById('fr-claude-confirm-no').addEventListener('click', () => 
    indirection with nothing to share it with. */
 document.getElementById('fr-openai-connect').addEventListener('click', (e) => {
   const flow = document.getElementById('fr-openai-flow');
+  frCollapseProviders('openai');
   flow.hidden = false;
   e.currentTarget.setAttribute('aria-expanded', 'true');
   document.getElementById('fr-openai-key').focus();
