@@ -715,6 +715,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// the log line repeated with it, forever, in the app's single diagnostic
     /// file. Logged once, like the notice.
     private var loggedVersionMismatch: String?
+    /* 🛑 ONE LINE PER REASON PER LAUNCH, NOT ONE PER NAVIGATION. `didFinish`
+       fires on every main-frame navigation -- Cmd-R, the Settings item's
+       location.assign, the board's own reloads -- so the check below repeats
+       until the notice fires. Logging each quiet exit unlatched would bury the
+       diagnostic file under the same sentence. Keyed like
+       loggedVersionMismatch above rather than a bare flag, so a DIFFERENT
+       reason later still gets its line. */
+    private var loggedQuietStaleReasons = Set<String>()
     /// The port the board was resolved to, kept so the #1042 check can ask it
     /// its version after the page loads. Written once, where the install is
     /// resolved; nil until then, and the check simply does not run.
@@ -783,6 +791,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        🔑 A PURE FUNCTION SO IT CAN BE TESTED. The caller is a URLSession
        callback and no selftest can reach it; this is the part that was wrong,
        and it is now the part that is reachable. Same trick as the hatch above. */
+    /* The stale check's quiet exits, said once each.
+       🛑 WHY THIS EXISTS AT ALL. #1042's symptom is "the notice did not
+       appear", and this function had SIX ways to return having said nothing:
+       no readable app version, an unbuildable URL, no answer from the board,
+       an answer with no readable version, the versions being equal, and the
+       notice already shown. Only the last two are correct silences. The other
+       four left no trace, so a person debugging a missing notice could not
+       tell WHICH of them happened -- or whether the check had run at all.
+       ⚠️ A SILENCE WITH FOUR CAUSES AND ONE APPEARANCE is the same defect the
+       fleet spent 2026-08-27 finding in its own instruments, and this one is
+       in the product, on the card whose whole difficulty is that it cannot be
+       tested on this machine.
+       📌 Says the reason, never a remedy. We have no measured fix for any of
+       these, and inventing one is the defect the card is about. */
+    private func sayQuietStaleReason(_ reason: String) {
+        DispatchQueue.main.async {
+            guard self.loggedQuietStaleReasons.insert(reason).inserted else { return }
+            logLine("stale check said nothing: " + reason)
+        }
+    }
+
     static func staleLogSentence(mine: String, theirs: String, verdict: Bool?) -> String {
         if verdict == nil {
             return "version mismatch, app \(mine) board \(theirs), COULD NOT COMPARE the two versions; saying nothing"
@@ -799,15 +828,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// Ask the board what version it is, once, after the page has loaded.
     private func checkWhetherThisAppIsBehind(port: Int) {
         guard !staleAppNoticeShown else { return }
-        guard let mine = runningAppVersion(),
-              let url = URL(string: "http://127.0.0.1:\(port)/api/status") else { return }
+        guard let mine = runningAppVersion() else {
+            sayQuietStaleReason("this app carries no CFBundleShortVersionString, so there is nothing to compare")
+            return
+        }
+        guard let url = URL(string: "http://127.0.0.1:\(port)/api/status") else {
+            sayQuietStaleReason("could not build the status URL for port \(port)")
+            return
+        }
         var req = URLRequest(url: url)
         req.timeoutInterval = 8
         req.cachePolicy = .reloadIgnoringLocalCacheData
         URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
-            guard let self, let data else { return }
+            guard let self else { return }
+            guard let data else {
+                self.sayQuietStaleReason("the board did not answer /api/status")
+                return
+            }
             guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let theirs = obj["version"] as? String, !theirs.isEmpty else { return }
+                  let theirs = obj["version"] as? String, !theirs.isEmpty else {
+                self.sayQuietStaleReason("the board's answer carried no readable version")
+                return
+            }
+            /* The two CORRECT silences are left silent on purpose: equal
+               versions below, and the notice already shown above. Logging a
+               non-event is how a diagnostic file stops being read. */
             guard theirs != mine else { return }
             /* ⚠️ ONLY THE DIRECTION WE HAVE A MEASURED REMEDY FOR. A board that
                is BEHIND this app is a real mismatch and we have no verified fix
