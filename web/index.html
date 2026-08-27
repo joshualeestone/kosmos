@@ -12085,7 +12085,19 @@ async function paintAccounts() {
     // style, not just taskClaimHtml()'s shorter precedent.
     const noneWhy = (a.connection && a.connection.because) || 'this account is not connected';
     const unknownWhy = (a.connection && a.connection.because) || 'we could not check this account';
-    const connBadge = a.connection && a.connection.state === 'connected' ? '<span class="acct-connected"><span class="dot" aria-hidden="true"></span>Connected</span>'
+    // ⚠️ "Signed in", NOT "Connected" (#874). Josh hit a token that was present
+    // and being rejected 401 ten times in a row while this badge sat green.
+    // Measured 2026-08-27: `claude auth status --json` returns loggedIn:true
+    // for a transparently invalid token (control: an empty config dir returns
+    // false), and NO flag makes it validate -- so the strongest true statement
+    // this check can make is that a credential EXISTS. It cannot see rejection.
+    // His card asked for exactly this: "it should either say so or actually
+    // check"; this is the say-so half. The checking half is a product call, a
+    // live authenticated round trip changes what every check costs. The green
+    // dot he asked for is deliberately unchanged -- the word was the part that
+    // lied, not the colour.
+    const connectedWhy = 'this account is signed in. That does not prove a request would succeed, because a rejected token is not visible from here';
+    const connBadge = a.connection && a.connection.state === 'connected' ? '<span class="acct-connected" title="' + esc(connectedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>'
       : a.connection && a.connection.state === 'none' ? '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>'
       : '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
     return '<div class="acct-box"><div class="acct-box-top"><div class="acct-who"><b>' + who
