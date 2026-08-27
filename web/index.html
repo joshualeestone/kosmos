@@ -13966,6 +13966,11 @@ function threadAtBottom(el) {
   return (el.scrollHeight - el.scrollTop - el.clientHeight) <= THREAD_BOTTOM_SLACK;
 }
 function setThread(el, html, key) {
+  /* ⚠️ THE AGENT THREAD GETS THIS TOO, and not for symmetry: `#d-say` sits
+     under it in the same column, and a thread that never resizes today is one
+     restyle away from resizing tomorrow. The room and the thread are painted by
+     different functions, which is exactly how the room missed the last fix. */
+  holdFloorOnResize(el);
   /* 🛑 THE THING THAT MOVES THE READER IS THE MARKUP WRITE, NOT A SCROLL LINE
      (#1037). Every not-a-list arm -- opening, unreadable, nothing yet --
      replaces the whole thread with a one-paragraph note. That collapses
@@ -14035,6 +14040,54 @@ function setThread(el, html, key) {
  * same number by coincidence would let a stale image from one conversation pin
  * another. The markup this pin belongs to is a real one.
  */
+/**
+ * Keep a reader who is ON THE FLOOR on the floor when the BOX ITSELF resizes.
+ *
+ * 🛑 THE THIRD TRIGGER SET FOR #1037, and it is not a repaint at all. Josh,
+ * 2026-08-26 22:05: "It bounces me up after I send the message... It also does
+ * this if the agent starts typing... and then it's some time-based interval
+ * too." None of those are the five-second note flap that was fixed; all three
+ * are the CONTAINER changing height under a reader who has not moved.
+ *
+ * ⭐ MEASURED, and it is layout-specific, which is why every earlier check
+ * missed it. `#pj-post` is a rows=1 textarea that grows as you type. In the
+ * CONSOLIDATED view that takes its space from the room:
+ *     clientHeight 714 -> 668 while typing, and scrollTop does not move.
+ * The reader did not go anywhere; the FLOOR moved away from them, and 46px of
+ * the newest conversation went below the fold. In the TAB view the same typing
+ * changes nothing, so a tab-view check reports a healthy product.
+ *
+ * ⚠️ THE SHRINK IS NOT THE BUG AND MUST NOT BE "FIXED". The composer needs
+ * that space while it has three lines in it. What was missing is that nobody
+ * re-pinned the person the resize displaced: paintRoom only repositions when
+ * the POST LIST changes, and a resize changes no posts at all.
+ *
+ * Only for someone already at the floor. A person reading history is left
+ * exactly where they are, which is the whole point of the rest of this file.
+ */
+function holdFloorOnResize(el) {
+  /* A stub container (the unit tests drive setThread against a fake box that
+     only models scroll arithmetic) has no listeners to attach to. Nothing here
+     is meaningful without a real element, so say so and leave. */
+  if (!el || typeof el.addEventListener !== 'function') return;
+  if (el.__floorHeld) return;
+  el.__floorHeld = true;
+  /* A hidden box is unknown, and the safe answer to unknown is "not at the
+     floor" -- the same rule threadAtBottom already applies, for the same
+     reason: 0-0-0 <= slack is true and would arm a pin on an unseen box. */
+  const onFloor = () => el.clientHeight > 0
+    && (el.scrollHeight - el.scrollTop - el.clientHeight) <= THREAD_BOTTOM_SLACK;
+  /* A box nobody has scrolled yet is following the tail, so a first resize
+     lands on the newest row rather than freezing an empty room at the top. */
+  el.__wasOnFloor = true;
+  el.addEventListener('scroll', () => { el.__wasOnFloor = onFloor(); }, { passive: true });
+  if (typeof ResizeObserver !== 'function') return;
+  new ResizeObserver(() => {
+    if (!el.clientHeight) return;
+    if (el.__wasOnFloor === false) return;   // reading back; leave them alone
+    el.scrollTop = el.scrollHeight;
+  }).observe(el);
+}
 function pinToBottom(el) {
   /* 🛑 NOTHING IS ARMED FOR A BOX NOBODY CAN SEE. On a hidden container the
      assignment below is a harmless no-op, but the image listeners are NOT: they
@@ -14047,6 +14100,9 @@ function pinToBottom(el) {
      defect, re-entering through the code that fixes it. */
   if (!el.clientHeight) return;
   el.scrollTop = el.scrollHeight;
+  /* Same reason as paintRoom's pin: this is a floor state we know now, rather
+     than one the scroll event will confirm a task later. */
+  el.__wasOnFloor = true;
   const paint = el.__lastThread;
   const pinnedAt = el.scrollTop;
   el.querySelectorAll('img').forEach((img) => {
@@ -24498,6 +24554,11 @@ function paintRoom(body) {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
   const box = document.getElementById('pj-room');
+  /* Attached on first paint rather than at load: the element is certain to
+     exist here, and the helper is idempotent so the poll re-calling it costs
+     nothing. This is what keeps a reader on the floor when the composer grows
+     under them (#1037, the resize trigger). */
+  holdFloorOnResize(box);
   const allRows = body.rows || [];
   const shown = pjRoomFilterRows(allRows, p, PJ_ROOM_QUERY);
   const filtering = PJ_ROOM_QUERY.trim() !== '';
@@ -24538,7 +24599,13 @@ function paintRoom(body) {
     const key = PJ_ROOM_QUERY + '\u0000' + (body.rows || []).map((m) => m.id || m.at).join('\u0000');
     if (box.__lastRoomKey !== key) {
       box.__lastRoomKey = key;
-      if (!filtering) box.scrollTop = box.scrollHeight;
+      /* ⚠️ THE FLAG IS SET HERE, NOT LEFT TO THE SCROLL EVENT. holdFloorOnResize
+         learns the reader's posture from `scroll`, which is asynchronous, so a
+         PROGRAMMATIC pin leaves a window where the box is on the floor and the
+         flag still says otherwise. A resize landing in that window declines to
+         re-pin and the newest messages go under the fold. We know the answer
+         synchronously right here, so we say so. */
+      if (!filtering) { box.scrollTop = box.scrollHeight; box.__wasOnFloor = true; }
     }
   }
 }

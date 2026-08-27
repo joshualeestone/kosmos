@@ -493,7 +493,11 @@ fi
 # including its 700px negative control, which is the arm that makes the other
 # eight mean anything: a row check that cannot report "not one row" is
 # decoration, and this one was MEASURED reporting it.
-for n in live-connect render-agent-nav render-busy-line render-head-row render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change; do
+# render-room-scroll joins the same way (#1037, the resize trigger): own mktemp
+# roots, own OS-chosen port, server.js in-process, runs bare. Proven standalone
+# 15/15, and proven RED with the fix disabled -- the arm that matters reports
+# Josh's own symptom, 46px of the newest messages under the fold.
+for n in live-connect render-agent-nav render-busy-line render-head-row render-room-scroll render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
 sb3="$(new_sandbox)"
