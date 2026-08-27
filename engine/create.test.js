@@ -1717,7 +1717,18 @@ test('custom instructions are written verbatim with a trailing newline, and the 
   const reports = require('./reports');
   const found = projects.findBlock(text, reports.START, reports.END);
   assert.ok(found && !found.ambiguous, 'the person\'s own agent did not get the reports-to block at birth');
-  const without = projects.removeBlock(text, reports.START, reports.END);
+    /* #1034: the connections block is stripped for the SAME stated reason as
+       the reports-to block above: a managed block keyed on nothing about the
+       agent, always present, so it reaches a person's own words at birth
+       exactly as the others do. It is knowledge of how the product works, not
+       teaching about this agent's job, which is what "verbatim" protects. */
+    const connections = require('./connections');
+    const foundConn = projects.findBlock(text, connections.START, connections.END);
+    assert.ok(foundConn && !foundConn.ambiguous, 'the person\'s own agent did not get the connections block at birth');
+    const without = projects.removeBlock(
+      projects.removeBlock(text, reports.START, reports.END),
+      connections.START, connections.END,
+    );
   /* #591 changed one premise here, stated rather than deleted: the operating
      defaults DO follow a person's own words now, under their own heading,
      because they are how any agent behaves in Kosmos rather than a job
