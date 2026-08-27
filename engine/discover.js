@@ -143,11 +143,22 @@ function newestTranscript(dir) {
 function found() {
   let roots;
   try { roots = status.configRoots(); } catch (err) {
-    return { ok: false, agents: [], because: 'we could not work out where Claude keeps its records' };
+    return { ok: false, agents: [], unreadable: 0, because: 'we could not work out where Claude keeps its records' };
   }
 
   const byDir = new Map();
   let looked = 0;
+  /* Folders that have an instruction file we could not read an identity out of
+     (kosmos#1078). Counted per FOLDER, like `byDir`, so two session families
+     pointing at one directory cannot count it twice. */
+  let unreadable = 0;
+  /* 🛑 ITS OWN SET, AND THE FIRST VERSION OF THIS WAS WRONG IN A WAY ITS OWN
+     COMMENT DENIED. `byDir` only ever holds folders that RESOLVED to an agent,
+     and the de-dupe above tests `byDir.has(cwd)` -- so an unreadable directory
+     reached through two session families was never in `byDir`, passed the
+     de-dupe twice, and counted twice. The comment said "cannot count it twice"
+     while the code did. Caught by writing the test for the sentence. */
+  const unreadableDirs = new Set();
   /* One look at what is running, for every folder below (#362). An unreadable
      roster reads as undefined, and alreadyIn then treats "running" as unknown
      rather than as no. */
@@ -182,7 +193,29 @@ function found() {
       /* ⚠️ A `CLAUDE.md` THAT DOES NOT INTRODUCE ANYBODY IS NOT AN AGENT. Every
          repo in this org has one and they are project instructions; listing
          them as agents would bury the real ones in a list nobody trusts. */
-      if (!id || !id.displayName) continue;
+      if (!id || !id.displayName) {
+        /* 🛑 COUNTED RATHER THAN DROPPED (kosmos#1078). This `continue` threw
+           away a fact the screen needs: we reached a folder, it HAS an
+           instruction file, and we could not read who it belongs to. Three
+           situations end on the same empty screen -- you have no agents, you
+           have some that never ran, you have some we could not read -- and only
+           this one is knowable here. The other two are not: a folder is reached
+           through Claude's own records, so an agent that has never run is
+           invisible before this line, and "none at all" cannot be distinguished
+           from it.
+           ⚠️ IT IS A COUNT, NOT A LIST, DELIBERATELY. We have no name for these
+           -- that is the whole problem -- so a list would be rows of paths, and
+           a path is the noise this module already refuses to show when it is not
+           the story. A number plus what to do about it is the honest shape.
+           ⚠️ AND IT DOES NOT WIDEN WHAT COUNTS AS AN AGENT. Loosening
+           `identityFromText` was the other option and it is the dangerous one:
+           "You are an expert in Rust" and "You are talking to a person running a
+           business" both live in real instruction files, and a parser that took
+           them would put project folders in a list of people. A wrong list is
+           used; an empty one is questioned. */
+        if (!unreadableDirs.has(cwd)) { unreadableDirs.add(cwd); unreadable += 1; }
+        continue;
+      }
 
       byDir.set(cwd, {
         dir: cwd,
@@ -203,11 +236,11 @@ function found() {
   }
 
   if (!looked) {
-    return { ok: false, agents: [], because: 'we could not read where Claude keeps its records' };
+    return { ok: false, agents: [], unreadable: 0, because: 'we could not read where Claude keeps its records' };
   }
   /* Stable and human: by the name a person would look for. */
   const agents = [...byDir.values()].sort((a, b) => a.name.localeCompare(b.name));
-  return { ok: true, agents, because: null };
+  return { ok: true, agents, unreadable, because: null };
 }
 
 /**
