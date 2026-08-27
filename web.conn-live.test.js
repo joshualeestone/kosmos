@@ -12,13 +12,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const { codeOnly } = require('./test-support/code-only');
 
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 
 test('the static markup makes no connected-or-not claim; the painter owns all three arms', () => {
   const at = PAGE.indexOf('id="s-sec-connect"');
   const end = PAGE.indexOf('id="s-sec-gskills"') > at ? PAGE.length : PAGE.indexOf('</section>', at);
-  const sec = PAGE.slice(at, PAGE.indexOf('id="conn-live"') + 4000).replace(/<!--[\s\S]*?-->/g, '');
+  const sec = codeOnly(PAGE.slice(at, PAGE.indexOf('id="conn-live"') + 4000));
   assert.ok(!/Nothing is connected yet/.test(sec.slice(0, 3000)),
     'the static copy asserts nothing-connected; that sentence is the painter’s none-arm only');
   assert.match(PAGE, /id="conn-live"/, 'the computed line’s element is gone');
