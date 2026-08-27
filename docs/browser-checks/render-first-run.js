@@ -423,17 +423,21 @@ async function look(page, name) {
         if (/right now/.test(text)) {
           problems.push(`${shot.name} [${scheme}]: the could-not-ask fallback painted over the fixture's answer`);
         }
-        /* 🛑 THE DOCK LINE IS NOT ON THIS SCREEN ANY MORE, AND THAT IS A
-           RULING, NOT A LOSS. It opened the flow until 2026-08-22, then moved
-           to the LAST step: step 1 answers "did the install work", the Dock
-           line is about RETURNING, and two written rulings placed it at the
-           end. This assertion still demanded it here, so it reported 8
-           problems on a product doing exactly what was decided — and nobody
-           saw them, because this check is not wired into the release runner.
-           ⇒ Asserted as ABSENT here and PRESENT on the last step (below), so
-           the sentence cannot quietly vanish from the product either way. */
-        if (/Drag Kosmos onto the Dock, the strip of icons/.test(text)) {
-          problems.push(`${shot.name} [${scheme}]: the Dock line is back on step 1; it was moved to the last step on 2026-08-22`);
+        /* 🔑 THE DOCK LINE IS BACK ON THIS SCREEN, AND THIS ASSERTION HAS NOW
+           POINTED BOTH WAYS INSIDE ONE DAY. It opened the flow until
+           2026-08-22, moved to the LAST step on two written rulings, and
+           returned here on Josh's ruling of 2026-08-27 16:08, made after he
+           wiped a machine and screenshotted this screen: "somebody elected to
+           take the message out of this."
+           ⚠️ THIS WAS THE SECOND ABSENCE GUARD AND IT WAS NOT IN THE ROUTED
+           SCOPE. The routing named click-first-run's guard and the last-step
+           one; this fired on 8 shots (4 app-location states x 2 schemes) the
+           first time the page layer ran. Its own comment is why it was easy
+           to miss: it reads as settled history rather than as a live rule.
+           ⇒ Asserted PRESENT here and ABSENT on the last step (below), which
+           is the reverse of what this file said an hour ago. */
+        if (!/Drag Kosmos onto the Dock, the strip of icons/.test(text)) {
+          problems.push(`${shot.name} [${scheme}]: the Success screen has no Dock line; Josh asked for it back on 2026-08-27`);
         }
         if (/Keep in Dock/.test(text)) {
           problems.push(`${shot.name} [${scheme}]: the unreachable Keep in Dock advice appeared`);
@@ -489,20 +493,37 @@ async function look(page, name) {
       await ctx.close();
     }
   }
-  /* 🔑 THE OTHER HALF OF THE MOVE. Without this, "not on step 1" passes on a
-     product that lost the sentence altogether — which is exactly the state
-     Josh's item 13 would create, since he asked for the ending's Dock line to
-     go "because we already covered that in the very first initial step". It is
-     not covered there: it was deliberately moved OUT of step 1 TO the ending,
-     so the ending is the only copy. */
+  /* 🛑 INVERTED 2026-08-27, AND THE OLD TEXT IS WHY IT NEEDED A RULING.
+     This block used to REQUIRE the Dock line on the last step, precisely so
+     that "not on step 1" could not pass on a product that had lost the
+     sentence altogether. Josh ruled it off the ending on 2026-08-27: "I
+     still don't want the ending of the install to talk about putting it in
+     the dock."
+     ⚠️ AN EARLIER VERSION OF THIS COMMENT SAID FIRST-RUN NOW CARRIES NO DOCK
+     GUIDANCE AT ALL. That was true of the intermediate state and is false
+     now, and it is corrected here rather than left for a later reader to
+     trust. He later ruled, 16:08, after a full wipe and a screenshot of the
+     Success screen: "somebody elected to take the message out of this."
+     ⇒ THE LINE MOVED TO THE SUCCESS SCREEN, not out of the product. It sits
+     under the reveal button (#fr-return-keep) and click-first-run.js asserts
+     it PRESENT there. This block asserts it ABSENT on the last step. The
+     pair is what stops it drifting back here or falling out of the flow.
+     📌 His stated premise for the original deletion, "we already told them
+     that on the very very very first step", was not true of the build when
+     he said it. It is true now, because of the move, and it was made true
+     deliberately rather than found to be so. */
   {
     const lastCtx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
     const pg = await lastCtx.newPage();
     await pg.goto(`${BASE}/?first-run=1&fr-step=6`, { waitUntil: 'networkidle' });
     await pg.waitForTimeout(400);
     const last = await pg.evaluate(() => (document.getElementById('fr-pane-6') || {}).textContent || '');
-    if (!/Drag Kosmos onto the Dock, the strip of icons/.test(last)) {
-      problems.push('the LAST step has no Dock drag line, so the product has lost it entirely (it was moved here from step 1 on 2026-08-22)');
+    // Not vacuous: the step must have rendered something before its silence means anything.
+    if (last.trim().length < 20) {
+      problems.push('the LAST step rendered almost nothing, so the Dock assertion below tests nothing');
+    }
+    if (/Drag Kosmos onto the Dock, the strip of icons/.test(last)) {
+      problems.push('the LAST step tells the person to drag Kosmos to the Dock again, which Josh ruled out on 2026-08-27');
     }
     await pg.close();
     await lastCtx.close();
