@@ -2241,16 +2241,15 @@ function pageConstSource(name) {
 /**
  * A page-scope CONST, as its own source line.
  *
- * ⚠️ A sibling to `pageFnSource` rather than a number typed here. The found
- * list's search threshold is a design ruling ("somewhere around thirty it
- * starts earning itself"), and a harness carrying its own copy of that number
- * would stay green while the shipped screen used a different one.
+ * ⚠️ DELEGATES TO THE SHARED LIFTER RATHER THAN CARRYING A SECOND REGEX. This
+ * file already had its own `pageFnSource`, and a second const-matcher here
+ * would be the fourth-copy problem `test-support/page.js` opens by describing:
+ * three of four copies of the function lifter were subtly wrong, and the wrong
+ * ones failed in the shape of the product being broken.
  */
 function pageConst(name) {
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  const m = raw.match(new RegExp('const ' + name + ' = [^;]+;'));
-  assert.ok(m, name + ' vanished from the page; this harness now supplies nothing');
-  return m[0];
+  return require('./test-support/page').liftConst(require('./test-support/page').scriptOf(raw), name);
 }
 
 function pageFunction(name, prelude = '') {
