@@ -23,7 +23,33 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const nodePath = require('node:path');
 
-const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+const RAW = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+
+/**
+ * 🛑 ABSENCE IS CHECKED ON CODE, NEVER ON PROSE. House style here explains a
+ * removal by QUOTING what was removed and who ruled it, so a deletion and its
+ * own explanation live in the same file by construction. An absence assertion
+ * over the raw text therefore matches the comment describing the deletion and
+ * reports the thing as still present.
+ *
+ * ⚠️ I WROTE BOTH HALVES OF THIS THE SAME NIGHT AND ONLY ONE OF THEM STRIPPED.
+ * engine/ping.test.js guards the same deletion and strips `<!-- -->`; this file
+ * read the raw page. Same claim, same evening, two different levels of care.
+ *
+ * ⚠️ LINE COMMENTS ONLY WHERE THE LINE BEGINS WITH ONE, and the restriction is
+ * load-bearing (Mona Lisa, measured): this page carries many `https://` URLs,
+ * and a naive `//.*$` truncates live code after every one of them. That would
+ * HIDE a real occurrence and turn an absence check green for the worst possible
+ * reason. Under-stripping gives a false FAIL somebody investigates;
+ * over-stripping gives a false PASS nobody ever looks at.
+ */
+function codeOnly(src) {
+  return src
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+}
+const PAGE = codeOnly(RAW);
 
 test('the create-screen ping control, and its painter, are gone', () => {
   for (const gone of ['id="create-tell"', 'id="create-tell-wrap"', 'id="create-tell-note"',
@@ -45,4 +71,16 @@ test('and the create request no longer reads a control that does not exist', () 
   assert.doesNotMatch(PAGE, /getElementById\('create-tell'\)/);
   assert.match(PAGE, /b\.tellKosmos = false;/,
     'the create request stopped saying false explicitly, so the server default (true) takes over');
+});
+
+test('CONTROL: the stripper removes prose and keeps code', () => {
+  /* Without this, codeOnly() could return '' (or the input unchanged) and every
+     absence above would pass for the wrong reason. Both directions pinned. */
+  const kept = codeOnly('<!-- id="create-tell" -->\n/* id="create-tell" */\n// id="create-tell"\nconst real = "id=\\"create-tell\\"";');
+  assert.doesNotMatch(kept.split('const real')[0], /create-tell/,
+    'the stripper left a commented mention behind, so absence checks can be fooled by prose');
+  assert.match(kept, /const real/, 'the stripper ate real code');
+  /* And a URL survives: a naive line-comment strip would cut this in half. */
+  assert.match(codeOnly('const u = "https://example.com/x"; // note'), /example\.com\/x/,
+    'the strip truncated live code after a URL, which HIDES occurrences');
 });
