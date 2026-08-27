@@ -10246,8 +10246,65 @@ let UPDATING_NOW = false;
 let LAST_VERSION = null;   // the served version, kept by tick for the update wait loop
 let LAST_BOOTED_AT = null; // #553: the server's boot identity, kept by tick
 let LAST_UPDATE_LOG = null; // #553: the installer diary path, from the engine
+/**
+ * The stored Later note as an object, or null if it is the old bare-string
+ * shape (or unreadable). Parsing IS the shape test: no brace literal, see the
+ * note in updateLaterVersion.
+ */
+function parseLaterNote(raw) {
+  try {
+    const o = JSON.parse(raw);
+    return o && typeof o === 'object' ? o : null;
+  } catch { return null; }
+}
 function updateLaterVersion() {
-  try { return localStorage.getItem('kosmos-update-later'); } catch { return null; }
+  try {
+    const raw = localStorage.getItem('kosmos-update-later');
+    if (!raw) return null;
+    /* Older builds stored the bare version string. Read both shapes: a person
+       who pressed Later before this change should not be asked again because we
+       changed the format under them.
+       ⚠️ Shape detected by PARSING, not by looking for a brace character. The
+       test harness lifts these functions by counting brace characters and says
+       in its own docblock that it cannot see inside strings or comments, so a
+       lone opening brace anywhere in here, even in this sentence, makes the
+       function unliftable and therefore untestable. */
+    const parsed = parseLaterNote(raw);
+    return parsed ? (parsed.v || null) : raw;
+  } catch { return null; }
+}
+/**
+ * When "Later" stops suppressing, as a timestamp. Null for the old bare-string
+ * shape, which had no floor.
+ */
+function updateLaterUntil() {
+  try {
+    const raw = localStorage.getItem('kosmos-update-later');
+    const note = raw ? parseLaterNote(raw) : null;
+    if (!note) return null;
+    return typeof note.at === 'number' ? note.at + UPDATE_LATER_FLOOR_MS : null;
+  } catch { return null; }
+}
+/* 🛑 PER-VERSION SUPPRESSION IS A RATE LIMIT IN THE WRONG UNIT (#1094). It
+   assumes a release is rare. One a week, "Later" buys a week. Three an hour,
+   "Later" buys twenty minutes, and on 2026-08-27 we cut 0.5.78 and 0.5.79
+   inside one. The person pressed Later and we came back, correctly, three
+   times. Our release rate is a good thing and it is staying high, so the fix
+   belongs on our side of the promise: from where the reader sits, "Later" is
+   about time, not about version numbers.
+   ⚠️ DELIBERATELY NOT PERMANENT AND NOT PER-DAY, which is the tempting
+   version. Someone who defers an update they later need has no route back but
+   Check for Update, and a stale app is what #1042 exists to shout about. The
+   point is to stop asking three times in an hour, not to stop asking. */
+const UPDATE_LATER_FLOOR_MS = 2 * 60 * 60 * 1000;
+/**
+ * Whether "Later" still covers this offer: the next release OR the floor,
+ * whichever is longer.
+ */
+function updateLaterSuppresses(version) {
+  if (updateLaterVersion() === version) return true;
+  const until = updateLaterUntil();
+  return until !== null && Date.now() < until;
 }
 /**
  * The version that is RUNNING, as the last poll reported it.
@@ -10337,7 +10394,7 @@ function renderUpdateToast(u) {
     });
     return;
   }
-  if (UPDATING_NOW || !u || !u.version || updateLaterVersion() === u.version) {
+  if (UPDATING_NOW || !u || !u.version || updateLaterSuppresses(u.version)) {
     slot.innerHTML = ''; delete slot.dataset.v; return;
   }
   if (slot.dataset.v === u.version) return;      // already showing this one
@@ -10350,7 +10407,7 @@ function renderUpdateToast(u) {
     + '<button type="button" class="uprime" id="ut-install">Install</button>'
     + '</div></div>';
   document.getElementById('ut-later').addEventListener('click', () => {
-    try { localStorage.setItem('kosmos-update-later', u.version); } catch { /* shown again next release either way */ }
+    try { localStorage.setItem('kosmos-update-later', JSON.stringify({ v: u.version, at: Date.now() })); } catch { /* shown again next release either way */ }
     slot.innerHTML = ''; delete slot.dataset.v;
   });
   document.getElementById('ut-install').addEventListener('click', () => {
