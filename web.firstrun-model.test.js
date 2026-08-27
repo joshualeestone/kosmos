@@ -25,6 +25,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const nodePath = require('node:path');
+const { codeOnly } = require('./test-support/code-only');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 /* ⚠️ THE END ANCHOR WAS `id="fr-sub"` AND CANNOT BE ANY MORE. That element
@@ -140,7 +141,7 @@ test('the tier label and its separator match the rest of the product', () => {
      this very step's own build comments) -- so this strips HTML comments
      before checking, the same scoping the disclosure-only slice used to get
      for free by starting past them. */
-  const visible = STEP.replace(/<!--[\s\S]*?-->/g, '');
+  const visible = codeOnly(STEP);
   assert.ok(!/&mdash;|—/.test(visible), 'an em dash reached text a person actually reads on this step');
   assert.match(visible, /&middot;/, 'the separator changed to something the sibling rows do not use');
 });

@@ -38,6 +38,7 @@ function lifted() {
    reader (the house rule: no roster rows by hand), reduced to the two fields
    `describe` carries per member, plus one bare key as older records held. */
 const fleet = require('./test-support/fleet');
+const { codeOnly } = require('./test-support/code-only');
 const PROJECT = (() => {
   const board = fleet.install([
     fleet.agent('scarlet', { displayName: 'Scarlet', state: 'idle' }),
@@ -97,7 +98,7 @@ test('what is inserted is the exact key, the hint names the key, and the list is
   // "helpful" change to insert the display name fails here.
   const pick = SCRIPT.slice(SCRIPT.indexOf('function mentionPick('), SCRIPT.indexOf('function mentionPick(') + 900);
   assert.match(pick, /const ins = '@' \+ c\.key \+ ' ';/, 'the picker no longer inserts the session key');
-  const words = PAGE.replace(/<!--[\s\S]*?-->/g, '');
+  const words = codeOnly(PAGE);
   assert.match(words, /Type @ and a name to ask one agent directly\./, 'the hint (#142) lost its sentence');
   assert.ok(!/<b>@<\/b> an agent/.test(words), 'the smudge is back');
   assert.match(words, /<div class="mention" id="pj-mention" role="listbox"/, 'the listbox is gone');

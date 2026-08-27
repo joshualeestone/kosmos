@@ -10,8 +10,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const { codeOnly } = require('./test-support/code-only');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
-const body = PAGE.replace(/<!--[\s\S]*?-->/g, '');
+const body = codeOnly(PAGE);
 
 test('the org chart never paints while the consolidated view is up; the rail is always the list', () => {
   assert.match(PAGE, /const show = onAgents && BOARD_LAYOUT === 'org' && !document\.body\.classList\.contains\('consolidated'\);/);
