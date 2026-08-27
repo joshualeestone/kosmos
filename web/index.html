@@ -14189,6 +14189,29 @@ function holdFloorOnResize(el) {
     if (!el.clientHeight) return;
     if (el.__wasOnFloor === false) return;   // reading back; leave them alone
     el.scrollTop = el.scrollHeight;
+    /* 🛑 AND ONCE MORE AFTER LAYOUT SETTLES, because the assignment above can
+       measure a height that is still moving. This path had NO correction at
+       all, which is the asymmetry Baron named: `pinToBottom` assigns and then
+       re-pins as its images complete, while this one assigned and hoped. A pin
+       that lands short leaves a reader ABOVE the newest row, which is what
+       being "popped back up" is.
+       ⚠️ IDEMPOTENT ON PURPOSE. A ResizeObserver fires repeatedly, so the
+       obvious fix -- calling pinToBottom from here -- registers a listener per
+       <img> ON EVERY CALL and re-arms the drag-to-bottom that pinToBottom's own
+       comment warns about. This arms exactly ONE correction per storm and
+       registers no listeners at all.
+       ⚠️ AND IT ASKS AGAIN BEFORE CORRECTING. A frame is long enough for the
+       person to have started scrolling away, and dragging them back would be
+       the same defect pointing the other way. */
+    if (el.__floorFixArmed) return;
+    if (typeof requestAnimationFrame !== 'function') return;
+    el.__floorFixArmed = true;
+    requestAnimationFrame(() => {
+      el.__floorFixArmed = false;
+      if (!el.clientHeight) return;
+      if (el.__wasOnFloor === false) return;   // they moved; leave them
+      el.scrollTop = el.scrollHeight;
+    });
   }).observe(el);
 }
 function pinToBottom(el) {
