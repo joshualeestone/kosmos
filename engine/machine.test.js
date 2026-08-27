@@ -284,17 +284,46 @@ test('the installed check asks the same question creation asks', () => {
   assert.equal(typeof create.binPaths, 'function');
 });
 
-test('a missing REQUIRED thing names it and says where we looked', () => {
+test('a missing REQUIRED thing says what a PERSON can do, and still records where we looked', () => {
   const good = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: REAL_BIN });
   assert.equal(good.state, 'ok');
 
   const bad = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: '/definitely/not/here/tmux' });
   assert.equal(bad.state, 'attention');
-  assert.match(bad.title, /tmux/);
+
+  /* ⭐ THIS ASSERTION USED TO REQUIRE THE OPPOSITE, and moved with #1019 rather
+     than being loosened. It read `assert.match(bad.title, /tmux/)`, which was
+     defensible while this row could produce three different sentences and this
+     was rarely the one you saw. #979 stopped requiring Claude Code, leaving
+     tmux the only required part, so that sentence became THE failure headline
+     of the screen -- and it names an implementation detail a reader cannot act
+     on. */
+  assert.ok(!/tmux/i.test(bad.title),
+    'the headline names how Kosmos runs agents instead of what is wrong: ' + bad.title);
+  assert.match(bad.title, /cannot start agents/);
+
+  /* The remedy has to be in the sentence, and it has to be one that WORKS: the
+     installer places tmux as a private copy inside KOSMOS_HOME, so a missing
+     one means Kosmos's own files are damaged and reinstalling does put it
+     back. */
+  assert.match(bad.detail, /Reinstalling Kosmos/);
+
+  /* 📌 AND THE PATH SURVIVES, at the end. The previous version of this test
+     argued for it in as many words and that argument still holds for support,
+     just not as the headline. */
   assert.match(bad.detail, /\/definitely\/not\/here\/tmux/,
     'told somebody something is missing without saying where it looked, which is the '
-    + 'one piece of information that lets anybody fix it');
+    + 'one piece of information that lets anybody diagnose it');
   assert.ok(!/Claude/.test(bad.title), 'named a thing that is present as missing');
+
+  /* ⭐ AND THE WORD IS NOT THE NOUN OF THE SENTENCE EITHER. The path still
+     contains it, unavoidably, because the file really does live at
+     `<home>/tmux/bin/tmux` and showing an altered path would be worse than
+     showing one containing a term. What must not happen is a sentence
+     ADDRESSED to a person taking it as its subject. */
+  assert.ok(!/for tmux|tmux is not|tmux at /.test(bad.detail),
+    'a sentence written for a person takes tmux as its subject: ' + bad.detail);
+  assert.match(bad.detail, /the part that runs agents/);
 });
 
 test('⭐ #979: a Mac with no Claude Code is OK, and its absence is still REPORTED', () => {
@@ -454,7 +483,11 @@ test('the install check refuses the same paths creation refuses', () => {
   const got = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: nasty });
   assert.equal(got.state, 'attention',
     'a path creation will refuse was reported as installed and ready');
-  assert.match(got.title, /tmux/);
+  /* Moved with #1019: the headline names the consequence, not the component.
+     What this test is FOR is that a refusable path is not called ready, and
+     that is asserted above. */
+  assert.match(got.title, /cannot start agents/);
+  assert.ok(!/tmux/i.test(got.title), 'the headline names how Kosmos runs agents: ' + got.title);
 });
 
 /* ---------------------------------------------------------------------------
@@ -667,7 +700,15 @@ test('a path we refuse on sight is not described as a path we looked at', () => 
     'claimed to have looked at a path it refused on sight');
   assert.match(got.detail, /quote|backslash|line break/,
     'never names the character that is actually the problem');
-  assert.match(got.title, /not where we can use it/i);
+  assert.match(got.title, /cannot start agents/);
+  /* ⭐ AND THE REMEDY MUST NOT BE A PLAIN REINSTALL HERE. An unusable path means
+     the place Kosmos is installed carries a quote, a backslash or a line break.
+     Reinstalling to that same place reproduces it exactly, so "reinstall" would
+     be advice that cannot work -- the same defect as the sentence this card
+     replaced, in different clothes. */
+  assert.ok(!/Reinstalling Kosmos puts it back/.test(got.detail),
+    'offered a reinstall for a fault a reinstall to the same folder would reproduce');
+  assert.match(got.detail, /folder with no quotes/);
 });
 
 test('a refused path is SAID rather than dropped, and an unchosen provider is not named', () => {

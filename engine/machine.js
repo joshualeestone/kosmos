@@ -288,7 +288,18 @@ function installedCheck(opts) {
    * recorded.
    */
   const { codexBin } = create.binPaths(opts);
-  const parts = [['tmux', 'tmux', tmuxBin, true]];
+  /* ⚠️ THE LABEL IS WHAT A PERSON READS, AND IT USED TO BE "tmux" (#1019). The
+     key stays `tmux` -- it is a stable identifier and `present.tmux` is read
+     elsewhere -- but the LABEL reaches sentences, and this row is now the only
+     one that can produce a warning, so "We looked for tmux at ..." became the
+     failure sentence of the whole screen.
+     📌 The path still carries the word, because the file really does live at
+     `<home>/tmux/bin/tmux` and showing a path you have altered would be worse
+     than showing one that contains a term. What changes is that the word is no
+     longer the NOUN of a sentence addressed to a person, which is what the two
+     standing rulings are about. The Claude Code row beside this one has read
+     "Claude Code" rather than "claude" since it was written; this is that. */
+  const parts = [['tmux', 'the part that runs agents', tmuxBin, true]];
   /**
    * ⚠️ BOTH RUNNERS, and the keys are STABLE IDENTIFIERS rather than the
    * display labels. Two reasons, both learned the hard way in this file:
@@ -467,14 +478,45 @@ function installedCheck(opts) {
     };
   }
 
+  /* 🛑 THE HEADLINE NAMES THE CONSEQUENCE, NOT THE COMPONENT (#1019, and I
+     carded the regression before shipping it). Until #979 this row could
+     produce three different sentences and rarely produced this one. #979
+     correctly stopped requiring Claude Code, which left tmux as the ONLY
+     required part -- so "tmux is not where we can use it" was promoted from an
+     edge case to THE failure sentence of this screen.
+
+     ⚠️ AND IT IS THE WRONG NOUN FOR THE READER. tmux is how Kosmos runs agents;
+     a person reading it learns nothing they can act on. This codebase already
+     carries two rulings that the word must not reach a person, one of them
+     citing Josh being handed a `tmux` command and getting `command not found`.
+
+     📌 THE PATH IS STILL SAID, at the end. `engine/machine.test.js` argues for
+     it in as many words -- "the one piece of information that lets anybody fix
+     it" -- and that argument was written when tmux might have been the person's
+     own Homebrew copy. It is not any more: `bin/kosmos` exports
+     AGENT_WORKFORCE_TMUX_BIN as `$KOSMOS_HOME/tmux/bin/tmux`, a private copy
+     the installer places unconditionally. So the path is support detail rather
+     than an instruction, and it goes after the remedy instead of instead of one. */
   const named = [...missing, ...unusable].map((x) => x.label);
+  /* ⚠️ THE TWO BUCKETS KEEP DIFFERENT REMEDIES, because reinstalling only fixes
+     one of them. A MISSING part means Kosmos's own files were damaged, and a
+     reinstall genuinely puts them back. An UNUSABLE PATH means the place Kosmos
+     is installed contains a quote, a backslash or a line break -- reinstalling
+     to that same place would reproduce it exactly, so offering a reinstall
+     there would be advice that cannot work, which is the defect this card is
+     about wearing different clothes. */
+  const remedy = missing.length && !unusable.length
+    ? 'Reinstalling Kosmos puts it back: open installkosmos.com and click Download for '
+      + 'macOS. Your agents and settings stay on this computer; installing again does '
+      + 'not remove them.'
+    : 'Kosmos is installed somewhere it cannot start agents from. Installing it again to a '
+      + 'folder with no quotes, backslashes or line breaks in its name is what fixes this.';
   return {
     key: 'installed',
     state: STATE.ATTENTION,
-    title: named.length === 1
-      ? `${named[0]} is not where we can use it`
-      : 'Some of what it needs is not where we can use it',
-    detail: 'An agent made now would not start. ' + parts_.join(' '),
+    title: 'Kosmos cannot start agents on this computer',
+    detail: 'Something it needs is not where it should be, so an agent made now would not '
+      + 'start. ' + remedy + ' ' + parts_.join(' '),
     present,
   };
 }
