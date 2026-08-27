@@ -7,6 +7,17 @@
 # warning and 14,225 silent traces. The two seams this uses
 # (AGENT_WORKFORCE_WAIT_POLL_SECS, _ESCALATE_SECS) exist for exactly this
 # file; production never sets them.
+# 🛑 SANDBOX THE STORE. #1077 made the supervisor MINT a sender token at launch,
+# which turned this from a store-free test into one that writes to the REAL
+# store: running it put four tokens into the live sendertokens directory under
+# this test's own session name, and they looked exactly like somebody else's
+# probe on a sweep.
+# ⇒ it runs the supervisor from the repo root, so the engine IS a sibling and the mint fires.
+# Same rule every store-using test in this repo already follows: sandbox BEFORE
+# anything can resolve the store root.
+AGENT_WORKFORCE_DATA="$(mktemp -d)"; export AGENT_WORKFORCE_DATA
+trap 'rm -rf "$AGENT_WORKFORCE_DATA"' EXIT
+
 set -u
 cd "$(dirname "$0")/.." || exit 1
 FAILS=0
