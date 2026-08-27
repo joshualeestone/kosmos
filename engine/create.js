@@ -907,11 +907,38 @@ function installSupervisor() {
     fs.copyFileSync(bridgeSource(), bridgeStaging);
     fs.chmodSync(bridgeStaging, 0o755);
     fs.renameSync(bridgeStaging, bridgeDest);
+    /* \u2b50 #1139: TELL THE SUPERVISOR WHERE THE ENGINE IS.
+       It resolves `sendertoken.js` as `dirname($0)/../engine`, which is true in
+       a checkout and in the bundle and FALSE for every real agent -- the two
+       lines above copy it to SUPPORT_DIR/bin, and SUPPORT_DIR has no `engine/`.
+       So it silently minted nothing, and no agent had ever received a token.
+
+       There is no relative path from Application Support to the installed app,
+       so the board has to say where it is. `__dirname` IS the engine directory,
+       which is why this is a pointer rather than a copy: duplicating
+       `sendertoken.js` beside the supervisor would put a second copy of a
+       credential-issuing module on disk, and the two would drift.
+
+       It rides THIS refresh deliberately. The refresh runs at every board
+       start, so existing agents are fixed on the next one -- their plists are
+       written once at creation and never rewritten, so anything carried on the
+       argument vector would have reached new agents only.
+
+       Best effort, and last: a supervisor that is installed and current
+       matters more than a token, exactly as the mint itself is written to
+       never cost a launch. */
+    try {
+      const ptrDest = path.join(path.dirname(dest), 'engine-path');
+      const ptrStaging = `${ptrDest}.${process.pid}.new`;
+      fs.writeFileSync(ptrStaging, `${__dirname}\n`);
+      fs.renameSync(ptrStaging, ptrDest);
+    } catch { /* the mint degrades to no token, never to a failed install */ }
     return { ok: true };
   } catch (err) {
     // Leave nothing half-written beside the real one.
     try { fs.rmSync(`${supervisorPath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(`${bridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
+    try { fs.rmSync(path.join(path.dirname(supervisorPath()), `engine-path.${process.pid}.new`), { force: true }); } catch { /* best effort */ }
     // ⚠️ NAME THE FILE. Two files ride this step; when one is absent the
     // sentence must say WHICH, or a person goes looking for a file that is
     // present (#731: the bridge was missing from the served bundle and the

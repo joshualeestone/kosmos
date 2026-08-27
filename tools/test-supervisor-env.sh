@@ -10,7 +10,11 @@
 # store: running it put four tokens into the live sendertokens directory under
 # this test's own session name, and they looked exactly like somebody else's
 # probe on a sweep.
-# ⇒ it copies the supervisor to a sandbox with no engine sibling, so the mint is skipped TODAY -- sandboxed anyway, because that is luck rather than design.
+# ⇒ it copies the supervisor to a sandbox with no engine sibling. That is
+# EXACTLY THE INSTALLED LAYOUT (#1139): SUPPORT_DIR/bin has no engine/, so the
+# mint was skipped for every real agent and none ever got a token. This file
+# had already noticed the skip and read it as convenient for the test rather
+# than as what production does. It is now asserted BOTH ways below.
 # Same rule every store-using test in this repo already follows: sandbox BEFORE
 # anything can resolve the store root.
 AGENT_WORKFORCE_DATA="$(mktemp -d)"; export AGENT_WORKFORCE_DATA
@@ -50,5 +54,39 @@ for junk in lower-case 1STARTS_WITH_DIGIT BAD.NAME EMPTY_TOKEN; do
   if grep -q "$junk" "$ARGS"; then bad "$junk was typed into the pane; only variable names with content may ride"; else ok "$junk stays out of the pane"; fi
 done
 if grep -q 'sekrit' "$SB/out.log" "$SB/start.log" 2>/dev/null; then bad "a token reached a log"; else ok "no token in the supervisor's own output"; fi
+
+# ---------------------------------------------------------------- #1139
+# THE INSTALLED LAYOUT, BOTH WAYS. The sandbox above is shaped like
+# SUPPORT_DIR: a bin/ with no engine sibling. That is where every real agent's
+# supervisor lives, and there it minted nothing.
+#
+# 🛑 THE SECOND ARM IS THE ONE THAT MATTERS AND IT MUST FAIL ON THE BROKEN
+# ENVIRONMENT, not merely pass on a fixed one. With `engine-path` beside the
+# script -- which `create.installSupervisor` now writes in the same refresh
+# that installs it -- the mint must reach the pane. Before the fix this arm
+# fails by name, because the supervisor only ever looked at `$0/../engine`.
+if grep -q '^KOSMOS_AGENT_TOKEN=' "$ARGS"; then
+  bad "a token rode into the pane with NO engine beside the script and NO pointer: the resolution is not conditional"
+else
+  ok "control: no engine sibling and no pointer means no token, rather than a broken one"
+fi
+
+SB2="$(mktemp -d)"; trap 'rm -rf "$SB" "$SB2"' EXIT
+mkdir -p "$SB2/bin" "$SB2/work"
+cp bin/agent-supervisor.sh "$SB2/bin/agent-supervisor.sh"
+cp "$SB/tmux" "$SB2/tmux"
+# What the board writes beside the supervisor: an absolute path to the engine.
+printf '%s\n' "$PWD/engine" > "$SB2/bin/engine-path"
+AGENT_WORKFORCE_DATA="$(mktemp -d)" STUB_DIR="$SB2" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
+  bash "$SB2/bin/agent-supervisor.sh" ptrtest "$SB2/work" /usr/bin/true "$SB2/tmux" "$SB2/start.log" > "$SB2/out.log" 2>&1 || true
+ARGS2="$SB2/new-session.args"
+if [ -s "$ARGS2" ]; then ok "the pointer run reached new-session"; else bad "pointer run never reached new-session: $(tail -3 "$SB2/out.log")"; fi
+if grep -qE '^KOSMOS_AGENT_TOKEN=[0-9a-f]+$' "$ARGS2"; then
+  ok "#1139: engine-path beside the script mints, in the layout every real agent runs in"
+else
+  bad "#1139: no token minted with engine-path present -- an installed agent still cannot identify itself: $(grep -c . "$ARGS2") args, $(tail -3 "$SB2/out.log")"
+fi
+if grep -q "$PWD/engine" "$SB2/out.log" "$SB2/start.log" 2>/dev/null; then bad "the engine path leaked into a log"; else ok "the pointer does not appear in the supervisor's output"; fi
+
 [ "$FAILS" -eq 0 ] && echo "supervisor env handoff: all hold" || echo "supervisor env handoff: $FAILS FAILED"
 exit "$FAILS"

@@ -1133,7 +1133,19 @@ test('the startup script, actually run, hands the pane its account and its board
     const set = runLauncher({ claim: 'probe', paneCommands: ['-zsh', 'bash'], env: launchdEnv, ...b });
     assert.ok(set.newSession, `${label}: nothing was launched, so the assertions below never ran`);
     const passed = set.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e').sort();
-    assert.deepEqual(passed, [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245'],
+    /* \u26a0\ufe0f #1139: THE SENDER TOKEN RIDES TOO, AND THIS ASSERTION USED TO PASS
+       BECAUSE IT DID NOT. The supervisor resolved the engine as `$0/../engine`,
+       which is false in the installed layout, so the mint was silently skipped
+       and this exact-set check stayed green on the broken behaviour. It is a
+       witness to that defect, not a victim of the fix.
+       Checked by SHAPE and then set aside: the value is fresh per launch, so it
+       cannot be pinned by equality, and the point of the check below is that
+       nothing UNEXPECTED rides -- which still holds, on the remainder. */
+    const minted = passed.filter((v) => v.startsWith('KOSMOS_AGENT_TOKEN='));
+    assert.equal(minted.length, 1, `${label}: expected exactly one sender token in the pane env: ` + JSON.stringify(passed));
+    assert.match(minted[0], /^KOSMOS_AGENT_TOKEN=[0-9a-f]{64}$/, `${label}: the token is not the 32-byte hex the supervisor validates`);
+    const rest = passed.filter((v) => !v.startsWith('KOSMOS_AGENT_TOKEN='));
+    assert.deepEqual(rest, [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245'],
       `${label}: the pane was not handed exactly the account and the board: ` + JSON.stringify(set.newSession));
     // And they sit BEFORE the runner binary. After it they are the runner's
     // own arguments, tmux never sees them, and the same three pairs are still
@@ -1159,7 +1171,14 @@ test('the startup script, actually run, hands the pane its account and its board
   ]) {
     const r = runLauncher({ claim: 'probe', paneCommands: ['-zsh', 'bash'], env: envCase });
     assert.ok(r.newSession, `${label}: nothing was launched, so the assertion below never ran`);
-    assert.ok(!r.newSession.includes('-e'),
+    /* \u26a0\ufe0f #1139: the check is "no ACCOUNT OR BOARD variable rides", not "no
+       `-e` rides". The sender token is neither, and it is minted regardless of
+       whether those three are set -- so a bare `includes('-e')` now reads a
+       correct token as a leaked empty variable. Named exactly, so this still
+       fails on the thing it was written for: an unset var riding as empty. */
+    const passed = r.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e');
+    const notToken = passed.filter((v) => !v.startsWith('KOSMOS_AGENT_TOKEN='));
+    assert.deepEqual(notToken, [],
       `${label}: a variable that is not set was still passed into the pane: ` + JSON.stringify(r.newSession));
   }
 });
@@ -3497,4 +3516,42 @@ test('all three name checks refuse an unusable name with the SAME sentence', () 
     `setAccount and setProvider disagree: ${viaAccount.because} vs ${viaProvider.because}`);
   assert.equal(viaAccount.because, viaModel.because,
     `setAccount and setModel disagree: ${viaAccount.because} vs ${viaModel.because}`);
+});
+
+
+/* ------------------------------------------------------------------ #1139
+ * THE JOIN, which is the half neither side tests on its own.
+ *
+ * tools/test-supervisor-env.sh proves the SUPERVISOR mints when `engine-path`
+ * sits beside it. It writes that pointer by hand. So nothing proved the BOARD
+ * actually produces one, and two correct halves with no join is exactly how
+ * this defect existed in the first place.
+ * -------------------------------------------------------------------------- */
+
+test('#1139: installSupervisor leaves an engine-path beside the supervisor, pointing somewhere sendertoken.js really is', () => {
+  const r = create.installSupervisor();
+  assert.equal(r.ok, true, r.missingFile || 'install failed');
+
+  const ptr = nodePath.join(nodePath.dirname(create.supervisorPath()), 'engine-path');
+  assert.ok(fs.existsSync(ptr), 'no engine-path was written beside the supervisor');
+
+  const dir = fs.readFileSync(ptr, 'utf8').trim();
+  assert.ok(dir, 'the pointer is empty');
+  assert.ok(nodePath.isAbsolute(dir), 'the pointer is relative, and the supervisor resolves it from a different cwd');
+
+  /* The point of the pointer, not merely that a file exists: the supervisor
+     requires `<dir>/sendertoken.js`, so a path to anything else is a pointer
+     that resolves and still mints nothing. */
+  assert.ok(
+    fs.existsSync(nodePath.join(dir, 'sendertoken.js')),
+    `engine-path points at ${dir}, which has no sendertoken.js`,
+  );
+
+  /* And it must not be the SUPPORT_DIR copy's own parent, which is the layout
+     that had no engine at all. */
+  assert.notEqual(
+    nodePath.resolve(dir),
+    nodePath.resolve(nodePath.dirname(create.supervisorPath()), '..', 'engine'),
+    'the pointer points back into SUPPORT_DIR, where there is no engine',
+  );
 });

@@ -252,7 +252,31 @@ if [ -z "$adopt" ]; then
     # launch costs the fleet.
     KOSMOS_AGENT_TOKEN=""
     _app="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd || true)"
+    # \U0001f6d1 #1139: TWO CANDIDATES, BECAUSE THE COPY THAT RUNS HAS NO `engine/`.
+    # `$_app/engine` is true in a checkout and in the bundle, and FALSE for every
+    # real agent: `installSupervisor` copies this script to SUPPORT_DIR/bin, and
+    # SUPPORT_DIR has `bin/` and nothing else. Measured -- the installed copy
+    # minted 0 while the identical file from a checkout minted 2, same
+    # invocation, same environment, only `dirname $0` differing. So no agent had
+    # ever received a token.
+    #
+    # There is no relative path from Application Support to wherever the app is
+    # installed, so the location has to come FROM THE BOARD. It writes
+    # `engine-path` beside this script in the same refresh that installs it,
+    # which means existing agents are fixed at the next board start with no
+    # plist rewrite -- their launchd jobs are never rewritten, so anything
+    # riding the argument vector would have reached new agents only.
+    _eng=""
     if [ -n "$_app" ] && [ -f "$_app/engine/sendertoken.js" ]; then
+      _eng="$_app/engine"
+    else
+      _ptr="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)/engine-path"
+      if [ -f "$_ptr" ]; then
+        _cand="$(cat "$_ptr" 2>/dev/null || true)"
+        if [ -n "$_cand" ] && [ -f "$_cand/sendertoken.js" ]; then _eng="$_cand"; fi
+      fi
+    fi
+    if [ -n "$_eng" ]; then
       # The bundled node first, the same one install/kosmos uses; then whatever
       # is on PATH, so a source checkout still works. Never a guess: each is
       # tested for executability before it is run.
@@ -269,7 +293,7 @@ if [ -z "$adopt" ]; then
             const r = s.mint(process.argv[2]);
             if (r && r.ok) process.stdout.write(r.token);
           } catch (e) { /* a mint is never worth a failed launch */ }
-        ' "$_app/engine/sendertoken.js" "$_roster" 2>/dev/null || true)"
+        ' "$_eng/sendertoken.js" "$_roster" 2>/dev/null || true)"
         break
       done
     fi
