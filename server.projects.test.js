@@ -1714,6 +1714,57 @@ test('the task routes: create over the wire, refusals write nothing, close and r
   assert.equal(listed.taskCounter, 2);
 });
 
+test('the chats-reveal route: global by name, honest about an empty install, guard inherited (#969)', async () => {
+  /**
+   * 🛑 THE ROUTE IS GLOBAL AND THE TEST PINS THAT IT IS. Every room's thread
+   * lives in ONE directory, one file per room, so a per-project path here would
+   * be a URL promising something the storage cannot give. The button sits in a
+   * project's settings and its label says "every project" for the same reason.
+   */
+  const projects = require('./engine/projects');
+  const chat = require('./engine/chat');
+  const fsx = require('node:fs');
+  const dir = chat.chatsDir();
+  try {
+    // Guard, by count: this POST opens an app.
+    let ran = 0;
+    let opened = null;
+    projects.setRevealRunner((_bin, args) => { ran += 1; opened = args && args[0]; return { ok: true }; });
+
+    const cross = await req('/api/chats/reveal', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
+    });
+    assert.equal(cross.status, 403, 'a cross-site page can open Finder');
+    assert.equal(ran, 0, 'the guard answered 403 but Finder opened anyway');
+
+    /* ⚠️ THE EMPTY ARM IS AN ANSWER, NOT AN ERROR. Kosmos makes this directory
+       on the first message, so "not there" means nobody has said anything yet,
+       and `open` on a missing path would report a Finder failure for a working
+       install. */
+    if (fsx.existsSync(dir)) fsx.rmSync(dir, { recursive: true, force: true });
+    const empty = await post('/api/chats/reveal', {});
+    assert.equal(empty.status, 409, 'a machine with no conversations yet was not told so');
+    assert.match(json(empty).error, /nothing to show you/i);
+    assert.equal(ran, 0, 'it tried to open a folder that does not exist');
+
+    fsx.mkdirSync(dir, { recursive: true });
+    const ok = await post('/api/chats/reveal', {});
+    assert.equal(ok.status, 200);
+    assert.equal(ran, 1, 'the folder exists and nothing opened');
+    assert.equal(opened, dir, `it opened ${opened} rather than the chats directory`);
+    assert.equal(json(ok).where, dir);
+
+    /* A Finder that refuses is reported in words, not as a success. */
+    projects.setRevealRunner(() => ({ ok: false, because: 'Finder did not open' }));
+    const refused = await post('/api/chats/reveal', {});
+    assert.equal(refused.status, 409);
+    assert.match(json(refused).error, /Finder/);
+  } finally {
+    projects.setRevealRunner(null);
+  }
+});
+
 test('the reveal-folder route: guard inherited, server-derived path, honest refusals', async () => {
   const projects = require('./engine/projects');
   const made = json(await post('/api/projects', { name: 'Reveal Wire' }));

@@ -58,6 +58,12 @@ if [ "${#PLISTS[@]}" -eq 0 ]; then
 fi
 
 worst=0; examined=0
+# ⭐ COUNT THE EXPOSURE, NOT ONLY THE INCIDENT (#1045). A job whose code is
+# committed is still EDITABLE INTO PRODUCTION if it runs from a working tree.
+# The old summary said "OK: every live job runs committed code from main" and
+# that sentence is prevention-shaped: it reads as a guarantee about a risk it
+# never measured. Report the numbers and let the reader judge.
+in_tree=0; not_tree=0
 for p in "${PLISTS[@]}"; do
   label=$(basename "$p" .plist)
   args=$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments' "$p" 2>/dev/null || true)
@@ -78,7 +84,7 @@ for p in "${PLISTS[@]}"; do
   fi
   root=$(git -C "$d" rev-parse --show-toplevel 2>/dev/null || true)
   if [ -z "$root" ]; then
-    say "ok   $label -> ${target#$HOME/} (not a git tree)"; examined=1; continue
+    say "ok   $label -> ${target#$HOME/} (not a git tree)"; examined=1; not_tree=$((not_tree+1)); continue
   fi
   examined=1
   branch=$(git -C "$root" branch --show-current 2>/dev/null)
@@ -92,7 +98,8 @@ for p in "${PLISTS[@]}"; do
     what="$dirty uncommitted file(s) in the tree it serves from"
   fi
   if [ "$branch" = "main" ] && [ "$dirty" = "0" ]; then
-    say "ok   $label -> ${target#$HOME/} (committed, on main)"
+    say "ok   $label -> ${target#$HOME/} (committed, on main; IN A WORKING TREE)"
+    in_tree=$((in_tree+1))
   else
     say "!!   $label -> ${target#$HOME/}"
     [ "$branch" != "main" ] && say "       tree is on ${branch:-<detached>}, so this job runs that branch's code"
@@ -109,7 +116,9 @@ if [ "$examined" -eq 0 ]; then
   exit 2
 fi
 case "$worst" in
-  0) say "OK: every live job runs committed code from main." ; exit 0 ;;
+  0) say "$((in_tree+not_tree)) live jobs. $in_tree run from a git WORKING TREE. 0 have uncommitted changes."
+         [ "$in_tree" -gt 0 ] && say "  a working tree means an editor is a deploy step (#1045); 0 uncommitted is TODAY, not a property"
+         exit 0 ;;
   1) say "!! A LIVE JOB IS RUNNING CODE THAT IS NOT COMMITTED ON MAIN."
      say "!! There is no deploy step, so this took effect without anyone shipping it."
      exit 1 ;;

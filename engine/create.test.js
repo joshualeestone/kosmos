@@ -3343,3 +3343,41 @@ test('disabledJobs reads the launchd overrides and fails soft to an empty set (#
     create.setRunner(null);
   }
 });
+
+/* ---- #1026: a model belongs to a provider ------------------------------- */
+
+test("#1026: modelsFor scopes to the provider, and today OpenAI's list is empty", () => {
+  const create = require('./create');
+  assert.equal(create.modelsFor('anthropic').length, 4);
+  assert.deepEqual(create.modelsFor('openai'), [],
+    'an OpenAI model appeared without anyone adding one, or the filter is wrong');
+  // Every entry carries one, or the filter silently drops it from both lists.
+  for (const m of create.MODELS) {
+    assert.ok(m.provider === 'anthropic' || m.provider === 'openai',
+      `${m.key} has no usable provider: ${m.provider}`);
+  }
+});
+
+test('#1026: modelFor refuses a real model belonging to the OTHER provider', () => {
+  const create = require('./create');
+  // The control first: it resolves within the right provider, or the refusal
+  // below would pass against a function that refuses everything.
+  assert.equal(create.modelFor('anthropic', 'opus').arg, 'claude-opus-5');
+  assert.equal(create.modelFor('openai', 'opus'), null,
+    'a Claude model resolved for an OpenAI agent, which is a flag codex has never heard of');
+  assert.equal(create.modelFor('anthropic', 'no-such-model'), null);
+});
+
+test('#1026: setModel refuses a Claude model on a codex agent, and says why in a sentence that survives OpenAI models existing', () => {
+  /* ⚠️ THE OLD REFUSAL WAS A SENTENCE, NOT A CHECK: "OpenAI picks its own
+     model for now" was true while this list had one vendor and would have
+     become false the day OpenAI rows were added, with nothing to catch it.
+     Scoped to the provider, the right refusal falls out of the data. */
+  const create = require('./create');
+  const r = create.setModel('definitely-not-an-agent-1026', 'opus');
+  assert.equal(r.outcome, 'refused');
+  // It cannot reach the model check (no such agent), which is itself the
+  // ordering this change relies on: the provider is known only after the job
+  // is read, so the model must be resolved after it.
+  assert.match(r.because, /was not started by Kosmos|not a name we can act on/);
+});

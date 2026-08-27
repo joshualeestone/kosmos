@@ -124,6 +124,14 @@ const MAX_MESSAGES = 1000;
 /** How much of the pane the viewport shows. */
 const VIEWPORT_LINES = 60;
 
+/**
+ * Where every project's stored dialogue lives (kosmos#969).
+ *
+ * 🔑 EXPORTED AS A FUNCTION, NOT A VALUE. `store.ROOT` is read from the
+ * environment, and the tests re-point it between cases; a constant captured at
+ * require time would hand a caller the FIRST sandbox forever, which is exactly
+ * the shape that puts one test's files in another test's directory.
+ */
 const DIR = () => path.join(store.ROOT, 'chats');
 
 /* ── the tmux seam ───────────────────────────────────────────────────────── */
@@ -1994,6 +2002,7 @@ module.exports = {
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,
   setRunner, setDryRun, setPauser, resetForTests, CODEX_ENTER_GAP_MS,
+  chatsDir: DIR,
 };
 
 /**

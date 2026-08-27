@@ -97,5 +97,53 @@ case "$got" in
   *) bad "CONTROL FAILED: the harness recorded nothing for UserPromptSubmit either (got: '$got'), so the silence arms prove nothing" ;;
 esac
 
+# --- #1099: the narrow source log ---------------------------------------------
+# ⚠️ TMPDIR IS SCOPED ON EVERY INVOCATION BELOW. The hook writes a throttle mark
+# to ${TMPDIR}/kosmos-report-throttle, so an unscoped call leaks into the shared
+# temp dir -- invisible when this file runs alone, which is exactly how a guard
+# gets tested. Caught by reading the calls, not by counting temp entries: the
+# count on this machine moves constantly from other agents and could not have
+# attributed it.
+# 🛑 THE LEAK ARM IS THE POINT. The obvious version of this feature logs the
+# whole payload, and the payload carries `.tool_input.command` -- every bash
+# command every agent runs, fleet-wide, into a durable file. This arm feeds it
+# a payload containing a credential PATH and proves the log does not carry it.
+slog="$T/srclog"
+printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cat /home/x/.config/secrets/TOKEN_VALUE"},"source":"startup"}' \
+  | TMPDIR="$T/tmp.src" KOSMOS_SOURCE_LOG="$slog" KOSMOS_REPORT_CLI=/nonexistent bash "$HOOK" >/dev/null 2>&1
+if [ -s "$slog" ]; then ok "KOSMOS_SOURCE_LOG records an event"; else bad "the source log wrote nothing when asked to"; fi
+if grep -q "TOKEN_VALUE" "$slog" 2>/dev/null; then
+  bad "🛑 THE SOURCE LOG LEAKED A COMMAND. It must carry the event and .source only"
+else ok "the source log does NOT carry the command, even when the payload has one"
+fi
+case "$(cat "$slog" 2>/dev/null)" in
+  *"PreToolUse"*startup*) ok "it records the event name and the source value" ;;
+  *) bad "the logged line lacks the event or the source: $(cat "$slog" 2>/dev/null)" ;;
+esac
+
+# OFF unless asked. No variable, no file, no behaviour change for anyone.
+off="$T/should-not-exist"
+printf '{"hook_event_name":"SessionStart","source":"startup"}' \
+  | TMPDIR="$T/tmp.off" KOSMOS_REPORT_CLI=/nonexistent bash "$HOOK" >/dev/null 2>&1
+[ -e "$off" ] && bad "something was written with no KOSMOS_SOURCE_LOG set" \
+              || ok "with no KOSMOS_SOURCE_LOG the feature is inert"
+
+# ⚠️ AND THE RUNTIME ARM ABOVE PROVES LESS THAN IT LOOKS: it only shows nothing
+# reached ONE path I named. A control that made the log unconditional with a
+# hardcoded default sailed past it. So assert the GUARD ITSELF, in the source:
+# the write must be lexically inside the env-var test.
+guard="$(awk '/if \[ -n "\$\{KOSMOS_SOURCE_LOG:-\}" \]; then/,/^fi$/' "$HOOK")"
+case "$guard" in
+  *KOSMOS_SOURCE_LOG*printf*|*printf*KOSMOS_SOURCE_LOG*) ok "the write is lexically inside the KOSMOS_SOURCE_LOG guard" ;;
+  *) bad "the source-log write is no longer inside its env guard; it can write with nobody asking" ;;
+esac
+
+# A payload with NO source must still log a row, or an absent field and an
+# absent event look the same in the collected data.
+printf '{"hook_event_name":"SessionStart"}' \
+  | TMPDIR="$T/tmp.nosrc" KOSMOS_SOURCE_LOG="$T/nosrc" KOSMOS_REPORT_CLI=/nonexistent bash "$HOOK" >/dev/null 2>&1
+[ -s "$T/nosrc" ] && ok "a payload with no source still logs a row (absent field != absent event)" \
+                  || bad "a payload without source logged nothing; an older Claude Code would be invisible"
+
 echo "report-hook source: $FAILS failures"
 exit $([ "$FAILS" -eq 0 ] && echo 0 || echo 1)
