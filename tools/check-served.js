@@ -149,15 +149,63 @@ function argAll(name) {
   try {
     const head = execFileSync('git', ['show', 'origin/main:package.json'], { cwd: __dirname, encoding: 'utf8' });
     const repoVersion = JSON.parse(head).version;
-    if (repoVersion !== version) {
+
+    /* 🛑 WHICH DIRECTION, BECAUSE THE TWO MEAN OPPOSITE THINGS AND ONLY ONE IS
+       A FAULT. This compared with `!==` and printed the BEHIND sentence for
+       both, so it FAILED on the healthy state a cut spends its entire run in.
+       Caught live at 08:58 on 2026-08-27, mid-cut: repo 0.5.79, served 0.5.78,
+       nothing wrong, and the red said "the repo does not know about the build
+       that shipped" about a repo that knew perfectly well. Splinter was minutes
+       from verifying a card in the served bytes and reading that as a broken
+       release.
+
+         repo BEHIND served  a cut re-bumps to the served version and publishes
+                             a second, different build over it. Killed a cut on
+                             the 26th. This is the failure the arm exists for.
+         repo AHEAD  served  normal between a bump and the publish that follows
+                             it, which is where every cut lives while it runs.
+
+       ⚠️ Same shape as the defects this file already guards against: two states
+       collapsed into one, and the surviving message describes only one of them.
+       The arm was right to look. It could not say which thing it had found.
+       📌 Compared NUMERICALLY, not lexically: "0.5.9" > "0.5.10" as strings, so
+       a string compare would call a real BEHIND an AHEAD at exactly the version
+       where the minor number gains a digit. main.swift learned this the same
+       way and its selftest pins the row. */
+    const parts = (v) => {
+      const bits = String(v == null ? '' : v).split('.');
+      if (bits.length !== 3 || !bits.every((b) => /^[0-9]+$/.test(b))) return null;
+      return bits.map(Number);
+    };
+    const a = parts(repoVersion);
+    const b = parts(version);
+    let cmp = null;                       // null = one of them is not a.b.c, so we cannot order them
+    if (a && b) {
+      cmp = 0;
+      for (let i = 0; i < 3; i += 1) { if (a[i] !== b[i]) { cmp = a[i] < b[i] ? -1 : 1; break; } }
+    }
+
+    if (cmp === -1) {
       console.log('');
-      console.error('FAIL  origin/main says ' + repoVersion + ' but ' + version + ' is SERVED.');
+      console.error('FAIL  origin/main says ' + repoVersion + ' but ' + version + ' is SERVED, and the repo is BEHIND.');
       console.error('      The repo does not know about the build that shipped. A cut taken from');
       console.error('      main now bumps to ' + version + ' again and publishes a second, different');
       console.error('      build over the served one. Push the version bump before cutting.');
       process.exit(1);
     }
-    console.log('origin/main agrees:  ' + repoVersion + '  (the repo knows what shipped)');
+    if (cmp === 1) {
+      console.log('origin/main is ' + repoVersion + ', AHEAD of the served ' + version + '.');
+      console.log('      Normal between a version bump and the publish that follows it, which is where');
+      console.log('      a cut spends its whole run. Nothing here is wrong; re-run once it has published.');
+    } else if (cmp === 0) {
+      console.log('origin/main agrees:  ' + repoVersion + '  (the repo knows what shipped)');
+    } else {
+      /* 🔑 CANNOT ORDER IS ITS OWN ANSWER. A hand-edited or prerelease version
+         is neither ahead nor behind, and guessing either would be the exact
+         thing this tool refuses everywhere else. */
+      console.log('note: origin/main says ' + repoVersion + ' and ' + version + ' is served, and one of');
+      console.log('      those is not a plain a.b.c, so this cross-check cannot order them. Not a verdict.');
+    }
   } catch (e) {
     if (/FAIL  origin/.test(String(e && e.message))) throw e;
     console.log('note: could not read origin/main package.json (' + String(e && e.code || e).slice(0, 40) + '); skipping the repo cross-check.');
