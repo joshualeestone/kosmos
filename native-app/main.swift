@@ -277,7 +277,7 @@ func logLine(_ s: String) {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
     var window: NSWindow!
     var webView: WKWebView!
     private var isActuallyQuitting = false
@@ -363,9 +363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         window.delegate = self
         window.isReleasedWhenClosed = false // we hide, never dealloc, on close
 
-        let config = WKWebViewConfiguration()
-        webView = WKWebView(frame: contentRect, configuration: config)
-        webView.navigationDelegate = self
+        webView = AppDelegate.makeWebView(frame: contentRect, delegate: self)
         window.contentView = webView
 
         window.makeKeyAndOrderFront(nil)
@@ -556,6 +554,111 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.alertStyle = .critical
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+
+    // MARK: The webView, and the file picker (kosmos#1032)
+
+    /// Both delegates in one place, so a webView can never be built with the
+    /// navigation one wired and the UI one forgotten. That is not a
+    /// hypothetical tidiness: it is exactly the bug this constructor was
+    /// extracted to close.
+    static func makeWebView(frame: NSRect, delegate: AppDelegate) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        let web = WKWebView(frame: frame, configuration: config)
+        web.navigationDelegate = delegate
+        // 🛑 WITHOUT THIS LINE EVERY + BUTTON IN KOSMOS IS DEAD AND SILENT.
+        // On macOS a WKWebView does not open a file picker itself: it ASKS the
+        // host app, through WKUIDelegate.runOpenPanelWith below. With no
+        // uiDelegate there is no receiver, so the click is dropped with no
+        // error, no console line and no visible change. The app shipped that
+        // way, and the report that found it (Josh, 2026-08-26) was "I can't
+        // hit the + button to get it to spawn the file selector" on BOTH the
+        // agent and the project boxes -- one cause, not two bugs.
+        //
+        // ⭐ WHY NO TEST CAUGHT IT, and this is the part worth keeping: every
+        // browser check runs the page in Chromium or Playwright's WebKit, and
+        // in a BROWSER the picker is the browser's own. The open-panel
+        // handshake only exists when the page is hosted by an app. So the
+        // entire failure lives in the one seam the whole suite is structurally
+        // blind to. Drag-and-drop kept working throughout, because a drop
+        // delivers files through the DOM and never asks the host for a panel.
+        web.uiDelegate = delegate
+        return web
+    }
+
+    /// Swapped out by `--kosmos-app-filepanel-selftest` so the gate can prove
+    /// the delegate fires without a modal panel appearing on a build machine.
+    /// nil in every shipped run, which is the only state a person ever sees.
+    static var openPanelPresenter: ((WKOpenPanelParameters, @escaping ([URL]?) -> Void) -> Void)?
+
+    /// One open panel at a time, because a second one is not queued -- it is
+    /// dropped, and a dropped request is a crash.
+    private var openPanelOutstanding = false
+
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping ([URL]?) -> Void) {
+        /* 🛑 A RE-ENTRANT REQUEST IS ANSWERED IMMEDIATELY, NOT IGNORED.
+           MEASURED on macOS 26: a second `beginSheetModal(for:)` on a window
+           that already has a sheet is SILENTLY DROPPED. The panel never becomes
+           a sheet, it is not queued, and its completion handler is never
+           called -- which, by the rule two comments down, TERMINATES THE APP.
+           Refusing the second request with nil costs the person nothing (the
+           first panel is still up and still theirs) and removes the whole
+           class. Narrow today, because clicking a second + through a sheet is
+           hard; free to close. */
+        /* ⚠️ SAID, NOT SILENT. This branch introduces the one state in the class
+           (`openPanelOutstanding`) that could strand: if a future path ever
+           presents without going through one of the two closures that clear it,
+           every later + press is refused forever with no diagnostic -- #1032
+           reproduced by the code that fixes it. Nothing exercises this branch,
+           so a line in the log is the only thing that would ever name it.
+           Main-thread only, like every other flag on this delegate: WebKit
+           calls this method on the main thread and both sheet completions are
+           main-thread, so the flag needs no synchronisation. */
+        if openPanelOutstanding {
+            logLine("runOpenPanelWith: refused, a panel is already up")
+            completionHandler(nil)
+            return
+        }
+        openPanelOutstanding = true
+        if let present = AppDelegate.openPanelPresenter {
+            present(parameters) { [weak self] urls in
+                self?.openPanelOutstanding = false
+                completionHandler(urls)
+            }
+            return
+        }
+        let panel = NSOpenPanel()
+        // The page decides these, not us: a composer that accepts several
+        // files says so on its own input, and honouring the flag is what makes
+        // `multiple` mean anything.
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.canChooseDirectories = parameters.allowsDirectories
+        panel.canChooseFiles = !parameters.allowsDirectories
+        /* Sheeted on the window the click came from, so it cannot end up behind
+           the board or on the wrong screen.
+
+           🛑 CANCEL MUST ANSWER, AND THE COST IS WORSE THAN IT LOOKS. MEASURED
+           by building this delegate with the cancel arm dropped: WebKit does
+           not wedge the input quietly, it raises
+           NSInternalInconsistencyException, "Completion handler passed to
+           -[main.AppDelegate webView:runOpenPanelWithParameters:...] was not
+           called", and the app TERMINATES. So a person who opens the file
+           picker and presses Cancel would lose Kosmos, mid-conversation, with
+           no warning. An earlier version of this comment said it merely broke
+           the next press; that was a guess and it was wrong in the direction
+           that matters. */
+        let host = webView.window
+        let answer: (NSApplication.ModalResponse) -> Void = { [weak self] resp in
+            self?.openPanelOutstanding = false
+            completionHandler(resp == .OK ? panel.urls : nil)
+        }
+        if let host {
+            panel.beginSheetModal(for: host, completionHandler: answer)
+        } else {
+            panel.begin(completionHandler: answer)
+        }
     }
 
     // MARK: WKNavigationDelegate -- instrumentation only, proves the request
@@ -1151,6 +1254,165 @@ if CommandLine.arguments.contains("--kosmos-app-menu-selftest") {
         }
     }
     exit(0)
+}
+
+// kosmos#1032: the + button opens a file picker, proven by pressing it.
+//
+// 🛑 THIS GATE EXISTS BECAUSE THE STRUCTURAL VERSION WOULD HAVE PASSED THE BUG.
+// "AppDelegate implements runOpenPanelWith" is true of a build where nobody
+// assigns `uiDelegate`, and that build is precisely the one that shipped. So
+// this drives the real constructor, loads a real page, presses a real button
+// and reports whether the app was actually asked for a panel.
+//
+// ⚠️ IT ALSO PINS THE `hidden` ROW ON PURPOSE. Kosmos's five file inputs all
+// carry the bare `hidden` attribute under a global
+// `[hidden]{display:none !important}`, and the first explanation for this bug
+// was that WebKit refuses a picker for an unrendered input. MEASURED HERE AND
+// IN A STANDALONE WKWebView: it does not. Both rows fire. Keeping the hidden
+// row means a future reader who reaches for that theory is answered by the
+// gate instead of rewriting five inputs for no reason.
+if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    /* ⚠️ `d` IS THE ONLY STRONG REFERENCE, AND BOTH DELEGATE PROPERTIES ARE
+       WEAK. Nothing reads `d` after the webView is built, so at -O the
+       optimizer is entitled to release it before the first press -- and the
+       failure would be `asked-for-panel:no` on a GOOD build, stopping a
+       release and blaming the product. It survives on Apple Swift 6.3.3 /
+       macOS 26 today, which makes this latent rather than live, and a gate
+       whose correctness depends on optimizer behaviour is not a gate.
+       `withExtendedLifetime` around the run loop removes the dependence. */
+    let d = AppDelegate()
+    let frame = NSRect(x: 0, y: 0, width: 600, height: 300)
+    let web = AppDelegate.makeWebView(frame: frame, delegate: d)
+    print("uiDelegate:\(web.uiDelegate == nil ? "MISSING" : "set")")
+    print("navigationDelegate:\(web.navigationDelegate == nil ? "MISSING" : "set")")
+
+    var fired: [String: Bool] = ["hidden": false, "visible": false, "again": false]
+    var current = "hidden"
+    AppDelegate.openPanelPresenter = { _, done in
+        fired[current] = true
+        done(nil)   // answer, so the input is not left wedged
+    }
+
+    // OFFSCREEN ON PURPOSE: this runs inside a release build, and a window
+    // flashing up mid-cut reads as the app launching by mistake. The press is
+    // driven from JavaScript rather than from real input events, so nothing
+    // here needs to be visible or focused.
+    let win = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: frame.width, height: frame.height),
+                       styleMask: [.titled], backing: .buffered, defer: false)
+    win.contentView = web
+    win.orderFrontRegardless()
+    let probePage = "<!doctype html><meta charset=utf-8>"
+        + "<style>[hidden] { display: none !important; }</style>"
+        + "<button id=\"bhidden\">h</button><input id=\"fhidden\" type=\"file\" hidden>"
+        + "<button id=\"bvisible\">v</button><input id=\"fvisible\" type=\"file\">"
+        + "<script>for (const k of ['hidden','visible']) {"
+        + "document.getElementById('b'+k).addEventListener('click',"
+        + "() => document.getElementById('f'+k).click()); }"
+        // ⚠️ SET LAST, AND POLLED INSTEAD OF THE BUTTON. The button exists in
+        // the DOM before this script runs, so polling for it opens a window
+        // where a press lands on a control with no listener -- and the gate
+        // would report asked-for-panel:no, which is a false accusation.
+        + "window.__probeReady = 1;</script>"
+    web.loadHTMLString(probePage, baseURL: URL(string: "http://127.0.0.1/"))
+
+    func press(_ k: String, then: @escaping () -> Void) {
+        current = k
+        web.evaluateJavaScript("document.getElementById('b\(k)').click()") { _, _ in }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: then)
+    }
+    /* ⚠️ WAIT FOR THE PAGE, DO NOT GUESS AT IT. A fixed sleep here is a race
+       the gate loses by ACCUSING A GOOD BINARY: measured, at 0.05s an
+       otherwise-unmodified build prints asked-for-panel:no and the shell
+       renders that as "the + button will do nothing". This gate runs mid-build,
+       after a Node download and a codesign, on whatever the box is doing. So
+       it polls for the button the presses need and only then starts. */
+    /* 🛑 THE GIVING-UP MESSAGE CARRIES THE WATCHDOG'S OWN TOKEN, AND THAT IS THE
+       POINT OF IT. Exhausting this poll means the gate could not get started,
+       not that the + button is dead -- and the previous version of this line
+       said something the bundle gate classified as a PRODUCT failure, which is
+       the exact defect the commit that added this poll set out to remove. The
+       fix removed one instance and shipped another. `filepanel selftest TIMED
+       OUT` is the unique string the shell keys its gate-fault arm on.
+       Budget: 150 x 0.1s = 15s, inside the hatch's own 25s watchdog and the
+       shell's 40s alarm. The page loads in well under half a second here, so
+       this is ~30x the observed margin rather than the ~12x it was. The whole
+       run is about 7s, so there was budget going spare. */
+    func whenReady(_ go: @escaping () -> Void, tries: Int = 150) {
+        web.evaluateJavaScript("window.__probeReady === 1") { r, _ in
+            if (r as? Bool) == true { go(); return }
+            guard tries > 0 else {
+                print("filepanel selftest TIMED OUT: the probe page never finished loading")
+                exit(1)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenReady(go, tries: tries - 1) }
+        }
+    }
+    whenReady {
+        press("hidden") {
+            press("visible") {
+                print("press:hidden-input\tasked-for-panel:\(fired["hidden"]! ? "yes" : "no")")
+                print("press:visible-input\tasked-for-panel:\(fired["visible"]! ? "yes" : "no")")
+                guard fired["hidden"]!, fired["visible"]! else { exit(1) }
+                // ⭐ THE ARM THAT IS NOT A STUB. Everything above proves the app
+                // was ASKED for a panel. It does not prove a panel appears,
+                // because the presenter was swapped out. So: put the real one
+                // back, press again, and look for an actual panel window. Without
+                // this, a runOpenPanelWith that answered and then presented
+                // nothing would pass every line above.
+                AppDelegate.openPanelPresenter = nil
+                current = "real"
+                web.evaluateJavaScript("document.getElementById('bvisible').click()") { _, _ in }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    /* `isVisible`, not merely present in NSApp.windows: the
+                       line is called panel-on-screen and it should mean it. A
+                       panel constructed and never presented IS in that array. */
+                    let panel = NSApp.windows.first { $0 is NSOpenPanel && $0.isVisible }
+                    print("press:real-presenter\tpanel-on-screen:\((panel != nil) ? "yes" : "no")")
+                    guard let p = panel as? NSOpenPanel else { exit(1) }
+                    // Dismiss it, or the build hangs behind a dialog.
+                    if let host = p.sheetParent { host.endSheet(p, returnCode: .cancel) } else { p.cancel(nil) }
+
+                    /* ⭐ AND THEN PRESS AGAIN, because the one behaviour the fix
+                       singles out is the one nothing here was watching. An
+                       `NSOpenPanel` that is dismissed without calling the
+                       completion handler leaves the file input WEDGED: WebKit
+                       is still waiting for the last answer, and the NEXT press
+                       does nothing for the rest of the session. So a cancel is
+                       not the end of the check, it is the setup for it. This
+                       arm fails if the cancel arm is ever dropped. */
+                    AppDelegate.openPanelPresenter = { _, done in
+                        fired["again"] = true
+                        done(nil)
+                    }
+                    current = "again"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        web.evaluateJavaScript("document.getElementById('bvisible').click()") { _, _ in }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            let again = fired["again"] ?? false
+                            print("press:after-a-cancel\treaches-the-app-again:\(again ? "yes" : "no")")
+                            exit(again ? 0 : 1)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // A hung run loop must fail, not hang a release cut.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 25) {
+        print("filepanel selftest TIMED OUT")
+        exit(1)
+    }
+    withExtendedLifetime(d) { app.run() }
+    /* 🛑 EVERY OTHER HATCH IN THIS FILE ENDS IN exit(). Without this, a run
+       loop that ever returns falls straight through into the real app below --
+       launched .accessory, and with `openPanelPresenter` still pointing at the
+       stub that answers nil, which is this bug reproduced silently by the code
+       that fixes it. I could not make app.run() return here, so this is latent
+       rather than live; it is one line and the blast radius is the whole
+       product. */
+    exit(1)
 }
 
 let app = NSApplication.shared

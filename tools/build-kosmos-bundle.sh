@@ -318,6 +318,90 @@ menu:Window
 _menu_table_stderr="$(mktemp "${TMPDIR:-/tmp}/menu-table-stderr.XXXXXXXXXX")"
 _menu_table_actual="$(perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-menu-selftest 2>"$_menu_table_stderr")" || { echo "the native app's --kosmos-app-menu-selftest failed to run or hung (a drifted hatch flag falls through to app.run()); its stderr:" >&2; cat "$_menu_table_stderr" >&2; exit 1; }
 [ "$_menu_table_actual" = "$_menu_table_expected" ] || { printf '%s\n' "the native app's menu bar drifted from the expected table (#994). A menu item that vanishes is invisible until somebody presses the key it no longer has." "EXPECTED:" "$_menu_table_expected" "ACTUAL:" "$_menu_table_actual" >&2; exit 1; }
+# ---- the file picker actually opens (kosmos#1032) ---------------------------
+# A WKWebView does not open a file picker itself: it ASKS the host app through
+# WKUIDelegate.runOpenPanelWith. Kosmos shipped with no uiDelegate at all, so
+# every + button in the product was dead and silent -- no error, no console
+# line, nothing. Drag-and-drop kept working, which is why it read as a
+# cosmetic gap rather than a broken feature.
+#
+# 🛑 NO BROWSER CHECK CAN EVER CATCH THIS. In a browser the picker belongs to
+# the browser; the open-panel handshake only exists when a page is hosted by an
+# app. The whole failure lives in the one seam the page suite is structurally
+# blind to, so the gate has to live here, next to the binary.
+#
+# ⚠️ THIS ONE NEEDS A WINDOW SERVER, unlike the menu table above. It builds a
+# real WKWebView and presses a real button. On a machine with no console
+# session it is SKIPPED LOUDLY rather than failed, the same bargain
+# tools/test-floor-gate-tree.sh strikes when there is no swiftc: a release cut
+# on a headless box must not be blocked by a check that box cannot run. The
+# skip line names what went unchecked so it is never silent.
+if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
+  _fp_rc=0
+  _fp_out="$(perl -e 'alarm 40; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-filepanel-selftest 2>&1)" || _fp_rc=$?
+  printf '%s\n' "$_fp_out" | sed 's/^/    /'
+  # ⚠️ THE CAUSE DECIDES THE SENTENCE, because most non-zero exits here are not
+  # a broken product. A drifted hatch flag falls through to app.run() and gets
+  # SIGALRM'd (142); a missing binary is 127; a box that owns the console but
+  # cannot reach the window server fails for its own reasons. Blaming the +
+  # button for those is a false accusation that stops a cut, which is the same
+  # over-broad message the menu gate above deliberately splits in two.
+  # 🛑 THE VERDICT IS THE OUTPUT, NOT THE EXIT STATUS, in BOTH directions.
+  #
+  # Reading only $? fails twice over. A future edit that returns early exits 0
+  # and proves nothing, which is exactly the structural check this gate exists
+  # to replace. And a non-zero exit says nothing about WHO is at fault: a
+  # drifted hatch flag falls through to app.run() and gets SIGALRM'd, a missing
+  # binary is 127, and a delegate that fails to answer its completion handler
+  # makes WebKit raise and the app abort at 134. Blaming the + button for the
+  # first two is a false accusation that stops a cut; exonerating the product
+  # for the third is worse.
+  #
+  # So each arm is named, and the FIRST ONE MISSING is the message. A run
+  # that printed none of them never got going and is the only case where the
+  # product is genuinely not implicated.
+  _fp_missing=""
+  for _fp_want in "uiDelegate:set" "press:hidden-input	asked-for-panel:yes" "press:visible-input	asked-for-panel:yes" "press:real-presenter	panel-on-screen:yes" "press:after-a-cancel	reaches-the-app-again:yes"; do
+    case "$_fp_out" in
+      *"$_fp_want"*) ;;
+      *) [ -n "$_fp_missing" ] || _fp_missing="$_fp_want" ;;
+    esac
+  done
+  if [ -n "$_fp_missing" ]; then
+    # ⚠️ TIMED OUT IS TESTED FIRST, AND THE ORDER IS THE WHOLE POINT. The hatch
+    # prints `uiDelegate:...` as its first statement, before any async work, so
+    # EVERY run that can reach its own watchdog has already printed it. With the
+    # product arm first, a genuine hang matched `*"uiDelegate:"*` and was
+    # reported as "the file picker is broken" -- the one shape the comment above
+    # says must not be blamed on the + button was the shape that got blamed.
+    # A dead branch that reads as a live guard is worse than no branch.
+    # tools.filepanel-gate.test.js fails if this order is put back.
+    case "$_fp_out" in
+      *"filepanel selftest TIMED OUT"*)
+        # ⚠️ THE FULL, UNIQUE TOKEN, not a bare "TIMED OUT". This arm is tested
+        # FIRST, so a bare substring would let any output that happens to
+        # contain those two words -- including a genuinely broken build whose
+        # WebKit stderr says them -- exonerate the product. The hatch prints
+        # this exact phrase and nothing else does.
+        # ⚠️ AND THE CLAIM IS BOUNDED ON PURPOSE. This says the gate could not
+        # finish, not that the product is innocent: a product-caused run-loop
+        # block (a future runModal on the open-panel path -- this file already
+        # uses runModal in three places) would hang here too and land in this
+        # arm. "Could not be judged" is what the evidence supports.
+        echo "the #1032 file-picker gate did not finish (exit $_fp_rc). It could not judge the + button either way, so this is NOT a verdict on the product. Look at the output above before assuming either." >&2 ;;
+      *"press:"*|*"uiDelegate:"*)
+        printf '%s\n' "the native app's file picker is broken (#1032). The gate got as far as it could and then this did not hold:" "    $_fp_missing" "A + button will do nothing, or Cancel will take the app down with it. Output above; exit $_fp_rc." >&2 ;;
+      *)
+        echo "the #1032 file-picker gate never ran (exit $_fp_rc) and printed none of its arms. Its output is above; the product is NOT implicated." >&2 ;;
+    esac
+    exit 1
+  fi
+  [ "$_fp_rc" -eq 0 ] || { echo "the #1032 file-picker gate printed every arm and still exited $_fp_rc. Treat that as the gate being broken, not as a pass." >&2; exit 1; }
+  echo "==> native app: the file picker asks for a panel (#1032)"
+else
+  echo "==> SKIPPED the #1032 file-picker gate: no console session for this user, so a WKWebView cannot be built here. The + button is UNCHECKED in this bundle." >&2
+fi
+
 _app_bin_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')"
 echo "==> native app: kosmos-app signed $_app_bin_sha"
 

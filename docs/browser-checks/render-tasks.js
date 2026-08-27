@@ -164,7 +164,14 @@ const MEMBER = 'taskmate';
        must be GONE rather than showing a count that contradicts the column --
        which was Josh's original report. */
     if (!(await p.locator('#pj-alltasks').isHidden())) die('the door shows while every task is already in the column');
-    const chip = (await shown(p.locator('.tkcard-who'))).trim();
+    /* ⚠️ `.nth(0)`, NOT A BARE `.tkcard-who` (#1009). The column used to hold
+       ONE card, so a bare locator was unambiguous; now it holds both open
+       tasks and the same locator is a strict-mode violation that throws
+       before it can assert anything. The assertion two lines up was updated
+       for the new count and this one, three lines from it, was not. The
+       assigned card is first, which is why the unassigned check below already
+       says `.nth(1)`. */
+    const chip = (await shown(p.locator('.tkcard').nth(0).locator('.tkcard-who'))).trim();
     if (!chip.includes(MEMBER)) die('the who chip does not name the member: ' + chip);
     await p.screenshot({ path: path.join(OUT, 'tasks-column.png') });
 
@@ -198,18 +205,30 @@ const MEMBER = 'taskmate';
         || !note.includes(MEMBER)) die('the joined close-note drifted: ' + note);
     await p.screenshot({ path: path.join(OUT, 'tasks-view-page.png') });
 
-    // Mark as done. The reveal is still on (it persists across same-project
-    // repaints by design), so the done card stays visible, now struck
-    // through, and the door stays hidden because everything is showing.
+    /* Mark as done, come back, and the done task is BEHIND THE DOOR.
+       ⚠️ THIS BLOCK USED TO ASSERT THE OPPOSITE, and it passed for a reason
+       that had nothing to do with what it claimed. It said "the reveal is
+       still on ... so the done card stays visible, and the door stays hidden
+       because everything is showing". MEASURED at this exact step: the reveal
+       is OFF (`TK_SHOW_ALL === false`), and it always was. The done card was
+       on screen because `joinTaskClaims` returned tasks with no `progress`, so
+       the column's filter excluded nothing -- which looks identical to a
+       reveal that is on, and is why nobody caught it.
+       Now that the payload carries `progress` (kosmos#1009, engine/projects.js)
+       the column holds the open task alone and the door reads the full count,
+       which is what the block below the project-switch has always asserted.
+       This one now agrees with it instead of contradicting it. */
     await p.click('#tk-done');
     /* A page is not dismissed by succeeding (#206's own ruling): it stays,
        repainted; the button flips to Reopen. Back is the navigation. */
     await p.waitForFunction(() => { const b = document.getElementById('tk-done'); return b.getBoundingClientRect().height > 0 && b.innerText.trim() === 'Reopen'; }, null, { timeout: 10000 });
     await p.click('#tk-back');
     await p.waitForSelector('#pj-one-view', { state: 'visible', timeout: 10000 });
-    await p.waitForSelector('.tkcard.closed', { timeout: 10000 });
-    if ((await p.locator('.tkcard').count()) !== 2) die('the reveal lost a card on repaint');
-    if (!(await p.locator('#pj-alltasks').isHidden())) die('the door shows while everything is revealed');
+    await p.waitForSelector('#pj-alltasks', { state: 'visible', timeout: 10000 });
+    if ((await p.locator('.tkcard').count()) !== 1) die('the column should hold the one OPEN task once the other is done');
+    if ((await p.locator('.tkcard.closed').count()) !== 0) die('a done task is still sitting in the column');
+    const doorDone = (await shown(p.locator('#pj-alltasks'))).trim();
+    if (!/View all tasks \(2\)/.test(doorDone)) die('the door does not offer both tasks: ' + doorDone);
     // And with the reveal OFF, the done card is behind the door. The reveal
     // survives same-project Back-and-return by design, so the reset needs a
     // real project SWITCH: bounce through Elsewhere and come back.

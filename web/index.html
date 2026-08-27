@@ -4140,6 +4140,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 .pmark.dim { color: var(--k-ink-2); }
 .pmark.dim svg { filter: grayscale(1) opacity(.8); }
 .pmark.live { color: var(--k-ink); }
+/* ⚠️ AND THE MARKS MUST ACTUALLY TAKE IT. `.pmark.live` exists so a monochrome
+   mark follows the theme through `currentColor`. The OpenAI path hardcoded
+   `fill="black"`, so it ignored the token and rendered black on the dark
+   ground -- an invisible logo on the row that says "works today".
+   🔑 The distinction, because not every hardcoded fill is a bug: Gemini, Qwen
+   and Mistral hardcode REAL BRAND COLOURS and gradients, which is correct and
+   must stay. OpenAI is a monochrome mark, so it was the only one opted out by
+   mistake. Monochrome takes currentColor; brand-coloured keeps its values and
+   gets measured on both grounds instead. */
 
 /* Running on older instructions. A STATE, not a toast: it survives a reload,
    and it is still right when the file was edited outside this app entirely. */
@@ -6099,6 +6108,21 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          it, never logs it, never puts it in a URL. The field is a
          password field so the screen does not show it unless asked. -->
     <div id="acct-openai-flow" hidden style="margin-top: var(--space-5);">
+      <!-- 🛑 THE PREREQUISITE IS STEP ONE, NOT A REFUSAL AFTER THE FACT
+           (kosmos#979). Picking OpenAI on a Mac with no runner used to accept a
+           key, submit it, and answer "we could not find the OpenAI runner on
+           this computer" -- a dead end reached only after the person had found
+           an API key and pasted it. The first-run wizard already learned this:
+           prerequisites go before credentials.
+           📌 The engine half was already there and unread. Angel's own comment
+           on `/api/runners` said "nothing in web/ or native-app/ reads this
+           yet". This is the consumer. -->
+      <div id="acct-openai-install" hidden>
+        <p class="dhint" style="margin:0 0 8px;">Kosmos needs the OpenAI runner on this computer before a key is any use. It is a one-time download.</p>
+        <div class="frow"><button class="btn uprime" id="acct-openai-install-go" type="button">Download and install it</button></div>
+        <p class="dhint" id="acct-openai-install-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+      </div>
+      <div id="acct-openai-key-step">
       <p class="dhint" style="margin:0 0 8px;">Paste an OpenAI API key. It stays on this Mac with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
       <div class="frow">
         <input type="password" id="acct-openai-key" autocomplete="new-password" spellcheck="false"
@@ -6126,6 +6150,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         apart from another one later.</p>
       <div class="frow" style="margin-top:12px;">
         <button class="btn uprime" id="acct-openai-go" type="button">Add</button>
+      </div>
       </div>
       <p class="dhint" id="acct-openai-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
     </div>
@@ -6346,7 +6371,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              previously sat BETWEEN the only two providers that work, so the eye
              hit a dead row on the way to the second live one. Both working rows
              now come first. Move this only if a provider changes state. -->
-        <div class="llm on"><span class="llm-m pmark live" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="black"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI &middot; works today</small></div>
+        <div class="llm on"><span class="llm-m pmark live" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="currentColor"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI &middot; works today</small></div>
           <button class="connect-b" type="button" id="fr-openai-connect" aria-expanded="false" aria-controls="fr-openai-flow">Connect</button></div>
         <!-- #944-adjacent: OpenAI is a pasted API key, not an OAuth popup like
              Claude, so it gets its own small reveal instead of reusing
@@ -11947,15 +11972,96 @@ document.getElementById('acct-add').addEventListener('click', async () => {
    other; nothing is shown until a choice is made, except that a Claude
    sign-in already in flight picks Claude on its own (acctFlowPaint), so a
    reload lands the person back on the step they were on. */
+/* kosmos#979: which step the OpenAI form opens on. `null` means we could not
+   look, and that is NOT the same as "missing" -- an unreachable board must not
+   send somebody to install a runner they may already have. Unknown shows the
+   key step, which is the state this form has always opened in. */
+let ACCT_OPENAI_READY = null;
+let ACCT_OPENAI_POLL = null;
+function acctOpenaiStep(present) {
+  const inst = document.getElementById('acct-openai-install');
+  const keys = document.getElementById('acct-openai-key-step');
+  if (!inst || !keys) return;
+  const missing = present === false;
+  inst.hidden = !missing;
+  keys.hidden = missing;
+}
+async function acctOpenaiLook() {
+  try {
+    const r = await (await fetch('/api/runners', { cache: 'no-store' })).json();
+    const o = r && r.runners && r.runners.openai;
+    ACCT_OPENAI_READY = o ? !!o.present : null;
+    return o || null;
+  } catch { ACCT_OPENAI_READY = null; return null; }
+}
+function acctOpenaiStop() {
+  if (ACCT_OPENAI_POLL) { clearInterval(ACCT_OPENAI_POLL); ACCT_OPENAI_POLL = null; }
+}
+/* ⚠️ THE JOB'S OWN PHASE, not a guess from elapsed time. A runner that fails to
+   install must say so and offer the button again, or the panel sits on
+   "installing" for ever -- the stale-screen family this card belongs to. */
+function acctOpenaiWatch() {
+  acctOpenaiStop();
+  const msg = document.getElementById('acct-openai-install-msg');
+  const go = document.getElementById('acct-openai-install-go');
+  ACCT_OPENAI_POLL = setInterval(async () => {
+    const o = await acctOpenaiLook();
+    if (!o) return;
+    if (o.present) {
+      acctOpenaiStop();
+      if (msg) msg.textContent = '';
+      acctOpenaiStep(true);
+      const k = document.getElementById('acct-openai-key');
+      if (k) k.focus();
+      return;
+    }
+    const job = o.job || {};
+    if (job.phase === 'failed') {
+      acctOpenaiStop();
+      if (msg) msg.textContent = job.because ? pjSentence(job.because) : 'That install did not finish. Nothing changed; you can try again.';
+      if (go) go.disabled = false;
+      return;
+    }
+    if (msg) msg.textContent = 'Installing…';
+  }, 1200);
+}
 function acctPick(which, opts) {
   const sel = document.getElementById('acct-provider-pick');
   if (sel.value !== which) sel.value = which;
   document.getElementById('acct-claude-flow').hidden = which !== 'claude';
   document.getElementById('acct-openai-flow').hidden = which !== 'openai';
+  if (which !== 'openai') { acctOpenaiStop(); return; }
+  /* Ask every time the form opens rather than caching: a runner can arrive or
+     leave between visits, and this dialog deliberately remembers nothing. */
+  acctOpenaiStep(ACCT_OPENAI_READY);
+  acctOpenaiLook().then((o) => {
+    acctOpenaiStep(ACCT_OPENAI_READY);
+    if (o && !o.present && o.job && o.job.phase && o.job.phase !== 'failed') acctOpenaiWatch();
+    if (opts && opts.focus === false) return;
+    const el = ACCT_OPENAI_READY === false
+      ? document.getElementById('acct-openai-install-go')
+      : document.getElementById('acct-openai-key');
+    if (el) el.focus();
+  });
   if (opts && opts.focus === false) return;
-  if (which === 'openai') document.getElementById('acct-openai-key').focus();
   if (which === 'claude') document.getElementById('acct-add').focus();
 }
+document.getElementById('acct-openai-install-go').addEventListener('click', async (e) => {
+  const go = e.currentTarget;
+  const msg = document.getElementById('acct-openai-install-msg');
+  go.disabled = true;
+  if (msg) msg.textContent = 'Starting…';
+  try {
+    const res = await fetch('/api/runners/openai/install', { method: 'POST' });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not start that install');
+    if (msg) msg.textContent = 'Installing…';
+    acctOpenaiWatch();
+  } catch (err) {
+    go.disabled = false;
+    if (msg) msg.textContent = String((err && err.message) || 'We could not start that install.');
+  }
+});
 document.getElementById('acct-provider-pick').addEventListener('change', (e) => {
   const which = e.target.value;
   if (which === 'claude' || which === 'openai') { acctPick(which); return; }
@@ -12030,7 +12136,11 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
       body: JSON.stringify({ key, label: labelField.value.trim() || undefined }),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not add that account');
+    if (!res.ok) {
+      const e = new Error((out && (out.error || out.because)) || 'we could not add that account');
+      e.needsRunner = !!(out && out.needsRunner);
+      throw e;
+    }
     // The key leaves the field the moment it is stored: nothing on screen keeps it.
     keyField.value = '';
     labelField.value = '';
@@ -12039,6 +12149,11 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
     await paintAccounts();
   } catch (err) {
     msg.textContent = String((err && err.message) || 'We could not add that account.');
+    /* kosmos#979: the runner can go missing between opening this form and
+       pressing Add. The engine answers `needsRunner` for exactly that, so the
+       install step is revealed IN PLACE rather than leaving a refusal sentence
+       with nothing to do about it. */
+    if (err && err.needsRunner) { ACCT_OPENAI_READY = false; acctOpenaiStep(false); }
   } finally {
     go.disabled = false;
   }
@@ -13775,18 +13890,120 @@ async function paintAgentWindow(sessionName, opts) {
  * container; `detailGo` does the landing on return, and a reader's kept place
  * wins over a message that arrived while they were away.
  */
-function setThread(el, html, count) {
-  if (el.__lastThread !== html) {
+/* How far off the bottom still counts as being at the bottom. The thread box is
+   240px, so this is deliberately small: sub-pixel layout and a zoomed display
+   leave a fractional gap under a reader who IS at the floor, and nothing more
+   than that is meant to qualify. A person who nudged up half a line has
+   scrolled up, and is left alone. */
+const THREAD_BOTTOM_SLACK = 4;
+function threadAtBottom(el) {
+  /* ⚠️ A HIDDEN BOX IS "UNKNOWN", AND THE SAFE ANSWER TO UNKNOWN IS NO.
+     display:none gives 0 for all three, and 0-0-0 <= slack is TRUE, so a naive
+     test says a box nobody can see is at the bottom. That is not harmless: it
+     would let a paint into the hidden Talk section arm the image re-pin at
+     offset 0, and a late image firing after the person came back would then
+     drag a reader at the TOP to the bottom. Refusing to guess here removes
+     that whole path. */
+  if (!el.clientHeight) return false;
+  return (el.scrollHeight - el.scrollTop - el.clientHeight) <= THREAD_BOTTOM_SLACK;
+}
+function setThread(el, html, key) {
+  /* 🛑 THE THING THAT MOVES THE READER IS THE MARKUP WRITE, NOT A SCROLL LINE
+     (#1037). Every not-a-list arm -- opening, unreadable, nothing yet --
+     replaces the whole thread with a one-paragraph note. That collapses
+     scrollHeight, the browser CLAMPS scrollTop to 0, and the next poll paints
+     the rows back at the top. No scroll assignment is involved.
+
+     Josh timed it at precisely five seconds, sitting still, nothing said, in a
+     plain browser as well as the app. A poll flapping through a note is the
+     only thing on this page that does that.
+
+     ⚠️ AND THE OBVIOUS GUARD IS WORSE THAN THE BUG. Capturing scrollTop before
+     each write and putting it back after turns "thrown to the bottom" into
+     "thrown to the top": by the time the rows return, the offset you would
+     capture has ALREADY been clamped to 0 by the note. Measured, all three,
+     by driving this function against a container that clamps:
+
+       main         open=1760  parked=900  note=0  back=1760  back=1760
+       capture-only open=1760  parked=900  note=0  back=0     back=0
+       this         open=1760  parked=900  note=0  back=900   back=900
+
+     So the reader's posture is remembered ONLY WHILE A LIST IS ON SCREEN. A
+     note never updates it, and therefore cannot overwrite what it is about to
+     destroy. web.thread-scroll.test.js is that measurement, kept. */
+  const showedList = el.__lastCount !== null && el.__lastCount !== undefined;
+  if (showedList) {
+    el.__heldTop = el.scrollTop;
+    el.__heldAtBottom = threadAtBottom(el);
+  }
+  const rewrote = el.__lastThread !== html;
+  if (rewrote) {
     el.__lastThread = html;
     el.innerHTML = html;
   }
-  // ⚠️ `count` is null for every not-a-list state (opening, unreadable,
-  // nothing yet). Those must not leave a number behind that a later thread of
-  // the same length would match, so the key is cleared rather than kept.
-  if (el.__lastCount !== count) {
-    el.__lastCount = count;
-    if (count !== null) el.scrollTop = el.scrollHeight;
-  }
+  el.__lastCount = key;
+  // A note is not what the person came to read, and moving them inside one
+  // would only move them again when the rows return.
+  if (key === null) return;
+  /* 🛑 AT THE BOTTOM IS STICKY, AND IT IS NOT CONDITIONAL ON NEWS. An earlier
+     version pinned only when the message list had CHANGED, which quietly
+     detached a reader who had done nothing: `dmOwesLine` adds "Nothing back
+     yet." two minutes after a message, and a delivery verdict, a link preview
+     or an attachment card all rewrite the markup without changing the list. The
+     thread grew, the reader was restored to their old NUMBER, they were now a
+     line off the floor, and from the next paint on they measured as
+     scrolled-up. Every later message then correctly declined to move them. A
+     person who touched nothing would stop being shown new messages, which is
+     quieter than the bug this fixes and much harder to report.
+     Being at the floor means following the tail, so any repaint keeps them
+     there. `!== false` rather than `=== true` so a first-ever paint, which has
+     no remembered posture, still lands on the newest row. */
+  if (el.__heldAtBottom !== false) { pinToBottom(el); return; }
+  // Otherwise they are reading back. Put them exactly where they were.
+  if (el.__heldTop !== undefined && el.scrollTop !== el.__heldTop) el.scrollTop = el.__heldTop;
+}
+/**
+ * Put the thread on its newest row, and KEEP it there while the rows it just
+ * gained finish laying out.
+ *
+ * ⚠️ AN IMAGE HAS NO HEIGHT UNTIL IT LOADS, so scrollHeight immediately after
+ * a markup write is short by however tall the pictures turn out to be, and the
+ * jump lands part way up. That is the "middle of the conversation" half of
+ * #1037: a person who WANTED the newest row still did not get it.
+ *
+ * 📌 THE RE-PIN IS KEYED ON THE PAINT, NOT ON AN OFFSET. A later paint detaches
+ * these images, and a detached image still fires. The offset alone is not a
+ * discriminator -- this one element is reused by every agent, so landing on the
+ * same number by coincidence would let a stale image from one conversation pin
+ * another. The markup this pin belongs to is a real one.
+ */
+function pinToBottom(el) {
+  /* 🛑 NOTHING IS ARMED FOR A BOX NOBODY CAN SEE. On a hidden container the
+     assignment below is a harmless no-op, but the image listeners are NOT: they
+     would be registered with pinnedAt = 0 and outlive the hidden state. Talk is
+     painted by the poll whenever the agent panel is open, whichever section is
+     showing, so this is reachable by clicking another pill before the thread
+     fetch lands. Coming back then puts the reader at 0, which is exactly
+     pinnedAt, and a preview image completing afterwards passes both guards in
+     `again()` and drags a reader at the TOP to the bottom. That is the reported
+     defect, re-entering through the code that fixes it. */
+  if (!el.clientHeight) return;
+  el.scrollTop = el.scrollHeight;
+  const paint = el.__lastThread;
+  const pinnedAt = el.scrollTop;
+  el.querySelectorAll('img').forEach((img) => {
+    if (img.complete) return;
+    const again = () => {
+      if (el.__lastThread !== paint) return;   // a different conversation now
+      if (el.scrollTop !== pinnedAt) return;   // the person has moved; leave them
+      el.scrollTop = el.scrollHeight;
+    };
+    // `error` too: a broken picture also changes the height it occupies, and
+    // leaving only `load` strands the reader on exactly the threads where
+    // something failed to load.
+    img.addEventListener('load', again, { once: true });
+    img.addEventListener('error', again, { once: true });
+  });
 }
 
 /**
@@ -14094,26 +14311,36 @@ function paintTalkThread(body, name) {
      * sentence selected was thrown 2343px down and lost the selection, every
      * five seconds, for reading their own history.
      *
-     * The room states the rule at its POSTS box, not at its project thread
-     * (which has no scroll management at all): "yanking a person who scrolled
+     * The room states the rule at its POSTS box: "yanking a person who scrolled
      * up to read history to the bottom on a poll tick is the poll fighting the
      * reader." ⚠️ And its second key is built from post IDS, not a count --
      * which is the stronger shape, because a count cannot tell two different
-     * lists of the same length apart. Recorded rather than copied, and the
-     * blind spot is narrower than it first reads:
+     * lists of the same length apart. This box now does the same.
      *
-     *   - SWITCHING AGENTS is closed, and not by this key. `openDetail`'s
-     *     clear calls `setThread(..., null)`, so `__lastCount` is null on the
-     *     first paint of any agent and the next count always differs. Two
-     *     agents whose threads are the same length cannot collide through any
-     *     path that changes `CURRENT`.
-     *   - WHAT IT CANNOT SEE is a thread whose LENGTH is unchanged while its
-     *     contents are not, within one agent. The route's TAIL of 200 is the
-     *     producer that exists: at the bound, every new message drops the
-     *     oldest, so the count holds at 200 and a new arrival does not bring
-     *     itself into view.
+     * ⭐ THE PARAGRAPHS THAT USED TO STAND HERE WERE A STANDING BUG REPORT, and
+     * #1037 closed what they described, so they are gone rather than left to
+     * read as current. They said the count "cannot see a thread whose LENGTH is
+     * unchanged while its contents are not", and named the route's 200-message
+     * TAIL as the producer: at the bound every new message drops the oldest, the
+     * count holds at 200, and a new arrival never brought itself into view. That
+     * is fixed twice over now. The key is an identity rather than a length, and
+     * more importantly `setThread` no longer decides on news at all: a reader at
+     * the floor is kept at the floor by every repaint, and a reader who has
+     * scrolled up is never moved by any of them.
      */
-    setThread(thread, rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows)), filtering ? null : rows.length);
+    /* The identity of what is on screen, not its length: the newest row's own
+       id and how many there are. `at` is the fallback the room's key uses.
+       ⚠️ A FILTERED PAINT IS STILL A LIST, and it used to pass null here on the
+       reasoning that "the person is reading, not following". But null is the
+       NOTE arm, which returns before the reader's place is restored -- so
+       anybody reading with the search box in use got the full #1037 symptom, at
+       the same five-second cadence, from the code meant to protect them. The
+       query is part of the identity instead: clearing a filter is a different
+       screen and should behave like one. */
+    const tailRow = rows.length ? rows[rows.length - 1] : null;
+    const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
+      + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '');
+    setThread(thread, rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows)), threadKey);
   }
 }
 async function paintTalk(sessionName, agentName) {
@@ -15159,6 +15386,21 @@ function openDetail(sessionName, section) {
     document.getElementById('d-qask-fail').textContent = '';
     document.getElementById('d-qask-fail').hidden = true;
     setThread(document.getElementById('d-dmthread'), '<p class="dmnone">Opening&hellip;</p>', null);
+    /* 🛑 THE READER'S PLACE BELONGS TO THE AGENT, AND THIS ELEMENT IS SHARED.
+       One #d-dmthread serves every agent. `__heldTop` and `__heldAtBottom`
+       deliberately SURVIVE a note, so a poll flapping through one does not lose
+       where the person was. An open is not a flap: without this, agent B is
+       restored to agent A's offset, so opening someone lands you at a
+       meaningless place in their conversation instead of at the newest thing
+       they said. Measured by an independent review before the clear existed:
+       open a 50-message agent, park at 900, open a 30-message one, and B landed
+       at 900 rather than its own floor at 960.
+       ⚠️ AFTER the paint above, not before: setThread re-reads these while a
+       list is still on screen, so clearing first would simply refill them from
+       the agent being left. */
+    const th0 = document.getElementById('d-dmthread');
+    th0.__heldTop = undefined;
+    th0.__heldAtBottom = undefined;
     // A reading posture, not agent state: carried across agents it would hide
     // the next thread silently.
     TALK_QUERY = '';
@@ -15336,7 +15578,10 @@ function detailGo(section, opts) {
        that arrived while they were away. `setThread`'s newest-row jump is
        for the live list under a reader; here the reader had left. */
     if (th && TALK_SCROLL !== null) { th.scrollTop = TALK_SCROLL; TALK_SCROLL = null; }
-    else if (th && th.__lastCount !== null && th.__lastCount !== undefined) th.scrollTop = th.scrollHeight;
+    /* Through `pinToBottom`, not a raw assignment: coming back to a thread
+       whose pictures have not laid out lands part way up otherwise, which is
+       the same "middle rather than bottom" the poll path had. */
+    else if (th && th.__lastCount !== null && th.__lastCount !== undefined) pinToBottom(th);
   }
   /* The FRESH record, not the one captured at open: the poll never rewrites
      CURRENT, and a tie that changed while the person sat on Talk would

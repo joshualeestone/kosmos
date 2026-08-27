@@ -1098,13 +1098,64 @@ function unreachableStates() {
           delivery: { state: 'placed', because: null, paneNote: null },
         }]) };
         await paintTalk('april', 'April');           // one more message
-        return { held, moved: box.scrollTop, height: box.scrollHeight };
+        const readingBack = box.scrollTop;
+
+        /* THE POSITIVE CONTROL. Everything above proves the thread does NOT
+           move; without this arm that is also true of a thread that never
+           follows anything, and the check would pass on a product that had
+           stopped bringing new messages into view entirely. */
+        box.scrollTop = box.scrollHeight;
+        window.__fx = { ...window.__fx, messages: window.__fx.messages.concat([{
+          at: new Date(Date.UTC(2026, 0, 1, 9, 0, 32)).toISOString(),
+          text: 'and another', wire: null,
+          delivery: { state: 'placed', because: null, paneNote: null },
+        }]) };
+        await paintTalk('april', 'April');
+        const followed = (box.scrollHeight - box.scrollTop - box.clientHeight) <= 4;
+
+        /* THE FLAP (#1037). A poll that renders a not-a-list arm and then the
+           rows again replaces the markup twice, which CLAMPS scrollTop to 0
+           on the way through. This is what Josh timed at precisely five
+           seconds while touching nothing, and no scroll assignment is
+           involved -- so a check that only watches the scroll line cannot see
+           it. `historyUnfilable` with no rows is one of the real null arms. */
+        /* ⚠️ ASSERTED, NOT ASSUMED. If the fixture thread ever gets shorter than
+           the panel needs for a 900px offset, `before` silently becomes the max
+           offset -- and on unfixed code the flap ends at scrollHeight, which
+           clamps to that same max, so afterFlap === before and this arm becomes
+           unfalsifiable. `parkedProperly` is reported so it cannot go quiet. */
+        box.scrollTop = 900;
+        const before = box.scrollTop;
+        const parkedProperly = before === 900;
+        const keep = window.__fx.messages;
+        window.__fx = { ...window.__fx, messages: [], historyUnfilable: true };
+        await paintTalk('april', 'April');          // the null arm
+        window.__fx = { ...window.__fx, messages: keep, historyUnfilable: false };
+        await paintTalk('april', 'April');          // and the rows come back
+        const afterFlap = box.scrollTop;
+        return { held, readingBack, followed, before, afterFlap, parkedProperly };
       });
       if (scroll.held !== 0) {
         problems.push(`[${theme}] scroll: an identical repaint moved a reader from 0 to ${scroll.held}`);
       }
-      if (scroll.moved === 0) {
-        problems.push(`[${theme}] scroll: a new message did not bring the thread into view`);
+      /* ⚠️ THIS ASSERTION IS THE REVERSE OF WHAT IT USED TO BE, ON PURPOSE.
+         It read "a new message did not bring the thread into view" and failed
+         when the thread did not move. That encoded the yank #1037 removes: the
+         reader is parked at offset 0 on a thirty-message thread, which is as
+         scrolled-up as it is possible to be, and dragging them to the bottom
+         is the defect. Following the tail is now proven by the at-the-bottom
+         arm below instead, which is where it is actually correct. */
+      if (scroll.readingBack !== 0) {
+        problems.push(`[${theme}] scroll: a new message yanked a reader who had scrolled up, from 0 to ${scroll.readingBack}`);
+      }
+      if (!scroll.followed) {
+        problems.push(`[${theme}] scroll: a reader who WAS at the bottom did not follow the new message`);
+      }
+      if (!scroll.parkedProperly) {
+        problems.push(`[${theme}] scroll: the fixture could not park a reader at 900 (got ${scroll.before}), so the flap arm proves nothing`);
+      }
+      if (scroll.afterFlap !== scroll.before) {
+        problems.push(`[${theme}] scroll: a poll through a not-a-list arm moved the reader from ${scroll.before} to ${scroll.afterFlap} (#1037)`);
       }
 
       /* 2d. THE FOCUS RESCUE AND ITS `tabindex="-1"` ARE A PAIR. Delete the
