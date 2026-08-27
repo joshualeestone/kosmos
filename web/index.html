@@ -114,6 +114,21 @@
      `--gold-deep` was the obvious candidate and is the one that fails, on the
      `--k-side` ground the consolidated rails use. */
   --gold-edge: #8a6614;
+  /* 🛑 DEFINED, and it was NOT (kosmos#976). Two controls already paint
+     themselves `var(--danger, #b3261e)` -- `.skillrm` and `.found-dismiss.armed`
+     -- and nothing in this file ever declared `--danger`, so both have always
+     fallen back. That works in light (6.54:1 on a card) and FAILS in dark:
+     #b3261e measures 2.69:1 on the dark card and 2.97:1 on the dark page,
+     under the 4.5 a text colour needs. Two red controls have been illegible in
+     dark mode for as long as they have existed.
+     ⚠️ THIS IS THE `--k-sunk` DEFECT AGAIN, and this file already records it:
+     "a borrowed token needs its definition, not just the defence its source
+     happened to carry". A fallback makes a missing token invisible in the theme
+     it happens to suit and wrong in the other. The usage sites keep their
+     fallbacks anyway; what changes is that the token now exists.
+     📌 Dark measured on every dark ground: #ff6b5e is 6.30 card, 6.96 page,
+     6.66 side, 4.99 elevated. */
+  --danger: #b3261e;
   --k-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --font-ui: -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif;
@@ -195,6 +210,9 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    /* kosmos#976: the light red is 2.69:1 here. This one clears 4.5 on every
+       dark ground, elevated cards included. */
+    --danger: #ff6b5e;
     /* kosmos#1044: on a dark ground the fill is the light thing, so the edge
        goes the other way. `--gold` measures 6.21:1 on a dark card and 7.84:1
        on the dark page; the light value (#8a6614) would be 2.65:1 there. */
@@ -718,6 +736,11 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn:disabled:hover { background: var(--bg); }
 .fmsg { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: var(--space-4); min-height: 1em; }
+/* kosmos#976: a step that can wreck the flow, told apart from the hints around
+   it. Same size as .dhint so it does not shout, but in full ink with a red
+   marker, because the defect was that it looked like advice. */
+.dwarn { font: var(--text-callout) var(--font-ui); color: var(--k-ink); }
+.dwarn-m { color: var(--danger, #b3261e); font-weight: 700; margin-right: 6px; }
 /* #727: the provider choice on Accounts; the pressed one reads pressed. */
 .acct-pick .btn[aria-pressed="true"] { background: var(--attn-bg); border-color: var(--border-strong); font-weight: 600; }
 /* #734: a floored Agents count is a way to This Mac. */
@@ -4799,6 +4822,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
 :root[data-theme="dark"] {
+    /* kosmos#976: the light red is 2.69:1 here. This one clears 4.5 on every
+       dark ground, elevated cards included. */
+    --danger: #ff6b5e;
     /* kosmos#1044: on a dark ground the fill is the light thing, so the edge
        goes the other way. `--gold` measures 6.21:1 on a dark card and 7.84:1
        on the dark page; the light value (#8a6614) would be 2.65:1 there. */
@@ -6022,7 +6048,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          Claude code step can never sit under the OpenAI key field again.
          Functional first, by his ruling; he adds the look afterwards. -->
     <div id="acct-claude-flow" hidden style="margin-top: var(--space-5);">
-      <p class="dhint" style="margin:0 0 8px;">Sign in to the other Claude account in your browser. Kosmos never sees your password, and the accounts above stay connected.</p>
+      <!-- 🛑 A MARKED WARNING, NOT A HINT (kosmos#976). Josh: skipping this step
+           "really screws them in the process", and it was rendering as muted
+           `.dhint` body copy indistinguishable from the reassurance beside it,
+           which reads as optional advice.
+           ⚠️ THE WORDS CARRY THE WARNING, NOT THE COLOUR. "First" and the
+           imperative do the work; the glyph is `aria-hidden` and the red is
+           decoration on top. Colour alone would be WCAG 1.4.1, and would say
+           nothing at all to the person reading this in a screen reader -- who
+           is exactly as able to skip the step. -->
+      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-m" aria-hidden="true">&#9888;</span><b>First, sign in to the other Claude account in your browser.</b> Kosmos never sees your password, and the accounts above stay connected.</p>
       <div class="frow"><button class="btn uprime" id="acct-add" type="button">Start the sign-in</button></div>
       <div id="acct-flow" hidden style="margin:10px 0 0;">
         <p class="dhint" id="acct-flow-say" role="status" aria-live="polite" style="margin:0;"></p>
