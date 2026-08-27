@@ -45,6 +45,13 @@ const { chromium } = require('playwright');
       onKids: on ? [...on.children].map((c) => c.className.split(' ')[0]) : [],
       stateText: off ? off.querySelector('.lstate').innerText.trim() : '',
       taskText: off ? off.querySelector('.ltask').innerText.trim() : 'NO CELL',
+      /* #986 emptied this cell for a running agent whose only status was its
+         own reported sentence: the quote WAS the content. What follows the
+         cell is what proves the row survived it. */
+      onTaskCell: on ? !!on.querySelector('.ltask') : false,
+      onTaskText: on ? on.querySelector('.ltask').innerText.trim() : 'NO CELL',
+      offModel: off && cell(off, '.lmodel'), onModel: on && cell(on, '.lmodel'),
+      offMem: off && cell(off, '.lmem'), onMem: on && cell(on, '.lmem'),
     };
   });
   const say = (ok, l, x) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + l + (x ? '  ' + x : '')); if (!ok) fails.push(l); };
@@ -67,6 +74,30 @@ const { chromium } = require('playwright');
   say(seen.offName && seen.onName && seen.offName.left === seen.onName.left, 'the name column lines up', JSON.stringify([seen.offName, seen.onName]));
   say(seen.stateText === 'Not running', 'the state cell says the state', JSON.stringify(seen.stateText));
   say(seen.taskText === '', 'the task cell is empty', JSON.stringify(seen.taskText));
+  /* 🛑 THE CELL #986 EMPTIED MUST STILL HOLD ITS COLUMN. The quoted sentence was
+     the only content a running agent's task cell had, so removing it left a cell
+     that is routinely empty on a five-plus column grid -- and an empty cell that
+     collapses moves every column after it, which is #278 all over again in the
+     row that was supposed to be fine.
+     🔑 THE CLAIM IS GEOMETRY, NOT TEXT, DELIBERATELY. What the cell SAYS is
+     already pinned at the unit level (web.quoted-line-986.test.js calls
+     stateReason at both real render sites and asserts a reported sentence goes
+     silent while a usage limit and a broken sign-in still speak). Asserting the
+     text again here would need a rate-limited agent on the board, and the agent
+     COUNT is load-bearing -- org-chart passes in a band and a sixth agent takes
+     it red. So the unit test owns the meaning and this owns the appearance.
+     ⚠️ NOT YET PROVEN TO FAIL. Written during the 2026-08-27 demo freeze, when
+     browser checks were not allowed to run. Before trusting a green here, break
+     it on purpose: give `.ltask` `display:none` in the rendered page and confirm
+     these two lines go red. A check whose failing direction has never been seen
+     is a claim, not an instrument. */
+  say(seen.onTaskCell, 'the running row still HAS a task cell', JSON.stringify(seen.onTaskText));
+  say(seen.offModel && seen.onModel && seen.offModel.left === seen.onModel.left,
+    'the model column lines up, so an empty task cell did not collapse',
+    JSON.stringify([seen.offModel, seen.onModel]));
+  say(seen.offMem && seen.onMem && seen.offMem.left === seen.onMem.left,
+    'the memory column lines up, so nothing after the task cell shifted',
+    JSON.stringify([seen.offMem, seen.onMem]));
   const el = await pg.$('.lrow.notrunning');
   let bx = await el.boundingBox();
   /* Scroll it into view first: the clip is in PAGE coordinates and a row below
