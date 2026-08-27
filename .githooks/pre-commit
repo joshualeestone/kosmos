@@ -69,6 +69,30 @@ if git diff --cached --name-only --diff-filter=ACDMR | grep -qE '^web/index\.htm
   fi
   rm -f /tmp/kosmos-selectors-hook.$$
 fi
+# --- a page change cannot silently undo one of Josh's rulings (#1081) ------
+# Item 6 was deleted, landed (e9cb7976), and CAME BACK: a later branch cut
+# from a sha before the deletion won the merge. Nothing failed. The suite was
+# green either side because no test asserted the sentence's ABSENCE, and the
+# commit log still said the work was done.
+# An unasserted ruling is not shipped, it is borrowed -- and with ~49 live
+# worktrees on this repo, for any unguarded deletion the branch that undoes it
+# already exists. That is why he keeps re-reporting things we fixed.
+# ⚠️ THE ASSERTIONS EXISTING IS NOT ENOUGH, WHICH IS WHY THIS BLOCK IS HERE.
+# There is no CI on this repo, so web.ruling-guards.test.js runs only when
+# somebody chooses to run the suite -- and the person merging an old branch is
+# exactly the person who does not. Run it where the regression arrives: the
+# commit that touches the page.
+if git diff --cached --name-only --diff-filter=ACDMR | grep -qE '^web/index\.html$'; then
+  if ! node --test web.ruling-guards.test.js >/tmp/kosmos-rulings-hook.$$ 2>&1; then
+    echo "pre-commit: this change undoes something Josh ruled on, and the commit log will still say it was done (#1081)." >&2
+    grep -E "^ +AssertionError|item [0-9]+|items [0-9]" /tmp/kosmos-rulings-hook.$$ | head -8 >&2
+    echo "  if the ruling changed, delete the pin in web.ruling-guards.test.js in the SAME commit and say who changed it." >&2
+    echo "  if it did not, you are on a branch older than the fix. run: node --test web.ruling-guards.test.js" >&2
+    rm -f /tmp/kosmos-rulings-hook.$$
+    exit 1
+  fi
+  rm -f /tmp/kosmos-rulings-hook.$$
+fi
 if git diff --cached --name-only --diff-filter=ACDMR | grep -q '^docs/browser-checks/'; then
   # The test reads the working tree, so check what is STAGED: stash nothing,
   # just refuse if an unstaged edit would mask the staged state.
