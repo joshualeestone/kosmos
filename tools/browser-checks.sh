@@ -2,6 +2,21 @@
 #
 # The page-layer gate (#39).
 #
+# 🛑 DO NOT RUN THIS, OR ANY BROWSER CHECK, WHILE A RELEASE CUT IS RUNNING.
+# Measured 2026-08-26, and it cost a cut. Four concurrent Playwright boards
+# during a cut's page layer starved it of CPU, and render-github-door failed
+# six arms with three HARD errors -- `settingsGo is not defined`, `null.click`,
+# a control stuck on "Checking..." -- every one of which reads like missing
+# code. On the SAME SHA with nothing else running, that check passes and so do
+# the other 36: 869 assertions, zero failures.
+# ⭐ The symptom is indistinguishable from a real defect, which is why this is a
+# rule and not a preference: three people had a confident, coherent, WRONG
+# explanation available before anyone re-ran it alone.
+# 📌 Counting `Chromium` processes is NOT how you tell whether the field is
+# clear. This spawns one per check and exits it, so a point sample reads zero
+# at a trough and dozens at a peak, and misleads in both directions. Count the
+# `browser-checks.sh` PARENTS instead.
+#
 # `node --test` reads source; it cannot see the page. The scripts under
 # docs/browser-checks/ can, but they lived outside every automated run, so a
 # page-layer regression reached main uncaught: round 16 of the project-chat
