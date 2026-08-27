@@ -73,6 +73,24 @@ case "$V" in
     exit 1 ;;
 esac
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+# 🛑 TWO CUTS ON ONE MAC DESTROY EACH OTHER, and it has already happened: the
+# 18:28 attempt at 0.5.73 died because a fixture server was SIGTERM'd by the
+# other cut's teardown (#1050). They share the install gate's fixed ports, the
+# real ~/Applications and /Applications fingerprints and the gui launchd
+# domain, so either one's result can be the other's.
+# ⭐ THE GUARD FOR EXACTLY THIS EXISTED AND NOTHING CALLED IT. tools/lib/
+# cut-guard.sh was written for #708 and wired only into test-install.sh, so
+# the one script that STARTS a cut never asked. A fix that reaches the artifact
+# but not the running system is not delivered.
+# ⚠️ Placed AFTER the started line on purpose: line 33's contract is that a
+# refusal is recorded, so "no lines at all" keeps meaning "no cut attempted".
+# ⚠️ And the guard asks whether a `bash tools/release.sh` is running, which is
+# what THIS is: it excludes the caller's own pid, and tools/test-cut-guard.sh
+# runs a real `bash tools/release.sh` to prove it does not refuse itself.
+. "$REPO/tools/lib/cut-guard.sh"
+if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
+  kosmos_refuse_if_cut_live "a second cut" || exit 1
+fi
 SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 [ -d "$SITE/dist" ] || { echo "no site checkout at $SITE (set KOSMOS_SITE)"; exit 1; }
 

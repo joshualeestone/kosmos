@@ -7,8 +7,15 @@
 # so that is what this asks. The probe is a seam (KOSMOS_CUT_PROBE) so the
 # guard can be shown red and green without a cut. A probe that cannot
 # answer is a refusal, not a pass, the same posture as the disk guard.
+# ⚠️ SELF-EXCLUSION IS NOT A REFINEMENT, IT IS THE WHOLE DIFFICULTY FOR THE
+# SECOND CALLER. This asks "is a `bash tools/release.sh` running", and
+# release.sh IS one. Wired into release.sh without excluding the caller, the
+# guard refuses EVERY cut, on a Mac with no other cut, forever -- a total
+# release outage that reads exactly like the guard working. The seam is an
+# env var so the tests can drive it; it defaults to the caller's own pid.
 kosmos_refuse_if_cut_live() {
-  local what="${1:-this run}" probe="${KOSMOS_CUT_PROBE:-}" raw out rc
+  local what="${1:-this run}" probe="${KOSMOS_CUT_PROBE:-}" raw out rc self
+  self="${KOSMOS_CUT_SELF_PID:-$$}"
   if [ -n "$probe" ]; then
     out="$("$probe" 2>/dev/null)"; rc=$?
   else
@@ -22,6 +29,12 @@ kosmos_refuse_if_cut_live() {
     # pgrep: 0 matched, 1 nothing matched, 2+ could not run. After the
     # filter, an empty list is a clean "no cut" whichever of 0/1 pgrep said.
     if [ "$rc" -le 1 ]; then rc=0; [ -n "$out" ] || rc=1; fi
+  fi
+  # Drop the caller's own line, in BOTH paths, so the probe seam exercises the
+  # same exclusion the real pgrep gets. An `out` emptied by this is a clean
+  # "no OTHER cut", which the rc==0 test below already reads correctly.
+  if [ -n "$out" ] && [ -n "$self" ]; then
+    out="$(printf '%s\n' "$out" | grep -v -E "^${self} " || true)"
   fi
   if [ "$rc" -ge 2 ]; then
     echo "could not tell whether a cut is running (the probe exited $rc); refusing to guess for $what. KOSMOS_HARNESS_IGNORE_CUT=1 runs anyway." >&2
