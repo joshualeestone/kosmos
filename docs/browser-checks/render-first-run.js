@@ -423,17 +423,21 @@ async function look(page, name) {
         if (/right now/.test(text)) {
           problems.push(`${shot.name} [${scheme}]: the could-not-ask fallback painted over the fixture's answer`);
         }
-        /* 🛑 THE DOCK LINE IS NOT ON THIS SCREEN ANY MORE, AND THAT IS A
-           RULING, NOT A LOSS. It opened the flow until 2026-08-22, then moved
-           to the LAST step: step 1 answers "did the install work", the Dock
-           line is about RETURNING, and two written rulings placed it at the
-           end. This assertion still demanded it here, so it reported 8
-           problems on a product doing exactly what was decided — and nobody
-           saw them, because this check is not wired into the release runner.
-           ⇒ Asserted as ABSENT here and PRESENT on the last step (below), so
-           the sentence cannot quietly vanish from the product either way. */
-        if (/Drag Kosmos onto the Dock, the strip of icons/.test(text)) {
-          problems.push(`${shot.name} [${scheme}]: the Dock line is back on step 1; it was moved to the last step on 2026-08-22`);
+        /* 🔑 THE DOCK LINE IS BACK ON THIS SCREEN, AND THIS ASSERTION HAS NOW
+           POINTED BOTH WAYS INSIDE ONE DAY. It opened the flow until
+           2026-08-22, moved to the LAST step on two written rulings, and
+           returned here on Josh's ruling of 2026-08-27 16:08, made after he
+           wiped a machine and screenshotted this screen: "somebody elected to
+           take the message out of this."
+           ⚠️ THIS WAS THE SECOND ABSENCE GUARD AND IT WAS NOT IN THE ROUTED
+           SCOPE. The routing named click-first-run's guard and the last-step
+           one; this fired on 8 shots (4 app-location states x 2 schemes) the
+           first time the page layer ran. Its own comment is why it was easy
+           to miss: it reads as settled history rather than as a live rule.
+           ⇒ Asserted PRESENT here and ABSENT on the last step (below), which
+           is the reverse of what this file said an hour ago. */
+        if (!/Drag Kosmos onto the Dock, the strip of icons/.test(text)) {
+          problems.push(`${shot.name} [${scheme}]: the Success screen has no Dock line; Josh asked for it back on 2026-08-27`);
         }
         if (/Keep in Dock/.test(text)) {
           problems.push(`${shot.name} [${scheme}]: the unreachable Keep in Dock advice appeared`);
