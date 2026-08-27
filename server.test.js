@@ -5122,8 +5122,18 @@ test('no subscription state renders a verdict about the person\'s Claude account
       `subscription state ${JSON.stringify(sub)} still renders a verdict about the person's Claude account`);
     assert.ok(!/Claude/.test(out),
       `subscription state ${JSON.stringify(sub)} names Claude on a step that offers four providers`);
-    assert.match(out, /fr-note/,
-      `subscription state ${JSON.stringify(sub)} dropped the line saying what carrying on costs`);
+    /* 🛑 INVERTED BY JOSH, 22:05, item 6: "Let's delete that box and all of
+       that text. It's sort of nonsense."
+       I wrote this assertion the same evening, when kosmos#1008 removed the
+       Claude verdict and I deliberately KEPT one line about what carrying on
+       costs. He read it on his own screen and cut it. The assertion follows
+       rather than being deleted, so the reversal is recorded.
+       ⚠️ AND IT NOW GUARDS THE DELETION, which is the half that was missing:
+       this sentence was deleted once, landed, and came back when a branch cut
+       from an older sha won the merge. A deletion with no assertion is undone
+       by any branch old enough not to know about it, and nothing goes red. */
+    assert.ok(!/fr-note/.test(out),
+      `subscription state ${JSON.stringify(sub)} has the carry-on note back; Josh deleted it by name`);
   }
 
   /* ⚠️ THE CONTROL, REPOINTED RATHER THAN DROPPED (kosmos#1008). It used to

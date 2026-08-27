@@ -14,9 +14,12 @@
     "<option value=\"\">Change to&hellip;</option>",
     "id=\"style-custom\"",
     "id=\"set-doctrine-go\"",
-    "Two questions: what it is for"
+    "Two questions: what it is for",
+    "You can carry on and look around",
+    "could not look for agents already on this computer"
   ],
   "binary": [
     "runOpenPanel"
-  ]
+  ],
+  "_absent_note": "Checked against the page with comments stripped. Deleting copy here comes with a comment quoting what was deleted; without the strip these can never pass."
 }

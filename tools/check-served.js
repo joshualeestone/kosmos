@@ -112,10 +112,49 @@ function argAll(name) {
     process.exit(2);
   }
 
+  /* 🛑 ABSENT MARKERS ARE CHECKED AGAINST CODE ONLY, NOT COMMENTS, and in this
+     codebase that is not a nicety. Deleting copy here comes WITH a comment
+     quoting the copy that was deleted and saying who ruled it and why -- that
+     is deliberate house style and it is worth keeping. But it means a naive
+     absence check can never pass: "Two questions: what it is for" is gone from
+     the screen and still present in the file, in the note explaining that it is
+     gone.
+     ⚠️ Caught before it fired. Three of the first markers written for this tool
+     would have reported FAIL for ever, on copy that is correctly deleted. That
+     is the fourth time in one night a string match has answered about a comment
+     rather than about the product. Present-markers are matched against the raw
+     page: a marker you expect to SEE should be in the live source anyway, and
+     stripping first would let a marker pass on nothing. */
+  const codeOnly = page
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    /* ⚠️ LINE COMMENTS TOO, AND ONLY WHERE THE LINE STARTS WITH THEM. Angel hit
+       this within a minute of running the same check on her own deletions: a
+       `sed 's://.*::'` missed her offender because it was a block comment, and
+       the mirror of that is missing the line-comment ones. Measured on this
+       page: 1842 lines begin with `//`, and "could not look" appears in five of
+       them -- enough to defeat that absent-marker on its own.
+       🛑 START-OF-LINE ONLY, because 16 URLs in this file contain `//`. A naive
+       `//.*$` would truncate live code after every https:// and could HIDE a
+       real occurrence, turning an absent-marker green for the worst possible
+       reason. Over-stripping is not the safe direction here: under-stripping
+       gives a false FAIL you investigate, over-stripping gives a false PASS
+       nobody looks at. */
+    .replace(/^[ \t]*\/\/.*$/gm, '');
+  /* ⚠️ 0.10, NOT 0.5. This page is genuinely more than half comments -- stripping
+     them leaves 49% -- so a half-the-page threshold fires on a healthy file. The
+     floor is here to catch a strip that ate everything, not to have an opinion
+     about comment density. Measured before choosing the number, which is the
+     step that was missing the first time. */
+  if (codeOnly.length < page.length * 0.10) {
+    console.error('FAIL  stripping comments removed more than half the page (' + page.length + ' -> ' + codeOnly.length + '); the strip is broken and every absent-marker below would pass for the wrong reason');
+    process.exit(2);
+  }
+
   let bad = 0;
   const say = (ok, line) => { console.log((ok ? 'ok    ' : 'FAIL  ') + line); if (!ok) bad += 1; };
   for (const m of markers.present) say(page.includes(m), 'present in page: ' + m);
-  for (const m of markers.absent) say(!page.includes(m), 'absent from page: ' + m);
+  for (const m of markers.absent) say(!codeOnly.includes(m), 'absent from page code: ' + m);
   for (const m of markers.binary) say(binary.includes(Buffer.from(m)), 'present in app binary: ' + m);
 
   fs.rmSync(dir, { recursive: true, force: true });

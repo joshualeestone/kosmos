@@ -28831,8 +28831,18 @@ function frPaintSubscription() {
      about their account; it is a consequence of the button they are about to
      press. `sub.because` is deliberately NOT rendered: it is the diagnosis
      behind a claim we no longer make. */
-  box.innerHTML = '<div class="fr-note">You can carry on and look around. An agent made before '
-    + 'you connect a model will sit there doing nothing until you do.</div>';
+  /* 🛑 GONE, AND THIS IS THE SECOND TIME. Josh, 2026-08-26 22:05, item 6:
+     "Let's delete that box and all of that text. It's sort of nonsense."
+     I deleted it at 23:0x and it landed (commit e9cb7976). It is back because a
+     later branch was cut from a sha BEFORE that deletion and its copy of this
+     block won the merge. Nothing failed: the suite was green either side,
+     because no test asserted the sentence's ABSENCE.
+     ⚠️ THAT IS HOW "WE TOLD HIM IT WAS FIXED" HAPPENS WITHOUT ANYONE BEING
+     WRONG. A deletion with no guard is undone by any branch old enough not to
+     know about it, silently, and the commit log still says it was done.
+     ⇒ Guarded now in tools/served-markers.json, which checks the SERVED bytes
+     rather than the merge log. */
+  box.innerHTML = ''
   /* 🛑 NO PRIMARY UNTIL SOMETHING IS CONNECTED (Josh, 2026-08-26, items 5 and
      11). This used to read "Connect Claude" before anything was chosen, and
      "Continue anyway" once a connection was under way -- so the biggest button
