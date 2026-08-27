@@ -19,13 +19,13 @@ cat > "$T/a.html" <<'EOF'
 EOF
 
 # 🛑 THE ARM THE TOOL EXISTS FOR.
-out="$(bash tools/grep-code.sh "Deleted sentence." "$T/a.html")"; rc=$?
+out="$(bash tools/grep-code.sh "Deleted sentence." "$T/a.html" 2>/dev/null)"; rc=$?
 [ "$rc" -eq 1 ] && ok "copy quoted only in a comment is ABSENT (the case that fooled two people)" \
                 || bad "a comment-quoted deletion still reads as present (rc=$rc, out=$out)"
 
 # ⚠️ THE NEGATIVE CONTROL. Without this the arm above passes on a tool that
 # can never find anything at all.
-out="$(bash tools/grep-code.sh "This sentence is live." "$T/a.html")"; rc=$?
+out="$(bash tools/grep-code.sh "This sentence is live." "$T/a.html" 2>/dev/null)"; rc=$?
 [ "$rc" -eq 0 ] && ok "CONTROL: live copy is still FOUND, so absence means something" \
                 || bad "the tool cannot find live copy either (rc=$rc)"
 
@@ -54,6 +54,37 @@ bash tools/grep-code.sh "anything" "$T/does-not-exist" >/dev/null 2>&1
 
 bash tools/grep-code.sh "onlypattern" >/dev/null 2>&1
 [ $? -eq 2 ] && ok "no file argument exits 2" || bad "missing file argument did not exit 2"
+
+# 🛑 THE VERDICT MUST SURVIVE A PIPE, which is where the first version died.
+# A pipeline exits with its LAST stage, so anything whose answer lives only in
+# $? is destroyed by the `| head` people reach for to READ it. Ice Cream Kitty
+# fell into exactly that while testing this tool. So each state says itself in
+# words, on stderr, where a pipe cannot eat it.
+verdict="$(bash tools/grep-code.sh "Deleted sentence." "$T/a.html" 2>&1 >/dev/null | head -2)"
+case "$verdict" in
+  *ABSENT*) ok "the ABSENT verdict is stated in words, not by silence" ;;
+  *) bad "absent said nothing a human can see: [$verdict]" ;;
+esac
+
+verdict="$(bash tools/grep-code.sh "This sentence is live." "$T/a.html" 2>&1 >/dev/null | head -2)"
+case "$verdict" in
+  *FOUND*) ok "the FOUND verdict is stated in words" ;;
+  *) bad "found said nothing on stderr: [$verdict]" ;;
+esac
+
+verdict="$(bash tools/grep-code.sh "anything" "$T/does-not-exist" 2>&1 >/dev/null | head -2)"
+case "$verdict" in
+  *CANNOT-LOOK*) ok "could-not-look NAMES itself and denies being an absence" ;;
+  *) bad "cannot-look did not distinguish itself from absence: [$verdict]" ;;
+esac
+
+# ⚠️ AND THE VERDICT MUST NOT LAND ON STDOUT, or it corrupts the matched-line
+# output anything downstream is parsing.
+sout="$(bash tools/grep-code.sh "This sentence is live." "$T/a.html" 2>/dev/null)"
+case "$sout" in
+  *FOUND*) bad "the verdict is polluting stdout, where matched lines live" ;;
+  *) ok "the verdict stays on stderr, so stdout is still only matched lines" ;;
+esac
 
 echo "grep-code: $FAILS failures"
 exit $([ "$FAILS" -eq 0 ] && echo 0 || echo 1)
