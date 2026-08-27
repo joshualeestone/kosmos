@@ -34,15 +34,24 @@ const fs = require('node:fs');
 
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 
-/* Comments stripped before any absence check. House style here is to delete
-   copy WITH a comment quoting the copy that was deleted and naming who ruled
-   it -- so a naive absence check can never pass on this codebase. The present-
-   checks below read the raw page instead: a marker you expect to SEE should be
-   in the live source anyway, and stripping first would let one pass on nothing. */
-const CODE = PAGE
-  .replace(/<!--[\s\S]*?-->/g, '')
-  .replace(/\/\*[\s\S]*?\*\//g, '')
-  .replace(/^[ \t]*\/\/.*$/gm, '');
+/* 🔑 THE SHARED STRIPPER, NOT A PRIVATE COPY. This file carried its own inline
+   three-regex version until test-support/code-only.js landed on main the same
+   morning. Two copies of one fact is the defect this codebase keeps paying
+   for: the shared one already encodes a measurement mine did not (line
+   comments only where the line BEGINS with one, because web/index.html carries
+   many https:// URLs and a naive //.*$ truncates live code after every one of
+   them, hiding a real occurrence and turning an absence check green for the
+   worst possible reason).
+   ⚠️ Swapped and then re-controlled, not swapped and assumed. All eight
+   negative controls were re-run against the shared implementation. */
+const { codeOnly } = require('./test-support/code-only');
+
+/* Absence checks read stripped source; house style here is to delete copy WITH
+   a comment quoting what was deleted, so a raw search can never pass. The
+   present-checks below read the raw page instead: a marker you expect to SEE
+   should be in the live source anyway, and stripping first would let one pass
+   on nothing. */
+const CODE = codeOnly(PAGE);
 
 /* 🔑 A FLOOR ON THE POPULATION, same reasoning as check-served.js. If the read
    or the strip broke, every absence below passes for the wrong reason and the
