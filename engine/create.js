@@ -147,6 +147,7 @@ const status = require('./status');
 // that ("a name that sanitises to something else means two names can become
 // one"), and the gate was checking the wrong thing to enforce it.
 const store = require('./store');
+const sendertoken = require('./sendertoken');
 
 const HOME = os.homedir();
 const WORKERS_DIR = process.env.AGENT_WORKFORCE_WORKERS || path.join(HOME, 'work', 'workers');
@@ -1682,6 +1683,39 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `something called ${shown} is already running on this computer${also}`,
+      steps,
+    };
+  }
+
+  /* 🛑 #1131, THE RECREATE HALF. `sendertoken`'s header says a caller that
+     "recreates or deletes" an agent MUST revoke. #1135 did the delete side;
+     this is the other one, AND IT IS REACHED WITHOUT DELETING ANYTHING.
+
+     TWO CHECKS GUARD THIS NAME AND NEITHER LOOKS AT THE TOKEN STORE: the
+     clash check above refuses a name that is RUNNING, and the one further up
+     refuses `hasFolder && hasJob` -- BOTH, so a name whose files are gone, or
+     only half present, passes them both.
+
+     Tokens outlive the files whenever they went away by any route other than
+     a fully successful `delete-leftover` (a hand-deleted folder, a PARTIAL
+     that took the folder but not the job). `resolve()` matches a token to a
+     NAME, so the previous holder's credential then speaks as whoever takes
+     the name next. #1135 revokes on the delete path; this is the case that
+     never goes through it.
+
+     ⚠️ NOT the restart path, deliberately. A restart is the same agent, and
+     `restart` lives in remove.js and does not come through here. Only a NEW
+     agent does.
+
+     ⚠️ REFUSES rather than warning. Creating an agent while an old
+     credential for its name survives is the exact state this exists to
+     prevent, and a half-made one is worse than none. A name that never had a
+     token is the common case and is silent: `revoke` answers ENOENT ok:true. */
+  const priorTokens = sendertoken.revoke(name);
+  if (priorTokens.ok !== true) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `we could not clear the sender tokens left by an earlier ${shown}, so we will not make a new agent that an old one could speak for`,
       steps,
     };
   }
