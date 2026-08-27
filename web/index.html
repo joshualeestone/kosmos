@@ -13519,8 +13519,19 @@ function boardEmpty() {
       /* #274: the moment a person most needs to look for themselves is the
          moment `tmux ls` says "command not found", because Kosmos ships its
          own tmux off PATH (deliberately). The CLI knows the path, so the
-         command named here is the CLI's own, not the path. */
-      + '<p class="fhint">To look directly, open Terminal and run <code>kosmos agents</code>.</p>'
+         command named here is the CLI's own, not the path.
+         🛑 BEHIND A DISCLOSURE NOW, NOT STANDING (#996). Josh's rule is that we
+         do not tell a non-technical person to open a Terminal, and this was the
+         last place on the page that still did it as a plain instruction. It is
+         also a REAL ESCAPE HATCH from the one screen that has just admitted it
+         cannot see the agents, so deleting it would cost somebody the only way
+         to look for themselves.
+         ⭐ THE DISCLOSURE KEEPS BOTH: invisible to the person the rule protects,
+         and one click away for the person who was already going to type it. The
+         same shape the connect step already uses for "Already use Terminal?",
+         which is the pattern rather than an invention. */
+      + '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
+      + 'Run <code>kosmos agents</code> to look for yourself.</details>'
       + '<button class="btn" type="button" data-board-retry>Try again</button>'
       + '</div>';
   }
