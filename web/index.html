@@ -8350,6 +8350,21 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <div>
           <p class="setname">Use Kosmos from anywhere</p>
           <p class="fhint" id="plus-status" aria-live="polite"></p>
+          <!-- #1014. Setup used to end by handing you a URL and stopping, and
+               a URL with no instruction is a thing a person stares at. Josh,
+               with a working install in front of him, asked when he was
+               supposed to go to his device and open his own address.
+
+               Three facts in the order a person needs them: where to go, that
+               the sign-in they will meet is expected rather than a rebuff, and
+               that this Mac will ask them something next. The second one
+               matters most -- typing your address into your phone shows you
+               "This is somebody's Kosmos", which is correct and reads as a
+               refusal to somebody who was just told it is theirs.
+
+               The words are Ice Cream Kitty's and Mona Lisa may replace them,
+               the same footing as the recovery block below. -->
+          <p class="fhint" id="plus-next" hidden></p>
         </div>
         <button class="btn" type="button" id="plus-switch"></button>
       </div>
@@ -19094,6 +19109,7 @@ document.getElementById('askcard').addEventListener('click', (e) => {
    message remembers where it came from, and only a SETUP failure is
    superseded by being connected. */
 let PLUS_MSG_KIND = '';
+let PLUS_ADDRESS = '';   // #1014: the address, when there is a real one
 function plusSay(text, kind) {
   const m = document.getElementById('plus-msg');
   m.textContent = text;
@@ -19143,6 +19159,21 @@ async function paintDevices() {
      to have shown it first, so this cannot reveal the control on a Mac that
      could not sign the reset anyway. */
   if (!hasDevices) document.getElementById('plus-second').hidden = true;
+  /* #1014: say what to DO, and only while it is still undone. Once a phone
+     has been allowed the person has plainly worked it out, and a standing
+     instruction to do a thing you have already done is just clutter. */
+  const next = document.getElementById('plus-next');
+  if (next) {
+    const addr = PLUS_ADDRESS;
+    if (addr && !hasDevices) {
+      next.textContent = 'Open ' + addr + ' on your phone. It will ask you to sign in with '
+        + 'this email first, and then this Mac will ask you to allow that phone. '
+        + 'You only do this once per phone.';
+      next.hidden = false;
+    } else {
+      next.hidden = true;
+    }
+  }
 }
 document.getElementById('plus-devlist').addEventListener('click', async (e) => {
   const a = e.target.closest('[data-ask]');
@@ -19194,6 +19225,10 @@ async function paintPlus() {
   st.textContent = stat.state === 'up'
     ? ('Connected. Your address: ' + (stat.address || 'is on its way.'))
     : (because ? because.charAt(0).toUpperCase() + because.slice(1) + '.' : '');
+  /* #1014: only a real address earns an instruction. While the tunnel is
+     still coming up there is nothing to tell somebody to open, and telling
+     them to open "is on its way." would be worse than saying nothing. */
+  PLUS_ADDRESS = (stat.state === 'up' && stat.address) ? stat.address : '';
   /* #1011: being connected supersedes a SETUP failure -- it cannot still be
      true. A switch failure is left alone; it happens while connected and is
      the one thing this rule must not eat. */

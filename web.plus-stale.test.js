@@ -127,3 +127,42 @@ test('#1011: clearing the message clears its kind, so a later switch error is no
   assert.equal(w.el('plus-msg').textContent, 'we could not change that',
     'the cleared setup kind lingered and ate a later switch error');
 });
+
+// ---------------------------------------------------------------------------
+// kosmos#1014. Setup ended by handing you a URL and stopping. Josh, with a
+// working install in front of him: "When am I just supposed to go to my device
+// and go to josh.plus.installkosmos.com?"
+// ---------------------------------------------------------------------------
+
+test('#1014: a connected Mac with no phone yet is told what to DO, not just what is true', async () => {
+  const w = world(connected([]));
+  await paint(w);
+  const t = w.el('plus-next').textContent;
+  assert.equal(w.el('plus-next').hidden, false, 'setup finished and said nothing about what to do next');
+  assert.match(t, /josh\.plus\.installkosmos\.com/, 'the instruction does not name the address');
+  assert.match(t, /sign in/i, 'it does not warn that a sign-in is coming, which reads as a rebuff when it arrives');
+  assert.match(t, /allow/i, 'it does not say this Mac will ask them something next');
+});
+
+test('#1014: once a phone is allowed the instruction goes away', async () => {
+  const w = world(connected([{ device_id: 'd1', allowed_at: 1 }]));
+  await paint(w);
+  assert.equal(w.el('plus-next').hidden, true,
+    'it kept telling somebody to do a thing they had plainly already done');
+});
+
+test('#1014: while the tunnel is still coming up, it says nothing at all', async () => {
+  const r = connected([]);
+  r.status = { state: 'down', because: 'starting the connection' };
+  const w = world(r);
+  await paint(w);
+  assert.equal(w.el('plus-next').hidden, true, 'told them to open an address that does not exist yet');
+});
+
+test('#1014: connected with no address yet is not an instruction to open "is on its way."', async () => {
+  const r = connected([]);
+  r.status = { state: 'up' };            // up, but no address in hand
+  const w = world(r);
+  await paint(w);
+  assert.equal(w.el('plus-next').hidden, true, 'it would have told them to open a sentence');
+});
