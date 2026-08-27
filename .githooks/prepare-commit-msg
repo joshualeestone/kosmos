@@ -49,12 +49,27 @@ case "$agent" in
   ''|*[!a-zA-Z0-9._-]*) exit 0 ;;
 esac
 
-# Append as a trailer, after a blank line if the message does not end in one.
-# ⚠️ Appended rather than inserted: an inserted line can land inside a comment
-# block git later strips, and the trailer would vanish silently.
+# 🛑 A TRAILER NEEDS A BLANK LINE BEFORE IT, NOT JUST A NEWLINE, and getting
+# that wrong is not cosmetic. The first version only ensured the file ended in
+# "\n", so a ONE-LINE message came out as:
+#
+#     v0576 -- version
+#     Agent: renettilley
+#
+# with no blank line between them -- which git reads as ONE subject, so
+# `git log --format=%s` returned "v0576 -- version Agent: renettilley".
+# ⚠️ release.sh commits its version bump with exactly that one-line shape, so
+# this would have corrupted the subject of every cut's bump commit. Caught by
+# running the hook against release.sh's own commit form rather than reasoning
+# that appending a line is harmless.
+#
+# So: strip trailing blank lines, then put back exactly one blank line.
+# Appended rather than inserted, because an inserted line can land inside a
+# comment block git later strips and the trailer would vanish silently.
+body=$(sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}' "$MSG_FILE" 2>/dev/null) || exit 0
 {
-  tail -c 1 "$MSG_FILE" | od -An -c 2>/dev/null | grep -q '\\n' || printf '\n'
+  printf '%s\n\n' "$body"
   printf 'Agent: %s\n' "$agent"
-} >> "$MSG_FILE" 2>/dev/null || true
+} > "$MSG_FILE" 2>/dev/null || true
 
 exit 0
