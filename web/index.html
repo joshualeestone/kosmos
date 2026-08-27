@@ -24606,6 +24606,13 @@ function paintRoom(body) {
         ? '<p class="fhint" style="margin:0;">Nothing here yet. Post below and everyone on this project receives it; use @name to hand someone a request.</p>'
         : '<p class="fhint" style="margin:0;">Put an agent on this project and the room opens.</p>'));
   const html = note + (rows || empty);
+  /* 🛑 MEASURED BEFORE THE WRITE, NOT READ OFF A FLAG. Whether the person is on
+     the floor is a fact about the DOM as it stands right now, and the markup is
+     about to be replaced. holdFloorOnResize keeps a flag for the resize case,
+     but that one is learned from the async `scroll` event and can be a task
+     behind; here we are standing in front of the thing, so we ask it. */
+  const onFloorBefore = box.clientHeight > 0
+    && (box.scrollHeight - box.scrollTop - box.clientHeight) <= THREAD_BOTTOM_SLACK;
   if (box.__lastRoom !== html) {
     /* New rows while the room is on screen are read as they land; a tab in
        the background is not looking, so its cursor waits for the person. */
@@ -24629,6 +24636,20 @@ function paintRoom(body) {
          re-pin and the newest messages go under the fold. We know the answer
          synchronously right here, so we say so. */
       if (!filtering) { box.scrollTop = box.scrollHeight; box.__wasOnFloor = true; }
+    } else if (onFloorBefore && !filtering) {
+      /* 🛑 JOSH'S REMAINING TWO TRIGGERS (#1037): "as soon as the agent starts
+         typing" and "every 30 seconds or so". Neither is a new post. An
+         unanswered marker appearing under a message, a relabelled timestamp, a
+         delivery verdict: all of them GROW the thread while the message ids
+         stay identical, so the key does not change and nothing repositioned
+         anybody. MEASURED: the thread went 2690 to 2724 and a reader sitting on
+         the floor was left 34px below the fold, having touched nothing.
+         ⭐ Being on the floor means following the tail, so a repaint that adds
+         to the tail keeps them there. Only for someone who was ALREADY on it:
+         a person reading history is left exactly where they are, which is what
+         the rest of this function is for. */
+      box.scrollTop = box.scrollHeight;
+      box.__wasOnFloor = true;
     }
   }
 }
