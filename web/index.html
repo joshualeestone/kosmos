@@ -5175,7 +5175,20 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            witnesses disagreeing, as the engine's own sentence in a note.
            Both filled by the painter beside d-state, both hidden when they
            have nothing to say, which is almost always for the conflict. -->
-      <span class="dsaid" id="d-said" hidden></span>
+      <!-- 🛑 THE QUOTED SAID-LINE IS GONE FROM HERE TOO (kosmos#986). #855 cut
+           it from the grid card and df0a502 from the list row; this was the
+           third surface and the only one left. Josh reported it still showing
+           on 2026-08-26 19:53.
+           ⚠️ AND IT HAD NOT BEEN SHOWING WHAT ANYONE THOUGHT. This span carried
+           `id="d-said"` and so did the blockquote below it -- two features, one
+           id, the only duplicate id in the file (591 markup ids, 590 distinct,
+           measured with comments stripped and a planted control). `getElementById`
+           returns the FIRST, so both writes landed here and the vendor's
+           usage-limit sentence, written ~60 lines later in openDetail,
+           OVERWROTE the quoted line every time. The blockquote had never
+           rendered once in its life.
+           📌 So removing this is not only the third cut: it is what lets the
+           blockquote below finally be the element it was written to be. -->
       <div class="note" id="d-conflict" hidden></div>
       <!-- 🛑 MOVED HERE FROM THE INSTRUCTIONS SECTION (Josh, 2026-08-21). The
            card puts a ⚠️ beside the agent's name; the sentence explaining it was
@@ -5205,6 +5218,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            Kosmos cannot know an account is spent; it saw a sentence. So the
            sentence is shown, which names the model and carries the vendor's own
            remedies, and stays true if that wording changes under us. -->
+      <!-- Keeps `d-said`, and now it is the ONLY thing that answers to it. The
+           span above shared the id and won every lookup, so this element was
+           unreachable and the sentence it exists for was being painted into a
+           span styled for something else. -->
       <blockquote class="detail-said" id="d-said" hidden></blockquote>
       <!-- 🛑 THE "ASSIGNED TO" ROW IS GONE (Josh, 2026-08-22), and what went with
            it is worth knowing before anybody brings it back. It listed the
@@ -15246,11 +15263,6 @@ function openDetail(sessionName, section) {
   /* #569: the same derivations the card reads (saidLine, conflictNote),
      called not copied, so the panel and the card cannot disagree about
      where a state came from or whether the witnesses do. */
-  const dsaid = document.getElementById('d-said');
-  if (dsaid) {
-    dsaid.textContent = saidLine(a);
-    dsaid.hidden = !dsaid.textContent;
-  }
   const dconf = document.getElementById('d-conflict');
   if (dconf) {
     dconf.textContent = conflictNote(a);
