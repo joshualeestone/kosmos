@@ -39,13 +39,30 @@ const { chromium } = require('playwright');
     return {
       offState: off && cell(off, '.lstate'), onState: on && cell(on, '.lstate'),
       offName: off && cell(off, '.lname'), onName: on && cell(on, '.lname'),
-      offKids: off ? [...off.children].map((c) => c.className) : [],
+      offKids: off ? [...off.children].map((c) => c.className.split(' ')[0]) : [],
+      /* The neighbour's cells, so the count below is a COMPARISON rather than
+         a number somebody typed. */
+      onKids: on ? [...on.children].map((c) => c.className.split(' ')[0]) : [],
       stateText: off ? off.querySelector('.lstate').innerText.trim() : '',
       taskText: off ? off.querySelector('.ltask').innerText.trim() : 'NO CELL',
     };
   });
   const say = (ok, l, x) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + l + (x ? '  ' + x : '')); if (!ok) fails.push(l); };
-  say(seen.offKids.length === 5, 'five children', seen.offKids.join(','));
+  /* 🛑 THIS SAID `=== 5` AND THE GRID NOW HAS SEVEN COLUMNS (lmodel and lmem
+     were added after it was written), so it failed on a row that is perfectly
+     correct. Nobody saw it, because nothing runs this file.
+     ⭐ AND THE HARDCODED NUMBER IS THE EXACT THING THIS FILE'S OWN HEADER WARNS
+     AGAINST: "the claim is a COMPARISON, cell by cell, against a running row in
+     the same list. A check that only read this row would pass on any geometry."
+     The count arm read one row against a constant, which is the same mistake in
+     the other direction — it FAILS on any geometry the author did not foresee.
+     ⇒ Compared against the neighbour instead. That is immune to columns being
+     added, and it still catches #278 exactly: a not-running row that supplies
+     fewer cells than its neighbour shifts every later cell one column right,
+     which is how the agent's ROLE landed in the STATE column. */
+  say(seen.onKids.length > 0 && JSON.stringify(seen.offKids) === JSON.stringify(seen.onKids),
+    'the same cells, in the same order, as a running row',
+    seen.offKids.join(',') + '  vs  ' + seen.onKids.join(','));
   say(seen.offState && seen.onState && seen.offState.left === seen.onState.left, 'the state column lines up', JSON.stringify([seen.offState, seen.onState]));
   say(seen.offName && seen.onName && seen.offName.left === seen.onName.left, 'the name column lines up', JSON.stringify([seen.offName, seen.onName]));
   say(seen.stateText === 'Not running', 'the state cell says the state', JSON.stringify(seen.stateText));
