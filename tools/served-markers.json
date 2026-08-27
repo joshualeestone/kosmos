@@ -1,0 +1,22 @@
+{
+  "_why": "Markers checked against the SERVED artifact, not the merge. Merged is not built, a bump is not a release, a copy-out is not a release. Add a line here when you ship something a person should be able to see; remove one when it is deliberately gone.",
+  "_cannot_see": "Native surfaces. File pickers, menu bar, Dock, native dialogs. In a browser the picker belongs to the browser, so no check we own covers that class. Both native defects found on 2026-08-26 were found by a person pressing a key.",
+  "present": [
+    "pjcard-members",
+    "pjcard-files",
+    "--gold-bright:",
+    "class=\"pjdisc\"",
+    "data-pmark=\"openai\"",
+    "acct-openai-install",
+    "If Claude gives you a code"
+  ],
+  "absent": [
+    "<option value=\"\">Change to&hellip;</option>",
+    "id=\"style-custom\"",
+    "id=\"set-doctrine-go\"",
+    "Two questions: what it is for"
+  ],
+  "binary": [
+    "runOpenPanel"
+  ]
+}
