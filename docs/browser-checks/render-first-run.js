@@ -489,20 +489,33 @@ async function look(page, name) {
       await ctx.close();
     }
   }
-  /* 🔑 THE OTHER HALF OF THE MOVE. Without this, "not on step 1" passes on a
-     product that lost the sentence altogether — which is exactly the state
-     Josh's item 13 would create, since he asked for the ending's Dock line to
-     go "because we already covered that in the very first initial step". It is
-     not covered there: it was deliberately moved OUT of step 1 TO the ending,
-     so the ending is the only copy. */
+  /* 🛑 INVERTED 2026-08-27, AND THE OLD TEXT IS WHY IT NEEDED A RULING.
+     This block used to REQUIRE the Dock line on the last step, precisely so
+     that "not on step 1" could not pass on a product that had lost the
+     sentence altogether. Josh ruled it off the ending on 2026-08-27: "I
+     still don't want the ending of the install to talk about putting it in
+     the dock."
+     ⚠️ HIS PREMISE IS RECORDED, NOT REPEATED. He said "we already told them
+     that on the very very very first step". It is not there: the line was
+     deliberately moved OUT of step 1 TO the ending, and the only other copy
+     is in Settings, "This computer" > "Opening Kosmos". The installer names
+     the Dock only in code comments about icon caching.
+     ⇒ SO FIRST-RUN NOW CARRIES NO DOCK GUIDANCE AT ALL. That is the ruled
+     outcome and this asserts it, so it cannot drift back unnoticed either
+     way. If anyone later argues the ending should tell people again, this
+     comment is the record of what was traded and on whose instruction. */
   {
     const lastCtx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
     const pg = await lastCtx.newPage();
     await pg.goto(`${BASE}/?first-run=1&fr-step=6`, { waitUntil: 'networkidle' });
     await pg.waitForTimeout(400);
     const last = await pg.evaluate(() => (document.getElementById('fr-pane-6') || {}).textContent || '');
-    if (!/Drag Kosmos onto the Dock, the strip of icons/.test(last)) {
-      problems.push('the LAST step has no Dock drag line, so the product has lost it entirely (it was moved here from step 1 on 2026-08-22)');
+    // Not vacuous: the step must have rendered something before its silence means anything.
+    if (last.trim().length < 20) {
+      problems.push('the LAST step rendered almost nothing, so the Dock assertion below tests nothing');
+    }
+    if (/Drag Kosmos onto the Dock, the strip of icons/.test(last)) {
+      problems.push('the LAST step tells the person to drag Kosmos to the Dock again, which Josh ruled out on 2026-08-27');
     }
     await pg.close();
     await lastCtx.close();

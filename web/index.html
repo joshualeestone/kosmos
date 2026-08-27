@@ -6626,7 +6626,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              is about RETURNING. They are two jobs, and only one of them
              survives being moved, so the split is what resolved the placement
              rather than either screen winning (Mona Lisa, 2026-08-22). -->
-        <div id="fr-fleet-dock"></div>
       </div>
 
       <!-- 1. Success. ⚠️ The one thing the install said only into
@@ -29516,29 +29515,18 @@ function frPaintFleet() {
   const path = (FR && FR.path) || 'unknown';
   const title = document.getElementById('fr-title');
 
-  /* ⚠️ PAINTED BEFORE THE BRANCHES, because all three of them return early.
-     Written inside one of them it would reach that ending only, and the
-     ending a person gets is decided by what the engine found on their
-     machine, so the miss would be invisible to whoever tested it. The pack
-     copy is unchanged from when this line opened the flow: it names no
-     folder, so it is true in every app-location state and needs no variants. */
-  /* 🛑 NOT DELETED, AND THIS IS THE ONE PLACE I HAVE GONE AGAINST JOSH'S LIST.
-     Item 13: "Let's delete all of that text as well because we already covered
-     that in the very first initial step."
-     ⚠️ IT IS NOT COVERED THERE. Searched the whole first-run flow: the only
-     other mention of the Dock before this step is the COMMENT above explaining
-     why the line was moved HERE, and Settings has its own separate line on the
-     This computer page. Deleting this removes the only way back from the entire
-     first-run flow, on all three endings, and `server.test.js` asserts it on
-     each of them by name.
-     📌 The reason it sits on the last step is recorded and answers his premise
-     directly: "you drag something to your Dock because you expect to want it
-     again, and before they have used it they don't have the motive" (#2026-08-22).
-     ⇒ Raised with him rather than executed. If he still wants it gone once he
-     knows it is the only copy, it is one line. */
-  document.getElementById('fr-fleet-dock').innerHTML =
-    '<p><b>Keep it one click away.</b> Drag Kosmos onto the Dock, the strip '
-    + 'of icons along the edge of your screen.</p>';
+  /* 🛑 THE DOCK LINE IS GONE FROM THIS ENDING, at Josh's direct ruling
+     2026-08-27: "I still don't want the ending of the install to talk about
+     putting it in the dock."
+     ⚠️ HIS STATED REASON DOES NOT HOLD OF THE BUILD, and that is recorded
+     rather than repeated: he said "we already told them that on the very
+     very very first step". The only other copy is in Settings, "This
+     computer" > "Opening Kosmos", which a new person may never open. The
+     installer mentions the Dock only in code comments about icon caching.
+     ⇒ So first-run now carries NO Dock guidance at all. The ruling is his
+     and it is executed; the premise is logged so nobody re-derives it as a
+     fact later. server.test.js and render-first-run.js now assert its
+     ABSENCE, so restoring it silently is not possible. */
 
   const count = FR && FR.fleetCount;
 

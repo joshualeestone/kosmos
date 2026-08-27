@@ -4798,8 +4798,11 @@ test('the return-step live region is static markup with its announcement attribu
      yet. Pinned in the static markup because the id it used to live under was
      RENAMED in the same change, so a revert that restored the old paint would
      find no element and fail silently rather than loudly. */
-  assert.match(raw, /<div id="fr-fleet-dock"><\/div>/,
-    'the last step lost the element the way-back line is painted into');
+  /* 🛑 INVERTED 2026-08-27 ON JOSH'S RULING, not deleted. The line this
+     element carried is gone from the ending, and a deleted assertion would
+     let it return unnoticed; an inverted one refuses it. */
+  assert.ok(!/<div id="fr-fleet-dock">/.test(raw),
+    'the Dock line came back to the last step, which Josh ruled out on 2026-08-27');
   assert.ok(!/fr-return-dock/.test(raw), 'the renamed region left a stale id behind');
 });
 
@@ -5203,16 +5206,22 @@ test('the way back is on the last step, on every ending a person can get', () =>
     create: { path: 'create', fleetCount: 0, fleetNames: [] },
     unknown: { path: 'unknown', fleetCount: null, fleetNames: [] },
   };
+  /* 🛑 THIS LOOP USED TO REQUIRE THE DOCK LINE ON EVERY ENDING. Josh ruled it
+     off the ending on 2026-08-27: "I still don't want the ending of the
+     install to talk about putting it in the dock."
+     ⚠️ HIS REASON DOES NOT HOLD OF THE BUILD and is recorded rather than
+     repeated: he said it is already on the first step. It is not. The only
+     other copy is in Settings, "This computer" > "Opening Kosmos". So this
+     asserts ABSENCE on all three endings, which is what the ruling means,
+     and says nothing about where else the app may mention the Dock. */
   for (const [name, FR] of Object.entries(endings)) {
     const got = firstRunHarness('frPaintFleet', { FR });
-    assert.match(got.els['fr-fleet-dock'].innerHTML, DOCK,
-      'the ' + name + ' ending never tells the person how to get back');
+    assert.equal(got.els['fr-fleet-dock'], undefined,
+      'the ' + name + ' ending painted into fr-fleet-dock again');
+    const painted = Object.values(got.els).map((e) => e.innerHTML + ' ' + e.textContent).join(' ');
+    assert.ok(!DOCK.test(painted),
+      'the ' + name + ' ending tells the person to drag Kosmos to the Dock again');
   }
-  /* It names no folder, so it is true whatever the app-location look found,
-     which is why it can sit on a step that never performs that look. */
-  const one = firstRunHarness('frPaintFleet', { FR: endings.create });
-  assert.ok(!/Applications|folder/i.test(one.els['fr-fleet-dock'].innerHTML),
-    'the way-back line named a location this step never checked');
 });
 
 test('the fleet screen renders every path, and a broken payload lands on "we could not see"', () => {
