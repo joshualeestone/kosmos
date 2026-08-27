@@ -768,6 +768,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// calls this except the check above.
     static func isBehindForTest(_ mine: String, _ theirs: String) -> Bool? { isBehind(mine, theirs) }
 
+    /* 🛑 THE VERDICT IS THREE-STATE AND THE LOG USED TO BE TWO. `isBehind`
+       returns `Bool?` on purpose -- the selftest below has an explicit row for
+       it, "a shape we cannot read is UNKNOWN, never a guess" -- and then its
+       ONLY caller wrote `== true` and sent both `false` and `nil` down one
+       branch, which logged "not the behind case" either way.
+       ⚠️ SO THE DIAGNOSTIC CLAIMED A COMPARISON THAT NEVER HAPPENED. A version
+       neither side could parse was recorded as a measured not-behind, in the
+       one file somebody reads when the notice failed to appear. The care taken
+       to preserve UNKNOWN was undone one line after it was computed.
+       📌 The BEHAVIOUR is unchanged and deliberately so: both cases still say
+       nothing to the person, because we have a measured remedy for neither.
+       Only the record of why becomes true.
+       🔑 A PURE FUNCTION SO IT CAN BE TESTED. The caller is a URLSession
+       callback and no selftest can reach it; this is the part that was wrong,
+       and it is now the part that is reachable. Same trick as the hatch above. */
+    static func staleLogSentence(mine: String, theirs: String, verdict: Bool?) -> String {
+        if verdict == nil {
+            return "version mismatch, app \(mine) board \(theirs), COULD NOT COMPARE the two versions; saying nothing"
+        }
+        return "version mismatch, app \(mine) board \(theirs), not the behind case; saying nothing"
+    }
+
     private static func isBehind(_ mine: String, _ theirs: String) -> Bool? {
         guard let a = versionParts(mine), let b = versionParts(theirs) else { return nil }
         for (x, y) in zip(a, b) where x != y { return x < y }
@@ -793,7 +815,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                an instruction for the case we have not measured is how a screen
                starts saying things that are not true, which is the defect this
                card is about. */
-            guard Self.isBehind(mine, theirs) == true else {
+            let verdict = Self.isBehind(mine, theirs)
+            guard verdict == true else {
                 /* ⚠️ ONTO THE MAIN THREAD TO LOG. `logLine` is open, seek, write,
                    close with no lock, and every other one of its ~30 call sites
                    is main-thread. This callback is a URLSession one, so writing
@@ -811,7 +834,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     let pair = "\(mine)|\(theirs)"
                     guard self.loggedVersionMismatch != pair else { return }
                     self.loggedVersionMismatch = pair
-                    logLine("version mismatch, app \(mine) board \(theirs), not the behind case; saying nothing")
+                    logLine(Self.staleLogSentence(mine: mine, theirs: theirs, verdict: verdict))
                 }
                 return
             }
@@ -1675,6 +1698,7 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     var bad = 0
     var ran = 0
     var sawLexicalRow = false
+    var sawUnknownLogRow = false
     func check(_ mine: String, _ theirs: String, _ want: Bool?, _ why: String) {
         ran += 1
         if mine == "0.5.9" && theirs == "0.5.10" { sawLexicalRow = true }
@@ -1696,6 +1720,33 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     check("0.5.73-rc1", "0.5.73", nil, "a shape we cannot read is UNKNOWN, never a guess")
     check("nonsense", "0.5.73", nil,  "and so is a value nobody parsed")
     check("0.5.73", "",       nil,   "an empty answer from the board is unknown too")
+
+    /* 🛑 THE SENTENCE THE DIAGNOSTIC GETS, which is where the three-state
+       verdict used to die. These rows are not about the comparison -- the rows
+       above already prove that -- they are about whether the RECORD of it
+       distinguishes "we compared and it is not behind" from "we could not
+       compare at all". It did not, and both read as the former. */
+    func checkSentence(_ mine: String, _ theirs: String, _ mustSay: String, _ mustNotSay: String, _ why: String) {
+        ran += 1
+        let verdict = AppDelegate.isBehindForTest(mine, theirs)
+        let line = AppDelegate.staleLogSentence(mine: mine, theirs: theirs, verdict: verdict)
+        if mustSay == "COULD NOT COMPARE" { sawUnknownLogRow = true }
+        let ok = line.contains(mustSay) && !line.contains(mustNotSay)
+        if !ok { bad += 1 }
+        print((ok ? "PASS  " : "FAIL  ") + "log ".padding(toLength: 4, withPad: " ", startingAt: 0)
+              + mine.padding(toLength: 12, withPad: " ", startingAt: 0)
+              + "vs " + theirs.padding(toLength: 12, withPad: " ", startingAt: 0)
+              + "-> " + why)
+        if !ok { print("      got: " + line) }
+    }
+    checkSentence("0.5.74", "0.5.73", "not the behind case", "COULD NOT COMPARE",
+                  "a real not-behind still says not-behind")
+    checkSentence("0.5.73-rc1", "0.5.73", "COULD NOT COMPARE", "not the behind case",
+                  "an unreadable version must NOT be recorded as a measured not-behind")
+    checkSentence("nonsense", "0.5.73", "COULD NOT COMPARE", "not the behind case",
+                  "and neither must a value nobody parsed")
+    checkSentence("0.5.73", "", "COULD NOT COMPARE", "not the behind case",
+                  "nor an empty answer from the board")
     /* ⭐ THE ROWS THE PROMISE WAS FALSE ON, and stated exactly rather than
        broadly, because an earlier version of this comment claimed more than was
        measured. Run against the pre-fix parser:
@@ -1754,8 +1805,14 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
        ⭐ And the load-bearing row is named, not merely counted: 0.5.9 vs
        0.5.10 is the one the whole file is justified by, so its absence must be
        a failure rather than a smaller number. */
-    if ran < 21 { print("\nstale-check: only \(ran) checks ran, so this proved nothing"); exit(1) }
+    if ran < 25 { print("\nstale-check: only \(ran) checks ran, so this proved nothing"); exit(1) }
     if !sawLexicalRow { print("\nstale-check: the 0.5.9 vs 0.5.10 row is gone, which is the row this file exists for"); exit(1) }
+    /* ⚠️ A COUNT FLOOR DOES NOT PROTECT A SPECIFIC ROW, which is why the line
+       above exists and why this one has to. Deleting the four log rows and
+       adding four others anywhere else leaves `ran` untouched and the floor
+       satisfied. This pins the one the fix exists for: that an UNKNOWN verdict
+       is recorded as unknown rather than as a measured not-behind. */
+    if !sawUnknownLogRow { print("\nstale-check: the COULD NOT COMPARE log row is gone, and it is the row that keeps a three-state verdict from being logged as two"); exit(1) }
     print(bad == 0 ? "\nstale-check: all good, \(ran) checks" : "\nstale-check: \(bad) FAILED")
     exit(bad == 0 ? 0 : 1)
 }
