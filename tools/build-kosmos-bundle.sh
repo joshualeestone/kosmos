@@ -424,10 +424,15 @@ _stale_out="$(perl -e 'alarm 20; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-ap
 # `stale-check:` and would otherwise be reported as a broken product.
 if [ "$_stale_rc" -ne 0 ]; then
   case "$_stale_out" in
-    *"proved nothing"*|*"row is gone"*)
-      # The selftest's OWN integrity guards firing: somebody removed rows, so
-      # it could not judge the comparison. Not a verdict on the product either,
-      # and it was landing in the arm below until this arm existed.
+    *"stale-check: only "*|*"row is gone, which is the row this file exists for"*|*"buttons are wrong"*)
+      # The selftest's OWN guards firing: rows removed, or the notice's buttons
+      # wrong. Neither is a verdict on the version comparison, and both landed
+      # in the arm below until this arm existed.
+      # ⚠️ FULL TOKENS, NOT BARE WORDS. This matched `*"proved nothing"*` and
+      # `*"row is gone"*`, which are ordinary English that any future row's free-
+      # text `why` column could contain -- and a real comparison failure whose
+      # wording happened to include them would have been EXONERATED. That is the
+      # spoofing failure the #1032 gate forbids by name and pins with a test.
       printf '%s\n' "the #1042 selftest is no longer testing anything, so it cannot vouch for the comparison:" "$_stale_out" >&2 ;;
     *"stale-check:"*)
       printf '%s\n' "the native app's stale-version comparison is wrong (#1042). Its own rows:" "$_stale_out" >&2 ;;

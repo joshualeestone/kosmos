@@ -693,12 +693,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     static let relaunchButtons: (titles: [String], returnIndex: Int, destructiveIndex: Int) =
         (["Quit and Open Again", "Not Now"], 1, 0)
 
+    /// The key equivalent for each button, DERIVED from the spec.
+    ///
+    /// 🛑 THIS FUNCTION EXISTS BECAUSE THE GATE WITHOUT IT COULD NOT FAIL. An
+    /// earlier version assigned the key equivalents to hardcoded locals and had
+    /// the selftest assert `returnIndex != destructiveIndex` -- a property of
+    /// the tuple literal, not of the alert anyone sees. Measured by mutation:
+    /// swapping the two hardcoded assignments makes a reflexive Return QUIT THE
+    /// APP, and the gate printed "Return lands on Not Now" and passed. So did
+    /// inverting the spec, and so did swapping the two titles. The only mutant
+    /// it caught was a degenerate one nobody would write.
+    /// ⭐ A check that reads one thing and vouches for another is worse than no
+    /// check: it is a reassuring sentence over the defect it names.
+    static func relaunchKeyEquivalents(_ spec: (titles: [String], returnIndex: Int, destructiveIndex: Int)) -> [String] {
+        spec.titles.indices.map { $0 == spec.returnIndex ? "\r" : "" }
+    }
+
     private var staleAppNoticeShown = false
     /// The app-AHEAD-of-board case says nothing to the person, so nothing
     /// latches -- and the request repeats on every navigation, so without this
     /// the log line repeated with it, forever, in the app's single diagnostic
     /// file. Logged once, like the notice.
-    private var loggedVersionMismatch = false
+    private var loggedVersionMismatch: String?
     /// The port the board was resolved to, kept so the #1042 check can ask it
     /// its version after the page loads. Written once, where the install is
     /// resolved; nil until then, and the check simply does not run.
@@ -785,8 +801,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                    the app's single diagnostic file: the file every other fault
                    would be read from. */
                 DispatchQueue.main.async {
-                    guard !self.loggedVersionMismatch else { return }
-                    self.loggedVersionMismatch = true
+                    /* ⚠️ KEYED ON THE PAIR, not a bare flag. A plain latch also
+                       silenced every LATER mismatch with a different board
+                       version -- and the board restarting into a new version
+                       while this app keeps running is this card's own premise,
+                       so the second and third are the expected events, not edge
+                       cases. The diagnostic file would have frozen on a pair
+                       that had stopped being true. */
+                    let pair = "\(mine)|\(theirs)"
+                    guard self.loggedVersionMismatch != pair else { return }
+                    self.loggedVersionMismatch = pair
                     logLine("version mismatch, app \(mine) board \(theirs), not the behind case; saying nothing")
                 }
                 return
@@ -817,8 +841,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             + "running and nothing needs signing in to again."
         alert.alertStyle = .informational
         let spec = AppDelegate.relaunchButtons
-        let quitAndOpen = alert.addButton(withTitle: spec.titles[0])
-        let notNow = alert.addButton(withTitle: spec.titles[1])
+        let keys = AppDelegate.relaunchKeyEquivalents(spec)
+        for (i, title) in spec.titles.enumerated() {
+            alert.addButton(withTitle: title).keyEquivalent = keys[i]
+        }
         /* 🔑 ENTER LANDS ON THE HARMLESS CHOICE. This notice arrives UNBIDDEN
            over whatever the person was doing, so a reflexive Return must not
            quit their app. `showQuitDialog` states this rule for itself, though
@@ -828,10 +854,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            no-ops if the array is ever empty, and the failure mode is BOTH
            buttons holding Return with the destructive one winning: silent, and
            in the dangerous direction. */
-        quitAndOpen.keyEquivalent = ""
-        notNow.keyEquivalent = "\r"
-        _ = spec.destructiveIndex   // named in the spec so the gate can assert it
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        /* ⚠️ THE ACCEPT BRANCH IS DERIVED TOO, not a literal
+           `.alertFirstButtonReturn`. With the literal, swapping the two TITLES
+           inverted the product silently: the person clicking "Not Now" got the
+           quit. The button that quits is the one at destructiveIndex, by
+           definition, and that is now what is asked. */
+        let clicked = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        guard clicked == spec.destructiveIndex else { return }
 
         /* 🛑 NEVER QUIT UNTIL THE REPLACEMENT IS ACTUALLY COMING. Terminating
            first and hoping is how a person ends up with no Kosmos at all, which
@@ -1683,6 +1712,40 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     check("0.5.-1",  "0.5.73", nil,  "a NEGATIVE part used to answer behind")
     check("0.+5.9",  "0.5.10", nil,  "and a signed one used to parse")
     check("0.5.٧",   "0.5.73", nil,  "CONTROL: already nil before the fix, pinned so it stays nil")
+    /* The notice's buttons, asserted through the SAME function the alert uses,
+       so a change to either is visible here. Its own counter and its own token,
+       because a button fault is not a wrong version comparison and was being
+       reported as one. */
+    var buttonsBad = 0
+    let btn = AppDelegate.relaunchButtons
+    let keys = AppDelegate.relaunchKeyEquivalents(btn)
+    func btnCheck(_ ok: Bool, _ what: String) {
+        if !ok { buttonsBad += 1 }
+        print((ok ? "PASS  " : "FAIL  ") + "buttons: " + what)
+    }
+    btnCheck(btn.titles.indices.contains(btn.returnIndex)
+             && btn.titles.indices.contains(btn.destructiveIndex),
+             "both indices name a real button")
+    btnCheck(keys.count == btn.titles.count, "every button gets a key equivalent")
+    if keys.count == btn.titles.count, btn.titles.indices.contains(btn.destructiveIndex) {
+        btnCheck(keys[btn.destructiveIndex] == "",
+                 "the button that QUITS does not answer to Return (it is \"\(btn.titles[btn.destructiveIndex])\")")
+        btnCheck(keys[btn.returnIndex] == "\r",
+                 "Return reaches \"\(btn.titles[btn.returnIndex])\"")
+    }
+    /* ⚠️ THE TITLE IS PINNED BY NAME. Without this, swapping the two strings
+       moves the quit onto the other button and every check above still holds,
+       because they only compare indices to each other. Measured: that mutation
+       inverted the product and the old gate passed. */
+    btnCheck(btn.titles.indices.contains(btn.destructiveIndex)
+             && btn.titles[btn.destructiveIndex] == "Quit and Open Again",
+             "the destructive button is the one titled \"Quit and Open Again\"")
+    if buttonsBad > 0 {
+        print("\nstale-check: the relaunch notice's buttons are wrong, which is not the version comparison")
+        exit(1)
+    }
+    ran += 5
+
     /* 🛑 A POPULATION FLOOR, because `bad == 0` is ALSO true of zero checks.
        An edit that deletes every row would print "all good" and pass the
        release gate having proved nothing: an instrument for silent failures
@@ -1691,18 +1754,7 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
        ⭐ And the load-bearing row is named, not merely counted: 0.5.9 vs
        0.5.10 is the one the whole file is justified by, so its absence must be
        a failure rather than a smaller number. */
-    /* The notice's buttons, checked as data. Return must land on the harmless
-       one, and this is the only way to assert that without a window server. */
-    let btn = AppDelegate.relaunchButtons
-    let returnIsHarmless = btn.returnIndex != btn.destructiveIndex
-        && btn.titles.indices.contains(btn.returnIndex)
-        && btn.titles.indices.contains(btn.destructiveIndex)
-    print((returnIsHarmless ? "PASS  " : "FAIL  ")
-          + "Return lands on \"\(btn.titles[btn.returnIndex])\", not \"\(btn.titles[btn.destructiveIndex])\"")
-    if !returnIsHarmless { bad += 1 }
-    ran += 1
-
-    if ran < 17 { print("\nstale-check: only \(ran) checks ran, so this proved nothing"); exit(1) }
+    if ran < 21 { print("\nstale-check: only \(ran) checks ran, so this proved nothing"); exit(1) }
     if !sawLexicalRow { print("\nstale-check: the 0.5.9 vs 0.5.10 row is gone, which is the row this file exists for"); exit(1) }
     print(bad == 0 ? "\nstale-check: all good, \(ran) checks" : "\nstale-check: \(bad) FAILED")
     exit(bad == 0 ? 0 : 1)
