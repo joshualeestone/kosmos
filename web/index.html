@@ -8540,6 +8540,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       Kosmos website, not in here: your email, a code to confirm it, and
       your card. Then you sign in to that account here, and this Mac gets
       an address of its own. Nothing to configure on your router.</p>
+      <!-- #1129, the other half of #1115. The pane described a flow and gave no
+           way into it, so a person was correctly informed and still stuck.
+           🛑 THE HREF IS SET FROM JS, AND THAT IS NOT STYLE. `web.plus-tab.test.js`
+           forbids a hostname anywhere in this section, because the domain is
+           explicitly temporary and shipped copy must not bet on it. That guard
+           is older than this link and it is right, so the address arrives from
+           KOSMOS_SITE at paint time and this markup carries none. The guard
+           still passes UNCHANGED, which is the point: the rule did not move to
+           accommodate the feature. -->
+      <p><a id="plus-site-link" href="#" target="_blank" rel="noreferrer noopener"
+      >Read about Kosmos Plus on the website</a></p>
     </div>
 
     <div id="plus-flow" hidden>
@@ -19712,10 +19723,34 @@ pollAsk();
    the two fetches happen to resolve: a poll in flight when the person
    clicks Turn On must not win the race back and revert their own click. */
 let PLUS_EPOCH = 0;
+/**
+ * The one place this page holds the site's address (#1129).
+ *
+ * 🛑 IT IS ONE PLACE BECAUSE THE DOMAIN IS TEMPORARY, not because repetition is
+ * untidy. `web.plus-tab.test.js` refuses a hostname in the Plus copy for exactly
+ * that reason, and the refusal is correct: shipped copy that bakes in an address
+ * someone has already called provisional becomes a dead link in a build the
+ * reader cannot update. A constant does not make the domain permanent. It makes
+ * changing it one edit instead of a search.
+ *
+ * ⚠️ THIS IS THE PAGE'S COPY OF AN ANSWER THE ENGINE ALREADY OWNS, and that is a
+ * known compromise rather than a design. `engine/update.js` holds
+ * `DEFAULT_BASE`, honours `AGENT_WORKFORCE_RELEASE_BASE`, and already derives a
+ * sibling path from it in `setupUrl()`. Nothing surfaces that to the page today.
+ * The better version serves it, so an operator who repoints the release base
+ * moves this link with it; `web.plus-route.test.js` pins the two together in the
+ * meantime so they cannot drift silently.
+ */
+const KOSMOS_SITE = 'https://installkosmos.com';
+
 async function paintPlus() {
   const holding = document.getElementById('plus-holding');
   const flow = document.getElementById('plus-flow');
   if (!holding || !flow) return;
+  /* Set before the fetch below, so the route is there whether or not the
+     machine is configured and whichever way that call goes. */
+  const site = document.getElementById('plus-site-link');
+  if (site) site.href = KOSMOS_SITE + '/plus';
   const epoch = (PLUS_EPOCH += 1);
   let r = null;
   try { r = await (await fetch('/api/remote', { cache: 'no-store' })).json(); } catch { r = null; }
