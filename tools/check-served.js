@@ -213,6 +213,40 @@ function argAll(name) {
 
   let bad = 0;
   const say = (ok, line) => { console.log((ok ? 'ok    ' : 'FAIL  ') + line); if (!ok) bad += 1; };
+
+  /* 🛑 AN EMPTY MARKER IS NOT A WEAK CHECK, IT IS A GREEN LIGHT. Kitty found
+     this shape in the relay verifier on 2026-08-27: `grep -F ''` matched
+     everything, 164574 hits, and a DIRTY build passed as clean. The same hole
+     is here, in three of the four kinds:
+
+       present:  page.includes('')            -> ALWAYS true   -> passes silent
+       order:    an empty FIRST element gets indexOf 0, which is less than every
+                 real index, so the sequence looks correctly ordered -> passes
+       binary:   Buffer.from('') is found in any buffer -> passes silent
+       absent:   !code.includes('') -> ALWAYS false -> fails loudly, safe
+
+     ⚠️ THE DANGEROUS ONES ALL FAIL TOWARD PASS, which is the direction nobody
+     investigates. And an empty marker is not exotic: a trailing comma edit, a
+     shell variable that did not expand, a hand-written JSON entry left blank.
+     ⇒ Refuse the whole run rather than skip the entry. Skipping it would leave
+     a marker list that reads as coverage and silently checks one thing fewer,
+     which is the same defect one level up. */
+  const kinds = [['present', markers.present], ['absent', markers.absent], ['binary', markers.binary]];
+  const blank = [];
+  for (const [name, list] of kinds) {
+    (list || []).forEach((m, i) => { if (typeof m !== 'string' || m.trim() === '') blank.push(name + '[' + i + ']'); });
+  }
+  (markers.order || []).forEach((seq, i) => {
+    if (!Array.isArray(seq) || seq.length < 2) { blank.push('order[' + i + '] (needs at least two anchors to express an order)'); return; }
+    seq.forEach((m, k) => { if (typeof m !== 'string' || m.trim() === '') blank.push('order[' + i + '][' + k + ']'); });
+  });
+  if (blank.length) {
+    console.error('FAIL  empty or non-string marker(s): ' + blank.join(', '));
+    console.error('      An empty marker PASSES for present/order/binary -- it matches everything, so it reports');
+    console.error('      coverage while checking nothing. Fix or remove the entry; the run refuses rather than');
+    console.error('      skipping it, because a silently shorter marker list is the same defect one level up.');
+    process.exit(2);
+  }
   for (const m of markers.present) say(page.includes(m), 'present in page: ' + m);
   for (const m of markers.absent) say(!codeOnly.includes(m), 'absent from page code: ' + m);
   for (const m of markers.binary) say(binary.includes(Buffer.from(m)), 'present in app binary: ' + m);
