@@ -6180,18 +6180,31 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <div class="field">
       <label class="flabel tk-lab" for="acct-provider-pick">Provider</label>
       <!-- #770: "list all the others so people can see that they're
-           coming" -- a placeholder roster (the four best-known other
-           LLM providers), not Josh's own list, since he named the
-           feature but not the names; flagged for his pass rather than
-           left out. -->
+           coming" -- a placeholder roster, not Josh's own list, since he
+           named the feature but not the names; flagged for his pass rather
+           than left out.
+           🛑 IT WAS FOUR AND THE OTHER TWO PROVIDER MENUS SHOW SIX. `#d-provider`
+           and the create-agent picker both list Gemini, Meta, xAI, Alibaba,
+           Moonshot and Mistral with the same "coming soon" wording. This one
+           kept the original four and worded them differently, so the same
+           question got two answers depending on which screen you opened.
+           ⚠️ AND IT IS NOT ONLY A SCREEN. The agent instruction block tells an
+           agent to say those six "appear in the menu marked coming soon", so an
+           agent helping somebody connect a provider was describing a menu the
+           person was not looking at. Aligned here rather than in the other two,
+           because this is the outlier of three.
+           📌 STILL FLAGGED FOR JOSH: six is what we ship, not what he chose. -->
+
       <select class="tk-inp" id="acct-provider-pick">
         <option value="" selected>Choose a provider…</option>
         <option value="claude">Anthropic Claude</option>
         <option value="openai">OpenAI</option>
-        <option disabled>Google Gemini — coming</option>
-        <option disabled>Meta Llama — coming</option>
-        <option disabled>Mistral — coming</option>
-        <option disabled>xAI Grok — coming</option>
+        <option disabled>Google Gemini &middot; coming soon</option>
+        <option disabled>Meta / Llama &middot; coming soon</option>
+        <option disabled>xAI Grok &middot; coming soon</option>
+        <option disabled>Alibaba / Qwen &middot; coming soon</option>
+        <option disabled>Moonshot / Kimi &middot; coming soon</option>
+        <option disabled>Mistral &middot; coming soon</option>
       </select>
     </div>
     <!-- #727 (Josh, 2026-08-24 20:57: "Add a Claude account / Add an OpenAI

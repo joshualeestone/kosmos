@@ -72,7 +72,16 @@ test('#727/#770: one provider at a time, a key field the row sizes, an exit at b
   assert.match(modal, /id="acct-provider-pick"/);
   assert.match(modal, /<option value="claude">Anthropic Claude<\/option>/);
   assert.match(modal, /<option value="openai">OpenAI<\/option>/);
-  assert.match(modal, /<option disabled>[^<]+ — coming<\/option>/, 'no other provider is listed, disabled, as coming');
+  /* 🛑 THIS USED TO PIN THE EM DASH: /<option disabled>[^<]+ — coming<\/option>/.
+     Josh's one standing style rule is that an em dash never appears in anything
+     he reads, and this line made the violation load-bearing: correcting the
+     punctuation turned the suite red, so the wrong character was the thing
+     keeping the test green. A check keyed to the spelling of a defect defends
+     the defect.
+     ⇒ What is asserted is the CLAIM: some other provider is listed and
+     disabled, so a person can see what is coming. How it is punctuated is copy,
+     and copy is allowed to improve without asking a test for permission. */
+  assert.match(modal, /<option disabled>[^<]*coming soon<\/option>/, 'no other provider is listed, disabled, as coming soon');
   assert.doesNotMatch(modal, /id="acct-add-openai"/, 'the old toggle would show the OpenAI form beside the Claude one');
   assert.match(modal, /id="acct-claude-flow" hidden/); assert.match(modal, /id="acct-openai-flow" hidden/);
   const claude = modal.slice(modal.indexOf('id="acct-claude-flow"'), modal.indexOf('id="acct-openai-flow"'));
