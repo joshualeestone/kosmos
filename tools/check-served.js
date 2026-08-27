@@ -300,21 +300,41 @@ process.on('exit', () => {
      ⇒ Refuse the whole run rather than skip the entry. Skipping it would leave
      a marker list that reads as coverage and silently checks one thing fewer,
      which is the same defect one level up. */
+  /* 🛑 NON-EMPTY IS NOT THE SAME AS NON-TRIVIAL, AND THE GAP IS THE SAME
+     DIRECTION. The first version of this guard rejected '' and whitespace.
+     A marker of '<' or 'id=' is neither, passes it, and MATCHES EVERY PAGE --
+     so a present-marker reports coverage while checking nothing, which is the
+     exact failure this whole file exists against. Ice Cream Kitty hit the same
+     shape in the delivery checker on 2026-08-27 ("both are false positives in
+     a delivery checker -- the worst direction") and I checked mine because of
+     hers rather than because I suspected it.
+     📌 EIGHT IS MEASURED, NOT COPIED. The shortest real marker in this file is
+     11 characters (`id="fr-sub"`); the next are 12. Eight leaves margin for a
+     legitimately short future marker while rejecting every trivially-matching
+     one. Kitty used 12 for her needles; her population is different, so the
+     number is not transferable and I did not transfer it. */
+  const MIN_MARKER = 8;
+  const usable = (m) => typeof m === 'string' && m.trim().length >= MIN_MARKER;
+  const why = (m) => (typeof m !== 'string' ? ' (not a string)'
+    : m.trim() === '' ? ' (empty)'
+    : ' (only ' + m.trim().length + ' chars; a marker under ' + MIN_MARKER + ' risks matching every page)');
+
   const kinds = [['present', markers.present], ['absent', markers.absent], ['binary', markers.binary],
                  ['pkg_present', markers.pkg_present], ['pkg_absent', markers.pkg_absent]];
   const blank = [];
   for (const [name, list] of kinds) {
-    (list || []).forEach((m, i) => { if (typeof m !== 'string' || m.trim() === '') blank.push(name + '[' + i + ']'); });
+    (list || []).forEach((m, i) => { if (!usable(m)) blank.push(name + '[' + i + ']' + why(m)); });
   }
   (markers.order || []).forEach((seq, i) => {
     if (!Array.isArray(seq) || seq.length < 2) { blank.push('order[' + i + '] (needs at least two anchors to express an order)'); return; }
-    seq.forEach((m, k) => { if (typeof m !== 'string' || m.trim() === '') blank.push('order[' + i + '][' + k + ']'); });
+    seq.forEach((m, k) => { if (!usable(m)) blank.push('order[' + i + '][' + k + ']' + why(m)); });
   });
   if (blank.length) {
-    console.error('FAIL  empty or non-string marker(s): ' + blank.join(', '));
-    console.error('      An empty marker PASSES for present/order/binary -- it matches everything, so it reports');
-    console.error('      coverage while checking nothing. Fix or remove the entry; the run refuses rather than');
-    console.error('      skipping it, because a silently shorter marker list is the same defect one level up.');
+    console.error('FAIL  unusable marker(s): ' + blank.join(', '));
+    console.error('      A marker that is empty, not a string, or too short MATCHES EVERY PAGE, so present/order/');
+    console.error('      binary report coverage while checking nothing. Fix or remove the entry; the run refuses');
+    console.error('      rather than skipping it, because a silently shorter marker list is the same defect one');
+    console.error('      level up.');
     process.exit(2);
   }
   for (const m of markers.present) say(page.includes(m), 'present in page: ' + m);
