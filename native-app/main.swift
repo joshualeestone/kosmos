@@ -688,10 +688,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var resolvedPort: Int?
 
     /// This app's own version, from the bundle it was LAUNCHED from.
-    /// ⚠️ Measured, in a real .app, with the plist rewritten underneath a live
-    /// process in both orders: `Bundle.main` reports the code actually running,
-    /// never the newer one the installer wrote to disk. That is what makes the
-    /// comparison below mean anything.
+    /// ⚠️ MEASURED AGAINST THE MECHANISM THAT ACTUALLY HAPPENS, which is not a
+    /// plist rewrite. `install/setup.sh` moves the whole bundle aside, moves a
+    /// freshly built tree into place, and removes the aside: rename-and-replace.
+    /// An earlier version of this comment claimed a measurement against an
+    /// in-place rewrite, which is a different filesystem event and proved
+    /// nothing about the shipped path. Both are now measured, in a real .app,
+    /// in both read orders: `Bundle.main` reports the code actually RUNNING,
+    /// never the newer bundle at the same path. That is the whole reason the
+    /// comparison below means anything.
     private func runningAppVersion() -> String? {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
     }
@@ -702,8 +707,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// invented ordering would produce a confident instruction in the one case
     /// we cannot read.
     private static func versionParts(_ s: String) -> [Int]? {
-        let bits = s.split(separator: ".").map(String.init)
+        /* ⚠️ `omittingEmptySubsequences: false`, AND A DIGITS-ONLY CHECK, because
+           the promise above is "nil, never a guess" and the obvious version was
+           not keeping it. Measured on the same function: `.0.5.73`, `0..5.73`,
+           `0.5.73.` and `0.5.73..` all parsed confidently as [0,5,73] (split
+           drops empty pieces by default), and `0.5.-1` parsed as [0,5,-1],
+           which then answers BEHIND. A promise a caller relies on has to be
+           true for the inputs nobody expects, or it is decoration. */
+        let bits = s.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
         guard bits.count == 3 else { return nil }
+        guard bits.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isASCII) && $0.allSatisfy(\.isNumber) }) else { return nil }
         let nums = bits.compactMap { Int($0) }
         return nums.count == 3 ? nums : nil
     }
@@ -719,7 +732,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     /// Ask the board what version it is, once, after the page has loaded.
-    func checkWhetherThisAppIsBehind(port: Int) {
+    private func checkWhetherThisAppIsBehind(port: Int) {
         guard !staleAppNoticeShown else { return }
         guard let mine = runningAppVersion(),
               let url = URL(string: "http://127.0.0.1:\(port)/api/status") else { return }
@@ -738,7 +751,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                starts saying things that are not true, which is the defect this
                card is about. */
             guard Self.isBehind(mine, theirs) == true else {
-                logLine("version mismatch, app \(mine) board \(theirs), not the behind case; saying nothing")
+                /* ⚠️ ONTO THE MAIN THREAD TO LOG. `logLine` is open, seek, write,
+                   close with no lock, and every other one of its ~30 call sites
+                   is main-thread. This callback is a URLSession one, so writing
+                   here directly made this the file's only concurrent writer to
+                   the app's single diagnostic file: the file every other fault
+                   would be read from. */
+                DispatchQueue.main.async {
+                    logLine("version mismatch, app \(mine) board \(theirs), not the behind case; saying nothing")
+                }
                 return
             }
             DispatchQueue.main.async {
@@ -753,12 +774,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         window?.makeKeyAndOrderFront(nil)
         let alert = NSAlert()
         alert.messageText = "Kosmos updated while this window was open"
+        /* ⚠️ "SHOULD", NOT "DOES". `make_app` failing is NON-FATAL to an install
+           (a foreign app home, a failed bundle build, a TCC denial on
+           /Applications), which leaves the icon on the old version while the
+           board moves on. In that state reopening changes nothing, and this
+           notice returns on every launch. Saying "catches it up" as flat fact
+           would be the screen asserting something it cannot know, which is the
+           defect this card is about. The last sentence is the one that IS
+           measured (Kitty, on the coordinator) and it is what makes the advice
+           safe to give at all. */
         alert.informativeText = "This window is still running version \(mine). The rest of "
-            + "Kosmos is on \(theirs). Opening it again catches it up. Your agents keep "
+            + "Kosmos is on \(theirs). Opening it again should catch it up. Your agents keep "
             + "running and nothing needs signing in to again."
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Quit and Open Again")
-        alert.addButton(withTitle: "Not Now")
+        let notNow = alert.addButton(withTitle: "Not Now")
+        /* 🔑 ENTER LANDS ON THE HARMLESS CHOICE, the same rule showQuitDialog
+           states for itself. This notice arrives UNBIDDEN over whatever the
+           person was doing, so a reflexive Return must not quit their app. */
+        alert.buttons.first?.keyEquivalent = ""
+        notNow.keyEquivalent = "\r"
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
         /* 🛑 NEVER QUIT UNTIL THE REPLACEMENT IS ACTUALLY COMING. Terminating
@@ -771,6 +806,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             DispatchQueue.main.async {
                 if app != nil, err == nil {
                     logLine("relaunch: replacement started, this instance is exiting")
+                    /* 🛑 THE PERSON HAS ALREADY ANSWERED. `NSApp.terminate` re-enters
+                       `applicationShouldTerminate`, which shows the quit dialog unless
+                       this flag is set -- so without it they click "Quit and Open
+                       Again" and are handed a SECOND, unrelated modal asking whether
+                       to close the app, with the replacement's window already on
+                       screen behind it. Two windows, one of them modal, over a
+                       question they did not ask. The file names this seam at the
+                       Cmd-Q site; this call site is the one that did not. */
+                    self.isActuallyQuitting = true
                     NSApp.terminate(nil)
                     return
                 }
@@ -801,9 +845,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         webView.evaluateJavaScript("document.title") { result, _ in
             logLine("PAGE LOADED, document.title=\(result ?? "<nil>")")
         }
-        /* #1042: asked ONCE, after the board has actually answered, and never
-           on a timer. The person is told at the moment the two halves are
-           demonstrably out of step, not nagged about it. */
+        /* #1042: asked after the board has answered, and the NOTICE is shown at
+           most once per launch.
+           ⚠️ NOT "once", which an earlier version of this comment claimed.
+           `didFinish` fires on every main-frame navigation -- Cmd-R, the
+           Settings item's location.assign, and the board's own reloads -- so
+           the REQUEST repeats until the notice fires. That is cheap next to the
+           board's own five-second poll of the same route, and it is stated
+           rather than implied because the next reader will trust the sentence
+           and not the code. */
         if let port = resolvedPort { checkWhetherThisAppIsBehind(port: port) }
     }
 
@@ -1557,7 +1607,11 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
 // would have looked correct on every version we have shipped so far.
 if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     var bad = 0
+    var ran = 0
+    var sawLexicalRow = false
     func check(_ mine: String, _ theirs: String, _ want: Bool?, _ why: String) {
+        ran += 1
+        if mine == "0.5.9" && theirs == "0.5.10" { sawLexicalRow = true }
         let got = AppDelegate.isBehindForTest(mine, theirs)
         let ok = got == want
         if !ok { bad += 1 }
@@ -1576,7 +1630,28 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     check("0.5.73-rc1", "0.5.73", nil, "a shape we cannot read is UNKNOWN, never a guess")
     check("nonsense", "0.5.73", nil,  "and so is a value nobody parsed")
     check("0.5.73", "",       nil,   "an empty answer from the board is unknown too")
-    print(bad == 0 ? "\nstale-check: all good" : "\nstale-check: \(bad) FAILED")
+    /* ⭐ THE ROWS THE PROMISE WAS FALSE ON. `split` drops empty pieces by
+       default, so every one of these parsed CONFIDENTLY as a version before the
+       fix, and the last answered BEHIND. The doc said "never a guess" and the
+       code guessed; nothing here tested it, which is how a promise becomes
+       decoration. */
+    check(".0.5.73", "0.5.73", nil,  "a leading dot is not a version")
+    check("0..5.73", "0.5.73", nil,  "nor is an empty middle")
+    check("0.5.73.", "0.5.73", nil,  "nor a trailing dot")
+    check("0.5.-1",  "0.5.73", nil,  "a NEGATIVE part used to answer behind")
+    check("0.+5.9",  "0.5.10", nil,  "and a signed one used to parse")
+    check("0.5.٧",   "0.5.73", nil,  "non-ASCII digits are not our version shape")
+    /* 🛑 A POPULATION FLOOR, because `bad == 0` is ALSO true of zero checks.
+       An edit that deletes every row would print "all good" and pass the
+       release gate having proved nothing: an instrument for silent failures
+       with the exact failure mode it exists to catch. Mona Lisa found this
+       shape in her own gate tonight and the lesson is hers.
+       ⭐ And the load-bearing row is named, not merely counted: 0.5.9 vs
+       0.5.10 is the one the whole file is justified by, so its absence must be
+       a failure rather than a smaller number. */
+    if ran < 16 { print("\nstale-check: only \(ran) checks ran, so this proved nothing"); exit(1) }
+    if !sawLexicalRow { print("\nstale-check: the 0.5.9 vs 0.5.10 row is gone, which is the row this file exists for"); exit(1) }
+    print(bad == 0 ? "\nstale-check: all good, \(ran) checks" : "\nstale-check: \(bad) FAILED")
     exit(bad == 0 ? 0 : 1)
 }
 

@@ -409,10 +409,24 @@ fi
 # routinely different versions, and the app comparing itself against the board
 # is the only thing that can say so. This gate is the comparison, not the
 # dialog: pure, fast, and it needs no window server, unlike the #1032 one.
-_stale_out="$(perl -e 'alarm 20; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-stale-selftest 2>&1)" || {
-  printf '%s\n' "the native app's stale-version comparison is wrong (#1042):" "$_stale_out" >&2
+_stale_rc=0
+_stale_out="$(perl -e 'alarm 20; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-stale-selftest 2>&1)" || _stale_rc=$?
+# ⚠️ THE CAUSE DECIDES THE SENTENCE, and the first version of this gate did not.
+# It reported EVERY non-zero exit as "the comparison is wrong", which is false
+# for a 20s SIGALRM (142), an exec failure (127), and a missing or
+# non-executable binary. The #1032 gate fifty lines above exists to not do that
+# and says so at length; this one reintroduced the shape it warns about. Same
+# ordering rule too: the timeout arm is tested FIRST, because the selftest
+# prints its rows before it could ever hang, so a later arm would match them.
+if [ "$_stale_rc" -ne 0 ]; then
+  case "$_stale_out" in
+    *"stale-check:"*)
+      printf '%s\n' "the native app's stale-version comparison is wrong (#1042). Its own rows:" "$_stale_out" >&2 ;;
+    *)
+      printf '%s\n' "the #1042 gate did not finish (exit $_stale_rc): a timeout, a missing binary, or something that is not the comparison. It could not judge it either way." "$_stale_out" >&2 ;;
+  esac
   exit 1
-}
+fi
 printf '%s\n' "$_stale_out" | sed 's/^/    /'
 # 🛑 THE EXIT STATUS IS NOT ENOUGH, same reason as the #1032 gate above: a
 # future edit that returns early would go green having proved nothing.
