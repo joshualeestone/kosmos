@@ -5210,8 +5210,7 @@ test('the way back is on the last step, on every ending a person can get', () =>
      off the ending on 2026-08-27: "I still don't want the ending of the
      install to talk about putting it in the dock."
      ⚠️ HIS REASON DOES NOT HOLD OF THE BUILD and is recorded rather than
-     repeated: he said it is already on the first step. It is not. The only
-     other copy is in Settings, "This computer" > "Opening Kosmos". So this
+     repeated: he said it is already on the first step. It is not. The Dock line now also sits on the SUCCESS screen (#fr-return-keep), moved there by his 16:08 ruling in the same change that removed it from here; Settings has a separate copy of its own. So this
      asserts ABSENCE on all three endings, which is what the ruling means,
      and says nothing about where else the app may mention the Dock. */
   for (const [name, FR] of Object.entries(endings)) {

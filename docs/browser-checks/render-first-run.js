@@ -495,15 +495,19 @@ async function look(page, name) {
      sentence altogether. Josh ruled it off the ending on 2026-08-27: "I
      still don't want the ending of the install to talk about putting it in
      the dock."
-     ⚠️ HIS PREMISE IS RECORDED, NOT REPEATED. He said "we already told them
-     that on the very very very first step". It is not there: the line was
-     deliberately moved OUT of step 1 TO the ending, and the only other copy
-     is in Settings, "This computer" > "Opening Kosmos". The installer names
-     the Dock only in code comments about icon caching.
-     ⇒ SO FIRST-RUN NOW CARRIES NO DOCK GUIDANCE AT ALL. That is the ruled
-     outcome and this asserts it, so it cannot drift back unnoticed either
-     way. If anyone later argues the ending should tell people again, this
-     comment is the record of what was traded and on whose instruction. */
+     ⚠️ AN EARLIER VERSION OF THIS COMMENT SAID FIRST-RUN NOW CARRIES NO DOCK
+     GUIDANCE AT ALL. That was true of the intermediate state and is false
+     now, and it is corrected here rather than left for a later reader to
+     trust. He later ruled, 16:08, after a full wipe and a screenshot of the
+     Success screen: "somebody elected to take the message out of this."
+     ⇒ THE LINE MOVED TO THE SUCCESS SCREEN, not out of the product. It sits
+     under the reveal button (#fr-return-keep) and click-first-run.js asserts
+     it PRESENT there. This block asserts it ABSENT on the last step. The
+     pair is what stops it drifting back here or falling out of the flow.
+     📌 His stated premise for the original deletion, "we already told them
+     that on the very very very first step", was not true of the build when
+     he said it. It is true now, because of the move, and it was made true
+     deliberately rather than found to be so. */
   {
     const lastCtx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
     const pg = await lastCtx.newPage();

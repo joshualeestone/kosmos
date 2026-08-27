@@ -6649,11 +6649,28 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                (frRevealSay), and a screen-reader user who fired that click
                would otherwise never hear the refusal -- the same SC 4.1.3 call
                as the check row above.
-               ⚠️ IT USED TO CARRY THE DOCK LINE AND IS RENAMED BECAUSE IT NO
-               LONGER DOES. The line moved to the last step (see frPaintFleet),
-               and an id still saying `dock` would have every later reader
-               looking for it here. -->
+               🛑 THE DOCK LINE DOES NOT GO IN HERE, though it sits directly
+               below. This region is CLEARED and REWRITTEN by frRevealSay, so
+               static copy parked in it would vanish on the first failed
+               reveal click and be announced as a status change on every
+               repaint. The line below is static markup for that reason. -->
           <div id="fr-return-msg" role="status" aria-live="polite"></div>
+          <!-- 🔑 THE DOCK LINE LIVES HERE, on the Success screen, under the
+               reveal button, at Josh's ruling of 2026-08-27 16:08 after he
+               did a full wipe and screenshotted this screen: "somebody
+               elected to take the message out of this."
+               ⚠️ IT WAS DELIBERATELY MOVED OFF THIS SCREEN ON 2026-08-22, on
+               two written rulings: step 1 answers "did the install work", and
+               the Dock line is about RETURNING, so it went to the last step.
+               HIS 16:08 INSTRUCTION OVERRIDES BOTH. He also does not want it
+               at the ending, and the two statements are coherent together:
+               on Success, not at the last step.
+               📌 The id here is deliberately NOT the one this region used to
+               carry. That retired id is asserted absent by server.test.js as
+               a stale-id guard, and the assertion greps the raw markup, so
+               even naming it in a comment would fail the check. Same line,
+               different anchor, and this note cannot spell the old one. -->
+          <p id="fr-return-keep" class="dhint"><b>Keep it one click away.</b> Drag Kosmos onto the Dock, the strip of icons along the edge of your screen.</p>
         </div>
       </div>
 
@@ -29520,13 +29537,15 @@ function frPaintFleet() {
      putting it in the dock."
      ⚠️ HIS STATED REASON DOES NOT HOLD OF THE BUILD, and that is recorded
      rather than repeated: he said "we already told them that on the very
-     very very first step". The only other copy is in Settings, "This
-     computer" > "Opening Kosmos", which a new person may never open. The
+     very very first step". The Dock line now also sits on the SUCCESS screen (#fr-return-keep), moved there by his 16:08 ruling in the same change that removed it from here; Settings has a separate copy of its own. The
      installer mentions the Dock only in code comments about icon caching.
-     ⇒ So first-run now carries NO Dock guidance at all. The ruling is his
-     and it is executed; the premise is logged so nobody re-derives it as a
-     fact later. server.test.js and render-first-run.js now assert its
-     ABSENCE, so restoring it silently is not possible. */
+     ⇒ The line is NOT gone from first-run: it moved to the Success screen,
+     under the reveal button (see #fr-return-keep), at his 16:08 ruling. An
+     earlier version of this comment said first-run carried no Dock guidance
+     at all, which was true of the intermediate state and is false now.
+     server.test.js and render-first-run.js assert its ABSENCE here, and
+     click-first-run.js asserts its PRESENCE on Success, so it cannot drift
+     back to this step or fall out of the flow unnoticed. */
 
   const count = FR && FR.fleetCount;
 
