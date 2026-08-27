@@ -33,6 +33,17 @@ async function fresh(browser, opts = {}) {
 (async () => {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
 
+  /* ⚠️ A CHECKER THAT CANNOT REPORT ITS OWN FAILURE. Measured: section 12's
+     first click timed out after 30s, the rejection went unhandled, and the run
+     died WITHOUT its FAILURES line and without an exit code of its own -- so
+     eleven sections' worth of verdicts reached the screen with nothing
+     summarising them, and node's own stack was the last word. Every FAIL
+     printed above it became something a reader had to scroll for and total up
+     by hand. The throw is now a finding like any other, the summary always
+     prints, and the browser is always closed. This is the same fix
+     render-fields carries for the same reason. */
+  try {
+
   /* ------------------------------------------------------------------ */
   console.log('\n1. A machine that has never been through it opens ON first run');
   {
@@ -409,7 +420,14 @@ async function fresh(browser, opts = {}) {
     }
   }
 
-  await browser.close();
+  } catch (e) {
+    // Named as a THROW, not folded in as an ordinary ok() failure: a section
+    // that died tells you nothing about the assertions it never reached, and
+    // a reader must be able to tell "this went red" from "this stopped".
+    fails.push('THREW, so everything after it was never asked: ' + ((e && e.message) || e));
+  } finally {
+    await browser.close().catch(() => {});
+  }
   console.log('\n' + (fails.length ? `${fails.length} FAILURES:\n  ` + fails.join('\n  ') : 'all clear'));
   process.exit(fails.length ? 1 : 0);
 })();
