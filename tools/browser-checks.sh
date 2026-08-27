@@ -613,9 +613,15 @@ if boot_board_rich "$sbr" "$P11"; then
   # style, so running it in position after three checks that have touched the
   # board is sound, and in-sequence is the claim worth having (#1072).
   run_one "render-fields"      node docs/browser-checks/render-fields.js "http://127.0.0.1:$P11"
+  # ⚠️ SAFE ON A SHARED BOARD, and the reason is not obvious from the clicks: it
+  # presses Add and Undo, but BOTH /api/found-agents and /api/connect-agent are
+  # route-stubbed with r.fulfill, so nothing leaves the page and no agent is
+  # created. I first read the two .click() calls and wrongly called it unsafe --
+  # the question was never "does it click" but "does anything leave the page".
+  run_one "render-found-board" env HEADED=0 node docs/browser-checks/render-found-board.js "http://127.0.0.1:$P11"
   run_one "render-survival"    env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-survival.js "$sbr/shots-survival"
 else
-  FAILED+=("render-org-chart render-not-running render-list-row render-fields render-survival (rich board did not boot)")
+  FAILED+=("render-org-chart render-not-running render-list-row render-fields render-found-board render-survival (rich board did not boot)")
 fi
 
 # --- render-update-toast: SELF-CONTAINED, so it sits outside the board groups.

@@ -83,8 +83,17 @@ function check(name, pass, detail) {
 
   /* CONTROL: the sweep really did read the panel, or an empty page passes for
      the wrong reason. */
+  /* 🛑 THIS CONTROL PINNED A PHRASE THAT WAS DELIBERATELY RENAMED, AND A STALE
+     CONTROL IS THE WORST KIND: it exists so an empty page cannot pass for the
+     wrong reason, and instead it made a correct page look broken.
+     5ecb3812, 2026-08-17: "the ruled pack wordings land (Instructions, path
+     dropped)". "Special purpose" survives in ONE place in the whole file -- a
+     comment at :5657 -- and nowhere a reader can see it. The label is
+     "Instructions", which this check's own first assertion already reports.
+     ⇒ Re-aimed at the current wording. It is still a real control: an empty
+     page, or a deep link that stopped opening the panel, still fails it. */
   check('CONTROL: the panel is actually on screen',
-    /special purpose/i.test(seen.visible), `${seen.visible.length} chars of visible text`);
+    /Instructions/i.test(seen.visible), `${seen.visible.length} chars of visible text`);
 
   /* The path is DEMOTED, not deleted: it must still be there, and still legible. */
   check('the file location is still offered, in mouse print',
