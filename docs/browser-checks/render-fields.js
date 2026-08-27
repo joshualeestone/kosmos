@@ -160,6 +160,20 @@ async function measure(engine, scheme) {
        enumerate-from-memory habit, the second one inside the fix for the first.
        A container is whatever DECLARES `--field-fill`, which is exactly the set
        whose paint matters to a field, and the stylesheet already knows it. */
+    /* ⚠️ A LOST BACKGROUND AND A DECLARED ONE ARE DIFFERENT FACTS, AND THIS
+       FILE COULD NOT TELL THEM APART. `#pj-settings-view` and `#pj-add-view`
+       are layout wrappers: they say `background: none; border: 0; box-shadow:
+       none` on purpose and re-point `--field-fill` for the fields inside them,
+       which is how this page gives a field its fill — the field paints itself
+       from the token, the container never has to. Requiring every declaring
+       container to paint failed all three of them in all four combinations,
+       sixteen reds, none of them a defect.
+       🔑 THE DISTINCTION IS IN THE STYLESHEET, so it is derived, not listed —
+       the same rule the CONTAINERS derivation below already follows. A parse
+       error that LOSES a background writes no `background: none` rule, so the
+       `#firstrun` case this check exists for still fails. Only an explicit
+       declaration exempts, and the exemption is reported by name. */
+    const BARE = new Set();
     const CONTAINERS = (() => {
       const out = new Set();
       /* ⚠️ IDs AS WELL AS CLASSES, and rules INSIDE @media too. The first
@@ -185,6 +199,14 @@ async function measure(engine, scheme) {
              denominator I added an hour ago caught the instrument, not the app. */
           if (rule.cssRules && rule.cssRules.length) walk(rule.cssRules);
           if (!rule.style || !rule.selectorText) continue;
+          /* Collected BEFORE the --field-fill gate: the rule that declares the
+             fill and the rule that declares `background: none` are usually two
+             different rules on the same selector. */
+          const bgDecl = (rule.style.getPropertyValue('background')
+            || rule.style.getPropertyValue('background-color') || '').trim();
+          if (/^(none|transparent|rgba\(0,\s*0,\s*0,\s*0\))$/i.test(bgDecl)) {
+            for (const m of rule.selectorText.matchAll(/[.#]([a-z][a-z0-9_-]*)/gi)) BARE.add(m[0]);
+          }
           if (!rule.style.getPropertyValue('--field-fill')) continue;
           for (const m of rule.selectorText.matchAll(/[.#]([a-z][a-z0-9_-]*)/gi)) {
             out.add(m[0]);   // keep the sigil: '.dbox' and '#firstrun' are different questions
@@ -213,13 +235,30 @@ async function measure(engine, scheme) {
       }
       return first ? { ...first, mute } : { bg: null, name: '(page)', mute };
     };
+    /* An arrow drawn as an ELEMENT rather than as a background gradient: a
+       visible, non-interactive graphic sitting inside the control's own label
+       or wrapper. `pointer-events: none` is what makes it decoration rather
+       than a second control, so it is required, not assumed. */
+    const drawnIndicator = (el) => {
+      const holder = el.closest('label') || el.parentElement;
+      if (!holder) return false;
+      for (const n of holder.querySelectorAll('svg, i, span')) {
+        if (n === el || n.contains(el)) continue;
+        if (!n.getClientRects().length) continue;
+        const cs = getComputedStyle(n);
+        if (cs.pointerEvents !== 'none') continue;
+        if (cs.position === 'absolute' || n.tagName.toLowerCase() === 'svg') return true;
+      }
+      return false;
+    };
     const fields = [...document.querySelectorAll(sel)].map((el) => {
       const c = getComputedStyle(el);
       const g = ground(el);
       return { id: el.id || el.tagName.toLowerCase(), tag: el.tagName.toLowerCase(),
         fill: c.backgroundColor, border: c.borderTopColor, appearance: c.appearance,
         radius: c.borderTopLeftRadius, box: g.bg, boxName: g.name, mute: g.mute,
-        arrows: (c.backgroundImage.match(/linear-gradient/g) || []).length };
+        arrows: (c.backgroundImage.match(/linear-gradient/g) || []).length,
+        indicator: el.tagName.toLowerCase() === 'select' ? drawnIndicator(el) : false };
     });
     // The unknown-memory caption must not paint over the presence dot.
     let badgeHit = null;
@@ -263,7 +302,7 @@ async function measure(engine, scheme) {
           fill: c.backgroundColor, border: c.borderTopColor, borderW: c.borderTopWidth,
           box: g.bg, boxName: g.name };
       });
-    return { fields, buttons, badgeHit, listCell, seenContainers: [...seenContainers], containers: CONTAINERS };
+    return { fields, buttons, badgeHit, listCell, seenContainers: [...seenContainers], containers: CONTAINERS, bare: [...BARE] };
   }, FIELDS);
   } finally {
     // ⚠️ Without this a throw inside the evaluate leaks the browser and the
@@ -299,8 +338,23 @@ async function measure(engine, scheme) {
       if (!selects.length) fail(`${engine}/${scheme} no selects were found, so the appearance and arrow checks ran over nothing`);
       for (const s of selects) {
         if (s.appearance !== 'none') fail(`${engine}/${scheme} select #${s.id} renders the browser's own control (appearance: ${s.appearance})`);
-        if (s.arrows !== 2) fail(`${engine}/${scheme} select #${s.id} lost its drawn arrow (${s.arrows} gradients)`);
+        /* ⚠️ TWO MECHANISMS DRAW THIS ARROW AND THIS LINE KNEW ONE. `#pj-sort`
+           sets `appearance: none` and draws a real `<svg class="sortctl-i">`
+           chevron beside itself, so it reports 0 gradients while being perfectly
+           correct on screen. The old assertion tested the TECHNIQUE; what a
+           reader cares about is whether an arrow is there. A select with
+           neither still fails, which is the case worth catching. */
+        if (s.arrows !== 2 && !s.indicator) fail(`${engine}/${scheme} select #${s.id} has no arrow at all: ${s.arrows} gradients and no indicator element beside it`);
       }
+      const byGrad = selects.filter((s) => s.arrows === 2).length;
+      const byEl = selects.filter((s) => s.arrows !== 2 && s.indicator).length;
+      console.log(`  select arrows: ${byGrad} drawn in CSS, ${byEl} drawn as an element`);
+      /* ⚠️ WITHOUT THIS, ACCEPTING THE SECOND MECHANISM WOULD HIDE THE FIRST
+         ONE VANISHING. If the gradient pair were dropped from `.dbox select,
+         .pjcol select` every one of those selects would go bare, and a check
+         that accepts "either" would pass them all on the strength of an
+         indicator they do not have. So the CSS mechanism must still be in use. */
+      if (!byGrad) fail(`${engine}/${scheme} no select draws its arrow in CSS any more, so the gradient arrow has been lost everywhere`);
       const radii = new Set(selects.map((s) => s.radius));
       if (radii.size > 1) fail(`${engine}/${scheme} selects disagree on radius: ${[...radii].join(', ')}`);
 
@@ -386,7 +440,18 @@ async function measure(engine, scheme) {
          `.acard` holds no fields — but declaring ZERO is, because it means the
          derivation found nothing and every verdict above is over an empty set. */
       if (!(r.containers || []).length) fail(`${engine}/${scheme} no container declares --field-fill, so the container check ran over nothing`);
-      for (const m of muted) fail(`${engine}/${scheme} ${m} paints nothing, so every field inside it is being measured against some other ancestor`);
+      const bare = new Set(r.bare || []);
+      const excused = [...muted].filter((m) => bare.has(m));
+      const lost = [...muted].filter((m) => !bare.has(m));
+      console.log(`  of those, transparent BY DECLARATION (layout wrappers, not a defect): ${excused.length}`
+        + `${excused.length ? ' — ' + excused.join(', ') : ''}`);
+      /* ⚠️ THE DENOMINATOR FOR THE EXEMPTION ITSELF. If the `background: none`
+         derivation ever returns nothing — a selector-syntax change, a rule moved
+         into a block this walk does not reach — every wrapper silently becomes a
+         failure again and the sixteen reds come back looking like a regression in
+         the page. Zero collected is a fact about this script, so it says so. */
+      if (!(r.bare || []).length) fail(`${engine}/${scheme} no selector declares a transparent background, so the layout-wrapper exemption ran over nothing`);
+      for (const m of lost) fail(`${engine}/${scheme} ${m} paints nothing and never declared that it would, so every field inside it is being measured against some other ancestor`);
 
       /* ⚠️ BOTH REPORT UNCONDITIONALLY, AND A MISSING FIXTURE IS A FAILURE. These
          two used to be wrapped in `if (r.badgeHit)` / `if (r.listCell !== null)`,
