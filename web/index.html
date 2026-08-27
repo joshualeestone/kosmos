@@ -4732,6 +4732,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   transition: background .12s ease;
 }
 #firstrun #fr-alt:hover { background: rgba(198,154,50,.14); }
+/* The quiet variant (Josh, item 5). Still a real button and still focusable;
+   it just stops competing with the primary for the eye. */
+#firstrun #fr-alt.is-link {
+  background: transparent; border: 0; padding: .4em .2em;
+  font: 500 .9375rem/1.6 var(--font-ui); color: var(--k-ink-2);
+  text-decoration: underline; text-underline-offset: 3px;
+}
+#firstrun #fr-alt.is-link:hover { background: transparent; color: var(--k-ink); }
 #firstrun #fr-alt:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
 /* The heading still TAKES focus on each step (SC 4.1.3); the pack draws no
    ring on it, and a heading is not interactive, so the ring goes. */
@@ -27037,6 +27045,13 @@ function frActions(primary, alt) {
     // while its request is in flight, and without this the next step arrived
     // with its own (different) second button still greyed out.
     other.disabled = false;
+    /* `link: true` draws it as a quiet text link rather than a bordered
+       button (Josh, 2026-08-26 item 5: skipping should read as a small text
+       link, not as the second half of a pair of equal choices). It stays a
+       <button> -- it does something rather than going somewhere, so the
+       element is right and only the paint changes. Toggled BOTH ways: this
+       element is shared by every step and a token left on leaks forward. */
+    other.classList.toggle('is-link', alt.link === true);
   } else {
     other.hidden = true;
     other.onclick = null;
@@ -27838,7 +27853,7 @@ function frPaintConnect(st) {
       + '<div class="fr-cdetail" id="fr-conn-prog"></div>'
       + '<div class="fr-cdetail">This is the one big download. Everything after it is quick.</div>';
     frConnPaintProgress(st.progress);
-    frActions({ label: 'Continue anyway', go: () => frGo(4) }, { label: 'Cancel', go: frConnCancel });
+    frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
 
@@ -27847,7 +27862,7 @@ function frPaintConnect(st) {
       + (phase === 'installing' ? 'Setting Claude up on this computer&#8230;' : 'Getting the sign-in ready&#8230;')
       + '</div>'
       + '<div class="fr-cdetail">A moment or two.</div>';
-    frActions({ label: 'Continue anyway', go: () => frGo(4) }, { label: 'Cancel', go: frConnCancel });
+    frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
 
@@ -27861,7 +27876,7 @@ function frPaintConnect(st) {
         : 'Sign in to Claude there. This screen will notice when it is done.')
       + '</div>' + urlLine;
     frConnPaintUrl(st && st.url);
-    frActions({ label: 'Continue anyway', go: () => frGo(4) }, { label: 'Cancel', go: frConnCancel });
+    frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
 
@@ -27885,7 +27900,7 @@ function frPaintConnect(st) {
       if (e.key === 'Enter' && !(go && go.disabled)) frConnSubmitCode();
     };
     frConnPaintUrl(st && st.url);
-    frActions({ label: 'Continue anyway', go: () => frGo(4) }, { label: 'Cancel', go: frConnCancel });
+    frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
 
@@ -28489,7 +28504,16 @@ function frPaintSubscription() {
      behind a claim we no longer make. */
   box.innerHTML = '<div class="fr-note">You can carry on and look around. An agent made before '
     + 'you connect a model will sit there doing nothing until you do.</div>';
-  frActions({ label: 'Connect Claude', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue', go: () => frGo(4) });
+  /* 🛑 NO PRIMARY UNTIL SOMETHING IS CONNECTED (Josh, 2026-08-26, items 5 and
+     11). This used to read "Connect Claude" before anything was chosen, and
+     "Continue anyway" once a connection was under way -- so the biggest button
+     on the screen was either a fifth way to start Claude specifically, on a
+     screen offering four providers, or an invitation to leave before the thing
+     you started had finished.
+     ⚠️ Removing it strands nobody: every provider row carries its own Connect
+     (#fr-llm-connect for Claude, #fr-openai-connect for GPT), which is where a
+     person actually starts. Checked before deleting it. */
+  frActions(null, { label: 'Skip connecting a model', go: () => frGo(4), link: true });
 }
 
 /* --------------------------------------------------------------------------
