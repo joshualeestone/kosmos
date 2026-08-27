@@ -73,7 +73,20 @@ function configRoots() {
      Production sets AGENT_WORKFORCE_DATA to Application Support, which is not
      under the temp dir, so this cannot fire for somebody running Kosmos. A
      test that sandboxes HOME instead of CONFIG_ROOT is already safe and is
-     left alone. */
+     left alone.
+
+     🛑 THE ONE SHAPE THAT WOULD BREAK THIS, WRITTEN DOWN BECAUSE IT DOES NOT
+     EXIST YET AND SO CANNOT BE TESTED: a caller that stages its data dir in
+     temp while doing REAL work needing the operator's own `~/.claude`.
+     First-run import is exactly that kind of work. Safe today, checked
+     rather than assumed: install/setup.sh uses "$KOSMOS_HOME/data" and
+     cannot fire, and tools/build-kosmos-bundle.sh stages to mktemp and DOES
+     fire, which is correct because its smoke asserts only that the app
+     announces a port, answers, and returns its own page, nothing about the
+     roster. If you are adding an installer smoke that stages to temp AND
+     asserts the import found real agents, this guard is what fails it, and
+     the fix is to set AGENT_WORKFORCE_CONFIG_ROOT deliberately rather than
+     to widen the condition. */
   const tmp = os.tmpdir();
   const under = (d) => !!d && path.resolve(d).startsWith(path.resolve(tmp) + path.sep);
   if (under(process.env.AGENT_WORKFORCE_DATA) && !under(HOME)) {
