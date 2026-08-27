@@ -93,7 +93,12 @@ const FOUND = {
     listHidden: document.getElementById('found-list').hidden,
     label: document.getElementById('found-toggle').textContent,
   }));
-  check('it arrives shut, and says what it holds', shut.listHidden && /^Show /.test(shut.label),
+  /* ⚠️ `/Show them/`, NOT `/^Show /`. The label was restructured to lead with
+     what it holds -- "We found agents on your computer. Show them" -- so an
+     ANCHORED test fails on copy that is exactly right. That it arrives SHUT and
+     that it offers to show are the two facts worth pinning; where the verb sits
+     in the sentence is not. */
+  check('it arrives shut, and offers to show', shut.listHidden && /Show them/.test(shut.label),
     `hidden=${shut.listHidden} "${shut.label}"`);
   await page.click('#found-toggle');
   await page.waitForSelector('#found-list .fr-foundrow', { timeout: 8000 });
@@ -146,7 +151,16 @@ const FOUND = {
     JSON.stringify(seen.names));
   check('it does NOT offer the one Kosmos already has', !seen.names.includes('Kept'),
     JSON.stringify(seen.names));
-  check('the count is the number offered, not the number found', /2 agents/.test(seen.heading),
+  /* 🛑 THIS ASSERTED A COUNT AND JOSH RULED AGAINST ONE. fae49761, 2026-08-23:
+     "The found-agents fold says 'We found agents on your computer', no number
+     (Josh) (#368)". The check kept asserting the implementation that ruling
+     replaced, so it has read red ever since on a page that is exactly right.
+     ⇒ INVERTED INTO AN ABSENCE GUARD, so the decision is protected rather than
+     merely un-asserted: a number reappearing in that label fails here.
+     📌 The rule the old assertion was really protecting -- that an agent Kosmos
+     already has is not offered again -- is asserted directly two checks above
+     and passes. Nothing is lost by dropping the count. */
+  check('the fold names no number, per Josh 2026-08-23', !/\d/.test(seen.heading),
     `"${seen.heading}"`);
   check('its buttons can be touched', seen.pressable);
 
