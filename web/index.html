@@ -862,8 +862,22 @@ html { scroll-padding-top: 132px; }
    .btn:hover repainted the primary action --attn-bg and the gold vanished
    under the pointer. It now deepens to --gold, which is the pattern this file
    already uses for the first-run confirm rather than a new invention. */
-button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
-button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover { background: var(--gold); border-color: var(--gold); color: #14161a; }
+button.uprime, .btn.uprime, .utoast .uacts button.uprime,
+.dbox .btn.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
+button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
+.dbox .btn.uprime:hover { background: var(--gold); border-color: var(--gold); color: #14161a; }
+/* ⚠️ THE `.dbox` HALVES ARE NOT DECORATION, and the button they save is the one
+   Josh named. `#d-send` (Send, on an agent) is a `.btn.uprime` INSIDE a `.dbox`,
+   and the dialog skin above sets both a transparent fill (`.dbox .btn`, 0-2-0)
+   and a pale gold hover (`.dbox .btn:hover`, 0-3-0). Against those, plain
+   `.btn.uprime` (0-2-0) and `.btn.uprime:hover` (0-3-0) TIE, so the gold was
+   winning on nothing but sitting later in the file. Move either block and the
+   fix Josh signed off silently becomes the grey wash he reported.
+   📌 Found by Mona Lisa, who flagged it rather than editing a just-landed fix.
+   Verified reachable before acting on it: 2 of 19 gold buttons sit in a .dbox,
+   and one of them is #d-send. The test moves the .dbox block ABOVE this one
+   and requires the button to stay gold, which is the only way to tell
+   "wins on specificity" from "happens to be later". */
 /* ⚠️ THE FLOW'S PRIMARY, at the pack's own size (`.btn-gold`: 1.0625rem,
    .9em/1.75em padding, 10px radius). Scoped to `.big` rather than widened onto
    every `.uprime`, because this is the create flow's weight and not a change to

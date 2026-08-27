@@ -93,7 +93,11 @@ test('both themes still define the token, so the evidence survives the revert', 
    sweep that has not read this file: the fix is real, and it is still not ours
    to re-apply on his brand without him. */
 test('the gold primary carries NO edge: its border matches its fill', () => {
-  const rule = PAGE.match(/^button\.uprime, \.btn\.uprime, [^\n]*\{[^}]*\}/m);
+  /* ⚠️ [\s\S], not [^\n]: this matched on ONE LINE and went red the moment the
+     selector list legitimately wrapped to two. It failed loudly ("the rule is
+     gone") rather than passing, which is the right direction to fail, but the
+     rule was there the whole time. */
+  const rule = PAGE.match(/^button\.uprime, \.btn\.uprime,[\s\S]{0,200}?\{[^}]*\}/m);
   assert.ok(rule, 'the .uprime rule is gone; this test now checks nothing');
   assert.doesNotMatch(rule[0], /--gold-edge/,
     'the gold edge is back on .uprime. Josh reverted it by name on 2026-08-26; it needs HIM, not a sweep.');
@@ -111,4 +115,40 @@ test('hovering the gold primary keeps it gold', () => {
      or this pin is guarding against nothing. */
   assert.match(PAGE, /\.btn:hover \{ background: var\(--attn-bg\)/,
     'the generic .btn:hover is gone, so the rule above is no longer protecting anything -- re-derive this');
+});
+
+/* ⭐ ORDER-INDEPENDENCE, and it is the button Josh named.
+ *
+ * #d-send (Send, on an agent) is a .btn.uprime INSIDE a .dbox, so it is fought
+ * over by the dialog skin: `.dbox .btn` (0-2-0) and `.dbox .btn:hover` (0-3-0)
+ * TIE with plain `.btn.uprime` / `.btn.uprime:hover`. A tie is broken by source
+ * order, which means the gold was winning by position alone.
+ *
+ * MEASURED IN A REAL BROWSER, three ways, before this was written:
+ *   A  hardened, normal order      -> rgb(227,179,65)  gold
+ *   B  hardened, .dbox moved AFTER -> rgb(227,179,65)  gold      (specificity)
+ *   C  UNhardened, .dbox AFTER     -> rgba(0,0,0,0) + gold-deep border
+ * C is the control: it is the defect Josh reported, reproduced on demand, and
+ * it is what proves B is a real result rather than a rule that cannot fail.
+ *
+ * Flagged by Mona Lisa, who declined to edit a just-landed fix and left the
+ * call here instead.
+ */
+test('the gold primary beats the dialog skin on SPECIFICITY, not on position', () => {
+  const fill = PAGE.match(/^button\.uprime, \.btn\.uprime,[\s\S]{0,200}?\{[^}]*\}/m);
+  assert.ok(fill, 'the .uprime fill rule is gone; this test now checks nothing');
+  assert.match(fill[0], /\.dbox \.btn\.uprime/,
+    'the gold fill no longer outscopes `.dbox .btn`, so #d-send goes transparent if either block moves');
+
+  const hov = PAGE.match(/^button\.uprime:hover,[\s\S]{0,240}?\{[^}]*\}/m);
+  assert.ok(hov, 'the .uprime hover rule is gone; this test now checks nothing');
+  assert.match(hov[0], /\.dbox \.btn\.uprime:hover/,
+    'the gold hover no longer outscopes `.dbox .btn:hover`, so Send returns to the pale wash if either block moves');
+
+  /* The controls: the rules being outscoped must still EXIST, or the two
+     assertions above are guarding against nothing at all. */
+  assert.match(PAGE, /\.dbox \.btn \{ background: transparent/,
+    'the dialog skin fill is gone, so the .dbox scoping above protects nothing -- re-derive this');
+  assert.match(PAGE, /\.dbox \.btn:hover \{ background: rgba/,
+    'the dialog skin hover is gone, so the .dbox hover scoping above protects nothing -- re-derive this');
 });
