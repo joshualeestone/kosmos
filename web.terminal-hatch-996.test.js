@@ -42,15 +42,36 @@ test('CONTROL: the page yields hint paragraphs and at least one names Terminal s
   assert.match(PAGE, /Terminal/, 'the word has vanished entirely; re-derive this test');
 });
 
-test('no hint paragraph tells a person to open a Terminal', () => {
+test('the imperative reaches a reader nowhere on the page', () => {
   /**
-   * ⚠️ THE PATTERN IS THE IMPERATIVE, not the noun. "open Terminal" and "open
-   * a Terminal" are instructions; "Already use Terminal?" is a question, and
-   * "a box asking about tmux" describes what macOS is showing them.
+   * 🛑 THIS USED TO SCAN ONLY `<p class="fhint|dhint">` LITERALS AND THAT WAS A
+   * BLIND SPOT. Most hints on this page are BUILT by string concatenation --
+   * `'<p class="dhint">' + x + '</p>'` -- so a literal-paragraph extractor
+   * cannot see them, and the miss would have failed toward all-clear: the one
+   * direction a guard must never fail in.
+   * ⭐ Measured before rewriting rather than after: 130 literal hint paragraphs
+   * exist and exactly 3 occurrences of the imperative exist anywhere, so the
+   * narrow version passed today and would have gone on passing over a hint
+   * assembled from pieces.
+   *
+   * 🔑 SO THE SCAN IS THE WHOLE PAGE, MINUS THE TWO PLACES THE WORD IS ALLOWED:
+   *   - comments, which are addressed to us and not to a reader
+   *   - inside a <details> disclosure, which is the sanctioned escape hatch
+   * Everything else is a reader-facing imperative, whatever markup carries it.
    */
-  const offenders = hintParagraphs().filter((t) => /\bopen (?:a |the )?Terminal\b/i.test(t));
-  assert.deepEqual(offenders, [],
-    'a hint paragraph instructs a person to open a Terminal:\n  ' + offenders.join('\n  '));
+  const IMPERATIVE = /open (?:a |the )?Terminal/i;
+  let text = PAGE
+    .replace(/<!--[\s\S]*?-->/g, ' ')          // HTML comments
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')          // block comments in the script
+    .replace(/<details[\s\S]*?<\/details>/g, ' '); // the sanctioned disclosures
+  /* ⚠️ The disclosures are BUILT as concatenated strings too, so strip that
+     shape as well or the connect step's own hatch reads as an offender. */
+  text = text.replace(/'<details[\s\S]{0,600}?<\/details>'/g, ' ');
+
+  const hit = text.match(IMPERATIVE);
+  assert.equal(hit, null,
+    'the page tells a reader to open a Terminal outside a disclosure: '
+    + (hit ? JSON.stringify(text.slice(Math.max(0, hit.index - 90), hit.index + 60)) : ''));
 });
 
 test('the board-failure escape hatch is a disclosure, and it still exists', () => {
