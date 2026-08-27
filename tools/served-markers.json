@@ -1,6 +1,6 @@
 {
   "_why": "Markers checked against the SERVED artifact, not the merge. Merged is not built, a bump is not a release, a copy-out is not a release. Add a line here when you ship something a person should be able to see; remove one when it is deliberately gone.",
-  "_cannot_see": "Native surfaces. File pickers, menu bar, Dock, native dialogs. In a browser the picker belongs to the browser, so no check we own covers that class. Both native defects found on 2026-08-26 were found by a person pressing a key.",
+  "_cannot_see": "Native surfaces. File pickers, menu bar, Dock, native dialogs. In a browser the picker belongs to the browser, so no check we own covers that class. Both native defects found on 2026-08-26 were found by a person pressing a key. AND ONE FILE WIDER THAN THAT: this tool extracts app/web/index.html and app/bin/kosmos-app only, so the .pkg installer's own page (install/pkg-scripts/installing.html) is outside the population entirely. Josh's item 4 ('Nothing to do.') was deleted there and cannot be guarded here or by web.ruling-guards.test.js. Unguarded and known, rather than pinned in the wrong file where it would read as covered.",
   "present": [
     "pjcard-members",
     "pjcard-files",
@@ -16,10 +16,27 @@
     "id=\"set-doctrine-go\"",
     "Two questions: what it is for",
     "You can carry on and look around",
-    "could not look for agents already on this computer"
+    "could not look for agents already on this computer",
+    "You can carry on either way",
+    "An agent made now may not run until",
+    "We did not get to look over this computer"
   ],
   "binary": [
     "runOpenPanel"
   ],
-  "_absent_note": "Checked against the page with comments stripped. Deleting copy here comes with a comment quoting what was deleted; without the strip these can never pass."
+  "_absent_note": "Checked against the page with comments stripped. Deleting copy here comes with a comment quoting what was deleted; without the strip these can never pass.",
+  "order": [
+    [
+      "id=\"fr-llm-connect\"",
+      "id=\"fr-claude-confirm\"",
+      "id=\"fr-sub\"",
+      "id=\"fr-sub-msg\"",
+      "id=\"fr-openai-connect\""
+    ],
+    [
+      "id=\"fr-sub\"",
+      "data-pmark=\"mistral\""
+    ]
+  ],
+  "_order_note": "Josh's items 8, 9 and 10, which no present-marker can express: the download bar, the setup messages and the connected verdict all render into #fr-sub, so the ruling is that #fr-sub sits under the Claude row and above GPT. The second sequence is the floor he actually complained about -- the panel below the last provider row. Merge-time twin: web.ruling-guards.test.js, which stops the same regression at the PR rather than in the bytes."
 }
