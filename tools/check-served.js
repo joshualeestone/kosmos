@@ -56,6 +56,27 @@ function argAll(name) {
   return out;
 }
 
+/* 🛑 ONE CLEANUP, REGISTERED ONCE, BECAUSE THERE ARE TEN WAYS OUT OF THIS
+   SCRIPT AND ONLY ONE OF THEM USED TO TIDY UP. The extracted tarball dir is
+   made near the top and was removed only on the success path at the bottom;
+   every `process.exit()` in between -- a stamp mismatch, a blank marker, a
+   broken strip, a repo-behind refusal -- left 49MB behind.
+   ⚠️ MEASURED, AND IT IS NOT THEORETICAL: four of these were sitting in the
+   temp dir at 197MB total, against the 690MB of kosmos-* accumulation the
+   fleet measured this morning. Roughly 29% of it, from this one tool. I also
+   ADDED one of the leaking exits (the blank-marker refusal) without noticing.
+   ⇒ Registering the cleanup replaces ten chances to remember with one that
+   cannot be forgotten, including by the next person who adds an exit. */
+const TEMP_DIRS = [];
+function tempDir(prefix) {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  TEMP_DIRS.push(d);
+  return d;
+}
+process.on('exit', () => {
+  for (const d of TEMP_DIRS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort on the way out */ } }
+});
+
 (async () => {
   let version = arg('version');
   if (!version) {
@@ -90,7 +111,7 @@ function argAll(name) {
   }
   console.log('artifact: ' + url + '  (' + tgz.length + ' bytes)');
 
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-served-'));
+  const dir = tempDir('kosmos-served-');
   const tarPath = path.join(dir, 'k.tar.gz');
   fs.writeFileSync(tarPath, tgz);
   execFileSync('tar', ['-xzf', tarPath, '-C', dir, 'app/web/index.html', 'app/bin/kosmos-app'], { stdio: 'ignore' });
@@ -366,7 +387,7 @@ function argAll(name) {
       console.error('FAIL  could not fetch the served installer (' + pkgUrl + '): ' + e.message);
       process.exit(2);
     }
-    const pdir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-pkg-'));
+    const pdir = tempDir('kosmos-pkg-');
     const pkgPath = path.join(pdir, 'Kosmos.pkg');
     fs.writeFileSync(pkgPath, pkgBuf);
     try {
