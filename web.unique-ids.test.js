@@ -41,6 +41,34 @@ function duplicateIds(src) {
   return [...seen.entries()].filter(([, n]) => n > 1).map(([id, n]) => id + ' x' + n);
 }
 
+/* ⭐ THE TWO CONTROLS BELOW ARE ANGEL'S, from a gate she built independently
+   the same evening. Both cover a way this test could pass while being broken,
+   and neither was in my version:
+
+   - A duplicate planted in a COMMENT must NOT be reported. Mine stripped
+     comments and never proved the stripping worked -- which is precisely the
+     error that produced "three duplicate ids" in the first place.
+   - A FLOOR on the id count, so a broken regex reads as BROKEN rather than
+     CLEAN. Without it a pattern that matches nothing finds zero ids, zero
+     duplicates, and passes. My own new instrument had the exact failure mode
+     it exists to catch.
+
+   Her note on building them: her first controls assumed a clean page and both
+   failed for reasons unrelated to what they check. Running a control is how
+   you find out your control is wrong. */
+test('the scan is not silently matching nothing', () => {
+  const n = [...markupOnly(PAGE).matchAll(/\sid="([A-Za-z0-9_-]+)"/g)].length;
+  assert.ok(n > 400,
+    `only ${n} ids matched in the markup. This page has ~590; a number this low means the pattern or the stripping is broken, and a broken scan reports CLEAN`);
+});
+
+test('an id written inside a comment is not counted', () => {
+  const planted = PAGE.replace('</head>', '<!-- <div id="pj-back"> a comment naming an existing id --></head>');
+  assert.notEqual(planted, PAGE, 'the planting anchor moved; this control plants nothing');
+  assert.deepEqual(duplicateIds(planted), [],
+    'an id mentioned in a COMMENT was counted as markup. That is the mistake that reported three duplicates when there was one');
+});
+
 test('the scan can actually see a duplicate', () => {
   const planted = PAGE.replace('<blockquote class="detail-said" id="d-said"', '<blockquote id="pj-back"');
   assert.notEqual(planted, PAGE, 'the planting anchor moved; this control is no longer planting anything');
