@@ -56,6 +56,37 @@ function configRoots() {
   if (process.env.AGENT_WORKFORCE_CONFIG_ROOT) {
     return [process.env.AGENT_WORKFORCE_CONFIG_ROOT];
   }
+
+  /* 🛑 A SANDBOXED PROCESS MUST NOT READ THE OPERATOR'S REAL AGENTS.
+     Setting the variable in one harness fixes that harness. This refuses for
+     every harness anyone writes next, including the one that does not exist
+     yet and will forget, which is exactly what happened when #1134 fixed
+     docs/browser-checks/thread-server.js and left tools/browser-checks.sh
+     reading this Mac for weeks.
+
+     ⭐ IT KEYS ON AN INCONSISTENT SANDBOX, NOT ON "am I a test". A process
+     whose data dir is a temp dir has declared itself a fixture; if its HOME is
+     still the real one, the scan below is about to walk the operator's machine
+     and every assertion downstream becomes a fact about whoever ran it.
+
+     ⚠️ DIRECTION IS DELIBERATE: it can only ever stop a fixture, never a user.
+     Production sets AGENT_WORKFORCE_DATA to Application Support, which is not
+     under the temp dir, so this cannot fire for somebody running Kosmos. A
+     test that sandboxes HOME instead of CONFIG_ROOT is already safe and is
+     left alone. */
+  const tmp = os.tmpdir();
+  const under = (d) => !!d && path.resolve(d).startsWith(path.resolve(tmp) + path.sep);
+  if (under(process.env.AGENT_WORKFORCE_DATA) && !under(HOME)) {
+    /* ⚠️ IT RETURNS AN EMPTY SANDBOX RATHER THAN THROWING, AND THE DIFFERENCE
+       IS MEASURED, NOT PREFERRED. Throwing here failed 161 of 2374 tests, so
+       it could not land; and 161 reds all saying the same thing would have
+       been read as "the guard is wrong" rather than as the exposure it is.
+       Returning a path that does not exist gives a fixture the answer a
+       fixture should get, nothing, and leaves exactly the tests that really
+       depended on the operator's machine failing, which is the list worth
+       having. */
+    return [path.join(process.env.AGENT_WORKFORCE_DATA, 'no-config-root-sandbox')];
+  }
   const roots = [];
   let entries = [];
   try {
