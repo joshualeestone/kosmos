@@ -28,7 +28,18 @@ version=$(curl -s --max-time 12 "$BASE/latest.json" 2>/dev/null | tr -d ' \n' | 
 if [ -z "$version" ]; then
   say "could not read $BASE/latest.json, so what is served is unknown"; exit 2
 fi
-say "served to people: $version"
+# 🛑 latest.json IS A POINTER, NOT A FINISH LINE, and this tool cannot see the
+# difference. release.sh deploys the site at step 8 and KEEPS VERIFYING after
+# that, so latest.json reads the new version BEFORE the cut has finished. For
+# that window this tool will name a version nobody is running, and if the
+# manifest is up too it will report a gap of zero against a build that never
+# completed. The completed line in the cut's own run is the signal; nothing
+# fetched over HTTP is.
+# ⇒ This answers "how far is main ahead of the pointer". It does NOT answer
+#   "did this cut ship". Those are different questions and only one of them is
+#   safe to read during a cut.
+say "served to people: $version   (per latest.json, which is a POINTER:"
+say "                              during a cut it moves before the cut finishes)"
 
 # 🔑 THE SHA COMES FROM THE MANIFEST, NOT FROM THE REPO, and the distinction is
 # the whole reason this is trustworthy. `app.commit` is what is IN the build
@@ -70,6 +81,7 @@ fi
 say ""
 if [ "$n" -eq 0 ]; then
   say "OK: main is exactly what is served. Nothing is waiting."
+  say "   (if a cut is in flight, this can be true of a build that has not finished)"
   exit 0
 fi
 say "$n commits are merged and NOT in anyone's hands."
