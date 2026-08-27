@@ -9055,7 +9055,7 @@ const PRESSAY = {
 /* One derivation each, shared by BOTH renderers (card and row), so the two
    views cannot drift apart on what they say about the same agent. */
 function cardStOf(a) { return CARD_ST[a.state] || CARD_ST.unknown; }
-function taskLine(a) {
+function taskLine(a, opts) {
   /**
    * 🛑 IT SAYS WHAT WAS SEEN, NOT WHAT IS TRUE OF THE ACCOUNT (kosmos#199,
    * found by Mona Lisa). This read *"Waiting out a usage limit"*, and the
@@ -9134,7 +9134,7 @@ function taskLine(a) {
    * "never"). `rate_limited` (and, since #874, `auth_failed`) still speak
    * their own honest reason, which is not the title at all.
    */
-  return stateReason(a);
+  return stateReason(a, opts);
 }
 
 /**
@@ -9152,7 +9152,23 @@ function taskLine(a) {
  * With the title no longer shown in any state, that whole concern is subsumed by
  * #209: there is no title on screen to strip.
  */
-function stateReason(a) {
+function stateReason(a, opts) {
+  /* 🛑 THE CARD AND THE ROW ASK FOR THIS WITHOUT THE QUOTE (#986). Josh, twice:
+     the quoted last-words line is "just kind of pointless" on the grid and list,
+     and it was STILL THERE after that card closed. The close removed
+     `saidLine()`, which is a different derivation that produced a
+     similar-looking line; the quote he can actually see comes from HERE.
+     ⭐ RIGHT METHOD, WRONG NOUN -- two functions rendered a quoted sentence into
+     that slot and only one of them was cut.
+     📌 An option rather than a second function: the one-derivation rule above is
+     what stops the card and the detail header disagreeing by accident, so the
+     one place they differ ON PURPOSE says so by name. Everything below this arm
+     is a STATE, which Josh explicitly kept, so the card still gets it. */
+  if (opts && opts.noQuote && a && a.stateReported === true && a.because) {
+    /* fall through to the states below rather than returning '': a
+       rate-limited agent that also reported a sentence must still say it is
+       rate limited. */
+  } else
   /* #569: A REPORTED STATE SPEAKS IN THE AGENT'S OWN SENTENCE, quoted. The
      quotation marks are the point, not decoration: they are the plain-words
      mark for "in its own words", so a statement and a guess cannot render
@@ -9961,7 +9977,7 @@ function card(a) {
     <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
     <div class="astate st-${m.st}">${GLYPH[m.st]}<b>${esc(copy.label)}</b>${answer}</div>
     <div class="amodel">${esc(modelLine(a))}</div>
-    <div class="atask">${esc(taskLine(a))}</div>
+    <div class="atask">${esc(taskLine(a, { noQuote: true }))}</div>
     ${conflictNote(a) ? `<div class="note">${esc(conflictNote(a))}</div>` : ''}
     ${unknownNote}
   </div>`;
@@ -10109,7 +10125,7 @@ function lrow(a) {
          keeps them from disagreeing on the FACT if the list row ever
          grows the line back; showing it is now a per-surface choice. -->
     <div class="lstate">${GLYPH[m.st]}${esc(copy.label)}${answerBtn(a)}</div>
-    <div class="ltask">${esc(taskLine(a))}</div>
+    <div class="ltask">${esc(taskLine(a, { noQuote: true }))}</div>
     <div class="lmodel">${esc(modelLine(a))}</div>
     <div class="lmem">${mem}</div>
   </div>`;
