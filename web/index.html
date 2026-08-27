@@ -436,7 +436,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* The agent's own words, marked as a quotation rather than as our sentence: a
    rule down the left, the terminal's own face, and no italics (this is copied
    text, not emphasis). */
-.detail-said { margin: 6px 0 0; padding: 6px 0 6px 12px;
+.detail-saidlab { margin: 10px 0 0; font-size: .75rem; color: var(--k-ink-2); }
+.detail-said { margin: 2px 0 0; padding: 6px 0 6px 12px;
                border-left: 2px solid var(--k-rule); color: var(--k-ink-2);
                font: .8125rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
                white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -5222,6 +5223,24 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            span above shared the id and won every lookup, so this element was
            unreachable and the sentence it exists for was being painted into a
            span styled for something else. -->
+      <!-- 🛑 THE ATTRIBUTION IS VISIBLE NOW, and it is not decoration. This
+           element was unreachable for its whole life (the span above shared its
+           id and won every lookup), so nothing here had ever been SEEN. Freeing
+           it in 1022f1f turned on a surface nobody had reviewed -- and what it
+           carries is scraped pane text that can read
+           "Run /usage-credits to continue or switch models with /model".
+           ⚠️ A TERMINAL COMMAND, RENDERED BARE, IS AN INSTRUCTION TO THE READER.
+           The comment above has always said this is "what the screen SAID, not
+           what we concluded" -- but that intent lived only in the source. On
+           screen it was an unlabelled block of text, so the vendor's remedy read
+           as Kosmos telling a person to run something they have no terminal for
+           (kosmos#991's third problem, and #996's before it).
+           📌 The sentence itself is NOT reworded. The code's ruling stands: it
+           names the model, carries the vendor's own remedies, and stays true if
+           their wording changes. What changes is that it is now ATTRIBUTED, so
+           a slash command inside it reads as something its screen showed rather
+           than something we are asking for. -->
+      <p class="detail-saidlab" id="d-said-lab" hidden></p>
       <blockquote class="detail-said" id="d-said" hidden></blockquote>
       <!-- 🛑 THE "ASSIGNED TO" ROW IS GONE (Josh, 2026-08-22), and what went with
            it is worth knowing before anybody brings it back. It listed the
@@ -15321,10 +15340,21 @@ function openDetail(sessionName, section) {
      somebody's terminal, on its way to a product surface. `textContent` is the
      escape, and the engine has already trimmed and capped it. */
   const said = document.getElementById('d-said');
+  const saidLab = document.getElementById('d-said-lab');
   if (said) {
     const line = String(a.stateEvidence || '').trim();
     said.textContent = line;
     said.hidden = !line;
+    /* The label follows the quote exactly, or an empty agent page keeps a
+       stranded "Its screen said:" with nothing under it. */
+    if (saidLab) {
+      /* `a.name`, which is what the heading two lines up uses. My first version
+         called a `dispName()` that DOES NOT EXIST -- it would have thrown the
+         moment a rate-limited agent's page opened, and every text-matching test
+         passed over it because a regex cannot call a function. */
+      saidLab.textContent = line ? a.name + '\u2019s screen said:' : '';
+      saidLab.hidden = !line;
+    }
   }
   /* The pack's header badge and the two reading boxes, all off the same
      shared derivations the board uses (memBand/pctOf/modelLine). */
