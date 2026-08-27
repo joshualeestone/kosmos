@@ -14168,8 +14168,16 @@ function talkKey(body) {
   /* ⚠️ [❯›], BOTH GLYPHS: ❯ is Claude's (U+276F) and › is Codex's (U+203A),
      and the engine's `optionsIn` reads both from `status.SELECTOR_GLYPHS`
      (#998). This literal is the FOURTH copy of that rule and the only one that
-     cannot import it, so it is spelled out here and pinned by the cross-check
-     in server.test.js, which asks the page and the engine the same text. A
+     cannot import it, so it is spelled out here and pinned by
+     web.glyph-pin.test.js, which asserts SET EQUALITY between this class and
+     `status.SELECTOR_GLYPHS` in both directions.
+     🛑 THIS COMMENT USED TO NAME server.test.js AND THAT CROSS-CHECK DID NOT
+     EXIST. Measured 2026-08-27: server.test.js contained neither
+     SELECTOR_GLYPHS nor the glyphs, and engine/chat.test.js only asserts the
+     constant's SHAPE. So the one copy with NO guard was the one whose comment
+     promised a guard, which is worse than no comment -- nobody re-checks what
+     is already claimed to be covered. Found by RUNNING the named test instead
+     of citing it. A
      page reading one glyph while the engine reads two is not a cosmetic drift:
      it draws buttons on a Codex menu whose every press the 409 screen-check
      then refuses, and the refusal blames the agent's screen for a
