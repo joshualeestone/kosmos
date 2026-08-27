@@ -1511,6 +1511,20 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
            competes with the headings above it. */
         color: var(--k-ink-2); margin: 0 0 10px; font-weight: 600; }
 .dhint { font-size: .9375rem; color: var(--k-ink-2); margin-bottom: 14px; line-height: 1.55; }
+/* #853's table, the first one in the product, so it brings its own rules.
+   ⚠️ THE WRAPPER SCROLLS, THE PAGE DOES NOT. Six columns of large numbers is
+   wider than a narrow window, and a table that widens the page pushes every
+   other section sideways too. `#usage-table` is the scroll container; the table
+   inside it is allowed to be wider than the screen. */
+#usage-table { overflow-x: auto; }
+.usage-table { border-collapse: collapse; font-size: .875rem; min-width: 100%; }
+.usage-table th, .usage-table td { padding: 6px 12px 6px 0; text-align: left; white-space: nowrap; }
+.usage-table th { color: var(--k-ink-2); font-weight: 600; border-bottom: 1px solid var(--k-rule); }
+.usage-table td { border-bottom: 1px solid var(--k-rule); }
+/* Right-aligned and tabular so columns of very different magnitudes line up:
+   cache-read runs orders of magnitude above output, and ragged digits make that
+   difference harder to see rather than easier. */
+.usage-table td.usage-n { text-align: right; font-variant-numeric: tabular-nums; }
 .dstack { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 14px; }
 .dstack > .dbox { align-self: stretch; }
 /* The agent page's left nav (Mona Lisa's agent-page mock, 2026-08-22). A
@@ -8052,6 +8066,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="policy" aria-controls="s-sec-policy">AI Policies</button>
     <button type="button" data-go="talking" aria-controls="s-sec-talking">Agents Talking</button>
     <button type="button" data-go="mac" aria-controls="s-sec-mac">This computer</button>
+    <button type="button" data-go="usage" aria-controls="s-sec-usage">Token Usage</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
     <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Plus Account</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
     <button type="button" data-go="styles" aria-controls="s-sec-styles">Styles</button>
@@ -8464,6 +8479,30 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         folders unless you ask an agent to.
       </p>
     </section>
+    </section>
+  </section>
+  <!-- #853. Josh asked for real per-model, per-day token usage. The ENGINE
+       already existed and is merged (#854); nothing in the product consumed it,
+       so this is the reading half.
+       🛑 THE FOUR CLASSES STAY SEPARATE ALL THE WAY TO THE SCREEN, and this is
+       not a style choice. cache_read was measured at 1.23 BILLION against 2.8M
+       output in a single day, a 440x ratio. A single "tokens" total is not a
+       rounder version of the truth, it is a number about 440x too large, and it
+       reads as a triumph rather than an error so nobody challenges it. If a
+       later change wants one headline number, it has to decide WHICH class it
+       means and say so on the screen.
+       ⚠️ AND IT IS SLOW FOR A REASON THAT CANNOT BE CACHED AWAY. Completed days
+       are frozen to disk and load instantly; TODAY is still accruing, so every
+       request rescans today's transcripts. Measured on a heavy day: 49.5s for
+       one day, 51.3s for seven -- the extra 1.8s IS the six cached days. So the
+       window is nearly free and today is the whole bill. The line below says
+       that in the person's own words rather than showing a silent spinner. -->
+  <section class="dsec" id="s-sec-usage" data-sec="usage" tabindex="-1" aria-label="Token Usage" hidden>
+    <section class="dbox">
+      <h3>Token usage</h3>
+      <p class="dhint">What your agents actually used, per model, per day. Read from the transcripts on this computer. Nothing here leaves the machine.</p>
+      <p id="usage-msg" class="dhint">Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.</p>
+      <div id="usage-table"></div>
     </section>
   </section>
   <section class="dsec" id="s-sec-updates" data-sec="updates" tabindex="-1" aria-label="Updates" hidden>
@@ -15946,7 +15985,7 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
    page resets to Talk because it opens a different agent each time; Settings
    is one page, and a person who left Updates to look at the board comes back
    to Updates). "Landing is You" is the first arrival. */
-const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'policy', 'talking', 'mac', 'updates', 'plus', 'styles', 'advanced'];
+const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'policy', 'talking', 'mac', 'usage', 'updates', 'plus', 'styles', 'advanced'];
 function settingsGo(section, opts) {
   if (!SETTINGS_SECTIONS.includes(section)) section = 'you';
   SETTINGS_SEC = section;
@@ -15983,6 +16022,73 @@ function settingsGo(section, opts) {
   agTile.addEventListener('click', go);
   agTile.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && agTile.classList.contains('floor')) { e.preventDefault(); go(); } });
 }
+/* #853: token usage, read from the transcripts on this computer.
+   🛑 THE FOUR CLASSES ARE RENDERED SEPARATELY AND DELIBERATELY NEVER SUMMED.
+   cache_read ran 1.23 BILLION against 2.8M output in one measured day. A single
+   "tokens used" figure is not a simpler truth, it is roughly 440x too big, and a
+   number that large reads as an achievement rather than a bug, so it does not
+   get challenged. Anyone adding a headline number has to pick a class and name
+   it on screen.
+   ⚠️ ONE FETCH IN FLIGHT AT A TIME. The request takes up to a minute (today is
+   rescanned on every call and cannot be frozen while it is still accruing), and
+   this section repaints on every arrival, so without the guard a person tabbing
+   in and out queues a minute of work per visit. */
+let USAGE_BUSY = false;
+function usageNum(n) {
+  const v = Number(n) || 0;
+  return v.toLocaleString();
+}
+async function paintUsage() {
+  const msg = document.getElementById('usage-msg');
+  const box = document.getElementById('usage-table');
+  if (!msg || !box || USAGE_BUSY) return;
+  USAGE_BUSY = true;
+  msg.textContent = 'Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.';
+  try {
+    const res = await fetch('/api/usage?days=7');
+    if (!res.ok) throw new Error('status ' + res.status);
+    const data = await res.json();
+    const byDay = (data && data.byDay) || {};
+    const days = Object.keys(byDay).sort().reverse();
+    if (!days.length) {
+      msg.textContent = 'No usage recorded yet on this computer.';
+      box.innerHTML = '';
+      return;
+    }
+    const rows = [];
+    for (const day of days) {
+      const models = byDay[day] || {};
+      for (const model of Object.keys(models).sort()) {
+        const b = models[model] || {};
+        rows.push('<tr><td>' + esc(day) + '</td><td>' + esc(model) + '</td>'
+          + '<td class="usage-n">' + usageNum(b.input_tokens) + '</td>'
+          + '<td class="usage-n">' + usageNum(b.output_tokens) + '</td>'
+          + '<td class="usage-n">' + usageNum(b.cache_creation_input_tokens) + '</td>'
+          + '<td class="usage-n">' + usageNum(b.cache_read_input_tokens) + '</td></tr>');
+      }
+    }
+    if (!rows.length) {
+      msg.textContent = 'No usage recorded in the last seven days.';
+      box.innerHTML = '';
+      return;
+    }
+    box.innerHTML = '<table class="usage-table"><thead><tr>'
+      + '<th>Day</th><th>Model</th><th>Input</th><th>Output</th><th>Cache written</th><th>Cache read</th>'
+      + '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
+    /* Said plainly rather than implied: this counts what was found on this
+       machine, and a config root we could not read is a gap in the number
+       rather than a zero. The engine reports what it actually read. */
+    const roots = Array.isArray(data.rootsRead) ? data.rootsRead.length : null;
+    msg.textContent = roots === null
+      ? 'Counted from the transcripts on this computer.'
+      : 'Counted from ' + roots + (roots === 1 ? ' place' : ' places') + ' on this computer that hold transcripts.';
+  } catch (e) {
+    msg.textContent = 'We could not read token usage just now.';
+    box.innerHTML = '';
+  } finally {
+    USAGE_BUSY = false;
+  }
+}
 /* One door for opening a Settings section by name: the nav click and the
    boot-time address (#725) both come through here, so a section's painter
    runs the same way whichever way it was reached. */
@@ -15991,6 +16097,7 @@ function settingsOpen(sec, opts) {
   if (sec === 'gskills') loadSkills('/api/skills', 'g-skills-list', 'g-skills-msg');
   if (sec === 'policy') paintPolicy();
   if (sec === 'connect') { paintConnLive(); paintConnShelf(); }
+  if (sec === 'usage') paintUsage();
 }
 document.getElementById('s-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
