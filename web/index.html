@@ -7776,6 +7776,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <p class="pj-folder-state" id="pj-one-folder-state"></p>
       <button class="btn" id="pjs-reveal" type="button">Show me where it is</button>
       <p class="fmsg" id="pjs-reveal-msg" aria-live="polite"></p>
+      <!-- 🛑 THE COMPANION SAYS "EVERY PROJECT" AND THE BUTTON ABOVE SAYS "IT"
+           (kosmos#969, Josh 2026-08-26). Every room's thread lives in ONE
+           directory, one file per room, so a button sitting in THIS project's
+           settings opens a folder holding EVERY project's dialogue. Naming that
+           in the label is the whole difference between a useful control and a
+           screen answering a narrower question than it was asked.
+           ⚠️ The word is "conversations", not "dialogue": his phrasing was
+           "stored dialogue", and dialogue is our word for it, not a reader's. -->
+      <button class="btn" id="pjs-chats-reveal" type="button">Show me where the conversations live</button>
+      <p class="fhint" style="margin:6px 0 0;">One folder for every project, with a file for each conversation.</p>
+      <p class="fmsg" id="pjs-chats-msg" aria-live="polite"></p>
     </div>
 
     <div class="field">
@@ -23255,6 +23266,25 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
     msg.textContent = 'Saved.';
   } catch {
     msg.textContent = 'we could not save that';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* #969: the companion to "Show me where it is". Same shape as the button above
+   -- disable, say nothing, ask, report -- so the two behave identically under a
+   Finder that will not open. */
+document.getElementById('pjs-chats-reveal').addEventListener('click', async () => {
+  const btn = document.getElementById('pjs-chats-reveal');
+  const msg = document.getElementById('pjs-chats-msg');
+  msg.textContent = '';
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/chats/reveal', { method: 'POST' });
+    const got = await res.json().catch(() => ({}));
+    if (!res.ok) msg.textContent = pjSentence(got.error || 'we could not open that folder');
+  } catch {
+    msg.textContent = 'We could not reach Kosmos to do that.';
   } finally {
     btn.disabled = false;
   }
