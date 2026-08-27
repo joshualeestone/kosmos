@@ -23,6 +23,7 @@
  *     AGENT_WORKFORCE_WORKERS="$SB/workers" \
  *     AGENT_WORKFORCE_LAUNCH="$SB/launch" \
  *     AGENT_WORKFORCE_PROJECTS="$SB/kosmos-projects" \
+ *     AGENT_WORKFORCE_CONFIG_ROOT="$SB/config" \
  *     node docs/browser-checks/thread-server.js
  */
 
@@ -40,6 +41,27 @@ const fs = require('node:fs');
    The in-process runners still take precedence over the binary. */
 process.env.AGENT_WORKFORCE_TMUX_BIN = process.env.AGENT_WORKFORCE_TMUX_BIN
   || path.join(__dirname, '..', '..', 'test-support', 'fake-tmux.sh');
+/* 🛑 AND THE CONFIG ROOT, WHICH THIS FILE'S OWN PROMISE ("NOTHING pointed at the
+   real machine") DID NOT COVER. Agent DISCOVERY does not read
+   AGENT_WORKFORCE_DATA at all -- `status.configRoots()` scans $HOME for
+   `.claude*` directories unless AGENT_WORKFORCE_CONFIG_ROOT says otherwise. So a
+   board sandboxed by all four of the keys below still read the OPERATOR'S REAL
+   agents.
+   ⚠️ MEASURED 2026-08-27: a first-run walk against a board with a five-agent
+   FIXTURE fleet reached the found-agents screen and announced "We found 17
+   agents on this Mac." Seventeen is this operator's real number. The check had
+   even stubbed /api/first-run with fleetCount 0, and the found screen ignored
+   the stub because it reads discovery, not that route.
+   ⇒ A first-run result therefore depended on who happened to be running on the
+   box. Seven sibling checks already set this (render-settings-nav, -agent-nav,
+   -model-change, -memory-controls, -made-before, -url-state, -org-drag); the
+   thread/first-run path did not.
+   📌 DEFAULTED rather than REQUIRED, deliberately: `boot_thread_server` in
+   tools/browser-checks.sh does not pass it, and demanding it would turn an
+   isolation fix into a red suite. The default is a fresh temp dir, so an
+   unset caller gets isolation instead of the operator's home. */
+process.env.AGENT_WORKFORCE_CONFIG_ROOT = process.env.AGENT_WORKFORCE_CONFIG_ROOT
+  || fs.mkdtempSync(path.join(os.tmpdir(), 'aw-thread-config-'));
 for (const key of ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_WORKERS', 'AGENT_WORKFORCE_LAUNCH', 'AGENT_WORKFORCE_PROJECTS']) {
   const set = process.env[key];
   if (!set) {

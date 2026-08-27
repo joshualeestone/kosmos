@@ -86,7 +86,19 @@ async function fresh(browser, opts = {}) {
       'the real subscription answer arrived: ' + await page.locator('#fr-sub .fr-ctitle').textContent());
     await page.click('#fr-next');
     ok(await page.locator('#fr-title').textContent() === 'Checking this computer.', 'step 4, This computer');
-    await page.waitForSelector('#fr-checks .fr-check', { timeout: 5000 });
+    /* ⚠️ WAIT FOR THE THIRD, NOT THE FIRST. This waited on `.fr-check`, which
+       Playwright satisfies the moment ONE exists, and then asserted there were
+       THREE. Waiting for one and demanding three is fragile whatever else is
+       true, so this is worth keeping on its own.
+       🛑 AND IT DID NOT FIX THE FAILURE, WHICH IS WHY THIS COMMENT SAYS SO. I
+       predicted a race, made this change, and the count came back the same:
+       7 failures before, 7 after. THE CAUSE OF 'three checks painted' IS STILL
+       UNKNOWN. A comment claiming this fixed it would have been the third false
+       explanation attached to correct code on this file today. */
+    await page.waitForFunction(
+      () => document.querySelectorAll('#fr-checks .fr-check').length >= 3,
+      null, { timeout: 5000 },
+    ).catch(() => {});   // a timeout here is the ok() below's to report, not a throw
     ok((await page.locator('#fr-checks .fr-check').count()) === 3, 'three checks painted from the live route (app-location rides on the Success screen, not among them)');
     await page.click('#fr-next');
     // Step 5, About you. The gate IS the design (no skip, at Josh's call):
