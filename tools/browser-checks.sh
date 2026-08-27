@@ -464,6 +464,11 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-reload-toast"  env KOSMOS_URL="$B8" node docs/browser-checks/render-reload-toast.js "$sb7/shots-reload"
   run_one "render-updates-stale" env KOSMOS_URL="$B8" node docs/browser-checks/render-updates-stale.js "$sb7/shots-updates"
   run_one "render-switch-states" env KOSMOS_URL="$B8" node docs/browser-checks/render-switch-states.js
+  # ⚠️ THE FIRST-RUN FLOW WAS NOT COVERED BY THIS RUNNER AT ALL. render-first-run
+  # exists, renders every step in both schemes and carries its own planted-failure
+  # control, but it hardcoded port 4399 so it could never take the runner's
+  # kernel-chosen one. It is the path every new person walks; it now runs here.
+  run_one "render-first-run"    env KOSMOS_URL="$B8" node docs/browser-checks/render-first-run.js "$sb7/shots-firstrun"
   run_one "render-theme-toggle"  env KOSMOS_URL="$B8" node docs/browser-checks/render-theme-toggle.js "$sb7/shots-toggle"
   # #812: 15 checks were green on a clean main but never asked. render-full-width
   # first (#778 restated it, Ice Cream Kitty, #814; ready now); more join in
