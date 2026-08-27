@@ -19,6 +19,7 @@ const nodePath = require('node:path');
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-ping-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 const ping = require('./ping');
+const { codeOnly } = require('../test-support/code-only');
 
 function fresh() { try { fs.unlinkSync(ping.FILE); } catch { /* none */ } }
 
@@ -182,7 +183,7 @@ test('the created-ping has NO control left, and therefore does not send', () => 
    */
   const fs2 = require('node:fs');
   const page = fs2.readFileSync(nodePath.join(__dirname, '..', 'web', 'index.html'), 'utf8');
-  const words = page.replace(/<!--[\s\S]*?-->/g, '');
+  const words = codeOnly(page);
 
   for (const gone of ['id="create-tell"', 'id="create-tell-note"', 'id="create-tell-wrap"',
     'Let the Kosmos team know you created an agent']) {

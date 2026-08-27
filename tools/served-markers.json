@@ -38,5 +38,12 @@
       "data-pmark=\"mistral\""
     ]
   ],
-  "_order_note": "Josh's items 8, 9 and 10, which no present-marker can express: the download bar, the setup messages and the connected verdict all render into #fr-sub, so the ruling is that #fr-sub sits under the Claude row and above GPT. The second sequence is the floor he actually complained about -- the panel below the last provider row. Merge-time twin: web.ruling-guards.test.js, which stops the same regression at the PR rather than in the bytes."
+  "_order_note": "Josh's items 8, 9 and 10, which no present-marker can express: the download bar, the setup messages and the connected verdict all render into #fr-sub, so the ruling is that #fr-sub sits under the Claude row and above GPT. The second sequence is the floor he actually complained about -- the panel below the last provider row. Merge-time twin: web.ruling-guards.test.js, which stops the same regression at the PR rather than in the bytes.",
+  "pkg_absent": [
+    "Nothing to do."
+  ],
+  "pkg_present": [
+    "This page becomes your dashboard when Kosmos is ready."
+  ],
+  "_pkg_note": "The .pkg is a SECOND served artifact, 30KB and payload-free, holding three user-facing pages that no check owned until 2026-08-27 (Ice Cream Kitty found them). Josh item 4 lives here, not in web/index.html. NOTE: the pkg is served under a moving name and its baked version is metadata only by design (build-installer-pkg.sh:31), so unlike the tarball there is no version cross-check -- this arm reports what is served NOW."
 }

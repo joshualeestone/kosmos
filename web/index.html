@@ -6454,7 +6454,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              see `.pmark` above for why Claude is in colour and the rest are
              monochrome by filter. -->
         <div class="llm on"><span class="llm-m pmark live" data-pmark="claude" role="img" aria-label="Claude"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 125 125" fill="currentColor" aria-label="Claude"><path d="M54.375 118.75L56.125 111L58.125 101L59.75 93L61.25 83.125L62.125 79.875L62 79.625L61.375 79.75L53.875 90L42.5 105.375L33.5 114.875L31.375 115.75L27.625 113.875L28 110.375L30.125 107.375L42.5 91.5L50 81.625L54.875 76L54.75 75.25H54.5L21.5 96.75L15.625 97.5L13 95.125L13.375 91.25L14.625 90L24.5 83.125L49.125 69.375L49.5 68.125L49.125 67.5H47.875L43.75 67.25L29.75 66.875L17.625 66.375L5.75 65.75L2.75 65.125L0 61.375L0.25 59.5L2.75 57.875L6.375 58.125L14.25 58.75L26.125 59.5L34.75 60L47.5 61.375H49.5L49.75 60.5L49.125 60L48.625 59.5L36.25 51.25L23 42.5L16 37.375L12.25 34.75L10.375 32.375L9.625 27.125L13 23.375L17.625 23.75L18.75 24L23.375 27.625L33.25 35.25L46.25 44.875L48.125 46.375L49 45.875V45.5L48.125 44.125L41.125 31.375L33.625 18.375L30.25 13L29.375 9.75C29.0417 8.625 28.875 7.375 28.875 6L32.75 0.750006L34.875 0L40.125 0.750006L42.25 2.625L45.5 10L50.625 21.625L58.75 37.375L61.125 42.125L62.375 46.375L62.875 47.75H63.75V47L64.375 38L65.625 27.125L66.875 13.125L67.25 9.125L69.25 4.375L73.125 1.87501L76.125 3.25L78.625 6.875L78.25 9.125L76.875 18.75L73.875 33.875L72 44.125H73.125L74.375 42.75L79.5 36L88.125 25.25L91.875 21L96.375 16.25L99.25 14H104.625L108.5 19.875L106.75 26L101.25 33L96.625 38.875L90 47.75L86 54.875L86.375 55.375H87.25L102.125 52.125L110.25 50.75L119.75 49.125L124.125 51.125L124.625 53.125L122.875 57.375L112.625 59.875L100.625 62.25L82.75 66.5L82.5 66.625L82.75 67L90.75 67.75L94.25 68H102.75L118.5 69.125L122.625 71.875L125 75.125L124.625 77.75L118.25 80.875L109.75 78.875L89.75 74.125L83 72.5H82V73L87.75 78.625L98.125 88L111.25 100.125L111.875 103.125L110.25 105.625L108.5 105.375L97 96.625L92.5 92.75L82.5 84.375H81.875V85.25L84.125 88.625L96.375 107L97 112.625L96.125 114.375L92.875 115.5L89.5 114.875L82.25 104.875L74.875 93.5L68.875 83.375L68.25 83.875L64.625 121.625L63 123.5L59.25 125L56.125 122.625L54.375 118.75Z"/></svg></span><div class="llm-w"><b>Claude</b><small>Anthropic &middot; works today</small></div>
-          <button class="connect-b" type="button" id="fr-llm-connect" aria-expanded="false" aria-controls="fr-claude-confirm">Connect</button></div>
+          <button class="connect-b" type="button" id="fr-llm-connect" aria-expanded="false" aria-controls="fr-claude-confirm" aria-label="Connect Claude">Connect</button></div>
         <!-- 🛑 THE CONFIRM, and it is the point of this whole step. Josh, 2026-08-26
              14:44, watching a fresh install: "it downloaded 231MB without asking...
              total chaos". And 14:59: "I should be notified before an almost-quarter-
@@ -6518,7 +6518,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              hit a dead row on the way to the second live one. Both working rows
              now come first. Move this only if a provider changes state. -->
         <div class="llm on"><span class="llm-m pmark live" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="currentColor"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI &middot; works today</small></div>
-          <button class="connect-b" type="button" id="fr-openai-connect" aria-expanded="false" aria-controls="fr-openai-flow">Connect</button></div>
+          <button class="connect-b" type="button" id="fr-openai-connect" aria-expanded="false" aria-controls="fr-openai-flow" aria-label="Connect OpenAI">Connect</button></div>
         <!-- #944-adjacent: OpenAI is a pasted API key, not an OAuth popup like
              Claude, so it gets its own small reveal instead of reusing
              fr-llm-connect. Shares Settings' #acct-openai-flow contract
@@ -15979,7 +15979,7 @@ function svcDoorLiveHtml(name, st) {
       + '<p class="dhint" style="margin:8px 0 0;"><button class="linkish" type="button" data-svc-cancel="' + esc(name) + '">Stop this sign-in</button></p>';
   }
   const why = st.phase === 'failed' && st.because ? '<p class="dhint" style="margin:8px 0 0;">' + esc(st.because) + '</p>' : '';
-  return own + why + '<p style="margin:8px 0 0;"><button class="btn" type="button" data-svc-connect="' + esc(name) + '">Connect</button></p>'
+  return own + why + '<p style="margin:8px 0 0;"><button class="btn" type="button" data-svc-connect="' + esc(name) + '" aria-label="Connect ' + esc(name) + '">Connect</button></p>'
     + '<p class="dhint" style="margin:6px 0 0;">You sign in on ' + esc(t.site) + '. This Mac keeps the key, and Kosmos never sees your password.</p>';
 }
 /* A token door (#529, Cloudflare): the service issues a scoped token from its
@@ -15999,7 +15999,7 @@ function svcDoorTokenHtml(name, st) {
   return own + why + '<p class="dhint" style="margin:8px 0 0;">Make a token on <a class="xlink" href="' + esc(st.where) + '" target="_blank" rel="noopener">' + esc(st.whereText || (name + '’s API Tokens page')) + '</a>, '
     + esc(st.hint || (name === 'Cloudflare' ? 'choosing the zones your agents may touch' : 'with only what your agents need')) + ', then paste it here.</p>'
     + '<div class="frow" style="margin:6px 0 0;"><input type="password" autocomplete="off" spellcheck="false" aria-label="' + esc(name) + ' API token" placeholder="Paste the token" data-svc-token-field="' + esc(name) + '">'
-    + '<button class="btn" type="button" data-svc-token-go="' + esc(name) + '">Connect</button></div>'
+    + '<button class="btn" type="button" data-svc-token-go="' + esc(name) + '" aria-label="Connect ' + esc(name) + '">Connect</button></div>'
     + '<p class="dhint" style="margin:6px 0 0;">Kosmos checks it with ' + esc(name) + ' first. If ' + esc(name) + ' accepts it, Kosmos keeps it in one file on this Mac and hands it to your agents when they start. This is the one key Kosmos holds for you.</p>';
 }
 async function svcDoorLive(name, door) {
@@ -28967,7 +28967,16 @@ function foundRowsHtml(agents) {
          ticked box which does nothing is worse than no box, because ticked says
          a decision has been made while inert says it has not, on the same pixel.
          The rule has not changed -- the route arrived. */
-      '<div class="fr-foundrow" data-found-dir="' + esc(a.dir) + '" data-found-name="' + esc(a.name) + '">'
+      /* 🔑 THE HAYSTACK RIDES THE ROW, so filtering hides rows rather than
+         rebuilding them. Rebuilding is forbidden here for a reason that has
+         nothing to do with search: each row carries the state of a button
+         somebody already pressed, and this screen is the one place a person
+         presses four in a row. Folder included deliberately -- the design's
+         412-row drawing matches `patrick-notes` on its PATH, and on a machine
+         with that many agents the folder is often the only thing the person
+         remembers, even though it is not shown. */
+      '<div class="fr-foundrow" data-found-dir="' + esc(a.dir) + '" data-found-name="' + esc(a.name) + '"'
+      + ' data-found-hay="' + esc(((a.name || '') + ' ' + (a.role || '') + ' ' + (a.dir || '')).toLowerCase()) + '">'
       + '<span class="fr-foundtext">'
       + '<span class="fr-foundname">' + esc(a.name) + '</span>'
       /* Role is optional by ruling ("even if it's just title unknown"): an agent
@@ -29021,9 +29030,36 @@ function frPaintFound() {
      them here", written when the rows were a list with nothing behind them --
      a sentence that went quietly false the day the route landed, on the screen
      it describes. */
+  /* 🛑 THE SEARCH BOX APPEARS AT A THRESHOLD, NOT ALWAYS (design,
+     Josh-Brain/Projects/kosmos-design/kosmos-found-agents-2026-08-22.html).
+     On fourteen rows it is furniture that makes a simple screen look like an
+     admin tool. The design says "somewhere around thirty it starts earning
+     itself", so thirty is where it is, and the number lives here rather than
+     inline so the next person can move it in one place.
+     ⭐ WHY IT IS A SEARCH BOX AND NOT A DRAWER, which is a ruling already made
+     and is not reopened here: a drawer is US deciding what you do not need to
+     see; a search box is YOU deciding, and it is reversible in one keystroke.
+     That is why the count line below always says BOTH numbers and how to get
+     back. And it only ever RANKS -- a heuristic may rank, it may not act, which
+     is the same rule that killed pre-ticked boxes and Add all. */
+  const search = n >= FOUND_SEARCH_AT
+    ? '<p class="fr-foundsearchwrap"><input type="search" id="fr-foundsearch" class="fld"'
+      + ' autocomplete="off" placeholder="Search your agents"'
+      + ' aria-label="Search the agents found on this Mac"></p>'
+    : '';
   box.innerHTML = '<p>They are not in Kosmos yet. Adding one leaves it exactly '
     + 'where it is, in its own folder with its own instructions.</p>'
-    + foundRowsHtml(FR_FOUND.agents);
+    + search
+    + foundRowsHtml(FR_FOUND.agents)
+    /* ⚠️ THE COUNT LINE IS IN THE DESIGN AND WAS NEVER BUILT. It is the only
+       thing on the screen that says how many rows there are when the list runs
+       past the fold, and the only thing that says how to get back once a search
+       has narrowed it. */
+    + '<p class="dhint" id="fr-foundcount">' + esc(foundCountLine(n, n, '', false)) + '</p>';
+  /* Painted without the scroll clause, then corrected once the browser has laid
+     the list out. One transition, and neither state is a false claim: the first
+     says less than it could, the second says what is true. */
+  foundCountRefresh();
   /* 🛑 `Continue`, NOT "Take me to my agents". Nothing has been added, so the
      board still shows what tmux shows -- and somebody whose agent has not run
      since Tuesday would press that button and land on a board without them,
@@ -29044,6 +29080,96 @@ function frPaintFound() {
  * already pressed -- and this screen is the one place where a person may press
  * four buttons in a row. The row edits itself instead.
  */
+/**
+ * Does the found list actually run past the fold?
+ *
+ * 🔑 THE SCROLLING ELEMENT IS `.fr-body`, not the list: the sticky-footer layout
+ * makes the card a bounded flex column whose body scrolls while Continue stays
+ * put. Asking the list would compare it against its own height and always say no.
+ *
+ * ⚠️ IT RETURNS FALSE WHEN IT CANNOT TELL, which is the arm that says less. A
+ * stub with no geometry, a hidden card, a list not yet laid out: all of those
+ * answer "no scrolling", so the sentence is dropped rather than asserted.
+ */
+function foundOverflows() {
+  const body = document.querySelector && document.querySelector('#firstrun .fr-body');
+  if (!body || typeof body.scrollHeight !== 'number' || typeof body.clientHeight !== 'number') return false;
+  return body.scrollHeight > body.clientHeight + 1;
+}
+
+/** Re-state the count line against the geometry as laid out. */
+function foundCountRefresh() {
+  const line = document.getElementById('fr-foundcount');
+  const rows = document.querySelectorAll ? document.querySelectorAll('.fr-foundrow') : null;
+  if (!line || !rows || !rows.length) return;
+  line.textContent = foundCountLine(rows.length, rows.length, '', foundOverflows());
+}
+
+/* The design's threshold for the search box, in one place. */
+const FOUND_SEARCH_AT = 30;
+
+/**
+ * The line under the found list. Says both numbers and the way back.
+ *
+ * 🛑 IT NEVER CLAIMS A LIST IS COMPLETE WHEN IT IS NOT. `shown` and `total` are
+ * both stated whenever they differ, because the whole reason a search box is
+ * allowed on this screen rather than a drawer is that the person can always see
+ * they are looking at a subset and can undo it in one keystroke.
+ * ⚠️ THE EMPTY-MATCH ARM IS NOT IN THE DESIGN and is written to the same rule:
+ * it names what was typed, gives the total, and says how to get back. "No
+ * results" alone would be the one arm on this screen with no way out.
+ */
+function foundCountLine(shown, total, term, overflows) {
+  const agentWord = total === 1 ? '1 agent' : total + ' agents';
+  /* 🛑 "SCROLL TO SEE THEM ALL" IS A CLAIM ABOUT THE SCREEN, AND I SHIPPED IT AS
+     A CONSTANT. The design's line was written for fourteen rows, which do run
+     past the fold; at three they do not, and the sentence told a person to
+     scroll a list that ends in front of them. A false instruction on a screen
+     that is otherwise right is worse than no instruction: it is the reader who
+     ends up feeling wrong.
+     ⭐ MEASURED, NOT GUESSED AT WITH A ROW COUNT. Where the fold falls depends
+     on the window, not on how many agents somebody has, so a threshold here
+     would be a second wrong constant replacing the first. `overflows` comes from
+     the element that actually scrolls.
+     ⚠️ ABSENT MEANS ABSENT, DELIBERATELY. Under a harness with stubbed elements
+     there is no geometry to read, so this arrives undefined and the clause is
+     dropped -- the arm that says LESS. A default of true would have every test
+     asserting an instruction no test can see. */
+  if (!term) return total === 1 ? '1 agent.'
+    : agentWord + (overflows ? '. Scroll to see them all.' : '.');
+  if (shown === 0) return 'Nothing matches \u201C' + term + '\u201D. Clear the box to see all ' + agentWord + '.';
+  return 'Showing ' + shown + ' of ' + total + '. Clear the box to see them all.';
+}
+
+/**
+ * Filtering the found list.
+ *
+ * 🛑 IT HIDES ROWS, IT DOES NOT REBUILD THEM, and that is not a performance
+ * choice. Every row carries the state of a button somebody may already have
+ * pressed -- this screen is the one place a person presses four in a row -- and
+ * `frPaintFound` rebuilds from `FR_FOUND`, which would throw that away. Same
+ * reason the success arm edits its own row instead of repainting.
+ *
+ * 📌 Page scope and delegated, for the reason the disclosure above it is: the
+ * first-run harness stubs the DOM with plain objects that have no
+ * `addEventListener`, so binding inside a painter takes the harness down.
+ */
+document.addEventListener('input', (e) => {
+  const box = e.target.closest && e.target.closest('#fr-foundsearch');
+  if (!box) return;
+  const term = String(box.value || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('.fr-foundrow');
+  let shown = 0;
+  rows.forEach((row) => {
+    const hay = row.dataset.foundHay || '';
+    const hit = !term || hay.indexOf(term) > -1;
+    row.hidden = !hit;
+    if (hit) shown += 1;
+  });
+  const line = document.getElementById('fr-foundcount');
+  if (line) line.textContent = foundCountLine(shown, rows.length, String(box.value || '').trim(), foundOverflows());
+});
+
 document.addEventListener('click', async (e) => {
   const go = e.target.closest && e.target.closest('.fr-foundgo');
   if (!go || go.disabled) return;
@@ -29285,17 +29411,38 @@ function frPaintFleet() {
     const snags = checked
       ? FR_MACHINE.checks.filter((c) => c.state === 'attention' || c.state === 'unknown')
       : null;
-    /* 🔑 A READING, SAID AS A READING (#320). The pack's ending B said "There
-       are none on this computer yet", and that is a claim about the computer,
-       which Kosmos cannot make: it can only say what its own search found. The
-       first person outside this team to install was told it on a Mac running
-       two of her own agents. The search now runs first (above), and what it
-       says here is what the search did: looked and found none, or could not
-       look. Neither arm claims the machine is empty. Supersedes the pack's
-       ending B; the pack is corrected to match rather than the other way
-       round, because the pack was the thing that was wrong. The outstanding-
-       check notes stay beneath: the check screen must never be contradicted
-       one screen later. */
+    /* 🛑 THIS COMMENT USED TO DESCRIBE COPY THAT NO LONGER RENDERS, AND IT WAS
+       BELIEVED. It said this arm reports what the search did, "looked and found
+       none, or could not look", and that neither arm claims the machine is
+       empty. All of that was true and all of it was deleted one comment below,
+       by item 13. A reader who stopped at this paragraph reported the screen as
+       having a hedge it does not have; that is exactly what happened, in public,
+       on 2026-08-27, and the paragraph was signed with an issue number, which is
+       what made it credible.
+       ⭐ A STALE COMMENT OUTRANKS THE CODE FOR ANYONE SKIMMING, so a comment that
+       survives the behaviour it documents is worse than no comment at all.
+
+       WHAT IS TRUE NOW: this arm renders "Create your first agent." and
+       "Let's get started." and says nothing about having looked.
+
+       WHY (#320, kept because the reasoning still binds the NEXT edit): the
+       pack's ending B said "There are none on this computer yet", which is a
+       claim about the computer that Kosmos cannot make. The first person outside
+       this team to install was told it on a Mac running two of her own agents.
+       ⇒ So if a sentence ever comes back here it must be about THEIR machine and
+       never a report on our own uncertainty, which is Josh's rule and the reason
+       the four went. The search still runs first (above), so nothing here is a
+       false claim; it is simply silent.
+       ⚠️ AND SILENCE IS NOT FREE IN ONE CASE (kosmos#1078): discovery reaches a
+       folder only through a transcript, so an agent that has never been RUN is
+       invisible, and this arm then tells somebody who has agents to create their
+       first one.
+       🛑 A DISCLOSURE LINK WAS BUILT HERE AND RULED OUT. Josh, 2026-08-27:
+       "There is no link to appear, even. It just pulls them in." He is right,
+       and the reason is worth keeping: a link explaining why the list is empty
+       is a worse product than a list that is not empty. The fix belongs in
+       DETECTION, not in a sentence on this screen, and this arm stays silent
+       until detection can no longer be wrong about it. */
     /* 🛑 ONE SENTENCE, AND FOUR THINGS DELETED (Josh, 2026-08-26 22:05, item 13).
        This screen was reporting on ITSELF rather than telling a person what to
        do next. What went:
@@ -29327,6 +29474,25 @@ function frPaintFleet() {
        never saw the check screen was told everything is in place" -- and they
        are right. "something like" is latitude, so I took the invitation and
        left out the assertion. Flagged to him rather than assumed. */
+    /* 🔑 AN OUT FOR THE ONE PERSON THIS SCREEN IS WRONG ABOUT, AT NO COST TO THE
+       REST (kosmos#1078). Discovery reaches a folder only through a transcript,
+       so an agent that has never been RUN is invisible, and this arm then tells
+       somebody who has agents to create their first one. That is the 2026-08-22
+       defect arriving through a different door.
+       ⚠️ A STANDING SENTENCE WAS THE OBVIOUS FIX AND IT IS THE WRONG ONE. Most
+       people here really are new, and Josh stripped four sentences off this
+       screen on 2026-08-26 for reporting on us rather than helping them. A link
+       is found by the person looking for exactly those words and read by nobody
+       else.
+       🛑 IT PROMISES ONLY WHAT IS TRUE. "Run at least once" is the whole of the
+       transcript rule. It deliberately does NOT say they can be added later,
+       because the second invisible case (an instruction file whose introduction
+       `identityFromText` cannot parse) is not fixed by running the agent, and a
+       sentence that sends that person back to look again would be a lie with our
+       name on it. That case wants a looser parser, not copy.
+       📌 Built hidden rather than built on click, same rule as the found list's
+       undo: an element that already exists cannot be the element a later edit
+       forgets to create. */
     box.innerHTML = '<p>Let\u2019s get started.</p>';
     frForkActions();
     return;

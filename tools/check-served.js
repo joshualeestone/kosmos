@@ -97,10 +97,10 @@ function argAll(name) {
   const page = fs.readFileSync(path.join(dir, 'app/web/index.html'), 'utf8');
   const binary = fs.readFileSync(path.join(dir, 'app/bin/kosmos-app'));
 
-  let markers = { present: argAll('expect'), absent: argAll('absent'), binary: argAll('binary'), order: [] };
+  let markers = { present: argAll('expect'), absent: argAll('absent'), binary: argAll('binary'), order: [], pkg_present: [], pkg_absent: [] };
   const file = path.join(__dirname, 'served-markers.json');
   if (!markers.present.length && !markers.absent.length && !markers.binary.length && fs.existsSync(file)) {
-    markers = Object.assign({ present: [], absent: [], binary: [], order: [] }, JSON.parse(fs.readFileSync(file, 'utf8')));
+    markers = Object.assign({ present: [], absent: [], binary: [], order: [], pkg_present: [], pkg_absent: [] }, JSON.parse(fs.readFileSync(file, 'utf8')));
   }
 
   /* 🛑 THE BUNDLE MUST AGREE WITH THE POINTER, or this whole run describes a
@@ -149,15 +149,63 @@ function argAll(name) {
   try {
     const head = execFileSync('git', ['show', 'origin/main:package.json'], { cwd: __dirname, encoding: 'utf8' });
     const repoVersion = JSON.parse(head).version;
-    if (repoVersion !== version) {
+
+    /* 🛑 WHICH DIRECTION, BECAUSE THE TWO MEAN OPPOSITE THINGS AND ONLY ONE IS
+       A FAULT. This compared with `!==` and printed the BEHIND sentence for
+       both, so it FAILED on the healthy state a cut spends its entire run in.
+       Caught live at 08:58 on 2026-08-27, mid-cut: repo 0.5.79, served 0.5.78,
+       nothing wrong, and the red said "the repo does not know about the build
+       that shipped" about a repo that knew perfectly well. Splinter was minutes
+       from verifying a card in the served bytes and reading that as a broken
+       release.
+
+         repo BEHIND served  a cut re-bumps to the served version and publishes
+                             a second, different build over it. Killed a cut on
+                             the 26th. This is the failure the arm exists for.
+         repo AHEAD  served  normal between a bump and the publish that follows
+                             it, which is where every cut lives while it runs.
+
+       ⚠️ Same shape as the defects this file already guards against: two states
+       collapsed into one, and the surviving message describes only one of them.
+       The arm was right to look. It could not say which thing it had found.
+       📌 Compared NUMERICALLY, not lexically: "0.5.9" > "0.5.10" as strings, so
+       a string compare would call a real BEHIND an AHEAD at exactly the version
+       where the minor number gains a digit. main.swift learned this the same
+       way and its selftest pins the row. */
+    const parts = (v) => {
+      const bits = String(v == null ? '' : v).split('.');
+      if (bits.length !== 3 || !bits.every((b) => /^[0-9]+$/.test(b))) return null;
+      return bits.map(Number);
+    };
+    const a = parts(repoVersion);
+    const b = parts(version);
+    let cmp = null;                       // null = one of them is not a.b.c, so we cannot order them
+    if (a && b) {
+      cmp = 0;
+      for (let i = 0; i < 3; i += 1) { if (a[i] !== b[i]) { cmp = a[i] < b[i] ? -1 : 1; break; } }
+    }
+
+    if (cmp === -1) {
       console.log('');
-      console.error('FAIL  origin/main says ' + repoVersion + ' but ' + version + ' is SERVED.');
+      console.error('FAIL  origin/main says ' + repoVersion + ' but ' + version + ' is SERVED, and the repo is BEHIND.');
       console.error('      The repo does not know about the build that shipped. A cut taken from');
       console.error('      main now bumps to ' + version + ' again and publishes a second, different');
       console.error('      build over the served one. Push the version bump before cutting.');
       process.exit(1);
     }
-    console.log('origin/main agrees:  ' + repoVersion + '  (the repo knows what shipped)');
+    if (cmp === 1) {
+      console.log('origin/main is ' + repoVersion + ', AHEAD of the served ' + version + '.');
+      console.log('      Normal between a version bump and the publish that follows it, which is where');
+      console.log('      a cut spends its whole run. Nothing here is wrong; re-run once it has published.');
+    } else if (cmp === 0) {
+      console.log('origin/main agrees:  ' + repoVersion + '  (the repo knows what shipped)');
+    } else {
+      /* 🔑 CANNOT ORDER IS ITS OWN ANSWER. A hand-edited or prerelease version
+         is neither ahead nor behind, and guessing either would be the exact
+         thing this tool refuses everywhere else. */
+      console.log('note: origin/main says ' + repoVersion + ' and ' + version + ' is served, and one of');
+      console.log('      those is not a plain a.b.c, so this cross-check cannot order them. Not a verdict.');
+    }
   } catch (e) {
     if (/FAIL  origin/.test(String(e && e.message))) throw e;
     console.log('note: could not read origin/main package.json (' + String(e && e.code || e).slice(0, 40) + '); skipping the repo cross-check.');
@@ -231,7 +279,8 @@ function argAll(name) {
      ⇒ Refuse the whole run rather than skip the entry. Skipping it would leave
      a marker list that reads as coverage and silently checks one thing fewer,
      which is the same defect one level up. */
-  const kinds = [['present', markers.present], ['absent', markers.absent], ['binary', markers.binary]];
+  const kinds = [['present', markers.present], ['absent', markers.absent], ['binary', markers.binary],
+                 ['pkg_present', markers.pkg_present], ['pkg_absent', markers.pkg_absent]];
   const blank = [];
   for (const [name, list] of kinds) {
     (list || []).forEach((m, i) => { if (typeof m !== 'string' || m.trim() === '') blank.push(name + '[' + i + ']'); });
@@ -281,6 +330,90 @@ function argAll(name) {
     for (let k = 1; k < at.length; k += 1) if (at[k].i <= at[k - 1].i) { ok = false; break; }
     say(ok, 'in this order in page: ' + seq.join(' < ')
       + (ok ? '' : '  [actual: ' + at.slice().sort((a, b) => a.i - b.i).map((x) => x.m).join(' < ') + ']'));
+  }
+
+  /* 🛑 THE .pkg IS A SECOND SERVED ARTIFACT AND NOTHING OWNED BY US LOOKED
+     INSIDE IT. Ice Cream Kitty, 2026-08-27: `pkgutil --expand` on the shipped
+     installer yields THREE user-facing pages -- component.pkg/Scripts/
+     installing.html, Resources/welcome.html, Resources/conclusion.html -- and
+     a regression in any of them shipped with nothing automated seeing it.
+
+     ⭐ HER FRAMING, AND I HAD IT WRONG BY ONE WORD. I recorded item 4 as
+     "cannot be guarded at ship time". The METHOD here was already right --
+     extract, then read, because no grep form on this box sees inside an
+     archive. Only the POPULATION was short, at two files. Those are different
+     repairs and I named the harder one.
+
+     📌 IT COSTS ALMOST NOTHING: the pkg is payload-free, 30KB against the
+     tarball's 47MB. There is no reason to make this opt-in.
+
+     ⚠️ AND WHAT THIS CANNOT TELL YOU, said plainly rather than left implied:
+     the pkg is served under a MOVING name, and its baked version is metadata
+     only -- build-installer-pkg.sh says so at line 31, "carries an older
+     version string than the release that serves it... by design for a
+     payload-free pkg". The served pkg reads 0.5.76 while 0.5.77 is current,
+     and that is correct, not drift. So there is NO version cross-check
+     available here, and this arm reports on WHAT IS SERVED NOW rather than on
+     a particular release. The tarball arm above still refuses on a stamp
+     mismatch; this one cannot, and says so instead of pretending. */
+  if (markers.pkg_present.length || markers.pkg_absent.length) {
+    const PAGES = ['component.pkg/Scripts/installing.html', 'Resources/welcome.html', 'Resources/conclusion.html'];
+    const pkgUrl = BASE + '/Kosmos.pkg';
+    let pkgBuf = null;
+    try {
+      pkgBuf = await get(pkgUrl, true);
+    } catch (e) {
+      console.error('FAIL  could not fetch the served installer (' + pkgUrl + '): ' + e.message);
+      process.exit(2);
+    }
+    const pdir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-pkg-'));
+    const pkgPath = path.join(pdir, 'Kosmos.pkg');
+    fs.writeFileSync(pkgPath, pkgBuf);
+    try {
+      execFileSync('/usr/sbin/pkgutil', ['--expand', pkgPath, path.join(pdir, 'x')], { stdio: 'ignore' });
+    } catch (e) {
+      console.error('FAIL  pkgutil could not expand the served installer; nothing below would describe it');
+      fs.rmSync(pdir, { recursive: true, force: true });
+      process.exit(2);
+    }
+    console.log('installer:  ' + pkgUrl + '  (' + pkgBuf.length + ' bytes, version metadata only -- no cross-check possible)');
+
+    /* 🔑 A FLOOR ON EACH PAGE, the same reason the page read has one above. A
+       missing or truncated page makes every pkg_absent marker pass for the
+       wrong reason, which is the failure this whole tool exists against. */
+    const pages = {};
+    for (const rel of PAGES) {
+      const f = path.join(pdir, 'x', rel);
+      if (!fs.existsSync(f)) {
+        console.error('FAIL  the served installer has no ' + rel + '; its shape changed, and every pkg marker below would answer about a file that is not there');
+        fs.rmSync(pdir, { recursive: true, force: true });
+        process.exit(2);
+      }
+      const body = fs.readFileSync(f, 'utf8');
+      if (body.length < 500) {
+        console.error('FAIL  ' + rel + ' came back ' + body.length + ' bytes; the read is broken');
+        fs.rmSync(pdir, { recursive: true, force: true });
+        process.exit(2);
+      }
+      pages[rel] = body;
+    }
+
+    /* ⚠️ COMMENTS STRIPPED FOR THE ABSENT SIDE, AND THIS IS NOT THEORETICAL
+       HERE. Checking the SERVED installer by hand minutes before writing this,
+       a raw match on "Nothing to do." reported item 4 as STILL SHIPPING. It is
+       not: the sentence is deleted and quoted in the house-style comment that
+       records the deletion. A false alarm about a live release, from the exact
+       trap this file already documents one screen up. */
+    const strip = (t) => t.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+    for (const m of markers.pkg_present) {
+      const inWhich = PAGES.filter((rel) => pages[rel].includes(m));
+      say(inWhich.length > 0, 'present in installer: ' + m + (inWhich.length ? '  [' + inWhich.join(', ') + ']' : ''));
+    }
+    for (const m of markers.pkg_absent) {
+      const inWhich = PAGES.filter((rel) => strip(pages[rel]).includes(m));
+      say(inWhich.length === 0, 'absent from installer code: ' + m + (inWhich.length ? '  [STILL IN: ' + inWhich.join(', ') + ']' : ''));
+    }
+    fs.rmSync(pdir, { recursive: true, force: true });
   }
 
   fs.rmSync(dir, { recursive: true, force: true });

@@ -229,6 +229,60 @@ if [ -z "$adopt" ]; then
   # runs on (CLAUDE_CONFIG_DIR for claude, CODEX_HOME for codex). Absent
   # means the default, the plist's own rule, so nothing is passed for it.
   PANE_ENV=()
+    # ── #570: the sender token, minted HERE because this is the launch ──────
+    #
+    # `/api/report` learns who is reporting by handing `from_pane` to tmux. A
+    # Windows agent has no pane and neither does an SDK runner, so #1000 added
+    # a token arm: Kosmos mints, the agent presents, the route maps it back.
+    # Nothing minted, so the arm was inert. This is the minting half.
+    #
+    # 🔑 PER LAUNCH, NOT PER AGENT (#1027). The token names which RUN this is,
+    # so two live runs of one agent are distinguishable instead of interleaving
+    # anonymously into one record.
+    #
+    # ⚠️ IT MUST NOT RIDE secrets/env/ ABOVE. That directory is per-MACHINE and
+    # is copied into every agent's pane by name; a sender token there would hand
+    # every agent on this Mac the same identity and undo #1000 entirely.
+    #
+    # 🛑 EVERY FAILURE PATH LEAVES THE AGENT STARTING NORMALLY. This file's own
+    # header is the reason: a mistake here respawns every agent every thirty
+    # seconds forever with nothing anywhere saying why. So no new argument, no
+    # `set -e` reliance, and an unmintable token simply means no `-e` flag and
+    # today's pane-derived identity. A missing token costs attribution; a broken
+    # launch costs the fleet.
+    KOSMOS_AGENT_TOKEN=""
+    _app="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd || true)"
+    if [ -n "$_app" ] && [ -f "$_app/engine/sendertoken.js" ]; then
+      # The bundled node first, the same one install/kosmos uses; then whatever
+      # is on PATH, so a source checkout still works. Never a guess: each is
+      # tested for executability before it is run.
+      for _n in "$_app/../runtime/bin/node" "$(command -v node 2>/dev/null || true)"; do
+        [ -n "${_n:-}" ] && [ -x "$_n" ] || continue
+        # ⚠️ THE ROSTER NAME, NOT THE TMUX SESSION. Tokens are keyed on the name
+        # the board files an agent under, which `status.js` derives as the
+        # session minus its `-discord` suffix. Minting under the raw session
+        # name would key the file where `resolve` never looks.
+        _roster="${SESSION%-discord}"
+        KOSMOS_AGENT_TOKEN="$("$_n" -e '
+          try {
+            const s = require(process.argv[1]);
+            const r = s.mint(process.argv[2]);
+            if (r && r.ok) process.stdout.write(r.token);
+          } catch (e) { /* a mint is never worth a failed launch */ }
+        ' "$_app/engine/sendertoken.js" "$_roster" 2>/dev/null || true)"
+        break
+      done
+    fi
+    # Only a hex token is a token. Anything else -- a stray warning on stdout, a
+    # partial write -- is discarded rather than exported, because a malformed
+    # value in the pane is worse than an absent one.
+    case "${KOSMOS_AGENT_TOKEN:-}" in
+      ''|*[!0-9a-f]*) KOSMOS_AGENT_TOKEN="" ;;
+    esac
+    if [ -n "$KOSMOS_AGENT_TOKEN" ]; then
+      PANE_ENV+=(-e "KOSMOS_AGENT_TOKEN=$KOSMOS_AGENT_TOKEN")
+    fi
+
   # A token Kosmos holds for the person (#529, Cloudflare) lives in the store
   # beside this script, mode 600, never in the plist. Read here, handed into
   # the pane, so an agent's wrangler or curl finds CLOUDFLARE_API_TOKEN set.

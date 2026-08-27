@@ -121,4 +121,37 @@ function liftAll(script, names) {
  * turns the quiet version of this failure into a loud one. If a page function
  * ever trips it, match on structure instead of counting.
  */
-module.exports = { scriptOf, lift, liftAll };
+/**
+ * Lift a page-scope CONST, as its own source line.
+ *
+ * 🛑 A NUMBER TYPED INTO A HARNESS IS A SECOND COPY OF A RULING. The found
+ * list's search threshold is a design decision ("somewhere around thirty it
+ * starts earning itself"); a test carrying its own 30 stays green while the
+ * shipped screen uses 50, which is the same drift this file already exists to
+ * stop for functions.
+ *
+ * ⚠️ IT REFUSES RATHER THAN RETURNING NOTHING. A missing const that yielded ''
+ * would make every caller's sandbox throw a ReferenceError somewhere unrelated,
+ * which is how this was found: `frPaintFound` grew a const and five row tests
+ * failed reading "the row paints no undo control", naming the wrong thing.
+ */
+function liftConst(script, name) {
+  const m = String(script).match(new RegExp('(?:^|\\n)\\s*const ' + name + ' = [^;]+;'));
+  assert.ok(m, `const ${name} vanished from the page; this harness now supplies nothing`);
+  return m[0].trim();
+}
+
+/**
+ * Everything `frPaintFound` reaches for at page scope.
+ *
+ * 🛑 THREE HARNESSES BUILD THAT PAINTER AND EACH USED TO CARRY ITS OWN LIST. On
+ * 2026-08-27 the painter gained a page-scope helper three separate times, and
+ * each time two harnesses broke with a ReferenceError that READ AS A PRODUCT
+ * DEFECT: "the row paints no undo control, so the success arm has nothing to
+ * reveal". Five tests, all naming a control that was fine.
+ * ⭐ THE COST WAS NEVER THE FIX, IT WAS THE DIAGNOSIS. One list means the next
+ * helper costs one edit, and a missing one fails in a place that names it.
+ */
+const FOUND_PAINTER_FNS = ['esc', 'foundCountLine', 'foundOverflows', 'foundCountRefresh', 'foundRowsHtml'];
+
+module.exports = { scriptOf, lift, liftAll, liftConst, FOUND_PAINTER_FNS };

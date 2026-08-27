@@ -2238,6 +2238,20 @@ function pageConstSource(name) {
   return script.slice(start, end) + ';';
 }
 
+/**
+ * A page-scope CONST, as its own source line.
+ *
+ * ⚠️ DELEGATES TO THE SHARED LIFTER RATHER THAN CARRYING A SECOND REGEX. This
+ * file already had its own `pageFnSource`, and a second const-matcher here
+ * would be the fourth-copy problem `test-support/page.js` opens by describing:
+ * three of four copies of the function lifter were subtly wrong, and the wrong
+ * ones failed in the shape of the product being broken.
+ */
+function pageConst(name) {
+  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  return require('./test-support/page').liftConst(require('./test-support/page').scriptOf(raw), name);
+}
+
 function pageFunction(name, prelude = '') {
   // eslint-disable-next-line no-new-func
   return new Function(`${prelude}\n${pageFnSource(name)}\nreturn ${name};`)();
@@ -5058,6 +5072,13 @@ function firstRunHarness(name, state, opts = {}) {
        Confirm sitting under a green Connected button. Stubbed here because this
        harness tests what the painter RENDERS, not the panel. */
     function frClaudeConfirmClose() {}
+    /* The REAL threshold and the REAL count line, for the same reason as
+       everything else in this prelude: a copy here could drift from the shipped
+       number and the suite would stay green while the screen changed. The
+       constant is injected as its own SOURCE LINE out of the page. */
+    ${pageConst('FOUND_SEARCH_AT')}
+    ${require('./test-support/page').FOUND_PAINTER_FNS.filter((n) => n !== 'esc' && n !== 'foundRowsHtml')
+        .map((n) => 'const ' + n + ' = ' + pageFunction(n, 'const esc = ' + realEsc.toString() + ';').toString() + ';').join('\n    ')}
     /* The REAL row painter, shared with the board's own found list. Stubbing it
        would put every assertion below about a row against markup written here
        instead of the markup that ships. */
@@ -5068,6 +5089,9 @@ function firstRunHarness(name, state, opts = {}) {
     ${name === 'frPaintFound' ? '' : 'const frPaintFound = ' + pageFunction('frPaintFound',
       'const esc = ' + realEsc.toString() + ';\nlet FR_FOUND = null; function frActions() {} '
       + 'function frFinish() {} function showTab() {} const document = { getElementById: () => ({}) };\n'
+      + pageConst('FOUND_SEARCH_AT') + '\n'
+      + require('./test-support/page').FOUND_PAINTER_FNS.filter((n) => n !== 'esc' && n !== 'foundRowsHtml')
+          .map((n) => 'const ' + n + ' = ' + pageFunction(n, 'const esc = ' + realEsc.toString() + ';').toString() + ';').join('\n') + '\n'
       + 'const foundRowsHtml = ' + pageFunction('foundRowsHtml', 'const esc = ' + realEsc.toString() + ';').toString() + ';').toString() + ';'}
     
     let __actions = null;

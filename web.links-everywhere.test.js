@@ -23,6 +23,7 @@ process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 const fleet = require('./test-support/fleet');
+const { codeOnly } = require('./test-support/code-only');
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -148,7 +149,7 @@ test('every message row draws the attachment card, and the + and drop targets ar
     // Every file, via pjAttachmentCards (#420): a renderer drawing `m.attachment` alone shows one card of several.
     assert.match(page.lift(SCRIPT, fn), /pjAttachmentCards\((r|m)\)/, fn + ' does not draw every attachment card');
   }
-  const words = PAGE.replace(/<!--[\s\S]*?-->/g, '');
+  const words = codeOnly(PAGE);
   assert.match(words, /<button class="attachbtn" id="pj-attach"[^>]*aria-label="Add a file to this conversation"/, 'the room + is missing or unnamed');
   assert.match(words, /<button class="attachbtn" id="d-attach"[^>]*aria-label="Add a file to this conversation"/, 'the agent page + is missing or unnamed');
   assert.match(words, /Drop a file anywhere in the conversation to add it\./, 'the drop sentence is missing');
