@@ -90,6 +90,28 @@ json_field() { # $1 jq path, $2 sed key fallback
   else printf '%s' "$INPUT" | sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1; fi
 }
 
+# --- #1099: what does a compaction actually send as `source`? ------------------
+# 🛑 ONE FIELD, AND THE NARROWNESS IS THE WHOLE DESIGN. #1058's guard reports
+# `started` only when `source` is `startup`, and nobody has ever observed what a
+# compaction or a resume sends. If a compaction sends `startup`, that guard never
+# fires and a deliberate `blocked` is erased silently, with the card closed.
+#
+# ⚠️ THE OBVIOUS VERSION OF THIS IS DANGEROUS AND I PROPOSED IT FIRST. Logging
+# the whole payload looks equally simple and is not: line 194 reads
+# `.tool_input.command`, so a full-payload log captures EVERY BASH COMMAND EVERY
+# AGENT RUNS, fleet-wide, into a new durable file -- paths, credential locations,
+# whatever anyone types. Splinter read the hook and caught it; I had checked the
+# mechanism and never asked what the payload contained.
+# ⇒ This logs the EVENT NAME and the ONE FIELD the card asks about. No command,
+# no paths, no arguments. One word per event.
+#
+# 📌 OFF UNLESS ASKED. No variable, no file, no behaviour change. Set
+# KOSMOS_SOURCE_LOG to a path to collect it; unset it and the line is inert.
+if [ -n "${KOSMOS_SOURCE_LOG:-}" ]; then
+  printf '%s\t%s\t%s\n' "$(date -u +%FT%TZ 2>/dev/null || echo '?')" "$EVENT" \
+    "$(json_field '.source' 'source')" >> "$KOSMOS_SOURCE_LOG" 2>/dev/null || true
+fi
+
 THROTTLE_DIR="${TMPDIR:-/tmp}/kosmos-report-throttle"
 MARK="$THROTTLE_DIR/$(printf '%s' "${TMUX_PANE:-nopane}" | tr -c 'A-Za-z0-9_-' '_')"
 
