@@ -113,6 +113,11 @@
        #d6a62e  dark card 6.21  dark page 7.84    (dark: clears)
      `--gold-deep` was the obvious candidate and is the one that fails, on the
      `--k-side` ground the consolidated rails use. */
+  /* ⚠️ DEFINED AND DELIBERATELY NOT APPLIED as of 2026-08-26 22:05. Josh
+     reverted the edge (see .uprime below). The token and every measurement
+     above are kept ON PURPOSE: they are the evidence any replacement proposal
+     needs, and re-deriving them is how a decision gets made twice. Do not
+     re-apply it to .uprime without him. */
   --gold-edge: #8a6614;
   /* 🛑 DEFINED, and it was NOT (kosmos#976). Two controls already paint
      themselves `var(--danger, #b3261e)` -- `.skillrm` and `.found-dismiss.armed`
@@ -840,7 +845,25 @@ html { scroll-padding-top: 132px; }
 /* The pack's gold ACTION colour, one home for both the toast's Install and
    the confirm's Update. Two selectors so it outweighs .btn regardless of
    declaration order. */
-button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: var(--gold-bright); border-color: var(--gold-edge); color: #14161a; }
+/* 🛑 NO EDGE. Josh, 2026-08-26 22:05, on seeing it live: "I never asked for
+   that. All the gold buttons are supposed to be just like they are on the
+   style guide and the pack design that Mona Lisa designed, where it's just a
+   nice bright gold button with black text." It was on the post and send
+   buttons of every page. His brand, his call, reverted on his word.
+   ⚠️ WHAT THIS GIVES UP, recorded rather than dropped (#1044): the edge was
+   carrying a CONTRAST FLOOR, not a preference. --gold-bright is 1.95:1 on a
+   white card, under the 3:1 WCAG SC 1.4.11 asks of anything that identifies a
+   control, so the button's SHAPE is hard to locate for a low-vision reader.
+   The text was never the problem (ink on gold is 9.31:1). The measurements
+   are kept on --gold-edge below so the alternative can be proposed with
+   numbers instead of re-measured from scratch.
+   ⭐ AND THE HOVER IS A SEPARATE DEFECT HE ALSO CAUGHT: "when I mouse over it,
+   it turns a light gray". .uprime had no hover of its own, so the generic
+   .btn:hover repainted the primary action --attn-bg and the gold vanished
+   under the pointer. It now deepens to --gold, which is the pattern this file
+   already uses for the first-run confirm rather than a new invention. */
+button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
+button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover { background: var(--gold); border-color: var(--gold); color: #14161a; }
 /* ⚠️ THE FLOW'S PRIMARY, at the pack's own size (`.btn-gold`: 1.0625rem,
    .9em/1.75em padding, 10px radius). Scoped to `.big` rather than widened onto
    every `.uprime`, because this is the create flow's weight and not a change to
@@ -4805,7 +4828,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    panel whose whole job is to make an affirmative choice deliberate. Scoped here
    rather than raising .uprime globally, which would repaint buttons on screens
    nobody asked about. */
-#firstrun .fr-confirm .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-edge); }
+/* Same revert as the app-wide primary above (Josh, 22:05): no edge. */
+#firstrun .fr-confirm .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-bright); }
 #firstrun .fr-confirm .btn.uprime:hover { background: var(--gold); }
 #firstrun .fr-msg { color: var(--k-ink); }
 #firstrun .fr-youfine { color: var(--k-ink-2); }
