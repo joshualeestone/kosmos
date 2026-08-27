@@ -173,7 +173,7 @@ async function measure(engine, scheme) {
        error that LOSES a background writes no `background: none` rule, so the
        `#firstrun` case this check exists for still fails. Only an explicit
        declaration exempts, and the exemption is reported by name. */
-    const BARE = new Set();
+    const BARE = [];
     const CONTAINERS = (() => {
       const out = new Set();
       /* ⚠️ IDs AS WELL AS CLASSES, and rules INSIDE @media too. The first
@@ -205,17 +205,33 @@ async function measure(engine, scheme) {
           const bgDecl = (rule.style.getPropertyValue('background')
             || rule.style.getPropertyValue('background-color') || '').trim();
           if (/^(none|transparent|rgba\(0,\s*0,\s*0,\s*0\))$/i.test(bgDecl)) {
-            /* ⚠️ THE SUBJECT OF THE SELECTOR, NOT EVERY TOKEN IN IT. The first
-               version took all of them, so `.dbox .btn { background:
-               transparent }` marked `.dbox` -- an ANCESTOR that paints a real
-               surface -- as transparent by declaration, and the exemption then
-               excused a container that was never excused. A red control caught
-               it: with `.dbox`'s own background stripped it still passed. The
-               declaration belongs to the last compound of each comma-part. */
-            for (const part of rule.selectorText.split(',')) {
-              const subject = part.trim().split(/[\s>+~]+/).filter(Boolean).pop() || '';
-              for (const m of subject.matchAll(/[.#]([a-z][a-z0-9_-]*)/gi)) BARE.add(m[0]);
+            /* ⚠️ KEEP THE SELECTOR, NOT TOKENS PULLED OUT OF IT, AND ASK THE
+               ELEMENT. Two earlier versions took tokens and both were wrong in
+               ways a token can never express:
+                 `.dbox .btn {transparent}`  marked the ANCESTOR .dbox
+                 `.pjcol.pjsplit {none}`     marked plain .pjcol, which PAINTS
+                                             (background: var(--k-surface))
+                                             and only goes bare when it ALSO
+                                             carries .pjsplit
+                 `.x:hover {transparent}`    marks .x, though nothing about a
+                                             hover describes the resting state
+               A class name cannot carry "only when combined with", "only as a
+               descendant" or "only while hovered". `element.matches(selector)`
+               carries all three for free, so the selector is kept whole and
+               the question is asked of the ELEMENT that actually failed to
+               paint. */
+            /* ⚠️ WITH ITS MEDIA CONDITION. `matches()` knows nothing about
+               @media, so a rule inside a block that does NOT currently apply
+               would still excuse an element. Zero such rules exist in this
+               build today, which is exactly why it is worth carrying: it
+               fails in the EXCUSING direction, so the day someone adds one,
+               a container that lost its background goes quiet instead of
+               red. Condition captured here and evaluated at match time. */
+            let media = '';
+            for (let r2 = rule.parentRule; r2; r2 = r2.parentRule) {
+              if (r2.media && r2.conditionText) media = media ? `${media} and ${r2.conditionText}` : r2.conditionText;
             }
+            BARE.push({ sel: rule.selectorText, media });
           }
           if (!rule.style.getPropertyValue('--field-fill')) continue;
           for (const m of rule.selectorText.matchAll(/[.#]([a-z][a-z0-9_-]*)/gi)) {
@@ -232,18 +248,34 @@ async function measure(engine, scheme) {
     const ground = (el) => {
       let first = null;
       const mute = [];
+      const bareSeen = [];
       for (let n = el.parentElement; n && n !== document.documentElement; n = n.parentElement) {
         const bg = getComputedStyle(n).backgroundColor;
         const cls = String(n.className || '').split(' ');
         const known = CONTAINERS.find((c) =>
           (c[0] === '.' ? cls.includes(c.slice(1)) : n.id === c.slice(1)));
         const paints = bg && bg !== 'rgba(0, 0, 0, 0)';
-        if (known) { seenContainers.add(known); if (!paints) mute.push(known); }
+        if (known) {
+          seenContainers.add(known);
+          /* Declared-transparent is asked of THIS element, so a rule that only
+             applies in combination, as a descendant, or on a state cannot
+             excuse it. A LOST background matches no such rule and still fails,
+             which is the case this whole check exists for. */
+          if (!paints) {
+            const declared = BARE.some((b) => {
+              try {
+                if (b.media && !window.matchMedia(b.media).matches) return false;
+                return n.matches(b.sel);
+              } catch { return false; }
+            });
+            (declared ? bareSeen : mute).push(known);
+          }
+        }
         if (paints && !first) {
           first = { bg, name: n.id ? '#' + n.id : '.' + String(n.className).split(' ')[0] };
         }
       }
-      return first ? { ...first, mute } : { bg: null, name: '(page)', mute };
+      return first ? { ...first, mute, bareSeen } : { bg: null, name: '(page)', mute, bareSeen };
     };
     /* An arrow drawn as an ELEMENT rather than as a background gradient: a
        visible, non-interactive graphic sitting inside the control's own label
@@ -266,7 +298,7 @@ async function measure(engine, scheme) {
       const g = ground(el);
       return { id: el.id || el.tagName.toLowerCase(), tag: el.tagName.toLowerCase(),
         fill: c.backgroundColor, border: c.borderTopColor, appearance: c.appearance,
-        radius: c.borderTopLeftRadius, box: g.bg, boxName: g.name, mute: g.mute,
+        radius: c.borderTopLeftRadius, box: g.bg, boxName: g.name, mute: g.mute, bareSeen: g.bareSeen,
         arrows: (c.backgroundImage.match(/linear-gradient/g) || []).length,
         indicator: el.tagName.toLowerCase() === 'select' ? drawnIndicator(el) : false };
     });
@@ -440,7 +472,10 @@ async function measure(engine, scheme) {
          against whatever ancestor paints next. */
       const muted = new Set();
       for (const f of r.fields) for (const m of (f.mute || [])) muted.add(m);
-      console.log(`  known containers painting nothing: ${muted.size}${muted.size ? ' — ' + [...muted].join(', ') : ''}`);
+      const excusedSet = new Set();
+      for (const f of r.fields) for (const m of (f.bareSeen || [])) excusedSet.add(m);
+      const allBare = [...excusedSet, ...muted];
+      console.log(`  known containers painting nothing: ${allBare.length}${allBare.length ? ' — ' + allBare.join(', ') : ''}`);
       /* ⚠️ THE DENOMINATOR. Without it a renamed or deleted container prints
          "0 painting nothing" and passes, which is the silent-skip shape this
          file rejects one screen below for badgeHit and listCell. */
@@ -450,9 +485,8 @@ async function measure(engine, scheme) {
          `.acard` holds no fields — but declaring ZERO is, because it means the
          derivation found nothing and every verdict above is over an empty set. */
       if (!(r.containers || []).length) fail(`${engine}/${scheme} no container declares --field-fill, so the container check ran over nothing`);
-      const bare = new Set(r.bare || []);
-      const excused = [...muted].filter((m) => bare.has(m));
-      const lost = [...muted].filter((m) => !bare.has(m));
+      const excused = [...excusedSet];
+      const lost = [...muted];
       console.log(`  of those, transparent BY DECLARATION (layout wrappers, not a defect): ${excused.length}`
         + `${excused.length ? ' — ' + excused.join(', ') : ''}`);
       /* ⚠️ THE DENOMINATOR FOR THE EXEMPTION ITSELF. If the `background: none`
