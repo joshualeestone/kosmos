@@ -186,12 +186,42 @@ test('dailyUsageByModel freezes a past day to disk and does not rescan it', asyn
   // real cache path rather than the clamp itself.
   const wideEnough = 3000;
   const first = await usage.dailyUsageByModel(wideEnough);
-  assert.ok(fs.existsSync(nodePath.join(usage.USAGE_DIR, `${day}.json`)), 'the completed day was not frozen to disk');
+  assert.ok(fs.existsSync(nodePath.join(usage.USAGE_DIR, `${day}.v2.json`)), 'the completed day was not frozen to disk');
   // Remove the source transcript entirely; a correct cache must not need it again.
   fs.rmSync(nodePath.join(dir, 'sessH.jsonl'));
   const second = await usage.dailyUsageByModel(wideEnough);
   assert.equal(second.byDay[day]['claude-sonnet-5'].input_tokens, 11, 'a frozen day was rescanned instead of read from cache');
   assert.deepEqual(first.byDay[day], second.byDay[day]);
+});
+
+test('a frozen day written before the dedup fix is IGNORED, not trusted', async () => {
+  /* 🛑 THE HALF A FORWARD-ONLY FIX WOULD HAVE MISSED. Deduplicating by message
+     id corrects the COMPUTATION, and a completed day is never rescanned once
+     frozen -- so without invalidation the fix would produce a correct number for
+     today sitting on top of past days still about TEN TIMES too large. That
+     reads as working, which is exactly why nothing would have caught it.
+     Measured before the fix: 2026-08-26 froze at 141,311,212 output tokens; a
+     deduplicated scan of the same day gives 13,883,244. */
+  resetSandbox();
+  const dir = projectDir('proj-stale');
+  const day = '2020-02-02';
+  fs.writeFileSync(
+    nodePath.join(dir, 'sessStale.jsonl'),
+    usageRow({ timestamp: `${day}T09:00:00.000Z`, model: 'claude-sonnet-5', usage: { input_tokens: 7, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } }) + '\n',
+    'utf8',
+  );
+  fs.mkdirSync(usage.USAGE_DIR, { recursive: true });
+  fs.writeFileSync(
+    nodePath.join(usage.USAGE_DIR, `${day}.json`),
+    JSON.stringify({ 'claude-sonnet-5': { input_tokens: 999999, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 } }),
+    'utf8',
+  );
+  const got = await usage.dailyUsageByModel(3000);
+  assert.equal(got.byDay[day]['claude-sonnet-5'].input_tokens, 7,
+    'an old-format frozen file was trusted, so every pre-fix day would stay inflated');
+  /* Control: the same call DOES write and then trust the new-format file, so
+     this cannot pass merely because caching stopped working altogether. */
+  assert.ok(fs.existsSync(nodePath.join(usage.USAGE_DIR, `${day}.v2.json`)), 'the day was not re-frozen in the new format');
 });
 
 test('dailyUsageByModel reports the config roots it read, every call', async () => {
