@@ -24589,6 +24589,77 @@ function pjMarkSeen(id) {
     .then((r) => r.text())
     .catch(() => { /* the next open tells it again */ });
 }
+/**
+ * Write a thread's markup and leave the reader where they belong.
+ *
+ * 🛑 THE WRITE IS THE MOVER, NOT A SCROLL LINE. `setLive` replaces innerHTML,
+ * which empties the box: scrollHeight collapses and the browser CLAMPS scrollTop
+ * to 0. So EVERY repaint moves the reader to the top unless something puts them
+ * back, and the room never put them back. That one omission is all three of
+ * Josh's triggers (2026-08-26, the scroll item): posting a message, an agent
+ * starting to type, and the ~30s tick. None of them is a new post, all three
+ * rewrite the markup, and each time he was reading history.
+ *
+ * ⚠️ POSTURE IS REMEMBERED ONLY WHILE ROWS ARE ON SCREEN. A not-a-list arm ("we
+ * could not read this room", "nothing here yet") has ALREADY been clamped to 0
+ * by its own write, so letting one record the posture would overwrite the very
+ * number we are about to need with a zero. Same rule setThread carries, same
+ * reason, and it is why the guard is `__roomHadRows` rather than a plain
+ * capture-before-every-write.
+ */
+function paintThreadInto(box, html, hasRows, keyChanged, filtering) {
+  /* 🛑 MEASURED BEFORE THE WRITE, NOT READ OFF A FLAG. Whether the person is on
+     the floor is a fact about the DOM as it stands right now, and the markup is
+     about to be replaced. holdFloorOnResize keeps a flag for the resize case,
+     but that one is learned from the async `scroll` event and can be a task
+     behind; here we are standing in front of the thing, so we ask it. */
+  const onFloorBefore = box.clientHeight > 0
+    && (box.scrollHeight - box.scrollTop - box.clientHeight) <= THREAD_BOTTOM_SLACK;
+  /* ⚠️ AND THE FLOOR ANSWER IS REMEMBERED WITH IT, for the same reason and it is
+     the less obvious half. A note is SHORTER THAN THE VIEWPORT, so the fresh
+     measurement on a note reads scrollHeight - 0 - clientHeight <= slack, which
+     is TRUE: a collapsed box says "at the bottom" about a reader it has already
+     thrown to the top. Measured, and it is what made the first version of this
+     fix pin the note-flap case to 1760 instead of leaving it at 900. */
+  if (box.__roomHadRows) {
+    box.__roomHeldTop = box.scrollTop;
+    box.__roomHeldAtBottom = onFloorBefore;
+  }
+  setLive(box, html);
+  box.__roomHadRows = hasRows;
+  // A note is not what the person came to read, and moving them inside one
+  // would only move them again when the rows come back.
+  if (!hasRows) return;
+  /* Scrolled to the newest post only when the POSTS changed, not on a relabel:
+     pjWhen re-words every minute, and yanking a person who scrolled up to read
+     history to the bottom on a poll tick is the poll fighting the reader. A
+     FILTERED paint never scrolls at all: the person is reading, not following
+     the live tail (clearing the filter restores the newest-post scroll through
+     the key change).
+     ⚠️ THE FLAG IS SET HERE, NOT LEFT TO THE SCROLL EVENT. holdFloorOnResize
+     learns the reader's posture from `scroll`, which is asynchronous, so a
+     PROGRAMMATIC pin leaves a window where the box is on the floor and the flag
+     still says otherwise. A resize landing in that window declines to re-pin and
+     the newest messages go under the fold. We know the answer synchronously
+     right here, so we say so.
+     ⭐ Being on the floor means following the tail, so a repaint that adds to the
+     tail keeps them there. Josh's measured case: the thread went 2690 to 2724
+     and a reader sitting on the floor was left 34px under it, having touched
+     nothing. */
+  /* `!== false` rather than `=== true` so a first-ever paint, which has no
+     remembered posture, still lands on the newest post. */
+  if (!filtering && (keyChanged || box.__roomHeldAtBottom !== false)) {
+    box.scrollTop = box.scrollHeight;
+    box.__wasOnFloor = true;
+    return;
+  }
+  /* 🛑 THE HALF THE ROOM NEVER HAD. Reading back, with the list unchanged: the
+     write above clamped them to 0 and, before this line, nothing put them back.
+     setThread has had the matching restore since #1037. */
+  if (box.__roomHeldTop !== undefined && box.scrollTop !== box.__roomHeldTop) {
+    box.scrollTop = box.__roomHeldTop;
+  }
+}
 function paintRoom(body) {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
@@ -24627,46 +24698,22 @@ function paintRoom(body) {
      about to be replaced. holdFloorOnResize keeps a flag for the resize case,
      but that one is learned from the async `scroll` event and can be a task
      behind; here we are standing in front of the thing, so we ask it. */
-  const onFloorBefore = box.clientHeight > 0
-    && (box.scrollHeight - box.scrollTop - box.clientHeight) <= THREAD_BOTTOM_SLACK;
+  /* The reader's posture, the write, and where they land are ONE decision, and
+     they now live in one place. Splitting them across two painters is exactly
+     how the room shipped without the restore the agent thread has carried since
+     #1037: setThread's own comment warns "the room and the thread are painted by
+     different functions, which is exactly how the room missed the last fix", and
+     it was still true of this function. */
+  const key = PJ_ROOM_QUERY + '\u0000' + (body.rows || []).map((m) => m.id || m.at).join('\u0000');
+  const keyChanged = box.__lastRoomKey !== key;
   if (box.__lastRoom !== html) {
     /* New rows while the room is on screen are read as they land; a tab in
        the background is not looking, so its cursor waits for the person. */
     if (box.__lastRoom !== undefined && document.visibilityState === 'visible'
       && !document.getElementById('pj-one-view').hidden) pjMarkSeen(PJ_CURRENT);
     box.__lastRoom = html;
-    setLive(box, html);
-    /* Scrolled only when the POSTS changed, not on a relabel: pjWhen
-       re-words every minute, and yanking a person who scrolled up to
-       read history to the bottom on a poll tick is the poll fighting
-       the reader. A FILTERED paint never scrolls at all: the person is
-       reading, not following the live tail (clearing the filter
-       restores the newest-post scroll through the key change). */
-    const key = PJ_ROOM_QUERY + '\u0000' + (body.rows || []).map((m) => m.id || m.at).join('\u0000');
-    if (box.__lastRoomKey !== key) {
-      box.__lastRoomKey = key;
-      /* ⚠️ THE FLAG IS SET HERE, NOT LEFT TO THE SCROLL EVENT. holdFloorOnResize
-         learns the reader's posture from `scroll`, which is asynchronous, so a
-         PROGRAMMATIC pin leaves a window where the box is on the floor and the
-         flag still says otherwise. A resize landing in that window declines to
-         re-pin and the newest messages go under the fold. We know the answer
-         synchronously right here, so we say so. */
-      if (!filtering) { box.scrollTop = box.scrollHeight; box.__wasOnFloor = true; }
-    } else if (onFloorBefore && !filtering) {
-      /* 🛑 JOSH'S REMAINING TWO TRIGGERS (#1037): "as soon as the agent starts
-         typing" and "every 30 seconds or so". Neither is a new post. An
-         unanswered marker appearing under a message, a relabelled timestamp, a
-         delivery verdict: all of them GROW the thread while the message ids
-         stay identical, so the key does not change and nothing repositioned
-         anybody. MEASURED: the thread went 2690 to 2724 and a reader sitting on
-         the floor was left 34px below the fold, having touched nothing.
-         ⭐ Being on the floor means following the tail, so a repaint that adds
-         to the tail keeps them there. Only for someone who was ALREADY on it:
-         a person reading history is left exactly where they are, which is what
-         the rest of this function is for. */
-      box.scrollTop = box.scrollHeight;
-      box.__wasOnFloor = true;
-    }
+    box.__lastRoomKey = key;
+    paintThreadInto(box, html, rows !== '', keyChanged, filtering);
   }
 }
 /* The search input repaints from the cached body (loadRoom keeps it on
