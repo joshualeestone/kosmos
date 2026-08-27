@@ -4188,6 +4188,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    the four you cannot use louder than the two you can, and this row exists
    to show what works today beside what is coming; monochrome is also what
    most vendor guidelines permit as the single-colour variant. */
+/* #991: an agent we cannot currently address still shows its last known state,
+   because that is real information -- but in the past tense, so the label stops
+   contradicting the "we could not see it right now" sentence below it. Drawn
+   from an attribute so it survives the painter's innerHTML rewrite. */
+.detail-state[data-remembered]::after { content: ' · when last seen'; opacity: .75; font-weight: 400; }
 .pmark { display: grid; place-items: center; }
 .pmark svg { width: 100%; height: 100%; display: block; }
 /* ⚠️ MONOCHROME BY FILTER, NOT BY FORCING FILLS. `svg * { fill: grey !important }`
@@ -14765,6 +14770,28 @@ async function paintTalk(sessionName, agentName) {
    * flag. So it now derives what the composer is ABOUT to be, from the same
    * payload the disable will use.
    */
+  /**
+   * #991: say that the header's state is REMEMBERED, not current.
+   *
+   * ⚠️ AN ATTRIBUTE, NOT CONTENT, and that is the whole reason this works.
+   * `#d-state` has its innerHTML rewritten wholesale by the card painter
+   * (`dst.innerHTML = GLYPH[...] + '<b>' + label + '</b>'`), which runs on its
+   * own schedule. Anything appended as a CHILD is destroyed by the next repaint
+   * and comes back at the next presence check, so the qualifier would flicker
+   * on and off beside a state that never changed. An attribute survives
+   * innerHTML replacement, and the qualifier is drawn from CSS.
+   *
+   * 🔑 MARKED, NOT WITHHELD. The reading is still the last true thing we knew;
+   * hiding it would lose information a person wants. What was wrong was the
+   * TENSE, so the tense is what this fixes.
+   */
+  function markStateRemembered(on) {
+    const dst = document.getElementById('d-state');
+    if (!dst) return;
+    if (on) dst.setAttribute('data-remembered', '1');
+    else dst.removeAttribute('data-remembered');
+  }
+
   const closing = body.presence === 'off';
   if (nowHidden && !qask.hidden && qask.contains(document.activeElement)) {
     if (!closing) say.focus();
@@ -14952,10 +14979,24 @@ async function paintTalk(sessionName, agentName) {
        drawn by nothing in the render check. */
     off.textContent = dmOffLine(name, body, CURRENT);
     off.hidden = false;
+      /* 🛑 #991's FIRST PROBLEM: the header was saying one thing and this line
+         another, at the same time, about the same moment. `#d-state` is painted
+         from the board's SNAPSHOT (`cardStOf`), and this arm is a LIVE
+         addressability check. When the live check says we cannot see the agent,
+         the snapshot's state is a memory of an earlier moment being presented in
+         the present tense: "Paused, looks like a usage limit" beside "we could
+         not see an agent by exactly this name right now".
+         ⚠️ A LABEL IS A STATE SURFACE AND A SENTENCE IS NOT, so the label wins
+         the reader every time and the correct sentence below it loses.
+         ⇒ The reading is not withheld, because it is still the last true thing
+         we knew and hiding it would lose information. It is marked as PAST, in
+         the one place the reader is already looking. */
+      markStateRemembered(true);
   } else if (body.presence === 'unsure') {
     off.textContent = 'We could not check whether ' + name + ' is running. '
       + 'You can still send this, and we will tell you if it did not land.';
     off.hidden = false;
+    markStateRemembered(false);
     /* ⚠️ UNSURE KEEPS THE LINE. This arm says we could not CHECK, and then says
        "you can still send this" — so the composer is live and where an answer
        would come back is exactly what a person needs. The off arm above is
@@ -14963,6 +15004,7 @@ async function paintTalk(sessionName, agentName) {
   } else {
     off.textContent = '';
     off.hidden = true;
+    markStateRemembered(false);
   }
   /* 📌 A DECISION THAT NO LONGER HAS ANYTHING TO DECIDE WAS HERE. It chose
      whether the reply-location line showed, keyed on `presence === 'off'`,
