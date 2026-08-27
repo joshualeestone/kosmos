@@ -28967,7 +28967,16 @@ function foundRowsHtml(agents) {
          ticked box which does nothing is worse than no box, because ticked says
          a decision has been made while inert says it has not, on the same pixel.
          The rule has not changed -- the route arrived. */
-      '<div class="fr-foundrow" data-found-dir="' + esc(a.dir) + '" data-found-name="' + esc(a.name) + '">'
+      /* 🔑 THE HAYSTACK RIDES THE ROW, so filtering hides rows rather than
+         rebuilding them. Rebuilding is forbidden here for a reason that has
+         nothing to do with search: each row carries the state of a button
+         somebody already pressed, and this screen is the one place a person
+         presses four in a row. Folder included deliberately -- the design's
+         412-row drawing matches `patrick-notes` on its PATH, and on a machine
+         with that many agents the folder is often the only thing the person
+         remembers, even though it is not shown. */
+      '<div class="fr-foundrow" data-found-dir="' + esc(a.dir) + '" data-found-name="' + esc(a.name) + '"'
+      + ' data-found-hay="' + esc(((a.name || '') + ' ' + (a.role || '') + ' ' + (a.dir || '')).toLowerCase()) + '">'
       + '<span class="fr-foundtext">'
       + '<span class="fr-foundname">' + esc(a.name) + '</span>'
       /* Role is optional by ruling ("even if it's just title unknown"): an agent
@@ -29021,9 +29030,32 @@ function frPaintFound() {
      them here", written when the rows were a list with nothing behind them --
      a sentence that went quietly false the day the route landed, on the screen
      it describes. */
+  /* 🛑 THE SEARCH BOX APPEARS AT A THRESHOLD, NOT ALWAYS (design,
+     Josh-Brain/Projects/kosmos-design/kosmos-found-agents-2026-08-22.html).
+     On fourteen rows it is furniture that makes a simple screen look like an
+     admin tool. The design says "somewhere around thirty it starts earning
+     itself", so thirty is where it is, and the number lives here rather than
+     inline so the next person can move it in one place.
+     ⭐ WHY IT IS A SEARCH BOX AND NOT A DRAWER, which is a ruling already made
+     and is not reopened here: a drawer is US deciding what you do not need to
+     see; a search box is YOU deciding, and it is reversible in one keystroke.
+     That is why the count line below always says BOTH numbers and how to get
+     back. And it only ever RANKS -- a heuristic may rank, it may not act, which
+     is the same rule that killed pre-ticked boxes and Add all. */
+  const search = n >= FOUND_SEARCH_AT
+    ? '<p class="fr-foundsearchwrap"><input type="search" id="fr-foundsearch" class="fld"'
+      + ' autocomplete="off" placeholder="Search your agents"'
+      + ' aria-label="Search the agents found on this Mac"></p>'
+    : '';
   box.innerHTML = '<p>They are not in Kosmos yet. Adding one leaves it exactly '
     + 'where it is, in its own folder with its own instructions.</p>'
-    + foundRowsHtml(FR_FOUND.agents);
+    + search
+    + foundRowsHtml(FR_FOUND.agents)
+    /* ⚠️ THE COUNT LINE IS IN THE DESIGN AND WAS NEVER BUILT. It is the only
+       thing on the screen that says how many rows there are when the list runs
+       past the fold, and the only thing that says how to get back once a search
+       has narrowed it. */
+    + '<p class="dhint" id="fr-foundcount">' + esc(foundCountLine(n, n, '')) + '</p>';
   /* 🛑 `Continue`, NOT "Take me to my agents". Nothing has been added, so the
      board still shows what tmux shows -- and somebody whose agent has not run
      since Tuesday would press that button and land on a board without them,
@@ -29044,6 +29076,56 @@ function frPaintFound() {
  * already pressed -- and this screen is the one place where a person may press
  * four buttons in a row. The row edits itself instead.
  */
+/* The design's threshold for the search box, in one place. */
+const FOUND_SEARCH_AT = 30;
+
+/**
+ * The line under the found list. Says both numbers and the way back.
+ *
+ * 🛑 IT NEVER CLAIMS A LIST IS COMPLETE WHEN IT IS NOT. `shown` and `total` are
+ * both stated whenever they differ, because the whole reason a search box is
+ * allowed on this screen rather than a drawer is that the person can always see
+ * they are looking at a subset and can undo it in one keystroke.
+ * ⚠️ THE EMPTY-MATCH ARM IS NOT IN THE DESIGN and is written to the same rule:
+ * it names what was typed, gives the total, and says how to get back. "No
+ * results" alone would be the one arm on this screen with no way out.
+ */
+function foundCountLine(shown, total, term) {
+  const agentWord = total === 1 ? '1 agent' : total + ' agents';
+  if (!term) return total === 1 ? '1 agent.' : agentWord + '. Scroll to see them all.';
+  if (shown === 0) return 'Nothing matches \u201C' + term + '\u201D. Clear the box to see all ' + agentWord + '.';
+  return 'Showing ' + shown + ' of ' + total + '. Clear the box to see them all.';
+}
+
+/**
+ * Filtering the found list.
+ *
+ * 🛑 IT HIDES ROWS, IT DOES NOT REBUILD THEM, and that is not a performance
+ * choice. Every row carries the state of a button somebody may already have
+ * pressed -- this screen is the one place a person presses four in a row -- and
+ * `frPaintFound` rebuilds from `FR_FOUND`, which would throw that away. Same
+ * reason the success arm edits its own row instead of repainting.
+ *
+ * 📌 Page scope and delegated, for the reason the disclosure above it is: the
+ * first-run harness stubs the DOM with plain objects that have no
+ * `addEventListener`, so binding inside a painter takes the harness down.
+ */
+document.addEventListener('input', (e) => {
+  const box = e.target.closest && e.target.closest('#fr-foundsearch');
+  if (!box) return;
+  const term = String(box.value || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('.fr-foundrow');
+  let shown = 0;
+  rows.forEach((row) => {
+    const hay = row.dataset.foundHay || '';
+    const hit = !term || hay.indexOf(term) > -1;
+    row.hidden = !hit;
+    if (hit) shown += 1;
+  });
+  const line = document.getElementById('fr-foundcount');
+  if (line) line.textContent = foundCountLine(shown, rows.length, String(box.value || '').trim());
+});
+
 document.addEventListener('click', async (e) => {
   const go = e.target.closest && e.target.closest('.fr-foundgo');
   if (!go || go.disabled) return;
@@ -29285,17 +29367,38 @@ function frPaintFleet() {
     const snags = checked
       ? FR_MACHINE.checks.filter((c) => c.state === 'attention' || c.state === 'unknown')
       : null;
-    /* 🔑 A READING, SAID AS A READING (#320). The pack's ending B said "There
-       are none on this computer yet", and that is a claim about the computer,
-       which Kosmos cannot make: it can only say what its own search found. The
-       first person outside this team to install was told it on a Mac running
-       two of her own agents. The search now runs first (above), and what it
-       says here is what the search did: looked and found none, or could not
-       look. Neither arm claims the machine is empty. Supersedes the pack's
-       ending B; the pack is corrected to match rather than the other way
-       round, because the pack was the thing that was wrong. The outstanding-
-       check notes stay beneath: the check screen must never be contradicted
-       one screen later. */
+    /* 🛑 THIS COMMENT USED TO DESCRIBE COPY THAT NO LONGER RENDERS, AND IT WAS
+       BELIEVED. It said this arm reports what the search did, "looked and found
+       none, or could not look", and that neither arm claims the machine is
+       empty. All of that was true and all of it was deleted one comment below,
+       by item 13. A reader who stopped at this paragraph reported the screen as
+       having a hedge it does not have; that is exactly what happened, in public,
+       on 2026-08-27, and the paragraph was signed with an issue number, which is
+       what made it credible.
+       ⭐ A STALE COMMENT OUTRANKS THE CODE FOR ANYONE SKIMMING, so a comment that
+       survives the behaviour it documents is worse than no comment at all.
+
+       WHAT IS TRUE NOW: this arm renders "Create your first agent." and
+       "Let's get started." and says nothing about having looked.
+
+       WHY (#320, kept because the reasoning still binds the NEXT edit): the
+       pack's ending B said "There are none on this computer yet", which is a
+       claim about the computer that Kosmos cannot make. The first person outside
+       this team to install was told it on a Mac running two of her own agents.
+       ⇒ So if a sentence ever comes back here it must be about THEIR machine and
+       never a report on our own uncertainty, which is Josh's rule and the reason
+       the four went. The search still runs first (above), so nothing here is a
+       false claim; it is simply silent.
+       ⚠️ AND SILENCE IS NOT FREE IN ONE CASE (kosmos#1078): discovery reaches a
+       folder only through a transcript, so an agent that has never been RUN is
+       invisible, and this arm then tells somebody who has agents to create their
+       first one.
+       🛑 A DISCLOSURE LINK WAS BUILT HERE AND RULED OUT. Josh, 2026-08-27:
+       "There is no link to appear, even. It just pulls them in." He is right,
+       and the reason is worth keeping: a link explaining why the list is empty
+       is a worse product than a list that is not empty. The fix belongs in
+       DETECTION, not in a sentence on this screen, and this arm stays silent
+       until detection can no longer be wrong about it. */
     /* 🛑 ONE SENTENCE, AND FOUR THINGS DELETED (Josh, 2026-08-26 22:05, item 13).
        This screen was reporting on ITSELF rather than telling a person what to
        do next. What went:
@@ -29327,6 +29430,25 @@ function frPaintFleet() {
        never saw the check screen was told everything is in place" -- and they
        are right. "something like" is latitude, so I took the invitation and
        left out the assertion. Flagged to him rather than assumed. */
+    /* 🔑 AN OUT FOR THE ONE PERSON THIS SCREEN IS WRONG ABOUT, AT NO COST TO THE
+       REST (kosmos#1078). Discovery reaches a folder only through a transcript,
+       so an agent that has never been RUN is invisible, and this arm then tells
+       somebody who has agents to create their first one. That is the 2026-08-22
+       defect arriving through a different door.
+       ⚠️ A STANDING SENTENCE WAS THE OBVIOUS FIX AND IT IS THE WRONG ONE. Most
+       people here really are new, and Josh stripped four sentences off this
+       screen on 2026-08-26 for reporting on us rather than helping them. A link
+       is found by the person looking for exactly those words and read by nobody
+       else.
+       🛑 IT PROMISES ONLY WHAT IS TRUE. "Run at least once" is the whole of the
+       transcript rule. It deliberately does NOT say they can be added later,
+       because the second invisible case (an instruction file whose introduction
+       `identityFromText` cannot parse) is not fixed by running the agent, and a
+       sentence that sends that person back to look again would be a lie with our
+       name on it. That case wants a looser parser, not copy.
+       📌 Built hidden rather than built on click, same rule as the found list's
+       undo: an element that already exists cannot be the element a later edit
+       forgets to create. */
     box.innerHTML = '<p>Let\u2019s get started.</p>';
     frForkActions();
     return;

@@ -121,4 +121,24 @@ function liftAll(script, names) {
  * turns the quiet version of this failure into a loud one. If a page function
  * ever trips it, match on structure instead of counting.
  */
-module.exports = { scriptOf, lift, liftAll };
+/**
+ * Lift a page-scope CONST, as its own source line.
+ *
+ * 🛑 A NUMBER TYPED INTO A HARNESS IS A SECOND COPY OF A RULING. The found
+ * list's search threshold is a design decision ("somewhere around thirty it
+ * starts earning itself"); a test carrying its own 30 stays green while the
+ * shipped screen uses 50, which is the same drift this file already exists to
+ * stop for functions.
+ *
+ * ⚠️ IT REFUSES RATHER THAN RETURNING NOTHING. A missing const that yielded ''
+ * would make every caller's sandbox throw a ReferenceError somewhere unrelated,
+ * which is how this was found: `frPaintFound` grew a const and five row tests
+ * failed reading "the row paints no undo control", naming the wrong thing.
+ */
+function liftConst(script, name) {
+  const m = String(script).match(new RegExp('(?:^|\\n)\\s*const ' + name + ' = [^;]+;'));
+  assert.ok(m, `const ${name} vanished from the page; this harness now supplies nothing`);
+  return m[0].trim();
+}
+
+module.exports = { scriptOf, lift, liftAll, liftConst };
