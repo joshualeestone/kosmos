@@ -58,6 +58,27 @@ live_count() {
   o="$(KOSMOS_BC_SELF_PID=$$ kosmos_refuse_if_browser_run_live "count" 2>&1)"
   case "$o" in *" live; first: "*) echo "$o" | sed -n 's/.*Mac (\([0-9]*\) live;.*/\1/p';; *) echo 0;; esac
 }
+# 🛑 OPT-IN, AND THE REASON IS NOT TIDINESS. This decoy is a literal
+# `bash tools/browser-checks.sh`, deliberately, so the SHIPPED pgrep
+# expression matches it -- that is the only thing that makes this a real-path
+# control rather than a fifth seam check.
+# ⭐ AND THAT IS EXACTLY WHY IT CANNOT RUN BY DEFAULT ON A SHARED BOX. On
+# 2026-08-27 this test ran during a release cut's page layer, the cut's guard
+# saw the decoy, and the cut was refused. Twice. Three people then spent time
+# mis-identifying the process in `ps`, because it is indistinguishable from a
+# real page layer to everyone, not just to the guard.
+# ⚠️ THE SKIP IS PRINTED LOUDLY. A control that quietly does not run is worse
+# than no control: the suite still says "all clear" and nobody knows which
+# claims that covers.
+if [ "${KOSMOS_BC_REALPATH:-0}" != 1 ]; then
+  echo "SKIP  the SHIPPED pgrep expression vs a real process"
+  echo "      -- spawns a look-alike page layer, which refuses any concurrent"
+  echo "         release cut. Run it deliberately on an idle box:"
+  echo "         KOSMOS_BC_REALPATH=1 bash tools/test-browser-run-guard.sh"
+  echo
+  if [ "$fails" -eq 0 ]; then echo "all clear (real-path control SKIPPED)"; else echo "$fails FAILURES"; fi
+  exit $([ "$fails" -eq 0 ] && echo 0 || echo 1)
+fi
 before="$(live_count)"
 ( cd "$T" && bash tools/browser-checks.sh ) & decoy=$!
 sleep 1
