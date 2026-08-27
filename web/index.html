@@ -7246,27 +7246,26 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            `:last-child` rules with `.pjcard-members` / `.pjcard-files`. Reorder
            these two while anything still selects them by position and you
            silently repoint the members scroller onto Files. -->
-<div class="pjcard pjcard-files">
-        <!-- 🛑 "Project documents" WAS THE ONLY THING ON THIS SECTION THAT
-             LIED. Every sentence under it is already honest that it reads the
-             project FOLDER; the heading promised something else. Josh, on what
-             he actually meant: "They are all files in the conversation that I'm
-             referring to" -- and that is a DIFFERENT feature with its own card
-             (the attachment path). Naming this section for what it really shows
-             is what stops it looking like the other one arrived. (#110, heading
-             from Mona Lisa.) -->
-        <h3 class="dlab">Files in this project</h3>
-        <div id="pj-docs" class="pj-docs"></div>
-        <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
-        <!-- ⚠️ "Show them all in Finder", NOT "see all files". Josh asked for a
-             view-all that opens a SCREEN listing everything. That screen is a
-             later slice; this control does something real and says exactly what
-             it does instead of wearing the label of the thing not built yet. -->
-        <!-- The door's label finally matches its handler (#535): it has
-             opened the in-app Documents view since #134 landed, while the
-             words still promised Finder. Finder lives INSIDE that view. -->
-        <button class="linkish" id="pj-docs-all" type="button" hidden>View all</button>
-      </div>
+      <!-- 🛑 MEMBERS FIRST IN THE MARKUP, FILES BELOW, AND THE TWO VIEWS
+           DELIBERATELY DISAGREE (Josh, 2026-08-26 22:05, item 3):
+             tab view      Members top left, Files under it, Tasks far right
+             consolidated  Tasks, then Files, then Members down one column
+           He confirmed the consolidated order is right and the TAB view was the
+           one out of order, which is the half kosmos#1017 got wrong.
+           ⚠️ #1017 WAS MINE AND ITS PREMISE WAS WRONG. I unified the two views
+           on the argument that "two views of one project showing the same panels
+           in opposite orders is itself a defect". He wants them different, and
+           he is the one who uses both. The unification is undone; what survives
+           from that branch is the part that mattered -- the cards are selected
+           BY NAME, so the consolidated grid rows below hold whatever order the
+           markup is in, and swapping this back could not silently repoint the
+           members scroller onto Files.
+           ⚠️ THE TRADE #1017 EXISTED TO REMOVE IS BACK, KNOWINGLY: in the
+           consolidated view the eye reads Files then Members while the keyboard
+           tabs Members then Files (WCAG 2.4.3 / 1.3.2). One DOM cannot match two
+           opposite visual orders. The tab view now agrees with itself; the
+           consolidated one does not, and that is a decision rather than an
+           oversight. -->
 <div class="pjcard pjcard-members">
       <h3 class="dlab">Project members</h3>
       <div id="pj-one-agents" class="pj-members"></div>
@@ -7338,7 +7337,28 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            time tonight a comment naming its subject broke the check that reads
            for it. -->
       </div>
-          </aside>
+      <div class="pjcard pjcard-files">
+        <!-- 🛑 "Project documents" WAS THE ONLY THING ON THIS SECTION THAT
+             LIED. Every sentence under it is already honest that it reads the
+             project FOLDER; the heading promised something else. Josh, on what
+             he actually meant: "They are all files in the conversation that I'm
+             referring to" -- and that is a DIFFERENT feature with its own card
+             (the attachment path). Naming this section for what it really shows
+             is what stops it looking like the other one arrived. (#110, heading
+             from Mona Lisa.) -->
+        <h3 class="dlab">Files in this project</h3>
+        <div id="pj-docs" class="pj-docs"></div>
+        <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
+        <!-- ⚠️ "Show them all in Finder", NOT "see all files". Josh asked for a
+             view-all that opens a SCREEN listing everything. That screen is a
+             later slice; this control does something real and says exactly what
+             it does instead of wearing the label of the thing not built yet. -->
+        <!-- The door's label finally matches its handler (#535): it has
+             opened the in-app Documents view since #134 landed, while the
+             words still promised Finder. Finder lives INSIDE that view. -->
+        <button class="linkish" id="pj-docs-all" type="button" hidden>View all</button>
+      </div>
+    </aside>
 
     <section class="pjcol pjmid">
       <div class="pjmidhead"><h3 class="dlab">Conversation</h3>
