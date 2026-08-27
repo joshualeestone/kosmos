@@ -144,7 +144,7 @@ test('codes are one clean token or they are refused', () => {
 
 /* ── the download ────────────────────────────────────────────────────────── */
 
-function serveRelease(t, { version, binary, checksum }) {
+function serveRelease(t, { version, binary, checksum, onHit }) {
   const paths = {
     '/latest': () => version,
     [`/${version}/manifest.json`]: () => JSON.stringify({
@@ -155,6 +155,10 @@ function serveRelease(t, { version, binary, checksum }) {
   const server = http.createServer((req, res) => {
     const answer = paths[req.url];
     if (!answer) { res.writeHead(404); res.end(); return; }
+    // Optional, so every existing caller is untouched: lets a test count how
+    // many times the BINARY itself was fetched, which is the only way to tell
+    // a reuse from a re-download.
+    if (typeof onHit === 'function') onHit(req.url);
     // Content-Length, like the real service: it is what progress totals
     // come from, and chunked answers are the degraded case, not the norm.
     const body = Buffer.isBuffer(answer()) ? answer() : Buffer.from(answer());
@@ -1489,4 +1493,63 @@ driverTest('#248: a plain start still reads the global account and reports no di
 
 test('#248: a relative configDir is refused loudly before any state moves', async () => {
   await assert.rejects(() => connect.start({ configDir: 'relative/place' }), /absolute/);
+});
+
+/* ── #875: a finished download is not thrown away ───────────────────────────
+   Josh, 2026-08-25: "it downloaded the whole 376MB, then i hit connect and it
+   started the whole download again". The artifact was deleted on every failure
+   path, justified by "a retry re-downloads in seconds" -- nine seconds measured
+   ON THIS MACHINE'S CONNECTION, which is not the connection of the person it
+   costs.
+   ⚠️ BOTH DIRECTIONS ARE TESTED ON PURPOSE. A reuse test alone would pass just
+   as well if the code reused ANY file it found -- which is the dead-end this
+   module already learned about, an installed launcher trusted because it passed
+   X_OK while truncated. The second test is the one that says it HASHES. */
+test('#875 a verified download is reused instead of fetched again', async (t) => {
+  const binary = crypto.randomBytes(200 * 1024);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  const hits = [];
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE =
+    await serveRelease(t, { version: '9.9.7', binary, checksum, onHit: (u) => hits.push(u) });
+  t.after(() => { delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; });
+  const binHits = () => hits.filter((u) => u.endsWith('/claude')).length;
+
+  const first = await connect.download();
+  assert.equal(first.reused, false, 'the first download cannot be a reuse');
+  assert.equal(binHits(), 1, 'the binary should have been fetched exactly once');
+
+  const seen = [];
+  const second = await connect.download((g, total) => seen.push([g, total]));
+  assert.equal(second.reused, true, 'the second call did not reuse the verified artifact');
+  assert.equal(binHits(), 1, 'the binary was fetched again despite a verified copy on disk');
+  assert.equal(second.path, first.path, 'reuse returned a different path');
+  assert.ok(fs.existsSync(second.path), 'the reused artifact is not on disk');
+  assert.ok(seen.length > 0, 'a reuse reported no progress, so the bar never completes');
+  assert.deepEqual(seen[seen.length - 1], [binary.length, binary.length],
+    'the reuse did not report a finished total, positionally like the streaming path');
+});
+
+test('#875 an artifact that fails its checksum is discarded, not reused', async (t) => {
+  const binary = crypto.randomBytes(120 * 1024);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  const hits = [];
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE =
+    await serveRelease(t, { version: '9.9.6', binary, checksum, onHit: (u) => hits.push(u) });
+  t.after(() => { delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; });
+  const binHits = () => hits.filter((u) => u.endsWith('/claude')).length;
+
+  const first = await connect.download();
+  assert.equal(binHits(), 1);
+
+  // Truncate it the way a cancelled or crashed write does: the exact shape that
+  // passed X_OK forever and dead-ended every retry.
+  fs.writeFileSync(first.path, binary.subarray(0, 1000));
+  assert.notEqual(crypto.createHash('sha256').update(fs.readFileSync(first.path)).digest('hex'),
+    checksum, 'the control did not actually corrupt the artifact');
+
+  const second = await connect.download();
+  assert.equal(second.reused, false, 'a file that fails its checksum was reused');
+  assert.equal(binHits(), 2, 'the corrupt artifact was not re-fetched');
+  assert.equal(crypto.createHash('sha256').update(fs.readFileSync(second.path)).digest('hex'),
+    checksum, 'what landed after the re-fetch is not what was served');
 });

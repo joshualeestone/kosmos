@@ -378,6 +378,20 @@ function fetchText(url, redirects, track) {
 }
 
 /** Stream a large file to disk, hashing as it lands, reporting progress. */
+/**
+ * The sha256 of a file already on disk, streamed rather than read whole: the
+ * artifact is ~281MB and reading it in one buffer would hold all of it at once.
+ */
+function sha256File(file) {
+  return new Promise((resolve, reject) => {
+    const h = crypto.createHash('sha256');
+    const rs = fs.createReadStream(file);
+    rs.on('error', reject);
+    rs.on('data', (c) => h.update(c));
+    rs.on('end', () => resolve(h.digest('hex')));
+  });
+}
+
 function fetchFile(url, dest, onProgress, redirects, track) {
   const left = redirects === undefined ? 5 : redirects;
   return new Promise((resolve, reject) => {
@@ -524,6 +538,51 @@ async function download(onProgress, track) {
     }
   } catch { /* nothing stale to clean */ }
 
+  /**
+   * ⭐ A VERIFIED ARTIFACT FROM A PREVIOUS ATTEMPT IS NOT A STALE BINARY.
+   * #875, Josh: "it downloaded the whole 376MB, then i hit connect and it
+   * started the whole download again".
+   *
+   * 🛑 THE REASON THAT WAS ALLOWED TO HAPPEN IS A MEASUREMENT FROM THE WRONG
+   * MACHINE. The deletions further down were justified with "a retry
+   * re-downloads in seconds", and the nine seconds that rests on were measured
+   * "on this machine's connection" -- the fleet Mac, not his. The trade is save
+   * 281MB of disk against re-download 281MB, and it only looks obviously right
+   * while the re-download is free. It is not free on his connection.
+   *
+   * ⚠️ AND THIS IS NOT THE DEAD-END THIS MODULE ALREADY LEARNED ABOUT. That one
+   * trusted an INSTALLED LAUNCHER because it passed X_OK while truncated, so
+   * every Try again re-ran the same broken binary and the manual fallback
+   * pointed at it too. This HASHES. It is the same sha256-against-the-manifest
+   * check the download itself is held to, run once more, and an artifact that
+   * fails it is deleted and re-fetched exactly as before. A file we cannot
+   * verify is never reused.
+   *
+   * 📌 Bounded without new bookkeeping: the loop above already deletes every
+   * other version's leftovers, so at most ONE artifact is ever kept.
+   */
+  let reused = false;
+  try {
+    if (fs.existsSync(dest)) {
+      const have = await sha256File(dest);
+      if (have === want) reused = true;
+      else { try { fs.unlinkSync(dest); } catch { /* already gone */ } }
+    }
+  } catch { /* unreadable: fall through and download; never reuse unverified */ }
+  if (reused) {
+    /* Reported as finished rather than silently skipped: the UI polls this, and
+       a progress bar that never moves reads as a hung download. */
+    try {
+      const size = fs.statSync(dest).size;
+      /* ⚠️ POSITIONAL (got, total), NOT an object. My first version passed
+         `{ bytes, total }`, which every existing caller reads as `got`
+         being undefined -- a progress bar that silently stops adding up.
+         engine/connect.test.js pins the shape: `(g, total) => ...`. */
+      if (typeof onProgress === 'function') onProgress(size, size);
+    } catch { /* progress is a courtesy, never a failure */ }
+    return { path: dest, version, reused: true };
+  }
+
   const got = await fetchFile(`${base}/${version}/${plat}/claude`, part, onProgress, undefined, track);
   activeRequest = null;
   if (got.sha256 !== want) {
@@ -532,7 +591,7 @@ async function download(onProgress, track) {
   }
   fs.chmodSync(part, 0o755);
   fs.renameSync(part, dest);
-  return { path: dest, version };
+  return { path: dest, version, reused: false };
 }
 
 /* ── the sign-in driver ──────────────────────────────────────────────────── */
@@ -829,7 +888,16 @@ async function runFlow(owner, haveBinary) {
       // same version renames to the identical path -- a stale unlink landing
       // after that rename costs the successor an honest re-download, never
       // silent corruption.)
-      try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
+      /* ⭐ THE VERIFIED ARTIFACT IS KEPT (cancelled or replaced). It used to be
+         deleted here, on the reasoning that "a retry re-downloads in seconds"
+         -- nine seconds MEASURED ON THIS MACHINE'S CONNECTION, which is not
+         the connection of the person it costs. #875: Josh watched a finished
+         376MB download start again from zero on the next click.
+         The download step above now re-hashes this file against the manifest
+         before reusing it, so a corrupt or truncated one is still discarded
+         and re-fetched; what survives is only a file we have just proved.
+         Bounded: the download step already deletes every OTHER version's
+         leftovers, so at most one artifact is ever kept. */
       return;
     }
 
@@ -857,7 +925,16 @@ async function runFlow(owner, haveBinary) {
       cancellable: true,
     });
     if (driver !== owner) {
-      try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
+      /* ⭐ THE VERIFIED ARTIFACT IS KEPT (replaced by another driver). It used to be
+         deleted here, on the reasoning that "a retry re-downloads in seconds"
+         -- nine seconds MEASURED ON THIS MACHINE'S CONNECTION, which is not
+         the connection of the person it costs. #875: Josh watched a finished
+         376MB download start again from zero on the next click.
+         The download step above now re-hashes this file against the manifest
+         before reusing it, so a corrupt or truncated one is still discarded
+         and re-fetched; what survives is only a file we have just proved.
+         Bounded: the download step already deletes every OTHER version's
+         leftovers, so at most one artifact is ever kept. */
       return;
     }
     if (!inst.ok) {
@@ -865,14 +942,32 @@ async function runFlow(owner, haveBinary) {
       // attempted version in app data, which is exactly what the deletion on
       // the success path below exists to prevent. A retry re-downloads in
       // seconds; the disk does not get the file back on its own.
-      try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
+      /* ⭐ THE VERIFIED ARTIFACT IS KEPT (the install failed). It used to be
+         deleted here, on the reasoning that "a retry re-downloads in seconds"
+         -- nine seconds MEASURED ON THIS MACHINE'S CONNECTION, which is not
+         the connection of the person it costs. #875: Josh watched a finished
+         376MB download start again from zero on the next click.
+         The download step above now re-hashes this file against the manifest
+         before reusing it, so a corrupt or truncated one is still discarded
+         and re-fetched; what survives is only a file we have just proved.
+         Bounded: the download step already deletes every OTHER version's
+         leftovers, so at most one artifact is ever kept. */
       becomeStuck(owner, 'Claude downloaded but did not finish setting itself up',
         tailOf(`${inst.stdout || ''}\n${inst.stderr || ''}`) || 'it stopped without saying why');
       return;
     }
     try { fs.accessSync(claudeBinPath(), fs.constants.X_OK); }
     catch {
-      try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
+      /* ⭐ THE VERIFIED ARTIFACT IS KEPT (the launcher was not where it should be). It used to be
+         deleted here, on the reasoning that "a retry re-downloads in seconds"
+         -- nine seconds MEASURED ON THIS MACHINE'S CONNECTION, which is not
+         the connection of the person it costs. #875: Josh watched a finished
+         376MB download start again from zero on the next click.
+         The download step above now re-hashes this file against the manifest
+         before reusing it, so a corrupt or truncated one is still discarded
+         and re-fetched; what survives is only a file we have just proved.
+         Bounded: the download step already deletes every OTHER version's
+         leftovers, so at most one artifact is ever kept. */
       becomeStuck(owner, 'Claude said it set itself up, but we cannot find it where it should be',
         `expected it at ${claudeBinPath()}`);
       return;
