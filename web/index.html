@@ -13049,8 +13049,13 @@ function paintOrg() {
     /* ⚠️ NOT "nobody reports to anybody": an empty board and a board we have
        not read yet are different, and BOARD_SEEN is the only thing that knows.
        This product's own rule, on a screen that would otherwise draw a lone
-       hub and look complete. */
-    note.textContent = BOARD_SEEN ? 'No agents on this computer yet.' : 'Looking…';
+       hub and look complete.
+       ⚠️ And the noun is "in Kosmos", never "on this computer". We cannot see
+       the computer: discover.js skips an agent with no transcript, and the
+       line above drops one with no sessionName. Both are real agents someone
+       made. "On this computer" is a reading that can be false; what we set up
+       is a record that cannot. */
+    note.textContent = BOARD_SEEN ? 'No agents set up in Kosmos yet.' : 'Looking…';
     // Same correction as the failure path: the container, never its children.
     document.getElementById('orgmap').innerHTML = '';
     ORG_HTML = null;
