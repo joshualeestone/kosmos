@@ -7460,7 +7460,13 @@ test('the search is wired: pack markup verbatim, instant repaint, reset on switc
     "project B's first no-match announce would be skipped against A's stale flag");
   const paint = pageFnSource('paintRoom');
   assert.ok(paint.includes('pjRoomFilterRows('), 'paintRoom no longer filters');
-  assert.ok(paint.includes('if (!filtering) box.scrollTop'), 'a filtered paint scrolls the reader to the tail');
+  /* ⚠️ MATCHED LOOSELY ON PURPOSE. This read `includes('if (!filtering) box.scrollTop')`
+     and went red when #1037 added a second statement to that branch, so it was
+     asserting the BRACE STYLE of a line whose behaviour had not changed. The
+     guard is the condition; how many statements sit under it is not this test's
+     business. */
+  assert.match(paint, /if \(!filtering\)\s*\{?\s*box\.scrollTop/,
+    'a filtered paint scrolls the reader to the tail');
   // The no-match state is HER sentence (ruled 10:16 PM): names the
   // query, says the way out.
   assert.ok(paint.includes('esc(pjNoMatchSentence(PJ_ROOM_QUERY))'),
