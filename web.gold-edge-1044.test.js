@@ -1,7 +1,21 @@
 'use strict';
 
 /**
- * kosmos#1044: the edge of a gold primary button is a contrast floor.
+ * kosmos#1044, REVERSED BY JOSH 2026-08-26 22:05: the gold primary button has
+ * NO edge, and this file now pins that decision instead of the opposite one.
+ *
+ * His words, on seeing it live: "I never asked for that. All the gold buttons
+ * are supposed to be just like they are on the style guide and the pack design
+ * that Mona Lisa designed, where it's just a nice bright gold button with black
+ * text." It was on the post and send button of every page.
+ *
+ * ⭐ THE MEASUREMENTS BELOW ARE KEPT ON PURPOSE, and that is the point of not
+ * deleting this file. The edge was a real contrast floor, so the revert has a
+ * real cost, and whoever proposes another way to carry it should start from
+ * numbers that are already derived rather than measuring it a third time. What
+ * changed is whose call it is, not whether the arithmetic was right.
+ *
+ * The original reasoning, still true and now unapplied:
  *
  * `.uprime` painted its border the same colour as its fill, so the control's
  * whole visual boundary measured 1.95:1 against a white card -- under the 3:1
@@ -69,9 +83,32 @@ test('the control: the fill colour would still fail as an edge', () => {
     `--gold-bright now measures ${r.toFixed(2)}:1 on a white card. Either the brand gold changed, or this control is no longer testing anything -- re-derive it rather than deleting it.`);
 });
 
-test('the edge is a token, not a literal, and both themes define it', () => {
-  assert.match(PAGE, /border-color: var\(--gold-edge\)/,
-    'the uprime border went back to a literal, so the two themes cannot differ and one of them fails');
+test('both themes still define the token, so the evidence survives the revert', () => {
   assert.notEqual(LIGHT_EDGE.toLowerCase(), DARK_EDGE.toLowerCase(),
-    'light and dark share one edge colour; no single value clears 3:1 on both, so one theme is failing');
+    'light and dark share one edge colour; no single value clears 3:1 on both, so a future proposal that reuses this token would fail one theme');
+});
+
+/* 🛑 JOSH'S DECISION, PINNED. This is the assertion that used to say the
+   opposite. It is here so the edge cannot come back by way of an accessibility
+   sweep that has not read this file: the fix is real, and it is still not ours
+   to re-apply on his brand without him. */
+test('the gold primary carries NO edge: its border matches its fill', () => {
+  const rule = PAGE.match(/^button\.uprime, \.btn\.uprime, [^\n]*\{[^}]*\}/m);
+  assert.ok(rule, 'the .uprime rule is gone; this test now checks nothing');
+  assert.doesNotMatch(rule[0], /--gold-edge/,
+    'the gold edge is back on .uprime. Josh reverted it by name on 2026-08-26; it needs HIM, not a sweep.');
+  assert.match(rule[0], /border-color: var\(--gold-bright\)/,
+    'the border is neither the fill nor the edge token, so the button has an outline nobody chose');
+});
+
+/* ⭐ THE SECOND DEFECT IN THE SAME REPORT, and it was not the edge: "when I
+   mouse over it, it turns a light gray". .uprime had no hover of its own, so
+   the generic .btn:hover repainted the primary action --attn-bg. */
+test('hovering the gold primary keeps it gold', () => {
+  assert.match(PAGE, /button\.uprime:hover[^{]*\{[^}]*background: var\(--gold\)/,
+    'the gold primary has no hover of its own again, so .btn:hover paints it grey under the pointer');
+  /* The control: the generic hover that would otherwise win must still exist,
+     or this pin is guarding against nothing. */
+  assert.match(PAGE, /\.btn:hover \{ background: var\(--attn-bg\)/,
+    'the generic .btn:hover is gone, so the rule above is no longer protecting anything -- re-derive this');
 });
