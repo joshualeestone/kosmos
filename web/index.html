@@ -6099,6 +6099,21 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          it, never logs it, never puts it in a URL. The field is a
          password field so the screen does not show it unless asked. -->
     <div id="acct-openai-flow" hidden style="margin-top: var(--space-5);">
+      <!-- 🛑 THE PREREQUISITE IS STEP ONE, NOT A REFUSAL AFTER THE FACT
+           (kosmos#979). Picking OpenAI on a Mac with no runner used to accept a
+           key, submit it, and answer "we could not find the OpenAI runner on
+           this computer" -- a dead end reached only after the person had found
+           an API key and pasted it. The first-run wizard already learned this:
+           prerequisites go before credentials.
+           📌 The engine half was already there and unread. Angel's own comment
+           on `/api/runners` said "nothing in web/ or native-app/ reads this
+           yet". This is the consumer. -->
+      <div id="acct-openai-install" hidden>
+        <p class="dhint" style="margin:0 0 8px;">Kosmos needs the OpenAI runner on this computer before a key is any use. It is a one-time download.</p>
+        <div class="frow"><button class="btn uprime" id="acct-openai-install-go" type="button">Download and install it</button></div>
+        <p class="dhint" id="acct-openai-install-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+      </div>
+      <div id="acct-openai-key-step">
       <p class="dhint" style="margin:0 0 8px;">Paste an OpenAI API key. It stays on this Mac with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
       <div class="frow">
         <input type="password" id="acct-openai-key" autocomplete="new-password" spellcheck="false"
@@ -6126,6 +6141,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         apart from another one later.</p>
       <div class="frow" style="margin-top:12px;">
         <button class="btn uprime" id="acct-openai-go" type="button">Add</button>
+      </div>
       </div>
       <p class="dhint" id="acct-openai-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
     </div>
@@ -11929,15 +11945,96 @@ document.getElementById('acct-add').addEventListener('click', async () => {
    other; nothing is shown until a choice is made, except that a Claude
    sign-in already in flight picks Claude on its own (acctFlowPaint), so a
    reload lands the person back on the step they were on. */
+/* kosmos#979: which step the OpenAI form opens on. `null` means we could not
+   look, and that is NOT the same as "missing" -- an unreachable board must not
+   send somebody to install a runner they may already have. Unknown shows the
+   key step, which is the state this form has always opened in. */
+let ACCT_OPENAI_READY = null;
+let ACCT_OPENAI_POLL = null;
+function acctOpenaiStep(present) {
+  const inst = document.getElementById('acct-openai-install');
+  const keys = document.getElementById('acct-openai-key-step');
+  if (!inst || !keys) return;
+  const missing = present === false;
+  inst.hidden = !missing;
+  keys.hidden = missing;
+}
+async function acctOpenaiLook() {
+  try {
+    const r = await (await fetch('/api/runners', { cache: 'no-store' })).json();
+    const o = r && r.runners && r.runners.openai;
+    ACCT_OPENAI_READY = o ? !!o.present : null;
+    return o || null;
+  } catch { ACCT_OPENAI_READY = null; return null; }
+}
+function acctOpenaiStop() {
+  if (ACCT_OPENAI_POLL) { clearInterval(ACCT_OPENAI_POLL); ACCT_OPENAI_POLL = null; }
+}
+/* ⚠️ THE JOB'S OWN PHASE, not a guess from elapsed time. A runner that fails to
+   install must say so and offer the button again, or the panel sits on
+   "installing" for ever -- the stale-screen family this card belongs to. */
+function acctOpenaiWatch() {
+  acctOpenaiStop();
+  const msg = document.getElementById('acct-openai-install-msg');
+  const go = document.getElementById('acct-openai-install-go');
+  ACCT_OPENAI_POLL = setInterval(async () => {
+    const o = await acctOpenaiLook();
+    if (!o) return;
+    if (o.present) {
+      acctOpenaiStop();
+      if (msg) msg.textContent = '';
+      acctOpenaiStep(true);
+      const k = document.getElementById('acct-openai-key');
+      if (k) k.focus();
+      return;
+    }
+    const job = o.job || {};
+    if (job.phase === 'failed') {
+      acctOpenaiStop();
+      if (msg) msg.textContent = job.because ? pjSentence(job.because) : 'That install did not finish. Nothing changed; you can try again.';
+      if (go) go.disabled = false;
+      return;
+    }
+    if (msg) msg.textContent = 'Installing…';
+  }, 1200);
+}
 function acctPick(which, opts) {
   const sel = document.getElementById('acct-provider-pick');
   if (sel.value !== which) sel.value = which;
   document.getElementById('acct-claude-flow').hidden = which !== 'claude';
   document.getElementById('acct-openai-flow').hidden = which !== 'openai';
+  if (which !== 'openai') { acctOpenaiStop(); return; }
+  /* Ask every time the form opens rather than caching: a runner can arrive or
+     leave between visits, and this dialog deliberately remembers nothing. */
+  acctOpenaiStep(ACCT_OPENAI_READY);
+  acctOpenaiLook().then((o) => {
+    acctOpenaiStep(ACCT_OPENAI_READY);
+    if (o && !o.present && o.job && o.job.phase && o.job.phase !== 'failed') acctOpenaiWatch();
+    if (opts && opts.focus === false) return;
+    const el = ACCT_OPENAI_READY === false
+      ? document.getElementById('acct-openai-install-go')
+      : document.getElementById('acct-openai-key');
+    if (el) el.focus();
+  });
   if (opts && opts.focus === false) return;
-  if (which === 'openai') document.getElementById('acct-openai-key').focus();
   if (which === 'claude') document.getElementById('acct-add').focus();
 }
+document.getElementById('acct-openai-install-go').addEventListener('click', async (e) => {
+  const go = e.currentTarget;
+  const msg = document.getElementById('acct-openai-install-msg');
+  go.disabled = true;
+  if (msg) msg.textContent = 'Starting…';
+  try {
+    const res = await fetch('/api/runners/openai/install', { method: 'POST' });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not start that install');
+    if (msg) msg.textContent = 'Installing…';
+    acctOpenaiWatch();
+  } catch (err) {
+    go.disabled = false;
+    if (msg) msg.textContent = String((err && err.message) || 'We could not start that install.');
+  }
+});
 document.getElementById('acct-provider-pick').addEventListener('change', (e) => {
   const which = e.target.value;
   if (which === 'claude' || which === 'openai') { acctPick(which); return; }
@@ -12012,7 +12109,11 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
       body: JSON.stringify({ key, label: labelField.value.trim() || undefined }),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not add that account');
+    if (!res.ok) {
+      const e = new Error((out && (out.error || out.because)) || 'we could not add that account');
+      e.needsRunner = !!(out && out.needsRunner);
+      throw e;
+    }
     // The key leaves the field the moment it is stored: nothing on screen keeps it.
     keyField.value = '';
     labelField.value = '';
@@ -12021,6 +12122,11 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
     await paintAccounts();
   } catch (err) {
     msg.textContent = String((err && err.message) || 'We could not add that account.');
+    /* kosmos#979: the runner can go missing between opening this form and
+       pressing Add. The engine answers `needsRunner` for exactly that, so the
+       install step is revealed IN PLACE rather than leaving a refusal sentence
+       with nothing to do about it. */
+    if (err && err.needsRunner) { ACCT_OPENAI_READY = false; acctOpenaiStep(false); }
   } finally {
     go.disabled = false;
   }
