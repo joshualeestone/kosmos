@@ -197,4 +197,53 @@ function resolve(token, roster) {
   return { ok: false, because: 'we could not match that to one of your agents' };
 }
 
-module.exports = { mint, revoke, retire, live, resolve, DIR, MAX_LIVE };
+/**
+ * Which agent does this token belong to, WITHOUT asking the roster?
+ *
+ * 🛑 WHY THIS EXISTS SEPARATELY FROM `resolve`. `resolve` ends by finding the
+ * agent's CARD in the roster, and the roster is built from `tmux list-panes`.
+ * That is correct for every caller that needs to know an agent is a live,
+ * tied, listable member -- which is every caller today.
+ *
+ * ⚠️ IT IS EXACTLY WRONG FOR THE ONE CALLER THAT IS TRYING TO ESTABLISH THAT
+ * AN AGENT EXISTS AT ALL. A machine with no tmux produces no panes, so no
+ * cards, so a PERFECTLY VALID token resolves to nothing -- and the heartbeat
+ * whose whole job is to say "I am here" cannot say it. Chicken and egg,
+ * and this is the egg.
+ *
+ * 🔑 THE TOKEN STORE IS ALREADY A ROSTER OF AGENTS-BY-CREDENTIAL, and unlike
+ * the pane roster it does not care how the agent is run. This exposes that
+ * reading without inventing a second source of truth for it.
+ *
+ * ⚠️ THE DISCLOSURE PROPERTY OF `resolve` IS PRESERVED, DELIBERATELY. Its
+ * comment says a known token with no card "must read the same as a token we
+ * never issued", because a distinct message would confirm the token was once
+ * real. Every refusal below is the SAME SENTENCE for the same reason: not
+ * issued, retired, unreadable store -- one answer.
+ *
+ * 📌 A RETIRED TOKEN CANNOT PASS. `readTokens` returns only currently-held
+ * tokens, so `retire`/`revoke` remain the way an agent is cut off, and they
+ * work on this path exactly as they do on `resolve`.
+ */
+function resolveName(token) {
+  const presented = String(token == null ? '' : token).trim();
+  const no = { ok: false, because: 'we could not match that to one of your agents' };
+  if (!presented) {
+    return { ok: false, because: 'we cannot tell which agent is sending this (no sender token was presented)' };
+  }
+  let names;
+  try { names = fs.readdirSync(DIR).filter((f) => f.endsWith('.json')); } catch { return no; }
+  for (const f of names) {
+    const key = f.slice(0, -'.json'.length);
+    let held;
+    try { held = readTokens(key); } catch { continue; }
+    const hit = held.find((t) => sameToken(t.token, presented));
+    if (!hit) continue;
+    /* The filename IS the safeKey'd session name; that is the mapping `mint`
+       wrote and the only name this store knows. */
+    return { ok: true, key, instance: hit.instance || null };
+  }
+  return no;
+}
+
+module.exports = { mint, revoke, retire, live, resolve, resolveName, DIR, MAX_LIVE };
