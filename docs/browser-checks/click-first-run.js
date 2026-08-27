@@ -99,7 +99,24 @@ async function fresh(browser, opts = {}) {
       () => document.querySelectorAll('#fr-checks .fr-check').length >= 3,
       null, { timeout: 5000 },
     ).catch(() => {});   // a timeout here is the ok() below's to report, not a throw
-    ok((await page.locator('#fr-checks .fr-check').count()) === 3, 'three checks painted from the live route (app-location rides on the Success screen, not among them)');
+    /* 🛑 THIS ASSERTED === 3 AND THE PRODUCT HAS RETURNED 4 SINCE 2026-08-23.
+       The assertion was written 2026-08-11 (cb28d7c2). `labelTruthCheck` was
+       added to `machine.check()` on 08-23 (ceb1380c, #468), making the array
+       installedCheck / sleepRow / restartCheck / labelTruthCheck. Twelve days
+       stale, and nobody saw it because this check is not wired into the suite.
+       ⭐ AND THE COUNT WAS ONLY EVER A PROXY. What its own parenthetical cares
+       about is that APP-LOCATION IS NOT ONE OF THESE ROWS -- machine.js returns
+       it as its own field, deliberately, because where the app sits has no
+       bearing on whether an agent runs, and folding it in once made the wizard
+       state a false cause. So the concern is asserted DIRECTLY, and a fifth
+       check landing tomorrow no longer reads as a defect.
+       📌 The floor stays: fewer than three rows means the live route did not
+       paint, which is the silent-skip this file rejects everywhere else. */
+    const rows = await page.locator('#fr-checks .fr-check').allTextContents();
+    ok(rows.length >= 3, `the live route painted its rows (saw ${rows.length})`);
+    ok(!rows.some((t) => /Kosmos icon/i.test(t)),
+      'app-location is NOT among the step-4 rows; it rides on the Success screen'
+      + ` (rows: ${rows.map((t) => t.replace(/\s+/g, ' ').trim().slice(0, 28)).join(' | ')})`);
     await page.click('#fr-next');
     // Step 5, About you. The gate IS the design (no skip, at Josh's call):
     // Continue WAITS on the two required answers, and the third is optional.
