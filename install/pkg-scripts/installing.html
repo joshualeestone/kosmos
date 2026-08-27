@@ -43,7 +43,12 @@
   <div class="bar" id="bar" role="progressbar" aria-label="Installing"><i></i></div>
   <h1 id="title">Installing Kosmos</h1>
   <p id="steps">Setting up. This usually takes a minute or two.</p>
-  <p class="muted" id="hint">Nothing to do. This page becomes your dashboard when Kosmos is ready.</p>
+  <!-- "Nothing to do." deleted (Josh, 2026-08-26 22:05, item 4). The rest of the
+       line stays: it is the one sentence that tells a person what this page
+       BECOMES, which is why they should leave it open. The element and its id
+       stay too -- line 322 hides #hint when the install finishes, and removing
+       the node would make that a null. -->
+  <p class="muted" id="hint">This page becomes your dashboard when Kosmos is ready.</p>
   <p id="late">Still going. A slow download can take a few minutes; the installer window will say if something went wrong.</p>
   <div id="taken">
     <!-- #867 (Josh, 2026-08-25 15:20): "the odds of something else actually
