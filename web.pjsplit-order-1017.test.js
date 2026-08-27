@@ -42,6 +42,14 @@ test('the markup reads Files then Members, so tab order matches the eye', () => 
 });
 
 test('nothing selects the split cards by position', () => {
+  /* 🔑 A FLOOR ON THE POPULATION, per Angel (2026-08-26 20:01): a check that
+     COUNTS OCCURRENCES and asserts zero says "I looked and found none" and "I
+     did not look" in the same words. Without this a renamed class, a broken
+     read or a changed spelling finds nothing, reports clean, and the check
+     quietly stops being a check. */
+  const rules = (PAGE.match(/\.pjsplit/g) || []).length;
+  assert.ok(rules >= 5,
+    `only ${rules} .pjsplit references found. This low means the class was renamed and this scan is looking for something that no longer exists`);
   const bad = PAGE.split('\n')
     .map((line, i) => [i + 1, line])
     .filter(([, l]) => /\.pjsplit[^{]*\.pjcard:(first|last)-child/.test(l));

@@ -22,6 +22,14 @@ const fs = require('node:fs');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 
 test('no provider mark paints itself black past the theme', () => {
+  /* 🔑 A FLOOR ON THE POPULATION, per Angel (2026-08-26 20:01): a check that
+     COUNTS OCCURRENCES and asserts zero says "I looked and found none" and "I
+     did not look" in the same words. Without this a renamed class, a broken
+     read or a changed spelling finds nothing, reports clean, and the check
+     quietly stops being a check. */
+  const marks = (PAGE.match(/class="[^"]*\bpmark\b[^"]*"/g) || []).length;
+  assert.ok(marks >= 3,
+    `only ${marks} provider marks found. A number this low means the class or the read changed, and a scan that finds nothing reports CLEAN`);
   const bad = PAGE.split('\n')
     .map((l, i) => [i + 1, l])
     .filter(([, l]) => /pmark/.test(l))

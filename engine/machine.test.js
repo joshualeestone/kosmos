@@ -1002,6 +1002,14 @@ test('labelTruthCheck: a registered Kosmos label pointing anywhere but its real 
    exactly the failure this test exists to stop. */
 test('no live sentence in this file still says "this Mac"', () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'machine.js'), 'utf8');
+  /* 🔑 A FLOOR ON THE POPULATION, per Angel (2026-08-26 20:01): a check that
+     COUNTS OCCURRENCES and asserts zero says "I looked and found none" and "I
+     did not look" in the same words. Without this a renamed class, a broken
+     read or a changed spelling finds nothing, reports clean, and the check
+     quietly stops being a check. */
+  const positives = (src.match(/this computer/g) || []).length;
+  assert.ok(positives >= 8,
+    `only ${positives} "this computer" sentences found. The rename produced twelve; this low means the wording changed or the file being read is not the one that matters, and an absence check on an unread file always passes`);
   const live = src.split('\n')
     .map((line, i) => [i + 1, line])
     .filter(([, line]) => line.includes('this Mac'))
