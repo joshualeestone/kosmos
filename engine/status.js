@@ -2627,17 +2627,51 @@ function readIdentity(sessionName) {
  * Returns null when the file does not introduce an agent at all, which is the
  * honest answer for a CLAUDE.md that is project notes rather than an identity.
  */
+/**
+ * 🛑 TWO ALTERNATIVES, AND THE BOLD ONE IS UNCHANGED ON PURPOSE (kosmos#1078).
+ * Josh asked for the exact `You are **Name**` requirement dropped, because a
+ * person hand-writing an instruction file has no way to know the asterisks are
+ * load-bearing. Import exists FOR that person: every file Kosmos writes gets the
+ * bold line from `engine/create.js`, so the parser has only ever read files its
+ * own generator wrote, which is why nobody has hit this.
+ *
+ * ⚠️ THE OBVIOUS LOOSENING IS DANGEROUS AND WAS MEASURED, NOT ARGUED. Accepting
+ * "what a person plausibly writes" -- anything up to the comma -- takes
+ * "You are talking to a person running a business, not an engineer.", which is
+ * in THIS REPO at engine/defaults.js:179, in the working-rules block Kosmos
+ * writes into agent instructions. That parser would find a false agent inside
+ * our own defaults, on every machine where they have been applied.
+ * ⭐ A WRONG LIST IS USED; AN EMPTY ONE IS QUESTIONED.
+ *
+ * 🔑 SO THE PLAIN-PROSE ARM IS ANCHORED ON CAPITALISATION: one to three
+ * Capitalised words. "Nevaeh" and "Mona Lisa" pass; "talking to a person",
+ * "an expert in Rust", "the assistant", "working in a monorepo" and "not alone"
+ * do not, because none of them starts with a capital.
+ *
+ * 🛑 AND THE BOLD ARM KEEPS TAKING ANYTHING, which is not laziness: existing
+ * agents are named `rep-own` and `side-quests`, and a template writes
+ * `You are **{{NAME}}**`. Requiring a capital in the bold arm would have
+ * un-found agents that are found today. Only the UNBOLD case is new.
+ *
+ * ⚠️ MEASURED ON 92 REAL CLAUDE.md FILES: strict finds 13, this finds the same
+ * 13, zero new and zero false. It adds nothing ON THIS MACHINE, and it cannot,
+ * because every file here came from one generator. Its value is only visible on
+ * a machine with a hand-written file, which is exactly the machine import is for.
+ */
+const IDENTITY_RE = /You are (?:\*\*([^*]+)\*\*|([A-Z][\w.'-]*(?: [A-Z][\w.'-]*){0,2}))(?:\s*\(([^)]+)\))?\s*,?\s*([^.\n]*)/;
+
 function identityFromText(text) {
-  const m = String(text || '').match(/You are \*\*([^*]+)\*\*(?:\s*\(([^)]+)\))?\s*,?\s*([^.\n]*)/);
+  const m = String(text || '').match(IDENTITY_RE);
   if (!m) return null;
-  let role = (m[3] || '')
+  const name = m[1] !== undefined ? m[1] : m[2];
+  let role = (m[4] || '')
     .replace(/\*\*/g, '')          // instruction files are markdown; strip emphasis
     .replace(/^(the|a|an)\s+/i, '')
     .replace(/^Josh Stone's\s+/i, '')
     .split(/\s+in the\s+|,/)[0]
     .trim();
   if (role.length > 60) role = role.slice(0, 60).trim();
-  return { displayName: m[1].trim(), role: role || null };
+  return { displayName: String(name).trim(), role: role || null };
 }
 
 function safeAvatar(name) {
