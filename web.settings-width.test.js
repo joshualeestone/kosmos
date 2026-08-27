@@ -11,6 +11,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const { codeOnly } = require('./test-support/code-only');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 
 test('the settings body is the nav and one 34rem column, centred; narrow windows get the fluid column back', () => {
@@ -59,7 +60,7 @@ test('the agent detail header matches .dbody’s own width so it does not disagr
 });
 
 test('You is Your Profile: one-size picture buttons, no disclaimer by default, a short name field, a yellow Save', () => {
-  const body = PAGE.replace(/<!--[\s\S]*?-->/g, '');
+  const body = codeOnly(PAGE);
   assert.match(body, /data-go="you" aria-controls="s-sec-you" class="on" aria-current="true">Your Profile<\/button>/);
   assert.match(body, /id="s-sec-you" data-sec="you" tabindex="-1" aria-label="Your Profile"/);
   assert.match(body, /<h3 class="dlab">Your Profile<\/h3>/);

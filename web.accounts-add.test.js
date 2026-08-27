@@ -9,6 +9,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const { codeOnly } = require('./test-support/code-only');
 
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 
@@ -37,7 +38,7 @@ test('the door into the add-a-provider dialog is in the section, and the dialog 
   assert.match(modal, /id="acct-add"(?![^>]*\bdisabled)/, 'the add-account button shipped disabled');
   /* Rule 2, asserted on the rendered markup region, comments stripped so a
      recorded history cannot satisfy or fail a copy pin. */
-  const rendered = modal.replace(/<!--[\s\S]*?-->/g, '');
+  const rendered = codeOnly(modal);
   assert.ok(!rendered.includes('CLAUDE_CONFIG_DIR'), 'an environment variable reached user-facing copy');
   assert.ok(!/<code>[^<]*claude[^<]*<\/code>/i.test(rendered), 'a shell command survives in the copy');
 });
@@ -64,7 +65,7 @@ test('the code row appears only when the flow awaits a code, and a reason emptie
 
 
 test('#727/#770: one provider at a time, a key field the row sizes, an exit at button size, and a stopped receipt', () => {
-  const modal = acctAddModal().replace(/<!--[\s\S]*?-->/g, '');
+  const modal = codeOnly(acctAddModal());
   // #770: the picker is a dropdown now (Josh's word), not the two-button
   // toggle -- Claude and OpenAI live, everything else listed and disabled
   // so people can see what is coming.
