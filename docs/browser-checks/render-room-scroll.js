@@ -286,6 +286,42 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     if (consSent.gap <= 8) ok('consolidated: after SENDING, the person can see their own message');
     else bad('consolidated: after SENDING, the person can see their own message', consSent.gap + 'px below the fold');
 
+    /* ---- 6. CONTENT ARRIVING WITHOUT A NEW POST, which is Josh's remaining
+       two triggers. "As soon as the agent starts typing" and "every 30 seconds
+       or so" are both repaints that GROW the thread while the message ids stay
+       the same: an unanswered marker appearing under a post, a relabelled
+       timestamp, a delivery verdict. paintRoom repositions only when the POST
+       LIST changes, so a reader sitting on the floor is left above whatever
+       just arrived, having touched nothing. */
+    const grew2 = await p.evaluate(async () => {
+      const el = document.getElementById('pj-room');
+      el.scrollTop = el.scrollHeight;
+      await new Promise((r) => setTimeout(r, 80));
+      const before = { gap: el.scrollHeight - el.scrollTop - el.clientHeight, h: el.scrollHeight };
+      const body = JSON.parse(JSON.stringify(el.__lastBody));
+      /* An unanswered marker under the newest post: new MARKUP, same ids. */
+      const rows = (body.rows || []).filter((r) => r.kind === 'post');
+      const last = rows[rows.length - 1];
+      if (!last) return { error: 'no posts to mark' };
+      body.unanswered = Object.assign({}, body.unanswered || {});
+      body.unanswered[last.id] = ['roomer'];
+      const liveBefore = el.__lastLive;
+      window.paintRoom(body);
+      await new Promise((r) => setTimeout(r, 150));
+      return { before, rewrote: el.__lastLive !== liveBefore,
+        after: { gap: el.scrollHeight - el.scrollTop - el.clientHeight, h: el.scrollHeight } };
+    });
+    if (grew2.error) bad('a line arriving under the newest post keeps the reader on the floor', grew2.error);
+    else {
+      if (!grew2.rewrote) bad('THE ARRIVING LINE ACTUALLY REPAINTED', 'setLive skipped the write, so the arm below proves nothing');
+      else ok('THE ARRIVING LINE ACTUALLY REPAINTED');
+      if (grew2.after.h > grew2.before.h) ok('CONTROL: the thread really did grow (' + grew2.before.h + ' -> ' + grew2.after.h + ')');
+      else bad('CONTROL: the thread really did grow', 'nothing was added, so the arm below tests nothing: ' + JSON.stringify(grew2));
+      if (grew2.after.gap <= 8) ok('a line arriving under the newest post keeps the reader on the floor');
+      else bad('a line arriving under the newest post keeps the reader on the floor',
+        grew2.after.gap + 'px below the fold. This is Josh\'s "agent starts typing" / "every 30 seconds" trigger.');
+    }
+
   } catch (e) {
     bad('the check itself', String((e && e.message) || e));
   } finally {
@@ -294,7 +330,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
   }
 
   if (errs.length) bad('no page errors', errs.join(' | ')); else ok('no page errors');
-  if (ran < 15) { console.log('room-scroll: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 18) { console.log('room-scroll: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('room-scroll: ' + failures + ' FAILED'); process.exit(1); }
   console.log('room-scroll: all good, ' + ran + ' checks');
 })();

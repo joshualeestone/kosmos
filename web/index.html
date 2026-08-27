@@ -4593,6 +4593,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            line-height: 1.5; margin-top: var(--space-6);
            padding: var(--space-5) var(--space-6); border-radius: 10px;
            background: var(--attn-bg); }
+/* #996: the advanced escape hatch, quiet by construction. It is an aside for
+   somebody who already has the tool, never a step in the flow. */
+.fr-hatch { margin-top: 8px; }
+.fr-hatch > summary { cursor: pointer; font-size: .8125rem; color: var(--label-2); }
+.fr-hatch > summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 /* Step 4 -- about you. Same control look as the project form's field. */
 .fr-youfield { margin-top: var(--space-5); }
 .fr-youfield label { display: block; font: var(--text-callout) var(--font-ui);
@@ -24606,6 +24611,13 @@ function paintRoom(body) {
         ? '<p class="fhint" style="margin:0;">Nothing here yet. Post below and everyone on this project receives it; use @name to hand someone a request.</p>'
         : '<p class="fhint" style="margin:0;">Put an agent on this project and the room opens.</p>'));
   const html = note + (rows || empty);
+  /* 🛑 MEASURED BEFORE THE WRITE, NOT READ OFF A FLAG. Whether the person is on
+     the floor is a fact about the DOM as it stands right now, and the markup is
+     about to be replaced. holdFloorOnResize keeps a flag for the resize case,
+     but that one is learned from the async `scroll` event and can be a task
+     behind; here we are standing in front of the thing, so we ask it. */
+  const onFloorBefore = box.clientHeight > 0
+    && (box.scrollHeight - box.scrollTop - box.clientHeight) <= THREAD_BOTTOM_SLACK;
   if (box.__lastRoom !== html) {
     /* New rows while the room is on screen are read as they land; a tab in
        the background is not looking, so its cursor waits for the person. */
@@ -24629,6 +24641,20 @@ function paintRoom(body) {
          re-pin and the newest messages go under the fold. We know the answer
          synchronously right here, so we say so. */
       if (!filtering) { box.scrollTop = box.scrollHeight; box.__wasOnFloor = true; }
+    } else if (onFloorBefore && !filtering) {
+      /* 🛑 JOSH'S REMAINING TWO TRIGGERS (#1037): "as soon as the agent starts
+         typing" and "every 30 seconds or so". Neither is a new post. An
+         unanswered marker appearing under a message, a relabelled timestamp, a
+         delivery verdict: all of them GROW the thread while the message ids
+         stay identical, so the key does not change and nothing repositioned
+         anybody. MEASURED: the thread went 2690 to 2724 and a reader sitting on
+         the floor was left 34px below the fold, having touched nothing.
+         ⭐ Being on the floor means following the tail, so a repaint that adds
+         to the tail keeps them there. Only for someone who was ALREADY on it:
+         a person reading history is left exactly where they are, which is what
+         the rest of this function is for. */
+      box.scrollTop = box.scrollHeight;
+      box.__wasOnFloor = true;
     }
   }
 }
@@ -28111,13 +28137,33 @@ function frPaintConnect(st) {
      * is true whether or not there is a fallback, and it is the sentence doing
      * the most work for somebody stuck on step 3 of six.
      */
-    + '<div class="fr-note">Nothing is broken by this. You can try again'
+    /**
+     * 🛑 THE WIZARD NO LONGER INSTRUCTS ANYBODY TO OPEN A TERMINAL (#996 item 1).
+     * The north star is that someone non-technical gets from nothing to a
+     * working agent WITHOUT one, and this sentence fired at the least technical
+     * moment in the product: step 3 of six, on a first run, to a person who has
+     * installed Kosmos, connected nothing, and just watched it fail. For them
+     * the escape hatch was a wall with a helpful sign on it.
+     *
+     * ⭐ THE HATCH IS KEPT, NOT DELETED, because for somebody who does have a
+     * Terminal it is a real way through and removing it would trade one group's
+     * problem for another's. What changed is who it addresses: both branches now
+     * say the same plain thing, and the command sits behind a disclosure that
+     * names the tool it needs, closed, so nobody is told to do something they
+     * cannot do.
+     *
+     * 📌 STILL GATED ON canRunClaude, which the engine asks of the DISK. Three
+     * of the five stuck causes mean the program was never installed, and
+     * offering the command there answers `command not found` at exactly the
+     * wrong moment (#205).
+     */
+    + '<div class="fr-note">Nothing is broken by this. You can try again, '
+    + 'or carry on and connect later from Settings.'
     + ((st && st.canRunClaude)
-      ? ', or connect without Kosmos: open Terminal, type <b>claude</b>, and follow its '
-        + 'sign-in. Then come back and press Try again to check.'
-      /* Nothing to run, so nothing is suggested. Continue anyway is drawn below
-         and is the honest way forward from here. */
-      : ', or carry on and connect later from Settings.')
+      ? '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
+        + 'You can sign in to Claude outside Kosmos: open Terminal, type <b>claude</b>, '
+        + 'and follow its sign-in. Then come back and press Try again.</details>'
+      : '')
     + '</div>';
     frActions({ label: 'Try again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(4) });
     return;
