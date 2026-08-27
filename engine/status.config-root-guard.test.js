@@ -51,6 +51,18 @@ test('A: a sandboxed data dir with a real HOME is diverted away from the real ro
     'no real config root may survive the diversion');
 });
 
+test('A2: /tmp counts too, because it is not os.tmpdir() on macOS', () => {
+  /* This arm exists because the guard did NOT catch it at first. os.tmpdir()
+     here is /var/folders/.../T, so a board I sandboxed to /tmp read the real
+     machine and announced "We found 17 agents on this Mac". A guard that
+     covers one temp root and not the other is the half-isolation shape:
+     the half that is done is what stops anyone checking the other half. */
+  const got = roots({ AGENT_WORKFORCE_DATA: '/tmp/aw-guard-test-tmp/data' });
+  assert.equal(got.length, 1);
+  assert.ok(got[0].includes('no-config-root-sandbox'),
+    `a /tmp data dir must divert too, got ${got[0]}`);
+});
+
 test('B: CONTROL, an ordinary run still reads the real roots', () => {
   // Without this the suite could pass with a guard that blinded everybody.
   const got = roots({});

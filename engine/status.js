@@ -87,8 +87,31 @@ function configRoots() {
      asserts the import found real agents, this guard is what fails it, and
      the fix is to set AGENT_WORKFORCE_CONFIG_ROOT deliberately rather than
      to widen the condition. */
-  const tmp = os.tmpdir();
-  const under = (d) => !!d && path.resolve(d).startsWith(path.resolve(tmp) + path.sep);
+  /* ⚠️ `/tmp` IS NOT `os.tmpdir()` ON macOS, and keying on one of them
+     alone leaves the other wide open. os.tmpdir() here is /var/folders/.../T,
+     so a fixture sandboxed to /tmp was NOT caught: my own board did exactly
+     that and reported "We found 17 agents on this Mac". I only saw it because
+     of the seen-text I had added to the assertion minutes earlier. Both roots
+     count, and they are resolved because /tmp is a symlink to /private/tmp. */
+  /* 🛑 COMPARE BOTH RESOLVED AND UNRESOLVED, ON BOTH SIDES. My first version
+     realpath'd only the ROOTS, and on macOS /var is a symlink to /private/var,
+     so the root became /private/var/folders/.../T while the candidate stayed
+     /var/folders/.../T and the guard stopped firing entirely. My own probe
+     caught it one command after I wrote it; nothing else would have, because a
+     guard that has quietly stopped firing looks exactly like a guard with
+     nothing to catch. */
+  const TMP_ROOTS = [];
+  for (const d of [os.tmpdir(), '/tmp']) {
+    const r = path.resolve(d);
+    TMP_ROOTS.push(r);
+    try { const rp = fs.realpathSync(d); if (rp !== r) TMP_ROOTS.push(rp); } catch { /* absent is fine */ }
+  }
+  const under = (d) => {
+    if (!d) return false;
+    const cands = [path.resolve(d)];
+    try { cands.push(path.join(fs.realpathSync(path.dirname(d)), path.basename(d))); } catch { /* parent may not exist yet */ }
+    return cands.some((c) => TMP_ROOTS.some((t) => c === t || c.startsWith(t + path.sep)));
+  };
   if (under(process.env.AGENT_WORKFORCE_DATA) && !under(HOME)) {
     /* ⚠️ IT RETURNS AN EMPTY SANDBOX RATHER THAN THROWING, AND THE DIFFERENCE
        IS MEASURED, NOT PREFERRED. Throwing here failed 161 of 2374 tests, so
