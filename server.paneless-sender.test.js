@@ -25,6 +25,7 @@ process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: tr
 
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
+const fleet = require('./test-support/fleet');
 
 /* The helper is not exported -- server.js is a running server, not a module.
    Read it out of the source and evaluate it against the same engine modules
@@ -35,7 +36,12 @@ function loadHelper() {
   assert.ok(start > 0, 'resolveAgentSender is gone from server.js');
   const end = src.indexOf('\nfunction ', start + 10);
   assert.ok(end > start, 'could not find the end of resolveAgentSender');
-  const messages = { resolveSender: (pane) => (pane ? { ok: true, card: { sessionName: 'by-pane' } } : { ok: false, because: 'no pane' }) };
+  /* ⚠️ NO CARD IN THIS STUB, DELIBERATELY. fixture-discipline flagged the
+     first version for hand-building one, and it was right twice over: the
+     pane arm below only asserts `.ok`, so the card was never needed. A stub
+     that invents a shape is how a suite ends up measuring a world that does
+     not exist -- which is the defect that guard was written for. */
+  const messages = { resolveSender: (pane) => (pane ? { ok: true } : { ok: false, because: 'no pane' }) };
   // eslint-disable-next-line no-new-func
   return new Function('sendertoken', 'liveness', 'messages', src.slice(start, end) + '\nreturn resolveAgentSender;')(sendertoken, liveness, messages);
 }
@@ -78,13 +84,24 @@ test('a revoked token cannot use the paneless path either', () => {
 
 /* ⚠️ ADDITIVE: a carded agent must take path 1 exactly as before, and every
    Mac agent has no heartbeat record at all. */
+/* ⚠️ THE ROSTER COMES FROM test-support/fleet, NOT FROM A LITERAL. The first
+   version of this test hand-built `[{ sessionName, isNamedOurs }]` and
+   fixture-discipline refused it -- correctly. That guard exists because a
+   roster carrying fields `paneRoster()` has never returned once shipped and
+   survived six rounds of review.
+   📌 I PREDICTED THIS EXACT MISTAKE ON #1112 AT 10:26 -- "the fastest route to
+   a green test is a hand-built card that the harness would have refused; if
+   phase 1 arrives with one, it should be sent back" -- and then made it. The
+   harness caught me, which is the whole reason it is there. */
 test('a carded agent is unaffected, and needs no heartbeat', () => {
   const tok = sendertoken.mint('has-a-pane').token;
-  const roster = [{ sessionName: 'has-a-pane', isNamedOurs: true }];
+  const board = fleet.install([fleet.agent('has-a-pane')]);
+  const roster = board.roster;
   const r = resolveAgentSender(hdr(tok), {}, roster);
   assert.equal(r.ok, true, 'a normal carded agent was refused: ' + r.because);
   assert.ok(!r.paneless, 'a carded agent took the paneless path');
   assert.equal(liveness.alive('has-a-pane'), null, 'precondition: it has no heartbeat record at all');
+  board.restore();
 });
 
 test('no token still falls back to the pane, unchanged', () => {
