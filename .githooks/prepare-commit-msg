@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Stamp WHICH AGENT made this commit, since the author cannot say. (kosmos#1048)
+#
+# Every commit on this fleet is authored `tmnt-josh`: one shared GitHub account
+# for all agents, which is a deliberate trade-off and is not what this changes.
+# The cost of it is that "whose change is this?" cannot be answered from git,
+# and that cost was paid three times in one day: a finding handed to the wrong
+# agent, a stranded branch nobody could return to its owner, and a design
+# decision nobody could trace.
+#
+# 🔑 THE TRAILER IS DERIVED, NOT TYPED. The instructions already ask agents to
+# add a session trailer by hand. Measured on 2026-08-26: 2 of the last 40
+# commits carried one. An instruction that is followed 5% of the time is not a
+# mechanism, so this reads the agent's identity the same way every other part of
+# the fleet does -- from the tmux session its pane belongs to -- and adds it
+# without anyone remembering.
+#
+# ⚠️ IT MUST NEVER BLOCK A COMMIT. A hook that can fail a commit over an
+# attribution nicety is worse than no attribution. Every path exits 0, every
+# command is guarded, and an agent outside tmux simply gets no trailer.
+#
+# ⚠️ AND IT MUST NOT FIRE ON A MERGE, SQUASH OR AMEND WITH A MESSAGE ALREADY
+# WRITTEN, or it would rewrite somebody else's commit as its own.
+set -uo pipefail
+
+MSG_FILE="${1:-}"
+SOURCE="${2:-}"
+[ -n "$MSG_FILE" ] || exit 0
+[ -f "$MSG_FILE" ] || exit 0
+
+# `merge`, `squash` and `commit` (an amend or -C) already carry authored text
+# that is not ours to attribute. Only a fresh message or a template gets one.
+case "$SOURCE" in
+  merge|squash|commit) exit 0 ;;
+esac
+
+# Already stamped, by a previous run or by hand: leave it alone.
+if grep -qiE '^Agent:' "$MSG_FILE" 2>/dev/null; then exit 0; fi
+
+# Who are we? The same derivation the rest of the fleet uses: the pane's tmux
+# session, minus the -discord suffix the sessions carry.
+agent=""
+if [ -n "${TMUX_PANE:-}" ] && command -v tmux >/dev/null 2>&1; then
+  agent=$(tmux display-message -p -t "${TMUX_PANE}" '#{session_name}' 2>/dev/null || true)
+  agent="${agent%-discord}"
+fi
+# A name we would not want in a commit message is no name at all.
+case "$agent" in
+  ''|*[!a-zA-Z0-9._-]*) exit 0 ;;
+esac
+
+# Append as a trailer, after a blank line if the message does not end in one.
+# ⚠️ Appended rather than inserted: an inserted line can land inside a comment
+# block git later strips, and the trailer would vanish silently.
+{
+  tail -c 1 "$MSG_FILE" | od -An -c 2>/dev/null | grep -q '\\n' || printf '\n'
+  printf 'Agent: %s\n' "$agent"
+} >> "$MSG_FILE" 2>/dev/null || true
+
+exit 0
