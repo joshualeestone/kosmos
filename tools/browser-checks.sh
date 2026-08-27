@@ -618,6 +618,13 @@ else
   FAILED+=("render-org-chart render-not-running render-list-row render-fields render-survival (rich board did not boot)")
 fi
 
+# --- render-update-toast: SELF-CONTAINED, so it sits outside the board groups.
+# It picks its own free ports and spawns its own board and release host, which
+# is why it needs no $Pn and no sandbox from this script. Verified standalone on
+# 2026-08-27 (exit 0, "TOAST DRIVE OK"); wired here so it runs in position like
+# everything else rather than only when somebody remembers it (#1072).
+run_one "render-update-toast" env SHOT_DIR="$RUN_DIR/shots-toast" node docs/browser-checks/render-update-toast.js
+
 sb3="$(new_sandbox)"
 if boot_thread_server "$sb3" "$P3"; then
   run_one "render-thread" node docs/browser-checks/render-thread.js \
