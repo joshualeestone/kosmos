@@ -104,7 +104,7 @@ one invented by somebody who did not write them.
 | `render-rename-say.js` | What the agent page says after you rename an agent |
 | `render-reload-toast.js` | The reload toast in both tones, beside the shipped offer toast it must not look like (#270) |
 | `render-updates-stale.js` | Settings > Updates, pressed on a page that is older than the Kosmos running it (#691). |
-| `render-sleep-button.js` | **no header sentence.** Read it before running it, and give it one. |
+| `render-sleep-button.js` | The Open-sleep-settings button on first-run step 4, and that clicking it really opens the pane, verified by process |
 | `render-special-purpose.js` | **no header sentence.** Read it before running it, and give it one. |
 | `render-talk-search.js` | The search box above the agent thread: filter by text and by who, the no-match sentence, reset on switching agent |
 | `render-talk.js` | A REAL agent card, from the real producer |
@@ -490,34 +490,34 @@ on the route payload while the defect was a page SENTENCE, so reverting the
 exact string left the suite green. Driving the screen fixed the guard and made
 the screenshot regenerable in the same move. One exception fewer.
 
-## ⚠️ Known: `render-sleep-button` times out, cause NOT established (2026-08-20)
+## ✅ Was: `render-sleep-button` times out. CAUSE FOUND 2026-08-27, fixed.
 
-It times out at `waitForSelector('.fr-check')`, which defaults to waiting for
-VISIBILITY. Playwright reports `43 × locator resolved to hidden
-<div class="fr-check attention">`.
+**The check was driving to the wrong step.** It clicked `#fr-next` once, with the
+comment `step 1 -> step 2, the machine checks`. The machine-check step is **4**.
 
-**What was measured:**
+Step 2 is Welcome and contains **no `.fr-check` at all** -- `#fr-checks` lives
+inside `<div class="fr-pane" id="fr-pane-4" hidden>`. So `waitForSelector('.fr-check')`
+resolved to step 4's row, correctly reported it hidden, and waited out the clock:
+`43 x locator resolved to hidden <div class="fr-check attention">`.
 
-- It fails identically on `main` and on `9282275` (a genuinely different tree).
-- On a fresh sandbox at first-run step 2, there is exactly **one** `.fr-check`
-  element, it carries `attention`, and it is **hidden**. Its text begins
-  "needs your attention: We could not find t…".
-- This machine is genuinely set never to sleep — `pmset -g custom` reports
-  `sleep 0`, which is the setting rather than a caffeinate artefact.
+⭐ **Every measurement recorded in 2026-08-20's investigation was CORRECT, and
+both hypotheses were about the ROW.** Exactly one `.fr-check`, carrying
+`attention`, hidden, text beginning "needs your attention: We could not find t..."
+-- all true, and all of it describing step 4's row seen from step 2. It was not
+ambiguous and it was not missing-because-this-Mac-never-sleeps. It was in a pane
+the walk had not reached.
 
-**Two hypotheses raised and both killed by measurement:**
+📌 **The answer was in the tree the whole week.** `click-first-run.js` carries
+`// The machine step is 4 now.` and clicks three times. One check knew; the other
+did not; nothing connected them.
 
-1. *The selector is ambiguous — several rows, and Playwright resolves to a
-   hidden one.* No: there is exactly one row.
-2. *The sleep warning does not fire because this machine never sleeps.* Not
-   established either; the row exists and carries `attention`, so something
-   built it and then did not show it.
+🔑 **The general shape, and it is worth more than the fix:** the failing selector
+named a real element and the check asked a TRUE question about it. What was wrong
+was the SUBJECT -- which screen the question was asked on. Re-running does not
+catch that, and neither does re-reading the assertion. Ask what state the walk
+actually left the page in before asking why the element is wrong.
 
-🛑 **The cause is NOT established, and "fails on two trees" is not a proof of
-pre-existence** — two failures agreeing only means something if they cannot
-share a cause you have not ruled out. Whoever picks this up should start from
-"why is a built `.fr-check` hidden at step 2" rather than from either
-hypothesis above.
+Fixed by clicking through 1 -> 2 -> 3 -> 4 before waiting.
 
 ⚠️ **Check for orphaned servers holding ports before diagnosing ANY of these.**
 On 2026-08-20 a survey found seven orphaned node processes on this machine, six

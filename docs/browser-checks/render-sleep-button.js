@@ -1,4 +1,9 @@
-/* Drive-through of the Open-sleep-settings button on first-run step 2:
+/* Drive-through of the Open-sleep-settings button on first-run step 4,
+ * "This computer" -- the machine checks. ⚠️ THIS SENTENCE SAID "step 2" until
+ * 2026-08-27 and that stale word cost a week: the walk below followed the
+ * header rather than the page, clicked once, and then waited on an element
+ * that only exists on step 4. See README, "CAUSE FOUND".
+ *
  * rendered only because the engine proved the pane exists on this Mac, and
  * clicking it REALLY opens the pane, verified by process (the pane appex
  * runs as its own process; a bogus id measurably does not launch it).
@@ -78,7 +83,23 @@ const settingsRunning = () => {
   try {
     await p.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
     if (!(await p.isVisible('#firstrun'))) die('fresh sandbox did not show first-run');
-    await p.click('#fr-next');                       // step 1 -> step 2, the machine checks
+    /* 🛑 THE MACHINE-CHECK STEP IS 4, NOT 2, AND THIS IS THE WHOLE CAUSE OF THE
+       TIMEOUT DOCUMENTED IN README "render-sleep-button times out, cause NOT
+       established (2026-08-20)". One click lands on step 2, Welcome, which
+       contains NO `.fr-check` at all -- `#fr-checks` lives inside
+       `<div class="fr-pane" id="fr-pane-4" hidden>`. So the wait resolved to
+       step 4's row, correctly reported it hidden, and waited out the clock:
+       "43 x locator resolved to hidden <div class="fr-check attention">".
+       ⭐ NOTHING WAS WRONG WITH THE ROW, AND BOTH EARLIER HYPOTHESES WERE
+       ABOUT THE ROW. It was not ambiguous (there is exactly one) and it was
+       not missing because this Mac never sleeps (it was built, and it carried
+       `attention`). It was in a pane the walk had not reached. The check was
+       driving to the wrong step and asking a true question about it.
+       📌 `click-first-run.js` already carries "The machine step is 4 now" and
+       clicks three times. That fact existed in the tree the whole week. */
+    await p.click('#fr-next');   // 1 -> 2, Welcome
+    await p.click('#fr-next');   // 2 -> 3, Model
+    await p.click('#fr-next');   // 3 -> 4, This computer: the machine checks
     await p.waitForSelector('.fr-check', { timeout: 20000 });
     await p.waitForSelector('.fr-sleepbtn', { state: 'visible', timeout: 20000 });
     const label = (await p.locator('.fr-sleepbtn').textContent()).trim();
