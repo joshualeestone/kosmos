@@ -72,7 +72,19 @@ let failed = 0;
   say('and the Claude flow is closed (one provider at a time, #730)', await p.isHidden('#acct-claude-flow'));
   say('the key field is a password field', (await p.getAttribute('#acct-openai-key', 'type')) === 'password');
   await p.fill('#acct-openai-key', 'sk-proj-walkwalkwalkwalkwalkWALK');
-  await p.fill('#acct-openai-label', 'Walk Test');
+  /* 🛑 A UNIQUE LABEL PER ATTEMPT, BECAUSE THE RETRY COULD NEVER PASS AND
+     REPLACED THE REAL ERROR. This check creates an OpenAI account and has no
+     cleanup: the runner's flaky-retry re-runs it against the SAME still-live
+     board, so attempt 2 hit "there is already an OpenAI account by that name"
+     and that became the reported failure. On 0.5.88 the true cause (the
+     Connected rename above) was visible only in attempt 1.
+     ⚠️ THE GUARD MEANT TO ABSORB A FLAKE GUARANTEED A SECOND FAILURE, and a
+     different one, which is worse than not retrying: it overwrites the
+     diagnosis with a consequence of the first attempt.
+     ⇒ Disconnect has no engine route yet (#770), so the account cannot be
+     removed from the page. A per-attempt label is the fix available here.
+     Nothing asserts on this string; it is checked as "API key ending WALK". */
+  await p.fill('#acct-openai-label', 'Walk Test ' + process.pid + '-' + Date.now().toString(36).slice(-4));
   await p.click('#acct-openai-go');
   await p.waitForTimeout(1200);
   const msg = await p.innerText('#acct-openai-msg');
@@ -83,11 +95,20 @@ let failed = 0;
   const rows = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-box')].filter((r) => r.getBoundingClientRect().height > 0).map((r) => r.innerText.replace(/\s+/g, ' ').trim()));
   say('the row lists by provider with the key tail', rows.some((r) => /OpenAI/.test(r) && !/Codex/.test(r) && /API key ending WALK/.test(r)), JSON.stringify(rows));
   say('no OpenAI row carries the history arm', !rows.some((r) => /OpenAI/.test(r) && /history/.test(r)));
-  // #962: Connected is now a LIVE answer. The harness points the check at a
-  // stub that accepts exactly the walk key (tools/browser-checks.sh), so this
-  // line proves the live path renders Connected on an accepted key, not that
-  // a badge is hardcoded.
-  say('every box says Connected (live check against the harness stub accepted the walk key)', rows.length > 0 && rows.every((r) => /Connected/.test(r)), JSON.stringify(rows));
+  // #962: the badge is a LIVE answer. The harness points the check at a stub
+  // that accepts exactly the walk key (tools/browser-checks.sh), so this line
+  // proves the live path renders it on an accepted key, not that a badge is
+  // hardcoded.
+  /* 🛑 THE WORD IS "Signed in", NOT "Connected" (#874, merged 16:42 on
+     2026-08-27 as 7fddbacc). This assertion still said Connected and it took
+     down cut 0.5.88, which was the FIRST cut to carry #874.
+     ⚠️ IT IS NOT A FLAKE AND IT WAS NOT CONTENTION. It reproduces on the
+     first run against the runner's own sandbox-4 fixture, every time. The
+     retry made it look intermittent, for a separate reason recorded below.
+     📌 The page is right and this was wrong: the badge says what it knows,
+     and "Connected" claimed more than a signed-in account establishes. The
+     rename is the product decision; this line was left behind by it. */
+  say('every box says Signed in (live check against the harness stub accepted the walk key)', rows.length > 0 && rows.every((r) => /Signed in/.test(r)), JSON.stringify(rows));
   const disconnectDisabled = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-disconnect')].every((b) => b.disabled));
   say('Disconnect is disabled everywhere (no engine route yet, #770)', disconnectDisabled);
   // Create form: OpenAI provider -> account menu offers the new account
