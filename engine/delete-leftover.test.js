@@ -23,6 +23,8 @@ const remove = require('./remove');
 const status = require('./status');
 const leftover = require('./delete-leftover');
 const fleet = require('../test-support/fleet');
+const sendertoken = require('./sendertoken');
+const store = require('./store');
 
 const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
 const calls = [];
@@ -129,4 +131,66 @@ test('a removed agent stops being hidden once its files are gone, so the board c
   const done = leftover.del('july');
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
   assert.equal(remove.isHidden('july'), false, 'the removed record outlived the files');
+});
+
+
+/* ------------------------------------------------------------------ #1131
+ * Deleting an agent must take its sender token with it.
+ *
+ * 🛑 WHY THE FIRST ARM ASSERTS THE DANGEROUS ANSWER BEFORE THE SAFE ONE.
+ * The bug was that `revoke` was never called, and a test that only checks the
+ * token is gone AFTER a delete passes just as happily when the token was never
+ * mintable in the first place. So it proves the old token DOES speak for a
+ * fresh card of that name, and only then deletes. Without that half the arm
+ * cannot fail for the reason it exists.
+ * -------------------------------------------------------------------------- */
+
+test('#1131: the old token speaks for a NEW agent of the same name -- until the delete revokes it', () => {
+  leftoverAgent('rosa');
+  const minted = sendertoken.mint('rosa');
+  assert.equal(minted.ok, true, minted.because);
+
+  /* THE CONTROL, and it is the whole point of the arm: with a card on the
+     board for this name, the token resolves. If this ever stops holding, the
+     assertion below starts passing for the wrong reason. */
+  status.setPaneSource(() => fleet.line({ session: 'rosa', claim: 'rosa', title: '✳ Claude Code' }));
+  const before = sendertoken.resolve(minted.token, status.paneRoster());
+  assert.equal(before.ok, true, 'control: the token should speak for a live card of its own name');
+
+  quiet();
+  const done = leftover.del('rosa');
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
+
+  /* The name is now free -- the success sentence says so -- so somebody takes
+     it. This is the whole scenario: same name, different agent. */
+  createAgain('rosa');
+  status.setPaneSource(() => fleet.line({ session: 'rosa', claim: 'rosa', title: '✳ Claude Code' }));
+  const after = sendertoken.resolve(minted.token, status.paneRoster());
+  assert.equal(after.ok, false, 'the deleted agent\'s token still speaks for the new agent of that name');
+
+  /* And by the paneless path too, which asks no roster at all. */
+  assert.equal(sendertoken.resolveName(minted.token).ok, false, 'the token still resolves to a name');
+});
+
+test('#1131: an agent that never had a token deletes cleanly, and the step is not reported as a failure', () => {
+  leftoverAgent('quiet-one');
+  quiet();
+  const done = leftover.del('quiet-one');
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
+  const step = done.steps.find((x) => x.step === 'its sender tokens');
+  assert.ok(step, 'the token step was not recorded at all');
+  assert.equal(step.ok, true, 'an agent with no token was reported as a token failure');
+});
+
+test('#1131: a token that cannot be removed makes the delete PARTIAL, never a DELETED that says the name is free', () => {
+  leftoverAgent('stuckcred');
+  /* A directory where the token file goes: `unlink` refuses it, which is a
+     real failure rather than a stubbed one. */
+  fs.mkdirSync(sendertoken.DIR, { recursive: true });
+  fs.mkdirSync(nodePath.join(sendertoken.DIR, store.safeKey('stuckcred') + '.json'), { recursive: true });
+  quiet();
+  const done = leftover.del('stuckcred');
+  assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'files gone + credential live was reported as a clean delete');
+  assert.match(done.because, /sender tokens/, 'the refusal does not say which part failed');
+  assert.ok(!/name is free/.test(done.said || ''), 'it promised the name was free while a credential for it survived');
 });

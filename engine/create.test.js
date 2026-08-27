@@ -113,6 +113,7 @@ create.setRunner(null);
 const roles = require('./roles');
 const status = require('./status');
 const fleet = require('../test-support/fleet');
+const sendertoken = require('./sendertoken');
 // The profile store, which is where a created agent's DISPLAY name is recorded.
 const store = require('./store');
 
@@ -3380,4 +3381,58 @@ test('#1026: setModel refuses a Claude model on a codex agent, and says why in a
   // ordering this change relies on: the provider is known only after the job
   // is read, so the model must be resolved after it.
   assert.match(r.because, /was not started by Kosmos|not a name we can act on/);
+});
+
+
+/* ------------------------------------------------------------------ #1131
+ * The RECREATE half. #1135 revokes on the delete path; this is the case that
+ * never goes through it.
+ *
+ * 🛑 THE ARM ASSERTS THE DANGEROUS ANSWER FIRST. A test that only checks
+ * the old token is dead after a recreate passes just as well when the token
+ * was never live, so it proves the token DOES speak for a card of that name
+ * before the recreate happens.
+ * -------------------------------------------------------------------------- */
+
+test('#1131: a name whose files vanished without a delete does not hand its old token to the next agent', () => {
+  create.setRunner(() => ({ ok: true }));
+  create.setDryRun(false);
+  const first = create.createAgent({ ...BINS, name: 'tokenheir', role: 'pm' });
+  assert.equal(first.outcome, create.OUTCOME.CREATED, first.because || '');
+
+  const minted = sendertoken.mint('tokenheir');
+  assert.equal(minted.ok, true, minted.because);
+
+  /* THE CONTROL: while a card of this name is on the board, that token speaks.
+     Without this the assertion at the end can pass for the wrong reason. */
+  status.setPaneSource(() => fleet.line({ session: 'tokenheir', claim: 'tokenheir', title: '✳ Claude Code' }));
+  assert.equal(
+    sendertoken.resolve(minted.token, status.paneRoster()).ok, true,
+    'control: a minted token should speak for a live card of its own name',
+  );
+  status.setPaneSource(() => '');
+
+  /* The files go WITHOUT delete-leftover -- a hand-deleted folder, or a
+     PARTIAL that took one and not the other. Nothing revoked anything. */
+  fs.rmSync(create.workerDir('tokenheir'), { recursive: true, force: true });
+  fs.rmSync(create.plistPath('tokenheir'), { force: true });
+
+  const second = create.createAgent({ ...BINS, name: 'tokenheir', role: 'pm' });
+  assert.equal(second.outcome, create.OUTCOME.CREATED, second.because || '');
+
+  status.setPaneSource(() => fleet.line({ session: 'tokenheir', claim: 'tokenheir', title: '✳ Claude Code' }));
+  assert.equal(
+    sendertoken.resolve(minted.token, status.paneRoster()).ok, false,
+    'the previous holder\'s token still speaks for the new agent of that name',
+  );
+  assert.equal(sendertoken.resolveName(minted.token).ok, false, 'the token still resolves to a name');
+  status.setPaneSource(() => '');
+});
+
+test('#1131: a brand new name has no tokens to clear, and that is silent rather than a refusal', () => {
+  create.setRunner(() => ({ ok: true }));
+  create.setDryRun(false);
+  const r = create.createAgent({ ...BINS, name: 'neverspoke', role: 'pm' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because || '');
+  assert.ok(!/sender tokens/.test(r.because || ''), 'a name that never had a token was told about tokens');
 });

@@ -10,6 +10,32 @@ const os = require('node:os');
 const path = require('node:path');
 const { chromium } = require('playwright');
 
+/**
+ * The version "Later" remembered, from either stored shape.
+ *
+ * 🛑 THIS CHECK WENT RED ON A CORRECT PRODUCT, and that is the failure worth
+ * naming rather than the one-line fix. It asserted the note EQUALLED "9.9.9",
+ * which pinned the representation instead of the claim. #1132 gave Later a time
+ * floor, so the note became `{v, at}` and back-compat kept reading bare strings.
+ * The version was remembered exactly as this check intends; the check was
+ * describing yesterday's storage format.
+ *
+ * ⭐ A CHECK KEYED TO A REPRESENTATION FAILS WHEN SOMEBODY IMPROVES IT, which is
+ * the moment you least want a red board: it reads as a regression, it blocks a
+ * cut, and the cheapest way out is to weaken the assertion. Ask what the product
+ * PROMISES (Later remembers which version you dismissed) and assert that.
+ */
+async function laterVersion(p) {
+  return p.evaluate(() => {
+    const raw = localStorage.getItem('kosmos-update-later');
+    if (!raw) return null;
+    try {
+      const o = JSON.parse(raw);
+      return o && typeof o === 'object' ? (o.v || null) : raw;
+    } catch { return raw; }
+  });
+}
+
 /* Run with the durable playwright runtime:
  *   NODE_PATH=$HOME/work/pw-runtime/node_modules node \
  *     docs/browser-checks/render-update-toast.js
@@ -181,7 +207,7 @@ const RELPORT = freePort();
     if (await p.isVisible('#updconfirm')) die('Not now did not close the confirm');
     await p.click('#ut-later');
     if (await p.isVisible('.utoast:not(.stale)')) die('Later did not hide the toast');
-    const remembered = await p.evaluate(() => localStorage.getItem('kosmos-update-later'));
+    const remembered = await laterVersion(p);
     if (remembered !== '9.9.9') die('Later did not remember the version: ' + remembered);
 
     // ...and it STAYS hidden across the next ticks.
@@ -190,13 +216,17 @@ const RELPORT = freePort();
 
     // Later is per VERSION (Mona Lisa's three facts, #780): a note left for an
     // older release does not silence a newer one...
+    /* 🔑 WRITTEN IN THE OLD BARE-STRING SHAPE ON PURPOSE, and worth keeping that
+       way: #1132 gave the note a floor and stores an object, but a person who
+       pressed Later on an earlier build still has a bare version in their
+       browser. This leg is the only place that exercises reading it. */
     await p.evaluate(() => localStorage.setItem('kosmos-update-later', '9.9.8'));
     await p.reload({ waitUntil: 'networkidle' });
     if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
     await p.waitForSelector('.utoast:not(.stale)', { state: 'visible', timeout: 20000 });
     // ...and Check for Update clears the note, through the real button.
     await p.click('#ut-later');
-    if ((await p.evaluate(() => localStorage.getItem('kosmos-update-later'))) !== '9.9.9') die('Later did not re-note the current version');
+    if ((await laterVersion(p)) !== '9.9.9') die('Later did not re-note the current version');
     // While an update is on offer the footer's button reads Update, so the
     // fake host now says the running version is latest and the page asks
     // (the same TTL-bypassing route the button uses); the offer withdraws
