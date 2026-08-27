@@ -2862,11 +2862,18 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      hole (a question asked through the runtime's question tool fires no
  *      hook, so the reporter can honestly not know) -- and false calm is the
  *      failure that ships, four times now on this fleet.
- *   3b. NOR IS A DEAD TOKEN OR A RATE LIMIT (#886). A scraped `auth_failed`
- *      or `rate_limited` stands over any report: no hook fires once the
- *      request itself is refused, so the reporter cannot know, and an idle
- *      report never decays (rule 6), which would render a 401 loop as
- *      "at rest" forever.
+ *   3b. NOR IS A DEAD TOKEN (#886). A scraped `auth_failed` stands over any
+ *      report: no hook fires once the request itself is refused, so the
+ *      reporter cannot know, and an idle report never decays (rule 6), which
+ *      would render a 401 loop as "at rest" forever.
+ *   3c. A SCRAPED RATE LIMIT IS A WARNING, NOT A VERDICT (#966). It used to
+ *      share 3b, on 3b's reasoning -- but that reasoning is about a REFUSED
+ *      REQUEST, and a usage limit refuses the model, not the credential. The
+ *      hook still fires, so the reporter still knows. Josh watched an agent
+ *      answer two messages and report `done` while a promotional banner had
+ *      its card reading "Paused". A FRESH report therefore wins and the screen
+ *      is surfaced as the conflict; stale or absent, 3b's treatment stands,
+ *      because then the screen is the only witness there is.
  *   4. A fresh reported `working` is working, in the agent's own words.
  *   5. A STALE `working` DECAYS TO UNKNOWN, NEVER TO IDLE. A report that
  *      stopped arriving says the REPORTER stopped, not that the agent
@@ -2909,9 +2916,31 @@ function reconcileReport(reported, scraped, nowMs) {
   // working) is precisely the thing it cannot know is stale; rendering
   // "at rest and nothing is needed" over a 401 retry loop is the same false
   // calm rule 3 exists for, one state over. Observed live on 0.5.31 (#880).
-  if (scraped.state === STATE.AUTH_FAILED || scraped.state === STATE.RATE_LIMITED) {
-    const what = scraped.state === STATE.AUTH_FAILED ? 'its Claude sign-in is being rejected' : 'it has hit a usage limit';
-    return { ...scraped, reported: false, conflict: 'its screen shows ' + what + ', which its reports cannot know about' };
+  if (scraped.state === STATE.AUTH_FAILED) {
+    return { ...scraped, reported: false, conflict: 'its screen shows its Claude sign-in is being rejected, which its reports cannot know about' };
+  }
+  /* Rule 3b, rate-limit half (#966). The rule above states its own
+     justification -- "no hook fires once the request itself is refused" -- and
+     that is TRUE OF A DEAD TOKEN AND NOT OF A USAGE LIMIT. A limit does not
+     revoke the credential, and the reporting path is a shell hook posting to
+     localhost rather than a model call, so a rate-limited agent CAN still
+     report. Josh watched one do it: a promotional banner matched the markers,
+     the card read "Paused", and the agent answered two messages and reported
+     `done` while it said so.
+     => So for this half there IS evidence that can contradict the screen, and
+     standing over it unconditionally discarded the better witness. A FRESH
+     report now wins and the screen becomes a WARNING; a stale or missing report
+     changes nothing, because then the screen is the only thing that knows.
+     The reconcile is re-entered with the rate-limit signal removed rather than
+     the report rules being copied, so this branch cannot drift from them. */
+  if (scraped.state === STATE.RATE_LIMITED) {
+    const atRl = Date.parse(reported.at || '');
+    const freshRl = Number.isFinite(atRl) && (nowMs - atRl) <= REPORT_WORKING_DECAY_MS;
+    if (freshRl) {
+      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs);
+      return { ...answer, conflict: 'its screen shows a usage limit, but it is still reporting, so it may be working through it' };
+    }
+    return { ...scraped, reported: false, conflict: 'its screen shows it has hit a usage limit, which its reports cannot know about' };
   }
   // Rule 3: the red stands.
   if (scraped.state === STATE.NEEDS_YOU && reported.state !== 'needs_you') {

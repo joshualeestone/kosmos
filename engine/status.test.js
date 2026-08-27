@@ -2828,6 +2828,54 @@ test('#886: a scraped rate_limited stands over a stale working report rather tha
   assert.equal(calm.reported, true);
 });
 
+test('#966: a FRESH report beats a scraped rate limit, because a usage limit does not stop the hook', () => {
+  /* Josh's case, twice: a promotional banner matched RATE_LIMIT_MARKERS and the
+     card read "Paused" while the agent answered two messages and reported
+     `done`. Rule 3b's justification is "no hook fires once the request itself
+     is refused" -- true of a dead token, false of a usage limit, which refuses
+     the MODEL and not the CREDENTIAL. So the report is the better witness and
+     the screen becomes the warning. */
+  const got = reconcileReport(rep('working', { because: 'answering Joshua' }),
+    scr(STATE.RATE_LIMITED, CONFIDENCE.SCRAPED, "You've reached your Fable 5 limit."),
+    T0 + 60_000);
+  assert.equal(got.state, STATE.WORKING, 'a scraped rate limit still overrode an agent that was demonstrably reporting');
+  assert.equal(got.reported, true);
+  assert.equal(got.because, 'answering Joshua');
+  assert.match(got.conflict, /still reporting/, 'the screen must be surfaced as a warning, not silently dropped');
+
+  /* CONTROL, and the whole point of the change: with the report STALE the
+     screen is the only witness left, so the pause still stands. A fix that
+     stopped false pauses by never pausing anyone would pass the assertion
+     above and fail this one. */
+  const stale = reconcileReport(rep('working'),
+    scr(STATE.RATE_LIMITED, CONFIDENCE.SCRAPED, "You've reached your Fable 5 limit."),
+    T0 + REPORT_WORKING_DECAY_MS + 60_000);
+  assert.equal(stale.state, STATE.RATE_LIMITED);
+  assert.match(stale.conflict, /cannot know about/);
+});
+
+test('#966: a fresh report does NOT beat a scraped auth_failed -- 3b keeps the half its reasoning covers', () => {
+  /* The split is the point. A rejected token really does stop the hook, so the
+     reporter's last word is exactly the thing it cannot know is stale. If this
+     ever flips, an agent in a 401 retry loop renders as calm again (#880). */
+  const got = reconcileReport(rep('working', { because: 'answering Joshua' }),
+    scr(STATE.AUTH_FAILED, CONFIDENCE.SCRAPED, 'OAuth access token is invalid'),
+    T0 + 60_000);
+  assert.equal(got.state, STATE.AUTH_FAILED, 'a fresh report suppressed a dead token');
+  assert.equal(got.reported, false);
+  assert.match(got.conflict, /sign-in is being rejected/);
+});
+
+test('#966: a rate-limited agent reporting idle reads idle, and still carries the warning', () => {
+  /* The re-entry must reach the ordinary report rules rather than a copy of
+     them: this is the non-working shape, and it should get idle's own sentence. */
+  const got = reconcileReport(rep('idle'),
+    scr(STATE.RATE_LIMITED, CONFIDENCE.SCRAPED, "You've reached your Fable 5 limit."), T0);
+  assert.equal(got.state, STATE.IDLE);
+  assert.equal(got.reported, true);
+  assert.match(got.conflict, /still reporting/);
+});
+
 test('reconcile: the red is never suppressed -- a scraped needs_you beside a calm report stands, conflict surfaced', () => {
   const got = reconcileReport(rep('working'),
     scr(STATE.NEEDS_YOU, CONFIDENCE.SCRAPED, 'it is asking you something'), T0 + 1000);
