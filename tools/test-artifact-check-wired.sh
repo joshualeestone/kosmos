@@ -7,7 +7,12 @@ cd "$(dirname "$0")/.." || exit 1
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 [ -x tools/kosmos-artifact-check.sh ] && ok "tools/kosmos-artifact-check.sh is present and executable" || bad "tools/kosmos-artifact-check.sh missing or not executable"
 bash -n tools/kosmos-artifact-check.sh && ok "the check parses" || bad "the check does not parse"
-L9d=$(grep -n '^echo "== 9d\.' tools/release.sh | cut -d: -f1); L9e=$(grep -n '^echo "== 9e\.' tools/release.sh | cut -d: -f1); L10=$(grep -n '^echo "== 10\.' tools/release.sh | cut -d: -f1)
+# ⚠️ MATCHED ON THE HEADER, NOT ON `echo`. These read '^echo "== 9d\.' and went
+# red the moment the phase headers started going through a `step` helper that
+# records which phase a cut died in -- three assertions failing on a rename of
+# the EMITTER, while the steps themselves were untouched and in the right order.
+_hdr() { grep -nE '^(echo|step) "== '"$1"'\.' tools/release.sh | cut -d: -f1; }
+L9d=$(_hdr 9d); L9e=$(_hdr 9e); L10=$(_hdr 10)
 [ -n "$L9e" ] && ok "release.sh has a 9e step" || bad "release.sh has no 9e step"
 [ -n "$L9d" ] && [ -n "$L9e" ] && [ -n "$L10" ] && [ "$L9d" -lt "$L9e" ] && [ "$L9e" -lt "$L10" ] && ok "9e sits after 9d (served bytes verified) and before 10 (the local board)" || bad "9e is not between 9d and 10 ($L9d/$L9e/$L10)"
 sed -n "${L9e:-0},${L10:-0}p" tools/release.sh | grep -q 'kosmos-artifact-check.sh" --repo "\$MAIN_REPO"' && ok "9e runs the vendored check with --repo \$MAIN_REPO (the shared checkout, which has the site beside it)" || bad "9e must pass --repo \$MAIN_REPO: the frozen build tree has no ../chaoskosmos-site and the /setup check goes UNPROVEN (0.5.65)"
