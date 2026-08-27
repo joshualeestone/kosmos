@@ -7,13 +7,14 @@
 #
 # The mapping (verified against the hooks docs and this fleet's production
 # hooks on 2026-08-24):
-#   SessionStart      -> started   (plus the loud version check below)
+#   SessionStart      -> started, but ONLY when `source` is `startup` (#1058):
+#                        a compaction or resume must not clear a waiting state
 #   UserPromptSubmit  -> working  "answering a prompt"
 #   PreToolUse        -> working  "running <tool>"  (throttled heartbeat)
 #   PermissionRequest -> needs_you, with the command in the sentence
 #                        (fires BEFORE the box renders; the Notification
 #                        hook is ~6 seconds late by design and is unused)
-#   Stop              -> idle
+#   Stop              -> idle --auto (never erases a standing blocked/needs_you, #900)
 #   StopFailure       -> blocked --on "provider api (<kind>)" --owner provider
 #   SessionEnd        -> stopped
 #
@@ -145,6 +146,34 @@ case "$EVENT" in
     # not match) rather than a genericised one. Passing this check proves
     # the whole chain: script, CLI, server, identity, record.
     rm -f "$MARK" 2>/dev/null || true
+      # 🛑 #1058: SessionStart FIRES ON COMPACTION AND RESUME, not only on a new
+      # run, and `started` clears a deliberate `blocked` or `needs_you`. So an
+      # agent that told the board it was waiting on a person lost that the
+      # moment its session compacted, which every long-running agent does.
+      # Measured on a live agent's own record: blocked -> SessionStart -> started.
+      #
+      # 🔑 ONLY `startup` IS A NEW RUN, and this is an ALLOWLIST on purpose.
+      # OBSERVED rather than guessed: a real payload captured from claude
+      # 2.1.247 in an isolated config carries
+      #   {"hook_event_name":"SessionStart","source":"startup",...}
+      # I have seen `startup`. I have NOT seen what a compaction or a resume
+      # sends, so keying on the value I observed and treating everything else as
+      # a continuation makes an unknown future value degrade toward NOT erasing
+      # a waiting state. A denylist of guessed values would fail the other way,
+      # which is the direction that loses the only red on the board.
+      #
+      # ⚠️ NO `source` AT ALL means an older Claude Code that never sent one.
+      # That still reports `started`, exactly today's behaviour, rather than
+      # silently changing what an unknown version does.
+      #
+      # ⚠️ THE TWO GUARDS ABOVE STILL RAN. They only READ, so a continuation is
+      # still told loudly when the CLI is missing or too old. What is skipped is
+      # the WRITE, and the delivery check it doubles as, which already ran when
+      # this conversation actually started.
+      SRC=$(json_field '.source' 'source')
+      if [ -n "$SRC" ] && [ "$SRC" != "startup" ]; then
+        exit 0
+      fi
     STARTED_OUT=$("$KOSMOS" report started 2>&1); STARTED_RC=$?
     if [ "$STARTED_RC" -ne 0 ]; then
       REASON=$(printf '%s' "$STARTED_OUT" | tr '\n\t\r' '   ' | tr -s ' ' | sed 's/^ *//; s/\\/\\\\/g; s/"/\\"/g' | head -c 300)
@@ -167,7 +196,11 @@ case "$EVENT" in
     report needs_you "asking permission to use ${TOOL}${CMD:+: $CMD}" ;;
   Stop)
     rm -f "$MARK" 2>/dev/null || true
-    report idle finished responding ;;
+    # #900: --auto, so this end-of-turn idle cannot erase a `blocked` or
+    # `needs_you` the agent filed DURING the turn. Stop fires at the end of
+    # every turn, so without this an agent waiting on a person read as idle
+    # within seconds of saying so.
+    report idle --auto finished responding ;;
   StopFailure)
     KIND=$(json_field '.matcher // .error_type' 'matcher'); KIND="${KIND:-an api error}"
     rm -f "$MARK" 2>/dev/null || true

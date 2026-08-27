@@ -203,6 +203,10 @@ const YOU_END = '<!-- kosmos:you:end -->';
 // the neutralisers derive from the list and the registry test reads it.
 const REPORTS_START = '<!-- kosmos:reports:start -->';
 const REPORTS_END = '<!-- kosmos:reports:end -->';
+// The connections pair (#1034), defined beside the others for the same reason:
+// the neutralisers derive from the list and the registry test reads it.
+const CONNECTIONS_START = '<!-- kosmos:connections:start -->';
+const CONNECTIONS_END = '<!-- kosmos:connections:end -->';
 // The AI-policy pair (#479), defined beside the others for the same reason:
 // the neutralisers derive from the list and the registry test reads it.
 const POLICY_START = '<!-- kosmos:policy:start -->';
@@ -240,7 +244,7 @@ const POLICY_END = '<!-- kosmos:policy:end -->';
  */
 function ALL_MARKERS() {
   const mm = require('./messages');
-  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, mm.START, mm.END];
+  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, mm.START, mm.END];
 }
 
 /**
@@ -633,8 +637,36 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
      at all, so this filter dropped every one of them and no claim was ever
      computed for a multi-part task -- the card silently lost its
      says-it-is-on-this line with nothing on screen saying why. */
+  /* ⚠️ DEFINED BEFORE THE EARLY RETURN BELOW, WHICH IS THE POINT. It used to
+     sit further down, so the one path that returned without reaching it
+     returned unshaped tasks. Uses `tasksModEarly`, the same require the filter
+     above already made. */
+  const withParts = (t) => (t ? {
+    ...t,
+    parts: tasksModEarly.partsOf(t),
+    progress: (({ done, total, closed, assigned }) => ({ done, total, closed, assigned }))(tasksModEarly.progressOf(t)),
+  } : t);
   const withWho = tasks.filter((t) => t && tasksModEarly.whoOf(t).length > 0 && !tasksModEarly.progressOf(t).closed);
-  if (!withWho.length) return tasks;
+  /* 🛑 THE EARLY RETURN USED TO HAND BACK THE RAW TASKS, and that was the whole
+     of kosmos#1009. It skipped the claim work, which is right and is the point
+     of the shortcut, but it also skipped the SHAPING -- so a project where no
+     task is both assigned and open reached the screen with no `parts` and no
+     `progress` at all. `withParts`'s own note below says it is "Applied to
+     EVERY task, not only the ones that earn a claim", and this line was the
+     one place that was not true.
+
+     ⭐ IT IS THE CAUSE OF JOSH'S ORIGINAL REPORT AND OF THE REGRESSION THAT
+     REPLACED IT. The Tasks column filters on `t.progress`. With progress
+     undefined:
+       - the old filter (`assigned > 0`) excluded EVERYTHING, so a brand-new
+         project's column was blank under a link reading "View all tasks (3)",
+         which is exactly what Josh reported; and
+       - the replacement (`!(t.progress && t.progress.closed)`) excludes
+         NOTHING, so a finished task stays in the column and the door vanishes,
+         which is how 0.5.73 went red three times.
+     Both filters were reasonable readings of a field that was not there. The
+     column was never the bug. */
+  if (!withWho.length) return tasks.map(withParts);
   const tasksMod = require('./tasks');
   const commitments = require('./commitments');
   // A two-arg caller gets a store read here that its own path never
@@ -695,11 +727,6 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
    * would otherwise reach the screen with no parts at all, which the page
    * cannot tell apart from "a task with nothing on it".
    */
-  const withParts = (t) => (t ? {
-    ...t,
-    parts: tasksMod.partsOf(t),
-    progress: (({ done, total, closed, assigned }) => ({ done, total, closed, assigned }))(tasksMod.progressOf(t)),
-  } : t);
   return tasks.map((t) => {
     /* 🛑 THE SECOND `t.who` GATE, AND IT IS THE ONE THAT ACTUALLY BIT. The
        filter at the top of this function was corrected for parts and this was
@@ -2157,7 +2184,7 @@ function toldOverride(verdict, sessionName) {
 }
 
 module.exports = { memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride,
-  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
+  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe,
   list, get, projectsFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,

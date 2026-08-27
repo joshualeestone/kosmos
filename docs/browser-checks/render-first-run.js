@@ -10,7 +10,12 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 
-const BASE = 'http://127.0.0.1:4399';
+/* ⚠️ A FIXED PORT IS WHY THIS CHECK WAS NEVER WIRED IN. The release runner
+   asks the kernel for a free port (#633/#708) and hands it over as KOSMOS_URL;
+   a hardcoded 4399 cannot join that, so the first-run flow — the path every
+   new person walks and the one Josh demos — had two browser checks that
+   nothing ran. The literal stays as the fallback so a hand run still works. */
+const BASE = process.env.KOSMOS_URL || 'http://127.0.0.1:4399';
 const OUT = process.argv[2] || '/tmp/frshots';
 const HEADED = process.env.HEADED !== '0';
 fs.mkdirSync(OUT, { recursive: true });
@@ -418,10 +423,17 @@ async function look(page, name) {
         if (/right now/.test(text)) {
           problems.push(`${shot.name} [${scheme}]: the could-not-ask fallback painted over the fixture's answer`);
         }
-        // The ruled dock line names no folder, so ONE sentence must be
-        // present in every state (first-run spec, pack copy).
-        if (!/Drag Kosmos onto the Dock, the strip of icons/.test(text)) {
-          problems.push(`${shot.name} [${scheme}]: the ruled Dock drag line is missing`);
+        /* 🛑 THE DOCK LINE IS NOT ON THIS SCREEN ANY MORE, AND THAT IS A
+           RULING, NOT A LOSS. It opened the flow until 2026-08-22, then moved
+           to the LAST step: step 1 answers "did the install work", the Dock
+           line is about RETURNING, and two written rulings placed it at the
+           end. This assertion still demanded it here, so it reported 8
+           problems on a product doing exactly what was decided — and nobody
+           saw them, because this check is not wired into the release runner.
+           ⇒ Asserted as ABSENT here and PRESENT on the last step (below), so
+           the sentence cannot quietly vanish from the product either way. */
+        if (/Drag Kosmos onto the Dock, the strip of icons/.test(text)) {
+          problems.push(`${shot.name} [${scheme}]: the Dock line is back on step 1; it was moved to the last step on 2026-08-22`);
         }
         if (/Keep in Dock/.test(text)) {
           problems.push(`${shot.name} [${scheme}]: the unreachable Keep in Dock advice appeared`);
@@ -476,6 +488,24 @@ async function look(page, name) {
       console.log(`${scheme.padEnd(5)} ${shot.name.padEnd(32)} "${seen.heading}"${seen.bad.length ? '  ⚠ ' + seen.bad.length : ''}`);
       await ctx.close();
     }
+  }
+  /* 🔑 THE OTHER HALF OF THE MOVE. Without this, "not on step 1" passes on a
+     product that lost the sentence altogether — which is exactly the state
+     Josh's item 13 would create, since he asked for the ending's Dock line to
+     go "because we already covered that in the very first initial step". It is
+     not covered there: it was deliberately moved OUT of step 1 TO the ending,
+     so the ending is the only copy. */
+  {
+    const lastCtx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
+    const pg = await lastCtx.newPage();
+    await pg.goto(`${BASE}/?first-run=1&fr-step=6`, { waitUntil: 'networkidle' });
+    await pg.waitForTimeout(400);
+    const last = await pg.evaluate(() => (document.getElementById('fr-pane-6') || {}).textContent || '');
+    if (!/Drag Kosmos onto the Dock, the strip of icons/.test(last)) {
+      problems.push('the LAST step has no Dock drag line, so the product has lost it entirely (it was moved here from step 1 on 2026-08-22)');
+    }
+    await pg.close();
+    await lastCtx.close();
   }
   await browser.close();
   console.log('\n' + (problems.length ? `PROBLEMS (${problems.length}):\n  ` + problems.join('\n  ') : 'no rendering problems found'));

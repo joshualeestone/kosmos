@@ -83,7 +83,10 @@ function seed() {
 
     await pg.click('.tab:has-text("Settings")');
     await pg.waitForTimeout(1800);
-    const sw = await pg.evaluate(() => ['lim-toggle', 'tell-toggle', 'notify-toggle', 'auto-toggle', 'eng-toggle']
+    /* 📌 tell-toggle and notify-toggle are GONE (Josh, 2026-08-26, item 3):
+       both telemetry rows were removed from Settings. The rule below is about
+       the switches that ship, so it now names only those. */
+    const sw = await pg.evaluate(() => ['lim-toggle', 'auto-toggle', 'eng-toggle']
       .map((id) => document.getElementById(id).getAttribute('aria-checked')));
     /* Every switch is born `mixed` and must resolve. A switch still reading
        mixed after a good load means its fetch never landed. */
@@ -248,7 +251,6 @@ function seed() {
        Anthropic. */
     const create = await pg.evaluate(() => {
       const sel = (id) => document.getElementById(id);
-      const tell = sel('create-tell');
       const model = sel('create-model');
       const shown = (el) => (el && el.getBoundingClientRect().height > 0 ? el.innerText : ''); // rendered text (#687)
       /* #857 (Josh, 2026-08-25 10:25): the standalone "You can change this
@@ -260,8 +262,11 @@ function seed() {
         provider: sel('create-provider') ? sel('create-provider').value : null,
         account: !!sel('create-account'),
         models: model ? model.querySelectorAll('option').length : 0,
-        tellDisabled: tell.disabled, tellChecked: tell.checked,
-        note: shown(sel('create-tell-note')) };
+        /* 🛑 `tell.disabled` ON A REMOVED ELEMENT IS A THROW, not a red
+           assertion: the created-ping checkbox went with Josh's item 3, and
+           this line took the whole check down with a TypeError. It now
+           measures the absence instead. */
+        tellGone: !sel('create-tell') && !sel('create-tell-note') };
     });
     chk(/Model \(you can change this later\)/.test(create.hint || ''), theme + ': the model hint is there', create.hint);
     chk(create.provider !== null && create.account && create.models >= 2,
@@ -269,8 +274,8 @@ function seed() {
     /* The setting is on by default on a fresh board, so the box is usable and
        says nothing. What must never happen is checked-and-disabled, or a note
        with the box enabled. */
-    chk(create.tellChecked !== create.tellDisabled,
-      theme + ': the tell box agrees with itself', JSON.stringify([create.tellChecked, create.tellDisabled]));
+    chk(create.tellGone === true,
+      theme + ': the created-ping checkbox is gone from the create form', JSON.stringify(create));
 
     chk(errs.length === 0, theme + ': no console errors', errs.slice(0, 2).join(' | '));
     await pg.close();

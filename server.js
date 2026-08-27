@@ -160,6 +160,7 @@ const ping = require('./engine/ping');
 const notify = require('./engine/notify');
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
+const connections = require('./engine/connections');
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
@@ -2430,15 +2431,20 @@ const server = http.createServer((req, res) => {
         if (typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         /* A present-but-mistyped field is a 400 naming the field, never
            a silent no-change 200 a scripted client reads as saved. */
+        /* 🛑 REFUSED BY NAME, NOT IGNORED (kosmos#1001). The paste-your-own-
+           style box is gone, so this field can no longer do anything -- and
+           accepting it with a 200 that changes nothing is the exact shape this
+           route's own tests forbid: "never a silent no-change 200 a scripted
+           client would read as saved". Whatever sent it believes it applied a
+           style; it did not, and it deserves to be told. */
+        if ('customText' in body) { sendJson(res, 400, { error: 'customText is no longer accepted: the paste-your-own-style box was removed' }); return; }
         if ('theme' in body && typeof body.theme !== 'string') { sendJson(res, 400, { error: 'theme must be a string' }); return; }
-        if ('customText' in body && typeof body.customText !== 'string') { sendJson(res, 400, { error: 'customText must be a string' }); return; }
         if ('layout' in body && typeof body.layout !== 'string') { sendJson(res, 400, { error: 'layout must be a string' }); return; }
         /* One validated write for the whole request: sequential setters
            left a half-applied theme behind a refused paste, and the 400
            then named only the paste while the store had already moved. */
         const saved = styles.set({
           theme: typeof body.theme === 'string' ? body.theme : undefined,
-          customText: typeof body.customText === 'string' ? body.customText : undefined,
           layout: typeof body.layout === 'string' ? body.layout : undefined,
         });
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
@@ -3558,6 +3564,10 @@ const server = http.createServer((req, res) => {
           /* #570: which RUN said it, when the sender came from a launch token.
              The pane arm resolves no instance and leaves this undefined. */
           instance: sender.instance,
+          /* #900: an AUTOMATIC write, from a lifecycle hook rather than the
+             agent choosing to say it. Only the machine's `idle` is refused
+             over a standing waiting state; see selfreport.record. */
+          auto: body.auto === true,
         });
         if (kept.recorded !== true) {
           sendJson(res, 200, { recorded: false, because: kept.because });
@@ -4602,6 +4612,11 @@ const server = http.createServer((req, res) => {
           // The reports-to block names the person in its default form (#336),
           // so a new name here has to reach it too. Same roster, same posture.
           try { reports.syncEveryone(roster); } catch { /* carried by the marker, not here */ }
+          /* #1034: the connections block rides the same sweep. Its words never
+             change, so this is a no-op for an agent that already has it, and it
+             is the one write that gives it to every agent created before the
+             block existed. */
+          try { connections.syncEveryone(roster); } catch { /* carried by the marker, not here */ }
         }
         catch (err2) { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not tell the agents') }]; }
         sendJson(res, 200, { you: saved, told });

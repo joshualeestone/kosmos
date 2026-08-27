@@ -53,11 +53,18 @@ const URL = process.env.KOSMOS_URL || 'http://127.0.0.1:17421';
     say(/Not running/.test(seen.cardText), 'it says Not running', seen.cardText.slice(0, 70));
     say(seen.rings === 0, 'no memory ring at all, not even the unknown one', String(seen.rings));
     say(seen.face === 1, 'the face is still drawn', String(seen.face));
-    /* ⚠️ COUNTED OFF THE SCREEN, not hardcoded. This said `=== 2` because the
-       sandbox I first seeded had two stopped agents, so the check answered a
-       question about my fixture rather than about the board. */
-    say(!seen.off.hidden && Number(seen.off.t) === seen.offCards,
-      'the tile counts exactly the not-running cards', seen.off.t + ' vs ' + seen.offCards);
+    /* 🛑 THE NOT-RUNNING TILE IS GONE, DELIBERATELY (#653, commit b6c5aa04:
+       "the Not-running tile goes"). This arm asserted `seen.off.hidden` on an
+       element the product removed, so it was not a failing assertion, it was a
+       THROW: `Cannot read properties of null`, which took the whole check down
+       after four passing arms. Nobody saw it, because nothing runs this file.
+       ⇒ Re-aimed to pin the REMOVAL, so the tile cannot come back unnoticed and
+       the arms below it get to run.
+       📌 The original comment is kept because its lesson outlived its subject:
+       it once read `=== 2`, hardcoding the author's own fixture, so it answered
+       a question about the sandbox rather than about the board. */
+    say(seen.off === null, 'the Not-running TILE is gone (#653), not merely empty',
+      seen.off === null ? 'absent' : 'st-off is back on the page');
     say(Number(seen.agents.t) === seen.running + seen.offCards, 'the row adds up',
       seen.agents.t + ' = ' + seen.running + ' running + ' + seen.offCards + ' not running');
     await pg.screenshot({ path: '/tmp/nrshots/nr-' + theme + '.png', clip: { x: 0, y: 60, width: 1400, height: 420 } });

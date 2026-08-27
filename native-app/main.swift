@@ -277,7 +277,7 @@ func logLine(_ s: String) {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
     var window: NSWindow!
     var webView: WKWebView!
     private var isActuallyQuitting = false
@@ -363,9 +363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         window.delegate = self
         window.isReleasedWhenClosed = false // we hide, never dealloc, on close
 
-        let config = WKWebViewConfiguration()
-        webView = WKWebView(frame: contentRect, configuration: config)
-        webView.navigationDelegate = self
+        webView = AppDelegate.makeWebView(frame: contentRect, delegate: self)
         window.contentView = webView
 
         window.makeKeyAndOrderFront(nil)
@@ -405,6 +403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let resolved: ResolvedInstall
         do {
             resolved = try resolveInstall(config: config)
+            resolvedPort = resolved.port
         } catch InstallResolutionError.noOwnInstallForOtherUser {
             // Logged before the modal so a test double can observe the
             // refusal without needing to click the dialog it is about to
@@ -558,6 +557,413 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.runModal()
     }
 
+    // MARK: The webView, and the file picker (kosmos#1032)
+
+    /// Both delegates in one place, so a webView can never be built with the
+    /// navigation one wired and the UI one forgotten. That is not a
+    /// hypothetical tidiness: it is exactly the bug this constructor was
+    /// extracted to close.
+    static func makeWebView(frame: NSRect, delegate: AppDelegate) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        let web = WKWebView(frame: frame, configuration: config)
+        web.navigationDelegate = delegate
+        // 🛑 WITHOUT THIS LINE EVERY + BUTTON IN KOSMOS IS DEAD AND SILENT.
+        // On macOS a WKWebView does not open a file picker itself: it ASKS the
+        // host app, through WKUIDelegate.runOpenPanelWith below. With no
+        // uiDelegate there is no receiver, so the click is dropped with no
+        // error, no console line and no visible change. The app shipped that
+        // way, and the report that found it (Josh, 2026-08-26) was "I can't
+        // hit the + button to get it to spawn the file selector" on BOTH the
+        // agent and the project boxes -- one cause, not two bugs.
+        //
+        // ⭐ WHY NO TEST CAUGHT IT, and this is the part worth keeping: every
+        // browser check runs the page in Chromium or Playwright's WebKit, and
+        // in a BROWSER the picker is the browser's own. The open-panel
+        // handshake only exists when the page is hosted by an app. So the
+        // entire failure lives in the one seam the whole suite is structurally
+        // blind to. Drag-and-drop kept working throughout, because a drop
+        // delivers files through the DOM and never asks the host for a panel.
+        web.uiDelegate = delegate
+        return web
+    }
+
+    /// Swapped out by `--kosmos-app-filepanel-selftest` so the gate can prove
+    /// the delegate fires without a modal panel appearing on a build machine.
+    /// nil in every shipped run, which is the only state a person ever sees.
+    static var openPanelPresenter: ((WKOpenPanelParameters, @escaping ([URL]?) -> Void) -> Void)?
+
+    /// One open panel at a time, because a second one is not queued -- it is
+    /// dropped, and a dropped request is a crash.
+    private var openPanelOutstanding = false
+
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping ([URL]?) -> Void) {
+        /* 🛑 A RE-ENTRANT REQUEST IS ANSWERED IMMEDIATELY, NOT IGNORED.
+           MEASURED on macOS 26: a second `beginSheetModal(for:)` on a window
+           that already has a sheet is SILENTLY DROPPED. The panel never becomes
+           a sheet, it is not queued, and its completion handler is never
+           called -- which, by the rule two comments down, TERMINATES THE APP.
+           Refusing the second request with nil costs the person nothing (the
+           first panel is still up and still theirs) and removes the whole
+           class. Narrow today, because clicking a second + through a sheet is
+           hard; free to close. */
+        /* ⚠️ SAID, NOT SILENT. This branch introduces the one state in the class
+           (`openPanelOutstanding`) that could strand: if a future path ever
+           presents without going through one of the two closures that clear it,
+           every later + press is refused forever with no diagnostic -- #1032
+           reproduced by the code that fixes it. Nothing exercises this branch,
+           so a line in the log is the only thing that would ever name it.
+           Main-thread only, like every other flag on this delegate: WebKit
+           calls this method on the main thread and both sheet completions are
+           main-thread, so the flag needs no synchronisation. */
+        if openPanelOutstanding {
+            logLine("runOpenPanelWith: refused, a panel is already up")
+            completionHandler(nil)
+            return
+        }
+        openPanelOutstanding = true
+        if let present = AppDelegate.openPanelPresenter {
+            present(parameters) { [weak self] urls in
+                self?.openPanelOutstanding = false
+                completionHandler(urls)
+            }
+            return
+        }
+        let panel = NSOpenPanel()
+        // The page decides these, not us: a composer that accepts several
+        // files says so on its own input, and honouring the flag is what makes
+        // `multiple` mean anything.
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.canChooseDirectories = parameters.allowsDirectories
+        panel.canChooseFiles = !parameters.allowsDirectories
+        /* Sheeted on the window the click came from, so it cannot end up behind
+           the board or on the wrong screen.
+
+           🛑 CANCEL MUST ANSWER, AND THE COST IS WORSE THAN IT LOOKS. MEASURED
+           by building this delegate with the cancel arm dropped: WebKit does
+           not wedge the input quietly, it raises
+           NSInternalInconsistencyException, "Completion handler passed to
+           -[main.AppDelegate webView:runOpenPanelWithParameters:...] was not
+           called", and the app TERMINATES. So a person who opens the file
+           picker and presses Cancel would lose Kosmos, mid-conversation, with
+           no warning. An earlier version of this comment said it merely broke
+           the next press; that was a guess and it was wrong in the direction
+           that matters. */
+        let host = webView.window
+        let answer: (NSApplication.ModalResponse) -> Void = { [weak self] resp in
+            self?.openPanelOutstanding = false
+            completionHandler(resp == .OK ? panel.urls : nil)
+        }
+        if let host {
+            panel.beginSheetModal(for: host, completionHandler: answer)
+        } else {
+            panel.begin(completionHandler: answer)
+        }
+    }
+
+
+    // MARK: The app and the board are different processes (kosmos#1042)
+
+    /* 🛑 THERE IS NO SINGLE "VERSION OF KOSMOS", AND THAT IS THE WHOLE CARD.
+       Measured by Ice Cream Kitty on the coordinator, 2026-08-26:
+
+         an update           restarts the BOARD and leaves this app running
+         a quit-and-reopen   restarts this APP and leaves the board running
+
+       Neither half ever restarts the other, so the two can be, and normally
+       are, different versions. Josh spent an hour on it: the page was current,
+       the menu bar was a week old, and every version on screen was the BOARD's,
+       so nothing he could look at would have told him.
+
+       ⚠️ AND IT IS WHY THIS CANNOT SAY "RELOAD". Reloading updates one half.
+       The remedy for a stale app is to quit and open it again, which Kitty also
+       measured as a non-event on the coordinator: same mac id, every paired
+       device stays paired, nothing to sign in to again. So it is safe advice,
+       which is the only reason it is offered here. */
+    /* 🔑 THE BUTTONS AS DATA, so a gate can read which one holds Return WITHOUT
+       a window server. This file already argues the case at the menu bar: a key
+       equivalent is invisible until somebody presses it, so the check has to be
+       machine-run. The notice's own buttons were the one thing in this change
+       no selftest could reach, because they were built at the use site.
+       ⚠️ Kept PURE deliberately. Constructing an NSAlert here would make the
+       #1042 gate need a window server, and it would then SKIP on a headless
+       build box, which is exactly the property that makes this gate better than
+       its sibling. */
+    static let relaunchButtons: (titles: [String], returnIndex: Int, destructiveIndex: Int) =
+        (["Quit and Open Again", "Not Now"], 1, 0)
+
+    /// The key equivalent for each button, DERIVED from the spec.
+    ///
+    /// 🛑 THIS FUNCTION EXISTS BECAUSE THE GATE WITHOUT IT COULD NOT FAIL. An
+    /// earlier version assigned the key equivalents to hardcoded locals and had
+    /// the selftest assert `returnIndex != destructiveIndex` -- a property of
+    /// the tuple literal, not of the alert anyone sees. Measured by mutation:
+    /// swapping the two hardcoded assignments makes a reflexive Return QUIT THE
+    /// APP, and the gate printed "Return lands on Not Now" and passed. So did
+    /// inverting the spec, and so did swapping the two titles. The only mutant
+    /// it caught was a degenerate one nobody would write.
+    /// ⭐ A check that reads one thing and vouches for another is worse than no
+    /// check: it is a reassuring sentence over the defect it names.
+    static func relaunchKeyEquivalents(_ spec: (titles: [String], returnIndex: Int, destructiveIndex: Int)) -> [String] {
+        spec.titles.indices.map { $0 == spec.returnIndex ? "\r" : "" }
+    }
+
+    private var staleAppNoticeShown = false
+    /// The app-AHEAD-of-board case says nothing to the person, so nothing
+    /// latches -- and the request repeats on every navigation, so without this
+    /// the log line repeated with it, forever, in the app's single diagnostic
+    /// file. Logged once, like the notice.
+    private var loggedVersionMismatch: String?
+    /* 🛑 ONE LINE PER REASON PER LAUNCH, NOT ONE PER NAVIGATION. `didFinish`
+       fires on every main-frame navigation -- Cmd-R, the Settings item's
+       location.assign, the board's own reloads -- so the check below repeats
+       until the notice fires. Logging each quiet exit unlatched would bury the
+       diagnostic file under the same sentence. Keyed like
+       loggedVersionMismatch above rather than a bare flag, so a DIFFERENT
+       reason later still gets its line. */
+    private var loggedQuietStaleReasons = Set<String>()
+    /// The port the board was resolved to, kept so the #1042 check can ask it
+    /// its version after the page loads. Written once, where the install is
+    /// resolved; nil until then, and the check simply does not run.
+    private var resolvedPort: Int?
+
+    /// This app's own version, from the bundle it was LAUNCHED from.
+    /// ⚠️ MEASURED AGAINST THE MECHANISM THAT ACTUALLY HAPPENS, which is not a
+    /// plist rewrite. `install/setup.sh` moves the whole bundle aside, moves a
+    /// freshly built tree into place, and removes the aside: rename-and-replace.
+    /// An earlier version of this comment claimed a measurement against an
+    /// in-place rewrite, which is a different filesystem event and proved
+    /// nothing about the shipped path. Both are now measured, in a real .app,
+    /// in both read orders: `Bundle.main` reports the code actually RUNNING,
+    /// never the newer bundle at the same path. That is the whole reason the
+    /// comparison below means anything.
+    private func runningAppVersion() -> String? {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    }
+
+    /// `a.b.c` as integers, or nil when it is not that shape.
+    /// 📌 No semver cleverness: a prerelease suffix or a hand-edited value gives
+    /// nil, and nil means "differ, direction unknown", which shows nothing. An
+    /// invented ordering would produce a confident instruction in the one case
+    /// we cannot read.
+    private static func versionParts(_ s: String) -> [Int]? {
+        /* ⚠️ `omittingEmptySubsequences: false`, AND A DIGITS-ONLY CHECK, because
+           the promise above is "nil, never a guess" and the obvious version was
+           not keeping it. Measured on the same function: `.0.5.73`, `0..5.73`,
+           `0.5.73.` and `0.5.73..` all parsed confidently as [0,5,73] (split
+           drops empty pieces by default), and `0.5.-1` parsed as [0,5,-1],
+           which then answers BEHIND. A promise a caller relies on has to be
+           true for the inputs nobody expects, or it is decoration. */
+        let bits = s.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        guard bits.count == 3 else { return nil }
+        /* ⚠️ `isNumber` IS THE ONLY CLAUSE THAT DECIDES ANYTHING, and it is here
+           alone for that reason. An earlier version also required non-empty and
+           ASCII. Both were DEAD, proven by mutation: removing either, or both,
+           leaves the selftest fully green, because `omittingEmptySubsequences:
+           false` already turns a dotted edge case into four pieces that the
+           count guard rejects, and Swift's `Int(String)` already accepts ASCII
+           digits only. What `isNumber` catches that `Int` does not is a SIGN:
+           `Int("-1")` and `Int("+5")` both succeed, and `0.5.-1` then answered
+           BEHIND. Guards nothing can detect the removal of are not protection,
+           they are decoration that makes a reader stop looking. */
+        guard bits.allSatisfy({ $0.allSatisfy(\.isNumber) }) else { return nil }
+        let nums = bits.compactMap { Int($0) }
+        return nums.count == 3 ? nums : nil
+    }
+
+    /// The hatch's only door in. `private` otherwise: nothing in the product
+    /// calls this except the check above.
+    static func isBehindForTest(_ mine: String, _ theirs: String) -> Bool? { isBehind(mine, theirs) }
+
+    /* 🛑 THE VERDICT IS THREE-STATE AND THE LOG USED TO BE TWO. `isBehind`
+       returns `Bool?` on purpose -- the selftest below has an explicit row for
+       it, "a shape we cannot read is UNKNOWN, never a guess" -- and then its
+       ONLY caller wrote `== true` and sent both `false` and `nil` down one
+       branch, which logged "not the behind case" either way.
+       ⚠️ SO THE DIAGNOSTIC CLAIMED A COMPARISON THAT NEVER HAPPENED. A version
+       neither side could parse was recorded as a measured not-behind, in the
+       one file somebody reads when the notice failed to appear. The care taken
+       to preserve UNKNOWN was undone one line after it was computed.
+       📌 The BEHAVIOUR is unchanged and deliberately so: both cases still say
+       nothing to the person, because we have a measured remedy for neither.
+       Only the record of why becomes true.
+       🔑 A PURE FUNCTION SO IT CAN BE TESTED. The caller is a URLSession
+       callback and no selftest can reach it; this is the part that was wrong,
+       and it is now the part that is reachable. Same trick as the hatch above. */
+    /* The stale check's quiet exits, said once each.
+       🛑 WHY THIS EXISTS AT ALL. #1042's symptom is "the notice did not
+       appear", and this function had SIX ways to return having said nothing:
+       no readable app version, an unbuildable URL, no answer from the board,
+       an answer with no readable version, the versions being equal, and the
+       notice already shown. Only the last two are correct silences. The other
+       four left no trace, so a person debugging a missing notice could not
+       tell WHICH of them happened -- or whether the check had run at all.
+       ⚠️ A SILENCE WITH FOUR CAUSES AND ONE APPEARANCE is the same defect the
+       fleet spent 2026-08-27 finding in its own instruments, and this one is
+       in the product, on the card whose whole difficulty is that it cannot be
+       tested on this machine.
+       📌 Says the reason, never a remedy. We have no measured fix for any of
+       these, and inventing one is the defect the card is about. */
+    private func sayQuietStaleReason(_ reason: String) {
+        DispatchQueue.main.async {
+            guard self.loggedQuietStaleReasons.insert(reason).inserted else { return }
+            logLine("stale check said nothing: " + reason)
+        }
+    }
+
+    static func staleLogSentence(mine: String, theirs: String, verdict: Bool?) -> String {
+        if verdict == nil {
+            return "version mismatch, app \(mine) board \(theirs), COULD NOT COMPARE the two versions; saying nothing"
+        }
+        return "version mismatch, app \(mine) board \(theirs), not the behind case; saying nothing"
+    }
+
+    private static func isBehind(_ mine: String, _ theirs: String) -> Bool? {
+        guard let a = versionParts(mine), let b = versionParts(theirs) else { return nil }
+        for (x, y) in zip(a, b) where x != y { return x < y }
+        return false
+    }
+
+    /// Ask the board what version it is, once, after the page has loaded.
+    private func checkWhetherThisAppIsBehind(port: Int) {
+        guard !staleAppNoticeShown else { return }
+        guard let mine = runningAppVersion() else {
+            sayQuietStaleReason("this app carries no CFBundleShortVersionString, so there is nothing to compare")
+            return
+        }
+        guard let url = URL(string: "http://127.0.0.1:\(port)/api/status") else {
+            sayQuietStaleReason("could not build the status URL for port \(port)")
+            return
+        }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 8
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
+            guard let self else { return }
+            guard let data else {
+                self.sayQuietStaleReason("the board did not answer /api/status")
+                return
+            }
+            guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let theirs = obj["version"] as? String, !theirs.isEmpty else {
+                self.sayQuietStaleReason("the board's answer carried no readable version")
+                return
+            }
+            /* The two CORRECT silences are left silent on purpose: equal
+               versions below, and the notice already shown above. Logging a
+               non-event is how a diagnostic file stops being read. */
+            guard theirs != mine else { return }
+            /* ⚠️ ONLY THE DIRECTION WE HAVE A MEASURED REMEDY FOR. A board that
+               is BEHIND this app is a real mismatch and we have no verified fix
+               for it, so it is logged and the person is told nothing. Inventing
+               an instruction for the case we have not measured is how a screen
+               starts saying things that are not true, which is the defect this
+               card is about. */
+            let verdict = Self.isBehind(mine, theirs)
+            guard verdict == true else {
+                /* ⚠️ ONTO THE MAIN THREAD TO LOG. `logLine` is open, seek, write,
+                   close with no lock, and every other one of its ~30 call sites
+                   is main-thread. This callback is a URLSession one, so writing
+                   here directly made this the file's only concurrent writer to
+                   the app's single diagnostic file: the file every other fault
+                   would be read from. */
+                DispatchQueue.main.async {
+                    /* ⚠️ KEYED ON THE PAIR, not a bare flag. A plain latch also
+                       silenced every LATER mismatch with a different board
+                       version -- and the board restarting into a new version
+                       while this app keeps running is this card's own premise,
+                       so the second and third are the expected events, not edge
+                       cases. The diagnostic file would have frozen on a pair
+                       that had stopped being true. */
+                    let pair = "\(mine)|\(theirs)"
+                    guard self.loggedVersionMismatch != pair else { return }
+                    self.loggedVersionMismatch = pair
+                    logLine(Self.staleLogSentence(mine: mine, theirs: theirs, verdict: verdict))
+                }
+                return
+            }
+            DispatchQueue.main.async {
+                guard !self.staleAppNoticeShown else { return }
+                self.staleAppNoticeShown = true
+                self.offerRelaunch(mine: mine, theirs: theirs)
+            }
+        }.resume()
+    }
+
+    private func offerRelaunch(mine: String, theirs: String) {
+        window?.makeKeyAndOrderFront(nil)
+        let alert = NSAlert()
+        alert.messageText = "Kosmos updated while this window was open"
+        /* ⚠️ "SHOULD", NOT "DOES". `make_app` failing is NON-FATAL to an install
+           (a foreign app home, a failed bundle build, a TCC denial on
+           /Applications), which leaves the icon on the old version while the
+           board moves on. In that state reopening changes nothing, and this
+           notice returns on every launch. Saying "catches it up" as flat fact
+           would be the screen asserting something it cannot know, which is the
+           defect this card is about. The last sentence is the one that IS
+           measured (Kitty, on the coordinator) and it is what makes the advice
+           safe to give at all. */
+        alert.informativeText = "This window is still running version \(mine). The rest of "
+            + "Kosmos is on \(theirs). Opening it again should catch it up. Your agents keep "
+            + "running and nothing needs signing in to again."
+        alert.alertStyle = .informational
+        let spec = AppDelegate.relaunchButtons
+        let keys = AppDelegate.relaunchKeyEquivalents(spec)
+        for (i, title) in spec.titles.enumerated() {
+            alert.addButton(withTitle: title).keyEquivalent = keys[i]
+        }
+        /* 🔑 ENTER LANDS ON THE HARMLESS CHOICE. This notice arrives UNBIDDEN
+           over whatever the person was doing, so a reflexive Return must not
+           quit their app. `showQuitDialog` states this rule for itself, though
+           it does not demonstrate it (its only button is the one that quits),
+           so this is the rule applied rather than a pattern copied.
+           ⚠️ THE BUTTONS ARE CAPTURED, NOT LOOKED UP. `alert.buttons.first?`
+           no-ops if the array is ever empty, and the failure mode is BOTH
+           buttons holding Return with the destructive one winning: silent, and
+           in the dangerous direction. */
+        /* ⚠️ THE ACCEPT BRANCH IS DERIVED TOO, not a literal
+           `.alertFirstButtonReturn`. With the literal, swapping the two TITLES
+           inverted the product silently: the person clicking "Not Now" got the
+           quit. The button that quits is the one at destructiveIndex, by
+           definition, and that is now what is asked. */
+        let clicked = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        guard clicked == spec.destructiveIndex else { return }
+
+        /* 🛑 NEVER QUIT UNTIL THE REPLACEMENT IS ACTUALLY COMING. Terminating
+           first and hoping is how a person ends up with no Kosmos at all, which
+           is far worse than the stale menu bar this fixes. The new instance is
+           launched FIRST, and this one only exits once macOS confirms it. */
+        let conf = NSWorkspace.OpenConfiguration()
+        conf.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: conf) { app, err in
+            DispatchQueue.main.async {
+                if app != nil, err == nil {
+                    logLine("relaunch: replacement started, this instance is exiting")
+                    /* 🛑 THE PERSON HAS ALREADY ANSWERED. `NSApp.terminate` re-enters
+                       `applicationShouldTerminate`, which shows the quit dialog unless
+                       this flag is set -- so without it they click "Quit and Open
+                       Again" and are handed a SECOND, unrelated modal asking whether
+                       to close the app, with the replacement's window already on
+                       screen behind it. Two windows, one of them modal, over a
+                       question they did not ask. The file names this seam at the
+                       Cmd-Q site; this call site is the one that did not. */
+                    self.isActuallyQuitting = true
+                    NSApp.terminate(nil)
+                    return
+                }
+                logLine("relaunch FAILED: \(err?.localizedDescription ?? "no app handle"); staying open")
+                let f = NSAlert()
+                f.messageText = "Kosmos could not open a new window"
+                f.informativeText = "This window is still working and still on version \(mine). "
+                    + "Quit Kosmos and open it from your Applications folder when you get a moment."
+                f.alertStyle = .warning
+                f.addButton(withTitle: "OK")
+                f.runModal()
+            }
+        }
+    }
+
     // MARK: WKNavigationDelegate -- instrumentation only, proves the request
     // actually landed rather than inferring it from process/network state.
 
@@ -573,6 +979,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         webView.evaluateJavaScript("document.title") { result, _ in
             logLine("PAGE LOADED, document.title=\(result ?? "<nil>")")
         }
+        /* #1042: asked after the board has answered, and the NOTICE is shown at
+           most once per launch.
+           ⚠️ NOT "once", which an earlier version of this comment claimed.
+           `didFinish` fires on every main-frame navigation -- Cmd-R, the
+           Settings item's location.assign, and the board's own reloads -- so
+           the REQUEST repeats until the notice fires. That is cheap next to the
+           board's own five-second poll of the same route, and it is stated
+           rather than implied because the next reader will trust the sentence
+           and not the code. */
+        if let port = resolvedPort { checkWhetherThisAppIsBehind(port: port) }
     }
 
     // A cancelled navigation (NSURLErrorCancelled, -999) is delivered for
@@ -1151,6 +1567,299 @@ if CommandLine.arguments.contains("--kosmos-app-menu-selftest") {
         }
     }
     exit(0)
+}
+
+// kosmos#1032: the + button opens a file picker, proven by pressing it.
+//
+// 🛑 THIS GATE EXISTS BECAUSE THE STRUCTURAL VERSION WOULD HAVE PASSED THE BUG.
+// "AppDelegate implements runOpenPanelWith" is true of a build where nobody
+// assigns `uiDelegate`, and that build is precisely the one that shipped. So
+// this drives the real constructor, loads a real page, presses a real button
+// and reports whether the app was actually asked for a panel.
+//
+// ⚠️ IT ALSO PINS THE `hidden` ROW ON PURPOSE. Kosmos's five file inputs all
+// carry the bare `hidden` attribute under a global
+// `[hidden]{display:none !important}`, and the first explanation for this bug
+// was that WebKit refuses a picker for an unrendered input. MEASURED HERE AND
+// IN A STANDALONE WKWebView: it does not. Both rows fire. Keeping the hidden
+// row means a future reader who reaches for that theory is answered by the
+// gate instead of rewriting five inputs for no reason.
+if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    /* ⚠️ `d` IS THE ONLY STRONG REFERENCE, AND BOTH DELEGATE PROPERTIES ARE
+       WEAK. Nothing reads `d` after the webView is built, so at -O the
+       optimizer is entitled to release it before the first press -- and the
+       failure would be `asked-for-panel:no` on a GOOD build, stopping a
+       release and blaming the product. It survives on Apple Swift 6.3.3 /
+       macOS 26 today, which makes this latent rather than live, and a gate
+       whose correctness depends on optimizer behaviour is not a gate.
+       `withExtendedLifetime` around the run loop removes the dependence. */
+    let d = AppDelegate()
+    let frame = NSRect(x: 0, y: 0, width: 600, height: 300)
+    let web = AppDelegate.makeWebView(frame: frame, delegate: d)
+    print("uiDelegate:\(web.uiDelegate == nil ? "MISSING" : "set")")
+    print("navigationDelegate:\(web.navigationDelegate == nil ? "MISSING" : "set")")
+
+    var fired: [String: Bool] = ["hidden": false, "visible": false, "again": false]
+    var current = "hidden"
+    AppDelegate.openPanelPresenter = { _, done in
+        fired[current] = true
+        done(nil)   // answer, so the input is not left wedged
+    }
+
+    // OFFSCREEN ON PURPOSE: this runs inside a release build, and a window
+    // flashing up mid-cut reads as the app launching by mistake. The press is
+    // driven from JavaScript rather than from real input events, so nothing
+    // here needs to be visible or focused.
+    let win = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: frame.width, height: frame.height),
+                       styleMask: [.titled], backing: .buffered, defer: false)
+    win.contentView = web
+    win.orderFrontRegardless()
+    let probePage = "<!doctype html><meta charset=utf-8>"
+        + "<style>[hidden] { display: none !important; }</style>"
+        + "<button id=\"bhidden\">h</button><input id=\"fhidden\" type=\"file\" hidden>"
+        + "<button id=\"bvisible\">v</button><input id=\"fvisible\" type=\"file\">"
+        + "<script>for (const k of ['hidden','visible']) {"
+        + "document.getElementById('b'+k).addEventListener('click',"
+        + "() => document.getElementById('f'+k).click()); }"
+        // ⚠️ SET LAST, AND POLLED INSTEAD OF THE BUTTON. The button exists in
+        // the DOM before this script runs, so polling for it opens a window
+        // where a press lands on a control with no listener -- and the gate
+        // would report asked-for-panel:no, which is a false accusation.
+        + "window.__probeReady = 1;</script>"
+    web.loadHTMLString(probePage, baseURL: URL(string: "http://127.0.0.1/"))
+
+    func press(_ k: String, then: @escaping () -> Void) {
+        current = k
+        web.evaluateJavaScript("document.getElementById('b\(k)').click()") { _, _ in }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: then)
+    }
+    /* ⚠️ WAIT FOR THE PAGE, DO NOT GUESS AT IT. A fixed sleep here is a race
+       the gate loses by ACCUSING A GOOD BINARY: measured, at 0.05s an
+       otherwise-unmodified build prints asked-for-panel:no and the shell
+       renders that as "the + button will do nothing". This gate runs mid-build,
+       after a Node download and a codesign, on whatever the box is doing. So
+       it polls for the button the presses need and only then starts. */
+    /* 🛑 THE GIVING-UP MESSAGE CARRIES THE WATCHDOG'S OWN TOKEN, AND THAT IS THE
+       POINT OF IT. Exhausting this poll means the gate could not get started,
+       not that the + button is dead -- and the previous version of this line
+       said something the bundle gate classified as a PRODUCT failure, which is
+       the exact defect the commit that added this poll set out to remove. The
+       fix removed one instance and shipped another. `filepanel selftest TIMED
+       OUT` is the unique string the shell keys its gate-fault arm on.
+       Budget: 150 x 0.1s = 15s, inside the hatch's own 25s watchdog and the
+       shell's 40s alarm. The page loads in well under half a second here, so
+       this is ~30x the observed margin rather than the ~12x it was. The whole
+       run is about 7s, so there was budget going spare. */
+    func whenReady(_ go: @escaping () -> Void, tries: Int = 150) {
+        web.evaluateJavaScript("window.__probeReady === 1") { r, _ in
+            if (r as? Bool) == true { go(); return }
+            guard tries > 0 else {
+                print("filepanel selftest TIMED OUT: the probe page never finished loading")
+                exit(1)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenReady(go, tries: tries - 1) }
+        }
+    }
+    whenReady {
+        press("hidden") {
+            press("visible") {
+                print("press:hidden-input\tasked-for-panel:\(fired["hidden"]! ? "yes" : "no")")
+                print("press:visible-input\tasked-for-panel:\(fired["visible"]! ? "yes" : "no")")
+                guard fired["hidden"]!, fired["visible"]! else { exit(1) }
+                // ⭐ THE ARM THAT IS NOT A STUB. Everything above proves the app
+                // was ASKED for a panel. It does not prove a panel appears,
+                // because the presenter was swapped out. So: put the real one
+                // back, press again, and look for an actual panel window. Without
+                // this, a runOpenPanelWith that answered and then presented
+                // nothing would pass every line above.
+                AppDelegate.openPanelPresenter = nil
+                current = "real"
+                web.evaluateJavaScript("document.getElementById('bvisible').click()") { _, _ in }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    /* `isVisible`, not merely present in NSApp.windows: the
+                       line is called panel-on-screen and it should mean it. A
+                       panel constructed and never presented IS in that array. */
+                    let panel = NSApp.windows.first { $0 is NSOpenPanel && $0.isVisible }
+                    print("press:real-presenter\tpanel-on-screen:\((panel != nil) ? "yes" : "no")")
+                    guard let p = panel as? NSOpenPanel else { exit(1) }
+                    // Dismiss it, or the build hangs behind a dialog.
+                    if let host = p.sheetParent { host.endSheet(p, returnCode: .cancel) } else { p.cancel(nil) }
+
+                    /* ⭐ AND THEN PRESS AGAIN, because the one behaviour the fix
+                       singles out is the one nothing here was watching. An
+                       `NSOpenPanel` that is dismissed without calling the
+                       completion handler leaves the file input WEDGED: WebKit
+                       is still waiting for the last answer, and the NEXT press
+                       does nothing for the rest of the session. So a cancel is
+                       not the end of the check, it is the setup for it. This
+                       arm fails if the cancel arm is ever dropped. */
+                    AppDelegate.openPanelPresenter = { _, done in
+                        fired["again"] = true
+                        done(nil)
+                    }
+                    current = "again"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        web.evaluateJavaScript("document.getElementById('bvisible').click()") { _, _ in }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            let again = fired["again"] ?? false
+                            print("press:after-a-cancel\treaches-the-app-again:\(again ? "yes" : "no")")
+                            exit(again ? 0 : 1)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // A hung run loop must fail, not hang a release cut.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 25) {
+        print("filepanel selftest TIMED OUT")
+        exit(1)
+    }
+    withExtendedLifetime(d) { app.run() }
+    /* 🛑 EVERY OTHER HATCH IN THIS FILE ENDS IN exit(). Without this, a run
+       loop that ever returns falls straight through into the real app below --
+       launched .accessory, and with `openPanelPresenter` still pointing at the
+       stub that answers nil, which is this bug reproduced silently by the code
+       that fixes it. I could not make app.run() return here, so this is latent
+       rather than live; it is one line and the blast radius is the whole
+       product. */
+    exit(1)
+}
+
+// #1042: the version comparison that decides whether a person is TOLD anything.
+//
+// 🛑 IT IS TESTED BECAUSE GETTING IT WRONG IS SILENT IN BOTH DIRECTIONS. Too
+// eager and the app nags about a mismatch that is not there; too shy and it
+// stays quiet on exactly the state that cost an hour. Neither shows up on any
+// screen as a fault.
+//
+// ⭐ THE ROW THAT EARNS THIS FILE IS 0.5.9 vs 0.5.10. A string comparison says
+// "0.5.9" > "0.5.10", because "9" sorts after "1". So a lexical check goes
+// SILENT at exactly the version where the minor number gains a digit, and it
+// would have looked correct on every version we have shipped so far.
+if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
+    var bad = 0
+    var ran = 0
+    var sawLexicalRow = false
+    var sawUnknownLogRow = false
+    func check(_ mine: String, _ theirs: String, _ want: Bool?, _ why: String) {
+        ran += 1
+        if mine == "0.5.9" && theirs == "0.5.10" { sawLexicalRow = true }
+        let got = AppDelegate.isBehindForTest(mine, theirs)
+        let ok = got == want
+        if !ok { bad += 1 }
+        let show = { (v: Bool?) in v == nil ? "unknown" : (v! ? "behind" : "not-behind") }
+        print((ok ? "PASS  " : "FAIL  ") + mine.padding(toLength: 12, withPad: " ", startingAt: 0)
+              + "vs " + theirs.padding(toLength: 12, withPad: " ", startingAt: 0)
+              + "-> " + show(got).padding(toLength: 12, withPad: " ", startingAt: 0) + why)
+    }
+    check("0.5.71", "0.5.73", true,  "the reported case: the app is a release behind")
+    check("0.5.73", "0.5.73", false, "same version is not behind")
+    check("0.5.74", "0.5.73", false, "AHEAD is not behind, and gets no dialog")
+    check("0.5.9",  "0.5.10", true,  "NUMERIC, not lexical: a string compare says otherwise")
+    check("0.5.10", "0.5.9",  false, "and the inverse of that row")
+    check("0.6.0",  "0.5.99", false, "the major-minor beats the patch")
+    check("1.0.0",  "0.9.9",  false, "same, one level up")
+    check("0.5.73-rc1", "0.5.73", nil, "a shape we cannot read is UNKNOWN, never a guess")
+    check("nonsense", "0.5.73", nil,  "and so is a value nobody parsed")
+    check("0.5.73", "",       nil,   "an empty answer from the board is unknown too")
+
+    /* 🛑 THE SENTENCE THE DIAGNOSTIC GETS, which is where the three-state
+       verdict used to die. These rows are not about the comparison -- the rows
+       above already prove that -- they are about whether the RECORD of it
+       distinguishes "we compared and it is not behind" from "we could not
+       compare at all". It did not, and both read as the former. */
+    func checkSentence(_ mine: String, _ theirs: String, _ mustSay: String, _ mustNotSay: String, _ why: String) {
+        ran += 1
+        let verdict = AppDelegate.isBehindForTest(mine, theirs)
+        let line = AppDelegate.staleLogSentence(mine: mine, theirs: theirs, verdict: verdict)
+        if mustSay == "COULD NOT COMPARE" { sawUnknownLogRow = true }
+        let ok = line.contains(mustSay) && !line.contains(mustNotSay)
+        if !ok { bad += 1 }
+        print((ok ? "PASS  " : "FAIL  ") + "log ".padding(toLength: 4, withPad: " ", startingAt: 0)
+              + mine.padding(toLength: 12, withPad: " ", startingAt: 0)
+              + "vs " + theirs.padding(toLength: 12, withPad: " ", startingAt: 0)
+              + "-> " + why)
+        if !ok { print("      got: " + line) }
+    }
+    checkSentence("0.5.74", "0.5.73", "not the behind case", "COULD NOT COMPARE",
+                  "a real not-behind still says not-behind")
+    checkSentence("0.5.73-rc1", "0.5.73", "COULD NOT COMPARE", "not the behind case",
+                  "an unreadable version must NOT be recorded as a measured not-behind")
+    checkSentence("nonsense", "0.5.73", "COULD NOT COMPARE", "not the behind case",
+                  "and neither must a value nobody parsed")
+    checkSentence("0.5.73", "", "COULD NOT COMPARE", "not the behind case",
+                  "nor an empty answer from the board")
+    /* ⭐ THE ROWS THE PROMISE WAS FALSE ON, and stated exactly rather than
+       broadly, because an earlier version of this comment claimed more than was
+       measured. Run against the pre-fix parser:
+         .0.5.73  0..5.73  0.5.73.   parsed as [0,5,73], answering NOT-BEHIND
+         0.5.-1                      parsed as [0,5,-1], answering BEHIND
+         0.+5.9                      parsed as [0,5,9],  answering BEHIND
+         0.5.٧                       ALREADY nil before the fix
+       So five were guesses, two of those were wrong in the dangerous
+       direction, and the last row is a control rather than new coverage: it
+       passes on the old parser too, and it is kept to pin that behaviour. */
+    check(".0.5.73", "0.5.73", nil,  "a leading dot is not a version")
+    check("0..5.73", "0.5.73", nil,  "nor is an empty middle")
+    check("0.5.73.", "0.5.73", nil,  "nor a trailing dot")
+    check("0.5.-1",  "0.5.73", nil,  "a NEGATIVE part used to answer behind")
+    check("0.+5.9",  "0.5.10", nil,  "and a signed one used to parse")
+    check("0.5.٧",   "0.5.73", nil,  "CONTROL: already nil before the fix, pinned so it stays nil")
+    /* The notice's buttons, asserted through the SAME function the alert uses,
+       so a change to either is visible here. Its own counter and its own token,
+       because a button fault is not a wrong version comparison and was being
+       reported as one. */
+    var buttonsBad = 0
+    let btn = AppDelegate.relaunchButtons
+    let keys = AppDelegate.relaunchKeyEquivalents(btn)
+    func btnCheck(_ ok: Bool, _ what: String) {
+        if !ok { buttonsBad += 1 }
+        print((ok ? "PASS  " : "FAIL  ") + "buttons: " + what)
+    }
+    btnCheck(btn.titles.indices.contains(btn.returnIndex)
+             && btn.titles.indices.contains(btn.destructiveIndex),
+             "both indices name a real button")
+    btnCheck(keys.count == btn.titles.count, "every button gets a key equivalent")
+    if keys.count == btn.titles.count, btn.titles.indices.contains(btn.destructiveIndex) {
+        btnCheck(keys[btn.destructiveIndex] == "",
+                 "the button that QUITS does not answer to Return (it is \"\(btn.titles[btn.destructiveIndex])\")")
+        btnCheck(keys[btn.returnIndex] == "\r",
+                 "Return reaches \"\(btn.titles[btn.returnIndex])\"")
+    }
+    /* ⚠️ THE TITLE IS PINNED BY NAME. Without this, swapping the two strings
+       moves the quit onto the other button and every check above still holds,
+       because they only compare indices to each other. Measured: that mutation
+       inverted the product and the old gate passed. */
+    btnCheck(btn.titles.indices.contains(btn.destructiveIndex)
+             && btn.titles[btn.destructiveIndex] == "Quit and Open Again",
+             "the destructive button is the one titled \"Quit and Open Again\"")
+    if buttonsBad > 0 {
+        print("\nstale-check: the relaunch notice's buttons are wrong, which is not the version comparison")
+        exit(1)
+    }
+    ran += 5
+
+    /* 🛑 A POPULATION FLOOR, because `bad == 0` is ALSO true of zero checks.
+       An edit that deletes every row would print "all good" and pass the
+       release gate having proved nothing: an instrument for silent failures
+       with the exact failure mode it exists to catch. Mona Lisa found this
+       shape in her own gate tonight and the lesson is hers.
+       ⭐ And the load-bearing row is named, not merely counted: 0.5.9 vs
+       0.5.10 is the one the whole file is justified by, so its absence must be
+       a failure rather than a smaller number. */
+    if ran < 25 { print("\nstale-check: only \(ran) checks ran, so this proved nothing"); exit(1) }
+    if !sawLexicalRow { print("\nstale-check: the 0.5.9 vs 0.5.10 row is gone, which is the row this file exists for"); exit(1) }
+    /* ⚠️ A COUNT FLOOR DOES NOT PROTECT A SPECIFIC ROW, which is why the line
+       above exists and why this one has to. Deleting the four log rows and
+       adding four others anywhere else leaves `ran` untouched and the floor
+       satisfied. This pins the one the fix exists for: that an UNKNOWN verdict
+       is recorded as unknown rather than as a measured not-behind. */
+    if !sawUnknownLogRow { print("\nstale-check: the COULD NOT COMPARE log row is gone, and it is the row that keeps a three-state verdict from being logged as two"); exit(1) }
+    print(bad == 0 ? "\nstale-check: all good, \(ran) checks" : "\nstale-check: \(bad) FAILED")
+    exit(bad == 0 ? 0 : 1)
 }
 
 let app = NSApplication.shared

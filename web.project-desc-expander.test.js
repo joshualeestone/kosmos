@@ -79,3 +79,20 @@ test('the arrow respects reduced motion', () => {
   assert.match(PAGE, /@media \(prefers-reduced-motion: reduce\) \{ \.pjdisc-ar \{ transition: none; \} \}/,
     'the arrow animates for someone who asked the system for no motion');
 });
+
+/* 🛑 THE EXPANDER MUST UNDO THE CLAMP, NOT MERELY REVEAL THE ELEMENT.
+   #980 clamped the header description to one ellipsised line and mitigated it
+   with a hover `title`. That clamp is not scoped to a state, so kosmos#1005's
+   disclosure opened onto the SAME truncated line and revealed nothing you could
+   not already see. Josh reported it the evening it shipped.
+   ⚠️ Mine by omission: I added a control that reveals a thing and never asked
+   what else was already acting on that thing. Measured headless at 1280 in the
+   consolidated layout -- open: whiteSpace normal, textOverflow clip, wraps to
+   two lines, scrollWidth === clientWidth. With the rule removed: nowrap,
+   ellipsis, truncated. The pin below is what stops that returning. */
+test('opening the description un-clamps it, or the arrow reveals the same ellipsis', () => {
+  assert.match(PAGE, /\.pjtitle\.is-open #pj-one-desc \{[^}]*white-space: normal;[^}]*text-overflow: clip;/,
+    'the open state no longer lifts #980\'s one-line clamp, so expanding shows the same truncated line it was hiding');
+  assert.match(PAGE, /\.pjtitle:not\(\.is-open\) #pj-one-desc \{ display: none; \}/,
+    'the closed state stopped hiding the description');
+});

@@ -1013,10 +1013,33 @@ async function main() {
         { sel: '#panel-projects .pj-member b' },
         { sel: '#panel-projects .pj-member small' },
         { sel: '#pj-one-view .fhint' },
-        { sel: '#pj-one-view h3.dlab', expect: 'Project members' },
-        { sel: '#pj-one-view #pj-one-desc' },
+        /* ⚠️ SCOPED TO ITS OWN CARD, because `h3.dlab` is no longer unique in
+           this view and `querySelector` takes the FIRST. #1017 put Files above
+           Members in the markup so the tab order matches the eye, which is
+           correct, and this selector silently re-aimed at "Files in this
+           project". The `expect` below caught it as a loud wrong-element
+           failure rather than a plausible contrast number, which is exactly
+           what `expect` was added for. Both headings are now measured: they
+           are the same class doing the same job, so there was never a reason
+           to check one and not the other. */
+        { sel: '.pjcard-members > h3.dlab', expect: 'Project members' },
+        { sel: '.pjcard-files > h3.dlab', expect: 'Files in this project' },
+        /* ⚠️ MEASURED OPEN, and the check OPENS it. #1005 put the description
+           behind a disclosure that starts closed on a project that has one, so
+           `offsetParent` is null and this entry recorded itself as missing --
+           honestly, but the text still needs measuring, because a person who
+           opens the disclosure has to be able to read it. `needsOpen` makes the
+           dependency explicit instead of relying on some earlier step in this
+           file having happened to expand it. */
+        { sel: '#pj-one-view #pj-one-desc', needsOpen: '#pj-one-more' },
       ];
-      for (const { sel, expect } of wanted) {
+      for (const { sel, expect, needsOpen } of wanted) {
+        // A disclosure the person would open before reading, opened here so the
+        // text inside it is measured rather than recorded as absent.
+        if (needsOpen) {
+          const toggle = document.querySelector(needsOpen);
+          if (toggle && toggle.getAttribute('aria-expanded') === 'false') toggle.click();
+        }
         const el = document.querySelector(sel);
         // ⚠️ A MISS IS RECORDED, not skipped. Skipping is how four selectors
         // went unmeasured under a printed pass.

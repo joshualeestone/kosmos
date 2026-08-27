@@ -49,9 +49,18 @@ function pageScope() {
      those branches skip. Every test here passes THROUGH that machinery without
      exercising it, so a regression in the caching path is invisible from here. */
   const written = {};
+  /* ⚠️ GEOMETRY IS NUMBERS, NOT PROXIES (#1037). paintRoom now measures whether
+     the reader is on the floor before it rewrites, and `proxy > 0` throws
+     "Cannot convert object to primitive value" — which took two tests in this
+     file red on a correct product. Zero is the honest model: this stub has no
+     layout, so it is a box nobody can see, and the page's own rule is that an
+     unseen box is never treated as being at the bottom. The scroll behaviour is
+     measured in a real browser by docs/browser-checks/render-room-scroll.js. */
+  const GEOMETRY = { scrollTop: 0, scrollHeight: 0, clientHeight: 0, offsetHeight: 0 };
   const el = (id) => new Proxy(function () {}, {
     get: (t, k) => (k === 'textContent' || k === 'value' ? ''
-      : (k === 'innerHTML' ? (written[id] || '') : el(id))),
+      : (k in GEOMETRY ? GEOMETRY[k]
+      : (k === 'innerHTML' ? (written[id] || '') : el(id)))),
     set: (t, k, v) => { if (k === 'innerHTML') written[id] = String(v); return true; },
     apply: () => el(id),
   });

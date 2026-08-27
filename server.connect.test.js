@@ -415,7 +415,16 @@ function connectHarness(st) {
     const frConnPaintProgress = ${realProgress.toString()};
     const frConnPaintUrl = ${realPaintUrl.toString()};
     let __actions = null;
-    function frActions(primary, alt) { __actions = { primary: primary.label, alt: alt && alt.label }; }
+    /* ⚠️ THIS STUB MUST MIRROR THE REAL frActions, INCLUDING ITS GUARD. The page
+       gained "no primary means no action yet" for the screen that searches for
+       agents already on this computer: it paints before it has an answer, and
+       any button it offered then would be a guess. This copy still dereferenced
+       primary.label, so FIVE tests died with "Cannot read properties of null"
+       on a product that was correct -- and a red suite refuses a cut.
+       📌 A stub is a copy of a contract, and it goes stale silently. */
+    function frActions(primary, alt) {
+      __actions = { primary: primary && primary.label, alt: alt && alt.label };
+    }
     function frGo() {}
     function frRecheck() {}
     function frConnectStart() {}
@@ -443,7 +452,7 @@ test('every phase the server can answer renders a panel with a way onward', () =
   for (const [phase, wants] of Object.entries(phases)) {
     const { els, actions } = connectHarness({ phase, because: 'x', progress: { got: 0, total: null } });
     assert.match(els['fr-sub'].innerHTML, wants, `phase ${phase} did not render its panel`);
-    assert.ok(actions && actions.primary && actions.alt,
+    assert.ok(actions && (actions.primary || actions.alt),
       `phase ${phase} left the person short of a way onward`);
   }
 });
@@ -594,7 +603,11 @@ test('the stuck screen offers the Terminal way out only when there is something 
   /* 🔑 THE SENTENCE THAT MUST SURVIVE BOTH ARMS. "Nothing is broken by this" is
      true whether or not there is a fallback, and it is doing the most work for
      somebody stuck part way through setup. */
-  assert.match(src, /Nothing is broken by this\. You can try again'/,
+  /* ⚠️ MATCHED WITHOUT THE CLOSING QUOTE. This pinned `try again'` and so was
+     really asserting where the JS string ENDED, which changed the moment both
+     arms started leading into the same Settings clause (#996). The sentence is
+     what must survive, not its punctuation. */
+  assert.match(src, /Nothing is broken by this\. You can try again/,
     'the reassurance was moved inside a branch, so one of the two paths loses it');
 });
 
@@ -912,4 +925,49 @@ test('HEAD /api/accounts answers without paying for a live check', async () => {
     assert.equal(calledClaude, false, 'HEAD must not invoke the Claude live check at all');
     assert.equal(calledOpenai, false, 'HEAD must not invoke the OpenAI live check at all');
   } finally { subscription.setRunner(null); openaiAccounts.setFetcher(null); }
+});
+
+test('#996: the first-run wizard never INSTRUCTS anybody to open a Terminal', () => {
+  /**
+   * 🛑 THE NORTH STAR THIS IS MEASURED AGAINST: someone non-technical gets from
+   * nothing to a working agent without a Terminal. This sentence fired at the
+   * least technical moment in the product -- step 3 of six, first run, after a
+   * failure -- so for the person it was written for it was a wall with a
+   * helpful sign on it.
+   *
+   * ⭐ IT ASSERTS THE SHAPE, NOT THE ABSENCE OF A WORD. Deleting the hatch
+   * would trade a non-technical person's problem for a technical one's. What
+   * must be true is that the plain sentence carries no command and the command
+   * sits behind a CLOSED disclosure that names the tool it needs.
+   */
+  const { els } = connectHarness({ phase: 'stuck', because: 'x', canRunClaude: true,
+    progress: { got: 0, total: null } });
+  const html = els['fr-sub'].innerHTML;
+  const note = html.slice(html.indexOf('fr-note'));
+  const upToHatch = note.slice(0, note.indexOf('fr-hatch') > -1 ? note.indexOf('fr-hatch') : note.length);
+  assert.doesNotMatch(upToHatch, /Terminal/,
+    'the plain sentence tells a first-run person to open a Terminal again');
+  assert.match(note, /carry on and connect later from Settings/,
+    'the branch with a runnable Claude stopped offering the in-app way forward');
+
+  /* The hatch is present, and CLOSED: a <details> with no `open` attribute. An
+     opened one is the same instruction with extra steps. */
+  assert.match(note, /<details class="fr-hatch"><summary>/,
+    'the escape hatch was deleted rather than moved behind a disclosure');
+  assert.doesNotMatch(note, /<details class="fr-hatch"[^>]*\sopen/,
+    'the hatch renders already open, so it is still addressing everybody');
+  assert.match(note, /open Terminal, type <b>claude<\/b>/,
+    'the hatch no longer contains the command it exists to carry');
+});
+
+test('#996: and it is not offered at all when there is nothing to run', () => {
+  /* Three of the five stuck causes mean Claude was never installed, so the
+     command would answer `command not found` at the worst possible moment
+     (#205). The engine asks the DISK; this pins that the answer is used. */
+  const { els } = connectHarness({ phase: 'stuck', because: 'x', canRunClaude: false,
+    progress: { got: 0, total: null } });
+  const html = els['fr-sub'].innerHTML;
+  assert.doesNotMatch(html, /Terminal/,
+    'a person with no Claude on disk was told to type a command that cannot run');
+  assert.match(html, /carry on and connect later from Settings/);
 });

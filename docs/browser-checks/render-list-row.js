@@ -39,17 +39,79 @@ const { chromium } = require('playwright');
     return {
       offState: off && cell(off, '.lstate'), onState: on && cell(on, '.lstate'),
       offName: off && cell(off, '.lname'), onName: on && cell(on, '.lname'),
-      offKids: off ? [...off.children].map((c) => c.className) : [],
+      offKids: off ? [...off.children].map((c) => c.className.split(' ')[0]) : [],
+      /* The neighbour's cells, so the count below is a COMPARISON rather than
+         a number somebody typed. */
+      onKids: on ? [...on.children].map((c) => c.className.split(' ')[0]) : [],
       stateText: off ? off.querySelector('.lstate').innerText.trim() : '',
       taskText: off ? off.querySelector('.ltask').innerText.trim() : 'NO CELL',
+      /* #986 emptied this cell for a running agent whose only status was its
+         own reported sentence: the quote WAS the content. What follows the
+         cell is what proves the row survived it. */
+      onTaskCell: on ? !!on.querySelector('.ltask') : false,
+      onTaskText: on ? on.querySelector('.ltask').innerText.trim() : 'NO CELL',
+      offModel: off && cell(off, '.lmodel'), onModel: on && cell(on, '.lmodel'),
+      offMem: off && cell(off, '.lmem'), onMem: on && cell(on, '.lmem'),
     };
   });
   const say = (ok, l, x) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + l + (x ? '  ' + x : '')); if (!ok) fails.push(l); };
-  say(seen.offKids.length === 5, 'five children', seen.offKids.join(','));
+  /* 🛑 THIS SAID `=== 5` AND THE GRID NOW HAS SEVEN COLUMNS (lmodel and lmem
+     were added after it was written), so it failed on a row that is perfectly
+     correct. Nobody saw it, because nothing runs this file.
+     ⭐ AND THE HARDCODED NUMBER IS THE EXACT THING THIS FILE'S OWN HEADER WARNS
+     AGAINST: "the claim is a COMPARISON, cell by cell, against a running row in
+     the same list. A check that only read this row would pass on any geometry."
+     The count arm read one row against a constant, which is the same mistake in
+     the other direction — it FAILS on any geometry the author did not foresee.
+     ⇒ Compared against the neighbour instead. That is immune to columns being
+     added, and it still catches #278 exactly: a not-running row that supplies
+     fewer cells than its neighbour shifts every later cell one column right,
+     which is how the agent's ROLE landed in the STATE column. */
+  say(seen.onKids.length > 0 && JSON.stringify(seen.offKids) === JSON.stringify(seen.onKids),
+    'the same cells, in the same order, as a running row',
+    seen.offKids.join(',') + '  vs  ' + seen.onKids.join(','));
   say(seen.offState && seen.onState && seen.offState.left === seen.onState.left, 'the state column lines up', JSON.stringify([seen.offState, seen.onState]));
   say(seen.offName && seen.onName && seen.offName.left === seen.onName.left, 'the name column lines up', JSON.stringify([seen.offName, seen.onName]));
   say(seen.stateText === 'Not running', 'the state cell says the state', JSON.stringify(seen.stateText));
   say(seen.taskText === '', 'the task cell is empty', JSON.stringify(seen.taskText));
+  /* 🛑 THE CELL #986 EMPTIED MUST STILL HOLD ITS COLUMN. The quoted sentence was
+     the only content a running agent's task cell had, so removing it left a cell
+     that is routinely empty on a five-plus column grid -- and an empty cell that
+     collapses moves every column after it, which is #278 all over again in the
+     row that was supposed to be fine.
+     🔑 THE CLAIM IS GEOMETRY, NOT TEXT, DELIBERATELY. What the cell SAYS is
+     already pinned at the unit level (web.quoted-line-986.test.js calls
+     stateReason at both real render sites and asserts a reported sentence goes
+     silent while a usage limit and a broken sign-in still speak). Asserting the
+     text again here would need a rate-limited agent on the board, and the agent
+     COUNT is load-bearing -- org-chart passes in a band and a sixth agent takes
+     it red. So the unit test owns the meaning and this owns the appearance.
+     ⚠️ AND MOST OF WHAT IT ASSERTS IS ALREADY GUARANTEED BY CONSTRUCTION, WHICH
+     IS WORTH KNOWING BEFORE ANYONE TRUSTS A GREEN. `.lrow` declares seven
+     explicit tracks, every one of them fixed or `minmax(...)` with a floor, so
+     an empty cell CANNOT collapse its track at this width no matter what it
+     contains. These lines therefore guard the TEMPLATE, not the content: they
+     go red if somebody changes a track to `auto`, and they cannot go red from
+     the emptying itself.
+     🛑 SO THE CASE #986 ACTUALLY CHANGED IS NOT COVERED HERE, AND SAYING SO IS
+     the point of this paragraph. Under 900px `.lrow` collapses to `34px 1fr`
+     and `.lstate`, `.ltask` and `.lmem` stack in column 2 as separate rows. An
+     empty `.ltask` there is an empty ROW, and `row-gap: 8px` is still spent on
+     it. This check runs at 1400x900 and will never see that. It has been true
+     of the not-running row since before #986 and nobody has reported it, which
+     is a reason to keep it in proportion, not a reason to leave it unwritten.
+     ⚠️ NOT YET PROVEN TO FAIL. Written during the 2026-08-27 demo freeze, when
+     browser checks were not allowed to run. Before trusting a green here, break
+     it on purpose: change a track to `auto` in the rendered page and confirm
+     these lines go red. A check whose failing direction has never been seen is
+     a claim, not an instrument. */
+  say(seen.onTaskCell, 'the running row still HAS a task cell', JSON.stringify(seen.onTaskText));
+  say(seen.offModel && seen.onModel && seen.offModel.left === seen.onModel.left,
+    'the model column lines up, so an empty task cell did not collapse',
+    JSON.stringify([seen.offModel, seen.onModel]));
+  say(seen.offMem && seen.onMem && seen.offMem.left === seen.onMem.left,
+    'the memory column lines up, so nothing after the task cell shifted',
+    JSON.stringify([seen.offMem, seen.onMem]));
   const el = await pg.$('.lrow.notrunning');
   let bx = await el.boundingBox();
   /* Scroll it into view first: the clip is in PAGE coordinates and a row below

@@ -1,129 +1,86 @@
 'use strict';
 
 /**
- * The create page's "let Kosmos know" box tells the truth about the second
- * gate (#258).
+ * 🪦 THE CREATED-PING CHECKBOX IS GONE, AND THIS FILE IS ITS MARKER.
  *
- * 🛑 IT SHIPPED `checked` IN THE MARKUP, UNCONDITIONALLY. Sending is two gates,
- * both of which must be true: this box for one agent, and the standing answer
- * in Settings. So a person who had turned it off in Settings opened the create
- * form, saw a ticked box, made an agent, and nothing was sent. The screen was
- * showing consent to something the engine was about to refuse.
+ * It used to hold seven tests about `createTellPaint` and the three states of
+ * the create-screen checkbox. Josh removed the setting on 2026-08-26, item 3:
+ * "the 'Let the Kosmos team know when you create an agent' - they both need to
+ * be removed." Both surfaces went: the Settings row first, then this one.
  *
- * 🔑 THE FORM ALREADY REFUSES THIS SHAPE THREE FIELDS UP, where Reports to is
- * hidden rather than offering a choice nobody can make. The difference is that
- * reports-to is IMPOSSIBLE and this is ALREADY ANSWERED, so the row stays and
- * says which: a row that vanishes teaches nothing, and the person who turned it
- * off is exactly the one who benefits from seeing that it took.
+ * ⭐ THE FILE IS KEPT RATHER THAN DELETED so that anyone who puts the control
+ * back gets a red from the file named after it, instead of a green suite and a
+ * silent send. Deleting it would leave the strongest signal about this decision
+ * in a commit message nobody reads.
  *
- * Found by Mona Lisa, create-flow package 2026-08-22.
+ * The real guarantee now lives in engine/ping.test.js, which asserts the
+ * control's ABSENCE and that the send defaults OFF together, because absence
+ * alone is only half: a removed control over a default-on send is worse than
+ * what he complained about and cannot be fixed by the person.
  */
-
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const nodePath = require('node:path');
 
-const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-const page = require('./test-support/page');
-const SCRIPT = page.scriptOf(PAGE);
+const RAW = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 
-/* One extractor, in test-support/page.js. There were four copies of this and
-   three walked to the first brace after the function NAME, which for a
-   destructured parameter is the parameter itself. See that file for why that
-   fails quietly rather than loudly. */
-const lift = (name) => page.lift(SCRIPT, name);
-
-/* The real painter against stub elements, so what is asserted is what the
-   function writes rather than a restatement of it. */
-function paint(answer) {
-  const els = {
-    'create-tell': { disabled: null, checked: null },
-    'create-tell-note': { textContent: null },
-  };
-  // eslint-disable-next-line no-new-func
-  new Function('document', lift('createTellPaint') + '\ncreateTellPaint(ANSWER);'
-    .replace('ANSWER', JSON.stringify(answer)))({ getElementById: (id) => els[id] });
-  return { box: els['create-tell'], note: els['create-tell-note'].textContent };
+/**
+ * 🛑 ABSENCE IS CHECKED ON CODE, NEVER ON PROSE. House style here explains a
+ * removal by QUOTING what was removed and who ruled it, so a deletion and its
+ * own explanation live in the same file by construction. An absence assertion
+ * over the raw text therefore matches the comment describing the deletion and
+ * reports the thing as still present.
+ *
+ * ⚠️ I WROTE BOTH HALVES OF THIS THE SAME NIGHT AND ONLY ONE OF THEM STRIPPED.
+ * engine/ping.test.js guards the same deletion and strips `<!-- -->`; this file
+ * read the raw page. Same claim, same evening, two different levels of care.
+ *
+ * ⚠️ LINE COMMENTS ONLY WHERE THE LINE BEGINS WITH ONE, and the restriction is
+ * load-bearing (Mona Lisa, measured): this page carries many `https://` URLs,
+ * and a naive `//.*$` truncates live code after every one of them. That would
+ * HIDE a real occurrence and turn an absence check green for the worst possible
+ * reason. Under-stripping gives a false FAIL somebody investigates;
+ * over-stripping gives a false PASS nobody ever looks at.
+ */
+function codeOnly(src) {
+  return src
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
 }
+const PAGE = codeOnly(RAW);
 
-test('the box is not checked in the markup, because nothing has been read yet', () => {
-  /* 🔑 THE DEFECT ITSELF, pinned in the static markup rather than through the
-     painter. The painter could be perfect and this attribute would still show
-     a tick for the whole first frame, before any read has happened, on the
-     screen where the claim is made. */
-  /* ⚠️ ANCHORED ON THE INPUT ITSELF, NOT ON WHAT SITS AFTER IT. This used to
-     slice from `create-tell-wrap` to `create-reports-wrap`, which was a claim
-     about the ORDER of two unrelated fields -- and on 2026-08-22 Reports to moved
-     above the checkbox, so the slice ran backwards and came back empty. An empty
-     slice fails the "row moved" guard, which is the good outcome; the bad one was
-     always available, because a `checked` attribute would also have been outside
-     an empty slice and reported absent. */
-  const at = PAGE.search(/id="create-tell"/);
-  assert.ok(at > -1, 'the checkbox lost its id, so this test is reading nothing');
-  const tag = PAGE.slice(PAGE.lastIndexOf('<', at), PAGE.indexOf('>', at) + 1);
-  assert.match(tag, /^<input\b/, 'that id is no longer on an input');
-  assert.ok(!/\schecked\b/.test(tag),
-    'the box is hard-coded checked again, which claims consent before anything has been read');
-  // The positive control: the same read finds an attribute that IS there, so a
-  // slice that had silently gone empty could not pass the line above.
-  assert.match(tag, /type="checkbox"/, 'CONTROL: the tag this test read is not the checkbox');
-});
-
-test('the standing answer being ON leaves the box checked and usable', () => {
-  const { box, note } = paint({ on: true, ok: true });
-  assert.equal(box.checked, true);
-  assert.equal(box.disabled, false);
-  assert.equal(note, '', 'a note appeared on the state that needs no explanation');
-});
-
-test('the standing answer being OFF disables the box and says where it was answered', () => {
-  const { box, note } = paint({ on: false, ok: true });
-  assert.equal(box.checked, false, 'the box claimed consent the engine will refuse');
-  assert.equal(box.disabled, true, 'the box invites a click that changes nothing');
-  assert.match(note, /Turned off in Settings/,
-    'the row is dead and does not say why, which is worse than hiding it');
-});
-
-test('a setting we could NOT read is not treated as on', () => {
-  /* ⚠️ THE THIRD STATE, and the reason it goes with OFF rather than ON: the
-     engine refuses on `!pref.on`, and an unread preference is not on. The
-     setting's own painter states the same rule at its own declaration, so a
-     version of this that guessed "probably on" would contradict the screen
-     the person would go to check. */
-  for (const answer of [null, undefined, { ok: false }, {}]) {
-    const { box, note } = paint(answer === undefined ? null : answer);
-    assert.equal(box.checked, false, 'an unread setting rendered as consent: ' + JSON.stringify(answer));
-    assert.equal(box.disabled, true, 'an unread setting offered a box to tick');
-    assert.ok(note.length > 0, 'an unread setting explained nothing');
+test('the create-screen ping control, and its painter, are gone', () => {
+  for (const gone of ['id="create-tell"', 'id="create-tell-wrap"', 'id="create-tell-note"',
+    'function createTellPaint', 'refreshCreateTell']) {
+    assert.equal(PAGE.includes(gone), false,
+      gone + ' is back. If that is deliberate, engine/ping.js must stop defaulting the send ON in the same change.');
   }
-  assert.match(paint(null).note, /could not read/,
-    'the unread state borrowed the turned-off sentence, which is a different fact');
 });
 
-test('the three states say three different things', () => {
-  /* POSITIVE CONTROL: a painter that ignored its argument would satisfy every
-     assertion above on whichever single answer it produced. */
-  const notes = [paint({ on: true, ok: true }).note, paint({ on: false, ok: true }).note, paint(null).note];
-  assert.equal(new Set(notes).size, 3, 'two of the three states read identically: ' + JSON.stringify(notes));
+test('the create screen itself is still there, so the absences above mean something', () => {
+  assert.match(PAGE, /id="create-go"/);
+  assert.match(PAGE, /id="create-instr"/);
 });
 
-test('the form reads the setting every time it opens, not once on boot', () => {
-  /* The standing answer can be changed in Settings between two visits to this
-     form, and a value learned at boot would be stale for the rest of the
-     session on the one screen where it is acted on. */
-  assert.match(lift('openCreate'), /refreshCreateTell\(\)/,
-    'opening the create form no longer re-reads the setting');
-  assert.match(lift('refreshCreateTell'), /createTellPaint\(null\)/,
-    'the read no longer starts from unread, so a slow fetch shows a stale claim');
+test('and the create request no longer reads a control that does not exist', () => {
+  /* The submit builder did `getElementById('create-tell').checked`. With the
+     box gone that is a throw on the last click of the flow every new person
+     walks, which is the worst place in the product to put one. */
+  assert.doesNotMatch(PAGE, /getElementById\('create-tell'\)/);
+  assert.match(PAGE, /b\.tellKosmos = false;/,
+    'the create request stopped saying false explicitly, so the server default (true) takes over');
 });
 
-test('nothing on the create page writes the standing setting', () => {
-  /* Unchecking here is about this one agent. The standing answer is changed in
-     Settings and nowhere else, and a create form that quietly rewrote it would
-     turn a per-agent decision into a permanent one. */
-  assert.ok(!/ping-setting[^)]*method:\s*'POST'/.test(lift('refreshCreateTell')),
-    'the create page writes the standing preference');
-  assert.ok(!/createTellPaint[\s\S]{0,400}fetch\(/.test(lift('createTellPaint')),
-    'the painter performs a request');
+test('CONTROL: the stripper removes prose and keeps code', () => {
+  /* Without this, codeOnly() could return '' (or the input unchanged) and every
+     absence above would pass for the wrong reason. Both directions pinned. */
+  const kept = codeOnly('<!-- id="create-tell" -->\n/* id="create-tell" */\n// id="create-tell"\nconst real = "id=\\"create-tell\\"";');
+  assert.doesNotMatch(kept.split('const real')[0], /create-tell/,
+    'the stripper left a commented mention behind, so absence checks can be fooled by prose');
+  assert.match(kept, /const real/, 'the stripper ate real code');
+  /* And a URL survives: a naive line-comment strip would cut this in half. */
+  assert.match(codeOnly('const u = "https://example.com/x"; // note'), /example\.com\/x/,
+    'the strip truncated live code after a URL, which HIDES occurrences');
 });

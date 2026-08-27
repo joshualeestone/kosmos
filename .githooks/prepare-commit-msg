@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Stamp WHICH AGENT made this commit, since the author cannot say. (kosmos#1048)
+#
+# Every commit on this fleet is authored `tmnt-josh`: one shared GitHub account
+# for all agents, which is a deliberate trade-off and is not what this changes.
+# The cost of it is that "whose change is this?" cannot be answered from git,
+# and that cost was paid three times in one day: a finding handed to the wrong
+# agent, a stranded branch nobody could return to its owner, and a design
+# decision nobody could trace.
+#
+# 🔑 THE TRAILER IS DERIVED, NOT TYPED. The instructions already ask agents to
+# add a session trailer by hand. Measured on 2026-08-26: 2 of the last 40
+# commits carried one. An instruction that is followed 5% of the time is not a
+# mechanism, so this reads the agent's identity the same way every other part of
+# the fleet does -- from the tmux session its pane belongs to -- and adds it
+# without anyone remembering.
+#
+# ⚠️ IT MUST NEVER BLOCK A COMMIT. A hook that can fail a commit over an
+# attribution nicety is worse than no attribution. Every path exits 0, every
+# command is guarded, and an agent outside tmux simply gets no trailer.
+#
+# ⚠️ AND IT MUST NOT FIRE ON A MERGE, SQUASH OR AMEND WITH A MESSAGE ALREADY
+# WRITTEN, or it would rewrite somebody else's commit as its own.
+set -uo pipefail
+
+MSG_FILE="${1:-}"
+SOURCE="${2:-}"
+[ -n "$MSG_FILE" ] || exit 0
+[ -f "$MSG_FILE" ] || exit 0
+
+# `merge`, `squash` and `commit` (an amend or -C) already carry authored text
+# that is not ours to attribute. Only a fresh message or a template gets one.
+case "$SOURCE" in
+  merge|squash|commit) exit 0 ;;
+esac
+
+# Already stamped, by a previous run or by hand: leave it alone.
+if grep -qiE '^Agent:' "$MSG_FILE" 2>/dev/null; then exit 0; fi
+
+# Who are we? The same derivation the rest of the fleet uses: the pane's tmux
+# session, minus the -discord suffix the sessions carry.
+agent=""
+if [ -n "${TMUX_PANE:-}" ] && command -v tmux >/dev/null 2>&1; then
+  agent=$(tmux display-message -p -t "${TMUX_PANE}" '#{session_name}' 2>/dev/null || true)
+  agent="${agent%-discord}"
+fi
+# A name we would not want in a commit message is no name at all.
+case "$agent" in
+  ''|*[!a-zA-Z0-9._-]*) exit 0 ;;
+esac
+
+# 🛑 A TRAILER NEEDS A BLANK LINE BEFORE IT, NOT JUST A NEWLINE, and getting
+# that wrong is not cosmetic. The first version only ensured the file ended in
+# "\n", so a ONE-LINE message came out as:
+#
+#     v0576 -- version
+#     Agent: renettilley
+#
+# with no blank line between them -- which git reads as ONE subject, so
+# `git log --format=%s` returned "v0576 -- version Agent: renettilley".
+# ⚠️ release.sh commits its version bump with exactly that one-line shape, so
+# this would have corrupted the subject of every cut's bump commit. Caught by
+# running the hook against release.sh's own commit form rather than reasoning
+# that appending a line is harmless.
+#
+# So: strip trailing blank lines, then put back exactly one blank line.
+# Appended rather than inserted, because an inserted line can land inside a
+# comment block git later strips and the trailer would vanish silently.
+body=$(sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}' "$MSG_FILE" 2>/dev/null) || exit 0
+{
+  printf '%s\n\n' "$body"
+  printf 'Agent: %s\n' "$agent"
+} > "$MSG_FILE" 2>/dev/null || true
+
+exit 0

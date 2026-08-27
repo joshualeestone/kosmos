@@ -25,9 +25,23 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const nodePath = require('node:path');
+const { codeOnly } = require('./test-support/code-only');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-const STEP = PAGE.slice(PAGE.indexOf('id="fr-pane-3"'), PAGE.indexOf('id="fr-sub"'));
+/* ⚠️ THE END ANCHOR WAS `id="fr-sub"` AND CANNOT BE ANY MORE. That element
+   used to sit after every provider row, so it doubled as "end of the list".
+   On 2026-08-26 it moved UP, to directly under the Claude row, so the connect
+   panel and the progress bar render beside the thing the person pressed
+   instead of below four providers they did not (Josh's items 8, 9, 10).
+   Anchoring here now would cut the slice off after Claude and quietly stop
+   this file testing GPT, Gemini, Llama, Qwen or Mistral at all -- which is
+   exactly what it did for one run, reporting "GPT is missing from the step".
+
+   `id="fr-pane-5"` is the next pane in FILE order (the panes are not in
+   numeric order; fr-pane-4 sits above fr-pane-3). The length guard below is
+   what protects this: a slice that runs into the rest of the page fails
+   loudly rather than passing on more text than it should. */
+const STEP = PAGE.slice(PAGE.indexOf('id="fr-pane-3"'), PAGE.indexOf('id="fr-pane-5"'));
 
 test('the step is a real slice of the model pane', () => {
   /* The whole file would satisfy every assertion below, since the slice
@@ -42,7 +56,7 @@ test('the step is a real slice of the model pane', () => {
      again if this step legitimately grows; do NOT remove it, and do not raise
      it to a number that would swallow the create form. Measured after the
      confirm landed: ~16.4k. */
-  assert.ok(STEP.length > 200 && STEP.length < 18000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
+  assert.ok(STEP.length > 200 && STEP.length < 24000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
   assert.match(STEP, /Your agents run on your own subscription/, 'the slice does not contain the model step');
   assert.ok(!STEP.includes('id="create-model"'), 'the slice ran past this step into the create form');
 });
@@ -127,7 +141,7 @@ test('the tier label and its separator match the rest of the product', () => {
      this very step's own build comments) -- so this strips HTML comments
      before checking, the same scoping the disclosure-only slice used to get
      for free by starting past them. */
-  const visible = STEP.replace(/<!--[\s\S]*?-->/g, '');
+  const visible = codeOnly(STEP);
   assert.ok(!/&mdash;|—/.test(visible), 'an em dash reached text a person actually reads on this step');
   assert.match(visible, /&middot;/, 'the separator changed to something the sibling rows do not use');
 });
@@ -380,4 +394,127 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   assert.match(els['fr-openai-connect'].innerHTML, /Connected/,
     'a pre-add read resolving late repainted a just-connected row back to Connect');
   assert.equal(els['fr-openai-connect'].disabled, true);
+});
+
+// ---------------------------------------------------------------------------
+// Josh, 2026-08-26, items 8, 9 and 10 — from a live run of the connect flow.
+// "the download progress bar was supposed to be up in that area where I had
+// just clicked to confirm... instead it's showing below all of the models in
+// the wrong spot."
+// ---------------------------------------------------------------------------
+
+test("the connect panel renders under Claude, not under the whole list", () => {
+  /* One assertion for three of his items, because they were one bug with
+     three symptoms: the panel, the progress bar and the connected verdict all
+     render into #fr-sub, so where that element SITS decides all three. */
+  const claudeRow = PAGE.indexOf('class="llm on"><span class="llm-m pmark live" data-pmark="claude"');
+  const gptRow = PAGE.indexOf('class="llm on"><span class="llm-m pmark live" data-pmark="openai"');
+  const panel = PAGE.indexOf('<div id="fr-sub"></div>');
+
+  /* ⚠️ Anchored on the MARKUP, not on `data-pmark="openai"` alone. That
+     attribute appears in a CSS rule far earlier in the file, and matching it
+     compared a stylesheet selector against markup positions -- which reported
+     the order as wrong when it was right. */
+  assert.ok(claudeRow > 0 && gptRow > 0 && panel > 0, 'one of the three anchors is missing');
+  assert.ok(panel > claudeRow,
+    'the connect panel renders BEFORE the Claude row, so it is not beside the thing pressed');
+  assert.ok(panel < gptRow,
+    'the connect panel still renders after the provider rows, so pressing Confirm on Claude '
+    + 'paints the progress bar and the verdict at the bottom of the screen (his items 8, 9, 10)');
+});
+
+test("the panel sits outside the confirm block, not inside it", () => {
+  /* 🛑 My first attempt at the move inserted it INSIDE #fr-claude-confirm,
+     because I took the first </div> after that element -- which closes the
+     <div class="frow"> holding Confirm and Not now. The section stopped
+     parsing and four unrelated tests went red. The confirm block is hidden
+     until pressed, so a panel inside it would be invisible exactly when it
+     matters. */
+  const confirmId = PAGE.indexOf('id="fr-claude-confirm" class="fr-confirm"');
+  const confirm = PAGE.lastIndexOf('<div', confirmId);
+  const panel = PAGE.indexOf('<div id="fr-sub"></div>');
+  const between = PAGE.slice(confirm, panel);
+  const opens = (between.match(/<div\b/g) || []).length;
+  const closes = (between.match(/<\/div>/g) || []).length;
+  assert.equal(opens, closes,
+    'the panel is nested inside the confirm block (' + opens + ' opens vs ' + closes
+    + ' closes between them), so it would be hidden until Confirm is pressed');
+});
+
+/**
+ * 🛑 TWO BUTTONS CALLED "Connect", AND A SCREEN READER HEARS ONLY THE BUTTON.
+ *
+ * Found by the page layer on 2026-08-27: `named-controls` failed with
+ * "first run step 3: no two controls answer to the same name  Connect x2",
+ * and Baron confirmed the same red would have killed his cut's 3b twenty
+ * minutes later, where it would have looked like run contention.
+ *
+ * The rows ARE distinguishable on screen -- each carries its vendor mark,
+ * `<span class="llm-m pmark" role="img" aria-label="Claude">` and the OpenAI
+ * one beside it. But that name belongs to the IMAGE, not to the button, and
+ * a person moving by control hears "Connect, Connect" with nothing to choose
+ * between them.
+ *
+ * ⚠️ THE VISIBLE WORD DOES NOT CHANGE, deliberately. `aria-label` starts with
+ * the visible label ("Connect Claude", not "Claude"), so WCAG 2.5.3's
+ * label-in-name still holds for anyone driving the page by voice: saying
+ * "click Connect" still matches.
+ */
+test('first run step 3: the two Connect buttons do not answer to the same name', () => {
+  const step = PAGE.slice(PAGE.indexOf('id="fr-llm-connect"') - 4000,
+                          PAGE.indexOf('id="fr-openai-connect"') + 4000);
+  // ⚠️ PRESENCE FIRST. An absence assertion over a slice that does not contain
+  // the buttons passes for the wrong reason, and this file's own end-anchor
+  // comment records that exact trap one screen up.
+  assert.match(step, /id="fr-llm-connect"/, 'the Claude connect button is in the slice');
+  assert.match(step, /id="fr-openai-connect"/, 'the OpenAI connect button is in the slice');
+
+  const nameOf = (id) => {
+    const m = PAGE.match(new RegExp('<button[^>]*id="' + id + '"[^>]*>', ''));
+    assert.ok(m, id + ' has a button tag');
+    const lab = m[0].match(/aria-label="([^"]*)"/);
+    return lab ? lab[1] : 'Connect';   // no aria-label => the visible word IS the name
+  };
+  const claude = nameOf('fr-llm-connect');
+  const openai = nameOf('fr-openai-connect');
+
+  assert.notEqual(claude, openai,
+    'the two connect buttons must not answer to the same name (both were "Connect")');
+  // Label-in-name: the visible word must still start the accessible name.
+  assert.ok(claude.startsWith('Connect'), 'Claude button name starts with the visible word: ' + claude);
+  assert.ok(openai.startsWith('Connect'), 'OpenAI button name starts with the visible word: ' + openai);
+  // And each must actually say WHICH, or the names are merely different.
+  assert.match(claude, /Claude/i, 'the Claude button names its provider: ' + claude);
+  assert.match(openai, /OpenAI/i, 'the OpenAI button names its provider: ' + openai);
+});
+
+/**
+ * The same defect at N instead of 2, found by Mona Lisa reviewing the fix above.
+ *
+ * The service rows build their Connect button in a LOOP from a service name, so
+ * a machine with five connectors draws five buttons all answering to "Connect",
+ * on a screen where the rows differ only by a heading the button does not carry.
+ * ⚠️ The test above cannot see these and must not try: it pins step 3 by id, and
+ * these have no ids, they are built at render time. So this one asserts the
+ * RENDER SITE instead -- the only place a static test can reach them.
+ * 📌 The input beside one of them already did this (`esc(name) + ' API token'`),
+ * so the per-service naming pattern was established here before the button used it.
+ */
+test('no button whose whole label is "Connect" goes unnamed', () => {
+  /* ⚠️ FOUND BY THE TEST FAILING ON THE FIXED PAGE. My first version took the
+     FIRST `data-svc-connect` render site by indexOf -- and that one draws
+     "Connect without installing anything", a button that is already
+     distinguishable and was never the defect. It asserted against the wrong
+     button and went red on code that was correct.
+     ⭐ So the rule is stated as the rule instead of as two addresses: a button
+     whose ENTIRE visible label is the bare word "Connect" carries no
+     information on its own, so it must carry an accessible name. Buttons whose
+     label already says more ("Connect without installing anything") are fine
+     and this leaves them alone. */
+  const bare = [...PAGE.matchAll(/<button\b[^>]*>Connect<\/button>/g)].map((m) => m[0]);
+  assert.ok(bare.length >= 4, 'the bare-Connect buttons are present to be checked (found ' + bare.length + ')');
+  const unnamed = bare.filter((t) => !/aria-label="/.test(t));
+  assert.deepEqual(unnamed, [],
+    'every button labelled only "Connect" needs an accessible name, or a screen '
+    + 'reader hears the same word for all of them');
 });

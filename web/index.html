@@ -95,6 +95,55 @@
      flagged rather than silently taken. */
   --k-optline: #82878f;
   --gold: #d6a62e; --gold-bright: #e3b341; --gold-deep: #b88920;
+  /* ⚠️ THE EDGE OF A GOLD BUTTON, AND IT IS A CONTRAST FLOOR RATHER THAN A
+     PREFERENCE (kosmos#1044). `.uprime` painted its border the same colour as
+     its fill, and `--gold-bright` measures 1.95:1 against a white card and
+     1.85:1 against the page -- under the 3:1 WCAG SC 1.4.11 asks of anything
+     that identifies a control. The TEXT was never the problem (ink on gold is
+     9.31:1); the button itself was the thing that disappeared, on the primary
+     action of nearly every screen that decides something.
+     🛑 THE GOLD IS NOT CHANGED. It is brand, Josh picked it, and darkening a
+     fill to clear a ratio trades an identity decision for an arithmetic one.
+     The EDGE carries the floor instead.
+     📌 MEASURED ON EVERY GROUND IT SITS ON, because a colour has as many
+     ratios as it has backgrounds, and no single value clears 3:1 in both
+     themes -- which is why this is a token and not a literal:
+       #8a6614  card 5.26  page 5.00  side 4.66   (light: all clear)
+       #b88920  card 3.16  page 3.01  side 2.80   (light: side FAILS)
+       #d6a62e  dark card 6.21  dark page 7.84    (dark: clears)
+     `--gold-deep` was the obvious candidate and is the one that fails, on the
+     `--k-side` ground the consolidated rails use. */
+  /* ⚠️ DEFINED AND DELIBERATELY NOT APPLIED as of 2026-08-26 22:05. Josh
+     reverted the edge (see .uprime below). The token and every measurement
+     above are kept ON PURPOSE: they are the evidence any replacement proposal
+     needs, and re-deriving them is how a decision gets made twice. Do not
+     re-apply it to .uprime without him. */
+  --gold-edge: #8a6614;
+  /* 🛑 DEFINED, and it was NOT (kosmos#976). Two controls already paint
+     themselves `var(--danger, #b3261e)` -- `.skillrm` and `.found-dismiss.armed`
+     -- and nothing in this file ever declared `--danger`, so both have always
+     fallen back. That works in light (6.54:1 on a card) and FAILS in dark:
+     #b3261e measures 2.69:1 on the dark card and 2.97:1 on the dark page,
+     under the 4.5 a text colour needs. Two red controls have been illegible in
+     dark mode for as long as they have existed.
+     ⚠️ THIS IS THE `--k-sunk` DEFECT AGAIN, and this file already records it:
+     "a borrowed token needs its definition, not just the defence its source
+     happened to carry". A fallback makes a missing token invisible in the theme
+     it happens to suit and wrong in the other. The usage sites keep their
+     fallbacks anyway; what changes is that the token now exists.
+     📌 Dark measured on every dark ground: #ff6b5e is 6.30 card, 6.96 page,
+     6.66 side, 4.99 elevated. */
+  --danger: #b3261e;
+  /* 🔑 GREEN AS TEXT NEEDS ITS OWN VALUE, and the connected BUTTON does not.
+     The button is white on a #1f7a4d fill, so it carries its own ground and
+     measures 5.32:1 in either theme. Green TEXT sits on whatever is behind it:
+     #1f7a4d is 5.32 on a card and 5.05 on the page, but only 3.31 on the DARK
+     card -- under the 4.5 a text colour needs.
+     ⚠️ SAME TRAP AS `--danger` ONE LINE UP, met twice in one evening: a colour
+     that is correct in one arrangement is not automatically correct in
+     another, and "we already use this green" is not a measurement.
+     Dark #4ade80 is 10.11 on the dark card and 11.16 on the dark page. */
+  --ok: #1f7a4d;
   --k-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --font-ui: -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif;
@@ -176,6 +225,15 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    /* kosmos#976: the light red is 2.69:1 here. This one clears 4.5 on every
+       dark ground, elevated cards included. */
+    --danger: #ff6b5e;
+    /* kosmos#977: the light green is 3.31:1 here. */
+    --ok: #4ade80;
+    /* kosmos#1044: on a dark ground the fill is the light thing, so the edge
+       goes the other way. `--gold` measures 6.21:1 on a dark card and 7.84:1
+       on the dark page; the light value (#8a6614) would be 2.65:1 there. */
+    --gold-edge: #d6a62e;
     --bg:            #1c1c1e;
     --bg-elevated:   #2c2c2e;
     --bg-sunken:     #141416;
@@ -383,7 +441,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* The agent's own words, marked as a quotation rather than as our sentence: a
    rule down the left, the terminal's own face, and no italics (this is copied
    text, not emphasis). */
-.detail-said { margin: 6px 0 0; padding: 6px 0 6px 12px;
+.detail-saidlab { margin: 10px 0 0; font-size: .75rem; color: var(--k-ink-2); }
+.detail-said { margin: 2px 0 0; padding: 6px 0 6px 12px;
                border-left: 2px solid var(--k-rule); color: var(--k-ink-2);
                font: .8125rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
                white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -695,6 +754,16 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn:disabled:hover { background: var(--bg); }
 .fmsg { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: var(--space-4); min-height: 1em; }
+/* kosmos#976: a step that can wreck the flow, told apart from the hints around
+   it. Same size as .dhint so it does not shout, but in full ink with a red
+   marker, because the defect was that it looked like advice. */
+.dwarn { font: var(--text-callout) var(--font-ui); color: var(--k-ink); }
+/* kosmos#977: the connected note wears the same green as the Connect button's
+   connected state, which this file already measured at 5.32:1 for white on
+   #1f7a4d. One vocabulary for one outcome. */
+.acct-ok { color: var(--ok, #1f7a4d); font-weight: 700; margin-right: 6px; }
+.fmsg.is-connected, .dhint.is-connected { color: var(--ok, #1f7a4d); font-weight: 600; }
+.dwarn-m { color: var(--danger, #b3261e); font-weight: 700; margin-right: 6px; }
 /* #727: the provider choice on Accounts; the pressed one reads pressed. */
 .acct-pick .btn[aria-pressed="true"] { background: var(--attn-bg); border-color: var(--border-strong); font-weight: 600; }
 /* #734: a floored Agents count is a way to This Mac. */
@@ -776,7 +845,39 @@ html { scroll-padding-top: 132px; }
 /* The pack's gold ACTION colour, one home for both the toast's Install and
    the confirm's Update. Two selectors so it outweighs .btn regardless of
    declaration order. */
-button.uprime, .btn.uprime, .utoast .uacts button.uprime { background: #e3b341; border-color: #e3b341; color: #14161a; }
+/* 🛑 NO EDGE. Josh, 2026-08-26 22:05, on seeing it live: "I never asked for
+   that. All the gold buttons are supposed to be just like they are on the
+   style guide and the pack design that Mona Lisa designed, where it's just a
+   nice bright gold button with black text." It was on the post and send
+   buttons of every page. His brand, his call, reverted on his word.
+   ⚠️ WHAT THIS GIVES UP, recorded rather than dropped (#1044): the edge was
+   carrying a CONTRAST FLOOR, not a preference. --gold-bright is 1.95:1 on a
+   white card, under the 3:1 WCAG SC 1.4.11 asks of anything that identifies a
+   control, so the button's SHAPE is hard to locate for a low-vision reader.
+   The text was never the problem (ink on gold is 9.31:1). The measurements
+   are kept on --gold-edge below so the alternative can be proposed with
+   numbers instead of re-measured from scratch.
+   ⭐ AND THE HOVER IS A SEPARATE DEFECT HE ALSO CAUGHT: "when I mouse over it,
+   it turns a light gray". .uprime had no hover of its own, so the generic
+   .btn:hover repainted the primary action --attn-bg and the gold vanished
+   under the pointer. It now deepens to --gold, which is the pattern this file
+   already uses for the first-run confirm rather than a new invention. */
+button.uprime, .btn.uprime, .utoast .uacts button.uprime,
+.dbox .btn.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
+button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
+.dbox .btn.uprime:hover { background: var(--gold); border-color: var(--gold); color: #14161a; }
+/* ⚠️ THE `.dbox` HALVES ARE NOT DECORATION, and the button they save is the one
+   Josh named. `#d-send` (Send, on an agent) is a `.btn.uprime` INSIDE a `.dbox`,
+   and the dialog skin above sets both a transparent fill (`.dbox .btn`, 0-2-0)
+   and a pale gold hover (`.dbox .btn:hover`, 0-3-0). Against those, plain
+   `.btn.uprime` (0-2-0) and `.btn.uprime:hover` (0-3-0) TIE, so the gold was
+   winning on nothing but sitting later in the file. Move either block and the
+   fix Josh signed off silently becomes the grey wash he reported.
+   📌 Found by Mona Lisa, who flagged it rather than editing a just-landed fix.
+   Verified reachable before acting on it: 2 of 19 gold buttons sit in a .dbox,
+   and one of them is #d-send. The test moves the .dbox block ABOVE this one
+   and requires the button to stay gold, which is the only way to tell
+   "wins on specificity" from "happens to be later". */
 /* ⚠️ THE FLOW'S PRIMARY, at the pack's own size (`.btn-gold`: 1.0625rem,
    .9em/1.75em padding, 10px radius). Scoped to `.big` rather than widened onto
    every `.uprime`, because this is the create flow's weight and not a change to
@@ -2867,6 +2968,26 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pjtitle-row .dname { min-width: 0; }
 .pjtitle:not(.is-open) #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pjtitle:not(.is-open) #pj-one-desc { display: none; }
+/* 🛑 THE EXPANDER HAS TO UNDO THE CLAMP, NOT JUST REVEAL THE ELEMENT
+   (Josh, 2026-08-26 19:53). #980 clamped the header description to one
+   ellipsised line and mitigated it with a `title` on hover. That clamp is not
+   scoped to a state, so kosmos#1005's disclosure opened onto the SAME
+   truncated line -- the expander revealed nothing you could not already see.
+   ⚠️ MINE BY OMISSION. I added a control that reveals a thing and never asked
+   what else was already acting on that thing. Hiding it when closed was the
+   half I wrote; un-clamping it when open is the half I did not.
+   📌 Additive rather than editing #980's rule: that selector also serves the
+   collapsed state and other `.pj-desc` elements in the header, and the ID here
+   outranks it (1,2,0 beats 0,5,2) without touching what it does elsewhere.
+   Verified by rendering, not by counting specificity. */
+.pjtitle.is-open #pj-one-desc {
+  white-space: normal; overflow: visible; text-overflow: clip;
+  max-width: var(--k-measure, 68ch);
+}
+/* Josh asked for a bigger arrow: it was inheriting the title's size through a
+   bare glyph and read as a speck beside a 1.375rem heading. */
+.pjdisc { font-size: 1rem; }
+.pjdisc-ar { font-size: 1.05rem; line-height: 1; }
 .pjdisc { flex: 0 0 auto; border: 0; background: none; padding: 2px 2px 2px 0; margin: 0;
   color: var(--k-ink-2); font: inherit; line-height: 1; cursor: pointer; }
 .pjdisc:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; border-radius: 4px; }
@@ -4057,6 +4178,18 @@ svg { display: block; }
 code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          background: color-mix(in srgb, var(--k-ink) 7%, transparent); }
 
+/* 📌 THE SOURCE LIBRARY FOR THESE MARKS IS `docs/provider-marks/` (#1052), and
+   its `manifest.md` is the part that cannot be re-derived: per mark, the vendor
+   source URL, why that source is official, whether a licence was found, that the
+   file was rendered and visually confirmed, and which wrong grabs were rejected.
+   ⚠️ It also now records PERMISSION, which is a different question from
+   provenance: two of these vendors require written approval before their mark
+   may be used at all. Read it before adding a mark to any surface.
+   ⚠️ The library and this row are NOT the same set and never have been: the
+   folder holds Anthropic's corporate A which nothing here renders, and this row
+   renders Qwen, which exists in the folder only as PNG. Counting one and
+   reporting the other is how three agents produced three different totals in ten
+   minutes (#1052). */
 /* Provider marks (#876/#262): real vendor SVGs, inlined into the page so
    nothing is fetched at runtime — the only rule that survives from an
    earlier "no vendor logos" version of this comment, which the marks below
@@ -4067,6 +4200,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    the four you cannot use louder than the two you can, and this row exists
    to show what works today beside what is coming; monochrome is also what
    most vendor guidelines permit as the single-colour variant. */
+/* #991: an agent we cannot currently address still shows its last known state,
+   because that is real information -- but in the past tense, so the label stops
+   contradicting the "we could not see it right now" sentence below it. Drawn
+   from an attribute so it survives the painter's innerHTML rewrite. */
+.detail-state[data-remembered]::after { content: ' · when last seen'; opacity: .75; font-weight: 400; }
 .pmark { display: grid; place-items: center; }
 .pmark svg { width: 100%; height: 100%; display: block; }
 /* ⚠️ MONOCHROME BY FILTER, NOT BY FORCING FILLS. `svg * { fill: grey !important }`
@@ -4077,6 +4215,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 .pmark.dim { color: var(--k-ink-2); }
 .pmark.dim svg { filter: grayscale(1) opacity(.8); }
 .pmark.live { color: var(--k-ink); }
+/* ⚠️ AND THE MARKS MUST ACTUALLY TAKE IT. `.pmark.live` exists so a monochrome
+   mark follows the theme through `currentColor`. The OpenAI path hardcoded
+   `fill="black"`, so it ignored the token and rendered black on the dark
+   ground -- an invisible logo on the row that says "works today".
+   🔑 The distinction, because not every hardcoded fill is a bug: Gemini, Qwen
+   and Mistral hardcode REAL BRAND COLOURS and gradients, which is correct and
+   must stay. OpenAI is a monochrome mark, so it was the only one opted out by
+   mistake. Monochrome takes currentColor; brand-coloured keeps its values and
+   gets measured on both grounds instead. */
 
 /* Running on older instructions. A STATE, not a toast: it survives a reload,
    and it is still right when the file was edited outside this app entirely. */
@@ -4446,6 +4593,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            line-height: 1.5; margin-top: var(--space-6);
            padding: var(--space-5) var(--space-6); border-radius: 10px;
            background: var(--attn-bg); }
+/* #996: the advanced escape hatch, quiet by construction. It is an aside for
+   somebody who already has the tool, never a step in the flow. */
+.fr-hatch { margin-top: 8px; }
+.fr-hatch > summary { cursor: pointer; font-size: .8125rem; color: var(--label-2); }
+.fr-hatch > summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 /* Step 4 -- about you. Same control look as the project form's field. */
 .fr-youfield { margin-top: var(--space-5); }
 .fr-youfield label { display: block; font: var(--text-callout) var(--font-ui);
@@ -4639,6 +4791,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   transition: background .12s ease;
 }
 #firstrun #fr-alt:hover { background: rgba(198,154,50,.14); }
+/* The quiet variant (Josh, item 5). Still a real button and still focusable;
+   it just stops competing with the primary for the eye. */
+#firstrun #fr-alt.is-link {
+  background: transparent; border: 0; padding: .4em .2em;
+  font: 500 .9375rem/1.6 var(--font-ui); color: var(--k-ink-2);
+  text-decoration: underline; text-underline-offset: 3px;
+}
+#firstrun #fr-alt.is-link:hover { background: transparent; color: var(--k-ink); }
 #firstrun #fr-alt:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
 /* The heading still TAKES focus on each step (SC 4.1.3); the pack draws no
    ring on it, and a heading is not interactive, so the ring goes. */
@@ -4712,7 +4872,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    panel whose whole job is to make an affirmative choice deliberate. Scoped here
    rather than raising .uprime globally, which would repaint buttons on screens
    nobody asked about. */
-#firstrun .fr-confirm .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-deep); }
+/* Same revert as the app-wide primary above (Josh, 22:05): no edge. */
+#firstrun .fr-confirm .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-bright); }
 #firstrun .fr-confirm .btn.uprime:hover { background: var(--gold); }
 #firstrun .fr-msg { color: var(--k-ink); }
 #firstrun .fr-youfine { color: var(--k-ink-2); }
@@ -4776,6 +4937,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
 :root[data-theme="dark"] {
+    /* kosmos#976: the light red is 2.69:1 here. This one clears 4.5 on every
+       dark ground, elevated cards included. */
+    --danger: #ff6b5e;
+    /* kosmos#977: the light green is 3.31:1 here. */
+    --ok: #4ade80;
+    /* kosmos#1044: on a dark ground the fill is the light thing, so the edge
+       goes the other way. `--gold` measures 6.21:1 on a dark card and 7.84:1
+       on the dark page; the light value (#8a6614) would be 2.65:1 there. */
+    --gold-edge: #d6a62e;
     --bg:            #1c1c1e;
     --bg-elevated:   #2c2c2e;
     --bg-sunken:     #141416;
@@ -5074,7 +5244,20 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            witnesses disagreeing, as the engine's own sentence in a note.
            Both filled by the painter beside d-state, both hidden when they
            have nothing to say, which is almost always for the conflict. -->
-      <span class="dsaid" id="d-said" hidden></span>
+      <!-- 🛑 THE QUOTED SAID-LINE IS GONE FROM HERE TOO (kosmos#986). #855 cut
+           it from the grid card and df0a502 from the list row; this was the
+           third surface and the only one left. Josh reported it still showing
+           on 2026-08-26 19:53.
+           ⚠️ AND IT HAD NOT BEEN SHOWING WHAT ANYONE THOUGHT. This span carried
+           `id="d-said"` and so did the blockquote below it -- two features, one
+           id, the only duplicate id in the file (591 markup ids, 590 distinct,
+           measured with comments stripped and a planted control). `getElementById`
+           returns the FIRST, so both writes landed here and the vendor's
+           usage-limit sentence, written ~60 lines later in openDetail,
+           OVERWROTE the quoted line every time. The blockquote had never
+           rendered once in its life.
+           📌 So removing this is not only the third cut: it is what lets the
+           blockquote below finally be the element it was written to be. -->
       <div class="note" id="d-conflict" hidden></div>
       <!-- 🛑 MOVED HERE FROM THE INSTRUCTIONS SECTION (Josh, 2026-08-21). The
            card puts a ⚠️ beside the agent's name; the sentence explaining it was
@@ -5104,6 +5287,28 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            Kosmos cannot know an account is spent; it saw a sentence. So the
            sentence is shown, which names the model and carries the vendor's own
            remedies, and stays true if that wording changes under us. -->
+      <!-- Keeps `d-said`, and now it is the ONLY thing that answers to it. The
+           span above shared the id and won every lookup, so this element was
+           unreachable and the sentence it exists for was being painted into a
+           span styled for something else. -->
+      <!-- 🛑 THE ATTRIBUTION IS VISIBLE NOW, and it is not decoration. This
+           element was unreachable for its whole life (the span above shared its
+           id and won every lookup), so nothing here had ever been SEEN. Freeing
+           it in 1022f1f turned on a surface nobody had reviewed -- and what it
+           carries is scraped pane text that can read
+           "Run /usage-credits to continue or switch models with /model".
+           ⚠️ A TERMINAL COMMAND, RENDERED BARE, IS AN INSTRUCTION TO THE READER.
+           The comment above has always said this is "what the screen SAID, not
+           what we concluded" -- but that intent lived only in the source. On
+           screen it was an unlabelled block of text, so the vendor's remedy read
+           as Kosmos telling a person to run something they have no terminal for
+           (kosmos#991's third problem, and #996's before it).
+           📌 The sentence itself is NOT reworded. The code's ruling stands: it
+           names the model, carries the vendor's own remedies, and stays true if
+           their wording changes. What changes is that it is now ATTRIBUTED, so
+           a slash command inside it reads as something its screen showed rather
+           than something we are asking for. -->
+      <p class="detail-saidlab" id="d-said-lab" hidden></p>
       <blockquote class="detail-said" id="d-said" hidden></blockquote>
       <!-- 🛑 THE "ASSIGNED TO" ROW IS GONE (Josh, 2026-08-22), and what went with
            it is worth knowing before anybody brings it back. It listed the
@@ -5995,7 +6200,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          Claude code step can never sit under the OpenAI key field again.
          Functional first, by his ruling; he adds the look afterwards. -->
     <div id="acct-claude-flow" hidden style="margin-top: var(--space-5);">
-      <p class="dhint" style="margin:0 0 8px;">Sign in to the other Claude account in your browser. Kosmos never sees your password, and the accounts above stay connected.</p>
+      <!-- 🛑 A MARKED WARNING, NOT A HINT (kosmos#976). Josh: skipping this step
+           "really screws them in the process", and it was rendering as muted
+           `.dhint` body copy indistinguishable from the reassurance beside it,
+           which reads as optional advice.
+           ⚠️ THE WORDS CARRY THE WARNING, NOT THE COLOUR. "First" and the
+           imperative do the work; the glyph is `aria-hidden` and the red is
+           decoration on top. Colour alone would be WCAG 1.4.1, and would say
+           nothing at all to the person reading this in a screen reader -- who
+           is exactly as able to skip the step. -->
+      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-m" aria-hidden="true">&#9888;</span><b>First, sign in to the other Claude account in your browser.</b> Kosmos never sees your password, and the accounts above stay connected.</p>
       <div class="frow"><button class="btn uprime" id="acct-add" type="button">Start the sign-in</button></div>
       <div id="acct-flow" hidden style="margin:10px 0 0;">
         <p class="dhint" id="acct-flow-say" role="status" aria-live="polite" style="margin:0;"></p>
@@ -6018,6 +6232,21 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          it, never logs it, never puts it in a URL. The field is a
          password field so the screen does not show it unless asked. -->
     <div id="acct-openai-flow" hidden style="margin-top: var(--space-5);">
+      <!-- 🛑 THE PREREQUISITE IS STEP ONE, NOT A REFUSAL AFTER THE FACT
+           (kosmos#979). Picking OpenAI on a Mac with no runner used to accept a
+           key, submit it, and answer "we could not find the OpenAI runner on
+           this computer" -- a dead end reached only after the person had found
+           an API key and pasted it. The first-run wizard already learned this:
+           prerequisites go before credentials.
+           📌 The engine half was already there and unread. Angel's own comment
+           on `/api/runners` said "nothing in web/ or native-app/ reads this
+           yet". This is the consumer. -->
+      <div id="acct-openai-install" hidden>
+        <p class="dhint" style="margin:0 0 8px;">Kosmos needs the OpenAI runner on this computer before a key is any use. It is a one-time download.</p>
+        <div class="frow"><button class="btn uprime" id="acct-openai-install-go" type="button">Download and install it</button></div>
+        <p class="dhint" id="acct-openai-install-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+      </div>
+      <div id="acct-openai-key-step">
       <p class="dhint" style="margin:0 0 8px;">Paste an OpenAI API key. It stays on this Mac with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
       <div class="frow">
         <input type="password" id="acct-openai-key" autocomplete="new-password" spellcheck="false"
@@ -6045,6 +6274,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         apart from another one later.</p>
       <div class="frow" style="margin-top:12px;">
         <button class="btn uprime" id="acct-openai-go" type="button">Add</button>
+      </div>
       </div>
       <p class="dhint" id="acct-openai-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
     </div>
@@ -6224,7 +6454,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              see `.pmark` above for why Claude is in colour and the rest are
              monochrome by filter. -->
         <div class="llm on"><span class="llm-m pmark live" data-pmark="claude" role="img" aria-label="Claude"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 125 125" fill="currentColor" aria-label="Claude"><path d="M54.375 118.75L56.125 111L58.125 101L59.75 93L61.25 83.125L62.125 79.875L62 79.625L61.375 79.75L53.875 90L42.5 105.375L33.5 114.875L31.375 115.75L27.625 113.875L28 110.375L30.125 107.375L42.5 91.5L50 81.625L54.875 76L54.75 75.25H54.5L21.5 96.75L15.625 97.5L13 95.125L13.375 91.25L14.625 90L24.5 83.125L49.125 69.375L49.5 68.125L49.125 67.5H47.875L43.75 67.25L29.75 66.875L17.625 66.375L5.75 65.75L2.75 65.125L0 61.375L0.25 59.5L2.75 57.875L6.375 58.125L14.25 58.75L26.125 59.5L34.75 60L47.5 61.375H49.5L49.75 60.5L49.125 60L48.625 59.5L36.25 51.25L23 42.5L16 37.375L12.25 34.75L10.375 32.375L9.625 27.125L13 23.375L17.625 23.75L18.75 24L23.375 27.625L33.25 35.25L46.25 44.875L48.125 46.375L49 45.875V45.5L48.125 44.125L41.125 31.375L33.625 18.375L30.25 13L29.375 9.75C29.0417 8.625 28.875 7.375 28.875 6L32.75 0.750006L34.875 0L40.125 0.750006L42.25 2.625L45.5 10L50.625 21.625L58.75 37.375L61.125 42.125L62.375 46.375L62.875 47.75H63.75V47L64.375 38L65.625 27.125L66.875 13.125L67.25 9.125L69.25 4.375L73.125 1.87501L76.125 3.25L78.625 6.875L78.25 9.125L76.875 18.75L73.875 33.875L72 44.125H73.125L74.375 42.75L79.5 36L88.125 25.25L91.875 21L96.375 16.25L99.25 14H104.625L108.5 19.875L106.75 26L101.25 33L96.625 38.875L90 47.75L86 54.875L86.375 55.375H87.25L102.125 52.125L110.25 50.75L119.75 49.125L124.125 51.125L124.625 53.125L122.875 57.375L112.625 59.875L100.625 62.25L82.75 66.5L82.5 66.625L82.75 67L90.75 67.75L94.25 68H102.75L118.5 69.125L122.625 71.875L125 75.125L124.625 77.75L118.25 80.875L109.75 78.875L89.75 74.125L83 72.5H82V73L87.75 78.625L98.125 88L111.25 100.125L111.875 103.125L110.25 105.625L108.5 105.375L97 96.625L92.5 92.75L82.5 84.375H81.875V85.25L84.125 88.625L96.375 107L97 112.625L96.125 114.375L92.875 115.5L89.5 114.875L82.25 104.875L74.875 93.5L68.875 83.375L68.25 83.875L64.625 121.625L63 123.5L59.25 125L56.125 122.625L54.375 118.75Z"/></svg></span><div class="llm-w"><b>Claude</b><small>Anthropic &middot; works today</small></div>
-          <button class="connect-b" type="button" id="fr-llm-connect" aria-expanded="false" aria-controls="fr-claude-confirm">Connect</button></div>
+          <button class="connect-b" type="button" id="fr-llm-connect" aria-expanded="false" aria-controls="fr-claude-confirm" aria-label="Connect Claude">Connect</button></div>
         <!-- 🛑 THE CONFIRM, and it is the point of this whole step. Josh, 2026-08-26
              14:44, watching a fresh install: "it downloaded 231MB without asking...
              total chaos". And 14:59: "I should be notified before an almost-quarter-
@@ -6259,14 +6489,36 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
             <button class="btn" type="button" id="fr-claude-confirm-no">Not now</button>
           </div>
         </div>
+        <!-- 🛑 THE CONNECT PANEL LIVES UNDER CLAUDE, NOT UNDER THE WHOLE LIST
+             (Josh, 2026-08-26, items 8, 9 and 10). It used to sit after every
+             provider row, so pressing Confirm on Claude painted the progress bar,
+             every status line and finally the connected verdict at the BOTTOM of
+             the screen -- far from the thing he had just pressed, and below four
+             providers he had not. His words: "it is showing below all of the
+             models in the wrong spot".
+
+             ⚠️ ONE MOVE FIXES ALL THREE OF HIS ITEMS, because they were one bug
+             with three symptoms: the panel, the progress and the verdict all
+             render into #fr-sub. No JavaScript changed.
+
+             📌 If a future provider needs its own panel, give it its own
+             container rather than moving this one back down. -->
+        <div id="fr-sub"></div>
+        <div class="fr-msg" id="fr-sub-msg" role="status" aria-live="polite"></div>
+        <!-- ⚠️ The connect flow's phase announcements, VISUALLY HIDDEN on
+             purpose. Each phase panel already says what is happening in its
+             title; speaking the change needs a live region, but rendering the
+             same sentence twice is the said-it-twice copy defect the
+             connection notice was already caught by once. -->
+        <div class="vh" id="fr-conn-say" role="status" aria-live="polite"></div>
         <!-- ⚠️ ORDER IS CLAUDE, GPT, GEMINI (Josh, 2026-08-26 14:30: "lets put
              GPT under Claude, and then Gemini 3rd"). Beyond his preference it
              is the right shape: Gemini is a `llm off` Coming soon row, and it
              previously sat BETWEEN the only two providers that work, so the eye
              hit a dead row on the way to the second live one. Both working rows
              now come first. Move this only if a provider changes state. -->
-        <div class="llm on"><span class="llm-m pmark live" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="black"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI &middot; works today</small></div>
-          <button class="connect-b" type="button" id="fr-openai-connect" aria-expanded="false" aria-controls="fr-openai-flow">Connect</button></div>
+        <div class="llm on"><span class="llm-m pmark live" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="currentColor"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI &middot; works today</small></div>
+          <button class="connect-b" type="button" id="fr-openai-connect" aria-expanded="false" aria-controls="fr-openai-flow" aria-label="Connect OpenAI">Connect</button></div>
         <!-- #944-adjacent: OpenAI is a pasted API key, not an OAuth popup like
              Claude, so it gets its own small reveal instead of reusing
              fr-llm-connect. Shares Settings' #acct-openai-flow contract
@@ -6275,6 +6527,23 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              here. Hidden until Connect is pressed; the row's own message line
              (#fr-openai-msg) carries the outcome, same shape as Claude's
              #fr-sub beneath it. -->
+        <!-- 🛑 PREREQUISITES BEFORE CREDENTIALS, for GPT too (Josh, 2026-08-26
+             item 7, from a live run: "it immediately jumped to asking me for an
+             API key"). Claude's row already said what it needed to install and
+             offered Not now; Settings' OpenAI flow already did the same. This
+             row was the one place the pattern was missing, so a person met the
+             requirement only AFTER finding and pasting a key.
+             ⚠️ Settings' own comment beside #acct-openai-install says "the
+             first-run wizard already learned this: prerequisites go before
+             credentials." It had -- for Claude. -->
+        <div id="fr-openai-confirm" class="fr-confirm" role="group" aria-labelledby="fr-openai-confirm-t" hidden>
+          <p class="fr-confirm-t" id="fr-openai-confirm-t">Kosmos needs the OpenAI runner on this computer before a key is any use. It is a one-time download.</p>
+          <div class="frow">
+            <button class="btn uprime" type="button" id="fr-openai-confirm-go" aria-describedby="fr-openai-confirm-t">Download and install it</button>
+            <button class="btn" type="button" id="fr-openai-confirm-no">Not now</button>
+          </div>
+          <p class="dhint" id="fr-openai-confirm-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+        </div>
         <div id="fr-openai-flow" hidden style="margin: -2px 0 10px;">
           <p class="dhint" style="margin:0 0 8px;">Paste an OpenAI API key. It stays on this Mac with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
           <!-- Josh, 2026-08-26 07:01, from the options page: one row, key
@@ -6307,14 +6576,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <div class="llm off"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon">Coming soon</span></div>
         <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
         <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
-        <div id="fr-sub"></div>
-        <div class="fr-msg" id="fr-sub-msg" role="status" aria-live="polite"></div>
-        <!-- ⚠️ The connect flow's phase announcements, VISUALLY HIDDEN on
-             purpose. Each phase panel already says what is happening in its
-             title; speaking the change needs a live region, but rendering the
-             same sentence twice is the said-it-twice copy defect the
-             connection notice was already caught by once. -->
-        <div class="vh" id="fr-conn-say" role="status" aria-live="polite"></div>
       </div>
 
       <!-- 4. About you. The pack's step, its copy verbatim: two required
@@ -6775,29 +7036,18 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            not the app on this Mac), which was the #331 concern; what is
            sent stays spelled out in the Settings row's hint. One string in
            one place, so a later ruling is still one edit. -->
-      <!-- ⚠️ NOT `checked` IN THE MARKUP, WHICH IT WAS UNTIL 2026-08-22 (#258).
-           Sending is TWO gates: this box for one agent, and the standing answer
-           in Settings. A box hard-coded to checked showed a person consenting to
-           something the second gate was about to refuse, so the screen offered an
-           action that would silently not happen. That is the state this form
-           already refuses elsewhere by not offering an impossible choice at all.
-           🛑 IT USED TO NAME REPORTS-TO AS THAT ELSEWHERE, and that example died
-           on 2026-08-22 without a word of this comment changing: Reports to no
-           longer disappears on the first agent, because the menu now names YOU
-           and you are always a legal answer. The distinction the comment draws
-           is still the right one -- a choice that is IMPOSSIBLE can vanish, a
-           choice that is already ANSWERED must stay and say so -- so the rule is
-           kept and the dead example is not.
-           🔑 This box is the answered kind: somebody who turned this off in
-           Settings is exactly the person who benefits from seeing that it took.
-           (Mona Lisa's lean, and mine.) -->
-      <div class="field" id="create-tell-wrap">
-        <label class="tellrow" for="create-tell">
-          <input type="checkbox" id="create-tell">
-          <span>Let the Kosmos team know you created an agent</span>
-        </label>
-        <div class="fhint" id="create-tell-note"></div>
-      </div>
+      <!-- 📌 THE CREATED-PING CONTROL IS GONE, BOTH SURFACES (Josh, 2026-08-26,
+           item 3): "the 'Let the Kosmos team know when you create an agent' -
+           they both need to be removed." The Settings row went first; this
+           checkbox was the same setting's other surface and outlived it by a
+           few hours, which left a live send whose only explanation had already
+           been deleted with the row.
+           🛑 AND THE DEFAULT WENT OFF IN THE SAME CHANGE, which this file's own
+           note required: "removing every control while the send stays on is not
+           a tidy-up, it is a removed opt-out. If this box ever goes too, turn
+           the default off in the same change." engine/ping.js now returns
+           { on: false } for a machine that has never been asked. -->
+
       <button class="btn uprime big" id="create-go" type="button">Create agent</button>
     </div>
     <div class="fmsg" id="create-msg" role="status" aria-live="polite"></div>
@@ -7060,27 +7310,26 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            `:last-child` rules with `.pjcard-members` / `.pjcard-files`. Reorder
            these two while anything still selects them by position and you
            silently repoint the members scroller onto Files. -->
-<div class="pjcard pjcard-files">
-        <!-- 🛑 "Project documents" WAS THE ONLY THING ON THIS SECTION THAT
-             LIED. Every sentence under it is already honest that it reads the
-             project FOLDER; the heading promised something else. Josh, on what
-             he actually meant: "They are all files in the conversation that I'm
-             referring to" -- and that is a DIFFERENT feature with its own card
-             (the attachment path). Naming this section for what it really shows
-             is what stops it looking like the other one arrived. (#110, heading
-             from Mona Lisa.) -->
-        <h3 class="dlab">Files in this project</h3>
-        <div id="pj-docs" class="pj-docs"></div>
-        <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
-        <!-- ⚠️ "Show them all in Finder", NOT "see all files". Josh asked for a
-             view-all that opens a SCREEN listing everything. That screen is a
-             later slice; this control does something real and says exactly what
-             it does instead of wearing the label of the thing not built yet. -->
-        <!-- The door's label finally matches its handler (#535): it has
-             opened the in-app Documents view since #134 landed, while the
-             words still promised Finder. Finder lives INSIDE that view. -->
-        <button class="linkish" id="pj-docs-all" type="button" hidden>View all</button>
-      </div>
+      <!-- 🛑 MEMBERS FIRST IN THE MARKUP, FILES BELOW, AND THE TWO VIEWS
+           DELIBERATELY DISAGREE (Josh, 2026-08-26 22:05, item 3):
+             tab view      Members top left, Files under it, Tasks far right
+             consolidated  Tasks, then Files, then Members down one column
+           He confirmed the consolidated order is right and the TAB view was the
+           one out of order, which is the half kosmos#1017 got wrong.
+           ⚠️ #1017 WAS MINE AND ITS PREMISE WAS WRONG. I unified the two views
+           on the argument that "two views of one project showing the same panels
+           in opposite orders is itself a defect". He wants them different, and
+           he is the one who uses both. The unification is undone; what survives
+           from that branch is the part that mattered -- the cards are selected
+           BY NAME, so the consolidated grid rows below hold whatever order the
+           markup is in, and swapping this back could not silently repoint the
+           members scroller onto Files.
+           ⚠️ THE TRADE #1017 EXISTED TO REMOVE IS BACK, KNOWINGLY: in the
+           consolidated view the eye reads Files then Members while the keyboard
+           tabs Members then Files (WCAG 2.4.3 / 1.3.2). One DOM cannot match two
+           opposite visual orders. The tab view now agrees with itself; the
+           consolidated one does not, and that is a decision rather than an
+           oversight. -->
 <div class="pjcard pjcard-members">
       <h3 class="dlab">Project members</h3>
       <div id="pj-one-agents" class="pj-members"></div>
@@ -7152,7 +7401,28 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            time tonight a comment naming its subject broke the check that reads
            for it. -->
       </div>
-          </aside>
+      <div class="pjcard pjcard-files">
+        <!-- 🛑 "Project documents" WAS THE ONLY THING ON THIS SECTION THAT
+             LIED. Every sentence under it is already honest that it reads the
+             project FOLDER; the heading promised something else. Josh, on what
+             he actually meant: "They are all files in the conversation that I'm
+             referring to" -- and that is a DIFFERENT feature with its own card
+             (the attachment path). Naming this section for what it really shows
+             is what stops it looking like the other one arrived. (#110, heading
+             from Mona Lisa.) -->
+        <h3 class="dlab">Files in this project</h3>
+        <div id="pj-docs" class="pj-docs"></div>
+        <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
+        <!-- ⚠️ "Show them all in Finder", NOT "see all files". Josh asked for a
+             view-all that opens a SCREEN listing everything. That screen is a
+             later slice; this control does something real and says exactly what
+             it does instead of wearing the label of the thing not built yet. -->
+        <!-- The door's label finally matches its handler (#535): it has
+             opened the in-app Documents view since #134 landed, while the
+             words still promised Finder. Finder lives INSIDE that view. -->
+        <button class="linkish" id="pj-docs-all" type="button" hidden>View all</button>
+      </div>
+    </aside>
 
     <section class="pjcol pjmid">
       <div class="pjmidhead"><h3 class="dlab">Conversation</h3>
@@ -8133,13 +8403,24 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            originates with the person's own instruction, so the fix that is
            left is words: agents pre-warn (the boot block), and this box is
            the standing answer for someone who met it cold. -->
-      <h3 class="dlab">If your Mac asks about &ldquo;tmux&rdquo;</h3>
+      <!-- ⚠️ THIS BOX IS THE ONE PLACE THE WORD tmux IS ALLOWED TO REACH A
+           PERSON, and the distinction matters because two rulings in this
+           codebase say it must not. Those are about Kosmos INTRODUCING the
+           word. Here macOS puts it on the screen itself, in a box we do not
+           control, and a person who has just been shown a word deserves to be
+           told what it is. Explaining a word they were handed is the opposite
+           of using jargon at them.
+           📌 Shortened for kosmos#1004 (Josh: "shorten the copy"). What went
+           was the definition of tmux, which was answering a question nobody
+           asked -- "that is one of your agents" is the part they can act on.
+           The four facts all survive: what the box is, what to press, what
+           each choice costs, and the reassurance about folders. -->
+      <h3 class="dlab">If you see a box asking about &ldquo;tmux&rdquo;</h3>
       <p class="dhint" style="margin:0;">
-        Sometimes macOS shows a box like <i>&ldquo;tmux&rdquo; would like to access
-        files in your Desktop folder</i>. tmux is the window Kosmos runs your
-        agents in, so that is an agent asking to reach a folder you gave it
-        work in. Allow it and the agent can do what you asked; Don&rsquo;t Allow
-        quietly stops that one job. Kosmos never reaches outside its own
+        macOS sometimes asks whether <i>&ldquo;tmux&rdquo;</i> can open one of your
+        folders. That is one of your agents, asking to reach a folder you gave it
+        work in. Allow it and the agent gets on with the job. Don&rsquo;t Allow
+        and that one job stops, nothing else. Kosmos never goes outside its own
         folders unless you ask an agent to.
       </p>
     </section>
@@ -8192,25 +8473,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            — admitting the gap is the first half, and the second half is
            whether the person can ACT. Now they can: it installs, or it does
            not, and both are real. -->
-      <!-- The standing answer for the same thing (#238). The box on the create
-           page answers for one agent; this answers for good, and it wins. -->
-      <div class="setrow" id="tell-row" style="margin-top:12px;">
-        <div><b>Let the Kosmos team know when you create an agent</b>
-          <p class="dhint" style="margin:2px 0 0;">One small message each time: that an agent was made, when, which Kosmos version and which macOS, and a random ID for this install, so we can count how many people use Kosmos. Nothing about the agent, and nothing it does.</p></div>
-        <button class="toggle" id="tell-toggle" role="switch" aria-label="Let the Kosmos team know when you create an agent" hidden><i></i></button>
-      </div>
-      <p class="dhint" id="tell-msg" role="status" style="margin:8px 0 0;"></p>
-      <!-- The outbound "something happened" switch (engine/notify.js): the
-           seam a phone notification will ride on, decided now so the web
-           version and the app do not fight later (Josh, 2026-08-23). Off by
-           default, and the copy says exactly what leaves the Mac: who, what,
-           when, never the words. Same row shape as the created ping above. -->
-      <div class="setrow" id="notify-row" style="margin-top:12px;">
-        <div><b>Let the Kosmos team know when an agent posts or answers you</b>
-          <p class="dhint" style="margin:2px 0 0;">Off by default. One small message each time: which agent, whether it posted or answered, which project, when, and a random ID for this install. Never the words. This is what a phone notification will ride on once Kosmos can reach your phone.</p></div>
-        <button class="toggle" id="notify-toggle" role="switch" aria-label="Let the Kosmos team know when an agent posts or answers you" hidden><i></i></button>
-      </div>
-      <p class="dhint" id="notify-msg" role="status" style="margin:8px 0 0;"></p>
+      <!-- 📌 BOTH TELEMETRY ROWS ARE GONE (Josh, 2026-08-26, his item 3), and
+           their comments went with them. The prose here described two switches
+           that no longer exist, and one line of it still read "Off by
+           default" -- so a search of this file for that copy found it and
+           concluded the rows were still shipping. A comment that outlives its
+           subject is not neutral; it answers questions about code that is not
+           there. engine/notify.js stays on disk, required by nothing but its
+           own test, off by default, with no relay to answer it. -->
 
       <div class="setrow" id="auto-row" style="margin-top:12px;">
         <div><b>Update Kosmos automatically</b>
@@ -8258,6 +8528,24 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <div>
           <p class="setname">Use Kosmos from anywhere</p>
           <p class="fhint" id="plus-status" aria-live="polite"></p>
+          <!-- #1014. Setup used to end by handing you a URL and stopping, and
+               a URL with no instruction is a thing a person stares at. Josh,
+               with a working install in front of him, asked when he was
+               supposed to go to his device and open his own address.
+
+               Three facts in the order a person needs them: where to go, that
+               the sign-in they will meet is expected rather than a rebuff, and
+               that this Mac will ask them something next. The second one
+               matters most -- typing your address into your phone shows the
+               gate's "somebody else's Kosmos" page, which is correct and reads
+               as a refusal to somebody who was just told it is theirs.
+               (Deliberately NOT quoting the gate's exact sentence: the e2e
+               suite uses it to tell the gate apart from the board, and having
+               it here made the board look like the gate.)
+
+               The words are Ice Cream Kitty's and Mona Lisa may replace them,
+               the same footing as the recovery block below. -->
+          <p class="fhint" id="plus-next" hidden></p>
         </div>
         <button class="btn" type="button" id="plus-switch"></button>
       </div>
@@ -8353,19 +8641,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <label class="flabel" for="style-theme">Theme</label>
       <select class="tk-inp" id="style-theme"></select>
       <p class="fhint">Changes apply as soon as you pick one.</p>
-    </div>
-
-    <div class="field" style="margin-top:16px;">
-      <label class="flabel" for="style-custom">A style of your own</label>
-      <p class="fhint">Ask one of your agents to write you a style file:
-      lines of <code>--name: value;</code>, one color or size per line.
-      Paste it here and it applies on top of the theme, in light and dark
-      alike.</p>
-      <textarea class="tk-inp" id="style-custom" rows="6" spellcheck="false"></textarea>
-      <div class="frow" style="margin-top:8px;">
-        <button class="btn uprime" type="button" id="style-apply">Apply</button>
-        <button class="btn" type="button" id="style-clear" hidden>Remove my style</button>
-      </div>
+      <!-- 🛑 #style-msg LIVES HERE NOW, and moving it was not optional
+           (kosmos#1001). It used to sit inside the "A style of your own" block
+           that this card removes, but it was never that block's message slot --
+           the THEME picker writes its save failures here, and so does the
+           corrupt-saved-style notice. Deleting the block with it inside, which
+           is what the card literally described, leaves
+           `document.getElementById('style-msg').textContent = ''` running
+           against null and throws on every theme change.
+           ⚠️ A removal is two changes: what goes, and what was quietly leaning
+           on it. -->
       <p class="fmsg" id="style-msg" role="alert" aria-live="assertive"></p>
     </div>
   </section>
@@ -8782,7 +9067,7 @@ const PRESSAY = {
 /* One derivation each, shared by BOTH renderers (card and row), so the two
    views cannot drift apart on what they say about the same agent. */
 function cardStOf(a) { return CARD_ST[a.state] || CARD_ST.unknown; }
-function taskLine(a) {
+function taskLine(a, opts) {
   /**
    * 🛑 IT SAYS WHAT WAS SEEN, NOT WHAT IS TRUE OF THE ACCOUNT (kosmos#199,
    * found by Mona Lisa). This read *"Waiting out a usage limit"*, and the
@@ -8861,7 +9146,7 @@ function taskLine(a) {
    * "never"). `rate_limited` (and, since #874, `auth_failed`) still speak
    * their own honest reason, which is not the title at all.
    */
-  return stateReason(a);
+  return stateReason(a, opts);
 }
 
 /**
@@ -8879,7 +9164,23 @@ function taskLine(a) {
  * With the title no longer shown in any state, that whole concern is subsumed by
  * #209: there is no title on screen to strip.
  */
-function stateReason(a) {
+function stateReason(a, opts) {
+  /* 🛑 THE CARD AND THE ROW ASK FOR THIS WITHOUT THE QUOTE (#986). Josh, twice:
+     the quoted last-words line is "just kind of pointless" on the grid and list,
+     and it was STILL THERE after that card closed. The close removed
+     `saidLine()`, which is a different derivation that produced a
+     similar-looking line; the quote he can actually see comes from HERE.
+     ⭐ RIGHT METHOD, WRONG NOUN -- two functions rendered a quoted sentence into
+     that slot and only one of them was cut.
+     📌 An option rather than a second function: the one-derivation rule above is
+     what stops the card and the detail header disagreeing by accident, so the
+     one place they differ ON PURPOSE says so by name. Everything below this arm
+     is a STATE, which Josh explicitly kept, so the card still gets it. */
+  if (opts && opts.noQuote && a && a.stateReported === true && a.because) {
+    /* fall through to the states below rather than returning '': a
+       rate-limited agent that also reported a sentence must still say it is
+       rate limited. */
+  } else
   /* #569: A REPORTED STATE SPEAKS IN THE AGENT'S OWN SENTENCE, quoted. The
      quotation marks are the point, not decoration: they are the plain-words
      mark for "in its own words", so a statement and a guess cannot render
@@ -9688,7 +9989,7 @@ function card(a) {
     <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
     <div class="astate st-${m.st}">${GLYPH[m.st]}<b>${esc(copy.label)}</b>${answer}</div>
     <div class="amodel">${esc(modelLine(a))}</div>
-    <div class="atask">${esc(taskLine(a))}</div>
+    <div class="atask">${esc(taskLine(a, { noQuote: true }))}</div>
     ${conflictNote(a) ? `<div class="note">${esc(conflictNote(a))}</div>` : ''}
     ${unknownNote}
   </div>`;
@@ -9836,7 +10137,7 @@ function lrow(a) {
          keeps them from disagreeing on the FACT if the list row ever
          grows the line back; showing it is now a per-surface choice. -->
     <div class="lstate">${GLYPH[m.st]}${esc(copy.label)}${answerBtn(a)}</div>
-    <div class="ltask">${esc(taskLine(a))}</div>
+    <div class="ltask">${esc(taskLine(a, { noQuote: true }))}</div>
     <div class="lmodel">${esc(modelLine(a))}</div>
     <div class="lmem">${mem}</div>
   </div>`;
@@ -11735,7 +12036,13 @@ const ACCT_FLOW_SAY = {
   'installing': 'Getting the sign-in ready…',
   'signin-launching': 'Opening the sign-in in your browser…',
   'signin-browser-open': 'Finish signing in, in the browser window that just opened.',
-  'signin-awaiting-code': 'Enter the code from your email to finish.',
+  /* kosmos#977 (Josh): "Enter the code from your email to finish" sent him
+     looking for an email that never arrives -- Claude does not always send one,
+     and an instruction phrased as a requirement makes its absence read as a
+     failure. Softened to the CONDITIONAL, which is the wording the first-run
+     flow has used all along (grep `If Claude gives you a code`): Settings was
+     the outlier of the two, not the pattern. */
+  'signin-awaiting-code': 'If Claude gives you a code, paste it here. If it does not, the sign-in finishes on its own.',
   'signin-completing': 'Finishing…',
 };
 function acctFlowStop() {
@@ -11762,7 +12069,7 @@ function acctFlowPaint(st) {
     // phase would come from the ENGINE's own path (e.g. a code expiring);
     // honoured the same way if it ever arrives: say it, empty the field.
     if (wantCode && st && st.because) {
-      say.textContent = st.because + ' Enter the code from your email to try again.';
+      say.textContent = st.because + ' If Claude gave you a code, paste it here to try again.';
       document.getElementById('acct-code').value = '';
     }
     codeRow.hidden = !wantCode;
@@ -11775,9 +12082,21 @@ function acctFlowPaint(st) {
   codeRow.hidden = true;
   btn.disabled = false;
   if (phase === 'connected') {
-    note.textContent = 'Connected. The new account is on the list above.';
+    /* kosmos#977: say the STATE, not where to go looking for it. "The new
+       account is on the list above" asks the person to verify the outcome
+       themselves, on the screen that just did the work -- so they sit there
+       wondering whether it worked. "Connected" is the answer.
+       ⚠️ The check is aria-hidden and the word carries the meaning, so a
+       screen reader hears "Connected" once rather than a glyph and a word. */
+    note.innerHTML = '<span class="acct-ok" aria-hidden="true">\u2713</span> Connected';
+    note.classList.add('is-connected');
     paintAccounts();
   } else if (phase === 'stuck' || phase === 'interrupted' || phase === 'failed') {
+    /* ⚠️ EVERY OTHER ARM PUTS THE GREEN BACK. A recheck can move from connected
+       to a failure, and a note left wearing the tick after that is the same
+       defect with the states swapped -- the rule this whole panel is built on
+       is that a state must never render as an answer it no longer holds. */
+    note.classList.remove('is-connected');
     note.textContent = (st && st.because)
       ? pjSentence(st.because) : 'That sign-in did not finish. Nothing changed; you can try again.';
   }
@@ -11822,15 +12141,96 @@ document.getElementById('acct-add').addEventListener('click', async () => {
    other; nothing is shown until a choice is made, except that a Claude
    sign-in already in flight picks Claude on its own (acctFlowPaint), so a
    reload lands the person back on the step they were on. */
+/* kosmos#979: which step the OpenAI form opens on. `null` means we could not
+   look, and that is NOT the same as "missing" -- an unreachable board must not
+   send somebody to install a runner they may already have. Unknown shows the
+   key step, which is the state this form has always opened in. */
+let ACCT_OPENAI_READY = null;
+let ACCT_OPENAI_POLL = null;
+function acctOpenaiStep(present) {
+  const inst = document.getElementById('acct-openai-install');
+  const keys = document.getElementById('acct-openai-key-step');
+  if (!inst || !keys) return;
+  const missing = present === false;
+  inst.hidden = !missing;
+  keys.hidden = missing;
+}
+async function acctOpenaiLook() {
+  try {
+    const r = await (await fetch('/api/runners', { cache: 'no-store' })).json();
+    const o = r && r.runners && r.runners.openai;
+    ACCT_OPENAI_READY = o ? !!o.present : null;
+    return o || null;
+  } catch { ACCT_OPENAI_READY = null; return null; }
+}
+function acctOpenaiStop() {
+  if (ACCT_OPENAI_POLL) { clearInterval(ACCT_OPENAI_POLL); ACCT_OPENAI_POLL = null; }
+}
+/* ⚠️ THE JOB'S OWN PHASE, not a guess from elapsed time. A runner that fails to
+   install must say so and offer the button again, or the panel sits on
+   "installing" for ever -- the stale-screen family this card belongs to. */
+function acctOpenaiWatch() {
+  acctOpenaiStop();
+  const msg = document.getElementById('acct-openai-install-msg');
+  const go = document.getElementById('acct-openai-install-go');
+  ACCT_OPENAI_POLL = setInterval(async () => {
+    const o = await acctOpenaiLook();
+    if (!o) return;
+    if (o.present) {
+      acctOpenaiStop();
+      if (msg) msg.textContent = '';
+      acctOpenaiStep(true);
+      const k = document.getElementById('acct-openai-key');
+      if (k) k.focus();
+      return;
+    }
+    const job = o.job || {};
+    if (job.phase === 'failed') {
+      acctOpenaiStop();
+      if (msg) msg.textContent = job.because ? pjSentence(job.because) : 'That install did not finish. Nothing changed; you can try again.';
+      if (go) go.disabled = false;
+      return;
+    }
+    if (msg) msg.textContent = 'Installing…';
+  }, 1200);
+}
 function acctPick(which, opts) {
   const sel = document.getElementById('acct-provider-pick');
   if (sel.value !== which) sel.value = which;
   document.getElementById('acct-claude-flow').hidden = which !== 'claude';
   document.getElementById('acct-openai-flow').hidden = which !== 'openai';
+  if (which !== 'openai') { acctOpenaiStop(); return; }
+  /* Ask every time the form opens rather than caching: a runner can arrive or
+     leave between visits, and this dialog deliberately remembers nothing. */
+  acctOpenaiStep(ACCT_OPENAI_READY);
+  acctOpenaiLook().then((o) => {
+    acctOpenaiStep(ACCT_OPENAI_READY);
+    if (o && !o.present && o.job && o.job.phase && o.job.phase !== 'failed') acctOpenaiWatch();
+    if (opts && opts.focus === false) return;
+    const el = ACCT_OPENAI_READY === false
+      ? document.getElementById('acct-openai-install-go')
+      : document.getElementById('acct-openai-key');
+    if (el) el.focus();
+  });
   if (opts && opts.focus === false) return;
-  if (which === 'openai') document.getElementById('acct-openai-key').focus();
   if (which === 'claude') document.getElementById('acct-add').focus();
 }
+document.getElementById('acct-openai-install-go').addEventListener('click', async (e) => {
+  const go = e.currentTarget;
+  const msg = document.getElementById('acct-openai-install-msg');
+  go.disabled = true;
+  if (msg) msg.textContent = 'Starting…';
+  try {
+    const res = await fetch('/api/runners/openai/install', { method: 'POST' });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not start that install');
+    if (msg) msg.textContent = 'Installing…';
+    acctOpenaiWatch();
+  } catch (err) {
+    go.disabled = false;
+    if (msg) msg.textContent = String((err && err.message) || 'We could not start that install.');
+  }
+});
 document.getElementById('acct-provider-pick').addEventListener('change', (e) => {
   const which = e.target.value;
   if (which === 'claude' || which === 'openai') { acctPick(which); return; }
@@ -11905,7 +12305,11 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
       body: JSON.stringify({ key, label: labelField.value.trim() || undefined }),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not add that account');
+    if (!res.ok) {
+      const e = new Error((out && (out.error || out.because)) || 'we could not add that account');
+      e.needsRunner = !!(out && out.needsRunner);
+      throw e;
+    }
     // The key leaves the field the moment it is stored: nothing on screen keeps it.
     keyField.value = '';
     labelField.value = '';
@@ -11914,6 +12318,11 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
     await paintAccounts();
   } catch (err) {
     msg.textContent = String((err && err.message) || 'We could not add that account.');
+    /* kosmos#979: the runner can go missing between opening this form and
+       pressing Add. The engine answers `needsRunner` for exactly that, so the
+       install step is revealed IN PLACE rather than leaving a refusal sentence
+       with nothing to do about it. */
+    if (err && err.needsRunner) { ACCT_OPENAI_READY = false; acctOpenaiStep(false); }
   } finally {
     go.disabled = false;
   }
@@ -11936,7 +12345,7 @@ document.getElementById('acct-code-go').addEventListener('click', async () => {
     if (!res.ok) {
       const out = await res.json().catch(() => null);
       say.textContent = ((out && (out.error || out.because)) || 'That code did not work.')
-        + ' Enter the code from your email to try again.';
+        + ' If Claude gave you a code, paste it here to try again.';
       const field = document.getElementById('acct-code');
       field.value = '';
       field.focus();
@@ -12166,130 +12575,8 @@ function paintSwitch(togId, on) {
   tog.hidden = false;
 }
 
-function tellPaint(r) {
-  /* Three states, and the third is the absence of a control rather than a
-     third position. `null` means we have not read it, not off. */
-  const unread = !r;
-  paintSwitch('tell-toggle', unread ? null : r.on === true);
-  document.getElementById('tell-msg').textContent = unread
-    ? 'We could not read this setting just now.'
-    : (r.ok === false ? 'We could not read this setting, so nothing is sent.' : '');
-}
-/**
- * The create page's copy of the standing answer (#258).
- *
- * ⚠️ THREE STATES, AND THE THIRD IS NOT "ON". `tellPaint` beside this already
- * says why: `null` means we have not read it, which is not off, and the
- * setting's own message for that case is that nothing is sent. So an
- * unreadable preference disables the box here too, because the engine will
- * refuse on `!pref.on` either way and a checked box would be describing a send
- * that cannot happen.
- *
- * 🔑 IT NEVER WRITES THE SETTING. Unchecking here is about this one agent;
- * the standing answer is changed in Settings and nowhere else.
- */
-function createTellPaint(r) {
-  const box = document.getElementById('create-tell');
-  const note = document.getElementById('create-tell-note');
-  const unread = !r;
-  const on = !unread && r.on === true;
-  box.disabled = !on;
-  box.checked = on;
-  note.textContent = on ? ''
-    : (unread
-      ? 'We could not read this setting, so nothing is sent.'
-      : 'Turned off in Settings.');
-}
-
-async function refreshCreateTell() {
-  /* Painted as unreadable FIRST, then upgraded. The old markup was checked
-     before any read had happened, which is the same defect one moment
-     earlier: a claim about a setting nobody had looked at. */
-  createTellPaint(null);
-  try {
-    createTellPaint(await (await fetch('/api/ping-setting')).json());
-  } catch { createTellPaint(null); }
-}
-
-async function refreshTell() {
-  const mine = ++TELL_EPOCH;
-  try {
-    const r = await (await fetch('/api/ping-setting')).json();
-    if (mine !== TELL_EPOCH) return;
-    tellPaint(r);
-  } catch {
-    /* 🛑 "THE SWITCH KEEPS ITS LAST HONEST POSITION" WAS TRUE OF EVERY PAINT
-       BUT THE FIRST, and the first is the one that matters: there is no last
-       position, so it kept the static markup and said nothing. From the
-       person's side a throw and an unreadable file are the same situation, so
-       they get the same answer. */
-    if (mine === TELL_EPOCH) tellPaint(null);
-  }
-}
-let TELL_SAVING = false;
-async function tellToggleClick() {
-  if (TELL_SAVING) return;
-  TELL_SAVING = true;
-  const mine = ++TELL_EPOCH;
-  const msg = document.getElementById('tell-msg');
-  try {
-    const on = document.getElementById('tell-toggle').getAttribute('aria-checked') !== 'true';
-    const res = await fetch('/api/ping-setting', {
-      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (mine !== TELL_EPOCH) return;
-    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; return; }
-    tellPaint(body);
-  } catch {
-    msg.textContent = 'We could not save that setting.';
-  } finally {
-    TELL_SAVING = false;
-  }
-}
-document.getElementById('tell-toggle').addEventListener('click', tellToggleClick);
 /* The "something happened" switch, the same three pieces as the created ping
    above: paint from a read, refresh on arrival, save on click. */
-let NOTIFY_EPOCH = 0;
-let NOTIFY_SAVING = false;
-function notifyPaint(r) {
-  const unread = !r;
-  paintSwitch('notify-toggle', unread ? null : r.on === true);
-  document.getElementById('notify-msg').textContent = unread
-    ? 'We could not read this setting just now.'
-    : (r.ok === false ? 'We could not read this setting, so nothing is sent.' : '');
-}
-async function refreshNotify() {
-  const mine = ++NOTIFY_EPOCH;
-  try {
-    const r = await (await fetch('/api/notify-setting')).json();
-    if (mine !== NOTIFY_EPOCH) return;
-    notifyPaint(r);
-  } catch {
-    if (mine === NOTIFY_EPOCH) notifyPaint(null);
-  }
-}
-async function notifyToggleClick() {
-  if (NOTIFY_SAVING) return;
-  NOTIFY_SAVING = true;
-  const mine = ++NOTIFY_EPOCH;
-  const msg = document.getElementById('notify-msg');
-  try {
-    const on = document.getElementById('notify-toggle').getAttribute('aria-checked') !== 'true';
-    const res = await fetch('/api/notify-setting', {
-      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (mine !== NOTIFY_EPOCH) return;
-    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; return; }
-    notifyPaint(body);
-  } catch {
-    msg.textContent = 'We could not save that setting.';
-  } finally {
-    NOTIFY_SAVING = false;
-  }
-}
-document.getElementById('notify-toggle').addEventListener('click', notifyToggleClick);
 
 let AUTO_EPOCH = 0;
 function autoPaint(r) {
@@ -12374,8 +12661,6 @@ function pjScreenOnScreen() {
 }
 refreshEngMode();
 refreshAutoUpdate();
-refreshTell();
-refreshNotify();
 refreshYou();
 document.getElementById('set-reveal').addEventListener('click', async () => {
   const msg = document.getElementById('set-reveal-msg');
@@ -13650,18 +13935,176 @@ async function paintAgentWindow(sessionName, opts) {
  * container; `detailGo` does the landing on return, and a reader's kept place
  * wins over a message that arrived while they were away.
  */
-function setThread(el, html, count) {
-  if (el.__lastThread !== html) {
+/* How far off the bottom still counts as being at the bottom. The thread box is
+   240px, so this is deliberately small: sub-pixel layout and a zoomed display
+   leave a fractional gap under a reader who IS at the floor, and nothing more
+   than that is meant to qualify. A person who nudged up half a line has
+   scrolled up, and is left alone. */
+const THREAD_BOTTOM_SLACK = 4;
+function threadAtBottom(el) {
+  /* ⚠️ A HIDDEN BOX IS "UNKNOWN", AND THE SAFE ANSWER TO UNKNOWN IS NO.
+     display:none gives 0 for all three, and 0-0-0 <= slack is TRUE, so a naive
+     test says a box nobody can see is at the bottom. That is not harmless: it
+     would let a paint into the hidden Talk section arm the image re-pin at
+     offset 0, and a late image firing after the person came back would then
+     drag a reader at the TOP to the bottom. Refusing to guess here removes
+     that whole path. */
+  if (!el.clientHeight) return false;
+  return (el.scrollHeight - el.scrollTop - el.clientHeight) <= THREAD_BOTTOM_SLACK;
+}
+function setThread(el, html, key) {
+  /* ⚠️ THE AGENT THREAD GETS THIS TOO, and not for symmetry: `#d-say` sits
+     under it in the same column, and a thread that never resizes today is one
+     restyle away from resizing tomorrow. The room and the thread are painted by
+     different functions, which is exactly how the room missed the last fix. */
+  holdFloorOnResize(el);
+  /* 🛑 THE THING THAT MOVES THE READER IS THE MARKUP WRITE, NOT A SCROLL LINE
+     (#1037). Every not-a-list arm -- opening, unreadable, nothing yet --
+     replaces the whole thread with a one-paragraph note. That collapses
+     scrollHeight, the browser CLAMPS scrollTop to 0, and the next poll paints
+     the rows back at the top. No scroll assignment is involved.
+
+     Josh timed it at precisely five seconds, sitting still, nothing said, in a
+     plain browser as well as the app. A poll flapping through a note is the
+     only thing on this page that does that.
+
+     ⚠️ AND THE OBVIOUS GUARD IS WORSE THAN THE BUG. Capturing scrollTop before
+     each write and putting it back after turns "thrown to the bottom" into
+     "thrown to the top": by the time the rows return, the offset you would
+     capture has ALREADY been clamped to 0 by the note. Measured, all three,
+     by driving this function against a container that clamps:
+
+       main         open=1760  parked=900  note=0  back=1760  back=1760
+       capture-only open=1760  parked=900  note=0  back=0     back=0
+       this         open=1760  parked=900  note=0  back=900   back=900
+
+     So the reader's posture is remembered ONLY WHILE A LIST IS ON SCREEN. A
+     note never updates it, and therefore cannot overwrite what it is about to
+     destroy. web.thread-scroll.test.js is that measurement, kept. */
+  const showedList = el.__lastCount !== null && el.__lastCount !== undefined;
+  if (showedList) {
+    el.__heldTop = el.scrollTop;
+    el.__heldAtBottom = threadAtBottom(el);
+  }
+  const rewrote = el.__lastThread !== html;
+  if (rewrote) {
     el.__lastThread = html;
     el.innerHTML = html;
   }
-  // ⚠️ `count` is null for every not-a-list state (opening, unreadable,
-  // nothing yet). Those must not leave a number behind that a later thread of
-  // the same length would match, so the key is cleared rather than kept.
-  if (el.__lastCount !== count) {
-    el.__lastCount = count;
-    if (count !== null) el.scrollTop = el.scrollHeight;
-  }
+  el.__lastCount = key;
+  // A note is not what the person came to read, and moving them inside one
+  // would only move them again when the rows return.
+  if (key === null) return;
+  /* 🛑 AT THE BOTTOM IS STICKY, AND IT IS NOT CONDITIONAL ON NEWS. An earlier
+     version pinned only when the message list had CHANGED, which quietly
+     detached a reader who had done nothing: `dmOwesLine` adds "Nothing back
+     yet." two minutes after a message, and a delivery verdict, a link preview
+     or an attachment card all rewrite the markup without changing the list. The
+     thread grew, the reader was restored to their old NUMBER, they were now a
+     line off the floor, and from the next paint on they measured as
+     scrolled-up. Every later message then correctly declined to move them. A
+     person who touched nothing would stop being shown new messages, which is
+     quieter than the bug this fixes and much harder to report.
+     Being at the floor means following the tail, so any repaint keeps them
+     there. `!== false` rather than `=== true` so a first-ever paint, which has
+     no remembered posture, still lands on the newest row. */
+  if (el.__heldAtBottom !== false) { pinToBottom(el); return; }
+  // Otherwise they are reading back. Put them exactly where they were.
+  if (el.__heldTop !== undefined && el.scrollTop !== el.__heldTop) el.scrollTop = el.__heldTop;
+}
+/**
+ * Put the thread on its newest row, and KEEP it there while the rows it just
+ * gained finish laying out.
+ *
+ * ⚠️ AN IMAGE HAS NO HEIGHT UNTIL IT LOADS, so scrollHeight immediately after
+ * a markup write is short by however tall the pictures turn out to be, and the
+ * jump lands part way up. That is the "middle of the conversation" half of
+ * #1037: a person who WANTED the newest row still did not get it.
+ *
+ * 📌 THE RE-PIN IS KEYED ON THE PAINT, NOT ON AN OFFSET. A later paint detaches
+ * these images, and a detached image still fires. The offset alone is not a
+ * discriminator -- this one element is reused by every agent, so landing on the
+ * same number by coincidence would let a stale image from one conversation pin
+ * another. The markup this pin belongs to is a real one.
+ */
+/**
+ * Keep a reader who is ON THE FLOOR on the floor when the BOX ITSELF resizes.
+ *
+ * 🛑 THE THIRD TRIGGER SET FOR #1037, and it is not a repaint at all. Josh,
+ * 2026-08-26 22:05: "It bounces me up after I send the message... It also does
+ * this if the agent starts typing... and then it's some time-based interval
+ * too." None of those are the five-second note flap that was fixed; all three
+ * are the CONTAINER changing height under a reader who has not moved.
+ *
+ * ⭐ MEASURED, and it is layout-specific, which is why every earlier check
+ * missed it. `#pj-post` is a rows=1 textarea that grows as you type. In the
+ * CONSOLIDATED view that takes its space from the room:
+ *     clientHeight 714 -> 668 while typing, and scrollTop does not move.
+ * The reader did not go anywhere; the FLOOR moved away from them, and 46px of
+ * the newest conversation went below the fold. In the TAB view the same typing
+ * changes nothing, so a tab-view check reports a healthy product.
+ *
+ * ⚠️ THE SHRINK IS NOT THE BUG AND MUST NOT BE "FIXED". The composer needs
+ * that space while it has three lines in it. What was missing is that nobody
+ * re-pinned the person the resize displaced: paintRoom only repositions when
+ * the POST LIST changes, and a resize changes no posts at all.
+ *
+ * Only for someone already at the floor. A person reading history is left
+ * exactly where they are, which is the whole point of the rest of this file.
+ */
+function holdFloorOnResize(el) {
+  /* A stub container (the unit tests drive setThread against a fake box that
+     only models scroll arithmetic) has no listeners to attach to. Nothing here
+     is meaningful without a real element, so say so and leave. */
+  if (!el || typeof el.addEventListener !== 'function') return;
+  if (el.__floorHeld) return;
+  el.__floorHeld = true;
+  /* A hidden box is unknown, and the safe answer to unknown is "not at the
+     floor" -- the same rule threadAtBottom already applies, for the same
+     reason: 0-0-0 <= slack is true and would arm a pin on an unseen box. */
+  const onFloor = () => el.clientHeight > 0
+    && (el.scrollHeight - el.scrollTop - el.clientHeight) <= THREAD_BOTTOM_SLACK;
+  /* A box nobody has scrolled yet is following the tail, so a first resize
+     lands on the newest row rather than freezing an empty room at the top. */
+  el.__wasOnFloor = true;
+  el.addEventListener('scroll', () => { el.__wasOnFloor = onFloor(); }, { passive: true });
+  if (typeof ResizeObserver !== 'function') return;
+  new ResizeObserver(() => {
+    if (!el.clientHeight) return;
+    if (el.__wasOnFloor === false) return;   // reading back; leave them alone
+    el.scrollTop = el.scrollHeight;
+  }).observe(el);
+}
+function pinToBottom(el) {
+  /* 🛑 NOTHING IS ARMED FOR A BOX NOBODY CAN SEE. On a hidden container the
+     assignment below is a harmless no-op, but the image listeners are NOT: they
+     would be registered with pinnedAt = 0 and outlive the hidden state. Talk is
+     painted by the poll whenever the agent panel is open, whichever section is
+     showing, so this is reachable by clicking another pill before the thread
+     fetch lands. Coming back then puts the reader at 0, which is exactly
+     pinnedAt, and a preview image completing afterwards passes both guards in
+     `again()` and drags a reader at the TOP to the bottom. That is the reported
+     defect, re-entering through the code that fixes it. */
+  if (!el.clientHeight) return;
+  el.scrollTop = el.scrollHeight;
+  /* Same reason as paintRoom's pin: this is a floor state we know now, rather
+     than one the scroll event will confirm a task later. */
+  el.__wasOnFloor = true;
+  const paint = el.__lastThread;
+  const pinnedAt = el.scrollTop;
+  el.querySelectorAll('img').forEach((img) => {
+    if (img.complete) return;
+    const again = () => {
+      if (el.__lastThread !== paint) return;   // a different conversation now
+      if (el.scrollTop !== pinnedAt) return;   // the person has moved; leave them
+      el.scrollTop = el.scrollHeight;
+    };
+    // `error` too: a broken picture also changes the height it occupies, and
+    // leaving only `load` strands the reader on exactly the threads where
+    // something failed to load.
+    img.addEventListener('load', again, { once: true });
+    img.addEventListener('error', again, { once: true });
+  });
 }
 
 /**
@@ -13969,26 +14412,36 @@ function paintTalkThread(body, name) {
      * sentence selected was thrown 2343px down and lost the selection, every
      * five seconds, for reading their own history.
      *
-     * The room states the rule at its POSTS box, not at its project thread
-     * (which has no scroll management at all): "yanking a person who scrolled
+     * The room states the rule at its POSTS box: "yanking a person who scrolled
      * up to read history to the bottom on a poll tick is the poll fighting the
      * reader." ⚠️ And its second key is built from post IDS, not a count --
      * which is the stronger shape, because a count cannot tell two different
-     * lists of the same length apart. Recorded rather than copied, and the
-     * blind spot is narrower than it first reads:
+     * lists of the same length apart. This box now does the same.
      *
-     *   - SWITCHING AGENTS is closed, and not by this key. `openDetail`'s
-     *     clear calls `setThread(..., null)`, so `__lastCount` is null on the
-     *     first paint of any agent and the next count always differs. Two
-     *     agents whose threads are the same length cannot collide through any
-     *     path that changes `CURRENT`.
-     *   - WHAT IT CANNOT SEE is a thread whose LENGTH is unchanged while its
-     *     contents are not, within one agent. The route's TAIL of 200 is the
-     *     producer that exists: at the bound, every new message drops the
-     *     oldest, so the count holds at 200 and a new arrival does not bring
-     *     itself into view.
+     * ⭐ THE PARAGRAPHS THAT USED TO STAND HERE WERE A STANDING BUG REPORT, and
+     * #1037 closed what they described, so they are gone rather than left to
+     * read as current. They said the count "cannot see a thread whose LENGTH is
+     * unchanged while its contents are not", and named the route's 200-message
+     * TAIL as the producer: at the bound every new message drops the oldest, the
+     * count holds at 200, and a new arrival never brought itself into view. That
+     * is fixed twice over now. The key is an identity rather than a length, and
+     * more importantly `setThread` no longer decides on news at all: a reader at
+     * the floor is kept at the floor by every repaint, and a reader who has
+     * scrolled up is never moved by any of them.
      */
-    setThread(thread, rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows)), filtering ? null : rows.length);
+    /* The identity of what is on screen, not its length: the newest row's own
+       id and how many there are. `at` is the fallback the room's key uses.
+       ⚠️ A FILTERED PAINT IS STILL A LIST, and it used to pass null here on the
+       reasoning that "the person is reading, not following". But null is the
+       NOTE arm, which returns before the reader's place is restored -- so
+       anybody reading with the search box in use got the full #1037 symptom, at
+       the same five-second cadence, from the code meant to protect them. The
+       query is part of the identity instead: clearing a filter is a different
+       screen and should behave like one. */
+    const tailRow = rows.length ? rows[rows.length - 1] : null;
+    const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
+      + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '');
+    setThread(thread, rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows)), threadKey);
   }
 }
 async function paintTalk(sessionName, agentName) {
@@ -14283,6 +14736,28 @@ async function paintTalk(sessionName, agentName) {
    * flag. So it now derives what the composer is ABOUT to be, from the same
    * payload the disable will use.
    */
+  /**
+   * #991: say that the header's state is REMEMBERED, not current.
+   *
+   * ⚠️ AN ATTRIBUTE, NOT CONTENT, and that is the whole reason this works.
+   * `#d-state` has its innerHTML rewritten wholesale by the card painter
+   * (`dst.innerHTML = GLYPH[...] + '<b>' + label + '</b>'`), which runs on its
+   * own schedule. Anything appended as a CHILD is destroyed by the next repaint
+   * and comes back at the next presence check, so the qualifier would flicker
+   * on and off beside a state that never changed. An attribute survives
+   * innerHTML replacement, and the qualifier is drawn from CSS.
+   *
+   * 🔑 MARKED, NOT WITHHELD. The reading is still the last true thing we knew;
+   * hiding it would lose information a person wants. What was wrong was the
+   * TENSE, so the tense is what this fixes.
+   */
+  function markStateRemembered(on) {
+    const dst = document.getElementById('d-state');
+    if (!dst) return;
+    if (on) dst.setAttribute('data-remembered', '1');
+    else dst.removeAttribute('data-remembered');
+  }
+
   const closing = body.presence === 'off';
   if (nowHidden && !qask.hidden && qask.contains(document.activeElement)) {
     if (!closing) say.focus();
@@ -14470,10 +14945,24 @@ async function paintTalk(sessionName, agentName) {
        drawn by nothing in the render check. */
     off.textContent = dmOffLine(name, body, CURRENT);
     off.hidden = false;
+      /* 🛑 #991's FIRST PROBLEM: the header was saying one thing and this line
+         another, at the same time, about the same moment. `#d-state` is painted
+         from the board's SNAPSHOT (`cardStOf`), and this arm is a LIVE
+         addressability check. When the live check says we cannot see the agent,
+         the snapshot's state is a memory of an earlier moment being presented in
+         the present tense: "Paused, looks like a usage limit" beside "we could
+         not see an agent by exactly this name right now".
+         ⚠️ A LABEL IS A STATE SURFACE AND A SENTENCE IS NOT, so the label wins
+         the reader every time and the correct sentence below it loses.
+         ⇒ The reading is not withheld, because it is still the last true thing
+         we knew and hiding it would lose information. It is marked as PAST, in
+         the one place the reader is already looking. */
+      markStateRemembered(true);
   } else if (body.presence === 'unsure') {
     off.textContent = 'We could not check whether ' + name + ' is running. '
       + 'You can still send this, and we will tell you if it did not land.';
     off.hidden = false;
+    markStateRemembered(false);
     /* ⚠️ UNSURE KEEPS THE LINE. This arm says we could not CHECK, and then says
        "you can still send this" — so the composer is live and where an answer
        would come back is exactly what a person needs. The off arm above is
@@ -14481,6 +14970,7 @@ async function paintTalk(sessionName, agentName) {
   } else {
     off.textContent = '';
     off.hidden = true;
+    markStateRemembered(false);
   }
   /* 📌 A DECISION THAT NO LONGER HAS ANYTHING TO DECIDE WAS HERE. It chose
      whether the reply-location line showed, keyed on `presence === 'off'`,
@@ -14505,6 +14995,17 @@ async function paintTalk(sessionName, agentName) {
      it either, because that path declines to touch anything once the flight has
      moved. The flag is about a NAME, so it is read against one. */
   say.disabled = body.presence === 'off';
+  /* 🛑 #991: A CLOSED BOX MUST NOT STILL SAY "Message casey…". The composer is
+     correctly disabled here and the reason is on screen above it, but the
+     placeholder was set before the fetch and kept inviting a message the box
+     refuses. RENDERED AND LOOKED AT: disabled input, greyed Send, and the words
+     "Message casey…" sitting inside it.
+     ⭐ It says what is true of the BOX, not the agent's whole situation: the
+     reason line above already carries the why, and repeating it here would say
+     the same thing twice in the same glance. */
+  say.placeholder = say.disabled
+    ? name + ' cannot be reached right now'
+    : 'Message ' + name + '\u2026';
   document.getElementById('d-send').disabled = body.presence === 'off' || flying;
   // The parked draft comes back, and never over words already in the box.
   if (!say.disabled && !say.value && TALK_DRAFTS[sessionName]) say.value = TALK_DRAFTS[sessionName];
@@ -14874,11 +15375,6 @@ function openDetail(sessionName, section) {
   /* #569: the same derivations the card reads (saidLine, conflictNote),
      called not copied, so the panel and the card cannot disagree about
      where a state came from or whether the witnesses do. */
-  const dsaid = document.getElementById('d-said');
-  if (dsaid) {
-    dsaid.textContent = saidLine(a);
-    dsaid.hidden = !dsaid.textContent;
-  }
   const dconf = document.getElementById('d-conflict');
   if (dconf) {
     dconf.textContent = conflictNote(a);
@@ -14937,10 +15433,21 @@ function openDetail(sessionName, section) {
      somebody's terminal, on its way to a product surface. `textContent` is the
      escape, and the engine has already trimmed and capped it. */
   const said = document.getElementById('d-said');
+  const saidLab = document.getElementById('d-said-lab');
   if (said) {
     const line = String(a.stateEvidence || '').trim();
     said.textContent = line;
     said.hidden = !line;
+    /* The label follows the quote exactly, or an empty agent page keeps a
+       stranded "Its screen said:" with nothing under it. */
+    if (saidLab) {
+      /* `a.name`, which is what the heading two lines up uses. My first version
+         called a `dispName()` that DOES NOT EXIST -- it would have thrown the
+         moment a rate-limited agent's page opened, and every text-matching test
+         passed over it because a regex cannot call a function. */
+      saidLab.textContent = line ? a.name + '\u2019s screen said:' : '';
+      saidLab.hidden = !line;
+    }
   }
   /* The pack's header badge and the two reading boxes, all off the same
      shared derivations the board uses (memBand/pctOf/modelLine). */
@@ -15034,6 +15541,21 @@ function openDetail(sessionName, section) {
     document.getElementById('d-qask-fail').textContent = '';
     document.getElementById('d-qask-fail').hidden = true;
     setThread(document.getElementById('d-dmthread'), '<p class="dmnone">Opening&hellip;</p>', null);
+    /* 🛑 THE READER'S PLACE BELONGS TO THE AGENT, AND THIS ELEMENT IS SHARED.
+       One #d-dmthread serves every agent. `__heldTop` and `__heldAtBottom`
+       deliberately SURVIVE a note, so a poll flapping through one does not lose
+       where the person was. An open is not a flap: without this, agent B is
+       restored to agent A's offset, so opening someone lands you at a
+       meaningless place in their conversation instead of at the newest thing
+       they said. Measured by an independent review before the clear existed:
+       open a 50-message agent, park at 900, open a 30-message one, and B landed
+       at 900 rather than its own floor at 960.
+       ⚠️ AFTER the paint above, not before: setThread re-reads these while a
+       list is still on screen, so clearing first would simply refill them from
+       the agent being left. */
+    const th0 = document.getElementById('d-dmthread');
+    th0.__heldTop = undefined;
+    th0.__heldAtBottom = undefined;
     // A reading posture, not agent state: carried across agents it would hide
     // the next thread silently.
     TALK_QUERY = '';
@@ -15211,7 +15733,10 @@ function detailGo(section, opts) {
        that arrived while they were away. `setThread`'s newest-row jump is
        for the live list under a reader; here the reader had left. */
     if (th && TALK_SCROLL !== null) { th.scrollTop = TALK_SCROLL; TALK_SCROLL = null; }
-    else if (th && th.__lastCount !== null && th.__lastCount !== undefined) th.scrollTop = th.scrollHeight;
+    /* Through `pinToBottom`, not a raw assignment: coming back to a thread
+       whose pictures have not laid out lands part way up otherwise, which is
+       the same "middle rather than bottom" the poll path had. */
+    else if (th && th.__lastCount !== null && th.__lastCount !== undefined) pinToBottom(th);
   }
   /* The FRESH record, not the one captured at open: the poll never rewrites
      CURRENT, and a tie that changed while the person sat on Talk would
@@ -15454,7 +15979,7 @@ function svcDoorLiveHtml(name, st) {
       + '<p class="dhint" style="margin:8px 0 0;"><button class="linkish" type="button" data-svc-cancel="' + esc(name) + '">Stop this sign-in</button></p>';
   }
   const why = st.phase === 'failed' && st.because ? '<p class="dhint" style="margin:8px 0 0;">' + esc(st.because) + '</p>' : '';
-  return own + why + '<p style="margin:8px 0 0;"><button class="btn" type="button" data-svc-connect="' + esc(name) + '">Connect</button></p>'
+  return own + why + '<p style="margin:8px 0 0;"><button class="btn" type="button" data-svc-connect="' + esc(name) + '" aria-label="Connect ' + esc(name) + '">Connect</button></p>'
     + '<p class="dhint" style="margin:6px 0 0;">You sign in on ' + esc(t.site) + '. This Mac keeps the key, and Kosmos never sees your password.</p>';
 }
 /* A token door (#529, Cloudflare): the service issues a scoped token from its
@@ -15474,7 +15999,7 @@ function svcDoorTokenHtml(name, st) {
   return own + why + '<p class="dhint" style="margin:8px 0 0;">Make a token on <a class="xlink" href="' + esc(st.where) + '" target="_blank" rel="noopener">' + esc(st.whereText || (name + '’s API Tokens page')) + '</a>, '
     + esc(st.hint || (name === 'Cloudflare' ? 'choosing the zones your agents may touch' : 'with only what your agents need')) + ', then paste it here.</p>'
     + '<div class="frow" style="margin:6px 0 0;"><input type="password" autocomplete="off" spellcheck="false" aria-label="' + esc(name) + ' API token" placeholder="Paste the token" data-svc-token-field="' + esc(name) + '">'
-    + '<button class="btn" type="button" data-svc-token-go="' + esc(name) + '">Connect</button></div>'
+    + '<button class="btn" type="button" data-svc-token-go="' + esc(name) + '" aria-label="Connect ' + esc(name) + '">Connect</button></div>'
     + '<p class="dhint" style="margin:6px 0 0;">Kosmos checks it with ' + esc(name) + ' first. If ' + esc(name) + ' accepts it, Kosmos keeps it in one file on this Mac and hands it to your agents when they start. This is the one key Kosmos holds for you.</p>';
 }
 async function svcDoorLive(name, door) {
@@ -18807,7 +19332,6 @@ async function paintStyles(apply) {
     const html = (r.themes || []).map((t) => '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>').join('');
     if (sel.innerHTML !== html) sel.innerHTML = html;
     sel.value = r.theme;
-    document.getElementById('style-clear').hidden = !(r.customCount > 0);
   }
   /* A corrupt saved style falls back to the shipped look AND says so
      here, the promise the engine's because field exists to keep. */
@@ -18832,41 +19356,8 @@ if (document.getElementById('style-theme')) document.getElementById('style-theme
        standing, never a pick that neither saved nor applied. */
     if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; paintStyles(false); return; }
     applyStyle(body.tokens);
-    document.getElementById('style-clear').hidden = !(body.customCount > 0);
   } catch { msg.textContent = 'we could not save the style'; paintStyles(false); }
 });
-if (document.getElementById('style-apply')) document.getElementById('style-apply').addEventListener('click', async () => {
-  const msg = document.getElementById('style-msg');
-  msg.textContent = '';
-  const text = document.getElementById('style-custom').value;
-  try {
-    STYLE_REQ += 1;
-    const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ customText: text }) });
-    const body = await res.json().catch(() => null);
-    if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; return; }
-    applyStyle(body.tokens);
-    document.getElementById('style-clear').hidden = !(body.customCount > 0);
-    STYLE_STORE_MSG = false;
-    msg.textContent = body.customCount === 1 ? 'Applied: 1 token.'
-      : body.customCount > 0 ? 'Applied: ' + body.customCount + ' tokens.' : 'Applied.';
-  } catch { msg.textContent = 'we could not save the style'; }
-});
-if (document.getElementById('style-clear')) document.getElementById('style-clear').addEventListener('click', async () => {
-  const msg = document.getElementById('style-msg');
-  msg.textContent = '';
-  try {
-    STYLE_REQ += 1;
-    const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ customText: '' }) });
-    const body = await res.json().catch(() => null);
-    if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; return; }
-    document.getElementById('style-custom').value = '';
-    applyStyle(body.tokens);
-    document.getElementById('style-clear').hidden = true;
-    STYLE_STORE_MSG = false;
-    msg.textContent = 'Your style is removed; the theme stays.';
-  } catch { msg.textContent = 'we could not save the style'; }
-});
-
 /* ---- Plus Account (the relay service's Settings home) -----------------
    The holding place is the RESTING state: the flow renders only when this
    machine actually has a relay configured, so nothing on the tab can look
@@ -19006,6 +19497,27 @@ document.getElementById('askcard').addEventListener('click', (e) => {
 /* The Settings list. Painted on arrival at the Plus section and after any
    action; the allowed rows come from the tunnel's list (one subprocess),
    the pending rows from the same file the card reads. */
+/* #1011. The panel showed "Connected. Your address: ..." with
+   "the coordinator said no (409)" still sitting under it, left over from a
+   previous attempt. Both lines were true when written; only one was true
+   when read, and the wrong one catches the eye because it is the only red
+   thing on the page. A person who has just been through a failure believes
+   the error, so the screen actively teaches them that a working setup is
+   broken.
+
+   🛑 THE FIX CANNOT BE "clear the error whenever we are connected", which is
+   what the issue asks for literally. This same line carries failures from
+   the Turn on / Turn off switch, and those happen WHILE connected -- wiping
+   them would hide a real refusal to trade against a stale one. So the
+   message remembers where it came from, and only a SETUP failure is
+   superseded by being connected. */
+let PLUS_MSG_KIND = '';
+let PLUS_ADDRESS = '';   // #1014: the address, when there is a real one
+function plusSay(text, kind) {
+  const m = document.getElementById('plus-msg');
+  m.textContent = text;
+  PLUS_MSG_KIND = text ? (kind || '') : '';
+}
 async function paintDevices() {
   const box = document.getElementById('plus-devices');
   if (!box || box.hidden) return;
@@ -19037,7 +19549,34 @@ async function paintDevices() {
         '<button class="btn" type="button" data-dev="keep">Keep</button></div></div>' : '') + '</div>');
   }
   list.innerHTML = out.join('');
-  document.getElementById('plus-devempty').hidden = out.length > 0;
+  const hasDevices = out.length > 0;
+  document.getElementById('plus-devempty').hidden = hasDevices;
+  /* #1012. "I lost my phone" and Reset the second step were shown whenever
+     the MAC was enrolled, which is a different question from whether a PHONE
+     exists. So a person mid-setup met the largest block of text on the page
+     offering to undo something they had not done, sitting directly under a
+     device list reading "None yet". At the moment they are working out what
+     to do next, the screen answered a question they had not asked.
+
+     This only ever hides FURTHER: the enrolled gate in paintPlus still has
+     to have shown it first, so this cannot reveal the control on a Mac that
+     could not sign the reset anyway. */
+  if (!hasDevices) document.getElementById('plus-second').hidden = true;
+  /* #1014: say what to DO, and only while it is still undone. Once a phone
+     has been allowed the person has plainly worked it out, and a standing
+     instruction to do a thing you have already done is just clutter. */
+  const next = document.getElementById('plus-next');
+  if (next) {
+    const addr = PLUS_ADDRESS;
+    if (addr && !hasDevices) {
+      next.textContent = 'Open ' + addr + ' on your phone. It will ask you to sign in with '
+        + 'this email first, and then this Mac will ask you to allow that phone. '
+        + 'You only do this once per phone.';
+      next.hidden = false;
+    } else {
+      next.hidden = true;
+    }
+  }
 }
 document.getElementById('plus-devlist').addEventListener('click', async (e) => {
   const a = e.target.closest('[data-ask]');
@@ -19089,6 +19628,14 @@ async function paintPlus() {
   st.textContent = stat.state === 'up'
     ? ('Connected. Your address: ' + (stat.address || 'is on its way.'))
     : (because ? because.charAt(0).toUpperCase() + because.slice(1) + '.' : '');
+  /* #1014: only a real address earns an instruction. While the tunnel is
+     still coming up there is nothing to tell somebody to open, and telling
+     them to open "is on its way." would be worse than saying nothing. */
+  PLUS_ADDRESS = (stat.state === 'up' && stat.address) ? stat.address : '';
+  /* #1011: being connected supersedes a SETUP failure -- it cannot still be
+     true. A switch failure is left alone; it happens while connected and is
+     the one thing this rule must not eat. */
+  if (stat.state === 'up' && PLUS_MSG_KIND === 'setup') plusSay('');
   /* The enrol steps show only when the switch is on and nothing is
      enrolled yet: the state the engine calls waiting-for-the-sign-in. */
   document.getElementById('plus-enrol').hidden = !(r.on && r.enrolled !== true);
@@ -19118,15 +19665,15 @@ document.getElementById('plus-code').addEventListener('input', (e) => {
 });
 document.getElementById('plus-switch').addEventListener('click', async () => {
   const msg = document.getElementById('plus-msg');
-  msg.textContent = '';
+  plusSay('');
   /* The click means what the BUTTON said, not what a re-fetch says now:
      acting on re-read state lets a stale label do the opposite of its own
      words, and a double click land twice at one value. */
   const wantOn = document.getElementById('plus-switch').textContent === 'Turn on';
   try {
     const res = await fetch('/api/remote', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: wantOn }) });
-    if (!res.ok) msg.textContent = plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not change that');
-  } catch { msg.textContent = 'we could not change that'; }
+    if (!res.ok) plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not change that'), 'switch');
+  } catch { plusSay('we could not change that', 'switch'); }
   paintPlus();
 });
 /* The words of the code box (#729). Pete sat at it for twelve minutes, three
@@ -19188,19 +19735,19 @@ document.getElementById('plus-send-code').addEventListener('click', async () => 
 });
 document.getElementById('plus-confirm').addEventListener('click', async () => {
   const msg = document.getElementById('plus-msg');
-  msg.textContent = '';
+  plusSay('');
   const code = document.getElementById('plus-code').value.replace(/\D/g, '');
   const name = document.getElementById('plus-name').value.trim();
   /* The engine validates before spawning too; saying it here saves the
      round trip, in the engine's own sentence so the two cannot drift. */
   if (name && !/^[a-z0-9-]{3,32}$/.test(name)) {
-    msg.textContent = 'the name is 3 to 32 lowercase letters, digits or hyphens';
+    plusSay('the name is 3 to 32 lowercase letters, digits or hyphens', 'setup');
     return;
   }
   try {
     const res = await fetch('/api/remote/setup-complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, name }) });
-    if (!res.ok) { msg.textContent = plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not finish the sign-up'); return; }
-  } catch { msg.textContent = 'we could not finish the sign-up'; }
+    if (!res.ok) { plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not finish the sign-up'), 'setup'); return; }
+  } catch { plusSay('we could not finish the sign-up', 'setup'); }
   paintPlus();
 });
 
@@ -20084,7 +20631,6 @@ function openCreate() {
   loadRoles();
   /* Read on every open, not once on boot: the standing answer can be changed
      in Settings between two visits to this form. */
-  refreshCreateTell();
 }
 
 document.getElementById('new-agent').addEventListener('click', openCreate);
@@ -20725,10 +21271,15 @@ document.getElementById('create-go').addEventListener('click', async () => {
            the hub already. */
         const to = document.getElementById('create-reports').value;
         if (to) b.reportsTo = to;
-        /* Sent only when it is FALSE. The server defaults it to true, so a
-           caller that has never heard of this field behaves the way the box
-           does, and an older client cannot silently opt somebody out. */
-        if (!document.getElementById('create-tell').checked) b.tellKosmos = false;
+        /* 🛑 ALWAYS FALSE NOW, AND SENT EXPLICITLY. This read the checkbox
+           that Josh removed (item 3), so with the control gone it was a
+           `.checked` on null: creating an agent would have thrown on the last
+           click, in the one flow every new person walks.
+           📌 Explicit rather than omitted, because the SERVER still defaults
+           this field to true. Leaving it out would keep the ping alive through
+           the default while the person has no control and no disclosure, which
+           is the exact state this change exists to end. */
+        b.tellKosmos = false;
         if (CREATE_PROJECTS.length) b.projects = CREATE_PROJECTS;
         return b;
       })()),
@@ -24038,10 +24589,86 @@ function pjMarkSeen(id) {
     .then((r) => r.text())
     .catch(() => { /* the next open tells it again */ });
 }
+/**
+ * Write a thread's markup and leave the reader where they belong.
+ *
+ * 🛑 THE WRITE IS THE MOVER, NOT A SCROLL LINE. `setLive` replaces innerHTML,
+ * which empties the box: scrollHeight collapses and the browser CLAMPS scrollTop
+ * to 0. So EVERY repaint moves the reader to the top unless something puts them
+ * back, and the room never put them back. That one omission is all three of
+ * Josh's triggers (2026-08-26, the scroll item): posting a message, an agent
+ * starting to type, and the ~30s tick. None of them is a new post, all three
+ * rewrite the markup, and each time he was reading history.
+ *
+ * ⚠️ POSTURE IS REMEMBERED ONLY WHILE ROWS ARE ON SCREEN. A not-a-list arm ("we
+ * could not read this room", "nothing here yet") has ALREADY been clamped to 0
+ * by its own write, so letting one record the posture would overwrite the very
+ * number we are about to need with a zero. Same rule setThread carries, same
+ * reason, and it is why the guard is `__roomHadRows` rather than a plain
+ * capture-before-every-write.
+ */
+function paintThreadInto(box, html, hasRows, keyChanged, filtering) {
+  /* 🛑 MEASURED BEFORE THE WRITE, NOT READ OFF A FLAG. Whether the person is on
+     the floor is a fact about the DOM as it stands right now, and the markup is
+     about to be replaced. holdFloorOnResize keeps a flag for the resize case,
+     but that one is learned from the async `scroll` event and can be a task
+     behind; here we are standing in front of the thing, so we ask it. */
+  const onFloorBefore = box.clientHeight > 0
+    && (box.scrollHeight - box.scrollTop - box.clientHeight) <= THREAD_BOTTOM_SLACK;
+  /* ⚠️ AND THE FLOOR ANSWER IS REMEMBERED WITH IT, for the same reason and it is
+     the less obvious half. A note is SHORTER THAN THE VIEWPORT, so the fresh
+     measurement on a note reads scrollHeight - 0 - clientHeight <= slack, which
+     is TRUE: a collapsed box says "at the bottom" about a reader it has already
+     thrown to the top. Measured, and it is what made the first version of this
+     fix pin the note-flap case to 1760 instead of leaving it at 900. */
+  if (box.__roomHadRows) {
+    box.__roomHeldTop = box.scrollTop;
+    box.__roomHeldAtBottom = onFloorBefore;
+  }
+  setLive(box, html);
+  box.__roomHadRows = hasRows;
+  // A note is not what the person came to read, and moving them inside one
+  // would only move them again when the rows come back.
+  if (!hasRows) return;
+  /* Scrolled to the newest post only when the POSTS changed, not on a relabel:
+     pjWhen re-words every minute, and yanking a person who scrolled up to read
+     history to the bottom on a poll tick is the poll fighting the reader. A
+     FILTERED paint never scrolls at all: the person is reading, not following
+     the live tail (clearing the filter restores the newest-post scroll through
+     the key change).
+     ⚠️ THE FLAG IS SET HERE, NOT LEFT TO THE SCROLL EVENT. holdFloorOnResize
+     learns the reader's posture from `scroll`, which is asynchronous, so a
+     PROGRAMMATIC pin leaves a window where the box is on the floor and the flag
+     still says otherwise. A resize landing in that window declines to re-pin and
+     the newest messages go under the fold. We know the answer synchronously
+     right here, so we say so.
+     ⭐ Being on the floor means following the tail, so a repaint that adds to the
+     tail keeps them there. Josh's measured case: the thread went 2690 to 2724
+     and a reader sitting on the floor was left 34px under it, having touched
+     nothing. */
+  /* `!== false` rather than `=== true` so a first-ever paint, which has no
+     remembered posture, still lands on the newest post. */
+  if (!filtering && (keyChanged || box.__roomHeldAtBottom !== false)) {
+    box.scrollTop = box.scrollHeight;
+    box.__wasOnFloor = true;
+    return;
+  }
+  /* 🛑 THE HALF THE ROOM NEVER HAD. Reading back, with the list unchanged: the
+     write above clamped them to 0 and, before this line, nothing put them back.
+     setThread has had the matching restore since #1037. */
+  if (box.__roomHeldTop !== undefined && box.scrollTop !== box.__roomHeldTop) {
+    box.scrollTop = box.__roomHeldTop;
+  }
+}
 function paintRoom(body) {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
   const box = document.getElementById('pj-room');
+  /* Attached on first paint rather than at load: the element is certain to
+     exist here, and the helper is idempotent so the poll re-calling it costs
+     nothing. This is what keeps a reader on the floor when the composer grows
+     under them (#1037, the resize trigger). */
+  holdFloorOnResize(box);
   const allRows = body.rows || [];
   const shown = pjRoomFilterRows(allRows, p, PJ_ROOM_QUERY);
   const filtering = PJ_ROOM_QUERY.trim() !== '';
@@ -24066,24 +24693,27 @@ function paintRoom(body) {
         ? '<p class="fhint" style="margin:0;">Nothing here yet. Post below and everyone on this project receives it; use @name to hand someone a request.</p>'
         : '<p class="fhint" style="margin:0;">Put an agent on this project and the room opens.</p>'));
   const html = note + (rows || empty);
+  /* 🛑 MEASURED BEFORE THE WRITE, NOT READ OFF A FLAG. Whether the person is on
+     the floor is a fact about the DOM as it stands right now, and the markup is
+     about to be replaced. holdFloorOnResize keeps a flag for the resize case,
+     but that one is learned from the async `scroll` event and can be a task
+     behind; here we are standing in front of the thing, so we ask it. */
+  /* The reader's posture, the write, and where they land are ONE decision, and
+     they now live in one place. Splitting them across two painters is exactly
+     how the room shipped without the restore the agent thread has carried since
+     #1037: setThread's own comment warns "the room and the thread are painted by
+     different functions, which is exactly how the room missed the last fix", and
+     it was still true of this function. */
+  const key = PJ_ROOM_QUERY + '\u0000' + (body.rows || []).map((m) => m.id || m.at).join('\u0000');
+  const keyChanged = box.__lastRoomKey !== key;
   if (box.__lastRoom !== html) {
     /* New rows while the room is on screen are read as they land; a tab in
        the background is not looking, so its cursor waits for the person. */
     if (box.__lastRoom !== undefined && document.visibilityState === 'visible'
       && !document.getElementById('pj-one-view').hidden) pjMarkSeen(PJ_CURRENT);
     box.__lastRoom = html;
-    setLive(box, html);
-    /* Scrolled only when the POSTS changed, not on a relabel: pjWhen
-       re-words every minute, and yanking a person who scrolled up to
-       read history to the bottom on a poll tick is the poll fighting
-       the reader. A FILTERED paint never scrolls at all: the person is
-       reading, not following the live tail (clearing the filter
-       restores the newest-post scroll through the key change). */
-    const key = PJ_ROOM_QUERY + '\u0000' + (body.rows || []).map((m) => m.id || m.at).join('\u0000');
-    if (box.__lastRoomKey !== key) {
-      box.__lastRoomKey = key;
-      if (!filtering) box.scrollTop = box.scrollHeight;
-    }
+    box.__lastRoomKey = key;
+    paintThreadInto(box, html, rows !== '', keyChanged, filtering);
   }
 }
 /* The search input repaints from the cached body (loadRoom keeps it on
@@ -26678,6 +27308,13 @@ function frActions(primary, alt) {
     // while its request is in flight, and without this the next step arrived
     // with its own (different) second button still greyed out.
     other.disabled = false;
+    /* `link: true` draws it as a quiet text link rather than a bordered
+       button (Josh, 2026-08-26 item 5: skipping should read as a small text
+       link, not as the second half of a pair of equal choices). It stays a
+       <button> -- it does something rather than going somewhere, so the
+       element is right and only the paint changes. Toggled BOTH ways: this
+       element is shared by every step and a token left on leaks forward. */
+    other.classList.toggle('is-link', alt.link === true);
   } else {
     other.hidden = true;
     other.onclick = null;
@@ -27041,10 +27678,14 @@ async function frPaintMachine() {
   box.innerHTML = checks.map((c) => frCheckRow(c)).join('')
     // ⚠️ Says what to do about it, and says it is not a wall. §125: guide, do
     // not error — first run never blocks on anything it finds here.
-    + (checks.some((c) => c.state !== 'ok')
-      ? '<div class="fr-note">You can carry on either way. Nothing here stops you setting up '
-        + 'an agent, and you can change any of it later.</div>'
-      : '');
+    /* 🛑 GONE (Josh, item 12): "Let's remove all of that as well as the bounding
+       box that that message is in."
+       The rule it served -- first run GUIDES, it never blocks -- is not carried
+       by a reassurance paragraph. It is carried by nothing on this screen
+       stopping you, which a person discovers by pressing Continue and having it
+       work. A sentence saying "this is not a wall" is only needed on a screen
+       that looks like one. */
+    + '';
   /**
    * ⚠️ COUNTED APART, never added together. "Two things need your attention"
    * over one real problem and one thing we could not read is false about half
@@ -27479,7 +28120,7 @@ function frPaintConnect(st) {
       + '<div class="fr-cdetail" id="fr-conn-prog"></div>'
       + '<div class="fr-cdetail">This is the one big download. Everything after it is quick.</div>';
     frConnPaintProgress(st.progress);
-    frActions({ label: 'Continue anyway', go: () => frGo(4) }, { label: 'Cancel', go: frConnCancel });
+    frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
 
@@ -27488,7 +28129,7 @@ function frPaintConnect(st) {
       + (phase === 'installing' ? 'Setting Claude up on this computer&#8230;' : 'Getting the sign-in ready&#8230;')
       + '</div>'
       + '<div class="fr-cdetail">A moment or two.</div>';
-    frActions({ label: 'Continue anyway', go: () => frGo(4) }, { label: 'Cancel', go: frConnCancel });
+    frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
 
@@ -27499,10 +28140,10 @@ function frPaintConnect(st) {
       + '<div class="fr-cdetail">'
       + (phase === 'signin-completing'
         ? 'Checking the connection. This screen will change on its own.'
-        : 'Sign in to Claude there. This screen will notice when it is done.')
+        : 'Sign in to Claude there. This screen will update when it is done.')
       + '</div>' + urlLine;
     frConnPaintUrl(st && st.url);
-    frActions({ label: 'Continue anyway', go: () => frGo(4) }, { label: 'Cancel', go: frConnCancel });
+    frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
 
@@ -27526,7 +28167,7 @@ function frPaintConnect(st) {
       if (e.key === 'Enter' && !(go && go.disabled)) frConnSubmitCode();
     };
     frConnPaintUrl(st && st.url);
-    frActions({ label: 'Continue anyway', go: () => frGo(4) }, { label: 'Cancel', go: frConnCancel });
+    frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
 
@@ -27554,13 +28195,33 @@ function frPaintConnect(st) {
      * is true whether or not there is a fallback, and it is the sentence doing
      * the most work for somebody stuck on step 3 of six.
      */
-    + '<div class="fr-note">Nothing is broken by this. You can try again'
+    /**
+     * 🛑 THE WIZARD NO LONGER INSTRUCTS ANYBODY TO OPEN A TERMINAL (#996 item 1).
+     * The north star is that someone non-technical gets from nothing to a
+     * working agent WITHOUT one, and this sentence fired at the least technical
+     * moment in the product: step 3 of six, on a first run, to a person who has
+     * installed Kosmos, connected nothing, and just watched it fail. For them
+     * the escape hatch was a wall with a helpful sign on it.
+     *
+     * ⭐ THE HATCH IS KEPT, NOT DELETED, because for somebody who does have a
+     * Terminal it is a real way through and removing it would trade one group's
+     * problem for another's. What changed is who it addresses: both branches now
+     * say the same plain thing, and the command sits behind a disclosure that
+     * names the tool it needs, closed, so nobody is told to do something they
+     * cannot do.
+     *
+     * 📌 STILL GATED ON canRunClaude, which the engine asks of the DISK. Three
+     * of the five stuck causes mean the program was never installed, and
+     * offering the command there answers `command not found` at exactly the
+     * wrong moment (#205).
+     */
+    + '<div class="fr-note">Nothing is broken by this. You can try again, '
+    + 'or carry on and connect later from Settings.'
     + ((st && st.canRunClaude)
-      ? ', or connect without Kosmos: open Terminal, type <b>claude</b>, and follow its '
-        + 'sign-in. Then come back and press Try again to check.'
-      /* Nothing to run, so nothing is suggested. Continue anyway is drawn below
-         and is the honest way forward from here. */
-      : ', or carry on and connect later from Settings.')
+      ? '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
+        + 'You can sign in to Claude outside Kosmos: open Terminal, type <b>claude</b>, '
+        + 'and follow its sign-in. Then come back and press Try again.</details>'
+      : '')
     + '</div>';
     frActions({ label: 'Try again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(4) });
     return;
@@ -27620,8 +28281,8 @@ function frConnPaintUrl(url) {
   if (box.__frUrl === key) return;
   box.__frUrl = key;
   box.innerHTML = key
-    ? '<div class="fr-cdetail">Browser did not open? '
-      + '<a href="' + esc(key) + '" target="_blank" rel="noopener">Use this link to sign in</a>.</div>'
+    ? '<div class="fr-cdetail">Browser did not open?</div>'
+      + '<a class="btn" href="' + esc(key) + '" target="_blank" rel="noopener">Open the sign-in page</a>'
     : '';
 }
 
@@ -27786,11 +28447,46 @@ function frClaudeConfirmSentence() {
    focus back up several rows on Not now, to a different button. */
 let FR_CONFIRM_OPENER = null;
 
+/**
+ * Close every provider's panel except the one being opened (Josh, 2026-08-26
+ * item 7: "when I opened the ChatGPT one, it should have automatically
+ * collapsed the Claude one but it left the Claude one open").
+ *
+ * ⚠️ Two panels, two DIFFERENT reveal mechanisms -- Claude's is driven by
+ * frClaudeConfirmOpen/Close with an opener it remembers, OpenAI's is an inline
+ * hidden toggle. This closes BOTH by their own means rather than reaching in
+ * and setting `hidden` on each: Claude's close also clears FR_CONFIRM_OPENER
+ * and restores aria-expanded on whichever button actually opened it, and
+ * skipping that is how the row button ends up claiming to control a panel
+ * nobody opened.
+ *
+ * 🔑 It never closes the panel it is asked to keep, so an opener can call it
+ * unconditionally before showing its own.
+ */
+function frCollapseProviders(keep) {
+  if (keep !== 'claude') {
+    const box = document.getElementById('fr-claude-confirm');
+    if (box && !box.hidden) frClaudeConfirmClose();
+  }
+  if (keep !== 'openai') {
+    let shut = false;
+    for (const id of ['fr-openai-confirm', 'fr-openai-flow']) {
+      const el = document.getElementById(id);
+      if (el && !el.hidden) { el.hidden = true; shut = true; }
+    }
+    if (shut) {
+      const btn = document.getElementById('fr-openai-connect');
+      if (btn && btn.setAttribute) btn.setAttribute('aria-expanded', 'false');
+    }
+  }
+}
+
 function frClaudeConfirmOpen(opener) {
   const box = document.getElementById('fr-claude-confirm');
   const t = document.getElementById('fr-claude-confirm-t');
   const btn = opener || document.getElementById('fr-llm-connect');
   if (!box) return;
+  frCollapseProviders('claude');
   FR_CONFIRM_OPENER = btn || null;
   if (t) t.textContent = frClaudeConfirmSentence();
   box.hidden = false;
@@ -27873,11 +28569,65 @@ document.getElementById('fr-claude-confirm-no').addEventListener('click', () => 
    listener rather than the delegated pattern fr-llm-connect uses above --
    there is exactly one button per id here, so delegation would add
    indirection with nothing to share it with. */
-document.getElementById('fr-openai-connect').addEventListener('click', (e) => {
-  const flow = document.getElementById('fr-openai-flow');
-  flow.hidden = false;
-  e.currentTarget.setAttribute('aria-expanded', 'true');
-  document.getElementById('fr-openai-key').focus();
+/* Which panel Connect opens depends on whether the runner is already here.
+   ⚠️ ASKED EVERY TIME, not cached: a runner can arrive or leave between
+   presses, and Settings' equivalent says the same in its own comment.
+   📌 If the question cannot be answered we show the CONFIRM, not the key box.
+   Being asked to approve a download that turns out to be unnecessary costs a
+   press; being asked for a key that is no use costs finding one first, which
+   is the dead end Josh actually hit. */
+async function frOpenaiRunnerPresent() {
+  try {
+    const r = await (await fetch('/api/runners', { cache: 'no-store' })).json();
+    const o = r && r.runners && r.runners.openai;
+    return o ? !!o.present : false;
+  } catch { return false; }
+}
+function frOpenaiShowKey() {
+  document.getElementById('fr-openai-confirm').hidden = true;
+  document.getElementById('fr-openai-flow').hidden = false;
+  const k = document.getElementById('fr-openai-key');
+  if (k) k.focus();
+}
+document.getElementById('fr-openai-connect').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  frCollapseProviders('openai');
+  btn.setAttribute('aria-expanded', 'true');
+  if (await frOpenaiRunnerPresent()) { frOpenaiShowKey(); return; }
+  document.getElementById('fr-openai-flow').hidden = true;
+  const box = document.getElementById('fr-openai-confirm');
+  box.hidden = false;
+  const go = document.getElementById('fr-openai-confirm-go');
+  if (go) { go.disabled = false; go.focus(); }
+});
+document.getElementById('fr-openai-confirm-no').addEventListener('click', () => {
+  document.getElementById('fr-openai-confirm').hidden = true;
+  const btn = document.getElementById('fr-openai-connect');
+  if (btn) { btn.setAttribute('aria-expanded', 'false'); btn.focus(); }
+});
+document.getElementById('fr-openai-confirm-go').addEventListener('click', async (e) => {
+  const go = e.currentTarget;
+  const msg = document.getElementById('fr-openai-confirm-msg');
+  go.disabled = true;
+  if (msg) msg.textContent = 'Starting\u2026';
+  try {
+    const res = await fetch('/api/runners/openai/install', { method: 'POST' });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not start that install');
+    if (msg) msg.textContent = 'Installing\u2026 this screen will move on when it is done.';
+    /* Rough on purpose, and said out loud: this polls for the runner rather
+       than following the install job's own phases the way Settings does. It
+       is a holding shape for tonight -- the key box appears when the runner
+       appears. If it never does, the sentence above stays and nothing lies. */
+    const started = Date.now();
+    const tick = setInterval(async () => {
+      if (await frOpenaiRunnerPresent()) { clearInterval(tick); if (msg) msg.textContent = ''; frOpenaiShowKey(); return; }
+      if (Date.now() - started > 300000) { clearInterval(tick); if (msg) msg.textContent = 'That is taking longer than expected. Settings > Accounts can finish it.'; }
+    }, 2000);
+  } catch (err) {
+    go.disabled = false;
+    if (msg) msg.textContent = String((err && err.message) || 'We could not start that install.');
+  }
 });
 // Paste-then-Enter is the natural gesture for this screen's non-technical
 // audience, and with no form around the field it failed silently -- flagged
@@ -28128,9 +28878,28 @@ function frPaintSubscription() {
      about their account; it is a consequence of the button they are about to
      press. `sub.because` is deliberately NOT rendered: it is the diagnosis
      behind a claim we no longer make. */
-  box.innerHTML = '<div class="fr-note">You can carry on and look around. An agent made before '
-    + 'you connect a model will sit there doing nothing until you do.</div>';
-  frActions({ label: 'Connect Claude', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue', go: () => frGo(4) });
+  /* 🛑 GONE, AND THIS IS THE SECOND TIME. Josh, 2026-08-26 22:05, item 6:
+     "Let's delete that box and all of that text. It's sort of nonsense."
+     I deleted it at 23:0x and it landed (commit e9cb7976). It is back because a
+     later branch was cut from a sha BEFORE that deletion and its copy of this
+     block won the merge. Nothing failed: the suite was green either side,
+     because no test asserted the sentence's ABSENCE.
+     ⚠️ THAT IS HOW "WE TOLD HIM IT WAS FIXED" HAPPENS WITHOUT ANYONE BEING
+     WRONG. A deletion with no guard is undone by any branch old enough not to
+     know about it, silently, and the commit log still says it was done.
+     ⇒ Guarded now in tools/served-markers.json, which checks the SERVED bytes
+     rather than the merge log. */
+  box.innerHTML = ''
+  /* 🛑 NO PRIMARY UNTIL SOMETHING IS CONNECTED (Josh, 2026-08-26, items 5 and
+     11). This used to read "Connect Claude" before anything was chosen, and
+     "Continue anyway" once a connection was under way -- so the biggest button
+     on the screen was either a fifth way to start Claude specifically, on a
+     screen offering four providers, or an invitation to leave before the thing
+     you started had finished.
+     ⚠️ Removing it strands nobody: every provider row carries its own Connect
+     (#fr-llm-connect for Claude, #fr-openai-connect for GPT), which is where a
+     person actually starts. Checked before deleting it. */
+  frActions(null, { label: 'Skip connecting a model', go: () => frGo(4), link: true });
 }
 
 /* --------------------------------------------------------------------------
@@ -28198,7 +28967,16 @@ function foundRowsHtml(agents) {
          ticked box which does nothing is worse than no box, because ticked says
          a decision has been made while inert says it has not, on the same pixel.
          The rule has not changed -- the route arrived. */
-      '<div class="fr-foundrow" data-found-dir="' + esc(a.dir) + '" data-found-name="' + esc(a.name) + '">'
+      /* 🔑 THE HAYSTACK RIDES THE ROW, so filtering hides rows rather than
+         rebuilding them. Rebuilding is forbidden here for a reason that has
+         nothing to do with search: each row carries the state of a button
+         somebody already pressed, and this screen is the one place a person
+         presses four in a row. Folder included deliberately -- the design's
+         412-row drawing matches `patrick-notes` on its PATH, and on a machine
+         with that many agents the folder is often the only thing the person
+         remembers, even though it is not shown. */
+      '<div class="fr-foundrow" data-found-dir="' + esc(a.dir) + '" data-found-name="' + esc(a.name) + '"'
+      + ' data-found-hay="' + esc(((a.name || '') + ' ' + (a.role || '') + ' ' + (a.dir || '')).toLowerCase()) + '">'
       + '<span class="fr-foundtext">'
       + '<span class="fr-foundname">' + esc(a.name) + '</span>'
       /* Role is optional by ruling ("even if it's just title unknown"): an agent
@@ -28252,9 +29030,36 @@ function frPaintFound() {
      them here", written when the rows were a list with nothing behind them --
      a sentence that went quietly false the day the route landed, on the screen
      it describes. */
+  /* 🛑 THE SEARCH BOX APPEARS AT A THRESHOLD, NOT ALWAYS (design,
+     Josh-Brain/Projects/kosmos-design/kosmos-found-agents-2026-08-22.html).
+     On fourteen rows it is furniture that makes a simple screen look like an
+     admin tool. The design says "somewhere around thirty it starts earning
+     itself", so thirty is where it is, and the number lives here rather than
+     inline so the next person can move it in one place.
+     ⭐ WHY IT IS A SEARCH BOX AND NOT A DRAWER, which is a ruling already made
+     and is not reopened here: a drawer is US deciding what you do not need to
+     see; a search box is YOU deciding, and it is reversible in one keystroke.
+     That is why the count line below always says BOTH numbers and how to get
+     back. And it only ever RANKS -- a heuristic may rank, it may not act, which
+     is the same rule that killed pre-ticked boxes and Add all. */
+  const search = n >= FOUND_SEARCH_AT
+    ? '<p class="fr-foundsearchwrap"><input type="search" id="fr-foundsearch" class="fld"'
+      + ' autocomplete="off" placeholder="Search your agents"'
+      + ' aria-label="Search the agents found on this Mac"></p>'
+    : '';
   box.innerHTML = '<p>They are not in Kosmos yet. Adding one leaves it exactly '
     + 'where it is, in its own folder with its own instructions.</p>'
-    + foundRowsHtml(FR_FOUND.agents);
+    + search
+    + foundRowsHtml(FR_FOUND.agents)
+    /* ⚠️ THE COUNT LINE IS IN THE DESIGN AND WAS NEVER BUILT. It is the only
+       thing on the screen that says how many rows there are when the list runs
+       past the fold, and the only thing that says how to get back once a search
+       has narrowed it. */
+    + '<p class="dhint" id="fr-foundcount">' + esc(foundCountLine(n, n, '', false)) + '</p>';
+  /* Painted without the scroll clause, then corrected once the browser has laid
+     the list out. One transition, and neither state is a false claim: the first
+     says less than it could, the second says what is true. */
+  foundCountRefresh();
   /* 🛑 `Continue`, NOT "Take me to my agents". Nothing has been added, so the
      board still shows what tmux shows -- and somebody whose agent has not run
      since Tuesday would press that button and land on a board without them,
@@ -28275,6 +29080,96 @@ function frPaintFound() {
  * already pressed -- and this screen is the one place where a person may press
  * four buttons in a row. The row edits itself instead.
  */
+/**
+ * Does the found list actually run past the fold?
+ *
+ * 🔑 THE SCROLLING ELEMENT IS `.fr-body`, not the list: the sticky-footer layout
+ * makes the card a bounded flex column whose body scrolls while Continue stays
+ * put. Asking the list would compare it against its own height and always say no.
+ *
+ * ⚠️ IT RETURNS FALSE WHEN IT CANNOT TELL, which is the arm that says less. A
+ * stub with no geometry, a hidden card, a list not yet laid out: all of those
+ * answer "no scrolling", so the sentence is dropped rather than asserted.
+ */
+function foundOverflows() {
+  const body = document.querySelector && document.querySelector('#firstrun .fr-body');
+  if (!body || typeof body.scrollHeight !== 'number' || typeof body.clientHeight !== 'number') return false;
+  return body.scrollHeight > body.clientHeight + 1;
+}
+
+/** Re-state the count line against the geometry as laid out. */
+function foundCountRefresh() {
+  const line = document.getElementById('fr-foundcount');
+  const rows = document.querySelectorAll ? document.querySelectorAll('.fr-foundrow') : null;
+  if (!line || !rows || !rows.length) return;
+  line.textContent = foundCountLine(rows.length, rows.length, '', foundOverflows());
+}
+
+/* The design's threshold for the search box, in one place. */
+const FOUND_SEARCH_AT = 30;
+
+/**
+ * The line under the found list. Says both numbers and the way back.
+ *
+ * 🛑 IT NEVER CLAIMS A LIST IS COMPLETE WHEN IT IS NOT. `shown` and `total` are
+ * both stated whenever they differ, because the whole reason a search box is
+ * allowed on this screen rather than a drawer is that the person can always see
+ * they are looking at a subset and can undo it in one keystroke.
+ * ⚠️ THE EMPTY-MATCH ARM IS NOT IN THE DESIGN and is written to the same rule:
+ * it names what was typed, gives the total, and says how to get back. "No
+ * results" alone would be the one arm on this screen with no way out.
+ */
+function foundCountLine(shown, total, term, overflows) {
+  const agentWord = total === 1 ? '1 agent' : total + ' agents';
+  /* 🛑 "SCROLL TO SEE THEM ALL" IS A CLAIM ABOUT THE SCREEN, AND I SHIPPED IT AS
+     A CONSTANT. The design's line was written for fourteen rows, which do run
+     past the fold; at three they do not, and the sentence told a person to
+     scroll a list that ends in front of them. A false instruction on a screen
+     that is otherwise right is worse than no instruction: it is the reader who
+     ends up feeling wrong.
+     ⭐ MEASURED, NOT GUESSED AT WITH A ROW COUNT. Where the fold falls depends
+     on the window, not on how many agents somebody has, so a threshold here
+     would be a second wrong constant replacing the first. `overflows` comes from
+     the element that actually scrolls.
+     ⚠️ ABSENT MEANS ABSENT, DELIBERATELY. Under a harness with stubbed elements
+     there is no geometry to read, so this arrives undefined and the clause is
+     dropped -- the arm that says LESS. A default of true would have every test
+     asserting an instruction no test can see. */
+  if (!term) return total === 1 ? '1 agent.'
+    : agentWord + (overflows ? '. Scroll to see them all.' : '.');
+  if (shown === 0) return 'Nothing matches \u201C' + term + '\u201D. Clear the box to see all ' + agentWord + '.';
+  return 'Showing ' + shown + ' of ' + total + '. Clear the box to see them all.';
+}
+
+/**
+ * Filtering the found list.
+ *
+ * 🛑 IT HIDES ROWS, IT DOES NOT REBUILD THEM, and that is not a performance
+ * choice. Every row carries the state of a button somebody may already have
+ * pressed -- this screen is the one place a person presses four in a row -- and
+ * `frPaintFound` rebuilds from `FR_FOUND`, which would throw that away. Same
+ * reason the success arm edits its own row instead of repainting.
+ *
+ * 📌 Page scope and delegated, for the reason the disclosure above it is: the
+ * first-run harness stubs the DOM with plain objects that have no
+ * `addEventListener`, so binding inside a painter takes the harness down.
+ */
+document.addEventListener('input', (e) => {
+  const box = e.target.closest && e.target.closest('#fr-foundsearch');
+  if (!box) return;
+  const term = String(box.value || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('.fr-foundrow');
+  let shown = 0;
+  rows.forEach((row) => {
+    const hay = row.dataset.foundHay || '';
+    const hit = !term || hay.indexOf(term) > -1;
+    row.hidden = !hit;
+    if (hit) shown += 1;
+  });
+  const line = document.getElementById('fr-foundcount');
+  if (line) line.textContent = foundCountLine(shown, rows.length, String(box.value || '').trim(), foundOverflows());
+});
+
 document.addEventListener('click', async (e) => {
   const go = e.target.closest && e.target.closest('.fr-foundgo');
   if (!go || go.disabled) return;
@@ -28415,6 +29310,20 @@ function frPaintFleet() {
      machine, so the miss would be invisible to whoever tested it. The pack
      copy is unchanged from when this line opened the flow: it names no
      folder, so it is true in every app-location state and needs no variants. */
+  /* 🛑 NOT DELETED, AND THIS IS THE ONE PLACE I HAVE GONE AGAINST JOSH'S LIST.
+     Item 13: "Let's delete all of that text as well because we already covered
+     that in the very first initial step."
+     ⚠️ IT IS NOT COVERED THERE. Searched the whole first-run flow: the only
+     other mention of the Dock before this step is the COMMENT above explaining
+     why the line was moved HERE, and Settings has its own separate line on the
+     This computer page. Deleting this removes the only way back from the entire
+     first-run flow, on all three endings, and `server.test.js` asserts it on
+     each of them by name.
+     📌 The reason it sits on the last step is recorded and answers his premise
+     directly: "you drag something to your Dock because you expect to want it
+     again, and before they have used it they don't have the motive" (#2026-08-22).
+     ⇒ Raised with him rather than executed. If he still wants it gone once he
+     knows it is the only copy, it is one line. */
   document.getElementById('fr-fleet-dock').innerHTML =
     '<p><b>Keep it one click away.</b> Drag Kosmos onto the Dock, the strip '
     + 'of icons along the edge of your screen.</p>';
@@ -28502,31 +29411,89 @@ function frPaintFleet() {
     const snags = checked
       ? FR_MACHINE.checks.filter((c) => c.state === 'attention' || c.state === 'unknown')
       : null;
-    /* 🔑 A READING, SAID AS A READING (#320). The pack's ending B said "There
-       are none on this computer yet", and that is a claim about the computer,
-       which Kosmos cannot make: it can only say what its own search found. The
-       first person outside this team to install was told it on a Mac running
-       two of her own agents. The search now runs first (above), and what it
-       says here is what the search did: looked and found none, or could not
-       look. Neither arm claims the machine is empty. Supersedes the pack's
-       ending B; the pack is corrected to match rather than the other way
-       round, because the pack was the thing that was wrong. The outstanding-
-       check notes stay beneath: the check screen must never be contradicted
-       one screen later. */
-    box.innerHTML = (FR_FOUND.ok
-        ? '<p>We looked, and did not find any agents already here.</p>'
-        : '<p>We could not look for agents already on this computer, so we cannot say whether there are any.</p>')
-      + '<p>Two questions: what it is for, and what to call it.</p>'
-      + (!checked
-        ? '<div class="fr-note">We did not get to look over this computer, so we cannot say '
-          + 'in advance whether everything an agent needs is in place. You will find out when '
-          + 'you make one, and it will tell you.</div>'
-        : snags.length
-          ? '<div class="fr-note"><b>' + (snags.length === 1 ? 'One thing' : snags.length + ' things')
-            + ' from the earlier screen ' + (snags.length === 1 ? 'is' : 'are') + ' still outstanding.</b> '
-            + snags.map((c) => esc(c.title)).join('. ') + '. An agent made now may not run until '
-            + 'that is sorted.</div>'
-          : '');
+    /* 🛑 THIS COMMENT USED TO DESCRIBE COPY THAT NO LONGER RENDERS, AND IT WAS
+       BELIEVED. It said this arm reports what the search did, "looked and found
+       none, or could not look", and that neither arm claims the machine is
+       empty. All of that was true and all of it was deleted one comment below,
+       by item 13. A reader who stopped at this paragraph reported the screen as
+       having a hedge it does not have; that is exactly what happened, in public,
+       on 2026-08-27, and the paragraph was signed with an issue number, which is
+       what made it credible.
+       ⭐ A STALE COMMENT OUTRANKS THE CODE FOR ANYONE SKIMMING, so a comment that
+       survives the behaviour it documents is worse than no comment at all.
+
+       WHAT IS TRUE NOW: this arm renders "Create your first agent." and
+       "Let's get started." and says nothing about having looked.
+
+       WHY (#320, kept because the reasoning still binds the NEXT edit): the
+       pack's ending B said "There are none on this computer yet", which is a
+       claim about the computer that Kosmos cannot make. The first person outside
+       this team to install was told it on a Mac running two of her own agents.
+       ⇒ So if a sentence ever comes back here it must be about THEIR machine and
+       never a report on our own uncertainty, which is Josh's rule and the reason
+       the four went. The search still runs first (above), so nothing here is a
+       false claim; it is simply silent.
+       ⚠️ AND SILENCE IS NOT FREE IN ONE CASE (kosmos#1078): discovery reaches a
+       folder only through a transcript, so an agent that has never been RUN is
+       invisible, and this arm then tells somebody who has agents to create their
+       first one.
+       🛑 A DISCLOSURE LINK WAS BUILT HERE AND RULED OUT. Josh, 2026-08-27:
+       "There is no link to appear, even. It just pulls them in." He is right,
+       and the reason is worth keeping: a link explaining why the list is empty
+       is a worse product than a list that is not empty. The fix belongs in
+       DETECTION, not in a sentence on this screen, and this arm stays silent
+       until detection can no longer be wrong about it. */
+    /* 🛑 ONE SENTENCE, AND FOUR THINGS DELETED (Josh, 2026-08-26 22:05, item 13).
+       This screen was reporting on ITSELF rather than telling a person what to
+       do next. What went:
+         - "We could not look for agents already on this computer" -- his rule,
+           verbatim: "If we can't look for agents on their computer, let's not
+           indicate that." A screen that opens by confessing what it failed to
+           check reads as broken before anything has gone wrong.
+         - "Two questions: what it is for, and what to call it." He is blunt
+           about this one: "Those are not the two questions. That's remnant
+           copy." It described a form that no longer asks that.
+         - The outstanding-snags note. "I'm still seeing this: this computer
+           goes to sleep after 1 minute... Let's delete that whole message."
+         - The could-not-check note.
+       ⚠️ THE LAST ONE HE DID NOT NAME, and I am flagging rather than hiding it.
+       It is the same sentence as the first in a different costume -- it exists
+       only to say we did not manage to look -- so his stated rule covers it.
+       If he wants a warning back on this screen it should be a warning about
+       HIS machine, not a report on our own uncertainty.
+       ⚠️ AND A REAL WARNING WENT WITH IT: a machine that sleeps after a minute
+       may not run the agent this screen is about to create. He ruled it goes,
+       having read that exact sentence on his own screen. Recorded because the
+       check screen still says it one step earlier, so the fact is not lost --
+       only the repetition. */
+    /* ⚠️ HIS WORDS WERE "something like: Everything's connected. Let's get
+       started." I have kept the second sentence and dropped the first, and the
+       reason is that the first is a CLAIM this screen cannot make on two of its
+       paths: somebody who skipped the check screen, and somebody whose search
+       could not run. Two existing tests catch exactly that -- "a person who
+       never saw the check screen was told everything is in place" -- and they
+       are right. "something like" is latitude, so I took the invitation and
+       left out the assertion. Flagged to him rather than assumed. */
+    /* 🔑 AN OUT FOR THE ONE PERSON THIS SCREEN IS WRONG ABOUT, AT NO COST TO THE
+       REST (kosmos#1078). Discovery reaches a folder only through a transcript,
+       so an agent that has never been RUN is invisible, and this arm then tells
+       somebody who has agents to create their first one. That is the 2026-08-22
+       defect arriving through a different door.
+       ⚠️ A STANDING SENTENCE WAS THE OBVIOUS FIX AND IT IS THE WRONG ONE. Most
+       people here really are new, and Josh stripped four sentences off this
+       screen on 2026-08-26 for reporting on us rather than helping them. A link
+       is found by the person looking for exactly those words and read by nobody
+       else.
+       🛑 IT PROMISES ONLY WHAT IS TRUE. "Run at least once" is the whole of the
+       transcript rule. It deliberately does NOT say they can be added later,
+       because the second invisible case (an instruction file whose introduction
+       `identityFromText` cannot parse) is not fixed by running the agent, and a
+       sentence that sends that person back to look again would be a lie with our
+       name on it. That case wants a looser parser, not copy.
+       📌 Built hidden rather than built on click, same rule as the found list's
+       undo: an element that already exists cannot be the element a later edit
+       forgets to create. */
+    box.innerHTML = '<p>Let\u2019s get started.</p>';
     frForkActions();
     return;
   }

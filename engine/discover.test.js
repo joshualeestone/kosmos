@@ -65,6 +65,64 @@ test('a CLAUDE.md that introduces nobody is not an agent', () => {
   assert.equal(names.filter((n) => /build notes/i.test(n)).length, 0);
 });
 
+test('a folder with instructions we cannot read an identity out of is COUNTED, not dropped (kosmos#1078)', () => {
+  /**
+   * 🛑 THREE SITUATIONS END ON ONE SCREEN AND ONLY THIS ONE IS KNOWABLE HERE.
+   * "You have no agents", "you have some that never ran" and "you have some we
+   * could not read" all render as "Create your first agent." The first two are
+   * indistinguishable at this layer -- a folder is reached through Claude's own
+   * records, so an agent that has never run is invisible before we get here --
+   * and this one was being thrown away by a bare `continue`.
+   */
+  const before = discover.found();
+  seed('proj-notes', 'a-code-project', '# Build notes\n\nRun yarn test before pushing.\n');
+  const after = discover.found();
+  assert.equal(after.unreadable, before.unreadable + 1,
+    'the folder with an unreadable identity was not counted');
+  assert.ok(!after.agents.some((a) => a.dir.endsWith('a-code-project')),
+    'it must be COUNTED without becoming an agent');
+});
+
+test('an agent we CAN read does not also count as unreadable', () => {
+  /* ⚠️ THE POSITIVE CONTROL FOR THE COUNTER. A counter that only ever goes up
+     agrees with the test above on a machine where nothing is readable at all,
+     which is the shape of a fixture broken end to end. */
+  const before = discover.found();
+  seed('readable-one', 'readable-one', 'You are **Readable**, a tester.\n');
+  const after = discover.found();
+  assert.ok(after.agents.some((a) => a.name === 'Readable'), 'the readable agent was not found');
+  assert.equal(after.unreadable, before.unreadable, 'a readable agent moved the unreadable count');
+});
+
+test('two session families over ONE unreadable directory count once', () => {
+  /**
+   * 🛑 THE FIRST VERSION OF THIS COUNTER WAS WRONG AND ITS OWN COMMENT DENIED
+   * IT. The de-dupe above tests `byDir`, which only ever holds folders that
+   * RESOLVED to an agent -- so an unreadable directory reached through two
+   * project folders passed the de-dupe twice and was counted twice, while the
+   * comment beside it said "cannot count it twice". Found by writing this test
+   * for the sentence rather than for the code.
+   */
+  const before = discover.found();
+  seed('twin-a', 'twin-dir', '# Notes\n\nNothing here introduces anybody.\n');
+  seed('twin-b', 'twin-dir', '# Notes\n\nNothing here introduces anybody.\n');
+  const after = discover.found();
+  assert.equal(after.unreadable, before.unreadable + 1,
+    'one directory reached twice was counted twice');
+});
+
+test('a machine we could not look at reports unreadable 0, never undefined', () => {
+  /* Both refusal arms carry the field, so a caller never has to tell "none" from
+     "we did not say". Same rule as `agents: []` on those arms. */
+  const had = process.env.AGENT_WORKFORCE_CONFIG_ROOT;
+  process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SB, 'nowhere-at-all-either');
+  try {
+    const r = discover.found();
+    assert.equal(r.ok, false);
+    assert.equal(r.unreadable, 0);
+  } finally { process.env.AGENT_WORKFORCE_CONFIG_ROOT = had; }
+});
+
 test('a folder Claude ran in with no instruction file is not an agent', () => {
   seed('bare', 'bare-dir', null);
   const dirs = discover.found().agents.map((a) => a.dir);

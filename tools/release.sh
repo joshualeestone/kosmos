@@ -36,10 +36,18 @@ printf '%s version=%s started pre_bump_head=%s\n' "$(date -u +%FT%TZ)" "$V" "$(g
 # identically at the end. Written once, from the EXIT trap, with the exit
 # status, so a cut that dies anywhere after the started line still says so.
 _CUT_DONE_WRITTEN=0
+# ⭐ WHICH STEP DIED, because three cuts died on 2026-08-26 and the record could
+# not tell anyone which phase any of them fell in. `completed exit=1` names the
+# fact and none of the cause, so every death cost a fresh investigation that
+# started by guessing the phase from elapsed time.
+# `step` replaces the bare `echo` on each phase header: same line on screen,
+# and the last one reached is what the completion line reports.
+_STEP="before step 1"
+step() { _STEP="$1"; echo "$1"; }
 cut_record_done() {
   [ "$_CUT_DONE_WRITTEN" = 1 ] && return 0
   _CUT_DONE_WRITTEN=1
-  printf '%s version=%s completed exit=%s served=%s\n' "$(date -u +%FT%TZ)" "$V" "$1" "${DEPLOYED:-0}" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
+  printf '%s version=%s completed exit=%s served=%s step=%s\n' "$(date -u +%FT%TZ)" "$V" "$1" "${DEPLOYED:-0}" "$(printf '%s' "${_STEP:-unknown}" | tr -d '=' | tr ' ' '_')" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
 }
 # Installed HERE, before step 1 can refuse: the full trap below (site restore,
 # thaw) only exists after the freeze, so a death at step 1 or 2 would leave the
@@ -75,14 +83,42 @@ esac
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 [ -d "$SITE/dist" ] || { echo "no site checkout at $SITE (set KOSMOS_SITE)"; exit 1; }
+# ⚠️ THIS SITS AFTER THE SITE CHECK ON PURPOSE, and the ordering is pinned by a
+# test rather than by this comment. tools.release-gate.test.js builds a sandbox
+# holding ONLY tools/release.sh, and its positive control asserts that a valid
+# version reaches the site check -- that is its definition of "got through the
+# gate". Sourcing a sibling lib ABOVE that line made the script die on a missing
+# file instead, so BOTH positive controls went red while every refusal test
+# stayed green: the gate looked stricter, which is the comfortable direction and
+# the one nobody questions. Found by Mona Lisa, 14 minutes after I shipped it.
+# Nothing here mutates anything, so refusing a second cut one line later costs
+# nothing and keeps the harness able to reach the check it exists to make.
+# 🛑 TWO CUTS ON ONE MAC DESTROY EACH OTHER, and it has already happened: the
+# 18:28 attempt at 0.5.73 died because a fixture server was SIGTERM'd by the
+# other cut's teardown (#1050). They share the install gate's fixed ports, the
+# real ~/Applications and /Applications fingerprints and the gui launchd
+# domain, so either one's result can be the other's.
+# ⭐ THE GUARD FOR EXACTLY THIS EXISTED AND NOTHING CALLED IT. tools/lib/
+# cut-guard.sh was written for #708 and wired only into test-install.sh, so
+# the one script that STARTS a cut never asked. A fix that reaches the artifact
+# but not the running system is not delivered.
+# ⚠️ Placed AFTER the started line on purpose: line 33's contract is that a
+# refusal is recorded, so "no lines at all" keeps meaning "no cut attempted".
+# ⚠️ And the guard asks whether a `bash tools/release.sh` is running, which is
+# what THIS is: it excludes the caller's own pid, and tools/test-cut-guard.sh
+# runs a real `bash tools/release.sh` to prove it does not refuse itself.
+. "$REPO/tools/lib/cut-guard.sh"
+if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
+  kosmos_refuse_if_cut_live "a second cut" || exit 1
+fi
 
-echo "== 1. main, clean, and carrying what you mean to ship =="
+step "== 1. main, clean, and carrying what you mean to ship =="
 git -C "$REPO" fetch origin -q
 [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD)" = main ] || { echo "not on main"; exit 1; }
 [ -z "$(git -C "$REPO" status --porcelain)" ] || { echo "main is dirty"; exit 1; }
 git -C "$REPO" log --oneline -8 | cat
 
-echo "== 2. the version, in one place =="
+step "== 2. the version, in one place =="
 node -e "
 const fs=require('fs'),p='$REPO/package.json';
 const j=JSON.parse(fs.readFileSync(p,'utf8'));
@@ -137,7 +173,7 @@ fi
 # real hazard: a pull there could move the tree after some steps had run.
 SHA="$(git -C "$REPO" rev-parse HEAD)"
 
-echo "== 2b. the tree that ships, frozen at one sha (#597) =="
+step "== 2b. the tree that ships, frozen at one sha (#597) =="
 # 🛑 FROM HERE ON, $REPO IS A DETACHED WORKTREE AT THE BUMP SHA, NOT THE
 # SHARED CHECKOUT. The checkout this script lives in is pulled by every agent
 # on the Mac; on 2026-08-24 two cuts in a row were fast-forwarded mid-run, so
@@ -163,7 +199,7 @@ trap '_rc=$?; cut_record_done "$_rc"; [ "$DEPLOYED" = 1 ] || release_site_restor
 REPO="$BUILD"
 echo "   building ${SHA:0:12} in $BUILD; a pull into $MAIN_REPO from now on changes nothing below"
 
-echo "== 3. the whole suite, on the tree that ships =="
+step "== 3. the whole suite, on the tree that ships =="
 # ⚠️ CORRECTED CLAIM: the old `yarn test | grep` gate DID refuse a red
 # suite (pipefail makes the pipeline's status yarn's, and errexit
 # stops the script), measured by the PM against my first reading of it,
@@ -193,7 +229,7 @@ if [ "$_suite_exit" -eq 126 ] || [ "$_suite_exit" -eq 127 ]; then echo "the suit
 [ "$_suite_exit" -eq 0 ] || { echo "the suite is red (exit $_suite_exit); full output: $_suite_log"; exit 1; }
 rm -f "$_suite_log"
 
-echo "== 3b. the page layer, headless (#39) =="
+step "== 3b. the page layer, headless (#39) =="
 # ⚠️ THE PAGE IS PART OF WHAT SHIPS, and `node --test` cannot see it: round
 # 16 of the project-chat review put 18 page mutations through the whole
 # suite and 16 survived. The browser checks CAN see it and now gate the
@@ -210,7 +246,7 @@ if [ "$_page_exit" -eq 126 ] || [ "$_page_exit" -eq 127 ]; then echo "the page g
 [ "$_page_exit" -eq 0 ] || { echo "the page checks are red (exit $_page_exit); full output: $_page_log"; exit 1; }
 rm -f "$_page_log"
 
-echo "== 3c. the installer .pkg, rebuilt and published only when its inputs changed (#555, #638 B) =="
+step "== 3c. the installer .pkg, rebuilt and published only when its inputs changed (#555, #638 B) =="
 # 🛑 THE DOWNLOAD BUTTON SERVES THIS FILE AND NO RELEASE STEP EVER TOUCHED IT.
 # Baron built and hand-copied the first Kosmos.pkg (2026-08-24); every
 # installer fix after that reached nobody until someone remembered, and the
@@ -282,10 +318,10 @@ else
 fi
 
 
-echo "== 4. build =="
+step "== 4. build =="
 ( cd "$REPO" && bash tools/build-kosmos-bundle.sh dist )
 
-echo "== 4b. a real install from the bundle just built, sandboxed, before anything is served (#624) =="
+step "== 4b. a real install from the bundle just built, sandboxed, before anything is served (#624) =="
 # 🛑 EVERY EARLIER CHECK MEASURED THE BYTES. Step 3 ran the suite, 9b proves
 # served == built file by file, and neither ever INSTALLED the thing: a
 # change to the bundle's SHAPE (a file the installer's post-extract check
@@ -410,14 +446,14 @@ echo "   latest.json -> $(cat "$SITE/dist/latest.json")"
 # | sh`) and an existing one updating itself (engine/update.js re-runs
 # `setupUrl()`). It was stale on the site by a whole change before this step
 # existed, while three correct checks of the bundle passed.
-echo "== 5. the installer =="
+step "== 5. the installer =="
 cp "$REPO/dist/setup" "$SITE/setup"
 cp "$REPO/dist/setup.sha256" "$SITE/setup.sha256"
 diff -q "$SITE/setup" "$REPO/install/setup.sh" >/dev/null || { echo "the emitted installer is not install/setup.sh"; exit 1; }
 sh -n "$SITE/setup" || { echo "the installer about to be published does not parse"; exit 1; }
 echo "   /setup copied and parses"
 
-echo "== 6. what we are about to publish says $V =="
+step "== 6. what we are about to publish says $V =="
 tar -xzOf "$SITE/dist/kosmos-arm64.tar.gz" app/package.json | node -e "
 let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
   const v=JSON.parse(s).version;
@@ -425,7 +461,7 @@ let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
   if(v!=='$V'){ console.error('   THE BUNDLE IS NOT $V'); process.exit(1); }
 });"
 
-echo "== 7. the versions page needs its entry BEFORE you deploy =="
+step "== 7. the versions page needs its entry BEFORE you deploy =="
 grep -q "id=\"v$(echo "$V" | tr . -)\"" "$SITE/versions.html" \
   && echo "   $V is on the page" \
   || { echo "   $V has no entry in $SITE/versions.html. Write it (ruled copy, real timestamp) and re-run."; exit 1; }
@@ -463,7 +499,7 @@ if [ "$STAMP_OK" != "ok" ]; then
 fi
 echo "   its timestamp agrees with the clock"
 
-echo "== 7b. the site's release files are committed and pushed BEFORE they deploy =="
+step "== 7b. the site's release files are committed and pushed BEFORE they deploy =="
 # 🛑 SERVED FROM THE WORKING TREE MEANS SERVED FROM NOBODY'S HISTORY. This
 # script committed and pushed $REPO but only COPIED into $SITE, and the deploy
 # then shipped the working tree, so eleven releases' installers went live with
@@ -507,7 +543,7 @@ git -C "$SITE" push -q origin "$SITE_SHA:refs/heads/main" || {
 [ -z "$(git -C "$SITE" status --porcelain -- $_site_paths)" ] || { echo "release files still dirty after the commit"; exit 1; }
 echo "   site committed and pushed: $(git -C "$SITE" log --oneline -1 "$SITE_SHA")"
 
-echo "== 8. deploy, from an export of the COMMITTED site plus the named artifacts (#649) =="
+step "== 8. deploy, from an export of the COMMITTED site plus the named artifacts (#649) =="
 # 🛑 NEVER THE WORKING TREE. This deployed $SITE itself, so a cut published
 # whatever anybody had uncommitted in the shared checkout (a half-edited
 # homepage twice during the 0.5.22 cut, caught by hand), and the gitignored
@@ -532,7 +568,7 @@ fi
 ( cd "$_site_export" && vercel deploy --prod --yes )
 
 DEPLOYED=1   # step 8 finished: the site checkout now claims what is served, so the trap leaves it
-echo "== 9. verify what is SERVED, from the code that fetches it =="
+step "== 9. verify what is SERVED, from the code that fetches it =="
 # ⚠️ Retried, because a deploy is live before every edge has it, and a single
 # read cannot tell "not published" from "not yet".
 SERVED_OK=0
@@ -546,7 +582,7 @@ if [ "$SERVED_OK" != 1 ]; then
   exit 1
 fi
 
-echo "== 9b. the served bundle is the frozen tree, file by file (#597) =="
+step "== 9b. the served bundle is the frozen tree, file by file (#597) =="
 # The log's "built <sha>" is measured here rather than remembered: every
 # tree-derived file in the versioned tarball people download (app/ and the
 # top-level bin/kosmos) equals the frozen tree, web/index.html after the one
@@ -570,7 +606,7 @@ else
   echo "THE SERVED BUNDLE IS NOT THE TREE THAT WAS TESTED (${SHA:0:12}) AFTER SIX READS"; exit 1
 fi
 
-echo "== 9c. the served installer .pkg is the one step 3c left in the site dist (#638, B guard) =="
+step "== 9c. the served installer .pkg is the one step 3c left in the site dist (#638, B guard) =="
 # Step 3c decided from the site's working copy; this reads the SERVED host,
 # because the deploy carries the pkg by name from an export (step 8) and an
 # edge can serve the prior pair (Kosmos.pkg and its .sha256 share one cache).
@@ -622,7 +658,7 @@ else
   echo "   Either the deploy did not carry dist/Kosmos.pkg* or an edge is holding the prior pair."; exit 1
 fi
 
-echo "== 9d. the served manifest answers for the served bytes (#776) =="
+step "== 9d. the served manifest answers for the served bytes (#776) =="
 # The manifest the build wrote (step 4) was committed beside the pointer (7b)
 # and deployed (8); this reads BOTH back from the wire and checks the
 # artifact's sha and every file's sha against it. Not a volunteer's check
@@ -634,7 +670,7 @@ if ! bash "$REPO/tools/verify-manifest.sh" "$V"; then
   exit 1
 fi
 
-echo "== 9e. the served artifact, audited from OUTSIDE the build (Splinter's check, owned by the cut since 2026-08-26) =="
+step "== 9e. the served artifact, audited from OUTSIDE the build (Splinter's check, owned by the cut since 2026-08-26) =="
 # Every check above ran inside the build or read back what the build recorded.
 # #927 is what that blind spot costs: a dead Applications icon shipped for
 # eighteen releases because the build's own selftest ran on a macOS 26 host
@@ -655,7 +691,7 @@ if ! bash "$REPO/tools/kosmos-artifact-check.sh" --repo "$MAIN_REPO"; then
   exit 1
 fi
 
-echo "== 10. the board on THIS Mac, if it runs from this repo =="
+step "== 10. the board on THIS Mac, if it runs from this repo =="
 # 🛑 Installs update themselves from what step 9 verified; the developer's own
 # board runs the repo under launchd and never did, so every release left it
 # serving the previous code until somebody noticed (#360). Gated on the job

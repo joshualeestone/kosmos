@@ -78,7 +78,10 @@ function check(name, pass, detail) {
         .sort((a, b) => box(a).top - box(b).top);
       const form = step.getBoundingClientRect();
       const btn = box('create-go');
-      const tell = box('create-tell');
+      /* #996/item 3: the created-ping checkbox was removed from this step on
+         2026-08-26. Kept as a lookup so the absence is MEASURED on the rendered
+         page rather than assumed from the markup. */
+      const tellGone = !id('create-tell');
       const acct = box('create-account');
       const model = box('create-model');
       const prov = box('create-provider');
@@ -185,7 +188,8 @@ function check(name, pass, detail) {
             return Math.round(bottom - (cr.top + cr.height / 2));
           }).filter((n) => n !== null);
         })(),
-        sameRow: tell && btn ? Math.abs(tell.top - btn.top) < 60 && btn.left > tell.right : null,
+        tellGone,
+        btnPresent: !!btn,
         labelGap: (() => {
           const l = document.querySelector('label[for="create-name"]');
           return l ? box('create-name').top - l.getBoundingClientRect().bottom : null;
@@ -260,7 +264,14 @@ function check(name, pass, detail) {
       seen.elbow && parseFloat(seen.elbow.w) > 4 && parseFloat(seen.elbow.h) > 8,
       seen.elbow ? `${seen.elbow.w} x ${seen.elbow.h} in ${seen.elbow.color}` : 'no ::before');
 
-    check(`[${engine}] the checkbox and the button share a line`, seen.sameRow === true);
+    /* 🛑 THIS ASSERTED THE CHECKBOX AND NOW ASSERTS ITS ABSENCE. Josh removed
+       the created-ping setting on 2026-08-26 ("they both need to be removed"),
+       and this check went red on the RENDERED page while the product was doing
+       exactly what he asked. It was one of four page-layer reds holding a cut.
+       📌 The button half is kept as the control: without it, "the checkbox is
+       gone" would also pass on a step that had lost its Create button. */
+    check(`[${engine}] the created-ping checkbox is gone from this step`, seen.tellGone === true);
+    check(`[${engine}] and the Create button is still on it`, seen.btnPresent === true);
 
     check(`[${engine}] no page errors`, errors.length === 0, errors.join(' | ').slice(0, 160));
     await browser.close();

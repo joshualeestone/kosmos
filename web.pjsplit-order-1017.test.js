@@ -36,12 +36,32 @@ function cardOrder() {
   return f < m ? ['files', 'members'] : ['members', 'files'];
 }
 
-test('the markup reads Files then Members, so tab order matches the eye', () => {
-  assert.deepEqual(cardOrder(), ['files', 'members'],
-    'Members is first in the markup again, so a keyboard user tabs Members then Files while the screen shows Files then Members');
+/* 🛑 REVERSED BY JOSH ON 2026-08-26 22:05, item 3, and the premise of #1017 was
+   mine and wrong. I unified the two views arguing that "two views of one project
+   showing the same panels in opposite orders is itself a defect". He wants them
+   different and he is the one who uses both:
+     tab view      Members top left, Files under it, Tasks far right
+     consolidated  Tasks, then Files, then Members
+   ⚠️ SO THE WCAG TRADE IS BACK, KNOWINGLY. One DOM cannot match two opposite
+   visual orders. The tab view now agrees with itself; the consolidated view has
+   the eye reading Files then Members while the keyboard tabs Members then Files
+   (2.4.3 / 1.3.2). That is a decision he made with both screens in front of him,
+   not an oversight, and this test records it as one rather than silently
+   dropping the assertion. */
+test('the markup reads Members then Files, which the TAB view needs', () => {
+  assert.deepEqual(cardOrder(), ['members', 'files'],
+    'Files is first in the markup again, so the tab view shows Files above Members, which is the order Josh reported as wrong');
 });
 
 test('nothing selects the split cards by position', () => {
+  /* 🔑 A FLOOR ON THE POPULATION, per Angel (2026-08-26 20:01): a check that
+     COUNTS OCCURRENCES and asserts zero says "I looked and found none" and "I
+     did not look" in the same words. Without this a renamed class, a broken
+     read or a changed spelling finds nothing, reports clean, and the check
+     quietly stops being a check. */
+  const rules = (PAGE.match(/\.pjsplit/g) || []).length;
+  assert.ok(rules >= 5,
+    `only ${rules} .pjsplit references found. This low means the class was renamed and this scan is looking for something that no longer exists`);
   const bad = PAGE.split('\n')
     .map((line, i) => [i + 1, line])
     .filter(([, l]) => /\.pjsplit[^{]*\.pjcard:(first|last)-child/.test(l));

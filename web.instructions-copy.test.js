@@ -16,6 +16,7 @@ const nodePath = require('node:path');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 const page = require('./test-support/page');
+const { codeOnly } = require('./test-support/code-only');
 const SCRIPT = page.scriptOf(PAGE);
 
 test('the lede states the consequence, not that the file is stable (#198)', () => {
@@ -84,7 +85,7 @@ test('the reports-to control says what the line does, and the save line is read 
      2026-08-23 09:55), and "only used to draw" expired the day the line was
      written into the agent's file. */
   // Comments stripped: the comment beside the hint quotes the old sentence on purpose.
-  const words = PAGE.replace(/<!--[\s\S]*?-->/g, '');
+  const words = codeOnly(PAGE);
   assert.ok(!/Only used to draw your org chart/.test(words), 'the expired capability claim is back');
   assert.ok(!/Leave it blank if it does not apply/.test(words), '"blank means does not apply" is back; blank means you');
   assert.match(words, /Who they report their work to\. Until you pick somebody, that is you\./, 'the hint lost its two facts');
@@ -112,6 +113,6 @@ test('the What-they-do field shows what the header shows, never an empty box bes
   assert.equal(fn({ profile: { role: 'Copywriter' }, role: 'a data analyst' }, null), 'Copywriter');
   assert.equal(fn({ profile: {}, role: 'design worker' }, null), 'Design worker', 'the parsed role is shown with its first letter capitalised, as the header does');
   assert.equal(fn({ profile: {}, role: '' }, null), '');
-  const words = PAGE.replace(/<!--[\s\S]*?-->/g, '');
+  const words = codeOnly(PAGE);
   assert.match(words, /Shown under their name, and written into their own instructions\./, 'the field lost its hint');
 });

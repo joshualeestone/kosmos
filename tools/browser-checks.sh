@@ -2,6 +2,21 @@
 #
 # The page-layer gate (#39).
 #
+# 🛑 DO NOT RUN THIS, OR ANY BROWSER CHECK, WHILE A RELEASE CUT IS RUNNING.
+# Measured 2026-08-26, and it cost a cut. Four concurrent Playwright boards
+# during a cut's page layer starved it of CPU, and render-github-door failed
+# six arms with three HARD errors -- `settingsGo is not defined`, `null.click`,
+# a control stuck on "Checking..." -- every one of which reads like missing
+# code. On the SAME SHA with nothing else running, that check passes and so do
+# the other 36: 869 assertions, zero failures.
+# ⭐ The symptom is indistinguishable from a real defect, which is why this is a
+# rule and not a preference: three people had a confident, coherent, WRONG
+# explanation available before anyone re-ran it alone.
+# 📌 Counting `Chromium` processes is NOT how you tell whether the field is
+# clear. This spawns one per check and exits it, so a point sample reads zero
+# at a trough and dozens at a peak, and misleads in both directions. Count the
+# `browser-checks.sh` PARENTS instead.
+#
 # `node --test` reads source; it cannot see the page. The scripts under
 # docs/browser-checks/ can, but they lived outside every automated run, so a
 # page-layer regression reached main uncaught: round 16 of the project-chat
@@ -38,6 +53,20 @@ sec()  { printf '\n=== %s ===\n' "$*"; }
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
+
+# 🛑 REFUSE A SECOND CONCURRENT PAGE LAYER. The header above blames "a release
+# cut", but re-read what it measured: FOUR CONCURRENT PLAYWRIGHT BOARDS starved
+# the run of CPU. The cut was how a second run came to exist, not the thing that
+# broke it. Measured 2026-08-27 13:17Z: a hand-run `bash tools/browser-checks.sh`
+# had been live 8m29s, there was NO cut, `pgrep release.sh` correctly returned
+# nothing, and the cut guard said clear -- so nothing on this Mac would have
+# stopped a second run from starting. This asks about the thing that breaks.
+# The escape hatch is the one the cut guard already uses, deliberately: an
+# operator who has decided to override does not want to learn a second name.
+. "$REPO/tools/lib/cut-guard.sh"
+if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
+  kosmos_refuse_if_browser_run_live "this page-layer run" || exit 1
+fi
 
 # --- freeze against a concurrent merge (#758) --------------------------------
 # Every check below reads CODE straight from $REPO (boot_board only sandboxes
@@ -178,6 +207,53 @@ write_fleet() {
 # __dirname, so the form of the invocation changes nothing it does.)
 # Boot ./server.js sandboxed on $port with the fixture fleet. Echoes nothing;
 # records the pid. Waits until /api/status answers.
+# ⭐ THE FIXTURE FOUR CHECKS WERE BLOCKED ON (#1072). write_fleet seeds TWO
+# running agents and nothing else, which is all most checks need. Four of the
+# ten unwired checks are unwired for want of a richer board, and NONE of them
+# was a product defect -- they were never run because the shared boards cannot
+# show them their subject:
+#   render-org-chart    wants FOUR or more agents (measured: it fails at 3)
+#   render-not-running  wants an agent that EXISTS and is NOT running
+#   render-survival     wants the same
+#   render-list-row     wants BOTH, so it can compare the two row kinds
+# An agent that exists and is not running is a PROFILE with no pane. That is
+# the whole trick, and it is why a roster-only fixture cannot produce one.
+write_fleet_rich() {
+  local sb="$1"
+  # 🛑 THREE RUNNING, AND THE COUNT IS LOAD-BEARING. With the two not-running
+  # agents below this board holds FIVE agents, and render-org-chart asserts the
+  # drawing fills more than a third of its canvas — which is a function of how
+  # many nodes there are. MEASURED across sizes against this exact check:
+  #     3 agents  fail        4 agents  59%  pass
+  #     5 agents  59%  pass   6 agents  53%  FAIL
+  # So it passes in a BAND, not above a floor. Adding an agent here to make
+  # some future check happy will take org-chart red, and it will look like a
+  # layout regression rather than a fixture change.
+  node -e "const f=require('./test-support/fleet');process.stdout.write(['april','mikey','donnie'].map((n)=>f.line({session:n+'-discord'})).join('\n')+'\n')" \
+    > "$sb/panes.txt"
+  # The not-running ones: a profile and a worker dir, and deliberately NO pane.
+  # ⚠️ TWO OF THEM, AND THE NAMES ARE NOT INTERCHANGEABLE. render-not-running
+  # matches /ghosty/ and render-survival matches /brigitte/, each hardcoded in
+  # the check. Seeding only one made render-survival fail IN THE RUNNER after
+  # passing on a board booted by hand — the exact fresh-board-versus-in-sequence
+  # gap this whole card is about, reproduced in the fix for it.
+  mkdir -p "$sb/data/AgentWorkforce/profiles" "$sb/workers/ghosty" "$sb/workers/brigitte"
+  printf '%s\n' '{"role":"Copywriter","displayName":"Ghosty"}' \
+    > "$sb/data/AgentWorkforce/profiles/ghosty.json"
+  printf '%s\n' '{"role":"helper"}' \
+    > "$sb/data/AgentWorkforce/profiles/brigitte.json"
+}
+boot_board_rich() {
+  local sb="$1" port="$2"
+  write_fleet_rich "$sb"
+  AGENT_WORKFORCE_DATA="$sb/data" AGENT_WORKFORCE_WORKERS="$sb/workers" \
+    AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
+    AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
+    AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
+    PORT="$port" node ./server.js > "$sb/server.log" 2>&1 &
+  SERVER_PIDS+=("$!")
+  wait_up "$port" "$sb/server.log"
+}
 boot_board() {
   local sb="$1" port="$2"
   write_fleet "$sb"
@@ -268,15 +344,15 @@ free_port() {
 }
 pick_ports() {
   local picked=() p n
-  while [ "${#picked[@]}" -lt 10 ]; do
+  while [ "${#picked[@]}" -lt 11 ]; do
     p="$(free_port)"
     for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
     [ -n "$p" ] && picked+=("$p")
   done
-  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"
 }
 pick_ports
-log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 (chosen by the OS, #633)"
+log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 (chosen by the OS, #633)"
 
 # --- 1. regress-a-night: a night's releases still COMPOSE --------------------
 # The one check that asserts the whole board still hangs together (three
@@ -464,6 +540,11 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-reload-toast"  env KOSMOS_URL="$B8" node docs/browser-checks/render-reload-toast.js "$sb7/shots-reload"
   run_one "render-updates-stale" env KOSMOS_URL="$B8" node docs/browser-checks/render-updates-stale.js "$sb7/shots-updates"
   run_one "render-switch-states" env KOSMOS_URL="$B8" node docs/browser-checks/render-switch-states.js
+  # ⚠️ THE FIRST-RUN FLOW WAS NOT COVERED BY THIS RUNNER AT ALL. render-first-run
+  # exists, renders every step in both schemes and carries its own planted-failure
+  # control, but it hardcoded port 4399 so it could never take the runner's
+  # kernel-chosen one. It is the path every new person walks; it now runs here.
+  run_one "render-first-run"    env KOSMOS_URL="$B8" node docs/browser-checks/render-first-run.js "$sb7/shots-firstrun"
   run_one "render-theme-toggle"  env KOSMOS_URL="$B8" node docs/browser-checks/render-theme-toggle.js "$sb7/shots-toggle"
   # #812: 15 checks were green on a clean main but never asked. render-full-width
   # first (#778 restated it, Ice Cream Kitty, #814; ready now); more join in
@@ -488,9 +569,40 @@ fi
 # AGENT_WORKFORCE_DRY_RUN=1, so it is genuinely self-contained the same as
 # render-memory-controls. Proven standalone (9/9, matching #832's own proof)
 # before being added here.
-for n in live-connect render-agent-nav render-busy-line render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change; do
+# render-head-row joins the same way (#1043): its own mktemp roots, its own
+# OS-chosen port, server.js in-process, runs bare. Proven standalone 9/9 --
+# including its 700px negative control, which is the arm that makes the other
+# eight mean anything: a row check that cannot report "not one row" is
+# decoration, and this one was MEASURED reporting it.
+# render-room-scroll joins the same way (#1037, the resize trigger): own mktemp
+# roots, own OS-chosen port, server.js in-process, runs bare. Proven standalone
+# 15/15, and proven RED with the fix disabled -- the arm that matters reports
+# Josh's own symptom, 46px of the newest messages under the fold.
+for n in live-connect render-agent-nav render-busy-line render-head-row render-room-scroll render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
+# --- the rich board: four checks that could not be wired for want of a fixture
+# --- (#1072). Each was verified green against this exact shape by hand first;
+# --- what none of them had was a board in the RUNNER that could show them
+# --- their subject. A fresh-board green and an in-sequence green are different
+# --- claims, so these run here, in position, and not on my word.
+sbr="$(new_sandbox)"
+if boot_board_rich "$sbr" "$P11"; then
+  run_one "render-org-chart"   env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-org-chart.js
+  run_one "render-not-running" env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-not-running.js
+  run_one "render-list-row"    env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-list-row.js
+  # ⚠️ TAKES ITS BASE AS AN ARGUMENT, not KOSMOS_URL, unlike its neighbours.
+  # And it belongs on the RICH board specifically: it fails loudly when the
+  # unknown-memory badge or the list row's unknown cell is absent, and those
+  # need the not-running profiles this fixture carries. It only reads computed
+  # style, so running it in position after three checks that have touched the
+  # board is sound, and in-sequence is the claim worth having (#1072).
+  run_one "render-fields"      node docs/browser-checks/render-fields.js "http://127.0.0.1:$P11"
+  run_one "render-survival"    env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-survival.js "$sbr/shots-survival"
+else
+  FAILED+=("render-org-chart render-not-running render-list-row render-fields render-survival (rich board did not boot)")
+fi
+
 sb3="$(new_sandbox)"
 if boot_thread_server "$sb3" "$P3"; then
   run_one "render-thread" node docs/browser-checks/render-thread.js \

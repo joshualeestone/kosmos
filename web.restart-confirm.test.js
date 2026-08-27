@@ -32,6 +32,7 @@ const nodePath = require('node:path');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 const page = require('./test-support/page');
+const { codeOnly } = require('./test-support/code-only');
 const SCRIPT = page.scriptOf(PAGE);
 
 function cost(rec, shown = 'April') {
@@ -157,7 +158,7 @@ test('the Restart confirmation names the promises a restart drops, not only the 
      from the page hint into the restart dialog itself, before the confirming
      button, which is where every press now reads it. Comments stripped so a
      comment cannot satisfy a copy pin. */
-  const words = PAGE.replace(/<!--[\s\S]*?-->/g, '');
+  const words = codeOnly(PAGE);
   const at = words.indexOf('id="rst-go"');
   assert.ok(at > -1, 'the Restart confirm button moved');
   const before = words.slice(Math.max(0, words.indexOf('id="rst-modal"')), at);

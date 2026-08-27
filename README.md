@@ -337,6 +337,46 @@ one" as soon as its last output scrolled away, on the very card you had just
 created. The residual risk is a Claude whose interface has hung: it still draws
 that box. See `classify` in `engine/status.js`.
 
+## Deleted copy is quoted in a comment, so searching for it always matches
+
+When copy is removed here, the live line goes and the sentence is **quoted in a
+comment** recording who ruled it and why. That convention is worth keeping: it
+is how a later reader learns a deletion was deliberate rather than an accident,
+and item 6 came back twice precisely because nobody could tell.
+
+🛑 **It has a consequence that is not obvious until it bites you. Every raw
+search for deleted copy matches, for ever, and reports the thing as still
+present.**
+
+⚠️ **It fooled two of us in one morning on the same sentence** (2026-08-27).
+Ice Cream Kitty hit it on the source file and was one step from reopening a
+closed ruling. PigeonPete hit it on the **served installer**, where it read as a
+live regression in a release cut minutes earlier, and was one message from
+raising it.
+
+⭐ **The checkers already strip comments before an absence check**
+(`test-support/code-only.js`, and `tools/check-served.js` does the same on the
+served bytes). A person at a keyboard had no strip, so the safe path was longer
+than the unsafe one. That is the whole reason this kept happening: nobody was
+careless, the convenient tool was wrong.
+
+Use this instead, and it is shorter than the thing that misleads you:
+
+```
+bash tools/grep-code.sh "Nothing to do." install/pkg-scripts/installing.html
+```
+
+It blanks comments in place, so line numbers still point at the real file, and
+it answers in **three states**: `0` found, `1` not there, `2` could not look. A
+file it cannot read is never reported as an absence.
+
+📌 **And if you are asking "is it still in the product", the source is the wrong
+file to search.** Build outputs are gitignored, `grep` on this box is ugrep and
+honours `.gitignore`, and a fresh worktree has no `dist/` at all. The only
+checkout that can answer that question is the one holding the built artifact,
+and that is exactly the one where a default search goes blind. `check-served.js`
+downloads and extracts instead, which is why it exists.
+
 ## A note on live data
 
 The status engine reads a real fleet doing real work. Pane titles and

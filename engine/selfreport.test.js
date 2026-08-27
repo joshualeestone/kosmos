@@ -142,3 +142,57 @@ test('#763: started --project X begins the run on X (the clear runs first, then 
   assert.equal(back.project, 'p-new', 'a start that names its project is not discarded');
   assert.equal(back.projectInferred, true);
 });
+
+/* ---------------------------------------------------------------------------
+ * #900: an agent's own Stop hook must not erase its deliberate waiting state.
+ * ------------------------------------------------------------------------- */
+
+test('#900: an AUTOMATIC idle does not erase a deliberate blocked', () => {
+  selfreport.record('waiter', { state: 'blocked', because: 'needs Josh to sign in', owner: 'Josh' });
+  const stop = selfreport.record('waiter', { state: 'idle', because: 'finished responding', auto: true });
+  assert.equal(stop.recorded, false, 'the end-of-turn idle overwrote the block');
+  assert.equal(stop.skipped, 'waiting');
+  assert.match(stop.because, /waiting on a person/);
+  const back = selfreport.read('waiter');
+  assert.equal(back.state, 'blocked', 'the board would read this agent as at rest');
+  assert.equal(back.because, 'needs Josh to sign in');
+});
+
+test('#900: an AUTOMATIC idle does not erase a deliberate needs_you either', () => {
+  selfreport.record('asker', { state: 'needs_you', because: 'Which venue?' });
+  selfreport.record('asker', { state: 'idle', because: 'finished responding', auto: true });
+  assert.equal(selfreport.read('asker').state, 'needs_you');
+});
+
+test('#900: a DELIBERATE idle still clears a block, or nothing ever could', () => {
+  /* The escape hatch, and it is why the discriminator is `auto` rather than
+     the word: an agent that is genuinely done must be able to say so. */
+  selfreport.record('freed', { state: 'blocked', because: 'waiting on a key' });
+  const said = selfreport.record('freed', { state: 'idle', because: 'got the key, nothing to do' });
+  assert.equal(said.recorded, true, 'a deliberate idle was refused, so a block can never clear');
+  assert.equal(selfreport.read('freed').state, 'idle');
+});
+
+test('#900: automatic working, stopped and started all still land over a block', () => {
+  /* A rule that refused every automatic write would strand an agent blocked
+     forever. Only `idle` is refused, so the next real activity clears it. */
+  selfreport.record('moving', { state: 'blocked', because: 'waiting' });
+  assert.equal(selfreport.record('moving', { state: 'working', because: 'answering a prompt', auto: true }).recorded, true);
+  assert.equal(selfreport.read('moving').state, 'working');
+
+  selfreport.record('ending', { state: 'needs_you', because: 'a question' });
+  assert.equal(selfreport.record('ending', { state: 'stopped', auto: true }).recorded, true);
+  assert.equal(selfreport.read('ending').state, 'stopped');
+});
+
+test('#900: an automatic idle lands normally when nothing is waiting', () => {
+  /* The common case must be untouched: this fires at the end of every turn. */
+  selfreport.record('ordinary', { state: 'working', because: 'reading the brief' });
+  assert.equal(selfreport.record('ordinary', { state: 'idle', because: 'finished responding', auto: true }).recorded, true);
+  assert.equal(selfreport.read('ordinary').state, 'idle');
+});
+
+test('#900: an agent that never reported is not special-cased into a refusal', () => {
+  assert.equal(selfreport.record('fresh-one', { state: 'idle', because: 'finished responding', auto: true }).recorded, true);
+  assert.equal(selfreport.read('fresh-one').state, 'idle');
+});

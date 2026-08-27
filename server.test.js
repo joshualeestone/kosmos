@@ -2238,6 +2238,20 @@ function pageConstSource(name) {
   return script.slice(start, end) + ';';
 }
 
+/**
+ * A page-scope CONST, as its own source line.
+ *
+ * ⚠️ DELEGATES TO THE SHARED LIFTER RATHER THAN CARRYING A SECOND REGEX. This
+ * file already had its own `pageFnSource`, and a second const-matcher here
+ * would be the fourth-copy problem `test-support/page.js` opens by describing:
+ * three of four copies of the function lifter were subtly wrong, and the wrong
+ * ones failed in the shape of the product being broken.
+ */
+function pageConst(name) {
+  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  return require('./test-support/page').liftConst(require('./test-support/page').scriptOf(raw), name);
+}
+
 function pageFunction(name, prelude = '') {
   // eslint-disable-next-line no-new-func
   return new Function(`${prelude}\n${pageFnSource(name)}\nreturn ${name};`)();
@@ -5066,6 +5080,13 @@ function firstRunHarness(name, state, opts = {}) {
        Confirm sitting under a green Connected button. Stubbed here because this
        harness tests what the painter RENDERS, not the panel. */
     function frClaudeConfirmClose() {}
+    /* The REAL threshold and the REAL count line, for the same reason as
+       everything else in this prelude: a copy here could drift from the shipped
+       number and the suite would stay green while the screen changed. The
+       constant is injected as its own SOURCE LINE out of the page. */
+    ${pageConst('FOUND_SEARCH_AT')}
+    ${require('./test-support/page').FOUND_PAINTER_FNS.filter((n) => n !== 'esc' && n !== 'foundRowsHtml')
+        .map((n) => 'const ' + n + ' = ' + pageFunction(n, 'const esc = ' + realEsc.toString() + ';').toString() + ';').join('\n    ')}
     /* The REAL row painter, shared with the board's own found list. Stubbing it
        would put every assertion below about a row against markup written here
        instead of the markup that ships. */
@@ -5076,6 +5097,9 @@ function firstRunHarness(name, state, opts = {}) {
     ${name === 'frPaintFound' ? '' : 'const frPaintFound = ' + pageFunction('frPaintFound',
       'const esc = ' + realEsc.toString() + ';\nlet FR_FOUND = null; function frActions() {} '
       + 'function frFinish() {} function showTab() {} const document = { getElementById: () => ({}) };\n'
+      + pageConst('FOUND_SEARCH_AT') + '\n'
+      + require('./test-support/page').FOUND_PAINTER_FNS.filter((n) => n !== 'esc' && n !== 'foundRowsHtml')
+          .map((n) => 'const ' + n + ' = ' + pageFunction(n, 'const esc = ' + realEsc.toString() + ';').toString() + ';').join('\n') + '\n'
       + 'const foundRowsHtml = ' + pageFunction('foundRowsHtml', 'const esc = ' + realEsc.toString() + ';').toString() + ';').toString() + ';'}
     
     let __actions = null;
@@ -5130,8 +5154,18 @@ test('no subscription state renders a verdict about the person\'s Claude account
       `subscription state ${JSON.stringify(sub)} still renders a verdict about the person's Claude account`);
     assert.ok(!/Claude/.test(out),
       `subscription state ${JSON.stringify(sub)} names Claude on a step that offers four providers`);
-    assert.match(out, /fr-note/,
-      `subscription state ${JSON.stringify(sub)} dropped the line saying what carrying on costs`);
+    /* 🛑 INVERTED BY JOSH, 22:05, item 6: "Let's delete that box and all of
+       that text. It's sort of nonsense."
+       I wrote this assertion the same evening, when kosmos#1008 removed the
+       Claude verdict and I deliberately KEPT one line about what carrying on
+       costs. He read it on his own screen and cut it. The assertion follows
+       rather than being deleted, so the reversal is recorded.
+       ⚠️ AND IT NOW GUARDS THE DELETION, which is the half that was missing:
+       this sentence was deleted once, landed, and came back when a branch cut
+       from an older sha won the merge. A deletion with no assertion is undone
+       by any branch old enough not to know about it, and nothing goes red. */
+    assert.ok(!/fr-note/.test(out),
+      `subscription state ${JSON.stringify(sub)} has the carry-on note back; Josh deleted it by name`);
   }
 
   /* ⚠️ THE CONTROL, REPOINTED RATHER THAN DROPPED (kosmos#1008). It used to
@@ -5479,17 +5513,36 @@ test('the fork step does not promise a working agent over a check screen that di
     },
   });
   const out = snagged.els['fr-fleet'].innerHTML;
-  assert.match(out, /still outstanding/, 'made the promise over the top of a real finding');
-  assert.match(out, /Claude Code is not where we expected it/);
-  assert.match(out, /We could not tell whether your agents/,
-    'the "we could not check" rows were dropped, so only two of the three states are honoured');
+  /* 🛑 JOSH OVERRULED THIS ON 2026-08-26 22:05, having read the sentence on his
+     own screen: "I'm still seeing this: this computer goes to sleep after 1
+     minute. An agent made now may not run until I sort. Let's delete that whole
+     message."
+     The ruling this test encoded -- that the fork step must repeat anything the
+     check screen found, so it never promises a working agent over a real
+     finding -- was a good one and it is now his to overrule. The assertion is
+     INVERTED rather than deleted, so the change is a recorded decision instead
+     of a test that quietly stopped existing.
+     📌 THE FACT IS NOT LOST: the check screen one step earlier still states it.
+     What went was the repetition, not the warning. */
+  assert.doesNotMatch(out, /still outstanding/,
+    'the outstanding-snags note is back on the fork step; Josh deleted it by name');
+  assert.doesNotMatch(out, /Claude Code is not where we expected it/,
+    'the check screen\'s findings are being repeated here again');
 
   const never = firstRunHarness('frPaintFleet', {
     FR: { path: 'create', fleetCount: 0, fleetNames: [] },
     FR_MACHINE: null,
   });
-  assert.match(never.els['fr-fleet'].innerHTML, /did not get to look/,
-    'a person who never saw the check screen was told everything is in place');
+  /* 🔑 THE CONCERN SURVIVES, THE MECHANISM CHANGES. This asserted a CONFESSION
+     ("we did not get to look") so nobody would be told everything is fine after
+     skipping the check. Josh deleted the confessions; the copy now makes NO
+     claim at all, so there is nothing to caveat. Asserting the absence of the
+     claim is the stronger form -- it fails if anyone puts an "everything is
+     ready" back, which a confession-shaped test never could. */
+  assert.doesNotMatch(never.els['fr-fleet'].innerHTML, /everything is (connected|in place|ready)/i,
+    'a person who never saw the check screen is being told everything is in place');
+  assert.doesNotMatch(never.els['fr-fleet'].innerHTML, /did not get to look/,
+    'the could-not-check confession is back; Josh removed the screen reporting on itself');
 });
 
 test('the first-run routes answer, and the completion route reports what stuck', async () => {
@@ -7449,7 +7502,25 @@ test('the search is wired: pack markup verbatim, instant repaint, reset on switc
     "project B's first no-match announce would be skipped against A's stale flag");
   const paint = pageFnSource('paintRoom');
   assert.ok(paint.includes('pjRoomFilterRows('), 'paintRoom no longer filters');
-  assert.ok(paint.includes('if (!filtering) box.scrollTop'), 'a filtered paint scrolls the reader to the tail');
+  /* ⚠️ MATCHED LOOSELY ON PURPOSE. This read `includes('if (!filtering) box.scrollTop')`
+     and went red when #1037 added a second statement to that branch, so it was
+     asserting the BRACE STYLE of a line whose behaviour had not changed. The
+     guard is the condition; how many statements sit under it is not this test's
+     business. */
+  /* 🛑 AND IT MOVED AGAIN (2026-08-27). The markup write and the scroll decision
+     used to sit apart inside paintRoom, and nothing put a reader back after the
+     write that clamped them -- Josh's bounce, all three triggers. They are one
+     function now, paintThreadInto. This asserts the same guard at its new
+     address, AND that paintRoom still hands the flag over: a guard nobody passes
+     `filtering` to is not a guard, and splitting the check in two is what let
+     the room drift from the thread in the first place.
+     ⭐ The BEHAVIOURAL version of this line is in web.room-scroll.test.js, which
+     drives a container that clamps. A source match cannot see a reader move; if
+     the two ever disagree, believe the one that measures. */
+  assert.match(paint, /paintThreadInto\(box, html, [^)]*filtering\)/,
+    'paintRoom no longer hands the filtering flag to the painter, so nothing can honour it');
+  assert.match(pageFnSource('paintThreadInto'), /if \(!filtering\s*&&/,
+    'a filtered paint scrolls the reader to the tail');
   // The no-match state is HER sentence (ruled 10:16 PM): names the
   // query, says the way out.
   assert.ok(paint.includes('esc(pjNoMatchSentence(PJ_ROOM_QUERY))'),
@@ -9318,8 +9389,13 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
     return new Function('document', helper + '\n' + sc3.slice(at, end) + '\nreturn ' + name + ';')({ getElementById: el });
   };
 
-  for (const [paint, toggle, msg] of [['tellPaint', 'tell-toggle', 'tell-msg'],
-    ['autoPaint', 'auto-toggle', 'auto-msg']]) {
+  /* 📌 THE TELL SWITCH IS GONE (Josh, 2026-08-26, item 3): both telemetry rows
+     were removed from Settings and `tellPaint` went with them, so this loop was
+     lifting a function that is not in the page and reporting "tellPaint
+     vanished" as a failure. The rule it checks is unchanged and still worth
+     checking on the switch that survives. engine/notify.test.js pins that the
+     rows stay gone. */
+  for (const [paint, toggle, msg] of [['autoPaint', 'auto-toggle', 'auto-msg']]) {
     const p = lift(paint);
 
     /* Presence before absence: prove it CAN say a real position first, or the
@@ -9357,8 +9433,8 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
    * they drive the painter directly. The defect lives in the seam between the
    * two, which is exactly where a test that only exercises one half cannot see.
    */
-  for (const [refresh, toggle, url] of [['refreshTell', 'tell-toggle', '/api/ping-setting'],
-    ['refreshAutoUpdate', 'auto-toggle', '/api/autoupdate']]) {
+  /* Same removal as above: refreshTell went with the row it refreshed. */
+  for (const [refresh, toggle, url] of [['refreshAutoUpdate', 'auto-toggle', '/api/autoupdate']]) {
     el(toggle).setAttribute('aria-checked', 'false');   // the static markup's lie
     const at = sc3.indexOf('async function ' + refresh + '(');
     assert.ok(at > -1, refresh + ' vanished from the page');
@@ -9480,9 +9556,22 @@ test('somebody who already has agents is never told they have none', () => {
   /* Looked and found none: says what the search did, not what the machine
      holds (#320). "None on this computer" was a claim about the computer. */
   const empty = firstRunHarness('frPaintFleet', { FR: create, FR_FOUND: { ok: true, agents: [] } });
-  assert.match(empty.els['fr-fleet'].innerHTML, /did not find any agents already here/i);
-  assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /none on this computer/i,
-    'the sentence about the computer is back');
+  /* 🛑 JOSH, item 13: "If we can't look for agents on their computer, let's not
+     indicate that. Let's just have a generic message." Both arms -- looked-and-
+     found-none, and could-not-look -- collapse to one sentence that reports on
+     the PERSON'S state rather than on ours.
+     ⚠️ The distinction this used to guard was real and careful: a search that
+     found nothing is not the same as a search that could not run. It is still
+     real. His point is that neither belongs on the screen that asks somebody to
+     make their first agent, because both are the product talking about itself. */
+  assert.match(empty.els['fr-fleet'].innerHTML, /Let\u2019s get started/i,
+    'the generic opening line is gone from the create-first-agent step');
+  assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /everything is connected|everything is in place/i,
+    'the screen claims everything is connected, which it cannot know on the skipped-check or failed-search paths');
+  assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /could not look|did not find any agents/i,
+    'the screen is reporting on its own search again rather than telling the person what to do');
+  assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /Two questions/i,
+    'the remnant "two questions" copy is back; Josh: "Those are not the two questions"');
   assert.match(empty.els['fr-title'].textContent, /Create your first agent/i);
 
   /* ⚠️ AND A SEARCH THAT COULD NOT RUN IS NOT AN EMPTY MACHINE. This is the same
@@ -9492,10 +9581,15 @@ test('somebody who already has agents is never told they have none', () => {
   const blind = firstRunHarness('frPaintFleet', {
     FR: create, FR_FOUND: { ok: false, agents: [], because: 'we could not look' },
   });
-  assert.match(blind.els['fr-fleet'].innerHTML, /could not look for agents already on this computer/i,
-    'a search that could not run is reported as an empty machine');
+  /* Same inversion, same reason: a failed search must still not CLAIM a result,
+     but it no longer announces that it failed either. Both sentences are gone
+     and the remaining line is neutral on every path. */
   assert.doesNotMatch(blind.els['fr-fleet'].innerHTML, /did not find|none on this computer/i,
     'a failed search is claiming a result');
+  assert.doesNotMatch(blind.els['fr-fleet'].innerHTML, /could not look/i,
+    'the failed-search confession is back on the create-first-agent step');
+  assert.match(blind.els['fr-fleet'].innerHTML, /Let\u2019s get started/i,
+    'the neutral line is missing on the could-not-look path');
   assert.match(blind.els['fr-title'].textContent, /Create your first agent/i,
     'the way forward is gone on a failed search');
 });
@@ -10300,7 +10394,7 @@ test('the sign-up start refuses a non-email before anything spawns', async () =>
 // Styles (#480)
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('the style routes round-trip a theme and a pasted file, and refuse behavior with the line named', async () => {
+test('the style routes round-trip a theme, and refuse a paste outright', async () => {
   const got = JSON.parse((await req('/api/style')).body);
   assert.ok(Array.isArray(got.themes) && got.themes.length >= 2, 'no themes offered');
 
@@ -10311,22 +10405,21 @@ test('the style routes round-trip a theme and a pasted file, and refuse behavior
   assert.equal(themed.status, 200, themed.body);
   assert.equal(JSON.parse(themed.body).theme, 'slate');
 
+  /* kosmos#1001: the paste path is gone, and the field is REFUSED rather than
+     ignored -- an accepted-and-discarded 200 is the silent no-change this very
+     test forbids two blocks down. */
   const pasted = await req('/api/style', {
     method: 'PUT', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ customText: '--k-bg: #101010' }),
   });
-  assert.equal(pasted.status, 200, pasted.body);
-  assert.equal(JSON.parse(pasted.body).tokens['--k-bg'], '#101010');
-
-  const bad = await req('/api/style', {
-    method: 'PUT', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ customText: '--x: url(http://x)' }),
-  });
-  assert.equal(bad.status, 400);
+  assert.equal(pasted.status, 400, 'a paste was accepted after the box was removed: ' + pasted.body);
+  assert.match(JSON.parse(pasted.body).error, /no longer accepted/);
+  assert.notEqual(JSON.parse((await req('/api/style')).body).tokens['--k-bg'], '#101010',
+    'a refused paste still reached the page');
 
   /* A present-but-mistyped field is refused by name, never a silent
      no-change 200 a scripted client would read as saved (iteration 5). */
-  for (const wrong of [{ theme: 42 }, { customText: ['--x: red'] }]) {
+  for (const wrong of [{ theme: 42 }]) {
     const r = await req('/api/style', {
       method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(wrong),
@@ -10334,11 +10427,6 @@ test('the style routes round-trip a theme and a pasted file, and refuse behavior
     assert.equal(r.status, 400, JSON.stringify(wrong));
     assert.match(JSON.parse(r.body).error, /must be a string/, JSON.stringify(wrong));
   }
-  assert.match(JSON.parse(bad.body).error, /uses url\(\)/);
-  /* A refused paste must not have half-applied: the last good custom set
-     survives. */
-  assert.equal(JSON.parse((await req('/api/style')).body).tokens['--k-bg'], '#101010',
-    'a refused paste destroyed the style that was standing');
 
   // reset for later tests
   await req('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ theme: 'kosmos', customText: '' }) });
@@ -10716,6 +10804,40 @@ test('#570: two runs of one agent report, and the record says WHICH RUN said eac
        answer that afternoon is now one call. */
     assert.equal(sendertokenEngine.live('doubled').length, 2, 'a second live run is still invisible');
   } finally {
+    board.restore();
+  }
+});
+
+test('#900: the Stop hook\'s idle does not erase a blocked, and the BOARD still shows it', async () => {
+  /* End to end, because the defect was only visible on the board: an agent
+     files blocked mid-turn, its own Stop hook fires seconds later at the end
+     of that turn, and the agent reads as at-rest and finished. */
+  const messagesEngine = require('./engine/messages');
+  const board = fleet.install([fleet.agent('waiting', { state: 'idle' })]);
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'waiting-discord' }));
+    const post = (b) => req('/api/report', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b),
+    });
+
+    assert.equal(JSON.parse((await post({ state: 'blocked', text: 'needs Josh to sign in', owner: 'Josh', from_pane: '%7' })).body).recorded, true);
+
+    /* The hook's own end-of-turn write. It must be refused, and refused in a
+       sentence rather than looking like a failure the hook should retry. */
+    const stop = JSON.parse((await post({ state: 'idle', text: 'finished responding', auto: true, from_pane: '%7' })).body);
+    assert.equal(stop.recorded, false);
+    assert.match(stop.because, /waiting on a person/);
+
+    const row = JSON.parse((await req('/api/status')).body).agents.find((a) => a.sessionName === 'waiting');
+    assert.equal(row.state, 'blocked', 'the board read a blocked agent as at rest, which is the whole defect');
+    assert.equal(row.because, 'needs Josh to sign in');
+
+    /* And it is not a trap: the next real turn clears it. */
+    assert.equal(JSON.parse((await post({ state: 'working', text: 'answering a prompt', auto: true, from_pane: '%7' })).body).recorded, true);
+    const row2 = JSON.parse((await req('/api/status')).body).agents.find((a) => a.sessionName === 'waiting');
+    assert.equal(row2.state, 'working', 'a real block became permanent');
+  } finally {
+    messagesEngine.resetForTests();
     board.restore();
   }
 });
