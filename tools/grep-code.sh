@@ -21,6 +21,17 @@
 # Prints matching lines with numbers, comments removed. Exit 0 if found, 1 if
 # not, 2 on a usage or read error -- THREE states, because "I could not look"
 # and "it is not there" are different answers.
+#
+# 🛑 AND IT SAYS THE VERDICT IN WORDS, ON STDERR, NOT ONLY IN THE EXIT CODE.
+# The first version announced ABSENT by printing NOTHING, which is
+# indistinguishable from the tool having done nothing -- the exact defect it
+# exists to fix, in the tool that fixes it.
+# ⚠️ Ice Cream Kitty found it by falling into the pipe bulletin WHILE TESTING
+# THIS: she piped the output to head, so `$?` was head's 0 and the real status
+# was gone. A pipeline exits with its LAST stage. Anything whose answer lives
+# only in `$?` is destroyed by the pipe people reach for to read it.
+# ⇒ The verdict goes to STDERR so `| head` cannot eat it, and so it does not
+# pollute stdout for anything consuming the matched lines.
 set -uo pipefail
 PATTERN="${1:?usage: bash tools/grep-code.sh <pattern> <file> [file...]}"
 shift
@@ -28,7 +39,7 @@ shift
 
 found=0
 for f in "$@"; do
-  [ -r "$f" ] || { echo "grep-code: cannot read $f" >&2; exit 2; }
+  [ -r "$f" ] || { echo "grep-code: CANNOT-LOOK: cannot read $f. This is NOT an absence." >&2; exit 2; }
   # Same three strips as test-support/code-only.js, deliberately: one behaviour,
   # not two spellings of it. Line comments only where the line BEGINS with one,
   # because a naive //.*$ truncates live code after every https:// URL and would
@@ -46,10 +57,16 @@ for f in "$@"; do
       .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
       .split("\n").map((l) => (/^[ \t]*\/\//.test(l) ? "" : l));
     joined.forEach((l, i) => { if (l.includes(pat)) console.log((i + 1) + ":" + lines[i].trim()); });
-  ' "$f" "$PATTERN" 2>/dev/null)" || { echo "grep-code: failed reading $f" >&2; exit 2; }
+  ' "$f" "$PATTERN" 2>/dev/null)" || { echo "grep-code: CANNOT-LOOK: failed reading $f. This is NOT an absence." >&2; exit 2; }
   if [ -n "$out" ]; then
     found=1
     while IFS= read -r line; do printf '%s:%s\n' "$f" "$line"; done <<< "$out"
   fi
 done
-[ "$found" -eq 1 ] && exit 0 || exit 1
+# The verdict, always, in words. `>&2` on purpose: see the header.
+if [ "$found" -eq 1 ]; then
+  printf 'grep-code: FOUND "%s" in live code (comments stripped) across %d file(s) searched\n' "$PATTERN" "$#" >&2
+  exit 0
+fi
+printf 'grep-code: ABSENT "%s" -- searched %d file(s), comments stripped. Not the same as "could not look", which exits 2.\n' "$PATTERN" "$#" >&2
+exit 1
