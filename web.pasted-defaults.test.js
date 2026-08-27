@@ -24,10 +24,19 @@ test('#739: the block under the instructions box is gone, and so is the role cau
   assert.doesNotMatch(PAGE, /id="create-limit"/);
   assert.doesNotMatch(PAGE, /getElementById\('create-limit'\)/);
   assert.doesNotMatch(PAGE, /getElementById\('create-instr-defaults-text'\)/);
+  /* ⚠️ THE CHECKBOX IN JOSH'S 08-24 SENTENCE ABOVE IS GONE, BY HIS OWN LATER
+     RULING (2026-08-26, item 3): "the 'Let the Kosmos team know when you create
+     an agent' - they both need to be removed." Two dated instructions, the
+     later one wins, and both are kept here because a test that quotes only the
+     superseded one reads as evidence the removal was a mistake.
+     📌 It also used `id="create-tell"` as the CLOSING ANCHOR of the region it
+     inspects, so the removal took the boundary with it. Anchored on the button
+     now, which is the thing this step is actually about. */
   const at = PAGE.indexOf('id="create-instr"');
   const step = PAGE.slice(at, PAGE.indexOf('id="create-msg"', at));
-  assert.match(step, /id="create-tell"/); assert.match(step, /id="create-go"/);
-  assert.ok(step.indexOf('id="create-tell"') < step.indexOf('id="create-go"'));
+  assert.match(step, /id="create-go"/, 'the create step lost its button');
+  assert.doesNotMatch(step, /id="create-tell"/,
+    'the created-ping checkbox is back on the create step; he removed it on 2026-08-26');
 });
 
 test('the rules still reach the agent: the engine serves and writes them, and the page carries no copy', () => {

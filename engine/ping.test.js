@@ -22,9 +22,21 @@ const ping = require('./ping');
 
 function fresh() { try { fs.unlinkSync(ping.FILE); } catch { /* none */ } }
 
-test('nobody has been asked yet, so it is on', () => {
+test('nobody has been asked, so it is OFF and nothing is sent', () => {
+  /* 🛑 THIS ASSERTED `true` UNTIL 2026-08-26, and the flip is a consequence,
+     not a preference. Absent-means-on was defensible while a person had a
+     control to answer with; Josh removed both surfaces of that control (item
+     3), so "nobody has been asked" became "nobody CAN be asked". The page's
+     own note set the condition: "removing every control while the send stays
+     on is not a tidy-up, it is a removed opt-out."
+     ⭐ It asserts the SEND, not just the flag: a default nobody can change is
+     only meaningful in terms of what leaves the machine. */
   fresh();
-  assert.equal(ping.read().on, true);
+  assert.equal(ping.read().on, false);
+  let sent = 0;
+  ping.setSender(() => { sent += 1; return Promise.resolve(); });
+  ping.agentCreated({ wanted: true });
+  assert.equal(sent, 0, 'a machine nobody has asked sent something anyway');
 });
 
 test('a preference we cannot read sends NOTHING', () => {
@@ -72,15 +84,21 @@ test('the install id is random, kept, and not derived from the machine', () => {
   assert.ok(!host.startsWith(a.replace(/-/g, '').slice(0, 8)), 'the id looks derived from the hostname');
 });
 
-test('unticking the box sends nothing, and does not change the standing setting', () => {
+test('one creation never changes the standing setting, in either direction', () => {
+  /* The box this used to describe is gone. What it was really protecting is
+     the SEPARATION: a per-creation answer must not become the standing one.
+     That rule outlives the checkbox and is what a future control would rely
+     on, so it is kept and now checked in both directions. */
   fresh();
+  assert.deepEqual(ping.setOn(true), { ok: true });
   let sent = 0;
   ping.setSender(() => { sent += 1; return Promise.resolve(); });
   ping.agentCreated({ wanted: false });
-  assert.equal(sent, 0, 'an unticked box still sent');
-  assert.equal(ping.read().on, true, 'unticking one box turned the whole thing off');
+  assert.equal(sent, 0, 'a creation that did not ask still sent');
+  assert.equal(ping.read().on, true, 'one un-asking creation turned the whole thing off');
   ping.agentCreated({ wanted: true });
-  assert.equal(sent, 1, 'the next one, with the box ticked, did not send');
+  assert.equal(sent, 1, 'the next one, asking, did not send');
+  assert.equal(ping.read().on, true, 'a sending creation rewrote the standing setting');
 });
 
 test('turning it off in Settings beats a ticked box', () => {
@@ -106,6 +124,10 @@ test('a network failure is invisible to the caller', async () => {
 
 test('it posts to the Kosmos endpoint, as JSON', () => {
   fresh();
+  /* Explicit now: the default went off with the control (2026-08-26), so this
+     has to TURN IT ON to have anything to inspect. The payload shape is what
+     this test is about and that has not changed. */
+  assert.deepEqual(ping.setOn(true), { ok: true });
   let seen = null;
   ping.setSender((url, init) => { seen = { url, init }; return Promise.resolve(); });
   ping.agentCreated({ wanted: true });
@@ -140,51 +162,40 @@ test('a test run never reaches the real network', () => {
   }
 });
 
-test('the disclosure lives at the point of the act, and agrees with the payload', () => {
+test('the created-ping has NO control left, and therefore does not send', () => {
   /**
-   * 🛑 THIS TEST USED TO ASSERT THE WELCOME SCREEN AND NOW ASSERTS THE
-   * CHECKBOX, and the move is a RULING rather than a drift. Josh, 2026-08-22
-   * 00:22: "I don't care and don't want any nit picky in the weeds lawyer
-   * speak. They don't have to notify us or use our service or pay. It's all
-   * optional and we are not bringing it up." The line came off the welcome
-   * screen; the disclosure did not disappear, it stayed where the decision is
-   * made.
+   * 🛑 THIS TEST USED TO ASSERT THE CHECKBOX AND NOW ASSERTS ITS ABSENCE, which
+   * is the third home this disclosure has had. It sat on the welcome screen,
+   * moved to the point of the act when Josh cut the lawyer-speak (2026-08-22),
+   * and on 2026-08-26 he removed the setting itself: "the 'Let the Kosmos team
+   * know when you create an agent' - they both need to be removed."
    *
-   * 🔑 WHICH MAKES THE CHECKBOX COPY LOAD-BEARING ON ITS OWN. It is now the
-   * only place in the product that says anything leaves the machine when an
-   * agent is created, so it is the only place left for this test to anchor to.
+   * ⭐ IT FAILED LOUDLY THROUGH ALL OF THAT, WHICH IS THE POINT. When the
+   * Settings rows went first, this test went red on a product with a LIVE
+   * control whose only explanation had just been deleted. That red was the
+   * guarantee working: the fix was to finish the removal, not to quiet it.
    *
-   * ⚠️ IT ASSERTS A RELATIONSHIP, NOT A SENTENCE. Pinning wording would turn
-   * every copy edit into a failing test and teach people to update the test
-   * rather than re-read the screen. What it pins is that somewhere on the
-   * create screen a person is offered this choice, that Settings explains it,
-   * and that the payload has not grown a field the words do not cover.
+   * ⚠️ ABSENCE OF THE CONTROL IS ONLY HALF. A removed control with the send
+   * still defaulting ON is strictly worse than what he complained about, and
+   * unfixable by the person, so the default and the control are checked
+   * TOGETHER here and were changed together.
    */
   const fs2 = require('node:fs');
   const page = fs2.readFileSync(nodePath.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   const words = page.replace(/<!--[\s\S]*?-->/g, '');
 
-  // Reworded 2026-08-23 (#331) to name the receiver, because "let the team
-  // know" read as a courtesy and it is a network call to a server. Reworded
-  // 2026-08-24 to Josh's exact words, "Let the Kosmos team know you created
-  // an agent": the receiver is still named, and Settings still says what is
-  // sent and what is not (asserted below).
-  assert.match(words, /Let the Kosmos team know you created an agent/,
-    'the create screen no longer offers the choice at all');
-  /* Settings carries the fuller explanation and the standing switch. */
-  assert.match(words, /so we can count how many people use Kosmos/,
-    'Settings no longer says what the sending is for');
-  assert.match(words, /Nothing about the agent, and nothing it does/,
-    'Settings no longer says what is NOT sent, which is the half that reassures');
+  for (const gone of ['id="create-tell"', 'id="create-tell-note"', 'id="create-tell-wrap"',
+    'Let the Kosmos team know you created an agent']) {
+    assert.equal(words.includes(gone), false,
+      'the created-ping control is back on the create screen (' + gone + ') without its disclosure');
+  }
+  /* The control on the absences: the create screen itself must still be there,
+     or every assertion above passes because the page lost its create form. */
+  assert.match(words, /id="create-go"/,
+    'the create screen is gone entirely, so the absences above prove nothing');
 
-  /* 🛑 AND THE WELCOME SCREEN MUST STAY OUT OF IT, by ruling. A future reader
-     who meets the ping and not the comment would add a line back believing its
-     absence an oversight. */
-  const pane = page.slice(page.indexOf('id="fr-pane-2"'), page.indexOf('<!-- 4. The machine checks'));
-  assert.ok(!/we're told that it happened/.test(pane.replace(/<!--[\s\S]*?-->/g, '')),
-    'the ping line is back on the welcome screen, which Josh ruled out');
-
-  const covered = ['event', 'installId', 'at', 'version', 'os'];
-  assert.deepEqual(Object.keys(ping.payload()).sort(), covered.slice().sort(),
-    'the payload grew a field the words do not cover; change the words or drop the field');
+  /* And the half that absence alone cannot cover. */
+  fresh();
+  assert.equal(ping.read().on, false,
+    'the control was removed while the send still defaults ON: nobody can turn this off');
 });

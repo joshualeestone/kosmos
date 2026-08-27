@@ -7031,29 +7031,18 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            not the app on this Mac), which was the #331 concern; what is
            sent stays spelled out in the Settings row's hint. One string in
            one place, so a later ruling is still one edit. -->
-      <!-- ⚠️ NOT `checked` IN THE MARKUP, WHICH IT WAS UNTIL 2026-08-22 (#258).
-           Sending is TWO gates: this box for one agent, and the standing answer
-           in Settings. A box hard-coded to checked showed a person consenting to
-           something the second gate was about to refuse, so the screen offered an
-           action that would silently not happen. That is the state this form
-           already refuses elsewhere by not offering an impossible choice at all.
-           🛑 IT USED TO NAME REPORTS-TO AS THAT ELSEWHERE, and that example died
-           on 2026-08-22 without a word of this comment changing: Reports to no
-           longer disappears on the first agent, because the menu now names YOU
-           and you are always a legal answer. The distinction the comment draws
-           is still the right one -- a choice that is IMPOSSIBLE can vanish, a
-           choice that is already ANSWERED must stay and say so -- so the rule is
-           kept and the dead example is not.
-           🔑 This box is the answered kind: somebody who turned this off in
-           Settings is exactly the person who benefits from seeing that it took.
-           (Mona Lisa's lean, and mine.) -->
-      <div class="field" id="create-tell-wrap">
-        <label class="tellrow" for="create-tell">
-          <input type="checkbox" id="create-tell">
-          <span>Let the Kosmos team know you created an agent</span>
-        </label>
-        <div class="fhint" id="create-tell-note"></div>
-      </div>
+      <!-- 📌 THE CREATED-PING CONTROL IS GONE, BOTH SURFACES (Josh, 2026-08-26,
+           item 3): "the 'Let the Kosmos team know when you create an agent' -
+           they both need to be removed." The Settings row went first; this
+           checkbox was the same setting's other surface and outlived it by a
+           few hours, which left a live send whose only explanation had already
+           been deleted with the row.
+           🛑 AND THE DEFAULT WENT OFF IN THE SAME CHANGE, which this file's own
+           note required: "removing every control while the send stays on is not
+           a tidy-up, it is a removed opt-out. If this box ever goes too, turn
+           the default off in the same change." engine/ping.js now returns
+           { on: false } for a machine that has never been asked. -->
+
       <button class="btn uprime big" id="create-go" type="button">Create agent</button>
     </div>
     <div class="fmsg" id="create-msg" role="status" aria-live="polite"></div>
@@ -12579,47 +12568,6 @@ function paintSwitch(togId, on) {
   /* Un-hidden only after the position is set, in that order, so there is no
      paint where the control exists without an answer. */
   tog.hidden = false;
-}
-
-/**
- * The create page's copy of the standing answer (#258).
- *
- * ⚠️ THREE STATES, AND THE THIRD IS NOT "ON". the Settings row that used to sit beside this said why: `null` means we have not read it, which is not off, and the
- * setting's own message for that case is that nothing is sent. So an
- * unreadable preference disables the box here too, because the engine will
- * refuse on `!pref.on` either way and a checked box would be describing a send
- * that cannot happen.
- *
- * 🔑 IT NEVER WRITES THE SETTING. Unchecking here is about this one agent.
- *
- * ⚠️ AND SINCE 2026-08-26 THIS BOX IS THE ONLY PLACE THE PERSON MEETS THIS
- * SETTING AT ALL. Josh had both Settings > Updates rows removed (his item 3);
- * this one stayed because the created-ping defaults to ON (engine/ping.js
- * returns `{ on: true }` when no preference file exists), and removing every
- * control while the send stays on is not a tidy-up, it is a removed opt-out.
- * If this box ever goes too, turn the default off in the same change.
- */
-function createTellPaint(r) {
-  const box = document.getElementById('create-tell');
-  const note = document.getElementById('create-tell-note');
-  const unread = !r;
-  const on = !unread && r.on === true;
-  box.disabled = !on;
-  box.checked = on;
-  note.textContent = on ? ''
-    : (unread
-      ? 'We could not read this setting, so nothing is sent.'
-      : 'Turned off in Settings.');
-}
-
-async function refreshCreateTell() {
-  /* Painted as unreadable FIRST, then upgraded. The old markup was checked
-     before any read had happened, which is the same defect one moment
-     earlier: a claim about a setting nobody had looked at. */
-  createTellPaint(null);
-  try {
-    createTellPaint(await (await fetch('/api/ping-setting')).json());
-  } catch { createTellPaint(null); }
 }
 
 /* The "something happened" switch, the same three pieces as the created ping
@@ -20667,7 +20615,6 @@ function openCreate() {
   loadRoles();
   /* Read on every open, not once on boot: the standing answer can be changed
      in Settings between two visits to this form. */
-  refreshCreateTell();
 }
 
 document.getElementById('new-agent').addEventListener('click', openCreate);
@@ -21308,10 +21255,15 @@ document.getElementById('create-go').addEventListener('click', async () => {
            the hub already. */
         const to = document.getElementById('create-reports').value;
         if (to) b.reportsTo = to;
-        /* Sent only when it is FALSE. The server defaults it to true, so a
-           caller that has never heard of this field behaves the way the box
-           does, and an older client cannot silently opt somebody out. */
-        if (!document.getElementById('create-tell').checked) b.tellKosmos = false;
+        /* 🛑 ALWAYS FALSE NOW, AND SENT EXPLICITLY. This read the checkbox
+           that Josh removed (item 3), so with the control gone it was a
+           `.checked` on null: creating an agent would have thrown on the last
+           click, in the one flow every new person walks.
+           📌 Explicit rather than omitted, because the SERVER still defaults
+           this field to true. Leaving it out would keep the ping alive through
+           the default while the person has no control and no disclosure, which
+           is the exact state this change exists to end. */
+        b.tellKosmos = false;
         if (CREATE_PROJECTS.length) b.projects = CREATE_PROJECTS;
         return b;
       })()),
