@@ -8375,6 +8375,24 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <div>
           <p class="setname">Use Kosmos from anywhere</p>
           <p class="fhint" id="plus-status" aria-live="polite"></p>
+          <!-- #1014. Setup used to end by handing you a URL and stopping, and
+               a URL with no instruction is a thing a person stares at. Josh,
+               with a working install in front of him, asked when he was
+               supposed to go to his device and open his own address.
+
+               Three facts in the order a person needs them: where to go, that
+               the sign-in they will meet is expected rather than a rebuff, and
+               that this Mac will ask them something next. The second one
+               matters most -- typing your address into your phone shows the
+               gate's "somebody else's Kosmos" page, which is correct and reads
+               as a refusal to somebody who was just told it is theirs.
+               (Deliberately NOT quoting the gate's exact sentence: the e2e
+               suite uses it to tell the gate apart from the board, and having
+               it here made the board look like the gate.)
+
+               The words are Ice Cream Kitty's and Mona Lisa may replace them,
+               the same footing as the recovery block below. -->
+          <p class="fhint" id="plus-next" hidden></p>
         </div>
         <button class="btn" type="button" id="plus-switch"></button>
       </div>
@@ -19324,6 +19342,27 @@ document.getElementById('askcard').addEventListener('click', (e) => {
 /* The Settings list. Painted on arrival at the Plus section and after any
    action; the allowed rows come from the tunnel's list (one subprocess),
    the pending rows from the same file the card reads. */
+/* #1011. The panel showed "Connected. Your address: ..." with
+   "the coordinator said no (409)" still sitting under it, left over from a
+   previous attempt. Both lines were true when written; only one was true
+   when read, and the wrong one catches the eye because it is the only red
+   thing on the page. A person who has just been through a failure believes
+   the error, so the screen actively teaches them that a working setup is
+   broken.
+
+   🛑 THE FIX CANNOT BE "clear the error whenever we are connected", which is
+   what the issue asks for literally. This same line carries failures from
+   the Turn on / Turn off switch, and those happen WHILE connected -- wiping
+   them would hide a real refusal to trade against a stale one. So the
+   message remembers where it came from, and only a SETUP failure is
+   superseded by being connected. */
+let PLUS_MSG_KIND = '';
+let PLUS_ADDRESS = '';   // #1014: the address, when there is a real one
+function plusSay(text, kind) {
+  const m = document.getElementById('plus-msg');
+  m.textContent = text;
+  PLUS_MSG_KIND = text ? (kind || '') : '';
+}
 async function paintDevices() {
   const box = document.getElementById('plus-devices');
   if (!box || box.hidden) return;
@@ -19355,7 +19394,34 @@ async function paintDevices() {
         '<button class="btn" type="button" data-dev="keep">Keep</button></div></div>' : '') + '</div>');
   }
   list.innerHTML = out.join('');
-  document.getElementById('plus-devempty').hidden = out.length > 0;
+  const hasDevices = out.length > 0;
+  document.getElementById('plus-devempty').hidden = hasDevices;
+  /* #1012. "I lost my phone" and Reset the second step were shown whenever
+     the MAC was enrolled, which is a different question from whether a PHONE
+     exists. So a person mid-setup met the largest block of text on the page
+     offering to undo something they had not done, sitting directly under a
+     device list reading "None yet". At the moment they are working out what
+     to do next, the screen answered a question they had not asked.
+
+     This only ever hides FURTHER: the enrolled gate in paintPlus still has
+     to have shown it first, so this cannot reveal the control on a Mac that
+     could not sign the reset anyway. */
+  if (!hasDevices) document.getElementById('plus-second').hidden = true;
+  /* #1014: say what to DO, and only while it is still undone. Once a phone
+     has been allowed the person has plainly worked it out, and a standing
+     instruction to do a thing you have already done is just clutter. */
+  const next = document.getElementById('plus-next');
+  if (next) {
+    const addr = PLUS_ADDRESS;
+    if (addr && !hasDevices) {
+      next.textContent = 'Open ' + addr + ' on your phone. It will ask you to sign in with '
+        + 'this email first, and then this Mac will ask you to allow that phone. '
+        + 'You only do this once per phone.';
+      next.hidden = false;
+    } else {
+      next.hidden = true;
+    }
+  }
 }
 document.getElementById('plus-devlist').addEventListener('click', async (e) => {
   const a = e.target.closest('[data-ask]');
@@ -19407,6 +19473,14 @@ async function paintPlus() {
   st.textContent = stat.state === 'up'
     ? ('Connected. Your address: ' + (stat.address || 'is on its way.'))
     : (because ? because.charAt(0).toUpperCase() + because.slice(1) + '.' : '');
+  /* #1014: only a real address earns an instruction. While the tunnel is
+     still coming up there is nothing to tell somebody to open, and telling
+     them to open "is on its way." would be worse than saying nothing. */
+  PLUS_ADDRESS = (stat.state === 'up' && stat.address) ? stat.address : '';
+  /* #1011: being connected supersedes a SETUP failure -- it cannot still be
+     true. A switch failure is left alone; it happens while connected and is
+     the one thing this rule must not eat. */
+  if (stat.state === 'up' && PLUS_MSG_KIND === 'setup') plusSay('');
   /* The enrol steps show only when the switch is on and nothing is
      enrolled yet: the state the engine calls waiting-for-the-sign-in. */
   document.getElementById('plus-enrol').hidden = !(r.on && r.enrolled !== true);
@@ -19436,15 +19510,15 @@ document.getElementById('plus-code').addEventListener('input', (e) => {
 });
 document.getElementById('plus-switch').addEventListener('click', async () => {
   const msg = document.getElementById('plus-msg');
-  msg.textContent = '';
+  plusSay('');
   /* The click means what the BUTTON said, not what a re-fetch says now:
      acting on re-read state lets a stale label do the opposite of its own
      words, and a double click land twice at one value. */
   const wantOn = document.getElementById('plus-switch').textContent === 'Turn on';
   try {
     const res = await fetch('/api/remote', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: wantOn }) });
-    if (!res.ok) msg.textContent = plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not change that');
-  } catch { msg.textContent = 'we could not change that'; }
+    if (!res.ok) plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not change that'), 'switch');
+  } catch { plusSay('we could not change that', 'switch'); }
   paintPlus();
 });
 /* The words of the code box (#729). Pete sat at it for twelve minutes, three
@@ -19506,19 +19580,19 @@ document.getElementById('plus-send-code').addEventListener('click', async () => 
 });
 document.getElementById('plus-confirm').addEventListener('click', async () => {
   const msg = document.getElementById('plus-msg');
-  msg.textContent = '';
+  plusSay('');
   const code = document.getElementById('plus-code').value.replace(/\D/g, '');
   const name = document.getElementById('plus-name').value.trim();
   /* The engine validates before spawning too; saying it here saves the
      round trip, in the engine's own sentence so the two cannot drift. */
   if (name && !/^[a-z0-9-]{3,32}$/.test(name)) {
-    msg.textContent = 'the name is 3 to 32 lowercase letters, digits or hyphens';
+    plusSay('the name is 3 to 32 lowercase letters, digits or hyphens', 'setup');
     return;
   }
   try {
     const res = await fetch('/api/remote/setup-complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, name }) });
-    if (!res.ok) { msg.textContent = plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not finish the sign-up'); return; }
-  } catch { msg.textContent = 'we could not finish the sign-up'; }
+    if (!res.ok) { plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not finish the sign-up'), 'setup'); return; }
+  } catch { plusSay('we could not finish the sign-up', 'setup'); }
   paintPlus();
 });
 
