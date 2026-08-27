@@ -5332,6 +5332,38 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /**
+   * Show a person where their stored dialogue lives (kosmos#969).
+   *
+   * Josh, 2026-08-26: Project Settings already has "Show me where the work
+   * lives"; Kosmos stores the full dialogue for every project, so he asked for
+   * a companion.
+   *
+   * 🛑 IT IS NOT PER-PROJECT AND THE COPY MUST NOT PRETEND IT IS. Every room's
+   * thread lives in ONE directory, `<data>/chats`, one file per room. A button
+   * in a project's own settings that silently revealed every project's dialogue
+   * would be the screen answering a narrower question than it was asked. So the
+   * route is global by name -- `/api/chats/reveal`, not
+   * `/api/project/<id>/reveal-chats` -- and the button beside it says so.
+   *
+   * ⚠️ A MISSING DIRECTORY IS NOT AN ERROR, IT IS AN ANSWER. Kosmos creates it
+   * on the first message, so "it is not there yet" means nobody has said
+   * anything, and `open` on a path that does not exist would report a Finder
+   * failure for a working install.
+   */
+  if (pathname === '/api/chats/reveal' && req.method === 'POST') {
+    const chat = require('./engine/chat');
+    const dir = chat.chatsDir();
+    if (!fs.existsSync(dir)) {
+      sendJson(res, 409, { error: 'there is no stored dialogue yet, so there is nothing to show you' });
+      return;
+    }
+    const opened = projects.revealFolder(dir);
+    if (opened.ok) { sendJson(res, 200, { ok: true, where: dir }); return; }
+    sendJson(res, 409, { error: opened.because });
+    return;
+  }
+
   const reveal = pathname.match(/^\/api\/project\/([^/]+)\/reveal-folder$/);
   if (reveal && req.method === 'POST') {
     const id = decodeSegment(reveal[1]);
