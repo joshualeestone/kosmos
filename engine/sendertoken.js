@@ -55,6 +55,18 @@ const store = require('./store');
 
 const DIR = path.join(store.ROOT, 'sendertokens');
 
+/* 🛑 ONE SENTENCE, FOUR CALLERS, AND IT IS A SECURITY PROPERTY RATHER THAN TIDINESS.
+   A refusal must not disclose whether a token was ever real: never issued, issued then
+   revoked, issued but the roster row is gone, and no such token here all have to read
+   IDENTICALLY to whoever is asking. That held until now because four separate string
+   literals happened to match.
+   ⚠️ Nothing kept them in sync and nothing would have failed if they drifted. Editing
+   any one of them to be more helpful is exactly the disclosure this prevents, and the
+   suite would have stayed green while the property quietly died.
+   Found reviewing #1112 section A, 2026-08-27: the claim was recorded as resting on
+   "a returned string I control", singular. It was four. */
+const NO_MATCH = 'we could not match that to one of your agents';
+
 /* 32 bytes of CSPRNG. The point of a token over a pane id is that it cannot be
    guessed or enumerated, so the entropy is the feature. */
 const TOKEN_BYTES = 32;
@@ -176,7 +188,7 @@ function resolve(token, roster) {
   try {
     names = fs.readdirSync(DIR).filter((f) => f.endsWith('.json'));
   } catch (e) {
-    if (e && e.code === 'ENOENT') return { ok: false, because: 'we could not match that to one of your agents' };
+    if (e && e.code === 'ENOENT') return { ok: false, because: NO_MATCH };
     return { ok: false, because: 'we could not read the sender tokens, so we could not tell who this is from' };
   }
   for (const f of names) {
@@ -191,10 +203,10 @@ function resolve(token, roster) {
     /* A token matching a file but no tied roster row is the revoked or stale
        case, and it must read the same as a token we never issued. Saying "that
        agent is gone" would confirm the token was once real. */
-    if (!card) return { ok: false, because: 'we could not match that to one of your agents' };
+    if (!card) return { ok: false, because: NO_MATCH };
     return { ok: true, card, instance: hit.instance || null };
   }
-  return { ok: false, because: 'we could not match that to one of your agents' };
+  return { ok: false, because: NO_MATCH };
 }
 
 /**
@@ -227,7 +239,7 @@ function resolve(token, roster) {
  */
 function resolveName(token) {
   const presented = String(token == null ? '' : token).trim();
-  const no = { ok: false, because: 'we could not match that to one of your agents' };
+  const no = { ok: false, because: NO_MATCH };
   if (!presented) {
     return { ok: false, because: 'we cannot tell which agent is sending this (no sender token was presented)' };
   }
