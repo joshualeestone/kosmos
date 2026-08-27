@@ -112,7 +112,10 @@ function chk(ok, label, extra) {
       }
 
       // The switches resolved and are measurable from inside their sections.
-      const WHERE = { 'lim-toggle': 'talking', 'tell-toggle': 'updates', 'notify-toggle': 'updates', 'auto-toggle': 'updates', 'eng-toggle': 'advanced' };
+      /* 📌 tell-toggle and notify-toggle went with the telemetry rows Josh
+         removed on 2026-08-26 (item 3). Naming a switch that is not on the
+         page made this check red on a product doing exactly what he asked. */
+      const WHERE = { 'lim-toggle': 'talking', 'auto-toggle': 'updates', 'eng-toggle': 'advanced' };
       for (const id of Object.keys(WHERE)) {
         await page.click('#s-nav button[data-go="' + WHERE[id] + '"]');
         await page.waitForTimeout(150);
