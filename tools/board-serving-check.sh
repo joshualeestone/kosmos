@@ -60,6 +60,26 @@ DIRTY=$(git -C "$DIR" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
 HEAD=$(git -C "$DIR" rev-parse --short HEAD 2>/dev/null)
 say "branch: ${BRANCH:-<detached>}   head: ${HEAD}   uncommitted files: ${DIRTY}"
 
+# 🛑 BEING ON "main" IS NOT THE SAME AS BEING ON MAIN, and the first version of
+# this check conflated them. It tested the branch NAME and the dirty state and
+# then said "what is on screen is what is on main" -- which is false the moment
+# local main is behind or diverged from the remote. Caught by running it on
+# 2026-08-27 while this checkout sat on the cut's own bump commit: it reported
+# a clean main while the board was serving a tree missing a merged commit.
+# ⇒ A false OK, in the tool written to catch false calm. The same shape as the
+#   missing-directory case a negative control caught before this shipped.
+AHEAD=""; BEHIND=""
+if git -C "$DIR" rev-parse --verify -q origin/main >/dev/null 2>&1; then
+  BEHIND=$(git -C "$DIR" rev-list --count HEAD..origin/main 2>/dev/null)
+  AHEAD=$(git -C "$DIR" rev-list --count origin/main..HEAD 2>/dev/null)
+  if [ "${BEHIND:-0}" != "0" ] || [ "${AHEAD:-0}" != "0" ]; then
+    say "⚠️ this tree is ${BEHIND:-?} behind and ${AHEAD:-?} ahead of origin/main"
+    say "   so \"on main\" does not mean what is on the remote main"
+  fi
+else
+  say "⚠️ origin/main is not fetched here, so behind/ahead is unknown"
+fi
+
 # 3. ⭐ THE DECISIVE PART, and it is why this is not just `git status`.
 #    Prove the SERVED BYTES come from that tree, the way Kitty proved it: take a
 #    string that exists in the file on disk and ask the live board for it. A
@@ -99,9 +119,14 @@ esac
 # 4. The verdict, reported on the TREE regardless of the above.
 say ""
 if [ "$BRANCH" = "main" ] && [ "$DIRTY" = "0" ]; then
-  say "OK: clean main."
-  [ "$SERVING" = "yes" ] && say "   What is on screen is what is on main."
-  exit 0
+  if [ "${BEHIND:-0}" = "0" ] && [ "${AHEAD:-0}" = "0" ]; then
+    say "OK: clean main, level with origin/main."
+    [ "$SERVING" = "yes" ] && say "   What is on screen is what is on the remote main."
+    exit 0
+  fi
+  say "!! clean main, but NOT level with origin/main (${BEHIND:-?} behind, ${AHEAD:-?} ahead)."
+  [ "$SERVING" = "yes" ] && say "!! So the screen is missing or ahead of what the remote has."
+  exit 1
 fi
 say "!! THIS TREE IS NOT CLEAN MAIN."
 [ "$BRANCH" != "main" ] && say "!! branch is ${BRANCH:-<detached>}."
