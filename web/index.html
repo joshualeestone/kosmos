@@ -29342,7 +29342,41 @@ function frPaintFleet() {
        never saw the check screen was told everything is in place" -- and they
        are right. "something like" is latitude, so I took the invitation and
        left out the assertion. Flagged to him rather than assumed. */
-    box.innerHTML = '<p>Let\u2019s get started.</p>';
+    /* 🔑 AN OUT FOR THE ONE PERSON THIS SCREEN IS WRONG ABOUT, AT NO COST TO THE
+       REST (kosmos#1078). Discovery reaches a folder only through a transcript,
+       so an agent that has never been RUN is invisible, and this arm then tells
+       somebody who has agents to create their first one. That is the 2026-08-22
+       defect arriving through a different door.
+       ⚠️ A STANDING SENTENCE WAS THE OBVIOUS FIX AND IT IS THE WRONG ONE. Most
+       people here really are new, and Josh stripped four sentences off this
+       screen on 2026-08-26 for reporting on us rather than helping them. A link
+       is found by the person looking for exactly those words and read by nobody
+       else.
+       🛑 IT PROMISES ONLY WHAT IS TRUE. "Run at least once" is the whole of the
+       transcript rule. It deliberately does NOT say they can be added later,
+       because the second invisible case (an instruction file whose introduction
+       `identityFromText` cannot parse) is not fixed by running the agent, and a
+       sentence that sends that person back to look again would be a lie with our
+       name on it. That case wants a looser parser, not copy.
+       📌 Built hidden rather than built on click, same rule as the found list's
+       undo: an element that already exists cannot be the element a later edit
+       forgets to create. */
+    box.innerHTML = '<p>Let\u2019s get started.</p>'
+      + '<p style="margin:10px 0 0;"><button class="linkish" type="button"'
+      + ' id="fr-havealready" aria-expanded="false" aria-controls="fr-havealready-note">'
+      + 'I already have agents</button></p>'
+      + '<p class="dhint" id="fr-havealready-note" style="margin:6px 0 0;" hidden>'
+      + 'Agents you have already made show up here once they have been run at'
+      + ' least once.</p>';
+    {
+      const link = document.getElementById('fr-havealready');
+      const note = document.getElementById('fr-havealready-note');
+      link.addEventListener('click', () => {
+        const open = note.hidden;
+        note.hidden = !open;
+        link.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+    }
     frForkActions();
     return;
   }
