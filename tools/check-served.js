@@ -97,10 +97,10 @@ function argAll(name) {
   const page = fs.readFileSync(path.join(dir, 'app/web/index.html'), 'utf8');
   const binary = fs.readFileSync(path.join(dir, 'app/bin/kosmos-app'));
 
-  let markers = { present: argAll('expect'), absent: argAll('absent'), binary: argAll('binary') };
+  let markers = { present: argAll('expect'), absent: argAll('absent'), binary: argAll('binary'), order: [] };
   const file = path.join(__dirname, 'served-markers.json');
   if (!markers.present.length && !markers.absent.length && !markers.binary.length && fs.existsSync(file)) {
-    markers = Object.assign({ present: [], absent: [], binary: [] }, JSON.parse(fs.readFileSync(file, 'utf8')));
+    markers = Object.assign({ present: [], absent: [], binary: [], order: [] }, JSON.parse(fs.readFileSync(file, 'utf8')));
   }
 
   /* 🛑 THE BUNDLE MUST AGREE WITH THE POINTER, or this whole run describes a
@@ -216,6 +216,38 @@ function argAll(name) {
   for (const m of markers.present) say(page.includes(m), 'present in page: ' + m);
   for (const m of markers.absent) say(!codeOnly.includes(m), 'absent from page code: ' + m);
   for (const m of markers.binary) say(binary.includes(Buffer.from(m)), 'present in app binary: ' + m);
+
+  /* 🛑 ORDER MARKERS, AND THEY EXIST BECAUSE THREE OF JOSH'S RULINGS COULD NOT
+     BE SAID IN THIS FILE'S VOCABULARY. Items 8, 9 and 10 on 2026-08-26 were the
+     download progress bar, the setup messages and "Claude Max 20 is connected"
+     all rendering at the BOTTOM of the provider list instead of under the row he
+     had just pressed: "it is showing below all of the models in the wrong spot".
+
+     ⚠️ A PRESENT-MARKER CANNOT EXPRESS THAT. `fr-sub` is present whether the
+     panel sits under Claude or under Mistral, so the marker is green in both the
+     fixed and the broken build. The ruling is about PLACEMENT, and placement is
+     an ORDER property -- which meant the fix looked guarded and was not, in a
+     file whose entire purpose is to stop us believing that.
+
+     🔑 Each entry is a list of strings that must appear in this order in the
+     served page. Checked against the RAW page, like present-markers: these are
+     markup anchors that should be in the live source anyway, and stripping
+     first would let one pass on nothing.
+     📌 A missing anchor is reported as missing rather than as out-of-order --
+     they are different repairs, and a check that says the wrong one sends the
+     next person to the wrong file. */
+  for (const seq of markers.order) {
+    const at = seq.map((m) => ({ m, i: page.indexOf(m) }));
+    const missing = at.filter((x) => x.i < 0);
+    if (missing.length) {
+      say(false, 'order [' + seq.join(' < ') + ']: anchor not found at all: ' + missing.map((x) => x.m).join(', '));
+      continue;
+    }
+    let ok = true;
+    for (let k = 1; k < at.length; k += 1) if (at[k].i <= at[k - 1].i) { ok = false; break; }
+    say(ok, 'in this order in page: ' + seq.join(' < ')
+      + (ok ? '' : '  [actual: ' + at.slice().sort((a, b) => a.i - b.i).map((x) => x.m).join(' < ') + ']'));
+  }
 
   fs.rmSync(dir, { recursive: true, force: true });
   console.log(bad ? '\n' + bad + ' marker(s) wrong in the SERVED build' : '\nall markers correct in the served build');
