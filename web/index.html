@@ -6467,6 +6467,23 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              here. Hidden until Connect is pressed; the row's own message line
              (#fr-openai-msg) carries the outcome, same shape as Claude's
              #fr-sub beneath it. -->
+        <!-- 🛑 PREREQUISITES BEFORE CREDENTIALS, for GPT too (Josh, 2026-08-26
+             item 7, from a live run: "it immediately jumped to asking me for an
+             API key"). Claude's row already said what it needed to install and
+             offered Not now; Settings' OpenAI flow already did the same. This
+             row was the one place the pattern was missing, so a person met the
+             requirement only AFTER finding and pasting a key.
+             ⚠️ Settings' own comment beside #acct-openai-install says "the
+             first-run wizard already learned this: prerequisites go before
+             credentials." It had -- for Claude. -->
+        <div id="fr-openai-confirm" class="fr-confirm" role="group" aria-labelledby="fr-openai-confirm-t" hidden>
+          <p class="fr-confirm-t" id="fr-openai-confirm-t">Kosmos needs the OpenAI runner on this computer before a key is any use. It is a one-time download.</p>
+          <div class="frow">
+            <button class="btn uprime" type="button" id="fr-openai-confirm-go" aria-describedby="fr-openai-confirm-t">Download and install it</button>
+            <button class="btn" type="button" id="fr-openai-confirm-no">Not now</button>
+          </div>
+          <p class="dhint" id="fr-openai-confirm-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+        </div>
         <div id="fr-openai-flow" hidden style="margin: -2px 0 10px;">
           <p class="dhint" style="margin:0 0 8px;">Paste an OpenAI API key. It stays on this Mac with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
           <!-- Josh, 2026-08-26 07:01, from the options page: one row, key
@@ -28196,9 +28213,12 @@ function frCollapseProviders(keep) {
     if (box && !box.hidden) frClaudeConfirmClose();
   }
   if (keep !== 'openai') {
-    const flow = document.getElementById('fr-openai-flow');
-    if (flow && !flow.hidden) {
-      flow.hidden = true;
+    let shut = false;
+    for (const id of ['fr-openai-confirm', 'fr-openai-flow']) {
+      const el = document.getElementById(id);
+      if (el && !el.hidden) { el.hidden = true; shut = true; }
+    }
+    if (shut) {
       const btn = document.getElementById('fr-openai-connect');
       if (btn && btn.setAttribute) btn.setAttribute('aria-expanded', 'false');
     }
@@ -28293,12 +28313,65 @@ document.getElementById('fr-claude-confirm-no').addEventListener('click', () => 
    listener rather than the delegated pattern fr-llm-connect uses above --
    there is exactly one button per id here, so delegation would add
    indirection with nothing to share it with. */
-document.getElementById('fr-openai-connect').addEventListener('click', (e) => {
-  const flow = document.getElementById('fr-openai-flow');
+/* Which panel Connect opens depends on whether the runner is already here.
+   ⚠️ ASKED EVERY TIME, not cached: a runner can arrive or leave between
+   presses, and Settings' equivalent says the same in its own comment.
+   📌 If the question cannot be answered we show the CONFIRM, not the key box.
+   Being asked to approve a download that turns out to be unnecessary costs a
+   press; being asked for a key that is no use costs finding one first, which
+   is the dead end Josh actually hit. */
+async function frOpenaiRunnerPresent() {
+  try {
+    const r = await (await fetch('/api/runners', { cache: 'no-store' })).json();
+    const o = r && r.runners && r.runners.openai;
+    return o ? !!o.present : false;
+  } catch { return false; }
+}
+function frOpenaiShowKey() {
+  document.getElementById('fr-openai-confirm').hidden = true;
+  document.getElementById('fr-openai-flow').hidden = false;
+  const k = document.getElementById('fr-openai-key');
+  if (k) k.focus();
+}
+document.getElementById('fr-openai-connect').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
   frCollapseProviders('openai');
-  flow.hidden = false;
-  e.currentTarget.setAttribute('aria-expanded', 'true');
-  document.getElementById('fr-openai-key').focus();
+  btn.setAttribute('aria-expanded', 'true');
+  if (await frOpenaiRunnerPresent()) { frOpenaiShowKey(); return; }
+  document.getElementById('fr-openai-flow').hidden = true;
+  const box = document.getElementById('fr-openai-confirm');
+  box.hidden = false;
+  const go = document.getElementById('fr-openai-confirm-go');
+  if (go) { go.disabled = false; go.focus(); }
+});
+document.getElementById('fr-openai-confirm-no').addEventListener('click', () => {
+  document.getElementById('fr-openai-confirm').hidden = true;
+  const btn = document.getElementById('fr-openai-connect');
+  if (btn) { btn.setAttribute('aria-expanded', 'false'); btn.focus(); }
+});
+document.getElementById('fr-openai-confirm-go').addEventListener('click', async (e) => {
+  const go = e.currentTarget;
+  const msg = document.getElementById('fr-openai-confirm-msg');
+  go.disabled = true;
+  if (msg) msg.textContent = 'Starting\u2026';
+  try {
+    const res = await fetch('/api/runners/openai/install', { method: 'POST' });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not start that install');
+    if (msg) msg.textContent = 'Installing\u2026 this screen will move on when it is done.';
+    /* Rough on purpose, and said out loud: this polls for the runner rather
+       than following the install job's own phases the way Settings does. It
+       is a holding shape for tonight -- the key box appears when the runner
+       appears. If it never does, the sentence above stays and nothing lies. */
+    const started = Date.now();
+    const tick = setInterval(async () => {
+      if (await frOpenaiRunnerPresent()) { clearInterval(tick); if (msg) msg.textContent = ''; frOpenaiShowKey(); return; }
+      if (Date.now() - started > 300000) { clearInterval(tick); if (msg) msg.textContent = 'That is taking longer than expected. Settings > Accounts can finish it.'; }
+    }, 2000);
+  } catch (err) {
+    go.disabled = false;
+    if (msg) msg.textContent = String((err && err.message) || 'We could not start that install.');
+  }
 });
 // Paste-then-Enter is the natural gesture for this screen's non-technical
 // audience, and with no form around the field it failed silently -- flagged

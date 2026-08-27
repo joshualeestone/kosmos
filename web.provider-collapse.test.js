@@ -25,6 +25,7 @@ function world(claudeOpen, openaiOpen) {
   const els = {
     'fr-claude-confirm': { hidden: !claudeOpen },
     'fr-openai-flow': { hidden: !openaiOpen },
+    'fr-openai-confirm': { hidden: true },
     'fr-openai-connect': { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } },
   };
   const closed = [];
@@ -55,6 +56,18 @@ test('opening Claude collapses an open OpenAI panel, and resets its aria-expande
   assert.equal(w.els['fr-openai-flow'].hidden, true, 'the OpenAI panel stayed open');
   assert.equal(w.els['fr-openai-connect'].attrs['aria-expanded'], 'false',
     'the OpenAI button still says aria-expanded=true for a panel that is now closed');
+});
+
+test('opening Claude also collapses GPT\'s CONFIRM panel, not just its key form', () => {
+  /* ⚠️ GPT gained a second panel (the prerequisite confirm) an hour after this
+     helper was written. A collapse that knew only about the key form left the
+     confirm open under Claude's -- the exact thing this exists to prevent,
+     reintroduced by the change that added the panel. */
+  const w = world(false, false);
+  w.els['fr-openai-confirm'].hidden = false;
+  w.ctx.frCollapseProviders('claude');
+  assert.equal(w.els['fr-openai-confirm'].hidden, true, "GPT's confirm panel stayed open");
+  assert.equal(w.els['fr-openai-connect'].attrs['aria-expanded'], 'false');
 });
 
 test('it never closes the panel it was asked to keep', () => {
