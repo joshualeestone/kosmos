@@ -73,6 +73,18 @@ case "$V" in
     exit 1 ;;
 esac
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
+[ -d "$SITE/dist" ] || { echo "no site checkout at $SITE (set KOSMOS_SITE)"; exit 1; }
+# ⚠️ THIS SITS AFTER THE SITE CHECK ON PURPOSE, and the ordering is pinned by a
+# test rather than by this comment. tools.release-gate.test.js builds a sandbox
+# holding ONLY tools/release.sh, and its positive control asserts that a valid
+# version reaches the site check -- that is its definition of "got through the
+# gate". Sourcing a sibling lib ABOVE that line made the script die on a missing
+# file instead, so BOTH positive controls went red while every refusal test
+# stayed green: the gate looked stricter, which is the comfortable direction and
+# the one nobody questions. Found by Mona Lisa, 14 minutes after I shipped it.
+# Nothing here mutates anything, so refusing a second cut one line later costs
+# nothing and keeps the harness able to reach the check it exists to make.
 # 🛑 TWO CUTS ON ONE MAC DESTROY EACH OTHER, and it has already happened: the
 # 18:28 attempt at 0.5.73 died because a fixture server was SIGTERM'd by the
 # other cut's teardown (#1050). They share the install gate's fixed ports, the
@@ -91,8 +103,6 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
   kosmos_refuse_if_cut_live "a second cut" || exit 1
 fi
-SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
-[ -d "$SITE/dist" ] || { echo "no site checkout at $SITE (set KOSMOS_SITE)"; exit 1; }
 
 echo "== 1. main, clean, and carrying what you mean to ship =="
 git -C "$REPO" fetch origin -q
