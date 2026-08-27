@@ -14101,12 +14101,19 @@ function pinToBottom(el) {
   /* Same reason as paintRoom's pin: this is a floor state we know now, rather
      than one the scroll event will confirm a task later. */
   el.__wasOnFloor = true;
-  const paint = el.__lastThread;
+  /* 🔑 THE PAINT KEY MUST WORK FOR BOTH BOXES NOW THAT THE ROOM PINS HERE TOO.
+     The agent thread stamps `__lastThread`, the room stamps `__lastRoom`. Read
+     whichever this box uses. Before this line the room would have "worked" only
+     because `undefined !== undefined` is false, so the guard would pass by
+     accident rather than by agreement, and an accidental pass stops being one
+     the moment somebody gives that box the other field. */
+  const paint = el.__lastThread !== undefined ? el.__lastThread : el.__lastRoom;
   const pinnedAt = el.scrollTop;
   el.querySelectorAll('img').forEach((img) => {
     if (img.complete) return;
     const again = () => {
-      if (el.__lastThread !== paint) return;   // a different conversation now
+      const now_paint = el.__lastThread !== undefined ? el.__lastThread : el.__lastRoom;
+      if (now_paint !== paint) return;   // a different conversation or room now
       if (el.scrollTop !== pinnedAt) return;   // the person has moved; leave them
       el.scrollTop = el.scrollHeight;
     };
@@ -24687,8 +24694,23 @@ function paintThreadInto(box, html, hasRows, keyChanged, filtering) {
   /* `!== false` rather than `=== true` so a first-ever paint, which has no
      remembered posture, still lands on the newest post. */
   if (!filtering && (keyChanged || box.__roomHeldAtBottom !== false)) {
-    box.scrollTop = box.scrollHeight;
-    box.__wasOnFloor = true;
+    /* 🛑 pinToBottom, NOT a bare assignment, AND THAT WAS THE BUG JOSH KEPT
+       REPORTING. My 08-27 fix unified the write and the scroll decision but
+       reimplemented the PIN as `scrollTop = scrollHeight`. setThread has used
+       pinToBottom since #1037 for a reason I copied the shape of and not the
+       substance: ROWS ARE NOT THEIR FINAL HEIGHT AT THE MOMENT OF THE WRITE.
+       An image has no height until it loads, so scrollHeight immediately after
+       innerHTML is short by however tall the pictures turn out to be, and a
+       single jump lands PART WAY UP.
+       ⇒ That is exactly "it bounces me up after I send and I can't see my
+       message": he IS being pinned, to a bottom that has not finished existing.
+       It explains all three of his surviving triggers at once, because send,
+       agent-typing and the relabel tick all arrive here.
+       ⭐ AND IT IS THE SAME MISTAKE AS THE ONE I FIXED THIS MORNING, ONE LAYER
+       IN. setThread's own comment warned that the room and the thread are
+       painted by different functions. I made them share a function and still
+       gave the room a weaker pin. */
+    pinToBottom(box);
     return;
   }
   /* 🛑 THE HALF THE ROOM NEVER HAD. Reading back, with the list unchanged: the

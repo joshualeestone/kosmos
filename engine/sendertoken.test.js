@@ -209,3 +209,53 @@ test('the token is kept owner-only, because it is the agent\'s ability to speak 
   const file = path.join(sendertoken.DIR, 'perms-check.json');
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
+
+/* --------------------------------------------------------------------------
+   resolveName: the roster-free reading, for the caller trying to establish
+   that a paneless agent exists at all (#1112 phase 1).
+   -------------------------------------------------------------------------- */
+
+test('resolveName finds the agent WITHOUT a roster -- the whole point', () => {
+  const tok = sendertoken.mint('paneless-one').token;
+  const got = sendertoken.resolveName(tok);
+  assert.equal(got.ok, true, 'a freshly minted token did not resolve by name: ' + got.because);
+  assert.equal(got.key, 'paneless-one', 'resolved to the wrong agent: ' + got.key);
+});
+
+/* 🛑 THE ARM THAT MAKES IT WORTH HAVING. `resolve` refuses this exact case,
+   because the roster has no card for an agent with no pane. If both refuse,
+   the heartbeat can never say "I am here" from a machine without tmux. */
+test('resolve REFUSES what resolveName accepts, when there is no pane', () => {
+  const tok = sendertoken.mint('paneless-two').token;
+  const withRoster = sendertoken.resolve(tok, []);
+  assert.equal(withRoster.ok, false, 'resolve accepted an agent that is in no roster');
+  assert.equal(sendertoken.resolveName(tok).ok, true,
+    'resolveName also refused; a valid token from a tmux-less machine would be unable to identify itself at all');
+});
+
+/* ⚠️ THE DISCLOSURE PROPERTY resolve() DOCUMENTS MUST SURVIVE. A distinct
+   message for "issued but gone" would confirm the token was once real. */
+test('every refusal reads the same, so a probe cannot confirm a token was real', () => {
+  const retired = sendertoken.mint('paneless-three').token;
+  sendertoken.revoke('paneless-three');
+  const gone = sendertoken.resolveName(retired);
+  const neverIssued = sendertoken.resolveName('0'.repeat(64));
+  assert.equal(gone.ok, false);
+  assert.equal(neverIssued.ok, false);
+  assert.equal(gone.because, neverIssued.because,
+    'a revoked token gives a different message from an unissued one, which confirms it was once real');
+});
+
+test('a revoked token cannot heartbeat: revoke still cuts an agent off on this path', () => {
+  const tok = sendertoken.mint('paneless-four').token;
+  assert.equal(sendertoken.resolveName(tok).ok, true, 'precondition: it resolves before revoke');
+  sendertoken.revoke('paneless-four');
+  assert.equal(sendertoken.resolveName(tok).ok, false,
+    'a revoked token still resolves by name; revoke would no longer cut an agent off');
+});
+
+test('an empty token is refused with its own reason, not the generic one', () => {
+  const r = sendertoken.resolveName('');
+  assert.equal(r.ok, false);
+  assert.match(r.because, /no sender token was presented/);
+});
