@@ -4593,6 +4593,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            line-height: 1.5; margin-top: var(--space-6);
            padding: var(--space-5) var(--space-6); border-radius: 10px;
            background: var(--attn-bg); }
+/* #996: the advanced escape hatch, quiet by construction. It is an aside for
+   somebody who already has the tool, never a step in the flow. */
+.fr-hatch { margin-top: 8px; }
+.fr-hatch > summary { cursor: pointer; font-size: .8125rem; color: var(--label-2); }
+.fr-hatch > summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 /* Step 4 -- about you. Same control look as the project form's field. */
 .fr-youfield { margin-top: var(--space-5); }
 .fr-youfield label { display: block; font: var(--text-callout) var(--font-ui);
@@ -28132,13 +28137,33 @@ function frPaintConnect(st) {
      * is true whether or not there is a fallback, and it is the sentence doing
      * the most work for somebody stuck on step 3 of six.
      */
-    + '<div class="fr-note">Nothing is broken by this. You can try again'
+    /**
+     * 🛑 THE WIZARD NO LONGER INSTRUCTS ANYBODY TO OPEN A TERMINAL (#996 item 1).
+     * The north star is that someone non-technical gets from nothing to a
+     * working agent WITHOUT one, and this sentence fired at the least technical
+     * moment in the product: step 3 of six, on a first run, to a person who has
+     * installed Kosmos, connected nothing, and just watched it fail. For them
+     * the escape hatch was a wall with a helpful sign on it.
+     *
+     * ⭐ THE HATCH IS KEPT, NOT DELETED, because for somebody who does have a
+     * Terminal it is a real way through and removing it would trade one group's
+     * problem for another's. What changed is who it addresses: both branches now
+     * say the same plain thing, and the command sits behind a disclosure that
+     * names the tool it needs, closed, so nobody is told to do something they
+     * cannot do.
+     *
+     * 📌 STILL GATED ON canRunClaude, which the engine asks of the DISK. Three
+     * of the five stuck causes mean the program was never installed, and
+     * offering the command there answers `command not found` at exactly the
+     * wrong moment (#205).
+     */
+    + '<div class="fr-note">Nothing is broken by this. You can try again, '
+    + 'or carry on and connect later from Settings.'
     + ((st && st.canRunClaude)
-      ? ', or connect without Kosmos: open Terminal, type <b>claude</b>, and follow its '
-        + 'sign-in. Then come back and press Try again to check.'
-      /* Nothing to run, so nothing is suggested. Continue anyway is drawn below
-         and is the honest way forward from here. */
-      : ', or carry on and connect later from Settings.')
+      ? '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
+        + 'You can sign in to Claude outside Kosmos: open Terminal, type <b>claude</b>, '
+        + 'and follow its sign-in. Then come back and press Try again.</details>'
+      : '')
     + '</div>';
     frActions({ label: 'Try again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(4) });
     return;
