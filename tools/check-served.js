@@ -103,6 +103,34 @@ function argAll(name) {
     markers = Object.assign({ present: [], absent: [], binary: [] }, JSON.parse(fs.readFileSync(file, 'utf8')));
   }
 
+  /* 🛑 THE BUNDLE MUST AGREE WITH THE POINTER, or this whole run describes a
+     build nobody asked about.
+     `latest.json` is written at STEP 8 of a cut and the run keeps going after
+     it, so the pointer reads the new version while the artifacts may still be
+     the old ones -- Angel caught that on 0.5.76 and it is why "the completed
+     line is the signal, not the pointer".
+     ⚠️ THIS TOOL WAS EXPOSED TO EXACTLY THAT. It resolves the version FROM the
+     pointer, then reports markers under that heading. Mid-cut it would have
+     said "served version 0.5.77" and checked 0.5.76's bytes, in the confident
+     voice, which is the failure it exists to prevent -- one level up.
+     🔑 The bundle bakes its own version at build time (`kosmos-version` meta,
+     and the comment there says why: a fact about the BUNDLE must not require
+     the bundle's API). So the artifact can be asked what it is, rather than
+     believed. */
+  const stampM = page.match(/<meta name="kosmos-version" content="([^"]*)">/);
+  const stamp = stampM ? stampM[1] : null;
+  if (!stamp || stamp === '__KOSMOS_VERSION__') {
+    console.error('FAIL  the downloaded bundle carries no baked version (' + (stamp || 'none') + '); it is a source checkout or an unstamped build, and nothing below describes a release');
+    process.exit(2);
+  }
+  if (stamp !== version) {
+    console.error('FAIL  latest.json says ' + version + ' but the artifact says it is ' + stamp + '.');
+    console.error('      A cut writes the pointer at step 8 and keeps running, so this is what mid-cut looks like.');
+    console.error('      Nothing below would describe the version you asked about. Wait for the completed line.');
+    process.exit(2);
+  }
+  console.log('bundle self-reports: ' + stamp + '  (agrees with the pointer)');
+
   /* 🔑 A FLOOR ON THE POPULATION. A check that counts occurrences and reports
      zero says "I looked and found none" and "I did not look" in the same word.
      If the page came back tiny the extraction is broken, and every ABSENT
