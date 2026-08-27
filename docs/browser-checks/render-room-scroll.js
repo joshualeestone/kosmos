@@ -165,6 +165,103 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     if (tail.error) bad('a reader at the bottom follows a new post', tail.error);
     else if (tail.atBottom) ok('a reader at the bottom follows a new post');
     else bad('a reader at the bottom follows a new post', 'left off the floor: ' + JSON.stringify(tail));
+
+    /* ---- 3b. THE SAME READER, BUT THE NEW ROW CARRIES AN IMAGE THAT DECLARES
+       NO HEIGHT. Arm 3 above is this arm's control and it is the reason this
+       one means anything: text rows are fully measured the instant they are in
+       the DOM, so a single pin lands exactly on the floor, which is what five
+       separate watch runs measured and why they all came back null. An
+       attached image is different: `.att.att-image .att-pic img` is
+       height:auto, so the row reserves NOTHING until the bytes arrive. A pin
+       computed before then is computed against a room that is about to get
+       taller, and the reader is left part way up holding a scrollbar that
+       moved under them.
+       ⚠️ The PNG is generated here rather than committed: a binary fixture in
+       the tree is a thing to maintain, and the bytes only have to be a real
+       image with a large declared height. */
+    const png = (() => {
+      const zlib = require('node:zlib');
+      const crc = (buf) => { let c = ~0; for (const b of buf) { c ^= b; for (let i = 0; i < 8; i++) c = (c >>> 1) ^ (0xEDB88320 & -(c & 1)); } return ~c >>> 0; };
+      const chunk = (type, data) => {
+        const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+        const td = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+        const c = Buffer.alloc(4); c.writeUInt32BE(crc(td));
+        return Buffer.concat([len, td, c]);
+      };
+      const W = 800, H = 1200;
+      const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4); ihdr[8] = 8; ihdr[9] = 2;
+      const raw = Buffer.alloc((W * 3 + 1) * H);
+      for (let y = 0; y < H; y++) { const o = y * (W * 3 + 1); raw[o] = 0; for (let x = 0; x < W; x++) { const q = o + 1 + x * 3; raw[q] = (x * 255 / W) | 0; raw[q + 1] = (y * 255 / H) | 0; raw[q + 2] = 160; } }
+      return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+    })();
+    let attachId = null;
+    try {
+      const up = await fetch(`http://127.0.0.1:${PORT}/api/project/scrollrepro/attachment`, {
+        method: 'PUT', body: png,
+        headers: { 'content-type': 'image/png', 'x-attachment-name': 'tall.png' },
+      });
+      const uj = await up.json();
+      attachId = uj && uj.attachment && uj.attachment.id;
+    } catch (e) { attachId = null; }
+    if (!attachId) {
+      bad('the fixture could attach an image at all', 'upload did not return an id, so the arm below would test nothing');
+    } else {
+      const shot = await p.evaluate(async (id) => {
+        const el = document.getElementById('pj-room');
+        el.scrollTop = el.scrollHeight;
+        await new Promise((r) => setTimeout(r, 300));
+        let sent = 0;
+        for (let i = 0; i < 4; i++) {
+          const r = await fetch('/api/project/scrollrepro/room', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ text: 'a picture ' + (i + 1), attachment: id }),
+          });
+          if (!r.ok) continue;
+          const j = await r.json().catch(() => null);
+          if (j && j.delivery && j.delivery.state === 'could_not') continue;
+          sent++;
+        }
+        /* 🛑 WAIT FOR THE IMAGE TO ARRIVE, THEN MEASURE, and this does NOT
+           defeat the test. The bug is that the pin is computed BEFORE the
+           bytes land; nothing re-pins afterwards, so the shortfall persists
+           and is still there once everything has settled. A fixed sleep gave
+           4 posts and 1 image on one tree and 0 on another, which is a racy
+           instrument reporting on a race: unreadable in both directions. */
+        const deadline = Date.now() + 10000;
+        while (Date.now() < deadline) {
+          const ready = Array.from(el.querySelectorAll('img')).filter((im) => im.complete && im.naturalHeight > 0).length;
+          if (ready >= 1) break;
+          await new Promise((r) => setTimeout(r, 200));
+        }
+        await new Promise((r) => setTimeout(r, 1200));
+        /* Ask the room what it drew rather than assuming a class name: a
+           selector that has drifted reports "no images" in exactly the same
+           words as a feature that did not render. */
+        const allImgs = el.querySelectorAll('img');
+        let unsized = 0;
+        allImgs.forEach((im) => { if (!im.getAttribute('height') && !im.style.height) unsized++; });
+        return {
+          sent,
+          imgs: allImgs.length,
+          byAttPic: el.querySelectorAll('.att-pic img').length,
+          byAtt: el.querySelectorAll('.att').length,
+          unsized,
+          gap: el.scrollHeight - el.scrollTop - el.clientHeight,
+          tailHtml: el.innerHTML.slice(-500),
+        };
+      }, attachId);
+      // 🛑 A NULL HERE IS ONLY MEANINGFUL IF THE STIMULUS FIRED. No effect and
+      // no cause look identical from the effect side, so the arm refuses to
+      // score when nothing was actually posted or nothing rendered as an image.
+      if (!shot.sent) bad('the image arm posted anything at all', JSON.stringify(shot));
+      else if (!shot.imgs) bad('the image arm rendered an image at all', 'posted ' + shot.sent + ' but the room drew no <img>: ' + JSON.stringify(shot));
+      else {
+        ok('the image arm fired: ' + shot.sent + ' posts, ' + shot.imgs + ' images, ' + shot.unsized + ' declaring no height');
+        if (shot.gap <= 8) ok('a reader at the bottom still lands on the floor when the new rows carry images (gap ' + shot.gap + ')');
+        else bad('a reader at the bottom still lands on the floor when the new rows carry images',
+          'left ' + shot.gap + 'px short of the floor, which is the part-way-up landing Josh describes');
+      }
+    }
     /* ---- 4. THE REAL ACTION: typed into the composer and CLICKED, not posted
        by fetch. Josh's words are "it bounces me up AFTER I SEND THE MESSAGE",
        and the send path is not the same path as a row arriving: the composer is
