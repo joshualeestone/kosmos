@@ -1872,6 +1872,23 @@ function createAgentInner(opts) {
       const { MAX_BYTES } = require('./instructions');
       if (Buffer.byteLength(withDefaults, 'utf8') <= MAX_BYTES) text = withDefaults;
     } catch { /* ships without the defaults */ }
+      /* #1034: how connecting a provider works. Constant words, no machine
+         state, no consent surface -- the card's part one. An agent born
+         without it will confidently describe a screen it cannot see, which is
+         worse than saying "tell me what you are looking at". Same gate and the
+         same non-gating posture as the block above. */
+      {
+        let connLanded = false;
+        try {
+          const connMod = require('./connections');
+          const spliced = require('./projects').spliceBlock(text, connMod.blockBody(), connMod.START, connMod.END);
+          const { MAX_BYTES } = require('./instructions');
+          if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; connLanded = true; }
+        } catch { /* reported below rather than swallowed */ }
+        if (!connLanded) {
+          steps.push({ label: 'could not add the connections section to its instructions, so it cannot help you connect a provider; edit its instructions or remake it', ok: false });
+        }
+      }
     // The projects block rides from birth too (#323). It used to arrive by
     // `projects.syncAgent` once the board could see the session, which is at
     // least one poll AFTER the session started, so every agent made onto a

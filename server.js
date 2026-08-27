@@ -160,6 +160,7 @@ const ping = require('./engine/ping');
 const notify = require('./engine/notify');
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
+const connections = require('./engine/connections');
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
@@ -4603,6 +4604,11 @@ const server = http.createServer((req, res) => {
           // The reports-to block names the person in its default form (#336),
           // so a new name here has to reach it too. Same roster, same posture.
           try { reports.syncEveryone(roster); } catch { /* carried by the marker, not here */ }
+          /* #1034: the connections block rides the same sweep. Its words never
+             change, so this is a no-op for an agent that already has it, and it
+             is the one write that gives it to every agent created before the
+             block existed. */
+          try { connections.syncEveryone(roster); } catch { /* carried by the marker, not here */ }
         }
         catch (err2) { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not tell the agents') }]; }
         sendJson(res, 200, { you: saved, told });
