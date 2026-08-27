@@ -68,16 +68,72 @@ const roles = require('./roles');
 // `why`: one line a business person can choose by, shown under the picker on
 // the create form and the agent's Model tab (#405). Relative to each other,
 // which is the only comparison a person making this choice has.
+/**
+ * ⚠️ EVERY ENTRY CARRIES ITS PROVIDER (#1026), and it is not decoration.
+ *
+ * This list was written when there was one vendor, so nothing checked which
+ * one a model belonged to. Two things follow from that today, and the second
+ * is live rather than theoretical:
+ *
+ *   - the create screen reads this list straight into its dropdown, so a GPT
+ *     agent is offered four Claude models; and
+ *   - `createAgent` resolved a key with no provider check.
+ *
+ * 🛑 AND THE FIRST VERSION OF THIS COMMENT CLAIMED A HOLE THAT DOES NOT EXIST.
+ * I wrote that `setModel` would hand `--model claude-opus-5` to codex. It does
+ * not: it refuses a codex agent outright, and has since #245, three lines into
+ * its own body. I asserted that before reading the function I was describing,
+ * in the comment justifying this change. What is actually wrong with that
+ * guard is narrower and is fixed below: its refusal says OpenAI "picks its own
+ * model for now", which stops being true the day this list has OpenAI rows in
+ * it, and it is a blanket refusal where a provider-scoped one now fits.
+ *
+ * 🛑 NO GPT ENTRIES ARE INVENTED HERE. A wrong model name is not a cosmetic
+ * error, it is an agent that fails to start, and the list of models an account
+ * can actually use is already fetched by engine/openaiaccounts.js on every key
+ * check and thrown away (#1026). The OpenAI rows come from that, plus a `why`
+ * line a person can choose by, which no runner can produce. This change is the
+ * prerequisite: the shape that makes adding them safe.
+ */
 const MODELS = [
-  { key: 'fable', label: 'Claude Fable 5', arg: 'claude-fable-5',
+  { key: 'fable', provider: 'anthropic', label: 'Claude Fable 5', arg: 'claude-fable-5',
     why: 'The most capable, and the most expensive to run. For work where being right matters more than being quick.' },
-  { key: 'opus', label: 'Claude Opus 5', arg: 'claude-opus-5',
+  { key: 'opus', provider: 'anthropic', label: 'Claude Opus 5', arg: 'claude-opus-5',
     why: 'Slower, and it holds more of a long job in its head.' },
-  { key: 'sonnet', label: 'Claude Sonnet 5', arg: 'claude-sonnet-5', default: true,
+  { key: 'sonnet', provider: 'anthropic', label: 'Claude Sonnet 5', arg: 'claude-sonnet-5', default: true,
     why: 'The everyday choice. Quick, and good at most work.' },
-  { key: 'haiku', label: 'Claude Haiku 4.5', arg: 'claude-haiku-4-5-20251001',
+  { key: 'haiku', provider: 'anthropic', label: 'Claude Haiku 4.5', arg: 'claude-haiku-4-5-20251001',
     why: 'The quickest and the cheapest. For small, simple jobs done often.' },
 ];
+
+/**
+ * The models a given provider can actually run.
+ *
+ * ⚠️ ONE resolution, used by the route, by `setModel` and by creation, so the
+ * menu a person sees and the check that accepts their answer cannot disagree.
+ * That is the same rule the list itself was already written to: served from
+ * here so the menu and the flag the job runs with cannot drift.
+ *
+ * 📌 `provider` is the PROVIDER key ('anthropic' | 'openai'), which is what
+ * `createAgent` already takes, not the runner name ('claude' | 'codex') it
+ * derives. Two vocabularies for one fact is how these drift.
+ */
+function modelsFor(provider) {
+  const want = provider === 'openai' ? 'openai' : 'anthropic';
+  return MODELS.filter((m) => m.provider === want);
+}
+
+/**
+ * Resolve a model key WITHIN a provider, or answer null.
+ *
+ * ⚠️ THE REFUSAL IS THE POINT. Both call sites used a bare
+ * `MODELS.find(x => x.key === key)`, which cannot tell "no such model" from
+ * "a real model belonging to the other vendor" -- and the second is the one
+ * that produces an agent launched with a flag its runner has never heard of.
+ */
+function modelFor(provider, modelKey) {
+  return modelsFor(provider).find((m) => m.key === String(modelKey)) || null;
+}
 // ⚠️ The ROSTER, from the module that defines what an agent name is. A second
 // reading of tmux here would be a second definition of "who is already
 // running", and this codebase's worst defects have all been two definitions of
@@ -660,8 +716,9 @@ function setModel(name, modelKey) {
   if (!NAME_RE.test(String(clean == null ? '' : clean))) {
     return { outcome: OUTCOME.REFUSED, because: 'that is not a name we can act on' };
   }
-  const m = MODELS.find((x) => x.key === String(modelKey));
-  if (!m) return { outcome: OUTCOME.REFUSED, because: 'pick a model from the list' };
+  /* ⚠️ RESOLVED AFTER the job is read, because which models are valid depends
+     on which provider THIS agent runs on (#1026). Resolving first, against the
+     whole list, is what made the refusal below have to be a blanket one. */
 
   /* ⚠️ THROUGH `readJob`, so this rewrite carries the agent's ACCOUNT forward.
      Reading the two binary paths by hand was correct while the model was the
@@ -674,11 +731,30 @@ function setModel(name, modelKey) {
       because: `${clean} was not started by Kosmos, so we cannot change what it runs on.`,
     };
   }
-  if (job.runner === 'codex') {
-    // The catalogue this function validates against is Claude's (#245 v1);
-    // writing one of its args into a codex launch would hand codex a model
-    // name it has never heard of, at its next restart, silently.
-    return { outcome: OUTCOME.REFUSED, because: `${clean} runs on OpenAI, which picks its own model for now` };
+  /* The agent's PROVIDER, from the runner its job actually launches. One
+     derivation, the same direction `createAgent` goes in reverse. */
+  const agentProvider = job.runner === 'codex' ? 'openai' : 'anthropic';
+  const m = modelFor(agentProvider, modelKey);
+  if (!m) {
+    /* ⚠️ THREE DIFFERENT REFUSALS, because they send a person three places.
+       The blanket "OpenAI picks its own model for now" that stood here was
+       true while this list had one vendor in it (#245 v1) and becomes FALSE
+       the day OpenAI rows are added -- and nothing would have caught it,
+       because it is a sentence rather than a check. Scoped to the provider,
+       the right refusal falls out of the data instead of being remembered. */
+    if (!modelsFor(agentProvider).length) {
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: `${clean} runs on OpenAI, and there are no OpenAI models to choose from yet`,
+      };
+    }
+    const elsewhere = MODELS.find((x) => x.key === String(modelKey));
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: elsewhere
+        ? `${elsewhere.label} is not a model ${agentProvider === 'openai' ? 'OpenAI' : 'Anthropic'} runs, so ${clean} cannot use it`
+        : 'pick a model from the list',
+    };
   }
 
   try {
@@ -1410,8 +1486,21 @@ function createAgentInner(opts) {
   }
   let modelArg = null;
   if (wantModelKey !== undefined) {
-    const m = MODELS.find((x) => x.key === String(wantModelKey));
-    if (!m) return { outcome: OUTCOME.REFUSED, because: 'pick a model from the list', steps };
+      /* ⚠️ SCOPED TO THIS AGENT'S PROVIDER (#1026). A bare key lookup accepts a
+       real model belonging to the other vendor, and the refusal has to tell
+       those apart: "there is no such model" and "that model is not one this
+       provider runs" send a person to different places. */
+    const m = modelFor(provider, wantModelKey);
+    if (!m) {
+      const elsewhere = MODELS.find((x) => x.key === String(wantModelKey));
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: elsewhere
+          ? `${elsewhere.label} is not a model ${provider === 'openai' ? 'OpenAI' : 'Anthropic'} runs; pick one from that provider's list`
+          : 'pick a model from the list',
+        steps,
+      };
+    }
     modelArg = m.arg;
   }
 
@@ -2232,6 +2321,13 @@ const SELF_STARTS = 'it starts itself when this Mac is on and it is not removed'
 
 module.exports = {
   MODELS,
+  // ⚠️ Exported so the ROUTE serves a provider-scoped list rather than
+  // filtering client-side. A screen that derives which models belong to which
+  // provider is a second definition of that fact, and this file's own header
+  // exists because two definitions of one fact is where its worst defects came
+  // from. The menu, the create check and the change check now all read one.
+  modelsFor,
+  modelFor,
   SELF_STARTS,
   createdLog, createdLogFile, disabledJobs, runningJobs,
   /* ⚠️ Exported as the ONE machine-name rule. `slugFor` only lowercases — it

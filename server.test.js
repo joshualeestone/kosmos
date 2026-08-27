@@ -2671,8 +2671,16 @@ test('the roles payload serves the models list, and the mark family map is whole
     // model args -- the client sends a key and the engine owns the mapping,
     // so a page can never name the executable-facing id itself.
     // (`why` joined in #405: the one line under the picker. Copy, not an id.)
-    assert.deepEqual(Object.keys(m).sort(), ['default', 'key', 'label', 'why'],
+    // (`provider` joined in #1026: the screen has to show a GPT agent GPT
+    //  models, and deriving vendor-from-model on the page would be a second
+    //  definition of something the engine already knows. It is a CATEGORY,
+    //  not an executable-facing id, which is the line this allowlist draws --
+    //  `arg` is still absent and must stay absent.)
+    assert.deepEqual(Object.keys(m).sort(), ['default', 'key', 'label', 'provider', 'why'],
       `model ${m.key} serves fields the screen must not receive`);
+    assert.ok(m.provider === 'anthropic' || m.provider === 'openai',
+      `model ${m.key} carries a provider the screen cannot branch on: ${m.provider}`);
+    assert.equal('arg' in m, false, 'the executable-facing model id reached the page');
     assert.equal(typeof m.label, 'string');
     assert.ok(typeof m.why === 'string' && m.why.length > 0, `model ${m.key} has no line to choose it by`);
   }
