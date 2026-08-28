@@ -47,11 +47,36 @@ points at it and tells the reader not to trust its own numbers.
    - asserts its conclusion against its own numbers, and prints the OPPOSITE
      conclusion when agents have started reporting the state themselves
 
-2. `tools/test-needs-you-source.sh`, six arms.
+2. `tools/test-needs-you-source.sh`, twenty-four arms.
    **Arm 3 is the load-bearing one:** the tool must be able to print the
    uncomfortable answer. A measuring tool that can only ever return
    "load-bearing on the scrape" is decoration on that sentence, not evidence
-   for it.
+   for it. Arms 3b, 3c, 5b, 5c, 7 and 8 were all added at challenge-loop
+   iteration 1 and each one has a matching perturbation that turns it red.
+
+### Amended at iteration 1, because the first version was weaker than it read
+
+- **The verdict no longer rests on a share alone.** 77% of the record is
+  `working` heartbeats, so a share-only threshold gets harder to trip every
+  day for reasons unrelated to whether agents use the verb. It now also
+  requires DISTINCT WORKING AGENTS to stay at or below two, which does not
+  drift with heartbeat volume.
+- **Walkthrough fixtures are separated, not counted as colleagues.** 14 of the
+  15 agent-typed records are `walk-*`. One more walkthrough run at that volume
+  would have printed "agents ARE reporting this state themselves" on the
+  strength of test traffic, telling a reader that correct shipped
+  documentation was stale.
+- **The string match is now CHECKED against the hook's source at run time.**
+  The first version said a constant made a reworded hook "fail loudly". It did
+  not: nothing linked them, so a reworded hook would have read zero hook
+  records, reclassified all 22 as agent-typed, and printed the same verdict
+  with an inverted split.
+- **An empty-but-existing record refuses.** It used to print the tool's
+  STRONGEST conclusion from zero data.
+- **`--dir` with an empty value is an error**, not a silent fall back to the
+  live record.
+- **Unreadable is distinguished from absent**, because they have different
+  fixes.
 
 3. The sentence itself, ONCE, at `engine/status.js` rule 3, where the scrape
    is given precedence over a self-report. That is where a reader forms the
@@ -81,10 +106,22 @@ points at it and tells the reader not to trust its own numbers.
 The provenance split is a STRING MATCH on the hook's own sentence
 (`install/kosmos-report-hook.sh:218`), because the record does not store who
 wrote a line: `report --auto` is a write-time discriminator
-(`selfreport.js:109`) and is not persisted. An agent typing those exact words
-is therefore counted as a hook. That biases the count in the SAFE direction
-for this argument, since it can only make agent-typed look smaller than it is,
-never larger. Filed as its own card.
+(`selfreport.js:109`) and is not persisted. Filed as its own card, #1453.
+
+🛑 **AND I HAD THAT CAVEAT'S DIRECTION BACKWARDS.** I first wrote that the
+error "biases the count in the SAFE direction, since it can only make
+agent-typed look smaller than it is". That is exactly wrong. **The conclusion
+here IS "agent-typed is near zero", so making agent-typed look smaller makes
+my own conclusion look STRONGER.** It is the flattering direction, which is
+the one direction a caveat must not be wrong in. Splinter's question about
+#1453 against this number is what surfaced it; an independent reviewer read
+the same sentence and endorsed it.
+
+✅ Bounded rather than argued, so the conclusion does not rest on my being
+right about direction: granting EVERY hook-classified record to the agents
+leaves 8 of 26,269 outside the fixtures, 0.03%, still a third of the tool's
+cutoff. And the 7 are not plausibly hand-typed - each carries the hook's
+generated shape, a tool name plus a verbatim command.
 
 ## What would change my mind
 

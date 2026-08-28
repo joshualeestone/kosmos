@@ -26,14 +26,17 @@
  * 'needs_you' is the next one and needs the state transition, not a write;
  * it is named here so the payload's `kind` is a closed list from the start.
  *
- * ⚠️ AND THE TRANSITION HAS ONE PRODUCER TODAY, WHICH IS NOT THE AGENT. A
- * `needs_you` on the board comes from the pane reader, not from an agent
- * running `kosmos report needs_you` -- so a phone ping wired to this kind
- * would today be a ping about what a SCREEN looked like, which is a weaker
- * claim than the other two kinds make and should be said out loud before the
- * relay exists rather than after. The measurement and the argument live at
- * `status.js` rule 3 (#1253); re-run them with
- * `node tools/needs-you-source.js`.
+ * ⚠️ AND NO PRODUCER OF THIS TRANSITION IS THE AGENT'S OWN JUDGEMENT. Two
+ * things write it today -- the pane reader, and the PermissionRequest hook
+ * writing on an agent's behalf -- and a working agent has typed
+ * `kosmos report needs_you` exactly once, ever. The two are NOT the same
+ * quality of event and the distinction matters here more than anywhere: a
+ * permission box is a real machine event and a genuine person-blocker, while
+ * a scraped one is an inference about what a screen looked like. So a ping
+ * wired to this kind would carry a MIXTURE, and the weaker half is the
+ * majority. Worth saying before the relay exists rather than after. The
+ * measurement and the argument live at `status.js` rule 3 (#1253); re-run
+ * them with `node tools/needs-you-source.js`.
  */
 const fs = require('node:fs');
 const path = require('node:path');
