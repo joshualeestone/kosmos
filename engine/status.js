@@ -3232,10 +3232,12 @@ function readIdentity(sessionName) {
  * here and cost the sentence boundary.
  *
  * 📌 THAT MEASUREMENT WAS AGAINST AN EARLIER FORM OF THIS FIX, whose lookbehind
- * had no prefix anchor. With the anchor below, adding `Jr` back is INERT: the
- * anchor already refuses it, because `Bob` is not a title or an initial. The
- * exclusion stays because the list should say what it means, but a maintainer
- * who tests the claim above in isolation will find it no longer reproduces.
+ * had no prefix anchor. With the anchor below, adding `Jr` back is inert FOR A
+ * NAME THAT CROSSES ONE, because the anchor already refuses it: `Bob` is not a
+ * title or an initial. ⚠️ It is NOT inert at FIRST position, where the anchor
+ * does not apply: `You are Jr. Smith, a clerk.` would go from `"Jr"`/null to
+ * `"Jr. Smith"`/`"clerk"`. The exclusion stays, and this note says which half
+ * of the claim reproduces so nobody re-adds them on a false promise.
  *
  * 🔑 AND A TITLE MAY ONLY BE CROSSED AS THE FIRST WORD, which is what makes
  * `St` safe to keep. It is a prefix in `St. John Rivers` and a SURNAME in

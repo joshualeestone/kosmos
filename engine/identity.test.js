@@ -192,12 +192,29 @@ test('#1168 regression: a title or an initial is not the end of a sentence', () 
      it and was the unpinned half. */
   assert.equal(r('You are Anna the copywriter.').role, null,
     'a no-comma role on one line is back; main returned "copywriter" here');
+  /* 🔑 AND THE BOLD ARM IS EXEMPT FROM THAT RULE ON PURPOSE, which nothing
+     pinned: mutating the `m[1] === undefined` guard away leaves the suite green
+     while deleting every bold no-comma role. The comment defends keeping them
+     because it is not a regression; this is the row that makes that true. */
+  assert.equal(r('You are **Anna** the copywriter.').role, 'copywriter',
+    'the bold arm lost its no-comma role, which was never a regression to fix');
+
+  /* 📌 THE INTERSECTION OF THE TWO NEW RULES, and the row that proves the prefix
+     run did not eat the sentence boundary. Better than main ("Dr"/null) and than
+     pre-#1168 ("Dr. Smith. He"/"writes copy"). */
+  assert.equal(who('You are Dr. Smith. He writes copy.'), 'Dr. Smith');
+  assert.equal(r('You are Dr. Smith. He writes copy.').role, null);
 
   /* 🔑 EVERY TITLE IN THE LIST GETS AN ASSERTION. Mutation testing showed the
      list could be cut to `Dr|Mr|Ms|St` with the suite still green, so four of
      them were load-bearing by intent and unprotected. The list is interpolated
      into a `new RegExp`, where a typo is silent. */
   assert.equal(who('You are Mrs. Smith, a copywriter.'), 'Mrs. Smith');
+  /* ⚠️ `Ms` NEEDS A ROW THAT CROSSES IT. The only Ms row was
+     `Ms. Understood by all.` asserting a null role, which is null with OR
+     without Ms in the list: a control aimed at the arm that cannot fail.
+     Mutation found it surviving while the other seven died. */
+  assert.equal(who('You are Ms. Smith, a copywriter.'), 'Ms. Smith');
   assert.equal(who('You are Prof. Plum, a teacher.'), 'Prof. Plum');
   assert.equal(who('You are Rev. Green, a vicar.'), 'Rev. Green');
   assert.equal(who('You are Hon. Scarlett, a judge.'), 'Hon. Scarlett');
@@ -237,6 +254,14 @@ test('#1168 regression: a title or an initial is not the end of a sentence', () 
      deliberate rather than noticed later. */
   assert.equal(who('You are The Owner Of This Machine.'), 'The Owner Of This Machine',
     'the name bound moved, which is the direction that finds people in prose');
+  /* 🛑 AND THAT ROW CANNOT DETECT A WIDENING, which is the direction the comment
+     above calls dangerous. It is exactly five Title-Case words, so its capture
+     SATURATES at the current bound: measured, it survives {0,5}, {0,10} and
+     {0,50} unchanged. A canary that can only fail in one direction is half a
+     canary, so here is one long enough to move in the other. */
+  assert.equal(who('You are The Person Who Owns This Machine And Runs It Every Day.'),
+    'The Person Who Owns This',
+    'the bound widened; this row grows one word per step and is here to say so');
 });
 
 test('a sentence that is not a name is NOT an agent', () => {

@@ -103,3 +103,25 @@ below record why. This is the shipped shape.**
   ⚠️ The review offered the bound as the fix for it; **I checked and it is not**, which is why
   the comment says so rather than repeating the suggestion.
 - Two orphaned comments removed, and the bold-arm justification narrowed to what is true.
+
+## Iteration 5
+
+No blockers. Three coverage gaps, and all three are **controls aimed at an arm that cannot
+fail**, which is this branch's recurring mistake rather than three unrelated ones:
+
+- **`Ms` survived mutation while the other seven died.** Iteration 4 added a title row each,
+  and the `Ms` row asserted a NULL ROLE on `Ms. Understood by all.`, which is null whether or
+  not `Ms` is in the list. Fixed with a row that crosses it. **Re-run the mutation myself
+  afterwards rather than trusting the fix: all eight now die.**
+- **The widening canary saturates.** `The Owner Of This Machine` is exactly five Title-Case
+  words, so it pins narrowing and survives `{0,5}`, `{0,10}`, `{0,50}` unchanged. A longer
+  canary now moves one word per step.
+- **The bold arm's exemption from the comma rule was unpinned**: mutating the guard away left
+  the suite green while deleting every bold no-comma role.
+- The `Jr` inertness claim was over-stated: inert for a name that CROSSES one, not at first
+  position. The comment now says which half reproduces.
+
+⭐ And a structural reason the widening is safe, which is better than the empirical result:
+the trailing `([^.\n]*)` can match empty, so the bound cannot change match-versus-no-match,
+only name length. **It cannot invent an agent out of prose; it can only lengthen a false
+positive that already existed.**
