@@ -86,15 +86,68 @@ function isLibrary(file) {
  * control tests its LIVENESS. **A control proves an instrument is not dead. It
  * cannot prove it is not over-eager.**
  *
- * 📌 The stem match itself is deliberate and stays: the runner invokes sixteen
- * checks through `run_one "$n" node "docs/browser-checks/$n.js"`, so there is no
- * literal filename to match for those. Requiring the stem not to abut another
- * name character keeps that and removes the collision. Regression-checked: 48
- * wired by substring, 48 by boundary, nothing newly reported unwired.
+ * 🛑 SUPERSEDED THE SAME DAY, AND KITTY RETRACTED THE SCOPE HERSELF BEFORE
+ * ANYBODY ASKED: "my boundary fix closes the COLLISION and does not make the
+ * matcher precise. A name in a loop body still reads as wired."
+ *
+ * ⇒ SO DO NOT READ THIS BLOCK AS DESCRIBING THE MATCHER BELOW. It no longer
+ * uses a boundary regex at all. It is kept because the REASONING is the reason
+ * the file ended up position-aware, and because deleting the history would
+ * leave the next person to rediscover the collision from scratch.
+ *
+ * ⭐ The half that generalises, and it outlived the fix it was written for: a
+ * control proves an instrument is not DEAD; it cannot prove it is not
+ * OVER-EAGER. Both of Kitty's attacks and Mona Lisa's passed every control
+ * this file had.
  */
+/* 🛑 THIS ASKS ABOUT POSITION, NOT PRESENCE, AND THE DIFFERENCE IS THE WHOLE
+   GUARD. Two people attacked the presence form on 2026-08-28 and both got
+   through, from opposite directions:
+
+     Ice Cream Kitty  a name that is a PREFIX of a wired name reads as wired
+     Mona Lisa        a name in the LOOP BODY instead of the loop LIST:
+
+         for n in ... render-model-change; do   ->   for n in ...; do render-model-change
+           run_one "$n" ...                              run_one "$n" ...
+         done                                          done
+
+   Her state parses (`bash -n` clean), runs the name as a command once per
+   iteration, fails as command-not-found, and NEVER RUNS THE CHECK. The merged
+   guard said 4 pass 0 fail over it.
+
+   ⭐ Kitty's boundary fix closed the collision and she said so herself: it does
+   not make the matcher precise. Tightening a text match answers "does this
+   name appear". The card asks "will this check run". NO AMOUNT OF REGEX
+   CONVERTS THE FIRST QUESTION INTO THE SECOND, which is why this stops
+   patching the matcher and reads the three positions that actually invoke:
+
+     1. run_one "<name>"                     explicit
+     2. a `for n in <list>; do` whose BODY calls run_one   the stem loop
+     3. node docs/browser-checks/<name>.js   direct launch
+
+   ⚠️ POSITION 3 IS NOT DECORATION AND I NEARLY SHIPPED WITHOUT IT. My first
+   version knew only 1 and 2, and it reported `thread-server` unwired. That is
+   wrong: it is the helper server `render-thread` needs, launched at :304 with
+   a plain backgrounded `node`. A stricter instrument that does not know every
+   real mechanism MANUFACTURES A FALSE ALARM, which costs somebody an
+   afternoon exactly as a false pass does.
+
+   📌 There is a fourth `for n in` in the runner that must NOT count: the
+   "server did not boot" branch, which lists 14 names only to push them onto
+   FAILED. Keying on run_one in the body is what excludes it. */
+function invokedNames(code) {
+  const names = new Set();
+  for (const m of code.matchAll(/run_one\s+"([^"]+)"/g)) names.add(m[1]);
+  for (const loop of code.matchAll(/for n in ([^;]+); do([\s\S]*?)done/g)) {
+    if (!/run_one/.test(loop[2])) continue;
+    for (const n of loop[1].trim().split(/\s+/)) names.add(n);
+  }
+  for (const m of code.matchAll(/node\s+docs\/browser-checks\/([a-z0-9-]+)\.js/g)) names.add(m[1]);
+  return names;
+}
+
 function wiredIn(code, stem) {
-  const safe = stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?<![A-Za-z0-9_-])${safe}(?![A-Za-z0-9_-])`).test(code);
+  return invokedNames(code).has(stem);
 }
 
 function checkFiles() {
@@ -150,6 +203,27 @@ test('#1387: the instrument is reading something', () => {
      passes. */
   assert.ok(!wiredIn('run_one "render-talk-search" node x', 'render-talk'),
     'the matcher counts a name as wired when only a LONGER name containing it is present');
+
+  /* 🔑 THE POSITION ARM (Mona Lisa, 2026-08-28). The two arms above are both
+     satisfied by a name sitting anywhere in the file, so neither can tell a
+     list item from a loop-body command. This is the state she actually
+     produced: valid shell, `bash -n` clean, check never runs. */
+  const inList = 'for n in alpha beta; do\n  run_one "$n" node x\ndone';
+  const inBody = 'for n in alpha; do beta\n  run_one "$n" node x\ndone';
+  assert.ok(wiredIn(inList, 'beta'), 'a name in the for-LIST must count as invoked');
+  assert.ok(!wiredIn(inBody, 'beta'),
+    'a name in the loop BODY reads as wired; it runs as a command, fails command-not-found, and the check never executes');
+
+  /* 🔑 AND THE FAILED-LIST ARM. The runner has a `for n in <14 names>` whose
+     body only pushes onto FAILED when the server did not boot. Being named
+     there is the OPPOSITE of being run, so it must confer nothing. */
+  assert.ok(!wiredIn('for n in gamma; do FAILED+=("$n (server did not boot)"); done', 'gamma'),
+    'a name listed only in the server-did-not-boot FAILED branch counts as invoked');
+
+  /* 🔑 DIRECT LAUNCH. thread-server is real and is started this way, not via
+     run_one. Without this the guard reports a live helper as unwired. */
+  assert.ok(wiredIn('PORT="$p" node docs/browser-checks/thread-server.js > log 2>&1 &', 'thread-server'),
+    'a check launched directly by node, not via run_one, reads as unwired');
 });
 
 test('#1387: every browser check is RUN by the runner, or is listed as unwired with a reason', () => {
