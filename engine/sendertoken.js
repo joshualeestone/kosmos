@@ -171,6 +171,38 @@ function live(sessionName) {
   return readTokens(sessionName).map((t) => t.instance);
 }
 
+/**
+ * Every agent this store currently holds a token for, by safeKey'd name.
+ *
+ * 🔑 WHY THE STORE AND NOT A NEW LIST. The token store is already a roster of
+ * agents-by-credential, and unlike the pane roster it does not care how the
+ * agent is run. `resolveName`'s comment says exactly this; that reading was
+ * per-token, this one is the whole set. A second source of truth for "which
+ * agents exist" is the thing this codebase has paid for twice.
+ *
+ * ⚠️ HELD TOKENS ONLY, so `retire` and `revoke` take an agent off this list
+ * the moment they run. That is deliberate and it is what makes the credential
+ * the off switch: a cut-off agent stops being listed here, so anything built
+ * on this list loses it too rather than needing its own revocation check.
+ *
+ * ⚠️ RETURNS [] ON AN UNREADABLE STORE, and that is a claim this function is
+ * NOT entitled to make. Callers that must tell "nobody" from "we could not
+ * look" cannot use this; today's caller adds rows to a roster, so a failed
+ * read costs it a row it never had rather than deleting one it did.
+ */
+function keys() {
+  let names;
+  try { names = fs.readdirSync(DIR).filter((f) => f.endsWith('.json')); } catch { return []; }
+  const out = [];
+  for (const f of names) {
+    const key = f.slice(0, -'.json'.length);
+    let held;
+    try { held = readTokens(key); } catch { continue; }
+    if (held.length > 0) out.push(key);
+  }
+  return out;
+}
+
 /* Constant-time compare, so a caller cannot learn a token a byte at a time.
    Length first: timingSafeEqual throws on a mismatch, and length is not the
    secret. */
@@ -269,4 +301,4 @@ function resolveName(token) {
   return no;
 }
 
-module.exports = { mint, revoke, retire, live, resolve, resolveName, DIR, MAX_LIVE };
+module.exports = { mint, revoke, retire, live, keys, resolve, resolveName, DIR, MAX_LIVE };

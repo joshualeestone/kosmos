@@ -19,6 +19,11 @@ const os = require('node:os');
 const path = require('node:path');
 const store = require('./store');
 const selfreport = require('./selfreport');
+/* The two halves the pane used to supply on its own: the token store says
+   WHICH agent, the liveness record says it is STILL RUNNING. Neither module
+   requires this one, so there is no cycle. */
+const sendertoken = require('./sendertoken');
+const liveness = require('./liveness');
 /* For SESSION only: the sign-in flow's own tmux session name, defined once
    where the session is created. No cycle: connect never requires status. */
 const connect = require('./connect');
@@ -2987,6 +2992,119 @@ function reconcileReport(reported, scraped, nowMs) {
   return { state: STATE.IDLE, confidence: CONFIDENCE.STRUCTURED, because: said('it is at rest and nothing is needed'), reported: true, conflict: null };
 }
 
+/**
+ * A card for an agent that has NO PANE AT ALL.
+ *
+ * 🛑 WHAT THIS IS AND IS NOT. A tmux pane does two jobs at once: it says WHICH
+ * agent this is, and it says the agent is STILL RUNNING. Every agent on a
+ * machine without tmux has neither. The launch token replaces the first and
+ * the liveness beat replaces the second, and this function is what turns that
+ * pair into a row the board can hold. It invents no third source of truth: the
+ * caller decides who qualifies, this only shapes the answer.
+ *
+ * 🔑 `target: null`, AND IT IS THE LOAD-BEARING FIELD ON THIS CARD. There is
+ * no pane, so there is nowhere to type, and every consumer that types or reads
+ * a screen already refuses a card with no target (`chat.deliver`,
+ * `chat.screen`, `messages`). Measured: those guards are `if (!card.target)`,
+ * so a paneless card takes the refusal path they already had rather than
+ * needing a new branch anywhere.
+ *
+ * ⚠️ NULL, NEVER THE EMPTY STRING, and that is not fussiness. Two routes match
+ * a reporting process to its card with `roster.find((c) => c.target ===
+ * body.from_pane)` behind a `typeof body.from_pane === 'string'` gate, so a
+ * card carrying `''` would be matched by a request sending `from_pane: ""`.
+ * `null` cannot be reached that way.
+ *
+ * ⚠️ WHAT WE DO NOT KNOW IS NULL, NOT A DEFAULT. No transcript for a process
+ * on another machine, so no context and no model; no launch record here, so
+ * `neverRecorded` is false rather than a true that would render "made before
+ * Kosmos kept records" about an agent this Mac never made. `runner` is null
+ * because the token store does not record one -- the screen's fallback will
+ * read that as Anthropic, which is a display default we inherit and not a
+ * claim this card makes.
+ *
+ * 📌 THE NAME IS THE SAFEKEY'D ONE. `mint` files a token under
+ * `store.safeKey(sessionName)`, so that is the only spelling this store knows.
+ * For every name that survives safeKey unchanged the two are the same string.
+ */
+function panelessCard(key, nowMs) {
+  const identity = readIdentity(key);
+  /* The agent's own account, reconciled against a scrape that could not
+     happen. Passing UNKNOWN/NONE rather than skipping `reconcileReport` is
+     deliberate: the report rules -- a stale `working` decaying, `blocked` and
+     `needs_you` never decaying -- are the same rules for an agent with no
+     screen, and copying them here is how two readings of one report start to
+     disagree. */
+  const status = reconcileReport(
+    selfreport.read(key),
+    { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'it has no window on this computer to read, and it has not said anything yet' },
+    nowMs);
+  return {
+    name: identity.displayName,
+    sessionName: key,
+    session: null,
+    nameDerived: identity.derived,
+    role: identity.role,
+    target: null,
+    isAgentPane: false,
+    isAgentSession: false,
+    isFleetSession: false,
+    /* The tie is the TOKEN, which is stronger evidence than a session name:
+       we minted it, and `retire`/`revoke` take it back. A stranger cannot
+       arrive on this list by naming a tmux session after one of ours. */
+    isNamedOurs: true,
+    /* ⭐ The one field that tells a consumer this card has no pane behind it.
+       Only paneless cards carry it, so a pane card is untouched and every
+       existing reader sees exactly what it saw before. Test `=== true`. */
+    paneless: true,
+    runner: null,
+    task: null,
+    state: status.state,
+    stateConfidence: status.confidence,
+    stateProject: (typeof status.project === 'string' && status.project) ? status.project : null,
+    stateProjectInferred: status.projectInferred === true,
+    stateEvidence: status.evidence || null,
+    because: status.because,
+    stateReported: status.reported === true,
+    stateConflict: status.conflict || null,
+    context: {
+      tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false,
+      because: 'it is not running on this computer, so there is no transcript here to measure',
+    },
+    model: null,
+    modelName: null,
+    neverRecorded: false,
+    hasAvatar: Boolean(safeAvatar(key)),
+    profile: store.readProfile(key),
+  };
+}
+
+/**
+ * Which token-known agents have no pane and are beating right now.
+ *
+ * 🛑 BOTH CONDITIONS, AND NEITHER ALONE IS ENOUGH. A held token says an agent
+ * MAY speak; a fresh beat says something holding it IS RUNNING. A token on its
+ * own would put a card on the board for an agent that exited hours ago, which
+ * is precisely the failure the pane never had -- a dead pane disappears.
+ *
+ * 🔑 `alive()` RETURNS null FOR "NO RECORD", AND null IS NOT true. Every Mac
+ * agent has no liveness record, so no Mac agent can arrive here even if this
+ * ran with an empty pane list. That is what makes the whole change additive.
+ *
+ * ⚠️ A REVOKED AGENT DISAPPEARS, because `sendertoken.keys()` lists held
+ * tokens only. The credential is the off switch on this path exactly as it is
+ * on the reporting path, rather than this list needing its own idea of gone.
+ */
+function panelessKeys(paneKeys) {
+  const out = [];
+  for (const key of sendertoken.keys()) {
+    if (paneKeys.has(key)) continue;
+    if (liveness.alive(key) !== true) continue;
+    out.push(key);
+  }
+  return out;
+}
+
 function snapshot() {
   const { panes: read, rejected: unreadableLines, rejectedLines: unreadableSamples } = listPanes();
   const panes = onePanePerSession(read);
@@ -3062,6 +3180,12 @@ function snapshot() {
       // claim to have destroyed the record, because those belong to whoever
       // owns the NAME and this pane has not proven it is them.
       isNamedOurs: isNamedOurs(pane),
+      /* ⭐ This card HAS a pane, and saying so is not redundant (#1112 phase 1).
+         The board now also holds cards for agents with no pane at all, and the
+         fixture's own rule is that a field only some cards carry is read as
+         `undefined` in production while nothing fails. So both kinds answer
+         this, and a consumer branches on a fact rather than on absence. */
+      paneless: false,
       /* Which runner this pane RECORDED at launch (#245/#246): 'codex' or
          'claude', with empty meaning claude the way it does everywhere the
          option is absent. The switch screen keys on this, and it is the
@@ -3115,6 +3239,24 @@ function snapshot() {
     };
   });
 
+  /* ⭐ THE ROSTER CAN NOW HOLD AN AGENT WITH NO PANE (#1112 phase 1).
+     Merged HERE, in the one function that derives the fleet, rather than in
+     the server: `safeRoster()` is `snapshot()` plus a removal filter, and the
+     counts on the summary line are computed from this same array. A second
+     place that adds paneless rows would be two derivations of "the fleet",
+     which this file's own comments call its worst habit.
+
+     ⚠️ THE PANE WINS ON A TIE. An agent that has a pane AND a beat is one
+     agent, and its pane card is the richer one -- it carries a target, a
+     model and a context. Deduping on the safeKey'd name is what makes the
+     beat harmless for a Mac agent that later gets one. */
+  const paneKeys = new Set();
+  for (const a of agents) {
+    try { paneKeys.add(store.safeKey(a.sessionName)); } catch { /* a name we cannot key cannot collide */ }
+  }
+  const nowMs = Date.now();
+  for (const key of panelessKeys(paneKeys)) agents.push(panelessCard(key, nowMs));
+
   agents.sort((a, b) => a.name.localeCompare(b.name));
 
   return {
@@ -3144,7 +3286,13 @@ function countAgents(agents, unreadableLines, unreadableSamples) {
     total: agents.length,
     needsYou: agents.filter((a) => a.state === STATE.NEEDS_YOU).length,
     unknown: agents.filter((a) => a.state === STATE.UNKNOWN).length,
-    unreadableTokens: agents.filter((a) => a.context.tokens === null).length,
+    /* ⚠️ "we tried to read a transcript and could not", which is why a
+       paneless agent is not counted here. Its context is absent by
+       construction -- the process is on another machine and there is no
+       transcript on this one -- and folding that into a number that means
+       "something went wrong reading" would make the number quietly false the
+       first time a Windows agent appears. */
+    unreadableTokens: agents.filter((a) => a.paneless !== true && a.context.tokens === null).length,
     unknownFullness: agents.filter((a) => a.context.percent === null).length,
     // ⚠️ Lines tmux gave us that were not panes. Zero is the normal answer;
     // anything else means part of the fleet is missing from this board and the
