@@ -803,7 +803,7 @@ function installVendor(provider, m, o, existing) {
     // `command -v` (a login shell) finds. So the known homes are probed
     // explicitly, and `which` is the tail rung for anything else.
     //
-    // ⚠️ homeDir(), not homeDir(): this probe and resolveBin's canonical rung
+    // ⚠️ os.homedir() DIRECTLY, not homeDir(): this probe and resolveBin's canonical rung
     // are two halves of ONE flow and must agree about which machine they
     // are looking at, or a sandboxed test links its canonical path at the
     // operator's real binary. See homeDir().

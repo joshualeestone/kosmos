@@ -3993,6 +3993,39 @@ test('#1414: removal does NOT reformat sections the person wrote', () => {
   assert.ok(!after.includes(mine), 'and our entry is gone');
 });
 
+
+/**
+ * #1432: the plist must set HOME, and the KEY is data rather than code.
+ *
+ * 🛑 FOUND BY RENET TILLEY CROSS-REVIEWING THE SWEEP THAT BROKE IT. A blind
+ * identifier rewrite replaced `HOME` inside the plist XML:
+ *
+ *     main     <key>HOME</key><string>${xml(HOME)}</string>
+ *     branch   <key>homeDir()</key><string>${xml(homeDir())}</string>
+ *
+ * Every agent created from that branch got a launchd job setting a variable
+ * literally named `homeDir()` and **no HOME at all**.
+ *
+ * ⭐ IT IS INVISIBLE IN REVIEW FOR A STRUCTURAL REASON: the diff line reads as
+ * correct, because `${xml(homeDir())}` is exactly the intended change. The
+ * damage is three characters to its left, in the half of the line that is DATA.
+ *
+ * ⇒ And the checker added in the same PR could not see it either: it looks for
+ * frozen roots, not for XML keys. A guard that cannot detect the defect its own
+ * change introduced is the clearest statement of that guard's scope there is.
+ * This assertion is the cheap thing that closes it.
+ */
+test('#1432: the plist sets HOME, and the key is the literal string HOME', () => {
+  const src = fs.readFileSync(nodePath.join(__dirname, 'create.js'), 'utf8');
+  assert.match(src, /<key>HOME<\/key>/,
+    'the plist template no longer sets HOME: an agent would launch without it, and a rewrite of the VALUE must never touch the KEY');
+  assert.doesNotMatch(src, /<key>[a-zA-Z]+\(\)<\/key>/,
+    'a plist key is the source text of a function call, so an identifier rewrite reached into the XML');
+  /* CONTROL: a key that has always been there, so a passing assertion above
+     means the reader can actually see keys in this file. */
+  assert.match(src, /<key>PATH<\/key>/, 'the control key is missing, so this test cannot see plist keys at all');
+});
+
 test('#1414 CONTROL: the seam-scoped tidy still runs where it should', () => {
   /* The mirror of the arm above: proving we did not fix over-reach by simply
      doing nothing. Removing a MIDDLE entry must not leave a growing gap. */

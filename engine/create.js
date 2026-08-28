@@ -1371,7 +1371,7 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
   <key>WorkingDirectory</key><string>${xml(workerDir(name))}</string>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>homeDir()</key><string>${xml(homeDir())}</string>
+    <key>HOME</key><string>${xml(homeDir())}</string>
     <key>PATH</key><string>${xml(`${path.dirname(claudeBin)}:${path.dirname(tmuxBin)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`)}</string>
     <key>LANG</key><string>en_US.UTF-8</string>${configLine}${portLine}${tmuxSockLine}
   </dict>
