@@ -109,8 +109,31 @@ test('#1393 COMPATIBILITY: rows stay DESCENDANTS of #set-accounts', () => {
      #set-accounts would not. */
   const check = fs.readFileSync(
     path.join(__dirname, 'docs', 'browser-checks', 'render-accounts-openai.js'), 'utf8');
-  assert.match(check, /#set-accounts \.acct-box/,
-    'the gated check no longer uses the descendant selector this change relies on');
+  /* 🛑 PIN THE ANCHOR, NOT THE LEAF CLASS. This used to assert the literal
+     `#set-accounts .acct-box`, which pinned WHICH selector the check happens to
+     use. #1421 legitimately changed it to `#set-accounts .acct-prov` and read the
+     rows from inside each group, and this test went red on a correct check and
+     FAILED A RELEASE CUT AT THE SUITE.
+     ⇒ WHAT MUST STAY TRUE is that the check reaches account rows THROUGH
+     `#set-accounts`: a wrapper added inside it is safe, moving the rows out of it
+     is not. The class in the middle is free to change and this must not care.
+     ⚠️ Deliberately NOT "every query is rooted at #set-accounts": the check also
+     queries `#acct-provider-pick option`, the add-a-provider dialog, which is
+     correctly outside. I checked all four before writing this rule. */
+  /* 🛑 AND NOT `match(/querySelectorAll\('#set-accounts /)` EITHER. I wrote that
+     first and the arm caught it: it passes as long as ANY query is rooted there,
+     and the check has a second one (`.acct-disconnect`). Unrooting the ROW query
+     left it green. An existence test again, inside the fix for an existence test.
+     ✅ SO IT ASSERTS THE ABSENCE OF THE BAD SHAPE: no document-level query for an
+     account element that is not rooted at #set-accounts. */
+  const docQueries = check.match(/document\.querySelectorAll\('[^']+'/g) || [];
+  assert.ok(docQueries.length > 0,
+    'the check makes no document-level queries at all, so the rule below is vacuous');
+  const unrooted = docQueries.filter((q) => /\.acct/.test(q) && !/#set-accounts /.test(q));
+  assert.deepEqual(unrooted, [],
+    'the accounts check reaches an account element from the document without rooting it at #set-accounts, so moving the rows out of that container would go unnoticed by the release gate');
+  assert.match(check, /\.acct-box/,
+    'the accounts check no longer looks for account rows at all');
   const html = groups([CLAUDE_A, OPENAI], row);
   assert.match(html, /<section class="acct-prov">[\s\S]*class="acct-box"/,
     'rows are no longer inside the group box');
