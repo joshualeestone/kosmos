@@ -173,6 +173,26 @@ function main() {
       + 'measurement of a convention that does not exist yet. It becomes the short list\n'
       + 'as declarations appear, and until then its job is to show the size of the gap.');
   }
+    /* 🛑 THE PHRASES THE PARSER ACCEPTS, PRINTED WHERE PEOPLE ARE WHEN THEY WANT
+       THEM. Baron Draxum committed to this convention in writing and then failed
+       it on his very first PR (#1323): he wrote `ship: show`, copying the label
+       this tool PRINTS, when the phrase it READS is `user-visible`.
+
+       ⭐ HIS DIAGNOSIS, AND IT IS THE FIX: the output vocabulary and the input
+       vocabulary are different words for the same thing, and the input word
+       appeared NOWHERE in the output he had been reading for an hour -- only
+       inside a source file he had no reason to open.
+
+       ⚠️ AND HIS FAILING IS EVIDENCE RATHER THAN NOISE. He is the most motivated
+       user this tool has, he had just agreed to the convention, and he still
+       produced an unparseable declaration first time. ⇒ THE ELEVEN SILENT PRs
+       ARE NOT INDIFFERENCE. Somebody reading "13 SAY NOTHING" is at the exact
+       moment they want to know how to stop being one of them. */
+    console.log('\nTo be counted, put one of these in the PR body:\n'
+      + '  user-visible: yes        (or just the words "user-visible")\n'
+      + '  user-visible: no         (or "not user-visible", or "internal only")\n'
+      + '\nThe phrase read is user-visible. SHOW and INTERNAL are what this report\n'
+      + 'prints back; writing "ship: show" matches nothing.');
 }
 
 if (require.main === module) main();
