@@ -2767,6 +2767,15 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      ("4 agents"). The narrow rail has no room for the face icons the tab
      view shows alongside that count, so those stay hidden; the count text
      itself, previously hidden along with them, is what the mock draws. */
+  /* 📌 THE FACES STAY HIDDEN AND THE ONE-LINE RESTRUCTURE IS NOT HERE (#1303 E).
+     Both were tried and MEASURED, and both are recorded on the card rather than
+     shipped, because neither did what Josh asked for:
+       showing the face discs   median row 90.2px -> 114.2px, status pushed to a
+                                THIRD line. The discs are 40px and eat the width.
+       display:contents on .pjcard-h, faces and pill sharing a wrapping line
+                                90.2px -> 86.2px, and they STILL wrapped apart.
+     ⇒ The goal is "get a whole lot more of them displayed", so a restructure
+     that does not put them on one line has no payoff to justify its risk. */
   html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces { display: block; margin-top: 2px; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces > [aria-hidden] { display: none; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pjcount { margin-left: 0; }
@@ -23278,7 +23287,16 @@ function pjPillOf(p, unreadable) {
   const s = p.summary || {};
   if (!unreadable && s.needsYou) return { cls: 'attn', glyph: '<span class="haz" aria-hidden="true">!</span>', label: 'Needs you' };
   if (!unreadable && s.working) return { cls: '', glyph: '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>', label: 'Working' };
-  if (!s.total) return { cls: '', glyph: '', label: 'No agents yet' };
+  /* 🔑 NO STATUS AT ALL FOR A PROJECT WITH NO AGENTS (kosmos#1303 E). Josh: "On
+     the Projects tab I don't want to show 'no agents' as a status for a
+     project." An empty label is the signal; the row builder omits the pill
+     rather than rendering an empty one, so there is no stray element and no
+     `:empty` rule to remember.
+     ⚠️ THE FACT IS NOT LOST, it is just not dressed as a STATUS: the row already
+     omits the agent count when `s.total` is zero, so an empty project reads as a
+     title with nothing under it, which is what "no agents yet" was saying in more
+     words and in the slot reserved for what a project is DOING. */
+  if (!s.total) return { cls: '', glyph: '', label: '' };
   if (unreadable || s.unseen) return { cls: '', glyph: '', label: 'Can\u2019t tell' };
   return { cls: '', glyph: '<span class="rest" aria-hidden="true"></span>', label: 'Nothing running' };
 }
@@ -23333,7 +23351,7 @@ function projectCard(p, unreadable) {
        moves when the room paints, and the poll between could otherwise flash
        a bubble on the very project that is open. */
     + unreadBadge(p.id === PJ_CURRENT ? 0 : p.unread) + '</span>'
-    + '<span class="pjpill ' + pill.cls + '">' + pill.glyph + esc(pill.label) + '</span></span>'
+    + (pill.label ? '<span class="pjpill ' + pill.cls + '">' + pill.glyph + esc(pill.label) + '</span>' : '') + '</span>'
     + (p.description ? '<span class="pc-t">' + esc(p.description) + '</span>' : '')
     + facesRow
     + (bits.length ? '<span class="pj-who">' + esc(bits.join(', ')) + '</span>' : '')
