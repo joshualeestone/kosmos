@@ -13065,12 +13065,51 @@ async function paintAccounts() {
       + '</b>' + org + '</div>'
       + connBadge + '</div>'
       + shared
-      + '<button class="acct-disconnect" type="button" disabled '
-      + 'aria-label="Disconnect ' + who + '" '
-      + 'title="Not built yet: disconnecting an account here has no way to tell agents on it to stop first">Disconnect</button>'
+      /* 🛑 LIVE FOR OPENAI (#1372), STILL DEAD FOR CLAUDE (#1184), AND THE
+         SPLIT IS DELIBERATE. The old title said disconnecting "has no way to
+         tell agents on it to stop first". For OpenAI that is now FALSE: the
+         route enumerates the agents on an account and REFUSES while any is on
+         it, NAMING them. For Claude nothing has changed, so its button keeps
+         the honest dead label rather than inheriting a capability it does not
+         have. Two providers, two states, one row builder; the wrong move is to
+         enable both because one of them works. */
+      + (isOpenai
+        ? '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
+          + 'aria-label="Remove ' + who + '">Remove</button>'
+        : '<button class="acct-disconnect" type="button" disabled '
+          + 'aria-label="Disconnect ' + who + '" '
+          + 'title="Not built yet: disconnecting an account here has no way to tell agents on it to stop first">Disconnect</button>')
       + '</div>';
   };
   box.innerHTML = accountGroupsHtml(list, acctRowHtml);
+  /* #1372: remove an OpenAI account. The engine FORGETS rather than
+     deletes, so the sentence says the sign-in file is still on the
+     computer: "removed" and "deleted" are different promises and the
+     person is owed the true one.
+     ⚠️ THE REFUSAL PATH IS THE ONE THAT MATTERS, and it is shown VERBATIM
+     rather than replaced with "we could not". It arrives with the agents
+     NAMED, and a refusal a person cannot act on is the dead end this whole
+     card came from. */
+  for (const btn of box.querySelectorAll('[data-forget]')) {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      if (msg) msg.textContent = '';
+      try {
+        const res = await fetch('/api/accounts/openai', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ dir: btn.dataset.forget }),
+        });
+        const out = await res.json().catch(() => null);
+        if (!res.ok) throw new Error((out && out.error) || 'we could not remove that account');
+        if (msg) msg.textContent = (out && out.because) || 'Removed.';
+        await paintAccounts();
+      } catch (err) {
+        btn.disabled = false;
+        if (msg) msg.textContent = String((err && err.message) || 'we could not remove that account');
+      }
+    });
+  }
   for (const btn of box.querySelectorAll('[data-share]')) {
     btn.addEventListener('click', async () => {
       btn.disabled = true;

@@ -3027,6 +3027,68 @@ const server = http.createServer((req, res) => {
   }
 
   /**
+   * Forget an OpenAI account (#1372).
+   *
+   * 🛑 THE WAY BACK OUT THAT DID NOT EXIST. A person could add up to 500 and
+   * remove none, and the only escape was deleting a dot-directory in Terminal.
+   * Josh on that shape: "a total dead stop in the water."
+   *
+   * ⭐ THIS ROUTE'S ONE JOB BEYOND CALLING THE ENGINE IS ANSWERING "WHICH
+   * AGENTS ARE ON IT". `openaiaccounts` cannot ask, because it would have to
+   * require `create.js`, which requires it back. The route knows both, so the
+   * coupling lives here rather than as a cycle.
+   *
+   * 📌 An agent counts as on this account when its launch file names that home,
+   * OR when it runs on codex with no home recorded and this IS the default
+   * home, because that is where creation put its trust entry. The second half
+   * is the one a configDir-only check would miss, and created agents are the
+   * common case.
+   */
+  if (pathname === '/api/accounts/openai' && req.method === 'DELETE') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const dir = body && typeof body.dir === 'string' ? body.dir : '';
+        if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+
+        let isDefault = false;
+        try { isDefault = path.resolve(dir) === path.resolve(openaiAccounts.defaultDir()); }
+        catch { isDefault = false; }
+
+        const usedBy = [];
+        for (const a of (safeRoster() || [])) {
+          let job = null;
+          try { job = create.readJob(a.sessionName); } catch { job = null; }
+          if (!job || job.runner !== 'codex') continue;
+          const home = job.configDir || null;
+          let onIt = false;
+          try { onIt = home ? path.resolve(home) === path.resolve(dir) : isDefault; }
+          catch { onIt = false; }
+          if (onIt) usedBy.push(a.sessionName);
+        }
+
+        const out = openaiAccounts.forgetAccount(dir, usedBy);
+        if (!out.ok) {
+          sendJson(res, 400, { error: out.because, usedBy: out.usedBy || [] });
+          return;
+        }
+        /* "Removed" and "deleted" are different promises and the person is
+           entitled to know which one they got. */
+        sendJson(res, 200, {
+          forgotten: out.forgotten === true,
+          because: out.forgotten
+            ? 'That account is off the list. Its sign-in file is still on this computer, '
+              + 'so nothing was deleted.'
+            : 'That account was already gone from this computer.',
+          accounts: openaiAccounts.list(),
+        });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /**
    * Point an account's history at the shared tree, so agents can be moved to it.
    *
    * 📌 A SEPARATE ACT FROM THE MOVE, on purpose. It edits something outside
