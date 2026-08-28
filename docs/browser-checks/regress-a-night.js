@@ -86,12 +86,27 @@ function seed() {
     /* 📌 tell-toggle and notify-toggle are GONE (Josh, 2026-08-26, item 3):
        both telemetry rows were removed from Settings. The rule below is about
        the switches that ship, so it now names only those. */
-    const sw = await pg.evaluate(() => ['lim-toggle', 'auto-toggle', 'eng-toggle']
-      .map((id) => document.getElementById(id).getAttribute('aria-checked')));
+    /* 🛑 THE COUNT IS DERIVED, NOT TYPED (#1360). This said "all five switches
+       resolved" while asserting over three: the list was correctly narrowed when
+       both telemetry rows were removed on 2026-08-26 and the label was not.
+       ⚠️ IT IS A FAILURE MESSAGE, so it is read at the worst possible moment.
+       Baron hit `FAIL dark: all five switches resolved [null,"true",null]` while
+       working out whether a release carried a regression, and had to spend his
+       first move establishing that two switches were not MISSING from the array.
+       A count written beside a list will drift from it; one taken FROM the list
+       cannot. */
+    const SWITCH_IDS = ['lim-toggle', 'auto-toggle', 'eng-toggle'];
+    const sw = await pg.evaluate((ids) => ids
+      .map((id) => document.getElementById(id).getAttribute('aria-checked')), SWITCH_IDS);
     /* Every switch is born `mixed` and must resolve. A switch still reading
        mixed after a good load means its fetch never landed. */
-    chk(sw.every((x) => x === 'true' || x === 'false'),
-      theme + ': all five switches resolved', JSON.stringify(sw));
+    /* ⚠️ AND THE DETAIL NAMES THE SWITCHES, NOT THEIR POSITIONS. `[null,"true",null]`
+       is a count in different clothes: the reader still has to line indices up
+       against a list on another line to learn anything. */
+    const unresolved = SWITCH_IDS.filter((_, i) => sw[i] !== 'true' && sw[i] !== 'false');
+    chk(unresolved.length === 0,
+      theme + ': all ' + SWITCH_IDS.length + ' switches resolved',
+      unresolved.length ? 'unresolved: ' + unresolved.join(', ') : JSON.stringify(sw));
     /* Settings is sections since settings-nav; the reads below are by id and
        do not need a rect, but the section is opened anyway so a later rect
        assertion added here does not inherit a hidden element. */
