@@ -10724,6 +10724,57 @@ test('#1304: an agent asking what it runs on gets ONE answer shape, and an unkno
   }
 });
 
+/**
+ * #1304, second half. PigeonPete's `engine/runningas.js` reads the environment
+ * the claude process is ACTUALLY running with. His measurement is why it wins
+ * over the record: every agent brief on this machine said `claude-fable-5` and
+ * all 18 panes ran `claude-opus-5`, and one brief named the account its agent
+ * had been migrated OFF. Both were correct when written.
+ *
+ * 🔑 DRIVEN DIRECTLY, because a test that needed a process tree, a tmux server
+ * and a signed-in account would not run anywhere.
+ */
+test('#1304: the live reading wins, and the record answers for an agent it cannot see', () => {
+  const { whoamiFor } = require('./server.js');
+  /* 🔑 A REAL ROW FROM test-support/fleet. The repo's fixture-discipline test
+     refuses hand-built cards, and it refused mine, correctly: a hand-rolled row
+     missing `session` would have made the live arm untestable while looking
+     like it passed. Second time today the same guard has caught me. */
+  const board = fleet.install([fleet.agent('acctworker', { state: 'idle' })]);
+  const card = board.agents.find((a) => a && a.name === 'acctworker');
+  assert.ok(card && card.sessionName, 'the fixture produced no card, so nothing below is about an agent');
+  const known = [];
+
+  const live = {
+    ok: true,
+    account: 'josh@book.io',
+    organization: "josh@book.io's Organization",
+    model: 'claude-opus-5',
+    configDir: '/Users/agent1/.claude-account-d',
+  };
+  const fromProcess = whoamiFor(card, known, live);
+  assert.equal(fromProcess.source, 'process', 'the live reading was not preferred');
+  assert.equal(fromProcess.account.email, 'josh@book.io');
+  assert.equal(fromProcess.model.id, 'claude-opus-5');
+  assert.equal(fromProcess.model.name, 'Claude Opus 5', 'the id reached the screen instead of the name');
+
+  /* 🔑 THE OTHER ARM: an agent the live reader cannot see. A token-resolved
+     paneless agent has no process tree to walk, so the record answers and says
+     so. Without this row "prefer live" could be implemented as "only live",
+     and every paneless agent would silently lose its answer. */
+  const fromRecord = whoamiFor(card, known, { ok: false, because: 'no pane on this computer' });
+  assert.equal(fromRecord.source, 'record', 'a paneless agent got no fallback');
+  assert.ok('account' in fromRecord && 'model' in fromRecord, 'the fallback changed the shape');
+  fleet.restore();
+
+  /* 🛑 AND NEITHER SOURCE MAY GUESS. A live reading that knows neither fact is
+     not preferred over the record, and a record that knows nothing says null
+     rather than inventing a default. */
+  const empty = whoamiFor(card, known, { ok: true, account: null, model: null });
+  assert.equal(empty.source, 'record', 'an empty live reading was preferred over a record that might know');
+  assert.ok('account' in empty && 'model' in empty, 'the shape changed when nothing was known');
+});
+
 test('#1304: whoami refuses a sender it cannot resolve, in the same shape', async () => {
   /* 🔑 THE CONTROL. If the route answered `ok:true` for anybody, the row above
      would pass while the verb told a stranger's story. */
