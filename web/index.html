@@ -5110,7 +5110,47 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    fact. Full opacity in a settled colour, so it reads as done rather than as
    waiting to be pressed. Guarded by `render-found-undo.js`, which composites the
    opacity rather than reading the colour off the rule. */
-.fr-foundrow .fr-foundgo.added { opacity: 1; color: var(--label-2); border-color: var(--separator); }
+/* The yellow primary on the found rows, per Josh. `.btn.uprime` is this app's gold
+   (`.btn-gold` has no rule anywhere here).
+   🛑 ID-SCOPED, AND NOT BY PREFERENCE. `#firstrun .btn { background: #fff }` is an
+   ID selector, so a three-class rule loses to it and the fill silently never
+   arrives: MEASURED, the class was on the element and `--gold-bright` resolved,
+   and the button still painted white. `#firstrun .fr-confirm .btn.uprime` two
+   screens down already had to do exactly this.
+   📌 BOTH SURFACES, because `foundRowsHtml` paints the board's panel too and a row
+   should not look different depending on which screen offered it. */
+#firstrun .fr-foundrow .btn.uprime,
+#found-list .fr-foundrow .btn.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: var(--k-ink); }
+/* 🔑 GREEN WITH A CHECK (kosmos#1346), Josh: the Added state should read as clearly
+   done. `--ok` rather than a new value, because this file already measured it at
+   5.32:1 and its own note says "we already use this green" is not a measurement:
+   one vocabulary for one outcome.
+   🛑 AFTER the gold rule above and id-scoped to match it. Same specificity means
+   SOURCE ORDER decides, and a row that is done must stop wearing the fill that
+   says "press me".
+   🛑 THE CHECK IS GENERATED CONTENT, NOT TEXT, AND THAT IS DELIBERATE ON TWO
+   COUNTS. Roughly one man in twelve cannot separate red from green, so the colour
+   must not carry the state alone. And two shipped checks assert this button's
+   `textContent` is exactly "Added" (render-found-undo.js, render-found-board.js);
+   putting the glyph in the string would have forced both to be loosened, which is
+   how a guard quietly stops guarding. The word is unchanged, the mark is added. */
+#firstrun .fr-foundrow .fr-foundgo.added,
+#found-list .fr-foundrow .fr-foundgo.added { opacity: 1; color: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); background: none; font-weight: 600; }
+/* 🔑 GREEN WITH A CHECK (kosmos#1346), Josh: the Added state should read as clearly
+   done. `--ok` rather than a new value, because this file already measured it at
+   5.32:1 and its own note says "we already use this green" is not a measurement:
+   one vocabulary for one outcome.
+   🛑 THE CHECK IS GENERATED CONTENT, NOT TEXT, AND THAT IS DELIBERATE ON TWO
+   COUNTS. Roughly one man in twelve cannot separate red from green, so the colour
+   must not carry the state alone. And two shipped checks assert this button's
+   `textContent` is exactly "Added" (render-found-undo.js, render-found-board.js);
+   putting the glyph in the string would have forced both to be loosened, which is
+   how a guard quietly stops guarding. The word is unchanged, the mark is added. */
+.fr-foundrow .fr-foundgo.added::before { content: '\2713'; margin-right: 6px; font-weight: 700; }
+/* The yellow primary on the found rows, per Josh. `.btn.uprime` is this app's gold
+   (`.btn-gold` has no rule anywhere here) and is scoped per surface, so the found
+   rows need their own. The added state above turns the fill off again, so a row
+   that is done stops competing with the rows still waiting to be pressed. */
 /* An empty status line takes no room, so a row that has not been pressed is the
    same height as it was before the control existed. It spans both columns: a
    failure sentence is about the row, not about the button. */
@@ -30589,7 +30629,17 @@ function foundRowsHtml(agents) {
       + (dupes.has(a.name) ? '<span class="fr-founddir">' + esc(a.dir) + '</span>' : '')
       + '</span>'
       + '<span class="fr-foundact">'
-      + '<button class="btn fr-foundgo" type="button">Add ' + esc(a.name) + ' to Kosmos</button>'
+      /* 🔑 ONE LABEL ON EVERY ROW (kosmos#1346). Josh: the buttons all read "Add
+         to Kosmos", no agent name, styled as the yellow buttons.
+         🛑 THE NAME STAYS IN THE ACCESSIBLE NAME, AND THE ORDER MATTERS. Five
+         visible buttons reading the same three words are five identical choices
+         to somebody moving by control, which is the defect the Undo below already
+         solved. But WCAG's label-in-name asks that the visible text be CONTAINED
+         in the accessible name, so "Add April to Kosmos" would FAIL it: a person
+         saying "add to kosmos" to a voice control would reach nothing. The visible
+         words come FIRST and the name disambiguates after them. */
+      + '<button class="btn uprime fr-foundgo" type="button"'
+      + ' aria-label="Add to Kosmos, ' + esc(a.name) + '">Add to Kosmos</button>'
       /* 🛑 THE UNDO IS BUILT HIDDEN, NOT BUILT ON SUCCESS. This list is the one
          screen where somebody presses four buttons in a row, so the success arm
          must not rebuild markup -- and an element that already exists cannot be
@@ -30651,7 +30701,19 @@ function frPaintFound() {
        thing on the screen that says how many rows there are when the list runs
        past the fold, and the only thing that says how to get back once a search
        has narrowed it. */
-    + '<p class="dhint" id="fr-foundcount">' + esc(foundCountLine(n, n, '', false)) + '</p>';
+    /* 🛑 ONLY WHEN THE SEARCH BOX IS IN PLAY (kosmos#1346). Josh: "Remove the
+       '6 agents' line at the bottom of that screen. We already told them we found
+       3 agents in the headline."
+       ⚠️ THE ELEMENT IS NOT DELETED, because it is the SAME element that says
+       "Showing 3 of 14. Clear the box to see them all." once a search has narrowed
+       the list, and that sentence is the stated reason a search box is allowed on
+       this screen rather than a drawer. Deleting it outright would take the search
+       feedback with it. Gone where he objected to it, kept where it is the only
+       thing doing the job.
+       📌 `foundCountLine` ITSELF IS UNCHANGED, deliberately: its outputs are pinned
+       by web.found-scale.test.js, and moving the decision to the CALL SITE keeps
+       every one of those assertions meaning what it meant. */
+    + (search ? '<p class="dhint" id="fr-foundcount">' + esc(foundCountLine(n, n, '', false)) + '</p>' : '');
   /* Painted without the scroll clause, then corrected once the browser has laid
      the list out. One transition, and neither state is a false claim: the first
      says less than it could, the second says what is true. */
@@ -30696,7 +30758,16 @@ function foundOverflows() {
 /** Re-state the count line against the geometry as laid out. */
 function foundCountRefresh() {
   const line = document.getElementById('fr-foundcount');
-  const rows = document.querySelectorAll ? document.querySelectorAll('.fr-foundrow') : null;
+  /* 🛑 SCOPED TO THE FIRST-RUN CARD, AND THIS IS THE 3-vs-6 (kosmos#1346). Josh saw
+     a headline reading "We found 3 agents" over a line reading "6 agents". The
+     headline counts DATA (`FR_FOUND.agents.length`); this counted DOM rows across
+     the WHOLE DOCUMENT, and `foundRowsHtml` paints two surfaces that coexist: this
+     card and the board's own `#found-list` panel. So the union was reported, N
+     above and 2N below. REPRODUCED on a rendered page at exactly 3 and 6 before
+     this line changed.
+     ⚠️ NOT A DISCOVERY DEFECT. `engine/discover.js` dedups by directory and is
+     correct; nothing was ever counted twice outside this one query. */
+  const rows = document.querySelectorAll ? document.querySelectorAll('#firstrun .fr-foundrow') : null;
   if (!line || !rows || !rows.length) return;
   line.textContent = foundCountLine(rows.length, rows.length, '', foundOverflows());
 }
