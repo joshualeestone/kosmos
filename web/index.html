@@ -13102,8 +13102,17 @@ async function paintAccounts() {
         });
         const out = await res.json().catch(() => null);
         if (!res.ok) throw new Error((out && out.error) || 'we could not remove that account');
-        if (msg) msg.textContent = (out && out.because) || 'Removed.';
+        /* 🛑 THE REPAINT MUST COME FIRST, AND THIS ORDER IS THE WHOLE
+           PROMISE OF THE CARD. paintAccounts() opens by writing "Checking your
+           accounts…" into this same line and ends by blanking it, so setting the
+           sentence BEFORE the repaint showed the account vanishing with NO
+           explanation: the person is told nothing was deleted by a line that is
+           erased a few hundred milliseconds later.
+           ⚠️ Found by the browser gate, and only there. The route returns the
+           right words and every server test passes on them; nothing below the
+           page can see a sentence that is written and then wiped. */
         await paintAccounts();
+        if (msg) msg.textContent = (out && out.because) || 'Removed.';
       } catch (err) {
         btn.disabled = false;
         if (msg) msg.textContent = String((err && err.message) || 'we could not remove that account');
