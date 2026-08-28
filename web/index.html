@@ -2811,6 +2811,39 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pj-row .pjname b { font-size: .8125rem; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pjpill { font-size: .625rem; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pjcount { font-size: .625rem; }
+  /* 🔑 TWO LINES, WITH THE STATUS ON THE AGENTS LINE (kosmos#1303 E). Josh: "the
+     title / right below it, three agents / on the same line as the three agents,
+     in the same font size, the status... That way we can tighten up these
+     projects and get a whole lot more of them displayed."
+     MEASURED before: three lines, 90.2px, title 13px and the other two on their
+     own rows at 10px each. The font sizes already matched, so only the LINE was
+     wrong, and the row was paying a full line for it.
+     🛑 `display: contents` ON `.pjcard-h`, WHICH IS THE WHOLE TRICK AND THE REASON
+     THIS NEEDS NO MARKUP CHANGE. The pill lives INSIDE the header, so no grid on
+     `.pj-row` can reach it; dissolving the header makes `.pjname` and `.pjpill`
+     grid items of the row itself and they can then be placed independently.
+     ⚠️ THE MARKUP IS DELIBERATELY UNTOUCHED. The grid tile is the SAME markup laid
+     out differently (see #747/#748, which put the status at a tile's top right on
+     purpose), so moving the pill in the markup would silently redesign a surface
+     Josh did not ask about. A rule scoped to this layout cannot.
+     📌 `.pj-warn` spans both columns so a bad-folder warning keeps a line of its
+     own rather than being squeezed beside the status. */
+  html[data-layout="consolidated"] body.consolidated .pj-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 8px; row-gap: 2px; }
+  html[data-layout="consolidated"] body.consolidated .pj-row .pjcard-h { display: contents; }
+  html[data-layout="consolidated"] body.consolidated .pj-row .pjname { grid-column: 1 / -1; grid-row: 1; }
+  html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces { grid-column: 1; grid-row: 2; margin-top: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj-row .pjpill { grid-column: 2; grid-row: 2; }
+  /* 🛑 THE TWO THINGS THAT ACTUALLY COST THE HEIGHT, both MEASURED after two
+     wrong guesses of mine (a row gap, then a line-height, neither of which was
+     it): the count is an INLINE element that WRAPPED to two lines in a rail this
+     narrow (28px tall for 10px text), and the pill carries a 12px top margin and
+     6px of vertical padding that belong to the TILE layout, where it sits at the
+     top right with room around it. Neither is visible in the CSS for this view;
+     both came from the computed box. */
+  html[data-layout="consolidated"] body.consolidated .pj-row .pjpill { margin-top: 0; padding-top: 0; padding-bottom: 0; white-space: nowrap; align-items: baseline; }
+  html[data-layout="consolidated"] body.consolidated .pj-row .pjcount { margin-left: 0; white-space: nowrap; }
+
+  html[data-layout="consolidated"] body.consolidated .pj-row .pj-warn { grid-column: 1 / -1; }
   html[data-layout="consolidated"] body.consolidated #pj-back { display: none; }
   /* The open project: the conversation in the centre, its cards down the
      right. #867 (Josh, 2026-08-25 11:02): "sort the tasks to be above
