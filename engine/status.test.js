@@ -2922,6 +2922,65 @@ test('#966: a fresh report does NOT beat a scraped auth_failed -- 3b keeps the h
   assert.match(got.conflict, /sign-in is being rejected/);
 });
 
+/**
+ * #1259. The precedence is right and is not what this pins. What it pins is
+ * that winning it must not DELETE the losing witness's evidence.
+ *
+ * Measured before the fix: a reported `needs_you` carrying "May I merge the
+ * PR?" under a scraped `auth_failed` produced a verdict in which that string
+ * appeared NOWHERE. The person fixes the sign-in and is never told a question
+ * was asked, and the record no longer holds it to tell them later.
+ *
+ * 🔑 It is the one case where the LOSING witness knew something the winner
+ * cannot: a screen cannot show what an agent is waiting to be told.
+ */
+test('#1259: a scraped auth_failed keeps what the agent said, it does not delete it', () => {
+  const now = T0 + 1000;
+  const auth = scr(STATE.AUTH_FAILED, CONFIDENCE.SCRAPED, 'its Claude sign-in is not working');
+
+  const asked = reconcileReport(rep('needs_you', { because: 'May I merge the PR?' }), auth, now);
+  assert.equal(asked.state, STATE.AUTH_FAILED, 'the precedence changed, which this must not do');
+  assert.match(asked.conflict, /sign-in is being rejected/, 'the original sentence was replaced');
+  assert.match(asked.conflict, /it had asked: May I merge the PR\?/,
+    'the question was deleted by the state that outranked it');
+
+  const blocked = reconcileReport(rep('blocked', { on: 'PR review', owner: 'the kosmos team' }), auth, now);
+  assert.match(blocked.conflict, /blocked on PR review, owned by the kosmos team/,
+    'what it was blocked on and who owns it were deleted');
+
+  /* 🔑 CONTROL, and it is the arm that keeps this from becoming noise: a report
+     with nothing a person must act on adds nothing. */
+  const working = reconcileReport(rep('working'), auth, now);
+  assert.equal(working.conflict,
+    'its screen shows its Claude sign-in is being rejected, which its reports cannot know about',
+    'a working report is padding the conflict sentence with nothing');
+
+  /* 🔑 AND THE SECOND CONTROL: only from a FRESH report. A question from an
+     hour ago carried onto today's screen is a different lie, and the decay is
+     the same one rules 3 and 5 already use. */
+  const old = rep('needs_you', {
+    because: 'May I merge the PR?',
+    at: new Date(T0 - 60 * 60 * 1000).toISOString(),
+  });
+  assert.doesNotMatch(reconcileReport(old, auth, now).conflict, /had asked/,
+    'a stale question was presented as a standing one');
+});
+
+/**
+ * #1259, the other site. The stale half of rule 3b is stale BY CONSTRUCTION, so
+ * the freshness gate makes this a no-op there; pinned so that stays true if the
+ * gate ever moves.
+ */
+test('#1259: the stale rate-limit branch carries nothing, because a stale report has nothing current to carry', () => {
+  const old = rep('needs_you', {
+    because: 'May I merge the PR?',
+    at: new Date(T0 - 60 * 60 * 1000).toISOString(),
+  });
+  const got = reconcileReport(old, scr(STATE.RATE_LIMITED, CONFIDENCE.SCRAPED, 'x'), T0 + 1000);
+  assert.equal(got.conflict,
+    'its screen shows it has hit a usage limit, which its reports cannot know about');
+});
+
 test('#966: a rate-limited agent reporting idle reads idle, and still carries the warning', () => {
   /* The re-entry must reach the ordinary report rules rather than a copy of
      them: this is the non-working shape, and it should get idle's own sentence. */
