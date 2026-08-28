@@ -2900,7 +2900,29 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
     border: 0; border-radius: 0; background: none; padding: 0; }
   /* One rule between the sections, matching the vertical rule between columns. */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard + .pjcard,
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files {
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files,
+  /* 🛑 MEMBERS NAMED EXPLICITLY, AND THE REASON IS THE INTERESTING PART
+     (kosmos#1303 B). Josh: "We're missing a horizontal rule between Files in
+     this project and Project Members."
+
+     MEASURED DOM, after guessing wrong twice:
+
+         aside.pjcol.pjsplit
+           +- div.pjcard.pjcard-members     <- FIRST child
+           +- div.pjcard.pjcard-files       <- second
+
+     ⇒ THE DOM ORDER IS THE OPPOSITE OF THE VISUAL ORDER. Files is drawn above
+     Members, but Members comes first in the markup, so `.pjcard + .pjcard`
+     matches FILES and the rule lands above the TOP card rather than between the
+     two. `.pjcard-members` computed `border-top: 0px` and Files computed 1px,
+     which reads as backwards until you look at the DOM.
+     ⚠️ AND MY FIRST FIX WAS OUTRANKED. `.pj3 .pjcard-members` is one class
+     short of the un-box rule above (`.pj3 > .pjsplit > .pjcard { border: 0 }`),
+     so `border: 0` kept winning and the measurement did not move. Matching that
+     selector's shape is what makes it apply.
+     📌 The rule ABOVE Files is not spurious: it is the one below Tasks, which
+     is item 2 of this same group. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members {
     border-top: 1px solid var(--k-rule); padding-top: 14px; margin-top: 2px; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files::-webkit-scrollbar { display: none; }
   /* ⚠️ vh CAPS ON THE TWO auto-ROW CARDS, NOT max-height: 100% (challenge-
@@ -3000,6 +3022,22 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      for. */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-bg); border: 0; border-radius: 0; border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin: 0 12px 12px; }
+  /* 🔑 THE RULES REACH THE COLUMN EDGES (kosmos#1303 B item 2). Josh: "The
+     horizontal rule below Tasks is also not going all the way to the edges."
+     MEASURED: the right track is 240px and the cards render 216 wide at
+     1212..1428, because the rule immediately above gives them `margin: 0 12px`.
+     Every rule they draw therefore stops 12px short at each end.
+     The horizontal margin is traded for equal padding, so the border box grows
+     to the track edges and nothing the person reads moves. Same trade
+     `.pjmidhead` makes for item 1. The BOTTOM margin is untouched: that is the
+     gap between cards, not an inset.
+     ⚠️ IT SITS HERE, AFTER THAT RULE, AND THAT IS THE WHOLE REASON IT WORKS. My
+     first version was ~100 lines earlier with identical specificity, so
+     `margin: 0 12px 12px` won on order alone. The measurement showed padding
+     applied and margin unchanged, which is what a lost tie looks like. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files,
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members {
+    margin-left: 0; margin-right: 0; padding-left: 12px; padding-right: 12px; }
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin-top: 12px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .dlab { font-size: .6875rem; letter-spacing: .1em; margin-bottom: 8px; }
   /* #980 (iteration 5): the composer strip repaints to the column's own
@@ -3019,7 +3057,23 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      band directly beneath the pinned label, sliding under nothing. Folding the
      inset into padding extends the ground to cover it. The projects rail header
      already solved this the same way; this card had not. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .dlab { position: sticky; top: 0; z-index: 3; background: var(--k-surface); margin-bottom: 0; padding-bottom: 10px; }
+  /* 🛑 THE GROUND IS THE COLUMN'S TONE, NOT `--k-surface` (kosmos#1303 B). Josh:
+     "Files in this project have a big white box behind them that needs to go
+     away." He is describing THIS, and it survived #1189 because #1189 un-boxed
+     the CARD and this is its LABEL.
+     MEASURED, and the two tokens are simply different colours:
+
+         --k-surface   #ffffff        the label was painted this
+         --k-side      #f3f1ec        .pj3, the ground it sits on, is this
+
+     ⇒ A white patch on a stone column, which is exactly the phrase he used.
+     ⚠️ THE BACKGROUND ITSELF STAYS, and the note above says why: it is the ground
+     that scrolled rows slide UNDER, and a transparent sticky label lets them
+     pass through it. The bug was the TONE, not the technique.
+     📌 `--k-side` is also what `#rail-projects` uses for the identical sticky
+     job twelve hundred lines up, so this matches the existing solution rather
+     than inventing a second one. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .dlab { position: sticky; top: 0; z-index: 3; background: var(--k-side, #f3f1ec); margin-bottom: 0; padding-bottom: 10px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem, html[data-layout="consolidated"] body.consolidated .pj3 .fi, html[data-layout="consolidated"] body.consolidated .pj3 .tkrow { padding: 6px 8px; border-radius: 9px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem:hover, html[data-layout="consolidated"] body.consolidated .pj3 .fi:hover { background: var(--k-surface); }
   /* The add/remove actions match the rail heads: a quiet + rather than a
@@ -3077,7 +3131,20 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      the mock's shape: title left, search right, one rule beneath; the
      "Conversation" label steps aside because the title now names the
      column. The description keeps one line so the header stays a header. */
-  html[data-layout="consolidated"] body.consolidated .pjmidhead { align-items: center; gap: 12px; padding: 0 0 10px; margin-bottom: 12px; border-bottom: 1px solid var(--k-rule); }
+  /* 🔑 THE RULE REACHES THE COLUMN EDGES (kosmos#1303 B). Josh: "the horizontal
+     rule below the title, description, settings and search is still not going
+     the full width of its dialog box area. Right now it cuts off on both sides."
+     MEASURED at 1440px, and the inset is not symmetrical, which is why a single
+     negative margin would have looked wrong on one side:
+
+         .pjmid      left 442.1   right 1184
+         .pjmidhead  left 458.1   right 1167     inset 16 left, 17 right
+
+     The extra pixel on the right is `.pjmid`'s own `border-right`, so the head
+     is pulled out by 16 on both sides and the border stops against that rule
+     rather than crossing it. The padding is added back so nothing the person
+     reads moves; only the line gets longer. */
+  html[data-layout="consolidated"] body.consolidated .pjmidhead { align-items: center; gap: 12px; padding: 0 16px 10px; margin: 0 -16px 12px; border-bottom: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated .pjmidhead > .dlab { display: none; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead { flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; align-items: center; gap: 12px; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .dname { font-size: 1rem; font-weight: 650; }
