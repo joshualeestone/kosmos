@@ -156,3 +156,32 @@ test('#1372 route FAIL-CLOSED: an unreadable launch file REFUSES instead of proc
   assert.ok(fs.existsSync(r.target),
     'THE ACCOUNT MUST STILL BE THERE: refusing means nothing moved');
 });
+
+test('#1372 route FAIL-CLOSED: a MALFORMED plist also refuses, not just an unreadable one', () => {
+  /* 🛑 RENET TILLEY'S RESIDUAL POINT, TESTED RATHER THAN ASSUMED. He struck his
+     "throw" mechanism when I showed readJob catches its own error, and then
+     named a MORE reachable one: readJob returns null on four ordinary
+     conditions, and a plist that cannot be PARSED is far likelier than one
+     that cannot be read.
+
+     ✅ The fix covers it, and the reason is that `jobMissing` keys on whether
+     the FILE EXISTS rather than on why readJob failed. A malformed plist is a
+     real file, so it is not ENOENT-absent, so it is ignorance, so it refuses.
+     But that is an argument until it is run, which is what this arm is. */
+  const fleet = require('./test-support/fleet');
+  const r = board((ctx) => {
+    const dir = account(ctx.home, 'malformed');
+    ctx.panesFile = nodePath.join(ctx.sb, 'panes.txt');
+    fs.writeFileSync(ctx.panesFile, fleet.line({ session: 'ghost' }) + '\n');
+    fs.mkdirSync(nodePath.join(ctx.workers, 'ghost'), { recursive: true });
+    // A REAL, READABLE file that is not a plist Kosmos can parse.
+    fs.writeFileSync(nodePath.join(ctx.launch, 'com.kosmos.agent.ghost.plist'),
+      '<?xml version="1.0"?>\n<plist><dict></dict></plist>\n');
+    return dir;
+  });
+
+  assert.equal(r.code, 400, 'a plist it cannot parse is IGNORANCE, not "no agent here". body: '
+    + JSON.stringify(r.json));
+  assert.match(String(r.json.error), /could not check which agents/);
+  assert.ok(fs.existsSync(r.target), 'and nothing moved');
+});
