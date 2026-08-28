@@ -18680,9 +18680,25 @@ function youFaceHtml() {
   if (YOU_PIC) return '<img src="' + youPicUrl() + '" alt="">';
   const who = (YOU_NAME || '').trim();
   /* No name yet is a real state: first run has not happened, or they cleared it.
-     There is no initial to draw, so the placeholder stays rather than inventing
-     a letter. */
-  if (!who) return 'You';
+     There is no initial to draw, so nothing is asserted rather than inventing a
+     letter.
+     🛑 THE DISC, EMPTY, NOT THE WORD "You" (kosmos#1395). This returned the literal
+     string, which is the one thing Josh was firm about on #1183: "putting You in it
+     doesn't make sense." That card fixed the NAMED case and closed; the unnamed one
+     is the state EVERY fresh install begins in, because the name is collected during
+     first run and the engine's own note says "absent is the normal start".
+     🔑 THE REASONING IN THE OLD COMMENT WAS RIGHT AND ITS ANSWER WAS NOT. "Do not
+     invent a letter" is exactly the rule; an empty disc obeys it too, and does not
+     put a word where a face goes. `kosmos-operator-mark-2026-08-22.html` ruled this
+     state out loud two months ago: "no letter, and no fallback initial... Not Y for
+     You, and not a question mark. The empty field is the same system with nothing
+     asserted, and it fills in the moment they tell us." `drawCreateMark` already
+     does the same for an agent ("empty is honest").
+     ⚠️ AND IT KEEPS ITS ACCESSIBLE NAME. In the org hub the word WAS the node's
+     accessible name (its `aria-label` is set only when there is a picture), so
+     returning a bare span would have left it unnamed. Shape for the eye, sentence
+     for the ear, which is this file's own idiom. */
+  if (!who) return '<span class="youtint" role="img" aria-label="You"></span>';
   return '<span class="youtint">' + esc(initials(who)) + '</span>';
 }
 
