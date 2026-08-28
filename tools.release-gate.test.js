@@ -143,3 +143,91 @@ test('it refuses rather than correcting', () => {
   const s = fs.readFileSync(REAL, 'utf8');
   assert.ok(!/V="0\.3\.0"/.test(s), 'the gate rewrites the version instead of refusing it');
 });
+
+/**
+ * From the 0.6 line on, the patch is two digits (#1352).
+ *
+ * 🔑 Josh, 2026-08-28: he did not want 0.5.100 and up, he wanted "0.6.00 and
+ * then 0.6.01". Same argument as the 0.2 guard above, and it is his own: a rule
+ * that lives in a message depends on whoever is awake having read it.
+ *
+ * ⚠️ THE TEST ABOVE ASSERTS THE OPPOSITE FOR THE 0.2 LINE AND BOTH ARE RIGHT.
+ * "0.3.00" is refused there because it is a SECOND SPELLING of 0.3.0, and
+ * engine/update.js compares three numbers, so publishing both is an update no
+ * machine ever sees. Josh's scheme is safe for exactly that reason: from 0.6 on
+ * the padded form is the ONLY form. The rule was never "do not pad", it is "one
+ * spelling per line".
+ */
+
+test('on the 0.6 line an unpadded patch is refused, and the refusal spells it', () => {
+  const dir = sandbox('0.6.00');
+  const r = run(dir, '0.6.1');
+  assert.equal(r.status, 1, '0.6.1 was allowed to publish alongside 0.6.01');
+  assert.match(r.said, /0\.6\.01/, 'the refusal does not name the spelling it wants');
+  assert.equal(r.touched, false, 'it edited the version before refusing it');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('on the 0.6 line the padded successor gets through', () => {
+  /* 🔑 THE POSITIVE CONTROL. Without it every case here passes on a script that
+     refuses everything, which is the failure mode this file already survived
+     once: sourcing a lib above the gate turned both positive controls red while
+     every refusal stayed green, and the gate merely looked stricter. */
+  const dir = sandbox('0.6.00');
+  const r = run(dir, '0.6.01');
+  assert.match(r.said, /no site checkout at/, r.said.slice(0, 300));
+  assert.equal(r.touched, false, 'it got far enough to edit the version, which this must never do');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a three-digit patch on the 0.6 line is refused, naming the next line', () => {
+  const dir = sandbox('0.6.98');
+  const r = run(dir, '0.6.100');
+  assert.equal(r.status, 1);
+  assert.match(r.said, /past the end of the 0\.6 line/);
+  assert.match(r.said, /0\.7\.00/, 'the refusal does not name the successor');
+  assert.equal(r.touched, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('standing at 0.6.99, staying on the line is refused', () => {
+  const dir = sandbox('0.6.99');
+  const r = run(dir, '0.6.05');
+  assert.equal(r.status, 1);
+  assert.match(r.said, /last of the 0\.6 line/);
+  assert.match(r.said, /0\.7\.00/);
+  assert.equal(r.touched, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('standing at 0.6.99, 0.7.00 gets through', () => {
+  const dir = sandbox('0.6.99');
+  const r = run(dir, '0.7.00');
+  assert.match(r.said, /no site checkout at/, r.said.slice(0, 300));
+  assert.equal(r.touched, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('standing at 0.6.99, the unpadded 0.7.0 is refused', () => {
+  /* 🛑 The likeliest thing to be typed, because it is the ordinary spelling
+     everywhere else in software, and it is the exact failure the padded scheme
+     exists to prevent: 0.7.0 and 0.7.00 are the same version to every install. */
+  const dir = sandbox('0.6.99');
+  const r = run(dir, '0.7.0');
+  assert.equal(r.status, 1, 'a second spelling of 0.7.00 was allowed to publish');
+  assert.match(r.said, /0\.7\.00/);
+  assert.equal(r.touched, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('the 0.5 line keeps its own spelling and is not refused retroactively', () => {
+  /* ⚠️ 0.5.100, 0.5.101 and 0.5.102 are published. A guard that refused the
+     line they are on would be rewriting history rather than shaping the next
+     cut, and the first person to hit it would have no idea why. */
+  const dir = sandbox('0.5.101');
+  const r = run(dir, '0.5.102');
+  assert.ok(!/two digits|past the end|last of the/.test(r.said), r.said.slice(0, 300));
+  assert.match(r.said, /no site checkout at/);
+  assert.equal(r.touched, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
