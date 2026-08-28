@@ -9167,6 +9167,26 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <h3 class="dlab">Keeping agents running</h3>
       <div id="set-machine"><p class="dhint">Checking this computer…</p></div>
       <p class="dhint" id="set-machine-msg" role="status" hidden></p>
+      <!-- 🔑 ACCESSIBILITY, SAID AND OPENABLE (kosmos#1344). Josh, from the
+           fresh-machine install: "I'd love to see a message to say 'Turning
+           accessibility on so that Kosmos agents can work on this computer' and
+           have a button to open that setting so that they can okay it as well."
+           🛑 IT CLAIMS NO STATE, AND THAT IS NOT LAZINESS. Nothing in this
+           product can read whether accessibility is granted: it is a TCC fact,
+           reachable from the native app and not from the engine, and there is no
+           machine check for it (the five are app-location, installed, labels,
+           restart, sleep). So there is no tick, no "you have already done this",
+           and the button does not hide once granted. A screen claiming a
+           permission nobody checked is the defect this codebase is built
+           against. The button offers a door; it never says what is behind it.
+           ⚠️ SO IT IS NOT A CHECK ROW. Its sleep sibling hangs off a row that can
+           go red; this one cannot, so it sits in the box as its own sentence.
+           📌 THE WORDING DOES NOT SOFTEN THE APP-CONTROL HALF, per Josh's ruling
+           relayed 2026-08-28 and honoured by #1214 in the box above: agents
+           acting in your other applications IS the feature. "Work in your other
+           applications" is the plain version, not the reassuring one. -->
+      <p class="dhint" id="set-a11y-say" style="margin:14px 0 6px;">Turning on accessibility lets Kosmos agents work in your other applications on this computer.</p>
+      <button class="btn" id="set-a11y-open" type="button">Open Accessibility settings</button>
       <!-- #734: the board's honesty line, at home. When the machine's window
            list has lines the board cannot read, the Agents count is a floor
            (the + on it) and THIS is where the fact is said in full, with the
@@ -13621,6 +13641,27 @@ function pjScreenOnScreen() {
 refreshEngMode();
 refreshAutoUpdate();
 refreshYou();
+/* The Accessibility door (kosmos#1344).
+   🛑 ATTACHED ONCE, HERE, NOT INSIDE `paintSettings`. The sleep buttons live
+   inside `#set-machine`'s innerHTML and are recreated on every paint, so theirs
+   must be re-attached each time. THIS button is static markup, so attaching it
+   in the painter would add one listener per repaint and a single click would
+   open System Settings once for every time that panel had been drawn.
+   📌 The refusal lands in `#set-machine-msg`, the box's existing status line, so
+   a screen-reader user hears it: the pane opening IS the success feedback, and
+   a click that silently does nothing reads as a broken button. Same rule its
+   sleep sibling states four thousand lines up. */
+document.getElementById('set-a11y-open').addEventListener('click', async () => {
+  const failMsg = document.getElementById('set-machine-msg');
+  try {
+    const r = await fetch('/api/open-accessibility-settings', { method: 'POST' });
+    failMsg.hidden = r.ok;
+    if (!r.ok) failMsg.textContent = 'We could not open the accessibility settings just now.';
+  } catch {
+    failMsg.hidden = false;
+    failMsg.textContent = 'We could not open the accessibility settings just now.';
+  }
+});
 document.getElementById('set-reveal').addEventListener('click', async () => {
   const msg = document.getElementById('set-reveal-msg');
   try {

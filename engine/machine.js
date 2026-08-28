@@ -857,6 +857,75 @@ function openSleepSettings(runner, lister) {
    production and wrong in a test that wants to exercise both worlds. */
 function resetSleepPaneCache() { SLEEP_PANE_CACHE = undefined; }
 
+/* ── the Accessibility pane (kosmos#1344) ────────────────────────────────────
+   Josh, 2026-08-28 from the fresh-machine install: "I'd love to see a message
+   to say 'Turning accessibility on so that Kosmos agents can work on this
+   computer' and have a button to open that setting so that they can okay it as
+   well."
+
+   🛑 PROBED, NOT HARDCODED, for the same reason the sleep pane is: the pane's
+   bundle identifier moved between macOS versions, and a stale one opens System
+   Settings to nowhere. A button that appears to work is the exact failure this
+   product is written against, and the design pack says it in its own words
+   about "Keep in Dock": the instruction would look correct on the page and fail
+   in front of the person.
+
+   ⚠️ WHAT THIS DOES NOT DO: it does not report whether accessibility is GRANTED.
+   Nothing in this engine can read that (it is a TCC fact, reachable from the
+   native app and not from node), so no caller may render a tick, a "you have
+   already done this", or hide the button once granted. A screen claiming a
+   permission state nobody checked is the defect this codebase is built against.
+   The button offers a door; it never claims what is behind it. */
+const A11Y_PANE_IDS = [
+  'com.apple.settings.PrivacySecurity.extension',
+  'com.apple.preference.security',
+];
+let A11Y_PANE_CACHE;   // undefined = not probed; null = probed, none found
+
+/* The cache rule is `sleepPaneUrl`'s, deliberately copied rather than shared:
+   an injected runner or lister bypasses it in BOTH directions, so a test's
+   world is never cached for the next caller and test order stays irrelevant. */
+function a11yPaneUrl(runner, lister) {
+  const injected = Boolean(runner || lister);
+  if (!injected && A11Y_PANE_CACHE !== undefined) return A11Y_PANE_CACHE;
+  const r = runner || run;
+  const list = lister || ((dir) => fs.readdirSync(dir));
+  const remember = (v) => { if (!injected) A11Y_PANE_CACHE = v; return v; };
+  let names;
+  try {
+    names = list(EXTENSIONS_DIR)
+      .filter((n) => n.endsWith('.appex') && /privacy|security/i.test(n));
+  } catch {
+    return remember(null);
+  }
+  for (const n of names) {
+    const res = r('/usr/bin/defaults', ['read', path.join(EXTENSIONS_DIR, n, 'Contents', 'Info'), 'CFBundleIdentifier']);
+    if (!res.ok) continue;
+    const id = String(res.stdout || '').trim();
+    if (A11Y_PANE_IDS.includes(id)) {
+      /* The anchor selects Accessibility inside Privacy & Security. */
+      return remember('x-apple.systempreferences:' + id + '?Privacy_Accessibility');
+    }
+  }
+  return remember(null);
+}
+
+/** Open the pane. The URL is ALWAYS derived here, never taken from a caller:
+    the route that fronts this must not become a way for a page to `open`
+    arbitrary URLs on the machine. */
+function openAccessibilitySettings(runner, lister) {
+  const url = a11yPaneUrl(runner, lister);
+  if (!url) return { ok: false, because: 'we could not find the accessibility screen on this computer' };
+  const r = runner || run;
+  const res = r('/usr/bin/open', [url]);
+  return res.ok
+    ? { ok: true }
+    : { ok: false, because: 'System Settings did not open' };
+}
+
+/* Test hook, same reason as its sibling's. */
+function resetA11yPaneCache() { A11Y_PANE_CACHE = undefined; }
+
 /* ── the label-truth check (#224's trap, found live 2026-08-23) ──────────
    launchd has no sandbox: a harness (or anything) can register a plist from
    a temp directory over a real Kosmos label, and every liveness probe stays
@@ -963,4 +1032,4 @@ function check(opts) {
   };
 }
 
-module.exports = { check, parsePmset, sleepCheck, installedCheck, appLocationCheck, appLocationUnknown, restartCheck, labelTruthCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, installedCheck, appLocationCheck, appLocationUnknown, restartCheck, labelTruthCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, revealApp, setAppRevealRunner, STATE };

@@ -3044,6 +3044,21 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* The Accessibility pane (kosmos#1344). Josh asked for a button that opens the
+     setting so a person can grant it, beside a sentence saying why.
+     ⚠️ POST, so it inherits the cross-site guard above, exactly like its sleep
+     sibling: this reaches out and touches the machine.
+     🛑 IT TAKES NO URL AND NO PARAMETER. The engine derives the pane itself. A
+     route that accepted a target would be a way for any page to `open` arbitrary
+     things on somebody's computer, which is the property the sleep route's own
+     comment exists to protect. */
+  if (pathname === '/api/open-accessibility-settings' && req.method === 'POST') {
+    const opened = machine.openAccessibilitySettings();
+    if (opened.ok) { sendJson(res, 200, { ok: true }); return; }
+    sendJson(res, 409, { error: opened.because });
+    return;
+  }
+
   // Marking it done. ⚠️ POST, because it writes -- so it inherits the
   // cross-site guard above rather than being reachable from any page.
   if (pathname === '/api/first-run/complete' && req.method === 'POST') {
