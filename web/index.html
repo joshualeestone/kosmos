@@ -28943,13 +28943,18 @@ async function frPaintYou() {
        one; it just stops being a person connected to the product. */
     '<input class="inp" type="text" id="fr-you-name" maxlength="80" placeholder="Alex" aria-required="true"></div>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-do">What do you do?</label>' +
-    '<input class="inp" type="text" id="fr-you-do" maxlength="200" placeholder="I run a company that builds AI tools" aria-required="true"></div>' +
-    '<div class="fr-youfield"><label class="fieldlab" for="fr-you-know">Anything they should always know?</label>' +
-    '<textarea class="inp" id="fr-you-know" rows="2" maxlength="2000" placeholder="How you like things written, who your customers are, anything else"></textarea></div>' +
-    '<p class="fr-youfine">You can change these later.</p>';
+    '<input class="inp" type="text" id="fr-you-do" maxlength="200" placeholder="I run a company that builds AI tools" aria-required="true"></div>';
   const nameEl = document.getElementById('fr-you-name');
   const doEl = document.getElementById('fr-you-do');
-  const knowEl = document.getElementById('fr-you-know');
+  /* 🛑 THE BOX IS GONE, THE VALUE IS NOT (#1345). Josh asked for two fields, and
+     `know` still feeds the you-block that goes into every agent's instructions
+     (engine/you.js:147). The PUT is a whole-record replace: `save()` maps an
+     absent `know` to null, so simply dropping it here would ERASE whatever the
+     person had already written the next time they touched this screen.
+     ⇒ We carry the loaded value straight back, so removing the EDITOR does not
+     remove the DATA. There is no longer any way to set it from the product; that
+     is the intended simplification and it is recorded on #1345. */
+  let carriedKnow = '';
   const next = document.getElementById('fr-next');
   // ⚠️ `saving` participates in the gate, so a late prefill's gate() cannot
   // re-arm the button while the PUT is in flight (the double-submit window
@@ -28969,7 +28974,7 @@ async function frPaintYou() {
       const res = await fetch('/api/you', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: nameEl.value, does: doEl.value, know: knowEl.value }),
+        body: JSON.stringify({ name: nameEl.value, does: doEl.value, know: carriedKnow }),
       });
       const j = await res.json().catch(() => null);
       // ⚠️ The person may have pressed Back, closed the wizard, or left and
@@ -29009,7 +29014,7 @@ async function frPaintYou() {
     if (res.ok && j && j.state === 'saved' && j.you) {
       if (!nameEl.value) nameEl.value = j.you.name;
       if (!doEl.value) doEl.value = j.you.does;
-      if (!knowEl.value) knowEl.value = j.you.know || '';
+      carriedKnow = j.you.know || '';
       gate();
     }
   } catch { /* absent is the normal start; the fields just start empty */ }
