@@ -231,3 +231,135 @@ test('the 0.5 line keeps its own spelling and is not refused retroactively', () 
   assert.equal(r.touched, false);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+/**
+ * A failed bump push is safe for one cut and unsafe for two (#1335).
+ *
+ * 🔑 The check is on the DIVERGENCE, not on the push. A failed push is only
+ * dangerous because of the state it leaves behind, and that state is directly
+ * observable, so it cannot go stale the way a remembered incident does.
+ *
+ * 🛑 THESE NEED A REAL GIT REPO WITH A REMOTE, which the `sandbox()` helper
+ * above deliberately does not build. In that sandbox `git status` errors and
+ * prints nothing, so the dirty check passes by accident; an ancestry check
+ * would REFUSE there instead, which is why the guard is written to skip when
+ * `origin/main` does not resolve. That skip is a real behaviour and the third
+ * arm below pins it.
+ *
+ * ⚠️ They also need a SITE directory, because the site check runs earlier than
+ * the guard. Without one every arm would stop at "no site checkout" and pass
+ * for the wrong reason, which is the failure this file already survived once.
+ */
+function git_sandbox(version, { diverge = 'none' } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-'));
+  const git = (...a) => {
+    const r = spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(`git ${a.join(' ')}: ${r.stderr}`);
+    return r.stdout;
+  };
+  fs.mkdirSync(path.join(dir, 'tools'));
+  fs.copyFileSync(REAL, path.join(dir, 'tools', 'release.sh'));
+  /* ⚠️ THE LIBS COME TOO, and this is the trap the header of this file already
+     records. `release.sh` sources tools/lib/cut-guard.sh at line 157, which is
+     BEFORE the guard under test and AFTER the site check the older sandbox
+     stops at. Those tests pass without the libs only because they never get
+     that far. Copy just release.sh here and every arm dies on a missing file
+     and returns 0, which reads as "did not refuse". */
+  fs.cpSync(path.join(__dirname, 'tools', 'lib'), path.join(dir, 'tools', 'lib'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'sandbox', version }, null, 2));
+  // The site check runs before the guard, so the arms need one to get past it.
+  fs.mkdirSync(path.join(dir, 'site', 'dist'), { recursive: true });
+
+  spawnSync('git', ['init', '-b', 'main', dir], { encoding: 'utf8' });
+  git('config', 'user.email', 'gate@example.invalid');
+  git('config', 'user.name', 'gate');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'base');
+
+  const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-remote-'));
+  spawnSync('git', ['init', '--bare', '-b', 'main', remote], { encoding: 'utf8' });
+  git('remote', 'add', 'origin', remote);
+  git('push', '-q', '-u', 'origin', 'main');
+
+  if (diverge === 'local-ahead') {
+    // Exactly the stranded-bump shape: a commit here that origin never got.
+    fs.writeFileSync(path.join(dir, 'STRANDED'), 'an unpushed version bump\n');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'v09999 -- version');
+  } else if (diverge === 'local-behind') {
+    // origin moves on; local is a strict ancestor. Cutting an older tree on
+    // purpose is a real thing to want and must NOT be refused.
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-other-'));
+    spawnSync('git', ['clone', '-q', remote, other], { encoding: 'utf8' });
+    spawnSync('git', ['-C', other, 'config', 'user.email', 'gate@example.invalid']);
+    spawnSync('git', ['-C', other, 'config', 'user.name', 'gate']);
+    fs.writeFileSync(path.join(other, 'LATER'), 'landed after\n');
+    spawnSync('git', ['-C', other, 'add', '-A']);
+    spawnSync('git', ['-C', other, 'commit', '-q', '-m', 'later work']);
+    spawnSync('git', ['-C', other, 'push', '-q', 'origin', 'main']);
+    fs.rmSync(other, { recursive: true, force: true });
+  }
+  /* 🔑 HOME MUST NOT BE THE REPO. The script records every cut into
+     $HOME/.claude/logs, so pointing HOME at the repo (as the older sandbox
+     does) makes the repo dirty the instant the run starts, and step 1 then
+     refuses with "main is dirty" before ever reaching the guard under test.
+     The older tests never see it because they stop at the site check first. */
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-home-'));
+  return { dir, remote, home };
+}
+
+function run_git(dir, version, home) {
+  const before = fs.readFileSync(path.join(dir, 'package.json'), 'utf8');
+  const r = spawnSync('bash', [path.join(dir, 'tools', 'release.sh'), version], {
+    encoding: 'utf8',
+    cwd: dir,
+    /* 🔑 KOSMOS_HARNESS_IGNORE_CUT, or these arms pass only when nobody is
+       cutting. `cut-guard.sh` refuses to start a release while another
+       tools/release.sh is live, which is correct for a real cut and fatal for a
+       test: the suite would go green on a quiet machine and red during a
+       release, and the failure would look like this guard rather than like the
+       harness. Found by running these while 0.6.02 was in flight. */
+    env: {
+      ...process.env,
+      HOME: home,
+      KOSMOS_SITE: path.join(dir, 'site'),
+      KOSMOS_HARNESS_IGNORE_CUT: '1',
+    },
+    timeout: 60000,
+    killSignal: 'SIGKILL',
+  });
+  const after = fs.readFileSync(path.join(dir, 'package.json'), 'utf8');
+  return { said: (r.stdout || '') + (r.stderr || ''), status: r.status, touched: before !== after };
+}
+
+test('a cut refuses when local main has commits origin does not (the stranded bump)', () => {
+  const { dir, home } = git_sandbox('0.6.02', { diverge: 'local-ahead' });
+  const r = run_git(dir, '0.6.03', home);
+  assert.equal(r.status, 1, 'it cut from a diverged tree');
+  assert.match(r.said, /local main has commits origin\/main does not/);
+  assert.match(r.said, /COULD NOT PUSH THE BUMP/, 'the refusal does not name the cause it is usually from');
+  assert.match(r.said, /only here:.*v09999/, 'the refusal does not show which commits are stranded');
+  assert.equal(r.touched, false, 'it edited the version before refusing');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a cut is NOT refused merely for being behind origin', () => {
+  /* 🔑 THE ARM THAT STOPS THIS GUARD OVER-REFUSING. Behind is an ancestor, and
+     cutting an older tree deliberately must stay possible. Without this the
+     guard could be written as "local must equal origin", which would pass the
+     arm above and block ordinary work. */
+  const { dir, home } = git_sandbox('0.6.02', { diverge: 'local-behind' });
+  const r = run_git(dir, '0.6.03', home);
+  assert.ok(!/local main has commits origin\/main does not/.test(r.said),
+    `refused a tree that is merely behind:\n${r.said.slice(0, 400)}`);
+  assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the guard');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a clean tree in step with origin gets past the guard', () => {
+  const { dir, home } = git_sandbox('0.6.02');
+  const r = run_git(dir, '0.6.03', home);
+  assert.ok(!/local main has commits origin\/main does not/.test(r.said), r.said.slice(0, 400));
+  assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the guard');
+  fs.rmSync(dir, { recursive: true, force: true });
+});

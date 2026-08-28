@@ -163,6 +163,52 @@ step "== 1. main, clean, and carrying what you mean to ship =="
 git -C "$REPO" fetch origin -q
 [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD)" = main ] || { echo "not on main"; exit 1; }
 [ -z "$(git -C "$REPO" status --porcelain)" ] || { echo "main is dirty"; exit 1; }
+
+# 🛑 A FAILED BUMP PUSH IS SAFE FOR ONE CUT AND UNSAFE FOR TWO (kosmos#1335).
+# Step 2 pushes the version bump and, if that push fails, says so and CONTINUES
+# on purpose: the artifact it builds is still correct, and refusing a good
+# release over a push failure would be worse.
+#
+# ⚠️ THE HAZARD IS ENTIRELY IN THE SECOND CUT, AND NOTHING IN THE FIRST
+# WARNING'S TEXT SAYS SO. The unpushed bump leaves local `main` on a line that
+# has diverged from origin, so the NEXT cut freezes a tree that is missing
+# whatever landed on origin meanwhile, while its notes claim it. 0.5.101 was cut
+# from a line with no #1332 in it and its notes promised #1332: a release served
+# to the one person waiting for that fix, with the fix absent. That does not just
+# ship nothing, it spends the credibility of every future release note.
+#
+# 🔑 SO THE CHECK IS ON THE DIVERGENCE, NOT ON THE PUSH. The failed push is only
+# dangerous because of the state it leaves, and that state is directly
+# observable, so this cannot go stale the way a remembered incident does.
+#
+#   local == origin           ancestor      -> cut
+#   local BEHIND origin       ancestor      -> cut, because cutting an older
+#                                              tree on purpose is a real thing
+#                                              to want and this must not block it
+#   local has what origin has not           -> REFUSE. This is the 0.5.100 and
+#                                              0.6.00 shape, twice in one week.
+#
+# It refuses rather than reconciling, like the version guard above: silently
+# rebasing somebody's tree during a release is a worse surprise than stopping.
+#
+# ⚠️ GUARDED ON `origin/main` RESOLVING, AND THAT IS NOT DEFENSIVE PADDING. The
+# gate's own tests run this script in a sandbox that is not a git repo, where
+# `git status` errors and prints nothing so the dirty check above passes by
+# accident. An unguarded ancestry check would REFUSE there and turn the suite
+# red for a reason that has nothing to do with releases.
+if git -C "$REPO" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+  if ! git -C "$REPO" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
+    echo "local main has commits origin/main does not, so this cut would freeze a diverged tree."
+    echo "The usual cause is a previous cut printing 'COULD NOT PUSH THE BUMP' (kosmos#1335)."
+    echo
+    echo "   only here:  $(git -C "$REPO" log --oneline origin/main..HEAD | tr '\n' ' ')"
+    echo "   only there: $(git -C "$REPO" log --oneline HEAD..origin/main | tr '\n' ' ')"
+    echo
+    echo "Reconcile first, then cut. If the local commits are a stranded version bump:"
+    echo "   git -C $REPO reset --hard origin/main && git -C $REPO cherry-pick <bump> && git -C $REPO push origin main"
+    exit 1
+  fi
+fi
 git -C "$REPO" log --oneline -8 | cat
 
 step "== 2. the version, in one place =="
