@@ -583,8 +583,30 @@ function connect(dir, opts) {
   const job = create.installJob(name, runner ? { runner } : {});
   if (!job.ok) {
     /* Rolled back to what was there before, so a failed connect leaves nothing
-       claiming an agent exists. */
-    try { store.writeProfile(name, { dir: before.dir || null, displayName: before.displayName || null }); }
+       claiming an agent exists.
+
+       🛑 THE PROVIDER HAS TO BE NAMED, BECAUSE A MERGE CANNOT CLEAR A KEY BY
+       OMITTING IT (#1401). `writeProfile` is `{ ...had, ...patch }`
+       (engine/store.js:180), so listing two keys rolled back two keys and left
+       `provider: 'openai'` behind. Measured: after this rollback the profile still
+       read `provider: "openai"` with a null dir and a null displayName.
+
+       ⇒ `server.js` derives a card's runner from `profile.provider`, so a REFUSED
+       adoption could leave the board describing an agent that was never adopted,
+       has no job, and will never start, as an OpenAI one. The comment above says
+       this rollback exists so nothing is left claiming an agent exists - and it
+       was leaving exactly that.
+
+       ⚠️ RESTORED, NOT BLANKED. `before.provider` is what was there beforehand, so
+       a retry on an agent that legitimately had one keeps it; only the stamp this
+       call added goes. `null` clears it, measured. */
+    try {
+      store.writeProfile(name, {
+        dir: before.dir || null,
+        displayName: before.displayName || null,
+        provider: before.provider || null,
+      });
+    }
     catch { /* the job is the thing that matters and it was not written */ }
     return { ok: false, because: job.because || 'we could not set it up to run' };
   }
