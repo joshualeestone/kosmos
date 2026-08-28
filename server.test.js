@@ -10681,9 +10681,23 @@ test('#1304: an agent asking what it runs on gets ONE answer shape, and an unkno
    * the same either way, and that an unknown says so.
    */
   const messagesEngine = require('./engine/messages');
+  const server = require('./server.js');
   const board = fleet.install([fleet.agent('acctworker', { state: 'idle' })]);
   try {
     messagesEngine.setRunner(() => ({ ok: true, session: 'acctworker-discord' }));
+    /* 🛑 STUBBED, BECAUSE WIRING THE LIVE READER INTO THE ROUTE MADE THIS TEST
+       SHELL OUT TO THE REAL MACHINE. Measured with an `execFileSync` spy: this
+       test ran `tmux list-panes -a` and `ps -eo pid=,ppid=,command=` against the
+       operator's actual processes; the new route test, under the same spy, made
+       zero calls because it sets this seam.
+
+       ⚠️ It stayed GREEN either way, which is why it needed finding rather than
+       noticing: the assertions below tolerate both branches of
+       `out.account === null`, so the day a real tmux session called
+       `acctworker-discord` exists, this silently starts testing the other path.
+       A test whose subject depends on the machine's process table is not a test
+       of this route. */
+    server.setLiveReader(() => ({ ok: false, because: 'stubbed for this test' }));
     const card = board.agents.find((a) => a && a.name === 'acctworker');
     assert.ok(card && card.sessionName, 'the fixture produced no card, so nothing below is about an agent');
 
@@ -10716,9 +10730,14 @@ test('#1304: an agent asking what it runs on gets ONE answer shape, and an unkno
       assert.match(out.because, /cannot tell which account/,
         'an unknown account was smoothed over: ' + out.because);
     } else {
-      assert.match(out.because, /runs on/, 'a known account did not reach the sentence');
+      /* The EMAIL, not just the phrase: `/runs on/` would also pass on a
+       record-sourced account, so it could not tell the live path from the
+       fallback - which is the only thing this test exists to establish. */
+    assert.match(out.because, /live@book\.io/,
+      'the live account did not reach the sentence a person reads back');
     }
   } finally {
+    server.setLiveReader(null);
     messagesEngine.setRunner(null);
     fleet.restore();
   }
@@ -10739,11 +10758,17 @@ test('#1304: each field takes the best source that has it, and neither hard-null
   const create = require('./engine/create');
   /* 🔑 A REAL ROW FROM test-support/fleet. The repo's fixture-discipline test
      refuses hand-built cards, and it refused mine, correctly. */
-  const board = fleet.install([fleet.agent('acctworker', { state: 'idle' })]);
-  const card = board.agents.find((a) => a && a.name === 'acctworker');
-  assert.ok(card && card.sessionName, 'the fixture produced no card, so nothing below is about an agent');
+  /* 🛑 INSIDE THE `try`, INCLUDING THE INSTALL AND THE CARD ASSERT. They used to
+     sit outside it, so a failure of that assert skipped `fleet.restore()` and
+     left the pane seam stubbed for every test after this one in the file. The
+     sibling test at the top of this block already does it this way. */
+  let board;
+  let fixtureJob = null;
   const known = [];
   try {
+    board = fleet.install([fleet.agent('acctworker', { state: 'idle' })]);
+    const card = board.agents.find((a) => a && a.name === 'acctworker');
+    assert.ok(card && card.sessionName, 'the fixture produced no card, so nothing below is about an agent');
     /* 🛑 THE DEFECT THIS ROW EXISTS FOR. The first version gated on
        `live.ok && (live.account || live.model)` and returned early, so a live
        reading holding ONE fact nulled the other. `agent-supervisor.sh` adds
@@ -10776,6 +10801,17 @@ test('#1304: each field takes the best source that has it, and neither hard-null
        somewhere else. */
     assert.equal(modelOnly.account.dir, '/d');
     assert.equal(modelOnly.account.email, null);
+    /* 🔑 AND `isDefault` MUST FOLLOW THE DIRECTORY, not be hardcoded. `runningAs`
+       sets `configDir` unconditionally - the env var when it finds one, the
+       default `~/.claude` synthesised when it does not - so a flat `false` here
+       asserted "not the default account" about the directory that most often IS
+       the default. Both arms, so this cannot pass by picking one answer. */
+    assert.equal(modelOnly.account.isDefault, false, 'a non-default dir was called the default');
+    const atDefault = whoamiFor(card, known, {
+      ok: true, account: null, model: null, configDir: require('node:path').join(require('node:os').homedir(), '.claude'),
+    });
+    assert.equal(atDefault.account.isDefault, true,
+      'the default config dir was reported as not the default');
 
     /* THE OTHER ARM: an agent the live reader cannot see at all.
        🛑 AND THE RECORD MUST ACTUALLY ANSWER HERE. My first version passed
@@ -10783,9 +10819,15 @@ test('#1304: each field takes the best source that has it, and neither hard-null
        returned null and the arm asserted `'account' in result` against an
        all-null object -- true of a completely broken fallback. It needs a job
        to read and an account to match. */
-    assert.ok(create.plistPath('acctworker').startsWith(process.env.AGENT_WORKFORCE_LAUNCH || '\u0000'),
+    /* Computed ONCE, checked, and reused by the cleanup below. The first version
+       guarded the WRITE and left the `rmSync` unguarded - so on the very path
+       where the guard fires, the delete would still have run against the
+       operator's real ~/Library/LaunchAgents. Latent rather than live (no
+       collision exists), but the guard has to cover both or it covers neither. */
+    fixtureJob = create.plistPath('acctworker');
+    assert.ok(fixtureJob.startsWith(process.env.AGENT_WORKFORCE_LAUNCH || '\u0000'),
       'the launchd sandbox is unset, so writing this fixture job would touch the real fleet');
-    fs.writeFileSync(create.plistPath('acctworker'),
+    fs.writeFileSync(fixtureJob,
       create.plistFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5',
         '/Users/agent1/.claude-account-x'), 'utf8');
     const recorded = [{ dir: '/Users/agent1/.claude-account-x', email: 'recorded@book.io', label: 'X', isDefault: false }];
@@ -10812,8 +10854,36 @@ test('#1304: each field takes the best source that has it, and neither hard-null
     const notOk = whoamiFor(card, recorded, { ok: false, account: 'wrong@example.com', model: 'x' });
     assert.equal(notOk.source.account, 'record', 'a failed live reading was believed');
     assert.notEqual(notOk.account.email, 'wrong@example.com', 'a failed live reading was believed');
+
+    /* 🛑 THE PRECEDENCE ITSELF, WHICH IS THE WHOLE POINT OF THIS CHANGE AND WAS
+       PINNED BY NOTHING. A reviewer swapped the two model branches so the live
+       launch argument wins over the transcript, and the ENTIRE SUITE STAYED
+       GREEN. The cause was in my own fixture: with no transcript, `readModel`
+       returns null in every arm, so the two branches are never both populated
+       and "the live value surfaced" is indistinguishable from "live wins".
+
+       ⇒ I had even WRITTEN that weakness into the comment below and left it
+       open. An arm where BOTH sources answer, with DIFFERENT values, is the
+       only thing that can tell the two designs apart.
+
+       📌 LAST IN THIS TEST, DELIBERATELY. `seedTranscript` gives the fixture a
+       readable model, so every arm above it that asserts a NULL model would
+       start depending on evaluation order if this moved up. My first version
+       did sit higher and passed only because `noLive` had already been
+       computed - correct by accident, and it would have broken the moment
+       somebody reordered two lines. */
+    seedTranscript('acctworker', 'claude-opus-5');
+    const bothKnow = whoamiFor(card, known, {
+      ok: true, account: null, model: 'claude-fable-5', configDir: '/d',
+    });
+    assert.equal(bothKnow.model.id, 'claude-opus-5',
+      'the launch argument beat the transcript; a mid-session /model switch is invisible');
+    assert.equal(bothKnow.source.model, 'record');
+    assert.equal(bothKnow.model.confidence, 'structured',
+      'a transcript-sourced model was labelled as scraped');
+
   } finally {
-    try { fs.rmSync(create.plistPath('acctworker'), { force: true }); } catch { /* nothing to undo */ }
+    if (fixtureJob) { try { fs.rmSync(fixtureJob, { force: true }); } catch { /* nothing to undo */ } }
     /* In a finally, so the arms below a mid-test restore cannot run against a
        different environment than the arms above it. */
     fleet.restore();
