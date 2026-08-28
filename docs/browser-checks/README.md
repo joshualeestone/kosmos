@@ -81,6 +81,7 @@ one invented by somebody who did not write them.
 | `render-busy-line.js` | The "<name> is working…" line, rendered |
 | `render-room-scroll.js` | The project room keeps a reader on the floor when the composer resizes it (#1037) |
 | `render-alltasks.js` | Every task across every project, and the heading's number equals the rows on the screen (#1382). |
+| `render-composer-reset.js` | The composer goes back to one line after a send, measured as a rendered height (#1303 C). |
 | `render-head-row.js` | Settings stays on the project header row, beside the title and the search (#1043) |
 | `render-fields.js` | The field and control invariants, measured in a real browser, in BOTH schemes |
 | `render-first-run.js` | Render every first-run state in a real browser and look at it |
