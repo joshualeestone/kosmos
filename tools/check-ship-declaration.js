@@ -80,7 +80,10 @@ function resolveCutoff(baseRef) {
     const since = execFileSync('git', ['log', '-1', '--format=%cI', left], { encoding: 'utf8' }).trim();
     return {
       since,
-      from: `${since} (${left}${ranged ? `, taken as the base of the range ${baseRef}` : ''})`,
+      /* ⚠️ UTC IS PRINTED ALONGSIDE because the rows below are UTC and the cutoff
+         is local. Two timestamps a reader cannot compare by eye is how the
+         mismatch stayed invisible even after the cutoff was printed at all. */
+      from: `${since} (= ${new Date(since).toISOString()}, ${left}${ranged ? `, taken as the base of the range ${baseRef}` : ''})`,
     };
   } catch {
     return { since: null, from: `could not resolve ${baseRef}; showing every merged PR fetched` };
@@ -95,8 +98,55 @@ function mergedSince(baseRef) {
   const all = JSON.parse(out);
   const { since, from } = resolveCutoff(baseRef);
   console.log(`merged since: ${from}\n`);
+  return filterMerged(all, since);
+}
+
+/**
+ * Is this PR's merge at or after the cutoff?
+ *
+ * 🛑 COMPARED AS INSTANTS, NOT AS STRINGS, and the string version was WRONG in
+ * exactly the way a string comparison of timestamps always eventually is: the two
+ * sides come from different tools in different formats.
+ *
+ *   git log --format=%cI  ->  2026-08-28T08:29:11-05:00   LOCAL, with an offset
+ *   gh --json mergedAt    ->  2026-08-28T11:58:33Z        UTC, with a Z
+ *
+ * Lexicographically `"…T11:58:33Z" >= "…T08:29:11-05:00"` is TRUE, because the
+ * comparison reaches `11` against `08` and stops. As instants it is FALSE by 90
+ * minutes. Measured 2026-08-28 after Baron Draxum ran it on a live cut: his queue
+ * was three PRs and it reported fourteen, reaching back three releases.
+ *
+ * ⭐ The same-format case is correct, which is why this survived: it only lies
+ * when the offsets differ, and both sides happened to be local until the cutoff
+ * became a git timestamp.
+ *
+ * ⚠️ An unparseable date is EXCLUDED rather than included. Both directions lose
+ * information; only this one avoids asserting a PR is in a release when we cannot
+ * tell.
+ */
+function isAfter(mergedAt, since) {
+  if (!mergedAt) return false;
+  /* 📌 NO NaN GUARD, DELIBERATELY. An explicit `Number.isNaN` check here was
+     UNREACHABLE: every comparison against NaN is already false, so an unparseable
+     date on either side excludes the row without it. A perturbation proved it --
+     removing the guard changed no test, which is the definition of code that is
+     not doing anything. Untestable defensiveness is what this file flags in other
+     people's work. */
+  return Date.parse(mergedAt) >= Date.parse(since);
+}
+
+/**
+ * The merged PRs at or after the cutoff.
+ *
+ * 🛑 ITS OWN FUNCTION SO IT CAN BE TESTED. `mergedSince` shells out to `gh`, so
+ * nothing could reach the filter, and a perturbation that REPLACED THE CALL TO
+ * `isAfter` WITH THE OLD STRING COMPARISON left every test green. The predicate
+ * was well tested and nothing checked that anybody used it -- the same
+ * merged-but-inert shape, one layer down.
+ */
+function filterMerged(all, since) {
   if (!since) return all;
-  return all.filter((p) => p.mergedAt && p.mergedAt >= since);
+  return all.filter((p) => isAfter(p.mergedAt, since));
 }
 
 function main() {
@@ -126,4 +176,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { declarationIn, resolveCutoff };
+module.exports = { declarationIn, resolveCutoff, isAfter, filterMerged };
