@@ -3242,8 +3242,25 @@ function readIdentity(sessionName) {
  * 🔑 AND A TITLE MAY ONLY BE CROSSED AS THE FIRST WORD, which is what makes
  * `St` safe to keep. It is a prefix in `St. John Rivers` and a SURNAME in
  * `Anna St. He writes copy.`, and only the position tells them apart: measured,
- * without the anchor the second gave name "Anna St. He" and role "writes copy",
- * the same fabricated role one word later.
+ * without the anchor the second gives name "Anna St. He" rather than "Anna St".
+ *
+ * ⚠️ THIS PARAGRAPH USED TO CLAIM THE ROLE TOO - "and role 'writes copy', the
+ * same fabricated role one word later" - AND THAT IS FALSE. Re-measured:
+ *
+ *     without the anchor, no comma   name "Anna St. He"   role NULL
+ *     without the anchor, comma      name "Anna St. He"   role "writes copy"
+ *
+ * ⇒ On the NO-COMMA spelling the COMMA RULE kills the role, not the anchor. The
+ * anchor's role-protection shows only on the comma spelling, which is exactly
+ * what the block below this one says at length.
+ *
+ * 🛑 THE TWO PARAGRAPHS CONTRADICTED EACH OTHER, TWENTY LINES APART, IN THIS
+ * FILE, ON MAIN. I corrected the conclusion below and left the argument for it
+ * standing up here. A stale DESCRIPTION misinforms; a stale JUSTIFICATION
+ * RECRUITS - it argues the reader toward a refuted position in the author's own
+ * confident voice, and the reader who stops at the first one never reaches the
+ * retraction. Found by grepping for a premise I had disproved, not by re-reading:
+ * re-reading gives you back your intention, and both paragraphs were mine.
  */
 const NAME_JOIN_TITLES = 'Dr|Mr|Mrs|Ms|Prof|Rev|Hon|St';
 /**
