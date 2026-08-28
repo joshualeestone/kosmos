@@ -3150,19 +3150,69 @@ function readIdentity(sessionName) {
  * because every file here came from one generator. Its value is only visible on
  * a machine with a hand-written file, which is exactly the machine import is for.
  */
-const IDENTITY_RE = /You are (?:\*\*([^*]+)\*\*|([A-Z][\w.'-]*(?: [A-Z][\w.'-]*){0,2}))(?:\s*\(([^)]+)\))?\s*,?\s*([^.\n]*)/;
+/**
+ * 🛑 THE NON-BOLD ARM MUST NOT CROSS A SENTENCE BOUNDARY (#1168).
+ *
+ * The arm exists for a person hand-writing a `CLAUDE.md` in plain prose, and
+ * the most natural plain prose was the shape it got wrong. Measured through
+ * `identityFromText` on the shipped parser:
+ *
+ *   You are Bob.                  ->  name "Bob."          a full stop welded on
+ *   You are Mary Anne Smith.      ->  name "Mary Anne Smith."
+ *   You are Bob. He writes copy.  ->  name "Bob. He", role "writes copy"
+ *   You are J.R.                  ->  name "J.R."          CORRECT, must stay
+ *
+ * The second row is the expensive one: it reads past the full stop and INVENTS
+ * A ROLE out of the next sentence. A fabricated role on a card is worse than a
+ * missing one, because nothing on the screen says where it came from.
+ *
+ * 🔑 `(?<!\.)` IS THE WHOLE REGEX CHANGE: a following capitalised word joins
+ * the name only when the word before it did NOT end in a period. `Bob. He`
+ * stops at `Bob.`; `Mary Anne Smith` still joins; `J.R.` has no space in it and
+ * is untouched.
+ *
+ * ⚠️ THE `.` STAYS IN THE CHARACTER CLASS ON PURPOSE. Removing it, or stripping
+ * every trailing stop, breaks `You are J.R.`, which is correct today. The trim
+ * is done below where an initial can be told from a word.
+ */
+const IDENTITY_RE = /You are (?:\*\*([^*]+)\*\*|([A-Z][\w.'-]*(?:(?<!\.) [A-Z][\w.'-]*){0,2}))(?:\s*\(([^)]+)\))?\s*,?\s*([^.\n]*)/;
+
+/**
+ * A trailing full stop that ENDED THE SENTENCE, as opposed to one that belongs
+ * to an initial (#1168).
+ *
+ * `Bob.` ends a sentence. `J.R.` does not: its last stop follows a single
+ * letter which itself opens the name or follows another stop. That is the only
+ * distinction available in the text, and it is the one the card asked for.
+ */
+const NAME_ENDS_SENTENCE = /[\w'-]{2,}\.$/;
 
 function identityFromText(text) {
   const m = String(text || '').match(IDENTITY_RE);
   if (!m) return null;
-  const name = m[1] !== undefined ? m[1] : m[2];
-  let role = (m[4] || '')
+  let name = m[1] !== undefined ? m[1] : m[2];
+  /* #1168. Only the prose arm can carry a sentence-ending stop: the bold arm is
+     delimited by its own asterisks, and `**side-quests**.` already comes back
+     clean. */
+  const endedSentence = m[1] === undefined && NAME_ENDS_SENTENCE.test(name);
+  if (endedSentence) name = name.slice(0, -1);
+  let role = (endedSentence ? '' : m[4] || '')
     .replace(/\*\*/g, '')          // instruction files are markdown; strip emphasis
     .replace(/^(the|a|an)\s+/i, '')
     .replace(/^Josh Stone's\s+/i, '')
     .split(/\s+in the\s+|,/)[0]
     .trim();
   if (role.length > 60) role = role.slice(0, 60).trim();
+  /* 🔑 AND THE ROLE IS DROPPED WHEN THE NAME ENDED THE SENTENCE, which is the
+     other half of #1168 and the half that was inventing things. If the name
+     closed a sentence, whatever follows is a DIFFERENT sentence, and a role
+     lives in the same sentence as the name it describes. `You are Bob. He
+     writes copy.` yields Bob with no role rather than Bob with a role read off
+     a sentence about somebody else.
+     ⚠️ The cost, stated rather than discovered later: `You are Bob. A
+     copywriter.` also yields no role, and a person may have meant one. Guessing
+     across a full stop is exactly what produced the defect, so this declines to
+     guess in both directions. */
   return { displayName: String(name).trim(), role: role || null };
 }
 
