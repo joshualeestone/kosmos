@@ -170,3 +170,26 @@ test('#1159 CONTROL: a ghost with no live twin is still offered', () => {
   assert.equal(r.agents.length, 1, 'the collapse removed a ghost that had no live twin');
   assert.equal(r.agents[0].name, 'Lone Ghost');
 });
+
+test('#1133 KNOWN LIMITATION: a ghost is absorbed by an unrelated agent of the same name', () => {
+  /* 🛑 PINNED SO A CHANGE TO IT IS DELIBERATE, not accidental. This asserts a
+     behaviour that is WRONG in principle and chosen on purpose: two different
+     agents sharing a display name, one folder deleted, come back as one row.
+
+     `dir` cannot fix it -- it differs in the moved case AND the namesake case, so
+     it separates the ROWS and says nothing about the HOLDERS. That is the sibling
+     of #1133's shape: carried, comparable, and still uninformative.
+
+     If somebody makes this two rows, the moved-agent duplicate above comes back
+     unless they have found a signal neither I nor #1133 could name. Read the
+     comment on the collapse in discover.js before changing it. */
+  const root = sandbox();
+  const gone = path.join(root, 'projectA-deleted');
+  const live = path.join(root, 'projectB'); fs.mkdirSync(live);
+  fs.writeFileSync(path.join(live, 'AGENTS.md'), '# You are Scout\n\nWorks on billing.\n');
+  rollout(root, 'aaa-older', gone, '# You are Scout\n\nA DIFFERENT agent, on the installer.\n');
+  rollout(root, 'zzz-newer', live, null);
+  const r = withCodexHome(root, () => discover.foundCodex(undefined));
+  assert.equal(r.agents.length, 1, 'behaviour changed: read the collapse comment in discover.js');
+  assert.equal(r.agents[0].dir, live, 'the surviving row should be the one that still exists');
+});
