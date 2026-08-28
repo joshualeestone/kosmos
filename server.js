@@ -5527,7 +5527,7 @@ const server = http.createServer((req, res) => {
   }
 
   /**
-   * Every open task across every project (#1382).
+   * Every task across every project, open and finished (#1382).
    *
    * 🛑 AN UNREADABLE STORE IS AN ERROR, NEVER AN EMPTY LIST. Same rule as
    * `/api/projects` above, and for the same reason: "No tasks yet" is a CLAIM
@@ -5549,7 +5549,7 @@ const server = http.createServer((req, res) => {
       });
       return;
     }
-    const all = tasks.allOpenTasks();
+    const all = tasks.allTasks();
     sendJson(res, 200, { tasks: all, count: all.length });
     return;
   }

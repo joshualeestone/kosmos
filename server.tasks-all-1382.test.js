@@ -54,13 +54,19 @@ test.before(async () => {
   tasks.close(b.id, done.number);
 });
 
-test('#1382: the route returns open tasks from every project', async () => {
+test('#1382: the route returns every task from every project, and says which are finished', async () => {
   const body = await (await fetch(base + '/api/tasks')).json();
   const names = body.tasks.map((t) => t.sentence).sort();
-  assert.ok(body.tasks.length >= 2, 'the route returned nothing, so nothing below is a test');
+  assert.ok(body.tasks.length >= 3, 'the route returned too little, so nothing below is a test');
   assert.ok(names.includes('Write the copy'), 'an assigned task is missing');
   assert.ok(names.includes('Nobody has this yet'), 'an UNASSIGNED task is missing: this is the column, not the door');
-  assert.ok(!names.includes('Finished'), 'a closed task came through');
+  /* 🔑 The screen inherits `#pj-alltasks`, whose only remaining job is
+     revealing FINISHED work. Dropping closed tasks here would make that work
+     unreachable anywhere in the product. */
+  assert.ok(names.includes('Finished'), 'closed work vanished: the door this screen replaces was its only way in');
+  const done = body.tasks.find((t) => t.sentence === 'Finished');
+  assert.equal(done.isClosed, true, 'the finished task does not say so, so the screen cannot show it differently');
+  assert.ok(body.tasks.some((t) => t.isClosed === false), 'every task reads as closed, so isClosed is not discriminating');
 });
 
 test('#1382: count is the length of the list it ships with, on a NON-EMPTY list', async () => {
