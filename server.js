@@ -149,6 +149,12 @@ const reports = require('./engine/reports');
 const limits = require('./engine/limits');
 const engmode = require('./engine/engmode');
 const accounts = require('./engine/accounts');
+/* #1304, second half: PigeonPete's live reader. It walks the pane's process tree
+   to the claude descendant and reads the environment it is ACTUALLY running
+   with, which is a better source than a startup file or a transcript for the
+   question "what am I running on". Preferred below, with the record-based
+   derivation as the fallback for an agent it cannot see. */
+const runningas = require('./engine/runningas');
 const openaiAccounts = require('./engine/openaiaccounts');
 const runners = require('./engine/runners');
 const github = require('./engine/github');
@@ -308,6 +314,55 @@ function resolveAgentSender(req, body, roster) {
  * agents give three answers, which is the defect this card is about wearing a
  * different coat. An unknown is said plainly rather than smoothed over.
  */
+/**
+ * One answer about an agent, from the best source that can see it (#1304).
+ *
+ * 🔑 TWO READERS, ONE ANSWER SHAPE, AND THE LIVE ONE WINS. `runningas` reads the
+ * environment the claude process is ACTUALLY running with; the fallback reads
+ * the startup file Kosmos wrote and the transcript the session left behind.
+ * PigeonPete's measurement is why the order is that way round: every agent brief
+ * on this machine says `claude-fable-5` and all 18 panes run `claude-opus-5`, and
+ * Baron's said `josh@stuff.io` after he had been migrated to `josh@book.io`. Both
+ * were correct when written. **Read live state; do not restate it.**
+ *
+ * ⚠️ THE FALLBACK IS NOT A GUESS, it is a different reading. A paneless agent
+ * (a token holder with no tmux session) has no process tree to walk, so the live
+ * reader cannot see it and the record is the only thing that can answer. Marking
+ * WHICH one answered is why `source` rides along: an operator comparing two
+ * agents should be able to see that one was read live and the other from a file.
+ *
+ * 🛑 AND NEITHER MAY GUESS. `account: null` means we could not tell, from either
+ * source. This whole card exists because agents gave confident wrong answers,
+ * so a null that says so is the required behaviour rather than a gap.
+ *
+ * `live` is passed in rather than fetched here so the shape can be driven
+ * directly by a test without a process tree, a tmux server or a signed-in
+ * account.
+ */
+function whoamiFor(card, known, live) {
+  const who = card && card.sessionName;
+  if (live && live.ok === true && (live.account || live.model)) {
+    return {
+      account: live.account
+        ? { email: live.account, label: live.organization || null, dir: live.configDir || null, isDefault: null }
+        : null,
+      model: live.model ? { id: live.model, name: modelDisplayName(live.model), confidence: 'structured' } : null,
+      source: 'process',
+    };
+  }
+  const account = accountForAgent(who, known);
+  const seen = (() => { try { return readModel(who); } catch { return null; } })();
+  return {
+    account: account
+      ? { email: account.email, label: account.label, dir: account.dir, isDefault: account.isDefault }
+      : null,
+    model: seen && seen.model
+      ? { id: seen.model, name: modelDisplayName(seen.model), confidence: seen.confidence }
+      : null,
+    source: 'record',
+  };
+}
+
 function sentenceForWhoami(account, model) {
   const acct = account && account.email ? account.email
     : account && account.label ? account.label
@@ -3711,23 +3766,33 @@ const server = http.createServer((req, res) => {
         if (!sender.ok) { sendJson(res, 200, { ok: false, because: sender.because }); return; }
         const who = sender.card.sessionName;
         const known = (() => { try { return accounts.list(); } catch { return []; } })();
-        const account = accountForAgent(who, known);
+        /* The tmux session, taken from the roster row rather than rebuilt from
+           the board name: `sessionName` is `angel` and the session is
+           `angel-discord`, and a second place that knows that convention is a
+           second place to get it wrong. A token-resolved paneless agent has no
+           session at all, which is exactly when the live reader cannot answer. */
+        const live = (() => {
+          const sess = sender.card.session;
+          if (!sess) return null;
+          try { return runningas.runningAs(sess); } catch { return null; }
+        })();
+        const seenLive = whoamiFor(sender.card, known, live);
+        const account = seenLive.account;
         /* ⚠️ THE TWO FACTS ARE SEPARATE AND ONE MUST NOT STAND IN FOR THE OTHER.
            The card says so in as many words: an agent that answers "I am Claude
            Opus" has answered the easier question and not the one that was
            asked. So the model never fills in for a missing account, and each
            carries its own null. */
-        const seen = (() => { try { return readModel(who, sender.instance || undefined); } catch { return null; } })();
-        const model = seen && seen.model
-          ? { id: seen.model, name: modelDisplayName(seen.model), confidence: seen.confidence }
-          : null;
+        const model = seenLive.model;
         sendJson(res, 200, {
           ok: true,
           agent: who,
-          account: account
-            ? { email: account.email, label: account.label, dir: account.dir, isDefault: account.isDefault }
-            : null,
+          account,
           model,
+          /* WHICH reader answered. An operator comparing two agents should be
+             able to see that one was read from its running process and the
+             other from a file. */
+          source: seenLive.source,
           /* One sentence a person can read out, so an agent asked in plain
              words does not have to compose one and get it subtly wrong. */
           because: sentenceForWhoami(account, model),
@@ -6671,4 +6736,10 @@ if (require.main === module) {
 // re-implementation of it. Testing the path helper in isolation would not have
 // caught the routing bug, because the helper was never the broken part -- the
 // routes reading `req.url` around it were.
-module.exports = { server, start, pathOf, decodeSegment, resetHeardBudgetForTests };
+module.exports = {
+  server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  /* #1304: exported so the two-reader precedence can be driven directly. A test
+     that needed a real process tree, a tmux server and a signed-in account would
+     not run anywhere, and the precedence is the part worth pinning. */
+  whoamiFor,
+};
