@@ -24,7 +24,10 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const SCRIPT = page.scriptOf(PAGE);
 
 const saidLineOf = (a) => new Function('a', `${page.lift(SCRIPT, 'saidLine')}\nreturn saidLine(a);`)(a);
-const conflictNoteOf = (a) => new Function('a', `${page.lift(SCRIPT, 'conflictNote')}\nreturn conflictNote(a);`)(a);
+// ⚠️ TWO LIFTS, the same shape as taskLine below: `conflictNote` delegates the
+// casing to the shared `asSentence` (#1199), so lifting it alone evaluates a
+// body whose only call is undefined.
+const conflictNoteOf = (a) => new Function('a', `${page.lift(SCRIPT, 'asSentence')}\n${page.lift(SCRIPT, 'conflictNote')}\nreturn conflictNote(a);`)(a);
 function taskLineOf(a) {
   return new Function('a',
     `${page.lift(SCRIPT, 'stateReason')}\n${page.lift(SCRIPT, 'taskLine')}\nreturn taskLine(a);`)(a);

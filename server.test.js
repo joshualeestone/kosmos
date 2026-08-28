@@ -8127,7 +8127,11 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
        badge, through the same shared derivations the card reads. They join
        the prelude for the rule stated above: a stub would let this pass
        while the shipped helpers said something else. */
-    + '\n' + pageFnSource('saidLine') + '\n' + pageFnSource('conflictNote');
+    /* ⚠️ `asSentence` JOINS THEM for the same reason (#1199): `conflictNote`
+       now delegates its casing to the one shared dresser, so the prelude
+       without it evaluates a body calling an undefined function. */
+    + '\n' + pageFnSource('saidLine') + '\n' + pageFnSource('asSentence')
+    + '\n' + pageFnSource('conflictNote');
 
   const dmAt = script.indexOf('  const dm = cardStOf(a);');
   assert.ok(dmAt > -1,
