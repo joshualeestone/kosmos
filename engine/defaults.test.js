@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -96,4 +96,65 @@ test('missingFrom names what a file lacks, and a complete file lacks nothing', (
   assert.ok(!missing.some((s) => s.heading === '### Never wait silently'), 'a section the person carries was offered again');
   assert.ok(!missing.some((s) => s.heading === '## How you work, whatever the job'));
   assert.ok(missing.some((s) => s.heading === '### When you have been wrong'), 'an absent section was not offered');
+});
+
+/**
+ * #1272. Josh, after roughly ten consecutive nights of the same thing: an agent
+ * hits something that needs a decision, asks, and waits.
+ *
+ * 🔑 PINNED AS CONTENT, not as a fingerprint, for the same reason as #1253
+ * above: the version test catches ANY change to the block; this one says which
+ * changes must not be made.
+ *
+ * ⚠️ THE CLAUSE THAT MATTERS MOST IS "nobody may authorise a stop". On
+ * 2026-08-27 all six agents on this fleet behaved CORRECTLY by the rule they
+ * had and three ended the night waiting on the operator, because a supervisor
+ * told them a named blocker counted as a clean stop. A rule that binds only the
+ * agent asking cannot survive the person answering.
+ */
+test('#1272: the block grants the decision rather than forbidding the stop', () => {
+  const b = defaults.block();
+
+  // The floor is checkable; "keep working" is an intention and emits no signal.
+  assert.match(b, /The floor is not "stop"\. The floor is "move to other work\."/);
+
+  // The clause the previous attempts were missing.
+  assert.match(b, /Nobody may authorise a stop/);
+  assert.match(b, /permission IS the failure/);
+
+  // A decidable test, not a judgement about importance.
+  assert.match(b, /can it be undone/i);
+
+  // Ask for decisions, never for data (Josh, 07:57).
+  assert.match(b, /Ask them for decisions, never for data/);
+  assert.match(b, /lazy in a way that looks diligent/);
+  assert.match(b, /before you ask for a ruling, check whether one already exists/i);
+
+  // The unit is defined and the tracker is optional (Josh, 07:15).
+  assert.match(b, /WHATEVER YOUR SYSTEM\s+CALLS IT/);
+  assert.match(b, /does not require a tracking system at all/);
+});
+
+test('#1272: neither report command is described as something you do after stopping', () => {
+  const b = defaults.block();
+  /* 🛑 THE ACTUAL DEFECT. The block already said "you find the next unblocked
+     thing" at the top, and forty lines below gave two commands whose stated
+     precondition was "when you have stopped" -- one of them ranked "the one
+     that matters most". Prose forbade stopping; the tooling anticipated it and
+     ranked it, and an agent reconciles that the only way it can. */
+  assert.doesNotMatch(b, /when you have stopped/,
+    'a report command is described as something you do after stopping, which is how '
+    + 'the tooling grants what the prose forbids');
+  // Both states are about the item, and both say to carry on.
+  assert.match(b, /when THIS ITEM is parked/);
+  assert.match(b, /when THIS ITEM needs an answer/);
+  assert.match(b, /it marks\s+the item, it does not park you/);
+});
+
+test('#1272 CONTROL: the same reader would notice if those clauses were gone', () => {
+  /* Without this, every assertion above passes on a build where `block()`
+     returned the whole file, or any superset. It must be able to say NO. */
+  const b = defaults.block();
+  assert.doesNotMatch(b, /zzz-pete-not-in-the-block/);
+  assert.ok(b.length > 2000 && b.length < 40000, `block is ${b.length} chars`);
 });

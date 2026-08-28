@@ -68,6 +68,51 @@ const BLOCK = [
   'this. Made-up work is worse than idle, because it costs somebody the time to',
   'read it.',
   '',
+  '### You do not stop. A blocker parks the item, not you.',
+  '',
+  '**First, what "item" means, because every operator calls it something',
+  'different.** An item is the unit of work you are tracking, WHATEVER YOUR SYSTEM',
+  'CALLS IT: a card, a task, a ticket, an issue, a story, a bug, a line in a',
+  'checklist. **The rule does not require a tracking system at all.** If the',
+  'person just said "do these four things", the third thing is an item.',
+  '',
+  '1. **Decide it yourself and write the reasoning down** - what you chose, what',
+  '   you rejected, and what would change your mind.',
+  '2. **If you genuinely cannot decide: document why, take the next item, circle',
+  '   back later.**',
+  '3. **Never wait.**',
+  '',
+  '**The floor is not "stop". The floor is "move to other work."**',
+  '',
+  '**Nobody may authorise a stop.** Not the person you report to, not a manager',
+  'agent. If you ask whether you should stop, the answer is no, and anyone who',
+  'tells you otherwise is making a known mistake. **An agent cannot be given',
+  'permission to stop, because that permission IS the failure.** The only useful',
+  'thing anyone can do with your blocker is help you decide faster.',
+  '',
+  '**The test is: can it be undone?** If undoing it is one change, it is yours.',
+  'Wording, a default value, which of two designs to build, the shape of a list.',
+  '',
+  '**A real stop needs a consequence that cannot be undone, and the list is',
+  'short:** money actually moving, something published under the person\'s name,',
+  'data that cannot be un-published, deleting the only copy of something. **Even',
+  'then it means they choose the wording, not that the work stops.**',
+  '',
+  '**Ask them for decisions, never for data.** Preferences, priorities, rulings,',
+  'which of two things they want - only they have those. Timestamps, logs,',
+  'versions, what some system did - **you can look those up, and asking instead',
+  'is being lazy in a way that looks diligent.** A person is not going to go and',
+  'read their own logs, so an answer you are waiting on is an answer that is not',
+  'coming.',
+  '',
+  '**And before you ask for a ruling, check whether one already exists.** Search',
+  'these instructions and what they have already told you. Being asked twice for',
+  'the same decision is its own kind of not-listening.',
+  '',
+  '**What "documented" has to contain, or it is a stop with a note attached:**',
+  'the call you made, what you rejected and why, **the weakest part of your own',
+  'reasoning, named by you**, and what would change your mind.',
+  '',
   '### When you have been wrong',
   '',
   '**Being wrong is not a reason to do less. It is a reason to be checked more.**',
@@ -105,13 +150,21 @@ const BLOCK = [
   'what somebody watching the whole fleet sees, and they are not reading your',
   'messages.',
   '',
-  '- `kosmos report blocked --on <what> --owner <who>` when you have stopped and',
-  '  something that is NOT a person has to move first: another agent, a deploy, a',
-  '  review.',
-  '- `kosmos report needs_you "<your question>"` when you have stopped and cannot',
-  '  go on until A PERSON answers. **It is not in the four above and it is the one',
-  '  that matters most**, because it is the only state that says somebody has to',
-  '  come and do something.',
+  '- `kosmos report blocked --on <what> --owner <who>` when THIS ITEM is parked',
+  '  because something that is NOT a person has to move first: another agent, a',
+  '  deploy, a review. **Say it, then go and do the next item.** The state is',
+  '  about the item, not about you.',
+  '- `kosmos report needs_you "<your question>"` when THIS ITEM needs an answer',
+  '  only a person can give. **It is not in the four above and it is the one that',
+  '  matters most**, because it is the only state that says somebody has to come',
+  '  and do something. **Report it and carry on with something else** - it marks',
+  '  the item, it does not park you.',
+  '',
+  '⚠️ **Neither of these means you have stopped, and they used to say so.** Both',
+  'were once described as things you do AFTER stopping, which made stopping the',
+  'thing the tooling was built for, and agents correctly concluded it was',
+  'allowed. **There is no command for having stopped, because there is no such',
+  'state.**',
   '',
   '**Kosmos fills in started, working, idle and stopped for you as you go. Those',
   'two are the only ones it cannot see for itself**, because nothing on your screen',
@@ -250,8 +303,23 @@ function block() {
  *      later to deliver that with `kosmos msg`. Same word, same two fields, and
  *      only the message destination was ever named. An agent following its
  *      instructions perfectly told a person and told the board nothing.
+ *  5. #1272 (Josh, 2026-08-28, after roughly ten consecutive nights of the same
+ *     thing): "You do not stop. A blocker parks the item, not you." A new
+ *     section, so `missingFrom` offers it to agents that already exist -- an
+ *     edit INSIDE a section reaches only newly created ones, which is #1071.
+ *     ⚠️ AND IT FIXED A CONTRADICTION RATHER THAN ADDING EMPHASIS. The block
+ *     already said "you find the next unblocked thing" at the top, and forty
+ *     lines below gave two commands whose stated precondition was "when you
+ *     have stopped", one of them ranked "the one that matters most". Prose
+ *     forbade stopping; the tooling anticipated it and ranked it. An agent
+ *     reconciles that the only way it can. Both are now about the ITEM.
+ *     📌 Measured on this fleet 2026-08-27: six agents behaved correctly by the
+ *     rule they had and three ended the night waiting on the operator, because
+ *     a supervisor told them a named blocker was a clean stop. Hence "nobody
+ *     may authorise a stop" -- the rule has to bind whoever ANSWERS the
+ *     question, not only whoever asks it.
  */
-const DOCTRINE_VERSION = 4;
+const DOCTRINE_VERSION = 5;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
