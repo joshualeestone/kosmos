@@ -2439,7 +2439,7 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/remote/forget' && req.method === 'POST') {
     remote.forget()
       .then((got) => sendJson(res, 200, { ok: true, retired: got.retired === true, address: got.address, because: got.because, status: remote.status() }))
-      .catch((err) => sendJson(res, 500, { error: 'we could not forget this Mac: ' + (err && err.message) }));
+      .catch((err) => sendJson(res, 500, { error: 'we could not forget this computer: ' + (err && err.message) }));
     return;
   }
   /* ---- Devices (#567): the Allow moment's seam. `pending` is a FILE the
@@ -4418,7 +4418,7 @@ const server = http.createServer((req, res) => {
         if (!pv.ok) { sendJson(res, 404, { error: pv.because }); return; }
         res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
         res.end(req.method === 'HEAD' ? undefined : pv.bytes);
-      }).catch(() => sendJson(res, 404, { error: 'this Mac could not draw the first page' }));
+      }).catch(() => sendJson(res, 404, { error: 'this computer could not draw the first page' }));
       return;
     }
     let bytes;

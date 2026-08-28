@@ -95,7 +95,7 @@ test('#671: the plain offline sentence carries the launch model and the honest c
   assert.equal(row.running, false);
   assert.match(row.because, /nothing on this computer has a session for it/,
     'the diagnosis half of the sentence changed, which this fix has no business doing');
-  assert.match(row.because, /starts itself when this Mac is on/,
+  assert.match(row.because, /starts itself when this computer is on/,
     'the next move is missing: the sentence still ends at the diagnosis (the #671 defect)');
   assert.match(row.because, /this computer is not saying why/,
     'the could-not-tell half is missing: a person whose agent stays off is told nothing');
@@ -120,7 +120,7 @@ test('#671: the composer speaks the row\'s own cause at the decision point, and 
   const noCard = { presence: 'off', presenceBecause: 'we cannot see an agent by exactly this name on this computer right now' };
   const line = dmOffLine('Quiet', noCard, row);
   assert.match(line, /^Quiet cannot be handed a message: /);
-  assert.match(line, /starts itself when this Mac is on/,
+  assert.match(line, /starts itself when this computer is on/,
     'the verdict at the box still ends without a next move (the #671 defect)');
   assert.doesNotMatch(line, /exactly this name/,
     'the engine\'s subsumed reason is said beside the row\'s own, so the failure is spoken twice in one line');

@@ -130,7 +130,7 @@ function trustFolder(dir) {
     if (st.size === 0) return { ok: false, because: 'their config file is empty' };
     data = JSON.parse(fs.readFileSync(target, 'utf8'));
   } catch (err) {
-    if (err && err.code === 'ENOENT') return { ok: false, because: 'Claude Code has not run on this Mac yet' };
+    if (err && err.code === 'ENOENT') return { ok: false, because: 'Claude Code has not run on this computer yet' };
     if (err instanceof SyntaxError) return { ok: false, because: 'we could not read their config file' };
     return { ok: false, because: 'we could not read their config file' };
   }

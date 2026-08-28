@@ -79,6 +79,6 @@ test('with vercel absent, start refuses in one sentence and spawns nothing', asy
   let spawned = 0;
   vercel.setSpawner(() => { spawned += 1; return fakeChild(); });
   const s = await vercel.start();
-  assert.match(s.refused, /not on this Mac/);
+  assert.match(s.refused, /not on this computer/);
   assert.equal(spawned, 0);
 });
