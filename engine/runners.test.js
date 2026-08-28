@@ -247,7 +247,7 @@ test('#979: the wrong CPU architecture is refused before a byte moves, naming th
     download: () => { throw new Error('no bytes may move for the wrong architecture'); },
   });
   assert.equal(job.phase, 'failed');
-  assert.match(job.because, /build is arm64 and this Mac is x64/);
+  assert.match(job.because, /build is arm64 and this computer is x64/);
   assert.match(job.because, /no download was attempted/);
 });
 
@@ -474,7 +474,7 @@ test('#979: with no claude anywhere, the install REFUSES in words and never clai
     // not explain itself is the thing the provider ruling exists to kill.
     // Leads with what happened, not with a tautology: the house rule on
     // writing to a person is to say what happened and what it means for them.
-    assert.match(job.because, /^We could not find Claude Code on this Mac\./);
+    assert.match(job.because, /^We could not find Claude Code on this computer\./);
     // ⚠️ AND IT MUST NOT LIE ABOUT THE PRODUCT. Kosmos DOES download Claude
     // Code, through the sign-in flow; only this step cannot. A sentence that
     // says "Kosmos cannot download one" is false to the only subject the

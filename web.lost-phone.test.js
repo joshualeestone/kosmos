@@ -67,5 +67,5 @@ test("a refusal is said in the engine's own words, and the button comes back", a
 test('an engine that cannot be reached is said as that, not as done', async () => {
   const w = world(async () => { throw new Error('ECONNREFUSED'); });
   await w.click(); await w.click();
-  assert.match(w.el('plus-second-msg').textContent, /not reset: this Mac could not reach its own engine\./);
+  assert.match(w.el('plus-second-msg').textContent, /not reset: this computer could not reach its own engine\./);
 });
