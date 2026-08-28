@@ -30,14 +30,14 @@ stamp_at() {
 }
 entry() { printf '<article id="v0-6-06"><span class="rel-d">%s</span></article>\n' "$1" > "$F"; }
 
-run() { kosmos_versions_entry_gate 0.6.06 "$F" "cost sentence." 2>&1; }
+run() { kosmos_versions_entry_gate 0.6.06 "$F" "cost sentence." "stamp hint." 2>&1; }
 
 # --- presence axis ---
 printf '<article id="v0-6-05"><span class="rel-d">%s</span></article>\n' "$(stamp_at 0)" > "$F"
 out="$(run)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "has no entry"; then pass "refuses when the entry is absent"; else fail "refuses when absent (rc=$rc): $out"; fi
 # and the control that makes that refusal mean something: the same file, the version it DOES carry
-out="$(kosmos_versions_entry_gate 0.6.05 "$F" "cost." 2>&1)"; rc=$?
+out="$(kosmos_versions_entry_gate 0.6.05 "$F" "cost." "hint." 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "and accepts the version that file does carry (control)"; else fail "control: 0.6.05 should pass (rc=$rc): $out"; fi
 
 # --- stamp axis ---
@@ -49,18 +49,21 @@ entry "$(stamp_at -15)"
 out="$(run)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "accepts a publication stamp 15 min ahead, read at step 1"; else fail "publication stamp must pass early (rc=$rc): $out"; fi
 
-entry "$(stamp_at 25)"
+st="$(stamp_at 25)"; entry "$st"
 out="$(run)"; rc=$?
-off="$(kosmos_versions_entry_stamp_off "$(stamp_at 25)")"
+# ⚠️ the SAME stamp string, not a second stamp_at call. Calling it twice reads the
+# clock again seconds later, so a failure message could print a minute the fixture
+# never carried -- a diagnostic that disagrees with the thing under test.
+off="$(kosmos_versions_entry_stamp_off "$st")"
 # ⚠️ the count is asserted as a RANGE, not as 25: the stamp has minute
 # granularity, so a fixture built 40 seconds past the minute reads 26. An exact
 # assertion here fails once an hour for a reason that has nothing to do with
 # the gate.
 if [ "$rc" -eq 1 ] && has "$out" "off by 2" && [ "$off" -ge 24 ] 2>/dev/null; then pass "refuses a stale stamp, and says by how much ($off min)"; else fail "refuses stale (rc=$rc, off=$off): $out"; fi
 
-entry "$(stamp_at -25)"
+st="$(stamp_at -25)"; entry "$st"
 out="$(run)"; rc=$?
-off="$(kosmos_versions_entry_stamp_off "$(stamp_at -25)")"
+off="$(kosmos_versions_entry_stamp_off "$st")"
 # the SIGN is the thing under test here, and it is what separates this arm from
 # the unparseable one below: an empty fixture also refuses, for a different reason.
 if [ "$rc" -eq 1 ] && has "$out" "off by -2" && [ "$off" -le -24 ] 2>/dev/null; then pass "refuses a stamp in the future (a guess cannot satisfy the clock) ($off min)"; else fail "refuses future (rc=$rc, off=$off): $out"; fi
@@ -69,9 +72,36 @@ entry "sometime tuesday"
 out="$(run)"; rc=$?
 if [ "$rc" -eq 1 ]; then pass "refuses an unparseable stamp"; else fail "refuses unparseable (rc=$rc): $out"; fi
 
-# --- the gate is actually wired at BOTH call sites, not just defined ---
-n="$(grep -c 'kosmos_versions_entry_gate' "$HERE/release.sh")"
-if [ "$n" -eq 2 ]; then pass "release.sh calls the gate exactly twice (step 1 and step 7)"; else fail "release.sh should call the gate twice, found $n"; fi
+# --- an unreadable file is not an absent entry ---
+out="$(kosmos_versions_entry_gate 0.6.06 "$T/nope.html" "cost." "hint." 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && has "$out" "cannot read"; then pass "an unreadable file says so, instead of 'write the entry'"; else fail "unreadable file (rc=$rc): $out"; fi
+
+# --- a version that is not digits and dots never reaches the sed address ---
+entry "$(stamp_at 0)"
+out="$(kosmos_versions_entry_gate '0.6.*' "$F" "cost." "hint." 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && has "$out" "not digits and dots"; then pass "refuses a version carrying a regex metacharacter"; else fail "metacharacter version (rc=$rc): $out"; fi
+
+# --- the two call sites give DIFFERENT stamp advice, and early must not say "now" ---
+# 🛑 THE ARM THAT PINS THE ACTUAL BUG: telling the operator at step 1 to stamp NOW
+# guarantees a second failure at step 7, because the entry ages by the length of the
+# cut in between. Early must say PUBLISH.
+early="$(sed -n '/^kosmos_versions_entry_gate/,+1p' "$HERE/release.sh" | head -2)"
+late="$(sed -n '/^kosmos_versions_entry_gate/,+1p' "$HERE/release.sh" | tail -2)"
+if has "$early" "PUBLISH"; then pass "the step 1 call tells the operator to stamp for publication"; else fail "step 1 stamp advice: $early"; fi
+if has "$late" "Paste the clock line"; then pass "the step 7 call tells the operator to stamp now"; else fail "step 7 stamp advice: $late"; fi
+if [ "$early" = "$late" ]; then fail "both call sites give the same stamp advice; step 1 must not say 'now'"; else pass "the two call sites do not share one remediation sentence"; fi
+
+# --- the gate is actually wired at BOTH call sites, in the right ORDER ---
+# ⚠️ counting occurrences is not enough: a comment naming the function inflates it,
+# and two calls both sitting in step 7 would still count 2. Assert the CALL shape
+# (line-anchored) and that one of them precedes the step 2 banner.
+n="$(grep -c '^kosmos_versions_entry_gate ' "$HERE/release.sh")"
+if [ "$n" -eq 2 ]; then pass "release.sh calls the gate exactly twice"; else fail "release.sh should call the gate twice, found $n"; fi
+first_call="$(grep -n '^kosmos_versions_entry_gate ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
+last_call="$(grep -n '^kosmos_versions_entry_gate ' "$HERE/release.sh" | tail -1 | cut -d: -f1)"
+step2="$(grep -n 'step "== 2\. ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
+if [ -n "$step2" ] && [ "$first_call" -lt "$step2" ]; then pass "one call runs BEFORE step 2, which is the whole point of the change"; else fail "no call before step 2 (first=$first_call step2=$step2)"; fi
+if [ -n "$step2" ] && [ "$last_call" -gt "$step2" ]; then pass "and the late call is still there, after step 2"; else fail "late call missing (last=$last_call step2=$step2)"; fi
 
 [ "$fails" -eq 0 ] || { echo "$fails failed"; exit 1; }
 echo "all versions-entry gate arms behaved"

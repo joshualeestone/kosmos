@@ -11,7 +11,10 @@ improvement it gained would have died with the session that wrote it.
 ## The order matters, and the reason is one defect each
 
 1. **Clean main, and read the log.** The release ships what is merged, not what
-   you remember merging.
+   you remember merging. **The versions entry is also checked HERE, not only at
+   step 7 (#1453)** -- presence and stamp both, so a missing or stale entry stops
+   the cut in about three seconds instead of after the suite, the browser gate,
+   the install gate and the build. Write the entry before you launch.
 2. **Bump `package.json`.** One place. `engine/update.js` compares this against
    the served `latest.json`, numerically rather than lexically.
 3. **The whole suite**, on the tree that ships.
@@ -26,9 +29,12 @@ improvement it gained would have died with the session that wrote it.
    whole change before this step existed, **while three correct checks of the
    bundle passed.**
 6. **Confirm the bundle says the version** before publishing it.
-7. **The versions page needs its entry first.** Copy is ruled by Mona Lisa; the
-   timestamp is the only field written at release time, and the page's own rule
-   is never to edit an existing entry.
+7. **The versions page needs its entry, re-checked at the moment of deploy.**
+   Step 1 already asked; this asks again because the site checkout can change
+   under a cut that runs fifteen minutes, and a stamp that agreed with the clock
+   at step 1 can be stale by now. Copy is ruled by Mona Lisa; the timestamp is
+   the only field written at release time, and the page's own rule is never to
+   edit an existing entry.
 8. **Deploy.**
 9. **Verify what is SERVED** — `tools/verify-served.sh`, retried, because a
    deploy is live before every edge has it and one read cannot tell "not
@@ -101,12 +107,20 @@ failed cut is not clean: it may have written into the site checkout before it
 died, and the next attempt trips on the leftovers with a message that describes
 a different problem.
 
-1. **The versions entry's stamp.** Step 7 refuses an entry whose `rel-d` is more
-   than 20 minutes from the clock. The entry is written once, by hand, so every
-   failed attempt ages it; attempt four died on a 40-minute gap after three
-   earlier attempts had burned the window. Before re-cutting, set the entry's
-   `rel-d` to about ten minutes AHEAD of launch (a cut takes ten to twelve
-   minutes to reach step 7), in the site's `versions.html`.
+1. **The versions entry's stamp.** **BOTH step 1 and step 7 refuse** an entry
+   whose `rel-d` is more than 20 minutes from the clock, on the same symmetric
+   window (#1453). The entry is written once, by hand, so every failed attempt
+   ages it; attempt four died on a 40-minute gap after three earlier attempts had
+   burned the window. Before re-cutting, set the entry's `rel-d` to about ten
+   minutes AHEAD of launch (a cut takes ten to twelve minutes to reach step 7),
+   in the site's `versions.html`.
+   ⚠️ **Stamp it for when you expect to PUBLISH, never for now.** The window is
+   symmetric, so a forward stamp passes step 1 (`off = -10` is inside 20) and
+   still passes step 7 once the cut has caught up with it. A stamp written *now*
+   passes step 1 and then arrives at step 7 reading the full length of the cut,
+   which is what a re-cut most often dies on. This is also why the step 1
+   refusal's own advice says "stamp for publication" where step 7's says "paste
+   the clock line": at step 7 there is no cut left to age it.
 2. **A versioned tarball from the dead attempt.** If the attempt got past 4b it
    copied `dist/kosmos-<V>-arm64.tar.gz` into the site checkout. The next build
    produces different bytes (builds are not byte-reproducible: codesign

@@ -53,14 +53,44 @@ kosmos_versions_entry_stamp_off() {
 "
 }
 
-# The whole gate. $1 version, $2 versions.html, $3 a short label naming what is
-# lost by failing here, so the early refusal can say the machine is unspent and
-# the late one cannot claim that.
+# The whole gate.
+#   $1 version
+#   $2 versions.html
+#   $3 the cost sentence -- what is and is not already spent at this call site
+#   $4 the stamp remediation -- DIFFERENT at the two call sites, deliberately
+#
+# 🛑 $4 EXISTS BECAUSE ONE REMEDIATION SENTENCE CANNOT SERVE BOTH GATES, AND THE
+# OBVIOUS ONE IS WRONG EARLY. "Paste the clock line above" means "stamp it now".
+# Stamp now at step 1 and the entry arrives at step 7 reading `off = +D`, where D
+# is how long the cut takes to get there -- so the advice guarantees a SECOND
+# failure whenever D > 20, and no stamp satisfies both gates once D > 40. Step 1
+# must therefore say "stamp it for when you expect to PUBLISH", which is what the
+# header above and docs/releasing.md both already say.
 kosmos_versions_entry_gate() {
-  local v="$1" file="$2" cost="$3" id stamp off now
-  id="$(kosmos_versions_entry_id "$v")"
+  local v="$1" file="$2" cost="${3:-}" stamp_fix="${4:-}" id stamp off now
 
-  if ! grep -q "id=\"$id\"" "$file" 2>/dev/null; then
+  # ⚠️ REFUSE A VERSION THAT IS NOT THE SHAPE WE BUILD THE ID FROM. `$id` is
+  # interpolated into a sed ADDRESS below, where a metacharacter would silently
+  # change what is matched rather than fail. Inline in step 7 that was one
+  # trusted call site; as a library function it is anybody's.
+  case "$v" in
+    ''|*[!0-9.]*) echo "   refusing to check a version that is not digits and dots: '$v'"; return 1 ;;
+  esac
+
+  # ⚠️ AN UNREADABLE FILE IS NOT AN ABSENT ENTRY, and saying so matters: "write
+  # the entry in versions.html" reads as "edit that file" for a file that is not
+  # there. The old inline grep had no 2>/dev/null, so the operator at least saw
+  # "No such file or directory" beside the refusal; silencing the diagnostic
+  # without replacing it would have been a regression in what they can act on.
+  if [ ! -r "$file" ]; then
+    echo "   cannot read $file."
+    echo "   That is the site checkout's versions page. Check the path, not the copy. $cost"
+    return 1
+  fi
+
+  id="$(kosmos_versions_entry_id "$v")"
+  # grep -F: the id is a fixed string, never a pattern.
+  if ! grep -qF "id=\"$id\"" "$file"; then
     echo "   $v has no entry in $file."
     echo "   Write it (ruled copy, real timestamp) and re-run. $cost"
     return 1
@@ -69,12 +99,19 @@ kosmos_versions_entry_gate() {
 
   stamp="$(kosmos_versions_entry_stamp "$v" "$file")"
   off="$(kosmos_versions_entry_stamp_off "$stamp")"
+  if [ "$off" = "unparseable" ]; then
+    now="$(date '+%B %-d, %Y, %-I:%M %p %Z')"
+    echo "   the entry for $v is stamped: $stamp"
+    echo "   that is not a date this gate can read. It wants the shape: $now"
+    echo "   $stamp_fix $cost"
+    return 1
+  fi
   if [ "$off" != "ok" ]; then
     now="$(date '+%B %-d, %Y, %-I:%M %p %Z')"
     echo "   the entry for $v is stamped: $stamp"
     echo "   the clock says:              $now"
     echo "   that is off by $off minutes (positive means the entry is in the past)."
-    echo "   Paste the clock line above into the entry's rel-d and re-run. $cost"
+    echo "   $stamp_fix $cost"
     return 1
   fi
   echo "   its timestamp agrees with the clock"
