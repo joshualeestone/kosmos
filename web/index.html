@@ -2334,7 +2334,28 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      the row fill it sits on and the rail ground its outer edge abuts:
      8.24:1 / 7.30:1 light, 7.81:1 / 8.25:1 dark. Pinned in
      web.consolidated-980 so a token edit cannot quietly drop it back under. */
-  html[data-layout="consolidated"] body.consolidated .pj-row.open { background: var(--k-surface); box-shadow: inset 3px 0 0 0 var(--k-ink-2), 0 0 0 1px var(--k-rule); }
+  /* Josh, 2026-08-27: "For the selected project I don't want it to have the black
+     shadow on the left and I don't want it to have any stroke around it either. I
+     just want it to be a white area to indicate that that project is selected."
+     ⇒ The white ground IS the selection now. The inset 3px was the left bar and
+     the 0 0 0 1px was the stroke; both go, the background stays. */
+  html[data-layout="consolidated"] body.consolidated .pj-row.open { background: var(--k-sel, var(--k-surface)); }
+  /* 🛑 AND THE SAME IDEA HAS TO SURVIVE THE THEME, WHICH IT DID NOT.
+     Measured on the real page, selected ground against the column behind it:
+       light   rgb(255,255,255) on rgb(243,241,236)   12 units apart
+       dark    rgb( 23, 25, 28) on rgb( 17, 19, 22)    6 units apart
+     ⇒ Josh's "just a white area" works in light and is close to invisible in
+     dark, where the surface token sits almost on top of the column. Shipping his
+     words literally would have removed the stroke and left dark-mode users with
+     no way to tell which project is open, which is the defect the pin below was
+     written to catch and it caught it.
+     ⇒ His instruction is about the MECHANISM: an area, not a bar and not a
+     stroke. So dark gets an area that actually reads. */
+  :root { --k-sel: #ffffff; }
+  :root:not([data-theme="light"]) { --k-sel: #23262b; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --k-sel: #ffffff; } }
+  :root[data-theme="dark"] { --k-sel: #23262b; }
+  :root[data-theme="light"] { --k-sel: #ffffff; }
   html[data-layout="consolidated"] body.consolidated #pj-list { gap: 2px; }
   /* The rail heads: a name, a +, and the fold arrow. Folded, the arrow (and
      the +) stack and the name goes. */
@@ -2475,6 +2496,25 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      the warning sits over the face. Both stay inside the 34px cell, so the
      folded 48px column never clips them. */
   html[data-layout="consolidated"] body.consolidated .lrow > .lav { position: relative; overflow: visible; background: none; }
+  /* 🔑 A PRESENCE DOT ON THE AVATAR (kosmos#1192). Josh: "I want to see status
+     indicator bubbles on all the agents in the bottom right, like we do
+     everywhere else, so I can see green or gray if they're online or offline."
+     Same 8px disc and the same green as the account badge (grep `.acct-connected .dot`),
+     so it reads as one vocabulary rather than a second one.
+     🛑 THREE STATES, NOT TWO, AND THAT IS THE WHOLE CARE HERE. He asked for green
+     or grey, online or offline. The board has a THIRD answer: `unk`, meaning we
+     could not read the pane at all. Painting that grey would assert "offline"
+     about an agent we simply cannot see, which is the same class of false claim
+     as telling somebody their computer is empty.
+     ⇒ green = running, grey = stopped, HOLLOW = we could not tell. A ring reads
+     as "no answer" rather than as an answer. */
+  html[data-layout="consolidated"] body.consolidated .lrow > .lav::after {
+    content: ""; position: absolute; right: -1px; bottom: -1px;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #2f7d5a; box-shadow: 0 0 0 2px var(--k-bg); }
+  html[data-layout="consolidated"] body.consolidated .lrow.off > .lav::after { background: var(--k-ink-2); }
+  html[data-layout="consolidated"] body.consolidated .lrow.unk > .lav::after {
+    background: transparent; border: 1.5px solid var(--k-ink-2); }
   html[data-layout="consolidated"] body.consolidated .lrow > .lav > img, html[data-layout="consolidated"] body.consolidated .lrow > .lav > .lavtint { position: absolute; left: 5px; top: 5px; width: 24px; height: 24px; font-size: 10px; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lav > .lring { display: block; position: absolute; inset: 0; width: 34px; height: 34px; }
   html[data-layout="consolidated"] body.consolidated .lring .gf.warn, html[data-layout="consolidated"] body.consolidated .lring .gf.high { stroke-width: 2.5; }

@@ -84,8 +84,24 @@ test('the stylesheet has no stray comment terminator: a rule discarded by the pa
 });
 
 test('the open project stays lit: a persistent .open state, written on click and on repaint', () => {
-  assert.match(PAGE, new RegExp(cons + ' \\.pj-row\\.open \\{ background: var\\(--k-surface\\); box-shadow: inset 3px 0 0 0 var\\(--k-ink-2\\), 0 0 0 1px var\\(--k-rule\\); \\}'),
-    'the selected-project style is gone; hover alone cannot say which project is on screen');
+  /* 🔑 REWRITTEN FOR kosmos#1192, PROPERTY UNCHANGED. This pinned the exact
+     box-shadow, which was the MECHANISM. The property is that a selected project
+     is distinguishable WITHOUT hovering, and Josh asked on 2026-08-27 for that to
+     be a ground rather than a bar and a stroke: "I just want it to be a white
+     area to indicate that that project is selected."
+     ⚠️ AND IT MUST SURVIVE THE THEME, WHICH THE NAIVE VERSION DID NOT. Measured:
+     the surface token against the column behind it is 12 units apart in light and
+     SIX in dark, so `background: var(--k-surface)` alone left dark-mode users
+     unable to tell which project was open. That is what this guard caught, and it
+     was right to. Hence a dedicated token with an explicit value per theme. */
+  const openRule = PAGE.match(new RegExp(cons + ' \\.pj-row\\.open \\{[^}]*\\}'));
+  assert.ok(openRule, 'the selected-project rule is gone; hover alone cannot say which project is on screen');
+  assert.match(openRule[0], /background:\s*var\(--k-sel/,
+    'the selected project no longer has a ground of its own, so selection is only a hover away from invisible');
+  for (const t of ['\\[data-theme="dark"\\]', '\\[data-theme="light"\\]']) {
+    assert.match(PAGE, new RegExp(t + '[^{]*\\{[^}]*--k-sel:'),
+      'the selection ground has no explicit value for one theme, so it falls back and can collapse onto the column');
+  }
   assert.match(PAGE, /p\.id === PJ_CURRENT \? ' open' : ''/,
     'the painter no longer writes .open on repaints');
   assert.match(PAGE, /p\.id === PJ_CURRENT \? ' aria-current="true"' : ''/,
