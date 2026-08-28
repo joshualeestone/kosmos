@@ -52,6 +52,35 @@ const dana = board.agents.find((a) => a && a.name === 'dana');
 assert.ok(dana && dana.sessionName, 'the fixture produced no card, so nothing below is testing the painter');
 assert.equal(dana.state, 'working', 'the fixture card is not in the state this whole file is about');
 
+/**
+ * The NaN guard in `paintRoom` is unreachable ONLY because another module
+ * holds the line. This asserts that the other module still holds it.
+ *
+ * 🛑 I HAD WRITTEN THAT DEPENDENCY IN A COMMENT AND CALLED IT UNTESTABLE:
+ * "a test here would assert the behaviour of a guarantee that lives over
+ * there". Mona Lisa's correction in cross-review is the useful distinction and
+ * it is right: **that is true of the BEHAVIOUR and false of the GUARANTEE'S
+ * EXISTENCE**, and the existence is the half this file can hold.
+ *
+ * ⇒ A comment saying "safe only because X" is a tripwire nothing watches. Where
+ * X is a fact about ANOTHER FILE it is assertable, and then the tripwire becomes
+ * a guard. (Where X is a property of the code under test, asserting it is
+ * circular and the answer is to remove the dependency instead - which is why
+ * this is a grep and not a behavioural arm.)
+ */
+test('#1150: engine/messages.js still rejects unparseable timestamps, which is what makes the NaN guard unreachable', () => {
+  const src = fs.readFileSync('engine/messages.js', 'utf8');
+  assert.ok(src.length > 1000, 'engine/messages.js read looks broken, so the assertion below would pass for the wrong reason');
+  assert.match(src, /typeof m\.at !== 'string' \|\| !Number\.isFinite\(Date\.parse\(m\.at\)\)/,
+    'engine/messages.js no longer rejects rows whose `at` is not a parseable string. '
+    + 'paintRoom\'s `Number.isFinite` guard was unreachable BECAUSE of that filter; '
+    + 'if it has loosened, a NaN `at` now compares false against every later value, '
+    + 'so that speaker is re-stamped forever and drops out of the working line permanently.');
+  /* THE CONTROL: the matcher can say no. Without it a broken regex passes by
+     matching nothing and reports the guarantee intact. */
+  assert.doesNotMatch(src, /zzz-not-a-real-guarantee/, 'the matcher finds text that does not exist');
+});
+
 test('#1150: an agent whose reply is already on screen is not announced as still working', () => {
   const SNAP = 1000;
 
@@ -99,7 +128,11 @@ test('#1150: the room history that arrives when you open a room is not everybody
   /* 🔑 THE PAGE'S OWN SEEDING BLOCK, SLICED OUT OF THE SHIPPED SOURCE rather
      than retyped here. Retyping it would test this file's copy of the logic,
      which is precisely how the one-boolean version passed a green test. */
-  const from = SCRIPT.indexOf('const seededRoom = ROOM_SPOKE_SEEDED.has(PJ_CURRENT);');
+  /* Anchored on `const seededRoom =` rather than the whole expression: the
+     right-hand side gained a PJ_CURRENT guard and the old literal stopped
+     matching, which failed CLOSED with "the seeding block moved" - correct, and
+     a reminder that a literal anchor is a position dressed as content. */
+  const from = SCRIPT.indexOf('const seededRoom =');
   assert.ok(from > -1, 'the seeding block moved; this test is no longer reading the real one');
   const to = SCRIPT.indexOf('ROOM_SPOKE_SEEDED.add(PJ_CURRENT);', from);
   assert.ok(to > from, 'the seeding block no longer ends where this test expects');
@@ -139,7 +172,14 @@ test('#1150: the room history that arrives when you open a room is not everybody
      must still stamp, or the fix has become "never suppress anything". */
   seed('project-b', [{ from: 'erin', at: new Date(Date.now() + 60000).toISOString(), text: 'later' }], SEEDED, SPOKE, seedRuns, OK, FakeDate);
   const firstSpeech = SPOKE.get('erin').learnedAt;
-  assert.ok(firstSpeech > 0, 'a new post in an open room stopped counting as speech');
+  /* 📌 SETUP, NOT A DISCRIMINATOR, and the label matters. Mona Lisa flagged in
+     cross-review that this passes on REVERTED code too: the first room seeds
+     under the bug as well, so a post in it stamps either way. It is here to
+     establish `firstSpeech` for the refresh arm below and to fail loudly if the
+     fixture goes inert - not to catch the defect. The two arms that actually
+     discriminate are `erin.learnedAt === 0` in the SECOND room, and the
+     `seedRuns` deepEqual. */
+  assert.ok(firstSpeech > 0, 'the fixture went inert: a post in an open room recorded nothing, so the arms below prove nothing');
 
   /* 🛑 AND A SECOND POST MUST REFRESH THE STAMP, NOT KEEP THE FIRST ONE. Every
      other arm in this test speaks ONCE per agent per seeded room, so none of
@@ -257,6 +297,26 @@ test('#1150: the room history that arrives when you open a room is not everybody
   seed('room-f', [{ from: 'ada', at: at(0), text: 'first post in a new project' }], SEEN5, SPOKE5, seedRuns, OK, FakeDate);
   assert.ok(SPOKE5.get('ada').learnedAt > 0,
     'the first post in a new room did not count as speech');
+
+  /* 🛑 NO CURRENT ROOM. Found by Mona Lisa in cross-review, and no arm here
+     constructed it because every fixture passes a real room id.
+
+     `__lastBody` is cleared only when ENTERING a project, and the back handlers
+     leave it set, so a docs fetch resolving after the user goes back repaints
+     with PJ_CURRENT null. Without the guard `.add(null)` makes `.has(null)` true
+     forever, and because ROOM_SPOKE_AT is keyed on the SPEAKER GLOBALLY, a later
+     no-room paint stamps real agents and hides them from the working line. */
+  const SEEN7 = new Set();
+  const SPOKE7 = new Map();
+  seed(null, [{ from: 'nate', at: at(0), text: 'a repaint with no room' }], SEEN7, SPOKE7, seedRuns, OK, FakeDate);
+  assert.equal(SEEN7.has(null), false, 'a paint with no current room marked "null" as a seeded room');
+  assert.equal(SEEN7.size, 0, 'a paint with no current room recorded a room at all');
+  assert.equal(SPOKE7.has('nate'), false,
+    'a paint with no current room recorded speech, which suppresses that agent globally');
+  /* THE CONTROL: the same rows WITH a room do record, so the arm above is about
+     the missing id and not about the fixture being inert. */
+  seed('room-i', [{ from: 'nate', at: at(0), text: 'same rows, real room' }], SEEN7, SPOKE7, seedRuns, OK, FakeDate);
+  assert.equal(SPOKE7.has('nate'), true, 'the control did not record, so the arm above proves nothing');
 
   /* 🛑 A MULTI-ROW BACKLOG, WHICH NO ARM IN THIS FILE EVER PAINTED - and a first
      paint has no other shape. Every fixture above passes `[]` or a single row,

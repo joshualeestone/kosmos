@@ -14526,6 +14526,11 @@ const ROOM_SPOKE_AT = new Map();
    stamped its whole history as "everybody just spoke" and blanked its working
    line for a poll. The guard covered exactly one room per page load, which is
    the room you happen to open first. */
+/* 📌 NEVER CLEARED, DELIBERATELY, since nothing said so and a reader asked.
+   It holds one short room id per room OPENED THIS PAGE LOAD, and a page open
+   long enough for that to matter has larger problems. Clearing it on leaving a
+   room would be worse, not better: returning to a room would then re-seed it and
+   stamp its whole backlog as speech, which is #1150 itself. */
 const ROOM_SPOKE_SEEDED = new Set();
 // Whether a status tick has ever ANSWERED. [] before the first answer means
 // "not heard yet", not "empty board", and the two must never be conflated
@@ -26399,8 +26404,45 @@ function paintRoom(body) {
      whole history at once, and stamping it would read as "everybody just spoke"
      and blank the working line for a poll. Only posts that arrive AFTER the
      room is on screen count as somebody speaking. */
-  const seededRoom = ROOM_SPOKE_SEEDED.has(PJ_CURRENT);
-  for (const m of allRows) {
+  /* 🛑 NO CURRENT ROOM MEANS NO SPEECH TO RECORD, AND THIS IS REACHABLE BY A
+     RACE (Mona Lisa, cross-review of #1150). `__lastBody` is cleared only when
+     ENTERING a project; the back handlers set `PJ_CURRENT = null` and leave it
+     set. So a docs fetch that resolves AFTER the user has gone back repaints
+     through the caller above with no current room.
+
+     Without this: `ROOM_SPOKE_SEEDED.add(null)` makes `.has(null)` true
+     forever, so any later no-room paint reads as seeded and stamps its rows
+     with `Date.now()`. `ROOM_SPOKE_AT` is keyed on the SPEAKER globally, so
+     that suppresses those agents from the working line - for a room the person
+     is not even looking at.
+
+     ⇒ Bounded (it hides rather than fabricates) and still wrong, and no arm
+     constructed it because every fixture passes a real room id. */
+  /* 🛑 SCOPED TO THE STAMPING, NOT THE PAINT, AND MY FIRST ATTEMPT GOT THAT
+     WRONG. An early `return` here would have skipped `pjRoomFilterRows`,
+     `pjSilences` and the render below - the whole point of the function - and
+     THE TEST WOULD NOT HAVE NOTICED, because it slices out this block and drives
+     it alone. A harness that reads a fragment cannot see what the fragment's
+     control flow does to its function. */
+  /* 🛑 NO CURRENT ROOM MEANS NO SPEECH TO RECORD, AND THIS IS REACHABLE BY A
+     RACE (Mona Lisa, cross-review). `__lastBody` is cleared only when ENTERING a
+     project; the back handlers set `PJ_CURRENT = null` and leave it set. So a
+     docs fetch that resolves AFTER the user has gone back repaints with no
+     current room.
+
+     Without the guard: `ROOM_SPOKE_SEEDED.add(null)` makes `.has(null)` true
+     forever, so any later no-room paint reads as SEEDED and stamps its rows
+     with `Date.now()`. `ROOM_SPOKE_AT` is keyed on the SPEAKER globally, so that
+     SUPPRESSES those agents from the working line - for a room nobody is looking
+     at. Bounded (it hides rather than fabricates) and still wrong.
+
+     ⚠️ THE GUARD IS AROUND THE STAMPING ONLY. My first attempt made it an early
+     `return`, which would have skipped the filtering and the render below - the
+     whole point of the function - AND THE TEST WOULD NOT HAVE CAUGHT IT, because
+     it slices this block out and drives it alone. A harness that reads a
+     fragment cannot see what the fragment's control flow does to its function. */
+  const seededRoom = PJ_CURRENT ? ROOM_SPOKE_SEEDED.has(PJ_CURRENT) : false;
+  for (const m of PJ_CURRENT ? allRows : []) {
     const who = m && m.from;
     if (!who || !m.at) continue;
     const at = Date.parse(m.at);
@@ -26459,7 +26501,7 @@ function paintRoom(body) {
      on an UNKNOWN `ok`: this form seeds, `=== true` would not. Not seeding is the
      more damaging direction - that room's history is then stamped as speech on
      every subsequent paint. Kept deliberately on the forgiving side. */
-  if (body.ok !== false) ROOM_SPOKE_SEEDED.add(PJ_CURRENT);
+  if (PJ_CURRENT && body.ok !== false) ROOM_SPOKE_SEEDED.add(PJ_CURRENT);
   const shown = pjRoomFilterRows(allRows, p, PJ_ROOM_QUERY);
   const filtering = PJ_ROOM_QUERY.trim() !== '';
   const silences = pjSilences(allRows, p);
