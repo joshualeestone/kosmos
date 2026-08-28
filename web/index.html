@@ -513,6 +513,18 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-who { min-width: 0; flex: 1; }
 .acct-who b { font-weight: 650; display: block; }
 .acct-org { display: block; color: var(--label-2); font-size: .8125rem; }
+/* The provider group (kosmos#1393): the bounding box Josh asked for, with its
+   accounts inside it. A quiet ground so the rows keep their own surface and the
+   box reads as a container rather than another card. */
+.acct-prov { border: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-side, #f4f2ee);
+             padding: 12px 14px; margin: 0 0 12px; }
+.acct-prov:last-of-type { margin-bottom: 0; }
+.acct-prov-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; }
+.acct-prov-name { font-weight: 600; font-size: .9375rem; color: var(--k-ink); }
+/* ⚠️ `margin-left: auto`, not a spacer element: the count is a second fact on the
+   same line, not a column, and a flex push keeps it right without inventing a grid
+   that the row below does not share. */
+.acct-prov-count { margin-left: auto; color: var(--k-ink-2); font-size: .8125rem; }
 .acct-tag { color: var(--label-2); font-weight: 400; font-size: .8125rem; }
 .acct-ok { color: var(--label-2); white-space: nowrap; }
 .acct-connected { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
@@ -12846,6 +12858,48 @@ async function paintSettings() {
  * somebody nowhere to go.
  */
 let ACCT_EPOCH = 0;
+/* The provider groups (kosmos#1393). Josh asked for the Claude Max 20x row to sit
+   in a bounding box beneath Claude, and the section heading already promised it:
+   "Your AI models, by provider".
+
+   🔑 WHY THE PER-ROW PROVIDER LABEL GOES. Putting it on every row was kosmos#382,
+   and that card's own note says what made it safe: "today every account is
+   Anthropic's". With one provider a label per row costs nothing. With two it
+   repeats the same words down the column and leaves the reader to do the grouping.
+   The box says it once and gives the row its width back.
+
+   ⚠️ A PROVIDER WITH NO ACCOUNTS GETS NO BOX. An empty group is a promise of
+   something that is not there. The provider appears when its first account does,
+   which falls out of grouping the list rather than iterating a fixed roster.
+
+   📌 THE COUNT IN EACH HEAD IS DERIVED FROM THAT GROUP'S OWN ROWS, never from a
+   second source. Kosmos shipped a screen this week saying "3 agents" over three
+   rows with "6 agents" underneath, because one number came from the data and the
+   other from a document-wide DOM query (kosmos#1346). One list, one count. */
+function accountGroupsHtml(list, rowHtml) {
+  const order = [];
+  const groups = new Map();
+  for (const a of list || []) {
+    /* The provider NAME is the grouping key, because that is what the head says.
+       Falling back to the row's own default keeps a record with no providerName
+       in the same box as its siblings rather than in a group of its own. */
+    const name = a.providerName || (a.provider === 'openai' ? 'OpenAI' : 'Anthropic / Claude');
+    if (!groups.has(name)) { groups.set(name, []); order.push(name); }
+    groups.get(name).push(a);
+  }
+  return order.map((name) => {
+    const rows = groups.get(name);
+    const n = rows.length;
+    return '<section class="acct-prov">'
+      + '<div class="acct-prov-head">'
+      + '<span class="acct-prov-name">' + esc(name) + '</span>'
+      + '<span class="acct-prov-count">' + n + (n === 1 ? ' account' : ' accounts') + '</span>'
+      + '</div>'
+      + rows.map(rowHtml).join('')
+      + '</section>';
+  }).join('');
+}
+
 async function paintAccounts() {
   const box = document.getElementById('set-accounts');
   const msg = document.getElementById('set-accounts-msg');
@@ -12888,7 +12942,15 @@ async function paintAccounts() {
   }
   ACCOUNTS = list;
   if (msg) msg.textContent = '';
-  box.innerHTML = list.map((a) => {
+  /* 🔑 GROUPED BY PROVIDER (kosmos#1393). Josh, twice on 2026-08-28: the Claude
+     Max 20x line "is still not in that bounding box that it's supposed to be in,
+     that goes underneath Claude". The heading above already promised the shape,
+     "Your AI models, by provider"; the list did not deliver it.
+     ⚠️ THE ROW BUILDER IS UNCHANGED AND NAMED, rather than rewritten inline: the
+     grouping is a wrapper, so every existing assertion on a row still holds.
+     `render-accounts-openai.js` reads `#set-accounts .acct-box`, a DESCENDANT
+     selector, which is why a wrapper is safe and a restructure would not be. */
+  const acctRowHtml = (a) => {
     /* #540: an OpenAI account signed in with a key has no email; codex's
        own `login status` names it by the key's last characters, so the row
        does the same. Never the key. */
@@ -12913,7 +12975,11 @@ async function paintAccounts() {
       : '<button class="linkish" type="button" data-share="' + esc(a.dir) + '">An agent moved here would start with no history. Fix this</button>';
     // The provider, on every row (#382): today every account is Anthropic's,
     // and the row says so rather than the heading assuming it.
-    const provider = '<span class="acct-org">' + esc(a.providerName || 'Anthropic / Claude') + '</span>';
+    /* 🛑 THE PER-ROW PROVIDER LABEL IS GONE (kosmos#1393). It was kosmos#382, and
+       that card's note says what made it right at the time: "today every account is
+       Anthropic's". With one provider it cost nothing. With two it repeats the same
+       words down the column while the group head above says it once. The ORG line
+       below is unaffected: that is the account's organisation, a different fact. */
     /* #770 (Josh, 2026-08-24 22:31): one box per account, a green
        Connected mark, a Disconnect link at the bottom that asks first.
        ⚠️ DISCONNECT IS DISABLED, not wired to a confirm modal that opens
@@ -12968,14 +13034,15 @@ async function paintAccounts() {
       : '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
     return '<div class="acct-box"><div class="acct-box-top"><div class="acct-who"><b>' + who
       // No "your first account" tag (#394): the email is the answer, whole.
-      + '</b>' + provider + org + '</div>'
+      + '</b>' + org + '</div>'
       + connBadge + '</div>'
       + shared
       + '<button class="acct-disconnect" type="button" disabled '
       + 'aria-label="Disconnect ' + who + '" '
       + 'title="Not built yet: disconnecting an account here has no way to tell agents on it to stop first">Disconnect</button>'
       + '</div>';
-  }).join('');
+  };
+  box.innerHTML = accountGroupsHtml(list, acctRowHtml);
   for (const btn of box.querySelectorAll('[data-share]')) {
     btn.addEventListener('click', async () => {
       btn.disabled = true;
