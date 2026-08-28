@@ -131,3 +131,50 @@ happened; it cannot recur by that mechanism on this node. The guard stays - it c
 older node still shares.
 
 **Full suite 2780 pass 0 fail exit 0.**
+
+
+## Round 3: my guard was the shape main had removed that morning, and I was 16 commits behind
+
+**The green suite was a pass against a base that no longer existed.** The branch was 16 behind
+`origin/main` and conflicted in the one file it edits. ⭐ Second time today that a review caught
+me measuring against a stale base; the first was `titlename-1168`, four behind.
+
+### The conflict was the finding
+
+`origin/main` `b725abdf` (#1365, landed 12:27 the same day) had **replaced the sibling sandbox
+guard with a COLLECTING one**, for this stated reason:
+
+> a guard that stops at the first bad root cannot be tested per root: my own control could not
+> tell whether the LAUNCH check still worked, because the DATA check answered first.
+
+**My branch added a second guard, twenty lines below it, that short-circuits.** Measured with
+both seams removed: it named codex only and claude was invisible.
+
+✅ **Resolved by folding the two runner binaries into main's collecting list rather than keeping
+a second guard.** The conflict and the finding had the same fix. Verified: with three seams
+removed the guard now names BOTH failing binaries.
+
+### And the claude row is a weaker control than the codex row
+
+Measured, restoring between arms:
+
+```
+remove AGENT_WORKFORCE_CODEX_BIN    -> guard FIRES, names /opt/homebrew/bin/codex
+remove AGENT_WORKFORCE_CLAUDE_BIN   -> guard does NOT fire; 3 tests fail elsewhere
+remove CLAUDE_BIN and HOME together -> guard fires, names ~/.local/bin/claude
+```
+
+`resolveBin('claude')` falls back to `homeDir()/.local/bin/claude`, and `homeDir()` already
+honours `AGENT_WORKFORCE_HOME`, which is pointed inside the sandbox above. **So the claude row
+passes for a reason unrelated to its own variable.** Kept - it still catches what it is named
+for - but the comment now says which of the two rows is proof and which is not, because a
+control that passes for the wrong reason is the thing this file keeps being caught by.
+
+### A comment of mine that another comment in the same commit refuted
+
+I wrote that `resolveBin('codex')` "fell through the env override to the vendor path". **It
+cannot**: `runners.js` returns `{bin: null}` for any provider that is not `claude` or `openai`.
+The call that found the Homebrew codex is `resolveBin('openai')` - **and my own guard comment
+eighty-five lines below says so at length.** One file, two comments, one of them impossible.
+
+**Full suite on the rebased base: 2806 pass, 0 fail, exit 0.**
