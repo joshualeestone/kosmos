@@ -887,6 +887,56 @@ function trustCodexFolder(dir, home) {
   fs.appendFileSync(cfg, `${text && !text.endsWith('\n') ? '\n' : ''}${key}\ntrust_level = "trusted"\n`);
 }
 
+/**
+ * Stop codex's update notice from BLOCKING a new agent's first launch (#1315).
+ *
+ * 🛑 MEASURED, AND IT IS THE SHIP-BLOCKER. A codex agent created today reaches a
+ * prompt before it can do anything:
+ *
+ *     ✨ Update available! 0.149.1 -> 0.150.1
+ *     › 1. Update now   2. Skip   3. Skip until next version
+ *       Press enter to continue
+ *
+ * Nothing presses a key for it, so the agent never takes a turn. **And the board
+ * cannot see it**: `classify()` reads that pane as `unknown`, the same word it
+ * uses for an agent that is merely quiet, because the codex markers are
+ * question-shaped and this prompt is not a question.
+ *
+ * ⭐ THE OTHER TWO FIRST-RUN PROMPTS ARE ALREADY HANDLED, which is why this one
+ * is the whole remaining gap: sign-in, because the default account's `~/.codex`
+ * carries the credential; and directory trust, by `trustCodexFolder` above. I
+ * reported both as blockers before checking, and both were already closed.
+ *
+ * ✅ PROVEN END TO END with a control. Same home, same folder, same flags:
+ *     dismissed_version = null           -> blocking prompt, agent stuck
+ *     dismissed_version = latest_version -> a non-blocking BANNER, agent lands on
+ *                                           "Ask Codex to do anything" and did
+ *                                           real work with ZERO keypresses
+ *                                           (wrote proof.txt, checked on disk)
+ *
+ * ⚠️ RESIDUAL, STATED RATHER THAN DISCOVERED LATER: this dismisses the version
+ * that is current AT CREATION. When OpenAI ships the next release,
+ * `latest_version` moves, the dismissal no longer matches, and an EXISTING agent
+ * meets the prompt again on its next restart. The durable fix is to dismiss at
+ * LAUNCH rather than at creation; this closes the case that blocks shipping
+ * today and does not close the class.
+ *
+ * ⚠️ AND IT NEVER INVENTS A VERSION. If `version.json` is absent or unreadable we
+ * do nothing: dismissing a version codex has not told us about would be writing a
+ * guess into somebody's config.
+ */
+function dismissCodexUpdateNotice(home) {
+  const codexHome = home || codexHomeDir();
+  const file = path.join(codexHome, 'version.json');
+  let parsed;
+  try { parsed = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return false; }
+  const latest = parsed && typeof parsed.latest_version === 'string' ? parsed.latest_version : null;
+  if (!latest || parsed.dismissed_version === latest) return false;
+  parsed.dismissed_version = latest;
+  try { fs.writeFileSync(file, `${JSON.stringify(parsed, null, 2)}\n`); } catch { return false; }
+  return true;
+}
+
 function bridgeSource() {
   return path.join(__dirname, '..', 'bin', 'codex-report-bridge.js');
 }
@@ -2213,6 +2263,9 @@ function createAgentInner(opts) {
     || ((wroteInstructions && installedSupervisor) && step('let the OpenAI runner work in its folder', () => {
       if (DRY_RUN) return true;
       trustCodexFolder(workerDir(name), configDir);
+      /* Same moment, same home, same reason: a first-run prompt nothing will
+         answer is an agent that never starts (#1315). */
+      dismissCodexUpdateNotice(configDir);
       return true;
     }));
 
@@ -2452,6 +2505,9 @@ const SELF_STARTS = 'it starts itself when this computer is on and it is not rem
 
 module.exports = {
   MODELS,
+  /* #1315: exported so the fix that unblocks a codex agent's first launch
+     can be tested directly, rather than only through a full creation. */
+  dismissCodexUpdateNotice,
   // ⚠️ Exported so the ROUTE serves a provider-scoped list rather than
   // filtering client-side. A screen that derives which models belong to which
   // provider is a second definition of that fact, and this file's own header

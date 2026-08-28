@@ -3623,3 +3623,95 @@ test('#1139: installSupervisor leaves an engine-path beside the supervisor, poin
     'the pointer points back into SUPPORT_DIR, where there is no engine',
   );
 });
+
+/**
+ * #1315: codex's update notice BLOCKS a new agent's first launch.
+ *
+ * Measured end to end with a control, same home and folder and flags:
+ *   dismissed_version = null           -> a blocking prompt, the agent never starts
+ *   dismissed_version = latest_version -> a non-blocking banner; the agent landed
+ *                                         on "Ask Codex to do anything" and wrote
+ *                                         a file, with ZERO keypresses
+ *
+ * The board cannot see the blocked state either: classify() reads that pane as
+ * `unknown`, because the codex markers are question-shaped and it is not a
+ * question.
+ */
+const { dismissCodexUpdateNotice } = require('./create');
+
+function codexHome(contents) {
+  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'pete-cxh-'));
+  if (contents !== undefined) {
+    fs.writeFileSync(nodePath.join(dir, 'version.json'),
+      typeof contents === 'string' ? contents : JSON.stringify(contents));
+  }
+  return dir;
+}
+const readVersion = (d) => JSON.parse(fs.readFileSync(nodePath.join(d, 'version.json'), 'utf8'));
+
+test('#1315: it dismisses the version codex reports as latest', () => {
+  const d = codexHome({ latest_version: '0.150.1', last_checked_at: 'x', dismissed_version: null });
+  assert.equal(dismissCodexUpdateNotice(d), true);
+  assert.equal(readVersion(d).dismissed_version, '0.150.1',
+    'the notice will still block the agent on its first launch');
+});
+
+test('#1315: it preserves the rest of the file', () => {
+  /* version.json is codex's, not ours. Dropping a field it relies on would be a
+     worse bug than the prompt. */
+  const d = codexHome({ latest_version: '0.150.1', last_checked_at: 'when', other: 42, dismissed_version: null });
+  dismissCodexUpdateNotice(d);
+  const after = readVersion(d);
+  assert.equal(after.last_checked_at, 'when');
+  assert.equal(after.other, 42);
+});
+
+test('#1315: already dismissed is a no-op, not a rewrite', () => {
+  const d = codexHome({ latest_version: '0.150.1', dismissed_version: '0.150.1' });
+  assert.equal(dismissCodexUpdateNotice(d), false, 'it rewrote a file it did not need to touch');
+});
+
+test('#1315 CONTROL: it NEVER invents a version', () => {
+  /* Dismissing a version codex has not told us about would be writing a guess
+     into somebody's config. Three ways the answer can be unknown, and all three
+     must decline. */
+  assert.equal(dismissCodexUpdateNotice(codexHome(undefined)), false, 'no version.json at all');
+  assert.equal(dismissCodexUpdateNotice(codexHome('not json')), false, 'unparseable');
+  assert.equal(dismissCodexUpdateNotice(codexHome({ dismissed_version: null })), false, 'no latest_version');
+});
+
+test('#1315 CONTROL: a missing home does not throw', () => {
+  assert.equal(dismissCodexUpdateNotice('/tmp/pete-no-such-codex-home-1315'), false);
+});
+
+test('#1315: creation actually CALLS the dismissal, beside the trust write', () => {
+  /* 🛑 WITHOUT THIS, DELETING THE CALL SITE LEFT EVERY TEST GREEN. The function
+     was well tested and nothing checked that anybody used it -- a fix that is
+     merged and inert, which is the third instance of that shape I have shipped
+     today and the reason this assertion exists at all.
+
+     ⚠️ ASSERTED ON THE SOURCE rather than by running a creation: creating an
+     agent writes launchd jobs and instruction files, and the existing suite
+     sandboxes heavily to do it. A source assertion is the proportionate guard
+     for "is the call there", and it fails loudly if somebody removes it.
+
+     📌 It is deliberately anchored to the trust write, because the two belong
+     together: both answer a first-run prompt that nothing else will answer. */
+  const src = fs.readFileSync(nodePath.join(__dirname, 'create.js'), 'utf8');
+  const trust = src.indexOf('trustCodexFolder(workerDir(name), configDir);');
+  assert.ok(trust > 0, 'the trust write moved: this guard is anchored to it and needs re-aiming');
+  const near = src.slice(trust, trust + 600);
+  assert.match(near, /dismissCodexUpdateNotice\(configDir\)/,
+    'creation no longer dismisses the update notice: a new codex agent will stop at a prompt nothing answers');
+});
+
+test('#1315 CONTROL: that guard can fail', () => {
+  /* The assertion above searches a 600-character window. If the window were
+     wrong, or the string always present, it would pass regardless. This proves
+     the same search returns nothing for a call that is not there. */
+  const src = fs.readFileSync(nodePath.join(__dirname, 'create.js'), 'utf8');
+  const trust = src.indexOf('trustCodexFolder(workerDir(name), configDir);');
+  const near = src.slice(trust, trust + 600);
+  assert.doesNotMatch(near, /dismissSomethingThatDoesNotExist\(/,
+    'the window matches anything: the guard above proves nothing');
+});
