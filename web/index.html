@@ -3241,6 +3241,25 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      reads 40% and is deliberately untouched: he was looking at this view, and
      changing a screen he did not mention is how a fix becomes a report. */
   html[data-layout="consolidated"] body.consolidated .pjmidhead .tsearch { flex: 0 1 min(160px, 20%); }
+  /* 🔑 THE TITLE GIVES WAY, NOT THE SEARCH BOX (kosmos#1303 F). Josh: "A really
+     long project title. Let's truncate it sooner so that we can keep the search
+     box a usable size."
+     MEASURED at the engine's own 60-character cap, which is the longest title a
+     person can actually create: the search box lost 18px (137 to 119) AND the
+     title WRAPPED to a second line, taking the header from 20px to 40px. So it
+     was costing width and height at once, and neither was visible with an
+     ordinary name.
+     ⚠️ TWO RULES, AND BOTH ARE NEEDED. `flex-shrink: 0` stops the search box
+     paying for the title; without the ellipsis the title then simply overflows
+     instead of truncating, which is worse than what it replaced. The 20% basis
+     already protects a narrow window, so pinning the shrink cannot starve the
+     row on a small screen.
+     📌 I ALSO ADDED `min-width: 0` HERE AND TOOK IT BACK OUT. Perturbing it away
+     changed nothing: `.pjtitle` and `.pjhead` already carry it, so the ancestors
+     that needed it have it and a third copy is inert. The reasoning was sound
+     and the rule was still noise, which only the perturbation could tell me. */
+  html[data-layout="consolidated"] body.consolidated .pjmidhead .tsearch { flex-shrink: 0; }
+  html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .dname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   html[data-layout="consolidated"] body.consolidated #pj-one-name + .pj-desc, html[data-layout="consolidated"] body.consolidated #pj-one-made { margin-top: 1px; }
   html[data-layout="consolidated"] body.consolidated #rail-agents, html[data-layout="consolidated"] body.consolidated > #panel-projects, html[data-layout="consolidated"] body.consolidated > #alist { padding-top: 6px; }
   /* #520 piece eight (Josh, toward the mock): the member rows lose their box
