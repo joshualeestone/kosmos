@@ -146,6 +146,97 @@ function list() {
   return out;
 }
 
+/**
+ * The prefix a forgotten account is moved to (#1372).
+ *
+ * 🛑 IT REPLACES `.codex-`, IT DOES NOT EXTEND IT, AND THAT IS THE WHOLE
+ * TRICK. `list()` finds accounts by `name.startsWith('.codex-')`, so the
+ * obvious `~/.codex-work1.removed` would still be listed and the account
+ * would appear to survive its own removal. Moving the prefix is what makes
+ * the directory invisible to the only definition of "an account".
+ */
+const FORGOTTEN_PREFIX = '.removed-codex-';
+
+/**
+ * Forget an OpenAI account WITHOUT deleting the credential (#1372).
+ *
+ * 🛑 A PERSON COULD ADD UP TO 500 AND REMOVE NONE. The only way back out was
+ * deleting a dot-directory in Terminal, which is exactly the "total dead stop
+ * in the water" Josh described. This is the way back.
+ *
+ * ⭐ FORGET RATHER THAN DELETE, and the reason is reversibility: a rename can
+ * be undone by renaming back, and the credential stays on the person's own
+ * computer. Deleting somebody's credential is not an act a "remove this
+ * account" button should perform without being asked twice, and there is no
+ * second ask here.
+ *
+ * 🔑 AN ACCOUNT IS A DIRECTORY. There is no registry, so there is nowhere to
+ * record a forget INTO; the move IS the record. That is why this is a rename
+ * and not a flag.
+ *
+ * ⚠️ `usedBy` IS SUPPLIED BY THE CALLER, deliberately. This module cannot ask
+ * which agents are running without requiring `create.js`, which requires this
+ * one. The route knows both and passes the answer in.
+ *
+ * @param {string} dir     the account directory, as `list()` reports it
+ * @param {string[]} usedBy names of agents currently running on it
+ */
+function forgetAccount(dir, usedBy) {
+  const home = path.resolve(homeDir());
+  const clean = path.resolve(String(dir == null ? '' : dir));
+  const base = path.basename(clean);
+
+  /* Only ever a codex home directly inside this computer's home. A path from
+     anywhere else is not ours to move, and saying so beats moving it. */
+  if (path.dirname(clean) !== home || !(base === '.codex' || base.startsWith('.codex-'))) {
+    return { ok: false, forgotten: false, because: 'that is not an OpenAI account on this computer' };
+  }
+
+  /* 🛑 REFUSED WHILE AN AGENT IS ON IT, AND THE AGENTS ARE NAMED. A rename
+     moves a path that a running agent's plist points at by absolute path, so
+     this refusal is not politeness, it is what makes the rename safe. And a
+     refusal that cannot be acted on is the class this card came from: the
+     person needs to know WHICH agents, not that there are some. */
+  const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
+  if (agents.length) {
+    return {
+      ok: false,
+      forgotten: false,
+      usedBy: agents,
+      because: agents.length === 1
+        ? `${agents[0]} is running on this account. Move it to another account or remove it first.`
+        : `${agents.length} agents are running on this account: ${agents.join(', ')}. `
+          + 'Move them to another account or remove them first.',
+    };
+  }
+
+  if (!fs.existsSync(clean)) {
+    return { ok: true, forgotten: false, because: 'that account is already gone from this computer' };
+  }
+
+  const label = base === '.codex' ? 'default' : base.slice('.codex-'.length);
+  let target = path.join(home, FORGOTTEN_PREFIX + label);
+  /* A second removal of the same label must not clobber the first one's
+     credential, which would delete the thing this function exists not to
+     delete. */
+  for (let n = 2; fs.existsSync(target) && n < 500; n += 1) {
+    target = path.join(home, `${FORGOTTEN_PREFIX}${label}-${n}`);
+  }
+  if (fs.existsSync(target)) {
+    return { ok: false, forgotten: false, because: 'we could not find a free name to move that account to' };
+  }
+  try { fs.renameSync(clean, target); }
+  catch { return { ok: false, forgotten: false, because: 'we could not move that account out of the way' }; }
+
+  return {
+    ok: true,
+    forgotten: true,
+    movedTo: target,
+    wasDefault: base === '.codex',
+    because: null,
+  };
+}
+
 function cleanLabel(label) {
   return String(label == null ? '' : label).trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
 }
@@ -376,7 +467,7 @@ async function listLive() {
 }
 
 module.exports = {
-  list, identityOf, addWithKey, nextWorkDir, defaultDir, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+  list, identityOf, addWithKey, nextWorkDir, defaultDir, forgetAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
 };
