@@ -252,7 +252,7 @@ EOS
 # entry is hand-written and the re-cut needs it. Prints what it did. 0 always
 # (it runs from a trap; a failure here must not mask the cut's own reason).
 release_site_restore() {
-  local site="$1" v="$2" had="$3" f
+  local site="$1" v="$2" had="$3" f rel
   [ -n "$site" ] && [ -n "$v" ] && [ -d "$site" ] || { echo "release_site_restore: site and version are required" >&2; return 0; }
   for f in dist/latest.json setup.sha256; do
     if git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1; then
@@ -262,8 +262,28 @@ release_site_restore() {
     fi
   done
   if [ "$had" != 1 ]; then
-    for f in "dist/kosmos-$v-arm64.tar.gz" "dist/kosmos-$v-arm64.tar.gz.sha256"; do
-      [ -f "$site/$f" ] && rm -f "$site/$f" && echo "   removed: $f (this cut created it and never served it; the name is cache-immutable, so it must not linger)"
+    # 🔑 DERIVED FROM THE NAME, NOT ENUMERATED (#1250). This loop listed the
+    # tarball and its .sha256 and missed `dist/kosmos-$v-arm64.manifest.json`,
+    # which the cut publishes by the same reasoning and `release.sh` lists in
+    # `_site_paths` beside `dist/latest.json`. Baron found the leftover after
+    # the 0.5.91 cut died at step 7. A hand-kept list going one short IS the
+    # defect, so matching on the shape that makes a file cache-immutable -- the
+    # version in its own name -- is what stops a fourth artifact repeating it.
+    # An unmatched glob stays literal in bash and the -f test drops it.
+    for f in "$site"/dist/kosmos-"$v"-arm64.*; do
+      [ -f "$f" ] || continue
+      rel="dist/$(basename "$f")"
+      # 🛑 TRACKED FILES ARE NOT OURS TO DELETE, AND THIS IS WHY THE THIRD NAME
+      # COULD NOT SIMPLY BE APPENDED. `had` is read from the TARBALL alone, and
+      # the tarball is gitignored in the site while the manifest is committed.
+      # So a fresh site clone re-cutting an already-served version sees no
+      # tarball, sets had=0, and a plain `rm` of everything version-named would
+      # delete that served release's committed manifest. Skipping tracked paths
+      # keeps this loop to what it has always meant: artifacts THIS cut created
+      # and never served. `latest.json` above is the tracked case, and it is
+      # restored rather than removed for the same reason.
+      git -C "$site" ls-files --error-unmatch "$rel" >/dev/null 2>&1 && continue
+      rm -f "$f" && echo "   removed: $rel (this cut created it and never served it; the name is cache-immutable, so it must not linger)"
     done
   fi
   return 0
