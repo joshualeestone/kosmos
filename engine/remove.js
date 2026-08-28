@@ -988,13 +988,31 @@ function removeInner(name, { tmuxBin } = {}) {
      📌 Only for an agent that actually ran on codex. The home is whatever the
      plist recorded, or null, and null means the same default the WRITE used. */
   if (codexJob) {
-    step('took back the codex folder trust', () => {
-      if (DRY_RUN && !runner) return true;
-      let got = null;
+    /* 🛑 THE LABEL IS CHOSEN AFTER THE WORK, BECAUSE THIS CARD IS ABOUT A
+       LABEL THAT OVERSTATED WHAT IT DID (PigeonPete, cross-review). `step()`
+       records `{label, ok}` and nothing else, so a refusal would have shown
+       as a bare failed step with its reason discarded, and the one refusal
+       this can produce is not a failure at all: it means the person had
+       EDITED that entry and we deliberately left it theirs.
+       ⇒ Reporting that as "took back the codex folder trust: no" would be
+       false in both halves. Two outcomes, two sentences, and the honest one
+       is not even a failure. */
+    let got = null;
+    let threw = false;
+    if (DRY_RUN && !runner) {
+      got = { ok: true, removed: false, because: null };
+    } else {
       try { got = create.forgetCodexFolder(create.workerDir(clean), codexHome); }
-      catch { return false; }
-      return Boolean(got && got.ok === true);
-    });
+      catch { threw = true; }
+    }
+    const leftAlone = !threw && got && got.ok === false
+      && typeof got.because === 'string' && got.because.includes('changed by hand');
+    step(
+      leftAlone
+        ? 'left the codex folder trust alone, because it had been changed by hand'
+        : 'took back the codex folder trust',
+      () => (leftAlone ? true : Boolean(!threw && got && got.ok === true)),
+    );
   }
 
   const recorded = step('took it off the board', () => recordRemoval(clean, job, true, shown));
