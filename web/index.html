@@ -3175,7 +3175,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pjmidhead > .dlab { display: none; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead { flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; align-items: center; gap: 12px; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .dname { font-size: 1rem; font-weight: 650; }
-  html[data-layout="consolidated"] body.consolidated .pjmidhead .pjtitle { display: grid; gap: 1px; }
+  /* `gap: 5px` is the other half of Josh's sentence: "put a little bit of space
+     in between the title and the description". It was 1px, which reads as the
+     two lines touching. */
+  html[data-layout="consolidated"] body.consolidated .pjmidhead .pjtitle { display: grid; gap: 5px; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .pj-desc, html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 0; max-width: none; line-height: 1.35; }
   /* #980 (Josh, 2026-08-26 08:31): the description truncates -- one line
      with an ellipsis, so the header stays a header however long the
@@ -3391,9 +3394,33 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    collapsed state and other `.pj-desc` elements in the header, and the ID here
    outranks it (1,2,0 beats 0,5,2) without touching what it does elsewhere.
    Verified by rendering, not by counting specificity. */
+/* 🔑 THE DESCRIPTION LINES UP WITH THE TITLE, NOT WITH THE ARROW (kosmos#1303 H).
+   Josh: "When I expand the title and description area, the formatting is really
+   wonky. Let's flush the left description with the title and put a little bit of
+   space in between the title and the description."
+
+   MEASURED, expanded, at 1440 wide:
+
+       .pjdisc  (the arrow)   left 458.1
+       #pj-one-name (title)   left 473.6
+       #pj-one-desc           left 458.1     <- flush with the ARROW
+
+   ⇒ The description hung 15.5px to the LEFT of the title it belongs to, because
+   the arrow lives inside `.pjtitle-row` and the description is that row's
+   sibling in the grid. That overhang is the wonkiness.
+
+   ⚠️ THE INDENT IS DERIVED, NOT MEASURED IN. `--pjdisc-w` is the arrow's own
+   declared width and `6px` is `.pjtitle-row`'s own gap, so the description
+   tracks the title if either changes. Writing 15.5px would have been a number
+   that silently stops being right the first time the glyph does.
+   📌 The arrow gets an explicit width for the same reason: it was sized only by
+   its glyph, so there was nothing to derive from. */
+.pjtitle { --pjdisc-w: 1rem; }
+.pjdisc { width: var(--pjdisc-w); }
 .pjtitle.is-open #pj-one-desc {
   white-space: normal; overflow: visible; text-overflow: clip;
   max-width: var(--k-measure, 68ch);
+  padding-left: calc(var(--pjdisc-w) + 6px);
 }
 /* Josh asked for a bigger arrow: it was inheriting the title's size through a
    bare glyph and read as a speck beside a 1.375rem heading. */
