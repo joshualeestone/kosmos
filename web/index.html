@@ -475,6 +475,16 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .lav.youav { width: 56px; height: 56px; flex: 0 0 56px; font: 600 .75rem var(--font-ui);
              color: var(--label-2); background: var(--k-sunk); }
 .lav.youav img { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* The person's initial, dark, so they read as themselves rather than as one more
+   agent (Josh, 2026-08-27: "give it a black background so it would have some
+   difference and stand out").
+   🛑 LITERAL COLOURS, NOT TOKENS, AND THAT IS DELIBERATE. DISC_TINTS are seven
+   hardcoded pale hexes, so an agent's disc is pale in BOTH themes. A token that
+   inverts in dark mode would make this disc pale exactly where the agents are
+   pale, and the whole point is that these two never match. The contrast being
+   fixed is what makes the distinction survive the theme. */
+.youtint { width: 100%; height: 100%; display: grid; place-items: center;
+           border-radius: 50%; background: #14161a; color: #f4f2ee; }
 .yourow .frow { flex: 1; min-width: 240px; }
 /* #770: the name field is a name's width, not the page's ("that should
    probably be 20% that wide"). */
@@ -13311,7 +13321,7 @@ function paintOrg() {
     + '" aria-hidden="true">' + wires.join('') + '</svg>'
     + '<div class="hub' + (YOU_PIC ? ' haspic' : '') + '" style="left:' + cx + 'px;top:' + cy + 'px"'
     + (YOU_PIC ? ' aria-label="You"' : '') + '>'
-    + (YOU_PIC ? '<img src="' + youPicUrl() + '" alt="">' : 'You') + '</div>'
+    + youFaceHtml() + '</div>'
     + nodes.join('');
 
   /* 🛑 TIER ONE OF THE REPAINT RULE (Mona Lisa's section 5). Do not rebuild
@@ -17755,13 +17765,44 @@ function youPicUrl() { return '/api/you/avatar?v=' + YOU_PIC_V; }
 /* #520, piece three: the person's row in the agents rail reads the same
    two facts as the header and Settings (YOU_NAME, YOU_PIC) and is painted
    whenever either is. */
+/**
+ * The person's FACE, everywhere. Picture if they set one, otherwise the first
+ * letter of their name on a dark disc.
+ *
+ * 🔑 JOSH, 2026-08-27: "putting 'You' in it doesn't make sense". His name is in
+ * the field directly beside it. The word was a placeholder standing in for a
+ * face on a person who had already told us who they are.
+ *
+ * ⚠️ THE RULING ABOVE `#you-face` STILL HOLDS AND THIS DOES NOT BREAK IT: "A
+ * PICTURE AND NOTHING ELSE. A picture plus a name and a role would turn 'You'
+ * into a named participant." That forbids adding a name and a role BESIDE the
+ * face; it explicitly sanctions a picture. An initial IS the picture, drawn the
+ * same way every agent's is. `#rail-me-name` still reads "You", untouched.
+ *
+ * 🛑 ONE FUNCTION BECAUSE THREE SURFACES ALREADY DRIFTED. paintRailMe had shown
+ * the initial for some time; Settings and the org hub still said "You". This
+ * file names that exact failure 12,000 lines up, about the file picker: "three
+ * surfaces, one job, and the ones nobody was editing stayed behind." Josh found
+ * it in two of the three. A shared helper is what stops a fourth surface being
+ * added wrong.
+ */
+function youFaceHtml() {
+  if (YOU_PIC) return '<img src="' + youPicUrl() + '" alt="">';
+  const who = (YOU_NAME || '').trim();
+  /* No name yet is a real state: first run has not happened, or they cleared it.
+     There is no initial to draw, so the placeholder stays rather than inventing
+     a letter. */
+  if (!who) return 'You';
+  return '<span class="youtint">' + esc(initials(who)) + '</span>';
+}
+
 function paintRailMe() {
   const face = document.getElementById('rail-me-face');
   const name = document.getElementById('rail-me-name');
   if (!face || !name) return;
   const who = YOU_NAME || 'You';
   name.textContent = who;
-  face.innerHTML = YOU_PIC ? '<img src="' + youPicUrl() + '" alt="">' : esc(who.trim().charAt(0).toUpperCase() || 'Y');
+  face.innerHTML = youFaceHtml();
 }
 document.getElementById('rail-me-go').addEventListener('click', () => {
   const tab = document.querySelector('.tab[data-tab="settings"]');
@@ -17772,7 +17813,7 @@ function paintYou() {
   const rm = document.getElementById('you-remove');
   paintRailMe();
   if (!face) return;
-  face.innerHTML = YOU_PIC ? '<img src="' + youPicUrl() + '" alt="">' : 'You';
+  face.innerHTML = youFaceHtml();
   if (rm) rm.hidden = !YOU_PIC;
   /* The hub is only on screen in one layout, and it is rebuilt from scratch by
      paintOrg -- so this asks for a repaint rather than reaching into it, and
