@@ -132,3 +132,31 @@ test('#1159 CONTROL: a CLAUDE agent is still refused when Claude is missing', ()
     assert.equal(r.ok, false, 'a Claude agent was adopted with no Claude on the machine');
   } finally { process.env.AGENT_WORKFORCE_CLAUDE_BIN = prev; }
 });
+
+test('#1159: adoption records the PROVIDER, not only the job', () => {
+  /* 🛑 #1347 made adoption write a codex JOB and left the profile silent.
+     `server.js` derives a card's runner from `profile.provider` whenever the
+     pane is not the source, so a stopped adopted Codex agent read as `claude`.
+
+     ⚠️ NOT COSMETIC. `chat.js` pauses before Enter only for a codex card (#571),
+     because codex swallows an Enter that rides the paste burst. A codex agent
+     labelled claude gets a message that sits in its composer unsent -- which
+     looks exactly like an agent ignoring you. */
+  const store = require('./store');
+  const dir = agentFolder('provcodex', 'AGENTS.md', '# You are Prov Codex\n');
+  assert.equal(discover.connect(dir).ok, true);
+  assert.equal((store.readProfile('provcodex') || {}).provider, 'openai',
+    'the board will call this adopted Codex agent a Claude one');
+});
+
+test('#1159 CONTROL: adopting a Claude agent does NOT stamp a provider', () => {
+  /* Without this, the assertion above is satisfied by stamping openai on
+     everything, which would mislabel every adopted Claude agent. An absent
+     provider is what "claude" has always meant here, and #1332's own comment
+     says an absent key must keep meaning what it already means. */
+  const store = require('./store');
+  const dir = agentFolder('provclaude', 'CLAUDE.md', '# You are Prov Claude\n');
+  assert.equal(discover.connect(dir).ok, true);
+  assert.equal((store.readProfile('provclaude') || {}).provider, undefined,
+    'an adopted Claude agent was stamped with a provider it does not have');
+});

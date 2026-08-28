@@ -485,7 +485,17 @@ function connect(dir) {
   if (before && before.dir && before.dir !== given) {
     return { ok: false, because: 'an agent by that name is already connected to a different folder' };
   }
-  try { store.writeProfile(name, { dir: given, displayName: id.displayName }); }
+  /* 🛑 THE PROVIDER GOES IN THE PROFILE TOO, NOT ONLY THE JOB (#1159). #1347 made
+     adoption write a codex JOB; the profile still said nothing, and
+     `server.js` derives a card's runner from `profile.provider` whenever the
+     pane is not the source. Measured: an adopted Codex agent came back
+     `provider: undefined`, so the board called it `claude`.
+
+     ⚠️ AND THAT IS NOT COSMETIC. `chat.js` pauses before Enter ONLY for a card
+     whose runner is codex (#571), because codex swallows an Enter that rides the
+     paste burst. A codex agent labelled claude would be sent a message that sits
+     in its composer unsent -- which looks exactly like an agent ignoring you. */
+  try { store.writeProfile(name, { dir: given, displayName: id.displayName, ...(runner === 'codex' ? { provider: 'openai' } : {}) }); }
   catch { return { ok: false, because: 'we could not record where that agent lives' }; }
 
   /* The runner rides along, or an adopted Codex agent starts Claude in its own
