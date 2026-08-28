@@ -1177,7 +1177,24 @@ function setPaneCapture(fn) { paneCapture = typeof fn === 'function' ? fn : null
 
 function capturePane(target, lines = 40) {
   if (paneCapture) return paneCapture(target, lines);
-  return sh(tmuxBin(), ['capture-pane', '-p', '-t', target, '-S', `-${lines}`]);
+  /* 🛑 `-J` JOINS WRAPPED ROWS, AND WITHOUT IT PANE WIDTH IS A HIDDEN INPUT TO
+     EVERY RULE IN `classify()` (#1234). `engine/chat.js` and `engine/connect.js`
+     already ask for the logical line; this caller was the one that did not, so
+     the module that CLASSIFIES a pane and the module that SHOWS it to a person
+     read different text off the same screen.
+     ⚠️ MEASURED, AND IT IS A REGRESSION #1155 INTRODUCED THAT NOBODY TESTED FOR:
+     an option-less prompt -- "Do you want to proceed?", the real observed shape
+     at `status.test.js:347` -- classifies `idle` on any pane narrower than the
+     question, because that rule needs the marker to OPEN the line and the line
+     to CLOSE at the question, and a wrap breaks both.
+       20 columns, without -J:  idle        <- benign. The agent waits, the board
+       20 columns, with -J:     needs_you      says it is fine.
+     Before #1155 the same screen read `needs_you`, because the old rule tested
+     the whole tail and did not care where the rows fell.
+     📌 LATENT, NOT LIVE, at the time of writing: all 18 panes on this Mac are 80
+     columns and the observed prompts are 22-29 chars. It becomes live the moment
+     a pane is split or a prompt is longer than its pane. */
+  return sh(tmuxBin(), ['capture-pane', '-p', '-J', '-t', target, '-S', `-${lines}`]);
 }
 
 /**
@@ -1595,12 +1612,48 @@ function authFailed(tail) {
      not content. Rows that were NOT wrapped get glued to their neighbour as a
      side effect, which cannot manufacture an envelope out of prose that does
      not already contain one, but is worth knowing when reading a match. */
-  const joined = String(tail == null ? '' : tail)
+  const rows = String(tail == null ? '' : tail)
     .split('\n')
-    .map((line) => line.replace(/^[\s>│├└─*❯›]+/, ''))
-    .join('');
-  if (!AUTH_FAILED_MARKERS.some((re) => re.test(joined))) return null;
-  if (!AUTH_ENVELOPE.test(joined)) return null;
+    .map((line) => line.replace(/^[\s>│├└─*❯›]+/, ''));
+  const joined = rows.join('');
+  /* 🛑 THE MARKER AND THE ENVELOPE MUST MEET ON ONE ROW (#1241). This gate used
+     to run against `joined`, which was the only way to reassemble a wrapped
+     payload while `capture-pane` returned screen rows. `-J` does that job now, at
+     the capture, and ONLY for rows that were actually wrapped.
+     ⚠️ The blind join's own comment said gluing "cannot manufacture an envelope
+     out of prose that does not already contain one". TRUE OF ONE LINE, FALSE OF
+     TWO. Measured on the shipped build: a card comment quoting the marker on one
+     line and the envelope on the next classified `auth_failed`, and so did prose
+     about #874 sitting above a real `overloaded_error` payload -- two TRUE things
+     on one screen joined into a third that is false.
+     ⭐ The first of those is a comment documenting this very fix: a detector keyed
+     on a literal matches the prose that describes it, so prose has to be separable
+     from payload, and what separates them is that a real payload is ONE row.
+     📌 The EVIDENCE logic below still consults `joined`, deliberately: a capture
+     clipped mid-redraw can split a payload that `-J` would otherwise have joined,
+     and showing a person a reassembled line beats showing them nothing. Detection
+     is the half that must not be fooled; evidence is read only once detection has
+     already been satisfied by a single row. */
+  /* Detection accepts a payload that is whole on ONE row, or one that is whole
+     across rows a terminal WRAPPED. It must not accept one assembled out of two
+     rows of prose, which is what gluing every row unconditionally did (#1241).
+     🔑 A WRAPPED ROW ENDS MID-TOKEN; A PROSE ROW ENDS IN PUNCTUATION. Measured
+     against the verbatim capture fixtures below and the #1241 prose:
+       wrap   `...{"type":"authenticat`      ends mid-token
+       prose  `...in engine/status.js.`      ends with a full stop
+       prose  `...which is how #874 was found.`   ends with a full stop
+     ⚠️ THIS IS A HEURISTIC AND IT IS THE WEAKER HALF OF THE FIX. `-J` at the
+     capture is the real answer and makes this path unreachable from a live pane;
+     it is kept because `classify()` is also called directly, and because a
+     capture clipped mid-redraw can still split a payload. If it ever has to be
+     tightened, tighten `-J` coverage first. */
+  const wholeOnOneRow = rows.some(
+    (row) => AUTH_FAILED_MARKERS.some((re) => re.test(row)) && AUTH_ENVELOPE.test(row),
+  );
+  const wrapJoined = rows
+    .map((row, i) => (i + 1 < rows.length && /[A-Za-z0-9_"{,:]$/.test(row) ? row + rows[i + 1] : ''))
+    .some((glued) => glued && AUTH_FAILED_MARKERS.some((re) => re.test(glued)) && AUTH_ENVELOPE.test(glued));
+  if (!wholeOnOneRow && !wrapJoined) return null;
   /* Evidence is the payload read WHOLE, from wherever it can be read whole.
      An unwrapped screen keeps today's contract exactly: the matched LINE,
      glyph-stripped and capped, because the entire envelope is on it. A row

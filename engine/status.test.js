@@ -3400,3 +3400,68 @@ test('#1180: KNOWN GAP -- "reached your ... limit" still matches one piece of pr
   assert.equal(classify(pane(), prose).state, STATE.RATE_LIMITED,
     'this is now fixed -- narrow the marker, flip this row to UNKNOWN, drop the comment');
 });
+
+/**
+ * 🛑 #1234/#1241: THE CLASSIFIER READ SCREEN ROWS WHILE THE PANEL READ LOGICAL
+ * LINES, SO PANE WIDTH WAS A HIDDEN INPUT TO EVERY RULE.
+ *
+ * `capturePane` now passes `-J`, which `engine/chat.js` and `engine/connect.js`
+ * already asked for. Two measured consequences, in opposite directions:
+ *
+ * 1. **A regression #1155 introduced and nobody tested for.** An option-less
+ *    prompt classified `idle` on any pane narrower than the question, because
+ *    that rule needs the marker to OPEN the line and the line to CLOSE at the
+ *    question. `idle` is BENIGN: the agent waits and the board says it is fine.
+ *    Before #1155 the same screen read `needs_you`.
+ * 2. **Prose split across two rows joined into a false dead token** (#1241),
+ *    because `authFailed` glued every row unconditionally. Its own comment said
+ *    gluing "cannot manufacture an envelope out of prose that does not already
+ *    contain one" -- true of one line and false of two.
+ *
+ * ⚠️ THE `-J` HALF IS THE REAL FIX AND THE ROW HEURISTIC IS THE WEAKER HALF. It
+ * exists because `classify()` is also called directly and a capture clipped
+ * mid-redraw can still split a payload. The verbatim-capture fixtures above still
+ * pass, which is what stops this trading #880's regression back in.
+ */
+test('#1234: the capture asks for logical lines, not screen rows', () => {
+  const src = fs.readFileSync(nodePath.join(__dirname, 'status.js'), 'utf8');
+  const call = src.match(/\[\s*'capture-pane'[^\]]*\]/);
+  assert.ok(call, 'could not find the capture-pane call to check it');
+  assert.match(call[0], /'-J'/,
+    'capturePane dropped -J, so pane width is a hidden input to every rule again');
+});
+
+test('#1234: an option-less prompt is seen on a pane narrower than the question', () => {
+  const q = 'Do you want to proceed?';
+  const wrapped = 'Worked for 2m 10s\n' + q.slice(0, 20) + '\n' + q.slice(20) + '\n';
+  const joined = 'Worked for 2m 10s\n' + q + '\n';
+  /* What a 20-column pane produces WITH -J is the joined form, and that is what
+     the board must act on. The wrapped form is what it produced without it. */
+  assert.equal(classify(pane(), joined).state, STATE.NEEDS_YOU,
+    'the question a narrow pane wrapped is not seen even once rejoined');
+  assert.notEqual(classify(pane(), wrapped).state, STATE.NEEDS_YOU,
+    'this arm exists to pin WHY -J is needed: unjoined, the same screen is missed');
+});
+
+test('#1241: prose split across two rows is not a dead token', () => {
+  const cases = [
+    ['a card comment documenting the fix',
+      'The marker is "type":"authentication_error" in engine/status.js.\n'
+      + 'The envelope we now require is {"type":"error"} on the same line.\n'],
+    ['two quoted fragments',
+      'AUTH_FAILED_MARKERS holds "type":"authentication_error".\n'
+      + 'AUTH_ENVELOPE holds "type": "error" and nothing else.\n'],
+    ['prose above a REAL but unrelated error payload',
+      'The pane said OAuth access token is invalid, which is how #874 was found.\n'
+      + '500 {"type":"error","error":{"type":"overloaded_error"}}\n'],
+  ];
+  for (const [what, text] of cases) {
+    assert.notEqual(classify(pane(), text).state, STATE.AUTH_FAILED,
+      `${what} classified as a broken sign-in`);
+  }
+  // CONTROL: the real screen is still a dead token, or this traded #880 back in.
+  assert.equal(classify(pane(),
+    '⏺ 401 {"type":"error","error":{"type":"authentication_error",'
+    + '"message":"OAuth access token is invalid."},"request_id":null}\n').state,
+  STATE.AUTH_FAILED, 'the real #874 screen stopped classifying as a dead token');
+});
