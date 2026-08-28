@@ -3597,7 +3597,49 @@ function saidWords(reported, nowMs) {
 }
 
 function reconcileReport(reported, scraped, nowMs) {
-  if (!reported || reported.found !== true) return { ...scraped, reported: false, conflict: null };
+  if (!reported || reported.found !== true) {
+    /* 🔑 "IT HAS NEVER SAID ANYTHING" IS A DIFFERENT FACT FROM "WE COULD NOT TELL",
+       and only one of them is actionable (#1315). `selfreport.read` already
+       separates NEVER_REPORTED from UNREADABLE and NOTHING HAS EVER CONSUMED THE
+       DISTINCTION - it was defined, returned, and read by no caller outside its
+       own module.
+
+       🛑 THE CASE IT WAS WRITTEN FOR, measured 2026-08-28: a codex agent stops at
+       a first-run prompt before it can do anything. `classify` reads that pane as
+       `unknown` - the same word it uses for an agent that is merely quiet -
+       because the codex markers are question-shaped and the prompt is not a
+       question. So the board said the same thing about a blocked agent and a busy
+       one, and nobody could tell them apart.
+
+       ⭐ AN AGENT THAT HAS NEVER REPORTED HAS AN EMPTY REPORT HISTORY, AND THAT IS
+       MACHINE-CHECKABLE WITHOUT READING ITS SCREEN. It is the one fact about a
+       stuck first launch that does not depend on guessing what a pane says.
+
+       ⚠️ ONLY WHEN THE SCRAPE ALREADY SAYS UNKNOWN. If the screen told us
+       something, that answer stands - a never-reported agent whose pane clearly
+       shows it working is working, and overriding that would trade a true reading
+       for a bookkeeping fact.
+       ⚠️ AND IT CHANGES NO STATE. `unknown` stays `unknown` and the confidence is
+       untouched; only the sentence gets truer. A state change here would put a
+       new light on the board for every agent that has not spoken yet, which is
+       most of them on any machine that predates self-reporting. */
+    /* 🛑 selfreport's NO_READING, NOT THIS MODULE'S. Both files export a constant of
+       that name and they hold DIFFERENT keys: status.js has NO_TRANSCRIPT and
+       UNREADABLE only. Written against the local one, this compared
+       `reported.because` to `undefined` and would have fired on every report
+       whose `because` was absent - the wrong agents, silently. Caught before it
+       ran; same shape as two delimited blocks with near-identical names. */
+    const neverSpoke = !!(reported && reported.because === selfreport.NO_READING.NEVER_REPORTED);
+    if (neverSpoke && scraped && scraped.state === STATE.UNKNOWN) {
+      return {
+        ...scraped,
+        because: 'it has never reported anything, so we cannot tell what it is doing',
+        reported: false,
+        conflict: null,
+      };
+    }
+    return { ...scraped, reported: false, conflict: null };
+  }
 
   const said = (fallback) => reported.because || fallback;
 

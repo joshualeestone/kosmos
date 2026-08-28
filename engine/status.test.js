@@ -3582,3 +3582,69 @@ test('#1241: prose split across two rows is not a dead token', () => {
     + '"message":"OAuth access token is invalid."},"request_id":null}\n').state,
   STATE.AUTH_FAILED, 'the real #874 screen stopped classifying as a dead token');
 });
+
+/**
+ * #1315: "it has never said anything" is a different fact from "we could not
+ * tell", and only one of them is actionable.
+ *
+ * 🛑 THE CASE IT WAS WRITTEN FOR, measured 2026-08-28: a codex agent stops at a
+ * first-run prompt before it can do anything. `classify` reads that pane as
+ * `unknown` - the same word it uses for an agent that is merely quiet - because
+ * the codex markers are question-shaped and the prompt is not a question. The
+ * board said the same thing about a blocked agent and a busy one.
+ *
+ * ⭐ An agent that has never reported has an EMPTY REPORT HISTORY, which is
+ * machine-checkable without reading its screen. `selfreport.read` has separated
+ * NEVER_REPORTED from UNREADABLE all along and nothing consumed the distinction.
+ */
+const selfreportMod = require('./selfreport');
+
+test('#1315: a running agent that has never reported says so, instead of a bare unknown', () => {
+  const got = reconcileReport(
+    { found: false, because: selfreportMod.NO_READING.NEVER_REPORTED },
+    scr(STATE.UNKNOWN, CONFIDENCE.NONE, 'we could not tell what it is doing'), T0,
+  );
+  assert.equal(got.state, STATE.UNKNOWN, 'the state moved: this may only change the sentence');
+  assert.equal(got.confidence, CONFIDENCE.NONE, 'the confidence moved');
+  assert.match(got.because, /never reported anything/,
+    'a never-reported agent is still indistinguishable from a quiet one');
+  assert.equal(got.reported, false);
+  assert.equal(got.conflict, null);
+});
+
+test('#1315 CONTROL: a scrape that SAYS something is left alone', () => {
+  /* 🛑 A never-reported agent whose pane clearly shows it working IS working.
+     Overriding that would trade a true reading for a bookkeeping fact. */
+  const got = reconcileReport(
+    { found: false, because: selfreportMod.NO_READING.NEVER_REPORTED },
+    scr(STATE.WORKING, CONFIDENCE.SCRAPED, 'its screen says it is working'), T0,
+  );
+  assert.equal(got.state, STATE.WORKING);
+  assert.equal(got.because, 'its screen says it is working', 'it overwrote a real reading');
+});
+
+test('#1315 CONTROL: UNREADABLE is not NEVER_REPORTED', () => {
+  /* The two are different facts and only one is actionable. An unreadable file
+     means we could not look; never-reported means we looked and it was empty. */
+  const got = reconcileReport(
+    { found: false, because: selfreportMod.NO_READING.UNREADABLE },
+    scr(STATE.UNKNOWN, CONFIDENCE.NONE, 'we could not tell what it is doing'), T0,
+  );
+  assert.equal(got.because, 'we could not tell what it is doing',
+    'an unreadable report was described as never having existed');
+});
+
+test('#1315 CONTROL: the constant comes from selfreport, not this module', () => {
+  /* 🛑 status.js has its own NO_READING with DIFFERENT keys (NO_TRANSCRIPT,
+     UNREADABLE). Written against the local one this compared `because` to
+     `undefined` and would have fired on every report whose `because` was absent.
+     Caught before it ran. */
+  const localish = require('./status');
+  assert.equal(localish.NO_READING && localish.NO_READING.NEVER_REPORTED, undefined,
+    'status.js now has its own NEVER_REPORTED: the two constants have converged and this guard is stale');
+  assert.equal(typeof selfreportMod.NO_READING.NEVER_REPORTED, 'string');
+  const got = reconcileReport({ found: false, because: undefined },
+    scr(STATE.UNKNOWN, CONFIDENCE.NONE, 'we could not tell what it is doing'), T0);
+  assert.equal(got.because, 'we could not tell what it is doing',
+    'an absent `because` was treated as never-reported: the comparison is against undefined again');
+});
