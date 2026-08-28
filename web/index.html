@@ -2827,7 +2827,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      guessed character count. */
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .pj-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
-  html[data-layout="consolidated"] body.consolidated .pjmidhead .tsearch { flex: 0 1 min(320px, 40%); }
+  /* Josh, 2026-08-27: "reduce the width of the search input box. Let's maybe
+     make it about 50% of what it currently is". Both terms halve, so it stays
+     proportional on a narrow window as well as a wide one.
+     ⚠️ CONSOLIDATED ONLY. The general rule (`.pjmidhead:has(.pjhead)`) still
+     reads 40% and is deliberately untouched: he was looking at this view, and
+     changing a screen he did not mention is how a fix becomes a report. */
+  html[data-layout="consolidated"] body.consolidated .pjmidhead .tsearch { flex: 0 1 min(160px, 20%); }
   html[data-layout="consolidated"] body.consolidated #pj-one-name + .pj-desc, html[data-layout="consolidated"] body.consolidated #pj-one-made { margin-top: 1px; }
   html[data-layout="consolidated"] body.consolidated #rail-agents, html[data-layout="consolidated"] body.consolidated > #panel-projects, html[data-layout="consolidated"] body.consolidated > #alist { padding-top: 6px; }
   /* #520 piece eight (Josh, toward the mock): the member rows lose their box
@@ -4403,6 +4409,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
               round 5 caught in dark mode (round 6 named this one) */
            min-height: 24px; }
 .linkish:hover { color: var(--k-ink); }
+/* The cog is an icon inside a text button, so it needs its own hit area:
+   `.linkish` carries zero padding because it was built to wrap a word. */
+.pj-settings-cog { display: grid; place-items: center; width: 28px; height: 28px;
+                   border-radius: 8px; color: var(--k-ink-2); }
+.pj-settings-cog:hover { color: var(--k-ink); background: var(--k-sunk); }
 .linkish:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .removed-list { margin-top: 14px; max-width: 34rem; }
 .removed-row { display: flex; align-items: center; justify-content: space-between;
@@ -7340,7 +7351,18 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            📌 It also keeps the door matching its destination: the page this
            opens still titles itself "Project settings". The eye gets the trim;
            the ear keeps the noun that says which settings these are. -->
-      <button class="linkish" id="pj-settings-link" type="button" aria-label="Project settings">Settings</button>
+      <!-- Josh, 2026-08-27: "add a cog in place of settings, like a little cog
+           icon and remove the word Settings".
+           🔑 THE WORD MOVES INTO THE LABEL, IT DOES NOT DISAPPEAR. aria-label
+           already said "Project settings" and still does, so the control keeps
+           its name for anyone not looking at it. A glyph-only button with no
+           accessible name is silent, and the note above already makes exactly
+           this point: the eye gets the trim, the ear keeps the noun.
+           📌 Drawn rather than reused. Searching this file for a cog returned
+           12 hits and ALL TWELVE were the letters "cog" inside "recognise".
+           There was nothing to reuse. Same 24-box, 1.8 stroke, currentColor
+           idiom as every other inline icon here. -->
+      <button class="linkish pj-settings-cog" id="pj-settings-link" type="button" aria-label="Project settings" title="Project settings"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
     </div>
 
     <div class="pj3">
