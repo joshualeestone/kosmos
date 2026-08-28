@@ -42,14 +42,47 @@
   <canvas class="mark" id="mark" width="132" height="154" aria-hidden="true"></canvas>
   <div class="bar" id="bar" role="progressbar" aria-label="Installing"><i></i></div>
   <h1 id="title">Installing Kosmos</h1>
-  <p id="steps">Setting up. This usually takes a minute or two.</p>
+  <!-- 🔑 WHAT THE WAIT IS MADE OF, SAID AT THE START (kosmos#920). Josh, mid
+       install: "Do we know when or how much of it has been installed?" This line
+       said "Setting up" and the bar is a 1.3s loop that knows nothing, so between
+       start and finish the page was indistinguishable from a page doing nothing.
+       ⭐ THE SENTENCE THAT ANSWERS HIM ALREADY EXISTED, ONE ELEMENT DOWN, AND WAS
+       HIDDEN BEHIND A TIMER. #late says "a slow download can take a few minutes",
+       which is exactly the shape of the wait -- and it only appears once the wait
+       has already felt broken. Knowing the download is the bulk is useful at
+       second five, not at second forty. So it moves up into #shape below, and
+       #late keeps only the part that is genuinely new when things are slow.
+       ⚠️ NO SIZE IN MEGABYTES, deliberately, and this is the one thing not to
+       "improve" later. The payload is 50 MB today (measured against the served
+       dist, kosmos-0.5.96-arm64.tar.gz plus tmux-arm64.tar.gz), and it grows with
+       every release. A number baked into an install page is a number nobody
+       re-measures, so it would be quietly wrong within weeks and would read as a
+       promise. The SHAPE of the wait does not rot; the figure does.
+       📌 It does not claim which phase is running, because this page cannot know.
+       setup.sh has six honest phase labels and prints them to a terminal nobody
+       is looking at; wiring those here is the other half of #920 and is left
+       open. Saying "Downloading" while it unpacks would be a state label that is
+       sometimes false, which is worse than a true description of the sequence. -->
+  <p id="steps">Setting up. Usually a minute or two.</p>
+  <!-- 🔑 THE DESCRIPTION IS ITS OWN ELEMENT, and that is structural rather than
+       tidy. #steps carries STATE and gets overwritten three times at runtime: the
+       elapsed counter at 45s, "Opening your dashboard." on success, and emptied
+       on the taken branch. Putting the description in it meant the one sentence
+       explaining the wait was destroyed at exactly 45 seconds, which is when
+       somebody starts wondering whether it is stuck.
+       ⇒ A state element and a description element are different things, and one
+       element cannot be both without the state writes eating the description. -->
+  <p class="muted" id="shape">Most of the wait is one large download, then Kosmos unpacks and moves into your Applications folder.</p>
   <!-- "Nothing to do." deleted (Josh, 2026-08-26 22:05, item 4). The rest of the
        line stays: it is the one sentence that tells a person what this page
        BECOMES, which is why they should leave it open. The element and its id
        stay too -- line 322 hides #hint when the install finishes, and removing
        the node would make that a null. -->
   <p class="muted" id="hint">This page becomes your dashboard when Kosmos is ready.</p>
-  <p id="late">Still going. A slow download can take a few minutes; the installer window will say if something went wrong.</p>
+  <!-- ⚠️ TRIMMED, not rewritten (#920): the download fact moved up to #shape, so
+       repeating it here is the thing Josh cuts out of everything. What is left is
+       the part that is only true once it HAS been slow, plus where to look. -->
+  <p id="late">Still going. A slow one can take a few minutes; the installer window will say if something went wrong.</p>
   <div id="taken">
     <!-- #867 (Josh, 2026-08-25 15:20): "the odds of something else actually
          running on that Mac address are probably astronomically low... we
@@ -324,6 +357,10 @@
         // never actually happening. Clear it so the two sentences stop
         // contradicting each other (Pigeon Pete, screenshotting 0.5.33).
         document.getElementById("steps").textContent = "";
+        // #920: the description promises an install that, on this branch, was
+        // never happening -- the identical reason #steps is cleared one line up.
+        // A removal is two changes when a sentence has been split in two.
+        document.getElementById("shape").style.display = "none";
         document.getElementById("hint").style.display = "none";
         document.getElementById("go").href = base + "/";
         show("taken");
@@ -332,6 +369,9 @@
       settle();
       document.getElementById("title").textContent = "Kosmos is ready";
       document.getElementById("steps").textContent = "Opening your dashboard.";
+      // #920: same rule as the taken branch. The wait is over, so describing it
+      // is describing something that is no longer happening.
+      document.getElementById("shape").style.display = "none";
       location.replace(base + "/");
     };
     img.onerror = function(){

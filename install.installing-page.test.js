@@ -94,10 +94,64 @@ test('the taken branch clears the ordinary-wait steps line so it stops contradic
 });
 
 test('the ordinary wait keeps its own copy: unreadable time, then a slow-download note', () => {
-  assert.match(HTML, /Setting up\. This usually takes a minute or two\./);
-  assert.match(HTML, /Still going\. A slow download can take a few minutes/);
+  assert.match(HTML, /Setting up\. Usually a minute or two\./);
+  assert.match(HTML, /Still going\. A slow one can take a few minutes/);
   assert.match(HTML, /if \(s >= 45\) document\.getElementById\("steps"\)\.textContent = "Setting up\. " \+ s \+ " seconds so far\."/);
   assert.match(HTML, /if \(s >= 180\) show\("late"\)/);
+});
+
+/**
+ * #920. Josh, mid-install: "Do we know when or how much of it has been
+ * installed?" The page could not answer, and the sentence that comes closest
+ * already existed one element down, hidden behind a 180-second timer.
+ */
+test('the shape of the wait is said at the start, not only once it feels broken', () => {
+  assert.match(HTML, /<p class="muted" id="shape">Most of the wait is one large download/,
+    'the description of the wait is gone from the first screen');
+  // ⚠️ AND IT IS NOT IN #steps. That element is STATE and is overwritten three
+  // times at runtime; the elapsed counter at 45s would destroy the description
+  // at exactly the moment somebody starts wondering whether it is stuck.
+  const stepsLine = HTML.match(/<p id="steps">[^<]*<\/p>/);
+  assert.ok(stepsLine, '#steps is gone');
+  assert.doesNotMatch(stepsLine[0], /large download|Applications folder/,
+    'the description is back inside the state element, where the 45s counter eats it');
+});
+
+test('both endings hide the description, because the wait is over or never happened', () => {
+  // A removal is two changes once a sentence is split in two: #steps was
+  // already cleared on the taken branch, and the description promises the same
+  // install that branch says was never running.
+  const takenBranch = HTML.slice(HTML.indexOf('if (first) {'), HTML.indexOf('return;\n      }\n      settle();'));
+  assert.match(takenBranch, /getElementById\("shape"\)\.style\.display = "none"/,
+    'the taken branch shows a description of an install that was not happening');
+  /* ⚠️ ANCHORED ON THE STATEMENT, NOT THE PROSE. The first version searched for
+     the sentence "Opening your dashboard." and matched MY OWN COMMENT forty
+     lines earlier, so the slice began in prose and the assertion looked in the
+     wrong region entirely. A comment explaining a string contains that string. */
+  const okAt = HTML.indexOf('textContent = "Opening your dashboard."');
+  assert.notEqual(okAt, -1, 'the success branch no longer sets that line');
+  const okBranch = HTML.slice(okAt, HTML.indexOf('location.replace', okAt));
+  assert.match(okBranch, /getElementById\("shape"\)\.style\.display = "none"/,
+    'the success branch still describes a wait that has ended');
+});
+
+test('no size in megabytes, because that number rots and nobody re-measures it', () => {
+  /* 🛑 THE ONE THING NOT TO "IMPROVE" HERE. The payload was 50 MB when this
+     shipped, measured against the served dist, and it grows with every release.
+     A figure baked into an install page reads as a promise and would be quietly
+     wrong within weeks. The SHAPE of the wait does not rot; the figure does. */
+  const visible = HTML.replace(/<!--[\s\S]*?-->/g, ' ');
+  assert.doesNotMatch(visible, /\b\d+\s?(MB|GB|megabytes|gigabytes)\b/i,
+    'a download size was added to the install page, and it will be wrong within weeks');
+});
+
+test('the late note does not repeat what the first screen already said', () => {
+  // Josh cuts what the next line already says. The download fact moved up, so
+  // #late keeps only what is new once it HAS been slow.
+  const late = HTML.match(/<p id="late">[^<]*<\/p>/);
+  assert.ok(late, '#late is gone');
+  assert.doesNotMatch(late[0], /slow download/, '#late repeats the download fact now living in #shape');
+  assert.match(late[0], /installer window will say if something went wrong/, '#late lost the part that is actually new');
 });
 
 test('reduced motion turns off both animations, and dark mode is accounted for', () => {
