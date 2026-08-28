@@ -47,7 +47,12 @@ function world(html, fetchImpl) {
   const els = {};
   const el = (id) => (els[id] ||= { id, textContent: '', value: 'fable', hidden: false, disabled: false, selectedIndex: 0, options: [{ textContent: 'Claude Fable 5', value: 'fable' }], focus() {} });
   const ctx = {
-    document: { getElementById: el },
+    /* ⚠️ addEventListener/removeEventListener joined the stub with #1316:
+       `changeDialog` registers a document-level Escape handler, and a stub
+       without them throws before any assertion here runs. No-ops are enough for
+       this file, which is about the SENTENCES; the sibling
+       web.change-dialog-exit-1313.test.js records them. */
+    document: { getElementById: el, addEventListener: () => {}, removeEventListener: () => {} },
     CURRENT: currentCard(),
     fetch: fetchImpl, encodeURIComponent, tick: async () => {}, agentShown: () => 'Mara', console,
   };

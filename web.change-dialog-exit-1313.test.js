@@ -40,7 +40,20 @@ async function press(run) {
     'chg-modal': el(), 'chg-title': el(), 'chg-small': el(),
     'chg-keep': el(), 'chg-go': el(), 'chg-msg': el(),
   };
-  const document = { getElementById: (id) => nodes[id] || null };
+  /* ⚠️ THE STUB GREW A KEYBOARD (#1316). `changeDialog` now registers a
+     document-level Escape handler, so a stub with only `getElementById` throws
+     before any of the assertions below run. The listeners are RECORDED rather
+     than ignored, so a test that wants to press Escape can, and so that a
+     handler registered twice would be visible rather than silently absorbed. */
+  const listeners = [];
+  const document = {
+    getElementById: (id) => nodes[id] || null,
+    addEventListener: (type, fn) => listeners.push({ type, fn }),
+    removeEventListener: (type, fn) => {
+      const i = listeners.findIndex((l) => l.type === type && l.fn === fn);
+      if (i >= 0) listeners.splice(i, 1);
+    },
+  };
   const changeDialog = new Function('document', `${page.lift(SCRIPT, 'changeDialog')}\nreturn changeDialog;`)(document);
   changeDialog({ title: 't', small: 's', go: 'Go', run });
   await nodes['chg-go'].onclick();
