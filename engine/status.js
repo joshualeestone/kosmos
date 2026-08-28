@@ -3255,7 +3255,16 @@ function snapshot() {
     try { paneKeys.add(store.safeKey(a.sessionName)); } catch { /* a name we cannot key cannot collide */ }
   }
   const nowMs = Date.now();
-  for (const key of panelessKeys(paneKeys)) agents.push(panelessCard(key, nowMs));
+  for (const key of panelessKeys(paneKeys)) {
+    /* 🛑 ONE BAD KEY MUST NOT COST THE WHOLE BOARD, and this is structure
+       rather than an argument. Every read inside `panelessCard` is throw-safe
+       by inspection today -- `readProfile`, `safeAvatar`, `selfreport.read`
+       and `liveness.read` all catch and answer -- but "additive" is the entire
+       claim of this change, and an argument that holds today is not the same
+       as a shape that cannot fail. Losing a paneless row costs a row that did
+       not exist last week; letting it throw costs every Mac agent their card. */
+    try { agents.push(panelessCard(key, nowMs)); } catch { /* that one agent is not listable */ }
+  }
 
   agents.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -3293,7 +3302,12 @@ function countAgents(agents, unreadableLines, unreadableSamples) {
        "something went wrong reading" would make the number quietly false the
        first time a Windows agent appears. */
     unreadableTokens: agents.filter((a) => a.paneless !== true && a.context.tokens === null).length,
-    unknownFullness: agents.filter((a) => a.context.percent === null).length,
+    /* ⚠️ EXCLUDED FOR THE SAME REASON AS `unreadableTokens` DIRECTLY ABOVE,
+       and they have to move together: they are two readings of one absent
+       context, so excluding a paneless row from one and not the other would
+       have the same board answering "we could not read it" and "there was
+       nothing to read" about the same card. */
+    unknownFullness: agents.filter((a) => a.paneless !== true && a.context.percent === null).length,
     // ⚠️ Lines tmux gave us that were not panes. Zero is the normal answer;
     // anything else means part of the fleet is missing from this board and the
     // board has to say so rather than presenting what is left as all of it.

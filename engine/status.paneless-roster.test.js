@@ -176,3 +176,35 @@ test('a paneless agent is not counted as an unreadable context', () => {
       'the paneless row was counted as a transcript we tried and failed to read');
   } finally { board.restore(); }
 });
+
+test('the old case is untouched: with no paneless agents the board is exactly the panes', () => {
+  clearStores();
+  const board = fleet.install([fleet.agent('mara', { state: 'working' }), fleet.agent('claudebot', { state: 'idle' })]);
+  try {
+    /* ⚠️ THE OTHER DIRECTION OF THE ADDITIVE CLAIM, and the card asks for it
+       by name: "the new case works, the old case is untouched". Every arm
+       above proves a paneless row behaves; this one proves a Mac board with
+       nothing paneless on it is the same board it always was. */
+    assert.deepEqual(board.agents.map((a) => a.sessionName).sort(), ['claudebot', 'mara']);
+    for (const a of board.agents) {
+      assert.equal(a.paneless, false, a.sessionName + ' was marked paneless on an all-pane board');
+      assert.ok(a.target, a.sessionName + ' lost its pane target');
+    }
+    assert.equal(board.counts.total, 2);
+  } finally { board.restore(); }
+});
+
+test('a beat for an agent that HAS a pane changes nothing', () => {
+  clearStores();
+  /* The dangerous middle case: a Mac agent that gains a token and a beat -- a
+     supervisor mints one on every launch -- must not become a second row or
+     lose its pane card to the poorer one. */
+  paneless('mara');
+  const board = fleet.install([fleet.agent('mara', { state: 'working' })]);
+  try {
+    assert.equal(board.counts.total, 1, 'a beating Mac agent was listed twice');
+    const card = board.card('mara');
+    assert.equal(card.paneless, false);
+    assert.equal(card.state, 'working', 'the pane card was replaced by the paneless one');
+  } finally { board.restore(); }
+});
