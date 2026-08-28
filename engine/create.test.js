@@ -3436,3 +3436,65 @@ test('#1131: a brand new name has no tokens to clear, and that is silent rather 
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because || '');
   assert.ok(!/sender tokens/.test(r.because || ''), 'a name that never had a token was told about tokens');
 });
+
+/**
+ * 🛑 ONE SENTENCE PER CONDITION, GUARDED AT EVERY SITE RATHER THAN THE REACHABLE ONES.
+ *
+ * Three refusals were written out at every site that raised them: the name check in
+ * `setAccount`/`setProvider`/`setModel` (three copies of ONE validation), the provider
+ * check in `setProvider` and `createAgentInner`, the account lookup in `setAccount` and
+ * `createAgentInner`. They agreed by coincidence.
+ *
+ * ⚠️ STAKES: this is CONSISTENCY, not security. Unlike `NO_MATCH` in sendertoken.js
+ * (#1170/#1175), nothing is hidden by these matching and nothing is disclosed if they
+ * drift. The harm is a caller getting two different answers for one bad input.
+ *
+ * ⚠️ WHY THE SOURCE ASSERTION AND NOT ONLY THE BEHAVIOURAL ONE. Two of the seven sites
+ * live inside `createAgentInner` behind a full creation path, and had NO test coverage
+ * at all before this. A behavioural test guards the sites it can reach; #1173 showed
+ * what that costs, catching three of four refusal sites while reading as covered. The
+ * source assertion covers every site by construction, including ones no fixture drives.
+ */
+test('each refusal sentence exists exactly once, so no site can reintroduce a copy', () => {
+  const src = fs.readFileSync(nodePath.join(__dirname, 'create.js'), 'utf8');
+  /* Two directions, and the first version of this test only had one. Counting the
+     SENTENCE catches a site re-introducing a duplicate. It is blind to a site that
+     drifts to a DIFFERENT sentence, because the original count is unchanged.
+     Measured 2026-08-27: with only the sentence check, perturbing sites 681 and 1559
+     left the suite GREEN. Counting the CONSTANT'S USES closes that direction, and all
+     seven sites then go red. */
+  for (const [sentence, constant, uses] of [
+    ['that is not a name we can act on', 'REFUSE_NAME', 3],
+    ['pick a provider from the list', 'REFUSE_PROVIDER', 2],
+    ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 2],
+  ]) {
+    const literals = src.split(`'${sentence}'`).length - 1;
+    assert.equal(
+      literals,
+      1,
+      `"${sentence}" appears as ${literals} literals in create.js. `
+        + 'It must appear once, as the constant declaration, so the sites cannot drift apart.',
+    );
+    const used = src.split(`because: ${constant}`).length - 1;
+    assert.equal(
+      used,
+      uses,
+      `${constant} is used at ${used} sites, expected ${uses}. `
+        + 'A site that stopped using the constant has drifted away from the others.',
+    );
+  }
+});
+
+test('all three name checks refuse an unusable name with the SAME sentence', () => {
+  const bad = 'not a usable name!!';
+  const viaAccount = create.setAccount(bad, '/tmp/nowhere');
+  const viaProvider = create.setProvider(bad, 'openai', { ...BINS, codexBin: '/bin/echo' });
+  const viaModel = create.setModel(bad, 'opus');
+  for (const r of [viaAccount, viaProvider, viaModel]) {
+    assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  }
+  assert.equal(viaAccount.because, viaProvider.because,
+    `setAccount and setProvider disagree: ${viaAccount.because} vs ${viaProvider.because}`);
+  assert.equal(viaAccount.because, viaModel.because,
+    `setAccount and setModel disagree: ${viaAccount.because} vs ${viaModel.because}`);
+});
