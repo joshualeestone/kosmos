@@ -3972,3 +3972,38 @@ test('#1414 PRECISION: the reverse direction, removing the LONGER name', () => {
   assert.ok(after.includes(`[projects."${shortDir}"]`), 'the shorter sibling must survive');
   assert.ok(!after.includes(`[projects."${longDir}"]`));
 });
+
+test('#1414: removal does NOT reformat sections the person wrote', () => {
+  /* 🛑 PigeonPete, cross-review: the first version collapsed `\n{3,}` GLOBALLY,
+     so taking back one agent's entry also reflowed unrelated parts of the
+     person's own config. Same "never clobber what is theirs" line as the
+     permission bug in the same function. */
+  const mine = '/w/mineagent';
+  const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'codex-seam-'));
+  const cfg = nodePath.join(home, 'config.toml');
+  const theirs = '[a]\nx = 1\n\n\n\n[b]\ny = 2\n';   // THREE blank lines, deliberate
+  fs.writeFileSync(cfg, theirs + '\n' + `[projects."${mine}"]\ntrust_level = "trusted"\n`);
+
+  const got = create.forgetCodexFolder(mine, home);
+  assert.equal(got.removed, true, 'it must actually rewrite, or nothing was at risk');
+
+  const after = fs.readFileSync(cfg, 'utf8');
+  assert.ok(after.includes('[a]\nx = 1\n\n\n\n[b]\ny = 2\n'),
+    'the person\'s own three-blank-line run must survive untouched');
+  assert.ok(!after.includes(mine), 'and our entry is gone');
+});
+
+test('#1414 CONTROL: the seam-scoped tidy still runs where it should', () => {
+  /* The mirror of the arm above: proving we did not fix over-reach by simply
+     doing nothing. Removing a MIDDLE entry must not leave a growing gap. */
+  const mid = '/w/middle';
+  const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'codex-seam2-'));
+  const cfg = nodePath.join(home, 'config.toml');
+  fs.writeFileSync(cfg,
+    `[projects."/w/first"]\ntrust_level = "trusted"\n\n[projects."${mid}"]\ntrust_level = "trusted"\n\n[projects."/w/last"]\ntrust_level = "trusted"\n`);
+
+  assert.equal(create.forgetCodexFolder(mid, home).removed, true);
+  const after = fs.readFileSync(cfg, 'utf8');
+  assert.ok(after.includes('/w/first') && after.includes('/w/last'), 'neighbours survive');
+  assert.ok(!/\n{3,}/.test(after), 'the seam left behind is tidied, so gaps do not accumulate');
+});

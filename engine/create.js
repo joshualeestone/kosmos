@@ -988,7 +988,26 @@ trust_level = "trusted"
   if (!text.includes(block)) {
     return { ok: false, removed: false, because: 'that folder\'s trust entry was changed by hand, so it was left alone' };
   }
-  const next = text.replace(block, '').replace(/\n{3,}/g, '\n\n');
+  /* 🛑 THE TIDY-UP IS SCOPED TO THE SEAM, NOT THE DOCUMENT (PigeonPete,
+     cross-review). The first version ran `.replace(/\n{3,}/g, '\n\n')`
+     GLOBALLY, so removing one agent's entry also reformatted unrelated
+     sections the person had written themselves. Measured by him: a config
+     with a deliberate three-blank-line run between two of their own tables
+     came back with it collapsed.
+     ⚠️ Same "never clobber what is theirs" line as the permission bug in the
+     same function: the removal's job is to take back OUR two lines and touch
+     nothing else. Only the join left behind by the removal is ours to tidy. */
+  const at = text.indexOf(block);
+  const before = text.slice(0, at);
+  const after = text.slice(at + block.length);
+  /* The seam is the boundary between what came before the entry and what came
+     after it. Collapsing is bounded to the newline run that MEETS at that
+     point: trailing newlines of `before` plus leading newlines of `after`. */
+  const lead = /\n*$/.exec(before)[0];
+  const trail = /^\n*/.exec(after)[0];
+  const joined = lead + trail;
+  const tidy = joined.length > 2 ? '\n\n' : joined;
+  const next = before.slice(0, before.length - lead.length) + tidy + after.slice(trail.length);
   const tmp = `${cfg}.tmp-${process.pid}`;
   /* 🛑 THE RENAME CARRIES THE TEMP FILE'S MODE, NOT THE TARGET'S, AND THIS
      REALLY HAPPENED. Caught in cross-review after the first version of this
