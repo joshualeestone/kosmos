@@ -4015,15 +4015,25 @@ test('#1414: removal does NOT reformat sections the person wrote', () => {
  * change introduced is the clearest statement of that guard's scope there is.
  * This assertion is the cheap thing that closes it.
  */
-test('#1432: the plist sets HOME, and the key is the literal string HOME', () => {
+test('#1432: the plist template carries exactly its known set of keys', () => {
   const src = fs.readFileSync(nodePath.join(__dirname, 'create.js'), 'utf8');
-  assert.match(src, /<key>HOME<\/key>/,
-    'the plist template no longer sets HOME: an agent would launch without it, and a rewrite of the VALUE must never touch the KEY');
-  assert.doesNotMatch(src, /<key>[a-zA-Z]+\(\)<\/key>/,
-    'a plist key is the source text of a function call, so an identifier rewrite reached into the XML');
-  /* CONTROL: a key that has always been there, so a passing assertion above
-     means the reader can actually see keys in this file. */
-  assert.match(src, /<key>PATH<\/key>/, 'the control key is missing, so this test cannot see plist keys at all');
+  const keys = [...src.matchAll(/<key>([^<]*)<\/key>/g)].map((m) => m[1]).sort();
+
+  /* 🔑 THE WHOLE SET, NOT ONE NAME (Mona Lisa's shape, and it is stronger than
+     what I first wrote). Asserting only `HOME` catches the rename that already
+     happened; asserting the SET catches the next one, whichever key it hits.
+     `${configKey}` is the one deliberately dynamic entry. */
+  assert.deepEqual(keys, [
+    'AssociatedBundleIdentifiers', 'EnvironmentVariables', 'HOME', 'KOSMOS_PORT',
+    'KeepAlive', 'LANG', 'Label', 'PATH', 'ProgramArguments', 'RunAtLoad',
+    'StandardErrorPath', 'StandardOutPath', 'TMUX_TMPDIR', 'ThrottleInterval',
+    'WorkingDirectory', '${configKey}',
+  ].sort(), 'the plist key set changed: a launchd job now sets different variables than it did, and if this came from a rename rather than a deliberate edit, agents launch without one');
+
+  /* A key that is the source text of a function call means an identifier
+     rewrite reached into the XML. That is exactly what happened here. */
+  assert.doesNotMatch(src, /<key>[a-zA-Z_]+\(\)<\/key>/,
+    'a plist key is a function call, so a rename reached into data');
 });
 
 test('#1414 CONTROL: the seam-scoped tidy still runs where it should', () => {
