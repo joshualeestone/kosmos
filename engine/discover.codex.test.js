@@ -129,3 +129,44 @@ test('#1159 CONTROL: a rollout whose first line is NOT session_meta is skipped',
   assert.equal(r.agents.length, 0);
   assert.equal(r.unreadable, 0, 'a non-session file was counted as an unreadable agent');
 });
+
+test('#1159: a MOVED agent is one row, not two', () => {
+  /* 🛑 THE ROLLOUT FALLBACK CAUSED THIS. Measured 2026-08-28, twenty minutes
+     after it merged: the agent's old sessions still resolved from the embedded
+     copy under the old path, its new ones from disk under the new path, and the
+     de-dupe is keyed on the folder, so both survived. One agent, two rows. */
+  const root = sandbox();
+  const oldp = path.join(root, 'old-home');            // never created: it moved away
+  const newp = path.join(root, 'new-home'); fs.mkdirSync(newp);
+  fs.writeFileSync(path.join(newp, 'AGENTS.md'), '# You are Moved Agent\n');
+  rollout(root, 'aaa-older', oldp, '# You are Moved Agent\n');
+  rollout(root, 'zzz-newer', newp, null);
+  const r = withCodexHome(root, () => discover.foundCodex(undefined));
+  assert.equal(r.agents.length, 1, 'the same agent was listed at both its old and new folder');
+  assert.equal(r.agents[0].dir, newp, 'it was kept at the folder it has left');
+});
+
+test('#1159 CONTROL: two REAL agents sharing a name are still two rows', () => {
+  /* The collapse must key on "the folder is gone", not on the name. Two agents
+     that genuinely share a display name and both still exist are two agents, and
+     merging them would be worse than the bug above. */
+  const root = sandbox();
+  const a = path.join(root, 'one'); fs.mkdirSync(a);
+  const b = path.join(root, 'two'); fs.mkdirSync(b);
+  fs.writeFileSync(path.join(a, 'AGENTS.md'), '# You are Same Name\n');
+  fs.writeFileSync(path.join(b, 'AGENTS.md'), '# You are Same Name\n');
+  rollout(root, 'ggg', a, null);
+  rollout(root, 'hhh', b, null);
+  const r = withCodexHome(root, () => discover.foundCodex(undefined));
+  assert.equal(r.agents.length, 2, 'two live agents sharing a name were merged into one');
+});
+
+test('#1159 CONTROL: a ghost with no live twin is still offered', () => {
+  /* The whole point of the fallback. A deleted folder whose agent exists nowhere
+     else must still be nameable, or the collapse has undone the feature. */
+  const root = sandbox();
+  rollout(root, 'iii', path.join(root, 'vanished'), '# You are Lone Ghost\n');
+  const r = withCodexHome(root, () => discover.foundCodex(undefined));
+  assert.equal(r.agents.length, 1, 'the collapse removed a ghost that had no live twin');
+  assert.equal(r.agents[0].name, 'Lone Ghost');
+});

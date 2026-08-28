@@ -229,7 +229,31 @@ function foundCodex(roster) {
       already: alreadyIn(cwd, roster),
     });
   }
-  return { agents: [...byDir.values()], unreadable };
+
+  /* 🛑 A MOVED AGENT WAS LISTED TWICE, and the rollout fallback is what caused it.
+     Its OLD sessions still resolve -- from the embedded copy, under the old path
+     -- while its new ones resolve from disk under the new one, and the de-dupe
+     above is keyed on the folder, so both survived. Measured 2026-08-28, twenty
+     minutes after the fallback merged: one agent, two rows, same name.
+
+     ⚠️ COLLAPSED ONLY WHEN THE LOSER'S FOLDER IS GONE. Two agents that genuinely
+     share a display name and both still exist are two agents, and merging them
+     would be a worse bug than the one this fixes. A row whose directory no longer
+     exists is a GHOST: it cannot be connected to, because connecting records a
+     folder. So the test is not "same name" but "same name AND nothing there".
+
+     Newest-first from `rollouts()` means the live row is already ahead of the
+     ghost when the names match, so the first-seen wins. */
+  const live = new Set();
+  for (const a of byDir.values()) { try { if (fs.statSync(a.dir).isDirectory()) live.add(a.name); } catch { /* ghost */ } }
+  const kept = [];
+  for (const a of byDir.values()) {
+    let here = false;
+    try { here = fs.statSync(a.dir).isDirectory(); } catch { here = false; }
+    if (!here && live.has(a.name)) continue;   // the same agent, at a folder it has left
+    kept.push(a);
+  }
+  return { agents: kept, unreadable };
 }
 
 function found() {
