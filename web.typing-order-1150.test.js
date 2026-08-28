@@ -107,28 +107,86 @@ test('#1150: the room history that arrives when you open a room is not everybody
   const seedRuns = [];
   // eslint-disable-next-line no-new-func
   const seed = new Function(
-    'PJ_CURRENT', 'allRows', 'ROOM_SPOKE_SEEDED', 'ROOM_SPOKE_AT', 'OUT',
+    'PJ_CURRENT', 'allRows', 'ROOM_SPOKE_SEEDED', 'ROOM_SPOKE_AT', 'OUT', 'body',
     BLOCK + '\nOUT.push(seededRoom);',
   );
   const SEEDED = new Set();
   const SPOKE = new Map();
   const hist = (who) => [{ from: who, at: new Date().toISOString(), text: 'hi' }];
+  /* `body` is `paintRoom`'s own argument; the slice needs it in scope because
+     the seeded-set add is now gated on the paint having carried the record. */
+  const OK = { ok: true };
 
-  seed('project-a', hist('dana'), SEEDED, SPOKE, seedRuns);
+  seed('project-a', hist('dana'), SEEDED, SPOKE, seedRuns, OK);
   assert.equal(SPOKE.get('dana').learnedAt, 0, 'the FIRST room stamped its history as speech');
 
   /* THE DEFECT: a second room, opened after the first, is history too. */
-  seed('project-b', hist('erin'), SEEDED, SPOKE, seedRuns);
+  seed('project-b', hist('erin'), SEEDED, SPOKE, seedRuns, OK);
   assert.equal(SPOKE.get('erin').learnedAt, 0,
     'a second room stamped its history as speech, so its working line blanks for a poll');
 
   /* 🔑 THE OTHER ARM: a post arriving in a room ALREADY open is real speech and
      must still stamp, or the fix has become "never suppress anything". */
-  seed('project-b', [{ from: 'erin', at: new Date(Date.now() + 60000).toISOString(), text: 'later' }], SEEDED, SPOKE, seedRuns);
+  seed('project-b', [{ from: 'erin', at: new Date(Date.now() + 60000).toISOString(), text: 'later' }], SEEDED, SPOKE, seedRuns, OK);
   assert.ok(SPOKE.get('erin').learnedAt > 0, 'a new post in an open room stopped counting as speech');
 
+  /* 🔑 THE SEED FLAGS THEMSELVES, ASSERTED. They were collected and never read,
+     so the per-room semantics were only ever INFERRED from `learnedAt`. This is
+     the one line that states the fix's actual claim: unseeded, unseeded because
+     it is a different room, then seeded. */
+  assert.deepEqual(seedRuns, [false, false, true],
+    'the seeding flags do not follow the room, so the guard is not per room');
+
+  /* 🛑 SEEDING A ROOM MUST NOT CLEAR A STAMP ANOTHER ROOM EARNED, and this arm
+     is a REGRESSION GUARD AGAINST MY OWN FIX: without it the branch was WORSE
+     than the page-wide boolean on this one path, because main happened to have
+     already flipped its flag by then and so suppressed correctly.
+
+     X speaks for real in room A, then room B is opened unseeded holding a NEWER
+     X message. `learnedAt` is drop-when-recent, so clearing it to 0 RENDERS the
+     name next to a reply already on screen. That is #1150 itself, narrowly. */
+  const SEEN2 = new Set();
+  const SPOKE2 = new Map();
+  const T0 = Date.now();
+  const at = (ms) => new Date(T0 + ms).toISOString();
+  seed('room-a', [{ from: 'xavier', at: at(0), text: 'history' }], SEEN2, SPOKE2, seedRuns, OK);
+  assert.equal(SPOKE2.get('xavier').learnedAt, 0, 'the first room stamped its own history');
+  seed('room-a', [{ from: 'xavier', at: at(60000), text: 'real speech' }], SEEN2, SPOKE2, seedRuns, OK);
+  const earned = SPOKE2.get('xavier').learnedAt;
+  assert.ok(earned > 0, 'speech in an open room did not stamp, so the setup proves nothing');
+  seed('room-b', [{ from: 'xavier', at: at(120000), text: 'newer, in another room' }], SEEN2, SPOKE2, seedRuns, OK);
+  assert.equal(SPOKE2.get('xavier').learnedAt, earned,
+    'opening a second room cleared a stamp the first room earned, so the working '
+    + 'line renders an agent whose reply is already on screen');
+  /* AND THE TIMESTAMP STILL MOVES, or the dedup goes stale and later speech in
+     the newer room can never register. */
+  assert.equal(SPOKE2.get('xavier').at, Date.parse(at(120000)),
+    'preserving the stamp also froze `at`, which the dedup compares');
+  /* THE CONTROL: an OLDER message in the second room is skipped by the dedup,
+     so this arm can come out the other way and the trace above is a measurement
+     rather than an artefact of the fixture. */
+  const before = SPOKE2.get('xavier').at;
+  seed('room-c', [{ from: 'xavier', at: at(30000), text: 'older' }], SEEN2, SPOKE2, seedRuns, OK);
+  assert.equal(SPOKE2.get('xavier').at, before, 'the dedup let an older message through');
+
+  /* 🛑 A FIRST PAINT THAT CARRIED NO RECORD MUST NOT MARK THE ROOM SEEDED.
+     `engine/messages.js` returns `{ ok: false, rows: [] }` on a read failure of
+     the message log and the route sends it at HTTP 200, so this paints. If the
+     room is marked seeded on that empty paint, the REAL backlog arrives next
+     poll into a room believed already seeded and every member is stamped as
+     having just spoken - which blanks the working line, the exact thing the
+     guard exists to prevent. */
+  const SEEN3 = new Set();
+  const SPOKE3 = new Map();
+  seed('room-d', [], SEEN3, SPOKE3, seedRuns, { ok: false });
+  assert.equal(SEEN3.has('room-d'), false,
+    'a paint that carried no record still marked the room seeded');
+  seed('room-d', [{ from: 'yuki', at: at(0), text: 'the real backlog' }], SEEN3, SPOKE3, seedRuns, OK);
+  assert.equal(SPOKE3.get('yuki').learnedAt, 0,
+    'the backlog arriving after an empty paint was stamped as speech');
+
   /* And the shipped page uses the per-room set rather than a page-wide flag. */
-  assert.match(SCRIPT, /const ROOM_SPOKE_SEEDED = new Set\(\)/,
+  assert.match(SCRIPT, /const ROOM_SPOKE_SEEDED = new Set\(/,
     'the page-wide boolean is back');
   assert.match(SCRIPT, /ROOM_SPOKE_SEEDED\.has\(PJ_CURRENT\)/,
     'the seed is no longer keyed on the room');

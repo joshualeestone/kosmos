@@ -26407,9 +26407,36 @@ function paintRoom(body) {
     if (!Number.isFinite(at)) continue;
     const seen = ROOM_SPOKE_AT.get(who);
     if (seen && at <= seen.at) continue;
-    ROOM_SPOKE_AT.set(who, { at, learnedAt: seededRoom ? Date.now() : 0 });
+    /* 🛑 SEEDING A ROOM MUST NOT CLEAR A STAMP ANOTHER ROOM EARNED. `learnedAt`
+       is read by the working line as DROP-WHEN-RECENT, so zero means "render
+       this name" - the over-claim, which is #1150 itself.
+
+       Without this clause: X speaks for real in room A and is correctly
+       suppressed; you open room B, which is unseeded and whose backlog holds a
+       NEWER X message; the dedup lets it through; X is rewritten with
+       `learnedAt: 0`; and back in room A the suppression is gone while X's
+       reply is on screen. Measured, with a control where room B holds an OLDER
+       message and the dedup skips it, so the trace can come out both ways.
+
+       ⚠️ Keeping `at` current still matters - it is what the dedup compares -
+       so this updates the timestamp and preserves the stamp, rather than
+       skipping the row. */
+    const earned = !seededRoom && seen && seen.learnedAt > 0;
+    ROOM_SPOKE_AT.set(who, {
+      at,
+      learnedAt: earned ? seen.learnedAt : (seededRoom ? Date.now() : 0),
+    });
   }
-  ROOM_SPOKE_SEEDED.add(PJ_CURRENT);
+  /* 🛑 ONLY IF THE PAINT ACTUALLY CARRIED THE RECORD. `engine/messages.js`
+     returns `{ ok: false, rows: [] }` on a stat or read failure of the message
+     log, and the route sends that at HTTP 200, so this paints rather than
+     taking the catch branch. Marking the room seeded on an EMPTY first paint
+     means the real backlog arrives on the next poll into a room believed
+     already seeded, and every member is stamped as having just spoken - which
+     blanks the working line for a poll, the exact thing this guard exists to
+     prevent. What we want to record is "this room's backlog has been read",
+     not "this room has been painted once". */
+  if (body && body.ok !== false) ROOM_SPOKE_SEEDED.add(PJ_CURRENT);
   const shown = pjRoomFilterRows(allRows, p, PJ_ROOM_QUERY);
   const filtering = PJ_ROOM_QUERY.trim() !== '';
   const silences = pjSilences(allRows, p);
