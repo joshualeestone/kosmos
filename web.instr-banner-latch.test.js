@@ -42,14 +42,41 @@ function pollBody() {
   return PAGE.slice(start, end);
 }
 
+/**
+ * 🔑 ANGEL'S GUARD READER, PORTED FROM HER PR #1239 WITH HER CONTROLS.
+ *
+ * She and I fixed #1237 independently on the same evening; her PR was open 29
+ * minutes before I claimed the card and neither of us knew. Mine merged. **Three
+ * things in hers were better and are here rather than lost.**
+ *
+ * This is the first: my version sliced from `lastIndexOf('if (')` to the call,
+ * which takes whatever text happens to sit between them. Hers MATCHES PARENS, so
+ * it returns the condition that actually governs the call and nothing else.
+ */
+function guardOf(src, call) {
+  const at = src.indexOf(call);
+  assert.ok(at > -1, 'the call ' + call + ' is not in this source at all');
+  const ifAt = src.lastIndexOf('if (', at);
+  assert.ok(ifAt > -1, 'no `if (` precedes ' + call);
+  let depth = 0;
+  for (let k = src.indexOf('(', ifAt); k < at; k += 1) {
+    if (src[k] === '(') depth += 1;
+    else if (src[k] === ')') {
+      depth -= 1;
+      if (depth === 0) return src.slice(src.indexOf('(', ifAt) + 1, k);
+    }
+  }
+  assert.fail('the `if` before ' + call + ' never closes before the call');
+  return '';
+}
+
 test('#1237: the poll paints the banner on a flag it cannot switch off', () => {
   const body = pollBody();
   assert.ok(body.length > 2000, `the poll slice is ${body.length} chars, so this is looking in the wrong place`);
 
   // It renders behind the banner flag, not behind save-safety.
   assert.match(body, /renderStale\(fresh\.instructions\)/, 'the poll no longer paints the banner at all');
-  const guard = body.slice(body.lastIndexOf('if (', body.indexOf('renderStale(fresh.instructions)')),
-    body.indexOf('renderStale(fresh.instructions)'));
+  const guard = guardOf(body, 'renderStale(fresh.instructions)');
   assert.match(guard, /INSTR_BANNER/, 'the poll gates the banner on something other than INSTR_BANNER');
   assert.doesNotMatch(guard, /INSTR_READY/,
     'the poll gates the banner on INSTR_READY again, which it clears itself: one transient '
@@ -105,4 +132,49 @@ test('#1237: exactly one place arms save-safety, and the banner is armed on the 
   assert.equal(armedBanner.length, 2,
     `the banner is armed at ${armedBanner.length} places; it must be armed on BOTH load outcomes, `
     + 'the editable one and the not-editable one');
+});
+
+
+/**
+ * 🛑 ANGEL'S CONTROLS FOR THE READER ABOVE, PORTED FROM PR #1239. Second and
+ * third of the three things her version had and mine did not.
+ *
+ * ⚠️ AND THE REASON I FIRST GAVE FOR PORTING THESE WAS WRONG, WHICH IS WORTH
+ * RECORDING BECAUSE IT WAS THE SAME MISTAKE THEY EXIST TO PREVENT. I said my
+ * version "passes vacuously if the extraction returns empty" and I had not tested
+ * it. Measured: it exits 1, because the assertion above it does
+ * `assert.match(guard, /INSTR_BANNER/)` -- a POSITIVE check on the same variable,
+ * which an empty string fails.
+ *
+ * ⭐ THE REAL BENEFIT IS NARROWER AND STILL WORTH IT: mine is protected only
+ * INCIDENTALLY, by an assertion that exists for another purpose and happens to
+ * cover the reader. If the production guard ever legitimately stopped containing
+ * `INSTR_BANNER`, that assertion would fail for its own reason and the negative
+ * check beside it would go untested with nothing saying so. These controls test
+ * the reader against SYNTHETIC inputs whose answer is known, so the reader is
+ * checked whatever the production source happens to say.
+ */
+test('CONTROL: the same reader DOES see INSTR_READY on the shape that had the defect', () => {
+  const defective = `
+    if (fresh && fresh.isNamedOurs === true && INSTR_READY) {
+      renderStale(fresh.instructions);
+    }`;
+  const guard = guardOf(defective, 'renderStale(fresh.instructions)');
+  assert.match(guard, /INSTR_READY/,
+    'the reader cannot see INSTR_READY even when it is there, so the assertion above proves nothing');
+});
+
+test('#1237: the poll still declines to repaint a pane it cannot tie to an agent', () => {
+  const guard = guardOf(pollBody(), 'renderStale(fresh.instructions)');
+  assert.match(guard, /isNamedOurs/,
+    'dropping the isNamedOurs condition trades a stuck banner for a flickering one: '
+    + 'an untied pane resolves to the `unknown` arm, which is the loudest banner in the app, '
+    + 'and a blip would now paint it. Skipping is safe only because no latch remains to hold it.');
+});
+
+test('CONTROL: that reader can also report a guard with no isNamedOurs in it', () => {
+  const guard = guardOf('if (fresh && INSTR_BANNER) { renderStale(fresh.instructions); }',
+    'renderStale(fresh.instructions)');
+  assert.doesNotMatch(guard, /isNamedOurs/,
+    'the reader reports isNamedOurs even when it is absent, so the assertion above proves nothing');
 });
