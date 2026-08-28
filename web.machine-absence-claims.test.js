@@ -60,6 +60,27 @@ const SOURCES = [
 for (const f of fs.readdirSync('engine')) {
   if (f.endsWith('.js') && !f.endsWith('.test.js')) SOURCES.push(path.join('engine', f));
 }
+
+/**
+ * 🛑 DO NOT ADD `*.test.js` TO SOURCES, INCLUDING THIS FILE. Measured 2026-08-27:
+ * aim this guard at its own test file and **5 patterns trip**.
+ *
+ * ⚠️ AND COMMENT-STRIPPING IS NOT WHAT PROTECTS IT. The forbidden sentences live
+ * in the CONTROL ARRAYS below as real string literals, which no comment filter
+ * touches. The only thing keeping this green is that `.test.js` is out of scope.
+ *
+ * ⭐ Splinter's generalisation, and this file is an instance of it: ANY DETECTOR
+ * KEYED ON A LITERAL WILL MATCH THE PROSE THAT DESCRIBES IT, and the write-up is
+ * usually the first false positive. He broadcast a warning quoting a UI string
+ * and then grepped six panes for that string, matching his own announcement
+ * every time.
+ *
+ * 📌 Written down because the obvious improvement to this file is to widen its
+ * scope, which is what I did to it an hour before writing this. The next person
+ * to be thorough gets a red suite that looks like a real defect in the product.
+ * A limit written down is a design decision; the same limit unwritten is an
+ * invitation.
+ */
 const PAGE = fs.readFileSync(process.env.PLUS_PAGE || 'web/index.html', 'utf8');
 
 /* Comments and CSS are not shown to anybody, and both discuss these sentences
