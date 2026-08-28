@@ -54,14 +54,48 @@ function declarationIn(body) {
   return 'silent';
 }
 
+/**
+ * The cutoff, and WHAT IT RESOLVED TO, because a silent filter is how this got it
+ * wrong on its first real use.
+ *
+ * 🛑 A RANGE IS NOT A BASE REF, AND `git log -1` DOES NOT SAY SO. Baron passed
+ * `584232e5..origin/main` within minutes of this landing. Measured:
+ *
+ *   git log -1 --format=%cI 584232e5               -> 07:57  (the base)
+ *   git log -1 --format=%cI 584232e5..origin/main  -> 08:21  (the NEWEST IN it)
+ *
+ * ⇒ on a range it silently compares against the wrong end. He got twelve PRs back
+ * to #1271, three releases old, and could not tell from the output whether that
+ * was the tool or his argument. **Neither could I from the code**, which is the
+ * point: a filter that does not show its cutoff cannot be argued with.
+ *
+ * ✅ So a range is accepted and reduced to its LEFT side, and the resolved cutoff
+ * is PRINTED. If the number of PRs looks wrong, the line above it says why.
+ */
+function resolveCutoff(baseRef) {
+  if (!baseRef) return { since: null, from: 'no base ref given, showing every merged PR fetched' };
+  const left = String(baseRef).split('..')[0];
+  const ranged = left !== baseRef;
+  try {
+    const since = execFileSync('git', ['log', '-1', '--format=%cI', left], { encoding: 'utf8' }).trim();
+    return {
+      since,
+      from: `${since} (${left}${ranged ? `, taken as the base of the range ${baseRef}` : ''})`,
+    };
+  } catch {
+    return { since: null, from: `could not resolve ${baseRef}; showing every merged PR fetched` };
+  }
+}
+
 function mergedSince(baseRef) {
   const out = execFileSync('gh', [
     'pr', 'list', '--state', 'merged', '--limit', '100',
     '--json', 'number,title,body,mergedAt',
   ], { encoding: 'utf8' });
   const all = JSON.parse(out);
-  if (!baseRef) return all;
-  const since = execFileSync('git', ['log', '-1', '--format=%cI', baseRef], { encoding: 'utf8' }).trim();
+  const { since, from } = resolveCutoff(baseRef);
+  console.log(`merged since: ${from}\n`);
+  if (!since) return all;
   return all.filter((p) => p.mergedAt && p.mergedAt >= since);
 }
 
@@ -92,4 +126,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { declarationIn };
+module.exports = { declarationIn, resolveCutoff };
