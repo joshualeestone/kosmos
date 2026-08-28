@@ -144,8 +144,6 @@ test('#1168 regression: a title or an initial is not the end of a sentence', () 
      into the role capture: this gave role "Tolkien", a surname presented as a
      job. The card's own standard is that a fabricated role is worse than a
      missing one. */
-  assert.equal(r('You are Dr. J. R. R. Tolkien, a writer.').role, null,
-    'a surname was handed to the role because the name hit its length bound');
 
   /* 🛑 AND THE OBVIOUS TEST FOR THAT IS WRONG. "the tail starts with a capital"
      is also true of every legitimate capitalised role, so the first version of
@@ -190,10 +188,32 @@ test('#1168 regression: a title or an initial is not the end of a sentence', () 
      right all four, removing sentences presented as job titles. */
   assert.equal(r('You are Anna\nChief Engineer.').role, null,
     'this is now fixed -- if a no-comma role is wanted, flip this row and say why');
+  /* The SAME-LINE form of that cost, which is the likelier way somebody writes
+     it and was the unpinned half. */
+  assert.equal(r('You are Anna the copywriter.').role, null,
+    'a no-comma role on one line is back; main returned "copywriter" here');
 
-  /* The bound is most visible on this row, so it watches the NAME too rather
-     than only the role: a future widening would otherwise move it silently. */
-  assert.equal(who('You are Dr. J. R. R. Tolkien, a writer.'), 'Dr. J. R.');
+  /* 🔑 EVERY TITLE IN THE LIST GETS AN ASSERTION. Mutation testing showed the
+     list could be cut to `Dr|Mr|Ms|St` with the suite still green, so four of
+     them were load-bearing by intent and unprotected. The list is interpolated
+     into a `new RegExp`, where a typo is silent. */
+  assert.equal(who('You are Mrs. Smith, a copywriter.'), 'Mrs. Smith');
+  assert.equal(who('You are Prof. Plum, a teacher.'), 'Prof. Plum');
+  assert.equal(who('You are Rev. Green, a vicar.'), 'Rev. Green');
+  assert.equal(who('You are Hon. Scarlett, a judge.'), 'Hon. Scarlett');
+
+  /* The bound is {0,4}, so a name of initials parses WHOLE with its role. */
+  assert.equal(who('You are Dr. J. R. R. Tolkien, a writer.'), 'Dr. J. R. R. Tolkien');
+  assert.equal(r('You are Dr. J. R. R. Tolkien, a writer.').role, 'writer');
+
+  /* 📌 A KNOWN LIMIT, pinned rather than left to look like an oversight.
+     `Dr. John Q. Smith` truncates because the prefix run refuses to cross after
+     `Q.` (`John` is neither a title nor an initial), and that shape is
+     text-identical to `Mary J. She writes copy.`, which MUST stop. Undecidable
+     here. Both readings are wrong names; neither invents a job. */
+  assert.equal(who('You are Dr. John Q. Smith, a writer.'), 'Dr. John Q.');
+  assert.equal(r('You are Dr. John Q. Smith, a writer.').role, null);
+
 
   /* 🔑 THE ARMS THAT MUST NOT MOVE. If the abbreviation exception is written
      too broadly it swallows the sentence boundary #1168 exists to enforce. */
@@ -211,7 +231,11 @@ test('#1168 regression: a title or an initial is not the end of a sentence', () 
      moves when the bound changes: at {0,3} it captured "The Owner Of This". */
   assert.equal(who('You are talking to a person running a business, not an engineer.'), null);
   assert.equal(who('You are an expert in Rust.'), null);
-  assert.equal(who('You are The Owner Of This Machine.'), 'The Owner Of',
+  /* ⚠️ Pinned AT THE CURRENT BOUND. This string was already captured as a name
+     before this branch; widening makes an existing false positive longer rather
+     than creating one, and this row is here so the next change to the bound is
+     deliberate rather than noticed later. */
+  assert.equal(who('You are The Owner Of This Machine.'), 'The Owner Of This Machine',
     'the name bound moved, which is the direction that finds people in prose');
 });
 

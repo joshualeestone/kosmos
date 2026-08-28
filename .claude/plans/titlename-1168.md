@@ -32,7 +32,10 @@ below record why. This is the shipped shape.**
 1. **A stop may be crossed only while the name is still its own prefix**: every token from
    `You are ` to that stop must be a title (`Dr. Mr. Mrs. Ms. Prof. Rev. Hon. St.`) or an
    initial. That separates `J. R. Tolkien` from `Mary J. She`, `Bob Jr. He` and `Anna St. He`.
-2. **`{0,2}` is unchanged from before #1168** and deliberately not widened.
+2. **`{0,4}`.** Held at the pre-#1168 `{0,2}` for three iterations on a SCOPE argument that
+   iteration 4 falsified: a title consumes a slot, so an ordinary name truncated into something
+   that still looked like a name. Negatives hold at `{0,3}`, `{0,4}`, `{0,5}` and `{0,10}`,
+   measured by two reviewers independently.
 3. **In the prose arm a role must follow a comma.** Nothing else becomes one.
 
 ## What must not move
@@ -85,3 +88,18 @@ below record why. This is the shipped shape.**
 - **The `Jr|Sr` comment was stale.** With the prefix anchor in place, adding them back is
   inert. The exclusion stays; the comment now says so rather than asserting a measurement that
   no longer reproduces.
+
+## Iteration 4
+
+- **Four of the eight titles had no test.** Mutation showed the list could be cut to
+  `Dr|Mr|Ms|St` with the suite green. `Mrs`, `Prof`, `Rev`, `Hon` now have one assertion each,
+  which matters because the list is interpolated into a `new RegExp` where a typo is silent.
+- **The bound widened to `{0,4}`**, above.
+- **The pinned cost of the comma rule was the less likely half.** The newline form was pinned;
+  the same-line `You are Anna the copywriter.` was not, and it regresses the same way.
+- **A known limit is now pinned rather than left looking like an oversight:**
+  `Dr. John Q. Smith` truncates, because the prefix run refuses to cross after `Q.` and that
+  shape is text-identical to `Mary J. She writes copy.`, which must stop. Undecidable here.
+  ⚠️ The review offered the bound as the fix for it; **I checked and it is not**, which is why
+  the comment says so rather than repeating the suggestion.
+- Two orphaned comments removed, and the bold-arm justification narrowed to what is true.

@@ -3244,16 +3244,6 @@ function readIdentity(sessionName) {
  * the same fabricated role one word later.
  */
 const NAME_JOIN_TITLES = 'Dr|Mr|Mrs|Ms|Prof|Rev|Hon|St';
-/* {0,2}, unchanged from before #1168, and kept rather than widened.
-   ⚠️ AN EARLIER VERSION OF THIS COMMENT SAID THE ONLY EFFECT OF WIDENING WAS ON
-   PROSE. That is false and the review measured it: the bound is also what
-   truncates a long name, and at {0,4} `You are Dr. J. R. R. Tolkien, a writer.`
-   parses whole, with its role. The negatives stay null at {0,3} and {0,4}.
-   ⇒ Widening may well be right, and it is NOT this branch's business: this one
-   restores what #1271 broke, and a name-length change is a separate decision
-   with its own prose exposure (`You are The Owner Of This Machine.` captures one
-   word further per step). Kept at the pre-#1168 value so the two changes cannot
-   be confused for each other. */
 /**
  * 🔑 A STOP MAY BE CROSSED ONLY WHILE THE NAME IS STILL ITS OWN PREFIX. Every
  * token from `You are ` up to that stop must be a title or an initial, which is
@@ -3269,18 +3259,53 @@ const NAME_JOIN_TITLES = 'Dr|Mr|Mrs|Ms|Prof|Rev|Hon|St';
  * bare-initial version of it (`Mary J. She`) survived the first two attempts at
  * this fix. Position is the only thing in the text that separates a prefix
  * abbreviation from a trailing one.
+ *
+ * ⚠️ AND IT CANNOT SEPARATE A TITLE FROM A PRONOUN AFTER IT: `You are Dr. He
+ * writes copy.` reads `Dr. He` as the name. The NAME is worse than main's there
+ * and that is accepted; what must not happen is a ROLE, and the comma rule
+ * below refuses one. Pinned in the test.
  */
 const NAME_PREFIX_RUN = "(?<=You are (?:(?:" + NAME_JOIN_TITLES + "|[A-Z])\\. )*(?:" + NAME_JOIN_TITLES + "|[A-Z])\\.)";
 /**
- * 🛑 GROUP 4 IS THE COMMA AND IT IS LOAD-BEARING. A role is separated from a
- * name by a comma; a sentence that merely follows the name is not. Capturing
- * whether the comma was there is what tells `You are Nevaeh, Chief Engineer.`
- * (a real capitalised role) from `You are Dr. J. R. R. Tolkien, a writer.`
- * (a name that ran out of room and donated its tail).
+ * {0,4}. ⚠️ THIS WAS {0,2} FOR THREE REVIEW ITERATIONS AND THE ARGUMENT FOR
+ * KEEPING IT WAS WRONG, in a way worth recording because it was a SCOPE call
+ * rather than a measurement.
+ *
+ * I held it at the pre-#1168 value on the grounds that name length is a
+ * separate decision. But a title consumes one of the slots, so at {0,2} a
+ * perfectly ordinary name truncates:
+ *
+ *   You are Dr. J. R. R. Tolkien, a writer.   {0,2} "Dr. J. R." / null
+ *                                             {0,4} whole, with its role
+ *
+ * ⚠️ AND IT DOES NOT FIX EVERYTHING, WHICH I CHECKED RATHER THAN ASSUMED. The
+ * review offered `You are Dr. John Q. Smith, a writer.` as a second row the
+ * bound would fix. It does not: the PREFIX RUN refuses the crossing after `Q.`
+ * because `John` is neither a title nor an initial, so it stays "Dr. John Q.".
+ * That shape is text-identical to `Mary J. She writes copy.`, which must stop,
+ * so it is undecidable here rather than unfixed. The role is null either way,
+ * and `main` gave "Dr", so both readings are wrong names and neither invents a
+ * job. Pinned in the test as a known limit.
+ *
+ * 🛑 AND `"Dr. John Q."` IS THE SHAPE THIS CARD IS ABOUT. `main` produced `"Dr"`,
+ * which is self-evidently broken; a truncation that still looks like a name is
+ * the invisible version of the same defect, and nothing on the screen says
+ * where it came from. Keeping the old bound traded a visible defect for a
+ * quiet one.
+ *
+ * 🔑 THE NEGATIVES HOLD, measured independently by two reviewers at {0,3},
+ * {0,4}, {0,5} and {0,10}: every prose row in this suite, including the
+ * working-rules text read out of `defaults.js`, still returns null.
+ *
+ * ⚠️ THE COST, and it is not a new class: the Title-Case prose canary captures
+ * one word further per step (`You are The Owner Of This Machine.`). That string
+ * was already captured as a name at {0,2}; widening makes an existing false
+ * positive longer rather than creating one. It is pinned in the test at this
+ * bound so the next change to it is deliberate.
  */
 const IDENTITY_RE = new RegExp(
   "You are (?:\\*\\*([^*]+)\\*\\*|([A-Z][\\w.'-]*"
-  + "(?:(?:(?<!\\.)|" + NAME_PREFIX_RUN + ") [A-Z][\\w.'-]*){0,2}"
+  + "(?:(?:(?<!\\.)|" + NAME_PREFIX_RUN + ") [A-Z][\\w.'-]*){0,4}"
   + "))(?:\\s*\\(([^)]+)\\))?\\s*(,)?\\s*([^.\\n]*)",
 );
 
@@ -3309,8 +3334,12 @@ const IDENTITY_RE = new RegExp(
  * machine: identity detection is unchanged, 17 found before and after, while
  * four files lose a fabricated role built out of a sentence.
  *
- * 📌 The bold arm is untouched. It is delimited by its own asterisks, so what
- * follows it was never ambiguous.
+ * 📌 The bold arm is untouched, and the honest reason is narrower than "it is
+ * unambiguous": the asterisks settle where the NAME ends, not whether what
+ * follows is a role. `You are **Anna**\n\nYour job is to help everyone.` still
+ * yields a role of "Your job is to help everyone", exactly as it did on main.
+ * Left alone because it is not a regression and every generated template writes
+ * `You are **{{NAME}}**, <a role>.` with the comma.
  */
 
 /**
@@ -3331,8 +3360,6 @@ function identityFromText(text) {
      delimited by its own asterisks, and `**side-quests**.` already comes back
      clean. */
   const endedSentence = m[1] === undefined && NAME_ENDS_SENTENCE.test(name);
-  /* The role capture starts right after the name, so a name cut short by the
-     repetition bound leaves a capitalised word at the head of it (#1168). */
   /* Group 4 is the comma. Absent, in the prose arm, means nothing here is a
      role no matter what it looks like. */
   const roleUnmarked = m[1] === undefined && m[4] === undefined;
