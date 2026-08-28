@@ -63,4 +63,18 @@ the direction the existing comment at :14375 says this line is built to fail in.
 
 `web.typing-order-1150.test.js`. The pre-existing test asserted the guard's SHAPE and passed
 against the bug, which is why the bug shipped. The new one paints TWO rooms and asserts the
-second room's history is not stamped - it fails against the boolean.
+second room's history is not stamped.
+
+**Measured, not asserted.** I reverted the fix to the original single boolean, in both halves
+(`const ROOM_SPOKE_SEEDED = new Set()` back to `let ... = false`, the `.has(PJ_CURRENT)` read back
+to the bare boolean, the `.add(PJ_CURRENT)` back to `= true`), and ran the file:
+
+```
+fixed      3 pass  0 fail
+pre-fix    2 pass  1 fail     <- the test genuinely catches the bug it was written for
+restored   3 pass  0 fail
+```
+
+⭐ Worth doing because the defect this branch fixes is *precisely* a test that passed against the
+bug. A replacement test that had the same weakness would be invisible, and the only way to tell the
+two apart is to watch the new one go red.
