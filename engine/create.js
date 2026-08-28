@@ -118,6 +118,26 @@ const MODELS = [
  * `createAgent` already takes, not the runner name ('claude' | 'codex') it
  * derives. Two vocabularies for one fact is how these drift.
  */
+/* 🛑 ONE SENTENCE PER CONDITION, BECAUSE THREE COPIES AGREED BY COINCIDENCE.
+   Each of these refusals was written out at every site that raises it: the name
+   check in setAccount/setProvider/setModel (three copies of ONE validation,
+   `!NAME_RE.test(cleanName(name))`), the provider check in setProvider and
+   createAgentInner, the account lookup in setAccount and createAgentInner.
+   Nothing kept them in sync and the suite was green either way, so a caller
+   giving the same bad input through two entry points could have started getting
+   two different answers with nobody noticing.
+   ⚠️ STAKES, STATED SO NOBODY INHERITS sendertoken's URGENCY BY ASSOCIATION:
+   this is CONSISTENCY, not security. Unlike NO_MATCH in sendertoken.js, nothing
+   is hidden by these sentences matching and nothing is disclosed if they drift.
+   ⚠️ AND THE RETURN SHAPES ARE NOT THE SAME even where the sentence is: the two
+   createAgentInner sites also carry `steps`. Only the SENTENCE is shared here,
+   which is why these are string constants and not shared return objects.
+   #1170/#1175 did the same for sendertoken.js. Found by sweeping for the class,
+   2026-08-27. */
+const REFUSE_NAME = 'that is not a name we can act on';
+const REFUSE_PROVIDER = 'pick a provider from the list';
+const REFUSE_ACCOUNT = 'we do not know that account on this computer';
+
 function modelsFor(provider) {
   const want = provider === 'openai' ? 'openai' : 'anthropic';
   return MODELS.filter((m) => m.provider === want);
@@ -566,7 +586,7 @@ function readJob(name) {
 function setAccount(name, dir) {
   const clean = cleanName(name);
   if (!NAME_RE.test(String(clean == null ? '' : clean))) {
-    return { outcome: OUTCOME.REFUSED, because: 'that is not a name we can act on' };
+    return { outcome: OUTCOME.REFUSED, because: REFUSE_NAME };
   }
   const accounts = require('./accounts');
   const all = accounts.list();
@@ -575,7 +595,7 @@ function setAccount(name, dir) {
   const wanted = dir === '' || dir == null ? null : String(dir);
   const acct = wanted === null ? all.find((a) => a.isDefault) : all.find((a) => a.dir === wanted);
   if (!acct) {
-    return { outcome: OUTCOME.REFUSED, because: 'we do not know that account on this computer' };
+    return { outcome: OUTCOME.REFUSED, because: REFUSE_ACCOUNT };
   }
   if (!acct.memoryShared) {
     return {
@@ -655,10 +675,10 @@ function setAccount(name, dir) {
 function setProvider(name, provider, opts) {
   const clean = cleanName(name);
   if (!NAME_RE.test(String(clean == null ? '' : clean))) {
-    return { outcome: OUTCOME.REFUSED, because: 'that is not a name we can act on' };
+    return { outcome: OUTCOME.REFUSED, because: REFUSE_NAME };
   }
   if (provider !== 'anthropic' && provider !== 'openai') {
-    return { outcome: OUTCOME.REFUSED, because: 'pick a provider from the list' };
+    return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER };
   }
   const job = readJob(clean);
   if (!job) {
@@ -715,7 +735,7 @@ function setProvider(name, provider, opts) {
 function setModel(name, modelKey) {
   const clean = cleanName(name);
   if (!NAME_RE.test(String(clean == null ? '' : clean))) {
-    return { outcome: OUTCOME.REFUSED, because: 'that is not a name we can act on' };
+    return { outcome: OUTCOME.REFUSED, because: REFUSE_NAME };
   }
   /* ⚠️ RESOLVED AFTER the job is read, because which models are valid depends
      on which provider THIS agent runs on (#1026). Resolving first, against the
@@ -1384,7 +1404,7 @@ function createAgentInner(opts) {
 
   const steps = [];
   if (provider !== 'anthropic' && provider !== 'openai') {
-    return { outcome: OUTCOME.REFUSED, because: 'pick a provider from the list', steps };
+    return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER, steps };
   }
   if (provider === 'openai') {
     /* v1 boundaries, refused in words rather than silently ignored: the
@@ -1536,7 +1556,7 @@ function createAgentInner(opts) {
   } else if (wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
     const accountsMod = require('./accounts');
     const acct = accountsMod.list().find((a) => a.dir === String(wantAccountDir));
-    if (!acct) return { outcome: OUTCOME.REFUSED, because: 'we do not know that account on this computer', steps };
+    if (!acct) return { outcome: OUTCOME.REFUSED, because: REFUSE_ACCOUNT, steps };
     if (!acct.memoryShared) {
       return {
         outcome: OUTCOME.REFUSED,
