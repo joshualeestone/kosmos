@@ -17351,6 +17351,47 @@ function renderStale(s) {
     return;
   }
 
+  /**
+   * `told`: SAY NOTHING. The agent knows, and there is nothing to do (#1213).
+   *
+   * 🛑 THIS BANNER IS WHAT JOSH PHOTOGRAPHED ON 2026-08-27, and the two halves
+   * of it contradicted each other: the headline was the `unknown` arm's "This
+   * might not be what the agent is actually running", and the sentence under it
+   * was "Kosmos put it on Test 10, and told it on its screen" -- a specific
+   * action Kosmos performed itself and confirmed it delivered. A not-knowing
+   * headline over a knowing sentence. `told` is not `stale`, so it fell past
+   * the arm above and landed in the loudest arm in the app, and that arm has no
+   * Restart button, which is why his other two observations follow: nothing to
+   * click, and clicking through to the Instructions tab did nothing either.
+   *
+   * 🔑 THE ENGINE ALREADY RULED ON THIS and the screen was overruling it.
+   * `toldOverride`'s own comment: "the verdict is `told`, not `stale`: it
+   * knows, and the restart button would be theatre." A state that exists
+   * SPECIFICALLY to suppress an unnecessary alarm was rendering as the
+   * strongest alarm available. (Diagnosed by PigeonPete; #732 introduced the
+   * state, this is its missing consumer.)
+   *
+   * ⚠️ NOTHING RATHER THAN A CALMER SENTENCE, and that is a judgment call worth
+   * naming because it is one branch to overturn. The precedent is Josh's own,
+   * #761, on this exact information one screen over: "All of them automatically
+   * picked it up and started working on it so I think we just take that off for
+   * now" -- and the member row's stale arm has drawn nothing ever since. The
+   * told-ness is already reported where a person would look for it: the room's
+   * receipt when the change was delivered, and the `pj-told` line on the member
+   * row. A third amber bar saying the same thing, with no action on it, is the
+   * furniture he asked us to take away.
+   *
+   * ⚠️ IT MUST CLEAR THROUGH `setLive`, NOT AROUND IT -- the same reason the
+   * `current` arm above does, and the bug that arm's comment records. `setLive`
+   * keeps a record of the last string it WROTE; emptying the node any other way
+   * leaves that record holding the old banner, and the next time the banner is
+   * genuinely needed the comparison matches and nothing is written.
+   */
+  if (s.state === 'told') {
+    if (!el.hidden) { el.hidden = true; setLive(el, ''); }
+    return;
+  }
+
   const when = (iso) => {
     if (!iso) return null;
     const d = new Date(iso);
@@ -22438,6 +22479,29 @@ function pjMemberHasIt(m) {
        a wait. The button's markup is kept in git under this comment's date. */
     return '';
   }
+  /**
+   * `told`: nothing, explicitly, rather than by falling off the end (#1213).
+   *
+   * 🔑 IT ALREADY DREW NOTHING, AND THAT IS EXACTLY WHY IT IS WRITTEN OUT. The
+   * default at the bottom of this function returns '' too, so the rendered
+   * output is unchanged -- but "correct because no branch matched" is the
+   * property that failed one screen over. `renderStale` also had no `told`
+   * branch, and ITS fallthrough is the alarming `unknown` arm, so the same
+   * absence produced the banner Josh photographed. The difference between the
+   * two sites is luck about branch order, not design, and luck is not a thing
+   * to leave load-bearing.
+   *
+   * 📌 THIS ROW CANNOT RECEIVE `told` TODAY, and the branch is still right.
+   * `describe` in engine/projects.js builds `m.instructions` from
+   * `instructions.staleness` WITHOUT `toldOverride`, which the two agent-card
+   * routes in server.js both apply -- so this surface sees `stale` where the
+   * detail panel sees `told`. That disagreement is invisible right now because
+   * #761 made the stale arm above draw nothing, so both states render the same
+   * blank. It is a real two-derivations-of-one-question seam and it is NOT
+   * fixed here: applying the override needs a store read per member and it is
+   * not what Josh photographed. Filed separately rather than smuggled in.
+   */
+  if (s.state === 'told') return '';
   if (s.state === 'unknown') {
     /* ⚠️ NO REMEDY ON THIS ARM, deliberately. "We cannot tell" is not evidence
        that anything needs fixing, and a button beside it turns a could-not-look
