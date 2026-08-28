@@ -1145,7 +1145,17 @@ test('the startup script, actually run, hands the pane its account and its board
     assert.equal(minted.length, 1, `${label}: expected exactly one sender token in the pane env: ` + JSON.stringify(passed));
     assert.match(minted[0], /^KOSMOS_AGENT_TOKEN=[0-9a-f]{64}$/, `${label}: the token is not the 32-byte hex the supervisor validates`);
     const rest = passed.filter((v) => !v.startsWith('KOSMOS_AGENT_TOKEN='));
-    assert.deepEqual(rest, [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245'],
+    /* ⚠️ #1160 ADDS A FOURTH, FOR CLAUDE ONLY, and it is written into the
+       expected SET rather than filtered out of it. The exactness is this
+       assertion's whole value -- it is what says nothing UNEXPECTED reaches a
+       pane -- so a new rider belongs in the list where the next person reads
+       it, not behind a `filter` that would also hide the next one nobody
+       intended. `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN` stops Claude Code
+       asking a new agent about its renderer on the first screen; codex has
+       never heard of it, which is why the branches differ here. */
+    const expected = [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245'];
+    if ((b.runner || 'claude') !== 'codex') expected.push('CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1');
+    assert.deepEqual(rest, expected.sort(),
       `${label}: the pane was not handed exactly the account and the board: ` + JSON.stringify(set.newSession));
     // And they sit BEFORE the runner binary. After it they are the runner's
     // own arguments, tmux never sees them, and the same three pairs are still
@@ -1177,9 +1187,20 @@ test('the startup script, actually run, hands the pane its account and its board
        correct token as a leaked empty variable. Named exactly, so this still
        fails on the thing it was written for: an unset var riding as empty. */
     const passed = r.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e');
-    const notToken = passed.filter((v) => !v.startsWith('KOSMOS_AGENT_TOKEN='));
+    /* \u26a0\ufe0f #1160 rides here too, for the same reason the token does and
+       handled the same way: it is not FORWARDED from the environment, it is SET
+       by the supervisor, so it is present whether or not anything else is. Named
+       exactly rather than loosened, so this still fails on the thing it was
+       written for. */
+    const notToken = passed.filter((v) => !v.startsWith('KOSMOS_AGENT_TOKEN=')
+      && v !== 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1');
     assert.deepEqual(notToken, [],
       `${label}: a variable that is not set was still passed into the pane: ` + JSON.stringify(r.newSession));
+    /* And the exclusion above must not become a place things hide: the thing it
+       excludes has to actually be there. Without this, deleting the renderer
+       preference entirely would pass both arms of this test. */
+    assert.ok(passed.includes('CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1'),
+      `${label}: the renderer preference stopped reaching the pane: ` + JSON.stringify(r.newSession));
   }
 });
 
