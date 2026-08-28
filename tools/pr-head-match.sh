@@ -46,7 +46,15 @@ for attempt in 1 2 3; do
     exit 2
   fi
   if [ "$REMOTE" = "$LOCAL" ]; then
-    echo "pr-head-match: MATCH  #$PR $(printf '%.8s' "$REMOTE")"
+    # 🔑 PRINT WHAT WAS COMPARED, NOT JUST THE VERDICT. The agent Bash tool
+    # resets cwd between calls, so a bare `HEAD` can resolve in the MAIN
+    # CHECKOUT rather than the worktree you think you are in -- and a MATCH
+    # against the wrong repo is indistinguishable from a real one unless the
+    # inputs are on screen. Same reason `rev-parse origin/main` reads as a
+    # remote check and is a local file: the label sells it, so show the source.
+    echo "pr-head-match: MATCH  #$PR  $(printf '%.8s' "$REMOTE")"
+    echo "  local ref : $REF  in  $(git rev-parse --show-toplevel 2>/dev/null || echo '?')"
+    echo "  PR head   : from gh (the server), not a local ref"
     exit 0
   fi
   [ "$attempt" -lt 3 ] && sleep 4
