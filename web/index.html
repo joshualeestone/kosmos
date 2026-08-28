@@ -2563,6 +2563,30 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      reverse, not a defect to fix quietly. */
   html[data-layout="consolidated"] body.consolidated #pj-settings-view, html[data-layout="consolidated"] body.consolidated #pj-task-view,
   html[data-layout="consolidated"] body.consolidated #pj-docs-view, html[data-layout="consolidated"] body.consolidated #pj-add-view { min-height: 0; overflow-y: auto; }
+  /* 🔑 THESE PANES HIDE THEIR SCROLLBAR LIKE EVERY OTHER SCROLLER IN THIS VIEW
+     (kosmos#1196). Josh: "The project settings tab itself is quite a mess. It has
+     a horizontal or vertical scroll bar in the middle of the page. I'd like to
+     have it in there without a scrollbar visible."
+     ⚠️ IT LOOKS MID-PAGE BECAUSE THE PANE IS NARROW, NOT BECAUSE IT IS MISPLACED.
+     Measured at a 1600 window: the settings view is capped at max-width 544px and
+     sits at left 773, inside a panel running 240 to 1600. That leaves 533px of
+     dead band on its left and 283px on its right, and the scrollbar draws at its
+     own right edge, x=1317, which is the middle of the screen. The width is a
+     separate question and is recorded on the card rather than changed here.
+     🛑 AND THE COST IS REAL, NAMED BY THE NOTE ABOVE THIS BLOCK: a hidden track
+     gives a mouse reader no cue that the content continues. That note says
+     reversing it "is his call, not a defect to fix quietly". THIS IS HIM MAKING
+     THAT CALL, in his own words, so it is recorded as a decision rather than
+     applied as tidiness. The panes stay scrollable and keyboard reach is
+     unaffected. */
+  html[data-layout="consolidated"] body.consolidated #pj-settings-view,
+  html[data-layout="consolidated"] body.consolidated #pj-task-view,
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view,
+  html[data-layout="consolidated"] body.consolidated #pj-add-view { scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated #pj-settings-view::-webkit-scrollbar,
+  html[data-layout="consolidated"] body.consolidated #pj-task-view::-webkit-scrollbar,
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view::-webkit-scrollbar,
+  html[data-layout="consolidated"] body.consolidated #pj-add-view::-webkit-scrollbar { display: none; }
   /* #980 (iteration 2): the projects rail header pins at the top of its
      scroller, so a long project list scrolls UNDER it -- the same gesture
      the agents rail gives (whose header sits outside #alist's scroll), and
