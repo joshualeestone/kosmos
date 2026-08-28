@@ -11433,6 +11433,7 @@ async function tick() {
 
     const lim = new URLSearchParams(location.search).get('limit');
     LAST = data.agents;
+    LAST_AT = Date.now();  // #1150: the moment this sample reached the page
     /**
      * 🛑 THE ROOM'S WORKING LINE PAINTS HERE, ON THE CLOCK ITS DATA ARRIVES ON.
      *
@@ -13882,6 +13883,26 @@ for (const scope of Object.keys(LAYOUTS)) {
 // Deep-linkable, so a tab can be shared or bookmarked rather than only reached
 // by clicking. Also the only way to screenshot a panel headlessly.
 let LAST = [];
+/**
+ * 🛑 WHEN THAT SNAPSHOT ARRIVED, AND WHEN WE LAST HEARD EACH AGENT SPEAK (#1150).
+ *
+ * Josh, 2026-08-27 16:18, on a fresh 0.5.86 install: *"I'm not seeing the '...'
+ * that they're talking until the message pops in and then I see the '...' kind
+ * of after it."*
+ *
+ * 🔑 IT IS NOT STALENESS AND A REFRESH DOES NOT FIX IT. The room's messages and
+ * the working line are painted from DIFFERENT FETCHES ON DIFFERENT CLOCKS, which
+ * this file already says out loud at the history-delete call site. So their
+ * relative order is arbitrary: a fast agent's answer can land on the room's
+ * clock before the status poll paints the `working` that produced it, and the
+ * indicator then appears to follow the reply it preceded.
+ *
+ * Both stamps are `Date.now()` taken IN THIS PAGE, never a server time, so
+ * comparing them cannot be wrong about clock skew.
+ */
+let LAST_AT = 0;
+const ROOM_SPOKE_AT = new Map();
+let ROOM_SPOKE_SEEDED = false;
 // Whether a status tick has ever ANSWERED. [] before the first answer means
 // "not heard yet", not "empty board", and the two must never be conflated
 // (the Recommended pill reads this).
@@ -14247,7 +14268,19 @@ function paintRoomBusy(members) {
      order. */
   const working = names
     .map((n) => (LAST || []).find((a) => a && a.sessionName === n))
-    .filter((a) => a && a.state === 'working');
+    .filter((a) => a && a.state === 'working')
+    /* #1150. Drop an agent whose message reached this page AFTER the snapshot
+       we are painting from. The state is not wrong, it is OLDER THAN THE REPLY
+       ALREADY ON SCREEN, and asserting it there is what made the indicator look
+       like it followed the answer.
+       🔑 Bounded by construction: the next snapshot is newer than the message,
+       so a genuinely mid-task agent reappears within one poll. It under-claims
+       for at most that long, which is the direction this line is built to fail
+       in ("the under-claim matters more rather than less"). */
+    .filter((a) => {
+      const spoke = ROOM_SPOKE_AT.get(a.sessionName);
+      return !(spoke && spoke.learnedAt > LAST_AT);
+    });
   el.hidden = !working.length;
   /**
    * 🔑 ONE GROUPED LINE, NOT ONE PER AGENT (Josh, 2026-08-21: *"could we group
@@ -25584,6 +25617,23 @@ function paintRoom(body) {
      under them (#1037, the resize trigger). */
   holdFloorOnResize(box);
   const allRows = body.rows || [];
+  /* #1150. Note when we LEARNED of each agent's newest post, so the working
+     line below cannot assert a state older than a message we have already put
+     on the screen.
+     ⚠️ SEEDED ON THE FIRST PAINT WITHOUT STAMPING. Opening a room delivers a
+     whole history at once, and stamping it would read as "everybody just spoke"
+     and blank the working line for a poll. Only posts that arrive AFTER the
+     room is on screen count as somebody speaking. */
+  for (const m of allRows) {
+    const who = m && m.from;
+    if (!who || !m.at) continue;
+    const at = Date.parse(m.at);
+    if (!Number.isFinite(at)) continue;
+    const seen = ROOM_SPOKE_AT.get(who);
+    if (seen && at <= seen.at) continue;
+    ROOM_SPOKE_AT.set(who, { at, learnedAt: ROOM_SPOKE_SEEDED ? Date.now() : 0 });
+  }
+  ROOM_SPOKE_SEEDED = true;
   const shown = pjRoomFilterRows(allRows, p, PJ_ROOM_QUERY);
   const filtering = PJ_ROOM_QUERY.trim() !== '';
   const silences = pjSilences(allRows, p);
