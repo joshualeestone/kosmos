@@ -191,3 +191,60 @@ test('#1025: the printed cutoff carries UTC, so a reader can compare it to the r
   assert.match(r.from, /= \d{4}-\d{2}-\d{2}T[\d:.]+Z/,
     'the printed cutoff has no UTC form: a reader cannot compare it to the merged times below it');
 });
+
+/**
+ * #1025: THE FOOTER MUST NOT DRIFT FROM THE PARSER.
+ *
+ * Baron Draxum agreed to this convention in writing and failed it on his very
+ * first PR: he wrote `ship: show`, copying the label the tool PRINTS, when the
+ * phrase it READS is `user-visible`. His diagnosis is the fix - the output and
+ * input vocabularies were different words for the same thing, and the input word
+ * appeared nowhere in the output he had been reading for an hour.
+ *
+ * 🛑 SO THE FOOTER NOW ADVERTISES THE PHRASES, AND A FOOTER THAT ADVERTISES A
+ * PHRASE THE PARSER REJECTS WOULD BE WORSE THAN NO FOOTER: it would send a
+ * motivated person to write something unparseable, with the tool's own authority
+ * behind it. This asserts every advertised phrase actually parses.
+ */
+test('#1025: every phrase the footer advertises is accepted by the parser', () => {
+  const { declarationIn } = require('./tools/check-ship-declaration.js');
+  /* 🛑 EXTRACTED FROM THE FOOTER ITSELF, NOT COPIED FROM IT. The first version of
+     this test hardcoded the list, and a perturbation that changed the footer to
+     advertise `ship: internal` LEFT IT GREEN -- the test was checking a copy of
+     the footer rather than the footer. That is the same two-copies-of-one-fact
+     drift this whole test exists to prevent, reproduced inside the guard against
+     it. Now editing the footer changes what is asserted. */
+  const src = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, 'tools/check-ship-declaration.js'), 'utf8');
+  const footer = src.slice(src.indexOf('To be counted, put one of these'));
+  const advertised = [];
+  for (const m of footer.matchAll(/'\s*(user-visible[^'\\(]*?|not user-visible|internal only)\s*(?:\(|\\n)/g)) {
+    const phrase = m[1].trim();
+    if (phrase) advertised.push([phrase, /:\s*no\b|^not |^internal only$/.test(phrase) ? 'internal' : 'visible']);
+  }
+  assert.ok(advertised.length >= 2,
+    `only ${advertised.length} phrase(s) found in the footer: the extractor has stopped matching it`);
+  for (const [phrase, want] of advertised) {
+    assert.equal(declarationIn(`Some PR body.\n\n${phrase}\n\nMore text.`), want,
+      `the footer tells people to write "${phrase}" and the parser does not accept it`);
+  }
+});
+
+test('#1025 CONTROL: the phrase the footer warns AGAINST really does match nothing', () => {
+  /* Baron's actual mistake. If this ever starts parsing, the footer's warning
+     becomes a lie and should be deleted rather than left standing. */
+  const { declarationIn } = require('./tools/check-ship-declaration.js');
+  assert.equal(declarationIn('Some PR body.\n\nship: show\n\nMore.'), 'silent',
+    'the footer says "ship: show" matches nothing, and it now matches something');
+});
+
+test('#1025 CONTROL: the footer is actually printed, and names the read phrase', () => {
+  /* Without this the two tests above pass against a tool that prints no footer
+     at all, which is the state Baron hit. */
+  const src = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, 'tools/check-ship-declaration.js'), 'utf8');
+  assert.match(src, /To be counted, put one of these in the PR body/,
+    'the footer was removed: people cannot discover the phrase from the output again');
+  assert.match(src, /The phrase read is user-visible/,
+    'the footer no longer names the phrase the parser actually reads');
+});
