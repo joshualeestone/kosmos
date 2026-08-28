@@ -67,6 +67,17 @@ const DIR = path.join(store.ROOT, 'sendertokens');
    "a returned string I control", singular. It was four. */
 const NO_MATCH = 'we could not match that to one of your agents';
 
+/* 🛑 THE SECOND HALF OF #1170, MISSED BY ITS OWN AUTHOR, ONE LINE FROM THE FIX.
+   `resolve` and `resolveName` are two paths to one question, and the comment above
+   `resolveName` says callers "work on this path exactly as they do on `resolve`".
+   That promise was kept by TWO string literals that happened to match, which is the
+   same defect #1170 removed from the refusal sentence four lines up.
+   ⚠️ Lower stakes than NO_MATCH: this one discloses nothing a caller does not already
+   know, since they are the one who sent nothing. It is the DRIFT that matters, not
+   the disclosure. Two paths promising identical behaviour, with nothing enforcing it.
+   Found 2026-08-27 by sweeping for the class after fixing one instance of it. */
+const NO_TOKEN = 'we cannot tell which agent is sending this (no sender token was presented)';
+
 /* 32 bytes of CSPRNG. The point of a token over a pane id is that it cannot be
    guessed or enumerated, so the entropy is the feature. */
 const TOKEN_BYTES = 32;
@@ -182,7 +193,7 @@ function sameToken(a, b) {
 function resolve(token, roster) {
   const presented = String(token == null ? '' : token).trim();
   if (!presented) {
-    return { ok: false, because: 'we cannot tell which agent is sending this (no sender token was presented)' };
+    return { ok: false, because: NO_TOKEN };
   }
   let names;
   try {
@@ -241,7 +252,7 @@ function resolveName(token) {
   const presented = String(token == null ? '' : token).trim();
   const no = { ok: false, because: NO_MATCH };
   if (!presented) {
-    return { ok: false, because: 'we cannot tell which agent is sending this (no sender token was presented)' };
+    return { ok: false, because: NO_TOKEN };
   }
   let names;
   try { names = fs.readdirSync(DIR).filter((f) => f.endsWith('.json')); } catch { return no; }

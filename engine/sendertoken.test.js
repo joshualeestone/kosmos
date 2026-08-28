@@ -342,3 +342,33 @@ test('the refusal when no token directory exists is the SAME string as the other
     if (fs.existsSync(moved)) { fs.rmSync(dir, { recursive: true, force: true }); fs.renameSync(moved, dir); }
   }
 });
+
+/**
+ * 🛑 BOTH RESOLVE PATHS MUST REFUSE AN EMPTY TOKEN THE SAME WAY.
+ *
+ * `resolve` and `resolveName` are two entry points to one question. The comment above
+ * `resolveName` promises callers "work on this path exactly as they do on `resolve`",
+ * and until 2026-08-27 that promise was kept by TWO string literals that happened to
+ * match, with nothing enforcing it and a green suite either way.
+ *
+ * ⚠️ This is the SECOND half of #1170, missed by its own author one line from the fix.
+ * Lower stakes than NO_MATCH, because a caller who sent nothing already knows they sent
+ * nothing. It is drift between two paths that matters here, not disclosure.
+ */
+test('both resolve paths refuse an empty token with the SAME sentence', () => {
+  const board = fleet.install([fleet.agent('pete-empty', { state: 'idle' })]);
+  try {
+    for (const empty of ['', '   ', null, undefined]) {
+      const viaResolve = sendertoken.resolve(empty, board.roster);
+      const viaName = sendertoken.resolveName(empty);
+      assert.equal(viaResolve.ok, false);
+      assert.equal(viaName.ok, false);
+      assert.equal(
+        viaResolve.because,
+        viaName.because,
+        `the two paths disagree for ${JSON.stringify(empty)}: `
+          + `${viaResolve.because} vs ${viaName.because}`,
+      );
+    }
+  } finally { board.restore(); }
+});
