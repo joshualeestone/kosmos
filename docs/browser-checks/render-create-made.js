@@ -130,7 +130,51 @@ async function makeAnna(page, { seen }) {
   check('the background-item explanation is gone', !early.bg);
 
   /* ---- and when the board can see it ------------------------------------ */
-  await page.waitForTimeout(4200);
+  /* 🛑 WAIT FOR THE SCREEN TO SETTLE, NOT FOR 4.2 SECONDS (#913). This was a
+     fixed sleep, which is a bet that the making finishes in that time. Under
+     load it does not, every assertion below then reads a screen that is still
+     working, and the runner's retry passes on a quieter second attempt -- the
+     exact "fails once, passes on retry" this card was opened about. The screen
+     was never the racy half; the check was.
+     ⭐ THE SETTLED CONDITION IS THE FILE'S OWN: the assertion four lines above
+     says the invitation is NOT offered while it is still being made, so the
+     invitation appearing IS completion. No new concept, just waited for.
+     ⚠️ AND IT FAILS LOUDLY IF IT NEVER SETTLES rather than falling through to
+     assert on a half-built screen, which would report the timeout as whichever
+     assertion happened to notice first.
+     🛑 THE SLEEP IN THE "never sees it" ARM BELOW MUST STAY A SLEEP. That one
+     asserts a NEGATIVE, and you cannot wait for nothing to happen: replacing
+     it would make the file's own control vacuous. The two sleeps look
+     identical and only one of them may be touched. */
+  /* 🛑 TWO CONDITIONS, AND MY FIRST VERSION ONLY WAITED FOR THE FIRST. Waiting
+     for the invitation alone made "the mark has turned into a green tick" fail:
+     the invitation appears BEFORE the mark finishes animating, and the 4.2s
+     sleep had been covering both. Caught by running the unmodified check
+     through the same harness: 18 pass / 0 fail against my 17 / 1.
+     ⚠️ AND THE MARK IS NOT WAITED FOR BY COLOUR, DELIBERATELY. Waiting for it
+     to be green and then asserting it is green cannot fail: it would time out
+     instead, and a timeout is not a verdict about the product. So the wait is
+     for the drawing to STOP CHANGING, and the assertion below still decides
+     whether what it settled on is a green tick. */
+  try {
+    await page.waitForFunction(
+      () => { const h = document.getElementById('made-hello'); return h && !h.hidden; },
+      null, { timeout: 20000 });
+  } catch {
+    check('the making screen offered the invitation within 20s, so the assertions below mean something',
+      false, 'it never appeared; everything after this would be reading a screen still being made');
+  }
+  {
+    // The mark is a canvas/animation: settled means two identical samples.
+    const sample = () => page.evaluate((src) => JSON.stringify(eval(src)), INK);
+    let prev = await sample();
+    for (let i = 0; i < 40; i++) {
+      await page.waitForTimeout(150);
+      const now = await sample();
+      if (now === prev) break;
+      prev = now;
+    }
+  }
   const done = await page.evaluate((inkSrc) => {
     const step = document.getElementById('cstep-made');
     const rows = Array.from(step.querySelectorAll('.tick'));
