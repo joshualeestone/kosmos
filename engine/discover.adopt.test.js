@@ -27,6 +27,7 @@ fs.chmodSync(path.join(SANDBOX, 'bin', 'claude'), 0o755);
 const discover = require('./discover');
 const create = require('./create');
 const status = require('./status');
+const store = require('./store');
 
 /**
  * 🛑 REFUSE TO RUN IF THE SANDBOX DID NOT TAKE. This file writes launchd jobs and
@@ -48,16 +49,40 @@ const status = require('./status');
  * ⇒ SILENT POLLUTION BECOMES A LOUD FAILURE HERE. A test that cannot isolate
  * itself must not run at all, and it must say why rather than skipping quietly.
  */
-const resolvedJobPath = create.plistPath('sandboxprobe');
-if (!resolvedJobPath.startsWith(SANDBOX)) {
+/* 🛑 BOTH ROOTS, AND IT NAMES EVERY ONE THAT FAILED. The first version of this
+   guard checked only the LAUNCH directory. It worked - for the wrong reason: this
+   file happens to set LAUNCH and DATA together, so gating on one incidentally
+   gated the other.
+
+   ⚠️ THAT IS A COINCIDENCE, NOT A DESIGN, and it is the worst kind of guard to
+   inherit BECAUSE IT PASSES ITS OWN TESTS. Split those assignments into different
+   files and it goes silently useless while every arm stays green.
+
+   ⚠️ AND IT COLLECTS RATHER THAN SHORT-CIRCUITS, because a guard that stops at the
+   first bad root cannot be tested per root: my own control could not tell whether
+   the LAUNCH check still worked, because the DATA check answered first. A guard
+   whose arms cannot be exercised separately has the same defect one level up.
+
+   📌 DATA is the root that mattered in practice. Before any of this existed,
+   full-suite runs wrote four real profile records into the operator's store and
+   the board served them as agents. The plists were the visible half; the profiles
+   were the half nobody saw. */
+const outsideSandbox = [
+  ['AGENT_WORKFORCE_DATA (engine/store.js)', store.ROOT],
+  ['AGENT_WORKFORCE_LAUNCH (engine/create.js)', create.plistPath('sandboxprobe')],
+].filter(([, resolved]) => !String(resolved).startsWith(SANDBOX));
+if (outsideSandbox.length) {
   throw new Error(
-    'discover.adopt.test.js refuses to run: engine/create.js was loaded before this '
-    + `file's sandbox was set, so it would write to ${resolvedJobPath} on the real `
-    + 'machine. Run this file on its own, or set AGENT_WORKFORCE_LAUNCH before the '
-    + 'first require of engine/create.js in the process.',
+    'discover.adopt.test.js refuses to run: these roots resolved OUTSIDE its sandbox, '
+    + 'so it would write to the real machine -- '
+    + outsideSandbox.map(([name, r]) => `${name} -> ${r}`).join('; ')
+    + '. These modules resolve their roots at module load, so set the variables before '
+    + 'the first require of them in the process, or run this file on its own.',
   );
 }
 
+/* Re-seeded per test: several of these mutate the codex home, and a test that
+   depended on a previous one having run is how a suite stops meaning anything. */
 test.beforeEach(() => {
   status.setPaneSource(() => '');
   create.setRunner(() => ({ ok: true, stdout: '' }));
