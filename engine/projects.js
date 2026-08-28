@@ -1271,13 +1271,66 @@ function openFile(folder, name) {
   if (!st.isFile()) return { ok: false, because: 'that is not a file we can open' };
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', [target]);
-    execFileSync('/usr/bin/open', [target], { timeout: 5000, stdio: 'ignore' });
+    /* ⚠️ STDERR IS CAPTURED, NOT IGNORED (#1199), and that is the whole fix.
+       `open` already distinguishes its failures -- an unknown file type comes
+       back rc=1 with "No application knows how to open URL ..." in 0.02s --
+       and `stdio: 'ignore'` threw that away one line before the catch needed
+       it, so every cause arrived as the same sentence. Measured on this Mac.
+       stdout stays ignored: `open` has nothing to say there, and reading it
+       would only invite somebody to parse it. */
+    execFileSync('/usr/bin/open', [target], { timeout: 5000, stdio: ['ignore', 'ignore', 'pipe'] });
     return { ok: true };
   } catch (err) {
     // Same rule as revealFolder: ours throws loud, theirs reports.
     if (err instanceof ReferenceError || err instanceof TypeError) throw err;
-    return { ok: false, because: 'that file did not open' };
+    return { ok: false, because: openFailureBecause(err, given) };
   }
+}
+
+/**
+ * Which of `open`'s failures this was, in a sentence the person can act on.
+ *
+ * 🔑 THE ONE CAUSE A PERSON CAN DO SOMETHING ABOUT IS THE ONE WE NEVER SAID.
+ * "That file did not open" is honest and useless: it reads as the file being
+ * broken, when the ordinary case is that nothing on this computer opens that
+ * kind of file at all. The document is fine and sitting in their project
+ * folder, and saying so is the difference between a dead end and a next step.
+ *
+ * ⭐ AND THE ICON MAKES A PROMISE THE COMPUTER MAY NOT KEEP. The file glyphs are
+ * OUR type-to-glyph map (the other half of #1199), not the system's, so a file
+ * correctly marked as a PowerPoint is not evidence that anything here opens a
+ * PowerPoint. Those two facts are consistent, and together they are what Josh
+ * saw: a properly marked file that refused.
+ *
+ * ⚠️ THE TIMEOUT ARM DOES NOT CLAIM FAILURE, deliberately. `execFileSync` kills
+ * the child at five seconds and throws, and the old catch reported that as the
+ * file not opening -- but a cold application launch that is still going is not
+ * a failure, and we genuinely do not know which it was. It says what we did
+ * rather than asserting an outcome we cannot see.
+ *
+ * ⚠️ MATCHED ON `open`'S OWN WORDS, which is a string from another program and
+ * therefore a thing that can change under us. That is why it FALLS BACK to the
+ * original sentence rather than guessing: an unrecognised stderr gets today's
+ * behaviour, so a future macOS rewording makes this no worse than before it
+ * existed. It is not load-bearing for correctness, only for helpfulness.
+ */
+function openFailureBecause(err, given) {
+  if (err && err.code === 'ETIMEDOUT') {
+    return 'we stopped waiting for it after five seconds, so it may still be opening';
+  }
+  let said = '';
+  try { said = String((err && err.stderr) || ''); } catch { said = ''; }
+  if (said.includes('No application knows how to open')) {
+    /* The extension as the person would say it, and only when there is one:
+       "nothing opens .pptx files" is useful, "nothing opens files with no
+       extension" is a sentence about our own parsing. */
+    const dot = given.lastIndexOf('.');
+    const ext = dot > 0 && dot < given.length - 1 ? given.slice(dot) : '';
+    return ext
+      ? `nothing on this computer opens ${ext} files yet, and the file itself is fine`
+      : 'nothing on this computer opens that kind of file yet, and the file itself is fine';
+  }
+  return 'that file did not open';
 }
 
 function projectsRoot() {

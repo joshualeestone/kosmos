@@ -9651,10 +9651,23 @@ function saidLine(a) {
  * only dresses it as a card note: capitalized, one full stop. Empty when the
  * witnesses agree, which is almost always.
  */
+/**
+ * An engine sentence, dressed as something a person reads: capitalized, one
+ * full stop. The ENGINE owns the words; this owns nothing but the casing.
+ *
+ * ⚠️ EXTRACTED RATHER THAN COPIED (#1199). `conflictNote` had this inline and
+ * the documents panel had none, so the same class of sentence rendered two
+ * ways on two screens -- and on the documents panel the FALLBACK was dressed
+ * ("That file did not open.") while the engine's real sentence was not, which
+ * is the wrong way round: the better answer looked worse.
+ */
+function asSentence(s) {
+  const t = typeof s === 'string' ? s.trim() : '';
+  if (!t) return '';
+  return t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.');
+}
 function conflictNote(a) {
-  const s = a && typeof a.stateConflict === 'string' ? a.stateConflict.trim() : '';
-  if (!s) return '';
-  return s.charAt(0).toUpperCase() + s.slice(1) + (/[.!?]$/.test(s) ? '' : '.');
+  return asSentence(a && typeof a.stateConflict === 'string' ? a.stateConflict : '');
 }
 function modelLine(a) {
   /* Provider-first ("Claude Opus 5"), guarded so a modelName that already
@@ -24897,7 +24910,7 @@ document.getElementById('pj-docs').addEventListener('click', async (e) => {
        what happened in words a person can act on ("that file lives outside
        this project"), and rewriting it here would be a second, weaker copy. */
     let because = 'That file did not open.';
-    try { because = (await res.json()).error || because; } catch { /* keep the fallback */ }
+    try { because = asSentence((await res.json()).error) || because; } catch { /* keep the fallback */ }
     msg.textContent = because;
   } catch {
     if (PJ_CURRENT === forProject) msg.textContent = 'That file did not open.';
@@ -24921,7 +24934,7 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
     if (PJ_CURRENT !== forProject) return;
     if (res.ok) { msg.textContent = ''; return; }
     let because = 'That file did not open.';
-    try { because = (await res.json()).error || because; } catch { /* keep the fallback */ }
+    try { because = asSentence((await res.json()).error) || because; } catch { /* keep the fallback */ }
     msg.textContent = because;
   } catch {
     if (PJ_CURRENT === forProject) msg.textContent = 'That file did not open.';
