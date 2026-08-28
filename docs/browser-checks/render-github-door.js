@@ -140,7 +140,7 @@ const openDoor = async (p, base) => {
   say('Cloudflare rejects: the reason is on the door, the field is emptied, nothing kept', /did not accept that token/.test(d.text) && d.field && !/Connected\./.test(d.text), d.text.slice(-160));
   await p.fill('[data-svc-token-field="Cloudflare"]', 'cf_walk_token_abcdefghijklmnopqrstuvwxyz');
   await p.click('[data-svc-token-go="Cloudflare"]'); await p.waitForTimeout(900); d = await readCf();
-  say('Cloudflare accepts: Connected, says Kosmos keeps it in one file, offers Forget, never shows the token', /Connected\./.test(d.text) && /one file on this Mac/.test(d.text) && d.buttons.some((x) => /Forget/.test(x)) && !/cf_walk/.test(d.text), d.text.slice(-160));
+  say('Cloudflare accepts: Connected, says Kosmos keeps it in one file, offers Forget, never shows the token', /Connected\./.test(d.text) && /one file on this computer/.test(d.text) && d.buttons.some((x) => /Forget/.test(x)) && !/cf_walk/.test(d.text), d.text.slice(-160));
   await p.click('[data-svc-forget="Cloudflare"]'); await p.waitForTimeout(900); d = await readCf();
   say('Cloudflare forgotten: back to the paste field', d.field && !/Connected\./.test(d.text), d.text.slice(-100));
   stub.close();
