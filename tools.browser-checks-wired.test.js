@@ -134,7 +134,29 @@ function isLibrary(file) {
 
    📌 There is a fourth `for n in` in the runner that must NOT count: the
    "server did not boot" branch, which lists 14 names only to push them onto
-   FAILED. Keying on run_one in the body is what excludes it. */
+   FAILED. Keying on run_one in the body is what excludes it.
+
+   🛑 THE LIMIT OF THIS FILE, AND IT IS ONE RUNG SHORT OF WHAT I FIRST CLAIMED
+   (Mona Lisa, cross-review of #1439). I wrote that presence asks "does this
+   name appear" and the card asks "will this check run".
+
+   THAT IS AN OVER-CLAIM. POSITION ANSWERS "IS IT INVOKED IN THE SOURCE". IT
+   DOES NOT ANSWER "DID IT RUN." A `run_one` sitting inside
+   `if boot_board_rich ...; then` is positioned perfectly and executes only if
+   that boot succeeds. Three rungs, not two:
+
+     presence   the name is in the file          defeated by a loop body
+     position   the name is in an invoking slot  THIS FILE. Cannot see a
+                                                 guard that never opened.
+     execution  the harness's own `ran:` line    the only one keyed on
+                                                 something actually running
+
+   ⚠️ AND THE THIRD RUNG IS NOT AVAILABLE HERE, which is why this is a stated
+   limit and not a TODO: `ran:` needs a real gate run and is frozen at one
+   commit, so it can never be a unit test. She measured it rather than
+   proposing it - 50 expected, 47 ran, all three differences explained against
+   the tree her run froze, no live gap. ⇒ It COMPLEMENTS this file. Where it
+   belongs is a post-gate assertion in the release, not here. */
 function invokedNames(code) {
   const names = new Set();
   for (const m of code.matchAll(/run_one\s+"([^"]+)"/g)) names.add(m[1]);
@@ -204,10 +226,22 @@ test('#1387: the instrument is reading something', () => {
   assert.ok(!wiredIn('run_one "render-talk-search" node x', 'render-talk'),
     'the matcher counts a name as wired when only a LONGER name containing it is present');
 
-  /* 🔑 THE POSITION ARM (Mona Lisa, 2026-08-28). The two arms above are both
+  /* 🔑 THE POSITION ARMS (Mona Lisa, 2026-08-28). The two arms above are both
      satisfied by a name sitting anywhere in the file, so neither can tell a
      list item from a loop-body command. This is the state she actually
-     produced: valid shell, `bash -n` clean, check never runs. */
+     produced: valid shell, `bash -n` clean, check never runs.
+
+     ⚠️ OF THE FOUR ASSERTIONS BELOW, ONLY TWO DISCRIMINATE, and she checked
+     that rather than taking my word for the count:
+
+       inList 'beta' TRUE          passes on reverted code too   liveness
+       inBody 'beta' FALSE         DISCRIMINATES
+       FAILED 'gamma' FALSE        DISCRIMINATES
+       thread-server TRUE          passes on reverted code too   liveness
+
+     The two liveness arms are correct to keep - they are what stops a matcher
+     that only ever says "no" from passing this file silently. They are labelled
+     so nobody reads the discriminating pair as four. */
   const inList = 'for n in alpha beta; do\n  run_one "$n" node x\ndone';
   const inBody = 'for n in alpha; do beta\n  run_one "$n" node x\ndone';
   assert.ok(wiredIn(inList, 'beta'), 'a name in the for-LIST must count as invoked');
