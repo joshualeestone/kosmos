@@ -10661,6 +10661,80 @@ test('the fence infostring becomes a source line when it is path-shaped (#121)',
  * #188's third verb: POST /api/report records rather than delivers.
  * ------------------------------------------------------------------------- */
 
+/* ------------------------------------------------------------------------- *
+ * #1304: POST /api/whoami answers an agent about ITSELF.
+ * ------------------------------------------------------------------------- */
+
+test('#1304: an agent asking what it runs on gets ONE answer shape, and an unknown is said plainly', async () => {
+  /**
+   * Josh, 2026-08-28: *"I asked the models to tell me what account they were
+   * on. One of them could not tell me this. One of them could and then another
+   * one told me that they couldn't."*
+   *
+   * 🛑 THE INCONSISTENCY WAS THE EXPENSIVE HALF. Three agents, three answers,
+   * so a person who gets one reasonably concludes the others are broken. What
+   * this pins is not that the answer is always known: it is that the SHAPE is
+   * the same either way, and that an unknown says so.
+   */
+  const messagesEngine = require('./engine/messages');
+  const board = fleet.install([fleet.agent('acctworker', { state: 'idle' })]);
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'acctworker-discord' }));
+    const card = board.agents.find((a) => a && a.name === 'acctworker');
+    assert.ok(card && card.sessionName, 'the fixture produced no card, so nothing below is about an agent');
+
+    const r = await req('/api/whoami', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from_pane: '%7' }),
+    });
+    assert.equal(r.status, 200);
+    const out = JSON.parse(r.body);
+
+    assert.equal(out.ok, true, 'the route refused a resolvable sender: ' + r.body);
+    /* 🔑 THE SENDER IS DERIVED. The body names nobody, so an agent cannot ask
+       who somebody else is by naming them. */
+    assert.equal(out.agent, card.sessionName, 'the answer is about a different agent than the one asking');
+
+    /* THE SHAPE, present either way. `account` and `model` are each their own
+       field and each may be null; neither is absent. */
+    assert.ok('account' in out, 'account is missing rather than null');
+    assert.ok('model' in out, 'model is missing rather than null');
+    assert.equal(typeof out.because, 'string');
+    assert.ok(out.because.length > 0, 'there is no sentence for a person to read back');
+
+    /* ⚠️ AND THE MODEL MUST NOT STAND IN FOR THE ACCOUNT. The card says so:
+       an agent answering "I am Claude Opus" has answered the easier question
+       and not the one that was asked. A fixture agent has no launch file, so
+       the account is honestly null here, and the sentence has to SAY that
+       rather than quietly describing the model instead. */
+    if (out.account === null) {
+      assert.match(out.because, /cannot tell which account/,
+        'an unknown account was smoothed over: ' + out.because);
+    } else {
+      assert.match(out.because, /runs on/, 'a known account did not reach the sentence');
+    }
+  } finally {
+    messagesEngine.setRunner(null);
+    fleet.restore();
+  }
+});
+
+test('#1304: whoami refuses a sender it cannot resolve, in the same shape', async () => {
+  /* 🔑 THE CONTROL. If the route answered `ok:true` for anybody, the row above
+     would pass while the verb told a stranger's story. */
+  const r = await req('/api/whoami', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ from_pane: '%nope' }),
+  });
+  assert.equal(r.status, 200);
+  const out = JSON.parse(r.body);
+  assert.equal(out.ok, false, 'an unresolvable pane got an answer about somebody');
+  assert.equal(typeof out.because, 'string');
+  assert.ok(out.because.length > 0, 'a refusal with no reason');
+});
+
 test('the report route derives the sender from the pane, records, and the board reads it back as truth', async () => {
   const messagesEngine = require('./engine/messages');
   const selfreportEngine = require('./engine/selfreport');

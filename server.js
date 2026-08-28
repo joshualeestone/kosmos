@@ -26,6 +26,9 @@ const path = require('node:path');
 // renames one.
 const {
   snapshot, paneRoster, countAgents, STATE, modelDisplayName,
+  /* #1304: an agent asking what MODEL it is running gets the same derivation
+     that fills its card, rather than a second reader of the same transcript. */
+  readModel,
   /* What tmux said the last time a look failed, for the 500 below to carry. */
   lastLookProblem,
   /* #684: the ONE derivation of "did anyone actually name this agent", for
@@ -272,6 +275,58 @@ function resolveAgentSender(req, body, roster) {
      cannot confirm a token was ever real. Substituting a message here would
      undo that. */
   return carded;
+}
+
+/**
+ * Which account an agent runs on, from its own startup file (#1304).
+ *
+ * 🔑 ONE DERIVATION, TWO CALLERS, and that is the whole point of it being here
+ * rather than inside the status route where it was born. The board answers
+ * "which account is this agent on" for a person looking at the screen, and
+ * `/api/whoami` answers it for the AGENT ITSELF. Two copies of that lookup
+ * would disagree the first time either moved, and an agent contradicting the
+ * board about its own account is worse than neither of them knowing.
+ *
+ * 🛑 `null` MEANS ONE THING ONLY: we could not read this agent's launch file,
+ * so we do not know. It does NOT mean the default account. The first version
+ * let the SCREEN decide, by falling back to "your first account" whenever this
+ * was null and the pane was ours, and the page then said "Signed in as your
+ * first account" about an agent whose launch file Kosmos has never seen.
+ *
+ * ⚠️ A CONFIGURED DIRECTORY WE CANNOT IDENTIFY IS STILL REPORTED, with what we
+ * do know. Returning null there would say "the default account" about an agent
+ * explicitly pointed somewhere else, which is the one wrong answer available.
+ *
+ * `known` is passed in because the status route reads `accounts.list()` once
+ * per poll for the whole fleet; a per-agent call would stat the same handful of
+ * directories thirteen times a tick to answer the same question.
+ */
+/**
+ * The one sentence an agent reads back when somebody asks (#1304).
+ *
+ * 🔑 COMPOSED HERE, NOT BY THE AGENT. If every agent phrases this itself, three
+ * agents give three answers, which is the defect this card is about wearing a
+ * different coat. An unknown is said plainly rather than smoothed over.
+ */
+function sentenceForWhoami(account, model) {
+  const acct = account && account.email ? account.email
+    : account && account.label ? account.label
+      : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
+        : null;
+  const parts = [];
+  parts.push(acct ? 'This agent runs on ' + acct : 'We cannot tell which account this agent runs on, because we have no startup file for it');
+  parts.push(model && model.name ? 'and its model is ' + model.name : 'and we cannot tell which model it is running');
+  return parts.join(', ') + '.';
+}
+
+function accountForAgent(name, known) {
+  const job = create.readJob(name);
+  if (!job) return null;
+  const dir = job.configDir;
+  const list = Array.isArray(known) ? known : [];
+  const found = dir ? list.find((x) => x.dir === dir) : list.find((x) => x.isDefault);
+  if (found) return { dir: found.dir, email: found.email, label: found.label, isDefault: found.isDefault };
+  return dir ? { dir, email: null, label: null, isDefault: false } : null;
 }
 
 function policySummaries(r) {
@@ -1020,18 +1075,7 @@ const server = http.createServer((req, res) => {
          agent whose launch file Kosmos has never seen. Truthiness standing in
          for validity, again: `isNamedOurs` answers "is this our agent", never
          "did we write its job". */
-      const accountOf = (name) => {
-        const job = create.readJob(name);
-        if (!job) return null;
-        const dir = job.configDir;
-        const found = dir ? known.find((x) => x.dir === dir) : known.find((x) => x.isDefault);
-        /* ⚠️ A CONFIGURED DIRECTORY WE CANNOT IDENTIFY IS STILL REPORTED, with
-           what we do know. Returning null there would say "the default
-           account" about an agent explicitly pointed somewhere else, which is
-           the one wrong answer available here. */
-        if (found) return { dir: found.dir, email: found.email, label: found.label, isDefault: found.isDefault };
-        return dir ? { dir, email: null, label: null, isDefault: false } : null;
-      };
+      const accountOf = (name) => accountForAgent(name, known);
       const agents = snap.agents.filter((a) => !gone.has(a.sessionName)).map((a) => ({
         ...a,
         /* 🔑 STATED ON EVERY ROW, and it was stated on only half. The board
@@ -3566,6 +3610,68 @@ const server = http.createServer((req, res) => {
    * arrival. Reporting `placed` would invent a mechanism that did not happen —
    * the claim-table rule, applied to the direction nobody had built yet.
    */
+  if (pathname === '/api/whoami' && req.method === 'POST') {
+    /**
+     * What THIS agent is running on, answered to the agent itself (#1304).
+     *
+     * Josh, 2026-08-28: *"I asked the models to tell me what account they were
+     * on. One of them could not tell me this. One of them could and then
+     * another one told me that they couldn't."*
+     *
+     * 🛑 THE INCONSISTENCY WAS WORSE THAN THE IGNORANCE. Three agents, three
+     * different answers, so a person who gets one reasonably concludes the
+     * others are broken. This route exists so the answer has ONE SHAPE from
+     * every agent on the machine, including when the honest answer is that we
+     * do not know.
+     *
+     * 🔑 THE SENDER IS DERIVED, NEVER NAMED, the same chain `/api/report` uses:
+     * an agent cannot ask who SOMEBODY ELSE is by naming them. There is no
+     * `agent` parameter for that reason.
+     *
+     * 🔑 AND EVERY FACT COMES FROM THE DERIVATION THE BOARD ALREADY USES.
+     * `accountForAgent` is the status route's own lookup, lifted to be shared
+     * rather than copied, and the model comes from `status.readModel`, which is
+     * what fills the card. An agent that contradicted the board about its own
+     * account would be worse than one that said nothing.
+     */
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = {}; }
+        const roster = safeRoster();
+        if (roster === null) {
+          sendJson(res, 200, { ok: false, because: 'we could not check which agents are running, so we could not tell who you are' });
+          return;
+        }
+        const sender = resolveAgentSender(req, body, roster);
+        if (!sender.ok) { sendJson(res, 200, { ok: false, because: sender.because }); return; }
+        const who = sender.card.sessionName;
+        const known = (() => { try { return accounts.list(); } catch { return []; } })();
+        const account = accountForAgent(who, known);
+        /* ⚠️ THE TWO FACTS ARE SEPARATE AND ONE MUST NOT STAND IN FOR THE OTHER.
+           The card says so in as many words: an agent that answers "I am Claude
+           Opus" has answered the easier question and not the one that was
+           asked. So the model never fills in for a missing account, and each
+           carries its own null. */
+        const seen = (() => { try { return readModel(who, sender.instance || undefined); } catch { return null; } })();
+        const model = seen && seen.model
+          ? { id: seen.model, name: modelDisplayName(seen.model), confidence: seen.confidence }
+          : null;
+        sendJson(res, 200, {
+          ok: true,
+          agent: who,
+          account: account
+            ? { email: account.email, label: account.label, dir: account.dir, isDefault: account.isDefault }
+            : null,
+          model,
+          /* One sentence a person can read out, so an agent asked in plain
+             words does not have to compose one and get it subtly wrong. */
+          because: sentenceForWhoami(account, model),
+        });
+      })
+      .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read that request' }));
+    return;
+  }
   if (pathname === '/api/report' && req.method === 'POST') {
     /* #188's third verb: records rather than delivers. The agent says what
        it is DOING (one of selfreport.STATES); nothing is typed anywhere,
