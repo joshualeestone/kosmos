@@ -1521,6 +1521,10 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
            competes with the headings above it. */
         color: var(--k-ink-2); margin: 0 0 10px; font-weight: 600; }
 .dhint { font-size: .9375rem; color: var(--k-ink-2); margin-bottom: 14px; line-height: 1.55; }
+/* The icon and the sentence that names it, side by side (kosmos#1212). Baseline
+   is wrong here: the picture is the subject, not a bullet, so they centre. */
+.dockrow { display: flex; align-items: center; gap: 12px; margin: 12px 0 0; }
+.dockrow-i { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 10px; display: block; }
 /* #853's table, the first one in the product, so it brings its own rules.
    ⚠️ THE WRAPPER SCROLLS, THE PAGE DOES NOT. Six columns of large numbers is
    wider than a narrow window, and a table that widens the page pushes every
@@ -8695,9 +8699,26 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <button class="btn-quiet" type="button" id="set-reveal" hidden style="font-size:.875rem;">Show me where it is</button>
       </div>
       <p class="dhint" id="set-reveal-msg" style="margin:12px 0 0;" hidden></p>
-      <p class="dhint" style="margin:12px 0 0;">
-        Drag it onto the Dock to keep it one click away.
-      </p>
+      <!-- 🔑 THE ICON STANDS BESIDE THE SENTENCE THAT NAMES IT (kosmos#1212).
+           Josh: "I'd like to include a picture of the icon to remind people that
+           they can add it to their desktop... It doesn't have to be huge, just
+           something that will visually grab their attention."
+           ⚠️ THE SENTENCE SAYS "IT" AND HAD NOTHING TO POINT AT. "Drag it onto
+           the Dock" asks somebody to find a thing in a folder of hundreds by a
+           name they met ten minutes ago. The picture is the referent, so this is
+           the sentence becoming answerable rather than decoration next to it.
+           📌 kosmos-180 drawn at 44px, NOT kosmos-48. A 48px source at 48px is
+           soft on every Mac made in a decade, and a blurry picture of the icon is
+           worse than none: the whole job is "recognise this exact thing later".
+           Six sizes already ship, so this is a reference, not new artwork, and it
+           cannot drift from the real icon. -->
+      <div class="dockrow">
+        <img class="dockrow-i" src="/icons/kosmos-180.png" width="44" height="44"
+             alt="The Kosmos app icon" decoding="async">
+        <p class="dhint" style="margin:0;">
+          Drag it onto the Dock to keep it one click away.
+        </p>
+      </div>
     </section>
 
     <section class="dbox">
