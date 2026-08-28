@@ -310,3 +310,35 @@ test('CONTROL: the sentence is one constant, not four literals that happen to ag
   assert.equal(copies, 1, `the refusal sentence is written out ${copies} times; it must exist once, as NO_MATCH`);
   assert.ok(src.includes('const NO_MATCH ='), 'NO_MATCH is gone; the refusals are loose again');
 });
+
+// ⚠️ THE FOURTH REFUSAL SITE, WHICH THE OTHER THREE TESTS DO NOT REACH.
+// Measured 2026-08-27 before landing this branch: perturbing the refusal at
+// sendertoken.js:206, :209 and :242 each turned this suite red, and perturbing
+// the ENOENT branch at :191 did NOT. Three of four covered reads as covered.
+//
+// 🛑 AND THE FIRST VERSION OF THIS TEST WAS DECORATIVE. It used
+// assert.match(because, /could not match.../), which is a SUBSTRING match, so
+// appending " (diverged)" to that one site still passed. The tests that catch
+// divergence compare two paths to EACH OTHER. A regex proves the sentence is
+// present; only equality proves it is the SAME sentence, which is the whole
+// point of hoisting it to a constant.
+test('the refusal when no token directory exists is the SAME string as the other paths', () => {
+  const reference = sendertoken.resolve('', []).ok === false
+    ? sendertoken.resolve('a'.repeat(64), []).because
+    : null;
+  const dir = sendertoken.DIR;
+  const moved = dir + '.moved-for-this-test';
+  const existed = fs.existsSync(dir);
+  if (existed) fs.renameSync(dir, moved);
+  try {
+    assert.equal(fs.existsSync(dir), false, 'the directory survived, so this test proves nothing');
+    const enoent = sendertoken.resolve('a'.repeat(64), []);
+    assert.equal(enoent.ok, false);
+    if (existed) fs.renameSync(moved, dir);
+    const withDir = sendertoken.resolve('a'.repeat(64), []);
+    assert.equal(enoent.because, withDir.because,
+      'the no-directory refusal drifted from the no-match refusal');
+  } finally {
+    if (fs.existsSync(moved)) { fs.rmSync(dir, { recursive: true, force: true }); fs.renameSync(moved, dir); }
+  }
+});
