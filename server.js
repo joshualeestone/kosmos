@@ -387,14 +387,36 @@ function whoamiFor(card, known, live) {
     /* Live first: the account is what the process is authenticated as, and a
        startup file can be stale after a migration (Baron was moved off
        josh@stuff.io while his file still said so). */
+    /* 🔑 ONE RULE FOR `isDefault`, SHARED WITH THE RECORD PATH. `runningAs` sets
+       `configDir` UNCONDITIONALLY on a successful read - the env var when it
+       finds one, `~/.claude` synthesised when it does not - so hardcoding
+       `false` here asserted "not the default account" about a directory that is
+       very often exactly the default. `accounts.configFile` already owns this
+       comparison (resolve, then compare against `HOME/.claude`), and using its
+       rule keeps one derivation rather than a second that disagrees. */
+    const isDefaultDir = (dir) => {
+      if (!dir) return null;
+      try { return path.resolve(String(dir)) === path.join(os.homedir(), '.claude'); } catch { return null; }
+    };
     if (seen && seen.account) {
-      return { value: { email: seen.account, label: seen.organization || null, dir: seen.configDir || null, isDefault: null }, from: 'process' };
+      return {
+        value: {
+          email: seen.account,
+          label: seen.organization || null,
+          dir: seen.configDir || null,
+          isDefault: isDefaultDir(seen.configDir),
+        },
+        from: 'process',
+      };
     }
     /* ⚠️ A CONFIGURED DIRECTORY WE CANNOT IDENTIFY IS STILL REPORTED, the same
        rule `accountForAgent` states for the record path: returning null there
        would say "the default account" about an agent pointed somewhere else. */
     if (seen && seen.configDir) {
-      return { value: { email: null, label: null, dir: seen.configDir, isDefault: false }, from: 'process' };
+      return {
+        value: { email: null, label: null, dir: seen.configDir, isDefault: isDefaultDir(seen.configDir) },
+        from: 'process',
+      };
     }
     const rec = accountForAgent(who, known);
     return {
@@ -420,7 +442,16 @@ function whoamiFor(card, known, live) {
        `sendertoken`, never a session name, so passing it built a `wanted` list
        that could never match and every token-presenting caller fell through to
        the workdir lookup anyway. Dropping it changes no behaviour and removes a
-       misleading argument. */
+       misleading argument.
+
+       ⚠️ CORRECTED: "changes no behaviour" is too strong, and a reviewer
+       measured the exception. Three arms:
+         readModel(name)              -> claude-opus-5, structured
+         readModel(name, '<instance>')-> null, none        <- the old call
+         readModel('nobodyhere')      -> null, none        <- control
+       The claim holds only where `byWorkdir` independently finds the same
+       transcript. Where the registry is the ONLY route to it, dropping the
+       argument is a behaviour CHANGE - an improvement, and still a change. */
     const rec = (() => { try { return readModel(who); } catch { return null; } })();
     if (rec && rec.model) {
       return { value: { id: rec.model, name: modelDisplayName(rec.model), confidence: rec.confidence }, from: 'record' };
@@ -431,6 +462,12 @@ function whoamiFor(card, known, live) {
          in a change about provenance would be the joke writing itself. */
       return { value: { id: seen.model, name: modelDisplayName(seen.model), confidence: CONFIDENCE.SCRAPED }, from: 'process' };
     }
+    /* 📌 `record` when NEITHER answered, and it is a compromise worth naming:
+       `source` means "who answered" everywhere else, and here nobody did. The
+       alternative is a third value, which every consumer would have to learn in
+       order to render the same "we cannot tell" sentence. Kept as `record`
+       because the record is the fallback and therefore the last reader
+       consulted; revisit if a caller ever needs to distinguish them. */
     return { value: null, from: 'record' };
   })();
 
@@ -453,9 +490,19 @@ function sentenceForWhoami(account, model, source) {
      means the directory the process is running with could not be identified.
      A card about agents giving confident wrong answers must not ship a sentence
      that is confidently wrong about HOW it failed. */
-  const why = source && source.account === 'process'
-    ? 'We cannot tell which account this agent runs on: we can see its process but not identify the account it is signed in to'
-    : 'We cannot tell which account this agent runs on, because we have no startup file for it';
+  /* 🛑 ONE FORM, NOT TWO, AND THE SECOND ONE WAS DEAD. This used to branch on
+     the source so the reason would match the reader that failed. A reviewer
+     measured that the process form is UNREACHABLE: `runningAs` always sets
+     `configDir` on a successful read, so a `process` account always carries at
+     least a directory, `acct` below is always truthy, and the branch could
+     never be pushed. Mutation, with a control: making the process form throw
+     left 249/249 green; making the record form throw failed 1.
+
+     ⇒ A comment describing behaviour the code cannot produce is worse than no
+     comment, so the branch is gone rather than left as decoration. If a future
+     `runningAs` can return `ok: true` with no directory, this needs the process
+     form back AND a test that reaches it. */
+  const why = 'We cannot tell which account this agent runs on, because we have no startup file for it';
   parts.push(acct ? 'This agent runs on ' + acct : why);
   parts.push(model && model.name ? 'and its model is ' + model.name : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';
@@ -3864,9 +3911,24 @@ const server = http.createServer((req, res) => {
            enumerated tmux. The CLI calls this route with `curl -m 15`, so a
            degraded `tmux` or `ps` makes whoami TIME OUT rather than fall back:
            the fallback covers "cannot see the agent", not "the reader was
-           slow". Acceptable for a verb a person invokes by hand; it would not
-           be acceptable on the five-second poll, which is one more reason the
-           board is not moved onto it here. */
+           slow".
+
+           🛑 AND THE ARITHMETIC, WHICH THIS COMMENT USED TO OMIT WHILE NAMING
+           THE RISK: 3 x 5s = 15s, and `install/kosmos` `cmd_whoami` uses
+           `curl -m 15`. The budget does not merely approach the client timeout,
+           it EQUALS it. So in the degraded case the verb prints "Kosmos did not
+           answer" instead of the record answer it could have given - which is
+           the failure this card exists to remove, reappearing at the timeout
+           rather than at the reader.
+
+           ⚠️ `/api/whoami` is also unauthenticated on a single-threaded server,
+           so that is up to 15s of blocking from any local process.
+
+           📌 NOT FIXED HERE, DELIBERATELY. The timeouts live in `runningas`'s
+           default readers and belong to every caller of that module, so
+           shrinking them from this route would be a product change smuggled
+           into a wiring change. Carded instead; the honest arithmetic is above
+           so the next reader does not have to derive it. */
         const live = (() => {
           const sess = sender.card.session;
           if (!sess) return null;
