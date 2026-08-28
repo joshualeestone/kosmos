@@ -1,0 +1,169 @@
+'use strict';
+/**
+ * Find module-level constants that resolve a filesystem root at REQUIRE time.
+ *
+ * 🛑 WHY THIS EXISTS. This defect class has been found four times in one day by
+ * four people, in four modules, and it is invisible in review because the code
+ * looks completely ordinary:
+ *
+ *     const HOME = os.homedir();
+ *
+ * A caller that sets a sandbox seam AFTER requiring the module reads straight
+ * past it. Measured instances: `accounts.list()` returned four of the
+ * operator's real accounts against an empty fixture (#1419), and
+ * `delete-leftover`'s TRASH() resolved to the operator's real ~/.Trash
+ * (#1432) - in a module that renames files into it.
+ *
+ * ⭐ AND IT EXISTS BECAUSE MY TWO HAND-WRITTEN CHECKS EACH HAD A BLIND SPOT THE
+ * OTHER DID NOT, AND BOTH REPORTED A CLEAN ZERO:
+ *
+ *   1. A check keyed on `os.homedir()` inside a const went blind the moment the
+ *      fix moved `os.homedir()` behind a `homeDir()` helper. THE FIX RELOCATED
+ *      THE THING THE CHECK KEYED ON, so the freeze moved up one level and the
+ *      check said zero.
+ *   2. A line-based scan could not see a declaration spanning lines, which hid
+ *      `create.SUPPORT_DIR` (3 lines) and `subscription.CONFIG` (2 lines).
+ *
+ * ⇒ So this follows INDIRECTION and does not assume one line. It walks the
+ * resolver helpers first, then flags any const that reaches one of them.
+ */
+const fs = require('node:fs');
+const path = require('node:path');
+
+/* The roots that matter: anything that can name a real place on the operator's
+   machine. Deliberately a list rather than a regex over `os.*`, because the
+   point is which VALUES are dangerous, not which API produced them. */
+const SOURCES = ['os.homedir()', 'os.tmpdir()'];
+
+/* 🛑 KNOWN DEBT, NAMED AND PRINTED, NEVER SILENTLY SKIPPED.
+   An allowlist that hides its entries becomes invisible coverage, which is the
+   defect this whole class is about. So every entry is printed on every run and
+   the list is meant to shrink to nothing.
+
+   `store.ROOT` is a real instance, confirmed frozen on main. It is excluded
+   from #1432 because it has 20+ consumers across server.js and four engine
+   modules, so converting it is its own change with its own review, not a
+   rider on a seven-module sweep. Tracked separately. */
+const KNOWN = new Map([
+  ['engine/store.js:ROOT', 'over 20 external consumers; own card, own review'],
+]);
+
+/* A declaration that is an arrow function is LAZY and fine: `const T = () => …`
+   resolves per call. This is the distinction the whole check turns on. */
+const isLazy = (init) => /^\s*(\(\s*\)|\([^)]*\))\s*=>/.test(init) || /^\s*function\b/.test(init);
+
+function declarations(src) {
+  /* Multi-line aware, and LINEAR rather than a regex.
+     🛑 The first version of this used /^const NAME =((?:[^;]|\n)*?);\s*$/m and
+     HUNG for over two minutes on create.js. `[^;]` already matches a newline,
+     so `(?:[^;]|\n)` gives the engine an ambiguous choice at every character
+     and it backtracks exponentially. A checker that never returns is worse
+     than the defect it looks for, so this walks lines instead. */
+  const lines = src.split('\n');
+  const out = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const m = /^const ([A-Za-z_][A-Za-z0-9_]*) =(.*)$/.exec(lines[i]);
+    if (!m) continue;
+    let init = m[2];
+    let j = i;
+    /* Continue while the declaration has not been terminated. A cap keeps a
+       missing semicolon from swallowing the rest of the file. */
+    while (!/;\s*$/.test(lines[j]) && j - i < 12 && j + 1 < lines.length) {
+      j += 1;
+      init += '\n' + lines[j];
+    }
+    out.push({ name: m[1], init, line: i + 1 });
+  }
+  return out;
+}
+
+function functionNamesReaching(src, sources) {
+  /* One pass of transitive closure: a function whose body mentions a raw source
+     is a resolver, and so is one that calls a resolver. Two rounds is enough
+     for the shapes here and the tool says so rather than pretending to be a
+     compiler. */
+  /* Also linear: find each `function NAME(` line and take its body as the
+     lines up to the next line that is exactly `}`. Two rounds so a helper that
+     calls a resolver is itself recognised as one. */
+  const lines = src.split('\n');
+  const bodies = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const m = /^\s*function ([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(lines[i]);
+    if (!m) continue;
+    const buf = [];
+    for (let j = i; j < lines.length && j - i < 400; j += 1) {
+      buf.push(lines[j]);
+      if (/^\}/.test(lines[j]) && j > i) break;
+    }
+    bodies.push([m[1], buf.join('\n')]);
+  }
+  const names = new Set();
+  for (let round = 0; round < 2; round += 1) {
+    for (const [name, body] of bodies) {
+      const reaches = sources.some((s) => body.includes(s))
+        || [...names].some((n) => new RegExp(`\\b${n}\\s*\\(`).test(body));
+      if (reaches) names.add(name);
+    }
+  }
+  return names;
+}
+
+function scan(file) {
+  const src = fs.readFileSync(file, 'utf8');
+  const resolvers = functionNamesReaching(src, SOURCES);
+  const findings = [];
+  for (const d of declarations(src)) {
+    if (isLazy(d.init)) continue;
+    const direct = SOURCES.some((s) => d.init.includes(s));
+    const viaHelper = [...resolvers].some((n) => new RegExp(`\\b${n}\\s*\\(`).test(d.init));
+    if (direct || viaHelper) {
+      findings.push({
+        name: d.name,
+        line: d.line,
+        how: direct ? 'directly' : 'via a resolver helper',
+        lines: d.init.split('\n').length,
+      });
+    }
+  }
+  return findings;
+}
+
+function main(argv) {
+  const targets = argv.length ? argv : [path.join(__dirname, '..', 'engine')];
+  const files = [];
+  for (const t of targets) {
+    const st = fs.statSync(t);
+    if (st.isDirectory()) {
+      for (const f of fs.readdirSync(t)) {
+        if (f.endsWith('.js') && !f.endsWith('.test.js')) files.push(path.join(t, f));
+      }
+    } else files.push(t);
+  }
+  let total = 0;
+  let known = 0;
+  for (const f of files.sort()) {
+    for (const hit of scan(f)) {
+      const key = `${path.relative(path.join(__dirname, '..'), f)}:${hit.name}`;
+      if (KNOWN.has(key)) {
+        console.log(`KNOWN  ${key}  (${KNOWN.get(key)})`);
+        known += 1;
+        continue;
+      }
+      total += 1;
+      console.log(`${path.relative(process.cwd(), f)}:${hit.line}  const ${hit.name}  resolves a root at require time (${hit.how}, ${hit.lines} line(s))`);
+    }
+  }
+  if (known) {
+    console.log(`${known} known instance(s) above are tracked debt, not new findings.`);
+  }
+  if (total) {
+    console.log('');
+    console.log(`${total} module-level constant(s) resolve a filesystem root at require time.`);
+    console.log('A caller that sets a sandbox seam AFTER requiring the module reads past it.');
+    console.log('Make it a function and call it at each site (#1432).');
+  }
+  return total === 0 ? 0 : 1;
+}
+
+if (require.main === module) process.exit(main(process.argv.slice(2)));
+module.exports = { scan, declarations, isLazy, functionNamesReaching };
