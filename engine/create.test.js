@@ -2863,6 +2863,51 @@ test('runningJobs reads which of our jobs launchd holds a live process for, and 
   }
 });
 
+test('#1313: switching to OpenAI carries a SIGNED-IN account, not the default home the add path never writes', () => {
+  /* 🛑 JOSH'S SHIP BLOCKER, 2026-08-28. He added an OpenAI account, it said it
+     signed in, he switched an agent, and got "nobody is signed in to OpenAI on
+     this computer". Both sentences were true and they were about DIFFERENT
+     DIRECTORIES:
+       adding an account writes  ~/.codex-<label>   (addWithKey spawns codex
+                                 login with CODEX_HOME=spot.dir)
+       the switch used to read   ~/.codex           (the default home)
+     ⇒ NOTHING IN THE ADD PATH CAN EVER POPULATE THE DEFAULT HOME, so on any
+     machine where Kosmos performed the sign-in the switch could not succeed.
+     The check that refused was mine, from #1211: correct code on a false
+     premise, and it passed on my own machine only because that machine's
+     ~/.codex was made by a MANUAL codex login, which is the one directory the
+     product never writes.
+     ⚠️ THE ASSERTION IS "A SIGNED-IN ACCOUNT", NOT A PARTICULAR ONE. With
+     several accounts the switch takes the first and the answer names it, which
+     is a stated default rather than a choice (#1373). Pinning WHICH one would
+     copy the implementation's pick into the test and could not fail. */
+  recorder();
+  create.setDryRun(false);
+  const home = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-switchonly');
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(nodePath.join(home, 'auth.json'),
+    JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtestSWITCHONLY1' }), 'utf8');
+  const name = 'switchonly';
+  const made = create.createAgent({ ...BINS, name, role: 'pm' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  /* No AGENT_WORKFORCE_CODEX_HOME: this is the ordinary machine, and the one
+     Josh reported from. The named-home case keeps its own arm above (#1211). */
+  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  const sw = create.setProvider(name, 'openai', { ...BINS, codexBin: '/bin/echo' });
+  assert.equal(sw.outcome, create.OUTCOME.CREATED,
+    'the switch refused on a machine that HAS a signed-in OpenAI account, which is #1313: '
+    + String(sw.because));
+  const plist = fs.readFileSync(create.plistPath(name), 'utf8');
+  const carried = (plist.match(/<key>CODEX_HOME<\/key><string>([^<]*)<\/string>/) || [])[1];
+  assert.ok(carried, 'the switch carried no CODEX_HOME at all, so the agent runs on the empty default home');
+  assert.ok(fs.existsSync(nodePath.join(carried, 'auth.json')),
+    `the switch carried ${carried}, which has no sign-in in it`);
+  /* CONTROL: the home it carried is one the account layer actually reports, so
+     this cannot pass on a directory the switch invented. */
+  const known = require('./openaiaccounts').list().map((a) => a.dir);
+  assert.ok(known.includes(carried), `carried ${carried}, which list() does not report: ${known.join(', ')}`);
+});
+
 test('an OpenAI agent made on a non-default OpenAI account carries CODEX_HOME, and its folder is trusted in THAT home (#540)', () => {
   recorder();
   create.setDryRun(false);
