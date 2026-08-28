@@ -222,15 +222,33 @@ printf 'dist/*.tar.gz\ndist/*.tar.gz.sha256\n' > "$SITE/.gitignore"
 git -C "$SITE" add -A && git -C "$SITE" commit -q -m site
 echo '{"version":"1.0.1"}' > "$SITE/dist/latest.json"; echo 'newsha  setup' > "$SITE/setup.sha256"; echo '<html>versions + 1.0.1 entry</html>' > "$SITE/versions.html"
 printf 'tgz' > "$SITE/dist/kosmos-1.0.1-arm64.tar.gz"; printf 'sha' > "$SITE/dist/kosmos-1.0.1-arm64.tar.gz.sha256"
+# The THIRD version-named artifact a cut publishes (#1250). Untracked, exactly as
+# Baron found it after the 0.5.91 cut died: `?? dist/kosmos-0.5.91-arm64.manifest.json`.
+printf '{"v":"1.0.1"}' > "$SITE/dist/kosmos-1.0.1-arm64.manifest.json"
 out="$(release_site_restore "$SITE" "1.0.1" 0)"; rc=$?
 [ "$rc" = 0 ] && [ "$(cat "$SITE/dist/latest.json")" = '{"version":"1.0.0"}' ] && [ "$(cat "$SITE/setup.sha256")" = 'oldsha  setup' ] && ok "after a failed cut, latest.json and setup.sha256 are back at their committed bytes (the checkout no longer claims 1.0.1)" || bad "restore left the site claiming the new version (rc $rc): $(cat "$SITE/dist/latest.json") / $(cat "$SITE/setup.sha256")"
 [ ! -f "$SITE/dist/kosmos-1.0.1-arm64.tar.gz" ] && [ ! -f "$SITE/dist/kosmos-1.0.1-arm64.tar.gz.sha256" ] && ok "and the versioned pair this cut created is gone (the name is cache-immutable; cut 5 of 0.5.24 refused over a leftover)" || bad "the versioned pair lingered"
+[ ! -f "$SITE/dist/kosmos-1.0.1-arm64.manifest.json" ] && ok "and the versioned MANIFEST is gone too: the cut publishes three version-named files and the list knew two (#1250)" || bad "the versioned manifest lingered, which is #1250"
 [ "$(cat "$SITE/versions.html")" = '<html>versions + 1.0.1 entry</html>' ] && ok "and versions.html, hand-written for the re-cut, is left exactly as it was" || bad "restore touched versions.html"
 printf '%s' "$out" | grep -q "put back: dist/latest.json" && printf '%s' "$out" | grep -q "removed: dist/kosmos-1.0.1-arm64.tar.gz" && ok "and it says what it did" || bad "restore was silent: $out"
 printf 'served' > "$SITE/dist/kosmos-1.0.1-arm64.tar.gz"; printf 'sha' > "$SITE/dist/kosmos-1.0.1-arm64.tar.gz.sha256"
 release_site_restore "$SITE" "1.0.1" 1 >/dev/null
 [ "$(cat "$SITE/dist/kosmos-1.0.1-arm64.tar.gz")" = served ] && ok "CONTROL: a pair that existed before the cut (an earlier, served cut's) is not ours to remove" || bad "restore removed a pair it did not create"
 out="$(release_site_restore "$SITE" "1.0.1" 1)"; [ -z "$out" ] && ok "CONTROL: with nothing changed it does nothing and says nothing" || bad "restore acted on a clean checkout: $out"
+# 🛑 THE ARM THAT MAKES THE THIRD NAME SAFE TO ADD AT ALL (#1250). `had` is read
+# from the TARBALL, and the tarball is gitignored in the site while the manifest
+# is committed. A fresh site clone re-cutting an already-served version therefore
+# sees no tarball, passes had=0, and a plain rm of everything version-named would
+# delete that served release's TRACKED manifest. This is the negative arm: the
+# glob must find it and must decline it.
+printf '{"v":"1.0.2"}' > "$SITE/dist/kosmos-1.0.2-arm64.manifest.json"
+git -C "$SITE" add dist/kosmos-1.0.2-arm64.manifest.json && git -C "$SITE" commit -q -m served-1.0.2
+release_site_restore "$SITE" "1.0.2" 0 >/dev/null
+[ -f "$SITE/dist/kosmos-1.0.2-arm64.manifest.json" ] && ok "CONTROL: a TRACKED versioned artifact (a served cut's committed manifest) is left alone even with had=0" || bad "restore deleted a tracked manifest belonging to a served release"
+# And the positive arm on the same version, so the control above is not merely a dead glob.
+printf 'tgz' > "$SITE/dist/kosmos-1.0.2-arm64.tar.gz"
+release_site_restore "$SITE" "1.0.2" 0 >/dev/null
+[ ! -f "$SITE/dist/kosmos-1.0.2-arm64.tar.gz" ] && [ -f "$SITE/dist/kosmos-1.0.2-arm64.manifest.json" ] && ok "CONTROL: and on that same version it still removes the UNTRACKED sibling, so the skip is about tracking and not about the glob missing" || bad "the tracked/untracked split is not doing what it says"
 
 # A tarball missing a whole tree (no bin member) is a setup failure (2), not a pass.
 tar -czf "$T/noroot.tgz" -C "$T/bundle" app
