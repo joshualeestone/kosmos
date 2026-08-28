@@ -77,9 +77,26 @@ prescription, not on the sentence above it.
 
 ✅ **The only durable form, and it names the property rather than the lines:**
 
-> **`seededRoom` must be READ BEFORE `ROOM_SPOKE_SEEDED.add` runs.** Any arrangement preserving
-> that is fine; any arrangement breaking it restores #1150. Do not reason about the hoist and
-> the `.add` as two things to keep - reason about the order of the read and the write.
+> **TWO invariants, and both must hold:**
+> 1. **`seededRoom` is READ BEFORE `ROOM_SPOKE_SEEDED.add` runs.**
+> 2. **The `.add` is GATED on the paint having carried a record** (`body.ok !== false`) **and
+>    runs once per paint, after the loop** - not inside it, and not unconditionally.
+
+🛑 **AND THE FOURTH VERSION WAS WRONG TOO, IN THE SAME WAY AS THE OTHER THREE.** It said *"any
+arrangement preserving that is fine"*. Measured, not argued: `if (1 || body.ok !== false)`
+preserves read-before-write in every respect and goes **2 pass, 1 fail** - it restores the
+empty-paint defect this same plan documents two sections below. Moving the `.add` inside the
+loop also preserves the order exactly and cannot seed a room with zero rows.
+
+⭐⭐ **The failure is identical every time and it is worth more than the rule: the accurate
+sentence survives, and the COMPRESSION into an actionable prescription drops something.** Three
+times it dropped the order; the fourth time it kept the order and dropped the gate. **An editor
+licensed by "any arrangement is fine" deletes the gate and is obeying the plan while doing it.**
+
+📌 Four rewrites of one paragraph, each measured wrong by the next round. The durable lesson is
+not about this line at all: **a summary that reads as a permission ("any arrangement is fine") is
+more dangerous than one that reads as a description**, because it authorises the edits it did not
+consider.
 
 📌 **Three wrong summaries of one correct sentence.** That is worth more than the fix: the
 sentence was never the problem, and each rewrite made a tidier rule that lost the invariant.
@@ -258,3 +275,42 @@ All three now die. Two guards whose weakening also survives are named in the cod
 **unreachable only because another module holds the line** (`engine/messages.js` rejects
 unparseable `at`; the route always sends a boolean `ok`), rather than tested here, because a
 test here would assert a guarantee that lives elsewhere.
+
+
+## Round 4: five more surviving mutations, and they share one root cause
+
+```
+loop cut to allRows.slice(0, 1)            SURVIVED the full 2811-test suite
+dedup `continue` turned into `break`       SURVIVED
+stamp taken from the SERVER time, not now  SURVIVED
+ROOM_SPOKE_SEEDED.clear() before add       SURVIVED
+the stored `at` frozen once seeded         SURVIVED
+```
+
+🛑 **EVERY FIXTURE IN THIS FILE WAS A SINGLE ROW, AND EVERY ARM WALKED FORWARD ONLY.** `hist()`
+builds one row; every other call site is a one-element array; the arms go `a -> b`,
+`room-a -> room-b -> room-c`, never `a -> b -> a`.
+
+⇒ **A first paint has exactly one shape - a MULTI-ROW BACKLOG - and no arm had ever painted
+one.** So the loop itself, and the dedup's control flow, were unpinned by construction. And
+because nothing re-entered a room, `clear()` before `add` reduced the fix to remembering the LAST
+room instead of the FIRST: **the page-wide boolean wearing the fix's clothes.**
+
+⭐ **The server-time survivor is my own named pattern again.** `web/index.html` states in prose
+that both stamps come from this page's clock, and a sibling test asserts it - **on the READER**.
+The WRITER, which is the half that produces the stamp, was unguarded. *The instance is defended,
+the sibling is not.*
+
+⚠️ **And one of my own assertions was aimed one paint too early.** I pinned the stored `at` on
+the FIRST paint, where `seededRoom` is false - so a mutation that freezes it only when the room
+IS seeded walked straight past. Fixed by asserting on a seeded room's later speech.
+
+## Deliberately not fixed here: the loop ignores `kind`
+
+Round 4 found that the loop stamps any row carrying a `from` and an `at`, and `engine/messages.js`
+emits `refused` and `valve` rows that carry both. **So an agent whose message was REFUSED is
+recorded as having spoken.**
+
+Real, and **not this branch's**: it is pre-existing in the loop, and changing which rows count as
+speech is a different question from when a room is seeded. Filed separately rather than smuggled
+into a seeding fix.

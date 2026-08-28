@@ -192,6 +192,15 @@ test('#1150: the room history that arrives when you open a room is not everybody
      `erin` arm - applied to one arm and not to the other, which is the same
      class of miss as the precedence gap on my sibling branch. */
   CLOCK.t += 7000;
+  /* 🔑 ASSERT THE CLOCK CAN DISTINGUISH THE TWO ANSWERS, BEFORE COMPARING THEM.
+     The plan claimed this arm was safe "by construction" because `Date` is a
+     stub. It is not: it is safe because of the line above, which can be removed,
+     reduced or moved with no signal - `assert.equal(a, b)` on a frozen clock is
+     trivially satisfied. Measured: neutralise the advance AND mutate the page to
+     refresh instead of preserve, and the suite goes green. This makes the
+     precondition explicit, so the arm fails rather than passing vacuously. */
+  assert.ok(FakeDate.now() > earned,
+    'the clock did not move, so "preserved" and "refreshed" are the same number and this arm cannot fail');
   seed('room-b', [{ from: 'xavier', at: at(120000), text: 'newer, in another room' }], SEEN2, SPOKE2, seedRuns, OK, FakeDate);
   assert.equal(SPOKE2.get('xavier').learnedAt, earned,
     'opening a second room cleared a stamp the first room earned, so the working '
@@ -248,6 +257,75 @@ test('#1150: the room history that arrives when you open a room is not everybody
   seed('room-f', [{ from: 'ada', at: at(0), text: 'first post in a new project' }], SEEN5, SPOKE5, seedRuns, OK, FakeDate);
   assert.ok(SPOKE5.get('ada').learnedAt > 0,
     'the first post in a new room did not count as speech');
+
+  /* 🛑 A MULTI-ROW BACKLOG, WHICH NO ARM IN THIS FILE EVER PAINTED - and a first
+     paint has no other shape. Every fixture above passes `[]` or a single row,
+     so the LOOP itself was unpinned: replacing `allRows` with `allRows.slice(0, 1)`
+     left the whole 2811-test suite green, and so did turning the dedup's
+     `continue` into `break`.
+
+     ⚠️ The defect that hides is this card's own: with only one sender recorded
+     on the first paint, every other member of the backlog has no entry, so on
+     the next poll their unchanged history rows pass the dedup in a now-seeded
+     room, take `Date.now()`, and the working line blanks. */
+  const SEEN6 = new Set();
+  const SPOKE6 = new Map();
+  const backlog = [
+    { from: 'ivy', at: at(0), text: 'first' },
+    { from: 'jo', at: at(1000), text: 'second' },
+    { from: 'kai', at: at(2000), text: 'third' },
+  ];
+  seed('room-g', backlog, SEEN6, SPOKE6, seedRuns, OK, FakeDate);
+  for (const who of ['ivy', 'jo', 'kai']) {
+    assert.ok(SPOKE6.has(who), `${who} was never recorded, so the loop stopped early`);
+    assert.equal(SPOKE6.get(who).learnedAt, 0, `${who}'s history was stamped as speech`);
+  }
+  /* 🔑 AND THE STORED `at` MUST BE THE ROW'S OWN, or the next poll's dedup
+     compares against the wrong value. Freezing what gets written - rather than
+     what gets compared, which round 3 pinned - survived the full suite and
+     re-stamps a speaker forever. */
+  assert.equal(SPOKE6.get('kai').at, Date.parse(at(2000)),
+    'the stored timestamp is not the row it came from, so the next dedup compares the wrong value');
+  /* AN OLD ROW AT THE HEAD MUST NOT ABORT THE SCAN BEHIND IT (continue, not break). */
+  CLOCK.t += 3000;
+  seed('room-g', [
+    { from: 'ivy', at: at(0), text: 'unchanged, must be skipped' },
+    { from: 'jo', at: at(90000), text: 'genuinely new' },
+  ], SEEN6, SPOKE6, seedRuns, OK, FakeDate);
+  assert.equal(SPOKE6.get('ivy').learnedAt, 0, 'an unchanged row was re-stamped');
+  assert.ok(SPOKE6.get('jo').learnedAt > 0,
+    'a new row behind an old one was never reached, so the scan aborted instead of skipping');
+  /* 🔑 AND THE STORED `at` MUST ADVANCE IN A SEEDED ROOM. My first assertion of
+     this was on the FIRST paint, where `seededRoom` is false - so a mutation
+     that freezes the stored value only when the room IS seeded slipped straight
+     past it. Round 3 pinned the value the dedup COMPARES; this pins the value it
+     WRITES for the next comparison. Frozen, a speaker passes `at <= seen.at`
+     on every poll thereafter, is re-stamped forever, and drops out of the
+     working line permanently. */
+  assert.equal(SPOKE6.get('jo').at, Date.parse(at(90000)),
+    'the stored timestamp did not advance in a seeded room, so this speaker is re-stamped forever');
+
+  /* 🛑 RETURNING TO A ROOM ALREADY SEEDED. Every arm walked FORWARD only, so
+     `ROOM_SPOKE_SEEDED.clear()` before the add left the suite green - the
+     page-wide boolean wearing the fix's clothes, remembering the LAST room
+     instead of the FIRST. */
+  seed('room-h', [{ from: 'lena', at: at(0), text: 'other room' }], SEEN6, SPOKE6, seedRuns, OK, FakeDate);
+  CLOCK.t += 3000;
+  seed('room-g', [{ from: 'mo', at: at(120000), text: 'posted while you were away' }], SEEN6, SPOKE6, seedRuns, OK, FakeDate);
+  assert.ok(SPOKE6.get('mo').learnedAt > 0,
+    'a post in a room already seeded was treated as history, so the room was forgotten on leaving');
+
+  /* 🛑 THE STAMP MUST COME FROM THIS PAGE'S CLOCK, NEVER THE SERVER'S TIME.
+     `web/index.html` states this in prose and a sibling test asserts it - on the
+     READER. The WRITER, which is the half that produces the stamp, was
+     unguarded, so taking `at` (the record's own timestamp) instead of
+     `Date.now()` survived the full suite. `learnedAt` means WHEN THIS PAGE
+     LEARNED of the post; `m.at` means when it was posted, and the two differ by
+     the delivery delay. */
+  assert.notEqual(SPOKE6.get('mo').learnedAt, Date.parse(at(120000)),
+    'the stamp was taken from the server time rather than this page clock');
+  assert.equal(SPOKE6.get('mo').learnedAt, CLOCK.t,
+    'the stamp is not this page clock');
 
   /* 🛑 A FIRST PAINT THAT CARRIED NO RECORD MUST NOT MARK THE ROOM SEEDED.
      `engine/messages.js` returns `{ ok: false, rows: [] }` on a read failure of
