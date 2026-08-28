@@ -697,6 +697,36 @@ function removeInner(name, { tmuxBin } = {}) {
   const tmux = tmuxBin || process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux';
   const steps = [];
   const job = jobFor(clean);
+  /* 🔑 READ BEFORE ANYTHING IS TAKEN APART (#1414). The codex trust entry
+     lives in the home the agent RAN in, and the only record of which home
+     that was is `CODEX_HOME` inside the plist. Every step below exists to
+     dismantle this agent, so this has to be read while the plist is still
+     there. Not a codex agent means no step, which is the common case.
+
+     🛑 AND THE HOME IS PASSED THROUGH EVEN WHEN IT IS NULL, WHICH IS THE
+     WHOLE CORRECTION. My first version fired only when `configDir` was set,
+     and I found the hole by removing an agent I had just created: THE CREATE
+     PATH DOES NOT RECORD CODEX_HOME IN THE PLIST. It calls
+     `trustCodexFolder(dir, configDir)` with configDir null, which falls back
+     to the default home. So a CREATED OpenAI agent, the common case, wrote a
+     trust entry that my step would have skipped.
+
+     ⚠️ I had written "no fallback, because falling back caused #1313". That
+     was the wrong lesson applied to the wrong direction. #1313 was a CHECK
+     reading a different home than the WRITE used. Here the requirement is the
+     opposite: the removal must fall back EXACTLY where the write fell back.
+     `forgetCodexFolder` applies the same `home || codexHomeDir()` as
+     `trustCodexFolder`, so passing the value straight through keeps the pair
+     symmetric by construction rather than by two copies agreeing. */
+  let codexJob = false;
+  let codexHome = null;
+  try {
+    const launched = create.readJob(clean);
+    if (launched && launched.runner === 'codex') {
+      codexJob = true;
+      codexHome = launched.configDir || null;
+    }
+  } catch { codexJob = false; }
 
   /**
    * ⚠️ THE PARTIALS' LAST SENTENCE, and it has to be EARNED rather than
@@ -946,6 +976,43 @@ function removeInner(name, { tmuxBin } = {}) {
         try { require('./trust').dropRecord(clean); } catch { /* retried next time */ }
       }
     }
+  }
+
+  /* 🛑 THE CODEX TRUST IS ITS OWN STEP, AND THAT IS THE POINT OF #1414, NOT A
+     STYLE CHOICE. `trust.js` manages the CLAUDE side and mentions codex zero
+     times, so the step above reported "took back the folder trust" TRUTHFULLY
+     about a different file while this one accumulated forever. A true step
+     read as a complete one. Two trusts, two steps, two sentences.
+     ⚠️ Measured on the operator's own machine: entries were still present for
+     directories that no longer existed.
+     📌 Only for an agent that actually ran on codex. The home is whatever the
+     plist recorded, or null, and null means the same default the WRITE used. */
+  if (codexJob) {
+    /* 🛑 THE LABEL IS CHOSEN AFTER THE WORK, BECAUSE THIS CARD IS ABOUT A
+       LABEL THAT OVERSTATED WHAT IT DID (PigeonPete, cross-review). `step()`
+       records `{label, ok}` and nothing else, so a refusal would have shown
+       as a bare failed step with its reason discarded, and the one refusal
+       this can produce is not a failure at all: it means the person had
+       EDITED that entry and we deliberately left it theirs.
+       ⇒ Reporting that as "took back the codex folder trust: no" would be
+       false in both halves. Two outcomes, two sentences, and the honest one
+       is not even a failure. */
+    let got = null;
+    let threw = false;
+    if (DRY_RUN && !runner) {
+      got = { ok: true, removed: false, because: null };
+    } else {
+      try { got = create.forgetCodexFolder(create.workerDir(clean), codexHome); }
+      catch { threw = true; }
+    }
+    const leftAlone = !threw && got && got.ok === false
+      && typeof got.because === 'string' && got.because.includes('changed by hand');
+    step(
+      leftAlone
+        ? 'left the codex folder trust alone, because it had been changed by hand'
+        : 'took back the codex folder trust',
+      () => (leftAlone ? true : Boolean(!threw && got && got.ok === true)),
+    );
   }
 
   const recorded = step('took it off the board', () => recordRemoval(clean, job, true, shown));

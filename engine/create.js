@@ -947,6 +947,92 @@ function trustCodexFolder(dir, home) {
 }
 
 /**
+ * The inverse of `trustCodexFolder`, and it did not exist (#1414).
+ *
+ * 🛑 EVERY OPENAI AGENT CREATED, ADOPTED OR SWITCHED APPENDED A TRUST ENTRY TO
+ * THE PERSON'S REAL `~/.codex/config.toml`, AND NOTHING EVER TOOK ONE BACK.
+ * `engine/trust.js` manages the CLAUDE side and mentions codex zero times, so
+ * `remove()` reported "took back the folder trust" truthfully about a
+ * different file while this one accumulated. Measured on the operator's own
+ * machine: entries were still there for directories that no longer existed.
+ *
+ * ⚠️ IT REMOVES ONLY A BLOCK THAT STILL LOOKS EXACTLY LIKE WHAT WE APPENDED.
+ * If a person changed the trust level or added keys under that heading, their
+ * edit is theirs and this leaves it, answering `edited` so the caller can say
+ * so rather than silently doing nothing.
+ *
+ * 🔑 THE LIMIT, NAMED RATHER THAN HIDDEN: this is a CONTENT match, not a
+ * PROVENANCE record. `trustCodexFolder` is a no-op when the key already
+ * exists, so an entry Kosmos FOUND is indistinguishable from one it WROTE. A
+ * person who had trusted the same folder themselves, in exactly this form,
+ * would have that line removed. The exact alternative is a written record like
+ * trust.js's `recordWrite`; this is the smaller change and that is its cost.
+ *
+ * 📌 Written whole and renamed into place, never appended to: a config file
+ * half-rewritten by an interrupted removal is worse than one entry too many.
+ */
+function forgetCodexFolder(dir, home) {
+  const codexHome = home || codexHomeDir();
+  const cfg = path.join(codexHome, 'config.toml');
+  let text;
+  try { text = fs.readFileSync(cfg, 'utf8'); }
+  catch { return { ok: true, removed: false, because: 'there is no codex config to change' }; }
+  const key = `[projects."${dir}"]`;
+  if (!text.includes(key)) return { ok: true, removed: false, because: 'no entry for that folder' };
+  /* The exact two lines `trustCodexFolder` writes. A String pattern, not a
+     RegExp: a folder path can contain characters a regex would read as
+     syntax, and this must match literally or not at all. */
+  const block = `${key}
+trust_level = "trusted"
+`;
+  if (!text.includes(block)) {
+    return { ok: false, removed: false, because: 'that folder\'s trust entry was changed by hand, so it was left alone' };
+  }
+  /* 🛑 THE TIDY-UP IS SCOPED TO THE SEAM, NOT THE DOCUMENT (PigeonPete,
+     cross-review). The first version ran `.replace(/\n{3,}/g, '\n\n')`
+     GLOBALLY, so removing one agent's entry also reformatted unrelated
+     sections the person had written themselves. Measured by him: a config
+     with a deliberate three-blank-line run between two of their own tables
+     came back with it collapsed.
+     ⚠️ Same "never clobber what is theirs" line as the permission bug in the
+     same function: the removal's job is to take back OUR two lines and touch
+     nothing else. Only the join left behind by the removal is ours to tidy. */
+  const at = text.indexOf(block);
+  const before = text.slice(0, at);
+  const after = text.slice(at + block.length);
+  /* The seam is the boundary between what came before the entry and what came
+     after it. Collapsing is bounded to the newline run that MEETS at that
+     point: trailing newlines of `before` plus leading newlines of `after`. */
+  const lead = /\n*$/.exec(before)[0];
+  const trail = /^\n*/.exec(after)[0];
+  const joined = lead + trail;
+  const tidy = joined.length > 2 ? '\n\n' : joined;
+  const next = before.slice(0, before.length - lead.length) + tidy + after.slice(trail.length);
+  const tmp = `${cfg}.tmp-${process.pid}`;
+  /* 🛑 THE RENAME CARRIES THE TEMP FILE'S MODE, NOT THE TARGET'S, AND THIS
+     REALLY HAPPENED. Caught in cross-review after the first version of this
+     function had already run against the operator's own `~/.codex/config.toml`
+     and left it 644 where it had been 600. The file sits beside `auth.json` in
+     a directory whose whole point is credentials, and nothing about the
+     operation the person asked for ("remove this agent") implies widening who
+     can read their config.
+     ⚠️ The default when the mode cannot be read is 0600, NOT the process
+     umask: this file's neighbours are private, so the conservative guess is
+     the private one. */
+  let mode = 0o600;
+  try { mode = fs.statSync(cfg).mode & 0o777; } catch { mode = 0o600; }
+  try {
+    fs.writeFileSync(tmp, next);
+    fs.chmodSync(tmp, mode);
+    fs.renameSync(tmp, cfg);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch { /* the rename never happened */ }
+    return { ok: false, removed: false, because: 'we could not update the codex config' };
+  }
+  return { ok: true, removed: true, because: null };
+}
+
+/**
  * Stop codex's update notice from BLOCKING a new agent's first launch (#1315).
  *
  * 🛑 MEASURED, AND IT IS THE SHIP-BLOCKER. A codex agent created today reaches a
@@ -2633,6 +2719,7 @@ module.exports = {
   instructionFile,
   plistPath,
   plannedModelArg,
+  forgetCodexFolder,
   setRunner,
   setDryRun,
   OUTCOME,

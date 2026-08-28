@@ -3824,3 +3824,186 @@ test('#1315 CONTROL: that branch check can fail', () => {
   assert.doesNotMatch(inWindow, /claude-dismiss-something-that-does-not-exist/,
     'the window matches anything: the guard above proves nothing');
 });
+
+/* ────────────────────────────────────────────────────────────────────────────
+   #1414: the codex trust entry has an inverse now, and it is BEHAVIOURAL.
+
+   These are not source-text guards. `forgetCodexFolder` writes to a real file,
+   so it can be driven for real in a temp home, which is a stronger claim than
+   asserting that a call appears near another call.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+function codexCfgHome(entries) {
+  const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'codex-forget-'));
+  fs.writeFileSync(nodePath.join(home, 'config.toml'), entries);
+  return home;
+}
+const TRUSTED = (d) => `[projects."${d}"]\ntrust_level = "trusted"\n`;
+
+test('#1414: removing an agent takes back the codex trust entry it wrote', () => {
+  const mine = '/somewhere/workers/mineagent';
+  const theirs = '/somewhere/workers/otheragent';
+  const home = codexCfgHome(`${TRUSTED(theirs)}\n${TRUSTED(mine)}\n[tui.thing]\n"a" = 1\n`);
+
+  const before = fs.readFileSync(nodePath.join(home, 'config.toml'), 'utf8');
+  assert.ok(before.includes(mine), 'the entry must be there first, or the removal below proves nothing');
+
+  const got = create.forgetCodexFolder(mine, home);
+  assert.equal(got.ok, true);
+  assert.equal(got.removed, true);
+
+  const after = fs.readFileSync(nodePath.join(home, 'config.toml'), 'utf8');
+  assert.ok(!after.includes(mine), 'the entry for this agent is gone');
+  assert.ok(after.includes(theirs), 'ANOTHER agent\'s trust must survive: this removes one folder, not the file');
+  assert.ok(after.includes('[tui.thing]'), 'unrelated config must survive');
+});
+
+test('#1414: an entry a PERSON edited is left alone, and said so', () => {
+  /* ⚠️ THE CONSERVATIVE ARM, and it is the one that protects somebody's file.
+     `trustCodexFolder` is a no-op when the key already exists, so an entry
+     Kosmos FOUND is indistinguishable from one it WROTE. Matching the exact
+     two lines we append is what keeps a hand-edited entry out of scope. */
+  const mine = '/somewhere/workers/editedagent';
+  const home = codexCfgHome(`[projects."${mine}"]\ntrust_level = "untrusted"\n`);
+
+  const got = create.forgetCodexFolder(mine, home);
+  assert.equal(got.removed, false, 'a changed entry must NOT be removed');
+  assert.equal(got.ok, false);
+  /* ⚠️ THE SHAPE, NOT THE WORDS (Kitty's rule, 2026-08-28). Nothing PARSES
+     this sentence: `remove()` reads only `ok`, and no route or screen reads
+     the string at all. Pinning my exact wording would make a better sentence
+     a false red, which is the defect that bit three of us today. What matters
+     is that a refusal EXPLAINS itself rather than returning a bare false. */
+  assert.equal(typeof got.because, 'string');
+  assert.ok(got.because.length > 12,
+    'a refusal that says nothing is indistinguishable from doing nothing');
+
+  const after = fs.readFileSync(nodePath.join(home, 'config.toml'), 'utf8');
+  assert.ok(after.includes('untrusted'), 'the person\'s own value survives untouched');
+});
+
+test('#1414 CONTROL: the removal can tell "not there" from "removed"', () => {
+  /* Without this, `removed: false` from the arm above could mean the function
+     never finds anything, and both tests would pass on a stub that does
+     nothing at all. */
+  const home = codexCfgHome(`${TRUSTED('/somewhere/workers/someoneelse')}`);
+  const got = create.forgetCodexFolder('/somewhere/workers/neverthere', home);
+  assert.equal(got.ok, true, 'absent is not an error');
+  assert.equal(got.removed, false);
+  assert.match(String(got.because), /no entry/);
+
+  const after = fs.readFileSync(nodePath.join(home, 'config.toml'), 'utf8');
+  assert.ok(after.includes('someoneelse'), 'and it touched nothing while looking');
+});
+
+test('#1414: no codex config at all is a quiet success, not a failure', () => {
+  const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'codex-nocfg-'));
+  const got = create.forgetCodexFolder('/somewhere/workers/any', home);
+  assert.equal(got.ok, true);
+  assert.equal(got.removed, false);
+});
+
+test('#1414: the rewrite keeps the config\'s permissions, it does not widen them', () => {
+  /* 🛑 A REAL REGRESSION, CAUGHT IN CROSS-REVIEW AFTER IT HAD ALREADY RUN
+     against the operator's own ~/.codex/config.toml and left it 644 where it
+     had been 600. `renameSync` carries the TEMP file's mode, not the target's,
+     so a write-then-rename silently republishes the file at the umask default.
+     This file lives beside auth.json; "remove this agent" does not imply
+     "widen who can read my config". */
+  const dir = '/somewhere/workers/modeagent';
+  const home = codexCfgHome(`${TRUSTED(dir)}${TRUSTED('/somewhere/workers/keep')}`);
+  const cfg = nodePath.join(home, 'config.toml');
+  fs.chmodSync(cfg, 0o600);
+  assert.equal(fs.statSync(cfg).mode & 0o777, 0o600, 'the fixture must start private, or this proves nothing');
+
+  const got = create.forgetCodexFolder(dir, home);
+  assert.equal(got.removed, true, 'it has to actually rewrite the file, or the mode was never at risk');
+  assert.equal(fs.statSync(cfg).mode & 0o777, 0o600,
+    'the config must keep the permissions it had');
+});
+
+test('#1414 CONTROL: the mode assertion can fail', () => {
+  /* If forgetCodexFolder did nothing, the test above would pass for the wrong
+     reason. This proves the fixture's mode is observable and that a DIFFERENT
+     mode is distinguishable, so 0o600 above is a real reading. */
+  const home = codexCfgHome(`${TRUSTED('/somewhere/workers/other')}`);
+  const cfg = nodePath.join(home, 'config.toml');
+  fs.chmodSync(cfg, 0o644);
+  assert.equal(fs.statSync(cfg).mode & 0o777, 0o644, 'the harness can see a non-600 mode');
+  assert.notEqual(fs.statSync(cfg).mode & 0o777, 0o600);
+});
+
+test('#1414 PRECISION: removing one agent must not remove a PREFIX-NAMED sibling', () => {
+  /* 🔑 THE THIRD ARM (Renet Tilley, 2026-08-28): a control proves an instrument
+     is NOT DEAD; it cannot prove it is NOT OVER-EAGER. The two arms above test
+     liveness. This one tests precision, and it is reachable: NAME_RE admits
+     both `mine` and `minelonger`, so their worker directories are prefixes of
+     one another and a substring match would take the wrong entry.
+
+     ⭐ It passes today because the key carries its closing `"]`, which is what
+     stops `[projects."/w/mine"]` matching inside `[projects."/w/minelonger"]`.
+     That is easy to lose while "simplifying" the key, and nothing else would
+     notice. */
+  const shortDir = '/w/mine';
+  const longDir = '/w/minelonger';
+  const home = codexCfgHome(`${TRUSTED(longDir)}${TRUSTED(shortDir)}`);
+  const cfg = nodePath.join(home, 'config.toml');
+
+  const got = create.forgetCodexFolder(shortDir, home);
+  assert.equal(got.removed, true, 'the short one is the target and must go');
+
+  const after = fs.readFileSync(cfg, 'utf8');
+  assert.ok(after.includes(`[projects."${longDir}"]`),
+    'the PREFIX-NAMED sibling must survive: a substring match would have eaten it');
+  assert.ok(!after.includes(`[projects."${shortDir}"]`), 'and the target is gone');
+});
+
+test('#1414 PRECISION: the reverse direction, removing the LONGER name', () => {
+  /* The mirror, because a matcher can be over-eager in one direction only. */
+  const shortDir = '/w/mine';
+  const longDir = '/w/minelonger';
+  const home = codexCfgHome(`${TRUSTED(shortDir)}${TRUSTED(longDir)}`);
+  const cfg = nodePath.join(home, 'config.toml');
+
+  const got = create.forgetCodexFolder(longDir, home);
+  assert.equal(got.removed, true);
+
+  const after = fs.readFileSync(cfg, 'utf8');
+  assert.ok(after.includes(`[projects."${shortDir}"]`), 'the shorter sibling must survive');
+  assert.ok(!after.includes(`[projects."${longDir}"]`));
+});
+
+test('#1414: removal does NOT reformat sections the person wrote', () => {
+  /* 🛑 PigeonPete, cross-review: the first version collapsed `\n{3,}` GLOBALLY,
+     so taking back one agent's entry also reflowed unrelated parts of the
+     person's own config. Same "never clobber what is theirs" line as the
+     permission bug in the same function. */
+  const mine = '/w/mineagent';
+  const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'codex-seam-'));
+  const cfg = nodePath.join(home, 'config.toml');
+  const theirs = '[a]\nx = 1\n\n\n\n[b]\ny = 2\n';   // THREE blank lines, deliberate
+  fs.writeFileSync(cfg, theirs + '\n' + `[projects."${mine}"]\ntrust_level = "trusted"\n`);
+
+  const got = create.forgetCodexFolder(mine, home);
+  assert.equal(got.removed, true, 'it must actually rewrite, or nothing was at risk');
+
+  const after = fs.readFileSync(cfg, 'utf8');
+  assert.ok(after.includes('[a]\nx = 1\n\n\n\n[b]\ny = 2\n'),
+    'the person\'s own three-blank-line run must survive untouched');
+  assert.ok(!after.includes(mine), 'and our entry is gone');
+});
+
+test('#1414 CONTROL: the seam-scoped tidy still runs where it should', () => {
+  /* The mirror of the arm above: proving we did not fix over-reach by simply
+     doing nothing. Removing a MIDDLE entry must not leave a growing gap. */
+  const mid = '/w/middle';
+  const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'codex-seam2-'));
+  const cfg = nodePath.join(home, 'config.toml');
+  fs.writeFileSync(cfg,
+    `[projects."/w/first"]\ntrust_level = "trusted"\n\n[projects."${mid}"]\ntrust_level = "trusted"\n\n[projects."/w/last"]\ntrust_level = "trusted"\n`);
+
+  assert.equal(create.forgetCodexFolder(mid, home).removed, true);
+  const after = fs.readFileSync(cfg, 'utf8');
+  assert.ok(after.includes('/w/first') && after.includes('/w/last'), 'neighbours survive');
+  assert.ok(!/\n{3,}/.test(after), 'the seam left behind is tidied, so gaps do not accumulate');
+});
