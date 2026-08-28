@@ -25,6 +25,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 (async () => {
+  /* #1156: this check POSTs to whatever BASE it is given, so it declines
+     rather than mutating a board that is not a fixture. */
+  require('./lib-sandbox-guard.js').requireSandbox('render-consolidated-layouts.js');
   const URL = process.argv[2] || process.env.KOSMOS_URL || 'http://127.0.0.1:17471';
   const SANDBOX = process.argv[3] || '';
   const b = await chromium.launch({ headless: process.env.HEADED === '0' });

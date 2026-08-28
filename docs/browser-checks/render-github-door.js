@@ -10,6 +10,9 @@
  *   node docs/browser-checks/render-github-door.js <absent-base> <present-base> <marker-path>
  */
 const pw = require('playwright'); const fs = require('node:fs');
+/* #1156: this check POSTs to whatever BASE it is given, so it declines
+   rather than mutating a board that is not a fixture. */
+require('./lib-sandbox-guard.js').requireSandbox('render-github-door.js');
 const ABSENT = process.argv[2] || 'http://127.0.0.1:17601';
 const PRESENT = process.argv[3] || 'http://127.0.0.1:17602';
 const MARK = process.argv[4] || '/tmp/fake-gh-mark';

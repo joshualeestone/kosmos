@@ -67,6 +67,9 @@ function contrast(fg, bg) {
   return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
 }
 
+/* #1156: this check POSTs to whatever BASE it is given, so it declines
+   rather than mutating a board that is not a fixture. */
+require('./lib-sandbox-guard.js').requireSandbox('render-projects.js');
 const BASE = process.argv[2] || 'http://127.0.0.1:4399';
 const OUT = process.argv[3] || '/tmp/pjshots';
 // The server's sandbox root, so the 'told' half of the verdict can be shown.

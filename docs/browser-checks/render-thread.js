@@ -48,6 +48,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright');
 
+/* #1156: this check POSTs to whatever BASE it is given, so it declines
+   rather than mutating a board that is not a fixture. */
+require('./lib-sandbox-guard.js').requireSandbox('render-thread.js');
 const BASE = process.argv[2] || 'http://127.0.0.1:4421';
 const OUT = process.argv[3] || '/tmp/threadshots';
 // The fixture server's stdout. It is what proves a Send reached the seam
