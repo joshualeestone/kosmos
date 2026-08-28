@@ -2535,11 +2535,24 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      want to put a status bubble in there". The STATE TEXT goes; the
      needs-you warning stays, drawn over the avatar itself, which is the
      one state signal this rail still carries and the one that matters. */
-  html[data-layout="consolidated"] body.consolidated .lrow { grid-template-columns: 34px minmax(0, 1fr); gap: 2px 10px; padding: 6px 10px; }
+  html[data-layout="consolidated"] body.consolidated .lrow { grid-template-columns: 34px minmax(0, 1fr); gap: 1px 10px; padding: 6px 10px; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lav { grid-row: 1 / span 2; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lname { grid-column: 2; grid-row: 1; min-width: 0; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lname b { display: block; font-size: .8125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  html[data-layout="consolidated"] body.consolidated .lrow > .ltitle { grid-column: 2; grid-row: 2; font-size: .625rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* `line-height: 1.3` is kosmos#1303 A item 3, Josh: "for each agent let's
+     tighten up the spacing between lines between the agent name, its title, and
+     its status." MEASURED, and the row gap was not the culprit: the gap is 2px,
+     while BOTH small lines were rendering a 10px glyph inside a 16px line box,
+     so six of every sixteen pixels was leading nobody chose. The name keeps its
+     inherited box (13px in 16px is already proportionate); only the two .625rem
+     lines are brought back into scale, and the grid's row gap goes 2px to 1px
+     with them so the three lines sit at an EVEN 3px rather than 4px and 6px.
+     🛑 MEASURE THIS WITH A RANGE OVER THE TEXT NODE, NOT THE ELEMENT RECT. An
+     element's rect INCLUDES its leading, so it reports this change as a no-op.
+     `docs/browser-checks/render-agent-lines.js` is the instrument, and it carries
+     a FLOOR as well as a ceiling: collapsing the lines onto each other would
+     satisfy "tighter" and be worse than what it replaced. */
+  html[data-layout="consolidated"] body.consolidated .lrow > .ltitle { grid-column: 2; grid-row: 2; font-size: .625rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* ⚠️ .lstate hides EXCEPT when it carries the inline Answer button
      (challenge-loop iteration 1): the state chatter goes, per Josh, but
      the needs-you row's one ACTION lived in the same element, and hiding
@@ -2554,7 +2567,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      status." MEASURED at 600 in this view: the base `.lstate` rule sets
      `font-weight: 600` and this override changed only the SIZE, so the quiet
      third line was rendering semibold. */
-  html[data-layout="consolidated"] body.consolidated .lrow > .lstate { grid-column: 2; grid-row: 3; font-size: .625rem; font-weight: 400; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate { grid-column: 2; grid-row: 3; font-size: .625rem; font-weight: 400; line-height: 1.3; }
   /* 🛑 VISUALLY HIDDEN, NOT `display: none`, and the difference is the whole
      point. `display: none` takes the element out of the ACCESSIBILITY TREE as
      well as off the screen, so a rail row announced its name and role and then

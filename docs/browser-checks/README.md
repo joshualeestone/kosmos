@@ -90,6 +90,7 @@ one invented by somebody who did not write them.
 | `render-found-undo.js` | Add and Undo on the found-agents row, pressed for real in a browser |
 | `render-full-width.js` | The board, settings and create form at 1760px: one row lining up with another (#286, #287) |
 | `render-list-row.js` | The not-running row in the list layout, measured cell by cell against a running one (#278) |
+| `render-agent-lines.js` | The three lines of a rail agent, measured as TEXT rather than as boxes (#1303 A item 3). |
 | `render-made-endings.js` | The two endings of Create an agent that are not success |
 | `render-memory-words.js` | Measure the two unknown-memory captions on all three surfaces that draw them, |
 | `render-create-form.js` | Step two of Create an agent: no rules, half widths, Josh's order, the stepped model group |
