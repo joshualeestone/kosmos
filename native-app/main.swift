@@ -662,6 +662,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
+    /* 🛑 EVERY EXTERNAL LINK IN KOSMOS OPENED NOTHING IN THIS APP (#1416),
+       INCLUDING FIRST RUN'S "Get a key".
+
+       The board's outward links carry `target="_blank"` -- eleven of them,
+       counted on web/index.html. WebKit hands a `_blank` navigation to THIS
+       method so the host can decide where a new window goes. The method was
+       not implemented, and the default is not "open it here": it is to DROP
+       the navigation. No window, no in-place load, no error, no log line.
+
+       ⚠️ WHY IT SURVIVED THIS LONG, and it is the part worth keeping: IT
+       WORKS PERFECTLY IN A BROWSER. Anyone testing the board on localhost
+       clicks the link and watches it open. Only the app a person actually
+       runs is affected, so the environment that would reveal the bug is the
+       one nobody tests in.
+
+       📌 `NSWorkspace.shared.open` rather than loading it in the board's own
+       web view: these are other people's sites (platform.openai.com,
+       installkosmos.com). Navigating the board away from itself to reach one
+       would strand the person outside Kosmos with no way back -- this window
+       has no address bar and no Back button.
+
+       🔑 THE SCHEME GUARD IS NOT DECORATION. A `_blank` is a request made by
+       PAGE CONTENT, and `NSWorkspace.open` will act on any scheme the system
+       knows, `file:` included. The eleven real links are all https, so the
+       guard costs them nothing and closes the general case rather than the
+       instances. Refusing is silent to the person by design; the log line is
+       what makes it diagnosable.
+
+       Returning nil tells WebKit no new web view was created, which is
+       correct: the navigation has been handled somewhere else entirely. */
+    /* 🔑 THE SELECTOR IS PINNED, AND THIS LINE IS THE ACTUAL GUARD.
+       `WKUIDelegate`'s methods are OPTIONAL @objc requirements, so a method
+       with a slightly wrong Swift signature COMPILES CLEANLY and is simply
+       never called -- which is indistinguishable from the bug being fixed
+       here. Measured, both arms: dropping `windowFeatures` still typechecks
+       exit 0 WITHOUT this line, and fails with it, "'@objc' method name
+       provides names for 4 arguments, but method has 3 parameters".
+       ⇒ Without the pin, the compiler cannot tell a working fix from a
+       decorative one. The selector is the SDK's own, from
+       WebKit.framework/Headers/WKUIDelegate.h. */
+    @objc(webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:)
+    func webView(_ webView: WKWebView,
+                 createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction,
+                 windowFeatures: WKWindowFeatures) -> WKWebView? {
+        guard let url = navigationAction.request.url else {
+            logLine("createWebViewWith: a target=_blank navigation carried no URL")
+            return nil
+        }
+        let scheme = url.scheme?.lowercased() ?? ""
+        guard scheme == "http" || scheme == "https" else {
+            logLine("createWebViewWith: refused a non-web scheme, " + scheme)
+            return nil
+        }
+        NSWorkspace.shared.open(url)
+        return nil
+    }
+
 
     // MARK: The app and the board are different processes (kosmos#1042)
 
