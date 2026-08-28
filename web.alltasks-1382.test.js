@@ -70,8 +70,8 @@ test('#1382: an unreadable answer is SAID, never shown as an empty list', () => 
   assert.match(body, /catch \(err\) \{[\s\S]*msg\.textContent = String/,
     'a failed read no longer says anything, so it will render as "no tasks"');
   assert.match(body, /if \(!rows\.length\)/, 'the genuinely-empty case is gone');
-  assert.match(body, /No tasks anywhere yet/, 'the empty state lost its words');
-  const emptyAt = body.indexOf('No tasks anywhere yet');
+  assert.match(body, /No tasks on any project yet/, 'the empty state lost its words');
+  const emptyAt = body.indexOf('No tasks on any project yet');
   const catchAt = body.indexOf('catch (err)');
   assert.ok(catchAt > -1 && emptyAt > catchAt,
     'the empty state is reachable before the error is handled, so a failed read can render as "no tasks"');
@@ -82,4 +82,17 @@ test('#1382: a row opens its task on ITS OWN project, not the one we came from',
     'a row no longer carries its project, so a cross-project row opens the wrong task');
   assert.match(PAGE, /if \(pid && pid !== PJ_CURRENT\) \{ PJ_CURRENT = pid; \}/,
     'clicking a row from another project no longer switches to it first');
+});
+
+test('#1382: the count says "still open" only when it has something to say', () => {
+  const fn = PAGE.slice(PAGE.indexOf('async function openAllTasksView'));
+  const body = fn.slice(0, fn.indexOf('\n}\n'));
+  /* "5 tasks, 5 still open" spends four words repeating the first two. The
+     Documents screen one over has the same convention: "N files", and a page
+     count only when there is more than one page. */
+  assert.match(body, /live < rows\.length \?/,
+    'the second clause is unconditional again, so a list with nothing finished reads "5 tasks, 5 still open"');
+  const UNCONDITIONAL = "  count.textContent = rows.length + ' tasks, ' + live + ' still open.';";
+  assert.doesNotMatch(UNCONDITIONAL, /live < rows\.length \?/,
+    'the pattern matches a line that has no condition in it, so the assertion above proves nothing');
 });
