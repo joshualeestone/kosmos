@@ -625,6 +625,53 @@ cmd_post() {
   esac
 }
 
+# ---- kosmos whoami
+# Which account and model THIS agent is running on.
+#
+# Josh, 2026-08-28: "I asked the models to tell me what account they were on.
+# One of them could not tell me this. One of them could and then another one
+# told me that they couldn't." Two of three could not answer, and the
+# INCONSISTENCY was the worse half: a person who gets an answer from one agent
+# reasonably concludes the others are broken.
+#
+# 🔑 NO ARGUMENT, and that is deliberate rather than minimal. The sender is
+# derived from the pane or the launch token, exactly as `report` derives it, so
+# an agent cannot ask who SOMEBODY ELSE is by naming them.
+#
+# 🔑 THE SENTENCE IS COMPOSED BY THE BOARD, not here and not by the agent. If
+# every agent phrases this itself, three agents give three answers, which is
+# the defect this verb exists to remove.
+cmd_whoami() {
+  if ! healthy; then
+    say "Kosmos is not running, so it cannot tell you which account you are on. Start it with: kosmos start"
+    exit 1
+  fi
+  local body esc_pane _tok
+  esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  # Same token rule as `report`: only a hex value is presented, because
+  # /api/whoami reads `header || body.token` and a junk header would take the
+  # token arm and fail there rather than falling through to the pane.
+  _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
+  body=$(curl -sS -m 15 -X POST "$URL/api/whoami" \
+    -H 'content-type: application/json' \
+    ${_tok:+-H "x-kosmos-agent-token: $_tok"} \
+    -d "{\"from_pane\":\"$esc_pane\"}" 2>&1) || {
+      say "Kosmos did not answer, so we cannot tell you which account you are on."
+      exit 1
+    }
+  # The sentence the board composed, verbatim. Falling back to the raw body
+  # rather than to a sentence of our own: a locally-invented answer is exactly
+  # what this verb exists to stop.
+  case "$body" in
+    *'"because"'*) printf '%s\n' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p' ;;
+    *) printf '%s\n' "$body" ;;
+  esac
+}
+
 # ---- kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [words…]
 # Say what you are DOING. Records rather than delivers (#188's third verb):
 # nothing is typed anywhere and nobody is interrupted; the board reads the
@@ -823,9 +870,10 @@ case "${1:-}" in
   reply)   shift; cmd_reply "$@" ;;
   post)    shift; cmd_post "$@" ;;
   report)  shift; cmd_report "$@" ;;
+  whoami)  shift; cmd_whoami "$@" ;;
   room)    shift; cmd_room "$@" ;;
   *)
-    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room\n\n'
+    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | whoami\n\n'
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2
     ;;
