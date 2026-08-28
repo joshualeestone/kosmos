@@ -192,8 +192,16 @@ test('the consolidated .apphead override resets margin, or the update notice is 
      the header is allowed to give way at all. */
   const rule = PAGE.match(new RegExp(cons + ' > \\.apphead \\{[^}]*\\}'));
   assert.ok(rule, 'the consolidated .apphead override is gone');
-  assert.match(rule[0], /margin:\s*0 0 var\(--space-6\)/,
-    'the consolidated .apphead override stopped resetting margin: .apphead\'s -24px mirror margins no longer cancel anything (this view has padding:0) and become a clip inside the viewport-height grid, taking the update and offline notices with them');
+  /* ⚠️ THE PROPERTY IS THAT MARGIN IS RESET, NOT HOW IT IS SPELLED. This pinned
+     `0 0 var(--space-6)` literally, and the reason recorded above is the -24px
+     mirror margins: unreset, .apphead and #newsbar rendered at left:-24, top:-24
+     and sliced the update notice in half. `margin: 0` cancels those exactly as
+     well as `0 0 16px` does, and kosmos#1188 needs the bottom 16px gone because
+     it was painting a grey band across the top of the consolidated view.
+     ⇒ Widened to either form, and NOT to /margin:/ alone: `margin-bottom: 8px`
+     would pass that and leave the -24px uncancelled, which is the defect. */
+  assert.match(rule[0], /margin:\s*(?:0|0 0 var\(--space-6\));/,
+    'the consolidated .apphead override stopped resetting margin: .apphead\'s -24px mirror margins no longer cancel anything (this view has padding:0)');
   // The property this depends on, pinned beside it: if the body ever regains
   // padding, the reset above becomes wrong rather than merely unnecessary.
   assert.match(PAGE, new RegExp(cons + '[^{]*\\{[^}]*height: 100vh; overflow-y: auto; overflow-x: hidden; padding: 0'),
