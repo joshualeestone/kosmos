@@ -250,6 +250,18 @@ test('the 0.5 line keeps its own spelling and is not refused retroactively', () 
  * the guard. Without one every arm would stop at "no site checkout" and pass
  * for the wrong reason, which is the failure this file already survived once.
  */
+/* The one shape the versions gate accepts: the id it greps for, and a rel-d it
+   can parse, stamped now. Kept beside the sandbox rather than inline so an arm
+   that wants a STALE entry can pass an offset and get a refusal on purpose. */
+function versions_entry(version, minutesStale = 0) {
+  const t = new Date(Date.now() - minutesStale * 60000);
+  const months = 'January February March April May June July August September October November December'.split(' ');
+  let h = t.getHours(); const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+  const mm = String(t.getMinutes()).padStart(2, '0');
+  const when = `${months[t.getMonth()]} ${t.getDate()}, ${t.getFullYear()}, ${h}:${mm} ${ap} CDT`;
+  return `<article id="v${version.replace(/\./g, '-')}"><span class="rel-d">${when}</span></article>\n`;
+}
+
 function git_sandbox(version, { diverge = 'none' } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-'));
   const git = (...a) => {
@@ -267,8 +279,14 @@ function git_sandbox(version, { diverge = 'none' } = {}) {
      and returns 0, which reads as "did not refuse". */
   fs.cpSync(path.join(__dirname, 'tools', 'lib'), path.join(dir, 'tools', 'lib'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'sandbox', version }, null, 2));
-  // The site check runs before the guard, so the arms need one to get past it.
-  fs.mkdirSync(path.join(dir, 'site', 'dist'), { recursive: true });
+  /* The site check runs before the guard, so the arms need one to get past it.
+     ⚠️ IT LIVES OUTSIDE THE REPO, which is both what the real thing is (a
+     separate chaoskosmos-site checkout) and what keeps these arms honest: with
+     the site inside `dir`, writing the #1453 versions fixture into it makes the
+     repo dirty and every arm dies on "main is dirty" -- a refusal from step 1
+     that has nothing to do with the guard under test. */
+  const site = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-site-'));
+  fs.mkdirSync(path.join(site, 'dist'), { recursive: true });
 
   spawnSync('git', ['init', '-b', 'main', dir], { encoding: 'utf8' });
   git('config', 'user.email', 'gate@example.invalid');
@@ -305,10 +323,18 @@ function git_sandbox(version, { diverge = 'none' } = {}) {
      refuses with "main is dirty" before ever reaching the guard under test.
      The older tests never see it because they stop at the site check first. */
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-home-'));
-  return { dir, remote, home };
+  return { dir, remote, home, site };
 }
 
-function run_git(dir, version, home) {
+function run_git(dir, version, home, site, { staleBy = 0 } = {}) {
+  /* ⚠️ SINCE #1453 THE VERSIONS ENTRY IS A STEP 1 PRECONDITION, so an arm that
+     means to reach step 2 needs one or it stops here instead, refusing with the
+     versions page rather than with the guard under test. It is written HERE
+     rather than in the sandbox because the entry has to name the version being
+     CUT, and this is the function that knows it. Stamped from the clock on
+     purpose: the gate refuses a guess by design, so a hard-coded date would rot
+     this file into a red within twenty minutes. */
+  fs.writeFileSync(path.join(site, 'versions.html'), versions_entry(version, staleBy));
   const before = fs.readFileSync(path.join(dir, 'package.json'), 'utf8');
   const r = spawnSync('bash', [path.join(dir, 'tools', 'release.sh'), version], {
     encoding: 'utf8',
@@ -322,7 +348,7 @@ function run_git(dir, version, home) {
     env: {
       ...process.env,
       HOME: home,
-      KOSMOS_SITE: path.join(dir, 'site'),
+      KOSMOS_SITE: site,
       KOSMOS_HARNESS_IGNORE_CUT: '1',
     },
     timeout: 60000,
@@ -333,8 +359,8 @@ function run_git(dir, version, home) {
 }
 
 test('a cut refuses when local main has commits origin does not (the stranded bump)', () => {
-  const { dir, home } = git_sandbox('0.6.02', { diverge: 'local-ahead' });
-  const r = run_git(dir, '0.6.03', home);
+  const { dir, home, site } = git_sandbox('0.6.02', { diverge: 'local-ahead' });
+  const r = run_git(dir, '0.6.03', home, site);
   assert.equal(r.status, 1, 'it cut from a diverged tree');
   assert.match(r.said, /local main has commits origin\/main does not/);
   assert.match(r.said, /COULD NOT PUSH THE BUMP/, 'the refusal does not name the cause it is usually from');
@@ -348,8 +374,8 @@ test('a cut is NOT refused merely for being behind origin', () => {
      cutting an older tree deliberately must stay possible. Without this the
      guard could be written as "local must equal origin", which would pass the
      arm above and block ordinary work. */
-  const { dir, home } = git_sandbox('0.6.02', { diverge: 'local-behind' });
-  const r = run_git(dir, '0.6.03', home);
+  const { dir, home, site } = git_sandbox('0.6.02', { diverge: 'local-behind' });
+  const r = run_git(dir, '0.6.03', home, site);
   assert.ok(!/local main has commits origin\/main does not/.test(r.said),
     `refused a tree that is merely behind:\n${r.said.slice(0, 400)}`);
   assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the guard');
@@ -357,8 +383,8 @@ test('a cut is NOT refused merely for being behind origin', () => {
 });
 
 test('a clean tree in step with origin gets past the guard', () => {
-  const { dir, home } = git_sandbox('0.6.02');
-  const r = run_git(dir, '0.6.03', home);
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const r = run_git(dir, '0.6.03', home, site);
   assert.ok(!/local main has commits origin\/main does not/.test(r.said), r.said.slice(0, 400));
   assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the guard');
   fs.rmSync(dir, { recursive: true, force: true });
