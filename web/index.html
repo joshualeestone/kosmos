@@ -2581,6 +2581,23 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      unaffected. */
   html[data-layout="consolidated"] body.consolidated #pj-settings-view,
   html[data-layout="consolidated"] body.consolidated #pj-task-view,
+  /* 🔑 THE DOCUMENTS VIEW STOPS SHORT OF THE EDGE (kosmos#1200). Josh: "the page
+     is really super expanded. I'd love to have the 'Open this folder in Finder'
+     button not touch the edge of the screen like it is in this example."
+     Measured at a 1600 window before this: the view ran left 489 to right 1600
+     and the Finder button's right edge was at 1600 exactly, 0px of margin. A
+     control flush against the window edge reads as clipped rather than placed. */
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view { padding-right: var(--space-8); }
+  /* 🔑 AND THE SIZE SITS BESIDE ITS FILE, NOT AT THE FAR RIGHT. Josh: "I'd also
+     like to have the file sizes of the files closer to the actual files
+     themselves."
+     ⚠️ `.pj-doc-n { flex: 1 }` is the cause: the name claims all the free space,
+     so the size is pushed to the end of the row and the gap GROWS with the width
+     of the page. On a narrow column it looks deliberate; expanded, the two ends
+     of one fact are half a screen apart.
+     ⇒ `flex: 0 1 auto` keeps the shrink, so a long name still truncates, and
+     drops the grow so the size follows the name instead of the row. */
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view .pj-doc-n { flex: 0 1 auto; }
   html[data-layout="consolidated"] body.consolidated #pj-docs-view,
   html[data-layout="consolidated"] body.consolidated #pj-add-view { scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated #pj-settings-view::-webkit-scrollbar,
