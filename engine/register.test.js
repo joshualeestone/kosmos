@@ -394,6 +394,50 @@ test('#500: both walks fail soft on a machine with neither root', () => {
  * runner neither travelled nor was asserted, one key over, in the same argument
  * list. That is why nothing went red.
  */
+/**
+ * #1337: the codex writes must land INSIDE the sandbox, and this asserts it
+ * rather than trusting it.
+ *
+ * 🛑 WHY THIS EXISTS, AND IT IS TODAY'S INCIDENT. This file previously
+ * SANDBOXED the codex home and ASSERTED NOTHING ABOUT IT. That is a guard with
+ * no alarm: when the seam was absent, `installJob` wrote a real
+ * `trust_level = "trusted"` entry into the OPERATOR'S `~/.codex/config.toml`
+ * on every full-suite run, and this file reported **21 pass, 0 fail**. Four
+ * runs went by. Nothing in a green signalled it.
+ *
+ * ⭐ MEASURED (#1337): perturbing the one home derivation turned
+ * `create.test.js`, `openaiaccounts.test.js` and `codexsession.test.js` RED and
+ * made `discover.adopt.test.js` REFUSE TO RUN - while THIS file stayed GREEN.
+ * A file that cannot notice where its own writes land is the one file that
+ * could pollute again.
+ *
+ * 📌 And this is assertable rather than circular (Mona Lisa's distinction): it
+ * is a fact about a FILE ON DISK, not a property of the code under test. You
+ * cannot assert "nobody will ever pass a codex runner"; you CAN assert "the
+ * entry is under my sandbox and not under the real home".
+ */
+test('#1337: a Codex repair writes its trust entry inside the sandbox, not the real home', () => {
+  reset();
+  agent('codexhome');
+  store.writeProfile('codexhome', { role: 'helper', provider: 'openai' });
+  fs.rmSync(create.plistPath('codexhome'), { force: true });
+  register.repair();
+
+  const sandboxed = path.join(SB, 'home', '.codex', 'config.toml');
+  assert.ok(fs.existsSync(sandboxed),
+    'the codex trust write did not land in the sandbox at all: either it went somewhere else, or the repair stopped doing it and this guard is now blind');
+  assert.match(fs.readFileSync(sandboxed, 'utf8'), /codexhome/,
+    'the sandboxed config exists but does not name this agent, so the write under test is not the one being asserted');
+
+  /* THE ARM THAT MATTERS: the operator's real home must be untouched. Resolved
+     the same way the product resolves it, so this cannot drift from the code. */
+  const real = path.join(os.homedir(), '.codex', 'config.toml');
+  if (fs.existsSync(real)) {
+    assert.doesNotMatch(fs.readFileSync(real, 'utf8'), /codexhome/,
+      'THE TEST WROTE INTO THE OPERATOR\'S REAL ~/.codex - the sandbox seam is not holding');
+  }
+});
+
 test('#1400: a Codex agent repairs to a CODEX job, and a Claude agent still repairs to a Claude one', () => {
   reset();
   /* Both arms in one test on purpose: a fix that always passes `runner: codex`

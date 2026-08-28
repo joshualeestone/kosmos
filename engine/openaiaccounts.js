@@ -20,6 +20,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const codexupdate = require('./codexupdate');
 const { spawnSync } = require('node:child_process');
 const subscription = require('./subscription');
 
@@ -29,9 +30,13 @@ const PROVIDER = 'openai';
    a person never needs it to pick an account. */
 const PROVIDER_NAME = 'OpenAI';
 
-/** The default codex home, the one rule create.js's codexHomeDir also keeps. */
+/** The default codex home. 🛑 ONE derivation, in codexupdate, CALLED rather
+    than restated (#1337). This copy did not honour `CODEX_HOME`, so it could
+    name a different home than the launch path wrote to. It also froze HOME at
+    module load; calling makes it lazy, which is strictly more permissive and
+    matches every other caller. */
 function defaultDir() {
-  return process.env.AGENT_WORKFORCE_CODEX_HOME || path.join(HOME, '.codex');
+  return codexupdate.defaultHome();
 }
 
 /* ⚠️ NO beside-the-directory case here, on purpose (Angel, #540 review). The

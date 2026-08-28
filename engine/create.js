@@ -914,10 +914,15 @@ function supervisorPath() {
    same refresh, for the same reason — one copy, every agent, every fix
    reaching agents made long ago at their next start. */
 /** The one CODEX_HOME resolution, shared by the trust write and the
-    connected-check so the two cannot look in different homes. */
+    connected-check so the two cannot look in different homes.
+    🛑 DELEGATES rather than restating the rule (#1337). FOUR copies of this
+    derivation existed and they DISAGREED: only codexupdate's honoured
+    `CODEX_HOME`, which is codex's OWN documented variable. With it set, the
+    trust entry went to `~/.codex` while codex read `$CODEX_HOME`, so an agent
+    started and then stopped at the trust prompt - the exact failure #245 and
+    #1332 exist to prevent, and a silent one. Keep this a call. */
 function codexHomeDir() {
-  return process.env.AGENT_WORKFORCE_CODEX_HOME
-    || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.codex');
+  return codexupdate.defaultHome();
 }
 
 /**
