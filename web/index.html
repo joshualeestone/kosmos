@@ -2723,7 +2723,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      buttons). If that cost ever outweighs the tidiness, it is his call to
      reverse, not a defect to fix quietly. */
   html[data-layout="consolidated"] body.consolidated #pj-settings-view, html[data-layout="consolidated"] body.consolidated #pj-task-view,
-  html[data-layout="consolidated"] body.consolidated #pj-docs-view, html[data-layout="consolidated"] body.consolidated #pj-add-view { min-height: 0; overflow-y: auto; }
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view, html[data-layout="consolidated"] body.consolidated #pj-alltasks-view, html[data-layout="consolidated"] body.consolidated #pj-add-view { min-height: 0; overflow-y: auto; }
   /* 🔑 THESE PANES HIDE THEIR SCROLLBAR LIKE EVERY OTHER SCROLLER IN THIS VIEW
      (kosmos#1196). Josh: "The project settings tab itself is quite a mess. It has
      a horizontal or vertical scroll bar in the middle of the page. I'd like to
@@ -2748,7 +2748,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      Measured at a 1600 window before this: the view ran left 489 to right 1600
      and the Finder button's right edge was at 1600 exactly, 0px of margin. A
      control flush against the window edge reads as clipped rather than placed. */
-  html[data-layout="consolidated"] body.consolidated #pj-docs-view { padding-right: var(--space-8); }
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view,
+  html[data-layout="consolidated"] body.consolidated #pj-alltasks-view { padding-right: var(--space-8); }
   /* 🔑 AND THE SIZE SITS BESIDE ITS FILE, NOT AT THE FAR RIGHT. Josh: "I'd also
      like to have the file sizes of the files closer to the actual files
      themselves."
@@ -2760,10 +2761,12 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      drops the grow so the size follows the name instead of the row. */
   html[data-layout="consolidated"] body.consolidated #pj-docs-view .pj-doc-n { flex: 0 1 auto; }
   html[data-layout="consolidated"] body.consolidated #pj-docs-view,
+  html[data-layout="consolidated"] body.consolidated #pj-alltasks-view,
   html[data-layout="consolidated"] body.consolidated #pj-add-view { scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated #pj-settings-view::-webkit-scrollbar,
   html[data-layout="consolidated"] body.consolidated #pj-task-view::-webkit-scrollbar,
   html[data-layout="consolidated"] body.consolidated #pj-docs-view::-webkit-scrollbar,
+  html[data-layout="consolidated"] body.consolidated #pj-alltasks-view::-webkit-scrollbar,
   html[data-layout="consolidated"] body.consolidated #pj-add-view::-webkit-scrollbar { display: none; }
   /* #980 (iteration 2): the projects rail header pins at the top of its
      scroller, so a long project list scrolls UNDER it -- the same gesture

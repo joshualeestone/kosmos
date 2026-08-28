@@ -96,3 +96,27 @@ test('#1382: the count says "still open" only when it has something to say', () 
   assert.doesNotMatch(UNCONDITIONAL, /live < rows\.length \?/,
     'the pattern matches a line that has no condition in it, so the assertion above proves nothing');
 });
+
+/**
+ * #1196 arrives at a new screen, and it does not arrive by itself.
+ *
+ * 🛑 A NEW PROJECT VIEW DOES NOT INHERIT THE CONSOLIDATED LAYOUT'S TREATMENT BY
+ * EXISTING. Every sibling that scrolls is named explicitly in four rule groups,
+ * and I shipped this screen into none of them. Josh's #1196 complaint was
+ * precisely the scrollbar those rules hide: "The project settings tab itself is
+ * quite a mess. It has a horizontal or vertical scroll bar in the middle of the
+ * page."
+ *
+ * ⇒ Found by asking what ELSE answers this question for the other views, not by
+ * re-reading my own diff.
+ */
+test('#1382: the screen is named in the consolidated layout rules, like its siblings', () => {
+  const mine = (PAGE.match(/body\.consolidated #pj-alltasks-view/g) || []).length;
+  const docs = (PAGE.match(/body\.consolidated #pj-docs-view/g) || []).length;
+  /* CONTROL: the sibling must have them, or the count below means nothing and
+     the whole convention has been removed rather than missed. */
+  assert.ok(docs >= 4, `the documents screen has only ${docs} consolidated rules, so this convention is gone and this test is measuring nothing`);
+  assert.ok(mine >= 4, `the all-tasks screen has ${mine} consolidated rules against the documents screen's ${docs}`);
+  assert.match(PAGE, /#pj-alltasks-view::-webkit-scrollbar/,
+    'the screen shows a scrollbar in the consolidated view, which is the #1196 complaint');
+});
