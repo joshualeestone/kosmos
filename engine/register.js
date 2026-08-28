@@ -299,7 +299,25 @@ function repair(opts) {
        An agent that comes back on the default model is recoverable in one
        click; an agent that does not come back at all is not. */
     try { model = modelFor(name) || null; } catch { model = null; }
-    const r = create.installJob(name, { model });
+    /* 🛑 THE RUNNER TRAVELS TOO, OR A CODEX AGENT IS REPAIRED INTO A CLAUDE ONE
+       (#1400). `installJob` reads an absent runner as claude, so this rebuilt a
+       missing job pointing at the claude binary with the `codex` argument gone -
+       and reported success. The agent comes back on the wrong runner, silently,
+       running Claude in a folder set up for Codex.
+
+       🔑 THE ANSWER WAS ALREADY ON DISK. `server.js` derives a card's runner from
+       `profile.provider`; this path simply did not read it.
+
+       ⚠️ SAME POSTURE AS THE MODEL ABOVE: an unreadable profile must not leave the
+       agent unregistered. A repair onto the default runner is recoverable in one
+       click; no repair at all is not. */
+    /* 📌 NO try/catch, AND THAT IS MEASURED RATHER THAN ASSUMED. `store.readProfile`
+       returns `{}` for a missing file AND for unparseable JSON - it does not throw
+       - so a guard here would be unreachable, and a perturbation removing one
+       changed no test. The corrupt-profile control below is what holds this: if
+       that contract ever changes, it goes red rather than a dead catch hiding it. */
+    const provider = (store.readProfile(name) || {}).provider || null;
+    const r = create.installJob(name, { model, ...(provider === 'openai' ? { runner: 'codex' } : {}) });
     return { name, shownAs: shownName(name), ...r };
   });
   return {

@@ -363,3 +363,59 @@ test('#500: both walks fail soft on a machine with neither root', () => {
   assert.equal(s.ok, true);
   assert.deepEqual(s.agents.map((a) => a.name), ['solo']);
 });
+
+/**
+ * #1400: repair rebuilt a Codex agent's job as a Claude job.
+ *
+ * 🛑 `installJob` reads an absent runner as claude, and `register.js` contained
+ * zero references to `provider`. So an agent whose job went missing came back
+ * pointing at the claude binary with the `codex` argument gone - **and repair
+ * reported success.** It runs Claude in a folder set up for Codex.
+ *
+ * ⭐ AND THE TEST THAT LOOKED LIKE COVERAGE WAS COVERAGE FOR A DIFFERENT KEY. The
+ * model assertion above tests the NEIGHBOURING field of this exact call. The
+ * runner neither travelled nor was asserted, one key over, in the same argument
+ * list. That is why nothing went red.
+ */
+test('#1400: a Codex agent repairs to a CODEX job, and a Claude agent still repairs to a Claude one', () => {
+  reset();
+  /* Both arms in one test on purpose: a fix that always passes `runner: codex`
+     satisfies the first assertion and breaks every Claude agent on the machine.
+     The pair is the guard; either alone is not. */
+  agent('codexrepair');
+  store.writeProfile('codexrepair', { role: 'helper', provider: 'openai' });
+  agent('clauderepair');
+
+  register.repair({ modelFor: () => null });
+
+  const codexPlist = fs.readFileSync(create.plistPath('codexrepair'), 'utf8');
+  const claudePlist = fs.readFileSync(create.plistPath('clauderepair'), 'utf8');
+
+  assert.match(codexPlist, /<string>codex<\/string>/,
+    'a Codex agent was repaired into a Claude job: it will run the wrong program in its own folder');
+  assert.doesNotMatch(claudePlist, /<string>codex<\/string>/,
+    'a Claude agent was repaired into a Codex job: the fix is "always codex"');
+});
+
+test('#1400 CONTROL: a CORRUPT profile still repairs, on the default runner', () => {
+  /* Same posture the model above keeps: a repair onto the default runner is
+     recoverable in one click; no repair at all is not.
+
+     🛑 A CORRUPT PROFILE, NOT AN ABSENT ONE. My first version of this control
+     omitted the profile entirely and failed - because `survey()` finds agents
+     BY their profile, so an agent without one is never seen and repair has
+     nothing to skip. The control was aimed at a state that cannot occur, which
+     is not a weaker test, it is a test of nothing. The reachable case is a
+     profile that EXISTS and cannot be parsed, which is exactly what the
+     try/catch around `readProfile` is for. */
+  reset();
+  agent('corruptrepair');
+  fs.writeFileSync(path.join(store.PROFILES, 'corruptrepair.json'), '{ not json', 'utf8');
+  const out = register.repair({ modelFor: () => null });
+  const row = out.results.find((r) => r.name === 'corruptrepair');
+  assert.ok(row, 'an agent with a corrupt profile was skipped rather than repaired');
+  assert.ok(fs.existsSync(create.plistPath('corruptrepair')),
+    'an unparseable profile left somebody\'s agent without a job');
+  assert.doesNotMatch(fs.readFileSync(create.plistPath('corruptrepair'), 'utf8'),
+    /<string>codex<\/string>/, 'a runner was invented from a profile that could not be read');
+});
