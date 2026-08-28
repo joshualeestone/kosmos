@@ -2584,7 +2584,25 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   /* #980: the third row (Members, after the Files-above-Members swap) is
      the right column's flexing one; each card scrolls inside itself, so
      tall content bounds instead of growing the page. */
-  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(240px, 26%); grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(168px, 1fr); height: 100%; min-height: 0; }
+  /* 🔑 THE RIGHT COLUMN IS EXPRESSED IN THE AGENTS COLUMN'S OWN TERMS (kosmos#1189).
+     Josh: "I want the width of agents to be the same width as projects and I want
+     that also to be the same width as the columns for tasks, files in this project,
+     and project members."
+     Measured before changing anything, at four window widths: agents 15.0%, projects
+     14.4%, files 16.9%, tasks 14.4%. Files was 34px wider at 1280 and 47px at 1920,
+     so the gap GREW with the window, which is why it read as slightly wrong rather
+     than plainly wrong.
+     ⚠️ A PERCENTAGE CANNOT FIX IT, AND THAT IS THE WHOLE PROBLEM. The agents column
+     is `minmax(200px, 15%)` OF THE BODY: flat 200px below about 1333px, then 15%.
+     This column is a percentage of what is LEFT after it, so it is a percentage of a
+     different parent and cannot track a piecewise curve. Every candidate from 20% to
+     26% matched at one width and missed at the others.
+     ⇒ `vw` puts both columns in the same units. 15vw alone tracked perfectly with a
+     CONSTANT 24px shortfall (the inset between this track and the card inside it),
+     which is the signature of correct tracking and a wrong intercept, so the 24px is
+     added back. Measured after: 200/200, 200/200, 240/240, 288/288 at 1100, 1280,
+     1600 and 1920. */
+  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(224px, calc(15vw + 24px)); grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(168px, 1fr); height: 100%; min-height: 0; }
   /* 🛑 `stretch`, NOT `start`, AND THIS ONE OVERLAPPED CARDS ON A SMALL LAPTOP.
      With `start` a card is never sized to its track: its height is its own
      content clamped by the 38vh cap. But the two `minmax(0, auto)` tracks have a
@@ -2653,6 +2671,23 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > .tkcards { overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > .tkcards::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files { overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+  /* 🔑 THE THREE PANELS COME OUT OF THEIR FLOATING BOXES (kosmos#1189). Josh:
+     "I want those to come out of those boxes and be in those container areas and
+     be the same width as agents and projects."
+     ⚠️ TASKS IS NOT BUILT LIKE THE OTHER TWO. Files and Members are `.pjcard`;
+     Tasks is a plain `.field`. A rule keyed only to `.pjcard` would un-box two of
+     the three and leave Tasks looking different, which is the opposite of the ask.
+     📌 This does NOT change any column width. Measured: box-sizing is border-box,
+     so padding comes out of the inside and removing it leaves the outer width
+     identical to the pixel. The widths are fixed by the track above, separately. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard,
+  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol,
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field {
+    border: 0; border-radius: 0; background: none; padding: 0; }
+  /* One rule between the sections, matching the vertical rule between columns. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard + .pjcard,
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files {
+    border-top: 1px solid var(--k-rule); padding-top: 14px; margin-top: 2px; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files::-webkit-scrollbar { display: none; }
   /* ⚠️ vh CAPS ON THE TWO auto-ROW CARDS, NOT max-height: 100% (challenge-
      loop iteration 1, then MEASURED: with 30 rows stuffed into Tasks and
