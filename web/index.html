@@ -4951,6 +4951,35 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 #firstrun .fr-sleepbtn:hover, #firstrun #fr-reveal:hover { background: rgba(198,154,50,.14); }
 #firstrun .fr-sleepbtn:focus-visible, #firstrun #fr-reveal:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
 #firstrun .fr-progress { background: var(--k-rule); }
+/* 🔑 THE STATUS LINE MATCHES THE LINE ABOVE IT (#1205, Josh: "too big ...
+   match the size of the line above it"). Measured: `.fr-confirm-t` is
+   `--text-body` = 13px, `.dhint` is .9375rem = 15px, so the status sat 15%
+   LARGER than the sentence it reports on. */
+#firstrun #fr-openai-confirm-msg, #acct-openai-install-msg {
+  font: var(--text-body) var(--font-ui); }
+
+/* 🛑 INDETERMINATE, AND THAT IS THE HONEST SHAPE (#1205 items 4 and 5).
+   Josh asked for a spinner AND asked why OpenAI has no progress bar. It has
+   none because THE OPENAI INSTALL EMITS NO PROGRESS -- both the wizard and
+   Settings set a text line and poll for the runner to appear. A filling bar
+   here would be a percentage nobody measured, which is worse than no bar.
+   An indeterminate bar says "working, duration unknown", which is true.
+   ⚠️ NOT `acct-pulse`: its own comment reserves pulsing for "actively
+   connected" (Josh, #864). One indicator naming two conditions sends a person
+   to the wrong reading, so this gets its own motion.
+   📌 Reduced motion drops the animation rather than freezing a part-filled
+   bar, because a stopped bar reads as stalled progress. The status sentence
+   carries the meaning on its own. */
+#firstrun .fr-progress.fr-indet { overflow: hidden; }
+#firstrun .fr-progress.fr-indet > i { display: block; height: 100%; width: 40%;
+  border-radius: 3px; animation: fr-indet 1.4s ease-in-out infinite; }
+@keyframes fr-indet {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #firstrun .fr-progress.fr-indet { display: none; }
+}
 #firstrun .fr-progress-fill, #firstrun .fr-progress i, #firstrun .fr-progress > div { background: var(--gold-deep); }
 /* ⚠️ `.llm-disc` (the gradient circle) IS RETIRED, 2026-08-25 — every
    provider row now carries a real vendor mark (`.pmark`, see below) instead
@@ -6328,8 +6357,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            on `/api/runners` said "nothing in web/ or native-app/ reads this
            yet". This is the consumer. -->
       <div id="acct-openai-install" hidden>
-        <p class="dhint" style="margin:0 0 8px;">Kosmos needs the OpenAI runner on this computer before a key is any use. It is a one-time download.</p>
-        <div class="frow"><button class="btn uprime" id="acct-openai-install-go" type="button">Download and install it</button></div>
+        <p class="dhint" style="margin:0 0 8px;">In order to connect to OpenAI GPT we need to download the installer.</p>
+        <div class="frow"><button class="btn uprime" id="acct-openai-install-go" type="button">Confirm</button></div>
         <p class="dhint" id="acct-openai-install-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
       </div>
       <div id="acct-openai-key-step">
@@ -6623,11 +6652,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              first-run wizard already learned this: prerequisites go before
              credentials." It had -- for Claude. -->
         <div id="fr-openai-confirm" class="fr-confirm" role="group" aria-labelledby="fr-openai-confirm-t" hidden>
-          <p class="fr-confirm-t" id="fr-openai-confirm-t">Kosmos needs the OpenAI runner on this computer before a key is any use. It is a one-time download.</p>
+          <p class="fr-confirm-t" id="fr-openai-confirm-t">In order to connect to OpenAI GPT we need to download the installer.</p>
           <div class="frow">
-            <button class="btn uprime" type="button" id="fr-openai-confirm-go" aria-describedby="fr-openai-confirm-t">Download and install it</button>
+            <button class="btn uprime" type="button" id="fr-openai-confirm-go" aria-describedby="fr-openai-confirm-t">Confirm</button>
             <button class="btn" type="button" id="fr-openai-confirm-no">Not now</button>
           </div>
+          <div class="fr-progress fr-indet" id="fr-openai-confirm-bar" role="progressbar"
+               aria-label="Installing the OpenAI runner" hidden><i></i></div>
           <p class="dhint" id="fr-openai-confirm-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
         </div>
         <div id="fr-openai-flow" hidden style="margin: -2px 0 10px;">
@@ -12475,6 +12506,7 @@ document.getElementById('acct-openai-install-go').addEventListener('click', asyn
     acctOpenaiWatch();
   } catch (err) {
     go.disabled = false;
+    showBar(false);
     if (msg) msg.textContent = String((err && err.message) || 'We could not start that install.');
   }
 });
@@ -29199,7 +29231,16 @@ document.getElementById('fr-openai-confirm-no').addEventListener('click', () => 
 document.getElementById('fr-openai-confirm-go').addEventListener('click', async (e) => {
   const go = e.currentTarget;
   const msg = document.getElementById('fr-openai-confirm-msg');
+  /* #1205: Josh asked for a spinner here and asked why there is no progress
+     bar. There is none because THIS INSTALL EMITS NO PROGRESS -- the poll
+     below is all we have. An indeterminate bar is the honest version: it says
+     "working", not "37 per cent". It is hidden again on every exit from this
+     handler, including the timeout, or it would keep sliding under a sentence
+     that has stopped being true. */
+  const bar = document.getElementById('fr-openai-confirm-bar');
+  const showBar = (on) => { if (bar) bar.hidden = !on; };
   go.disabled = true;
+  showBar(true);
   if (msg) msg.textContent = 'Starting\u2026';
   try {
     const res = await fetch('/api/runners/openai/install', { method: 'POST' });
@@ -29212,8 +29253,8 @@ document.getElementById('fr-openai-confirm-go').addEventListener('click', async 
        appears. If it never does, the sentence above stays and nothing lies. */
     const started = Date.now();
     const tick = setInterval(async () => {
-      if (await frOpenaiRunnerPresent()) { clearInterval(tick); if (msg) msg.textContent = ''; frOpenaiShowKey(); return; }
-      if (Date.now() - started > 300000) { clearInterval(tick); if (msg) msg.textContent = 'That is taking longer than expected. Settings > Accounts can finish it.'; }
+      if (await frOpenaiRunnerPresent()) { clearInterval(tick); showBar(false); if (msg) msg.textContent = ''; frOpenaiShowKey(); return; }
+      if (Date.now() - started > 300000) { clearInterval(tick); showBar(false); if (msg) msg.textContent = 'That is taking longer than expected. Settings > Accounts can finish it.'; }
     }, 2000);
   } catch (err) {
     go.disabled = false;

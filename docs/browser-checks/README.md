@@ -84,6 +84,7 @@ one invented by somebody who did not write them.
 | `render-fields.js` | The field and control invariants, measured in a real browser, in BOTH schemes |
 | `render-first-run.js` | Render every first-run state in a real browser and look at it |
 | `render-conn-url.js` | The sign-in fallback button does not overlap the line above it (#1209) |
+| `render-openai-step.js` | The OpenAI install step at parity with Claude's, with an honest indicator (#1205) |
 | `render-found-board.js` | The board's panel for agents on this Mac that Kosmos is not looking after |
 | `render-found-undo.js` | Add and Undo on the found-agents row, pressed for real in a browser |
 | `render-full-width.js` | The board, settings and create form at 1760px: one row lining up with another (#286, #287) |
