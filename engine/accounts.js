@@ -40,7 +40,16 @@ const path = require('node:path');
    purpose, because THIS module is one of its two callers (#561). */
 const reporthook = require('./reporthook');
 
-const HOME = process.env.AGENT_WORKFORCE_HOME || os.homedir();
+/* 🛑 A FUNCTION, NOT A CONST (#1419). Frozen at require time this read straight
+   past the sandbox seam: a caller that set `AGENT_WORKFORCE_HOME` AFTER
+   requiring this module got `list()` returning the OPERATOR'S REAL ACCOUNTS,
+   by their real email addresses, while believing it was sandboxed.
+   ⭐ MEASURED, both arms: set after require -> 4 real accounts; set before
+   require -> the 2 fixture accounts. Same call, opposite answers, decided by
+   require order alone.
+   ⇒ Same defect and same fix as `openaiaccounts.js` in #1337/#1420, which is
+   where this was noticed. Keep it callable. */
+function homeDir() { return process.env.AGENT_WORKFORCE_HOME || os.homedir(); }
 
 /**
  * Where a config directory keeps its account record.
@@ -69,8 +78,8 @@ function configFile(dir) {
      default dir must not silently fall to the inside-the-dir branch,
      which is the wrong-path bug this helper exists to prevent. */
   const clean = path.resolve(String(dir || ''));
-  const isDefault = clean === path.join(HOME, '.claude');
-  return isDefault ? path.join(HOME, '.claude.json') : path.join(clean, '.claude.json');
+  const isDefault = clean === path.join(homeDir(), '.claude');
+  return isDefault ? path.join(homeDir(), '.claude.json') : path.join(clean, '.claude.json');
 }
 
 /**
@@ -116,7 +125,7 @@ function identityOf(dir) {
  */
 function sharesMemory(dir, isDefault) {
   if (isDefault) return true;
-  const primary = path.join(HOME, '.claude', 'projects');
+  const primary = path.join(homeDir(), '.claude', 'projects');
   const here = path.join(dir, 'projects');
   try {
     if (!fs.lstatSync(here).isSymbolicLink()) return false;
@@ -139,9 +148,9 @@ function sharesMemory(dir, isDefault) {
  * never run an agent.
  */
 function share(dir) {
-  const primary = path.join(HOME, '.claude', 'projects');
+  const primary = path.join(homeDir(), '.claude', 'projects');
   const here = path.join(dir, 'projects');
-  if (sharesMemory(dir, dir === path.join(HOME, '.claude'))) return { ok: true, already: true };
+  if (sharesMemory(dir, dir === path.join(homeDir(), '.claude'))) return { ok: true, already: true };
   let st = null;
   try { st = fs.lstatSync(here); } catch { st = null; }
   if (st && !st.isSymbolicLink()) {
@@ -195,12 +204,12 @@ function list() {
     });
   };
 
-  add(path.join(HOME, '.claude'), true);
+  add(path.join(homeDir(), '.claude'), true);
   let entries = [];
-  try { entries = fs.readdirSync(HOME); } catch { entries = []; }
+  try { entries = fs.readdirSync(homeDir()); } catch { entries = []; }
   for (const name of entries.sort()) {
     if (!name.startsWith('.claude-')) continue;
-    add(path.join(HOME, name), false);
+    add(path.join(homeDir(), name), false);
   }
   return out;
 }
@@ -294,8 +303,8 @@ async function listLive() {
 function prepare(label) {
   const clean = String(label == null ? '' : label).trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
   if (!clean) return { ok: false, because: 'that is not a name we can use for an account' };
-  const dir = path.join(HOME, `.claude-${clean}`);
-  const shared = path.join(HOME, '.claude', 'projects');
+  const dir = path.join(homeDir(), `.claude-${clean}`);
+  const shared = path.join(homeDir(), '.claude', 'projects');
 
   try { fs.mkdirSync(dir, { recursive: true }); }
   catch { return { ok: false, because: 'we could not make a place for that account on this computer' }; }
@@ -345,7 +354,7 @@ function prepare(label) {
 function nextWorkDir() {
   for (let n = 1; n <= 500; n += 1) {
     const label = `work${n}`;
-    const dir = path.join(HOME, `.claude-${label}`);
+    const dir = path.join(homeDir(), `.claude-${label}`);
     if (!fs.existsSync(dir)) return { label, dir };
     /* ⚠️ THREE GRADES OF CONFIG, three answers. Missing: free. Present
        and readable with NO account block: free, and this is the arm the
@@ -384,7 +393,7 @@ function nextWorkDir() {
     if (entry) {
       try {
         projectsOk = entry.isSymbolicLink()
-          && fs.realpathSync(projects) === fs.realpathSync(path.join(HOME, '.claude', 'projects'));
+          && fs.realpathSync(projects) === fs.realpathSync(path.join(homeDir(), '.claude', 'projects'));
       } catch { projectsOk = false; }
     }
     if (projectsOk) return { label, dir };
@@ -394,4 +403,5 @@ function nextWorkDir() {
   return null;
 }
 
-module.exports = { list, listLive, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, HOME_FOR_TEST: HOME };
+module.exports = { list, listLive, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+  get HOME_FOR_TEST() { return homeDir(); } };

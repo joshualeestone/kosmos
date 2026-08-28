@@ -349,3 +349,52 @@ test('#881: list() itself is unchanged -- no connection field, no live check', (
   const got = accounts.list();
   assert.equal(got[0].connection, undefined, 'list() must stay exactly as fast/cheap as the 5-second status tick needs');
 });
+
+/**
+ * #1419: `list()` must follow a HOME set after this module was required.
+ *
+ * 🛑 WHY THIS EXISTS. `HOME` was a module-level `const`, resolved once at
+ * require time, and 12 call sites read it. A caller that set
+ * `AGENT_WORKFORCE_HOME` AFTER requiring this module read straight past the
+ * seam: `list()` returned the OPERATOR'S REAL ACCOUNTS, by their real email
+ * addresses, while the caller believed it was sandboxed.
+ *
+ * ⭐ MEASURED, three arms, the third being the one that makes the others mean
+ * something:
+ *   pre-fix,  set after require  -> 4 accounts, the real machine's
+ *   post-fix, set after require  -> 2, the fixture's
+ *   post-fix, set before require -> 2, the fixture's
+ *
+ * 📌 AND THE FIXTURE IS BUILT THE WAY THIS FILE BUILDS ONE, deliberately. My
+ * first attempt at measuring this used a hand-made `.credentials.json`, which
+ * is not what the module recognises, so the control returned 0 and proved
+ * nothing. A fixture you invent encodes your BELIEF about the input; the
+ * suite's own shape encodes what the code actually requires.
+ */
+test('#1419: list() follows AGENT_WORKFORCE_HOME set after require, not the one frozen at load', () => {
+  const late = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-accounts-late-'));
+  fs.mkdirSync(nodePath.join(late, '.claude', 'projects'), { recursive: true });
+  fs.mkdirSync(nodePath.join(late, '.claude-beta', 'projects'), { recursive: true });
+  fs.writeFileSync(nodePath.join(late, '.claude.json'),
+    JSON.stringify({ oauthAccount: { emailAddress: 'late-primary@example.com' } }));
+  fs.writeFileSync(nodePath.join(late, '.claude-beta', '.claude.json'),
+    JSON.stringify({ oauthAccount: { emailAddress: 'late-beta@example.com' } }));
+
+  const before = process.env.AGENT_WORKFORCE_HOME;
+  process.env.AGENT_WORKFORCE_HOME = late;
+  try {
+    const emails = accounts.list().map((a) => a.email);
+    assert.ok(emails.includes('late-beta@example.com'),
+      'list() did not see an account under the HOME set after require: it is frozen again, and a caller that sandboxes late is reading the real machine');
+    assert.ok(emails.includes('late-primary@example.com'),
+      'the default entry did not follow either, so this test is not comparing what it claims to');
+    /* THE ARM THAT MATTERS: nothing from the real machine leaked in. Kept
+       shape-based rather than naming a real address, so it stays true on any
+       operator's machine. */
+    assert.ok(emails.every((e) => String(e).endsWith('@example.com')),
+      'a real account from the operator\'s machine appeared in a sandboxed list: ' + JSON.stringify(emails));
+  } finally {
+    if (before === undefined) delete process.env.AGENT_WORKFORCE_HOME;
+    else process.env.AGENT_WORKFORCE_HOME = before;
+  }
+});
