@@ -1896,10 +1896,18 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* Truncate in the GRID too (#1310). This view was deliberately left alone
    because it "has room for the pack's own wrap/clamp behaviour" -- and
    narrowing the card to the agents' width is exactly what takes that room
-   away, so the two halves of Josh's ask are one change, not two.
+   away, so the two halves of Josh's ask are ONE change, not two. Splitting
+   them leaves the screen worse than it is now, either way round.
    ⚠️ `max-width: 100%` above is load-bearing: the row centres its children,
    so .pjname is sized to its content and an ellipsis would have nothing to
-   clip against without it. */
+   clip against without it.
+   🔑 THIS NOW DEPENDS ON `.pj-unread { flex: none }`. .pjname is a flex row
+   holding the name AND the unread badge; once the name can be squeezed, the
+   badge is what a missing `flex: none` would squeeze instead, and a count
+   shrinking to a red sliver is not a thing anybody would think to look for.
+   It was already there and is not changed here; the browser check now
+   ASSERTS it, so removing it fails loudly rather than quietly (Mona Lisa
+   found this by reading, #1310). */
 .pj-list.asgrid .pj-row .pjname b { min-width: 0; overflow: hidden;
                                     text-overflow: ellipsis; white-space: nowrap; }
 /* The same bubble recipe .astate draws on the agents grid, scoped here

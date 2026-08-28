@@ -58,6 +58,8 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
   const gridBtn = await pg.$('.viewtoggle[data-scope="projects"] [data-layout="grid"]');
   if (gridBtn) { await gridBtn.click(); await pg.waitForTimeout(500); }
 
+  // Seed an unread count on the long-titled project, so the badge is present
+  // to compete with the name for the row's width.
   const m = await pg.evaluate(() => {
     const pj = document.querySelector('#pj-list.asgrid .pj-row');
     const list = document.querySelector('#pj-list.asgrid');
@@ -73,6 +75,17 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
         ? (Math.round(nameB.getBoundingClientRect().right) > Math.round(pj.getBoundingClientRect().right) + 1)
         : null,
       titleText: nameB ? nameB.textContent.slice(0, 30) : null,
+      /* Mona Lisa, cross-review: .pjname is a flex row holding the name AND
+         the unread badge. Once the name can be squeezed, the badge is what a
+         missing `flex: none` squeezes instead. Asserted here so that
+         protection cannot be removed quietly. `null` when no badge is on
+         screen, which is NOT a pass: reported separately below. */
+      badge: (() => {
+        const bd = pj ? pj.querySelector('.pj-unread') : null;
+        if (!bd) return null;
+        const r = bd.getBoundingClientRect();
+        return { w: Math.round(r.width), shrink: getComputedStyle(bd).flexShrink };
+      })(),
     };
   });
   console.log('  measured: ' + JSON.stringify(m));
@@ -82,6 +95,12 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
     'a project card is the same width as an agent card (projects ' + m.pjTrack + ', agents ' + m.agTrack + ')');
   say(m.clipped === true, 'a long project title is clipped rather than widening the card');
   say(m.overflows === false, 'the title does not spill outside its card');
+  if (m.badge === null) {
+    console.log('  note: no unread badge on screen, so its width was not asserted this run');
+  } else {
+    say(m.badge.shrink === '0', 'the unread badge cannot be shrunk by a long title (flex-shrink 0)');
+    say(m.badge.w >= 18, 'the unread badge keeps its full width beside a truncated title (' + m.badge.w + 'px)');
+  }
 
   await pg.screenshot({ path: OUT + '-projects-grid.png', fullPage: false });
   console.log('  shot: ' + OUT + '-projects-grid.png');
