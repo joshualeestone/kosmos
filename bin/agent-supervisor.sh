@@ -385,6 +385,16 @@ if [ -z "$adopt" ]; then
     # quotes nor backslashes can appear in SUPPORT_DIR paths we write.
     BRIDGE="$(cd "$(dirname "$0")" && pwd)/codex-report-bridge.js"
     NOTIFY_CFG="notify=[\"$BRIDGE\"]"
+      # Answer codex's update notice before the pane starts (#1315). Creation
+      # dismisses the version current when the agent was MADE; this dismisses
+      # whatever is current NOW, which is what stops an EXISTING agent meeting a
+      # blocking prompt after OpenAI ships a new release. The board reads that
+      # prompt as `unknown`, so nothing would say so.
+      # ⚠️ NOT CHECKED, DELIBERATELY. The shim exits 0 on every path: an agent
+      # that will not start because its update notice could not be dismissed is a
+      # far worse outcome than the prompt it exists to remove.
+      DISMISS="$(cd "$(dirname "$0")" && pwd)/codex-dismiss-update.js"
+      if [ -f "$DISMISS" ]; then node "$DISMISS" "${CODEX_HOME:-}" >/dev/null 2>&1 || true; fi
     if [ -n "$MODEL" ]; then
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
         "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -m "$MODEL" || exit 1

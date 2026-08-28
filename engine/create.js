@@ -51,6 +51,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const codexupdate = require('./codexupdate');
 const { execFileSync } = require('node:child_process');
 const roles = require('./roles');
 
@@ -926,15 +927,12 @@ function trustCodexFolder(dir, home) {
  * guess into somebody's config.
  */
 function dismissCodexUpdateNotice(home) {
-  const codexHome = home || codexHomeDir();
-  const file = path.join(codexHome, 'version.json');
-  let parsed;
-  try { parsed = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return false; }
-  const latest = parsed && typeof parsed.latest_version === 'string' ? parsed.latest_version : null;
-  if (!latest || parsed.dismissed_version === latest) return false;
-  parsed.dismissed_version = latest;
-  try { fs.writeFileSync(file, `${JSON.stringify(parsed, null, 2)}\n`); } catch { return false; }
-  return true;
+  /* 🔑 DELEGATED, NOT COPIED (#1315). This is also called from the LAUNCH path by
+     `bin/codex-dismiss-update.js`, so the rule lives in one dependency-free
+     module both can reach. Creation dismisses the version current when the agent
+     is made; launch dismisses whatever is current each time it starts, which is
+     what closes the case of an EXISTING agent meeting a NEW release. */
+  return codexupdate.dismissUpdateNotice(home || codexHomeDir());
 }
 
 function bridgeSource() {

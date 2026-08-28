@@ -3715,3 +3715,40 @@ test('#1315 CONTROL: that guard can fail', () => {
   assert.doesNotMatch(near, /dismissSomethingThatDoesNotExist\(/,
     'the window matches anything: the guard above proves nothing');
 });
+
+test('#1315: the SUPERVISOR dismisses the update notice, in the codex branch only', () => {
+  /* 🛑 THE LAUNCH CALL IS THE DURABLE HALF. Creation dismisses the version
+     current when the agent was made; only a launch-time call can answer a
+     release that appears LATER, which is every existing agent's case.
+
+     ⚠️ ASSERTED ON THE SHIPPED FILE, like every other supervisor test here: it
+     is one checked-in artifact that every agent's job runs. */
+  const sup = supervisorText();
+  const at = sup.indexOf('codex-dismiss-update.js');
+  assert.ok(at > 0, 'the supervisor no longer dismisses the update notice: existing codex agents will block on it');
+
+  /* It must be inside the codex branch. The claude launch is below the `else`,
+     and running a codex helper there would be wrong even if harmless. */
+  const codexBranch = sup.indexOf('if [ "$RUNNER" = codex ]');
+  const elseBranch = sup.indexOf('else', codexBranch);
+  assert.ok(codexBranch > 0 && elseBranch > codexBranch, 'the codex branch moved: this guard needs re-aiming');
+  assert.ok(at > codexBranch && at < elseBranch,
+    'the dismissal is outside the codex branch: it would run for claude agents too');
+
+  /* 🔑 AND IT MUST NOT BE ABLE TO FAIL A LAUNCH. An agent that will not start
+     because its update notice could not be dismissed is a far worse outcome
+     than the prompt. */
+  const line = sup.slice(sup.lastIndexOf('\n', at) + 1, sup.indexOf('\n', at) + 200);
+  assert.match(sup.slice(at, at + 200), /\|\| true/,
+    'the dismissal can fail a launch: it needs to be unconditional');
+});
+
+test('#1315 CONTROL: that branch check can fail', () => {
+  /* Proves the window test above is not satisfied by any string anywhere. */
+  const sup = supervisorText();
+  const codexBranch = sup.indexOf('if [ "$RUNNER" = codex ]');
+  const elseBranch = sup.indexOf('else', codexBranch);
+  const inWindow = sup.slice(codexBranch, elseBranch);
+  assert.doesNotMatch(inWindow, /claude-dismiss-something-that-does-not-exist/,
+    'the window matches anything: the guard above proves nothing');
+});
