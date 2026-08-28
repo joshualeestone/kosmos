@@ -262,7 +262,18 @@ test('the poll repaints the task page, not only the project under it', () => {
 });
 
 test('the view is one of the project views, so opening it puts the others away', () => {
-  assert.match(SCRIPT, /for \(const v of \['list', 'one', 'add', 'settings', 'task', 'docs'\]\)/, 'newtask is a dialog, not a view (#766)');
+  /* 🛑 NOT THE EXACT MEMBERSHIP LIST. This pinned all six names, so ADDING a
+     legitimate view broke it: #1382 added `alltasks` and this went red on
+     correct code. The claim #766 is making is that NEWTASK IS NOT A VIEW, and
+     that survives the list growing.
+     ⇒ Loosen on the axis nothing consumes (which views exist), tighten on the
+     axis the test promises (newtask is not among them, and task is). */
+  const loop = SCRIPT.match(/for \(const v of \['list', 'one',([^\]]*)\]\)/);
+  assert.ok(loop, 'the project-view loop is gone or no longer starts at list, one');
+  const views = loop[0].replace(/^[^[]*\[|\]\)$/g, '').split(',').map((x) => x.trim().replace(/'/g, ''));
+  assert.ok(views.includes('task'), 'the task page is no longer one of the project views');
+  assert.ok(views.includes('docs'), 'the documents screen is no longer one of the project views');
+  assert.ok(!views.includes('newtask'), 'newtask is a dialog, not a view (#766)');
 });
 
 test('the new-task page keeps typed words across Back, and never across projects (#383)', () => {
