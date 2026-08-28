@@ -1370,16 +1370,31 @@ function installJob(name, opts) {
     return { ok: false, because: 'there is no folder for it on this computer' };
   }
   const { claudeBin, tmuxBin } = binPaths(opts);
-  if (unusablePath(claudeBin) || unusablePath(tmuxBin)) {
+  /* 🛑 THE RUNNER IS DECIDED BEFORE THE BINARY IS CHECKED (#1159). This checked
+     `claudeBin` unconditionally, so ADOPTING A CODEX AGENT WAS REFUSED ON A
+     MACHINE WITH NO CLAUDE -- which is exactly the 'OpenAI, pre-existing agents'
+     case: somebody who runs Codex and has never installed Claude. The message
+     even said so, about a program that agent does not use. */
+  const runner = (opts && opts.runner === 'codex') ? 'codex' : null;
+  const runnerBin = runner === 'codex' ? binPaths(opts).codexBin : claudeBin;
+  if (unusablePath(runnerBin) || unusablePath(tmuxBin)) {
     return { ok: false, /* ⚠️ NEITHER BINARY IS NAMED, and `tmux` least of all (Mona Lisa). A person
        who installed Kosmos has no reason to have heard the word, and it cost a
-       real diagnostic step this morning: Josh was sent `tmux ls` and got
-       command not found, because Kosmos ships its own copy and never touches
-       the machine's. Their action is identical either way. */
+       real diagnostic step: Josh was sent `tmux ls` and got command not found,
+       because Kosmos ships its own copy and never touches the machine's. Their
+       action is identical either way. */
       because: 'we could not use the programs Kosmos runs agents with, so nothing was changed' };
   }
-  if (!DRY_RUN && !fs.existsSync(claudeBin)) {
-    return { ok: false, because: 'we could not find Claude on this computer, so a job made now would never start' };
+  /* ⚠️ THE RUNNER'S BINARY, NOT ALWAYS CLAUDE'S (#1159). A SECOND claude-only
+     gate, four lines below the one already fixed: adopting a Codex agent on a
+     machine with no Claude was refused HERE instead, with the same wrong
+     message about a program that agent does not use. Found by a test that
+     removes the claude stub -- every other test in that file ships one, so the
+     perturbation reverting the first gate stayed green. */
+  if (!DRY_RUN && !fs.existsSync(runnerBin)) {
+    return { ok: false, because: runner === 'codex'
+      ? 'we could not find Codex on this computer, so a job made now would never start'
+      : 'we could not find Claude on this computer, so a job made now would never start' };
   }
   const installed = DRY_RUN ? { ok: true } : installSupervisor();
   if (!installed.ok) {
@@ -1392,10 +1407,21 @@ function installJob(name, opts) {
   try {
     if (!DRY_RUN) {
       fs.mkdirSync(AGENTS_DIR, { recursive: true });
-      fs.writeFileSync(plistPath(clean), plistFor(clean, claudeBin, tmuxBin, modelArg, configDir), 'utf8');
+      fs.writeFileSync(plistPath(clean), plistFor(clean, runnerBin, tmuxBin, modelArg, configDir, runner), 'utf8');
     }
   } catch {
     return { ok: false, because: 'we could not write the job file' };
+  }
+  /* 🔑 AN ADOPTED CODEX AGENT GETS THE SAME FIRST-RUN SETUP AS A CREATED ONE
+     (#1315). Creation trusts the folder and answers the update notice; adoption
+     went through a different door and did neither, so a connected Codex agent
+     would meet a trust prompt and an update prompt that nothing will answer --
+     and the board reads both panes as `unknown`.
+     ⚠️ Best-effort, after the job is written: neither is worth failing an
+     adoption over, and both are re-done at launch. */
+  if (runner === 'codex') {
+    try { trustCodexFolder(workerDir(clean), configDir); } catch { /* not worth failing the adoption */ }
+    try { dismissCodexUpdateNotice(configDir); } catch { /* same */ }
   }
   /* ⚠️ enable BEFORE bootstrap. `remove` sticks by writing a per-user `disable`
      override keyed on the LABEL, and that override outlives the plist — so

@@ -420,9 +420,31 @@ function connect(dir) {
   try { st = fs.lstatSync(given); } catch { return { ok: false, because: 'that folder is not there any more' }; }
   if (!st.isDirectory()) return { ok: false, because: 'that is not a folder' };
 
+  /* 🛑 EITHER INSTRUCTIONS FILE, BECAUSE DISCOVERY ALREADY ACCEPTS BOTH (#1159).
+     `foundCodex` reads `AGENTS.md`; this read `CLAUDE.md` only. So a Codex agent
+     was LISTED on the setup screen and then REFUSED when somebody clicked it,
+     with "that folder has no instructions in it" -- which was FALSE: it had
+     AGENTS.md. Measured with both arms, and the Claude control got PAST this
+     check and failed later on a missing binary, which is what made it evidence.
+
+     ⚠️ AND THE FILE DECIDES THE RUNNER. A folder with AGENTS.md is a Codex agent,
+     and adopting it as a Claude one would start the wrong program in somebody's
+     project. CLAUDE.md wins when both exist: a person who has both has a Claude
+     agent that also carries codex notes. */
   let text;
-  try { text = fs.readFileSync(path.join(given, 'CLAUDE.md'), 'utf8').slice(0, 4000); }
-  catch { return { ok: false, because: 'that folder has no instructions in it, so there is no agent to connect' }; }
+  let runner = null;
+  let instructionsFile = null;
+  for (const [file, which] of [['CLAUDE.md', null], ['AGENTS.md', 'codex']]) {
+    try {
+      text = fs.readFileSync(path.join(given, file), 'utf8').slice(0, 4000);
+      runner = which;
+      instructionsFile = file;
+      break;
+    } catch { /* try the next one */ }
+  }
+  if (instructionsFile === null) {
+    return { ok: false, because: 'that folder has no instructions in it, so there is no agent to connect' };
+  }
   const id = status.identityFromText(text);
   if (!id || !id.displayName) {
     return { ok: false, because: 'those instructions do not say who the agent is, so we cannot bring it in' };
@@ -466,7 +488,9 @@ function connect(dir) {
   try { store.writeProfile(name, { dir: given, displayName: id.displayName }); }
   catch { return { ok: false, because: 'we could not record where that agent lives' }; }
 
-  const job = create.installJob(name, {});
+  /* The runner rides along, or an adopted Codex agent starts Claude in its own
+     folder. `installJob` also does that runner's first-run setup. */
+  const job = create.installJob(name, runner ? { runner } : {});
   if (!job.ok) {
     /* Rolled back to what was there before, so a failed connect leaves nothing
        claiming an agent exists. */
