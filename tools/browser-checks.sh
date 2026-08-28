@@ -436,6 +436,19 @@ else
   FAILED+=("render-projects (server did not boot)")
 fi
 
+# #1303 H item 3: the member dialog. Self-contained -- it builds its own fixture
+# fleet and runs the server in-process, so it needs no board from this harness
+# and stands alone if the block above fails.
+#
+# 🛑 IT SHIPPED UNWIRED. The commit that added it (7b4e8a91) put the file in
+# docs/browser-checks/ and never referenced it here, so it has never run once.
+# The dialog it covers is Josh's own request, and on the day it landed the ONLY
+# gate coverage of that area was render-projects still asserting the design it
+# replaced: one check red for the wrong reason and its replacement not running.
+# That is #812's "a check that is never run catches nothing at all", on a
+# check one day old.
+run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
+
 # --- 3. render-thread: the send-capable thread, on the fixture server --------
 # #540: a board with a stand-in codex, so the add-an-OpenAI-account flow can
 # run for real with no real key. HOME is the sandbox too, so the account it

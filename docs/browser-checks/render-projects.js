@@ -1374,20 +1374,36 @@ async function main() {
           heading: h ? h.textContent : null,
           headingTag: h ? h.tagName : null,
           btnShown: !document.getElementById('pj-add-member').hidden,
-          rowHidden: document.getElementById('pj-one-add-row').hidden,
+          /* 🔑 THE MODAL HIDES, NOT THE ROW (#1303 H item 3). Adding a member
+             used to reveal `#pj-one-add-row` inline, so the row carried its own
+             `hidden`. It now lives inside `#am-modal` and the attribute moved
+             with the behaviour, so `#pj-one-add-row` is never hidden again and
+             asking it is asking a question that has one answer forever. */
+          modalHidden: document.getElementById('am-modal').hidden,
         };
       });
       if (members.heading !== 'Project members') throw new Error('the members heading reads "' + members.heading + '", not the pinned words');
       // A column header is a heading. The pack draws all three as h3.
       if (members.headingTag !== 'H3') throw new Error('the members heading is a ' + members.headingTag + ', not a heading element');
-      if (!members.btnShown || !members.rowHidden) throw new Error('the picker is not resting behind + Add Member: ' + JSON.stringify(members));
+      if (!members.btnShown || !members.modalHidden) throw new Error('the picker is not resting behind + Add Member: ' + JSON.stringify(members));
       await page.click('#pj-add-member');
+      /* ⚠️ This arm was VACUOUS the moment the dialog landed, which is worse
+         than the red one above: it asserts the row is NOT hidden, and the row
+         is now never hidden, so it passed while testing nothing. A check that
+         goes red tells you it is stale; one that passes for the wrong reason
+         does not. */
+      /* ⚠️ AND THE BUTTON NO LONGER HIDES EITHER, which I missed on the first
+         pass because I swept for the ROW's id and this arm names the BUTTON.
+         The same commit changed both. index.html says why, and it is a reason
+         rather than an omission: "the button no longer hides: it is the thing
+         you came back to, and hiding it was only ever necessary because the row
+         took its place." So btnShown is now TRUE while the dialog is open and
+         asserting otherwise pins a design that was deliberately dropped. */
       const revealed = await page.evaluate(() => ({
-        rowHidden: document.getElementById('pj-one-add-row').hidden,
-        btnShown: !document.getElementById('pj-add-member').hidden,
+        modalHidden: document.getElementById('am-modal').hidden,
         focusOnSelect: document.activeElement === document.getElementById('pj-one-add'),
       }));
-      if (revealed.rowHidden || revealed.btnShown || !revealed.focusOnSelect) {
+      if (revealed.modalHidden || !revealed.focusOnSelect) {
         throw new Error('+ Add Member did not reveal the picker with focus on the choice: ' + JSON.stringify(revealed));
       }
       // Leaving and coming back rests it again -- an open picker must not leak
@@ -1398,9 +1414,9 @@ async function main() {
       await page.waitForTimeout(300);
       const rested = await page.evaluate(() => ({
         btnShown: !document.getElementById('pj-add-member').hidden,
-        rowHidden: document.getElementById('pj-one-add-row').hidden,
+        modalHidden: document.getElementById('am-modal').hidden,
       }));
-      if (!rested.btnShown || !rested.rowHidden) throw new Error('the picker leaked open into the next project: ' + JSON.stringify(rested));
+      if (!rested.btnShown || !rested.modalHidden) throw new Error('the picker leaked open into the next project: ' + JSON.stringify(rested));
 
       // 8f. Archiving, from the resting truth outward: no disclosure at all
       // while nothing is archived; archive one from its detail; the count is
