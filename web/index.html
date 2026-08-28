@@ -3188,6 +3188,29 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      (#pj-add-member, #pj-newtask); only their place and their size change,
      and the accessible name keeps the words. */
   html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members, html[data-layout="consolidated"] body.consolidated #pj-tasks-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; }
+  /* 🔑 THE PLUS GOES LEFT OF THE TASKS LABEL (kosmos#1303 H). Josh: "On the tasks
+     let's put the plus on the left side of the tasks label so it matches agents
+     and projects."
+     Agents and Projects draw `<button class="fold plus">+</button>` immediately
+     before their label inside `.lead`. Tasks is built the other way round: the
+     grid above is `1fr auto`, so the label takes the row and the button sits at
+     the far right reading "+ New task".
+     ⇒ The tracks swap and the button takes the first one, which puts the control
+     in the same place on all three heads.
+     ⚠️ THE WORDS GO, THE ACCESSIBLE NAME STAYS. `font-size: 0` on the button
+     hides the " New task" text node while the `+` span keeps its own size. The
+     text is still in the DOM, so the button is still named "New task" for a
+     screen reader; only the glyph is drawn, which is what matching the rails
+     means. A `display: none` on the text would have taken the name with it. */
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field { grid-template-columns: auto minmax(0, 1fr); }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > #pj-newtask { grid-column: 1; grid-row: 1; order: 0; font-size: 0; width: 22px; height: 22px; padding: 0; border: 1px solid var(--k-rule); border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > #pj-newtask > span { font-size: 15px; font-weight: 600; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > .dlab { grid-column: 2; grid-row: 1; }
+  /* 🔑 A FOLDED SECTION HIDES ITS PLUS (kosmos#1303 H, Josh 10:23). Folded, the
+     rail is 48px of column and the label is gone, so a + still sitting there is
+     an action with nothing visible to act on. The arrow that unfolds it stays. */
+  html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents-new,
+  html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects-new { display: none; }
   html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > *, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > * { grid-column: 1 / -1; }
   html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > .dlab, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .dlab { grid-column: 1; grid-row: 1; margin-bottom: 0; }
   html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > .pj-addmem, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask { grid-column: 2; grid-row: 1; width: 22px; height: 22px; padding: 0; margin: 0 0 6px; border: 1px solid var(--k-rule); border-radius: 7px; background: var(--k-surface); color: var(--k-ink-2); font-size: 0; line-height: 0; display: grid; place-items: center; }
