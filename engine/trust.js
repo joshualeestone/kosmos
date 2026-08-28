@@ -34,7 +34,12 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const HOME = os.homedir();
+/* 🛑 A FUNCTION, NOT A CONST (#1432). Frozen at require time this read past
+   the sandbox seam: a caller setting `AGENT_WORKFORCE_HOME` AFTER requiring
+   this module operated on the operator's real machine while believing it was
+   sandboxed. Measured elsewhere in this class: `accounts.list()` returned four
+   of the operator's real accounts against an empty fixture (#1419). */
+function homeDir() { return os.homedir(); }
 
 /**
  * ⚠️ The SAME override `subscription.js` uses, deliberately — both read the one
@@ -42,7 +47,7 @@ const HOME = os.homedir();
  * operator's real account through the other.
  */
 const CONFIG = () => process.env.AGENT_WORKFORCE_CLAUDE_CONFIG
-  || path.join(HOME, '.claude.json');
+  || path.join(homeDir(), '.claude.json');
 
 const KEY = 'hasTrustDialogAccepted';
 

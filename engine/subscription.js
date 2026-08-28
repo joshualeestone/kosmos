@@ -36,16 +36,26 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 
-const HOME = os.homedir();
+/* 🛑 A FUNCTION, NOT A CONST (#1432). Frozen at require time this read past
+   the sandbox seam: a caller setting `AGENT_WORKFORCE_HOME` AFTER requiring
+   this module operated on the operator's real machine while believing it was
+   sandboxed. Measured elsewhere in this class: `accounts.list()` returned four
+   of the operator's real accounts against an empty fixture (#1419). */
+function homeDir() { return os.homedir(); }
 
 /**
  * ⚠️ Overridable, so the tests never read the operator's real account — and so
  * this can be pointed at a fixture rather than mocked. `create` and `remove`
  * take their roots the same way.
  */
-const CONFIG = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG
-  || path.join(HOME, '.claude.json');
-
+/* 🛑 A FUNCTION (#1432). As a const this CALLED the (now lazy) home
+   resolver at REQUIRE time, so unfreezing the resolver moved the freeze
+   up one level rather than removing it. A multi-line declaration also
+   hid it from a line-based sweep. */
+function configFile() {
+  return process.env.AGENT_WORKFORCE_CLAUDE_CONFIG
+  || path.join(homeDir(), '.claude.json');
+}
 const STATE = { CONNECTED: 'connected', NONE: 'none', UNKNOWN: 'unknown' };
 
 /**
@@ -71,7 +81,7 @@ const UNSUBSCRIBED_ORG_TYPES = ['claude_free', 'free'];
 function readConfig(file) {
   let raw;
   try {
-    raw = fs.readFileSync(file || CONFIG, 'utf8');
+    raw = fs.readFileSync(file || configFile(), 'utf8');
   } catch (err) {
     // ⚠️ NO FILE is a real answer: Claude Code has never run here, so there is
     // nothing connected. Anything else — a permissions error, an unreadable
@@ -236,7 +246,7 @@ function check(opts) {
 }
 
 /* ---- the live check (#881) -----------------------------------------------
-   ⚠️ check()/checkCached() above answer "does the SAVED CONFIG on this
+   ⚠️ check()/checkCached() above answer "does the SAVED configFile() on this
    computer look like a subscription" -- a shape-check, never a call to
    Anthropic. This answers the harder, truer question: does the held token
    actually still work. Built on `claude auth status --json`, Anthropic's
@@ -320,7 +330,7 @@ async function checkLive(opts) {
   // Kosmos-managed multi-account machine), which is exactly the kind of
   // ambient value that would otherwise leak into a caller who explicitly
   // asked for the unscoped default. check() never has this problem (it
-  // reads a fixed CONFIG path derived only from AGENT_WORKFORCE_CLAUDE_CONFIG,
+  // reads a fixed configFile() path derived only from AGENT_WORKFORCE_CLAUDE_CONFIG,
   // never CLAUDE_CONFIG_DIR); checkLive() matches that guarantee by
   // deleting the key rather than trusting it to be unset.
   const env = { ...process.env };
@@ -451,7 +461,7 @@ let cached = null;      // { key, verdict }
 
 function statKey() {
   try {
-    const st = fs.statSync(CONFIG);
+    const st = fs.statSync(configFile());
     return `${st.mtimeMs}:${st.size}:${st.ino}`;
   } catch (err) {
     return `missing:${(err && err.code) || 'ERR'}`;
@@ -476,6 +486,8 @@ function checkCached() {
 function resetCache() { cached = null; }
 
 module.exports = {
-  check, checkCached, resetCache, planName, STATE, CONFIG_PATH: CONFIG,
+  check, checkCached, resetCache, planName, STATE,
+  /* lazy, or the export re-freezes what the function unfroze (#1432) */
+  get CONFIG_PATH() { return configFile(); },
   checkLive, setRunner,
 };

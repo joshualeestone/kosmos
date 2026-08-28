@@ -3993,6 +3993,49 @@ test('#1414: removal does NOT reformat sections the person wrote', () => {
   assert.ok(!after.includes(mine), 'and our entry is gone');
 });
 
+
+/**
+ * #1432: the plist must set HOME, and the KEY is data rather than code.
+ *
+ * 🛑 FOUND BY RENET TILLEY CROSS-REVIEWING THE SWEEP THAT BROKE IT. A blind
+ * identifier rewrite replaced `HOME` inside the plist XML:
+ *
+ *     main     <key>HOME</key><string>${xml(HOME)}</string>
+ *     branch   <key>homeDir()</key><string>${xml(homeDir())}</string>
+ *
+ * Every agent created from that branch got a launchd job setting a variable
+ * literally named `homeDir()` and **no HOME at all**.
+ *
+ * ⭐ IT IS INVISIBLE IN REVIEW FOR A STRUCTURAL REASON: the diff line reads as
+ * correct, because `${xml(homeDir())}` is exactly the intended change. The
+ * damage is three characters to its left, in the half of the line that is DATA.
+ *
+ * ⇒ And the checker added in the same PR could not see it either: it looks for
+ * frozen roots, not for XML keys. A guard that cannot detect the defect its own
+ * change introduced is the clearest statement of that guard's scope there is.
+ * This assertion is the cheap thing that closes it.
+ */
+test('#1432: the plist template carries exactly its known set of keys', () => {
+  const src = fs.readFileSync(nodePath.join(__dirname, 'create.js'), 'utf8');
+  const keys = [...src.matchAll(/<key>([^<]*)<\/key>/g)].map((m) => m[1]).sort();
+
+  /* 🔑 THE WHOLE SET, NOT ONE NAME (Mona Lisa's shape, and it is stronger than
+     what I first wrote). Asserting only `HOME` catches the rename that already
+     happened; asserting the SET catches the next one, whichever key it hits.
+     `${configKey}` is the one deliberately dynamic entry. */
+  assert.deepEqual(keys, [
+    'AssociatedBundleIdentifiers', 'EnvironmentVariables', 'HOME', 'KOSMOS_PORT',
+    'KeepAlive', 'LANG', 'Label', 'PATH', 'ProgramArguments', 'RunAtLoad',
+    'StandardErrorPath', 'StandardOutPath', 'TMUX_TMPDIR', 'ThrottleInterval',
+    'WorkingDirectory', '${configKey}',
+  ].sort(), 'the plist key set changed: a launchd job now sets different variables than it did, and if this came from a rename rather than a deliberate edit, agents launch without one');
+
+  /* A key that is the source text of a function call means an identifier
+     rewrite reached into the XML. That is exactly what happened here. */
+  assert.doesNotMatch(src, /<key>[a-zA-Z_]+\(\)<\/key>/,
+    'a plist key is a function call, so a rename reached into data');
+});
+
 test('#1414 CONTROL: the seam-scoped tidy still runs where it should', () => {
   /* The mirror of the arm above: proving we did not fix over-reach by simply
      doing nothing. Removing a MIDDLE entry must not leave a growing gap. */

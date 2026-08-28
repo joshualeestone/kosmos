@@ -46,7 +46,6 @@ const https = require('https');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 
-const HOME = os.homedir();
 
 /**
  * The artifacts, one per provider this machinery knows about.
@@ -165,7 +164,7 @@ Object.freeze(MANIFEST);
  * installed board resolve the same managed runner rather than each
  * installing their own.
  */
-/* ⚠️ Keys on the bare module `HOME`, NOT homeDir(). Deliberate and worth
+/* ⚠️ Keys on `os.homedir()` DIRECTLY, NOT homeDir(). Deliberate and worth
    naming, because the asymmetry with resolveBin's claude rung is exactly
    the shape homeDir()'s own comment argues against: this path has its own
    sandbox seam (AGENT_WORKFORCE_RUNNERS_DIR) that the tests use, so adding
@@ -178,7 +177,7 @@ function managedRoot() {
   const home = path.resolve(__dirname, '..', '..');
   const installed = fs.existsSync(path.join(home, 'runtime', 'bin', 'node'))
                  && fs.existsSync(path.join(home, 'app', 'server.js'));
-  const base = installed ? home : path.join(HOME, '.local', 'share', 'kosmos');
+  const base = installed ? home : path.join(os.homedir(), '.local', 'share', 'kosmos');
   return path.join(base, 'runners');
 }
 
@@ -215,7 +214,11 @@ function isRunnable(p) {
  * `claude`. A sandbox that reaches the real machine is not a sandbox.
  */
 function homeDir() {
-  return process.env.AGENT_WORKFORCE_HOME || HOME;
+  /* 🛑 `os.homedir()` DIRECTLY, not a module-level const (#1432). This
+     function was already lazy about the env var and fell back to a HOME
+     frozen at require time, so the sandbox seam worked and the fallback
+     did not. Half a lazy resolver reads as a whole one. */
+  return process.env.AGENT_WORKFORCE_HOME || os.homedir();
 }
 
 /**
@@ -240,7 +243,7 @@ function homeDir() {
  * to install into.
  *
  * ⚠️ ONLY THE CLAUDE BRANCH KEYS ON homeDir(). The openai rungs go through
- * managedRoot(), which keys on the bare module HOME and has its own sandbox
+ * managedRoot(), which keys on os.homedir() directly and has its own sandbox
  * seam (AGENT_WORKFORCE_RUNNERS_DIR) -- see its comment. Both branches DO
  * share isRunnable(). An earlier version of this line claimed both shared
  * both, which contradicted managedRoot's own comment sixty lines up.
@@ -263,7 +266,7 @@ function resolveBin(provider, opts) {
     // the third provider's operator to unset AGENT_WORKFORCE_CODEX_BIN.
     if (envClaude) return { bin: envClaude, present: isRunnable(envClaude), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_CLAUDE_BIN' };
     // AGENT_WORKFORCE_HOME is the same sandbox seam openaiaccounts keys
-    // its HOME on -- without it, every test on this fleet Mac would see
+    // its homeDir() on -- without it, every test on this fleet Mac would see
     // the real ~/.local/bin/claude and read present. Unset in production.
     // MANIFEST.claude.binName, not a literal: findElsewhere already reads it
     // from there, and two spellings of one name is how they drift apart.
@@ -800,7 +803,7 @@ function installVendor(provider, m, o, existing) {
     // `command -v` (a login shell) finds. So the known homes are probed
     // explicitly, and `which` is the tail rung for anything else.
     //
-    // ⚠️ homeDir(), not HOME: this probe and resolveBin's canonical rung
+    // ⚠️ os.homedir() DIRECTLY, not homeDir(): this probe and resolveBin's canonical rung
     // are two halves of ONE flow and must agree about which machine they
     // are looking at, or a sandboxed test links its canonical path at the
     // operator's real binary. See homeDir().
