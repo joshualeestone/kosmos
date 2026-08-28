@@ -11602,7 +11602,7 @@ async function tick() {
 
       // Not while a load is in flight or the file is one we refused: the note
       // then belongs to the load, not to the poll.
-      if (fresh && fresh.isNamedOurs === true && INSTR_READY) {
+      if (fresh && fresh.isNamedOurs === true && INSTR_BANNER) {
         renderStale(fresh.instructions);
 
         // ⚠️ And say so when the file has moved on from what the box holds.
@@ -17138,6 +17138,7 @@ function setWritesOffered(a, tied) {
     const box = document.getElementById('d-instr');
     if (box) box.value = '';
     INSTR_READY = false;
+    INSTR_BANNER = false;   // not our card: nothing here is about the agent on screen
     INSTR_VERSION = null;
     for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev']) {
       const el = document.getElementById(id);
@@ -17223,6 +17224,32 @@ let INSTR_EPOCH = 0;
 let INSTR_READY = false;
 
 /**
+ * 🛑 THE BANNER'S OWN GUARD, SEPARATE FROM SAVE-SAFETY (#1237).
+ *
+ * `INSTR_READY` means "we know what is in the file", which is a property SAVE
+ * needs and a read-only banner does not. The poll gated `renderStale` on it, and
+ * the poll also CLEARS it whenever a tick answers `editable: false` -- so one
+ * transient answer latched the poll's own renderer off for the life of the open
+ * panel. Nothing in the poll can set it back: `INSTR_READY = true` exists at
+ * exactly one place, inside `loadInstructions`, which the poll never calls.
+ *
+ * ⚠️ THAT IS WHY A REFRESH "FIXED" IT. Reopening the panel calls
+ * `loadInstructions`, which re-arms the flag and repaints from current state.
+ * Nothing about the agent changed at that moment; the screen had simply stopped
+ * reading for itself. Josh, on #1213: "just the page refreshing made the error go
+ * away."
+ *
+ * 🔑 `editable: false` IS ORDINARY, NOT RARE. A pane that cannot be tied to an
+ * agent by name answers it, and so does a momentarily unreadable file.
+ *
+ * 📌 Cleared where the panel stops showing this agent (a new load, or an untied
+ * card), and NOT cleared by `editable`. A banner about the agent on screen stays
+ * paintable even when its file is not editable, which is exactly the state the
+ * banner exists to report.
+ */
+let INSTR_BANNER = false;
+
+/**
  * ⚠️ Nothing in this file is pinned by a test. `web/index.html` has NO
  * automated coverage in this repo, so every statement here, including the
  * load/save generation pairing and the poll re-sync below, is verified by
@@ -17240,6 +17267,7 @@ async function loadInstructions(sessionName) {
   INSTR_EPOCH += 1;
   INSTR_VERSION = null;
   INSTR_READY = false;
+  INSTR_BANNER = false;   // a load is in flight: the note belongs to it, not the poll
   const box = document.getElementById('d-instr');
   const saveBtn = document.getElementById('d-instr-save');
   const msg = document.getElementById('d-instr-msg');
@@ -17295,6 +17323,7 @@ async function loadInstructions(sessionName) {
     // from it rather than only that it is newer than the session.
     document.getElementById('d-instr-outdated').hidden = true;
     INSTR_READY = true;
+    INSTR_BANNER = true;
     // Now that there is something real in the box, the controls may match it.
     box.disabled = false;
     saveBtn.disabled = false;
@@ -17331,6 +17360,11 @@ async function loadInstructions(sessionName) {
         msg.textContent = 'This cannot be edited from this screen: '
           + (data.because || 'we cannot read it') + '.';
         INSTR_READY = false;
+        /* Not editable is not "not worth reporting": the staleness note is still
+           about the agent on screen, and `renderStale` runs just below on this
+           path anyway. Arming here is what lets the POLL keep it up to date
+           afterwards instead of freezing it (#1237). */
+        INSTR_BANNER = true;
         box.disabled = true;
         saveBtn.disabled = true;
       }
