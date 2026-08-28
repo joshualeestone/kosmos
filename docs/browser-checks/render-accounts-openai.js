@@ -95,9 +95,36 @@ let failed = 0;
   say('the key field is emptied after the add', (await p.inputValue('#acct-openai-key')) === '');
   // #770: each account is its own box now (.acct-row retired), a green
   // Connected mark and a Disconnect door on every one.
-  const rows = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-box')].filter((r) => r.getBoundingClientRect().height > 0).map((r) => r.innerText.replace(/\s+/g, ' ').trim()));
-  say('the row lists by provider with the key tail', rows.some((r) => /OpenAI/.test(r) && !/Codex/.test(r) && /API key ending WALK/.test(r)), JSON.stringify(rows));
-  say('no OpenAI row carries the history arm', !rows.some((r) => /OpenAI/.test(r) && /history/.test(r)));
+  /* 🛑 THE PROVIDER IS NO LONGER IN THE ROW. kosmos#1393 grouped the accounts by
+     provider, so the name now sits once in the group head (.acct-prov-name) and
+     the row carries only what differs: the account and its state. This check
+     asserted /OpenAI/ against the ROW's own text and went red on a correct page,
+     failing the 0.6.05 cut at step 3b. The evidence was the row text itself:
+       "API key ending WALK Signed in Disconnect"
+     the key tail present, the provider gone.
+     ✅ SO IT READS THE PAIR: each group's NAME with the rows inside THAT group.
+     That asserts more than the old line did, not less, because it now also
+     requires the row to be in the RIGHT box rather than merely to exist. */
+  const groups = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-prov')].map((g) => ({
+    provider: (g.querySelector('.acct-prov-name') || {}).innerText || '',
+    rows: [...g.querySelectorAll('.acct-box')]
+      .filter((r) => r.getBoundingClientRect().height > 0)
+      .map((r) => r.innerText.replace(/\s+/g, ' ').trim()),
+  })));
+  /* Kept flat as well, because two assertions below are about rows regardless of
+     which box they are in. */
+  const rows = groups.flatMap((g) => g.rows);
+  /* 🔑 A CONTROL ON THE FIXTURE ITSELF. If the grouping ever stops rendering, the
+     `groups` array is empty, `.some(...)` is false, and every assertion below
+     would fail for the wrong reason. This says so in its own line instead. */
+  say('the accounts render grouped by provider', groups.length > 0 && rows.length > 0,
+    JSON.stringify(groups.map((g) => g.provider + ':' + g.rows.length)));
+  say('the OpenAI group holds the key-tail row', groups.some((g) => /OpenAI/.test(g.provider)
+      && !/Codex/.test(g.provider)
+      && g.rows.some((r) => /API key ending WALK/.test(r))), JSON.stringify(groups));
+  /* Same move: the OpenAI-ness of a row is now a property of its GROUP. */
+  say('no row in the OpenAI group carries the history arm',
+    !groups.some((g) => /OpenAI/.test(g.provider) && g.rows.some((r) => /history/.test(r))));
   // #962: the badge is a LIVE answer. The harness points the check at a stub
   // that accepts exactly the walk key (tools/browser-checks.sh), so this line
   // proves the live path renders it on an accepted key, not that a badge is
