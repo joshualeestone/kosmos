@@ -709,6 +709,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         spec.titles.indices.map { $0 == spec.returnIndex ? "\r" : "" }
     }
 
+    /* 🛑 THE QUIT DIALOG'S BUTTONS (#1316). Josh, 2026-08-28: "we also need a
+       Cancel here, probably below Close the App... Right now I hit it and if I'm
+       like 'Oh crap, I didn't mean to quit the app,' I'm stuck."
+
+       It shipped with ONE button, and `showQuitDialog`'s own comment said the
+       second was expected: "when the second button is added, branch here." It
+       never was, and the code returned true for ANY dismissal.
+       ⚠️ SO ESCAPE QUIT THE APP. Not "Escape did nothing" -- an NSAlert with one
+       button returns on Escape too, and every return was read as confirmation.
+       The only way out of a dialog about quitting was to quit.
+
+       ⭐ ENTER STAYS ON THE DESTRUCTIVE BUTTON HERE, AND THAT IS A DELIBERATE
+       DIVERGENCE FROM `relaunchButtons`, WHICH PUTS IT ON THE HARMLESS ONE.
+       The difference is bidden versus unbidden. The relaunch notice ARRIVES over
+       whatever the person was doing, so a reflexive Return must not quit. This
+       dialog only appears because the person just pressed Cmd-Q, so Return
+       confirming what they asked for is the expected thing, and moving it would
+       silently break the deliberate quit that works today.
+       ⇒ ESCAPE is what answers Josh's case, and it is the right key for it: he
+       hit Cmd-Q, so his hands are already on the keyboard. */
+    static let quitButtons: (titles: [String], returnIndex: Int, destructiveIndex: Int, cancelIndex: Int) =
+        (["Close the app", "Cancel"], 0, 0, 1)
+
+    /* The key equivalents, DERIVED, for the same reason `relaunchKeyEquivalents`
+       exists: hardcoded assignments made the gate unable to fail. A separate
+       function rather than a parameter on that one because this alert needs a
+       SECOND key (Escape) that the relaunch alert has no button for. */
+    static func quitKeyEquivalents(
+        _ spec: (titles: [String], returnIndex: Int, destructiveIndex: Int, cancelIndex: Int)
+    ) -> [String] {
+        spec.titles.indices.map {
+            if $0 == spec.cancelIndex { return "\u{1b}" }
+            if $0 == spec.returnIndex { return "\r" }
+            return ""
+        }
+    }
+
     /* 🛑 #1182: "QUIT AND OPEN AGAIN" LOOPS FOREVER WHEN THE BUNDLE IS THE STALE
        THING. Josh, 2026-08-27, on a fresh second macOS user: "I keep hitting Quit
        and Open Again and it just gets caught in a loop: it'll quit, it'll open
@@ -1329,12 +1366,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.messageText = "Your agents keep running"
         alert.informativeText = "Quitting closes this window. Your agents keep working in the background, and Kosmos is still in your Applications folder when you want it back."
         alert.alertStyle = .informational
-        let closeButton = alert.addButton(withTitle: "Close the app")
-        closeButton.keyEquivalent = "\r" // Enter lands on the harmless choice
-        alert.runModal()
-        // Only one button exists right now, so any return from runModal()
-        // means "Close the app" -- when the second button is added, branch here.
-        logLine("showQuitDialog: dismissed, confirming quit")
+        let spec = AppDelegate.quitButtons
+        let keys = AppDelegate.quitKeyEquivalents(spec)
+        for (i, title) in spec.titles.enumerated() {
+            alert.addButton(withTitle: title).keyEquivalent = keys[i]
+        }
+        /* ⚠️ THE ACCEPT BRANCH IS DERIVED, not a literal `.alertFirstButtonReturn`,
+           the same discipline the relaunch alert states: with the literal,
+           swapping the two TITLES inverts the product silently and the person
+           pressing Cancel gets the quit. The button that quits is the one at
+           destructiveIndex, by definition, and that is what is asked. */
+        let clicked = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        guard clicked == spec.destructiveIndex else {
+            logLine("showQuitDialog: cancelled, the window stays open")
+            return false
+        }
+        logLine("showQuitDialog: confirmed quit")
         isActuallyQuitting = true
         return true
     }

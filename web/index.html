@@ -17195,6 +17195,14 @@ document.getElementById('pol-m-keep').addEventListener('click', () => {
   document.getElementById('pol-modal').hidden = true;
   POL_PENDING = null;
 });
+/* #1316: Escape, the same way out the backdrop click already gives. Guarded on
+   hidden so it cannot fire for a dialog nobody opened, which is the shape every
+   other Escape handler on this page uses. */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('pol-modal').hidden) return;
+  document.getElementById('pol-modal').hidden = true; POL_PENDING = null;
+});
 document.getElementById('pol-modal').addEventListener('click', (e) => {
   if (e.target.id === 'pol-modal') { document.getElementById('pol-modal').hidden = true; POL_PENDING = null; }
 });
@@ -21018,7 +21026,26 @@ function changeDialog({ title, small, go, run }) {
   t.textContent = title; sm.textContent = small; goBtn.textContent = go; msg.textContent = '';
   keep.textContent = 'Keep it as it is';
   keep.hidden = false; goBtn.hidden = false; goBtn.disabled = false;
-  const close = () => { back.hidden = true; keep.onclick = null; goBtn.onclick = null; };
+  /* 🔑 ESCAPE GETS YOU OUT (#1316). This is the modal Josh sat in on #1313, and
+     the fix there gave it a way out AFTER the operation ends. It still had no
+     way out BEFORE: no Escape, and no backdrop click either, so the only exit
+     was to hit a button with the mouse.
+     ⚠️ ONLY WHILE THE DECISION IS STILL THE PERSON'S. Once `goBtn` is disabled
+     the request is in flight, and Escape then would hide the modal while the
+     switch went ahead: the person would believe they cancelled something that
+     is happening. A key that silently means the opposite of what it says is
+     worse than a key that does nothing.
+     📌 The listener is removed in `close`, so opening this dialog repeatedly
+     does not stack handlers. */
+  const close = () => {
+    back.hidden = true; keep.onclick = null; goBtn.onclick = null;
+    document.removeEventListener('keydown', onEsc);
+  };
+  const onEsc = (e) => {
+    if (e.key !== 'Escape' || back.hidden || goBtn.disabled) return;
+    close();
+  };
+  document.addEventListener('keydown', onEsc);
   keep.onclick = close;
   goBtn.onclick = async () => {
     goBtn.disabled = true; keep.hidden = true;
@@ -28171,6 +28198,12 @@ document.getElementById('pj-one-agents').addEventListener('click', (e) => {
 });
 document.getElementById('mem-keep').addEventListener('click', memConfirmClose);
 document.getElementById('mem-modal').addEventListener('click', (e) => { if (e.target.id === 'mem-modal') memConfirmClose(); });
+/* #1316: Escape, matching the backdrop click above. */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('mem-modal').hidden) return;
+  memConfirmClose();
+});
 document.getElementById('mem-go').addEventListener('click', () => {
   const p = MEM_PENDING;
   document.getElementById('mem-modal').hidden = true;
