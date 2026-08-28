@@ -16655,7 +16655,7 @@ function svcDoorLiveHtml(name, st) {
   }
   const why = st.phase === 'failed' && st.because ? '<p class="dhint" style="margin:8px 0 0;">' + esc(st.because) + '</p>' : '';
   return own + why + '<p style="margin:8px 0 0;"><button class="btn" type="button" data-svc-connect="' + esc(name) + '" aria-label="Connect ' + esc(name) + '">Connect</button></p>'
-    + '<p class="dhint" style="margin:6px 0 0;">You sign in on ' + esc(t.site) + '. This Mac keeps the key, and Kosmos never sees your password.</p>';
+    + '<p class="dhint" style="margin:6px 0 0;">You sign in on ' + esc(t.site) + '. This computer keeps the key, and Kosmos never sees your password.</p>';
 }
 /* A token door (#529, Cloudflare): the service issues a scoped token from its
    own dashboard, the person pastes it, Kosmos checks it with the service
