@@ -1134,50 +1134,12 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
      names one client's pane on one server and would be a lie inside a launchd
      job; TMUX_TMPDIR is the directory-level fact and the one this module's
      own reader (status.js) resolves. */
-  /* 🔑 WHY A NEW AGENT IS NOT ASKED ABOUT A RENDERER (#1160). Claude Code
-     offers its fullscreen renderer on first run, and Josh met that question on
-     a brand-new agent's very first screen about half the time, three reports
-     running. The half is not a race on our side: the runner carries a
-     `fullscreenUpsellB` variant and a `gb_on` entry path, so it is an A/B on a
-     server-side flag, which is why it is frequent, not deterministic, and not
-     reproducible on demand.
-     The runner's own sentence is the specification for this line:
-     "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 forces that any time", `that`
-     being the classic renderer. It resolves the renderer entry path to
-     `env_off`, and the upsell gate returns false for that path before it ever
-     reaches the dialog. So the question is not answered, it is never asked.
-     ⚠️ THIS IS NOT AN AUTO-ANSWER, AND THE DIFFERENCE IS THE WHOLE SAFETY OF
-     IT. Nothing here sends a keystroke into the runner, so it cannot grow into
-     a thing that dismisses a permission gate or a destructive-action
-     confirmation on somebody's behalf. It states a preference in our own job's
-     environment. The board's detection of a blocking question is untouched: an
-     unrecognised prompt still surfaces to the person, which is the fail-closed
-     half #1160 asked for.
-     ⚠️ THE VALUE IS THE ONE THAT CHANGES NOTHING ELSE. Every agent today
-     renders classic, so `env_off` is what they already do; the other value
-     would silently move every agent onto a renderer that repaints an alternate
-     screen, which is the surface this board scrapes. (Measured on a private
-     tmux socket: an alternate screen does NOT destroy scrollback -- 69 lines
-     at `-S -50` became 50, exactly the visible rows moving into the alt
-     buffer, and the alt program's own content captured fine. So the scrape
-     would probably survive it. `Probably` is not a reason to change the
-     substrate while fixing a prompt.)
-     ⚠️ AND IT IS STAMPED ON EVERY CLAUDE JOB, WHICH BREAKS THE `ABSENT MEANS
-     THE DEFAULT` CONVENTION THE THREE LINES BELOW KEEP, deliberately: for
-     those, absent already means what the key would say. Here absent means the
-     person gets asked, so absent is the bug. A plist diff gaining this line is
-     a real change and should read as one.
-     📌 It rides in the job rather than in a settings file on purpose. `tui` in
-     settings would do the same job, but the only settings file that reaches a
-     default-account agent is the person's own `~/.claude/settings.json`, and
-     opting them out of a renderer in their own terminal to tidy our screen is
-     not ours to do. An agent folder is no better: it can be a repo of theirs,
-     and this would land in their git. The job is the one surface that is only
-     ever ours.
-     📌 EXISTING AGENTS KEEP THEIR PLISTS, the same rule as the bundle
-     identifier above. This arrives when an agent is next created, which is
-     exactly where the reports come from. */
-  const upsellLine = isCodex ? '' : '\n    <key>CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN</key><string>1</string>';
+  /* 📌 THE RENDERER PREFERENCE IS NOT HERE, and this note is why nobody puts it
+     back (#1160). CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN was, for one commit, and it was INERT: tmux does not hand
+     a client's environment to a session made on an already-running server, so a
+     variable in this job reaches the supervisor and never the pane. It lives in
+     `bin/agent-supervisor.sh`'s `-e` list instead, which also reaches agents
+     that already exist, because a plist is written once and never rewritten. */
   const tmuxSock = typeof process.env.TMUX_TMPDIR === 'string' ? process.env.TMUX_TMPDIR : '';
   const tmuxSockLine = tmuxSock ? `\n    <key>TMUX_TMPDIR</key><string>${xml(tmuxSock)}</string>` : '';
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -1200,7 +1162,7 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
   <dict>
     <key>HOME</key><string>${xml(HOME)}</string>
     <key>PATH</key><string>${xml(`${path.dirname(claudeBin)}:${path.dirname(tmuxBin)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`)}</string>
-    <key>LANG</key><string>en_US.UTF-8</string>${upsellLine}${configLine}${portLine}${tmuxSockLine}
+    <key>LANG</key><string>en_US.UTF-8</string>${configLine}${portLine}${tmuxSockLine}
   </dict>
   <!-- Whose background item this is. See the note above plistFor. -->
   <key>AssociatedBundleIdentifiers</key>

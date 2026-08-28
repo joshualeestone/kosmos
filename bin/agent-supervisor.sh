@@ -321,6 +321,37 @@ if [ -z "$adopt" ]; then
   if [ -s "$_gh" ]; then
     GH_TOKEN="$(head -1 "$_gh")"; export GH_TOKEN
   fi
+  # 🛑 THE RENDERER QUESTION, AND IT HAS TO BE SET HERE RATHER THAN IN THE JOB
+  # (#1160). Claude Code offers its fullscreen renderer on first run and Josh
+  # met that question on a new agent's very first screen, about half the time,
+  # three reports running. The half is a server-side A/B in the runner, not
+  # anything of ours. Setting a renderer preference makes the runner never ask.
+  #
+  # ⚠️ I FIRST PUT IT IN THE LAUNCHD JOB AND IT WAS INERT, which is exactly what
+  # the block above this loop warns about in its own words: tmux does NOT hand a
+  # client's environment to a session it makes on an already-running server,
+  # probed at 0 of 1. The job sets it for THIS SCRIPT; only an `-e` puts it in
+  # the pane where the runner reads it. A variable in the plist and not in this
+  # list reaches nothing, and nothing anywhere says so.
+  #
+  # ⭐ AND SETTING IT HERE IS BETTER THAN THE JOB, not merely correct: a plist is
+  # written once at creation and never rewritten for an existing agent, so the
+  # job route reached only agents made after it shipped. The board rewrites this
+  # script at every start, so EVERY agent gets it at its next launch, including
+  # the ones Josh already has.
+  #
+  # ⚠️ CLAUDE ONLY. It is Claude Code's variable; codex has never heard of it and
+  # stamping it there would be cargo that reads as deliberate to the next person.
+  #
+  # ⚠️ AND IT IS THE VALUE THAT CHANGES NOTHING ELSE. Every agent renders classic
+  # today, so this is what they already do; the other value would move every pane
+  # onto a renderer that repaints an alternate screen, which is the surface this
+  # board scrapes. Measured on a private socket: an alt screen does not destroy
+  # scrollback. `Does not destroy` is not a reason to move it while fixing a
+  # prompt.
+  if [ "$RUNNER" != codex ]; then
+    PANE_ENV+=(-e "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1")
+  fi
   for _var in KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do
     if [ -n "$(eval "printf '%s' \"\${$_var:-}\"")" ]; then
       PANE_ENV+=(-e "$_var=$(eval "printf '%s' \"\$$_var\"")")
