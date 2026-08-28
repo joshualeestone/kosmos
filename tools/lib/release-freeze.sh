@@ -27,6 +27,34 @@
 #       2 when the expected set could not be derived
 #   release_bundle_expected_files <tree>           prints that set, one per line
 
+# 🔑 WHAT THE FREEZE MEANS, SAID FOR THE FLEET RATHER THAN FOR THE CUTTER
+# (kosmos#1369). This used to be an inline echo reading "a pull into <repo> from
+# now on changes nothing below". True, and useless to the person who needs it:
+# it is about the CUTTER'S tree, and the people it should reach are colleagues
+# deciding whether to merge.
+#
+# 🛑 THE COST WAS MEASURED, NOT IMAGINED. On 2026-08-28 a merge freeze was
+# announced that does not exist and retracted four minutes later; the retraction
+# arrived truncated. Five PRs sat for an hour, the oldest with nothing blocking
+# it, and it was the answer to the operator asking why he was seeing no updates.
+# The rule "wait for no cut" had silently inverted into "never merge" the moment
+# cuts began running back to back, and nothing announced the change.
+#
+# ⭐ THE FIX IS NOT A LOCK, AND THAT IS THE WHOLE POINT. A cut-in-progress flag
+# or a merge lock would make the wrong belief TRUE, and then nobody would ever
+# question it again because the tool would be enforcing it. Merges are always
+# safe. The fix is to say so where somebody deciding can see it.
+#
+# It is a function rather than an echo so it can be asserted on: the message IS
+# the deliverable here, and an inline echo is not something a test can hold.
+release_freeze_notice() {
+  local sha="$1" build="$2"
+  [ -n "$sha" ] && [ -n "$build" ] || { echo "release_freeze_notice: sha and build are required" >&2; return 1; }
+  printf '   frozen at %s, building in %s\n' "${sha:0:12}" "$build"
+  printf '   MERGING TO MAIN IS SAFE FROM NOW ON: this cut has left main, and nothing merged\n'
+  printf '   after this line can reach it, help it or break it. There is no merge freeze.\n'
+}
+
 release_freeze() {
   local repo="$1" sha="$2" root="$3" build
   [ -n "$repo" ] && [ -n "$sha" ] && [ -n "$root" ] || { echo "release_freeze: repo, sha and root are required" >&2; return 1; }
