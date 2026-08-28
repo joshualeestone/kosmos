@@ -1422,6 +1422,59 @@ const AUTH_FAILED_MARKERS = [
   /"type":"authentication_error"/i,
 ];
 
+/**
+ * 🛑 THE MARKER ALONE IS A STRING ENGINEERS TALK ABOUT (#1233).
+ *
+ * Both markers above are OBSERVED, captured off the real #874 screen on
+ * 2026-08-25, so #1180's remedy of dropping unobserved guesses does not apply
+ * here: there is nothing to drop. What went wrong is different. These are the
+ * exact strings anyone working on this file, this card or #874 has on screen,
+ * and eleven other agents are watching one of those panes. Measured through the
+ * shipped `classify()`, all three of these read `auth_failed`:
+ *
+ *   I narrowed AUTH_FAILED_MARKERS so that "type":"authentication_error" ...
+ *   The marker is "type":"authentication_error" in engine/status.js.
+ *   The pane said OAuth access token is invalid, which is how #874 was found.
+ *
+ * ⚠️ AND IT IS THE MOST EXPENSIVE OF THE THREE MARKER LISTS. `auth_failed` is
+ * tested BEFORE the needs-you branch AND `reconcileReport` rule 3b makes a
+ * scraped `auth_failed` stand over a fresh self-report (#966, deliberately: a
+ * dead token is the one thing the reporter cannot know). Both correct for a real
+ * dead token; together, on a false positive, the agent's own question is
+ * discarded and no conflict is raised.
+ *
+ * 🔑 WHAT SEPARATES THEM IS THE ENVELOPE THE MARKERS WERE CAPTURED INSIDE:
+ *
+ *   401 {"type":"error","error":{"type":"authentication_error", ... }}
+ *
+ * A real failure carries the JSON error wrapper on the same line. Prose about
+ * the marker does not, because a person writing a sentence quotes the fragment,
+ * not the payload.
+ *
+ * 🛑 THIS DOES NOT SEPARATE A REAL PAYLOAD FROM A VERBATIM COPY OF ONE, AND
+ * NOTHING TEXT-BASED CAN. An agent that pastes the whole line into its pane
+ * still reads `auth_failed`, correctly by every rule available to us. That is
+ * the same boundary #1155 hit with a quoted prompt, and it is stated here so
+ * nobody narrows further chasing it: narrowing until a verbatim payload stops
+ * matching means narrowing until a REAL one does, which is #880's regression.
+ */
+const AUTH_ENVELOPE = /"type"\s*:\s*"error"|"error"\s*:\s*\{/i;
+
+/**
+ * A line is an auth failure only if it carries a marker AND the error envelope.
+ * Checked on the same line, because the envelope wrapping a DIFFERENT line's
+ * marker is exactly the prose case: a card comment can quote both, apart.
+ */
+function authFailureLine(text) {
+  for (const raw of String(text == null ? '' : text).split('\n')) {
+    if (!AUTH_FAILED_MARKERS.some((re) => re.test(raw))) continue;
+    if (!AUTH_ENVELOPE.test(raw)) continue;
+    const line = raw.replace(/^[\s>│├└─*❯›⏺]+/, '').trim();
+    if (line) return line;
+  }
+  return null;
+}
+
 /* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
    comment at its use site in classify(). Module-level like its sibling
    marker sets. Whitespace INSIDE the timer group is \s+ too, so a
@@ -1623,7 +1676,7 @@ function classify(pane, paneText) {
    * but it can show what the screen actually says, the same "line rides
    * along as evidence, not a paraphrase" rule the rate-limit case uses.
    */
-  const authLine = matchedLine(tail, AUTH_FAILED_MARKERS);
+  const authLine = authFailureLine(tail);
   if (authLine !== null) {
     return {
       state: STATE.AUTH_FAILED,

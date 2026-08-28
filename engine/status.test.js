@@ -3168,3 +3168,63 @@ test('#1180: KNOWN GAP -- "reached your ... limit" still matches one piece of pr
   assert.equal(classify(pane(), prose).state, STATE.RATE_LIMITED,
     'this is now fixed -- narrow the marker, flip this row to UNKNOWN, drop the comment');
 });
+
+/**
+ * 🛑 #1233: THE AUTH MARKERS ARE STRINGS ENGINEERS TALK ABOUT.
+ *
+ * Both are observed, captured off the real #874 screen, so #1180's remedy of
+ * dropping unobserved guesses does not apply. What went wrong is that these are
+ * the exact strings anyone working on this file has on their pane, and the board
+ * is watching those panes.
+ *
+ * ⚠️ THE EXPENSIVE ROW IS THE SECOND ONE. `auth_failed` is tested BEFORE the
+ * needs-you branch and `reconcileReport` rule 3b makes it stand over a fresh
+ * self-report (#966). On a false positive the agent's own question is discarded
+ * with no conflict raised, so a person sees a broken sign-in on an agent that is
+ * working perfectly and waiting for an answer. That row asserts the question
+ * survives, not merely that the auth verdict is gone.
+ *
+ * 🛑 THE LAST ROW IS THE STATED BOUNDARY AND IT IS NOT A BUG. A pane carrying a
+ * VERBATIM payload classifies `auth_failed`, correctly by every rule available:
+ * nothing text-based separates a real payload from a faithful copy of one. Same
+ * boundary as the quoted prompt in #1155. Narrowing until a copy stops matching
+ * means narrowing until a REAL one does, which is #880's regression.
+ * Measured 2026-08-27: 3 of 7 before, 6 of 7 after.
+ */
+test('#1233: an auth failure needs the error envelope, not just the marker', () => {
+  const PAYLOAD = '401 {"type":"error","error":{"type":"authentication_error",'
+    + '"message":"OAuth access token is invalid."},"request_id":null}';
+
+  // prose that merely NAMES the markers is not a dead token
+  for (const prose of [
+    'I narrowed AUTH_FAILED_MARKERS so that "type":"authentication_error" no longer matches prose.\n',
+    'The pane said OAuth access token is invalid, which is how #874 was found.\n',
+  ]) {
+    assert.notEqual(classify(pane(), prose).state, STATE.AUTH_FAILED,
+      `prose naming the marker classified as a dead token: ${prose.trim().slice(0, 56)}`);
+  }
+
+  // the expensive one: the agent's QUESTION must survive prose about the marker
+  const asking = classify(pane(),
+    'The marker is "type":"authentication_error" in engine/status.js.\nDo you want to proceed?\n❯ 1. Yes\n');
+  assert.equal(asking.state, STATE.NEEDS_YOU,
+    'an agent asking a question, whose pane mentions the marker, lost its question to auth_failed');
+
+  // CONTROL: the real screen still reads as a dead token, or this fix traded a
+  // false positive for #880's missed one.
+  assert.equal(classify(pane(), '⏺ ' + PAYLOAD + '\n').state, STATE.AUTH_FAILED,
+    'the real #874 screen stopped classifying as a dead token');
+
+  // the boundary, pinned so nobody narrows further chasing it
+  assert.equal(classify(pane(), 'carry the captured line verbatim:\n' + PAYLOAD + '\n').state, STATE.AUTH_FAILED,
+    'a verbatim payload is indistinguishable from a real one, and must stay that way');
+
+  /* 🔑 NOT FROM THE CARD. Added because perturbing the fix showed the suite
+     could not see the marker requirement: dropping it entirely left every test
+     green, so ANY error envelope would have read as a dead sign-in. Measured
+     2026-08-27: without the marker check this row classifies auth_failed. */
+  const otherError = '500 {"type":"error","error":{"type":"overloaded_error",'
+    + '"message":"Overloaded"},"request_id":null}';
+  assert.notEqual(classify(pane(), '⏺ ' + otherError + '\n').state, STATE.AUTH_FAILED,
+    'a non-auth error payload classified as a broken sign-in');
+});
