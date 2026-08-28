@@ -135,3 +135,43 @@ test('CONTROL: the guard fires on the exact sentences that were shipped', () => 
       `the guard must not fire on a sentence that is honest: ${s}`);
   }
 });
+
+/**
+ * 🛑 EVERY PATTERN NEEDS ITS OWN TWO ARMS, AND TWO OF MINE HAD NEITHER.
+ *
+ * The control above uses the two sentences that actually shipped. Measured
+ * 2026-08-27: those two exercise patterns 1 and 2 and **never touch 3 or 4**.
+ * Either of those could be typo'd into matching nothing and this suite would
+ * stay green, so the guard would silently protect half of what it claims to.
+ *
+ * ⭐ Found by running PigeonPete's finding against my own work rather than
+ * reading it. He dropped a must-start-the-line rule from a different check and
+ * the suite stayed green, because every row in the acceptance bar failed a
+ * DIFFERENT clause too, so no row ever exercised the rule he removed. The
+ * acceptance bar had a hole and the card did not know. Same shape here, one
+ * project along: a bar assembled from real-world examples covers the patterns
+ * those examples happen to hit, and silently abandons the rest.
+ *
+ * ⇒ A pattern list is only as good as its WEAKEST-covered entry, and coverage
+ *   by accident is what a shipped-examples control gives you.
+ */
+test('CONTROL: every pattern is exercised, positively and negatively', () => {
+  const arms = [
+    { hits: 'Plus is off, so nothing can reach this Mac right now.',
+      misses: 'Plus is off, so no device can reach Kosmos on this Mac right now.' },
+    { hits: 'There are none on this computer yet.',
+      misses: 'There are none in Kosmos yet.' },
+    { hits: 'You have no agents on this computer.',
+      misses: 'You have no agents in Kosmos.' },
+    { hits: 'Your Mac is empty.',
+      misses: 'Kosmos is empty on this Mac.' },
+  ];
+  assert.equal(arms.length, FORBIDDEN.length,
+    'every pattern needs its own pair; a new pattern without one is unexercised');
+  FORBIDDEN.forEach((f, i) => {
+    assert.ok(f.re.test(arms[i].hits),
+      `pattern ${i + 1} must fire on the claim it exists for: ${arms[i].hits}`);
+    assert.ok(!f.re.test(arms[i].misses),
+      `pattern ${i + 1} must not fire on the honest rewording: ${arms[i].misses}`);
+  });
+});
