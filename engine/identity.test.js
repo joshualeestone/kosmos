@@ -192,6 +192,27 @@ test('#1168 regression: a title or an initial is not the end of a sentence', () 
     'a trailing abbreviation is being crossed as if it were a prefix title');
   assert.equal(r('You are J. He writes copy.').role, null);
 
+  /* 🔑 AND THE SECOND UNPINNED RULE, FOUND THE SAME WAY: `[A-Z]` IS ONE LETTER,
+     AND ONE LETTER IS WHAT MAKES AN INITIAL. Widening it to `[A-Z]+` left the
+     FULL 2771-test suite green while changing output, so an acronym that ends a
+     sentence would be joined to the word after it:
+
+       You are IBM. He writes copy.   'IBM'  -> 'IBM. He'
+       You are HR. Manager, a role.   'HR'   -> 'HR. Manager'   role 'role'
+       You are CEO. Smith, a writer.  'CEO'  -> 'CEO. Smith'    role 'writer'
+
+     ⚠️ Note the third fabricates a role as well as a name, which is the same
+     harm the `Jr|Sr` exclusion above exists to prevent. `J. R. Tolkien` must
+     still join, so the rule is genuinely "exactly one letter", not "capitals". */
+  assert.equal(who('You are IBM. He writes copy.'), 'IBM',
+    'a multi-letter acronym was treated as an initial and joined across the stop');
+  assert.equal(who('You are HR. Manager, a role.'), 'HR');
+  assert.equal(who('You are CEO. Smith, a writer.'), 'CEO');
+  assert.equal(r('You are CEO. Smith, a writer.').role, null,
+    'joining across the stop fabricated a role out of the next sentence');
+  /* THE POSITIVE ARM, so this pins "one letter" and not merely "no capitals". */
+  assert.equal(who('You are J. R. Tolkien, a writer.'), 'J. R. Tolkien');
+
   /* 📌 THE COST OF THE COMMA RULE, PINNED rather than left to be rediscovered,
      the same way `You are Bob. A copywriter.` is pinned above. A role written
      with NO comma is dropped, and main kept it. Deliberate: this card's own

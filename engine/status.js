@@ -3326,7 +3326,6 @@ const IDENTITY_RE = new RegExp(
   + "))(?:\\s*\\(([^)]+)\\))?\\s*(,)?\\s*([^.\\n]*)",
 );
 
-
 /**
  * A trailing full stop that ENDED THE SENTENCE, as opposed to one that belongs
  * to an initial (#1168).
@@ -3345,40 +3344,38 @@ function identityFromText(text) {
      delimited by its own asterisks, and `**side-quests**.` already comes back
      clean. */
   const endedSentence = m[1] === undefined && NAME_ENDS_SENTENCE.test(name);
-  /* Group 4 is the comma. Absent, in the prose arm, means nothing here is a
-     role no matter what it looks like. */
-/**
- * 🛑 IN THE PROSE ARM, A ROLE MUST FOLLOW A COMMA. Nothing else may become one.
- *
- * Three separate defects on this branch were all one rule missing:
- *
- *   You are Dr. J. R. R. Tolkien, a writer.  role "Tolkien"      a surname, as a job
- *   You are Dr. He writes copy.              role "writes copy"  main gave none
- *   You are Ms. Understood by all.           role "by all"       main gave none
- *
- * ⚠️ TWO NARROWER RULES WERE TRIED FIRST AND BOTH LEAKED. "the tail starts with
- * a capital" also deleted every real capitalised role
- * (`You are Nevaeh, Chief Engineer.`), and gating on the repetition bound
- * actually being hit misses the cases above, where the name is one token and
- * did not run out of room at all.
- *
- * 🔑 The comma is what a person puts between a name and a role, and it is the
- * only mark in the text that says "what follows describes the one before it".
- *
- * ⚠️ THE COST, PINNED IN THE TEST RATHER THAN LEFT TO BE FOUND: a role written
- * WITHOUT a comma is dropped, and `main` kept it. That is deliberate under this
- * card's own standard, which is that **a fabricated role is worse than a
- * missing one**, and it was measured on 84 real instruction files on this
- * machine: identity detection is unchanged, 17 found before and after, while
- * four files lose a fabricated role built out of a sentence.
- *
- * 📌 The bold arm is untouched, and the honest reason is narrower than "it is
- * unambiguous": the asterisks settle where the NAME ends, not whether what
- * follows is a role. `You are **Anna**\n\nYour job is to help everyone.` still
- * yields a role of "Your job is to help everyone", exactly as it did on main.
- * Left alone because it is not a regression and every generated template writes
- * `You are **{{NAME}}**, <a role>.` with the comma.
- */
+  /**
+   * 🛑 IN THE PROSE ARM, A ROLE MUST FOLLOW A COMMA. Nothing else may become one.
+   *
+   * Three separate defects on this branch were all one rule missing:
+   *
+   *   You are Dr. J. R. R. Tolkien, a writer.  role "Tolkien"      a surname, as a job
+   *   You are Dr. He writes copy.              role "writes copy"  main gave none
+   *   You are Ms. Understood by all.           role "by all"       main gave none
+   *
+   * ⚠️ TWO NARROWER RULES WERE TRIED FIRST AND BOTH LEAKED. "the tail starts with
+   * a capital" also deleted every real capitalised role
+   * (`You are Nevaeh, Chief Engineer.`), and gating on the repetition bound
+   * actually being hit misses the cases above, where the name is one token and
+   * did not run out of room at all.
+   *
+   * 🔑 The comma is what a person puts between a name and a role, and it is the
+   * only mark in the text that says "what follows describes the one before it".
+   *
+   * ⚠️ THE COST, PINNED IN THE TEST RATHER THAN LEFT TO BE FOUND: a role written
+   * WITHOUT a comma is dropped, and `main` kept it. That is deliberate under this
+   * card's own standard, which is that **a fabricated role is worse than a
+   * missing one**, and it was measured on 84 real instruction files on this
+   * machine: identity detection is unchanged, 17 found before and after, while
+   * four files lose a fabricated role built out of a sentence.
+   *
+   * 📌 The bold arm is untouched, and the honest reason is narrower than "it is
+   * unambiguous": the asterisks settle where the NAME ends, not whether what
+   * follows is a role. `You are **Anna**\n\nYour job is to help everyone.` still
+   * yields a role of "Your job is to help everyone", exactly as it did on main.
+   * Left alone because it is not a regression and every generated template writes
+   * `You are **{{NAME}}**, <a role>.` with the comma.
+   */
   const roleUnmarked = m[1] === undefined && m[4] === undefined;
   if (endedSentence) name = name.slice(0, -1);
   let role = (endedSentence || roleUnmarked ? '' : m[5] || '')
