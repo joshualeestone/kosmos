@@ -66,7 +66,18 @@ test('the list row truncates a long title or description instead of wrapping it,
 test('the grid tile stacks and centers title, then a status bubble, then the agent icons with the count beneath, and drops the description', () => {
   assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pjcard-h \{ display: contents; \}/,
     'the grid tile no longer dissolves pjcard-h, so title and status cannot be ordered independently');
-  assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pjname \{ order: 1; justify-content: center; \}/);
+  /* 🛑 NOT ANCHORED ON THE CLOSING BRACE, and that is deliberate (#1413).
+     This assertion pinned the rule as ENDING after justify-content, so #1310
+     legitimately adding `max-width: 100%` to enable the title truncation broke
+     a test that was not testing truncation. The product was right and the
+     assertion was stale.
+     ⭐ Every sibling in this file already tolerates extra properties with
+     `[^}]*` -- this line was the outlier. What is promised here is the ORDER
+     and the CENTRING; nothing consumes the exact property list, so the rule is
+     free to gain declarations without a test failing for a reason that looks
+     like a defect and is not. */
+  assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pjname \{ order: 1; justify-content: center;/,
+    'the grid tile does not put the name first and centred');
   assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pjpill \{ order: 2;[^}]*border-radius: 100px;/,
     'the status pill lost its bubble shape (border-radius: 100px)');
   assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pc-t \{ display: none; \}/,
