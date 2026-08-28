@@ -6714,16 +6714,21 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <div id="fr-openai-flow" hidden class="fr-confirm">
           <p class="fr-confirm-t" id="fr-openai-key-t">Download complete. You will need an OpenAI API key to finish. A key is a bit like a password that OpenAI issues for this Mac. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
           <div class="frow"><a class="btn" id="fr-openai-getkey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key</a></div>
-          <!-- ⚠️ "with the OpenAI runner, the same as if you had signed in there
-               yourself" IS KEPT, and the approved design dropped it. Measured:
-               `engine/openaiaccounts.js:242` sends the key to
-               https://api.openai.com/v1/models in an `authorization: Bearer`
-               header to check that it works. That is correct behaviour and it is
-               not "it stays on this Mac" to somebody being asked to trust us with
-               a secret. Raised by Ice Cream Kitty on #1207, measured by
-               PigeonPete; the clause is eleven words and it is the difference
-               between a true and a nearly-true promise. Josh has the call. -->
-          <p class="fr-confirm-t" id="fr-openai-key-back" style="margin-top:8px;">Then come back and paste it here. It stays on this Mac with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
+          <!-- 🛑 NO PROMISE ABOUT THE KEY ON THIS SCREEN. Josh, 2026-08-27:
+               "We don't need this line at all for the openAI."
+               ⭐ HE REMOVED THE CLAIM RATHER THAN WORDING IT. Ice Cream Kitty
+               flagged that "it stays on this Mac" spans two claims; measurement
+               showed `engine/openaiaccounts.js:242` sends the key to
+               api.openai.com to validate it, so the short form was not true and
+               the true form needed eleven words of qualification. NO CLAIM BEATS
+               A CLAIM YOU HAVE TO QUALIFY: there is now nothing here to keep true
+               when that validation call changes, and nothing for a reader to
+               catch us on.
+               📌 SETTINGS KEEPS ITS OWN SENTENCE. He was looking at first run and
+               ruled on first run; removing copy from a screen nobody raised is
+               scope this card was not given. `web.firstrun-model.test.js` guards
+               that Settings still carries it. -->
+          <p class="fr-confirm-t" id="fr-openai-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
           <!-- Josh, 2026-08-26 07:01, from the options page: one row, key
                and Add together, no Show/Hide. Settings' own #acct-openai-key
                keeps Show/Hide so a long pasted key can be checked before
