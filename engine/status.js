@@ -3204,7 +3204,38 @@ function readIdentity(sessionName) {
  * every trailing stop, breaks `You are J.R.`, which is correct today. The trim
  * is done below where an initial can be told from a word.
  */
-const IDENTITY_RE = /You are (?:\*\*([^*]+)\*\*|([A-Z][\w.'-]*(?:(?<!\.) [A-Z][\w.'-]*){0,2}))(?:\s*\(([^)]+)\))?\s*,?\s*([^.\n]*)/;
+/**
+ * 🛑 A PERIOD ENDS A SENTENCE OR ABBREVIATES A WORD, AND #1168 TREATED BOTH THE
+ * SAME. Regression I shipped and then found by spot-checking my own merge:
+ *
+ *   You are Dr. Smith, a copywriter.   was "Dr. Smith"/copywriter, became "Dr"
+ *   You are J. R. Tolkien, a writer.   was "J. R. Tolkien"/writer, became "J."
+ *   You are Mr. Wolf.                                              became "Mr"
+ *
+ * The lookbehind stopped the name at ANY word ending in a stop, which is right
+ * for `Bob. He writes copy.` and wrong for every title and every spaced
+ * initial. A person hand-writing this file is exactly who writes `Dr.`, and the
+ * non-bold arm exists for that person.
+ *
+ * 🔑 THE DISCRIMINATOR IS WHAT PRECEDES THE STOP, not the stop itself: a single
+ * letter is an initial (`J.`), a known title is an abbreviation (`Dr.`), and
+ * anything else ends a sentence. `Bob. He` still stops at Bob.
+ *
+ * ⚠️ AND THE TAIL TRIM NEEDS THE SAME TEST, or `Mr. Wolf.` loses its Wolf.
+ */
+const NAME_TITLES = 'Dr|Mr|Mrs|Ms|St|Jr|Sr|Prof|Rev|Hon';
+/* {0,3} rather than {0,2}: `J. R. Tolkien` is three tokens after the first, and
+   the old limit was set when a stop could not be crossed at all. */
+const IDENTITY_RE = new RegExp(
+  "You are (?:\\*\\*([^*]+)\\*\\*|([A-Z][\\w.'-]*"
+  + "(?:(?:(?<!\\.)|(?<=\\b[A-Z]\\.)|(?<=\\b(?:" + NAME_TITLES + ")\\.)) [A-Z][\\w.'-]*){0,3}"
+  + "))(?:\\s*\\(([^)]+)\\))?\\s*,?\\s*([^.\\n]*)",
+);
+
+/* A trailing stop that belongs to an initial or a title is part of the name.
+   `J.R.` and `Mr. Wolf.` keep their last word; `Bob.` and `Mary Anne Smith.`
+   lose the stop that ended the sentence. */
+const NAME_TAIL_ABBREV = new RegExp("(?:^|[.\\s])(?:[A-Za-z]|" + NAME_TITLES + ")\\.$");
 
 /**
  * A trailing full stop that ENDED THE SENTENCE, as opposed to one that belongs
@@ -3223,7 +3254,8 @@ function identityFromText(text) {
   /* #1168. Only the prose arm can carry a sentence-ending stop: the bold arm is
      delimited by its own asterisks, and `**side-quests**.` already comes back
      clean. */
-  const endedSentence = m[1] === undefined && NAME_ENDS_SENTENCE.test(name);
+  const endedSentence = m[1] === undefined && NAME_ENDS_SENTENCE.test(name)
+    && !NAME_TAIL_ABBREV.test(name);
   if (endedSentence) name = name.slice(0, -1);
   let role = (endedSentence ? '' : m[4] || '')
     .replace(/\*\*/g, '')          // instruction files are markdown; strip emphasis

@@ -96,6 +96,48 @@ test('#1168: a name that ends the sentence keeps neither the stop nor the next s
     'a role in a following sentence is now being read again');
 });
 
+/**
+ * 🛑 THE REGRESSION #1168 SHIPPED, FOUND BY SPOT-CHECKING MY OWN MERGE RATHER
+ * THAN BY A TEST.
+ *
+ * #1168 stopped the name at any word ending in a full stop, which is right for
+ * `Bob. He writes copy.` and wrong for every title and every spaced initial:
+ *
+ *   You are Dr. Smith, a copywriter.   "Dr. Smith"/copywriter  ->  "Dr"/null
+ *   You are J. R. Tolkien, a writer.   "J. R. Tolkien"/writer  ->  "J."/"R"
+ *
+ * ⭐ AND THE POPULATION IT BROKE IS THE ONE THE ARM EXISTS FOR. A person hand
+ * writing this file is exactly who writes `Dr.`; the org's own generated files
+ * are bold and never contain one, so nothing in this fleet would have shown it.
+ */
+test('#1168 regression: a title or an initial is not the end of a sentence', () => {
+  const r = (t) => status.identityFromText(t);
+
+  assert.equal(who('You are Dr. Smith, a copywriter.'), 'Dr. Smith');
+  assert.equal(r('You are Dr. Smith, a copywriter.').role, 'copywriter',
+    'the role was dropped with the name');
+  assert.equal(who('You are J. R. Tolkien, a writer.'), 'J. R. Tolkien');
+  assert.equal(who('You are St. John Rivers, a clerk.'), 'St. John Rivers');
+
+  /* The tail trim needs the same test or `Mr. Wolf.` loses its Wolf, and this
+     row is also BETTER than before #1168: it used to keep the trailing stop. */
+  assert.equal(who('You are Mr. Wolf.'), 'Mr. Wolf');
+
+  /* 🔑 THE ARMS THAT MUST NOT MOVE. If the abbreviation exception is written
+     too broadly it swallows the sentence boundary #1168 exists to enforce. */
+  assert.equal(who('You are Bob. He writes copy.'), 'Bob');
+  assert.equal(r('You are Bob. He writes copy.').role, null,
+    'the invented role is back');
+  assert.equal(who('You are Bob.'), 'Bob');
+  assert.equal(who('You are Mary Anne Smith.'), 'Mary Anne Smith');
+  assert.equal(who('You are J.R.'), 'J.R.');
+
+  /* And the negatives still refuse, because the name pattern now spans one more
+     word than it did and that is the direction that finds people in prose. */
+  assert.equal(who('You are talking to a person running a business, not an engineer.'), null);
+  assert.equal(who('You are an expert in Rust.'), null);
+});
+
 test('a sentence that is not a name is NOT an agent', () => {
   /* 🛑 THE ROW THAT EARNS THIS FILE is the first one: it is not invented, it is
      `engine/defaults.js`, the working-rules block Kosmos writes INTO agent
