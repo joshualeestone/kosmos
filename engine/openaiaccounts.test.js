@@ -295,3 +295,47 @@ test('#962 harness seam: AGENT_WORKFORCE_OPENAI_MODELS_URL points the live check
     await new Promise((res) => srv.close(res));
   }
 });
+
+/**
+ * #1337: `list()` must not disagree with itself about where home is.
+ *
+ * 🛑 FOUND BY ANGEL REVIEWING THIS BRANCH, and it is the seam I created and
+ * then missed two lines from where I fixed it. `defaultDir()` was made lazy;
+ * the module-level `const HOME` feeding the `.codex-*` SCAN and `nextWorkDir`
+ * was left frozen at require time. So `list()`'s DEFAULT entry resolved lazily
+ * while its SCAN used the frozen value.
+ *
+ * ⇒ A caller that set `AGENT_WORKFORCE_HOME` AFTER requiring this module got a
+ * list whose default was sandboxed and whose scan read the operator's REAL
+ * home. Sandboxed and not, in one call, and the sandboxed half is the
+ * reassuring one - #1412's shape exactly, which is why it is not cosmetic.
+ *
+ * ⭐ MEASURED both arms with a negative control against the pre-fix file:
+ *   pre-fix, env set after require  -> list() = 1, .codex-alpha NOT found
+ *   post-fix, same                  -> list() = 2, .codex-alpha found
+ * The control is what makes the second line mean anything: the fixture CAN
+ * produce the failure, so a pass is evidence rather than a fixture that only
+ * ever says two.
+ */
+test('#1337: the .codex-* scan follows a HOME set after require, like the default entry does', () => {
+  const late = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-openai-late-'));
+  fs.mkdirSync(nodePath.join(late, '.codex'), { recursive: true });
+  fs.mkdirSync(nodePath.join(late, '.codex-alpha'), { recursive: true });
+  fs.writeFileSync(nodePath.join(late, '.codex', 'auth.json'), '{"OPENAI_API_KEY":"sk-default"}');
+  fs.writeFileSync(nodePath.join(late, '.codex-alpha', 'auth.json'), '{"OPENAI_API_KEY":"sk-alpha"}');
+
+  const before = process.env.AGENT_WORKFORCE_HOME;
+  /* Set AFTER require - the module was required at the top of this file, which
+     is precisely the condition that froze the scan. */
+  process.env.AGENT_WORKFORCE_HOME = late;
+  try {
+    const got = openai.list();
+    assert.ok(got.some((a) => String(a.dir).includes('.codex-alpha')),
+      'the .codex-* scan did not follow AGENT_WORKFORCE_HOME set after require: it is frozen again, and list() now reads two different homes in one call');
+    assert.ok(got.some((a) => a.isDefault),
+      'the default entry vanished, so this test is no longer comparing the two halves of list() and proves nothing');
+  } finally {
+    if (before === undefined) delete process.env.AGENT_WORKFORCE_HOME;
+    else process.env.AGENT_WORKFORCE_HOME = before;
+  }
+});

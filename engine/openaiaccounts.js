@@ -20,18 +20,31 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const codexupdate = require('./codexupdate');
 const { spawnSync } = require('node:child_process');
 const subscription = require('./subscription');
 
-const HOME = process.env.AGENT_WORKFORCE_HOME || os.homedir();
+/* 🛑 A FUNCTION, NOT A CONST (#1337, found by Angel reviewing this branch).
+   Frozen at require time, this made `list()` DISAGREE WITH ITSELF: the default
+   entry is `add(defaultDir(), true)` which resolves lazily, while the `.codex-*`
+   SCAN below used the frozen value. So a caller that set
+   `AGENT_WORKFORCE_HOME` after requiring this module got a list whose DEFAULT
+   was sandboxed and whose SCAN read the operator's REAL home - sandboxed and
+   not, in one call, with the sandboxed half being the reassuring one.
+   ⇒ That is #1412's shape exactly, which is why this is not cosmetic. */
+function homeDir() { return process.env.AGENT_WORKFORCE_HOME || os.homedir(); }
 const PROVIDER = 'openai';
 /* "OpenAI", not "OpenAI / Codex" (Mona Lisa, #540): Codex is the runner's name and
    a person never needs it to pick an account. */
 const PROVIDER_NAME = 'OpenAI';
 
-/** The default codex home, the one rule create.js's codexHomeDir also keeps. */
+/** The default codex home. 🛑 ONE derivation, in codexupdate, CALLED rather
+    than restated (#1337). This copy did not honour `CODEX_HOME`, so it could
+    name a different home than the launch path wrote to. It also froze HOME at
+    module load; calling makes it lazy, which is strictly more permissive and
+    matches every other caller. */
 function defaultDir() {
-  return process.env.AGENT_WORKFORCE_CODEX_HOME || path.join(HOME, '.codex');
+  return codexupdate.defaultHome();
 }
 
 /* ⚠️ NO beside-the-directory case here, on purpose (Angel, #540 review). The
@@ -125,10 +138,10 @@ function list() {
   };
   add(defaultDir(), true);
   let entries = [];
-  try { entries = fs.readdirSync(HOME); } catch { entries = []; }
+  try { entries = fs.readdirSync(homeDir()); } catch { entries = []; }
   for (const name of entries.sort()) {
     if (!name.startsWith('.codex-')) continue;
-    add(path.join(HOME, name), false);
+    add(path.join(homeDir(), name), false);
   }
   return out;
 }
@@ -141,7 +154,7 @@ function cleanLabel(label) {
 function nextWorkDir() {
   for (let n = 1; n <= 500; n += 1) {
     const label = `work${n}`;
-    const dir = path.join(HOME, `.codex-${label}`);
+    const dir = path.join(homeDir(), `.codex-${label}`);
     if (!fs.existsSync(dir)) return { label, dir };
     // A directory with no sign-in in it is free too: a cancelled add leaves
     // exactly this shape, and it must not eat a spot forever.
@@ -179,7 +192,7 @@ function addWithKey({ key, label, codexBin }) {
   if (label != null && String(label).trim()) {
     const clean = cleanLabel(label);
     if (!clean) return { ok: false, because: 'that is not a name we can use for an account' };
-    spot = { label: clean, dir: path.join(HOME, `.codex-${clean}`) };
+    spot = { label: clean, dir: path.join(homeDir(), `.codex-${clean}`) };
     if (fs.existsSync(authFile(spot.dir))) return { ok: false, because: 'there is already an OpenAI account by that name on this computer' };
   } else {
     spot = nextWorkDir();
@@ -363,6 +376,7 @@ async function listLive() {
 }
 
 module.exports = {
-  list, identityOf, addWithKey, nextWorkDir, defaultDir, PROVIDER, PROVIDER_NAME, HOME_FOR_TEST: HOME,
+  list, identityOf, addWithKey, nextWorkDir, defaultDir, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+  get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
 };

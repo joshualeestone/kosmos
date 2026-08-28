@@ -30,6 +30,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const codexupdate = require('./codexupdate');
 /* ⚠️ THE REASONS A PERSON READS ARE SHARED WITH THE CLAUDE PATH, never written
    here. A reason is about the AGENT, not about the runtime underneath it, so
    both providers say the same sentence about the same condition -- and nobody
@@ -39,8 +40,10 @@ const path = require('node:path');
 const { NO_READING } = require('./status');
 
 /** Overridable so tests never read the operator's real Codex history. */
-const HOME = () => process.env.AGENT_WORKFORCE_CODEX_HOME
-  || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.codex');
+/* 🛑 ONE derivation (#1337): call codexupdate rather than restate the rule.
+   This copy did not honour `CODEX_HOME`, so it could READ a different home
+   than the launch path WROTE to. */
+const HOME = () => codexupdate.defaultHome();
 
 const SESSIONS = () => path.join(HOME(), 'sessions');
 
