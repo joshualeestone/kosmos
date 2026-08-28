@@ -21,6 +21,10 @@ case "$blk" in
 esac
 
 run() {   # $1 = script body appended after the block, $2 = exit code to record
+  # ⚠️ REMOVED AT THE END OF EACH CALL (#1151). This is a helper the file calls
+  # repeatedly, so a leak here is one directory per invocation, not one per run.
+  # A function-local trap would fire on the SCRIPT's exit, not the function's,
+  # and would be replaced by the next call's, so the removal is explicit below.
   local T; T="$(mktemp -d)"; mkdir -p "$T/.claude/logs"
   HOME="$T" V=9.9.9 _CUT_DONE_WRITTEN=0 bash -c "
     _CUT_DONE_WRITTEN=0

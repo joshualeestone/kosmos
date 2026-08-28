@@ -18,15 +18,24 @@
 # Same rule every store-using test in this repo already follows: sandbox BEFORE
 # anything can resolve the store root.
 AGENT_WORKFORCE_DATA="$(mktemp -d)"; export AGENT_WORKFORCE_DATA
-trap 'rm -rf "$AGENT_WORKFORCE_DATA"' EXIT
+# 🛑 ONE TRAP FOR EVERY TEMP DIR IN THIS FILE (#1151). A second `trap ... EXIT`
+# REPLACES the first rather than adding to it -- measured, not assumed. This file
+# had THREE, so only the last one's dirs were ever removed and the sandbox above
+# was left in TMPDIR on every run.
+#
+# 🔑 The body is evaluated when the trap FIRES, not when it is set, so naming
+# variables that do not exist yet is correct and they are picked up if the run
+# gets that far. `${VAR:-}` keeps `set -u` happy for the ones it never reaches.
+#
+# ⇒ ADD A NEW TEMP DIR TO THIS LINE. Do not write another trap.
+trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB:-}" "${SB2:-}" "${DATA2:-}"' EXIT
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
 FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
-SB="$(mktemp -d)"
-trap 'rm -rf "$SB"' EXIT
+SB="$(mktemp -d)"   # removed by the single trap above
 mkdir -p "$SB/bin" "$SB/secrets/env" "$SB/work"
 cp bin/agent-supervisor.sh "$SB/bin/agent-supervisor.sh"
 printf '%s\n' 'sekrit-discord' > "$SB/secrets/env/DISCORD_BOT_TOKEN"
@@ -71,13 +80,16 @@ else
   ok "control: no engine sibling and no pointer means no token, rather than a broken one"
 fi
 
-SB2="$(mktemp -d)"; trap 'rm -rf "$SB" "$SB2"' EXIT
+SB2="$(mktemp -d)"   # removed by the single trap above
 mkdir -p "$SB2/bin" "$SB2/work"
 cp bin/agent-supervisor.sh "$SB2/bin/agent-supervisor.sh"
 cp "$SB/tmux" "$SB2/tmux"
 # What the board writes beside the supervisor: an absolute path to the engine.
 printf '%s\n' "$PWD/engine" > "$SB2/bin/engine-path"
-AGENT_WORKFORCE_DATA="$(mktemp -d)" STUB_DIR="$SB2" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
+# ⚠️ NAMED, not created inline. As a bare command-prefix assignment this made a
+# directory that no variable held, so no trap could ever have removed it.
+DATA2="$(mktemp -d)"
+AGENT_WORKFORCE_DATA="$DATA2" STUB_DIR="$SB2" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
   bash "$SB2/bin/agent-supervisor.sh" ptrtest "$SB2/work" /usr/bin/true "$SB2/tmux" "$SB2/start.log" > "$SB2/out.log" 2>&1 || true
 ARGS2="$SB2/new-session.args"
 if [ -s "$ARGS2" ]; then ok "the pointer run reached new-session"; else bad "pointer run never reached new-session: $(tail -3 "$SB2/out.log")"; fi

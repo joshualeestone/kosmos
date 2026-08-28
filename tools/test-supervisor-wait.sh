@@ -25,7 +25,11 @@ ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
 SB="$(mktemp -d)"
-trap 'rm -rf "$SB"' EXIT
+# 🛑 BOTH DIRS IN ONE TRAP (#1151). A second `trap ... EXIT` REPLACES the first,
+# it does not add to it -- measured. This file had two, so the sandbox above was
+# never removed and every run left it in TMPDIR. Add a new temp dir to THIS line
+# rather than writing another trap.
+trap 'rm -rf "$SB" "$AGENT_WORKFORCE_DATA"' EXIT
 
 # ── the stub tmux ────────────────────────────────────────────────────────────
 # has-session: answers "held" until the counter reaches its limit, then the
