@@ -220,7 +220,13 @@ async function fresh(browser, opts = {}) {
     const endAction = await page.locator('#fr-next').textContent();
     // The seen text rides the message: a future failure should say what it saw.
     ok(/Create your first agent/.test(endTitle), `on the create ending (saw ${JSON.stringify(endTitle)})`);
-    ok(/Create my first agent/.test(endAction),
+    /* Josh, 2026-08-27: the label is "Giddy Up" (kosmos#1204).
+       ⚠️ THIS IS THE SECOND CONSUMER OF THAT STRING AND I MISSED IT. I changed
+       the page and server.test.js, both of which went green, and the 0.5.90 cut
+       aborted here because a browser check pins the same label. A unit suite and
+       a page check are two different populations, and searching one is not
+       searching the other. */
+    ok(/Giddy Up/.test(endAction),
       `the create ending carries the pack's single action (saw ${JSON.stringify(endAction)})`);
     await page.click('#fr-next');
     await page.waitForTimeout(800);
@@ -329,7 +335,7 @@ async function fresh(browser, opts = {}) {
     await page.fill('#fr-you-do', 'Testing');
     await page.click('#fr-next');                 // step 5 -> 6 (saves first)
     await page.waitForSelector('#fr-pane-5', { state: 'hidden', timeout: 5000 });
-    await page.click('#fr-next');                 // starts "Create my first agent"
+    await page.click('#fr-next');                 // starts "Giddy Up"
     await page.waitForTimeout(150);
     await page.keyboard.press('Escape');          // ...and Escape mid-flight
     await page.keyboard.press('Escape');

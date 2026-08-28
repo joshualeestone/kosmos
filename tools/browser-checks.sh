@@ -405,15 +405,32 @@ else
   FAILED+=("regress-a-night (server did not boot)")
 fi
 
+# 🛑 THE FIVE POSTING CHECKS ARE HANDED THIS HARNESS'S OWN SANDBOX ROOT.
+#
+# kosmos#1156 made those five refuse to run unless AGENT_WORKFORCE_DATA sits
+# under a temp root, so a check that creates projects or completes first run
+# cannot be pointed at somebody's real board. The guard was right and its
+# PREMISE WAS FALSE: this script boots a sandboxed BOARD, then ran each check
+# with only KOSMOS_URL passed through. The sandbox was real and the check could
+# not see it, so all five refused and the 0.5.90 cut aborted at the page checks.
+#
+# ⚠️ WHAT THE GUARD CAN AND CANNOT KNOW, stated so nobody widens it wrongly: it
+# answers "am I running in a sandboxed context", NOT "is the board I am about to
+# POST to a fixture". A check cannot learn the second from its own environment.
+# Passing this harness's sandbox root is therefore honest rather than a
+# loophole: inside here, the first question's answer really is yes.
+#
+# ⇒ Each check gets the root of the board IT targets, not a nearby one, so the
+#   variable also says something true about which fixture it is talking to.
 # --- 2. render-projects: the project page's honesty rules -------------------
 sb2="$(new_sandbox)"
 if boot_board "$sb2" "$P2"; then
-  run_one "render-projects" node docs/browser-checks/render-projects.js \
+  run_one "render-projects" env AGENT_WORKFORCE_DATA="$sb2/data" node docs/browser-checks/render-projects.js \
     "http://127.0.0.1:$P2" "$sb2/shots" "$sb2"
   # #774: the consolidated view under each Agents layout, on the same board.
   # It seeds its own project inside $sb2 (and proves the server writes there),
   # so it stands alone if render-projects fails; puts the layout back after.
-  run_one "render-consolidated-layouts" node docs/browser-checks/render-consolidated-layouts.js \
+  run_one "render-consolidated-layouts" env AGENT_WORKFORCE_DATA="$sb2/data" node docs/browser-checks/render-consolidated-layouts.js \
     "http://127.0.0.1:$P2" "$sb2"
 else
   FAILED+=("render-projects (server did not boot)")
@@ -486,7 +503,7 @@ AGENT_WORKFORCE_HOME="$sb4/home" AGENT_WORKFORCE_CODEX_BIN="$sb4/fake-codex" \
   PORT="$P4" node ./server.js > "$sb4/server.log" 2>&1 &
 SERVER_PIDS+=("$!")
 if wait_up "$P4" "$sb4/server.log"; then
-  run_one "render-accounts-openai" node docs/browser-checks/render-accounts-openai.js "http://127.0.0.1:$P4"
+  run_one "render-accounts-openai" env AGENT_WORKFORCE_DATA="$sb4/data" node docs/browser-checks/render-accounts-openai.js "http://127.0.0.1:$P4"
 else
   FAILED+=("render-accounts-openai (server did not boot)")
 fi
@@ -516,7 +533,7 @@ FAKE_GH_MARK="$sb6/mark" AGENT_WORKFORCE_GH_BIN="$sb6/fake-gh" FAKE_VERCEL_MARK=
 SERVER_PIDS+=("$!")
 if wait_up "$P5" "$sb5/server.log" && wait_up "$P6" "$sb6/server.log"; then
   curl -s -X POST "http://127.0.0.1:$P5/api/first-run/complete" >/dev/null; curl -s -X POST "http://127.0.0.1:$P6/api/first-run/complete" >/dev/null
-  run_one "render-github-door" node docs/browser-checks/render-github-door.js "http://127.0.0.1:$P5" "http://127.0.0.1:$P6" "$sb6/mark" "$sb6/vmark" "$P7" "$P9"
+  run_one "render-github-door" env AGENT_WORKFORCE_DATA="$sb6/data" node docs/browser-checks/render-github-door.js "http://127.0.0.1:$P5" "http://127.0.0.1:$P6" "$sb6/mark" "$sb6/vmark" "$P7" "$P9"
 else
   FAILED+=("render-github-door (a server did not boot)")
 fi
@@ -666,7 +683,7 @@ fi
 
 sb3="$(new_sandbox)"
 if boot_thread_server "$sb3" "$P3"; then
-  run_one "render-thread" node docs/browser-checks/render-thread.js \
+  run_one "render-thread" env AGENT_WORKFORCE_DATA="$sb3/data" node docs/browser-checks/render-thread.js \
     "http://127.0.0.1:$P3" "$sb3/shots" "$sb3/server.log"
 else
   FAILED+=("render-thread (server did not boot)")
