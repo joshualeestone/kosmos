@@ -3317,6 +3317,53 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  * disagree, null otherwise. Surfaced, never silently resolved: a silent
  * override is how two sources of truth become one confident lie.
  */
+/**
+ * What the agent SAID, as a clause to hang off a conflict sentence (#1259).
+ *
+ * 🛑 WINNING THE PRECEDENCE WAS DELETING THE LOSER'S EVIDENCE. Measured:
+ *
+ *   reported needs_you "May I merge the PR?"  vs scraped rate_limited
+ *      -> needs_you, because = "May I merge the PR?"      the question survives
+ *   the same report                           vs scraped auth_failed
+ *      -> auth_failed, and the string "May I merge the PR?" appears NOWHERE
+ *
+ * The precedence itself is right and is not touched here: a dead token is
+ * exactly the thing a reporter cannot know (#966 rule 3b). But it is also the
+ * one case where the LOSING witness knew something the winner cannot, because a
+ * screen cannot show what an agent is waiting to be told. So the person fixes
+ * the sign-in, is never told a question was asked, and the record no longer
+ * holds it to tell them later. Agents do not ask twice.
+ *
+ * 🔑 ONLY FROM A FRESH REPORT, the same decay rule 3 and rule 5 already use. A
+ * two-day-old question carried onto today's screen is a different lie, and the
+ * stale rate-limit branch below is stale BY CONSTRUCTION, so this returns null
+ * there without needing to know that.
+ *
+ * ⚠️ CAPPED. `because` and `on` are agent-authored text on its way to a
+ * person's card, the same posture as every evidence line in this module.
+ */
+function saidWords(reported, nowMs) {
+  if (!reported || reported.found !== true) return '';
+  const at = Date.parse(reported.at || '');
+  if (!Number.isFinite(at) || (nowMs - at) > REPORT_WORKING_DECAY_MS) return '';
+  const trim = (v, n) => {
+    const t = String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+    if (!t) return '';
+    return t.length > n ? t.slice(0, n) + '…' : t;
+  };
+  if (reported.state === 'needs_you') {
+    const q = trim(reported.because, 120);
+    return q ? `, and it had asked: ${q}` : '';
+  }
+  if (reported.state === 'blocked') {
+    const on = trim(reported.on, 80);
+    if (!on) return '';
+    const owner = trim(reported.owner, 60);
+    return owner ? `, and it reported being blocked on ${on}, owned by ${owner}` : `, and it reported being blocked on ${on}`;
+  }
+  return '';
+}
+
 function reconcileReport(reported, scraped, nowMs) {
   if (!reported || reported.found !== true) return { ...scraped, reported: false, conflict: null };
 
@@ -3342,7 +3389,7 @@ function reconcileReport(reported, scraped, nowMs) {
   // "at rest and nothing is needed" over a 401 retry loop is the same false
   // calm rule 3 exists for, one state over. Observed live on 0.5.31 (#880).
   if (scraped.state === STATE.AUTH_FAILED) {
-    return { ...scraped, reported: false, conflict: 'its screen shows its Claude sign-in is being rejected, which its reports cannot know about' };
+    return { ...scraped, reported: false, conflict: 'its screen shows its Claude sign-in is being rejected, which its reports cannot know about' + saidWords(reported, nowMs) };
   }
   /* Rule 3b, rate-limit half (#966). The rule above states its own
      justification -- "no hook fires once the request itself is refused" -- and
@@ -3365,7 +3412,7 @@ function reconcileReport(reported, scraped, nowMs) {
       const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs);
       return { ...answer, conflict: 'its screen shows a usage limit, but it is still reporting, so it may be working through it' };
     }
-    return { ...scraped, reported: false, conflict: 'its screen shows it has hit a usage limit, which its reports cannot know about' };
+    return { ...scraped, reported: false, conflict: 'its screen shows it has hit a usage limit, which its reports cannot know about' + saidWords(reported, nowMs) };
   }
   // Rule 3: the red stands.
   if (scraped.state === STATE.NEEDS_YOU && reported.state !== 'needs_you') {
