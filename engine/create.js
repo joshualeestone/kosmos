@@ -266,6 +266,48 @@ function cleanName(raw) {
 }
 
 /**
+ * The name to SPEAK, when this file has the name to ACT on (#1367).
+ *
+ * 🛑 JOSH SAW BOTH NAMES FOR ONE AGENT IN ONE FLOW. The dialog title said
+ * "Switch Miles to OpenAI" and the refusal one screen later said "so RESEARCHER
+ * would start on it". His note: "we might want to put his actual username in
+ * there, not his title or whatever."
+ *
+ * ⭐ THE RULE IS ALREADY WRITTEN IN THIS FILE, at the bottom of `made()`:
+ * "act on the machine name, speak the display name, and never make a caller
+ * derive either one for itself." The sentences below were filling their name
+ * slot from the function's own argument, which is the machine name, so they
+ * spoke the slug.
+ *
+ * ⭐ AND THE RESOLVER IS NOT NEW EITHER. `engine/remove.js` already does exactly
+ * this at three sites (`:500`, `:1116`, `:1279`):
+ *
+ *     status.readIdentity(clean).displayName || clean
+ *
+ * ⇒ This is that precedent given a name so the eleven call sites below cannot
+ * each re-derive it, which is the half of the rule they were breaking.
+ *
+ * ⚠️ THE FALLBACK IS THE MACHINE NAME, DELIBERATELY, AND THE CATCH IS NOT A
+ * SWALLOWED ERROR. The worst outcome here is today's behaviour, never a sentence
+ * with a hole in it. There is no direction in which this can name the WRONG
+ * agent: `readIdentity` is keyed on the same string we would otherwise print.
+ *
+ * 🛑 AND THE `|| clean` IS UNREACHABLE TODAY. I claimed a test covered it and it
+ * did not. Measured: `readIdentity` DEFAULTS `displayName` to the session name,
+ * so it returns `'plainbot'` for an agent created as `plainbot` and `'ghostbot'`
+ * for a name that was never created at all. **It has no falsy path.**
+ *
+ * ⇒ Kept anyway, and the reason is the distinction rather than caution: that is
+ * `readIdentity`'s BEHAVIOUR, not its stated CONTRACT, and this file would
+ * otherwise print `undefined` at eleven sites the day it changed. **It is
+ * unreachable, therefore untested, and I am not claiming otherwise.**
+ */
+function spokenName(clean) {
+  try { return status.readIdentity(clean).displayName || clean; }
+  catch { return clean; }
+}
+
+/**
  * The name the MACHINERY uses: the tmux session, the launchd label, the folder,
  * every key in the store.
  *
@@ -586,6 +628,7 @@ function readJob(name) {
  */
 function setAccount(name, dir) {
   const clean = cleanName(name);
+  const spoken = spokenName(clean);
   if (!NAME_RE.test(String(clean == null ? '' : clean))) {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_NAME };
   }
@@ -602,7 +645,7 @@ function setAccount(name, dir) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `${acct.email || 'that account'} keeps its own separate history, so `
-        + `${clean} would arrive there with nothing it has ever done. Point that `
+        + `${spoken} would arrive there with nothing it has ever done. Point that `
         + 'account at your agents\' history first.',
     };
   }
@@ -611,20 +654,20 @@ function setAccount(name, dir) {
   if (!job) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `we could not read how ${clean} is started, so we have not changed it.`,
+      because: `we could not read how ${spoken} is started, so we have not changed it.`,
     };
   }
   if (job.runner === 'codex') {
     // Accounts here are Claude accounts (CLAUDE_CONFIG_DIR), which mean
     // nothing to codex; writing one anyway would claim an account change
     // that changes nothing (#245 v1).
-    return { outcome: OUTCOME.REFUSED, because: `${clean} runs on OpenAI, on this computer's OpenAI sign-in, so there is no Claude account to change` };
+    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on OpenAI, on this computer's OpenAI sign-in, so there is no Claude account to change` };
   }
   try {
     fs.writeFileSync(plistPath(clean),
       plistFor(clean, job.claude, job.tmux, job.model, acct.isDefault ? null : acct.dir, job.runner), 'utf8');
   } catch {
-    return { outcome: OUTCOME.REFUSED, because: `we could not write ${clean}'s startup file, so nothing changed.` };
+    return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
   }
   return { outcome: OUTCOME.CREATED, because: null, account: acct };
 }
@@ -675,6 +718,7 @@ function setAccount(name, dir) {
  */
 function setProvider(name, provider, opts) {
   const clean = cleanName(name);
+  const spoken = spokenName(clean);
   if (!NAME_RE.test(String(clean == null ? '' : clean))) {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_NAME };
   }
@@ -685,14 +729,14 @@ function setProvider(name, provider, opts) {
   if (!job) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `${clean} was not started by Kosmos, so we cannot change what it runs on.`,
+      because: `${spoken} was not started by Kosmos, so we cannot change what it runs on.`,
     };
   }
   const runner = provider === 'openai' ? 'codex' : 'claude';
   if (job.runner === runner) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `${clean} already runs on ${provider === 'openai' ? 'OpenAI' : 'Anthropic'}`,
+      because: `${spoken} already runs on ${provider === 'openai' ? 'OpenAI' : 'Anthropic'}`,
     };
   }
   const { claudeBin, codexBin } = binPaths(opts);
@@ -771,7 +815,7 @@ function setProvider(name, provider, opts) {
       return {
         outcome: OUTCOME.REFUSED,
         because: 'nobody is signed in to OpenAI on this computer, so '
-          + `${clean} would start on it and be unable to do anything. `
+          + `${spoken} would start on it and be unable to do anything. `
           + 'Add an OpenAI account first, then switch it.',
       };
     }
@@ -811,7 +855,7 @@ function setProvider(name, provider, opts) {
     fs.writeFileSync(plistPath(clean),
       plistFor(clean, runnerBin, job.tmux, null, openaiAccount ? openaiAccount.dir : null, runner), 'utf8');
   } catch {
-    return { outcome: OUTCOME.REFUSED, because: `we could not write ${clean}'s startup file, so nothing changed.` };
+    return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
   }
   try { store.writeProfile(clean, { provider }); }
   catch { /* the plist is the launch truth; the profile record catches up on the next write */ }
@@ -832,6 +876,7 @@ function setProvider(name, provider, opts) {
 
 function setModel(name, modelKey) {
   const clean = cleanName(name);
+  const spoken = spokenName(clean);
   if (!NAME_RE.test(String(clean == null ? '' : clean))) {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_NAME };
   }
@@ -847,7 +892,7 @@ function setModel(name, modelKey) {
   if (!job) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `${clean} was not started by Kosmos, so we cannot change what it runs on.`,
+      because: `${spoken} was not started by Kosmos, so we cannot change what it runs on.`,
     };
   }
   /* The agent's PROVIDER, from the runner its job actually launches. One
@@ -864,14 +909,14 @@ function setModel(name, modelKey) {
     if (!modelsFor(agentProvider).length) {
       return {
         outcome: OUTCOME.REFUSED,
-        because: `${clean} runs on OpenAI, and there are no OpenAI models to choose from yet`,
+        because: `${spoken} runs on OpenAI, and there are no OpenAI models to choose from yet`,
       };
     }
     const elsewhere = MODELS.find((x) => x.key === String(modelKey));
     return {
       outcome: OUTCOME.REFUSED,
       because: elsewhere
-        ? `${elsewhere.label} is not a model ${agentProvider === 'openai' ? 'OpenAI' : 'Anthropic'} runs, so ${clean} cannot use it`
+        ? `${elsewhere.label} is not a model ${agentProvider === 'openai' ? 'OpenAI' : 'Anthropic'} runs, so ${spoken} cannot use it`
         : 'pick a model from the list',
     };
   }
@@ -879,7 +924,7 @@ function setModel(name, modelKey) {
   try {
     fs.writeFileSync(plistPath(clean), plistFor(clean, job.claude, job.tmux, m.arg, job.configDir, job.runner), 'utf8');
   } catch {
-    return { outcome: OUTCOME.REFUSED, because: `we could not write ${clean}'s startup file, so nothing changed.` };
+    return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
   }
   return { outcome: OUTCOME.CREATED, because: null, model: m };
 }
