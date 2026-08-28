@@ -26421,10 +26421,13 @@ function paintRoom(body) {
        ⚠️ Keeping `at` current still matters - it is what the dedup compares -
        so this updates the timestamp and preserves the stamp, rather than
        skipping the row. */
-    const earned = !seededRoom && seen && seen.learnedAt > 0;
     ROOM_SPOKE_AT.set(who, {
       at,
-      learnedAt: earned ? seen.learnedAt : (seededRoom ? Date.now() : 0),
+      /* Flattened deliberately: `earned` was false whenever `seededRoom` was
+         true, so the two were never independent, and splitting them left
+         `!seededRoom` as a separately-mutable component that no test pinned. */
+      learnedAt: seededRoom ? Date.now()
+        : (seen && seen.learnedAt > 0 ? seen.learnedAt : 0),
     });
   }
   /* 🛑 ONLY IF THE PAINT ACTUALLY CARRIED THE RECORD. `engine/messages.js`
@@ -26436,7 +26439,10 @@ function paintRoom(body) {
      blanks the working line for a poll, the exact thing this guard exists to
      prevent. What we want to record is "this room's backlog has been read",
      not "this room has been painted once". */
-  if (body && body.ok !== false) ROOM_SPOKE_SEEDED.add(PJ_CURRENT);
+  /* `body.ok !== false` alone: `const allRows = body.rows || []` above already
+     dereferences `body`, so a null body throws before here and a `body &&`
+     guard would read as protection that is not present. */
+  if (body.ok !== false) ROOM_SPOKE_SEEDED.add(PJ_CURRENT);
   const shown = pjRoomFilterRows(allRows, p, PJ_ROOM_QUERY);
   const filtering = PJ_ROOM_QUERY.trim() !== '';
   const silences = pjSilences(allRows, p);

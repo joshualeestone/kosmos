@@ -32,14 +32,38 @@ const seededRoom = ROOM_SPOKE_SEEDED.has(PJ_CURRENT);
 
 `seededRoom` is read ONCE before the loop, not per row.
 
-⚠️ **An earlier version of this file credited the hoist with preventing the first row of a
-fresh room from seeding the map and the second row of the same paint seeing it seeded. A
-reviewer refuted that by measurement.** What prevents it is the `.add` sitting AFTER the
-loop; the hoist is good practice and changes nothing about that hazard. **The distinction
-matters because the wrong version tells a future editor the hoist is load-bearing when the
-`.add` placement is** - and they might then move the `.add` while carefully preserving the
-hoist. Third time on this branch that I credited a rule I wrote with protection it does not
-provide.
+🛑 **THIS PARAGRAPH HAS BEEN WRONG TWICE, IN OPPOSITE DIRECTIONS, AND THE SECOND VERSION WAS
+THE MORE DANGEROUS ONE.** Recorded in full because the correction is more useful than the
+conclusion.
+
+**v1:** "the hoist prevents the first row seeding the map and the second row seeing it seeded."
+**v2, after a reviewer refuted v1:** "the `.add` after the loop is what prevents it; the hoist
+changes nothing."
+
+**Both false. Measured, four variants:**
+
+| variant | first paint stamps its own history? |
+|---|---|
+| HEAD (hoist + trailing `.add`) | correct |
+| hoist inlined per row, `.add` after the loop | **correct** |
+| hoist kept, `.add` moved above the loop | **correct** |
+| hoist inlined **and** `.add` above the loop | **BROKEN** |
+
+⇒ **Neither is individually load-bearing. They are JOINTLY REDUNDANT** - `seededRoom` is read
+before `.add` under either one alone.
+
+⭐⭐ **AND THAT MAKES v2 WORSE THAN v1, WHICH IS THE PART TO KEEP.** v1 was merely wrong. **v2
+told a future editor the hoist "changes nothing", which licenses inlining it - and inlining it
+is precisely what turns a later `.add` move from harmless into silent breakage.** My correction
+shed the second line of defence it was standing on, and it warned about the SAFE move while
+clearing the way for the dangerous one.
+
+✅ **The accurate sentence, and it is the only one to keep: `seededRoom` must be read before
+`ROOM_SPOKE_SEEDED.add`. The hoist and the trailing `.add` each enforce that independently.
+Keep both.**
+
+📌 Fourth time on this branch that I credited a rule with protection it does not provide, and
+the first time I did it while correcting exactly that mistake.
 
 ## Decided: `ROOM_SPOKE_AT` stays keyed on the speaker, globally
 
@@ -139,3 +163,46 @@ still calls `.has`/`.add` - a mutation that breaks every room paint on the real 
 driven half is blind to it **by construction**, because the test injects its own `Set`.
 ⇒ **The matched half covers a hole the driven half cannot reach, and dismissing shape checks
 wholesale would have removed a real guard.**
+
+
+## Round 2, and it found the half my own mutation matrix could not
+
+**The `!seededRoom` conjunct was unpinned, and dropping it is a real over-claim.** My matrix
+tested reverting the fix wholesale; it never tested reverting HALF of it.
+
+```
+control (HEAD)                             3 pass 0 fail
+`!seededRoom &&` removed                   3 pass 0 fail    <- NOT CAUGHT
+stamp-preservation removed                 2 pass 1 fail
+empty-paint gate removed                   2 pass 1 fail
+```
+
+With `!seededRoom` gone, an agent speaking a SECOND time in an already-seeded room satisfies
+the preservation clause, so its stamp is kept instead of refreshed. **The stamp then goes
+stale, `LAST_AT` advances past it, the consumer stops dropping the agent, and the name renders
+beside a reply already on screen.** #1150 again, by a slower route.
+
+⭐ **Why every existing arm was blind to it: they all speak ONCE per agent per seeded room.**
+A single speech cannot distinguish a refreshed stamp from a preserved one. The missing arm is a
+second speech.
+
+🔑 **AND WRITING THAT ARM SURFACED THE SAME DEFECT IN THE HARNESS.** Two `seed()` calls in a
+fast test land in the SAME MILLISECOND, so `Date.now()` returns an identical number for
+"refreshed" and "preserved" and no assertion could separate them. **The test could not tell the
+two apart** - the branch's own disease, in the instrument. `Date` is now a parameter of the
+sliced block, stubbed with a clock the test advances, so the two are distinguishable by
+construction.
+
+**Also flattened the ternary** so `!seededRoom` stops being a separately-mutable component, and
+**dropped a `body &&` guard that read as protection and was not**: `const allRows = body.rows || []`
+already dereferences `body`, so a null body throws before that line.
+
+### Mutation matrix, final
+
+```
+control (HEAD)                             3 pass 0 fail
+preserved beats seeded (previously MISSED) 2 pass 1 fail
+stamp-preservation removed                 2 pass 1 fail
+empty-paint gate removed                   2 pass 1 fail
+restored                                   3 pass 0 fail
+```
