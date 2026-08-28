@@ -55,8 +55,18 @@ test('the step is a real slice of the model pane', () => {
      `id="create-model"` assertion below is the sharper half of that. Raise it
      again if this step legitimately grows; do NOT remove it, and do not raise
      it to a number that would swallow the create form. Measured after the
-     confirm landed: ~16.4k. */
-  assert.ok(STEP.length > 200 && STEP.length < 24000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
+     confirm landed: ~16.4k.
+     ⚠️ RAISED 24000 -> 25000 when the OpenAI key step got its approved box and
+     the note recording why it carries no promise about the key (#1207). The
+     slice was 24046, forty-six chars over, and the note is longer than the
+     sentence it explains -- which is correct: the sentence went, the reason has
+     to stay somewhere.
+     📌 MEASURED HEADROOM, so the next person raising this does not have to
+     re-derive it: `id="create-model"` sits 48047 chars from the slice start
+     against a slice of 24046, so 25000 is 23047 chars short of swallowing the
+     create form. The tripwire still trips long before it stops meaning
+     anything. */
+  assert.ok(STEP.length > 200 && STEP.length < 25000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
   assert.match(STEP, /Your agents run on your own subscription/, 'the slice does not contain the model step');
   assert.ok(!STEP.includes('id="create-model"'), 'the slice ran past this step into the create form');
 });
@@ -296,20 +306,28 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   // already done this once in Settings recognises it here") -- hold the two
   // strings identical so an edit to one screen cannot silently un-pair the
   // other (challenge-loop iteration 5).
-  /* 🔑 RE-ANCHORED ON THE WARNING, NOT ITS LEAD-IN (#1207, PigeonPete).
-     The contract above is "SAME WARNING COPY as Settings", and that is what is
-     asserted here. It used to anchor on "Paste an OpenAI API key.", which is the
-     LEAD-IN SENTENCE, not the warning -- so the guard also pinned the two screens
-     to the same opening line. Josh's approved design gives first-run a step-
-     specific opener ("Then come back and paste it here.") while Settings keeps
-     its own, and the warning itself stays byte-identical on both.
-     ⚠️ THE CONTRACT IS UNCHANGED AND SO IS ITS STRENGTH: an edit to the warning
-     on one screen still fails this. What no longer fails is a different opening
-     sentence, which the contract never claimed to cover. */
-  const hints = page.match(/It stays on this Mac[^<]*/g) || [];
-  assert.ok(hints.length >= 2, 'expected the key warning on both screens');
-  assert.equal(hints[0], hints[1],
-    'Settings and first-run no longer share the same key warning copy');
+  /* 🛑 THE PAIRING CONTRACT IS GONE, AND IT WAS DISSOLVED RATHER THAN BROKEN.
+     This used to assert first-run and Settings carried IDENTICAL key copy, so
+     "a person who has already done this once in Settings recognises it here".
+     Josh, 2026-08-27: "We don't need this line at all for the openAI." First run
+     now makes NO claim about the key, so there is nothing left to pair with and
+     asserting a pairing would fail forever on a screen that is correct.
+     ⚠️ THE ASSERTION IS NARROWED, NOT DROPPED. Deleting Settings' sentence is
+     still caught here, and first run is pinned to carrying no promise -- if
+     somebody re-adds one, it has to be a deliberate act with this test in front
+     of them, which is what the original guard was protecting.
+     📌 History so it is not re-derived: the copy was measured against
+     `engine/openaiaccounts.js:242`, which sends the key to api.openai.com to
+     validate it. The short form was untrue and the true form needed eleven words
+     of qualification, so the claim was removed instead. */
+  const settingsWarning = page.match(/Paste an OpenAI API key\. It stays on this Mac[^<]*/g) || [];
+  assert.equal(settingsWarning.length, 1,
+    'Settings should carry exactly one key warning, and it is missing or duplicated');
+
+  const firstRunFlow = page.match(/id="fr-openai-flow"[\s\S]*?<div class="frow">\s*<input/);
+  assert.ok(firstRunFlow, 'could not find the first-run key step to check it makes no promise');
+  assert.ok(!/It stays on this Mac/.test(firstRunFlow[0]),
+    'first run makes a promise about the key again; Josh removed that line deliberately (#1207)');
   assert.match(els['fr-openai-msg'].textContent, /connected/, 'should still say it is connected');
   assert.match(els['fr-openai-msg'].textContent, /cd34/);
 
