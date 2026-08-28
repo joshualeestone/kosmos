@@ -34,11 +34,46 @@ test('appendTo refuses to add the block twice, keyed on the sentence a person is
    friction. */
 test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
-  const PINNED = { 3: '78435e4dc9286b30' };
+  /* Kept per version rather than replaced, so the log in defaults.js and this
+     map can be read against each other. */
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
     `the block's text changed but DOCTRINE_VERSION did not: bump it, log it, and pin the new fingerprint '${print}'`);
+});
+
+/**
+ * #1253. The block told every agent to report "Blocked: on what, and who owns
+ * it" and, twenty lines later, to deliver it with `kosmos msg`. Same word and
+ * same two fields as the board's own state, one destination named, and the
+ * board never heard from anybody: measured on this machine, `needs_you` was 22
+ * of 21,500 self-reports with 14 of those from test agents, and `blocked` was
+ * 255 of which 245 were the StopFailure hook reporting a provider error.
+ *
+ * 🔑 Pinned as CONTENT rather than as a fingerprint. The version test above
+ * catches any change to the block; this one says which change must not be
+ * undone, so a future edit that quietly drops the verb goes red with a reason
+ * instead of just moving a hash.
+ */
+test('#1253: the block names the two states the board cannot see for itself', () => {
+  const b = defaults.block();
+  assert.match(b, /kosmos report needs_you/,
+    'the state that means a person must act is not named anywhere an agent reads');
+  assert.match(b, /kosmos report blocked --on <what> --owner <who>/,
+    'blocked is instructed as a message and never as a state');
+
+  /* The condition is half the instruction. A needs_you reported by an agent
+     that has NOT stopped paints the board red permanently, and a red that is
+     always on is the same as no red. */
+  assert.match(b, /Only when you have actually stopped/,
+    'the copy tells an agent to report needs_you without saying when not to');
+
+  /* 🔑 THE CONTROL: the four message-reports must still be there. This adds a
+     destination, it does not replace the one that was already taught. */
+  assert.match(b, /Report four things, to whoever you report to/,
+    'the four message reports were dropped rather than added to');
+  assert.match(b, /kosmos msg <name>/, 'the messaging verbs went with them');
 });
 
 test('sections are DERIVED from the block: they re-join to it byte-for-byte', () => {
