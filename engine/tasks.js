@@ -415,6 +415,56 @@ function columnTasks(p) {
    could-not-tell with the reason. Accepting the spelling costs nothing
    before agents are taught it; teaching it is a wording change (#763's
    rule: Splinter, then Josh) and is not in this file. */
+/**
+ * Every open task on every project, for the all-tasks screen (#1382).
+ *
+ * Josh: a list of "all tasks across all projects", reachable the way the
+ * documents list is.
+ *
+ * 🔑 CLOSED TASKS ARE OUT, AND THAT IS A DECISION RATHER THAN AN OVERSIGHT.
+ * `columnTasks` shows what somebody holds and has not finished; the door
+ * behind it holds two other kinds, tasks nobody picked up AND finished ones.
+ * This screen opens that door for the FIRST of those and not the second.
+ *
+ * ⚠️ WHY: an open list is bounded by what people are actually doing, so a
+ * pager is scaffolding nobody sees. Closed tasks grow without bound and need
+ * one on day one. Shipping the unbounded half without a pager is the version
+ * that breaks quietly, six months in, on the machine of whoever uses Kosmos
+ * most.
+ * ⇒ WHAT WOULD CHANGE THIS: Josh wanting finished work in the same list. Then
+ * closed tasks come back AND the pager ships with them, together, because
+ * neither is honest alone.
+ *
+ * 🔑 ONE ARRAY, SO A COUNT CANNOT DISAGREE WITH ITS OWN DESTINATION. The
+ * "View all tasks (N)" control and the rows on the screen both derive from
+ * what this returns. That is #1346 stated as a construction rather than as a
+ * rule to remember: that screen said "3 agents" over three rows and "6" below
+ * them because one number came from the DATA and the other from a
+ * document-wide DOM query.
+ *
+ * `projectName` and `whoNames` are ADDED, never merged over the task's own
+ * fields: a task that stores parts has no `who` at all, and overwriting it
+ * with the derived list would make two different facts share one name.
+ */
+function allOpenTasks() {
+  const out = [];
+  for (const p of projects.readAll() || []) {
+    for (const t of p.tasks || []) {
+      if (progressOf(t).closed) continue;
+      out.push(Object.assign({}, t, {
+        projectId: p.id,
+        projectName: p.name,
+        whoNames: whoOf(t),
+      }));
+    }
+  }
+  /* Deterministic order, so the screen does not reshuffle between paints and
+     a test can assert rows rather than a set: project name, then the task
+     number within it. */
+  return out.sort((a, b) => String(a.projectName).localeCompare(String(b.projectName))
+    || (a.number || 0) - (b.number || 0));
+}
+
 function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function claimPatterns(n, project) {
   const bare = new RegExp('\\btask\\s+' + n + '(?!\\d)(?!\\.\\d)', 'i');
@@ -474,7 +524,7 @@ function claimFor(task, reading, opts) {
   return { claimed: saysBare || saysQualified, because: null };
 }
 
-module.exports = { create, close, reopen, byNumber, columnTasks, claimFor, claimPatterns, taskProblem,
+module.exports = { create, close, reopen, byNumber, columnTasks, allOpenTasks, claimFor, claimPatterns, taskProblem,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
   SENTENCE_MAX, DETAIL_MAX, WHO_MAX };
