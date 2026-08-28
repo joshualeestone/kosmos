@@ -6525,7 +6525,11 @@ test('the project pill claims only what the counts support', () => {
   assert.equal(pjPillOf({ summary: { total: 3, needsYou: 1, working: 1 } }, false).label, 'Needs you');
   assert.equal(pjPillOf({ summary: { total: 3, working: 2 } }, false).label, 'Working');
   assert.equal(pjPillOf({ summary: { total: 2 } }, false).label, 'Nothing running');
-  assert.equal(pjPillOf({ summary: { total: 0 } }, false).label, 'No agents yet');
+  /* ⚠️ WAS 'No agents yet' UNTIL #1303 E. Josh: "On the Projects tab I don't want
+     to show 'no agents' as a status for a project." An empty label is the signal
+     the row builder reads to omit the pill entirely, so the assertion is that
+     there is NO status rather than that the status is empty-looking. */
+  assert.equal(pjPillOf({ summary: { total: 0 } }, false).label, '');
   assert.equal(pjPillOf({ summary: { total: 2, unseen: 1 } }, false).label, 'Can’t tell',
     'an unseen member let the card claim nothing is running');
   assert.equal(pjPillOf({ summary: { total: 2, working: 1 } }, true).label, 'Can’t tell',
