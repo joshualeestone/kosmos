@@ -2245,7 +2245,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   /* #980: no tuned max-height -- the list's grid row is the flexing one
      (minmax(0,1fr) above), so the list fills whatever the viewport gives
      it and scrolls inside that, at every window size. */
-  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 40; margin: 0; display: flex; flex-direction: column; gap: 6px;
+  /* `gap: 4px` is item 5, Josh: "we can tighten up the agent spacing between
+     agents as well", and his own bound on it: "within reason... not crazy
+     tight but a bit tighter". MEASURED at 6px between consecutive rows before
+     this change, on a three-agent fixture. */
+  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 40; margin: 0; display: flex; flex-direction: column; gap: 4px;
     min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated > #alist::-webkit-scrollbar { display: none; }
   /* The person, pinned under the list on a deeper ground so the row is not
@@ -2325,7 +2329,21 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
       html[data-layout="consolidated"] body.consolidated > .apphead #unote-slot,
       html[data-layout="consolidated"] body.consolidated > .apphead #uoffline-slot { margin-bottom: var(--space-6); }
       html[data-layout="consolidated"] body.consolidated > .apphead #unews-slot:has(> *:not([hidden])) { margin-bottom: var(--space-6); }
-  html[data-layout="consolidated"] body.consolidated > .apphead header { padding: 0; min-height: 0; }
+  /* 🔑 `margin: 0` IS THE GREY BAND (kosmos#1303 A). Josh, twice: "the gray
+     emptiness margin bar at the top was reduced but it still looks like it's
+     there... 5 or 8 pixels of a banner still across the top, where the design
+     isn't going all the way fully to the top of the title bar."
+     MEASURED, not reasoned: `.apphead` renders 4px tall in this view with every
+     child hidden. The `header` inside it is 0px high and carries
+     `margin-bottom: var(--space-2)`, and this rule zeroed its PADDING and its
+     MIN-HEIGHT and left the margin. A zero-height grid with a bottom margin is
+     still four pixels of page.
+     ⚠️ It reads as a band across the WHOLE width because every body child in
+     this view spans `grid-column: 1 / -1`, so four pixels of `.apphead` is four
+     pixels across everything. That is why it looks like a banner rather than
+     like a gap above one column, and why reading the rails' own padding never
+     explained it. */
+  html[data-layout="consolidated"] body.consolidated > .apphead header { padding: 0; min-height: 0; margin: 0; }
   html[data-layout="consolidated"] body.consolidated > .apphead .klink, html[data-layout="consolidated"] body.consolidated > .apphead h1,
   html[data-layout="consolidated"] body.consolidated > .apphead .tabs, html[data-layout="consolidated"] body.consolidated > .apphead .headright { display: none; }
   html[data-layout="consolidated"] body.consolidated .railhead .lead { display: flex; align-items: center; gap: 7px; min-width: 0; }
@@ -2343,7 +2361,32 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      `padding-top: 6px` at identical specificity and won, silently defeating
      the flush-under-the-head intent the comment above describes. Raised to
      beat it rather than left as a declaration that reads as if it works. */
-  html[data-layout="consolidated"] body.consolidated > #alist#alist { padding-top: 0; }
+  /* 🔑 THE ROOM ABOVE THE FIRST ROW (items 6 and 7), AND THE TWO COLUMNS NEED
+     DIFFERENT TARGETS FOR THE SAME RESULT, which is the whole difficulty of this
+     group.
+     MEASURED STRUCTURE: `#rail-agents` is a SIBLING of `#alist`, but
+     `#rail-projects` is the FIRST CHILD of `#pj-list-view`. So padding on the
+     projects container pushes the projects LABEL down, not its rows: I tried it,
+     re-ran the probe, and the two heads went from both-45 to 45 and 49.
+     ⇒ Agents take the room as `padding-top` on the list below the head.
+       Projects take it as the shared `.railhead` margin-bottom, which reaches
+       them and NOT the agents rail, because `#rail-agents` carries an id-level
+       `margin: 0`. Two mechanisms, one number, checked against each other.
+     ⚠️ AND ITEM 7 IS THE SAME FIX. Josh: "move up the first project so that the
+     text for the first one is on the same baseline as the first agent name."
+     Its cause was that the shared rule gives both lists `padding: 8px` and only
+     `#alist` was reset to 0, so the first project started 8px lower. Both now
+     resolve to 4px above the first row. */
+  /* (was: BOTH LISTS, NOT JUST THE AGENTS ONE (item 7). Josh: "on the projects list
+     we need to move up the first project so that the text for the first one is
+     on the same baseline as the first agent name."
+     MEASURED CAUSE: the shared rule above gives both lists `padding: 8px`, and
+     only `#alist` was then reset to `padding-top: 0`. So the first project
+     started 8px lower than the first agent, every time, and no amount of
+     nudging the projects rail would have found it. Doubling the selector is how
+     the agents side already wins against that shared rule; the projects side
+     joins it here rather than growing a third mechanism. */
+  html[data-layout="consolidated"] body.consolidated > #alist#alist { padding-top: 4px; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents, html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated > #rail-me { border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated #pj-list-view { border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated .lrow { border: 0; background: none; box-shadow: none; border-radius: 9px; padding: 6px 6px; }
@@ -2403,7 +2446,24 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated #pj-list { gap: 2px; }
   /* The rail heads: a name, a +, and the fold arrow. Folded, the arrow (and
      the +) stack and the name goes. */
-  html[data-layout="consolidated"] body.consolidated .railhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 0 2px 8px 6px; min-height: 22px; }
+  /* The 12px bottom margin is item 6, Josh: "a little more room from the label
+     agents to where the first agent is, just a tiny bit more, so it's not so
+     crowded on the label". MEASURED at 8px. 12 is his "tiny bit", not a
+     redesign.
+     🛑 AND THE SHARED RULE REACHES ONLY THE PROJECTS RAIL, WHICH IS WHY THE ROOM
+     FOR ITEM 6 IS NOT HERE. `#rail-agents` has an id-level `margin: 0` fourteen
+     lines up which outbids this class, so a change here moves ONE label and not
+     the other. MEASURED: I set 12px, re-ran the probe, and the agents head still
+     computed `margin-bottom: 0px`.
+     ⚠️ AND MY SECOND ATTEMPT WAS WORSE THAN MY FIRST. Putting the 4px on
+     `#rail-agents` as padding DID work, and it made that head 32px tall against
+     the projects head's 28, so the two labels stopped sharing a baseline. That
+     is item 2 of this same group, broken by the fix for item 6, and only the
+     probe saw it.
+     ⇒ THE ROOM LIVES ON THE LISTS INSTEAD (see `#alist#alist` below), where it
+     is above the first row in BOTH columns and touches neither head. One change
+     serves items 6 and 7 and cannot disturb item 2. */
+  html[data-layout="consolidated"] body.consolidated .railhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 0 2px 4px 6px; min-height: 22px; }
   html[data-layout="consolidated"] body.consolidated .railname { font: 600 .6875rem var(--font-ui); letter-spacing: .1em; text-transform: uppercase; color: var(--k-ink-2); }
   html[data-layout="consolidated"] body.consolidated .railacts { display: flex; gap: 4px; flex: none; }
   html[data-layout="consolidated"] body.consolidated .fold { width: 22px; height: 22px; border: 1px solid var(--k-rule); border-radius: 7px; background: var(--k-surface); color: var(--k-ink-2); font: 12px/1 var(--font-ui); cursor: pointer; padding: 0; }
@@ -2490,7 +2550,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      SC 2.5.3 name contract wants it legible). The quoted said-line no longer
      renders in a list row at all (kosmos#986), so there is nothing here to
      hide -- see the note on the clip below. */
-  html[data-layout="consolidated"] body.consolidated .lrow > .lstate { grid-column: 2; grid-row: 3; font-size: .625rem; }
+  /* `font-weight: 400` is kosmos#1303 A item 4, Josh: "Let's unbold the agent
+     status." MEASURED at 600 in this view: the base `.lstate` rule sets
+     `font-weight: 600` and this override changed only the SIZE, so the quiet
+     third line was rendering semibold. */
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate { grid-column: 2; grid-row: 3; font-size: .625rem; font-weight: 400; }
   /* 🛑 VISUALLY HIDDEN, NOT `display: none`, and the difference is the whole
      point. `display: none` takes the element out of the ACCESSIBILITY TREE as
      well as off the screen, so a rail row announced its name and role and then
