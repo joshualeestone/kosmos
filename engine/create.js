@@ -735,9 +735,39 @@ function setProvider(name, provider, opts) {
   let openaiAccount = null;
   if (runner === 'codex' && !DRY_RUN) {
     const openai = require('./openaiaccounts');
-    const home = openai.defaultDir();
-    const who = openai.identityOf(home);
-    if (!who) {
+    /* 🛑 `list()`, NOT `defaultDir()` (#1313). I wrote the default-home version
+       in #1211 and it refused Josh's switch on a freshly wiped Mac while his
+       sign-in had just said it succeeded. Both sentences were honest and they
+       were about DIFFERENT DIRECTORIES:
+         adding an account writes  ~/.codex-<label>  (openaiaccounts addWithKey
+                                   spawns codex login with CODEX_HOME=spot.dir)
+         this check used to read   ~/.codex          (the default home)
+       ⇒ NOTHING IN THE ADD PATH CAN EVER POPULATE THE DEFAULT HOME, so on any
+       machine where Kosmos performed the sign-in the switch could not succeed.
+       My own machine passed the old check only because its ~/.codex was made by
+       a manual `codex login`, which is the one directory the product never
+       writes. "Works on my machine" was true and exactly backwards.
+       📌 The accounts are a LIST and always have been; creation already picks
+       one from it. This makes the switch agree with creation. */
+    /* 🔑 THE OVERRIDE STAYS AUTHORITATIVE, AS ITS OWN CASE. When
+       AGENT_WORKFORCE_CODEX_HOME names a home, that IS the home: it is an
+       explicit instruction, and quietly using a labelled account from somewhere
+       else would be the disjoint-homes bug again pointing the other way.
+       #1211's test pins exactly this and nobody decided to change it, so it
+       keeps its assertion rather than being widened to accommodate the fix.
+       ⇒ The list is consulted only when no home has been named, which is every
+       ordinary machine including the one Josh reported from. */
+    const named = typeof process.env.AGENT_WORKFORCE_CODEX_HOME === 'string'
+      && process.env.AGENT_WORKFORCE_CODEX_HOME !== '';
+    const accounts = named
+      ? [openai.defaultDir()]
+        .map((dir) => {
+          const who = openai.identityOf(dir);
+          return who ? { dir, email: who.email, keyTail: who.keyTail, authMode: who.authMode, isDefault: true } : null;
+        })
+        .filter(Boolean)
+      : openai.list();
+    if (!accounts.length) {
       return {
         outcome: OUTCOME.REFUSED,
         because: 'nobody is signed in to OpenAI on this computer, so '
@@ -745,8 +775,28 @@ function setProvider(name, provider, opts) {
           + 'Add an OpenAI account first, then switch it.',
       };
     }
-    openaiAccount = { dir: home, email: who.email, keyTail: who.keyTail, authMode: who.authMode, isDefault: true };
-    try { trustCodexFolder(workerDir(clean)); }
+    /* ⚠️ A STATED DEFAULT, NOT A CHOICE, AND THE DIFFERENCE IS THAT IT IS SAID
+       OUT LOUD (#1373). With several accounts this takes the first and the
+       route's answer NAMES it, so a person can see which one they got. It is
+       not a picker and must not be described as one; creation offers a choice
+       and the switch does not, which is #1373's whole subject.
+       🛑 Refusing instead was the alternative and it could not be written
+       honestly: there is NO WAY TO REMOVE AN OPENAI ACCOUNT (#1372), so the
+       refusal's remedy would have been a Terminal command. A dead-end message
+       is the class we spent today closing, and shipping one on purpose is worse
+       than a default that announces itself. */
+    const acct = accounts[0];
+    openaiAccount = {
+      dir: acct.dir, email: acct.email, keyTail: acct.keyTail,
+      authMode: acct.authMode, isDefault: acct.isDefault === true,
+      choiceOf: accounts.length,
+    };
+    /* ⚠️ THE TRUST WRITE NEEDS THE SAME HOME. `trustCodexFolder(dir, home)`
+       falls back to `codexHomeDir()`, which is the default home again, so
+       leaving the second argument off would write the trust entry into a home
+       the agent will not run in. Same defect one line down from the one this
+       card is about. */
+    try { trustCodexFolder(workerDir(clean), acct.dir); }
     catch {
       return { outcome: OUTCOME.REFUSED, because: 'we could not let the OpenAI runner work in its folder, so nothing was changed' };
     }
@@ -756,7 +806,10 @@ function setProvider(name, provider, opts) {
      choices, and carrying one across would hand the new runner a value it
      has never heard of, silently, at its next start. */
   try {
-    fs.writeFileSync(plistPath(clean), plistFor(clean, runnerBin, job.tmux, null, null, runner), 'utf8');
+    /* The account rides into the launch job as CODEX_HOME (#1313). `null` here
+       meant the default home, which is the home the add path never writes. */
+    fs.writeFileSync(plistPath(clean),
+      plistFor(clean, runnerBin, job.tmux, null, openaiAccount ? openaiAccount.dir : null, runner), 'utf8');
   } catch {
     return { outcome: OUTCOME.REFUSED, because: `we could not write ${clean}'s startup file, so nothing changed.` };
   }
