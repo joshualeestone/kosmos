@@ -8989,7 +8989,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        custom style shows in light and dark alike, said below in words. -->
   <section class="dsec" id="s-sec-styles" data-sec="styles" tabindex="-1" aria-label="Styles" hidden>
     <h2>Styles</h2>
-    <p class="fhint">How your Kosmos looks.</p>
 
     <!-- #520: how Kosmos is laid out. Two tiles, tabs by default (Josh,
          2026-08-24 13:39: easier and less overwhelming; the consolidated
@@ -8997,20 +8996,24 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          choice is saved with the style (/api/style `layout`) and painted
          from what the engine says, never from a click alone. -->
     <div class="field" id="layout-field">
-      <span class="flabel">How Kosmos is laid out</span>
-      <p class="fhint">Two ways to see the same agents and projects. You can switch back any time.</p>
       <div class="laytiles" role="radiogroup" aria-label="How Kosmos is laid out">
         <button class="laytile" type="button" role="radio" aria-checked="true" data-layout-pick="tabs">
           <svg viewBox="0 0 220 132" aria-hidden="true"><rect x="0" y="0" width="220" height="132" rx="6" fill="var(--k-bg)" stroke="var(--k-rule)"/><rect x="70" y="10" width="26" height="10" rx="2" fill="var(--gold)"/><rect x="102" y="10" width="26" height="10" rx="2" fill="var(--k-rule)"/><rect x="134" y="10" width="26" height="10" rx="2" fill="var(--k-rule)"/><g fill="var(--k-surface)" stroke="var(--k-rule)"><rect x="12" y="32" width="60" height="42" rx="5"/><rect x="80" y="32" width="60" height="42" rx="5"/><rect x="148" y="32" width="60" height="42" rx="5"/><rect x="12" y="80" width="60" height="42" rx="5"/><rect x="80" y="80" width="60" height="42" rx="5"/><rect x="148" y="80" width="60" height="42" rx="5"/></g><g fill="var(--k-rule)"><circle cx="42" cy="46" r="7"/><circle cx="110" cy="46" r="7"/><circle cx="178" cy="46" r="7"/><circle cx="42" cy="94" r="7"/><circle cx="110" cy="94" r="7"/><circle cx="178" cy="94" r="7"/></g></svg>
           <b>Tab view</b>
-          <small>Agents, Projects and Settings, one at a time. Easier to start with.</small>
         </button>
         <button class="laytile" type="button" role="radio" aria-checked="false" data-layout-pick="consolidated">
           <svg viewBox="0 0 220 132" aria-hidden="true"><rect x="0" y="0" width="220" height="132" rx="6" fill="var(--k-bg)" stroke="var(--k-rule)"/><rect x="8" y="8" width="28" height="116" rx="4" fill="var(--k-surface)" stroke="var(--k-rule)"/><g fill="var(--k-rule)"><circle cx="22" cy="22" r="6"/><circle cx="22" cy="40" r="6"/><circle cx="22" cy="58" r="6"/><circle cx="22" cy="76" r="6"/><circle cx="22" cy="94" r="6"/></g><rect x="42" y="8" width="34" height="116" rx="4" fill="var(--k-surface)" stroke="var(--k-rule)"/><g fill="var(--k-rule)"><rect x="48" y="16" width="22" height="6" rx="2"/><rect x="48" y="30" width="22" height="6" rx="2"/><rect x="48" y="44" width="22" height="6" rx="2"/></g><rect x="82" y="8" width="84" height="116" rx="4" fill="var(--k-surface)" stroke="var(--k-rule)"/><g fill="var(--k-rule)"><rect x="90" y="18" width="60" height="5" rx="2"/><rect x="90" y="30" width="48" height="5" rx="2"/><rect x="90" y="42" width="56" height="5" rx="2"/></g><rect x="90" y="106" width="68" height="10" rx="3" fill="var(--k-bg)" stroke="var(--k-rule)"/><rect x="140" y="108" width="16" height="6" rx="2" fill="var(--gold)"/><rect x="172" y="8" width="40" height="116" rx="4" fill="var(--k-surface)" stroke="var(--k-rule)"/><g fill="var(--k-rule)"><rect x="178" y="16" width="28" height="26" rx="3"/><rect x="178" y="48" width="28" height="26" rx="3"/><rect x="178" y="80" width="28" height="26" rx="3"/></g></svg>
           <b>Consolidated view</b>
-          <small>Everything on one screen: agents, projects, the conversation and its tasks. Needs a window at least 960 pixels wide; the side columns fold to icons as it narrows, and narrower than 960, the tabs come back.</small>
         </button>
       </div>
+        <!-- 🔑 CHOOSE THEN CONFIRM (kosmos#1216). Josh: "I want a button so that
+             once you click one of the two, it says something like Activate and
+             when you click Activate it takes you to the view of whatever you've
+             selected." Picking a tile now only SELECTS; Activate applies it and
+             goes there. -->
+        <div class="frow" style="margin-top:12px;">
+          <button class="btn uprime" type="button" id="layout-activate" disabled>Activate</button>
+        </div>
       <p class="fmsg" id="layout-msg" role="status" aria-live="polite"></p>
     </div>
 
@@ -19925,20 +19928,46 @@ function placeProjectHead() {
   if (!head || !mid) return;
   if (head.parentElement !== mid) mid.insertBefore(head, mid.firstChild);
 }
+/* 🔑 SELECT, THEN ACTIVATE (kosmos#1216). A tile used to save and apply on
+   click; Josh asked for the press to be the commitment. */
+let LAYOUT_PICK = null;
 document.querySelectorAll('[data-layout-pick]').forEach((b) => {
-  b.addEventListener('click', async () => {
-    const msg = document.getElementById('layout-msg');
-    msg.textContent = '';
-    try {
-      const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: b.dataset.layoutPick }) });
-      if (!res.ok) { msg.textContent = ((await res.json().catch(() => null)) || {}).error || 'we could not save that'; return; }
-      const r = await res.json();
-      applyLayout(r.layout, true);
-      msg.textContent = r.layout === 'consolidated'
-        ? (window.innerWidth >= CONSOLIDATED_MIN_WIDTH ? 'Saved. Agents and Projects now share one screen.' : 'Saved. This window is narrower than ' + CONSOLIDATED_MIN_WIDTH + ' pixels, so the tabs stay until it is wider.')
-        : 'Saved. Kosmos opens in the tab view.';
-    } catch { msg.textContent = 'we could not save that'; }
+  b.addEventListener('click', () => {
+    LAYOUT_PICK = b.dataset.layoutPick;
+    document.querySelectorAll('[data-layout-pick]').forEach((o) => o.setAttribute('aria-checked', String(o === b)));
+    const go = document.getElementById('layout-activate');
+    if (go) go.disabled = false;
+    const m = document.getElementById('layout-msg');
+    if (m) m.textContent = '';
   });
+});
+document.getElementById('layout-activate').addEventListener('click', async () => {
+  const msg = document.getElementById('layout-msg');
+  const go = document.getElementById('layout-activate');
+  if (!LAYOUT_PICK) return;
+  msg.textContent = '';
+  go.disabled = true;
+  try {
+    const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: LAYOUT_PICK }) });
+    if (!res.ok) { msg.textContent = ((await res.json().catch(() => null)) || {}).error || 'we could not save that'; go.disabled = false; return; }
+    const r = await res.json();
+    applyLayout(r.layout, true);
+    /* 🛑 THE SUCCESS CHATTER GOES AND THE WIDTH WARNING STAYS, AND THEY WERE THE
+       SAME SENTENCE. Josh named ONE line: "Saved. Agents and Projects now share
+       one screen." The narrow-window line ALSO opened with "Saved.", so deleting
+       "the success message" as a CATEGORY would have taken the only remaining
+       statement of the 960px fact, since the tile description that also carried
+       it is removed above. Deleting by category rather than by text is how a
+       constraint vanishes alongside the chatter it happened to sit next to.
+       ⇒ Nothing is said when it simply worked. The width warning is said when it
+       APPLIES, at the moment of the press, which is a better home than a line
+       standing on the page for everyone it does not affect. */
+    if (r.layout === 'consolidated' && window.innerWidth < CONSOLIDATED_MIN_WIDTH) {
+      msg.textContent = 'This window is narrower than ' + CONSOLIDATED_MIN_WIDTH + ' pixels, so the side columns are folded for now.';
+    }
+    const tab = document.querySelector('.tab[data-tab="agents"]');
+    if (tab) tab.click();
+  } catch { msg.textContent = 'we could not save that'; go.disabled = false; }
 });
 /* #774: the consolidated centre with nothing open says what to press. */
 function paintPjNone(which) {
