@@ -5593,7 +5593,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         </div>
         <p class="dhint" id="d-account-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
         <div class="mstep">
-          <div class="frow">
+          <!-- 🔑 NAMED SO IT CAN BE HIDDEN WHOLE (kosmos#1211). Disabling the
+               select was not enough: a disabled <select> still DISPLAYS its
+               selected option, so an OpenAI agent showed a greyed "Claude
+               Sonnet" underneath a sentence saying OpenAI picks the model. The
+               state was right and the value contradicted it. Josh, 2026-08-27:
+               "it looks like I'm picking Claude Sonnet under the OpenAI Codex
+               and API key that I have selected... we should indicate that and
+               not have a drop-down box there." -->
+          <div class="frow" id="d-model-row">
             <select id="d-model" aria-label="Model this agent runs on"></select>
             <button class="btn" type="button" id="d-model-go" disabled>Change &amp; Restart</button>
           </div>
@@ -20287,6 +20295,10 @@ async function paintModelPicker(a) {
      restarting the agent onto the model it is already running. The change
      handler cannot cover this: it only fires if the person touches the menu. */
   go.disabled = !usable || !sel.value || sel.value === (sel.dataset.current || '');
+  /* Un-hiding is this function's job, mirroring the park below. Both halves sit
+     with their own path deliberately: hiding in one place and revealing in
+     another is how a control goes missing for the agent you switch TO. */
+  { const row = document.getElementById('d-model-row'); if (row) row.hidden = false; }
   if (msg && !usable && !msg.textContent) {
     msg.textContent = ours
       ? 'Made before Kosmos recorded how it starts, so there is no launch file to change. '
@@ -20564,6 +20576,14 @@ function paintProviderPicker(a) {
     const da = document.getElementById('d-account');
     if (dm) dm.disabled = true;
     if (da) da.disabled = true;
+    /* ⚠️ DISABLED IS NOT ENOUGH, and that is kosmos#1211's display half. A
+       disabled select keeps painting its selected option, and every model in the
+       table is a Claude one because codex's catalogue is not ours to mirror yet.
+       So the agent showed a greyed Claude model directly above a sentence saying
+       OpenAI chooses. The row goes entirely; the sentence stays and is what it
+       was always saying on its own. */
+    const dmr = document.getElementById('d-model-row');
+    if (dmr) dmr.hidden = true;
     const dmm = document.getElementById('d-model-msg');
     if (dmm && !dmm.textContent) dmm.textContent = 'OpenAI picks its own model, and this agent runs on this computer’s OpenAI sign-in. Switch it back to Anthropic to choose these again.';
   }
