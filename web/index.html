@@ -25825,7 +25825,7 @@ async function pjPostSend(attachment) {
       verdict(d.because || 'We could not post that.');
       return;
     }
-    if (PJ_CURRENT === sentProject && input.value.trim() === sentText) input.value = '';
+    if (PJ_CURRENT === sentProject && input.value.trim() === sentText) pjComposerReset(input);
     if ((PJ_ROOM_DRAFTS[sentProject] || '').trim() === sentText) delete PJ_ROOM_DRAFTS[sentProject];
     if (pendingIds.length) attachClear(ATTACH_ROOM, sentProject);   // the files went with it; the composer repaints if it is this project
     if (PJ_CURRENT === sentProject) msg.textContent = '';
@@ -26132,6 +26132,31 @@ function pjGrowComposer(el) {
   if (!el) return;
   el.style.height = 'auto';
   el.style.height = el.scrollHeight + 'px';
+}
+
+/**
+ * Empty the composer AND put it back to one line (#1303 group C).
+ *
+ * Josh, 2026-08-28: *"if it expands to two lines for the message that I'm
+ * sending, or three lines, or however many lines, and I send it, it stays stuck
+ * at that height instead of reverting back to a single line... It ends up
+ * consuming a huge amount of the page and then I can't get it to go back down."*
+ *
+ * 🛑 THE HEIGHT IS AN INLINE STYLE AND CLEARING THE VALUE DOES NOT TOUCH IT.
+ * `pjGrowComposer` writes `style.height` in pixels as you type; the send path
+ * set `value = ''` and stopped there, so a three-line box kept a three-line
+ * height with one line of nothing in it, for the rest of the session.
+ *
+ * 🔑 THE RULE THIS FILE ALREADY FOLLOWS EVERYWHERE ELSE: a value changed BY THE
+ * PROGRAM re-grows. The draft restore does it, and so does the mention insert.
+ * The send path was the one write that did not, which is why this is a named
+ * pair rather than a second line at the call site: the next programmatic write
+ * should reach for this instead of remembering.
+ */
+function pjComposerReset(el) {
+  if (!el) return;
+  el.value = '';
+  pjGrowComposer(el);
 }
 
 /* --- the thread ---------------------------------------------------------- *
