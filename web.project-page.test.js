@@ -42,8 +42,13 @@ test('a member row derives its title the way the cards do, so a catalogue role r
   assert.equal(roleLine({ role: 'copywriter' }, null), 'Copywriter', 'with no catalogue yet, the first letter still rises');
 });
 
-test('the files door says Show all, and the stale arm draws nothing', () => {
-  assert.match(SCRIPT, /all\.textContent = more > 0 \? 'Show all ' \+ body\.total : 'Show all';/);
+test('the files door says View All, and the stale arm draws nothing', () => {
+  /* 📌 THIS PINNED "Show all", WHICH WAS ALSO JOSH'S WORDING (#761, "his words").
+     He superseded himself on 2026-08-27: "we should have a 'View All' instead of
+     'Show All'". So this is not a house style being corrected, it is a later
+     instruction replacing an earlier one, and the #761 provenance is recorded at
+     the call site so nobody later reads this change as having broken a rule. */
+  assert.match(SCRIPT, /all\.textContent = more > 0 \? 'View All ' \+ body\.total : 'View All';/);
   assert.doesNotMatch(SCRIPT, /Has not picked this up yet/);
   assert.doesNotMatch(SCRIPT, /pj-notyet-go/);
 });
