@@ -421,19 +421,19 @@ function columnTasks(p) {
  * Josh: a list of "all tasks across all projects", reachable the way the
  * documents list is.
  *
- * 🔑 CLOSED TASKS ARE OUT, AND THAT IS A DECISION RATHER THAN AN OVERSIGHT.
- * `columnTasks` shows what somebody holds and has not finished; the door
- * behind it holds two other kinds, tasks nobody picked up AND finished ones.
- * This screen opens that door for the FIRST of those and not the second.
+ * 🔑 CLOSED TASKS ARE IN, AND THE REASON IS A REMOVAL RATHER THAN A
+ * PREFERENCE. This screen is reached from `#pj-alltasks`, the per-project
+ * door, which today reveals hidden tasks IN PLACE. #1009 already put every
+ * OPEN task in the column, assigned or not, so what that door reveals now is
+ * the remainder: FINISHED WORK.
+ * ⇒ Repurposing the door to open this screen is a removal plus an addition,
+ * and if the screen excluded closed tasks the removal would leave finished
+ * work unreachable anywhere in Kosmos.
  *
- * ⚠️ WHY: an open list is bounded by what people are actually doing, so a
- * pager is scaffolding nobody sees. Closed tasks grow without bound and need
- * one on day one. Shipping the unbounded half without a pager is the version
- * that breaks quietly, six months in, on the machine of whoever uses Kosmos
- * most.
- * ⇒ WHAT WOULD CHANGE THIS: Josh wanting finished work in the same list. Then
- * closed tasks come back AND the pager ships with them, together, because
- * neither is honest alone.
+ * ⚠️ THE COST, STATED RATHER THAN HIDDEN: closed tasks grow without bound, so
+ * this list does too. There is no pager, deliberately, while the realistic
+ * count is small. That is the first thing to revisit, and the trigger is a
+ * real machine with enough finished work to scroll, not a guess about one.
  *
  * 🔑 ONE ARRAY, SO A COUNT CANNOT DISAGREE WITH ITS OWN DESTINATION. The
  * "View all tasks (N)" control and the rows on the screen both derive from
@@ -446,22 +446,30 @@ function columnTasks(p) {
  * fields: a task that stores parts has no `who` at all, and overwriting it
  * with the derived list would make two different facts share one name.
  */
-function allOpenTasks() {
+function allTasks() {
   const out = [];
   for (const p of projects.readAll() || []) {
     for (const t of p.tasks || []) {
-      if (progressOf(t).closed) continue;
       out.push(Object.assign({}, t, {
         projectId: p.id,
         projectName: p.name,
         whoNames: whoOf(t),
+        /* Named on the row rather than inferred by the screen: `progressOf`
+           lives here, and a caller re-deriving "is it finished" from another
+           field is the two-sources-for-one-fact shape that put "3 agents" over
+           six rows in #1346. */
+        isClosed: !!progressOf(t).closed,
       }));
     }
   }
   /* Deterministic order, so the screen does not reshuffle between paints and
      a test can assert rows rather than a set: project name, then the task
      number within it. */
-  return out.sort((a, b) => String(a.projectName).localeCompare(String(b.projectName))
+  /* Open work first, then finished, each by project then task number. A
+     person opening this is looking for what is live; the finished half is why
+     the door existed and it stays reachable, underneath. */
+  return out.sort((a, b) => (a.isClosed ? 1 : 0) - (b.isClosed ? 1 : 0)
+    || String(a.projectName).localeCompare(String(b.projectName))
     || (a.number || 0) - (b.number || 0));
 }
 
@@ -524,7 +532,7 @@ function claimFor(task, reading, opts) {
   return { claimed: saysBare || saysQualified, because: null };
 }
 
-module.exports = { create, close, reopen, byNumber, columnTasks, allOpenTasks, claimFor, claimPatterns, taskProblem,
+module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
   SENTENCE_MAX, DETAIL_MAX, WHO_MAX };
