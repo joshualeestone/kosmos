@@ -1342,11 +1342,53 @@ const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEED
  * nor `/\/usage-credits\b/` (says "usage credits", not the "/usage-credits"
  * command), and every genuine block this array exists to catch keeps at
  * least one of the other five markers.
+ *
+ * 🛑 THE THREE REMAINING GUESSES REMOVED 2026-08-27 (#1180). The paragraph above
+ * says the guesses are "0 for 1 against reality" and then keeps them. They were
+ * not merely useless: they were the live cause of a FALSE CALM, which is the
+ * failure this board keeps paying for.
+ *
+ * Measured through the real `classify()`, all five rows returning `rate_limited`:
+ *
+ *   'I hit the rate limit earlier but it cleared. Continuing with the sweep.'
+ *   'That endpoint was flaky, so I will try again later in the run.'
+ *   'The log shows 429 responses from the API during the burst.'
+ *   'I hit the rate limit earlier.'  +  'Do you want to proceed?'
+ *
+ * ⚠️ THE LAST ROW IS THE EXPENSIVE ONE, AND IT IS NOT A WRONG BADGE. This array
+ * is tested BEFORE the needs-you branch, deliberately, so an agent genuinely
+ * ASKING A QUESTION with the words "rate limit" anywhere in its last 25 lines
+ * was reported rate-limited and ITS QUESTION NEVER SURFACED. The agent waits,
+ * and the board shows a plausible, wrong, calm-looking reason for the silence.
+ *
+ * 📌 PROVENANCE, FROM THE LOG RATHER THAN FROM MEMORY. `git log -S` puts
+ * `/rate limit/i`, `/\b429\b/` AND `/try again (later|at)/i` all in `78b6720c`
+ * ("Phase 1: read-only status engine", 2026-08-06) -- the scaffolding commit,
+ * three weeks before anyone watched a real limit screen. The comment above says
+ * so itself ("the first FOUR were guesses"), and deddd811's own test says none
+ * of the four appeared in the real sentence. Only the two dated `observed
+ * 2026-08-21` came off a screenshot, and both are kept.
+ *
+ * ⚠️ CARD #1180's provenance table is WRONG on one row: it lists
+ * `try again (later|at)` as observed and first added in deddd811. It is not and
+ * it was not. Corrected here because the table was about to license keeping it.
+ *
+ * 🔑 AND THE TWO OBSERVED MARKERS ARE DELIBERATELY NOT NARROWED, though each
+ * still matches one piece of prose ("try again later" is gone with the guesses,
+ * but 'We reached your context limit discussion...' still trips
+ * `reached your .{0,40}limit`). Four narrowings were tested against the real
+ * 2026-08-21 screen plus plausible unobserved phrasings, and EVERY ONE that
+ * killed the prose also dropped a real limit:
+ *
+ *   requiring the clause to end at "limit"   -> loses "...limit and cannot continue"
+ *   allowing a comma too                     -> loses "...limit for Opus 5"
+ *   forbidding a following lowercase word    -> loses both
+ *
+ * A missed limit is #880's regression and is worse than a rare false pause, so
+ * the remaining false positive is LEFT IN and recorded rather than traded for
+ * one. Narrowing these two needs a SECOND observed screen, not a cleverer regex.
  */
 const RATE_LIMIT_MARKERS = [
-  /rate limit/i,
-  /\b429\b/,
-  /try again (later|at)/i,
   /reached your .{0,40}limit/i,   // observed 2026-08-21
   /\/usage-credits\b/,            // observed 2026-08-21
 ];

@@ -107,7 +107,12 @@ const SCREEN = {
   working: 'Reading the lease\n· Working (esc to interrupt)\n',
   needs_you: 'Do you want to proceed?\n❯ 1. Yes\n  2. No\n',
   idle: 'Worked for 1m 02s\n> \n',
-  rate_limited: 'You have hit your usage limit. Try again later.\n',
+  // #1180. Was 'You have hit your usage limit. Try again later.', which matched
+  // only `/try again (later|at)/i` -- a never-observed guess from the 2026-08-06
+  // scaffolding commit, removed by #1180. Now the wording Claude Code ACTUALLY
+  // says, from Josh's 2026-08-21 screenshot, on the same "use the real captured
+  // text" rule the auth_failed entry below already follows.
+  rate_limited: "You've reached your Fable 5 limit. Run /usage-credits to continue or\nswitch models with /model.\n",
   // #874. The same marker text status.test.js's own #874 case uses,
   // captured from a real pane -- kept in sync deliberately rather than
   // invented separately here, for the same "install verifies it" reason

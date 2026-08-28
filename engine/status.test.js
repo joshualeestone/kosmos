@@ -349,8 +349,39 @@ test('a waiting question outranks a finished-work line', () => {
 });
 
 test('a usage limit outranks everything else', () => {
-  const text = 'Do you want to proceed?\nusage limit reached, try again later\n';
+  /**
+   * 🔑 THE ORDERING IS KEPT AND ITS FIXTURE IS REPAIRED (#1180). This test used
+   * `'Do you want to proceed?\nusage limit reached, try again later\n'`, which
+   * matched ONLY `/try again (later|at)/i` -- a never-observed guess from the
+   * 2026-08-06 scaffolding commit, removed by #1180. So the requirement it
+   * states was resting entirely on a marker that fired on ordinary prose.
+   *
+   * The requirement is real and stays: an agent whose limit is genuinely spent
+   * cannot act on your answer, so sending a person to answer its question is a
+   * worse read than telling them it is blocked. It is now pinned with the
+   * wording Claude Code ACTUALLY says, from Josh's 2026-08-21 screenshot, so
+   * the test exercises the real precedence rather than a guess.
+   */
+  const text = 'Do you want to proceed?\n'
+    + "You've reached your Fable 5 limit. Run /usage-credits to continue.\n";
   assert.equal(classify(pane(), text).state, STATE.RATE_LIMITED);
+});
+
+test('#1180: prose ABOUT a limit does not outrank a real question', () => {
+  /**
+   * 🛑 THE OTHER HALF OF THE ORDERING, AND THE DEFECT #1180 WAS FILED FOR.
+   * The precedence above is correct for a REAL limit and catastrophic for an
+   * imagined one: because this array is tested first, an agent that is actually
+   * asking a question, with limit-ish prose in its tail, was reported
+   * rate_limited and ITS QUESTION NEVER SURFACED.
+   *
+   * ⚠️ THIS IS THE ROW A FUTURE MARKER ADDITION WILL BREAK. Anyone re-adding a
+   * conversational phrase to RATE_LIMIT_MARKERS turns this red, which is the
+   * point: the guard is on the INPUT to the precedence, not on the precedence.
+   */
+  const text = 'I hit the rate limit earlier.\nDo you want to proceed?\n';
+  assert.equal(classify(pane(), text).state, STATE.NEEDS_YOU,
+    'an agent asking a question was silenced by prose mentioning a limit');
 });
 
 test('scraped states are labelled scraped, never structured', () => {
@@ -1019,7 +1050,13 @@ test('a session we know is not ours is never given a healthy state', () => {
   // as something healthy.
   const notOurs = { name: 'devserver', session: 'devserver', target: 'devserver:0.0', command: 'node', title: 'vite' };
 
-  for (const screen of ['Do you want to proceed? (y/N)\n', 'Worked for 3m 1s\n> \n', 'rate limit reached\n']) {
+  /* 🔑 THE THIRD SCREEN IS A REAL LIMIT SENTENCE, NOT 'rate limit reached' (#1180).
+     That string matched only `/rate limit/i`, a guess removed by #1180, so the row
+     would still have PASSED while proving nothing: it could no longer produce the
+     dangerous answer on ANY pane, recognised or not. A control that cannot fail is
+     not a control. */
+  for (const screen of ['Do you want to proceed? (y/N)\n', 'Worked for 3m 1s\n> \n',
+                        "You've reached your Fable 5 limit. Run /usage-credits to continue.\n"]) {
     const r = classify(notOurs, screen);
     assert.equal(r.state, STATE.UNKNOWN,
       `a pane we do not recognise was classified as ${r.state} from its screen text`);
@@ -3063,4 +3100,71 @@ test('#1155: real prompts stay needs_you and ordinary prose does not become it',
     const r = classify(pane(over), text);
     assert.equal(r.state, want, `${what}: expected ${want}, got ${r.state} (${r.because})`);
   }
+});
+
+/**
+ * 🛑 #1180: FIVE PIECES OF ORDINARY PROSE CLASSIFIED AS `rate_limited`, AND THE
+ * FIFTH SILENCED A REAL QUESTION.
+ *
+ * #1155 is the same class pointing the other way -- there, prose produced a
+ * false RED. Here it produces a false CALM, which is the failure this board
+ * keeps paying for, because `RATE_LIMIT_MARKERS` is tested BEFORE the needs-you
+ * branch and a rate-limited card looks like a plausible reason for silence.
+ *
+ * ⚠️ ROWS 6 AND 7 ARE WHAT STOP SOMEBODY "FIXING" THIS BY DELETING THE ARRAY.
+ * Row 6 is the real 2026-08-21 screen and must stay `rate_limited`; row 7 is
+ * ordinary work and must stay `unknown`. Row 7 is also what makes this a
+ * measurement rather than a stuck classifier: the same function CAN return
+ * not-`rate_limited`, and does.
+ *
+ * 📌 ROW 5 IS NOT REDUNDANT WITH THE ORDERING TESTS ABOVE. Those two pin the
+ * precedence from both sides with the marker list as it stands; this row pins
+ * the specific sentence pair from the card, so the card's own evidence has a
+ * home in the suite.
+ *
+ * Measured 2026-08-27: 2 of 7 before, 7 of 7 after.
+ */
+test('#1180: prose about limits is not a limit, and a real limit screen still is', () => {
+  const REAL_LIMIT = "You've reached your Fable 5 limit. Run /usage-credits to continue or\n"
+    + 'switch models with /model.\n';
+  const cases = [
+    ['prose, a limit that cleared',
+      'I hit the rate limit earlier but it cleared. Continuing with the sweep.\n', STATE.UNKNOWN],
+    ['prose, a flaky endpoint',
+      'That endpoint was flaky, so I will try again later in the run.\n', STATE.UNKNOWN],
+    ['prose, 429 quoted from a log',
+      'The log shows 429 responses from the API during the burst.\n', STATE.UNKNOWN],
+    ['prose, an agent discussing this very card',
+      'RATE_LIMIT_MARKERS matched 429 and try again later, which is the defect.\n', STATE.UNKNOWN],
+    ['🛑 prose about a limit PLUS a real question',
+      'I hit the rate limit earlier.\nDo you want to proceed?\n', STATE.NEEDS_YOU],
+    ['CONTROL: the real 2026-08-21 limit screen', REAL_LIMIT, STATE.RATE_LIMITED],
+    ['CONTROL: ordinary working output',
+      'Running the test suite now. 2532 pass, 0 fail. Committing.\n', STATE.UNKNOWN],
+  ];
+  for (const [what, text, want] of cases) {
+    const r = classify(pane(), text);
+    assert.equal(r.state, want, `${what}: expected ${want}, got ${r.state} (${r.because})`);
+  }
+});
+
+/**
+ * 🔑 THE REMAINING FALSE POSITIVE, PINNED AS KNOWN RATHER THAN LEFT TO BE
+ * REDISCOVERED (#1180).
+ *
+ * `/reached your .{0,40}limit/i` is one of the two OBSERVED markers and it still
+ * matches this sentence. It is deliberately NOT narrowed: every narrowing tested
+ * against the real screen and plausible unobserved phrasings ("...limit and
+ * cannot continue", "...limit for Opus 5") dropped a real limit as well, and a
+ * missed limit is #880's regression, which is worse than a rare false pause.
+ *
+ * ⚠️ THIS TEST ASSERTS THE BUG. If someone lands a second observed limit screen
+ * and narrows the marker safely, this test SHOULD go red -- flip it to UNKNOWN
+ * and delete this comment. It exists so the gap is visible in the suite instead
+ * of living only in a card nobody reopens.
+ */
+test('#1180: KNOWN GAP -- "reached your ... limit" still matches one piece of prose', () => {
+  const prose = 'We reached your context limit discussion on the card yesterday.\n';
+  assert.equal(classify(pane(), prose).state, STATE.RATE_LIMITED,
+    'this is now fixed -- narrow the marker, flip this row to UNKNOWN, drop the comment');
 });
