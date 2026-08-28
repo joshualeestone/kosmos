@@ -130,7 +130,23 @@ DATA_PATHS_BEFORE="$(data_paths)"
 # every served bundle, so the copy threw and only the supervisor ever landed;
 # the release gate (#624) then read that broken state as the expectation and
 # refused the first bundle that carried the fix. Sorted, the way comm emits.
-EXPECTED_ADDS="$(printf '%s\n' ./AgentWorkforce/bin/agent-supervisor.sh ./AgentWorkforce/bin/codex-report-bridge.js)"
+#
+# 🛑 THREE FILES SINCE #1139, AND THIS LIST HAS NOW BLOCKED A CUT TWICE FOR THE
+# SAME REASON. installSupervisor also writes `engine-path` beside the
+# supervisor (engine/create.js), which is how an installed agent finds
+# sendertoken.js and can identify itself at all. The 0.5.91 cut died here on
+# 2026-08-27 with a CORRECT bundle: the gate named the file, said "added, not
+# expected", and refused, exactly as it refused #745's fix.
+#
+# ⭐ THE PATTERN WORTH SEEING, BECAUSE THERE WILL BE A FOURTH FILE: this list
+# encodes what the installer USED to add, so it is guaranteed to be wrong for
+# exactly one cut every time the installer legitimately gains a file, and the
+# failure lands on whoever is cutting rather than on whoever added it. The gate
+# is right to refuse (an unexpected file in someone's home is what it exists to
+# catch); what is wrong is that the list is updated AFTER a red cut instead of
+# in the commit that adds the file.
+# ⇒ IF YOU ADD A FILE TO installSupervisor, ADD IT HERE IN THE SAME COMMIT.
+EXPECTED_ADDS="$(printf '%s\n' ./AgentWorkforce/bin/agent-supervisor.sh ./AgentWorkforce/bin/codex-report-bridge.js ./AgentWorkforce/bin/engine-path)"
 
 # ⚠️ THE PRODUCT'S DEFAULT PORT, RECORDED BEFORE ANYTHING RUNS, and checked
 # again at the end. Found by Splinter, 2026-08-21: a test run left a board
