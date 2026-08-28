@@ -85,7 +85,13 @@ const say = (n, cond, note) => (cond ? ok(n, note) : bad(n, note || 'assertion f
     await p.click('[data-tab="projects"]');
     await p.locator('#pj-list').getByText('Composer Reset').first().click();
     await p.waitForSelector('#pj-room', { state: 'visible' });
-    await p.waitForTimeout(500);
+    /* Wait for the CONDITION, not for a duration. A fixed sleep is a guess about
+       a machine that may have four browsers on it, and a gate that reddens a
+       correct build is the one people learn to re-run. */
+    await p.waitForFunction(() => {
+      const el = document.getElementById('pj-post');
+      return el && el.getBoundingClientRect().height > 0;
+    }, null, { timeout: 15000 });
 
     const boxH = () => p.evaluate(() => {
       const el = document.getElementById('pj-post');
@@ -95,13 +101,24 @@ const say = (n, cond, note) => (cond ? ok(n, note) : bad(n, note || 'assertion f
     const base = await boxH();
     say('the composer is present and has a height', base > 0, 'base=' + base);
 
-    /* Long enough to wrap several times at this viewport. Typed through fill(),
-       which fires the `input` event the grow handler listens on. */
+    /* 🛑 TYPED, NOT FILLED, AND THE DIFFERENCE IS THE WHOLE CHECK.
+       `p.fill()` sets the value and fires one `input` event, which I had taken
+       from a comment as equivalent to typing. It is not safe to assume here:
+       `pjGrowComposer` has SEVEN call sites, including repaint hooks, so a box
+       that grew after a fill does not prove the INPUT path ran. Real keystrokes
+       remove the assumption instead of asserting it, and Josh's sentence is
+       "it expands to two lines for the message that I'm sending" - which is
+       typing. */
     const long = 'This is a deliberately long message for the composer so that it wraps onto '
       + 'several lines in the box, which is the state Josh described, where the composer '
       + 'grows as you type and then stays that tall after the message has gone.';
-    await p.fill('#pj-post', long);
-    await p.waitForTimeout(250);
+    await p.locator('#pj-post').pressSequentially(long, { delay: 4 });
+    /* The wait IS the growth assertion: if the box never grew this times out and
+       says so, rather than a sleep expiring and a later line reporting equality. */
+    await p.waitForFunction((b) => {
+      const el = document.getElementById('pj-post');
+      return el && Math.round(el.getBoundingClientRect().height) > b + 4;
+    }, base, { timeout: 15000 }).catch(() => {});
     const grown = await boxH();
 
     /* 🔑 THE SETUP CONTROL. Everything below is meaningless if this fails: a box
@@ -110,7 +127,13 @@ const say = (n, cond, note) => (cond ? ok(n, note) : bad(n, note || 'assertion f
       grown > base + 4, 'base=' + base + ' grown=' + grown);
 
     await p.click('#pj-post-go');
-    await p.waitForTimeout(600);
+    /* Wait for the box to EMPTY, which is the observable the send produces, then
+       measure the height. Waiting on the height directly would be waiting for
+       the thing under test. */
+    await p.waitForFunction(() => {
+      const el = document.getElementById('pj-post');
+      return el && el.value === '';
+    }, null, { timeout: 15000 }).catch(() => {});
 
     const after = await boxH();
     const value = await p.inputValue('#pj-post');
