@@ -409,7 +409,14 @@ function whoamiFor(card, known, live) {
     }
     const rec = accountForAgent(who, known);
     return {
-      value: rec ? { email: rec.email, label: rec.label, dir: rec.dir, isDefault: rec.isDefault } : null,
+      /* Field-for-field with the live branches above, `organization` included.
+         A consumer must not be able to tell WHICH reader answered from the
+         presence of a key - that is what `source` is for, and a shape that
+         differs by reader is a second, accidental channel saying the same
+         thing differently. */
+      value: rec
+        ? { email: rec.email, label: rec.label, organization: rec.organization || null, dir: rec.dir, isDefault: rec.isDefault }
+        : null,
       from: 'record',
     };
   })();
@@ -441,7 +448,32 @@ function whoamiFor(card, known, live) {
        The claim holds only where `byWorkdir` independently finds the same
        transcript. Where the registry is the ONLY route to it, dropping the
        argument is a behaviour CHANGE - an improvement, and still a change. */
-    const rec = (() => { try { return readModel(who); } catch { return null; } })();
+    /* 🛑 THE EXACT SESSION, NOT JUST THE NAME, AND DROPPING IT CAN HAND AN AGENT
+       ANOTHER AGENT'S MODEL AT `structured` CONFIDENCE.
+
+       `engine/status.js` states the cost in its own words: the board's name is
+       the session with `-discord` stripped, so `foo` and `foo-discord` are ONE
+       NAME AND TWO SESSIONS, and the surviving card of that collision can show
+       the other agent's model and memory. The board therefore calls
+       `readModel(pane.name, pane.session)` (status.js:3683). This route called
+       `readModel(who)`.
+
+       Measured, four arms:
+         readModel('foo')                -> claude-fable-5  structured  <- the OTHER agent
+         readModel('foo', 'foo')         -> claude-opus-5   structured  <- correct
+         readModel('foo', 'foo-discord') -> claude-fable-5  structured  <- positive control
+         readModel('nobodyhere')         -> null            none        <- negative control
+
+       ⚠️ AND IT IS THE PREFERRED SOURCE, so a wrong value here BEATS the live
+       reading that knew the truth - the confident-wrong-answer this whole card
+       exists to remove, arriving through the reader we trust most.
+
+       ⭐ Same distinction I pinned two hundred lines up for the LIVE reader
+       (`card.session`, not `card.sessionName`), missed in the sibling call in
+       the same function. */
+    const rec = (() => {
+      try { return readModel(who, (card && card.session) || undefined); } catch { return null; }
+    })();
     if (rec && rec.model) {
       /* `modelDisplayName`, NOT the raw id, and this is the branch that normally
          answers. The LIVE path's display name was pinned; this one - the
@@ -558,8 +590,26 @@ function accountForAgent(name, known) {
   const dir = job.configDir;
   const list = Array.isArray(known) ? known : [];
   const found = dir ? list.find((x) => x.dir === dir) : list.find((x) => x.isDefault);
-  if (found) return { dir: found.dir, email: found.email, label: found.label, isDefault: found.isDefault };
-  return dir ? { dir, email: null, label: null, isDefault: false } : null;
+  if (found) {
+    return {
+      dir: found.dir, email: found.email, label: found.label,
+      /* `organization` is a LIVE-only fact (Claude's `organizationName`); the
+         record has no source for it. Present and null rather than absent, so
+         both readers return the same shape. */
+      organization: null,
+      isDefault: found.isDefault,
+    };
+  }
+  /* 🛑 `isDefaultDir`, NOT A HARDCODED false. This returned `false` for ANY
+     directory not matched in `known` - INCLUDING the default one - while the
+     live branches above ask `accounts.isDefaultDir`. So the two readers
+     disagreed about the same directory, and which answer an agent got depended
+     on whether its pane happened to be readable.
+     ⭐ Two derivations of one fact, in the field I unified one round earlier:
+     the live path was fixed and its sibling was not. Same miss, third time. */
+  return dir
+    ? { dir, email: null, label: null, organization: null, isDefault: accounts.isDefaultDir(dir) }
+    : null;
 }
 
 function policySummaries(r) {
