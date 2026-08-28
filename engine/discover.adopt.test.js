@@ -305,3 +305,63 @@ test('#1349: an instructions file already at the ceiling is left alone', () => {
   const after = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   assert.equal(after, big, 'the block was spliced into a file already at the ceiling');
 });
+
+/**
+ * #1363: an imported agent was never told the rules or how to reach the connectors.
+ *
+ * **Josh, 2026-08-28 12:09 CDT, watching the import path work on a wiped machine:**
+ * > *"It would be helpful if we added to their file all the rules we've made up for
+ * > them working. More important than that is adding the information so they know
+ * > how to connect to the connectors that we have in settings."*
+ *
+ * MEASURED ASYMMETRY: `create.js` composes both before an agent is born;
+ * `discover.js` mentioned `defaults` ZERO times.
+ */
+test('#1363: an imported agent is born with the rules and the connector words', () => {
+  const dir = agentFolder('rulesimp', 'AGENTS.md', '# You are Rules Imp\n');
+  let atStart = null;
+  create.setRunner(() => {
+    if (atStart === null) {
+      try { atStart = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'); } catch { atStart = ''; }
+    }
+    return { ok: true, stdout: '' };
+  });
+  const r = discover.connect(dir, {});
+  assert.equal(r.ok, true, r.because);
+  assert.ok(atStart !== null, 'the runner never ran, so this proves nothing about ordering');
+
+  /* 🔑 READ AT THE MOMENT OF START, not after connect returned. Rules that arrive
+     afterwards are rules the agent was not born with, which is the #732 shape. */
+  const { block } = require('./defaults');
+  const marker = block().split('\n').find((l) => l.startsWith('## ')) || '## How you work';
+  assert.ok(atStart.includes(marker),
+    'the agent was STARTED before it was given the rules');
+  const conn = require('./connections');
+  assert.ok(atStart.includes(conn.START),
+    'the agent was STARTED before it was told how to reach the connectors');
+});
+
+test('#1363: the person\'s own words are still there, above ours', () => {
+  /* The seam has to stay visible: we append under our own headings, we do not
+     rewrite what they wrote. */
+  const dir = agentFolder('seamimp', 'AGENTS.md', '# You are Seam Imp\n\nMy own instructions.\n');
+  assert.equal(discover.connect(dir, {}).ok, true);
+  const after = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  assert.match(after, /^# You are Seam Imp/, 'their file no longer starts with their words');
+  assert.match(after, /My own instructions\./, 'their content was lost');
+});
+
+test('#1363 CONTROL: importing twice does not duplicate the blocks', () => {
+  /* `appendTo` refuses to add itself twice and the splice replaces in place. A
+     re-import that doubled every rule would be worse than the gap this closes. */
+  const conn = require('./connections');
+  const dir = agentFolder('twiceimp', 'AGENTS.md', '# You are Twice Imp\n');
+  discover.connect(dir, {});
+  const once = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  const countOnce = once.split(conn.START).length - 1;
+  /* Re-run the compose path directly: a second connect() is refused by name, and
+     what matters is that composing again is idempotent. */
+  const again = require('./defaults').appendTo(once);
+  assert.equal(again, once, 'the rules were appended a second time');
+  assert.equal(countOnce, 1, `the connections block appears ${countOnce} times after one import`);
+});

@@ -519,6 +519,52 @@ function connect(dir, opts) {
      📌 Non-gating, same rule as creation: an unreadable projects file must not
      cost somebody their agent. If this fails, the later sync still does it the
      old way. */
+  /* 🔑 AN IMPORTED AGENT GETS THE RULES AND THE CONNECTOR WORDS TOO (#1363).
+     Josh, watching the import path work on a wiped machine: "it would be helpful
+     if we added to their file all the rules we've made up for them working. More
+     important than that is adding the information so they know how to connect to
+     the connectors that we have in settings."
+
+     ⚠️ THE ASYMMETRY HE SPOTTED, MEASURED: `create.js` composes both of these
+     before an agent is born. `discover.js` mentioned `defaults` ZERO times, so an
+     imported agent got neither -- it would only ever receive them if somebody
+     noticed a banner and clicked it.
+
+     ⚠️ BEFORE `installJob`, for the same reason as the projects block below: it
+     STARTS the agent, and rules that arrive afterwards are rules it was not born
+     with. Same #732 ordering.
+
+     ⚠️ IT WRITES INTO A FILE THE PERSON WROTE. Both blocks are constant words with
+     no machine state, both go under their own headings so the seam between their
+     words and ours stays visible, and `appendTo` refuses to add itself twice. The
+     doctrine refresh already offers these same sections to agents that exist; this
+     is the same write at a better moment.
+
+     📌 Non-gating, and the byte cap DROPS THE BLOCK rather than refusing the
+     agent -- the rule creation keeps. An import that lands without the rules is
+     worse than one that lands with them and far better than none at all. */
+  try {
+    const file = path.join(given, instructionsFile);
+    const { MAX_BYTES } = require('./instructions');
+    let text = fs.readFileSync(file, 'utf8');
+    let changed = false;
+    try {
+      const withDefaults = require('./defaults').appendTo(text);
+      if (Buffer.byteLength(withDefaults, 'utf8') <= MAX_BYTES && withDefaults !== text) {
+        text = withDefaults; changed = true;
+      }
+    } catch { /* imported without the rules rather than not imported */ }
+    try {
+      const connMod = require('./connections');
+      const projectsMod = require('./projects');
+      const spliced = projectsMod.spliceBlock(text, connMod.blockBody(), connMod.START, connMod.END);
+      if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES && spliced !== text) {
+        text = spliced; changed = true;
+      }
+    } catch { /* same posture */ }
+    if (changed) fs.writeFileSync(file, text, 'utf8');
+  } catch { /* the doctrine banner still offers them, the old way */ }
+
   const wantProjects = (opts && Array.isArray(opts.projects))
     ? opts.projects.map((x) => String(x || '').trim()).filter(Boolean) : [];
   if (wantProjects.length) {
