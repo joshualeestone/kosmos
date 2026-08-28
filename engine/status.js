@@ -3546,6 +3546,26 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      hole (a question asked through the runtime's question tool fires no
  *      hook, so the reporter can honestly not know) -- and false calm is the
  *      failure that ships, four times now on this fleet.
+ *      🛑 AND RULE 3 IS NOT A TIEBREAK FOR A RARE CASE. THE PANE READER IS
+ *      WHERE `needs_you` COMES FROM, AND SAYING SO IS #1253's OPTION 3.
+ *      Measured over the whole record on 2026-08-28: 22 of 26,227 self-reports
+ *      are `needs_you`. Seven are the PermissionRequest hook writing on an
+ *      agent's behalf, fourteen belong to two walkthrough fixture agents, and
+ *      ONE was ever typed by a working agent. #1255 shipped the instruction
+ *      telling agents to report the state and 4,700 reports later the count
+ *      had not moved by one.
+ *      ⇒ Every other rule here arbitrates between two witnesses. This one
+ *      arbitrates between a witness and, in practice, a silence. So anything
+ *      that narrows the classifier narrows the only path that produces the
+ *      board's red state at all. #1155's tightening was right on its own terms
+ *      and it also narrowed that path: a question typed as prose ("May I merge
+ *      the PR?") classifies `unknown`, measured on #1253. Both facts are true
+ *      and the second is the cost of the first, not an argument against it.
+ *      📌 DO NOT TRUST THE NUMBERS IN THIS PARAGRAPH. RE-RUN THEM:
+ *          node tools/needs-you-source.js
+ *      It prints the split with both controls, and it says plainly if agents
+ *      have started reporting the state themselves -- in which case this
+ *      paragraph is stale and rule 3 wants re-arguing rather than repeating.
  *   3b. NOR IS A DEAD TOKEN (#886). A scraped `auth_failed` stands over any
  *      report: no hook fires once the request itself is refused, so the
  *      reporter cannot know, and an idle report never decays (rule 6), which

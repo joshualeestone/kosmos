@@ -36,6 +36,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 
+/* ⚠️ SIX WORDS, AND ONE OF THEM HAS ALMOST NO WRITER. A reader of a closed
+   list assumes each word arrives the same way. `needs_you` does not: nearly
+   every one in the record was written by the permission hook or by a
+   walkthrough fixture, and the board's red state is load-bearing on the PANE
+   READER rather than on this file (#1253, option 3). The measurement and the
+   argument live at `status.js` rule 3 -- ONE copy, deliberately, because the
+   number goes stale and three copies go stale separately. Re-run it with
+   `node tools/needs-you-source.js`. */
 const STATES = Object.freeze(['started', 'working', 'idle', 'needs_you', 'blocked', 'stopped']);
 
 /* #900: the two words that mean A PERSON IS THE BLOCKER. They are the states
