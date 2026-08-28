@@ -125,3 +125,64 @@ fail**, which is this branch's recurring mistake rather than three unrelated one
 the trailing `([^.\n]*)` can match empty, so the bound cannot change match-versus-no-match,
 only name length. **It cannot invent an agent out of prose; it can only lengthen a false
 positive that already existed.**
+
+
+## Iteration 7, the last one. Convergence, and the rule that decided it.
+
+**I stated the stopping rule to Splinter BEFORE seeing any of iteration 7's output**, because a
+termination criterion chosen after the result is just the result wearing a rule's clothes:
+
+> only comment or coverage findings and no behaviour defect, I converge and write the proof; if it
+> finds behaviour, I keep going, whichever answer comes back.
+
+It returned **BEHAVIOUR DEFECTS: none**, having built both parsers side by side (main's regex
+extracted verbatim against `identityFromText` on HEAD) and compared them on ~40 hand-picked shapes,
+a ~30,000-case combinatorial fuzz, and all 84 real `CLAUDE.md`/`AGENTS.md` files on this machine. It
+found no input where this branch fabricates a role main did not, and none where the name crosses a
+sentence boundary main's did not.
+
+**Behaviour has not changed since iteration 4. Iterations 5, 6 and 7 changed comments and tests
+only.** That is convergence rather than stalling, and it is why seven iterations is not six too
+many.
+
+### The one finding in this diff, and it is the same class as the last one
+
+`[A-Z]` in `NAME_PREFIX_RUN` widened to `[A-Z]+` left the **full suite green** while changing
+output. So a second rule was stated in a comment and pinned by nothing:
+
+```
+You are IBM. He writes copy.   'IBM'  -> 'IBM. He'
+You are HR. Manager, a role.   'HR'   -> 'HR. Manager'   role 'role'
+You are CEO. Smith, a writer.  'CEO'  -> 'CEO. Smith'    role 'writer'
+```
+
+⭐ **Iteration 6 found the `Jr|Sr` exclusion untested; iteration 7 found the single-letter rule
+untested. Both are rules ABOUT WHAT DOES NOT JOIN, and both survived every earlier pass.** The
+pattern is worth naming: mutation kills what is present, and a rule about what is *excluded* has no
+line to mutate, so a suite can be provably thorough about the inclusion list and blind to the
+constraint beside it. Pinned with both arms, so it asserts "exactly one letter" and not merely "no
+capitals".
+
+### Rebased before finishing, and it mattered
+
+The branch was **4 commits behind `origin/main`**, and the local `main` ref was stale and divergent
+from it - missing `#1159` and `#1351`. So `git diff main...HEAD` showed six files when the authored
+diff is three; the rest was inherited and already on main. **A review baseline that is not what will
+be merged is not a review of what will be merged.** Rebased, re-ran: **2780 pass, 0 fail**.
+
+### Deliberately not fixed here
+
+Iteration 7 raised several findings in `engine/create.js` and `engine/discover.adopt.test.js`. **All
+of them are inherited from commits already on `origin/main`, not authored by this branch**, so they
+do not belong in this diff. Two were worth filing and are now #1359: the adopt test's two assertions
+are both satisfied by the runner ARGUMENT and neither can see the binary path, and the test needs
+the host's real codex to pass. Verified against `origin/main` before filing.
+
+### One behaviour difference that is a decision, not a defect
+
+`You are Anna the copywriter.` gives role `null` where main gave `copywriter`. **The comma rule is
+worse than main on a no-comma prose role**, and iteration 7 named it plainly. It stays: it is the
+card's declared standard, it is pinned in the test with an explicit "flip this row and say why"
+escape hatch, and on the only real corpus available it fires 4 times and is right all 4. **If anyone
+disagrees with the standard, that is the row to reopen** - the disagreement is about the standard,
+not about the implementation.
