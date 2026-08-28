@@ -1563,6 +1563,65 @@ function matchedLine(text, markers) {
 }
 
 /**
+ * The whole MESSAGE that starts at the first line matching `markers`, not just
+ * that line (#1248).
+ *
+ * 🛑 THE VENDOR WROTE A MESSAGE AND THIS FIELD WAS READING A LINE. The real
+ * 2026-08-21 limit screen is two lines:
+ *
+ *   You've reached your Fable 5 limit. Run /usage-credits to continue or
+ *   switch models with /model.
+ *
+ * `matchedLine` returns the first, so the board showed ONE of the vendor's two
+ * remedies and ended the sentence on the word "or", which reads as a truncation
+ * without saying what was cut. Measured at every pane width from 40 to 200
+ * columns: the second remedy was absent at all 41. It is not a wrapping
+ * problem, and `-J` (#1234) does not touch it.
+ *
+ * ⚠️ THAT FIELD EXISTS FOR EXACTLY THE THING IT WAS DROPPING. Its own comment:
+ * "That names the model, carries the vendor's own two remedies, and stays true
+ * if the wording changes under us." Josh asked for something that would "prompt
+ * a user to know" their usage is full; half a remedy is the part that does that
+ * work.
+ *
+ * 🔑 WHERE IT STOPS, and it is three bounds rather than one:
+ *   - a line ending in a sentence terminator ENDS the message. The observed one
+ *     ends at "/model." and the first line deliberately does not, because the
+ *     vendor's own sentence continues.
+ *   - a following line that is not prose ends it too. A limit message with the
+ *     prompt footer under it must never paste "⏵⏵ accept edits on…" into a
+ *     person's screen, so a continuation has to OPEN with a letter, digit or
+ *     slash. Every runner's chrome opens with a glyph.
+ *   - at most two extra lines, the same window the working-line evidence
+ *     builder uses, and the same 240-character cap as everything else here.
+ *
+ * 📌 Joining with a single space is correct BECAUSE of #1234: `capture-pane`
+ * now passes `-J`, so these are logical lines and a wrapped row can no longer
+ * arrive as two. Before that landed this could not have been done safely at all
+ * (a wrapped row must be joined with nothing and a real line with a space, and
+ * nothing downstream could tell them apart).
+ */
+function messageAt(text, markers) {
+  const rows = String(text == null ? '' : text).split('\n');
+  const ENDS = /[.!?]["')\]]?\s*$/;
+  const CONTINUES = /^[A-Za-z0-9/]/;
+  for (let i = 0; i < rows.length; i += 1) {
+    if (!markers.some((re) => re.test(rows[i]))) continue;
+    let out = rows[i].replace(/^[\s>│├└─*❯›]+/, '').trim();
+    if (!out) continue;
+    for (let extra = 0; extra < 2 && !ENDS.test(out); extra += 1) {
+      const next = rows[i + 1 + extra];
+      if (next === undefined) break;
+      const line = next.replace(/^[\s>│├└─*❯›]+/, '').trim();
+      if (!line || !CONTINUES.test(line)) break;
+      out += ' ' + line;
+    }
+    return out.length > 240 ? out.slice(0, 240) + '…' : out;
+  }
+  return null;
+}
+
+/**
  * A dead token, or an agent with the words on its screen? (#1233)
  *
  * 🔑 TESTED AGAINST THE PAYLOAD, NOT AGAINST A SCREEN ROW, and that one change
@@ -1869,7 +1928,9 @@ function classify(pane, paneText) {
       state: STATE.RATE_LIMITED,
       confidence: CONFIDENCE.SCRAPED,
       because: 'its screen mentions a usage limit',
-      evidence: limitLine,
+      /* The whole message, not its first line (#1248). See `messageAt`: the
+         vendor's second remedy lives on the line after the marker. */
+      evidence: messageAt(tail, RATE_LIMIT_MARKERS),
     };
   }
   /**
