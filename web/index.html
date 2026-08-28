@@ -20966,13 +20966,37 @@ function changeDialog({ title, small, go, run }) {
   goBtn.onclick = async () => {
     goBtn.disabled = true; keep.hidden = true;
     msg.textContent = 'Working…';
-    await run((sentence, ok) => {
+    /* 🛑 EVERY WAY OUT OF THIS MODAL USED TO LIVE INSIDE `say` (#1313). Press the
+       button and both controls go: `goBtn` is disabled and `keep` is hidden, and
+       only `say` brings one back. So a `run` that resolves WITHOUT calling it
+       leaves "Working…" on screen with nothing to click, forever.
+       That is not hypothetical: four of the five callers passed `say` through and
+       the provider switch did not, so Josh pressed Switch and restart, the switch
+       WORKED, and he sat looking at a dead modal. He read it as a hang.
+       ⇒ The instance is fixed at its own call site. This is the CLASS: whatever
+       `run` does, whether it speaks, throws, or quietly returns, there is a way
+       out when it ends. A modal with no exit is a trap no copy can rescue. */
+    let spoke = false;
+    const say = (sentence, ok) => {
+      spoke = true;
       msg.textContent = sentence;
       goBtn.hidden = true;
       keep.textContent = ok ? 'Done' : 'Close';
       keep.hidden = false;
       try { keep.focus(); } catch { /* the sentence stands on its own */ }
-    });
+    };
+    try {
+      await run(say);
+    } catch (err) {
+      /* A `run` that throws past its own handler still owes the person a
+         sentence rather than a frozen dialog. */
+      if (!spoke) say(String((err && err.message) || 'That did not work.'), false);
+    } finally {
+      /* ⚠️ NOT A SUCCESS MESSAGE. It says what is actually known: the work
+         finished and nothing reported how it went. Claiming "Done" here would
+         be the confident-negative failure one screen over. */
+      if (!spoke) say('That finished, but nothing came back to say how it went. Close this and check the agent.', false);
+    }
   };
   back.hidden = false;
   try { goBtn.focus(); } catch { /* fine */ }
@@ -21031,8 +21055,14 @@ document.getElementById('d-provider').addEventListener('change', (e) => {
   if (go) go.disabled = !e.target.value || !CURRENT || e.target.value === providerOf(CURRENT);
 });
 
-async function changeProviderNow() {
-  if (!CURRENT) return;
+async function changeProviderNow(say) {
+  /* ⚠️ `say` IS THE MODAL'S ONLY EXIT (#1313). The four sibling actions all
+     take it and this one did not, so the switch succeeded and the dialog sat on
+     "Working…" with both buttons gone. It is optional here only because this
+     function is also reachable from the row's own control, where there is no
+     dialog to answer to. */
+  const tell = typeof say === 'function' ? say : () => {};
+  if (!CURRENT) { tell('There is no agent selected any more.', false); return; }
   const sel = document.getElementById('d-provider');
   const go = document.getElementById('d-provider-go');
   const msg = document.getElementById('d-provider-msg');
@@ -21054,10 +21084,12 @@ async function changeProviderNow() {
     /* The route's sentence verbatim: it says what stayed, what did not
        cross, and that the agent will look idle until spoken to. */
     msg.textContent = out.because || 'Switched.';
+    tell(out.because || 'Switched.', true);
     sel.value = '';
   } catch (err) {
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     msg.textContent = String((err && err.message) || 'That did not work.');
+    tell(String((err && err.message) || 'That did not work.'), false);
   } finally {
     if (CURRENT && CURRENT.sessionName === forAgent) {
       sel.disabled = false;
@@ -21083,7 +21115,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
         ? 'Its Claude model and account choices do not cross: OpenAI picks its own model, on this computer’s OpenAI sign-in.'
         : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
     go: 'Switch and restart',
-    run: () => changeProviderNow(),
+    run: (say) => changeProviderNow(say),
   });
 });
 document.getElementById('d-model-go').addEventListener('click', () => {
