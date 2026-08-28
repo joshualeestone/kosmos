@@ -2450,11 +2450,24 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      accident. `saidLine()` itself is unchanged and still backs the other
      surfaces. The state WORD is what survives. Every GLYPH is already `aria-hidden` (grep for the GLYPH map),
      so what is announced here is `copy.label` and nothing else. */
-  html[data-layout="consolidated"] body.consolidated .lrow > .lstate:not(:has(.ansgo)) {
-    position: absolute; width: 1px; height: 1px;
-    margin: -1px; padding: 0; overflow: hidden;
-    clip-path: inset(50%); white-space: nowrap; border: 0;
-  }
+  /* 🔑 THE STATE WORD IS VISIBLE AGAIN, AND THE BUBBLE IS STILL NOT (kosmos#1191).
+     Josh, 2026-08-27: "include a single text line that's the same font size as
+     their title to indicate what they're doing (if they're working, if they're
+     idle, etc.)"
+     ⚠️ THAT LOOKS LIKE A REVERSAL OF HIS 2026-08-26 RULING AND IS NOT, WHICH IS
+     WHY THIS IS NOT A DELETION. The note above records that ask precisely: "we
+     don't want to put a status bubble in there", and it was "about the EYE",
+     never the ear. He rejected the BUBBLE. He is now asking for the WORDS.
+     ⇒ So the line un-hides and every decorative glyph inside it stays hidden.
+     The eye gets a sentence at title size; it does not get the dot back.
+     📌 The glyphs are already `aria-hidden`, so hiding them visually costs the
+     ear nothing: `copy.label` was the only thing being announced anyway. */
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .act,
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .haz,
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .rest,
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .pause,
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .stop,
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .qmark { display: none; }
   html[data-layout="consolidated"] body.consolidated .lrow:has(.lstate .ansgo) > .lav { grid-row: 1 / span 3; }
   html[data-layout="consolidated"] body.consolidated .lrow > :not(.lav):not(.lname):not(.ltitle):not(.lstate) { display: none; }
   /* The face shrinks to 24px inside its 34px cell so the ring sits OUTSIDE
@@ -2568,6 +2581,18 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces { display: block; margin-top: 2px; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces > [aria-hidden] { display: none; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pjcount { margin-left: 0; }
+  /* 🔑 ONE TYPE SCALE (kosmos#1191). Josh: the project name matches the agent
+     name, and the status pill and the agent count match the agent's TITLE.
+     Measured before, at 1600 wide:
+       agent name 13px/700   agent title 10px/400
+       project name 14px     status pill 13px/600   agent count 13px
+     ⇒ The pill was LARGER than the agent title beside it, so a placeholder like
+     "Nothing running" read louder than a person's actual role. That inversion is
+     what he meant by "much, much smaller", and it is why this is hierarchy
+     rather than taste. */
+  html[data-layout="consolidated"] body.consolidated .pj-row .pjname b { font-size: .8125rem; }
+  html[data-layout="consolidated"] body.consolidated .pj-row .pjpill { font-size: .625rem; }
+  html[data-layout="consolidated"] body.consolidated .pj-row .pjcount { font-size: .625rem; }
   html[data-layout="consolidated"] body.consolidated #pj-back { display: none; }
   /* The open project: the conversation in the centre, its cards down the
      right. #867 (Josh, 2026-08-25 11:02): "sort the tasks to be above

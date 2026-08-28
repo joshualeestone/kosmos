@@ -228,12 +228,42 @@ test('the state chatter is hidden from the EYE only, and a needs-you row keeps i
      Josh's ask was visual ("we don't want to put a status bubble in there").
      The states he listed -- idle, working, needs you, is there a problem --
      are exactly what a screen-reader user has no glyph to fall back on for. */
-  const rule = PAGE.match(new RegExp(cons + ' \\.lrow > \\.lstate:not\\(:has\\(\\.ansgo\\)\\) \\{[^}]*\\}'));
-  assert.ok(rule, 'the .lstate hide lost its Answer carve-out (or the rule is gone, so the chatter is visible again)');
-  assert.doesNotMatch(rule[0], /display:\s*none/,
-    'the .lstate hide went back to display:none, which takes the agent\'s state out of the accessibility tree as well as off the screen');
-  assert.match(rule[0], /clip-path:\s*inset\(50%\)/,
-    'the .lstate hide is no longer the visually-hidden clip, so it is not keeping the state word for screen readers');
+  /* 🔑 REWRITTEN FOR kosmos#1191, AND THE PROPERTY IS UNCHANGED. This used to
+     pin the visually-hidden CLIP, which was the MECHANISM. The property it was
+     protecting is that an agent's state reaches the accessibility tree, because
+     `display: none` on `.lstate` once left a rail row announcing its name and
+     role and then saying nothing about state at all.
+     Josh, 2026-08-27, asked for "a single text line ... to indicate what they're
+     doing", so the word is now VISIBLE, which satisfies that property more
+     strongly than the clip did: it reaches the eye AND the ear.
+     ⚠️ HIS 2026-08-26 RULING STILL HOLDS AND IS PINNED BELOW. He rejected the
+     BUBBLE ("we don't want to put a status bubble in there"), not the words, so
+     the decorative glyphs stay hidden while the sentence shows. Those glyphs are
+     `aria-hidden` already, so hiding them costs the ear nothing.
+     ⇒ What must never happen is `.lstate` itself becoming `display: none`. */
+  /* 🛑 STRIP COMMENTS FIRST. This file discusses `.lrow > .lstate` at length
+     directly above the rules, so an uncommented scan matches PROSE and fails for
+     a reason that has nothing to do with the CSS. My first version went red on
+     origin/main by matching a comment fragment, which is a real failure for a
+     spurious cause and would vanish the moment somebody reworded the note. */
+  const CSS = PAGE.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  const hides = CSS.match(new RegExp('[^{}]*\\.lrow > \\.lstate[^{]*\\{[^}]*\\}', 'g')) || [];
+  for (const h of hides) {
+    if (/\.lstate >/.test(h)) continue;          // the glyph rule, which SHOULD be display:none
+    /* ⚠️ AND THE FOLDED COLUMN IS NOT THE DEFECT. `body.consolidated.fold-a`
+       collapses the agents rail to 48px and shows avatars only, so hiding the
+       name, title and state there is the feature. My first version of this loop
+       caught that rule and called it the bug: the check's input was wider than
+       the property it was written for. */
+    if (/\.fold-a\b/.test(h)) continue;
+    assert.doesNotMatch(h, /display:\s*none/,
+      'a rule takes .lstate out of the accessibility tree as well as off the screen: ' + h.slice(0, 90));
+  }
+  assert.match(CSS, new RegExp(cons + ' \\.lrow > \\.lstate > \\.(?:act|haz|rest|pause|stop|qmark)'),
+    'the decorative state glyphs are no longer hidden, so the status bubble Josh rejected on 2026-08-26 is back');
+  assert.match(CSS, new RegExp(cons + ' \\.lrow > \\.lstate \\{[^}]*font-size: \\.625rem'),
+    'the state line is no longer at the agent-title size Josh asked for');
+
   /* The chatter itself SHOULD be gone from both channels: it is the quoted
      last-words line Josh called nonsense, not a state.
      kosmos#986 strengthened this from a HIDE to an ABSENCE: the list row no
