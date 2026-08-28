@@ -3773,7 +3773,33 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .composerbox { display: flex; align-items: center; gap: 6px;
   border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface);
   padding: 6px 6px 6px 4px; }
-.composerbox:focus-within { border-color: var(--k-ink-2); box-shadow: 0 0 0 1px var(--k-ink-2); }
+/* 🔑 THE FOCUS RING LOSES ITS DOUBLE (kosmos#1303 D). Josh: "The stroke around
+   the dialog input is way too harsh. It needs to be the same type and color as
+   the vertical rules and horizontal rules on this layout", and he confirmed on
+   2026-08-28 that he means the OUTLINE AROUND THE BOX, not the line beneath it.
+
+   MEASURED, with focus asserted inside the box:
+
+       resting   1px rgb(227,225,220)  = --k-rule    shadow none
+       focused   1px rgb(74,79,87)     = --k-ink-2 + a 1px ring of the SAME colour
+
+   ⇒ Two near-black strokes stacked. The border change alone is already an
+   unmistakable focus signal; the ring on top of it is what reads as heavy.
+
+   🛑 THE RING IS SOFTENED, NOT DELETED, and that is Splinter's correction to my
+   first version rather than my own idea. I had dropped the `box-shadow`
+   outright. It is an accessibility affordance: a colour change alone asks
+   somebody to remember what the resting border looked like, while a ring is a
+   change of SHAPE that needs no comparison.
+   ⇒ So the ring stays and stops being a second near-black stroke: 3px of
+   `--k-ink-2` at 12% reads as a halo around the box rather than as a doubled
+   outline. Harshness was never the ring existing, it was two hard 1px strokes
+   stacked into one 2px edge.
+   🛑 AND THE BORDER COLOUR CHANGE IS NOT NEGOTIABLE EITHER. Taking "match the
+   layout's rules" literally would paint the focused border `--k-rule`, which is
+   the RESTING colour: focus would become invisible. Measured contrast of the
+   focused border against the composer's ground is 7.84 where WCAG asks 3:1. */
+.composerbox:focus-within { border-color: var(--k-ink-2); box-shadow: 0 0 0 3px rgba(74, 79, 87, .12); }
 /* ⚠️ THE TEXTAREA GROWS, IT DOES NOT SCROLL SIDEWAYS. A single-line input hides
    what you already wrote the moment a post runs past the field, which is the
    one thing a person re-reads before sending. Bounded at 9rem so a long post
