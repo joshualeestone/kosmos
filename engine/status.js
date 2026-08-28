@@ -1418,9 +1418,39 @@ const RATE_LIMIT_MARKERS = [
  * not touch it.
  */
 const AUTH_FAILED_MARKERS = [
-  /OAuth access token is invalid/i,
-  /"type":"authentication_error"/i,
+  /OAuth\s*access\s*token\s*is\s*invalid/i,
+  /"type":\s*"authentication_error"/i,
 ];
+
+/**
+ * The envelope the two markers above were captured INSIDE, and the thing that
+ * separates a dead token from an agent talking about one (#1233).
+ *
+ * 🛑 A MARKER IN A SENTENCE IS NOT A DEAD TOKEN. Measured through the shipped
+ * classifier, four plausible agent sentences all returned `auth_failed`:
+ *
+ *   'I narrowed AUTH_FAILED_MARKERS so that "type":"authentication_error" ...'
+ *   'The pane said OAuth access token is invalid, which is how #874 was found.'
+ *   'The card should carry the captured line verbatim:' + the payload below it
+ *   'The marker is "type":"authentication_error" ...' + 'Do you want to proceed?'
+ *
+ * ⚠️ AND IT IS THE WORST OF THE THREE MARKER SETS TO BE WRONG IN. `auth_failed`
+ * is tested BEFORE the needs-you branch, and #966's rule 3b makes a scraped
+ * `auth_failed` stand over a fresh self-report, both correct for a real dead
+ * token. On a false positive they compose into this, measured:
+ *
+ *   agent reports  {state: needs_you, because: 'May I merge the PR?'}
+ *   board shows    {state: auth_failed, reported: false, conflict: null}
+ *
+ * The question is gone, the agent's own account of itself is discarded, and no
+ * conflict is raised, so nothing on screen hints the two witnesses disagreed.
+ * The needs-you path at least surfaces a conflict; this one does not.
+ *
+ * 🔑 #1180's remedy does not apply: there are no guesses to drop. Both markers
+ * were captured 2026-08-25, off the SAME line. What the prose lacks is the rest
+ * of that line, so the rest of that line is the discriminator.
+ */
+const AUTH_ENVELOPE = /"type":\s*"error"/i;
 
 /* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
    comment at its use site in classify(). Module-level like its sibling
@@ -1457,6 +1487,128 @@ function matchedLine(text, markers) {
     const line = raw.replace(/^[\s>│├└─*❯›]+/, '').trim();
     if (!line) continue;
     return line.length > 240 ? line.slice(0, 240) + '…' : line;
+  }
+  return null;
+}
+
+/**
+ * A dead token, or an agent with the words on its screen? (#1233)
+ *
+ * 🔑 TESTED AGAINST THE PAYLOAD, NOT AGAINST A SCREEN ROW, and that one change
+ * fixes both directions of the same fault.
+ *
+ * FALSE RED. Prose carries a marker and nothing else; the real screen carries
+ * the marker inside Anthropic's error envelope:
+ *
+ *   401 {"type":"error","error":{"type":"authentication_error","message":
+ *   "OAuth access token is invalid."},"request_id":null}
+ *   Retrying in 30 seconds… (attempt 7/10)
+ *
+ * Requiring `AUTH_ENVELOPE` alongside the marker drops all four measured
+ * sentences and keeps the captured screen.
+ *
+ * FALSE CALM, which is the more expensive half and was found by measuring
+ * rather than reasoning. `capturePane` does NOT pass `-J`, so the tail is
+ * SCREEN ROWS and that ~120-character line wraps. Driven through real tmux
+ * panes, one width at a time, the captured #874 screen classified:
+ *
+ *   width 40..51  ->  unknown        <- a REAL dead token, missed
+ *   width 52..200 ->  auth_failed
+ *
+ * Same screen, same code; the only variable was how wide the window was. That
+ * is #880's regression, which this file argues is the worse failure. Joining
+ * the rows is exactly what undoes a wrap, so the same join that lets the
+ * envelope be seen also restores the narrow pane. (The wider divergence, that
+ * this module reads rows while `chat.js` and `connect.js` both read logical
+ * lines, is #1234 and is deliberately NOT fixed here: `-J` would change the
+ * input to every rule in this function at once.)
+ *
+ * ⚠️ JOINED WITH NO SEPARATOR, because a wrap eats the character at the
+ * boundary: at 100 columns the capture splits `inva|lid`, and any separator
+ * would leave a word that no marker matches. The cost is that a space wrapped
+ * away is gone too (`"OAuth|access` at 80 columns), which is why the markers
+ * spell their spaces `\s*` rather than ' '.
+ *
+ * ⚠️ AND ONE RESIDUAL IS PINNED RATHER THAN TRADED AWAY: an agent that pastes
+ * the WHOLE payload verbatim still reads `auth_failed`. It is a far rarer
+ * sentence than the four above, and every narrowing that would kill it also
+ * risks a real screen whose envelope is worded differently. A missed dead token
+ * is worse than a rare false pause; that trade is this file's oldest rule.
+ */
+function authFailed(tail) {
+  /* Leading indentation and Claude's tree glyphs are stripped per row before
+     the join for the same reason `matchedLine` strips them: they are drawing,
+     not content. Rows that were NOT wrapped get glued to their neighbour as a
+     side effect, which cannot manufacture an envelope out of prose that does
+     not already contain one, but is worth knowing when reading a match. */
+  const joined = String(tail == null ? '' : tail)
+    .split('\n')
+    .map((line) => line.replace(/^[\s>│├└─*❯›]+/, ''))
+    .join('');
+  if (!AUTH_FAILED_MARKERS.some((re) => re.test(joined))) return null;
+  if (!AUTH_ENVELOPE.test(joined)) return null;
+  /* Evidence is the payload read WHOLE, from wherever it can be read whole.
+     An unwrapped screen keeps today's contract exactly: the matched LINE,
+     glyph-stripped and capped, because the entire envelope is on it. A row
+     carrying a marker but only PART of the envelope is a wrap fragment, and
+     returning it puts a sentence starting mid-token on a person's screen
+     (`ion_error","message":"OAuth access token is invalid.` at 52 columns,
+     `401 {"type":"error","error":{"type":"authentication_error"` at 62, both
+     measured), so those fall through to the joined form. Wholeness is the
+     brace closing, not the envelope merely appearing: at 62 columns the row
+     has the envelope, a marker, and no close at all. */
+  const line = matchedLine(tail, AUTH_FAILED_MARKERS);
+  if (line !== null && closedEnvelope(line) !== null) return line;
+  const payload = closedEnvelope(joined);
+  if (payload !== null) return payload;
+  /* No close anywhere: a capture clipped mid-redraw. Show what there is,
+     from the same starting point a closed one would use, capped, rather than
+     nothing and rather than an unbounded run. */
+  const cut = joined.slice(envelopeStart(joined));
+  return cut.length > 240 ? cut.slice(0, 240) + '…' : cut;
+}
+
+/**
+ * Where the evidence should start: the envelope's opening brace, or the HTTP
+ * status when one sits right in front of it, because "401" is the part a
+ * person reads first. Bounded, so it cannot pick up prose that happens to end
+ * in three digits far from the payload. Returns 0 when there is no envelope,
+ * so a caller slicing with it still gets text rather than an exception.
+ */
+function envelopeStart(text) {
+  const at = text.search(AUTH_ENVELOPE);
+  if (at === -1) return 0;
+  const open = text.lastIndexOf('{', at);
+  if (open === -1) return 0;
+  const status = text.slice(Math.max(0, open - 5), open).match(/(\d{3})\s*$/);
+  return status ? open - status[0].length : open;
+}
+
+/**
+ * The error envelope in `text`, from its HTTP status (when one is right in
+ * front of it) to the brace that CLOSES it, or null if it never closes inside
+ * the cap.
+ *
+ * 🔑 DEPTH-COUNTED, NOT `lastIndexOf('}')`. `authFailed` joins every row, so a
+ * brace on an unrelated row downstream would extend the evidence to swallow
+ * the retry line, and a person would be shown one unreadable run
+ * (`..."request_id":nullRetrying in 30 seconds…`, measured before this).
+ * Closing is also what tells a complete row from a wrap fragment, which is the
+ * other thing the caller needs.
+ */
+function closedEnvelope(text) {
+  const at = text.search(AUTH_ENVELOPE);
+  if (at === -1) return null;
+  const open = text.lastIndexOf('{', at);
+  if (open === -1) return null;
+  let depth = 0;
+  for (let i = open; i < text.length && i < open + 240; i += 1) {
+    if (text[i] === '{') depth += 1;
+    else if (text[i] === '}') {
+      depth -= 1;
+      if (depth !== 0) continue;
+      return text.slice(envelopeStart(text), i + 1);
+    }
   }
   return null;
 }
@@ -1623,7 +1775,7 @@ function classify(pane, paneText) {
    * but it can show what the screen actually says, the same "line rides
    * along as evidence, not a paraphrase" rule the rate-limit case uses.
    */
-  const authLine = matchedLine(tail, AUTH_FAILED_MARKERS);
+  const authLine = authFailed(tail);
   if (authLine !== null) {
     return {
       state: STATE.AUTH_FAILED,

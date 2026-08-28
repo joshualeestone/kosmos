@@ -3163,6 +3163,152 @@ test('#1180: prose about limits is not a limit, and a real limit screen still is
  * and delete this comment. It exists so the gap is visible in the suite instead
  * of living only in a card nobody reopens.
  */
+/**
+ * #1233. The third marker set in the same family as #1155 and #1180, and the
+ * worst of the three to be wrong in: `auth_failed` is tested BEFORE the
+ * needs-you branch AND #966's rule 3b makes it stand over a fresh self-report,
+ * so a false one silently swallows the agent's own question.
+ *
+ * Every prose row below returned `auth_failed` through the shipped classifier
+ * before the fix.
+ */
+test('#1233: prose about a dead token is not a dead token, and a real 401 screen still is', () => {
+  const REAL = '> [message from your operator · to answer, run: kosmos reply] hello\n'
+    + '  └ 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth access token is invalid."},"request_id":null}\n'
+    + '  └ Retrying in 30 seconds… (attempt 7/10)\n';
+  const cases = [
+    ['prose, an agent narrating this very fix',
+      'I narrowed AUTH_FAILED_MARKERS so that "type":"authentication_error" no longer\nmatches an agent quoting it. Running the suite now.\n', STATE.UNKNOWN],
+    ['prose, one sentence mentioning the message',
+      'The pane said OAuth access token is invalid, which is how #874 was found.\n', STATE.UNKNOWN],
+    ['🛑 prose about a dead token PLUS a real question',
+      'The marker is "type":"authentication_error" in engine/status.js.\n\nDo you want to proceed?\n', STATE.NEEDS_YOU],
+    ['CONTROL: the real #874 screen, captured 2026-08-25', REAL, STATE.AUTH_FAILED],
+    ['CONTROL: ordinary working output',
+      'Running the test suite now. 2555 pass, 0 fail. Committing.\n', STATE.UNKNOWN],
+    ['CONTROL: a real question with no auth text at all',
+      'Do you want to proceed?\n', STATE.NEEDS_YOU],
+  ];
+  for (const [what, text, want] of cases) {
+    const r = classify(pane(), text);
+    assert.equal(r.state, want, `${what}: expected ${want}, got ${r.state} (${r.because})`);
+  }
+
+  /* The envelope is what the prose lacks, so pin that it is doing the work:
+     the same sentence WITH the envelope around it is still a dead token. */
+  const quoted = classify(pane(),
+    'the line was 401 {"type":"error","error":{"type":"authentication_error"}}\n');
+  assert.equal(quoted.state, STATE.AUTH_FAILED,
+    'the envelope stopped being the discriminator');
+});
+
+/**
+ * 🛑 THE SAME RULE FAILED IN THE OTHER DIRECTION, AND THAT HALF WAS FOUND BY
+ * MEASURING RATHER THAN BY READING (#1233).
+ *
+ * `capturePane` does not pass `-J`, so the tail is SCREEN ROWS and the real
+ * ~120-character 401 line wraps. Both fixtures below are VERBATIM `capture-pane`
+ * output from real tmux panes driven at those widths, 2026-08-27, not typed
+ * from memory. Driven through the real `classify()` one width at a time, the
+ * shipped code answered:
+ *
+ *   width 40..51  ->  unknown        <- a REAL dead token, missed
+ *   width 52..200 ->  auth_failed
+ *
+ * Same screen, same code, and the only variable was how wide the window was.
+ * (`-J` everywhere is #1234 and is deliberately not the fix here: it changes
+ * the input to every rule in classify() at once.)
+ */
+test('#1233: a real 401 is still a dead token on a pane too narrow to hold it in one row', () => {
+  const WRAPPED_44 = '  └ 401 {"type":"error","error":{"type":"aut\n'
+    + 'hentication_error","message":"OAuth access t\n'
+    + 'oken is invalid."},"request_id":null}\n'
+    + '  └ Retrying in 30 seconds… (attempt 7/10)\n';
+  const WRAPPED_52 = '  └ 401 {"type":"error","error":{"type":"authenticat\n'
+    + 'ion_error","message":"OAuth access token is invalid.\n'
+    + '"},"request_id":null}\n'
+    + '  └ Retrying in 30 seconds… (attempt 7/10)\n';
+  for (const [width, text] of [[44, WRAPPED_44], [52, WRAPPED_52]]) {
+    const r = classify(pane(), text);
+    assert.equal(r.state, STATE.AUTH_FAILED, `a real dead token was missed at ${width} columns`);
+    /* Evidence is the payload read WHOLE. At 52 columns a screen row DOES hold
+       a whole marker, and returning that row put `ion_error","message":"OAuth
+       access token is invalid.` -- a sentence starting mid-token -- on a
+       person's screen. */
+    assert.match(r.evidence, /^401 \{"type":"error"/,
+      `evidence at ${width} columns is a wrap fragment: ${JSON.stringify(r.evidence)}`);
+    assert.match(r.evidence, /\}$/,
+      `evidence at ${width} columns does not close: ${JSON.stringify(r.evidence)}`);
+    assert.doesNotMatch(r.evidence, /Retrying/,
+      `the join welded the retry line onto the payload at ${width} columns`);
+  }
+
+  /* 🔑 THE CONTROL, and it is the arm that matters: joining rows must not turn
+     ordinary narrow-pane prose into a dead token. Same width, same wrapping,
+     no envelope. */
+  const proseWrapped = '  └ The marker is "type":"authenticat\n'
+    + 'ion_error" and it matched prose, which\n'
+    + 'is the whole defect in #1233.\n';
+  assert.notEqual(classify(pane(), proseWrapped).state, STATE.AUTH_FAILED,
+    'joining the rows turned wrapped prose into a dead token');
+});
+
+/**
+ * 🔑 THE REMAINING FALSE POSITIVE, PINNED AS KNOWN RATHER THAN LEFT TO BE
+ * REDISCOVERED (#1233), the same way #1180's is above.
+ *
+ * An agent that pastes the WHOLE payload verbatim still reads `auth_failed`.
+ * It is a far rarer sentence than the ones the fix drops, and every narrowing
+ * that would kill it also risks a real screen whose envelope is worded
+ * differently. A missed dead token is #880's regression and is worse.
+ *
+ * ⚠️ THIS TEST ASSERTS THE BUG. If someone finds a discriminator that keeps
+ * every real screen, flip this row to UNKNOWN and delete this comment.
+ */
+test('#1233: KNOWN GAP -- an agent pasting the whole payload still reads auth_failed', () => {
+  const quoting = 'The card should carry the captured line verbatim:\n'
+    + '  401 {"type":"error","error":{"type":"authentication_error","message":"OAuth access token is invalid."},"request_id":null}\n'
+    + 'That is the shape we key on.\n';
+  assert.equal(classify(pane(), quoting).state, STATE.AUTH_FAILED,
+    'this is now fixed -- flip this row to UNKNOWN and drop the comment');
+});
+
+/**
+ * 🛑 WHY THE FALSE RED COST MORE HERE THAN IN #1155 (#1233).
+ *
+ * `auth_failed` is tested before the needs-you branch AND rule 3b keeps a
+ * scraped `auth_failed` over a fresh report. Both are correct for a real dead
+ * token. Composed on a FALSE one they measured:
+ *
+ *   agent reports  {state: needs_you, because: 'May I merge the PR?'}
+ *   board shows    {state: auth_failed, reported: false, conflict: null}
+ *
+ * The question is gone, the agent's own account of itself is discarded, and no
+ * conflict is raised, so nothing on screen says the two witnesses disagreed.
+ * This pins the whole path, scrape through reconcile, not just the classifier.
+ */
+test('#1233: an agent asking to merge is not silenced by the words on its screen', () => {
+  const prose = 'I am narrowing the marker "type":"authentication_error" in engine/status.js.\n'
+    + '\nMay I merge the PR?\n';
+  const scraped = classify(pane(), prose);
+  assert.notEqual(scraped.state, STATE.AUTH_FAILED, 'the scrape still reads a dead token');
+  const got = reconcileReport(rep('needs_you', { because: 'May I merge the PR?' }),
+    scraped, T0 + 1000);
+  assert.equal(got.state, STATE.NEEDS_YOU, 'the question is still being swallowed');
+  assert.equal(got.because, 'May I merge the PR?',
+    'the question reached the board without its words');
+
+  /* 🔑 THE CONTROL: a REAL dead token must still outrank the same report, or
+     this fix has traded #966's rule away. */
+  const real = classify(pane(),
+    '  └ 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth access token is invalid."},"request_id":null}\n');
+  assert.equal(real.state, STATE.AUTH_FAILED);
+  const dead = reconcileReport(rep('needs_you', { because: 'May I merge the PR?' }),
+    real, T0 + 1000);
+  assert.equal(dead.state, STATE.AUTH_FAILED,
+    '#966 rule 3b was traded away: a dead token no longer outranks a fresh report');
+});
+
 test('#1180: KNOWN GAP -- "reached your ... limit" still matches one piece of prose', () => {
   const prose = 'We reached your context limit discussion on the card yesterday.\n';
   assert.equal(classify(pane(), prose).state, STATE.RATE_LIMITED,
