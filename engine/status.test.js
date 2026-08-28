@@ -1544,7 +1544,14 @@ test('an agent sitting at its prompt is idle, not unreadable', () => {
   // the agent is working too, so a marker placed above them would report every
   // busy agent as idle — a far worse error than the one it fixes, and the exact
   // shape of "the fix for a finding introduces a worse finding".
-  const working = classify(pane, at_prompt + '\n  esc to interrupt');
+  // 📌 REPAIRED, NOT WEAKENED (#1243). This row used to append a BARE
+  // `esc to interrupt`, a shape no runner has been observed drawing: the old
+  // Claude UI drew `· Working (esc to interrupt)` and codex draws
+  // `(4s • esc to interrupt)`, both parenthesised. Once the rule required the
+  // parens the row went red, which is the test resting on a shape that does
+  // not occur rather than on the thing it is pinning. It pins the ORDERING,
+  // and it pins it just as well against the real line.
+  const working = classify(pane, at_prompt + '\n· Working (esc to interrupt)');
   assert.equal(working.state, 'working', 'a working agent was reported as idle by its own footer');
 
   // ⚠️ This pins the ORDERING and nothing else, and saying so matters. It
@@ -3307,6 +3314,85 @@ test('#1233: an agent asking to merge is not silenced by the words on its screen
     real, T0 + 1000);
   assert.equal(dead.state, STATE.AUTH_FAILED,
     '#966 rule 3b was traded away: a dead token no longer outranks a fresh report');
+});
+
+/**
+ * #1243. #1155 fixed the needs-you markers, #1180 the rate-limit ones, #1233
+ * the auth ones. This is the same question asked of the REST of classify(),
+ * and the answer was that two more rules took prose as evidence -- one of them
+ * on the branch #1178 never touched.
+ *
+ * 🛑 AND THIS ONE FAILS TOWARD CALM, which is the direction that costs.
+ */
+test('#1243: a sentence about interrupting is not a running turn, on either runner', () => {
+  const FOOTER = '⏵⏵ accept edits on (shift+tab to cycle)\n? for shortcuts\n';
+  /* The realistic screen: an agent sitting at its prompt with the footer drawn
+     and its last message still above it. The two rows differ in ONE clause. */
+  const said = classify(pane(), '⏺ I will hit esc to interrupt if it hangs.\n\n' + FOOTER);
+  const quiet = classify(pane(), '⏺ I will stop it if it hangs.\n\n' + FOOTER);
+  assert.equal(said.state, STATE.IDLE,
+    'an agent WAITING FOR THE PERSON reads as mid-task, and nobody goes to look at those');
+  assert.equal(said.state, quiet.state,
+    'one clause of prose changed the verdict, which is the whole defect');
+  assert.match(said.because, /sitting at its prompt/);
+
+  const codexProse = classify(pane({ command: 'codex' }),
+    'I told him esc to interrupt is what the old UI said.\n');
+  assert.notEqual(codexProse.state, STATE.WORKING, 'the codex branch has the same gap');
+
+  /* 🔑 BOTH RUNNERS' CAPTURED WORKING LINES MUST SURVIVE, or this traded a false
+     calm for a false calm. Both are parenthesised, which is the discriminator. */
+  const oldClaude = classify(pane(), 'Reading the lease\n· Working (esc to interrupt)\n');
+  assert.equal(oldClaude.state, STATE.WORKING, 'the old Claude UI progress line stopped counting');
+  const codexLive = classify(pane({ command: 'codex' }), CODEX_WORKING);
+  assert.equal(codexLive.state, STATE.WORKING, 'the captured codex progress line stopped counting');
+});
+
+/**
+ * #1243. `OPTION_LINE` (Claude) is anchored and #1178's note beside it says why:
+ * "structural options only when the glyph OPENS the line". `CODEX_NEEDS_YOU_MARKERS`
+ * was tested anywhere in the tail, so #1178 fixed one branch and left the other.
+ */
+test('#1243: prose ABOUT a codex option line is not a codex option line', () => {
+  const prose = classify(pane({ command: 'codex' }),
+    'The codex marker is the line drawn as › 1. Yes.\n');
+  assert.notEqual(prose.state, STATE.NEEDS_YOU,
+    'a sentence quoting the selector still reads as a question');
+
+  /* 🔑 THE CONTROL, and it is the captured screen rather than a typed one: the
+     real codex trust prompt draws the glyph at the start of the line. */
+  const real = classify(pane({ command: 'codex' }), CODEX_TRUST_PROMPT);
+  assert.equal(real.state, STATE.NEEDS_YOU, 'the real codex prompt stopped being a question');
+
+  /* And the union chat.js reads must keep finding the real line, since its two
+     consumers test one line at a time. */
+  const line = CODEX_TRUST_PROMPT.split('\n').find((l) => l.includes('1. Yes'));
+  assert.ok(require('./status').ALL_NEEDS_YOU_MARKERS.some((re) => re.test(line)),
+    'the anchored marker no longer finds the question chat.js has to slice');
+});
+
+/**
+ * 🔑 THE ROWS DELIBERATELY LEFT ALONE (#1243), pinned so the next person knows
+ * they were measured and kept rather than missed.
+ *
+ * `/✱|Worked for|Brewed for|Baked for|to save .* tokens/i` matches ordinary
+ * English. Its cost is low in a way that is only visible from the ordering: it
+ * sits directly above the footer rule, which returns `idle` too, so on a live
+ * Claude pane the false positive agrees with what the next rule would have said.
+ * Narrowing it risks the older UI's real finished line for a different sentence
+ * about the same state.
+ *
+ * ⚠️ THIS TEST ASSERTS THE BUG. If someone narrows it safely, flip these rows.
+ */
+test('#1243: KNOWN GAP -- ordinary English "worked for" still reads idle', () => {
+  const prose = 'I worked for two hours on the relay before I found it.\n';
+  assert.equal(classify(pane(), prose).state, STATE.IDLE,
+    'this is now fixed -- flip the row and drop the comment');
+  /* 📌 And the glyph in that same list is dead: the captured finished line is
+     `✳ Cooked for 1m 33s` (U+2733), not the `✱` (U+2731) the list carries, so
+     only the WORDS in it do any work. Measured, not read off the comment. */
+  assert.equal(classify(pane(), '✳ Cooked for 1m 33s\n').state, STATE.UNKNOWN,
+    'the finished line now reaches idle directly, so the glyph may have been fixed');
 });
 
 test('#1180: KNOWN GAP -- "reached your ... limit" still matches one piece of prose', () => {
