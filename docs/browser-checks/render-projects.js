@@ -1406,8 +1406,20 @@ async function main() {
       if (revealed.modalHidden || !revealed.focusOnSelect) {
         throw new Error('+ Add Member did not reveal the picker with focus on the choice: ' + JSON.stringify(revealed));
       }
-      // Leaving and coming back rests it again -- an open picker must not leak
-      // between projects.
+      /* 🛑 CLOSE THE DIALOG BEFORE LEAVING, BECAUSE A DIALOG STOPS YOU LEAVING.
+         This used to click straight through to #pj-back with the picker open,
+         which an inline row allowed. The modal's backdrop now intercepts the
+         click: Playwright retried for thirty seconds and the check timed out
+         with "<div id=\"am-modal\" class=\"rm-back\"> ... intercepts pointer
+         events". That is the product working. A person cannot click past a
+         modal either, and the dialog offers Escape as one of its ways out.
+
+         ⭐ THE ARM STILL MEANS SOMETHING, WHICH IS WHY IT IS FIXED RATHER THAN
+         DROPPED. Its subject was never "you can navigate with it open" -- it is
+         "state does not leak between projects". Escape, leave, come back, and
+         the next project must be resting: button there, dialog closed. */
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(150);
       await page.click('#pj-back');
       await page.waitForTimeout(200);
       await page.click('[data-project="quarterclose"]');
