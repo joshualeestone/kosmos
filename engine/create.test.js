@@ -3932,3 +3932,43 @@ test('#1414 CONTROL: the mode assertion can fail', () => {
   assert.equal(fs.statSync(cfg).mode & 0o777, 0o644, 'the harness can see a non-600 mode');
   assert.notEqual(fs.statSync(cfg).mode & 0o777, 0o600);
 });
+
+test('#1414 PRECISION: removing one agent must not remove a PREFIX-NAMED sibling', () => {
+  /* 🔑 THE THIRD ARM (Renet Tilley, 2026-08-28): a control proves an instrument
+     is NOT DEAD; it cannot prove it is NOT OVER-EAGER. The two arms above test
+     liveness. This one tests precision, and it is reachable: NAME_RE admits
+     both `mine` and `minelonger`, so their worker directories are prefixes of
+     one another and a substring match would take the wrong entry.
+
+     ⭐ It passes today because the key carries its closing `"]`, which is what
+     stops `[projects."/w/mine"]` matching inside `[projects."/w/minelonger"]`.
+     That is easy to lose while "simplifying" the key, and nothing else would
+     notice. */
+  const shortDir = '/w/mine';
+  const longDir = '/w/minelonger';
+  const home = codexCfgHome(`${TRUSTED(longDir)}${TRUSTED(shortDir)}`);
+  const cfg = nodePath.join(home, 'config.toml');
+
+  const got = create.forgetCodexFolder(shortDir, home);
+  assert.equal(got.removed, true, 'the short one is the target and must go');
+
+  const after = fs.readFileSync(cfg, 'utf8');
+  assert.ok(after.includes(`[projects."${longDir}"]`),
+    'the PREFIX-NAMED sibling must survive: a substring match would have eaten it');
+  assert.ok(!after.includes(`[projects."${shortDir}"]`), 'and the target is gone');
+});
+
+test('#1414 PRECISION: the reverse direction, removing the LONGER name', () => {
+  /* The mirror, because a matcher can be over-eager in one direction only. */
+  const shortDir = '/w/mine';
+  const longDir = '/w/minelonger';
+  const home = codexCfgHome(`${TRUSTED(shortDir)}${TRUSTED(longDir)}`);
+  const cfg = nodePath.join(home, 'config.toml');
+
+  const got = create.forgetCodexFolder(longDir, home);
+  assert.equal(got.removed, true);
+
+  const after = fs.readFileSync(cfg, 'utf8');
+  assert.ok(after.includes(`[projects."${shortDir}"]`), 'the shorter sibling must survive');
+  assert.ok(!after.includes(`[projects."${longDir}"]`));
+});
