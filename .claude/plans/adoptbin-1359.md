@@ -267,3 +267,48 @@ satisfy it either.
 
 ⇒ **This is the branch's own thesis arriving one function over**, which is the pattern round 4
 was told to look for and found.
+
+
+## Round 5: the branch's own thesis, one assertion over
+
+`#1159: an adopted Codex agent gets the same first-run setup as a created one` asserted:
+
+```js
+assert.match(codexState().toml, /trust_level = "trusted"/,
+  'the adopted agent will stop at the trust prompt');
+```
+
+**A substring that cannot say WHICH FOLDER was trusted**, under a message promising this
+particular agent will not stop at the prompt. Satisfied by any trusted entry - another agent's
+folder, or a stale one left by an earlier test in the shared sandbox.
+
+⭐ **Exactly this branch's thesis one assertion over.** The plist assertions were satisfied by
+the runner LABEL and could not see the BINARY; this one was satisfied by the trust MARKER and
+could not see the FOLDER. **The reviewer found it by reading the assertion against its own
+message, before mutating anything - the mutation only priced it.**
+
+✅ Anchored on `[projects."<workerDir>"]` for this agent, with a control that a never-adopted
+folder is absent. Verified: trusting a different folder now fails, naming the missing one.
+The old form passed.
+
+## Two product defects found here, CARDED rather than fixed
+
+This branch is test-only and both are product changes in other modules, so they get their own
+review:
+
+- **#1400** `register.repair` calls `installJob(name, { model })` with **no runner**, and
+  `register.js` never reads `provider`, so **a Codex agent whose job goes missing is repaired
+  into a Claude job.** Verified by reading the call chain. ⭐ And the test that looks like
+  coverage for that call asserts the MODEL travels - the neighbouring key in the same argument
+  list.
+- **#1401** A failed adoption leaves `provider: 'openai'` on the profile. The provider is
+  stamped at `discover.js:498` BEFORE `installJob`, the rollback at `:587` names only `dir` and
+  `displayName`, and `store.writeProfile` is a MERGE - so the key survives. ⚠️ **With a merging
+  writer, "restore what was there before" must NAME every key the forward path may have set.
+  Omission is not reversion.**
+
+## ⚠️ Verification state of this round
+
+Single-file only (`engine/discover.adopt.test.js`, 18 pass) plus a mutation arm. **The full
+suite has not been run** - a release cut owns the machine. That run is owed before any PR, and
+this round is not claimed as full-suite green.

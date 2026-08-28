@@ -247,8 +247,27 @@ test('#1159: an adopted Codex agent gets the same first-run setup as a created o
   discover.connect(dir);
   const v = codexState().version;
   assert.equal(v.dismissed_version, '0.150.1', 'the adopted agent will stop at the update prompt');
-  assert.match(codexState().toml, /trust_level = "trusted"/,
-    'the adopted agent will stop at the trust prompt');
+  /* 🛑 WHICH FOLDER, NOT MERELY THAT SOMETHING WAS TRUSTED. This asserted the
+     substring `trust_level = "trusted"` under a message promising the agent
+     will not stop at the trust prompt - and that substring is satisfied by ANY
+     trusted entry, including one for a different agent's folder or a stale one
+     left by an earlier test in the shared sandbox.
+
+     ⭐ That is this branch's own thesis one assertion over: the plist assertions
+     were satisfied by the runner LABEL and could not see the BINARY; this one
+     was satisfied by the trust MARKER and could not see the FOLDER. Found by
+     reading the assertion against what its message claims, before any mutation.
+
+     ⇒ Anchored on the section header for THIS agent's worker directory, which
+     is the fact the message is about. */
+  const trusted = codexState().toml;
+  const folder = create.workerDir('scoutsetup');
+  assert.ok(trusted.includes(`[projects."${folder}"]`),
+    `the adopted agent will stop at the trust prompt: no entry for ${folder}`);
+  /* THE CONTROL: a folder that was never adopted must NOT be trusted, or the
+     assertion above is satisfied by a file that trusts everything. */
+  assert.ok(!trusted.includes(`[projects."${create.workerDir('nevertrusted')}"]`),
+    'the trust file names a folder nothing adopted, so it cannot distinguish');
 });
 
 test('#1159: a folder with NEITHER file is still refused', () => {
