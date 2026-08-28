@@ -11161,6 +11161,34 @@ test('#1304: the ROUTE asks the live reader by tmux session, and says which read
     assert.equal(out.source.account, 'process');
     assert.equal(out.source.model, 'record');
     assert.match(out.because, /runs on/, 'a known account did not reach the sentence');
+
+    /* 🔑 THE STRICTNESS OF `ok === true` IS PINNED HERE (PigeonPete, cross-review
+       of #1409). He mutated it to a truthy test and it SURVIVED all 250 tests.
+
+       ⚠️ He bounded it honestly and I agree with his bound: it is not a live
+       defect today, because the only real producer (`engine/runningas.js`)
+       returns `ok:` at three sites and all three are strict booleans. Nothing in
+       the product can currently hand this a truthy non-`true`.
+
+       ⭐ WHAT IT DOES MEAN: `whoamiFor` is EXPORTED and `setLiveReader` accepts
+       any function without shape-checking its return. So the day somebody adds a
+       fourth producer, `=== true` becomes load-bearing SILENTLY - the defensive
+       line is doing real work and no test says so. This arm makes that day loud.
+
+       The fixture is byte-identical to the successful reading above except for
+       `ok`, so the only thing it can be measuring is the strictness. */
+    server.setLiveReader(() => (
+      { ok: 1, account: 'live@book.io', organization: 'Kosmos', model: null, configDir: '/d' }));
+    const rLoose = await req('/api/whoami', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from_pane: '%7' }),
+    });
+    const loose = JSON.parse(rLoose.body);
+    assert.equal(loose.source.account, 'record',
+      'a live reading with a truthy non-`true` ok was accepted; `live.ok === true` has been loosened');
+    assert.notEqual(loose.account && loose.account.email, 'live@book.io',
+      'an unverified live reading reached the payload');
   } finally {
     server.setLiveReader(null);
     messagesEngine.setRunner(null);
