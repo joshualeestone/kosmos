@@ -63,10 +63,39 @@ const MAX_BYTES = workerfile.MAX_BYTES;
  */
 const MIN_CHARS = 20;
 
+/**
+ * Every staleness state a renderer can be handed. Four, not three.
+ *
+ * 🛑 `TOLD` IS NOT PRODUCED HERE, AND LISTING IT ANYWAY IS THE POINT (#1213).
+ * `projects.toldOverride` rewrites a `stale` verdict into `told` on its way to
+ * the screen, so `told` is a value this module never returns and every consumer
+ * of this module's verdict can receive. It was added as a bare string literal
+ * in `engine/projects.js` and never reached this list, which is why nothing --
+ * no test, no reader, no exhaustiveness check -- could notice that two
+ * renderers had no branch for it. A state whose name lives in one file and
+ * whose consumers read another has no way of being found.
+ *
+ * ⚠️ THE COST WAS NOT A MISSING BRANCH, IT WAS WHICH BRANCH IT FELL INTO. Both
+ * renderers test `=== 'stale'` and fall through on everything else, and the
+ * fallthrough is the `unknown` arm: "This might not be what the agent is
+ * actually running." So a state added specifically to SUPPRESS an unnecessary
+ * alarm rendered as the loudest alarm in the app, with no remedy attached.
+ * Josh photographed it on 2026-08-27.
+ *
+ * 🔑 SO THE RULE THE GUARD ENFORCES IS EXHAUSTIVENESS, NOT CORRECTNESS. A
+ * fifth state added tomorrow will fail `web.told-banner.test.js` until it is
+ * given a branch by hand. That test reads THIS object, so extending the
+ * vocabulary here is what arms it; adding a state anywhere else leaves the
+ * guard blind exactly as it was blind to this one.
+ */
 const STALENESS = {
   CURRENT: 'current',
   STALE: 'stale',
   UNKNOWN: 'unknown',
+  /* Written by `projects.toldOverride`, never by this module. It means: the
+     file changed after the agent booted AND Kosmos delivered the change to the
+     agent's screen. It knows. There is nothing for a person to do. */
+  TOLD: 'told',
 };
 
 /**

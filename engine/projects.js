@@ -2167,7 +2167,7 @@ function syncAgent(sessionName, roster) {
  * exactly as it was. Pure over the verdict and the store; safe on any input. */
 function toldOverride(verdict, sessionName) {
   try {
-    if (!verdict || verdict.state !== 'stale') return verdict;
+    if (!verdict || verdict.state !== instructions.STALENESS.STALE) return verdict;
     if (!verdict.wroteBy || verdict.wroteBy.who !== 'kosmos') return verdict;
     const editedAt = Date.parse(verdict.editedAt || '');
     if (!Number.isFinite(editedAt)) return verdict;
@@ -2178,7 +2178,13 @@ function toldOverride(verdict, sessionName) {
       .map((t) => Date.parse(t.at))
       .filter((at) => Math.floor(at / 1000) >= Math.floor(editedAt / 1000));
     if (!told.length) return verdict;
-    return { ...verdict, state: 'told', toldAt: new Date(Math.max(...told)).toISOString(),
+    /* ⚠️ `STALENESS.TOLD`, NOT THE STRING (#1213). This state was introduced
+       here as a bare literal, so the canonical list of staleness states in
+       `engine/instructions.js` never learned it and neither did the two
+       renderers that branch on that list. Naming it through the shared object
+       is what makes it findable, and is what the exhaustiveness guard in
+       `web.told-banner.test.js` reads. */
+    return { ...verdict, state: instructions.STALENESS.TOLD, toldAt: new Date(Math.max(...told)).toISOString(),
       because: `${verdict.wroteBy.because || 'Kosmos changed its instructions'}, and told it on its screen` };
   } catch { return verdict; }
 }
