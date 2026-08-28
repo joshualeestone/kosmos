@@ -5242,7 +5242,15 @@ test('the fleet screen renders every path, and a broken payload lands on "we cou
   // unknown ending gets two, asserted in the broken-payload loop below.
   assert.equal(adopt.actions.primary, 'Take me to my agents', JSON.stringify(adopt.actions));
   assert.equal(adopt.actions.alt, undefined, 'the adopt ending grew a second button');
-  assert.equal(create.actions.primary, 'Create my first agent', JSON.stringify(create.actions));
+  /* Josh, 2026-08-27 20:31 CT: "Instead of the button saying 'Create my first
+     agent,' I want it to say 'Giddy Up.'"
+     ⚠️ THIS ASSERTION WAS PINNED TO THE PACK ("buttons verbatim from the pack,
+     spec ed29b78") and it did its job: it refused the change until somebody
+     looked at what it was protecting. What it was protecting is a FROZEN pack
+     snapshot, kosmos-app-style.FROZEN-2026-08-17.html, which is a dated record
+     of what was specified then rather than a living spec. Josh's later
+     instruction supersedes it, and the frozen file is deliberately not edited. */
+  assert.equal(create.actions.primary, 'Giddy Up', JSON.stringify(create.actions));
   assert.equal(create.actions.alt, undefined, 'the create ending grew a second button');
 
   /**
@@ -5287,7 +5295,7 @@ test('the fleet screen renders every path, and a broken payload lands on "we cou
   // the unknown ending two. frForkActions is the single holder.
   for (const [path, primary, alt] of [
     ['adopt', 'Take me to my agents', undefined],
-    ['create', 'Create my first agent', undefined],
+    ['create', 'Giddy Up', undefined],
     ['unknown', 'Show me my agents', 'Create an agent'],
   ]) {
     const got = firstRunHarness('frForkActions', { FR: { path, fleetCount: 1, fleetNames: ['x'] } });
