@@ -8469,6 +8469,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <div class="field">
       <label class="flabel" for="pjs-name">Name</label>
       <input class="tk-inp" type="text" id="pjs-name" maxlength="120">
+      <!-- #1305 (Josh, 2026-08-28): "if we change a project name, do agents lose
+           context of that?" He was avoiding a rename because nothing on this
+           screen said whether it was destructive. It is not, twice over: the
+           record is keyed by the project ID and a rename does not move it, and
+           the PUT route re-tells every member so their instruction file carries
+           the new name (server.js, gated on `body.name !== undefined`).
+           ⚠️ THE SENTENCE IS HERE, NOT IN A CARD, because the question is asked
+           at the moment of deciding and that is the only place an answer stops
+           somebody hesitating. -->
+      <p class="fhint" id="pjs-name-hint" style="margin:6px 0 0;">Renaming is safe. Agents stay on the project, and Kosmos tells them the new name.</p>
     </div>
     <div class="field">
       <label class="flabel" for="pjs-desc">Description</label>
@@ -8483,8 +8493,24 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            exact bug this note already forbids. The number here, the number in
            PJ_DESC_MAX and the engine's are pinned together by a test. -->
       <p class="fhint" id="pjs-desc-hint">Up to 200 characters.</p>
-      <textarea class="tk-inp" id="pjs-desc" rows="2" aria-describedby="pjs-desc-hint"></textarea>
+      <textarea class="tk-inp" id="pjs-desc" rows="2" aria-describedby="pjs-desc-hint pjs-desc-note"></textarea>
       <p class="ferr" id="pjs-desc-err" aria-live="polite"></p>
+      <!-- #1305, the other half of Josh's question: "if I change the description,
+           are they made aware that I changed the description?" No, and there is
+           nothing for it to reach: the managed block in an agent's instruction file
+           carries the project name, its folder, the post command and that agent's
+           tasks. Never the description. So the route deliberately does not re-tell
+           on a description-only save.
+           ⇒ Saying it plainly is worth more than the behaviour being correct,
+           because a person who assumes the opposite writes instructions here that no
+           agent will ever read.
+           🛑 A SECOND PARAGRAPH, NOT APPENDED TO THE ONE ABOVE. The limit hint is
+           pinned by web.desc-error-1303g.test.js with a regex that matches the whole
+           element ("Up to N characters." and nothing else), so folding these two
+           sentences into one <p> silently breaks the check that keeps the page's
+           number and PJ_DESC_MAX agreeing. Both are in `aria-describedby` so the
+           field still announces both facts. -->
+      <p class="fhint" id="pjs-desc-note">For people reading Kosmos. Agents are not told when this changes, so anything they need belongs in a task or in their instructions.</p>
     </div>
 
     <div class="field">
