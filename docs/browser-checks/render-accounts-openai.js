@@ -148,8 +148,36 @@ let failed = 0;
      and "Connected" claimed more than a signed-in account establishes. The
      rename is the product decision; this line was left behind by it. */
   say('every box says Signed in (live check against the harness stub accepted the walk key)', rows.length > 0 && rows.every((r) => /Signed in/.test(r)), JSON.stringify(rows));
-  const disconnectDisabled = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-disconnect')].every((b) => b.disabled));
-  say('Disconnect is disabled everywhere (no engine route yet, #770)', disconnectDisabled);
+  /* 🛑 THIS ASSERTED "Disconnect is disabled everywhere" AND #1372 MADE IT
+     FALSE. The OpenAI arm has an engine route now, so its button is live and says
+     Remove; Claude's still has none (#1184) and keeps the honest dead Disconnect.
+     ⚠️ THIS WOULD HAVE BEEN THE THIRD CUT THIS ONE FILE TOOK DOWN by an assertion
+     that was correct when written: "Connected"->"Signed in" failed 0.5.88, the
+     provider leaving the row failed 0.6.05. Each was green right up to the change
+     it contradicted, which is why a passing check is not evidence of coverage.
+     ✅ SO IT ASSERTS THE SPLIT, PER PROVIDER, instead of one blanket state:
+     tightened on the axis this change promises, kept on the axis it leaves alone
+     -- and kept NON-VACUOUSLY, because under a blanket every() "the Claude button
+     is dead" and "no Claude row rendered at all" are the same pass. */
+  const doors = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-prov')].map((g) => ({
+    provider: ((g.querySelector('.acct-prov-name') || {}).innerText || '').trim(),
+    buttons: [...g.querySelectorAll('.acct-disconnect')].map((b) => ({
+      label: (b.innerText || '').trim(), disabled: !!b.disabled, forgets: !!b.dataset.forget,
+    })),
+  })));
+  const openaiDoors = doors.filter((g) => /OpenAI/.test(g.provider) && !/Codex/.test(g.provider)).flatMap((g) => g.buttons);
+  const otherDoors = doors.filter((g) => !/OpenAI/.test(g.provider)).flatMap((g) => g.buttons);
+  say('the OpenAI account offers a live Remove (#1372)',
+    openaiDoors.length > 0 && openaiDoors.every((b) => !b.disabled && b.forgets && /^Remove$/.test(b.label)),
+    JSON.stringify(doors));
+  /* Reported, not asserted: this fixture adds no Claude account, so the #1184 arm
+     has nothing to say here and a silent pass would claim that it did. */
+  if (otherDoors.length === 0) {
+    console.log('NOTE  no non-OpenAI account in this fixture; the #1184 dead-Disconnect arm was not exercised');
+  } else {
+    say('a non-OpenAI account keeps the dead Disconnect (#1184 unchanged)',
+      otherDoors.every((b) => b.disabled && !b.forgets && /^Disconnect$/.test(b.label)), JSON.stringify(otherDoors));
+  }
   // Create form: OpenAI provider -> account menu offers the new account
   await p.goto(BASE + '/?tab=create', { waitUntil: 'load' });
   await p.waitForSelector('#pick-pm:not([hidden])', { timeout: 8000 });
@@ -167,6 +195,38 @@ let failed = 0;
   await p.waitForTimeout(300);
   const back = await p.evaluate(() => { const s = document.getElementById('create-account'); return [...s.options].map((o) => o.textContent); });
   say('switching back to Anthropic shows no OpenAI account', !back.some((o) => /API key/.test(o)), JSON.stringify(back));
+  /* #1372: the account can be removed, and the credential survives it.
+     This is the CONTROL half of that card. The engine and the route are measured
+     end to end (engine/openaiaccounts.test.js, server.forget-openai-1372.test.js)
+     but neither of them can press a button, and nothing on this card merged until
+     a real browser had. Computed state only -- which rows exist, what the sentence
+     says -- so headless is sound.
+     📌 It runs LAST on purpose: it removes the account the create-form
+     assertions above need. */
+  await p.goto(BASE + '/?tab=settings', { waitUntil: 'networkidle' });
+  await p.waitForTimeout(400);
+  if (await p.evaluate(() => document.getElementById('panel-settings').hidden)) {
+    await p.evaluate(() => { document.getElementById('panel-settings').hidden = false; });
+  }
+  await p.evaluate(() => { try { settingsGo('accounts'); } catch (e) { const b = document.querySelector('[data-go="accounts"]'); if (b) b.click(); } });
+  await p.waitForTimeout(800);
+  const rowsBefore = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-box')].map((r) => r.innerText.replace(/\s+/g, ' ').trim()));
+  /* 🔑 THE ARM THAT MAKES THE ABSENCE BELOW MEAN ANYTHING. Without it,
+     "the row went away" and "the row was never rendered" are the same pass. */
+  say('before the click, the account is on the list',
+    rowsBefore.some((r) => /API key ending WALK/.test(r)), JSON.stringify(rowsBefore));
+  const pressed = await p.evaluate(() => { const b = document.querySelector('#set-accounts [data-forget]'); if (!b) return false; b.click(); return true; });
+  say('the Remove button is there to press', pressed);
+  await p.waitForTimeout(1500);
+  const after = await p.evaluate(() => ({
+    rows: [...document.querySelectorAll('#set-accounts .acct-box')].map((r) => r.innerText.replace(/\s+/g, ' ').trim()),
+    msg: (document.getElementById('set-accounts-msg') || {}).innerText || '',
+  }));
+  say('the account leaves the list', !after.rows.some((r) => /API key ending WALK/.test(r)), JSON.stringify(after.rows));
+  /* The promise the whole card turns on: it FORGETS, it does not delete, and the
+     sentence has to say so. "Removed" and "deleted" are different promises. */
+  say('the answer says the sign-in file is still on the computer',
+    /still on this computer/.test(after.msg) && /nothing was deleted/.test(after.msg), after.msg);
   await b.close();
   console.log(failed ? failed + ' check(s) failed' : 'all checks passed');
   process.exit(failed ? 1 : 0);
