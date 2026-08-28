@@ -36,7 +36,12 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 
-const HOME = os.homedir();
+/* 🛑 A FUNCTION, NOT A CONST (#1432). Frozen at require time this read past
+   the sandbox seam: a caller setting `AGENT_WORKFORCE_HOME` AFTER requiring
+   this module operated on the operator's real machine while believing it was
+   sandboxed. Measured elsewhere in this class: `accounts.list()` returned four
+   of the operator's real accounts against an empty fixture (#1419). */
+function homeDir() { return os.homedir(); }
 
 /**
  * ⚠️ Overridable, so the tests never read the operator's real account — and so
@@ -44,7 +49,7 @@ const HOME = os.homedir();
  * take their roots the same way.
  */
 const CONFIG = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG
-  || path.join(HOME, '.claude.json');
+  || path.join(homeDir(), '.claude.json');
 
 const STATE = { CONNECTED: 'connected', NONE: 'none', UNKNOWN: 'unknown' };
 

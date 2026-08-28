@@ -29,7 +29,13 @@ const liveness = require('./liveness');
 const connect = require('./connect');
 const { readWorkerFile } = require('./workerfile');
 
-const HOME = os.homedir();
+/* 🛑 A FUNCTION, NOT A CONST (#1432). Frozen at require time this read past
+   the sandbox seam: a caller setting the seam AFTER requiring this module
+   operated on the operator's real machine while believing it was sandboxed.
+   Measured in this class: `accounts.list()` returned four of the operator's
+   real accounts against an empty fixture (#1419), and `delete-leftover`'s
+   TRASH() resolved to the operator's real ~/.Trash (#1432). */
+function homeDir() { return os.homedir(); }
 
 /**
  * Claude Code config roots.
@@ -70,14 +76,14 @@ function configRoots() {
      reading this Mac for weeks.
 
      ⭐ IT KEYS ON AN INCONSISTENT SANDBOX, NOT ON "am I a test". A process
-     whose data dir is a temp dir has declared itself a fixture; if its HOME is
+     whose data dir is a temp dir has declared itself a fixture; if its homeDir() is
      still the real one, the scan below is about to walk the operator's machine
      and every assertion downstream becomes a fact about whoever ran it.
 
      ⚠️ DIRECTION IS DELIBERATE: it can only ever stop a fixture, never a user.
      Production sets AGENT_WORKFORCE_DATA to Application Support, which is not
      under the temp dir, so this cannot fire for somebody running Kosmos. A
-     test that sandboxes HOME instead of CONFIG_ROOT is already safe and is
+     test that sandboxes homeDir() instead of CONFIG_ROOT is already safe and is
      left alone.
 
      🛑 THE ONE SHAPE THAT WOULD BREAK THIS, WRITTEN DOWN BECAUSE IT DOES NOT
@@ -117,7 +123,7 @@ function configRoots() {
     try { cands.push(path.join(fs.realpathSync(path.dirname(d)), path.basename(d))); } catch { /* parent may not exist yet */ }
     return cands.some((c) => TMP_ROOTS.some((t) => c === t || c.startsWith(t + path.sep)));
   };
-  if (under(process.env.AGENT_WORKFORCE_DATA) && !under(HOME)) {
+  if (under(process.env.AGENT_WORKFORCE_DATA) && !under(homeDir())) {
     /* ⚠️ IT RETURNS AN EMPTY SANDBOX RATHER THAN THROWING, AND THE DIFFERENCE
        IS MEASURED, NOT PREFERRED. Throwing here failed 161 of 2374 tests, so
        it could not land; and 161 reds all saying the same thing would have
@@ -131,14 +137,14 @@ function configRoots() {
   const roots = [];
   let entries = [];
   try {
-    entries = fs.readdirSync(HOME);
+    entries = fs.readdirSync(homeDir());
   } catch { /* fall through to the default */ }
   for (const name of entries) {
     if (name !== '.claude' && !name.startsWith('.claude-')) continue;
-    const projects = path.join(HOME, name, 'projects');
-    if (fs.existsSync(projects)) roots.push(path.join(HOME, name));
+    const projects = path.join(homeDir(), name, 'projects');
+    if (fs.existsSync(projects)) roots.push(path.join(homeDir(), name));
   }
-  if (!roots.length) roots.push(path.join(HOME, '.claude'));
+  if (!roots.length) roots.push(path.join(homeDir(), '.claude'));
   // Primary root first, so the common case costs one lookup.
   roots.sort((a) => (a.endsWith('/.claude') ? -1 : 1));
   return roots;
@@ -3019,7 +3025,7 @@ function readModel(agentName, exactSession) {
  * fixing it properly, and a list that quietly stops being complete stops making
  * that argument.
  */
-const WORKERS_DIR = process.env.AGENT_WORKFORCE_WORKERS || path.join(HOME, 'work', 'workers');
+const WORKERS_DIR = process.env.AGENT_WORKFORCE_WORKERS || path.join(homeDir(), 'work', 'workers');
 
 /**
  * Explicit overrides for agents whose identity is not derivable.

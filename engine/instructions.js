@@ -44,7 +44,13 @@ const workerfile = require('./workerfile');
  * the real read and write paths against a temp directory instead of an actual
  * agent's instructions. Read once at load, so a test sets it before requiring.
  */
-const ROOT = process.env.AGENT_WORKFORCE_WORKERS || path.join(os.homedir(), 'work', 'workers');
+/* 🛑 A FUNCTION, NOT A CONST (#1432). Frozen at require time this read past
+   the sandbox seam: a caller setting the seam AFTER requiring this module
+   operated on the operator's real machine while believing it was sandboxed.
+   Measured in this class: `accounts.list()` returned four of the operator's
+   real accounts against an empty fixture (#1419), and `delete-leftover`'s
+   TRASH() resolved to the operator's real ~/.Trash (#1432). */
+function rootDir() { return process.env.AGENT_WORKFORCE_WORKERS || path.join(os.homedir(), 'work', 'workers'); }
 
 const FILENAME = 'CLAUDE.md';
 
@@ -949,6 +955,8 @@ function renameIn(agent, displayName) {
 }
 
 module.exports = {
-  ROOT, FILENAME, MAX_BYTES, MIN_CHARS, STALENESS, ABSENT, UNREADABLE,
+  /* lazy, so the export cannot re-freeze what rootDir() unfroze (#1432) */
+  get ROOT() { return rootDir(); },
+  FILENAME, MAX_BYTES, MIN_CHARS, STALENESS, ABSENT, UNREADABLE,
   fileFor, registryKey, sessionStartedAt, staleness, compare, versionOf, read, write, renameIn, wroteBy,
 };

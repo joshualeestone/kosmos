@@ -45,8 +45,13 @@ const sendertoken = require('./sendertoken');
 const status = require('./status');
 
 const OUTCOME = { DELETED: 'deleted', REFUSED: 'refused', PARTIAL: 'partial' };
-const HOME = process.env.AGENT_WORKFORCE_HOME || os.homedir();
-const TRASH = () => process.env.AGENT_WORKFORCE_TRASH || path.join(HOME, '.Trash');
+/* 🛑 A FUNCTION, NOT A CONST (#1432). Frozen at require time this read past
+   the sandbox seam: a caller setting `AGENT_WORKFORCE_HOME` AFTER requiring
+   this module operated on the operator's real machine while believing it was
+   sandboxed. Measured elsewhere in this class: `accounts.list()` returned four
+   of the operator's real accounts against an empty fixture (#1419). */
+function homeDir() { return process.env.AGENT_WORKFORCE_HOME || os.homedir(); }
+const TRASH = () => process.env.AGENT_WORKFORCE_TRASH || path.join(homeDir(), '.Trash');
 /* A walk that stops counting past this many entries: the numbers are for a
    sentence, and "more than 20,000 files" is the honest form past it. */
 const WALK_CAP = 20000;
