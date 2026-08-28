@@ -104,6 +104,28 @@ test('#1367: an agent whose two names agree is still named, and one that was nev
     'readIdentity no longer defaults displayName to the session name, so spokenName\'s fallback is now REACHABLE and needs a real arm');
 });
 
+/**
+ * 🛑 WHAT THIS GUARD IS AND IS NOT (Angel, cross-review of #1451).
+ *
+ * She broke it three ways: `${ clean }` with spaces, an interpolation wrapped
+ * across two lines, and a differently-named binding. **All three evade it.**
+ *
+ * ⚠️ AND BOTH FIXES SHE TRIED WERE WORSE THAN THE GAP, which is why this is a
+ * stated limit rather than a cleverer pattern. One of them false-positived on a
+ * CORRECT launchctl label - the machine name belongs in that string - and the
+ * other was so loose it matched nothing. **A guard that reddens correct code is
+ * the one people allowlist, and this file's own siblings document allowlisting
+ * as the way a guard stops guarding.**
+ *
+ * ⇒ SO, PLAINLY: this catches a REVERT OF THIS DEFECT IN THE SHAPE IT HAD -
+ * eleven `${clean}` interpolations, which is what a revert or a careless merge
+ * produces. **It is a regression guard, not a proof about the class**, and an
+ * author who reintroduces the defect in a new shape will not be caught by it.
+ *
+ * 📌 Nothing below substitutes for that. The behaviour arms above test two
+ * sentences out of eleven; the other nine are covered by this guard's shape
+ * check and by nothing else.
+ */
 test('#1367: no sentence in create.js speaks the machine name (the class, not the instance)', () => {
   const src = fs.readFileSync(nodePath.join(__dirname, 'create.js'), 'utf8');
 
