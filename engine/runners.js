@@ -164,7 +164,7 @@ Object.freeze(MANIFEST);
  * installed board resolve the same managed runner rather than each
  * installing their own.
  */
-/* ⚠️ Keys on the bare module `homeDir()`, NOT homeDir(). Deliberate and worth
+/* ⚠️ Keys on `os.homedir()` DIRECTLY, NOT homeDir(). Deliberate and worth
    naming, because the asymmetry with resolveBin's claude rung is exactly
    the shape homeDir()'s own comment argues against: this path has its own
    sandbox seam (AGENT_WORKFORCE_RUNNERS_DIR) that the tests use, so adding
@@ -177,7 +177,7 @@ function managedRoot() {
   const home = path.resolve(__dirname, '..', '..');
   const installed = fs.existsSync(path.join(home, 'runtime', 'bin', 'node'))
                  && fs.existsSync(path.join(home, 'app', 'server.js'));
-  const base = installed ? home : path.join(homeDir(), '.local', 'share', 'kosmos');
+  const base = installed ? home : path.join(os.homedir(), '.local', 'share', 'kosmos');
   return path.join(base, 'runners');
 }
 
@@ -243,7 +243,7 @@ function homeDir() {
  * to install into.
  *
  * ⚠️ ONLY THE CLAUDE BRANCH KEYS ON homeDir(). The openai rungs go through
- * managedRoot(), which keys on the bare module homeDir() and has its own sandbox
+ * managedRoot(), which keys on os.homedir() directly and has its own sandbox
  * seam (AGENT_WORKFORCE_RUNNERS_DIR) -- see its comment. Both branches DO
  * share isRunnable(). An earlier version of this line claimed both shared
  * both, which contradicted managedRoot's own comment sixty lines up.

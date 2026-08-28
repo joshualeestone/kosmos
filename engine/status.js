@@ -3025,7 +3025,11 @@ function readModel(agentName, exactSession) {
  * fixing it properly, and a list that quietly stops being complete stops making
  * that argument.
  */
-const WORKERS_DIR = process.env.AGENT_WORKFORCE_WORKERS || path.join(homeDir(), 'work', 'workers');
+/* 🛑 A FUNCTION (#1432). As a const this CALLED `homeDir()` at require
+   time, so making homeDir() lazy moved the freeze up one level rather
+   than removing it: measured, `create.workerDir()` still returned the
+   real machine with the seam set after require. */
+function workersDir() { return process.env.AGENT_WORKFORCE_WORKERS || path.join(homeDir(), 'work', 'workers'); }
 
 /**
  * Explicit overrides for agents whose identity is not derivable.
@@ -3079,7 +3083,7 @@ function readIdentity(sessionName) {
   const recorded = remembered && typeof remembered.displayName === 'string'
     ? remembered.displayName.trim() : '';
 
-  /* ⚠️ THROUGH `create.workerDir`, NOT `WORKERS_DIR` + name. This module and
+  /* ⚠️ THROUGH `create.workerDir`, NOT `workersDir()` + name. This module and
      `instructions.js` are the two readers of one file, and they diverged once
      before -- one refused a linked worker folder and the other followed it. A
      connected agent's folder is recorded rather than derived, so a second

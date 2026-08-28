@@ -177,8 +177,16 @@ const sendertoken = require('./sendertoken');
    real accounts against an empty fixture (#1419), and `delete-leftover`'s
    TRASH() resolved to the operator's real ~/.Trash (#1432). */
 function homeDir() { return os.homedir(); }
-const WORKERS_DIR = process.env.AGENT_WORKFORCE_WORKERS || path.join(homeDir(), 'work', 'workers');
-const AGENTS_DIR = process.env.AGENT_WORKFORCE_LAUNCH || path.join(homeDir(), 'Library', 'LaunchAgents');
+/* 🛑 A FUNCTION (#1432). As a const this CALLED `homeDir()` at require
+   time, so making homeDir() lazy moved the freeze up one level rather
+   than removing it: measured, `create.workerDir()` still returned the
+   real machine with the seam set after require. */
+function workersDir() { return process.env.AGENT_WORKFORCE_WORKERS || path.join(homeDir(), 'work', 'workers'); }
+/* 🛑 A FUNCTION (#1432). As a const this CALLED `homeDir()` at require
+   time, so making homeDir() lazy moved the freeze up one level rather
+   than removing it: measured, `create.workerDir()` still returned the
+   real machine with the seam set after require. */
+function agentsDir() { return process.env.AGENT_WORKFORCE_LAUNCH || path.join(homeDir(), 'Library', 'LaunchAgents'); }
 /**
  * Where the product keeps things it installs for itself, as opposed to things
  * that belong to an agent.
@@ -188,10 +196,15 @@ const AGENTS_DIR = process.env.AGENT_WORKFORCE_LAUNCH || path.join(homeDir(), 'L
  * this product keep its files" rather than a second convention introduced by
  * whoever needed a directory next.
  */
-const SUPPORT_DIR = process.env.AGENT_WORKFORCE_DATA
+/* 🛑 A FUNCTION (#1432). As a const this CALLED the (now lazy) home
+   resolver at REQUIRE time, so unfreezing the resolver moved the freeze
+   up one level rather than removing it. A multi-line declaration also
+   hid it from a line-based sweep. */
+function supportDir() {
+  return process.env.AGENT_WORKFORCE_DATA
   ? path.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce')
   : path.join(homeDir(), 'Library', 'Application Support', 'AgentWorkforce');
-
+}
 const OUTCOME = { CREATED: 'created', REFUSED: 'refused', PARTIAL: 'partial' };
 
 /* ── the runner seam ─────────────────────────────────────────────────────── */
@@ -358,7 +371,7 @@ function nameProblem(raw) {
  *
  * 🛑 A RECORDED FOLDER BEATS A DERIVED ONE, and that is the whole of what lets
  * Kosmos look after an agent it did not create. Until now this was
- * `<WORKERS_DIR>/<name>` and nothing else could be true, so an agent somebody
+ * `<workersDir()>/<name>` and nothing else could be true, so an agent somebody
  * had already built somewhere on their Mac could be SEEN and never MANAGED.
  * Josh, 2026-08-22: "if people already have agents anywhere, we need to be able
  * to find them and bring them into the Kosmos platform."
@@ -433,8 +446,8 @@ function workerDir(name) {
      agent, spelled the way they spelled it. Same shape as `instructions.registryKey`,
      which answers the same question for the same reason. */
   const raw = String(name == null ? '' : name);
-  if (!nameUsable(raw)) return path.join(WORKERS_DIR, '\u0000-invalid');
-  return path.join(WORKERS_DIR, raw);
+  if (!nameUsable(raw)) return path.join(workersDir(), '\u0000-invalid');
+  return path.join(workersDir(), raw);
 }
 
 /**
@@ -472,7 +485,7 @@ function jobMissing(name) {
 function instructionFile(name) { return path.join(workerDir(name), 'CLAUDE.md'); }
 function logFile(name) { return path.join(workerDir(name), 'start.log'); }
 function serviceLabel(name) { return `com.kosmos.agent.${name}`; }
-function plistPath(name) { return path.join(AGENTS_DIR, `${serviceLabel(name)}.plist`); }
+function plistPath(name) { return path.join(agentsDir(), `${serviceLabel(name)}.plist`); }
 
 /**
  * The model an agent's launchd job will start it on, read back out of the job
@@ -512,7 +525,7 @@ function plannedModelArg(name) {
   /* ⚠️ THE ONLY CALLER THAT RECEIVES AN UNVALIDATED NAME. Every other use of
      `plistPath` is downstream of `NAME_RE`; this one is handed `a.sessionName`
      straight out of `tmux list-panes`, so the name is whatever a person called
-     their session. `path.join(AGENTS_DIR, 'com.….' + name + '.plist')` with
+     their session. `path.join(agentsDir(), 'com.….' + name + '.plist')` with
      separators or `..` in it walks out of LaunchAgents and reads an arbitrary
      file. It is not reachable today only because tmux forbids `.` in session
      names — an invariant nothing in this repo states, tests, or controls, which
@@ -913,7 +926,7 @@ function supervisorSource() {
 }
 
 function supervisorPath() {
-  return path.join(SUPPORT_DIR, 'bin', 'agent-supervisor.sh');
+  return path.join(supportDir(), 'bin', 'agent-supervisor.sh');
 }
 
 /* The codex notify bridge (#245): installed beside the supervisor, by the
@@ -1090,7 +1103,7 @@ function bridgeSource() {
 }
 
 function bridgePath() {
-  return path.join(SUPPORT_DIR, 'bin', 'codex-report-bridge.js');
+  return path.join(supportDir(), 'bin', 'codex-report-bridge.js');
 }
 
 /**
@@ -1152,7 +1165,7 @@ function installSupervisor() {
     /* \u2b50 #1139: TELL THE SUPERVISOR WHERE THE ENGINE IS.
        It resolves `sendertoken.js` as `dirname($0)/../engine`, which is true in
        a checkout and in the bundle and FALSE for every real agent -- the two
-       lines above copy it to SUPPORT_DIR/bin, and SUPPORT_DIR has no `engine/`.
+       lines above copy it to supportDir()/bin, and supportDir() has no `engine/`.
        So it silently minted nothing, and no agent had ever received a token.
 
        There is no relative path from Application Support to the installed app,
@@ -1556,7 +1569,7 @@ function installJob(name, opts) {
   const configDir = (opts && typeof opts.configDir === 'string' && opts.configDir) ? opts.configDir : null;
   try {
     if (!DRY_RUN) {
-      fs.mkdirSync(AGENTS_DIR, { recursive: true });
+      fs.mkdirSync(agentsDir(), { recursive: true });
       fs.writeFileSync(plistPath(clean), plistFor(clean, runnerBin, tmuxBin, modelArg, configDir, runner), 'utf8');
     }
   } catch {
@@ -1622,10 +1635,10 @@ function installJob(name, opts) {
    record of the number of agents"). Best-effort by design: a creation must
    never fail because its receipt could not be written, so the append is
    swallowed and the outcome still returned. */
-function createdLogFile() { return path.join(SUPPORT_DIR, 'created.jsonl'); }
+function createdLogFile() { return path.join(supportDir(), 'created.jsonl'); }
 function recordBirth(entry) {
   try {
-    fs.mkdirSync(SUPPORT_DIR, { recursive: true });
+    fs.mkdirSync(supportDir(), { recursive: true });
     fs.appendFileSync(createdLogFile(), JSON.stringify(entry) + '\n', 'utf8');
   } catch { /* the record is a receipt, never a gate */ }
 }
@@ -2445,7 +2458,7 @@ function createAgentInner(opts) {
 
   const wroteJob = (wroteInstructions && installedSupervisor && trustedFolder) && step('set it up to keep running', () => {
     if (DRY_RUN) return true;
-    fs.mkdirSync(AGENTS_DIR, { recursive: true });
+    fs.mkdirSync(agentsDir(), { recursive: true });
     fs.writeFileSync(plistPath(name), plistFor(name, runnerBin, tmuxBin, modelArg, configDir, runner), 'utf8');
   });
 
@@ -2698,7 +2711,10 @@ module.exports = {
   /* The disk roots themselves, for #500's stray walk: the walk must read
      these directly, because workerDir() consults recorded folders and
      would resolve a recorded name right out of the root being walked. */
-  WORKERS_DIR, AGENTS_DIR,
+  /* lazy getters, so the exports cannot re-freeze what the functions
+     unfroze (#1432) */
+  get WORKERS_DIR() { return workersDir(); },
+  get AGENTS_DIR() { return agentsDir(); },
   setModel,
   installJob,
   nameUsable,
