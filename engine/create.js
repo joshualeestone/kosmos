@@ -947,6 +947,60 @@ function trustCodexFolder(dir, home) {
 }
 
 /**
+ * The inverse of `trustCodexFolder`, and it did not exist (#1414).
+ *
+ * 🛑 EVERY OPENAI AGENT CREATED, ADOPTED OR SWITCHED APPENDED A TRUST ENTRY TO
+ * THE PERSON'S REAL `~/.codex/config.toml`, AND NOTHING EVER TOOK ONE BACK.
+ * `engine/trust.js` manages the CLAUDE side and mentions codex zero times, so
+ * `remove()` reported "took back the folder trust" truthfully about a
+ * different file while this one accumulated. Measured on the operator's own
+ * machine: entries were still there for directories that no longer existed.
+ *
+ * ⚠️ IT REMOVES ONLY A BLOCK THAT STILL LOOKS EXACTLY LIKE WHAT WE APPENDED.
+ * If a person changed the trust level or added keys under that heading, their
+ * edit is theirs and this leaves it, answering `edited` so the caller can say
+ * so rather than silently doing nothing.
+ *
+ * 🔑 THE LIMIT, NAMED RATHER THAN HIDDEN: this is a CONTENT match, not a
+ * PROVENANCE record. `trustCodexFolder` is a no-op when the key already
+ * exists, so an entry Kosmos FOUND is indistinguishable from one it WROTE. A
+ * person who had trusted the same folder themselves, in exactly this form,
+ * would have that line removed. The exact alternative is a written record like
+ * trust.js's `recordWrite`; this is the smaller change and that is its cost.
+ *
+ * 📌 Written whole and renamed into place, never appended to: a config file
+ * half-rewritten by an interrupted removal is worse than one entry too many.
+ */
+function forgetCodexFolder(dir, home) {
+  const codexHome = home || codexHomeDir();
+  const cfg = path.join(codexHome, 'config.toml');
+  let text;
+  try { text = fs.readFileSync(cfg, 'utf8'); }
+  catch { return { ok: true, removed: false, because: 'there is no codex config to change' }; }
+  const key = `[projects."${dir}"]`;
+  if (!text.includes(key)) return { ok: true, removed: false, because: 'no entry for that folder' };
+  /* The exact two lines `trustCodexFolder` writes. A String pattern, not a
+     RegExp: a folder path can contain characters a regex would read as
+     syntax, and this must match literally or not at all. */
+  const block = `${key}
+trust_level = "trusted"
+`;
+  if (!text.includes(block)) {
+    return { ok: false, removed: false, because: 'that folder\'s trust entry was changed by hand, so it was left alone' };
+  }
+  const next = text.replace(block, '').replace(/\n{3,}/g, '\n\n');
+  const tmp = `${cfg}.tmp-${process.pid}`;
+  try {
+    fs.writeFileSync(tmp, next);
+    fs.renameSync(tmp, cfg);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch { /* the rename never happened */ }
+    return { ok: false, removed: false, because: 'we could not update the codex config' };
+  }
+  return { ok: true, removed: true, because: null };
+}
+
+/**
  * Stop codex's update notice from BLOCKING a new agent's first launch (#1315).
  *
  * 🛑 MEASURED, AND IT IS THE SHIP-BLOCKER. A codex agent created today reaches a
@@ -2633,6 +2687,7 @@ module.exports = {
   instructionFile,
   plistPath,
   plannedModelArg,
+  forgetCodexFolder,
   setRunner,
   setDryRun,
   OUTCOME,

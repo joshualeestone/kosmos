@@ -697,6 +697,17 @@ function removeInner(name, { tmuxBin } = {}) {
   const tmux = tmuxBin || process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux';
   const steps = [];
   const job = jobFor(clean);
+  /* 🔑 READ BEFORE ANYTHING IS TAKEN APART (#1414). The codex trust entry
+     lives in the home the agent RAN in, and the only record of which home
+     that was is `CODEX_HOME` inside the plist. Every step below exists to
+     dismantle this agent, so the home has to be captured while the plist is
+     still there to be read. `null` for a Claude agent, which is the common
+     case and costs nothing. */
+  let codexHome = null;
+  try {
+    const launched = create.readJob(clean);
+    if (launched && launched.runner === 'codex' && launched.configDir) codexHome = launched.configDir;
+  } catch { codexHome = null; }
 
   /**
    * ⚠️ THE PARTIALS' LAST SENTENCE, and it has to be EARNED rather than
@@ -946,6 +957,26 @@ function removeInner(name, { tmuxBin } = {}) {
         try { require('./trust').dropRecord(clean); } catch { /* retried next time */ }
       }
     }
+  }
+
+  /* 🛑 THE CODEX TRUST IS ITS OWN STEP, AND THAT IS THE POINT OF #1414, NOT A
+     STYLE CHOICE. `trust.js` manages the CLAUDE side and mentions codex zero
+     times, so the step above reported "took back the folder trust" TRUTHFULLY
+     about a different file while this one accumulated forever. A true step
+     read as a complete one. Two trusts, two steps, two sentences.
+     ⚠️ Measured on the operator's own machine: entries were still present for
+     directories that no longer existed.
+     📌 Only for an agent that actually ran on codex, and only into the home it
+     ran in. Falling back to the default home is the mistake that caused #1313,
+     so there is deliberately no fallback here: no recorded home, no step. */
+  if (codexHome) {
+    step('took back the codex folder trust', () => {
+      if (DRY_RUN && !runner) return true;
+      let got = null;
+      try { got = create.forgetCodexFolder(create.workerDir(clean), codexHome); }
+      catch { return false; }
+      return Boolean(got && got.ok === true);
+    });
   }
 
   const recorded = step('took it off the board', () => recordRemoval(clean, job, true, shown));

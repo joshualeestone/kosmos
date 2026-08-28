@@ -3824,3 +3824,81 @@ test('#1315 CONTROL: that branch check can fail', () => {
   assert.doesNotMatch(inWindow, /claude-dismiss-something-that-does-not-exist/,
     'the window matches anything: the guard above proves nothing');
 });
+
+/* ────────────────────────────────────────────────────────────────────────────
+   #1414: the codex trust entry has an inverse now, and it is BEHAVIOURAL.
+
+   These are not source-text guards. `forgetCodexFolder` writes to a real file,
+   so it can be driven for real in a temp home, which is a stronger claim than
+   asserting that a call appears near another call.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+function codexCfgHome(entries) {
+  const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'codex-forget-'));
+  fs.writeFileSync(nodePath.join(home, 'config.toml'), entries);
+  return home;
+}
+const TRUSTED = (d) => `[projects."${d}"]\ntrust_level = "trusted"\n`;
+
+test('#1414: removing an agent takes back the codex trust entry it wrote', () => {
+  const mine = '/somewhere/workers/mineagent';
+  const theirs = '/somewhere/workers/otheragent';
+  const home = codexCfgHome(`${TRUSTED(theirs)}\n${TRUSTED(mine)}\n[tui.thing]\n"a" = 1\n`);
+
+  const before = fs.readFileSync(nodePath.join(home, 'config.toml'), 'utf8');
+  assert.ok(before.includes(mine), 'the entry must be there first, or the removal below proves nothing');
+
+  const got = create.forgetCodexFolder(mine, home);
+  assert.equal(got.ok, true);
+  assert.equal(got.removed, true);
+
+  const after = fs.readFileSync(nodePath.join(home, 'config.toml'), 'utf8');
+  assert.ok(!after.includes(mine), 'the entry for this agent is gone');
+  assert.ok(after.includes(theirs), 'ANOTHER agent\'s trust must survive: this removes one folder, not the file');
+  assert.ok(after.includes('[tui.thing]'), 'unrelated config must survive');
+});
+
+test('#1414: an entry a PERSON edited is left alone, and said so', () => {
+  /* ⚠️ THE CONSERVATIVE ARM, and it is the one that protects somebody's file.
+     `trustCodexFolder` is a no-op when the key already exists, so an entry
+     Kosmos FOUND is indistinguishable from one it WROTE. Matching the exact
+     two lines we append is what keeps a hand-edited entry out of scope. */
+  const mine = '/somewhere/workers/editedagent';
+  const home = codexCfgHome(`[projects."${mine}"]\ntrust_level = "untrusted"\n`);
+
+  const got = create.forgetCodexFolder(mine, home);
+  assert.equal(got.removed, false, 'a changed entry must NOT be removed');
+  assert.equal(got.ok, false);
+  /* ⚠️ THE SHAPE, NOT THE WORDS (Kitty's rule, 2026-08-28). Nothing PARSES
+     this sentence: `remove()` reads only `ok`, and no route or screen reads
+     the string at all. Pinning my exact wording would make a better sentence
+     a false red, which is the defect that bit three of us today. What matters
+     is that a refusal EXPLAINS itself rather than returning a bare false. */
+  assert.equal(typeof got.because, 'string');
+  assert.ok(got.because.length > 12,
+    'a refusal that says nothing is indistinguishable from doing nothing');
+
+  const after = fs.readFileSync(nodePath.join(home, 'config.toml'), 'utf8');
+  assert.ok(after.includes('untrusted'), 'the person\'s own value survives untouched');
+});
+
+test('#1414 CONTROL: the removal can tell "not there" from "removed"', () => {
+  /* Without this, `removed: false` from the arm above could mean the function
+     never finds anything, and both tests would pass on a stub that does
+     nothing at all. */
+  const home = codexCfgHome(`${TRUSTED('/somewhere/workers/someoneelse')}`);
+  const got = create.forgetCodexFolder('/somewhere/workers/neverthere', home);
+  assert.equal(got.ok, true, 'absent is not an error');
+  assert.equal(got.removed, false);
+  assert.match(String(got.because), /no entry/);
+
+  const after = fs.readFileSync(nodePath.join(home, 'config.toml'), 'utf8');
+  assert.ok(after.includes('someoneelse'), 'and it touched nothing while looking');
+});
+
+test('#1414: no codex config at all is a quiet success, not a failure', () => {
+  const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'codex-nocfg-'));
+  const got = create.forgetCodexFolder('/somewhere/workers/any', home);
+  assert.equal(got.ok, true);
+  assert.equal(got.removed, false);
+});
