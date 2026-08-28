@@ -66,6 +66,16 @@ const create = require('./create');
  * its own, and the refusal has a test of its own below.
  */
 const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
+/* 🛑 A DIFFERENT REAL BINARY FROM `claudeBin`, AND THAT IS THE WHOLE POINT.
+   Every `codexBin` in this file used to be `/bin/echo` as well - the SAME PATH
+   as claude - so no assertion anywhere could tell a codex-labelled job pointing
+   at the CODEX binary from one pointing at the CLAUDE binary. Measured (#1359):
+   `setProvider`'s `runnerBin = runner === 'codex' ? codexBin : claudeBin` could
+   be replaced with `claudeBin` outright and the whole suite stayed green, while
+   the identical edit in `createAgentInner` went RED - because creation's
+   fixtures happen to distinguish them and switching's did not.
+   ⇒ Two fixtures with the same value cannot test a choice between them. */
+const CODEX_BIN = '/bin/cat';
 
 /**
  * The supervisor as SHIPPED, read from disk.
@@ -2893,7 +2903,7 @@ test('#1313: switching to OpenAI carries a SIGNED-IN account, not the default ho
   /* No AGENT_WORKFORCE_CODEX_HOME: this is the ordinary machine, and the one
      Josh reported from. The named-home case keeps its own arm above (#1211). */
   delete process.env.AGENT_WORKFORCE_CODEX_HOME;
-  const sw = create.setProvider(name, 'openai', { ...BINS, codexBin: '/bin/echo' });
+  const sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN });
   assert.equal(sw.outcome, create.OUTCOME.CREATED,
     'the switch refused on a machine that HAS a signed-in OpenAI account, which is #1313: '
     + String(sw.because));
@@ -2914,7 +2924,7 @@ test('an OpenAI agent made on a non-default OpenAI account carries CODEX_HOME, a
   const home = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-team');
   fs.mkdirSync(home, { recursive: true });
   fs.writeFileSync(nodePath.join(home, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtesttesttestTEAM' }), 'utf8');
-  const made = create.createAgent({ ...BINS, name: 'onteam', role: 'pm', provider: 'openai', codexBin: '/bin/echo', account: home });
+  const made = create.createAgent({ ...BINS, name: 'onteam', role: 'pm', provider: 'openai', codexBin: CODEX_BIN, account: home });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
   const plist = fs.readFileSync(create.plistPath('onteam'), 'utf8');
   assert.match(plist, new RegExp('<key>CODEX_HOME</key><string>' + home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '</string>'));
@@ -2924,7 +2934,7 @@ test('an OpenAI agent made on a non-default OpenAI account carries CODEX_HOME, a
   // And the job reads back with the account as its configDir, one field for either provider.
   assert.equal(create.readJob('onteam').configDir, home);
   // An account nobody signed in to is refused in words.
-  const no = create.createAgent({ ...BINS, name: 'onnobody', role: 'pm', provider: 'openai', codexBin: '/bin/echo', account: nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-nobody') });
+  const no = create.createAgent({ ...BINS, name: 'onnobody', role: 'pm', provider: 'openai', codexBin: CODEX_BIN, account: nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-nobody') });
   assert.equal(no.outcome, create.OUTCOME.REFUSED);
   assert.match(no.because, /do not know that OpenAI account/);
 });
@@ -3182,7 +3192,7 @@ test('#245: an OpenAI agent is created on the codex runner, recorded everywhere,
   const codexHome = fs.mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'codex-home-'));
   process.env.AGENT_WORKFORCE_CODEX_HOME = codexHome;
   const name = 'codex-kid';
-  const out = create.createAgent({ ...BINS, codexBin: '/bin/echo', name, role: 'pm', provider: 'openai' });
+  const out = create.createAgent({ ...BINS, codexBin: CODEX_BIN, name, role: 'pm', provider: 'openai' });
   delete process.env.AGENT_WORKFORCE_CODEX_HOME;
   assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
   /* The folder is trusted at creation, or the agent is born into codex's
@@ -3197,7 +3207,7 @@ test('#245: an OpenAI agent is created on the codex runner, recorded everywhere,
   // The vector: 0 bash, 1 supervisor, 2 name, 3 workdir, 4 runner-bin,
   // 5 tmux, 6 log, 7 model (empty, codex's own default), 8 runner.
   const args = plistArgs(name);
-  assert.equal(args[4], '/bin/echo', 'the runner binary is not the codex path');
+  assert.equal(args[4], CODEX_BIN, 'the runner binary is not the codex path');
   assert.equal(args[7], '', 'the model slot must be written empty so the runner cannot slide into it');
   assert.equal(args[8], 'codex');
   // Recorded, never inferred: the profile and the birth record both say so.
@@ -3213,7 +3223,7 @@ test('#245: an OpenAI agent is created on the codex runner, recorded everywhere,
 test('#245: openai refuses a model choice, an account choice, a missing runner, and an unknown provider refuses outright', () => {
   recorder();
   create.setDryRun(false);
-  const base = { ...BINS, codexBin: '/bin/echo', role: 'pm', provider: 'openai' };
+  const base = { ...BINS, codexBin: CODEX_BIN, role: 'pm', provider: 'openai' };
   let r = create.createAgent({ ...base, name: 'x-model', model: 'opus' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
   assert.match(r.because, /leave the model unchosen/);
@@ -3247,18 +3257,28 @@ test('#246: the switch rewrites only the launch, both directions, and drops what
   // Not 'switcher': line ~2460 already owns that name in this shared sandbox.
   const name = 'provider-hopper';
   // Born on Claude, with a model choice, so the switch has something to drop.
-  const out = create.createAgent({ ...BINS, codexBin: '/bin/echo', name, role: 'pm', model: 'opus' });
+  const out = create.createAgent({ ...BINS, codexBin: CODEX_BIN, name, role: 'pm', model: 'opus' });
   assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
   const idBefore = store.readProfile(name).id;
 
   // Claude -> OpenAI: runner codex, model and account dropped and REPORTED.
-  const sw = create.setProvider(name, 'openai', { ...BINS, codexBin: '/bin/echo' });
+  const sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN });
   delete process.env.AGENT_WORKFORCE_CODEX_HOME;
   assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
   assert.equal(sw.provider, 'openai');
   assert.ok(sw.dropped.model, 'the dropped model choice must be reported so the route can say it');
   let args = plistArgs(name);
   assert.equal(args[8], 'codex');
+  /* 🛑 THE BINARY, NOT ONLY THE LABEL, AND THIS WAS THE GAP. `setProvider` is the
+     OTHER writer of this plist, and its runner choice
+     (`runner === 'codex' ? codexBin : claudeBin`) could be replaced with
+     `claudeBin` outright while the whole suite stayed green - a job labelled
+     `codex` that starts Claude in the agent's folder, which is the exact defect
+     the adopt path was fixed for (#1359). The identical edit in
+     `createAgentInner` went RED, so the suite could detect the class and did,
+     for creation only. Switching had no such arm. */
+  assert.equal(args[4], CODEX_BIN,
+    'the switch wrote a codex-labelled job pointing at a different binary');
   assert.equal(args[7], '', 'the Claude model must not be smuggled into a codex launch');
   // With its memory: same id, same profile, provider updated, folder trusted.
   assert.equal(store.readProfile(name).id, idBefore, 'the switch minted a new identity, which is the same-agent ruling broken');
@@ -3267,6 +3287,8 @@ test('#246: the switch rewrites only the launch, both directions, and drops what
     new RegExp(`\\[projects\\."${create.workerDir(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\]`),
     'the switch must trust the folder or the agent restarts into a blocking dialog');
 
+  /* AND THE OTHER DIRECTION: switching BACK must point at claude, or the
+     assertion above is satisfied by "always codex" rather than by a choice. */
   // Same provider again: refused in words, nothing rewritten.
   const again = create.setProvider(name, 'openai');
   assert.equal(again.outcome, create.OUTCOME.REFUSED);
@@ -3274,10 +3296,15 @@ test('#246: the switch rewrites only the launch, both directions, and drops what
 
   // OpenAI -> Claude: back on the seven-argument claude vector, default
   // model and account until chosen (and the result says nothing was kept).
-  const back = create.setProvider(name, 'anthropic', { ...BINS, codexBin: '/bin/echo' });
+  const back = create.setProvider(name, 'anthropic', { ...BINS, codexBin: CODEX_BIN });
   assert.equal(back.outcome, create.OUTCOME.CREATED, back.because);
   args = plistArgs(name);
   assert.equal(args.length, 7, 'a claude agent carries the pre-runner vector');
+  /* THE NEGATIVE ARM of the binary assertion above: switching BACK must point at
+     claude. Without this, "always the codex binary" would satisfy the positive
+     arm, and the pair would prove the value rather than the CHOICE. */
+  assert.equal(args[4], BINS.claudeBin,
+    'switching back to Claude left the job pointing at the codex binary');
   assert.equal(store.readProfile(name).provider, 'anthropic');
   assert.equal(store.readProfile(name).id, idBefore);
 
@@ -3304,7 +3331,7 @@ test('#246: the switch rewrites only the launch, both directions, and drops what
   const emptyHome = fs.mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'codex-home-nobody-'));
   process.env.AGENT_WORKFORCE_CODEX_HOME = emptyHome;
   const beforeArgs = plistArgs(name);
-  const noSignIn = create.setProvider(name, 'openai', { ...BINS, codexBin: '/bin/echo' });
+  const noSignIn = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN });
   delete process.env.AGENT_WORKFORCE_CODEX_HOME;
   assert.equal(noSignIn.outcome, create.OUTCOME.REFUSED,
     'the switch handed an agent to a runner nobody is signed in to, which is #1211');
@@ -3317,7 +3344,7 @@ test('#246: the switch rewrites only the launch, both directions, and drops what
      "refused" is equally consistent with a switch that refuses everything. The
      signed-in home still goes through. */
   process.env.AGENT_WORKFORCE_CODEX_HOME = codexHome;
-  const stillWorks = create.setProvider(name, 'openai', { ...BINS, codexBin: '/bin/echo' });
+  const stillWorks = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN });
   delete process.env.AGENT_WORKFORCE_CODEX_HOME;
   assert.equal(stillWorks.outcome, create.OUTCOME.CREATED, stillWorks.because);
   assert.equal(stillWorks.openaiAccount && stillWorks.openaiAccount.keyTail, 'SWCH',
@@ -3342,14 +3369,14 @@ test('#548: a claude-less Mac refuses an anthropic creation in words, offering O
   // Runner present but no OpenAI sign-in: still not offered, different why.
   const emptyHome = fs.mkdtempSync(nodePath.join(os2.tmpdir(), 'codex-empty-'));
   process.env.AGENT_WORKFORCE_CODEX_HOME = emptyHome;
-  r = create.createAgent({ ...noClaude, codexBin: '/bin/echo', name: 'cg-b', role: 'pm' });
+  r = create.createAgent({ ...noClaude, codexBin: CODEX_BIN, name: 'cg-b', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
   assert.ok(!/OpenAI instead/.test(r.because));
   assert.match(r.alternative.because, /sign-in/);
 
   // Runner present AND signed in: the alternative is real, so it is said.
   fs.writeFileSync(nodePath.join(emptyHome, 'auth.json'), '{"OPENAI_API_KEY":"x"}');
-  r = create.createAgent({ ...noClaude, codexBin: '/bin/echo', name: 'cg-c', role: 'pm' });
+  r = create.createAgent({ ...noClaude, codexBin: CODEX_BIN, name: 'cg-c', role: 'pm' });
   delete process.env.AGENT_WORKFORCE_CODEX_HOME;
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
   assert.match(r.because, /or create this agent on OpenAI instead/);
@@ -3376,7 +3403,7 @@ test('#548: an OpenAI-only Mac creates an OpenAI agent; Claude\'s absence is not
   fs.writeFileSync(nodePath.join(home, 'auth.json'), '{"OPENAI_API_KEY":"x"}');
   process.env.AGENT_WORKFORCE_CODEX_HOME = home;
   const r = create.createAgent({
-    tmuxBin: '/bin/echo', claudeBin: '/nonexistent-claude', codexBin: '/bin/echo',
+    tmuxBin: '/bin/echo', claudeBin: '/nonexistent-claude', codexBin: CODEX_BIN,
     name: 'codex-only', role: 'pm', provider: 'openai',
   });
   delete process.env.AGENT_WORKFORCE_CODEX_HOME;
@@ -3620,7 +3647,7 @@ test('each refusal sentence exists exactly once, so no site can reintroduce a co
 test('all three name checks refuse an unusable name with the SAME sentence', () => {
   const bad = 'not a usable name!!';
   const viaAccount = create.setAccount(bad, '/tmp/nowhere');
-  const viaProvider = create.setProvider(bad, 'openai', { ...BINS, codexBin: '/bin/echo' });
+  const viaProvider = create.setProvider(bad, 'openai', { ...BINS, codexBin: CODEX_BIN });
   const viaModel = create.setModel(bad, 'opus');
   for (const r of [viaAccount, viaProvider, viaModel]) {
     assert.equal(r.outcome, create.OUTCOME.REFUSED);

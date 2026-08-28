@@ -18,11 +18,32 @@ process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'support');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = path.join(SANDBOX, 'bin', 'claude');
+/* 🛑 THE CODEX BINARY NEEDS THE SAME SEAM, AND ITS ABSENCE MADE THIS FILE
+   DEPEND ON THE DEVELOPER'S MACHINE (#1359). Six variables were sandboxed and
+   this one was not, so `resolveBin('openai')` fell through the env override to
+   the vendor path and found the operator's real Homebrew codex. (`'openai'`:
+   `resolveBin('codex')` returns `{bin: null}` and could not have found
+   anything, as the guard below says at length.)
+
+   ⇒ Every green in this file was partly a statement about this Mac: a runner
+   without codex installed would have failed, and where it passed it was naming
+   a real binary rather than the stub.
+
+   📌 MEASURED ON THIS BASE, and the earlier figure in this comment was stale.
+   It said "four tests FAIL" with the seam pointed at nothing; that was true
+   before the guard below gained its runner-binary rows, and I did not re-measure
+   after a rebase. Current behaviour with `AGENT_WORKFORCE_CODEX_BIN` pointed at
+   an absent path: the guard REFUSES AT MODULE LOAD - 1 test, 1 fail, nothing
+   else runs - which is the contract it states. ⭐ Refusing before any work is
+   the improvement; a count of failing tests means work already happened. */
+process.env.AGENT_WORKFORCE_CODEX_BIN = path.join(SANDBOX, 'bin', 'codex');
 for (const d of ['workers', 'LaunchAgents', 'home/.codex', 'support', 'bin']) {
   fs.mkdirSync(path.join(SANDBOX, d), { recursive: true });
 }
 fs.writeFileSync(path.join(SANDBOX, 'bin', 'claude'), '#!/bin/sh\nexit 0\n');
 fs.chmodSync(path.join(SANDBOX, 'bin', 'claude'), 0o755);
+fs.writeFileSync(path.join(SANDBOX, 'bin', 'codex'), '#!/bin/sh\nexit 0\n');
+fs.chmodSync(path.join(SANDBOX, 'bin', 'codex'), 0o755);
 
 const discover = require('./discover');
 const create = require('./create');
@@ -36,7 +57,17 @@ const store = require('./store');
  *     const AGENTS_DIR = process.env.AGENT_WORKFORCE_LAUNCH || <real LaunchAgents>
  *
  * In a multi-file `node --test` run the files share a process, so whichever file
- * requires `create.js` FIRST decides that constant. This file sets its
+ * requires `create.js` FIRST decides that constant.
+ *
+ * ⚠️ THAT SENTENCE IS FALSE ON THIS MACHINE AND THE GUARD IS STILL WORTH KEEPING
+ * (#1359). node v25.6.1 runs `--test-isolation=process` by default, so each test
+ * FILE gets its own child and its own module registry. Measured with a two-file
+ * probe: an env var set in `a.test.js` reads `undefined` in `b.test.js`.
+ * ⇒ The pollution incident recorded below really happened, but per-file isolation
+ * means it cannot recur by THIS mechanism on this node. Kept because the guard
+ * costs nothing, older node and `--test-isolation=none` do share a process, and
+ * a guard that is currently unreachable is the cheapest kind to own. Left as a
+ * correction rather than a rewrite so the original reasoning stays legible. This file sets its
  * environment before its own requires - and that is not enough, because an
  * earlier file may already have loaded the module against the real paths.
  *
@@ -67,9 +98,51 @@ const store = require('./store');
    full-suite runs wrote four real profile records into the operator's store and
    the board served them as agents. The plists were the visible half; the profiles
    were the half nobody saw. */
+/* 🔑 THE RUNNER BINARIES BELONG IN THIS LIST, NOT IN A SECOND GUARD (#1359).
+   The rows above prove a WRITE lands in the sandbox. These prove what the job
+   POINTS AT is the stub: without them this file passed only on a developer
+   machine that happens to have Homebrew codex, and its greens were partly a
+   statement about that machine. Folded in here because a collecting guard names
+   EVERY failing root, and a second short-circuiting guard beside it would
+   reintroduce exactly what #1365 removed - arms that cannot be exercised
+   separately, because the first failure answers for all of them.
+
+   ⚠️ 'openai', NOT 'codex'. `resolveBin` keys on the PROVIDER name and returns
+   `{bin: null}` for anything else, so `resolveBin('codex')` answers null on a
+   perfectly well configured machine. My first version did that and refused to
+   run - failing CLOSED, which is how the wrong argument was found rather than
+   shipped.
+
+   ⚠️ AND THESE TWO ROWS ARE NOT LIKE THE ONES ABOVE, which the shared message
+   below cannot say: `store` and `create` resolve their roots at MODULE LOAD, so
+   require order matters for them. `resolveBin` reads `process.env` at CALL time,
+   so require order cannot break these - the causes are the seam being removed,
+   moved below this guard, or overwritten.
+
+   📌 The claude row is a weaker control than the codex row and it is worth
+   knowing which: removing AGENT_WORKFORCE_CLAUDE_BIN alone does NOT trip it,
+   because `resolveBin('claude')` then falls to `homeDir()/.local/bin/claude` and
+   `homeDir()` already honours AGENT_WORKFORCE_HOME, which is pointed inside the
+   sandbox above. It fires only when that second seam is gone too. Kept, because
+   it still catches the case it is named for, but it is not proof that its own
+   variable is doing the work. */
 const outsideSandbox = [
   ['AGENT_WORKFORCE_DATA (engine/store.js)', store.ROOT],
   ['AGENT_WORKFORCE_LAUNCH (engine/create.js)', create.plistPath('sandboxprobe')],
+  ['AGENT_WORKFORCE_CODEX_BIN (engine/runners.js)', require('./runners').resolveBin('openai').bin],
+  ['AGENT_WORKFORCE_CLAUDE_BIN (engine/runners.js)', require('./runners').resolveBin('claude').bin],
+  /* 🛑 THE CODEX HOME, AND ITS ABSENCE LET THIS FILE WRITE TO A REAL ONE. Removing
+     the AGENT_WORKFORCE_HOME seam did NOT trip this guard: `codexHomeDir()` reads
+     that variable at CALL time, and the CLAUDE_BIN row still resolved inside the
+     sandbox because it has its own override. Measured with HOME pointed at a
+     stand-in: the guard stayed SILENT while ELEVEN `trust_level = "trusted"`
+     entries were appended to `<home>/.codex/config.toml`, and one assertion
+     noticed afterwards. ⇒ The guard refused AFTER the writes rather than instead
+     of them, which is the opposite of what its own contract says.
+     ⭐ Asked of `create` rather than inferred from which variables are set: the
+     resolution has two env vars and a fallback, and a guard that re-derives that
+     is a second derivation of the thing it is guarding. */
+  ['AGENT_WORKFORCE_HOME / _CODEX_HOME (engine/create.js codexHomeDir)', create.codexHomeDir()],
 ].filter(([, resolved]) => !String(resolved).startsWith(SANDBOX));
 if (outsideSandbox.length) {
   throw new Error(
@@ -109,9 +182,32 @@ test('#1159: a discovered Codex agent can be ADOPTED, and gets a codex job', () 
   const dir = agentFolder('scoutcodex', 'AGENTS.md', '# You are Scout Codex\n');
   const r = discover.connect(dir);
   assert.equal(r.ok, true, `a Codex agent was refused: ${r.because}`);
-  const p = plistOf('scoutcodex');
-  assert.match(p, /<string>codex<\/string>/, 'the adopted agent was written as a Claude job');
-  assert.match(p, /codex<\/string>/, 'the job does not point at the codex binary');
+  /* 🛑 BOTH ASSERTIONS HERE USED TO BE SUBSTRING MATCHES ON THE PLIST, AND BOTH
+     WERE SATISFIED BY THE SAME STRING (#1359). `create.js` writes the runner
+     LABEL as its own argument -- `runnerLine = isCodex ? '<string>codex</string>'`
+     -- so that literal is present for any codex agent whatever binary the job
+     points at. The second one's regex `codex<\/string>` has no leading
+     `<string>`, so it matched the label just as happily as a real path would.
+
+     ⇒ A PLIST RUNNING THE CLAUDE BINARY WHILE LABELLED `codex` PASSED BOTH, and
+     that is exactly the "an adopted Codex agent starts Claude in its own folder"
+     defect adoption exists to prevent. Confirmed by mutation: swapping the bin
+     argument in `installJob` left the whole suite green.
+
+     ✅ These are two separate facts and they now have two separate assertions,
+     read by POSITION out of ProgramArguments rather than by substring. */
+  const job = create.readJob('scoutcodex');
+  assert.ok(job, 'the adopted agent has no readable launchd job at all');
+  /* `claude` is the field name for argument 4, the RUNNER binary slot, whichever
+     runner it holds. Named before runners existed. */
+  /* The EXACT sandbox path, not a `/codex$` suffix. A suffix match is satisfied
+     by ANY file called `codex` anywhere - including this Mac's real
+     /opt/homebrew/bin/codex, which is the precise value this file used to
+     depend on. Equality is self-contained: it means something even if the
+     module-load guard 50 lines up were deleted. */
+  assert.equal(job.claude, path.join(SANDBOX, 'bin', 'codex'),
+    `the job does not point at the sandboxed codex binary, it points at ${job.claude}`);
+  assert.equal(job.runner, 'codex', 'the adopted agent was written as a Claude job');
 });
 
 test('#1159 CONTROL: a Claude agent is still adopted as Claude', () => {
@@ -122,6 +218,16 @@ test('#1159 CONTROL: a Claude agent is still adopted as Claude', () => {
   assert.equal(r.ok, true, r.because);
   const p = plistOf('scoutclaude');
   assert.doesNotMatch(p, /<string>codex<\/string>/, 'a Claude agent was adopted as a Codex one');
+  /* 🛑 AND THE BINARY, WHICH THE LABEL CHECK ABOVE CANNOT SEE. This test's own
+     comment says it stops "a change that makes EVERYTHING a codex job" - true of
+     the label assertion it was written for, and NOT true of the binary assertion
+     added in #1359, which had no negative arm at all. Measured: mutating
+     `installJob` so every job takes the codex binary left this test GREEN. It
+     was caught elsewhere by accident, because the missing-Claude refusal stops
+     firing when `runnerBin` is never `claudeBin`. Incidental capture is not
+     coverage. */
+  assert.equal(create.readJob('scoutclaude').claude, path.join(SANDBOX, 'bin', 'claude'),
+    'a Claude agent’s job does not point at the claude binary');
 });
 
 test('#1159: CLAUDE.md wins when a folder has both', () => {
@@ -141,8 +247,27 @@ test('#1159: an adopted Codex agent gets the same first-run setup as a created o
   discover.connect(dir);
   const v = codexState().version;
   assert.equal(v.dismissed_version, '0.150.1', 'the adopted agent will stop at the update prompt');
-  assert.match(codexState().toml, /trust_level = "trusted"/,
-    'the adopted agent will stop at the trust prompt');
+  /* 🛑 WHICH FOLDER, NOT MERELY THAT SOMETHING WAS TRUSTED. This asserted the
+     substring `trust_level = "trusted"` under a message promising the agent
+     will not stop at the trust prompt - and that substring is satisfied by ANY
+     trusted entry, including one for a different agent's folder or a stale one
+     left by an earlier test in the shared sandbox.
+
+     ⭐ That is this branch's own thesis one assertion over: the plist assertions
+     were satisfied by the runner LABEL and could not see the BINARY; this one
+     was satisfied by the trust MARKER and could not see the FOLDER. Found by
+     reading the assertion against what its message claims, before any mutation.
+
+     ⇒ Anchored on the section header for THIS agent's worker directory, which
+     is the fact the message is about. */
+  const trusted = codexState().toml;
+  const folder = create.workerDir('scoutsetup');
+  assert.ok(trusted.includes(`[projects."${folder}"]`),
+    `the adopted agent will stop at the trust prompt: no entry for ${folder}`);
+  /* THE CONTROL: a folder that was never adopted must NOT be trusted, or the
+     assertion above is satisfied by a file that trusts everything. */
+  assert.ok(!trusted.includes(`[projects."${create.workerDir('nevertrusted')}"]`),
+    'the trust file names a folder nothing adopted, so it cannot distinguish');
 });
 
 test('#1159: a folder with NEITHER file is still refused', () => {
@@ -172,7 +297,14 @@ test('#1159: a Codex agent is adopted on a machine with NO Claude installed', ()
     const r = discover.connect(dir);
     assert.equal(r.ok, true,
       `a Codex agent was refused on a machine with no Claude: ${r.because}`);
-    assert.match(plistOf('scoutnoclaude'), /<string>codex<\/string>/);
+    /* By position, for the same reason as the adopt test above: the label is
+       present whatever binary the job holds, and on a machine with no Claude
+       the binary is the whole point of the test. */
+    const job = create.readJob('scoutnoclaude');
+    assert.ok(job, 'no readable job was written');
+    assert.equal(job.claude, path.join(SANDBOX, 'bin', 'codex'),
+      `on a machine with no Claude the job points at ${job.claude}`);
+    assert.equal(job.runner, 'codex');
   } finally { process.env.AGENT_WORKFORCE_CLAUDE_BIN = prev; }
 });
 
@@ -185,7 +317,45 @@ test('#1159 CONTROL: a CLAUDE agent is still refused when Claude is missing', ()
     const dir = agentFolder('scoutneedsclaude', 'CLAUDE.md', '# You are Scout NeedsClaude\n');
     const r = discover.connect(dir);
     assert.equal(r.ok, false, 'a Claude agent was adopted with no Claude on the machine');
+    /* 🛑 AND THE ROLLBACK, WHICH NOTHING ASSERTED. This is the only test in the
+       repo that reaches a FAILED `installJob`, and it checked `ok === false` and
+       stopped. Deleting the `store.writeProfile` rollback in `discover.js`
+       passed all 2806 tests while leaving a profile that claims an agent lives
+       in that folder - the exact state the rollback's own comment says it
+       exists to prevent. */
+    const left = store.readProfile('scoutneedsclaude');
+    assert.ok(!left || !left.dir,
+      'a refused adoption left a profile behind claiming the agent was adopted');
   } finally { process.env.AGENT_WORKFORCE_CLAUDE_BIN = prev; }
+});
+
+test('#1159 CONTROL: a CODEX agent is refused when Codex is missing, and nothing is written', () => {
+  /* 🛑 THE MIRROR OF THE TEST ABOVE, AND IT DID NOT EXIST. Measured: adding
+     `runner !== 'codex'` to `installJob`'s existence gate left the FULL suite
+     green - 2806 pass - while writing a launchd job pointing at a binary that
+     is not there.
+
+     ⚠️ That is not a cosmetic gap. `bin/agent-supervisor.sh` describes the
+     outcome: KeepAlive respawns the job every thirty seconds forever, and the
+     board shows the agent down with nothing saying why. On Josh's "OpenAI,
+     pre-existing agents" machine - the cell this whole adoption path exists
+     for - that is what a missing codex would have produced.
+
+     ⭐ This is testable in this file for the first time BECAUSE this branch
+     added the AGENT_WORKFORCE_CODEX_BIN seam. The claude-side control has been
+     here since #1159 with no codex counterpart; the audit that added the seam
+     should have added the mirror, and did not. */
+  const prev = process.env.AGENT_WORKFORCE_CODEX_BIN;
+  process.env.AGENT_WORKFORCE_CODEX_BIN = path.join(SANDBOX, 'bin', 'no-codex-here');
+  try {
+    const dir = agentFolder('scoutneedscodex', 'AGENTS.md', '# You are Scout NeedsCodex\n');
+    const r = discover.connect(dir);
+    assert.equal(r.ok, false, 'a Codex agent was adopted with no Codex on the machine');
+    assert.equal(fs.existsSync(create.plistPath('scoutneedscodex')), false,
+      'a job was written pointing at a binary that is not there, so launchd would respawn it forever');
+    const left = store.readProfile('scoutneedscodex');
+    assert.ok(!left || !left.dir, 'a refused codex adoption left a profile behind');
+  } finally { process.env.AGENT_WORKFORCE_CODEX_BIN = prev; }
 });
 
 test('#1159: adoption records the PROVIDER, not only the job', () => {
