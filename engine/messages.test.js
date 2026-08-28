@@ -215,7 +215,17 @@ test('a long body spills to a file and the pane gets the head and the path; the 
     const sent = messages.send({ fromPane: '%7', to: 'mara', text: long }, board.agents);
     assert.equal(sent.state, chat.DELIVERY.PLACED);
     const typed = tmux.sends()[0][5];
-    assert.ok(typed.length < 400, 'the pane got the wall this feature exists to avoid');
+    /* 🛑 NOT `typed.length < 400` (#1264). That bound embedded the length of this
+       machine's temp path, because the pointer carries the spill file's absolute
+       path and the sandboxed store root lives under `os.tmpdir()`. It had under
+       22 characters of headroom here, so a longer username or a different volume
+       failed it on a clean checkout, and the message blamed the spill feature.
+       The claim is "the pane got the HEAD, not the wall", so it is asked as
+       that: with the body spilled, the END of the body cannot be on the pane.
+       Nothing in this depends on where the file happens to live. */
+    const cleanedLong = chat.cleanMessage(long);
+    assert.ok(!typed.includes(cleanedLong.slice(-200)),
+      'the pane carries the end of the body, so it got the wall this feature exists to avoid');
     assert.match(typed, /long message; the full text is at /,
       'the pointer does not say where the rest is');
     const spilled = typed.match(/full text is at ([^)]+)\)/)[1];
@@ -230,6 +240,47 @@ test('a long body spills to a file and the pane gets the head and the path; the 
     messages.send({ fromPane: '%7', to: 'mara', text: 'short' }, board.agents);
     const spills = fs.readdirSync(path.dirname(spilled));
     assert.equal(spills.length, 1, 'a short message spilled to a file it did not need');
+  });
+});
+
+/**
+ * The property an absolute bound was standing in for (#1264).
+ *
+ * 🔑 SPILLING EXISTS SO THE PANE'S LINE STOPS DEPENDING ON THE BODY'S SIZE.
+ * That is a statement about two sends, not about one, and no single-message
+ * assertion can express it: a constant only ever says "smaller than a number I
+ * picked on my machine", which is how the previous bound came to encode this
+ * developer's temp path and nothing else.
+ *
+ * ⚠️ EQUALITY, NOT A TOLERANCE, AND THAT IS DELIBERATE. Both sends produce the
+ * same fixed head slice, the same pointer sentence, and a spill file named for
+ * a message id of the same width, so the two lines are the same length or the
+ * decoupling is not real. If the head or the pointer ever becomes
+ * variable-length this needs a tolerance rather than a bigger number.
+ */
+test('#1264: the pane line does not grow with the body, however long the body gets', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    const typedFor = (repeats) => {
+      armSender('leo-discord');
+      const tmux = arm([ok(), ok()]);
+      const sent = messages.send(
+        { fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(repeats) },
+        board.agents,
+      );
+      assert.equal(sent.state, chat.DELIVERY.PLACED, 'the send did not get as far as the pane');
+      return tmux.sends()[0][5];
+    };
+    /* 1.4 KB against 59 KB: a 43x difference in body, and both under MAX_BODY so
+       neither is refused as a document. */
+    const small = typedFor(80);
+    const huge = typedFor(3500);
+    assert.equal(huge.length, small.length,
+      `the pane line grew with the body (${small.length} -> ${huge.length}), so the spill is not `
+      + 'decoupling what the agent is handed from how much was written');
+    /* CONTROL: the two really were different sizes, so the equality above is
+       about the pane and not about two identical sends. */
+    assert.ok(messages.list('mara')[1].text.length > messages.list('mara')[0].text.length * 10,
+      'the two bodies were not actually different sizes, so the assertion above proves nothing');
   });
 });
 
