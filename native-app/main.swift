@@ -709,7 +709,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         spec.titles.indices.map { $0 == spec.returnIndex ? "\r" : "" }
     }
 
+    /* 🛑 #1182: "QUIT AND OPEN AGAIN" LOOPS FOREVER WHEN THE BUNDLE IS THE STALE
+       THING. Josh, 2026-08-27, on a fresh second macOS user: "I keep hitting Quit
+       and Open Again and it just gets caught in a loop: it'll quit, it'll open
+       again, and it'll pop up this message again. Eventually I just have to hit
+       Not Now, which, as a user, makes me think I'm indicating I don't want to do
+       the update."
+
+       The notice above was already honest about this in its comment -- `make_app`
+       failing is non-fatal to an install, "which leaves the icon on the old
+       version while the board moves on. In that state reopening changes nothing,
+       and this notice returns on every launch." THE CODE KNEW. It just kept
+       offering the action anyway, because nothing carried the knowledge across
+       the relaunch it had just performed.
+
+       🔑 THE ONE FACT THAT SETTLES IT, AND THE APP CAN OBSERVE IT ALONE: if we
+       relaunched because of this notice and the replacement came up at the SAME
+       version, reopening demonstrably does not work HERE. That is measured on
+       this machine, not inferred from a cause we cannot see -- which matters,
+       because the three documented causes (a foreign app home, a failed bundle
+       build, a TCC denial on /Applications) are indistinguishable from inside the
+       app and we must not name one we have not established.
+
+       ⚠️ SO THE SECOND NOTICE PROMISES NOTHING AND OFFERS NO ACTION THAT LOOPS.
+       It says what is true, says the person is not losing anything, and stops. */
+    enum StaleAdvice: Equatable {
+        /// Not behind, or nothing we have a remedy for: the person is told nothing.
+        case silent
+        /// First time: reopening has not been tried at this version, and it usually works.
+        case offerRelaunch
+        /// We already reopened at this exact version and came back to it. Reopening
+        /// is not the remedy and must not be offered a second time.
+        case cannotSelfHeal
+    }
+
+    /// The whole #1182 decision, PURE so the headless gate can reach it.
+    ///
+    /// ⚠️ KEYED ON `mine`, NOT ON A BARE "we relaunched once" FLAG. The board
+    /// moving 0.5.88 -> 0.5.89 while this window sits at 0.5.87 is the expected
+    /// case, not an edge one, so a flag keyed on `theirs` would re-arm the loop
+    /// on every board release. What we learned is about THIS bundle: reopening
+    /// did not move `mine`. That stays true whatever the board does next.
+    static func staleAdvice(mine: String, theirs: String,
+                            relaunchedAt: String?) -> StaleAdvice {
+        guard isBehind(mine, theirs) == true else { return .silent }
+        return relaunchedAt == mine ? .cannotSelfHeal : .offerRelaunch
+    }
+
+    /* ⚠️ A SEPARATE SPEC, NOT A REUSE WITH A SWAPPED TITLE. This notice has NO
+       destructive button: nothing here quits, because quitting is the action
+       that did not help. `destructiveIndex` is deliberately -1 so that any code
+       or gate that reaches for "the button that quits" finds nothing rather than
+       finding the wrong one -- the exact failure the sibling spec's own comment
+       records, where swapping two titles moved the quit and every index-only
+       check still passed.
+       🔑 AND THE DISMISS IS NOT "Not Now". That was the whole second half of the
+       complaint: it is the only exit and it reads as declining the update. */
+    static let cannotSelfHealButtons: (titles: [String], returnIndex: Int, destructiveIndex: Int) =
+        (["Keep Working"], 0, -1)
+
     private var staleAppNoticeShown = false
+    /* #1182. The version this app was running when the person last accepted
+       "Quit and Open Again". Survives the relaunch it describes, which is the
+       whole point: the loop is only visible ACROSS a restart, so the one fact
+       that breaks it has to outlive the process that learned it.
+       ⚠️ UserDefaults, not the diagnostic log. The log is prose for a human to
+       read after the fact; this is a value the next launch has to branch on, and
+       parsing our own log back would make a sentence load-bearing. */
+    private static let relaunchedAtKey = "kosmos.relaunchedAtVersion"
+    private var relaunchedAtVersion: String? {
+        get { UserDefaults.standard.string(forKey: Self.relaunchedAtKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.relaunchedAtKey) }
+    }
     /// The app-AHEAD-of-board case says nothing to the person, so nothing
     /// latches -- and the request repeats on every navigation, so without this
     /// the log line repeated with it, forever, in the app's single diagnostic
@@ -892,6 +963,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     private func offerRelaunch(mine: String, theirs: String) {
+        /* #1182. Reopening was already tried at this exact version and we are
+           still here, so it is not the remedy. Say so, offer nothing that loops,
+           and do not quit: the person keeps the working window they have. */
+        if Self.staleAdvice(mine: mine, theirs: theirs,
+                            relaunchedAt: relaunchedAtVersion) == .cannotSelfHeal {
+            logLine("relaunch: already reopened at \(mine) and came back to it; "
+                    + "reopening is not the remedy, showing the honest notice instead")
+            showCannotSelfHeal(mine: mine, theirs: theirs)
+            return
+        }
         window?.makeKeyAndOrderFront(nil)
         let alert = NSAlert()
         alert.messageText = "Kosmos updated while this window was open"
@@ -930,6 +1011,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let clicked = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
         guard clicked == spec.destructiveIndex else { return }
 
+        /* 🛑 #1182: WRITTEN BEFORE THE RELAUNCH, NOT AFTER IT. There is no after:
+           this process calls NSApp.terminate a few lines down, so anything
+           recorded "once the replacement is up" is recorded by nobody. If the
+           relaunch fails instead, the value is still correct -- we DID try at
+           this version -- and the failure path below tells the person directly. */
+        relaunchedAtVersion = mine
+
         /* 🛑 NEVER QUIT UNTIL THE REPLACEMENT IS ACTUALLY COMING. Terminating
            first and hoping is how a person ends up with no Kosmos at all, which
            is far worse than the stale menu bar this fixes. The new instance is
@@ -962,6 +1050,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 f.runModal()
             }
         }
+    }
+
+    /* 🛑 #1182: THE NOTICE FOR WHEN REOPENING HAS ALREADY BEEN TRIED AND FAILED.
+       Three rules, each of them a thing the looping notice got wrong:
+
+       1. IT PROMISES NOTHING. The first notice says reopening "should" catch it
+          up, hedged deliberately. By the time we are here that hedge has resolved
+          the wrong way ON THIS MACHINE, so there is nothing left to hedge and no
+          instruction we have measured. Saying "reinstall and it will be fixed"
+          would be the screen asserting an outcome it cannot know -- the same
+          defect, one step further along.
+
+       2. IT NAMES NO CAUSE. `make_app`'s three documented failure causes are
+          indistinguishable from inside this app. A sentence blaming permissions
+          would be a guess printed as a finding, and a person acting on the wrong
+          one is worse off than a person told plainly that we cannot tell.
+
+       3. IT SAYS WHAT IS NOT BROKEN, because that is the part the person cannot
+          see and the part they are actually worried about. Their agents are
+          fine; this window is a stale viewer of a board that is up to date.
+
+       ⚠️ AND IT SHOWS ONCE. `staleAppNoticeShown` already latches per launch, but
+       the complaint was that the notice "returns on every launch" -- true, because
+       every launch is a new process. Once we know reopening cannot fix it, saying
+       so again next time is nagging about something the person cannot act on from
+       here, so the marker is CLEARED after telling them once and the notice does
+       not come back for this version pair. */
+    private func showCannotSelfHeal(mine: String, theirs: String) {
+        window?.makeKeyAndOrderFront(nil)
+        let alert = NSAlert()
+        alert.messageText = "This window cannot update itself"
+        alert.informativeText = "It is running version \(mine) and the rest of Kosmos is on "
+            + "\(theirs). Opening it again has already been tried and did not change that, so "
+            + "Kosmos will stop asking. Your agents are running normally and nothing needs "
+            + "signing in to again. Installing Kosmos again is what replaces this window."
+        alert.alertStyle = .informational
+        let spec = AppDelegate.cannotSelfHealButtons
+        for (i, title) in spec.titles.enumerated() {
+            alert.addButton(withTitle: title).keyEquivalent = (i == spec.returnIndex) ? "\r" : ""
+        }
+        /* 🔑 CLEARED BEFORE THE MODAL, NOT AFTER. `runModal` blocks, and a person
+           who force-quits the app while this is on screen would otherwise be told
+           the same thing again next launch -- the nagging this exists to end. */
+        relaunchedAtVersion = nil
+        logLine("relaunch: told the person this window cannot self-update (\(mine) vs \(theirs)); not asking again")
+        alert.runModal()
     }
 
     // MARK: WKNavigationDelegate -- instrumentation only, proves the request
@@ -1842,6 +1976,67 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     }
     ran += 5
 
+    /* 🛑 #1182: THE LOOP, AS ROWS. Josh hit "Quit and Open Again", got the same
+       notice, hit it again, and the only exit was a button that reads as
+       declining the update. These rows are the loop and its exit.
+
+       ⚠️ ROW 2 IS THE ONE THAT FAILS ON THE OLD CODE, and rows 1 and 3 are what
+       stop somebody "fixing" it by never offering the relaunch at all -- which
+       would trade a loop for a window that can never catch up even when
+       reopening WOULD have worked. */
+    var adviceBad = 0
+    func advCheck(_ got: AppDelegate.StaleAdvice, _ want: AppDelegate.StaleAdvice, _ what: String) {
+        let ok = got == want
+        if !ok { adviceBad += 1 }
+        print((ok ? "PASS  " : "FAIL  ") + "advice: " + what + " -> \(got)")
+    }
+    advCheck(AppDelegate.staleAdvice(mine: "0.5.87", theirs: "0.5.89", relaunchedAt: nil),
+             .offerRelaunch, "first sight of a newer board offers the reopen")
+    advCheck(AppDelegate.staleAdvice(mine: "0.5.87", theirs: "0.5.89", relaunchedAt: "0.5.87"),
+             .cannotSelfHeal, "reopened at this version and came back to it: STOP OFFERING IT")
+    advCheck(AppDelegate.staleAdvice(mine: "0.5.87", theirs: "0.5.89", relaunchedAt: "0.5.80"),
+             .offerRelaunch, "a relaunch recorded at a DIFFERENT version does not gag this one")
+    /* 🔑 THE BOARD MOVING AGAIN IS THE EXPECTED CASE, NOT AN EDGE ONE. Josh's
+       own screenshots show 0.5.88 then 0.5.89 against a window stuck at 0.5.87.
+       Keyed on `theirs`, this row would re-arm the loop on every board release. */
+    advCheck(AppDelegate.staleAdvice(mine: "0.5.87", theirs: "0.5.90", relaunchedAt: "0.5.87"),
+             .cannotSelfHeal, "the board moving on again does not re-arm the loop")
+    advCheck(AppDelegate.staleAdvice(mine: "0.5.89", theirs: "0.5.89", relaunchedAt: "0.5.89"),
+             .silent, "not behind stays silent even with a relaunch recorded")
+    advCheck(AppDelegate.staleAdvice(mine: "0.5.90", theirs: "0.5.89", relaunchedAt: nil),
+             .silent, "AHEAD of the board still says nothing, the untouched direction")
+    if adviceBad > 0 {
+        print("\nstale-check: the #1182 relaunch advice is wrong, which is the loop Josh hit")
+        exit(1)
+    }
+    ran += 6
+
+    /* 🛑 #1182: THE ESCAPE MUST NOT BE THE MISLEADING BUTTON. "Not Now" was the
+       only way out of the loop and it reads as declining the update. This spec
+       is checked BY TITLE, not by index: the sibling spec's own comment records
+       that index-only checks passed while a swapped title inverted the product. */
+    var exitBad = 0
+    func exitCheck(_ ok: Bool, _ what: String) {
+        if !ok { exitBad += 1 }
+        print((ok ? "PASS  " : "FAIL  ") + "cannot-self-heal: " + what)
+    }
+    let cs = AppDelegate.cannotSelfHealButtons
+    exitCheck(!cs.titles.contains("Not Now"),
+              "the escape is not \"Not Now\", which read as declining the update")
+    exitCheck(!cs.titles.contains("Quit and Open Again"),
+              "the action that looped is NOT offered again")
+    exitCheck(cs.titles.indices.contains(cs.returnIndex) && cs.titles[cs.returnIndex] == "Keep Working",
+              "Return lands on the harmless dismiss")
+    /* ⚠️ -1 ON PURPOSE. Nothing here quits, so anything reaching for "the button
+       that quits" must find nothing rather than find the wrong one. */
+    exitCheck(!cs.titles.indices.contains(cs.destructiveIndex),
+              "there is no destructive button, because nothing here quits")
+    if exitBad > 0 {
+        print("\nstale-check: the #1182 exit notice would leave the person in the loop")
+        exit(1)
+    }
+    ran += 4
+
     /* 🛑 A POPULATION FLOOR, because `bad == 0` is ALSO true of zero checks.
        An edit that deletes every row would print "all good" and pass the
        release gate having proved nothing: an instrument for silent failures
@@ -1850,7 +2045,7 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
        ⭐ And the load-bearing row is named, not merely counted: 0.5.9 vs
        0.5.10 is the one the whole file is justified by, so its absence must be
        a failure rather than a smaller number. */
-    if ran < 25 { print("\nstale-check: only \(ran) checks ran, so this proved nothing"); exit(1) }
+    if ran < 35 { print("\nstale-check: only \(ran) checks ran, so this proved nothing"); exit(1) }
     if !sawLexicalRow { print("\nstale-check: the 0.5.9 vs 0.5.10 row is gone, which is the row this file exists for"); exit(1) }
     /* ⚠️ A COUNT FLOOR DOES NOT PROTECT A SPECIFIC ROW, which is why the line
        above exists and why this one has to. Deleting the four log rows and
