@@ -26,6 +26,23 @@ process.env.AGENT_WORKFORCE_WORKERS = path.join(SB, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'launch');
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = path.join(SB, 'bin', 'claude');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(SB, 'bin', 'tmux');
+/* 🛑 AND THE CODEX HOME, WHICH THIS FILE DID NOT SANDBOX AND WHICH IT CAN REACH.
+   It calls `create.installJob` twice, and `installJob` runs `trustCodexFolder`
+   and `dismissCodexUpdateNotice` against `codexHomeDir()` - which resolves to
+   `AGENT_WORKFORCE_CODEX_HOME || AGENT_WORKFORCE_HOME/.codex || ~/.codex`.
+   With none of the three set, that is the OPERATOR'S REAL `~/.codex`.
+
+   ⚠️ MEASURED, NOT HYPOTHETICAL (#1359): a single-line change to `installJob`
+   made those calls unconditional, and this file appended SEVEN
+   `trust_level = "trusted"` entries to the live config while reporting 19/19
+   PASS. The entries named this file's own temp sandbox, which no longer exists.
+   They were removed by hand; a test should not need that.
+
+   📌 It is safe TODAY only because `installJob` happens to gate that work on
+   `runner === 'codex'` and nothing here passes one. That is a property of the
+   code under test, not a guard on the test - exactly the wrong way round. */
+process.env.AGENT_WORKFORCE_HOME = path.join(SB, 'home');
+process.env.AGENT_WORKFORCE_CODEX_HOME = path.join(SB, 'home', '.codex');
 
 const create = require('./create');
 const store = require('./store');

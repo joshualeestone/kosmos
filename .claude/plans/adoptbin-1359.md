@@ -224,3 +224,46 @@ A comment claimed "four tests FAIL with the seam pointed at nothing". True befor
 gained its runner rows; I did not re-measure after the rebase. **Current: the guard refuses at
 module load, 1 test, 1 fail, nothing else runs.** Refusing before any work is the improvement -
 a count of failing tests means work already happened.
+
+
+## Round 4: two blockers, and one of them wrote to the operator's live config
+
+### 🛑 A mutation appended 7 entries to the real `~/.codex/config.toml`, and the test reported 19/19 PASS
+
+`installJob`'s codex first-run setup is gated on `runner === 'codex'`. Changing that gate to
+`if (true)` left the whole suite green - **and `engine/register.test.js` then wrote seven
+`trust_level = "trusted"` entries into the operator's live config while passing.**
+
+That file sandboxes `DATA`, `WORKERS`, `LAUNCH`, `CLAUDE_BIN` and `TMUX_BIN` - and **not**
+`AGENT_WORKFORCE_HOME` or `AGENT_WORKFORCE_CODEX_HOME` - so `codexHomeDir()` resolved to
+`~/.codex`. Verified independently before fixing: 0 occurrences of either variable, 1 of
+`AGENT_WORKFORCE_LAUNCH` as a control, 2 calls to `installJob`.
+
+📌 **It is safe today only because the code under test happens to gate that work on the runner.
+That is a property of the subject, not a guard on the test** - exactly the wrong way round, and
+the same "one seam short" shape this branch already fixed once in the adopt file.
+
+✅ **Cleaned up:** the 7 entries named a temp sandbox that no longer exists; removed by hand with
+a backup, leaving the 4 legitimate probe entries from other agents untouched. File back to its
+original 709 bytes. ✅ **Fixed:** both seams added, and the identical mutation now leaves the real
+file byte-identical (md5 compared before and after).
+
+### 🛑 `setProvider` could point every job at the CLAUDE binary while labelling it `codex`
+
+The branch fixed the ADOPT path so a codex-labelled job must point at the codex binary.
+`setProvider` is the other writer of the same plist and had no such assertion, so
+`runner === 'codex' ? codexBin : claudeBin` could be replaced with `claudeBin` outright, suite
+green - a job labelled `codex` that starts Claude in the agent's folder.
+
+⭐ **The control is the strong kind: the IDENTICAL edit in `createAgentInner` goes RED.** So the
+suite can detect this class and does, for creation only.
+
+**Root cause, and it is a fixture rather than a missing test:** `create.test.js` had
+`claudeBin: '/bin/echo'` and passed `codexBin: '/bin/echo'` at all fourteen call sites. **Two
+fixtures with the same value cannot test a choice between them** - every assertion about "the
+codex binary" was satisfied by the claude one. Codex now gets `/bin/cat`, a different real
+executable, and the switch asserts argument 4 in **both directions**, so "always codex" cannot
+satisfy it either.
+
+⇒ **This is the branch's own thesis arriving one function over**, which is the pattern round 4
+was told to look for and found.
