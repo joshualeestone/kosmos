@@ -119,6 +119,15 @@ let failed = 0;
      would fail for the wrong reason. This says so in its own line instead. */
   say('the accounts render grouped by provider', groups.length > 0 && rows.length > 0,
     JSON.stringify(groups.map((g) => g.provider + ':' + g.rows.length)));
+  /* 🛑 SURVIVING MUTATION, found by Baron Draxum on review: `some()` CANNOT SEE A
+     DUPLICATE. Render TWO OpenAI groups and every assertion in this block still
+     passes, because one matching group is all `some` ever asks for.
+     ⇒ That is not a corner case. Naming each provider ONCE is the entire promise
+     of #1393, so the single defect this check most needed to catch was the one
+     shape it was structurally blind to. */
+  const provNames = groups.map((g) => g.provider.trim()).filter(Boolean);
+  say('each provider is named exactly once', new Set(provNames).size === provNames.length,
+    JSON.stringify(provNames));
   say('the OpenAI group holds the key-tail row', groups.some((g) => /OpenAI/.test(g.provider)
       && !/Codex/.test(g.provider)
       && g.rows.some((r) => /API key ending WALK/.test(r))), JSON.stringify(groups));
