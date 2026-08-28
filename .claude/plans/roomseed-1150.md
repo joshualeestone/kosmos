@@ -58,9 +58,31 @@ is precisely what turns a later `.add` move from harmless into silent breakage.*
 shed the second line of defence it was standing on, and it warned about the SAFE move while
 clearing the way for the dangerous one.
 
-✅ **The accurate sentence, and it is the only one to keep: `seededRoom` must be read before
-`ROOM_SPOKE_SEEDED.add`. The hoist and the trailing `.add` each enforce that independently.
-Keep both.**
+🛑 **AND "KEEP BOTH" WAS WRONG TOO - THIS PARAGRAPH HAS NOW BEEN WRONG THREE TIMES.** Round 3
+measured a fifth variant my four-row table did not contain: **both mechanisms present and
+unmodified, with `.add` moved ABOVE the hoist.**
+
+```
+HEAD        dana.learnedAt = 0        erin.learnedAt = 0         history, correctly not speech
+variant 5   dana.learnedAt = 5000000  erin.learnedAt = 5000000   STAMPED AS JUST SPOKE
+```
+
+⇒ **The original #1150 defect, restored on every room, with "keep both" fully satisfied.**
+
+⭐⭐ **The failure is the same each time and it is not the reasoning, it is the SUMMARY.** My
+accurate sentence has survived all three rewrites: *`seededRoom` must be read before
+`ROOM_SPOKE_SEEDED.add`.* Every version then compressed it into an actionable rule about which
+LINES to keep - and **the invariant is ORDER, not presence.** An editor acts on the
+prescription, not on the sentence above it.
+
+✅ **The only durable form, and it names the property rather than the lines:**
+
+> **`seededRoom` must be READ BEFORE `ROOM_SPOKE_SEEDED.add` runs.** Any arrangement preserving
+> that is fine; any arrangement breaking it restores #1150. Do not reason about the hoist and
+> the `.add` as two things to keep - reason about the order of the read and the write.
+
+📌 **Three wrong summaries of one correct sentence.** That is worth more than the fix: the
+sentence was never the problem, and each rewrite made a tidier rule that lost the invariant.
 
 📌 Fourth time on this branch that I credited a rule with protection it does not provide, and
 the first time I did it while correcting exactly that mistake.
@@ -206,3 +228,33 @@ stamp-preservation removed                 2 pass 1 fail
 empty-paint gate removed                   2 pass 1 fail
 restored                                   3 pass 0 fail
 ```
+
+
+## Round 3 under the new rule: three surviving mutations, all now dead
+
+The stopping rule for this branch was changed before round 3 ran, from "no behaviour defect" to
+**"no reviewer can break a line this branch defends and keep the suite green"**. Round 2 had
+returned BEHAVIOUR DEFECTS: none. Round 3 found three survivors.
+
+**1. The dedup boundary.** `at <= seen.at` weakened to `at <` left the whole suite green and
+**blanks the working line permanently in every room**: a room re-serves the same rows on every
+poll, so an unchanged `at` stops being skipped and every agent is re-stamped every tick.
+⭐ **Nothing in the diff repainted unchanged rows - the single most common thing `paintRoom`
+does.** The old test pinned that SOME dedup exists, not where its boundary is.
+
+**2. The seeding gate on the `{ok:true, rows:[]}` side.** Tightening it to
+`body.ok !== false && allRows.length` - which reads like an improvement on the comment beside
+it - left the suite green and reintroduces #1150 **on the newest-project path**: a brand-new
+room is empty-but-successful on first open, so it would never be seeded and its first real post
+is announced as speech.
+
+**3. The stamp-preservation arm could not fail.** `CLOCK.t` was advanced once and never again,
+so `earned` and `Date.now()` were the same number across the two calls being compared.
+⭐ **That is the harness defect this plan documents and cured for the `erin` arm, still present
+in the arm the plan calls its most important correction.** Applied to one arm and not the other:
+the same class of miss as the precedence gap on my sibling branch, on the same afternoon.
+
+All three now die. Two guards whose weakening also survives are named in the code as
+**unreachable only because another module holds the line** (`engine/messages.js` rejects
+unparseable `at`; the route always sends a boolean `ok`), rather than tested here, because a
+test here would assert a guarantee that lives elsewhere.

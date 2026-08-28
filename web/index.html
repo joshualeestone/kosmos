@@ -26404,6 +26404,14 @@ function paintRoom(body) {
     const who = m && m.from;
     if (!who || !m.at) continue;
     const at = Date.parse(m.at);
+    /* ⚠️ THIS GUARD'S WEAKENING SURVIVES THE SUITE, AND IT IS UNREACHABLE ONLY
+       BECAUSE A DIFFERENT MODULE HOLDS THE LINE: `engine/messages.js` rejects
+       rows whose `at` is not a parseable string, so nothing here can produce a
+       NaN today. Kept, and the dependency named, because nothing ties the two
+       files together - if that filter ever loosens, a NaN `at` compares false
+       against every later value, so the agent is re-stamped forever and drops
+       out of the working line permanently. Named rather than tested: a test
+       here would assert the behaviour of a guarantee that lives over there. */
     if (!Number.isFinite(at)) continue;
     const seen = ROOM_SPOKE_AT.get(who);
     if (seen && at <= seen.at) continue;
@@ -26426,8 +26434,12 @@ function paintRoom(body) {
       /* Flattened deliberately: `earned` was false whenever `seededRoom` was
          true, so the two were never independent, and splitting them left
          `!seededRoom` as a separately-mutable component that no test pinned. */
-      learnedAt: seededRoom ? Date.now()
-        : (seen && seen.learnedAt > 0 ? seen.learnedAt : 0),
+      /* `seen.learnedAt` unguarded: it is only ever 0 or a positive Date.now(),
+         so a `> 0` test was `x > 0 ? x : 0`, which is `x`. Deleted rather than
+         tested - a conjunct no test can pin is exactly what the flattening two
+         lines up exists to prevent, and this one could not be pinned because
+         there was nothing to pin. */
+      learnedAt: seededRoom ? Date.now() : (seen ? seen.learnedAt : 0),
     });
   }
   /* 🛑 ONLY IF THE PAINT ACTUALLY CARRIED THE RECORD. `engine/messages.js`
@@ -26442,6 +26454,11 @@ function paintRoom(body) {
   /* `body.ok !== false` alone: `const allRows = body.rows || []` above already
      dereferences `body`, so a null body throws before here and a `body &&`
      guard would read as protection that is not present. */
+  /* ⚠️ `!== false`, NOT `=== true`, and the difference is not cosmetic. Both
+     survive the suite because the route always sends a boolean, but they differ
+     on an UNKNOWN `ok`: this form seeds, `=== true` would not. Not seeding is the
+     more damaging direction - that room's history is then stamped as speech on
+     every subsequent paint. Kept deliberately on the forgiving side. */
   if (body.ok !== false) ROOM_SPOKE_SEEDED.add(PJ_CURRENT);
   const shown = pjRoomFilterRows(allRows, p, PJ_ROOM_QUERY);
   const filtering = PJ_ROOM_QUERY.trim() !== '';

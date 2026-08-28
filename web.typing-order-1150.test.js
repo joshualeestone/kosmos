@@ -184,6 +184,14 @@ test('#1150: the room history that arrives when you open a room is not everybody
   seed('room-a', [{ from: 'xavier', at: at(60000), text: 'real speech' }], SEEN2, SPOKE2, seedRuns, OK, FakeDate);
   const earned = SPOKE2.get('xavier').learnedAt;
   assert.ok(earned > 0, 'speech in an open room did not stamp, so the setup proves nothing');
+  /* 🛑 ADVANCE THE CLOCK, OR THIS ARM CANNOT FAIL. `earned` and `Date.now()` were
+     the same number across these two calls, so "preserved" and "refreshed"
+     produced an identical value and the assertion held either way. Rewriting the
+     page to refresh instead of preserve left the WHOLE SUITE green.
+     ⭐ That is the exact harness defect this branch documents and fixed for the
+     `erin` arm - applied to one arm and not to the other, which is the same
+     class of miss as the precedence gap on my sibling branch. */
+  CLOCK.t += 7000;
   seed('room-b', [{ from: 'xavier', at: at(120000), text: 'newer, in another room' }], SEEN2, SPOKE2, seedRuns, OK, FakeDate);
   assert.equal(SPOKE2.get('xavier').learnedAt, earned,
     'opening a second room cleared a stamp the first room earned, so the working '
@@ -198,6 +206,48 @@ test('#1150: the room history that arrives when you open a room is not everybody
   const before = SPOKE2.get('xavier').at;
   seed('room-c', [{ from: 'xavier', at: at(30000), text: 'older' }], SEEN2, SPOKE2, seedRuns, OK, FakeDate);
   assert.equal(SPOKE2.get('xavier').at, before, 'the dedup let an older message through');
+
+  /* 🛑 THE DEDUP BOUNDARY, WHICH NOTHING PINNED. A room re-serves the SAME rows
+     on every poll - by far the most common thing paintRoom does - and the diff
+     had no arm that repainted unchanged rows at all.
+
+     Weakening `at <= seen.at` to `at < seen.at` left the whole suite green and
+     BLANKS THE WORKING LINE PERMANENTLY IN EVERY ROOM: an unchanged `at` stops
+     being skipped, so in a seeded room every agent is re-stamped on every tick,
+     and the consumer drops anyone whose stamp is newer than the snapshot. The
+     old test pinned only that SOME dedup exists (deleting the line goes red);
+     it did not pin the boundary. */
+  const SEEN4 = new Set();
+  const SPOKE4 = new Map();
+  const fixed = at(0);
+  seed('room-e', [{ from: 'zoe', at: fixed, text: 'history' }], SEEN4, SPOKE4, seedRuns, OK, FakeDate);
+  CLOCK.t += 3000;
+  seed('room-e', [{ from: 'zoe', at: fixed, text: 'history' }], SEEN4, SPOKE4, seedRuns, OK, FakeDate);
+  assert.equal(SPOKE4.get('zoe').learnedAt, 0,
+    'repainting an unchanged row re-stamped it as speech, so the working line blanks every poll');
+  /* THE CONTROL: a genuinely NEWER row in the same seeded room must still stamp,
+     or the fix above has become "never count anything as speech". */
+  CLOCK.t += 3000;
+  seed('room-e', [{ from: 'zoe', at: at(60000), text: 'actually new' }], SEEN4, SPOKE4, seedRuns, OK, FakeDate);
+  assert.ok(SPOKE4.get('zoe').learnedAt > 0, 'a genuinely new post in an open room stopped counting as speech');
+
+  /* 🛑 AND THE SEEDING GATE ON THE `ok: true, rows: []` SIDE. The room-d arm below
+     pins `{ok:false}`; nothing pinned an EMPTY BUT SUCCESSFUL paint. Tightening
+     the gate to `body.ok !== false && allRows.length` - which reads like an
+     improvement on the comment beside it - left the whole suite green and
+     reintroduces #1150 on the newest-project path: a brand-new room is
+     `{ok:true, rows:[]}` on first open, so it would never be seeded, and the
+     first real post arrives with `learnedAt = 0` and is announced as working
+     beside the reply already on screen. */
+  const SEEN5 = new Set();
+  const SPOKE5 = new Map();
+  seed('room-f', [], SEEN5, SPOKE5, seedRuns, OK, FakeDate);
+  assert.equal(SEEN5.has('room-f'), true,
+    'an empty but SUCCESSFUL paint left the room unseeded, so its first real post is stamped as speech');
+  CLOCK.t += 3000;
+  seed('room-f', [{ from: 'ada', at: at(0), text: 'first post in a new project' }], SEEN5, SPOKE5, seedRuns, OK, FakeDate);
+  assert.ok(SPOKE5.get('ada').learnedAt > 0,
+    'the first post in a new room did not count as speech');
 
   /* 🛑 A FIRST PAINT THAT CARRIED NO RECORD MUST NOT MARK THE ROOM SEEDED.
      `engine/messages.js` returns `{ ok: false, rows: [] }` on a read failure of
