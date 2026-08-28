@@ -14521,7 +14521,12 @@ let LAST = [];
  */
 let LAST_AT = 0;
 const ROOM_SPOKE_AT = new Map();
-let ROOM_SPOKE_SEEDED = false;
+/* 🛑 SEEDED PER ROOM, NOT ONCE PER PAGE. This was a single boolean, set true
+   after the first room painted and never reset, so opening a SECOND room
+   stamped its whole history as "everybody just spoke" and blanked its working
+   line for a poll. The guard covered exactly one room per page load, which is
+   the room you happen to open first. */
+const ROOM_SPOKE_SEEDED = new Set();
 // Whether a status tick has ever ANSWERED. [] before the first answer means
 // "not heard yet", not "empty board", and the two must never be conflated
 // (the Recommended pill reads this).
@@ -26394,6 +26399,7 @@ function paintRoom(body) {
      whole history at once, and stamping it would read as "everybody just spoke"
      and blank the working line for a poll. Only posts that arrive AFTER the
      room is on screen count as somebody speaking. */
+  const seededRoom = ROOM_SPOKE_SEEDED.has(PJ_CURRENT);
   for (const m of allRows) {
     const who = m && m.from;
     if (!who || !m.at) continue;
@@ -26401,9 +26407,9 @@ function paintRoom(body) {
     if (!Number.isFinite(at)) continue;
     const seen = ROOM_SPOKE_AT.get(who);
     if (seen && at <= seen.at) continue;
-    ROOM_SPOKE_AT.set(who, { at, learnedAt: ROOM_SPOKE_SEEDED ? Date.now() : 0 });
+    ROOM_SPOKE_AT.set(who, { at, learnedAt: seededRoom ? Date.now() : 0 });
   }
-  ROOM_SPOKE_SEEDED = true;
+  ROOM_SPOKE_SEEDED.add(PJ_CURRENT);
   const shown = pjRoomFilterRows(allRows, p, PJ_ROOM_QUERY);
   const filtering = PJ_ROOM_QUERY.trim() !== '';
   const silences = pjSilences(allRows, p);

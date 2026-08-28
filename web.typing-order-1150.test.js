@@ -85,16 +85,53 @@ test('#1150: an agent whose reply is already on screen is not announced as still
   assert.match(before.innerHTML, new RegExp(dana.name), 'the name did not reach the line');
 });
 
-test('#1150: the room history that arrives when you open a room is not everybody speaking', () => {
+test('#1150: the room history that arrives when you open a room is not everybody speaking, in EVERY room', () => {
   /* ⚠️ THE SEEDING GUARD. A room opens with its whole history at once. Stamping
-     those as "just spoke" would blank the working line for a poll every time
-     somebody opens a room, which is a new defect wearing the fix's clothes. */
-  assert.match(SCRIPT, /ROOM_SPOKE_SEEDED \? Date\.now\(\) : 0/,
-    'the first paint is stamping history as if it had just arrived');
-  const seeded = SCRIPT.indexOf('ROOM_SPOKE_SEEDED = true;');
-  const stamp = SCRIPT.indexOf('ROOM_SPOKE_SEEDED ? Date.now() : 0');
-  assert.ok(stamp > -1 && seeded > stamp,
-    'the seed flag is set before the rows are stamped, so the first paint counts as speech');
+     those as "just spoke" blanks the working line for a poll every time somebody
+     opens a room, which is a new defect wearing the fix's clothes.
+     🛑 AND IT USED TO BE ONE BOOLEAN FOR THE WHOLE PAGE, set after the first
+     room painted and never reset, so it protected exactly the room you happened
+     to open FIRST and stamped every room after it. Found by spot-checking this
+     PR after learning it had merged ungated.
+     🔑 DRIVEN, NOT MATCHED. The previous version of this test asserted the
+     SHAPE of the guard and would have passed against the one-boolean version,
+     which is how the defect shipped under a green test. */
+  /* 🔑 THE PAGE'S OWN SEEDING BLOCK, SLICED OUT OF THE SHIPPED SOURCE rather
+     than retyped here. Retyping it would test this file's copy of the logic,
+     which is precisely how the one-boolean version passed a green test. */
+  const from = SCRIPT.indexOf('const seededRoom = ROOM_SPOKE_SEEDED.has(PJ_CURRENT);');
+  assert.ok(from > -1, 'the seeding block moved; this test is no longer reading the real one');
+  const to = SCRIPT.indexOf('ROOM_SPOKE_SEEDED.add(PJ_CURRENT);', from);
+  assert.ok(to > from, 'the seeding block no longer ends where this test expects');
+  const BLOCK = SCRIPT.slice(from, to + 'ROOM_SPOKE_SEEDED.add(PJ_CURRENT);'.length);
+  const seedRuns = [];
+  // eslint-disable-next-line no-new-func
+  const seed = new Function(
+    'PJ_CURRENT', 'allRows', 'ROOM_SPOKE_SEEDED', 'ROOM_SPOKE_AT', 'OUT',
+    BLOCK + '\nOUT.push(seededRoom);',
+  );
+  const SEEDED = new Set();
+  const SPOKE = new Map();
+  const hist = (who) => [{ from: who, at: new Date().toISOString(), text: 'hi' }];
+
+  seed('project-a', hist('dana'), SEEDED, SPOKE, seedRuns);
+  assert.equal(SPOKE.get('dana').learnedAt, 0, 'the FIRST room stamped its history as speech');
+
+  /* THE DEFECT: a second room, opened after the first, is history too. */
+  seed('project-b', hist('erin'), SEEDED, SPOKE, seedRuns);
+  assert.equal(SPOKE.get('erin').learnedAt, 0,
+    'a second room stamped its history as speech, so its working line blanks for a poll');
+
+  /* 🔑 THE OTHER ARM: a post arriving in a room ALREADY open is real speech and
+     must still stamp, or the fix has become "never suppress anything". */
+  seed('project-b', [{ from: 'erin', at: new Date(Date.now() + 60000).toISOString(), text: 'later' }], SEEDED, SPOKE, seedRuns);
+  assert.ok(SPOKE.get('erin').learnedAt > 0, 'a new post in an open room stopped counting as speech');
+
+  /* And the shipped page uses the per-room set rather than a page-wide flag. */
+  assert.match(SCRIPT, /const ROOM_SPOKE_SEEDED = new Set\(\)/,
+    'the page-wide boolean is back');
+  assert.match(SCRIPT, /ROOM_SPOKE_SEEDED\.has\(PJ_CURRENT\)/,
+    'the seed is no longer keyed on the room');
 });
 
 test('#1150: both stamps come from this page, never from a server time', () => {
