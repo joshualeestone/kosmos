@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -63,11 +63,34 @@ test('#1253: the block names the two states the board cannot see for itself', ()
   assert.match(b, /kosmos report blocked --on <what> --owner <who>/,
     'blocked is instructed as a message and never as a state');
 
-  /* The condition is half the instruction. A needs_you reported by an agent
-     that has NOT stopped paints the board red permanently, and a red that is
-     always on is the same as no red. */
-  assert.match(b, /Only when you have actually stopped/,
-    'the copy tells an agent to report needs_you without saying when not to');
+  /* The condition is half the instruction, and the ORIGINAL condition was
+     unsatisfiable. This guard used to pin the sentence "Only when you have
+     actually stopped."
+
+     🛑 THAT CONDITION AND THE NEVER-STOP RULE CANNOT BOTH HOLD. The block two
+     sections above says an agent never stops and that nobody may authorise a
+     stop. If `needs_you` may only be reported once you HAVE stopped, then a
+     compliant agent can never report it at all. **That is this card's own
+     measurement wearing its cause:** 22 needs_you in 21,500 records, 14 of them
+     test agents.
+
+     The real property, which is what the original comment was reaching for, is
+     that the board must not sit permanently red. There are two ways to get a
+     permanent red and only one of them was guarded:
+
+       set it while still working  <- the old sentence guarded this
+       leave it set after the answer arrives  <- nothing guarded this
+
+     The second is the one that actually happens now that reporting and carrying
+     on is correct, so the copy must say to CLEAR it. Pinned as the property
+     rather than as a literal sentence, because a detector keyed on one wording
+     goes red on a rewrite that preserves the meaning. */
+  assert.match(b, /Clear it when it is answered/,
+    'the copy never tells an agent to clear needs_you, so the red becomes permanent');
+  assert.match(b, /always on gets walked past/,
+    'the reason a stale red is harmful was dropped, leaving a rule with no why');
+  assert.doesNotMatch(b, /Only when you have actually stopped/,
+    'the unsatisfiable condition is back: it cannot hold beside the never-stop rule');
 
   /* 🔑 THE CONTROL: the four message-reports must still be there. This adds a
      destination, it does not replace the one that was already taught. */
@@ -157,4 +180,62 @@ test('#1272 CONTROL: the same reader would notice if those clauses were gone', (
   const b = defaults.block();
   assert.doesNotMatch(b, /zzz-pete-not-in-the-block/);
   assert.ok(b.length > 2000 && b.length < 40000, `block is ${b.length} chars`);
+});
+
+/**
+ * #1253: THE VERBS MUST BE DELIVERABLE, NOT MERELY PRESENT.
+ *
+ * 🛑 THIS IS THE PROPERTY THAT FAILED TWICE AND THAT EVERY OTHER TEST HERE IS
+ * BLIND TO. Version 4 added the two board verbs and version 5 re-aimed them,
+ * and both landed inside `### Telling people what is happening` -- a heading
+ * every existing agent already holds. `missingFrom` filters on the HEADING, so
+ * neither edit was ever re-offered to anybody. Measured 2026-08-28: 8 agents
+ * created ever, 0 since #1255 merged, 8 before it as the control. Not one agent
+ * has ever received the verbs.
+ *
+ * ⭐ An assertion that the words appear in `block()` passes in exactly that
+ * situation, which is why both fixes shipped believing themselves delivered.
+ * The question is not "is the text there" but "can an agent that already exists
+ * still be given it".
+ */
+test('#1253: an agent holding the old headings is still offered the two verbs', () => {
+  const all = defaults.sections();
+  const owner = all.filter((s) => /kosmos report needs_you/.test(s.text));
+  assert.equal(owner.length, 1, 'the verbs are duplicated across sections, or gone');
+
+  /* A legacy agent: it holds every heading EXCEPT the one carrying the verbs.
+     This is the real shape of the 8 agents on this machine. */
+  const legacy = all.filter((s) => s.heading !== owner[0].heading)
+    .map((s) => s.heading + '\n' + s.text).join('\n\n');
+
+  const offered = defaults.missingFrom(legacy);
+  assert.ok(offered.some((s) => /kosmos report needs_you/.test(s.text)),
+    'a legacy agent would never be offered needs_you: the verbs sit under a heading it already has');
+  assert.ok(offered.some((s) => /kosmos report blocked --on/.test(s.text)),
+    'same for blocked, which is the other state the board cannot see for itself');
+
+  /* CONTROL, and without it the assertions above are vacuous: missingFrom must
+     be able to return NOTHING. An agent holding everything is offered nothing,
+     so a passing result above means the filter actually discriminated. */
+  const complete = all.map((s) => s.heading + '\n' + s.text).join('\n\n');
+  assert.equal(defaults.missingFrom(complete).length, 0,
+    'missingFrom offers sections to an agent that already has them all, so it is not filtering');
+});
+
+test('#1253 CONTROL: the delivery guard fails when the verbs move to an old heading', () => {
+  /* Proves this file can detect the exact regression it was written for, rather
+     than passing because everything happens to be fine today. It reproduces the
+     bug by construction: put the verbs in a section a legacy agent holds. */
+  const all = defaults.sections();
+  const owner = all.find((s) => /kosmos report needs_you/.test(s.text));
+  const older = all.find((s) => s.heading === '### Telling people what is happening');
+  assert.ok(older, 'the section version 4 and 5 put the verbs in has been renamed');
+
+  const moved = all.map((s) => s.heading === older.heading
+    ? { heading: s.heading, text: s.text + '\n' + owner.text }
+    : s).filter((s) => s.heading !== owner.heading);
+  const legacy = moved.map((s) => s.heading + '\n' + s.text).join('\n\n');
+  const offered = moved.filter((s) => !legacy.includes(s.heading));
+  assert.ok(!offered.some((s) => /kosmos report needs_you/.test(s.text)),
+    'the regression is not detectable: a legacy agent would still somehow be offered the verbs');
 });

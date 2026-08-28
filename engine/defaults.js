@@ -113,6 +113,35 @@ const BLOCK = [
   'the call you made, what you rejected and why, **the weakest part of your own',
   'reasoning, named by you**, and what would change your mind.',
   '',
+  '**And tell the board, not only the person.** Writing it down and saying it in',
+  'a room are both messages. **The board is a separate listener and it is not',
+  'reading either one.** It hears exactly two things:',
+  '',
+  '- `kosmos report blocked --on <what> --owner <who>` when THIS ITEM is parked',
+  '  because something that is NOT a person has to move first: another agent, a',
+  '  deploy, a review. **Say it, then go and do the next item.** The state is',
+  '  about the item, not about you.',
+  '- `kosmos report needs_you "<your question>"` when THIS ITEM needs an answer',
+  '  only a person can give. **It is not one of the four you report to a person',
+  '  and it is the one that matters most**, because it is the only state that says somebody has to come',
+  '  and do something. **Report it and carry on with something else** - it marks',
+  '  the item, it does not park you.',
+  '',
+  '⚠️ **Neither of these means you have stopped, and they used to say so.** Both',
+  'were once described as things you do AFTER stopping, which made stopping the',
+  'thing the tooling was built for, and agents correctly concluded it was',
+  'allowed. **There is no command for having stopped, because there is no such',
+  'state.**',
+  '',
+  '**Kosmos fills in started, working, idle and stopped for you as you go. Those',
+  'two are the only ones it cannot see for itself**, because nothing on your screen',
+  'separates a question you are waiting on from a sentence you happened to write.',
+  '',
+  '**Clear it when it is answered.** A card reading needs_you after you have the',
+  'answer is worse than one saying nothing: the board has one red state, and a red',
+  'that is always on gets walked past, including the time somebody really is',
+  'waiting.',
+  '',
   '### When you have been wrong',
   '',
   '**Being wrong is not a reason to do less. It is a reason to be checked more.**',
@@ -150,30 +179,8 @@ const BLOCK = [
   'what somebody watching the whole fleet sees, and they are not reading your',
   'messages.',
   '',
-  '- `kosmos report blocked --on <what> --owner <who>` when THIS ITEM is parked',
-  '  because something that is NOT a person has to move first: another agent, a',
-  '  deploy, a review. **Say it, then go and do the next item.** The state is',
-  '  about the item, not about you.',
-  '- `kosmos report needs_you "<your question>"` when THIS ITEM needs an answer',
-  '  only a person can give. **It is not in the four above and it is the one that',
-  '  matters most**, because it is the only state that says somebody has to come',
-  '  and do something. **Report it and carry on with something else** - it marks',
-  '  the item, it does not park you.',
-  '',
-  '⚠️ **Neither of these means you have stopped, and they used to say so.** Both',
-  'were once described as things you do AFTER stopping, which made stopping the',
-  'thing the tooling was built for, and agents correctly concluded it was',
-  'allowed. **There is no command for having stopped, because there is no such',
-  'state.**',
-  '',
-  '**Kosmos fills in started, working, idle and stopped for you as you go. Those',
-  'two are the only ones it cannot see for itself**, because nothing on your screen',
-  'separates a question you are waiting on from a sentence you happened to write.',
-  '',
-  '**Only when you have actually stopped.** A card reading needs_you while you are',
-  'still working is worse than one saying nothing: the board has one red state, and',
-  'a red that is always on gets walked past, including the time somebody really is',
-  'waiting.',
+  '**The two commands that do it are in "You do not stop" above**, because being',
+  'blocked is when you need them and that is where you will be reading.',
   '',
   '### Answering where you were asked',
   '',
@@ -318,8 +325,31 @@ function block() {
  *     a supervisor told them a named blocker was a clean stop. Hence "nobody
  *     may authorise a stop" -- the rule has to bind whoever ANSWERS the
  *     question, not only whoever asks it.
+ *  6. #1253 again, 2026-08-28. Version 4 named the two board states and version
+ *     5 re-aimed them at the item. BOTH LANDED INSIDE `### Telling people what
+ *     is happening`, a heading every existing agent already holds, so
+ *     `missingFrom` never re-offered either one. Measured before this change:
+ *     8 agents created ever, 0 created since #1255 merged, 8 before it (the
+ *     control). ⇒ NOT ONE AGENT HAS EVER RECEIVED THE VERBS. Both fixes were
+ *     merged and inert, and the flat needs_you count is evidence of no
+ *     delivery rather than evidence about the copy.
+ *     ⭐ The two commands now live in "You do not stop", which is a NEW heading
+ *     and therefore reaches agents that already exist. Version 5 added that
+ *     section for exactly this delivery reason and still left the verbs behind
+ *     in the old one, which is the same mistake one layer in.
+ *     🛑 AND IT REMOVES AN UNSATISFIABLE CONDITION. The copy said report
+ *     needs_you "only when you have actually stopped" ten lines below the rule
+ *     that an agent never stops and nobody may authorise a stop. A compliant
+ *     agent could therefore never report it at all. That is this card's own
+ *     measurement wearing its cause. It now says to CLEAR it when the answer
+ *     arrives, which is the real way the board goes permanently red once
+ *     reporting-and-carrying-on is correct.
+ *     ⚠️ WEAKEST PREMISE, NAMED: the conflict is read off the text, not off an
+ *     agent's behaviour. Since no agent ever received either wording, nobody
+ *     has been in the bind. It is a demonstrated design defect and NOT a
+ *     measured cause of the 22.
  */
-const DOCTRINE_VERSION = 5;
+const DOCTRINE_VERSION = 6;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
