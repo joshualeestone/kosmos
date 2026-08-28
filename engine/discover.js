@@ -243,7 +243,24 @@ function foundCodex(roster) {
      folder. So the test is not "same name" but "same name AND nothing there".
 
      Newest-first from `rollouts()` means the live row is already ahead of the
-     ghost when the names match, so the first-seen wins. */
+     ghost when the names match, so the first-seen wins.
+
+     🛑 KNOWN LIMITATION, STATED RATHER THAN BURIED (#1133). Two DIFFERENT agents
+     that share a display name, one of whose folders is gone, ARE merged here. The
+     ghost is absorbed by an unrelated namesake. This is the "identity asserted by
+     name" class, and `dir` cannot rescue it: the folder differs in BOTH cases --
+     a moved agent has an old dir and a new one, and two agents have two dirs -- so
+     the field separates the ROWS while saying nothing about the HOLDERS.
+
+     ⚠️ THE TRADE-OFF IS DELIBERATE AND THE TWO ERRORS ARE NOT SYMMETRIC. Merging
+     loses a GHOST row, which cannot be connected to at all because connecting
+     records a folder and it is gone. Failing to merge puts a LIVE agent on the
+     setup screen twice. The unactionable loss is the better error.
+
+     📌 Comparing the embedded instruction TEXT was considered and rejected: a
+     moved agent that has since edited its instructions stops matching and
+     duplicates again, which is the visible bug returning. A heuristic on identity
+     is what produces this class. */
   const live = new Set();
   for (const a of byDir.values()) { try { if (fs.statSync(a.dir).isDirectory()) live.add(a.name); } catch { /* ghost */ } }
   const kept = [];
