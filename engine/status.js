@@ -3231,6 +3231,12 @@ function readIdentity(sessionName) {
  * "writes copy". No real name continues `Jr. <Given>`, so they buy nothing
  * here and cost the sentence boundary.
  *
+ * 📌 THAT MEASUREMENT WAS AGAINST AN EARLIER FORM OF THIS FIX, whose lookbehind
+ * had no prefix anchor. With the anchor below, adding `Jr` back is INERT: the
+ * anchor already refuses it, because `Bob` is not a title or an initial. The
+ * exclusion stays because the list should say what it means, but a maintainer
+ * who tests the claim above in isolation will find it no longer reproduces.
+ *
  * 🔑 AND A TITLE MAY ONLY BE CROSSED AS THE FIRST WORD, which is what makes
  * `St` safe to keep. It is a prefix in `St. John Rivers` and a SURNAME in
  * `Anna St. He writes copy.`, and only the position tells them apart: measured,
@@ -3244,20 +3250,56 @@ const NAME_JOIN_TITLES = 'Dr|Mr|Mrs|Ms|Prof|Rev|Hon|St';
    only measured effect was on PROSE, where `You are The Owner Of This Machine.`
    captured one word further, which is the direction that finds people in
    sentences. */
+/**
+ * 🔑 A STOP MAY BE CROSSED ONLY WHILE THE NAME IS STILL ITS OWN PREFIX. Every
+ * token from `You are ` up to that stop must be a title or an initial, which is
+ * what separates the two shapes that both end a word in a stop:
+ *
+ *   You are J. R. Tolkien, a writer.   J. and R. are initials  ->  crosses
+ *   You are Dr. J. R. Tolkien          a title then initials    ->  crosses
+ *   You are Mary J. She writes copy.   `Mary` is neither        ->  STOPS at J.
+ *   You are Bob Jr. He writes copy.    `Bob` is neither         ->  STOPS at Jr
+ *   You are Anna St. He writes copy.   `St` is a SURNAME here   ->  STOPS at St
+ *
+ * ⚠️ The last three are the fabricated-role defect #1168 exists to kill, and a
+ * bare-initial version of it (`Mary J. She`) survived the first two attempts at
+ * this fix. Position is the only thing in the text that separates a prefix
+ * abbreviation from a trailing one.
+ */
+const NAME_PREFIX_RUN = "(?<=You are (?:(?:" + NAME_JOIN_TITLES + "|[A-Z])\\. )*(?:" + NAME_JOIN_TITLES + "|[A-Z])\\.)";
+/**
+ * 🛑 GROUP 4 IS THE COMMA AND IT IS LOAD-BEARING. A role is separated from a
+ * name by a comma; a sentence that merely follows the name is not. Capturing
+ * whether the comma was there is what tells `You are Nevaeh, Chief Engineer.`
+ * (a real capitalised role) from `You are Dr. J. R. R. Tolkien, a writer.`
+ * (a name that ran out of room and donated its tail).
+ */
 const IDENTITY_RE = new RegExp(
   "You are (?:\\*\\*([^*]+)\\*\\*|([A-Z][\\w.'-]*"
-  + "(?:(?:(?<!\\.)|(?<=\\b[A-Z]\\.)|(?<=You are (?:" + NAME_JOIN_TITLES + ")\\.)) [A-Z][\\w.'-]*){0,2}"
-  + "))(?:\\s*\\(([^)]+)\\))?\\s*,?\\s*([^.\\n]*)",
+  + "(?:(?:(?<!\\.)|" + NAME_PREFIX_RUN + ") [A-Z][\\w.'-]*){0,2}"
+  + "))(?:\\s*\\(([^)]+)\\))?\\s*(,)?\\s*([^.\\n]*)",
 );
 
 /**
- * 🛑 A NAME THAT RAN OUT OF ROOM MUST NOT DONATE ITS TAIL TO THE ROLE.
+ * 🛑 A NAME THAT RAN OUT OF ROOM MUST NOT DONATE ITS TAIL TO THE ROLE, AND A
+ * REAL ROLE MUST NOT BE MISTAKEN FOR ONE.
  *
  * The repetition is bounded, so a longer name stops mid-way and whatever
- * follows falls into the role capture. Measured: `You are Dr. J. R. R. Tolkien,
- * a writer.` produced role "Tolkien", a surname presented as a job. #1168's own
- * standard is that a fabricated role is worse than a missing one, so when the
- * name ends immediately before another capitalised word the role is dropped.
+ * follows falls into the role capture: `You are Dr. J. R. R. Tolkien, a writer.`
+ * produced role "Tolkien", a surname presented as a job.
+ *
+ * ⚠️ THE OBVIOUS TEST FOR THAT IS WRONG AND SHIPPED FOR ONE ITERATION HERE:
+ * "the tail starts with a capital" is also true of every legitimate capitalised
+ * role, so it silently deleted them. Measured against the merge-base:
+ *
+ *   You are Nevaeh, Chief Engineer.     role "Chief Engineer"     -> null
+ *   You are Anna, Head of Marketing.    role "Head of Marketing"  -> null
+ *
+ * ⇒ a capability loss in exactly the hand-written population this arm serves,
+ * and asymmetric with the bold arm, which kept them.
+ *
+ * 🔑 THE DISCRIMINATOR IS THE COMMA, not the case of the first letter. A role
+ * follows a comma; a donated name tail does not.
  */
 const NAME_TRUNCATED = /^\s*[A-Z]/;
 
@@ -3281,9 +3323,10 @@ function identityFromText(text) {
   const endedSentence = m[1] === undefined && NAME_ENDS_SENTENCE.test(name);
   /* The role capture starts right after the name, so a name cut short by the
      repetition bound leaves a capitalised word at the head of it (#1168). */
-  const nameTruncated = m[1] === undefined && NAME_TRUNCATED.test(m[4] || '');
+  const nameTruncated = m[1] === undefined && m[4] === undefined
+    && NAME_TRUNCATED.test(m[5] || '');
   if (endedSentence) name = name.slice(0, -1);
-  let role = (endedSentence || nameTruncated ? '' : m[4] || '')
+  let role = (endedSentence || nameTruncated ? '' : m[5] || '')
     .replace(/\*\*/g, '')          // instruction files are markdown; strip emphasis
     .replace(/^(the|a|an)\s+/i, '')
     .replace(/^Josh Stone's\s+/i, '')

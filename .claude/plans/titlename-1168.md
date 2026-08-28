@@ -68,3 +68,19 @@ is only ever exercised by people outside it.
   wrong way (`Bob Jr.` kept a sentence-ending stop).
 - **A truncated name no longer donates its tail to the role.** `Dr. J. R. R. Tolkien, a writer.`
   had produced role `"Tolkien"`, a surname presented as a job.
+
+## Iteration 2 of the review found a BLOCKER in the fix itself
+
+- **`NAME_TRUNCATED` tested the wrong thing.** It asked "does the tail start with a capital",
+  intending "did the name run out of room". Those coincide on a truncated name and also on
+  **every legitimate capitalised role**, so it silently deleted them:
+  `You are Nevaeh, Chief Engineer.` lost its role, and the bold arm kept the same one, so the
+  two arms disagreed. **The discriminator is the COMMA**: a role follows one, a donated name
+  tail does not.
+- **A bare middle initial reopened the fabricated role.** `You are Mary J. She writes copy.`
+  gave name `"Mary J. She"` and role `"writes copy"`. A stop may now be crossed only while
+  everything before it is still a title or an initial, which is what separates
+  `J. R. Tolkien` from `Mary J. She`.
+- **The `Jr|Sr` comment was stale.** With the prefix anchor in place, adding them back is
+  inert. The exclusion stays; the comment now says so rather than asserting a measurement that
+  no longer reproduces.

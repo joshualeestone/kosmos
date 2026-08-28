@@ -147,6 +147,30 @@ test('#1168 regression: a title or an initial is not the end of a sentence', () 
   assert.equal(r('You are Dr. J. R. R. Tolkien, a writer.').role, null,
     'a surname was handed to the role because the name hit its length bound');
 
+  /* 🛑 AND THE OBVIOUS TEST FOR THAT IS WRONG. "the tail starts with a capital"
+     is also true of every legitimate capitalised role, so the first version of
+     this guard silently DELETED them, in exactly the hand-written population
+     this arm serves, and asymmetrically with the bold arm which kept them.
+     The discriminator is the COMMA: a role follows one, a donated name tail
+     does not. */
+  assert.equal(r('You are Nevaeh, Chief Engineer.').role, 'Chief Engineer',
+    'a capitalised role was deleted as if it were a name that ran out of room');
+  assert.equal(r('You are Anna, Head of Marketing.').role, 'Head of Marketing');
+  assert.equal(r('You are Bob (Bobby), Chief Engineer.').role, 'Chief Engineer',
+    'the parenthetical form lost its capitalised role');
+  /* The bold arm has always kept these, and the two arms must not disagree. */
+  assert.equal(r('You are **Anna**, Web Properties Worker.').role, 'Web Properties Worker');
+
+  /* 🛑 A BARE MIDDLE INITIAL IS NOT A PREFIX EITHER, and this is the member of
+     the class that survived two attempts at this fix. A stop may be crossed
+     only while everything before it is still a title or an initial:
+        You are J. R. Tolkien      J. and R. are the whole prefix  -> crosses
+        You are Mary J. She ...    `Mary` is neither               -> stops
+     Before this, the second gave name "Mary J. She" and role "writes copy". */
+  assert.equal(who('You are Mary J. She writes copy.'), 'Mary J.');
+  assert.equal(r('You are Mary J. She writes copy.').role, null);
+  assert.equal(who('You are Bob A. He writes copy.'), 'Bob A.');
+
   /* 🔑 THE ARMS THAT MUST NOT MOVE. If the abbreviation exception is written
      too broadly it swallows the sentence boundary #1168 exists to enforce. */
   assert.equal(who('You are Bob. He writes copy.'), 'Bob');
