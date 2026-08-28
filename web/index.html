@@ -7957,7 +7957,22 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            stays uncluttered and the DOOR is what lives here: one quiet link
            to the settings rows where Remove has always been. -->
       <button class="linkish" id="pj-remove-member" type="button" style="margin-top:6px;">Remove a member&hellip;</button>
-      <div id="pj-one-add-row" hidden style="margin-top: var(--space-5)">
+      <!-- 🔑 THE PICKER LIVES IN A MODAL (kosmos#1303 H). Josh: "Let's make adding
+           a member to the project spawn a modal just like adding a task to the
+           project." It was an inline row that appeared where the button had been.
+           ⚠️ THE ROW IS WRAPPED, NOT REBUILT. `#pj-one-add`, `#pj-one-add-go` and
+           `#pj-one-add-row` keep their ids and their nesting, so
+           `paintFreeAgentPicker`, the go handler and the navigation reset all keep
+           working against the same elements. A fresh modal with new ids would have
+           been four more things to re-wire and four more to get wrong.
+           📌 It carries `role="dialog"` and `aria-modal`, so it joins the sweep in
+           #1316 and has to satisfy its rule: a way back that is not the action,
+           and Escape. Both are below. -->
+      <div class="rm-back" id="am-modal" hidden>
+      <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="am-t" aria-describedby="am-in">
+      <h2 class="rm-title" id="am-t">Add a member</h2>
+      <p class="rm-small" id="am-in">To <b id="am-project"></b>.</p>
+      <div id="pj-one-add-row" style="margin-top: var(--space-5)">
         <!-- ⚠️ A VISIBLE LABEL, not only an aria one (#109). The picker opens
              from a button, so it arrives on screen with no heading above it and
              nothing on the row says what the menu is FOR: a sighted person got
@@ -7974,6 +7989,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
           <select id="pj-one-add"></select>
           <button class="btn" id="pj-one-add-go" type="button">Put it on this project</button>
         </div>
+      </div>
+      <div class="rm-acts">
+        <button class="btn" id="am-keep" type="button">Cancel</button>
+      </div>
+      </div>
       </div>
       <p class="fmsg" id="pj-one-msg" aria-live="polite"></p>
 
@@ -23010,7 +23030,10 @@ function pjView(which) {
   // never pass through here, so a picker in use stays open.
   if (which === 'one') {
     document.getElementById('pj-add-member').hidden = false;
-    document.getElementById('pj-one-add-row').hidden = true;
+    /* #1303 H: the row is always visible INSIDE the modal now, so the thing to
+       close on navigation is the modal. Hiding the row would leave an empty
+       dialog on screen. */
+    document.getElementById('am-modal').hidden = true;
     document.getElementById('pj-one-archive-msg').textContent = '';
   }
 }
@@ -28633,10 +28656,29 @@ document.getElementById('pj-one-archive').addEventListener('click', async () => 
 // The member picker rests behind the pinned "+ Add Member" words. Revealing
 // focuses the select so the keyboard lands on the choice, not on nothing.
 document.getElementById('pj-add-member').addEventListener('click', () => {
-  document.getElementById('pj-add-member').hidden = true;
-  const row = document.getElementById('pj-one-add-row');
-  row.hidden = false;
+  /* #1303 H: opens the dialog instead of replacing itself with a row. The button
+     no longer hides: it is the thing you came back to, and hiding it was only
+     ever necessary because the row took its place. */
+  const p = pjById(PJ_CURRENT);
+  const where = document.getElementById('am-project');
+  if (where) where.textContent = p ? p.name : '';
+  document.getElementById('am-modal').hidden = false;
   document.getElementById('pj-one-add').focus();
+});
+/* The ways out, both of them, per #1316: a Cancel that is not the action, and
+   Escape, because somebody who opened this from the keyboard is still on it. The
+   backdrop closes too, matching every other modal on this page. */
+function amClose() {
+  document.getElementById('am-modal').hidden = true;
+  const b = document.getElementById('pj-add-member');
+  if (b && !b.hidden) b.focus();
+}
+document.getElementById('am-keep').addEventListener('click', amClose);
+document.getElementById('am-modal').addEventListener('click', (e) => { if (e.target.id === 'am-modal') amClose(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('am-modal').hidden) return;
+  amClose();
 });
 
 // ⚠️ Kept up to date while it is open, not painted once on arrival. A project's

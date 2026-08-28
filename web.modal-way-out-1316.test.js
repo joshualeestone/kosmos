@@ -40,8 +40,8 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
   const found = modals();
   assert.ok(found.length >= 12,
     `only ${found.length} modals found; the sweep stopped seeing them, so every assertion below is vacuous`);
-  assert.ok(found.length <= 13,
-    `${found.length} modals now, up from 12. A new one joined the page: sweep it, then raise this number.`);
+  assert.ok(found.length <= 14,
+    `${found.length} modals now, up from 13. A new one joined the page: sweep it, then raise this number.`);
 });
 
 /**
@@ -67,6 +67,10 @@ const ESCAPES_VIA = {
   'acct-add-modal': /Escape[\s\S]{0,300}acct-add-modal/,
   'del-modal':      /del-modal'\)\.addEventListener\('keydown'[\s\S]{0,80}Escape/,
   'rm-modal':       /Escape[\s\S]{0,300}rm-modal/,
+  /* Added by kosmos#1303 H: the add-a-member picker became a dialog, and this
+     sweep caught it the moment it did -- the table refused a modal nobody had
+     checked. The guard doing its job on its own author. */
+  'am-modal':      /am-modal'\)\.hidden\) return;/,
 };
 
 test('every modal has a named way out with Escape, and the table covers them all', () => {
