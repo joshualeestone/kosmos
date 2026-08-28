@@ -1287,8 +1287,29 @@ if (typeof SELECTOR_GLYPHS !== 'string' || !SELECTOR_GLYPHS.length
  * finding reported on its own), so it is not guessed at here. Add to this
  * list by OBSERVING, exactly as the rate-limit markers demand.
  */
+/**
+ * 🛑 ANCHORED, BECAUSE #1178 FIXED THE CLAUDE BRANCH AND LEFT THIS ONE (#1243).
+ *
+ * Its Claude counterpart three lines up, `OPTION_LINE`, is `/^\s*❯\s*\d+\.\s/`,
+ * and #1178's note beside it says why: *"structural options only when the glyph
+ * OPENS the line. `and then ❯ 1. Yes underneath it.` is prose about a prompt,
+ * not a prompt."* Exactly the same is true of `›`, and this array was tested
+ * anywhere in the tail. Measured before the anchor: a codex agent whose screen
+ * carried the sentence `The codex marker is the line drawn as › 1. Yes.`
+ * classified `needs_you`.
+ *
+ * The `m` flag matters: the codex classifier tests this against the whole tail
+ * rather than per line, so `^` has to mean line-start rather than text-start.
+ * `chat.js`'s two consumers (`:930`, `:1270`) already test one line at a time,
+ * where the anchor is correct either way.
+ *
+ * 📌 KEPT NARROW ON THE VOCABULARY ON PURPOSE. `OPTION_LINE` accepts any digit;
+ * this stays on the captured `1. Yes` because every Codex shape in this file was
+ * captured from a live pane (#249, #998) and a second observed prompt is what
+ * would license widening it, not a symmetry argument.
+ */
 const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
-  /›\s*1\.\s*Yes/,
+  /^\s*›\s*1\.\s*Yes/m,
 ]);
 
 /**
@@ -1462,6 +1483,39 @@ const AUTH_ENVELOPE = /"type":\s*"error"/i;
    writes, so including it (an earlier draft did) turned any echoed
    "⏺ Waiting… (10s)" into a working verdict on a finished pane. */
 const WORKING_LINE = /^\s*[·✢✳✶✻✽*] \S+…\s+\((?:\d+h\s+)?(?:\d+m\s+)?\d+s(?:\s*·|\))/mu;
+
+/**
+ * The OLD progress line's phrase, and it has to be inside the parentheses
+ * the runners draw it in (#1243).
+ *
+ * 🛑 A SENTENCE CONTAINING THE PHRASE IS NOT A RUNNING TURN, AND THIS ONE FAILS
+ * TOWARD CALM. Measured on two panes differing only in one clause, both with
+ * the prompt footer on screen, which is what a real waiting agent looks like:
+ *
+ *   '⏺ Codex draws "(4s esc to interrupt)" the way Claude s older UI did.'
+ *      -> working, "it is mid-task"
+ *   '⏺ Codex draws its own progress line the way Claude s older UI did.'
+ *      -> idle, "it is sitting at its prompt"
+ *
+ * The agent is waiting for the person and the board says it is busy. This rule
+ * is tested above the footer rule, so it wins, and nobody goes to look at an
+ * agent that is mid-task. Same shape as #880, arriving through the vocabulary
+ * instead of through a missing marker.
+ *
+ * 🔑 EVERY OBSERVED INSTANCE IS PARENTHESISED, on both runners:
+ *
+ *   • Reconnecting... 4/5 (4s • esc to interrupt)   <- codex, captured live
+ *   · Working (esc to interrupt)                    <- old Claude UI
+ *
+ * so the parens are structure that is already there rather than a rule imposed
+ * on the runners. Prose carries the phrase bare in a sentence.
+ *
+ * ⚠️ THE RESIDUAL, PINNED AND NOT TRADED AWAY: prose that QUOTES the
+ * parenthesised form still matches, the same residual #1233 and #1180 both
+ * carry. Killing it would need the timer too, and the old Claude UI's own line
+ * has no timer, so that would drop a real working pane.
+ */
+const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
 
 /**
  * The first line of `text` that any of `markers` matches, or null.
@@ -1719,7 +1773,7 @@ function classify(pane, paneText) {
     // Observed: codex draws "(4s • esc to interrupt)" on its live progress
     // line, the same phrase Claude's older UI used. Vocabulary coincidence,
     // matched deliberately: it was captured from a real pane, not assumed.
-    if (/esc to interrupt/i.test(codexTail)) {
+    if (INTERRUPT_LINE.test(codexTail)) {
       return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task' };
     }
     // Observed: the empty composer, codex's equivalent of sitting at the
@@ -1790,7 +1844,7 @@ function classify(pane, paneText) {
   if (SPINNER.test(pane.title)) {
     return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is producing output right now' };
   }
-  if (/esc to interrupt/i.test(tail)) {
+  if (INTERRUPT_LINE.test(tail)) {
     return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task' };
   }
   /**
