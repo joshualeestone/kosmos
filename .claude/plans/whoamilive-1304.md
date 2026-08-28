@@ -131,3 +131,63 @@ differ there. Verified: reverting the fix now fails.
 model its stub could not have produced; an unreachable `else` asserted an email only another
 test's stub can make; `sentenceForWhoami` took a `source` it no longer reads; and a comment
 claimed a sibling test used a pattern it does not.
+
+
+## Round 4 under the surviving-mutation rule: seventeen survivors, three blockers
+
+Round 3 returned BEHAVIOUR DEFECTS: none. Round 4, told to hunt surviving mutations rather than
+to review, found **about seventeen** - including two real behaviour defects and a blocker
+against round 3's own fix.
+
+### The two behaviour defects
+
+**1. The model could stand in for the account in the sentence**, which this plan and the code
+both explicitly forbid:
+
+```
+HEAD   We cannot tell which account this agent runs on, ... and its model is Claude Opus 5.
+M27    This agent runs on Claude Opus 5, and its model is Claude Opus 5.
+```
+
+⭐ **Nothing caught it because no arm had a NULL ACCOUNT AND A KNOWN MODEL AT ONCE** - one test
+stubs `ok:false` against a fixture with no transcript so both are null; the other supplies a
+live account so the account branch is taken. **Third time on this branch that the gap was
+exactly "no arm had both populated", one field over each time.**
+
+**2. The record-sourced model reached the agent as a raw id.** `modelDisplayName(rec.model)` to
+`rec.model` survived the whole suite. ⚠️ **The LIVE path's display name was pinned and the
+RECORD path's was not - and the record is the PREFERRED source for the model.** Guarding the
+fallback while leaving the default unguarded is the wrong way round.
+
+### 🛑 The blocker against round 3's own fix
+
+Round 3 replaced a hand-rolled `isDefaultDir` with the shared `accounts.isDefaultDir`, and
+pinned it with a **regex over the source text**. A reviewer defeated that by **commenting the
+line out** and hand-rolling the comparison beside it: the asserted string was still present, the
+guard never moved, and the suite stayed green with the defect fully restored.
+
+⇒ **A regex over source cannot tell live code from a comment.** Replaced with a spy on
+`accounts.isDefaultDir` and an assertion that `whoamiFor` reaches it - a comment cannot satisfy
+a call count. Verified: the exact defeat now fails.
+
+### One field carrying two facts
+
+`accounts.list()` sets `label` to the config directory's nickname (`account-b`); the live path
+was setting it from Claude's `organizationName` (`Anthropic`). Both landed in one wire field,
+and the sentence uses it as the second fallback - so two agents could read back **"This agent
+runs on account-b"** and **"This agent runs on Anthropic"** from the same field, meaning
+different things. **An organisation is not an account.** It now has its own field and can never
+stand in for one.
+
+### Also closed
+
+The `configDir` account branch had its provenance unpinned (the entire point of the field); the
+live `dir` was asserted only on the other branch; the route's `catch` could **fabricate an
+account** - this card's own headline defect - with the suite green; `const known = accounts.list()`
+could be replaced with `[]` because no test drove the route through to the record; the newly
+exported helper inherited `configFile`'s normalisation requirement without inheriting a test;
+and the `whoamiFor` docblock still said **"AND THE LIVE ONE WINS"**, false for the model, because
+the retraction had been written inside the function forty lines below. Three docblocks were also
+detached from their functions and are now adjacent.
+
+**Full suite 2759 pass, 0 fail, exit 0.**
