@@ -46,7 +46,25 @@ is only ever exercised by people outside it.
 
 ## Verification
 
-- Both arms: reverting `engine/status.js` turns the new test red.
+- Both arms: reverting `engine/status.js` **as a whole** turns the new test red.
+  ⚠️ **That is whole-file, not per-edit**, and the blind review measured the difference: two
+  of the first version's three edits could be reverted individually with the suite still
+  green. Both of those edits are now gone rather than defended.
 - Full suite green.
 - Measured against the pre-#1271 code for every row, so the claim "this restores what was
   lost" is a comparison rather than an assertion.
+
+## What the blind review changed, because the first version was worse than this one
+
+- **`Jr|Sr` removed from the joining list.** They are TRAILING abbreviations, and crossing one
+  put the fabricated role straight back: `You are Bob Jr. He writes copy.` gave
+  `"Bob Jr. He"` / `"writes copy"`.
+- **`St` kept, but a title may only be crossed as the FIRST word.** It is a prefix in
+  `St. John Rivers` and a surname in `Anna St.`; only position separates them.
+- **`{0,3}` reverted to `{0,2}`.** It was measured to be unnecessary: every row here passes at
+  `{0,2}`. Its only effect was on prose, capturing one word further.
+- **`NAME_TAIL_ABBREV` deleted.** The comment justifying it was false: the trim removes exactly
+  one character, so `Mr. Wolf.` works without it, and its only observable effects went the
+  wrong way (`Bob Jr.` kept a sentence-ending stop).
+- **A truncated name no longer donates its tail to the role.** `Dr. J. R. R. Tolkien, a writer.`
+  had produced role `"Tolkien"`, a surname presented as a job.

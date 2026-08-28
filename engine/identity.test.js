@@ -119,9 +119,33 @@ test('#1168 regression: a title or an initial is not the end of a sentence', () 
   assert.equal(who('You are J. R. Tolkien, a writer.'), 'J. R. Tolkien');
   assert.equal(who('You are St. John Rivers, a clerk.'), 'St. John Rivers');
 
-  /* The tail trim needs the same test or `Mr. Wolf.` loses its Wolf, and this
-     row is also BETTER than before #1168: it used to keep the trailing stop. */
+  /* Better than before #1168 too: that version kept the trailing stop. The trim
+     removes exactly one character, so no special case is needed for it. */
   assert.equal(who('You are Mr. Wolf.'), 'Mr. Wolf');
+
+  /* 🛑 A TRAILING ABBREVIATION IS NOT A PREFIX TITLE, and treating it as one
+     puts the fabricated role straight back. Measured on the first version of
+     this fix, which had `Jr|Sr` in the joining list:
+        "You are Bob Jr. He writes copy."  ->  "Bob Jr. He" / "writes copy"
+     No real name continues `Jr. <Given>`, so they are out of the join list. */
+  assert.equal(who('You are Bob Jr. He writes copy.'), 'Bob Jr');
+  assert.equal(r('You are Bob Jr. He writes copy.').role, null);
+  assert.equal(who('You are Bob Jr.'), 'Bob Jr', 'a trailing abbreviation kept its stop');
+
+  /* 🔑 AND POSITION IS WHAT MAKES `St` SAFE TO KEEP. It is a prefix in
+     `St. John Rivers` and a SURNAME in `Anna St.`, and only where it sits
+     tells them apart. Without the first-word anchor this gave "Anna St. He"
+     with role "writes copy". */
+  assert.equal(who('You are Anna St. He writes copy.'), 'Anna St');
+  assert.equal(r('You are Anna St. He writes copy.').role, null);
+
+  /* 🛑 A NAME THAT RAN OUT OF ROOM MUST NOT DONATE ITS TAIL TO THE ROLE. The
+     repetition is bounded, so a longer name stops mid-way and the rest falls
+     into the role capture: this gave role "Tolkien", a surname presented as a
+     job. The card's own standard is that a fabricated role is worse than a
+     missing one. */
+  assert.equal(r('You are Dr. J. R. R. Tolkien, a writer.').role, null,
+    'a surname was handed to the role because the name hit its length bound');
 
   /* 🔑 THE ARMS THAT MUST NOT MOVE. If the abbreviation exception is written
      too broadly it swallows the sentence boundary #1168 exists to enforce. */
@@ -132,10 +156,15 @@ test('#1168 regression: a title or an initial is not the end of a sentence', () 
   assert.equal(who('You are Mary Anne Smith.'), 'Mary Anne Smith');
   assert.equal(who('You are J.R.'), 'J.R.');
 
-  /* And the negatives still refuse, because the name pattern now spans one more
-     word than it did and that is the direction that finds people in prose. */
+  /* The negatives still refuse. ⚠️ THE FIRST TWO CANNOT DETECT A WIDENING and
+     are here only for the capitalisation anchor: both start with a lowercase
+     word, so they fail on the first token at any repetition count. The THIRD is
+     the one that can, and it is Title Case prose whose capture demonstrably
+     moves when the bound changes: at {0,3} it captured "The Owner Of This". */
   assert.equal(who('You are talking to a person running a business, not an engineer.'), null);
   assert.equal(who('You are an expert in Rust.'), null);
+  assert.equal(who('You are The Owner Of This Machine.'), 'The Owner Of',
+    'the name bound moved, which is the direction that finds people in prose');
 });
 
 test('a sentence that is not a name is NOT an agent', () => {

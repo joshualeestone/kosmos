@@ -3223,19 +3223,43 @@ function readIdentity(sessionName) {
  *
  * ⚠️ AND THE TAIL TRIM NEEDS THE SAME TEST, or `Mr. Wolf.` loses its Wolf.
  */
-const NAME_TITLES = 'Dr|Mr|Mrs|Ms|St|Jr|Sr|Prof|Rev|Hon';
-/* {0,3} rather than {0,2}: `J. R. Tolkien` is three tokens after the first, and
-   the old limit was set when a stop could not be crossed at all. */
+/**
+ * 🔑 ONLY THE TITLES THAT COME BEFORE A NAME. `Jr` and `Sr` are trailing
+ * abbreviations, and letting the name CROSS one reintroduces the fabricated
+ * role #1168 exists to kill: measured, with them in this list
+ * `You are Bob Jr. He writes copy.` gave name "Bob Jr. He" and role
+ * "writes copy". No real name continues `Jr. <Given>`, so they buy nothing
+ * here and cost the sentence boundary.
+ *
+ * 🔑 AND A TITLE MAY ONLY BE CROSSED AS THE FIRST WORD, which is what makes
+ * `St` safe to keep. It is a prefix in `St. John Rivers` and a SURNAME in
+ * `Anna St. He writes copy.`, and only the position tells them apart: measured,
+ * without the anchor the second gave name "Anna St. He" and role "writes copy",
+ * the same fabricated role one word later.
+ */
+const NAME_JOIN_TITLES = 'Dr|Mr|Mrs|Ms|Prof|Rev|Hon|St';
+/* {0,2}, unchanged from before #1168. Widening it to {0,3} was measured to be
+   unnecessary: every row of this fix passes at {0,2}, including
+   `Dr. Smith` (1+1), `J. R. Tolkien` (1+2) and `St. John Rivers` (1+2). Its
+   only measured effect was on PROSE, where `You are The Owner Of This Machine.`
+   captured one word further, which is the direction that finds people in
+   sentences. */
 const IDENTITY_RE = new RegExp(
   "You are (?:\\*\\*([^*]+)\\*\\*|([A-Z][\\w.'-]*"
-  + "(?:(?:(?<!\\.)|(?<=\\b[A-Z]\\.)|(?<=\\b(?:" + NAME_TITLES + ")\\.)) [A-Z][\\w.'-]*){0,3}"
+  + "(?:(?:(?<!\\.)|(?<=\\b[A-Z]\\.)|(?<=You are (?:" + NAME_JOIN_TITLES + ")\\.)) [A-Z][\\w.'-]*){0,2}"
   + "))(?:\\s*\\(([^)]+)\\))?\\s*,?\\s*([^.\\n]*)",
 );
 
-/* A trailing stop that belongs to an initial or a title is part of the name.
-   `J.R.` and `Mr. Wolf.` keep their last word; `Bob.` and `Mary Anne Smith.`
-   lose the stop that ended the sentence. */
-const NAME_TAIL_ABBREV = new RegExp("(?:^|[.\\s])(?:[A-Za-z]|" + NAME_TITLES + ")\\.$");
+/**
+ * 🛑 A NAME THAT RAN OUT OF ROOM MUST NOT DONATE ITS TAIL TO THE ROLE.
+ *
+ * The repetition is bounded, so a longer name stops mid-way and whatever
+ * follows falls into the role capture. Measured: `You are Dr. J. R. R. Tolkien,
+ * a writer.` produced role "Tolkien", a surname presented as a job. #1168's own
+ * standard is that a fabricated role is worse than a missing one, so when the
+ * name ends immediately before another capitalised word the role is dropped.
+ */
+const NAME_TRUNCATED = /^\s*[A-Z]/;
 
 /**
  * A trailing full stop that ENDED THE SENTENCE, as opposed to one that belongs
@@ -3254,10 +3278,12 @@ function identityFromText(text) {
   /* #1168. Only the prose arm can carry a sentence-ending stop: the bold arm is
      delimited by its own asterisks, and `**side-quests**.` already comes back
      clean. */
-  const endedSentence = m[1] === undefined && NAME_ENDS_SENTENCE.test(name)
-    && !NAME_TAIL_ABBREV.test(name);
+  const endedSentence = m[1] === undefined && NAME_ENDS_SENTENCE.test(name);
+  /* The role capture starts right after the name, so a name cut short by the
+     repetition bound leaves a capitalised word at the head of it (#1168). */
+  const nameTruncated = m[1] === undefined && NAME_TRUNCATED.test(m[4] || '');
   if (endedSentence) name = name.slice(0, -1);
-  let role = (endedSentence ? '' : m[4] || '')
+  let role = (endedSentence || nameTruncated ? '' : m[4] || '')
     .replace(/\*\*/g, '')          // instruction files are markdown; strip emphasis
     .replace(/^(the|a|an)\s+/i, '')
     .replace(/^Josh Stone's\s+/i, '')
