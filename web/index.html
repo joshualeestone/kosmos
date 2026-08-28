@@ -8487,6 +8487,33 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     </div>
     <p class="fmsg" id="docs-msg" aria-live="polite"></p>
   </div>
+    <!-- The ALL TASKS screen (#1382). Josh: "for tasks, i want to see a view
+         of them in a list form basically", answering his earlier "where I can
+         see ALL of the tasks". Same bones as the Documents screen he named as
+         the model: Back is the leave, and there is no backdrop, focus trap or
+         Escape, because a page is not an overlay.
+         🛑 CLOSED TASKS ARE ON THIS SCREEN, and that is not a preference. It is
+         reached from `#pj-alltasks`, the per-project door, and #1009 already
+         put every OPEN task in the column, so what that door still reveals is
+         FINISHED work. Taking the door without taking its contents would leave
+         finished work unreachable anywhere in Kosmos.
+         ⚠️ NO COUNT IN THE DOOR'S LABEL. The door sits on ONE project and this
+         screen shows EVERY project, so a per-project number beside it could
+         only ever disagree with its own destination, which is the #1346 defect
+         the card asked us to avoid. Two numbers cannot disagree if there is
+         one. -->
+    <div id="pj-alltasks-view" hidden>
+      <button class="back" id="alltasks-back" type="button"></button>
+      <div class="pjhead">
+        <div class="pjtitle">
+          <h2 class="dname">All tasks</h2>
+          <p class="pj-desc">Across every project.</p>
+        </div>
+      </div>
+      <p class="dhint" id="alltasks-count" style="margin:0 0 8px;" hidden></p>
+      <div id="alltasks-list" class="tkcards"></div>
+      <p class="fmsg" id="alltasks-msg" aria-live="polite"></p>
+    </div>
   <!-- #766 (Josh, 2026-08-24 22:09): New task is a dialog over the project
        page again ("the problem that I have with the new task page right now
        is that it's got so much empty space... go back and implement the
@@ -23373,7 +23400,7 @@ let PJ_THREAD_GEN = 0;
 let PJ_NAV_GEN = 0;
 
 function pjView(which) {
-  for (const v of ['list', 'one', 'add', 'settings', 'task', 'docs']) {
+  for (const v of ['list', 'one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
     document.getElementById('pj-' + v + '-view').hidden = (v !== which);
   }
   paintPjNone(which);
@@ -24118,7 +24145,6 @@ function pjById(id) { return PROJECTS.find((p) => p.id === id) || null; }
    What a card may say is deliberately small in v1 (Mona Lisa's ruling): the
    who chip is the status, "Nobody yet" is the only state word, and closed
    tasks live behind the door with the unassigned ones. */
-let TK_SHOW_ALL = false;   // the door's reveal; resets when the project changes
 /* Every filename in the open project's folder, for matching path citations in
    message bodies. Cleared on switch with the rest of the project's state: a
    list left standing would dress another project's words as citations of files
@@ -24202,19 +24228,20 @@ function paintProjectTasks(p) {
      The door now means everything INCLUDING finished, which is what "View
      all" always sounded like it meant. */
   const column = all.filter((t) => !(t.progress && t.progress.closed));
-  const behind = all.length - column.length;
   /* 🔑 THE COLUMN SHOWS FIVE (kosmos#1193). Josh: "We should have a View All
      link for tasks and maybe we only display the first N number. I'll let you
      decide what that is." Five, which is what Splinter told him.
-     ⚠️ THE CAP AND THE DOOR'S CONDITION ARE ONE CHANGE, NOT TWO. The door was
-     shown only when `behind > 0`, meaning CLOSED tasks existed. Cap the column
-     without touching that and a project with eight open tasks and none finished
-     loses three of them with no control on screen to reach them: the door stays
-     hidden because nothing is "behind" it by the old definition.
-     ⇒ `hiddenByCap` joins `behind` in that test below. */
+     📌 HISTORY, because the reasoning is worth keeping and the mechanism it
+     describes is gone (#1382). The door used to be CONDITIONAL, shown only when
+     something was hidden, and #1193 had to widen that condition from
+     `behind > 0` to `(behind + hiddenByCap) > 0` so a project with eight open
+     tasks and none finished did not lose three of them with no control on
+     screen to reach them.
+     ⇒ THE DOOR IS UNCONDITIONAL NOW, because its destination is every project
+     rather than this one's hidden rows, so `behind` and `hiddenByCap` have no
+     consumer and are gone. The cap itself is unchanged and still five. */
   const TK_COLUMN_MAX = 5;
-  const showing = TK_SHOW_ALL ? all : column.slice(0, TK_COLUMN_MAX);
-  const hiddenByCap = TK_SHOW_ALL ? 0 : column.length - showing.length;
+  const showing = column.slice(0, TK_COLUMN_MAX);
   // kosmos#1009 retired the reasoning that used to sit here ("an empty COLUMN
   // coexists with closed and unpicked tasks behind the door, and the door line
   // below says so"). Josh's first look is the evidence it was not sufficient:
@@ -24300,19 +24327,98 @@ function paintProjectTasks(p) {
       ? '<p class="tk-empty">Nothing open here. The finished ones are behind View all.</p>'
       : '<p class="tk-empty">Add a task, or have an agent add one, to start tracking progress.</p>');
   }
-  // The door: pack rule, the column is not the whole list and says so.
-  if (!TK_SHOW_ALL && (behind + hiddenByCap) > 0) {
-    door.hidden = false;
-    door.textContent = 'View all tasks (' + all.length + ') →';
-  } else {
-    door.hidden = true;
-  }
+  /* THE DOOR IS ALWAYS THERE NOW (#1382), and both halves of that are
+     deliberate.
+     🔑 ALWAYS SHOWN, because its destination is EVERY project. The old rule
+     revealed this project's hidden tasks in place, so it correctly stayed away
+     when this project hid nothing. A screen listing all projects must not be
+     unreachable from a project that happens to have five tasks and none
+     finished, which is the normal state of a new project.
+     🛑 AND NO COUNT. The door sits on ONE project; the screen shows EVERY
+     project. A per-project number beside a global destination can only ever
+     disagree with it, which is exactly the #1346 defect the card asked us to
+     avoid. Two numbers cannot disagree if there is one, and the count the
+     person actually needs is on the screen, derived from the rows it renders. */
+  door.hidden = false;
+  door.textContent = 'View all tasks \u2192';
 }
 
-document.getElementById('pj-alltasks').addEventListener('click', () => {
-  TK_SHOW_ALL = true;
-  const p = pjById(PJ_CURRENT);
-  if (p) paintProjectTasks(p);
+/**
+ * The door now LEAVES THE PAGE (#1382). Josh: "for tasks, i want to see a view
+ * of them in a list form basically", answering his earlier "where I can see
+ * ALL of the tasks".
+ *
+ * 🔑 THE BEHAVIOUR IT REPLACES IS NOT LOST, IT MOVED. Revealing in place showed
+ * this project's tasks past the five-cap and its finished ones. This screen is
+ * a strict superset: every task on every project, capped-off and finished
+ * included.
+ */
+document.getElementById('pj-alltasks').addEventListener('click', openAllTasksView);
+
+document.getElementById('alltasks-back').addEventListener('click', () => {
+  pjView(PJ_CURRENT ? 'one' : 'list');
+});
+
+/**
+ * Every task on every project.
+ *
+ * 🛑 AN UNREADABLE ANSWER IS SAID OUT LOUD, NEVER SHOWN AS AN EMPTY LIST. "No
+ * tasks yet" is a claim about somebody's own work; the route refuses to serve
+ * it when it could not read, and this screen must not invent it either.
+ *
+ * 🔑 ONE ARRAY. The heading's count and the rows below it are the same `rows`,
+ * so they cannot disagree. #1346 as a construction rather than a rule to
+ * remember: that screen said "3 agents" over three rows and "6" underneath,
+ * because one number came from the data and the other from a document-wide DOM
+ * query.
+ */
+async function openAllTasksView() {
+  const list = document.getElementById('alltasks-list');
+  const count = document.getElementById('alltasks-count');
+  const msg = document.getElementById('alltasks-msg');
+  const back = document.getElementById('alltasks-back');
+  const here = pjById(PJ_CURRENT);
+  back.textContent = '\u2190 ' + (here ? here.name : 'Projects');
+  list.textContent = ''; count.hidden = true; msg.textContent = 'Looking\u2026';
+  pjView('alltasks');
+  let body = null;
+  try {
+    const r = await fetch('/api/tasks', { cache: 'no-store' });
+    body = await r.json();
+    if (!r.ok) throw new Error((body && body.error) || 'we could not read your tasks');
+  } catch (err) {
+    msg.textContent = String((err && err.message) || 'we could not read your tasks right now');
+    return;
+  }
+  if (PJ_VIEW !== 'alltasks') return;   // they left while we were reading
+  const rows = (body && body.tasks) || [];
+  if (!rows.length) {
+    msg.textContent = '';
+    list.innerHTML = '<p class="tk-empty">No tasks anywhere yet. Add one on a project to start tracking progress.</p>';
+    return;
+  }
+  msg.textContent = '';
+  const live = rows.filter((t) => !t.isClosed).length;
+  count.textContent = rows.length + (rows.length === 1 ? ' task' : ' tasks') + ', ' + live + ' still open.';
+  count.hidden = false;
+  list.innerHTML = rows.map((t) => '<button class="tkcard' + (t.isClosed ? ' tkdone' : '')
+    + '" type="button" data-project="' + esc(t.projectId) + '" data-task="' + Number(t.number) + '">'
+    + '<b>' + esc(t.sentence || '') + '</b>'
+    + '<small>' + esc(t.projectName || '')
+    + (t.whoNames && t.whoNames.length ? ' \u00b7 ' + esc(t.whoNames.join(', ')) : '')
+    + (t.isClosed ? ' \u00b7 finished' : '') + '</small>'
+    + '</button>').join('');
+}
+
+/* A row opens its task ON ITS OWN PROJECT, which may not be the one we came
+   from: this screen crosses projects, so each row carries its project and the
+   handler switches before opening the task. */
+document.getElementById('alltasks-list').addEventListener('click', (e) => {
+  const card = e.target.closest('.tkcard');
+  if (!card) return;
+  const pid = card.dataset.project;
+  if (pid && pid !== PJ_CURRENT) { PJ_CURRENT = pid; }
+  openTaskPage(Number(card.dataset.task));
 });
 
 document.getElementById('pj-tasklist').addEventListener('click', (e) => {
@@ -25837,7 +25943,7 @@ function openProject(id) {
   const switching = PJ_LAST_OPENED !== id;
   PJ_LAST_OPENED = id;
   pjMarkSeen(id);
-  if (switching) { TK_SHOW_ALL = false; TK_LIST_HTML = null; }
+  if (switching) { TK_LIST_HTML = null; }
   // Every arrival is a move, including re-opening the same project: a verdict
   // from a send that took off before this navigation belongs to a thread view
   // the switching-clear machinery above has since reset, so it may not paint
