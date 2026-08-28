@@ -5526,6 +5526,34 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /**
+   * Every open task across every project (#1382).
+   *
+   * 🛑 AN UNREADABLE STORE IS AN ERROR, NEVER AN EMPTY LIST. Same rule as
+   * `/api/projects` above, and for the same reason: "No tasks yet" is a CLAIM
+   * about somebody's own work, and serving it when we simply could not read is
+   * the quietest way to say something false.
+   *
+   * 🔑 `count` IS DERIVED FROM THE ARRAY WE ARE SENDING, not counted a second
+   * way. The control that opens this screen shows that number, and a count
+   * computed separately is exactly #1346: three rows under a heading that said
+   * six, because one number came from the data and the other from the DOM.
+   */
+  if (pathname === '/api/tasks' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      projects.readAll();
+    } catch (err) {
+      sendJson(res, 500, {
+        error: String((err && err.message) || 'we cannot read your tasks right now'),
+        projectsUnreadable: true,
+      });
+      return;
+    }
+    const all = tasks.allOpenTasks();
+    sendJson(res, 200, { tasks: all, count: all.length });
+    return;
+  }
+
   if (pathname === '/api/projects' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
