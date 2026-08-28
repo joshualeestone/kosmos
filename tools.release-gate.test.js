@@ -326,7 +326,7 @@ function git_sandbox(version, { diverge = 'none' } = {}) {
   return { dir, remote, home, site };
 }
 
-function run_git(dir, version, home, site, { staleBy = 0 } = {}) {
+function run_git(dir, version, home, site, { staleBy = 0, entry = true } = {}) {
   /* ⚠️ SINCE #1453 THE VERSIONS ENTRY IS A STEP 1 PRECONDITION, so an arm that
      means to reach step 2 needs one or it stops here instead, refusing with the
      versions page rather than with the guard under test. It is written HERE
@@ -334,7 +334,17 @@ function run_git(dir, version, home, site, { staleBy = 0 } = {}) {
      CUT, and this is the function that knows it. Stamped from the clock on
      purpose: the gate refuses a guess by design, so a hard-coded date would rot
      this file into a red within twenty minutes. */
-  fs.writeFileSync(path.join(site, 'versions.html'), versions_entry(version, staleBy));
+  if (entry === 'missing-file') {
+    fs.rmSync(path.join(site, 'versions.html'), { force: true });
+  } else if (entry) {
+    fs.writeFileSync(path.join(site, 'versions.html'), versions_entry(version, staleBy));
+  } else {
+    /* ⚠️ THE PAGE EXISTS AND SIMPLY LACKS THIS VERSION, which is the real shape:
+       the site checkout always has a versions.html, carrying every PRIOR release.
+       Deleting the file instead tests a different branch ("cannot read") and would
+       leave the ordinary case -- the one every failed cut actually hit -- untested. */
+    fs.writeFileSync(path.join(site, 'versions.html'), versions_entry('0.6.02', staleBy));
+  }
   const before = fs.readFileSync(path.join(dir, 'package.json'), 'utf8');
   const r = spawnSync('bash', [path.join(dir, 'tools', 'release.sh'), version], {
     encoding: 'utf8',
@@ -380,6 +390,57 @@ test('a cut is NOT refused merely for being behind origin', () => {
     `refused a tree that is merely behind:\n${r.said.slice(0, 400)}`);
   assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the guard');
   fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+/* 🛑 THE ARMS THAT TEST THE MOVE RATHER THAN THE CHECK (#1453).
+   Everything above asserts the cut gets PAST the gate. The unit test asserts the
+   gate refuses. Neither proves the refusal now happens EARLY, which is the entire
+   claim of #1453 -- and a refusal arriving from step 7 would satisfy both.
+   The negative assertion is therefore the load-bearing one: it never reached step 2.
+   Their positive control is the arm directly above, same sandbox, entry present,
+   which does reach step 2. So the pair is a contrast, not a single reading. */
+test('no versions entry refuses at step 1, before anything is built', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const r = run_git(dir, '0.6.03', home, site, { entry: false });
+  assert.equal(r.status, 1, 'it did not refuse');
+  assert.match(r.said, /has no entry/, 'it refused for some other reason');
+  assert.match(r.said, /Nothing has been built yet/, 'it refused with step 7\'s cost sentence, not step 1\'s');
+  assert.ok(!/== 2\. the version, in one place ==/.test(r.said),
+    `it got past step 1 before refusing, so the check did not move:\n${r.said.slice(0, 400)}`);
+  assert.equal(r.touched, false, 'it edited the version before refusing');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+test('a missing versions page is reported as unreadable, not as a missing entry', () => {
+  /* Two different operator actions: fix the path, versus write the entry. */
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const r = run_git(dir, '0.6.03', home, site, { entry: 'missing-file' });
+  assert.equal(r.status, 1);
+  assert.match(r.said, /cannot read/);
+  assert.ok(!/has no entry/.test(r.said), 'it told the operator to edit a file that is not there');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+test('a stale versions entry also refuses at step 1, naming the drift', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const r = run_git(dir, '0.6.03', home, site, { staleBy: 45 });
+  assert.equal(r.status, 1, 'it did not refuse');
+  /* ⚠️ a RANGE, not a literal 45. The stamp has minute granularity and the sandbox
+     takes about a second to build, so pinning an exact minute makes this flake on a
+     boundary for a reason that has nothing to do with the gate. */
+  const drift = r.said.match(/off by (\d+) minutes/);
+  assert.ok(drift, `it did not name the drift:\n${r.said.slice(0, 400)}`);
+  assert.ok(Number(drift[1]) >= 40, `drift read ${drift[1]}, expected the 45-minute fixture`);
+  /* ⚠️ and it must tell the operator to stamp for PUBLICATION here, not "now".
+     Advising a now-stamp at step 1 guarantees a second failure at step 7. */
+  assert.match(r.said, /stamp written now is stale by step 7/, 'step 1 gave step 7\'s advice');
+  assert.ok(!/== 2\. the version, in one place ==/.test(r.said),
+    `the stale refusal came from step 7, not step 1:\n${r.said.slice(0, 400)}`);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
 });
 
 test('a clean tree in step with origin gets past the guard', () => {
@@ -388,4 +449,5 @@ test('a clean tree in step with origin gets past the guard', () => {
   assert.ok(!/local main has commits origin\/main does not/.test(r.said), r.said.slice(0, 400));
   assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the guard');
   fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
 });

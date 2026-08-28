@@ -226,7 +226,8 @@ git -C "$REPO" log --oneline -8 | cat
 # this cut finish?", that one asks "is the page right at the moment we deploy?"
 # The rationale, the shared window and why it stays symmetric are in the lib.
 . "$REPO/tools/lib/versions-entry.sh"
-kosmos_versions_entry_gate "$V" "$SITE/versions.html" "Nothing has been built yet." || exit 1
+kosmos_versions_entry_gate "$V" "$SITE/versions.html" "Nothing has been built yet." \
+  "Stamp it for when you expect to PUBLISH, roughly 15 minutes out -- a stamp written now is stale by step 7." || exit 1
 
 step "== 2. the version, in one place =="
 node -e "
@@ -577,7 +578,8 @@ step "== 7. the versions page needs its entry BEFORE you deploy =="
 # agreed with the clock at step 1 can be twenty minutes stale by the time we
 # deploy. Step 1 asks whether the cut can finish; this asks whether the page is
 # right at the moment it ships.
-kosmos_versions_entry_gate "$V" "$SITE/versions.html" "The build is done; only the deploy is unspent." || exit 1
+kosmos_versions_entry_gate "$V" "$SITE/versions.html" "The build is done; only the deploy is unspent." \
+  "Paste the clock line above into the entry's rel-d and re-run." || exit 1
 
 step "== 7b. the site's release files are committed and pushed BEFORE they deploy =="
 # 🛑 SERVED FROM THE WORKING TREE MEANS SERVED FROM NOBODY'S HISTORY. This
