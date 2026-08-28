@@ -3016,3 +3016,51 @@ test('#763: reconcile carries the reported project on a needs_you, and null when
   const working = reconcileReport(rep('working', { project: 'p-christmas' }), scraped, T0);
   assert.equal(working.project, undefined, 'only a question carries a project onto the state');
 });
+
+/**
+ * 🛑 #1155: FOUR PIECES OF ORDINARY AGENT PROSE CLASSIFIED AS `needs_you`.
+ *
+ * `NEEDS_YOU_MARKERS` are phrases, and phrases occur in prose. Measured on the
+ * shipped classifier, these four sentences all produced a false RED, and a fifth
+ * case (an agent QUOTING a prompt, glyph included) produced one too.
+ *
+ * ⚠️ WHY A FALSE RED IS NOT COSMETIC: `reconcileReport` rule 3 makes a scraped
+ * `needs_you` stand OVER a fresh self-report, deliberately, so a real red is never
+ * suppressed. A scraped false positive therefore silently overrides an agent's own
+ * accurate account of itself. The board's most trusted signal loses to its least.
+ *
+ * 🔑 THE FIRST TWO ROWS ARE WHAT STOP SOMEBODY "FIXING" THIS BY MAKING THE
+ * CLASSIFIER QUIETER. They are real observed prompts from both runners and they
+ * must stay red. A narrowing that drops them trades false RED for false CALM,
+ * which is the regression this board keeps paying for.
+ *
+ * Measured 2026-08-27: 2 of 7 before, 7 of 7 after.
+ */
+test('#1155: real prompts stay needs_you and ordinary prose does not become it', () => {
+  const cases = [
+    ['claude, a real prompt', 'Worked for 2m 10s\nDo you want to proceed?\n', STATE.NEEDS_YOU, {}],
+    ['codex, a real prompt', CODEX_TRUST_PROMPT, STATE.NEEDS_YOU, { command: 'codex', runner: 'codex' }],
+    ['prose asking a colleague',
+      'I asked Splinter for permission to merge the PR, and he said go ahead.\n', STATE.UNKNOWN, {}],
+    ['an agent OFFERING something',
+      'Would you like to see the diff before I push it? I can paste it here.\n', STATE.UNKNOWN, {}],
+    ['prose with a question inside it',
+      'The card says: Allow this to run in the installed layout? That was the old copy.\n', STATE.UNKNOWN, {}],
+    ['prose about file permissions',
+      'The directory is mode 700 so only the owner has permission to read it.\n', STATE.UNKNOWN, {}],
+    ['an agent QUOTING a prompt, glyph and all',
+      'The real shape is: Do you want to proceed? and then ❯ 1. Yes underneath it.\n', STATE.UNKNOWN, {}],
+    /* 🔑 NOT FROM THE CARD'S BAR. Added because perturbing the fix showed the bar
+       could not see this guard: all five of its prose rows ALSO fail the
+       ends-at-the-question test, so dropping "the marker must START the line"
+       left the suite green. This row is prose that DOES end at the question,
+       which is the only shape that guard alone catches. Measured 2026-08-27:
+       without `hit.index === 0` this row classifies needs_you. */
+    ['prose that ends at a quoted question',
+      'The card says: Allow this to run in the installed layout?\n', STATE.UNKNOWN, {}],
+  ];
+  for (const [what, text, want, over] of cases) {
+    const r = classify(pane(over), text);
+    assert.equal(r.state, want, `${what}: expected ${want}, got ${r.state} (${r.because})`);
+  }
+});

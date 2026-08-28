@@ -1221,6 +1221,18 @@ const NEEDS_YOU_MARKERS = Object.freeze([
   /❯\s*1\.\s*Yes/,
 ]);
 
+/* Companions to NEEDS_YOU_MARKERS, used by `asksSomething` below. OPTION_LINE is
+   anchored so a quoted glyph mid-sentence is not a prompt; ENDS_AT_QUESTION is what
+   separates a question from a sentence that merely contains one. */
+/* ❯ ONLY, NOT ›. This qualifies the CLAUDE marker list; Codex's › is owned by
+   CODEX_NEEDS_YOU_MARKERS on its own path, and #245 pins that a node-fronted
+   pane with NO recorded runner must stay UNKNOWN on the Claude path rather
+   than being rescued by a Codex glyph. Including › here made that test fail,
+   which is the separation #249/#998 exist to keep. */
+const OPTION_LINE = /^\s*❯\s*\d+\.\s/;
+const ENDS_AT_QUESTION = /\?\s*(\([yYnN/]+\))?\s*$/;
+
+
 /**
  * The selector glyphs a runner draws beside the highlighted option, as a
  * character class two files can share.
@@ -1409,6 +1421,52 @@ function matchedLine(text, markers) {
  * through to UNKNOWN on purpose; that is the honest answer and it is what
  * stops the board reporting health it has not verified.
  */
+
+/**
+ * 🛑 A MARKER MATCHING SOMEWHERE IN THE TAIL IS NOT A PROMPT (#1155).
+ *
+ * `NEEDS_YOU_MARKERS` are phrases, and phrases occur in ordinary agent prose.
+ * Measured on the shipped classifier: "I asked Splinter for permission to merge
+ * the PR", "Would you like to see the diff before I push it? I can paste it
+ * here", "mode 700 so only the owner has permission to read it" and a sentence
+ * QUOTING a prompt all classified `needs_you`. Four false REDs from four
+ * plausible sentences.
+ *
+ * ⚠️ AND A FALSE RED IS NOT COSMETIC HERE: `reconcileReport` rule 3 makes a
+ * scraped `needs_you` stand OVER a fresh self-report, deliberately, so that a
+ * real red is never suppressed. That means a scraped false positive silently
+ * overrides an agent's own accurate account of itself.
+ *
+ * 🔑 WHAT SEPARATES THEM IS STRUCTURE, NOT VOCABULARY OR POSITION. Both were
+ * tried on the card and both fail: requiring a selector glyph anywhere fails on
+ * a sentence quoting one, and requiring the match in the last N lines fails
+ * whenever the prose IS the newest output, which for a chatty agent is most of
+ * the time. Position narrows the window; it does not discriminate.
+ *
+ * A real prompt line is the QUESTION AND NOTHING ELSE: the marker opens the
+ * line and the line closes at the question mark (optionally `(y/N)`). Prose
+ * either arrives with something in front of the marker ("The card says: Allow
+ * ...?", "I asked Splinter for permission to ...") or keeps going after the
+ * question ("... push it? I can paste it here."). A runner-drawn option line
+ * counts too, and is checked on the RAW line, because the prefix strip below
+ * removes the very selector glyph that identifies it.
+ *
+ * 📌 Structural options only when the glyph OPENS the line. `and then ❯ 1. Yes
+ * underneath it.` is prose about a prompt, not a prompt.
+ */
+function asksSomething(tail) {
+  for (const raw of String(tail == null ? '' : tail).split('\n')) {
+    if (OPTION_LINE.test(raw)) return true;
+    const line = raw.replace(/^[\s>│├└─*❯›]+/, '').trim();
+    if (!line) continue;
+    for (const re of NEEDS_YOU_MARKERS) {
+      const hit = line.match(re);
+      if (hit && hit.index === 0 && ENDS_AT_QUESTION.test(line)) return true;
+    }
+  }
+  return false;
+}
+
 function classify(pane, paneText) {
   // ⚠️ A MISSING command is not evidence of anything. A truncated tmux line
   // gave `command: ''`, which fell through to "Claude is not running for this one"
@@ -1527,7 +1585,7 @@ function classify(pane, paneText) {
       evidence: authLine,
     };
   }
-  if (NEEDS_YOU_MARKERS.some((re) => re.test(tail))) {
+  if (asksSomething(tail)) {
     return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is asking you something' };
   }
   if (SPINNER.test(pane.title)) {
