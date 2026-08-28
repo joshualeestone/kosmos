@@ -11560,11 +11560,43 @@ async function tick() {
     loadRemoval(fresh.sessionName, { fromPoll: true });
   }
 
+      /**
+       * The banner FIRST, and deliberately outside the `INSTR_READY` guard
+       * below (#1237).
+       *
+       * 🛑 IT USED TO SIT INSIDE THAT GUARD, AND THAT IS WHY JOSH'S BANNER
+       * ONLY CLEARED ON A PAGE REFRESH (#1213, his fourth observation, which
+       * #1222 fixed the wrongness of but not the persistence of).
+       * `INSTR_READY` is latched OFF a few lines down on any answer carrying
+       * `editable === false`, which `server.js` returns for the ordinary
+       * transient case of a pane it cannot tie to an agent by name. Nothing in
+       * this poll ever sets it back: the only `INSTR_READY = true` is in
+       * `loadInstructions`, which `tick` never calls. So one blip froze the
+       * banner for the life of the open panel, and no later poll could clear
+       * it however many times the verdict went back to `current`. Reloading
+       * ran `loadInstructions`, which repaints unconditionally, and the alarm
+       * vanished with nothing about the state having changed.
+       *
+       * 🔑 THE TWO QUESTIONS ARE NOT THE SAME QUESTION. `INSTR_READY` means
+       * "the editor's text has loaded, so we know what is in the file" -- it
+       * gates Save, and the outdated-note and editor-refusal branches below,
+       * all of which reason about the text in the box. The banner reasons
+       * about the AGENT, from the poll's own payload, and needs nothing that
+       * was loaded. It was behind a guard that was never about it.
+       *
+       * ⚠️ `isNamedOurs` IS KEPT. A poll that cannot tie the pane to an agent
+       * should not repaint this at all: its verdict is the `unknown` arm, and
+       * painting that on a blip would trade a stuck banner for a flickering
+       * alarm. Skipping is safe here in a way it was not above, because the
+       * next ordinary poll repaints -- there is no latch left to hold it.
+       */
+      if (fresh && fresh.isNamedOurs === true) {
+        renderStale(fresh.instructions);
+      }
+
       // Not while a load is in flight or the file is one we refused: the note
       // then belongs to the load, not to the poll.
       if (fresh && fresh.isNamedOurs === true && INSTR_READY) {
-        renderStale(fresh.instructions);
-
         // ⚠️ And say so when the file has moved on from what the box holds.
         //
         // Re-dating the note without touching the textarea produced a screen
