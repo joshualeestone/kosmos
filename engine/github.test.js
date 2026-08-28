@@ -79,6 +79,6 @@ test('with gh absent, start refuses in one sentence and spawns nothing', async (
   let spawned = 0;
   github.setSpawner(() => { spawned += 1; return fakeChild(); });
   const s = await github.start();
-  assert.match(s.refused, /not on this Mac/);
+  assert.match(s.refused, /not on this computer/);
   assert.equal(spawned, 0);
 });

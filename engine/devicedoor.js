@@ -115,7 +115,7 @@ function start() {
       return;
     }
     const bin = ghBin();
-    if (!bin) { readState((s) => resolve({ ...s, refused: spec.toolName + ' is not on this Mac' })); return; }
+    if (!bin) { readState((s) => resolve({ ...s, refused: spec.toolName + ' is not on this computer' })); return; }
     mem = { phase: PHASE.STARTING, code: null, url: null, because: null, startedAt: new Date().toISOString() };
     const make = spawner || (() => spawn(bin, spec.loginArgs.concat(configArgs()),
       { env: childEnv(), stdio: ['ignore', 'pipe', 'pipe'] }));

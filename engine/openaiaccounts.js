@@ -180,7 +180,7 @@ function addWithKey({ key, label, codexBin }) {
     const clean = cleanLabel(label);
     if (!clean) return { ok: false, because: 'that is not a name we can use for an account' };
     spot = { label: clean, dir: path.join(HOME, `.codex-${clean}`) };
-    if (fs.existsSync(authFile(spot.dir))) return { ok: false, because: 'there is already an OpenAI account by that name on this Mac' };
+    if (fs.existsSync(authFile(spot.dir))) return { ok: false, because: 'there is already an OpenAI account by that name on this computer' };
   } else {
     spot = nextWorkDir();
     if (!spot) return { ok: false, because: 'we could not find a free spot for another account' };

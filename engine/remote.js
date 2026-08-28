@@ -398,9 +398,9 @@ async function forget() {
     ok: true,
     retired,
     address: was.address,
-    because: !was.enrolled ? 'this Mac was not set up for Plus, so there was nothing to retire'
+    because: !was.enrolled ? 'this computer was not set up for Plus, so there was nothing to retire'
       : retired ? null
-      : 'this Mac is forgotten here, but the coordinator could not be told (' + because + '); its address may still show on your account page until you remove it there',
+      : 'this computer is forgotten here, but the coordinator could not be told (' + because + '); its address may still show on your account page until you remove it there',
   };
 }
 
@@ -410,7 +410,7 @@ async function forget() {
  * unsigned and for a stranger key. Only an enrolled Mac can ask. */
 async function secondReset() {
   if (!enrolled()) {
-    return { ok: false, because: 'this Mac is not set up for Plus, so it cannot reset a second factor' };
+    return { ok: false, because: 'this computer is not set up for Plus, so it cannot reset a second factor' };
   }
   const r = await setupRun(['second', 'reset', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()]);
   if (!r.ok) return { ok: false, because: r.because };

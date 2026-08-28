@@ -189,9 +189,9 @@ async function preview(rec) {
   const out = path.join(rec.dir, 'preview.png');
   if (!fs.existsSync(out)) {
     const made = await renderPdf(rec.file, rec.dir, out);
-    if (!made) return { ok: false, because: 'this Mac could not draw the first page' };
+    if (!made) return { ok: false, because: 'this computer could not draw the first page' };
   }
-  try { return { ok: true, type: 'image/png', bytes: fs.readFileSync(out) }; } catch { return { ok: false, because: 'this Mac could not draw the first page' }; }
+  try { return { ok: true, type: 'image/png', bytes: fs.readFileSync(out) }; } catch { return { ok: false, because: 'this computer could not draw the first page' }; }
 }
 
 /** The sentence added to the wire so the agent can open the file(s): one

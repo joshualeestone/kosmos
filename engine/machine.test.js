@@ -1049,7 +1049,25 @@ test('labelTruthCheck: a registered Kosmos label pointing anywhere but its real 
    ⚠️ COMMENTS ARE LEFT ALONE ON PURPOSE, here and there. They quote Josh, cite
    old rulings, and rewriting the words inside a quotation falsifies the record.
    The count is over what a PERSON reads. */
-const OTHER_SPEAKING_FILES = ['web/index.html', 'engine/runners.js'];
+/* The files that say sentences to a PERSON. #1270 shipped this list with two
+   entries while its own title said "every live sentence", and the gap was not
+   theoretical: twelve live sentences in server.js and seven engine modules
+   still said "this Mac" afterwards, and this test was green the whole time.
+   ⚠️ A GUARD NARROWER THAN THE CLASS IT NAMES IS THE FAILURE IT WAS WRITTEN TO
+   PREVENT, arriving by a different door. It reports clean about the half it can
+   see, and its existence is what stops anyone looking again.
+   📌 install/, native-app/ and tools/ are DELIBERATELY ABSENT and carded
+   separately: the installer and the Mac app run only on macOS, so "this Mac" may
+   be correct there, and that is a judgement rather than a sweep.
+   📌 engine/defaults.js is absent for a different reason: its one live use is
+   agent instruction text about the macOS permission box that names "tmux", which
+   is macOS-specific in substance. Renaming it would not make it true on Windows,
+   it would make it a wrong sentence about a prompt that does not exist there. */
+const OTHER_SPEAKING_FILES = [
+  'web/index.html', 'engine/runners.js', 'server.js', 'engine/devicedoor.js',
+  'engine/remote.js', 'engine/create.js', 'engine/projects.js',
+  'engine/attachments.js', 'engine/openaiaccounts.js', 'engine/trust.js',
+];
 test('no live sentence in the other speaking files says "this Mac" either', () => {
   const fs2 = require('node:fs'); const path2 = require('node:path');
   const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, ' ')
@@ -1063,8 +1081,23 @@ test('no live sentence in the other speaking files says "this Mac" either', () =
        naming a file. A throw before the assertion looks exactly like a real
        finding and tells you nothing, which cost a round trip to notice. */
     const live = strip(fs2.readFileSync(path2.join(__dirname, '..', f), 'utf8'));
-    const n = (live.match(/this Mac/g) || []).length;
+    /* 🛑 CASE-INSENSITIVE, AND THAT IS NOT TIDINESS. The first version matched
+       `/this Mac/` only, so it could not see "This Mac" at the start of a
+       sentence -- which is exactly where prose puts it. One such sentence
+       survived #1270 in a JS-built string, said "This Mac keeps the key" beside
+       "kept in one file on this computer" on the same door, and BROKE THE 0.5.95
+       CUT at the page layer. A browser check reading the rendered DOM found it;
+       every source check reported clean. */
+    const n = (live.match(/[Tt]his Mac/g) || []).length;
     if (n) bad.push(`${f}: ${n}`);
+    /* 🔑 A FLOOR ON THE POPULATION, per file, the same rule the machine.js arm
+       below already keeps: a zero from a file that was renamed, moved or read
+       wrong is indistinguishable from a zero from a clean file. Every file in
+       this list speaks to a person, so every one of them must contain the
+       replacement phrase at least once. */
+    if (!/[Tt]his computer/.test(live)) {
+      bad.push(`${f}: says neither phrase, so this check did not look at a speaking file`);
+    }
   }
   assert.deepEqual(bad, [], 'these files still say "this Mac" to a person: ' + bad.join(', '));
 });

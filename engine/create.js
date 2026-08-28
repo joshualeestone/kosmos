@@ -2448,7 +2448,7 @@ function createAgentInner(opts) {
    both need the words; two spellings of one launch model drift the first time
    either is edited, which is this codebase's named worst habit. No trailing
    punctuation: each surface finishes its own sentence. */
-const SELF_STARTS = 'it starts itself when this Mac is on and it is not removed';
+const SELF_STARTS = 'it starts itself when this computer is on and it is not removed';
 
 module.exports = {
   MODELS,

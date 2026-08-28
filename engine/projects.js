@@ -1469,7 +1469,7 @@ function makeFolder(name) {
       // whether it is a permissions wall, said in ours.
       const denied = err && (err.code === 'EACCES' || err.code === 'EPERM');
       throw new Error(denied
-        ? 'we could not make a folder for this project: this Mac would not let us write there'
+        ? 'we could not make a folder for this project: this computer would not let us write there'
         : 'we could not make a folder for this project');
     }
   }
