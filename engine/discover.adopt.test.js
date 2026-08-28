@@ -365,3 +365,76 @@ test('#1363 CONTROL: importing twice does not duplicate the blocks', () => {
   assert.equal(again, once, 'the rules were appended a second time');
   assert.equal(countOnce, 1, `the connections block appears ${countOnce} times after one import`);
 });
+
+/**
+ * #1401: a FAILED Codex adoption left `provider: 'openai'` on the profile.
+ *
+ * 🛑 The provider is stamped BEFORE the job is written, and the rollback listed
+ * only two keys. `writeProfile` is a MERGE (`{ ...had, ...patch }`,
+ * engine/store.js:180), so **a merge cannot clear a key by omitting it** and the
+ * stamp survived. Measured before the fix: the profile read
+ * `provider: "openai"` with a null dir and a null displayName.
+ *
+ * ⇒ `server.js` derives a card's runner from `profile.provider`, so a REFUSED
+ * adoption could leave the board describing an agent that was never adopted, has
+ * no job, and will never start, as an OpenAI one.
+ */
+test('#1401: a refused adoption leaves no provider behind', () => {
+  const store = require('./store');
+  /* Refused for a reason that fires AFTER the stamp and before success: no
+     runner binary on this machine. The point is a failure late enough to have
+     stamped, which is the only shape that can leave residue. */
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = path.join(SANDBOX, 'bin', 'no-such-binary');
+  const prevCodex = process.env.AGENT_WORKFORCE_CODEX_BIN;
+  process.env.AGENT_WORKFORCE_CODEX_BIN = path.join(SANDBOX, 'bin', 'no-such-codex');
+  try {
+    const dir = agentFolder('refusedcodex', 'AGENTS.md', '# You are Refused Codex\n');
+    const r = discover.connect(dir);
+    assert.equal(r.ok, false, 'the adoption succeeded, so this test proves nothing about rollback');
+    const p = store.readProfile('refusedcodex') || {};
+    assert.ok(!p.provider,
+      `a refused adoption left provider=${JSON.stringify(p.provider)}: the board will call it an OpenAI agent`);
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    else process.env.AGENT_WORKFORCE_CLAUDE_BIN = prev;
+    if (prevCodex === undefined) delete process.env.AGENT_WORKFORCE_CODEX_BIN;
+    else process.env.AGENT_WORKFORCE_CODEX_BIN = prevCodex;
+  }
+});
+
+test('#1401 CONTROL: a SUCCESSFUL adoption still records the provider', () => {
+  /* Without this the fix is satisfied by never stamping at all, which would undo
+     #1351 and put the board back to calling adopted Codex agents Claude ones. */
+  const store = require('./store');
+  const dir = agentFolder('keptcodex', 'AGENTS.md', '# You are Kept Codex\n');
+  assert.equal(discover.connect(dir).ok, true);
+  assert.equal((store.readProfile('keptcodex') || {}).provider, 'openai',
+    'the successful path stopped recording the provider');
+});
+
+test('#1401: a pre-existing provider is RESTORED, not blanked', () => {
+  /* 🔑 THE ARM THAT PROVED MY COMMENT. A perturbation replacing
+     `before.provider || null` with a flat `null` SURVIVED, because every other
+     test here starts from a profile with no provider - so "restored" and
+     "blanked" were indistinguishable.
+
+     The reachable shape: an agent that was adopted before (so its profile carries
+     a provider) whose job was later removed by hand. A re-adoption that FAILS
+     must not strip the provider its earlier, successful adoption recorded. */
+  const store = require('./store');
+  const dir = agentFolder('readoptcodex', 'AGENTS.md', '# You are Readopt Codex\n');
+  store.writeProfile('readoptcodex', { provider: 'openai', displayName: 'Readopt Codex' });
+
+  const prev = process.env.AGENT_WORKFORCE_CODEX_BIN;
+  process.env.AGENT_WORKFORCE_CODEX_BIN = path.join(SANDBOX, 'bin', 'no-such-codex');
+  try {
+    const r = discover.connect(dir);
+    assert.equal(r.ok, false, 'the adoption succeeded, so this proves nothing about rollback');
+    assert.equal((store.readProfile('readoptcodex') || {}).provider, 'openai',
+      'a failed re-adoption ERASED the provider its earlier successful adoption had recorded');
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_CODEX_BIN;
+    else process.env.AGENT_WORKFORCE_CODEX_BIN = prev;
+  }
+});
