@@ -709,15 +709,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                  windowFeatures: WKWindowFeatures) -> WKWebView? {
         guard let url = navigationAction.request.url else {
             logLine("createWebViewWith: a target=_blank navigation carried no URL")
+            showLinkRefusedAlert(detail:
+                "A link on this page had no address behind it, so there was nothing to open.")
             return nil
         }
         let scheme = url.scheme?.lowercased() ?? ""
         guard scheme == "http" || scheme == "https" else {
             logLine("createWebViewWith: refused a non-web scheme, " + scheme)
+            showLinkRefusedAlert(detail:
+                "Kosmos only opens web links, and this one is a \(scheme) link, so it was not "
+                + "opened.\n\n\(url.absoluteString)")
             return nil
         }
         NSWorkspace.shared.open(url)
         return nil
+    }
+
+    /* 🛑 THE REFUSAL SPEAKS, AND THAT IS THE WHOLE POINT OF IT (Baron Draxum,
+       reviewing #1416).
+
+       A guard that drops a click SILENTLY is not a safer version of this bug,
+       IT IS THIS BUG. The defect being fixed here is "the person clicks and
+       nothing happens, with no error and no log line the person can see", and
+       a scheme guard whose only output is a log line reproduces that exactly,
+       for whoever meets it first.
+
+       ⚠️ Measured today: every link the app can reach is https, so nothing
+       hits this path now. That is precisely why it must speak: a branch that
+       nothing exercises is one nobody will think to check, and the FIRST
+       person to meet it would otherwise meet the original silence.
+
+       📌 The address is in the alert on purpose, so a person who wanted that
+       page can still get to it by copying the line, rather than being told
+       only that they cannot. */
+    private func showLinkRefusedAlert(detail: String) {
+        let alert = NSAlert()
+        alert.messageText = "Kosmos could not open that link"
+        alert.informativeText = detail
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
 
