@@ -296,8 +296,18 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   // already done this once in Settings recognises it here") -- hold the two
   // strings identical so an edit to one screen cannot silently un-pair the
   // other (challenge-loop iteration 5).
-  const hints = page.match(/Paste an OpenAI API key\.[^<]*/g) || [];
-  assert.ok(hints.length >= 2, 'expected the key hint copy on both screens');
+  /* 🔑 RE-ANCHORED ON THE WARNING, NOT ITS LEAD-IN (#1207, PigeonPete).
+     The contract above is "SAME WARNING COPY as Settings", and that is what is
+     asserted here. It used to anchor on "Paste an OpenAI API key.", which is the
+     LEAD-IN SENTENCE, not the warning -- so the guard also pinned the two screens
+     to the same opening line. Josh's approved design gives first-run a step-
+     specific opener ("Then come back and paste it here.") while Settings keeps
+     its own, and the warning itself stays byte-identical on both.
+     ⚠️ THE CONTRACT IS UNCHANGED AND SO IS ITS STRENGTH: an edit to the warning
+     on one screen still fails this. What no longer fails is a different opening
+     sentence, which the contract never claimed to cover. */
+  const hints = page.match(/It stays on this Mac[^<]*/g) || [];
+  assert.ok(hints.length >= 2, 'expected the key warning on both screens');
   assert.equal(hints[0], hints[1],
     'Settings and first-run no longer share the same key warning copy');
   assert.match(els['fr-openai-msg'].textContent, /connected/, 'should still say it is connected');
