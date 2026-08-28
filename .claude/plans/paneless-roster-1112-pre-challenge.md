@@ -31,7 +31,7 @@ never looked is the exact failure this fleet found six times today.
 
 ### WARNINGs
 
-- **engine/status.js:3160 (snapshot)** - A throw while building ONE paneless
+[WARNING] engine/status.js:3160 (snapshot) - A throw while building ONE paneless
   card would take down the entire board, including every Mac agent. Every read
   inside `panelessCard` is throw-safe by inspection (`store.readProfile` catches
   and returns `{}`, `safeAvatar` catches, `selfreport.read` and `liveness.read`
@@ -41,7 +41,7 @@ never looked is the exact failure this fleet found six times today.
   --> FIXED. Each card is built inside its own guard and a failing key is
   skipped.
 
-- **engine/status.js:3290 (countAgents)** - `unreadableTokens` was changed to
+[WARNING] engine/status.js:3290 (countAgents) - `unreadableTokens` was changed to
   exclude paneless rows and `unknownFullness` was not, so two readings of one
   absent context disagreed: the same board would say "we could not read it" and
   "there was nothing to read" about the same card. --> FIXED. Both exclude, and
@@ -49,7 +49,7 @@ never looked is the exact failure this fleet found six times today.
 
 ### CONVENTIONs
 
-- **engine/status.paneless-roster.test.js** - The card asks for the additive
+[CONVENTION] engine/status.paneless-roster.test.js - The card asks for the additive
   property to be "pinned in both directions: the new case works, the old case is
   untouched". The first version pinned the new case and three absences, and had
   no arm asserting a Mac-only board is unchanged. --> FIXED. Two tests added:
@@ -58,12 +58,12 @@ never looked is the exact failure this fleet found six times today.
 
 ### NITs
 
-- **engine/sendertoken.js keys()** - One `readdir` plus one read per token file
+[NIT] engine/sendertoken.js keys() - One `readdir` plus one read per token file
   on every `snapshot()`, which is a polling path. Bounded by agent count and the
   same order as the per-agent transcript reads already there. Recorded, not
   changed; if the board ever polls harder this is where to cache.
 
-- **engine/status.js panelessCard** - `runner: null` is a third value in a field
+[NIT] engine/status.js panelessCard - `runner: null` is a third value in a field
   that has only ever been `'claude'` or `'codex'`, and `web/index.html` reads a
   null runner as Anthropic. That is a display fallback inherited rather than a
   claim made, and what a Windows agent actually runs is a phase 2 question, but
@@ -71,7 +71,7 @@ never looked is the exact failure this fleet found six times today.
 
 ### Deliberately NOT fixed here, stated so it is not mistaken for missed
 
-- **Removal does not revoke the token.** `sendertoken.revoke` is called by
+[CONVENTION] engine/removal.js - Removal does not revoke the token. `sendertoken.revoke` is called by
   `engine/create.js` and `engine/delete-leftover.js` only, never by the removal
   path. So a removed agent's credential outlives the removal. For the board this
   is consistent rather than new: `safeRoster()` filters removed agents by
@@ -83,17 +83,17 @@ never looked is the exact failure this fleet found six times today.
 
 ### Strengths
 
-- `target: null` makes the safety property structural rather than enforced. The
+[STRENGTH] engine/status.js - `target: null` makes the safety property structural rather than enforced. The
   three consumers that type into or read a pane already guard `if
   (!card.target)`, so a paneless card takes a refusal path that already existed,
   and the refusal is a sentence a person can read. Nothing new had to be trusted.
-- Null and never `''`, for a measured reason: two routes match a reporting
+[STRENGTH] engine/status.js - Null and never `''`, for a measured reason: two routes match a reporting
   process with `c.target === body.from_pane` behind a `typeof ... === 'string'`
   gate, so `''` would be matched by `from_pane: ""`. Pinned by a test.
-- Every absence is asserted against a live control on the same board, so an
+[STRENGTH] engine/status.paneless-roster.test.js - Every absence is asserted against a live control on the same board, so an
   absence cannot come from a board that was empty for an unrelated reason, and
   the count exclusion asserts the count fires at all before asserting it did not
   move.
-- The fixture caught the first version reading a field the producer emits on
+[STRENGTH] test-support/fleet.js - The fixture caught the first version reading a field the producer emits on
   only some cards, which is why pane cards now answer `paneless: false`. The
   test harness found a real shape defect rather than agreeing with the author.
