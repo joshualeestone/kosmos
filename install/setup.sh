@@ -3089,6 +3089,46 @@ PLIST
   fi
   fi
 fi
+
+# ---- the last thing on screen is the thing you still have to do (#1334) -------
+#
+# 🛑 A REQUIRED ACTION PLACED BEFORE A SUCCESS LINE IS READ AS PART OF THE
+# SUCCESS. Observed on Josh's fresh Mac, 2026-08-28, on a DIFFERENT installer:
+# it printed "successfully installed", then the PATH instruction, then
+# "Installation complete!". He typed the command, got "command not found", and
+# asked whether he was missing something. The eye goes success to success and
+# the middle is read as decoration.
+#
+# ⚠️ OURS HAD A MILDER VERSION AND IT FIRED ON HIM TEN MINUTES LATER. We do the
+# better thing first -- we wire the profile ourselves rather than asking -- but
+# we said so about a thousand lines above here, and then finished on the
+# dashboard address. In the window he was standing in, `kosmos` did not work.
+#
+# ⭐ THIS FILE ALREADY KNOWS THE RULE AND APPLIES IT ELSEWHERE. The
+# printed-not-run banner is repeated at the bottom for exactly this reason, in
+# its own words: "the bottom of the scroll is where the reader actually is."
+# The PATH note simply never got the same treatment.
+#
+# 🔑 THE CONDITION IS MEASURED, NOT ASSUMED. Not "did we just wire it" -- that
+# is a proxy, and it is wrong in both directions: a profile wired by an earlier
+# install is not on this shell's PATH either, and a person whose PATH already
+# carries it does not need telling. Asking whether BIN_DIR is on PATH *in this
+# process* is the actual question, because this script runs from the user's
+# shell, so its PATH is the one they are about to type into.
+#
+# 📌 It is not an error and it does not say "warning". Nothing failed: the board
+# is running and the browser is open. The only thing wrong is that the person
+# would reasonably conclude the install broke, so this replaces that conclusion
+# rather than apologising for it.
+case ":$PATH:" in
+  *":$BIN_DIR:"*) ;;
+  *)
+    if [ -x "$BIN_DIR/kosmos" ]; then
+      printf '  One more thing: typing "kosmos" works in a NEW Terminal window.\n'
+      printf '  In this one, run:  export PATH="%s:$PATH"\n\n' "$BIN_DIR"
+    fi
+    ;;
+esac
 }
 
 main "$@"
