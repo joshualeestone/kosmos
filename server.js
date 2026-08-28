@@ -387,17 +387,23 @@ function whoamiFor(card, known, live) {
     /* Live first: the account is what the process is authenticated as, and a
        startup file can be stale after a migration (Baron was moved off
        josh@stuff.io while his file still said so). */
-    /* 🔑 ONE RULE FOR `isDefault`, SHARED WITH THE RECORD PATH. `runningAs` sets
+    /* 🔑 ONE RULE FOR `isDefault`, AND IT LIVES IN `accounts`. `runningAs` sets
        `configDir` UNCONDITIONALLY on a successful read - the env var when it
-       finds one, `~/.claude` synthesised when it does not - so hardcoding
+       finds one, the default synthesised when it does not - so hardcoding
        `false` here asserted "not the default account" about a directory that is
-       very often exactly the default. `accounts.configFile` already owns this
-       comparison (resolve, then compare against `HOME/.claude`), and using its
-       rule keeps one derivation rather than a second that disagrees. */
-    const isDefaultDir = (dir) => {
-      if (!dir) return null;
-      try { return path.resolve(String(dir)) === path.join(os.homedir(), '.claude'); } catch { return null; }
-    };
+       very often exactly the default.
+
+       🛑 MY FIRST FIX WROTE THE COMPARISON OUT HERE AGAINST BARE `os.homedir()`
+       AND CLAIMED IN THIS COMMENT THAT IT REUSED `accounts`. It did not, and the
+       two disagree: `accounts` resolves HOME as
+       `process.env.AGENT_WORKFORCE_HOME || os.homedir()`, the sandbox convention
+       28 files here rely on. Measured - with the override set, `accounts` says
+       the synthesised dir IS the default and my copy said it was not, for
+       exactly the directory `runningAs` had just synthesised AS the default.
+       ⇒ I introduced a second derivation of one fact while writing a comment
+       saying I had avoided one. The fix for that is to make the first callable,
+       not to write a third, so `isDefaultDir` is now exported from `accounts`. */
+    const isDefaultDir = accounts.isDefaultDir;
     if (seen && seen.account) {
       return {
         value: {
@@ -479,17 +485,19 @@ function whoamiFor(card, known, live) {
   };
 }
 
-function sentenceForWhoami(account, model, source) {
+function sentenceForWhoami(account, model) {
   const acct = account && account.email ? account.email
     : account && account.label ? account.label
       : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
         : null;
   const parts = [];
-  /* ⚠️ THE REASON MUST MATCH THE READER THAT FAILED. "we have no startup file"
-     is true of the record path and false of the live one, where a null account
-     means the directory the process is running with could not be identified.
-     A card about agents giving confident wrong answers must not ship a sentence
-     that is confidently wrong about HOW it failed. */
+  /* 📌 THIS USED TO BRANCH ON THE SOURCE so the reason would match the reader
+     that failed - "we have no startup file" is true of the record path and false
+     of the live one, and a card about confident wrong answers must not ship a
+     sentence that is confidently wrong about HOW it failed. The reasoning was
+     good and the branch was DEAD, which is why only the retraction below
+     survives: keeping the argument above it read as live guidance for behaviour
+     this file no longer has. */
   /* 🛑 ONE FORM, NOT TWO, AND THE SECOND ONE WAS DEAD. This used to branch on
      the source so the reason would match the reader that failed. A reviewer
      measured that the process form is UNREACHABLE: `runningAs` always sets
@@ -3953,7 +3961,7 @@ const server = http.createServer((req, res) => {
           source: seenLive.source,
           /* One sentence a person can read out, so an agent asked in plain
              words does not have to compose one and get it subtly wrong. */
-          because: sentenceForWhoami(account, model, seenLive.source),
+          because: sentenceForWhoami(account, model),
         });
       })
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read that request' }));

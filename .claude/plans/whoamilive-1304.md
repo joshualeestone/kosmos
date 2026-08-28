@@ -74,8 +74,16 @@ a model was chosen, so `{ok: true, account, model: null}` is the COMMON shape, a
 told agents "we cannot tell which model" about agents whose transcript says otherwise.
 
 **Four arms, not three.** account-only, model-only, no-live, and failed-live-that-still-carries-
-fields. A fifth was added later: both sources populated with different values, which is the
-only arm that can tell the precedence apart from an accident of empty fixtures.
+fields. Then a fifth for the MODEL precedence, and later a sixth for the ACCOUNT precedence:
+both sources populated with DIFFERENT values, which is the only shape that can tell "this
+source won" from "the other one was empty".
+
+🛑 **The fifth arm pinned the model's rule and I wrote that it pinned "the precedence".** It did
+not. Round 2 inverted the ACCOUNT precedence so the record beats the live reading and the whole
+suite stayed green - the identical defect, one field over. `acctOnly` runs before the fixture
+plist exists and passes `known = []`; `noLive` and `notOk` both pass `ok: false`. **No arm had
+both readers populated with different accounts.** ⭐ I applied the lesson to the field it was
+found on and did not ask whether its sibling had the same hole.
 
 ## What each review actually caught, since that is what a plan is for
 
@@ -96,3 +104,30 @@ against the CLI's `curl -m 15` means the live path can consume the client's enti
 a degraded `tmux` gives no answer rather than the record answer. The timeouts belong to
 `runningas` and every caller of it, so shrinking them from this route would be a product change
 smuggled into a wiring change.
+
+
+## Round 3, and two of its findings are about my round-2 fixes
+
+**The account precedence had the identical gap as the model.** Above.
+
+**`isDefaultDir` was the second derivation its own comment said it avoided.** I wrote that it
+reused `accounts.configFile`'s rule; it hand-rolled the comparison against bare `os.homedir()`,
+while `accounts` resolves HOME as `AGENT_WORKFORCE_HOME || os.homedir()` - the sandbox
+convention 28 files here rely on. Measured: with the override set, `accounts` calls the
+synthesised directory the default and my copy called it not-the-default, **for exactly the
+directory `runningAs` had just synthesised AS the default.**
+
+✅ **The fix for a second derivation is to make the first callable, not to write a third**, so
+`isDefaultDir` is now exported from `accounts` and `server.js` asks it.
+
+⚠️ **AND MY FIRST TEST FOR THAT WAS VACUOUS.** I guarded the arm on
+`process.env.AGENT_WORKFORCE_HOME`, which this suite never sets, so it was skipped and
+reverting the fix left 249/249 green. `accounts` resolves HOME once AT MODULE LOAD, so the
+divergence is not observable in this process at all. It is now driven in a CHILD PROCESS with
+the variable set before any require, carrying its own control that the two rules genuinely
+differ there. Verified: reverting the fix now fails.
+
+**Also:** the seeded transcript leaked into the route test below, which silently reported a
+model its stub could not have produced; an unreachable `else` asserted an email only another
+test's stub can make; `sentenceForWhoami` took a `source` it no longer reads; and a comment
+claimed a sibling test used a pattern it does not.

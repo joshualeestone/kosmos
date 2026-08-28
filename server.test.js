@@ -10726,16 +10726,19 @@ test('#1304: an agent asking what it runs on gets ONE answer shape, and an unkno
        and not the one that was asked. A fixture agent has no launch file, so
        the account is honestly null here, and the sentence has to SAY that
        rather than quietly describing the model instead. */
-    if (out.account === null) {
-      assert.match(out.because, /cannot tell which account/,
-        'an unknown account was smoothed over: ' + out.because);
-    } else {
-      /* The EMAIL, not just the phrase: `/runs on/` would also pass on a
-       record-sourced account, so it could not tell the live path from the
-       fallback - which is the only thing this test exists to establish. */
-    assert.match(out.because, /live@book\.io/,
-      'the live account did not reach the sentence a person reads back');
-    }
+    /* 🛑 NOT A BRANCH ANY MORE. This used to be `if (out.account === null) ... else ...`,
+       and the `else` was UNREACHABLE: the test stubs the live reader with
+       `ok: false`, and the fixture has no launchd job, so a non-null account is
+       impossible here by construction. Worse, the `else` asserted an email that
+       only the OTHER test's stub produces, so the day it became reachable it
+       would have failed.
+       ⭐ A tolerated either-or is how this test silently changed subject once
+       already: it used to accept both outcomes, which is why nobody noticed it
+       was reaching the real machine's tmux. One expected outcome, asserted. */
+    assert.equal(out.account, null,
+      'this fixture cannot know an account, so the test is no longer exercising what it claims');
+    assert.match(out.because, /cannot tell which account/,
+      'an unknown account was smoothed over: ' + out.because);
   } finally {
     server.setLiveReader(null);
     messagesEngine.setRunner(null);
@@ -10760,8 +10763,11 @@ test('#1304: each field takes the best source that has it, and neither hard-null
      refuses hand-built cards, and it refused mine, correctly. */
   /* 🛑 INSIDE THE `try`, INCLUDING THE INSTALL AND THE CARD ASSERT. They used to
      sit outside it, so a failure of that assert skipped `fleet.restore()` and
-     left the pane seam stubbed for every test after this one in the file. The
-     sibling test at the top of this block already does it this way. */
+     left the pane seam stubbed for every test after this one in the file.
+     ⚠️ NOT a pattern I am matching, which an earlier version of this comment
+     claimed: the sibling above puts only its card assert inside the try, and
+     tests 1 and 3 both still install outside it. This is a new pattern here,
+     and the other two are worth the same treatment when somebody touches them. */
   let board;
   let fixtureJob = null;
   const known = [];
@@ -10812,6 +10818,36 @@ test('#1304: each field takes the best source that has it, and neither hard-null
     });
     assert.equal(atDefault.account.isDefault, true,
       'the default config dir was reported as not the default');
+    /* 🛑 AND THE SANDBOX-SEAM DIVERGENCE, WHICH CANNOT BE TESTED IN THIS PROCESS
+       AND WHOSE FIRST VERSION WAS VACUOUS. `accounts` resolves HOME once, AT
+       MODULE LOAD, as `AGENT_WORKFORCE_HOME || os.homedir()`. My first attempt
+       guarded on `process.env.AGENT_WORKFORCE_HOME` - which this suite never
+       sets - so the whole arm was skipped and reverting the fix left 249/249
+       green. An arm that cannot run is an assertion a broken implementation
+       satisfies, which is the exact defect the rest of this test exists to close.
+       ⇒ Driven in a CHILD PROCESS with the variable set before any require, so
+       the two derivations can actually disagree. */
+    const seamProbe = require('node:child_process').spawnSync(process.execPath, ['-e', `
+      const os = require('node:os'), path = require('node:path');
+      const accounts = require(${JSON.stringify(process.cwd())} + '/engine/accounts.js');
+      const dir = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
+      const bare = path.resolve(dir) === path.join(os.homedir(), '.claude');
+      process.stdout.write(JSON.stringify({ shared: accounts.isDefaultDir(dir), bare }));
+    `], { env: { ...process.env, AGENT_WORKFORCE_HOME: nodePath.join(os.tmpdir(), 'aw-seam-probe') }, encoding: 'utf8' });
+    assert.equal(seamProbe.status, 0, `the seam probe did not run: ${seamProbe.stderr}`);
+    const seam = JSON.parse(seamProbe.stdout);
+    /* THE CONTROL: the two rules genuinely differ here, so an implementation
+       picking the wrong one is detectable. If this ever stops being true the
+       assertion below is no longer evidence and should be deleted, not kept. */
+    assert.equal(seam.bare, false, 'the bare-homedir rule agrees with accounts here, so this proves nothing');
+    assert.equal(seam.shared, true,
+      'accounts no longer treats AGENT_WORKFORCE_HOME as the home for this comparison');
+    /* AND THE ONE DERIVATION: server.js must ask `accounts`, not re-derive it.
+       Structural on purpose - the divergence only shows in a process whose HOME
+       differs, so no in-process behavioural arm can catch it. */
+    assert.match(require('node:fs').readFileSync('server.js', 'utf8'),
+      /const isDefaultDir = accounts\.isDefaultDir;/,
+      'whoami re-derives the default-directory rule instead of asking accounts');
 
     /* THE OTHER ARM: an agent the live reader cannot see at all.
        🛑 AND THE RECORD MUST ACTUALLY ANSWER HERE. My first version passed
@@ -10855,6 +10891,25 @@ test('#1304: each field takes the best source that has it, and neither hard-null
     assert.equal(notOk.source.account, 'record', 'a failed live reading was believed');
     assert.notEqual(notOk.account.email, 'wrong@example.com', 'a failed live reading was believed');
 
+    /* 🛑 AND THE ACCOUNT PRECEDENCE, WHICH HAD THE SAME GAP AS THE MODEL AND I
+       DID NOT THINK TO CHECK. Round 2 inverted it so the record beats the live
+       reading and the WHOLE SUITE STAYED GREEN.
+
+       Why no existing arm could catch it: `acctOnly` runs before the fixture
+       plist exists and passes `known = []`, so the record cannot answer;
+       `noLive` and `notOk` both pass `ok: false`, so the live reader cannot.
+       ⇒ NO ARM HAD BOTH READERS POPULATED WITH DIFFERENT ACCOUNTS, which is the
+       only condition that separates "live won" from "the other one was empty".
+
+       ⭐ Identical in shape to the model gap fixed one round earlier. The lesson
+       was applied to one field and not to its sibling. */
+    const bothAcct = whoamiFor(card, recorded, {
+      ok: true, account: 'live@book.io', model: null, configDir: '/d',
+    });
+    assert.equal(bothAcct.account.email, 'live@book.io',
+      'the record beat the live account; a migrated agent keeps reciting its old one');
+    assert.equal(bothAcct.source.account, 'process');
+
     /* 🛑 THE PRECEDENCE ITSELF, WHICH IS THE WHOLE POINT OF THIS CHANGE AND WAS
        PINNED BY NOTHING. A reviewer swapped the two model branches so the live
        launch argument wins over the transcript, and the ENTIRE SUITE STAYED
@@ -10884,6 +10939,19 @@ test('#1304: each field takes the best source that has it, and neither hard-null
 
   } finally {
     if (fixtureJob) { try { fs.rmSync(fixtureJob, { force: true }); } catch { /* nothing to undo */ } }
+    /* ⚠️ AND THE SEEDED TRANSCRIPT, which I left behind. `seedTranscript` writes a
+       registry entry and a transcript for this agent name, and the ROUTE test
+       below then silently read them: its stub returns `model: null`, so its
+       intended shape is "neither reader answered", and it was actually reporting
+       a transcript this test seeded. The verdict happened to match, so nothing
+       went red - a test exercising a different path than its comment describes,
+       which is the same defect as an assertion that cannot fail.
+       ⭐ I reasoned carefully about ordering INSIDE this test and not ACROSS the
+       file. */
+    try {
+      fs.rmSync(nodePath.join(CONFIG_ROOT, 'agent-registry', 'acctworker-discord_0.0.json'), { force: true });
+      fs.rmSync(nodePath.join(CONFIG_ROOT, 'projects', 'seeded', 'sess-acctworker.jsonl'), { force: true });
+    } catch { /* nothing to undo */ }
     /* In a finally, so the arms below a mid-test restore cannot run against a
        different environment than the arms above it. */
     fleet.restore();
