@@ -2609,6 +2609,10 @@ module.exports = {
   setAccount,
   setProvider,
   readJob,
+  /* Exported for the sandbox guards in the adopt tests: a test that writes
+     a codex trust entry must be able to ASK where that write will land, rather
+     than infer it from which env vars it happens to have set (#1359). */
+  codexHomeDir,
   createAgent,
   binPaths,
   unusablePath,

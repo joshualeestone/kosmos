@@ -23,11 +23,19 @@ process.env.AGENT_WORKFORCE_CLAUDE_BIN = path.join(SANDBOX, 'bin', 'claude');
    this one was not, so `resolveBin('openai')` fell through the env override to
    the vendor path and found the operator's real Homebrew codex. (`'openai'`:
    `resolveBin('codex')` returns `{bin: null}` and could not have found
-   anything, as the guard below says at length.) Measured:
-   with `AGENT_WORKFORCE_CODEX_BIN=/nonexistent/codex` four tests in this file
-   FAIL; unset they all pass. ⇒ every green here was partly a statement about
-   this Mac. A runner without codex installed would have failed them, and where
-   they passed they were exercising a real binary rather than the stub. */
+   anything, as the guard below says at length.)
+
+   ⇒ Every green in this file was partly a statement about this Mac: a runner
+   without codex installed would have failed, and where it passed it was naming
+   a real binary rather than the stub.
+
+   📌 MEASURED ON THIS BASE, and the earlier figure in this comment was stale.
+   It said "four tests FAIL" with the seam pointed at nothing; that was true
+   before the guard below gained its runner-binary rows, and I did not re-measure
+   after a rebase. Current behaviour with `AGENT_WORKFORCE_CODEX_BIN` pointed at
+   an absent path: the guard REFUSES AT MODULE LOAD - 1 test, 1 fail, nothing
+   else runs - which is the contract it states. ⭐ Refusing before any work is
+   the improvement; a count of failing tests means work already happened. */
 process.env.AGENT_WORKFORCE_CODEX_BIN = path.join(SANDBOX, 'bin', 'codex');
 for (const d of ['workers', 'LaunchAgents', 'home/.codex', 'support', 'bin']) {
   fs.mkdirSync(path.join(SANDBOX, d), { recursive: true });
@@ -123,6 +131,18 @@ const outsideSandbox = [
   ['AGENT_WORKFORCE_LAUNCH (engine/create.js)', create.plistPath('sandboxprobe')],
   ['AGENT_WORKFORCE_CODEX_BIN (engine/runners.js)', require('./runners').resolveBin('openai').bin],
   ['AGENT_WORKFORCE_CLAUDE_BIN (engine/runners.js)', require('./runners').resolveBin('claude').bin],
+  /* 🛑 THE CODEX HOME, AND ITS ABSENCE LET THIS FILE WRITE TO A REAL ONE. Removing
+     the AGENT_WORKFORCE_HOME seam did NOT trip this guard: `codexHomeDir()` reads
+     that variable at CALL time, and the CLAUDE_BIN row still resolved inside the
+     sandbox because it has its own override. Measured with HOME pointed at a
+     stand-in: the guard stayed SILENT while ELEVEN `trust_level = "trusted"`
+     entries were appended to `<home>/.codex/config.toml`, and one assertion
+     noticed afterwards. ⇒ The guard refused AFTER the writes rather than instead
+     of them, which is the opposite of what its own contract says.
+     ⭐ Asked of `create` rather than inferred from which variables are set: the
+     resolution has two env vars and a fallback, and a guard that re-derives that
+     is a second derivation of the thing it is guarding. */
+  ['AGENT_WORKFORCE_HOME / _CODEX_HOME (engine/create.js codexHomeDir)', create.codexHomeDir()],
 ].filter(([, resolved]) => !String(resolved).startsWith(SANDBOX));
 if (outsideSandbox.length) {
   throw new Error(
@@ -278,7 +298,45 @@ test('#1159 CONTROL: a CLAUDE agent is still refused when Claude is missing', ()
     const dir = agentFolder('scoutneedsclaude', 'CLAUDE.md', '# You are Scout NeedsClaude\n');
     const r = discover.connect(dir);
     assert.equal(r.ok, false, 'a Claude agent was adopted with no Claude on the machine');
+    /* 🛑 AND THE ROLLBACK, WHICH NOTHING ASSERTED. This is the only test in the
+       repo that reaches a FAILED `installJob`, and it checked `ok === false` and
+       stopped. Deleting the `store.writeProfile` rollback in `discover.js`
+       passed all 2806 tests while leaving a profile that claims an agent lives
+       in that folder - the exact state the rollback's own comment says it
+       exists to prevent. */
+    const left = store.readProfile('scoutneedsclaude');
+    assert.ok(!left || !left.dir,
+      'a refused adoption left a profile behind claiming the agent was adopted');
   } finally { process.env.AGENT_WORKFORCE_CLAUDE_BIN = prev; }
+});
+
+test('#1159 CONTROL: a CODEX agent is refused when Codex is missing, and nothing is written', () => {
+  /* 🛑 THE MIRROR OF THE TEST ABOVE, AND IT DID NOT EXIST. Measured: adding
+     `runner !== 'codex'` to `installJob`'s existence gate left the FULL suite
+     green - 2806 pass - while writing a launchd job pointing at a binary that
+     is not there.
+
+     ⚠️ That is not a cosmetic gap. `bin/agent-supervisor.sh` describes the
+     outcome: KeepAlive respawns the job every thirty seconds forever, and the
+     board shows the agent down with nothing saying why. On Josh's "OpenAI,
+     pre-existing agents" machine - the cell this whole adoption path exists
+     for - that is what a missing codex would have produced.
+
+     ⭐ This is testable in this file for the first time BECAUSE this branch
+     added the AGENT_WORKFORCE_CODEX_BIN seam. The claude-side control has been
+     here since #1159 with no codex counterpart; the audit that added the seam
+     should have added the mirror, and did not. */
+  const prev = process.env.AGENT_WORKFORCE_CODEX_BIN;
+  process.env.AGENT_WORKFORCE_CODEX_BIN = path.join(SANDBOX, 'bin', 'no-codex-here');
+  try {
+    const dir = agentFolder('scoutneedscodex', 'AGENTS.md', '# You are Scout NeedsCodex\n');
+    const r = discover.connect(dir);
+    assert.equal(r.ok, false, 'a Codex agent was adopted with no Codex on the machine');
+    assert.equal(fs.existsSync(create.plistPath('scoutneedscodex')), false,
+      'a job was written pointing at a binary that is not there, so launchd would respawn it forever');
+    const left = store.readProfile('scoutneedscodex');
+    assert.ok(!left || !left.dir, 'a refused codex adoption left a profile behind');
+  } finally { process.env.AGENT_WORKFORCE_CODEX_BIN = prev; }
 });
 
 test('#1159: adoption records the PROVIDER, not only the job', () => {

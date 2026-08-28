@@ -178,3 +178,49 @@ The call that found the Homebrew codex is `resolveBin('openai')` - **and my own 
 eighty-five lines below says so at length.** One file, two comments, one of them impossible.
 
 **Full suite on the rebased base: 2806 pass, 0 fail, exit 0.**
+
+
+## Round 3 under the new rule: three surviving mutations, all now dead
+
+**1. The collecting guard was blind to `AGENT_WORKFORCE_HOME`, and its removal wrote to the
+operator's REAL `~/.codex`.** `codexHomeDir()` reads that variable at call time, and the
+`CLAUDE_BIN` row still resolved inside the sandbox because it has its own override, so the guard
+stayed **silent** while **eleven `trust_level = "trusted"` entries** were appended to a real
+config, with one assertion noticing afterwards.
+
+🛑 **The guard refused AFTER the writes rather than instead of them**, which is the opposite of
+its own stated contract ("a test that cannot isolate itself must not run at all"). ⭐ **My audit
+of that list is what added the runner-binary rows, and it stopped one seam short.**
+
+✅ Closed by exporting `codexHomeDir` from `create` and asking it, rather than re-deriving a
+resolution that has two env vars and a fallback. Negative control run: the guard now names
+`/Users/agent1/.codex` and refuses before any test executes.
+
+**2. `installJob`'s missing-runner gate had no codex arm.** Adding `runner !== 'codex'` left the
+full suite green while writing a launchd job pointing at a binary that is not there.
+`bin/agent-supervisor.sh` describes that outcome: KeepAlive respawns it every thirty seconds
+forever and the board shows the agent down with nothing saying why - **on the exact machine this
+adoption path exists for.** The claude-side control has existed since #1159 with no codex mirror,
+and this branch's seam is what made the mirror possible.
+
+**3. The failed-adoption rollback was uncovered.** Deleting it passed all 2806 tests while
+leaving a profile claiming an agent lives in that folder. The only test reaching a failed
+`installJob` asserted `ok === false` and stopped.
+
+### ⚠️ And I mutated the wrong function first, which nearly produced a false all-clear
+
+`  if (!DRY_RUN && !fs.existsSync(runnerBin)) {` appears **TWICE** in `create.js` - once in
+`setProvider` (line 700) and once in `installJob` (line 1394). A `.replace(old, new, 1)` hit the
+first. **The suite stayed green and I was one step from reporting "the reviewer's finding does
+not reproduce".**
+
+⭐ **What caught it was printing the anchor COUNT before replacing.** A mutation that silently
+lands somewhere else is indistinguishable from a mutation the tests survive, and both look like
+good news. ✅ **Print the count, and diff the file, before trusting a mutation result.**
+
+### Stale numbers, re-measured
+
+A comment claimed "four tests FAIL with the seam pointed at nothing". True before the guard
+gained its runner rows; I did not re-measure after the rebase. **Current: the guard refuses at
+module load, 1 test, 1 fail, nothing else runs.** Refusing before any work is the improvement -
+a count of failing tests means work already happened.
