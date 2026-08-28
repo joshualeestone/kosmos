@@ -24209,6 +24209,16 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
   if (pjDescTooLong(document.getElementById('pjs-desc').value)) {
     pjFieldBad('pjs-desc', 'pjs-desc-err',
       'That description is longer than ' + PJ_DESC_MAX + ' characters. Shorten it and save again.');
+    /* 🔑 AND A LINE AT THE BUTTON TOO, which is Baron Draxum's correction to my
+       first version of this and he is right. His test: AT THE MOMENT THE PERSON
+       ACTS, CAN THEY SEE THE THING THAT TELLS THEM WHAT HAPPENED? Focusing the
+       field moves the person to the reason, which answers it when the scroll
+       lands. When it does not -- a short form, a browser that ignores the
+       scroll, a field already in view above the fold -- the button they just
+       pressed said NOTHING, which is the same silence this card is about,
+       one layer along. The specific reason stays at the field; this is only a
+       pointer, so the two cannot disagree. */
+    msg.textContent = 'Nothing saved. There is something to fix above.';
     return;
   }
   btn.disabled = true;
@@ -24234,6 +24244,7 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
          above, applied to the cases only the engine can know about. */
       if (got.error && /description/i.test(got.error)) {
         pjFieldBad('pjs-desc', 'pjs-desc-err', pjSentence(got.error) || String(got.error));
+        msg.textContent = 'Nothing saved. There is something to fix above.';
         return;
       }
       msg.textContent = got.error || 'we could not save that';
@@ -27842,6 +27853,8 @@ document.getElementById('pj-create').addEventListener('click', async () => {
   if (pjDescTooLong(document.getElementById('pj-add-desc').value)) {
     pjFieldBad('pj-add-desc', 'pj-add-desc-err',
       'That description is longer than ' + PJ_DESC_MAX + ' characters. Shorten it and try again.');
+    // Same pointer as the settings save, for the same reason. See there.
+    msg.textContent = 'Nothing added. There is something to fix above.';
     return;
   }
   // ⚠️ The old requirement, kept EXACTLY where it still applies and nowhere
@@ -27886,6 +27899,7 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     // one place still pasting a lowercase clause in as a whole sentence.
     if (err && err.message && /description/i.test(err.message)) {
       pjFieldBad('pj-add-desc', 'pj-add-desc-err', pjSentence(err.message) || String(err.message));
+      msg.textContent = 'Nothing added. There is something to fix above.';
     } else {
       msg.textContent = pjSentence(err.message) || 'We could not add that project.';
     }

@@ -119,3 +119,40 @@ test('both handlers check before sending, and route the engine refusal to the fi
   assert.match(create.slice(0, 4000), /\/description\/i\.test\(err\.message\)/,
     'a description refusal on create still lands under the button');
 });
+
+/**
+ * ⭐ BARON DRAXUM'S TEST, applied to my own first version of this fix, which
+ * failed it: AT THE MOMENT THE PERSON ACTS, CAN THEY SEE THE THING THAT TELLS
+ * THEM WHAT HAPPENED?
+ *
+ * Focusing the field moves the person to the reason, which answers it when the
+ * scroll lands. When it does not -- a short form, a browser that ignores the
+ * scroll, a field already above the fold -- the button they just pressed said
+ * NOTHING. That is this card's own silence, one layer along.
+ */
+test('the button they pressed never goes silent, on any of the four refusal paths', () => {
+  const paths = [
+    ["getElementById('pjs-save').addEventListener", 'Nothing saved.'],
+    ["getElementById('pj-create').addEventListener", 'Nothing added.'],
+  ];
+  for (const [anchor, expected] of paths) {
+    const at = PAGE.indexOf(anchor);
+    assert.notEqual(at, -1, anchor + ' is gone');
+    const body = PAGE.slice(at, at + 5000);
+    const pointers = (body.match(/There is something to fix above\./g) || []).length;
+    assert.equal(pointers, 2,
+      anchor + ': both the pre-check and the engine-refusal path must say something at the button');
+    assert.ok(body.includes(expected), anchor + ' lost its "' + expected + '" wording');
+  }
+});
+
+test('the pointer never carries the reason, so the two cannot disagree', () => {
+  /* The specific reason lives at the field. If the button line also spelled it
+     out, they would be two copies of one fact and would drift. */
+  const pointers = PAGE.match(/'Nothing (saved|added)\. There is something to fix above\.'/g) || [];
+  assert.equal(pointers.length, 4, 'the four pointer sites changed shape');
+  for (const p of pointers) {
+    assert.doesNotMatch(p, /\d/, 'the pointer names a number, which is a second copy of the cap');
+    assert.doesNotMatch(p, /description/i, 'the pointer names the field, which is a second copy of the reason');
+  }
+});
