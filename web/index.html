@@ -2721,7 +2721,14 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      inset), so scrolled rows cannot peek through side strips beside the
      pinned header. */
   html[data-layout="consolidated"] body.consolidated #rail-projects { position: sticky; top: 0; z-index: 4; background: var(--k-side, #f3f1ec);
-    margin: 0 -8px 6px; padding: 2px 10px 4px; }
+    /* 🔑 `padding-top: 6px` MATCHES THE AGENTS HEAD (kosmos#1303 A item 2). Josh:
+       "agents, projects and tasks are not on the same baseline. Let's make all
+       their baselines match agents."
+       MEASURED, and the arithmetic is exact rather than a nudge:
+           agents    45 + 6 (head padding) + 4.5 (centring in the 22px lead) = 55.5
+           projects  45 + 2 + 4.5 = 51.5      <- the padding was 2, not 6
+       ⇒ Four pixels, and it was the head's own padding the whole time. */
+    margin: 0 -8px 6px; padding: 6px 10px 4px; }
   /* #867 (Josh, 2026-08-25 11:02): "push the title all the way up so
      it's flush with projects and project members" -- measured 8px low
      against #rail-agents, traced to #pj-list-view's own top padding
@@ -3047,7 +3054,18 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files,
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members {
     margin-left: 0; margin-right: 0; padding-left: 12px; padding-right: 12px; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin-top: 12px; }
+  /* 🔑 AND THE TASKS COLUMN COMES UP TO MEET THEM (kosmos#1303 A item 2).
+     MEASURED: this margin put the aside at 45 + 12 = 57, and its label 6px inside
+     that at 63, against the rails' 55.5. The label lands with the others at
+     45 + 4.5 + 6 = 55.5, so the margin is 4.5 rather than 12.
+     ⚠️ IT IS 3.5 AND NOT 4.5, AND THE LAST PIXEL IS THE POINT. 4.5 is the rails'
+     own centring (a 13px label in a 22px lead), and it left Tasks exactly 1px
+     low, because the Tasks label has `line-height: 16px` where the rail names
+     have `normal` -- so the same box top puts the glyphs in slightly different
+     places. The extra pixel is that difference, measured rather than reasoned.
+     📌 Corrected here rather than by changing the label's line-height, which
+     would resize its box and move the list under it. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin-top: 3.5px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .dlab { font-size: .6875rem; letter-spacing: .1em; margin-bottom: 8px; }
   /* #980 (iteration 5): the composer strip repaints to the column's own
      ground -- .pjmid left --k-surface for --k-bg, and the sticky composer
