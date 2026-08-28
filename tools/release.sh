@@ -290,7 +290,7 @@ DEPLOYED=0
 # uncommitted at the new version, and the pair that made cut 5 refuse).
 trap '_rc=$?; cut_record_done "$_rc"; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
 REPO="$BUILD"
-echo "   building ${SHA:0:12} in $BUILD; a pull into $MAIN_REPO from now on changes nothing below"
+release_freeze_notice "$SHA" "$BUILD"
 
 step "== 3. the whole suite, on the tree that ships =="
 # ⚠️ CORRECTED CLAIM: the old `yarn test | grep` gate DID refuse a red
