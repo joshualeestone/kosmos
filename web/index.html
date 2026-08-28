@@ -4893,6 +4893,21 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   background: rgba(179,38,30,.13); border-color: rgba(179,38,30,.45); color: #b3261e; }
 #firstrun .fr-ctitle { font-size: 1rem; font-weight: 600; margin-bottom: 2px; color: var(--k-ink); }
 #firstrun .fr-cdetail { font-size: .875rem; color: var(--k-ink-2); line-height: 1.5; }
+/* 🛑 THE ONLY `<a class="btn">` IN THIS FILE, AND THAT IS THE BUG (#1209).
+   `.btn` sets padding and no `display`. A `<button>` is `inline-block` by
+   default so its padding pushes neighbours apart; an `<a>` is plain `inline`,
+   and vertical padding on an inline box DOES NOT push the line above away --
+   it OVERLAPS it. Josh photographed "Browser did not open?" with the button's
+   box riding up over it.
+   ⚠️ Not fixed by giving `.btn` a base `display`, which would touch every
+   button in the app for one caller's benefit. Fixed at the container: flex
+   BLOCKIFIES its children, so the anchor's padding starts behaving, and
+   `space-between` puts the button on the right, which is what Josh asked for.
+   📌 `:empty` because `frConnPaintUrl` clears this box to '' when there is no
+   URL yet; a flex container with a gap and no children must not reserve room. */
+#firstrun #fr-conn-url { display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-4); flex-wrap: wrap; margin-top: var(--space-4); }
+#firstrun #fr-conn-url:empty { display: none; }
 /* ⚠️ The pack's card is SINGLE-LOOK (white card, warm ground) in both
    schemes, so every element inside must take its ink from the pack palette,
    never from the app's scheme-aware tokens -- a dark-mode token on this
