@@ -48,7 +48,21 @@ test('the picker sits at the top of Styles with two tiles, tabs checked in the m
   assert.match(sec, /id="layout-field"/, 'the picker is not in Styles, above the theme');
   assert.match(sec, /role="radio" aria-checked="true" data-layout-pick="tabs"/);
   assert.match(sec, /role="radio" aria-checked="false" data-layout-pick="consolidated"/);
-  assert.match(sec, /Needs a window at least 960 pixels wide; the side columns fold to icons as it narrows, and narrower than 960, the tabs come back\./);
+  /* 🔑 REWRITTEN FOR kosmos#1216. This pinned the tile description VERBATIM,
+     which was the vehicle. The PROPERTY is that the 960px constraint reaches the
+     person somewhere, and Josh asked for the descriptions gone: "I don't want any
+     descriptive text underneath."
+     🛑 THAT SENTENCE WAS LOAD-BEARING AND THE OBVIOUS DELETION LOSES IT. It was
+     one of only two places the width was ever stated; the other opened with
+     "Saved." and would have gone with the success chatter he also asked to
+     remove. Both deleted, and a person picks Consolidated on a laptop, gets a
+     folded layout, and is told nothing.
+     ⇒ It now lives on the Activate press, where it applies. This asserts the
+     FACT survives and is attached to that press, not any particular wording. */
+  assert.match(PAGE, new RegExp('narrower than \' \\+ CONSOLIDATED_MIN_WIDTH \\+ \' pixels'),
+    'the 960px constraint is no longer stated anywhere a person can read it');
+  assert.match(PAGE, /layout-activate'\)\.addEventListener[\s\S]{0,1600}CONSOLIDATED_MIN_WIDTH/,
+    'the width warning is not reachable from the Activate press, so it fires nowhere the person will be');
   assert.equal((PAGE.match(/data-layout-pick="/g) || []).length, 2);
 });
 
