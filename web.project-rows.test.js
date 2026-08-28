@@ -66,7 +66,14 @@ test('the list row truncates a long title or description instead of wrapping it,
 test('the grid tile stacks and centers title, then a status bubble, then the agent icons with the count beneath, and drops the description', () => {
   assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pjcard-h \{ display: contents; \}/,
     'the grid tile no longer dissolves pjcard-h, so title and status cannot be ordered independently');
-  assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pjname \{ order: 1; justify-content: center; \}/);
+  /* 🛑 NO CLOSING-BRACE ANCHOR (#1413). This asserted `... center; \}`, so the rule
+     had to END there, and #1413 legitimately added `max-width: 100%` to stop a long
+     project name widening the grid tile. The page was right and the test went red.
+     ⇒ WHAT THIS TEST PROMISES is the STACKING ORDER and the CENTRING. A further
+     property is not a violation of that promise, so it must not be a failure.
+     ⭐ The tolerant idiom was already three lines below, on .pjpill (`[^}]*`),
+     written by the same hand in the same sitting. */
+  assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pjname \{ order: 1; justify-content: center;/);
   assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pjpill \{ order: 2;[^}]*border-radius: 100px;/,
     'the status pill lost its bubble shape (border-radius: 100px)');
   assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pc-t \{ display: none; \}/,
