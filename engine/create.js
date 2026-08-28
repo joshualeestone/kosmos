@@ -704,7 +704,47 @@ function setProvider(name, provider, opts) {
         : 'we could not find Claude on this computer, so nothing was changed',
     };
   }
+  /**
+   * 🛑 THE SWITCH NEVER LOOKED WHETHER ANYBODY IS SIGNED IN, AND CREATION
+   * ALWAYS DID (#1211). Two paths reach the same state, one checked and one
+   * did not, so the unchecked one could report "OpenAI it is. Everything it
+   * knows and everything it has done stays." and then restart the agent onto a
+   * runner that cannot authenticate. Josh, 2026-08-27 20:47: *"my impression
+   * is that switching them does not actually work and the agent does not
+   * respond"*, and he had reported the same thing on 08-25.
+   *
+   * 🔑 THE FAILURE IS MACHINE-DEPENDENT, WHICH IS WHY IT READS AS FLAKY. On a
+   * computer whose default codex home is signed in, the switch works and
+   * always did. On one where it is not, the switch succeeds, says so, and
+   * leaves a dead agent. Nothing on screen distinguishes the two.
+   *
+   * ⚠️ THE SWITCH CARRIES NO ACCOUNT, so the home is always the DEFAULT one.
+   * That is the existing v1 boundary (a Claude account means nothing to codex)
+   * and is not changed here; what changes is that the default home is now
+   * checked before an agent is handed to it, and named in the answer so a
+   * person knows which sign-in their agent landed on.
+   *
+   * 📌 The check is `identityOf`, the same read `list()` and the create path's
+   * account lookup already use, rather than a second opinion about what
+   * "signed in" means. `engine/create.test.js`'s own guard against three
+   * copies of one validation exists for exactly this class and did not catch
+   * it, because it compares the NAME check across the three setters and this
+   * is the ACCOUNT check.
+   */
+  let openaiAccount = null;
   if (runner === 'codex' && !DRY_RUN) {
+    const openai = require('./openaiaccounts');
+    const home = openai.defaultDir();
+    const who = openai.identityOf(home);
+    if (!who) {
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: 'nobody is signed in to OpenAI on this computer, so '
+          + `${clean} would start on it and be unable to do anything. `
+          + 'Add an OpenAI account first, then switch it.',
+      };
+    }
+    openaiAccount = { dir: home, email: who.email, keyTail: who.keyTail, authMode: who.authMode, isDefault: true };
     try { trustCodexFolder(workerDir(clean)); }
     catch {
       return { outcome: OUTCOME.REFUSED, because: 'we could not let the OpenAI runner work in its folder, so nothing was changed' };
@@ -725,6 +765,10 @@ function setProvider(name, provider, opts) {
     outcome: OUTCOME.CREATED,
     because: null,
     provider,
+    /* Which OpenAI sign-in it actually landed on, so the route can say it.
+       Null for a switch back to Claude, and null under dry-run, where nothing
+       was looked at and claiming an account would be an invention. */
+    openaiAccount,
     dropped: {
       model: job.model || null,
       account: Boolean(job.configDir),

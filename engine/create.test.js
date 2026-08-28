@@ -3169,6 +3169,15 @@ test('#246: the switch rewrites only the launch, both directions, and drops what
   create.setDryRun(false);
   const codexHome = fs.mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'codex-home-sw-'));
   process.env.AGENT_WORKFORCE_CODEX_HOME = codexHome;
+  /* 🛑 SIGNED IN, AND THIS LINE IS THE BUG THIS TEST USED TO ASSERT (#1211).
+     Without it the home is empty, and the switch used to SUCCEED into it: a
+     "OpenAI it is" answer and a restart onto a runner that cannot
+     authenticate. Josh met that twice and reported it as "switching does not
+     actually work and the agent does not respond". The refusal arm at the end
+     of this test is the empty-home case, kept deliberately rather than
+     deleted. */
+  fs.writeFileSync(nodePath.join(codexHome, 'auth.json'),
+    JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtesttesttestSWCH' }), 'utf8');
   // Not 'switcher': line ~2460 already owns that name in this shared sandbox.
   const name = 'provider-hopper';
   // Born on Claude, with a model choice, so the switch has something to drop.
@@ -3209,6 +3218,44 @@ test('#246: the switch rewrites only the launch, both directions, and drops what
   // Refusals: unknown provider, and a name Kosmos never started.
   assert.equal(create.setProvider(name, 'closedai').outcome, create.OUTCOME.REFUSED);
   assert.equal(create.setProvider('nobody-here', 'openai').outcome, create.OUTCOME.REFUSED);
+
+  /**
+   * #1211: switching to OpenAI when NOBODY IS SIGNED IN is refused in words.
+   *
+   * 🔑 THE ARM THAT WAS MISSING, and its absence is why the defect shipped.
+   * `createAgent` has always refused an OpenAI account nobody signed in to
+   * ("we do not know that OpenAI account on this computer"); `setProvider`
+   * never looked. Two paths to the same state, one checked and one not, and
+   * the unchecked one is the one a person reaches by switching an agent they
+   * already have.
+   *
+   * ⚠️ IT IS MACHINE-DEPENDENT, which is why it read as flaky rather than
+   * broken: on a computer whose default codex home IS signed in, the switch
+   * worked and always did. The old version of this test used an EMPTY home and
+   * asserted success, so the suite was green on exactly the machine state that
+   * fails.
+   */
+  const emptyHome = fs.mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'codex-home-nobody-'));
+  process.env.AGENT_WORKFORCE_CODEX_HOME = emptyHome;
+  const beforeArgs = plistArgs(name);
+  const noSignIn = create.setProvider(name, 'openai', { ...BINS, codexBin: '/bin/echo' });
+  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  assert.equal(noSignIn.outcome, create.OUTCOME.REFUSED,
+    'the switch handed an agent to a runner nobody is signed in to, which is #1211');
+  assert.match(noSignIn.because, /nobody is signed in to OpenAI/);
+  assert.match(noSignIn.because, /Add an OpenAI account first/, 'a refusal must say what to do about it');
+  assert.deepEqual(plistArgs(name), beforeArgs,
+    'a refused switch rewrote the launch file anyway, so the agent was left mid-change');
+
+  /* The positive control for the arm above, and it is not optional: without it
+     "refused" is equally consistent with a switch that refuses everything. The
+     signed-in home still goes through. */
+  process.env.AGENT_WORKFORCE_CODEX_HOME = codexHome;
+  const stillWorks = create.setProvider(name, 'openai', { ...BINS, codexBin: '/bin/echo' });
+  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  assert.equal(stillWorks.outcome, create.OUTCOME.CREATED, stillWorks.because);
+  assert.equal(stillWorks.openaiAccount && stillWorks.openaiAccount.keyTail, 'SWCH',
+    'the switch did not report WHICH OpenAI sign-in the agent landed on, which is the half Josh could not see');
 });
 
 test('#548: a claude-less Mac refuses an anthropic creation in words, offering OpenAI only when that path is real', () => {

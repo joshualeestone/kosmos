@@ -2231,6 +2231,21 @@ const server = http.createServer((req, res) => {
             wrote.dropped.account ? 'and it leaves its Claude account behind' : '']
           : ['it starts on your main Claude account and Claude’s own default model until you change them'];
         const droppedWords = dropped.filter(Boolean).join(' ');
+        /* WHICH OpenAI sign-in it landed on (#1211). Josh switched an agent,
+           read "API key ending WWUA" elsewhere on the screen, and could not
+           tell whether that was the account his agent was now using: the
+           switch carries no account, so it always lands on this computer's
+           default OpenAI sign-in, and until now nothing said which that was.
+           ⚠️ Said only when the engine actually looked. `openaiAccount` is
+           null on a switch back to Claude and under dry-run, and naming an
+           account nobody read would be the invention this route already
+           refuses elsewhere. */
+        const acct = wrote.openaiAccount;
+        const landedOn = acct
+          ? ' It runs on your OpenAI sign-in'
+            + (acct.email ? ` (${acct.email})` : acct.keyTail ? ` (API key ending ${acct.keyTail})` : '')
+            + '.'
+          : '';
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
           provider: wrote.provider,
@@ -2238,6 +2253,7 @@ const server = http.createServer((req, res) => {
             ? `${label} it is. Everything it knows and everything it has done stays. `
               + (droppedWords ? `${droppedWords.charAt(0).toUpperCase()}${droppedWords.slice(1)}. ` : '')
               + 'It is starting again now, and it will look idle until you say something to it.'
+              + landedOn
             : `We saved the switch to ${label}, but could not start it again: ${back.because} `
               + 'It is still running as before until it restarts.',
           steps: back.steps || [],
