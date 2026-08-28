@@ -10734,45 +10734,143 @@ test('#1304: an agent asking what it runs on gets ONE answer shape, and an unkno
  * 🔑 DRIVEN DIRECTLY, because a test that needed a process tree, a tmux server
  * and a signed-in account would not run anywhere.
  */
-test('#1304: the live reading wins, and the record answers for an agent it cannot see', () => {
+test('#1304: each field takes the best source that has it, and neither hard-nulls the other', () => {
   const { whoamiFor } = require('./server.js');
+  const create = require('./engine/create');
   /* 🔑 A REAL ROW FROM test-support/fleet. The repo's fixture-discipline test
-     refuses hand-built cards, and it refused mine, correctly: a hand-rolled row
-     missing `session` would have made the live arm untestable while looking
-     like it passed. Second time today the same guard has caught me. */
+     refuses hand-built cards, and it refused mine, correctly. */
   const board = fleet.install([fleet.agent('acctworker', { state: 'idle' })]);
   const card = board.agents.find((a) => a && a.name === 'acctworker');
   assert.ok(card && card.sessionName, 'the fixture produced no card, so nothing below is about an agent');
   const known = [];
+  try {
+    /* 🛑 THE DEFECT THIS ROW EXISTS FOR. The first version gated on
+       `live.ok && (live.account || live.model)` and returned early, so a live
+       reading holding ONE fact nulled the other. `agent-supervisor.sh` adds
+       `--model` only when a model was chosen, so `{ok:true, account, model:null}`
+       is a real and common shape, and the route answered "we cannot tell which
+       model" about an agent whose transcript says otherwise. */
+    const acctOnly = whoamiFor(card, known, {
+      ok: true, account: 'josh@book.io', organization: 'Org', model: null, configDir: '/d',
+    });
+    assert.equal(acctOnly.account.email, 'josh@book.io');
+    assert.equal(acctOnly.source.account, 'process', 'the live account was not preferred');
+    assert.equal(acctOnly.source.model, 'record',
+      'a live reading with no model hard-nulled the model instead of asking the record');
 
-  const live = {
-    ok: true,
-    account: 'josh@book.io',
-    organization: "josh@book.io's Organization",
-    model: 'claude-opus-5',
-    configDir: '/Users/agent1/.claude-account-d',
-  };
-  const fromProcess = whoamiFor(card, known, live);
-  assert.equal(fromProcess.source, 'process', 'the live reading was not preferred');
-  assert.equal(fromProcess.account.email, 'josh@book.io');
-  assert.equal(fromProcess.model.id, 'claude-opus-5');
-  assert.equal(fromProcess.model.name, 'Claude Opus 5', 'the id reached the screen instead of the name');
+    /* 🔑 AND THE MODEL GOES THE OTHER WAY ROUND. `runningas` reads the launch
+       argument; `readModel` reads the transcript, which follows a mid-session
+       /model switch. The record is the fresher witness for this field, so a
+       live model is the FALLBACK. This fixture has no transcript, so the live
+       value is what surfaces, and it must not claim the `structured` tier. */
+    const modelOnly = whoamiFor(card, known, {
+      ok: true, account: null, model: 'claude-opus-5', configDir: '/d',
+    });
+    assert.equal(modelOnly.model.id, 'claude-opus-5');
+    assert.equal(modelOnly.model.name, 'Claude Opus 5', 'the id reached the screen instead of the name');
+    assert.equal(modelOnly.model.confidence, 'scraped',
+      'a process command line was labelled as read from a file written for the purpose');
+    /* ⚠️ AND A LIVE READING WITH NO IDENTIFIABLE ACCOUNT STILL REPORTS THE
+       DIRECTORY, the same rule `accountForAgent` states for the record path:
+       null there would say "the default account" about an agent pointed
+       somewhere else. */
+    assert.equal(modelOnly.account.dir, '/d');
+    assert.equal(modelOnly.account.email, null);
 
-  /* 🔑 THE OTHER ARM: an agent the live reader cannot see. A token-resolved
-     paneless agent has no process tree to walk, so the record answers and says
-     so. Without this row "prefer live" could be implemented as "only live",
-     and every paneless agent would silently lose its answer. */
-  const fromRecord = whoamiFor(card, known, { ok: false, because: 'no pane on this computer' });
-  assert.equal(fromRecord.source, 'record', 'a paneless agent got no fallback');
-  assert.ok('account' in fromRecord && 'model' in fromRecord, 'the fallback changed the shape');
-  fleet.restore();
+    /* THE OTHER ARM: an agent the live reader cannot see at all.
+       🛑 AND THE RECORD MUST ACTUALLY ANSWER HERE. My first version passed
+       `known: []` against a fixture with no launchd job, so `accountForAgent`
+       returned null and the arm asserted `'account' in result` against an
+       all-null object -- true of a completely broken fallback. It needs a job
+       to read and an account to match. */
+    assert.ok(create.plistPath('acctworker').startsWith(process.env.AGENT_WORKFORCE_LAUNCH || '\u0000'),
+      'the launchd sandbox is unset, so writing this fixture job would touch the real fleet');
+    fs.writeFileSync(create.plistPath('acctworker'),
+      create.plistFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5',
+        '/Users/agent1/.claude-account-x'), 'utf8');
+    const recorded = [{ dir: '/Users/agent1/.claude-account-x', email: 'recorded@book.io', label: 'X', isDefault: false }];
+    const noLive = whoamiFor(card, recorded, { ok: false, because: 'no pane on this computer' });
+    assert.equal(noLive.source.account, 'record', 'a paneless agent got no fallback');
+    assert.equal(noLive.account.email, 'recorded@book.io',
+      'the record path returned an empty object rather than the account it holds');
+    /* 🔑 AND THE MODEL IS HONESTLY NULL HERE, WHICH THE TEST TAUGHT ME RATHER
+       THAN THE OTHER WAY ROUND. I asserted `claude-opus-5` from the job and it
+       failed: `status.readModel` reads the TRANSCRIPT tail, not the launchd
+       job, so an agent with a job and no transcript has no recorded model.
+       ⚠️ THAT IS A REAL GAP AND IT IS DELIBERATELY NOT CLOSED HERE. The job
+       carries `--model` and `create.plannedModelArg` can read it, so a third
+       source could answer where these two cannot. I am not adding one: the
+       status route derives the model from `readModel` too (server.js:3775),
+       and a second derivation that disagrees with the board is this codebase's
+       most expensive habit. Carded rather than smuggled in. */
+    assert.equal(noLive.model, null, 'a model appeared from a source this route does not claim to read');
+    assert.equal(noLive.source.model, 'record', 'the null model was attributed to the live reader');
 
-  /* 🛑 AND NEITHER SOURCE MAY GUESS. A live reading that knows neither fact is
-     not preferred over the record, and a record that knows nothing says null
-     rather than inventing a default. */
-  const empty = whoamiFor(card, known, { ok: true, account: null, model: null });
-  assert.equal(empty.source, 'record', 'an empty live reading was preferred over a record that might know');
-  assert.ok('account' in empty && 'model' in empty, 'the shape changed when nothing was known');
+    /* 🔑 AND `ok` MUST BE CHECKED, not just the fields: a reader that failed but
+       happens to carry an account must not be believed. Without this row the
+       `live.ok === true` clause could be deleted and everything above passes. */
+    const notOk = whoamiFor(card, recorded, { ok: false, account: 'wrong@example.com', model: 'x' });
+    assert.equal(notOk.source.account, 'record', 'a failed live reading was believed');
+    assert.notEqual(notOk.account.email, 'wrong@example.com', 'a failed live reading was believed');
+  } finally {
+    try { fs.rmSync(create.plistPath('acctworker'), { force: true }); } catch { /* nothing to undo */ }
+    /* In a finally, so the arms below a mid-test restore cannot run against a
+       different environment than the arms above it. */
+    fleet.restore();
+  }
+});
+
+test('#1304: the ROUTE asks the live reader by tmux session, and says which reader answered', async () => {
+  /**
+   * 🔑 THE WIRING IS WHAT THIS COVERS, AND `whoamiFor` CANNOT. The function
+   * takes a live reading as an argument; the route is where the argument is
+   * FETCHED, and fetching it means choosing an identifier off the card.
+   *
+   * 🛑 THE CARD CARRIES BOTH, AND THEY ARE DIFFERENT STRINGS:
+   *      card.session      'acctworker-discord'   <- the tmux session
+   *      card.sessionName  'acctworker'           <- the agent name
+   * `runningAs` does `panes.get(session)` and fails with "no pane called X", so
+   * only the first can ever match. ⚠️ A reader "correcting" `.session` to the
+   * more familiar `.sessionName` would not crash and would not fail a shape
+   * test: every whoami would quietly fall back to the record forever, which is
+   * the whole feature reverting with nothing red. This asserts the string.
+   */
+  const messagesEngine = require('./engine/messages');
+  const server = require('./server.js');
+  const board = fleet.install([fleet.agent('acctworker', { state: 'idle' })]);
+  const asked = [];
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'acctworker-discord' }));
+    server.setLiveReader((sess) => {
+      asked.push(sess);
+      return { ok: true, account: 'live@book.io', organization: 'Kosmos', model: null, configDir: '/d' };
+    });
+    const r = await req('/api/whoami', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from_pane: '%7' }),
+    });
+    assert.equal(r.status, 200);
+    const out = JSON.parse(r.body);
+    assert.equal(out.ok, true, 'the route refused a resolvable sender: ' + r.body);
+
+    assert.deepEqual(asked, ['acctworker-discord'],
+      'the live reader was asked by the wrong identifier, so it can never find a pane');
+
+    /* THE LIVE READING REACHED THE PAYLOAD, not just the function. */
+    assert.equal(out.account.email, 'live@book.io', 'the record answered over a live reading');
+    /* ⚠️ AND `source` IS PER-FIELD ON THE WIRE. An operator comparing two
+       agents has to be able to see that one account was read from a running
+       process and the other from a file, and the model is a separate question
+       from the account. */
+    assert.equal(out.source.account, 'process');
+    assert.equal(out.source.model, 'record');
+    assert.match(out.because, /runs on/, 'a known account did not reach the sentence');
+  } finally {
+    server.setLiveReader(null);
+    messagesEngine.setRunner(null);
+    fleet.restore();
+  }
 });
 
 test('#1304: whoami refuses a sender it cannot resolve, in the same shape', async () => {
