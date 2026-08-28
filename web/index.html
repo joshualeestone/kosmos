@@ -24129,12 +24129,20 @@ document.getElementById('pjs-reveal').addEventListener('click', async () => {
 /* kosmos#1005: the disclosure. The arrow is decorative (aria-hidden) and the
    button carries its own visually-hidden name, so what is announced is one
    button with a state, not a glyph. */
+/* 🔑 A PERSON'S CLICK OUTLIVES A REPAINT (kosmos#1198). Josh: "I can't seem to
+   keep the title of the project and its description collapsed. I can close it
+   with the arrow but then it quickly snaps back open."
+   His project had no description, and the painter below opens an empty one on
+   purpose. It ran that default on EVERY paint, and the board repaints on a poll,
+   so his click was overwritten seconds later, forever. */
+let PJ_DESC_TOUCHED = null;   // the project whose disclosure the person has set
 document.getElementById('pj-one-more').addEventListener('click', (e) => {
   const btn = e.currentTarget;
   const title = btn.closest('.pjtitle');
   if (!title) return;
   const open = title.classList.toggle('is-open');
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  PJ_DESC_TOUCHED = PJ_CURRENT;
 });
 function paintOneProject() {
   const p = pjById(PJ_CURRENT);
@@ -24174,9 +24182,21 @@ function paintOneProject() {
      ⚠️ Keyed on the DESCRIPTION being empty, not on the project being new: a
      described project that is later emptied gets the same help, and this needs
      no state to remember. */
+  /* ⚠️ THE DEFAULT IS FOR ARRIVAL, NOT FOR EVERY PAINT. The note above explains
+     why an empty description opens and why the reset lives here rather than on
+     the click: switching projects must not carry one project's open state onto
+     the next. Both of those still hold. What was wrong is that this ran on EVERY
+     repaint, so a poll a few seconds later undid whatever the person had just
+     chosen, which is kosmos#1198.
+     ⇒ Once they have touched the disclosure FOR THIS PROJECT, their choice
+     stands. Moving to another project clears it, so the carry-over this reset
+     was written to prevent still cannot happen. */
   const isEmpty = !p.description;
-  if (pjTitle) pjTitle.classList.toggle('is-open', isEmpty);
-  if (pjMore) pjMore.setAttribute('aria-expanded', isEmpty ? 'true' : 'false');
+  if (PJ_DESC_TOUCHED !== null && PJ_DESC_TOUCHED !== PJ_CURRENT) PJ_DESC_TOUCHED = null;
+  if (PJ_DESC_TOUCHED !== PJ_CURRENT) {
+    if (pjTitle) pjTitle.classList.toggle('is-open', isEmpty);
+    if (pjMore) pjMore.setAttribute('aria-expanded', isEmpty ? 'true' : 'false');
+  }
   /* Agent-made projects say so (#327). `by` is the pane's agent when one was
      offered and resolved; otherwise the honest generic. Screen-made shows
      nothing: "made by you" under everything is furniture. */
