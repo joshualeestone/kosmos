@@ -10934,6 +10934,24 @@ test('#1304: each field takes the best source that has it, and neither hard-null
        and a second derivation that disagrees with the board is this codebase's
        most expensive habit. Carded rather than smuggled in. */
     assert.equal(noLive.model, null, 'a model appeared from a source this route does not claim to read');
+    /* 🔑 THE TWO READERS MUST AGREE ABOUT ONE DIRECTORY. The live path asked
+       `accounts.isDefaultDir`; the record path hardcoded `false` for anything it
+       could not match - including the DEFAULT directory - so which answer an
+       agent got depended on whether its pane happened to be readable. */
+    const accForDefault = require('./engine/accounts');
+    const defDir = require('node:path').join(accForDefault.HOME_FOR_TEST, '.claude');
+    fs.writeFileSync(fixtureJob,
+      create.plistFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', null, defDir), 'utf8');
+    const viaRecord = whoamiFor(card, [], { ok: false, because: 'no pane' });
+    const viaLive = whoamiFor(card, [], { ok: true, account: null, model: null, configDir: defDir });
+    assert.equal(viaRecord.account.isDefault, true,
+      'the record path called the default directory not-the-default');
+    assert.equal(viaRecord.account.isDefault, viaLive.account.isDefault,
+      'the two readers disagree about whether one directory is the default');
+    /* AND THE SHAPE MATCHES, so a consumer cannot tell which reader answered
+       from the presence of a field. */
+    assert.deepEqual(Object.keys(viaRecord.account).sort(), Object.keys(viaLive.account).sort(),
+      'the two readers return different field sets for the same account');
     assert.equal(noLive.source.model, 'record', 'the null model was attributed to the live reader');
 
     /* 🔑 AND `ok` MUST BE CHECKED, not just the fields: a reader that failed but
@@ -10988,6 +11006,37 @@ test('#1304: each field takes the best source that has it, and neither hard-null
     assert.equal(bothKnow.source.model, 'record');
     assert.equal(bothKnow.model.confidence, 'structured',
       'a transcript-sourced model was labelled as scraped');
+
+    /* 🛑 THE EXACT SESSION MUST REACH `readModel`, OR AN AGENT CAN BE SERVED
+       ANOTHER AGENT'S MODEL AT `structured` CONFIDENCE.
+
+       `sessionIdsFor` says it in its own comment: given only a NAME it tries the
+       SUFFIXED spelling FIRST, so `foo` and `foo-discord` are one name and two
+       sessions, and the surviving card of that collision shows the other agent's
+       transcript. The board passes `pane.session` (status.js:3683); this route
+       passed the name alone.
+
+       🔑 THE CARD IS DERIVED, NOT HAND-BUILT, and its session is overridden to
+       the UNSUFFIXED spelling because that is the side of the collision the
+       fleet fixture cannot produce - its session IS the suffixed one, which is
+       why by-name and by-session resolve identically for it and an earlier
+       version of this arm could not have failed. Only the field under test is
+       changed.
+
+       With the session passed, this card resolves to ITS OWN session, which has
+       no transcript, and the honest answer is null. Without it, the name lookup
+       reaches `acctworker-discord`'s transcript - a session this card does not
+       own - and reports that model at full confidence. */
+    const unsuffixed = { ...card, session: 'acctworker' };
+    const collided = whoamiFor(unsuffixed, known, { ok: false, because: 'no pane' });
+    assert.equal(collided.model, null,
+      'the route served a transcript belonging to a session this card does not own');
+    /* THE CONTROL: the transcript the name-only lookup would have found really
+       does exist and really does hold a model, or the null above is just an
+       empty machine and proves nothing. */
+    const unowned = whoamiFor(card, known, { ok: false, because: 'no pane' });
+    assert.equal(unowned.model && unowned.model.id, 'claude-opus-5',
+      'the suffixed session has no readable transcript, so the arm above proves nothing');
 
     /* 🛑 THE SENTENCE ITSELF, WHICH WAS ALMOST ENTIRELY UNPINNED. Five separate
        mutations of `sentenceForWhoami` survived the full suite, and one of them
@@ -11133,6 +11182,7 @@ test('#1304: a throwing live reader falls back to the record and fabricates noth
   const messagesEngine = require('./engine/messages');
   const server = require('./server.js');
   const accountsEngine = require('./engine/accounts');
+  const create = require('./engine/create');
   const board = fleet.install([fleet.agent('acctworker', { state: 'idle' })]);
   const realList = accountsEngine.list;
   let listAsked = 0;
@@ -11143,7 +11193,20 @@ test('#1304: a throwing live reader falls back to the record and fabricates noth
        could be replaced with `[]` and the suite stayed green, because both route
        tests stub the live reader in ways that never reach `accountForAgent` with
        a populated list. A spy on the real call is what ties the wiring down. */
-    accountsEngine.list = (...a) => { listAsked += 1; return realList(...a); };
+    /* 🛑 THE VALUE MUST REACH THE ANSWER, NOT MERELY THE CALL. My first version of
+       this spy asserted `listAsked > 0`, which pins that `accounts.list()` is
+       CALLED - and `try { accounts.list(); return []; }` satisfies that while
+       handing the record path an empty list, whole suite green. Same defeat as
+       the regex-over-source guard this replaced: the guard's subject neutralised
+       without the guard moving. Twice now, in the fix for the first one.
+
+       ⇒ The spy returns a SENTINEL ACCOUNT that only this list can supply, and
+       the assertion below requires it to come back out of the route. A call that
+       discards the value cannot produce it. */
+    accountsEngine.list = (...a) => {
+      listAsked += 1;
+      return [...realList(...a), { dir: '/sentinel-dir', email: 'sentinel@book.io', label: null, isDefault: false }];
+    };
 
     const r = await req('/api/whoami', {
       method: 'POST',
@@ -11155,9 +11218,31 @@ test('#1304: a throwing live reader falls back to the record and fabricates noth
     assert.equal(out.ok, true, 'a throwing reader produced a refusal: ' + r.body);
     assert.equal(out.source.account, 'record',
       'a reader that threw was still credited as the source');
-    assert.ok(listAsked > 0, 'the route never consulted the account list, so the record path is unwired');
+    assert.ok(listAsked > 0, 'the route never consulted the account list at all');
     /* NOTHING INVENTED: the fixture has no job, so the honest answer is null. */
     assert.equal(out.account, null, 'an account was fabricated after the live reader threw');
+
+    /* 🔑 AND NOW THE LIST'S VALUE MUST REACH THE ANSWER. Give the agent a job
+       pointing at the sentinel directory and ask again: the only way
+       `sentinel@book.io` can come back is if the list the route fetched was
+       actually HANDED to `accountForAgent`. A call that fetches and discards
+       satisfies the call-count assertion above and cannot produce this. */
+    const jobPath = create.plistPath('acctworker');
+    assert.ok(jobPath.startsWith(process.env.AGENT_WORKFORCE_LAUNCH || '\u0000'),
+      'the launchd sandbox is unset, so this fixture would touch the real fleet');
+    try {
+      fs.writeFileSync(jobPath,
+        create.plistFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', null, '/sentinel-dir'), 'utf8');
+      const r2 = await req('/api/whoami', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ from_pane: '%7' }),
+      });
+      const out2 = JSON.parse(r2.body);
+      assert.equal(out2.source.account, 'record');
+      assert.equal(out2.account && out2.account.email, 'sentinel@book.io',
+        'the account list was fetched and discarded, so the record path received an empty list');
+    } finally { try { fs.rmSync(jobPath, { force: true }); } catch { /* nothing to undo */ } }
     assert.match(out.because, /^We cannot tell which account/,
       'a thrown reader produced a confident sentence');
   } finally {
