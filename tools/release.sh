@@ -211,6 +211,23 @@ if git -C "$REPO" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
 fi
 git -C "$REPO" log --oneline -8 | cat
 
+# ⚠️ LAST IN STEP 1, NOT FIRST, AND THE ORDER IS LOAD-BEARING. Placed before
+# the divergence guard this pre-empts it, and a cut from a diverged tree then
+# refuses with "no versions entry" instead of naming the stranded commits --
+# measured, it turned three release-gate arms red. Every git-integrity refusal
+# in this step keeps its precedence; this one only has to beat the BUILD.
+# 🛑 THE VERSIONS ENTRY IS A PRECONDITION AND IT USED TO BE ASKED ABOUT ONLY AT
+# STEP 7, AFTER THE SUITE, THE BROWSER GATE, THE INSTALL GATE AND THE BUILD
+# (#1453). Four cuts died there -- 0.5.80, 0.5.90, 0.5.91, 0.6.06 -- each
+# paying about fifteen minutes of machine time to learn something knowable in
+# three seconds from `$V` and `$SITE`, both of which exist by now.
+#
+# 🔑 THE STEP 7 CALL IS KEPT AND THE TWO ARE NOT REDUNDANT: this one asks "can
+# this cut finish?", that one asks "is the page right at the moment we deploy?"
+# The rationale, the shared window and why it stays symmetric are in the lib.
+. "$REPO/tools/lib/versions-entry.sh"
+kosmos_versions_entry_gate "$V" "$SITE/versions.html" "Nothing has been built yet." || exit 1
+
 step "== 2. the version, in one place =="
 node -e "
 const fs=require('fs'),p='$REPO/package.json';
@@ -555,42 +572,12 @@ let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
 });"
 
 step "== 7. the versions page needs its entry BEFORE you deploy =="
-grep -q "id=\"v$(echo "$V" | tr . -)\"" "$SITE/versions.html" \
-  && echo "   $V is on the page" \
-  || { echo "   $V has no entry in $SITE/versions.html. Write it (ruled copy, real timestamp) and re-run."; exit 1; }
-
-# 🛑 AND THE TIMESTAMP HAS TO BE THE CLOCK, WHICH IT WAS NOT FOR TWENTY
-# RELEASES. On the night of 2026-08-21 every entry from 0.2.38 to 0.2.57 was
-# written by adding a plausible gap to the entry above it instead of reading a
-# clock, so the error COMPOUNDED: 16 minutes wrong at 0.2.38, 137 minutes wrong
-# at 0.2.57, and the four newest entries claimed release times that had not
-# happened yet. Nothing could catch it, because each entry looked reasonable
-# beside its neighbour and the page has no other clock in it.
-#
-# 🔑 A GUESS CANNOT SATISFY THIS. The check is against `date` at the moment of
-# release, which is the one thing an estimate cannot agree with by accident,
-# and it prints the exact string to paste rather than describing it.
-NOW_STAMP="$(date '+%B %-d, %Y, %-I:%M %p %Z')"
-ENTRY_STAMP="$(sed -n "/id=\"v$(echo "$V" | tr . -)\"/,/<\/article>/p" "$SITE/versions.html" \
-  | sed -n 's/.*rel-d">\([^<]*\)<.*/\1/p' | head -1)"
-STAMP_OK="$(V_ENTRY="$ENTRY_STAMP" node -e "
-  const s = process.env.V_ENTRY || '';
-  const m = s.match(/^(\w+) (\d+), (\d+), (\d+):(\d+) (AM|PM)/);
-  if (!m) { console.log('unparseable'); process.exit(0); }
-  const months = 'January February March April May June July August September October November December'.split(' ');
-  let h = Number(m[4]) % 12; if (m[6] === 'PM') h += 12;
-  const t = new Date(Number(m[3]), months.indexOf(m[1]), Number(m[2]), h, Number(m[5]));
-  const off = Math.round((Date.now() - t.getTime()) / 60000);
-  console.log(Math.abs(off) <= 20 ? 'ok' : String(off));
-")"
-if [ "$STAMP_OK" != "ok" ]; then
-  echo "   the entry for $V is stamped: $ENTRY_STAMP"
-  echo "   the clock says:              $NOW_STAMP"
-  echo "   that is off by $STAMP_OK minutes (positive means the entry is in the past)."
-  echo "   Paste the clock line above into the entry's rel-d and re-run."
-  exit 1
-fi
-echo "   its timestamp agrees with the clock"
+# ⚠️ Step 1 already ran this gate, and this is NOT a leftover. The site
+# checkout can change under a cut that takes fifteen minutes, and a stamp that
+# agreed with the clock at step 1 can be twenty minutes stale by the time we
+# deploy. Step 1 asks whether the cut can finish; this asks whether the page is
+# right at the moment it ships.
+kosmos_versions_entry_gate "$V" "$SITE/versions.html" "The build is done; only the deploy is unspent." || exit 1
 
 step "== 7b. the site's release files are committed and pushed BEFORE they deploy =="
 # 🛑 SERVED FROM THE WORKING TREE MEANS SERVED FROM NOBODY'S HISTORY. This
