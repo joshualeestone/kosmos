@@ -24394,12 +24394,17 @@ async function openAllTasksView() {
   const rows = (body && body.tasks) || [];
   if (!rows.length) {
     msg.textContent = '';
-    list.innerHTML = '<p class="tk-empty">No tasks anywhere yet. Add one on a project to start tracking progress.</p>';
+    list.innerHTML = '<p class="tk-empty">No tasks on any project yet. Add one to start tracking progress.</p>';
     return;
   }
   msg.textContent = '';
   const live = rows.filter((t) => !t.isClosed).length;
-  count.textContent = rows.length + (rows.length === 1 ? ' task' : ' tasks') + ', ' + live + ' still open.';
+  /* The second clause appears ONLY when it says something, which is the
+     Documents screen's own convention one screen over ("N files", plus a page
+     count only when there is more than one page). "5 tasks, 5 still open" spends
+     four words repeating the first two. */
+  count.textContent = rows.length + (rows.length === 1 ? ' task' : ' tasks')
+    + (live < rows.length ? ' \u00b7 ' + live + ' still open' : '');
   count.hidden = false;
   list.innerHTML = rows.map((t) => '<button class="tkcard' + (t.isClosed ? ' tkdone' : '')
     + '" type="button" data-project="' + esc(t.projectId) + '" data-task="' + Number(t.number) + '">'
