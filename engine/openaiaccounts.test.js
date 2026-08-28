@@ -339,3 +339,103 @@ test('#1337: the .codex-* scan follows a HOME set after require, like the defaul
     else process.env.AGENT_WORKFORCE_HOME = before;
   }
 });
+
+/* ──────────────────────────────────────────────────────────────────────────
+   #1372: an OpenAI account can be forgotten, without deleting the credential.
+
+   A person could add up to 500 and remove none; the only way out was deleting
+   a dot-directory in Terminal, which is the "total dead stop in the water"
+   Josh described. These drive the real function against real directories.
+   ────────────────────────────────────────────────────────────────────────── */
+
+function acct(label, key) {
+  const dir = nodePath.join(SANDBOX, label === 'default' ? '.codex' : '.codex-' + label);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'),
+    JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-FAKE-' + (key || label) }));
+  return dir;
+}
+
+test('#1372: forgetting an account hides it from list() and KEEPS the credential', () => {
+  const dir = acct('forgetme', 'aaaa');
+  assert.ok(openai.list().some((a) => a.dir === dir), 'it must be listed first, or the removal proves nothing');
+
+  const got = openai.forgetAccount(dir, []);
+  assert.equal(got.ok, true);
+  assert.equal(got.forgotten, true);
+
+  assert.ok(!openai.list().some((a) => a.dir === dir), 'it is gone from the list');
+  assert.ok(fs.existsSync(nodePath.join(got.movedTo, 'auth.json')),
+    'THE CREDENTIAL SURVIVES: this forgets, it does not delete');
+});
+
+test('#1372 PRECISION: the moved directory must not be listed under its new name', () => {
+  /* 🛑 THE TRAP THIS ARM EXISTS FOR. `list()` finds accounts by
+     `startsWith('.codex-')`, so the obvious `~/.codex-x.removed` would STILL
+     be listed and the account would appear to survive its own removal. The
+     prefix has to MOVE, not gain a suffix. Without this arm the test above
+     passes on a rename that changed nothing that matters. */
+  const dir = acct('precision', 'bbbb');
+  const got = openai.forgetAccount(dir, []);
+  assert.equal(got.forgotten, true);
+
+  assert.ok(nodePath.basename(got.movedTo).startsWith('.removed-codex-'),
+    'the new name must not begin with .codex-');
+  assert.ok(!nodePath.basename(got.movedTo).startsWith('.codex-'),
+    'a SUFFIX would leave it listed; this is the whole point');
+  assert.ok(!openai.list().some((a) => a.dir === got.movedTo),
+    'and list() must not find it under the new name either');
+});
+
+test('#1372: it REFUSES while an agent is on it, and NAMES the agents', () => {
+  /* A refusal that cannot be acted on is the class this card came from. The
+     person needs to know WHICH agents, not that there are some. */
+  const dir = acct('inuse', 'cccc');
+
+  const one = openai.forgetAccount(dir, ['marlowe']);
+  assert.equal(one.ok, false);
+  assert.equal(one.forgotten, false);
+  assert.match(one.because, /marlowe/, 'the refusal must name the agent');
+  assert.ok(fs.existsSync(dir), 'and it must not have moved anything');
+
+  const many = openai.forgetAccount(dir, ['marlowe', 'spade']);
+  assert.match(many.because, /marlowe/);
+  assert.match(many.because, /spade/, 'both agents are named, not just a count');
+  assert.ok(openai.list().some((a) => a.dir === dir), 'still listed, because nothing happened');
+});
+
+test('#1372 CONTROL: the refusal can tell "in use" from "not ours"', () => {
+  /* Without this, both refusals could be one always-refuse branch and the
+     arm above would pass on a function that never forgets anything. */
+  const outside = nodePath.join(SANDBOX, 'not-an-account');
+  fs.mkdirSync(outside, { recursive: true });
+  const got = openai.forgetAccount(outside, []);
+  assert.equal(got.ok, false);
+  assert.match(got.because, /not an OpenAI account/);
+  assert.ok(fs.existsSync(outside), 'and it left the directory alone');
+});
+
+test('#1372: a second forget of the same label does not clobber the first credential', () => {
+  /* The one way this function could DELETE a credential is by renaming a
+     second account on top of a first. */
+  const a = acct('twice', 'dddd');
+  const first = openai.forgetAccount(a, []);
+  assert.equal(first.forgotten, true);
+  const firstKey = fs.readFileSync(nodePath.join(first.movedTo, 'auth.json'), 'utf8');
+
+  const b = acct('twice', 'eeee');
+  const second = openai.forgetAccount(b, []);
+  assert.equal(second.forgotten, true);
+  assert.notEqual(second.movedTo, first.movedTo, 'it must pick a free name');
+
+  assert.equal(fs.readFileSync(nodePath.join(first.movedTo, 'auth.json'), 'utf8'), firstKey,
+    'THE FIRST CREDENTIAL IS UNTOUCHED');
+  assert.ok(fs.existsSync(nodePath.join(second.movedTo, 'auth.json')));
+});
+
+test('#1372: forgetting something already gone is a quiet success', () => {
+  const missing = nodePath.join(SANDBOX, '.codex-neverexisted');
+  const got = openai.forgetAccount(missing, []);
+  assert.equal(got.ok, true);
+  assert.equal(got.forgotten, false);
+});
