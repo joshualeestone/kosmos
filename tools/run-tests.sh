@@ -51,6 +51,54 @@ seen_before() {
 }
 BEFORE="$(seen_before)"
 
+# --- one temp root for this run, removed when it ends (#1151) -----------------
+#
+# 🛑 MEASURED: A FULL RUN LEAVES 92 DIRECTORIES IN TMPDIR AND REMOVES NONE.
+# 61,953 entries had accumulated by 2026-08-28, and a sweep that deleted 12,356
+# of them was fully refilled inside eight hours. The cost is COUNT, not bytes:
+# 1.7 GB is nothing on this volume, ~60,000 directory entries is real.
+#
+# 🔑 WHY THIS IS ONE LINE HERE AND NOT 80 PATCHES. The refill spreads over 422
+# distinct prefixes, of which the seven named on the card are 21% and the top
+# twenty are 32%; it is ~80 call sites leaking one directory each, across 196
+# `mkdtempSync` sites in 227 test files with no shared helper. Fixing them one
+# at a time is the hand-kept-list shape that #1250 was about. Every test process
+# inherits TMPDIR, so owning it here covers a call site nobody has written yet.
+#
+# ⚠️ AFTER `seen_before`, DELIBERATELY. That function counts concurrent page
+# gates by looking for `kosmos-bc.*` in TMPDIR; moving this above it would point
+# that count at an empty directory and report "no gates running" every time.
+#
+# 🛑 AND THE NAME IS SHORT ON PURPOSE. A macOS unix socket path is capped near
+# 104 characters, tmux builds `$TMPDIR/tmux-<uid>/default`, and `engine/status`
+# has a test that needs the ordinary "no server" error from a real tmux. Nesting
+# the run under a long directory produced "File name too long" instead, which is
+# a DIFFERENT error the board correctly refuses, and the test failed. This adds
+# under ten characters. If a machine is already within ten characters of that
+# limit its suite is fragile today, which is #1264.
+#
+# 📌 A hard kill skips the trap and leaves ONE directory instead of 92, named
+# for the run that made it.
+#
+# ⚠️ WHAT THIS DOES NOT COVER, MEASURED, BECAUSE THE OBVIOUS ASSUMPTION IS
+# WRONG: macOS `mktemp` IGNORES TMPDIR. It reads the per-user directory from
+# `confstr(_CS_DARWIN_USER_TEMP_DIR)` instead, so a shell test calling
+# `mktemp -d` lands in the real temp root no matter what this exports. Verified
+# by setting TMPDIR to two different values and getting /var/folders back both
+# times. Node's `os.tmpdir()` DOES honour it, which is why this catches 91 of
+# the 92. The four that remain are three `tmp.*` from shell tests and one yarn
+# scratch dir. Those need their own cleanup at their own call sites; do not
+# assume this line covers them.
+KOSMOS_RUN_TMPDIR="${TMPDIR:-/tmp}"
+KOSMOS_RUN_TMPDIR="${KOSMOS_RUN_TMPDIR%/}/kt$$"
+if mkdir -p "$KOSMOS_RUN_TMPDIR" 2>/dev/null; then
+  trap 'rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
+  export TMPDIR="$KOSMOS_RUN_TMPDIR"
+else
+  # Never fail a run over housekeeping: the suite is what matters.
+  echo "run-tests: could not make a per-run temp dir; the suite will use TMPDIR directly and leave its scratch behind" >&2
+fi
+
 # --- the suite, unchanged -----------------------------------------------------
 node --test engine/*.test.js *.test.js "$@"
 NODE_STATUS=$?
