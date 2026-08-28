@@ -293,7 +293,7 @@ cmd_start() {
     return 0
   fi
   if port_taken_by_stranger; then
-    die "Another app on this Mac is already using port $PORT, so Kosmos cannot start there. Quit that app and run 'kosmos start' again."
+    die "Another app on this computer is already using port $PORT, so Kosmos cannot start there. Quit that app and run 'kosmos start' again."
   fi
   # ⚠️ A recorded board that is alive but not answering on THIS port must
   # not be silently orphaned: overwriting the pidfile with a new launch
@@ -419,7 +419,7 @@ cmd_agents() {
       say "None. No tmux server is running for Kosmos's tmux, so no agent started by Kosmos is running."
       exit 1 ;;
     *)
-      say "Could not see. Kosmos's tmux ($AGENT_WORKFORCE_TMUX_BIN) could not read the tmux server on this Mac: $_ls"
+      say "Could not see. Kosmos's tmux ($AGENT_WORKFORCE_TMUX_BIN) could not read the tmux server on this computer: $_ls"
       say "A tmux of a different version is holding that server, so agents may well be running that this binary cannot list."
       say "To look through the tmux that owns it:  AGENT_WORKFORCE_TMUX_BIN=/opt/homebrew/bin/tmux kosmos agents"
       exit 2 ;;

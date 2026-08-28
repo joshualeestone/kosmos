@@ -574,7 +574,7 @@ fetch_tmux() {
   # nothing and says nothing; without this line the first symptom is a board
   # that reads every agent as unknown, which nobody would ever trace to dyld.
   if ! "$stage/bin/tmux" -V >/dev/null 2>&1; then
-    info "the copy of tmux will not run on this Mac."
+    info "the copy of tmux will not run on this computer."
     info "That is a problem with the download itself, not with your Mac or your network; trying again will not fix it. We need to publish a corrected download."
     rm -rf "$stage"
     return 1
@@ -649,7 +649,7 @@ install_kosmos() {
   # binary that will not load fails silently and baffling, and the floor
   # gate upstream makes that unlikely, not impossible.
   if ! "$stage/runtime/bin/node" --version >/dev/null 2>&1; then
-    info "the runtime will not run on this Mac"
+    info "the runtime will not run on this computer"
     rm -rf "$stage"
     return 1
   fi
@@ -679,7 +679,7 @@ install_kosmos() {
   # assertion holds only for bytes the network delivered.
   if [ "$from_network" = yes ] && [ -n "${TARGET_VERSION:-}" ] && [ -n "$landed" ] && [ "$landed" != "$TARGET_VERSION" ]; then
     info "the release pointer says $TARGET_VERSION, but the files that landed are $landed."
-    info "A cache between this Mac and the download host served an old copy. Wait a minute, then paste the install line again."
+    info "A cache between this computer and the download host served an old copy. Wait a minute, then paste the install line again."
     return 1
   fi
   info "on disk now: Kosmos ${landed:-(version unrecorded in this bundle)}"
@@ -1176,13 +1176,13 @@ KOSMOS_SWEEP_LIST
       _remote_state="${AGENT_WORKFORCE_DATA:-$HOME/Library/Application Support}/AgentWorkforce/remote"
       _tunnel="$KOSMOS_HOME/app/bin/kosmos-tunnel"
       if [ -f "$_remote_state/mac_key" ] && [ -x "$_tunnel" ]; then
-        info "telling the Plus service this Mac is going away"
+        info "telling the Plus service this computer is going away"
         if "$_tunnel" retire --state-dir "$_remote_state" --coordinator "${AGENT_WORKFORCE_TUNNEL_COORDINATOR:-https://coordinator.plus.installkosmos.com}" >/dev/null 2>&1; then
           info "its Plus address is retired; the name is free again after a day"
         else
           info "note: the Plus service could not be told; its address may still show on your account page until you remove it there"
         fi
-        info "removing this Mac's Plus key (its agents and their files are left alone)"
+        info "removing this computer's Plus key (its agents and their files are left alone)"
         rm -rf "$_remote_state" 2>/dev/null || true
       fi
       rm -rf "$KOSMOS_HOME"
@@ -1531,7 +1531,7 @@ else
   printf '  (could not read the release pointer; installing what the download host serves)\n'
 fi
 
-step "Checking this Mac."
+step "Checking this computer."
 # (A second Darwin check, deliberately: the one at the top of the file runs
 # before the log exists and protects the shell from non-bash sh; this one
 # puts the refusal INTO the narrated transcript for the supported flow.)
@@ -1817,7 +1817,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
       ;;
     "") ;;
     *)
-      die "Another app on this Mac is using port $PORT, which Kosmos needs. Quit that app, then paste the install line again."
+      die "Another app on this computer is using port $PORT, which Kosmos needs. Quit that app, then paste the install line again."
       ;;
   esac
   # ⚠️ GONE BY PORT, not merely quiet over HTTP: a listener that stopped
@@ -1948,7 +1948,7 @@ case ":$PATH:" in
       # only, and a bash/fish login shell would get "success" and a command
       # that still fails -- the silent class this whole step exists to end.
       # An empty $SHELL falls through to wiring: the macOS default is zsh.
-      info "note: typing 'kosmos' in Terminal will not work yet on this Mac (your login shell is ${SHELL##*/}, and this installer only knows how to wire zsh); the app icon step below and the closing lines cover how to open Kosmos"
+      info "note: typing 'kosmos' in Terminal will not work yet on this computer (your login shell is ${SHELL##*/}, and this installer only knows how to wire zsh); the app icon step below and the closing lines cover how to open Kosmos"
     else
       case "$BIN_DIR" in
         *"
@@ -1956,7 +1956,7 @@ case ":$PATH:" in
           # Same class as the KOSMOS_HOME guard above: these characters
           # would corrupt (or execute inside) a file sourced at every
           # login. Refuse the write, keep the honest note.
-          info "note: typing 'kosmos' in Terminal will not work yet on this Mac (the bin folder's name contains a character unsafe to write into ${PROFILE_FILE##*/}); the app icon step below and the closing lines cover how to open Kosmos"
+          info "note: typing 'kosmos' in Terminal will not work yet on this computer (the bin folder's name contains a character unsafe to write into ${PROFILE_FILE##*/}); the app icon step below and the closing lines cover how to open Kosmos"
           ;;
         *)
           # "Already wired" requires BOTH halves AND their adjacency: the
@@ -1984,7 +1984,7 @@ case ":$PATH:" in
               info "note: run --uninstall with the same KOSMOS_PROFILE_FILE so the line comes off with it"
             fi
           else
-            info "note: typing 'kosmos' in Terminal will not work yet on this Mac (could not write ${PROFILE_FILE##*/}); the app icon step below and the closing lines cover how to open Kosmos"
+            info "note: typing 'kosmos' in Terminal will not work yet on this computer (could not write ${PROFILE_FILE##*/}); the app icon step below and the closing lines cover how to open Kosmos"
           fi
           ;;
       esac
@@ -2450,7 +2450,7 @@ elif [ "$APP_SKIP_ICON" = "yes" ]; then
   # the resolve actually observed; the dashboard address in the closing
   # lines still opens Kosmos.
   if [ "$APP_SKIP_REASON" = "same" ]; then
-    info "something else already has the Kosmos spot in Applications, and this Mac's home"
+    info "something else already has the Kosmos spot in Applications, and this computer's home"
     info "Applications folder is the same folder, so no icon was created."
   else
     info "something else already has the Kosmos spot in Applications, and the folders"
@@ -2587,7 +2587,7 @@ for (const t of targets) {
 process.exit(refused === 0 ? 0 : 1);
 HOOKSEOF
 then
-  info "agents on this Mac report what they are doing themselves; the board reads their"
+  info "agents on this computer report what they are doing themselves; the board reads their"
   info "own words instead of their screens"
 else
   info "some agent settings could not carry the reporting hook (an unreadable settings"

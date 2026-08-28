@@ -522,7 +522,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     let remedy = userInitiated
                         ? "This can be temporary: click OK, then press Cmd-R (View > Reload) to try again. If it keeps failing, installing it again usually fixes this"
                         : "Installing it again usually fixes this"
-                    self.showStartupFailureAlert(detail: "Something went wrong while \(whose) was starting. \(remedy): open installkosmos.com and click Download for macOS. Your agents and settings stay on this Mac; installing again does not remove them.")
+                    self.showStartupFailureAlert(detail: "Something went wrong while \(whose) was starting. \(remedy): open installkosmos.com and click Download for macOS. Your agents and settings stay on this computer; installing again does not remove them.")
                 case .alreadyRunningOrStarted:
                     let urlString = "http://127.0.0.1:\(resolved.port)"
                     guard let url = URL(string: urlString) else {
@@ -550,7 +550,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // their own copy.
     private func showForeignAccountAlert() {
         let alert = NSAlert()
-        alert.messageText = "Kosmos is installed on this Mac for another user"
+        alert.messageText = "Kosmos is installed on this computer for another user"
         alert.informativeText = "It was set up by a different account on this computer, and it runs for that account. To use Kosmos here, install your own copy: open installkosmos.com and click Download for macOS. Yours will be separate, with your own agents and settings."
         alert.alertStyle = .critical
         alert.addButton(withTitle: "OK")
