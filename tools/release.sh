@@ -80,6 +80,53 @@ case "$V" in
     echo "$V is past the end of the 0.2 line. 0.2.99 is the last one; after it comes 0.3.0."
     exit 1 ;;
 esac
+# 🔑 FROM THE 0.6 LINE ON, THE PATCH IS TWO DIGITS AND THE LINE ENDS AT 99.
+# Josh, 2026-08-28: he did not want 0.5.100 and up, he wanted "0.6.00 and then
+# 0.6.01". Same reasoning as the 0.2 guard above and it is stated there: a rule
+# in a card depends on whoever is awake having read it, and the version is a
+# bare argument to this script.
+#
+# ⚠️ THIS FILE ALREADY ARGUED THE OPPOSITE AND BOTH ARGUMENTS ARE RIGHT. The
+# 0.2.99 arm refuses "0.3.00" because engine/update.js parses a version into
+# three NUMBERS, so "0.3.0" and "0.3.00" are the SAME version to every install
+# and publishing both is an update no machine ever sees. That is a SECOND
+# SPELLING hazard, not a padding hazard.
+#
+# ⇒ Josh's scheme is safe for exactly the reason the other was unsafe: the
+# padded form is the ONLY form. The rule is "one spelling per line", and from
+# 0.6 on the one spelling is padded. So this guard is not bookkeeping: without
+# it, publishing 0.6.0 after 0.6.00 ships an update no install can see, which
+# is the silent-no-update failure this project has already shipped once.
+#
+# 📌 It refuses rather than corrects, like the guard above, because the entry on
+# the versions page is stamped with the version the author typed.
+_v_major="${V%%.*}"
+_v_rest="${V#*.}"
+_v_minor="${_v_rest%%.*}"
+_v_patch="${V##*.}"
+case "$_v_major.$_v_minor" in
+  0.[6-9]|0.[1-9][0-9]*)
+    case "$_v_patch" in
+      [0-9][0-9]) ;;
+      [0-9])
+        echo "from the 0.$_v_minor line on the patch is two digits: you asked for $V, which is spelled $_v_major.$_v_minor.0$_v_patch."
+        echo "(Josh's ruling, 2026-08-28. $V and $_v_major.$_v_minor.0$_v_patch are the SAME version to every install,"
+        echo " so only one spelling may ever be published. If that has changed, this guard is in tools/release.sh.)"
+        exit 1 ;;
+      *)
+        echo "$V is past the end of the 0.$_v_minor line. 0.$_v_minor.99 is the last one; after it comes 0.$((_v_minor + 1)).00."
+        exit 1 ;;
+    esac
+    # Standing at the end of a line, only the next line's first version will do.
+    _p_rest="${_prev#*.}"
+    _p_minor="${_p_rest%%.*}"
+    if [ "${_prev##*.}" = "99" ] && [ "$_p_minor" = "$_v_minor" ]; then
+      echo "0.$_p_minor.99 is the last of the 0.$_p_minor line: the next version is 0.$((_p_minor + 1)).00, not $V."
+      echo "(Josh's ruling, 2026-08-28. If that has changed, this guard is in tools/release.sh.)"
+      exit 1
+    fi ;;
+esac
+
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 [ -d "$SITE/dist" ] || { echo "no site checkout at $SITE (set KOSMOS_SITE)"; exit 1; }
