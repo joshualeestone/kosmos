@@ -23,7 +23,7 @@ function drive(eventJson, env = {}) {
       let body = '';
       req.on('data', (d) => { body += d; });
       req.on('end', () => {
-        seen.push({ path: req.url, body });
+        seen.push({ path: req.url, body, headers: req.headers });
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end('{"recorded":true}');
       });
@@ -68,4 +68,49 @@ test('a board that is down never becomes a failure the agent can feel', () => {
     env: { ...process.env, KOSMOS_PORT: '1', TMUX_PANE: '%1' },
   });
   assert.ok(true);
+});
+
+
+/* ------------------------------------------------------------------ #1139
+ * LINK 3. The supervisor mints a token into the pane environment and, until
+ * now, nothing read it.
+ *
+ * \U0001f6d1 THE SILENT ARM MATTERS MORE THAN THE SENDING ONE. `/api/report` does
+ * not downgrade: a presented token DECIDES, so a malformed or absent-but-sent
+ * value turns a working pane-derived report into a refusal the agent cannot
+ * feel. Every agent already running was launched without a token, so "sends
+ * nothing" is the common case and the one that must not regress.
+ * -------------------------------------------------------------------------- */
+
+const TURN = JSON.stringify({
+  type: 'agent-turn-complete',
+  'thread-id': 't', 'turn-id': 'u', cwd: '/x', client: 'codex-tui',
+  'input-messages': ['go'], 'last-assistant-message': 'done',
+});
+
+test('#1139: the launch token rides as the sender header when the pane has one', async () => {
+  const tok = 'a'.repeat(64);
+  const seen = await drive(TURN, { KOSMOS_AGENT_TOKEN: tok });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].headers['x-kosmos-agent-token'], tok, 'the token did not reach the board');
+  /* The pane still travels. The route prefers the token and this is not an
+     either/or: dropping the pane would strand every agent whose token does
+     not resolve, on the one path that has no other identity. */
+  assert.equal(JSON.parse(seen[0].body).from_pane, '%77', 'the pane identity stopped travelling');
+});
+
+test('#1139: no token in the pane means no header, so an agent running today reports exactly as before', async () => {
+  const seen = await drive(TURN, { KOSMOS_AGENT_TOKEN: '' });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].headers['x-kosmos-agent-token'], undefined,
+    'an empty token was presented as a header, and the route does not downgrade, so this report would be refused');
+});
+
+test('#1139: a malformed token is not presented, because presenting it would REFUSE the report', async () => {
+  for (const bad of ['not-hex', 'ABCDEF', 'deadbeef warning: something', ' ']) {
+    const seen = await drive(TURN, { KOSMOS_AGENT_TOKEN: bad });
+    assert.equal(seen.length, 1, `nothing was reported at all for ${JSON.stringify(bad)}`);
+    assert.equal(seen[0].headers['x-kosmos-agent-token'], undefined,
+      `${JSON.stringify(bad)} was presented as a token; the route would refuse the report rather than fall back to the pane`);
+  }
 });

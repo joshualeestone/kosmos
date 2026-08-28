@@ -53,11 +53,32 @@ function main() {
     from_pane: process.env.TMUX_PANE || '',
   });
 
+  /* #1139 link 3: PRESENT THE LAUNCH TOKEN WHEN WE HAVE ONE.
+     The supervisor mints per launch and puts it in the pane environment, and
+     until now nothing read it, so every report on this path was identified by
+     its pane alone.
+
+     \u26a0\ufe0f SILENCE IS THE SAFE DEFAULT AND IT IS THE COMMON CASE. An agent
+     launched before the mint worked has no token here, so no header is sent
+     and its identity is derived from the pane exactly as before. That is what
+     keeps this from touching agents that are already running.
+
+     \U0001f6d1 AND THE ROUTE DOES NOT DOWNGRADE: a presented token DECIDES, so a
+     token that does not resolve is a REFUSAL rather than a fall back to the
+     pane. That is correct -- a caller free to pick the weaker check would pick
+     it -- but it means a malformed value here turns a working report into a
+     silent refusal. Hence the shape test: the same hex rule the supervisor
+     applies before exporting, applied again before presenting, because a
+     partial write or a stray warning on stdout is exactly what it guards. */
+  const headers = { 'content-type': 'application/json' };
+  const token = String(process.env.KOSMOS_AGENT_TOKEN || '').trim();
+  if (/^[0-9a-f]+$/.test(token)) headers['x-kosmos-agent-token'] = token;
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   fetch(`http://127.0.0.1:${port}/api/report`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body,
     signal: controller.signal,
   }).catch(() => { /* a missed report must never become a failed turn */ })
