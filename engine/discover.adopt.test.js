@@ -215,3 +215,93 @@ test('#1159 CONTROL: adopting a Claude agent does NOT stamp a provider', () => {
   assert.equal((store.readProfile('provclaude') || {}).provider, undefined,
     'an adopted Claude agent was stamped with a provider it does not have');
 });
+
+/**
+ * #1349: an IMPORTED agent joined nothing, so a person whose first agents are
+ * imported landed on an empty Projects tab - the first screen after the thing
+ * that just worked.
+ *
+ * 🛑 THE ORDERING IS THE WHOLE FIX, and it is #732. `installJob` STARTS the agent.
+ * A project joined afterwards reaches its instructions through the later sync,
+ * seconds after the session is up, so it is born reading "Kosmos put it on
+ * Getting started. Restart it so it knows." I fixed that for CREATION on
+ * 2026-08-24 and would have reintroduced it here.
+ */
+const projectsMod = require('./projects');
+
+test('#1349: an imported agent gets the project block, BEFORE it is started', () => {
+  /* 🔑 THE ORDERING IS PROVEN, NOT ASSERTED. The injected runner is what
+     `installJob` calls to start the agent, so reading the instructions file from
+     INSIDE it captures their state at the moment of start. If the block is
+     already there, the write preceded the start. An assertion after `connect`
+     returns could not tell the two apart. */
+  const proj = projectsMod.create({
+    name: 'Getting started', agents: [], roster: [],
+    description: 'seeded by the test', made: { via: 'kosmos' },
+  });
+  const dir = agentFolder('impcodex', 'AGENTS.md', '# You are Imp Codex\n');
+  let atStart = null;
+  create.setRunner(() => {
+    if (atStart === null) {
+      try { atStart = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'); } catch { atStart = ''; }
+    }
+    return { ok: true, stdout: '' };
+  });
+
+  const r = discover.connect(dir, { projects: [proj.id] });
+  assert.equal(r.ok, true, r.because);
+  assert.ok(atStart !== null, 'the runner never ran, so this proves nothing about ordering');
+  assert.match(atStart, /kosmos:projects:start/,
+    'the agent was STARTED before its project block was written: it will be born telling '
+    + 'the person to restart it (#732)');
+});
+
+test('#1349 CONTROL: no projects means no block, and no crash', () => {
+  /* Without this, the assertion above is satisfied by a change that splices a
+     block unconditionally, which would put an empty connections block into the
+     instructions of every imported agent. */
+  const dir = agentFolder('impplain', 'AGENTS.md', '# You are Imp Plain\n');
+  const r = discover.connect(dir, {});
+  assert.equal(r.ok, true, r.because);
+  assert.doesNotMatch(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), /kosmos:projects:start/,
+    'an agent joining nothing was given a connections block anyway');
+});
+
+test('#1349 CONTROL: an unknown project id is ignored, not fatal', () => {
+  /* Non-gating, the same rule creation keeps: an unreadable or stale projects
+     file must not cost somebody their agent. */
+  const dir = agentFolder('impghost', 'AGENTS.md', '# You are Imp Ghost\n');
+  const r = discover.connect(dir, { projects: ['no-such-project-id'] });
+  assert.equal(r.ok, true, `a stale project id cost the person their agent: ${r.because}`);
+});
+
+test('#1349: a CLAUDE agent gets the same treatment', () => {
+  /* The block goes in whichever instructions file the folder actually has -
+     importing is not a Codex-only path. */
+  const proj = projectsMod.create({
+    name: 'Second Home', agents: [], roster: [],
+    description: 'seeded by the test', made: { via: 'kosmos' },
+  });
+  const dir = agentFolder('impclaude', 'CLAUDE.md', '# You are Imp Claude\n');
+  assert.equal(discover.connect(dir, { projects: [proj.id] }).ok, true);
+  assert.match(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), /kosmos:projects:start/,
+    'a Claude agent was imported without its project block');
+});
+
+test('#1349: an instructions file already at the ceiling is left alone', () => {
+  /* 🔑 The ceiling exists so Kosmos cannot hand an agent a file too big to read.
+     Adoption must respect it the same way creation does - and a perturbation that
+     removed the check SURVIVED until this test existed, because nothing else here
+     uses a file anywhere near the limit. */
+  const { MAX_BYTES } = require('./instructions');
+  const proj = projectsMod.create({
+    name: 'Ceiling Home', agents: [], roster: [],
+    description: 'seeded by the test', made: { via: 'kosmos' },
+  });
+  const big = `# You are Imp Big\n\n${'x'.repeat(MAX_BYTES)}\n`;
+  const dir = agentFolder('impbig', 'AGENTS.md', big);
+  const r = discover.connect(dir, { projects: [proj.id] });
+  assert.equal(r.ok, true, `an oversized file cost the person their agent: ${r.because}`);
+  const after = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  assert.equal(after, big, 'the block was spliced into a file already at the ceiling');
+});

@@ -2880,8 +2880,38 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
+        /* 🔑 THE FIRST AGENT BRINGS ITS OWN HOME, WHETHER IT WAS MADE OR IMPORTED
+           (#1349). The seed lived only in the create route, so a person whose
+           first agents are IMPORTED landed on an empty Projects tab -- the first
+           screen after the thing that just worked.
+
+           ⚠️ MADE BEFORE `connect`, not after, and that ordering is #732: connect
+           STARTS the agent, so a project joined afterwards reaches its
+           instructions through the later sync and the agent is born reading
+           "Kosmos put it on Getting started. Restart it so it knows".
+
+           📌 Same once-EVER flag as creation, deliberately shared rather than
+           copied: two flags would let an importer and a creator each seed a home
+           and give somebody two. */
+        const projectsToJoin = [];
+        let home = null;
+        const seededFlag = path.join(require('./engine/store').ROOT, 'seeded-project.json');
+        try {
+          if (!fs.existsSync(seededFlag) && projects.readAll().length === 0) {
+            home = projects.create({
+              name: 'Getting started',
+              agents: [],
+              roster: safeRoster(),
+              description: 'Kosmos made this so your first agent has somewhere to work with you. '
+                + 'Post below and everyone on it answers here.',
+              made: { via: 'kosmos' },
+            });
+            projectsToJoin.push(home.id);
+          }
+        } catch { home = null; /* a first screen a person fills themselves is the fallback, not a failure */ }
+
         let out;
-        try { out = discover.connect(body.dir); }
+        try { out = discover.connect(body.dir, { projects: projectsToJoin }); }
         catch (err) {
           /* A state question never 500s, the contract every sibling here keeps:
              the screen can render "we could not" and cannot render a stack. */
@@ -2889,6 +2919,25 @@ const server = http.createServer((req, res) => {
             because: 'we could not bring that agent in',
             detail: String((err && err.message) || err) });
           return;
+        }
+        /* The membership record, AFTER the agent exists -- the block it reads was
+           already composed above. Same split as creation: block before birth,
+           record after. */
+        if (out.ok && projectsToJoin.length) {
+          try {
+            const roster = safeRoster();
+            for (const id of projectsToJoin) projects.addAgent(id, out.name, roster, { via: 'process' });
+          } catch { /* the agent is in; a failed join is not worth undoing it */ }
+        }
+        /* 🛑 ROLLED BACK IF THE ADOPTION FAILED, and the flag is never written --
+           otherwise a refused import leaves a Getting started project with nobody
+           on it, and the NEXT person to make an agent gets no home because the
+           store is no longer empty. */
+        if (!out.ok && home) {
+          try { projects.remove(home.id); } catch { /* nothing better to do */ }
+        } else if (out.ok && home) {
+          try { fs.writeFileSync(seededFlag, JSON.stringify({ at: new Date().toISOString(), via: 'import' })); }
+          catch { /* the emptiness check still guards the common case */ }
         }
         sendJson(res, out.ok ? 200 : 400, out);
       })

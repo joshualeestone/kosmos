@@ -406,7 +406,7 @@ function found() {
  * folder for an agent with no job is an agent the board believes in and launchd
  * has never heard of, so the record is rolled back if the job cannot be written.
  */
-function connect(dir) {
+function connect(dir, opts) {
   const create = require('./create');
   const store = require('./store');
 
@@ -500,6 +500,40 @@ function connect(dir) {
 
   /* The runner rides along, or an adopted Codex agent starts Claude in its own
      folder. `installJob` also does that runner's first-run setup. */
+  /* 🔑 THE PROJECT BLOCK GOES IN BEFORE THE SESSION STARTS (#1349, the #732 rule).
+     An imported agent joined nothing, so a person whose first agents are IMPORTED
+     landed on an empty Projects tab -- the first screen after the thing that just
+     worked.
+
+     ⚠️ AND THE ORDER IS THE WHOLE POINT. `installJob` below STARTS the agent. Join
+     it afterwards and the block reaches its instructions through the later sync,
+     seconds after the session is up, so it is born reading "Kosmos put it on
+     Getting started. Restart it so it knows" -- which is #732 exactly, the bug I
+     fixed for CREATION on 2026-08-24 and would have reintroduced here.
+
+     ⚠️ IT WRITES INTO A FILE THE PERSON WROTE, and that is deliberate rather than
+     casual: `projects.syncAgent` already splices this same delimited block into an
+     adopted agent's instructions when it later joins a project. Doing it here is
+     the SAME write at a better moment, not a new liberty.
+
+     📌 Non-gating, same rule as creation: an unreadable projects file must not
+     cost somebody their agent. If this fails, the later sync still does it the
+     old way. */
+  const wantProjects = (opts && Array.isArray(opts.projects))
+    ? opts.projects.map((x) => String(x || '').trim()).filter(Boolean) : [];
+  if (wantProjects.length) {
+    try {
+      const projectsMod = require('./projects');
+      const recs = projectsMod.readAll().filter((p) => wantProjects.includes(p.id));
+      if (recs.length) {
+        const file = path.join(given, instructionsFile);
+        const current = fs.readFileSync(file, 'utf8');
+        const spliced = projectsMod.spliceBlock(current, projectsMod.blockBody(recs, name));
+        const { MAX_BYTES } = require('./instructions');
+        if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) fs.writeFileSync(file, spliced, 'utf8');
+      }
+    } catch { /* the sync after the session is up still does it, the old way */ }
+  }
   const job = create.installJob(name, runner ? { runner } : {});
   if (!job.ok) {
     /* Rolled back to what was there before, so a failed connect leaves nothing
