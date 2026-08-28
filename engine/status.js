@@ -3262,10 +3262,25 @@ const NAME_JOIN_TITLES = 'Dr|Mr|Mrs|Ms|Prof|Rev|Hon|St';
  * this fix. Position is the only thing in the text that separates a prefix
  * abbreviation from a trailing one.
  *
+ * 📌 WHAT THIS ANCHOR ACTUALLY BUYS, measured rather than assumed, because an
+ * earlier version of this comment over-credited it. Removing the anchor from
+ * HEAD leaves `You are Anna St. He writes copy.` with role NULL: the COMMA RULE
+ * kills that one, not the anchor. The anchor's surviving role-protection is on
+ * the comma spelling, `You are Anna St. He, writes copy.`, which without it
+ * reads "Anna St. He" / "writes copy". The NAME is the anchor's work in both.
+ * ⇒ Two rules protect overlapping ground here, and whoever changes either one
+ * should know which half they are holding.
+ *
  * ⚠️ AND IT CANNOT SEPARATE A TITLE FROM A PRONOUN AFTER IT: `You are Dr. He
- * writes copy.` reads `Dr. He` as the name. The NAME is worse than main's there
- * and that is accepted; what must not happen is a ROLE, and the comma rule
- * below refuses one. Pinned in the test.
+ * writes copy.` reads `Dr. He` as the name, which is worse than main's `Dr`.
+ * The comma rule refuses a role for that spelling.
+ * 🛑 IT DOES NOT REFUSE ONE FOR THE COMMA SPELLING, and an earlier version of
+ * this comment claimed it did: `You are Dr. He, writes copy.` yields
+ * "Dr. He" / "writes copy" where main gave "Dr" / null.
+ * ⭐ AND THAT IS PROBABLY RIGHT RATHER THAN WRONG, which is why it stays: `He`
+ * is a real surname, so `You are Dr. He, a cardiologist.` is the realistic
+ * reading of that shape and the new output is correct there. The objection was
+ * to the absolute claim, not the behaviour. Both spellings are pinned now.
  */
 const NAME_PREFIX_RUN = "(?<=You are (?:(?:" + NAME_JOIN_TITLES + "|[A-Z])\\. )*(?:" + NAME_JOIN_TITLES + "|[A-Z])\\.)";
 /**
@@ -3311,6 +3326,27 @@ const IDENTITY_RE = new RegExp(
   + "))(?:\\s*\\(([^)]+)\\))?\\s*(,)?\\s*([^.\\n]*)",
 );
 
+
+/**
+ * A trailing full stop that ENDED THE SENTENCE, as opposed to one that belongs
+ * to an initial (#1168).
+ *
+ * `Bob.` ends a sentence. `J.R.` does not: its last stop follows a single
+ * letter which itself opens the name or follows another stop. That is the only
+ * distinction available in the text, and it is the one the card asked for.
+ */
+const NAME_ENDS_SENTENCE = /[\w'-]{2,}\.$/;
+
+function identityFromText(text) {
+  const m = String(text || '').match(IDENTITY_RE);
+  if (!m) return null;
+  let name = m[1] !== undefined ? m[1] : m[2];
+  /* #1168. Only the prose arm can carry a sentence-ending stop: the bold arm is
+     delimited by its own asterisks, and `**side-quests**.` already comes back
+     clean. */
+  const endedSentence = m[1] === undefined && NAME_ENDS_SENTENCE.test(name);
+  /* Group 4 is the comma. Absent, in the prose arm, means nothing here is a
+     role no matter what it looks like. */
 /**
  * 🛑 IN THE PROSE ARM, A ROLE MUST FOLLOW A COMMA. Nothing else may become one.
  *
@@ -3343,27 +3379,6 @@ const IDENTITY_RE = new RegExp(
  * Left alone because it is not a regression and every generated template writes
  * `You are **{{NAME}}**, <a role>.` with the comma.
  */
-
-/**
- * A trailing full stop that ENDED THE SENTENCE, as opposed to one that belongs
- * to an initial (#1168).
- *
- * `Bob.` ends a sentence. `J.R.` does not: its last stop follows a single
- * letter which itself opens the name or follows another stop. That is the only
- * distinction available in the text, and it is the one the card asked for.
- */
-const NAME_ENDS_SENTENCE = /[\w'-]{2,}\.$/;
-
-function identityFromText(text) {
-  const m = String(text || '').match(IDENTITY_RE);
-  if (!m) return null;
-  let name = m[1] !== undefined ? m[1] : m[2];
-  /* #1168. Only the prose arm can carry a sentence-ending stop: the bold arm is
-     delimited by its own asterisks, and `**side-quests**.` already comes back
-     clean. */
-  const endedSentence = m[1] === undefined && NAME_ENDS_SENTENCE.test(name);
-  /* Group 4 is the comma. Absent, in the prose arm, means nothing here is a
-     role no matter what it looks like. */
   const roleUnmarked = m[1] === undefined && m[4] === undefined;
   if (endedSentence) name = name.slice(0, -1);
   let role = (endedSentence || roleUnmarked ? '' : m[5] || '')

@@ -178,6 +178,18 @@ test('#1168 regression: a title or an initial is not the end of a sentence', () 
     'a sentence after a title became a role');
   assert.equal(r('You are Ms. Understood by all.').role, null);
   assert.equal(r('You are St. Louis based.').role, null);
+  /* ⚠️ AND THE COMMA SPELLING OF THE SAME SHAPE KEEPS ITS ROLE, which an earlier
+     comment wrongly said the comma rule refused. Kept because it is probably
+     right: `He` is a real surname, so this is the realistic reading. Pinned so
+     the class is covered on BOTH spellings rather than only the one whose role
+     is null either way. */
+  assert.equal(r('You are Dr. He, a cardiologist.').role, 'cardiologist');
+
+  /* 🔑 THE EXCLUSION NEEDS A TEST TOO. Every title IN the list dies under
+     mutation; adding `Jr|Sr` back left the suite green while changing output,
+     so the one rule with no test was the one about what is absent. */
+  assert.equal(who('You are Jr. Smith, a clerk.'), 'Jr',
+    'a trailing abbreviation is being crossed as if it were a prefix title');
   assert.equal(r('You are J. He writes copy.').role, null);
 
   /* 📌 THE COST OF THE COMMA RULE, PINNED rather than left to be rediscovered,
@@ -230,6 +242,13 @@ test('#1168 regression: a title or an initial is not the end of a sentence', () 
      here. Both readings are wrong names; neither invents a job. */
   assert.equal(who('You are Dr. John Q. Smith, a writer.'), 'Dr. John Q.');
   assert.equal(r('You are Dr. John Q. Smith, a writer.').role, null);
+  /* ⚠️ AND THE PLAIN `First M. Last` FORM IS THE SAME LIMIT AND FAR LIKELIER in
+     a hand-written file, so it is pinned beside the title-prefixed one rather
+     than left for a reader to assume it works. Still strictly better than main,
+     which handed the surname to the role:
+        main  "Mary J." / "Smith"        this  "Mary J." / null */
+  assert.equal(who('You are Mary J. Smith, a writer.'), 'Mary J.');
+  assert.equal(r('You are Mary J. Smith, a writer.').role, null);
 
 
   /* 🔑 THE ARMS THAT MUST NOT MOVE. If the abbreviation exception is written
