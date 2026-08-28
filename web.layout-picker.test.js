@@ -154,15 +154,34 @@ test('piece five: the header folds to its notice slots, the K mark is the header
   const decls = stripCssComments(block);
   assert.match(block, /> \.apphead \.klink, [^{]*> \.apphead h1,\n[^{]*> \.apphead \.tabs, [^{]*> \.apphead \.headright \{ display: none; \}/, 'the header does not fold to its slots');
   assert.doesNotMatch(decls, /> \.apphead \{[^}]*display: none/, 'the whole header is hidden, and with it the update and offline notices');
-  assert.doesNotMatch(decls, /#utoast-slot|#unote-slot|#uoffline-slot/, 'a notice slot is styled away');
+  /* ⚠️ THIS USED TO FORBID MENTIONING A SLOT AT ALL, which is a proxy for the
+     real property: a slot must not be styled AWAY. kosmos#1188 moved the
+     header's bottom margin onto the slots (so the gap appears only when a notice
+     is actually on screen), which mentions them for a reason that is the
+     opposite of hiding. Now it forbids the hiding itself. */
+  for (const slot of ['#utoast-slot', '#unote-slot', '#uoffline-slot', '#unews-slot']) {
+    const rules = decls.match(new RegExp('[^{}]*' + slot + '[^{}]*\\{[^}]*\\}', 'g')) || [];
+    for (const r of rules) {
+      assert.doesNotMatch(r, /display:\s*none|visibility:\s*hidden/, 'a notice slot is styled away: ' + r.trim());
+    }
+  }
   // CONTROL: the strip must not have disarmed the check.
   assert.match(stripCssComments('/* #utoast-slot is fine */\n  #utoast-slot { display: none; }'), /#utoast-slot/,
     'stripCssComments removed a real declaration, so the two guards above can no longer catch a styled-away slot');
   assert.doesNotMatch(stripCssComments('/* mentions #utoast-slot in prose only */'), /#utoast-slot/,
     'stripCssComments no longer strips comments, so a comment naming a slot will fail the guards again');
-  assert.match(PAGE, /<button class="railk" id="rail-k" type="button" aria-label="Go to your agents"><img id="rail-k-img"/);
-  assert.match(SCRIPT, /k\.src = src\.src/, 'the rail K is not the header\'s own image');
-  assert.match(SCRIPT, /getElementById\('rail-k'\)\.addEventListener\('click', \(\) => document\.getElementById\('klink'\)\.click\(\)\)/);
+  /* 🛑 THE K MARK IS GONE (kosmos#1188). Josh, 2026-08-27: "I want to get rid of
+     the K icon in the top left corner." These three lines pinned its markup, its
+     painter and its click handler, and all three were correct until he asked for
+     it removed. Replaced with what he asked for in its place, so the head is
+     still guarded rather than merely unpinned: the + sits INSIDE .lead beside the
+     name, and the fold arrow stays out in .railacts on the right. */
+  assert.doesNotMatch(PAGE, /class="railk"|id="rail-k"|rail-k-img/, 'the K mark came back to the rail head');
+  assert.match(PAGE, /<span class="lead"><button class="fold plus" type="button" id="rail-agents-new"[^>]*>\+<\/button><span class="railname">Agents<\/span><\/span>/,
+    'the agents + is not inside .lead beside the name');
+  assert.match(PAGE, /<span class="lead"><button class="fold plus" type="button" id="rail-projects-new"[^>]*>\+<\/button><span class="railname">Projects<\/span><\/span>/,
+    'the projects + is not inside .lead beside the name');
+  assert.match(PAGE, /id="rail-agents-fold"/, 'the agents fold arrow left .railacts');
   assert.match(block, /body\.consolidated \.lrow \{ border: 0; background: none;/);
 });
 
@@ -173,7 +192,14 @@ test('piece six: the board notice bars do not sit over the consolidated grid', (
   /* Control: the news line is NOT hidden here; it has a home in the header slot.
      Comments stripped for the same reason as piece five above -- a comment
      explaining what this protects must not be able to fail it. */
-  assert.doesNotMatch(stripCssComments(block), /#unews-slot|#newsbar[^-]/, 'the news line was hidden rather than relocated');
+  /* ⚠️ SAME WIDENING AS PIECE FIVE: this forbade MENTIONING the news line, as a
+     proxy for hiding it. kosmos#1188 gives #unews-slot a margin so the header's
+     old bottom gap appears only when a notice is on screen, which mentions it in
+     order to show it properly. The property is that it is not hidden. */
+  const newsRules = stripCssComments(block).match(/[^{}]*(?:#unews-slot|#newsbar)[^{}]*\{[^}]*\}/g) || [];
+  for (const r of newsRules) {
+    assert.doesNotMatch(r, /display:\s*none|visibility:\s*hidden/, 'the news line was hidden rather than relocated: ' + r.trim());
+  }
 });
 
 /**
