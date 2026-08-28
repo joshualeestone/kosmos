@@ -1392,12 +1392,18 @@ async function main() {
          is now never hidden, so it passed while testing nothing. A check that
          goes red tells you it is stale; one that passes for the wrong reason
          does not. */
+      /* ⚠️ AND THE BUTTON NO LONGER HIDES EITHER, which I missed on the first
+         pass because I swept for the ROW's id and this arm names the BUTTON.
+         The same commit changed both. index.html says why, and it is a reason
+         rather than an omission: "the button no longer hides: it is the thing
+         you came back to, and hiding it was only ever necessary because the row
+         took its place." So btnShown is now TRUE while the dialog is open and
+         asserting otherwise pins a design that was deliberately dropped. */
       const revealed = await page.evaluate(() => ({
         modalHidden: document.getElementById('am-modal').hidden,
-        btnShown: !document.getElementById('pj-add-member').hidden,
         focusOnSelect: document.activeElement === document.getElementById('pj-one-add'),
       }));
-      if (revealed.modalHidden || revealed.btnShown || !revealed.focusOnSelect) {
+      if (revealed.modalHidden || !revealed.focusOnSelect) {
         throw new Error('+ Add Member did not reveal the picker with focus on the choice: ' + JSON.stringify(revealed));
       }
       // Leaving and coming back rests it again -- an open picker must not leak
