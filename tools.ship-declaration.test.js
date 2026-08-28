@@ -104,3 +104,90 @@ test('#1025 CONTROL: no argument is distinguishable from a resolved one', () => 
   assert.equal(r.since, null);
   assert.match(r.from, /no base ref given/);
 });
+
+/**
+ * 🛑 THE CUTOFF WAS PRINTED CORRECTLY AND THE FILTER IGNORED IT.
+ *
+ * Baron Draxum ran this on a live cut: his queue for the next release was three
+ * PRs and it reported fourteen, reaching back three releases. The two sides come
+ * from different tools in different formats and were compared as STRINGS:
+ *
+ *   git log --format=%cI  ->  2026-08-28T08:29:11-05:00   LOCAL, with an offset
+ *   gh --json mergedAt    ->  2026-08-28T11:58:33Z        UTC, with a Z
+ *
+ * `"…T11:58:33Z" >= "…T08:29:11-05:00"` is TRUE lexicographically and FALSE by
+ * 90 minutes as instants.
+ *
+ * ⭐ And his framing is the part to keep: printing the cutoff did not fix the
+ * bug, it made the bug FINDABLE. The printed cutoff and the listed rows disagreed
+ * in public, so it cost one query instead of a guess.
+ */
+const { isAfter } = require('./tools/check-ship-declaration.js');
+const SINCE_LOCAL = '2026-08-28T08:29:11-05:00';   // = 13:29:11Z
+
+test('#1025: a PR merged BEFORE the cutoff is excluded across timezone formats', () => {
+  assert.equal(isAfter('2026-08-28T11:58:33Z', SINCE_LOCAL), false,
+    'a PR from an earlier release is counted in this one: the comparison is lexicographic again');
+});
+
+test('#1025: a PR merged after the cutoff is included', () => {
+  assert.equal(isAfter('2026-08-28T14:17:25Z', SINCE_LOCAL), true);
+});
+
+test('#1025: a PR merged exactly at the cutoff is included', () => {
+  /* The base commit itself is in the release being cut. */
+  assert.equal(isAfter('2026-08-28T13:29:11Z', SINCE_LOCAL), true);
+});
+
+test('#1025 CONTROL: the same-format case still behaves, which is why this survived', () => {
+  /* Both sides UTC: the string comparison was CORRECT here, and that is exactly
+     why nobody caught it until the cutoff became a git timestamp with an offset. */
+  assert.equal(isAfter('2026-08-28T11:58:33Z', '2026-08-28T13:29:11Z'), false);
+  assert.equal(isAfter('2026-08-28T14:17:25Z', '2026-08-28T13:29:11Z'), true);
+});
+
+test('#1025 CONTROL: an unparseable or missing date is EXCLUDED, never assumed in', () => {
+  /* Both directions lose information; only this one avoids asserting a PR
+     shipped in a release when we cannot tell. */
+  assert.equal(isAfter(null, SINCE_LOCAL), false);
+  assert.equal(isAfter('not a date', SINCE_LOCAL), false);
+  assert.equal(isAfter('2026-08-28T14:17:25Z', 'not a date'), false);
+});
+
+test('#1025: the FILTER uses the instant comparison, not just the predicate', () => {
+  /* 🛑 WITHOUT THIS, REVERTING THE FILTER TO THE STRING COMPARISON LEFT EVERY
+     TEST GREEN. `isAfter` was well tested and nothing checked that the filter
+     called it. Found by perturbation, 2026-08-28. */
+  const { filterMerged } = require('./tools/check-ship-declaration.js');
+  const rows = [
+    { number: 1271, mergedAt: '2026-08-28T11:58:33Z' },   // before, and STRING-compares as after
+    { number: 1302, mergedAt: '2026-08-28T14:17:25Z' },   // genuinely after
+    { number: 999,  mergedAt: null },                      // unknown
+  ];
+  const kept = filterMerged(rows, SINCE_LOCAL).map((r) => r.number);
+  assert.deepEqual(kept, [1302], `the filter kept ${JSON.stringify(kept)}: it is comparing strings again`);
+});
+
+test('#1025 CONTROL: with no cutoff the filter keeps everything', () => {
+  /* Proves the filter can return the other answer, so the assertion above is
+     about the comparison rather than about a filter that drops everything. */
+  const { filterMerged } = require('./tools/check-ship-declaration.js');
+  const rows = [{ number: 1, mergedAt: '2026-01-01T00:00:00Z' }, { number: 2, mergedAt: null }];
+  assert.equal(filterMerged(rows, null).length, 2);
+});
+
+test('#1025: the printed cutoff carries UTC, so a reader can compare it to the rows', () => {
+  /* 🛑 THE PRINT IS THE PART THAT EARNED ITS KEEP. Baron's words: printing the
+     cutoff did not fix the bug, it made the bug FINDABLE -- the printed cutoff
+     and the listed rows disagreed in public, so it cost one query instead of a
+     guess.
+
+     But the rows are UTC and a git cutoff is local, so two timestamps a reader
+     cannot compare by eye is how the mismatch stayed invisible even after the
+     cutoff was printed at all. A perturbation removing the UTC changed no test
+     until this one existed. */
+  const { resolveCutoff } = require('./tools/check-ship-declaration.js');
+  const r = resolveCutoff('HEAD');
+  assert.match(r.from, /= \d{4}-\d{2}-\d{2}T[\d:.]+Z/,
+    'the printed cutoff has no UTC form: a reader cannot compare it to the merged times below it');
+});
