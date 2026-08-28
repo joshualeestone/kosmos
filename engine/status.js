@@ -1325,8 +1325,37 @@ if (typeof SELECTOR_GLYPHS !== 'string' || !SELECTOR_GLYPHS.length
  * captured from a live pane (#249, #998) and a second observed prompt is what
  * would license widening it, not a symmetry argument.
  */
+/* 🔑 THE SECOND OBSERVED PROMPT ARRIVED, AND IT IS WHAT LICENSES THE WIDENING
+   (#1320). The note above says so in its own words: "a second observed prompt is
+   what would license widening it, not a symmetry argument." This is not the
+   symmetry argument. PigeonPete captured this off a live pane on 2026-08-28
+   while answering #1315, verbatim:
+
+       › 1. Update now (runs `npm install -g @openai/codex`)
+         2. Skip
+         3. Skip until next version
+
+   ⇒ The old list required the first option to literally say `Yes`, so EVERY
+   codex agent stopped here and the board called it `unknown`, the same word it
+   uses for an agent that is merely quiet. Nothing escalated. Nobody was told.
+
+   ⚠️ IT MATCHES THE STRUCTURE, NOT THE WORDS, and that is the point of the card:
+   a prompt that is not phrased as a question was invisible. `Update now` is not
+   a question and neither is `Skip`.
+
+   🛑 BUT IT REQUIRES A SECOND OPTION LINE, which plain OPTION_LINE does not, and
+   that is deliberate rather than cautious: codex draws `›` as its COMPOSER
+   glyph, so somebody typing `1. fix the bug` into the box would render
+   `› 1. fix the bug` and a bare option-line pattern would call that a prompt.
+   A real prompt always draws its other choices underneath, unglyphed. Measured
+   against both of Pete's captures and against a composer line.
+
+   📌 THE ANCHOR AND THE `m` FLAG SURVIVE UNCHANGED, for #1243's reason stated
+   above: `^` has to mean line-start because this is tested against the whole
+   tail, or prose describing a prompt classifies as one. */
 const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
   /^\s*›\s*1\.\s*Yes/m,
+  /^\s*›\s*\d+\.\s.*\n\s*\d+\.\s/m,
 ]);
 
 /**
