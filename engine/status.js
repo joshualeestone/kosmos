@@ -3244,12 +3244,16 @@ function readIdentity(sessionName) {
  * the same fabricated role one word later.
  */
 const NAME_JOIN_TITLES = 'Dr|Mr|Mrs|Ms|Prof|Rev|Hon|St';
-/* {0,2}, unchanged from before #1168. Widening it to {0,3} was measured to be
-   unnecessary: every row of this fix passes at {0,2}, including
-   `Dr. Smith` (1+1), `J. R. Tolkien` (1+2) and `St. John Rivers` (1+2). Its
-   only measured effect was on PROSE, where `You are The Owner Of This Machine.`
-   captured one word further, which is the direction that finds people in
-   sentences. */
+/* {0,2}, unchanged from before #1168, and kept rather than widened.
+   ⚠️ AN EARLIER VERSION OF THIS COMMENT SAID THE ONLY EFFECT OF WIDENING WAS ON
+   PROSE. That is false and the review measured it: the bound is also what
+   truncates a long name, and at {0,4} `You are Dr. J. R. R. Tolkien, a writer.`
+   parses whole, with its role. The negatives stay null at {0,3} and {0,4}.
+   ⇒ Widening may well be right, and it is NOT this branch's business: this one
+   restores what #1271 broke, and a name-length change is a separate decision
+   with its own prose exposure (`You are The Owner Of This Machine.` captures one
+   word further per step). Kept at the pre-#1168 value so the two changes cannot
+   be confused for each other. */
 /**
  * 🔑 A STOP MAY BE CROSSED ONLY WHILE THE NAME IS STILL ITS OWN PREFIX. Every
  * token from `You are ` up to that stop must be a title or an initial, which is
@@ -3281,27 +3285,33 @@ const IDENTITY_RE = new RegExp(
 );
 
 /**
- * 🛑 A NAME THAT RAN OUT OF ROOM MUST NOT DONATE ITS TAIL TO THE ROLE, AND A
- * REAL ROLE MUST NOT BE MISTAKEN FOR ONE.
+ * 🛑 IN THE PROSE ARM, A ROLE MUST FOLLOW A COMMA. Nothing else may become one.
  *
- * The repetition is bounded, so a longer name stops mid-way and whatever
- * follows falls into the role capture: `You are Dr. J. R. R. Tolkien, a writer.`
- * produced role "Tolkien", a surname presented as a job.
+ * Three separate defects on this branch were all one rule missing:
  *
- * ⚠️ THE OBVIOUS TEST FOR THAT IS WRONG AND SHIPPED FOR ONE ITERATION HERE:
- * "the tail starts with a capital" is also true of every legitimate capitalised
- * role, so it silently deleted them. Measured against the merge-base:
+ *   You are Dr. J. R. R. Tolkien, a writer.  role "Tolkien"      a surname, as a job
+ *   You are Dr. He writes copy.              role "writes copy"  main gave none
+ *   You are Ms. Understood by all.           role "by all"       main gave none
  *
- *   You are Nevaeh, Chief Engineer.     role "Chief Engineer"     -> null
- *   You are Anna, Head of Marketing.    role "Head of Marketing"  -> null
+ * ⚠️ TWO NARROWER RULES WERE TRIED FIRST AND BOTH LEAKED. "the tail starts with
+ * a capital" also deleted every real capitalised role
+ * (`You are Nevaeh, Chief Engineer.`), and gating on the repetition bound
+ * actually being hit misses the cases above, where the name is one token and
+ * did not run out of room at all.
  *
- * ⇒ a capability loss in exactly the hand-written population this arm serves,
- * and asymmetric with the bold arm, which kept them.
+ * 🔑 The comma is what a person puts between a name and a role, and it is the
+ * only mark in the text that says "what follows describes the one before it".
  *
- * 🔑 THE DISCRIMINATOR IS THE COMMA, not the case of the first letter. A role
- * follows a comma; a donated name tail does not.
+ * ⚠️ THE COST, PINNED IN THE TEST RATHER THAN LEFT TO BE FOUND: a role written
+ * WITHOUT a comma is dropped, and `main` kept it. That is deliberate under this
+ * card's own standard, which is that **a fabricated role is worse than a
+ * missing one**, and it was measured on 84 real instruction files on this
+ * machine: identity detection is unchanged, 17 found before and after, while
+ * four files lose a fabricated role built out of a sentence.
+ *
+ * 📌 The bold arm is untouched. It is delimited by its own asterisks, so what
+ * follows it was never ambiguous.
  */
-const NAME_TRUNCATED = /^\s*[A-Z]/;
 
 /**
  * A trailing full stop that ENDED THE SENTENCE, as opposed to one that belongs
@@ -3323,10 +3333,11 @@ function identityFromText(text) {
   const endedSentence = m[1] === undefined && NAME_ENDS_SENTENCE.test(name);
   /* The role capture starts right after the name, so a name cut short by the
      repetition bound leaves a capitalised word at the head of it (#1168). */
-  const nameTruncated = m[1] === undefined && m[4] === undefined
-    && NAME_TRUNCATED.test(m[5] || '');
+  /* Group 4 is the comma. Absent, in the prose arm, means nothing here is a
+     role no matter what it looks like. */
+  const roleUnmarked = m[1] === undefined && m[4] === undefined;
   if (endedSentence) name = name.slice(0, -1);
-  let role = (endedSentence || nameTruncated ? '' : m[5] || '')
+  let role = (endedSentence || roleUnmarked ? '' : m[5] || '')
     .replace(/\*\*/g, '')          // instruction files are markdown; strip emphasis
     .replace(/^(the|a|an)\s+/i, '')
     .replace(/^Josh Stone's\s+/i, '')

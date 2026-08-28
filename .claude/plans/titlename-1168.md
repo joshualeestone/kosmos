@@ -25,14 +25,15 @@ is only ever exercised by people outside it.
 
 ## The change
 
-1. **The discriminator is what precedes the stop**, not the stop itself.
-   - a single letter is an initial (`J.`)
-   - a known title is an abbreviation (`Dr.`, `Mr.`, `Mrs.`, `Ms.`, `St.`, `Jr.`, `Sr.`,
-     `Prof.`, `Rev.`, `Hon.`)
-   - anything else ends a sentence, and the name stops there
-2. **The tail trim needs the same test**, or `Mr. Wolf.` loses its Wolf.
-3. **`{0,2}` widens to `{0,3}`**, because `J. R. Tolkien` is three tokens after the first and
-   the old limit was set when a stop could not be crossed at all.
+⚠️ **This section was rewritten after three review iterations. What it originally specified
+(`{0,3}`, `Jr.`/`Sr.` as joinable, a tail-trim special case) was measured out; the sections
+below record why. This is the shipped shape.**
+
+1. **A stop may be crossed only while the name is still its own prefix**: every token from
+   `You are ` to that stop must be a title (`Dr. Mr. Mrs. Ms. Prof. Rev. Hon. St.`) or an
+   initial. That separates `J. R. Tolkien` from `Mary J. She`, `Bob Jr. He` and `Anna St. He`.
+2. **`{0,2}` is unchanged from before #1168** and deliberately not widened.
+3. **In the prose arm a role must follow a comma.** Nothing else becomes one.
 
 ## What must not move
 

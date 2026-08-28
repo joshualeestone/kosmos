@@ -171,6 +171,30 @@ test('#1168 regression: a title or an initial is not the end of a sentence', () 
   assert.equal(r('You are Mary J. She writes copy.').role, null);
   assert.equal(who('You are Bob A. He writes copy.'), 'Bob A.');
 
+  /* 🛑 THE MEMBER OF THAT CLASS WHERE THE TITLE IS THE FIRST TOKEN, which two
+     narrower guards both missed: nothing in the text separates `Dr.` before a
+     surname from `Dr.` before a pronoun. The NAME absorbs the next word here
+     and is worse than main's, which is accepted; what must not happen is a
+     ROLE, and main produced none for any of these either. */
+  assert.equal(r('You are Dr. He writes copy.').role, null,
+    'a sentence after a title became a role');
+  assert.equal(r('You are Ms. Understood by all.').role, null);
+  assert.equal(r('You are St. Louis based.').role, null);
+  assert.equal(r('You are J. He writes copy.').role, null);
+
+  /* 📌 THE COST OF THE COMMA RULE, PINNED rather than left to be rediscovered,
+     the same way `You are Bob. A copywriter.` is pinned above. A role written
+     with NO comma is dropped, and main kept it. Deliberate: this card's own
+     standard is that a fabricated role is worse than a missing one, and on 84
+     real instruction files on this machine the rule fires four times and is
+     right all four, removing sentences presented as job titles. */
+  assert.equal(r('You are Anna\nChief Engineer.').role, null,
+    'this is now fixed -- if a no-comma role is wanted, flip this row and say why');
+
+  /* The bound is most visible on this row, so it watches the NAME too rather
+     than only the role: a future widening would otherwise move it silently. */
+  assert.equal(who('You are Dr. J. R. R. Tolkien, a writer.'), 'Dr. J. R.');
+
   /* 🔑 THE ARMS THAT MUST NOT MOVE. If the abbreviation exception is written
      too broadly it swallows the sentence boundary #1168 exists to enforce. */
   assert.equal(who('You are Bob. He writes copy.'), 'Bob');
