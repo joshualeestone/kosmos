@@ -80,6 +80,7 @@ one invented by somebody who did not write them.
 | `render-made-before.js` | The never-recorded state, on a screen (#149/#150, 2026-08-23). |
 | `render-busy-line.js` | The "<name> is working…" line, rendered |
 | `render-room-scroll.js` | The project room keeps a reader on the floor when the composer resizes it (#1037) |
+| `render-alltasks.js` | Every task across every project, and the heading's number equals the rows on the screen (#1382). |
 | `render-head-row.js` | Settings stays on the project header row, beside the title and the search (#1043) |
 | `render-fields.js` | The field and control invariants, measured in a real browser, in BOTH schemes |
 | `render-first-run.js` | Render every first-run state in a real browser and look at it |
