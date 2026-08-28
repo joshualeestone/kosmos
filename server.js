@@ -288,52 +288,41 @@ function resolveAgentSender(req, body, roster) {
 }
 
 /**
- * Which account an agent runs on, from its own startup file (#1304).
+ * The live reader, behind a seam a test can reach (#1304).
  *
- * 🔑 ONE DERIVATION, TWO CALLERS, and that is the whole point of it being here
- * rather than inside the status route where it was born.
+ * 🛑 WITHOUT THIS THE ROUTE'S LIVE ARM HAD NO CONTROL. `fleet.install` stubs
+ * `status.setPaneSource`/`setPaneCapture`; `runningas` has its own independent
+ * `deps` seam that the route never passed, so a route test shelled out to the
+ * developer's real `tmux list-panes -a` and a full-machine `ps`, and its
+ * assertions depended on which sessions happened to exist. A test that reads
+ * the machine it runs on is not a control.
  *
- * 🛑 AND THAT IS NO LONGER THE WHOLE STORY, SAID HERE RATHER THAN LEFT TO
- * CONTRADICT ITSELF (#1304). `/api/whoami` now prefers a LIVE read of the
- * agent's process for the ACCOUNT, while the board still reads this function.
- * For an agent migrated between accounts without its startup file being
- * rewritten, the two will disagree, and the live one is right. That is a real
- * gap rather than a tidy one: moving the board onto the live reader is a
- * per-poll cost across the whole fleet and belongs in its own card. Until then,
- * **the agent's own answer is the authoritative one and the board is the stale
- * one**, which is the opposite of what a reader would assume. The board answers
- * "which account is this agent on" for a person looking at the screen, and
- * `/api/whoami` answers it for the AGENT ITSELF. Two copies of that lookup
- * would disagree the first time either moved, and an agent contradicting the
- * board about its own account is worse than neither of them knowing.
- *
- * 🛑 `null` MEANS ONE THING ONLY: we could not read this agent's launch file,
- * so we do not know. It does NOT mean the default account. The first version
- * let the SCREEN decide, by falling back to "your first account" whenever this
- * was null and the pane was ours, and the page then said "Signed in as your
- * first account" about an agent whose launch file Kosmos has never seen.
- *
- * ⚠️ A CONFIGURED DIRECTORY WE CANNOT IDENTIFY IS STILL REPORTED, with what we
- * do know. Returning null there would say "the default account" about an agent
- * explicitly pointed somewhere else, which is the one wrong answer available.
- *
- * `known` is passed in because the status route reads `accounts.list()` once
- * per poll for the whole fleet; a per-agent call would stat the same handful of
- * directories thirteen times a tick to answer the same question.
+ * ⚠️ Same shape and same reason as `setPaneSource` two files over: replace
+ * where the DATA comes from, never what is done with it, so the seam cannot
+ * reach a real agent.
  */
-/**
- * The one sentence an agent reads back when somebody asks (#1304).
- *
- * 🔑 COMPOSED HERE, NOT BY THE AGENT. If every agent phrases this itself, three
- * agents give three answers, which is the defect this card is about wearing a
- * different coat. An unknown is said plainly rather than smoothed over.
- */
+let liveReaderFn = null;
+function setLiveReader(fn) { liveReaderFn = typeof fn === 'function' ? fn : null; }
+function liveReader() { return liveReaderFn || runningas.runningAs; }
+
 /**
  * One answer about an agent, from the best source that can see it (#1304).
  *
- * 🔑 TWO READERS, ONE ANSWER SHAPE, AND THE LIVE ONE WINS. `runningas` reads the
- * environment the claude process is ACTUALLY running with; the fallback reads
- * the startup file Kosmos wrote and the transcript the session left behind.
+ * 🔑 TWO READERS, ONE ANSWER SHAPE, AND WHICH ONE WINS IS PER FIELD.
+ *
+ *     account   LIVE first, record as fallback
+ *     model     RECORD first, live as fallback
+ *
+ * 🛑 This headline used to read "AND THE LIVE ONE WINS", which is false for the
+ * model and was left standing when the retraction was written INSIDE the
+ * function forty lines below. The summary a reader hits first was wrong about
+ * half the contract for a whole round. A correction that lives only in the body
+ * is a correction most readers never see.
+ *
+ * `runningas` reads the environment the claude process is ACTUALLY running with;
+ * the record reads the startup file Kosmos wrote and the transcript the session
+ * left behind. The model prefers the RECORD because a transcript follows a
+ * mid-session `/model` switch and a launch command line does not.
  * PigeonPete's measurement is why the order is that way round: every agent brief
  * on this machine says `claude-fable-5` and all 18 panes run `claude-opus-5`, and
  * Baron's said `josh@stuff.io` after he had been migrated to `josh@book.io`. Both
@@ -353,24 +342,6 @@ function resolveAgentSender(req, body, roster) {
  * directly by a test without a process tree, a tmux server or a signed-in
  * account.
  */
-/**
- * The live reader, behind a seam a test can reach (#1304).
- *
- * 🛑 WITHOUT THIS THE ROUTE'S LIVE ARM HAD NO CONTROL. `fleet.install` stubs
- * `status.setPaneSource`/`setPaneCapture`; `runningas` has its own independent
- * `deps` seam that the route never passed, so a route test shelled out to the
- * developer's real `tmux list-panes -a` and a full-machine `ps`, and its
- * assertions depended on which sessions happened to exist. A test that reads
- * the machine it runs on is not a control.
- *
- * ⚠️ Same shape and same reason as `setPaneSource` two files over: replace
- * where the DATA comes from, never what is done with it, so the seam cannot
- * reach a real agent.
- */
-let liveReaderFn = null;
-function setLiveReader(fn) { liveReaderFn = typeof fn === 'function' ? fn : null; }
-function liveReader() { return liveReaderFn || runningas.runningAs; }
-
 function whoamiFor(card, known, live) {
   const who = card && card.sessionName;
   const seen = live && live.ok === true ? live : null;
@@ -408,7 +379,19 @@ function whoamiFor(card, known, live) {
       return {
         value: {
           email: seen.account,
-          label: seen.organization || null,
+          /* 🛑 THE ORGANISATION IS NOT THE LABEL, AND PUTTING IT THERE MADE ONE
+             FIELD CARRY TWO FACTS. `accounts.list()` sets `label` to the config
+             DIRECTORY'S nickname (`account-b`); this path was setting it from
+             Claude's `organizationName` (`Anthropic`). Both landed in one wire
+             field, and `sentenceForWhoami` uses it as the second fallback for
+             the human sentence - so two agents could read back "This agent runs
+             on account-b" and "This agent runs on Anthropic" from the same
+             field, meaning different things.
+             ⇒ An organisation is not an account, so it gets its own field and
+             never stands in for one. Same defect this branch exists to fix
+             (two derivations of one fact), arriving as ONE NAME FOR TWO FACTS. */
+          label: null,
+          organization: seen.organization || null,
           dir: seen.configDir || null,
           isDefault: isDefaultDir(seen.configDir),
         },
@@ -420,7 +403,7 @@ function whoamiFor(card, known, live) {
        would say "the default account" about an agent pointed somewhere else. */
     if (seen && seen.configDir) {
       return {
-        value: { email: null, label: null, dir: seen.configDir, isDefault: isDefaultDir(seen.configDir) },
+        value: { email: null, label: null, organization: null, dir: seen.configDir, isDefault: isDefaultDir(seen.configDir) },
         from: 'process',
       };
     }
@@ -460,6 +443,12 @@ function whoamiFor(card, known, live) {
        argument is a behaviour CHANGE - an improvement, and still a change. */
     const rec = (() => { try { return readModel(who); } catch { return null; } })();
     if (rec && rec.model) {
+      /* `modelDisplayName`, NOT the raw id, and this is the branch that normally
+         answers. The LIVE path's display name was pinned; this one - the
+         PREFERRED source for the model - was asserted nowhere, so swapping it
+         for `rec.model` survived the whole suite and sent an agent
+         "and its model is claude-opus-5" instead of "Claude Opus 5". Guarding
+         the fallback and not the default is the wrong way round. */
       return { value: { id: rec.model, name: modelDisplayName(rec.model), confidence: rec.confidence }, from: 'record' };
     }
     if (seen && seen.model) {
@@ -485,19 +474,19 @@ function whoamiFor(card, known, live) {
   };
 }
 
+/**
+ * The one sentence an agent reads back when somebody asks (#1304).
+ *
+ * 🔑 COMPOSED HERE, NOT BY THE AGENT. If every agent phrases this itself, three
+ * agents give three answers, which is the defect this card is about wearing a
+ * different coat. An unknown is said plainly rather than smoothed over.
+ */
 function sentenceForWhoami(account, model) {
   const acct = account && account.email ? account.email
     : account && account.label ? account.label
       : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
         : null;
   const parts = [];
-  /* 📌 THIS USED TO BRANCH ON THE SOURCE so the reason would match the reader
-     that failed - "we have no startup file" is true of the record path and false
-     of the live one, and a card about confident wrong answers must not ship a
-     sentence that is confidently wrong about HOW it failed. The reasoning was
-     good and the branch was DEAD, which is why only the retraction below
-     survives: keeping the argument above it read as live guidance for behaviour
-     this file no longer has. */
   /* 🛑 ONE FORM, NOT TWO, AND THE SECOND ONE WAS DEAD. This used to branch on
      the source so the reason would match the reader that failed. A reviewer
      measured that the process form is UNREACHABLE: `runningAs` always sets
@@ -511,11 +500,58 @@ function sentenceForWhoami(account, model) {
      `runningAs` can return `ok: true` with no directory, this needs the process
      form back AND a test that reaches it. */
   const why = 'We cannot tell which account this agent runs on, because we have no startup file for it';
+  /* 🛑 THE MODEL MUST NEVER FILL IN FOR THE ACCOUNT, and a reviewer put that
+     defect back in with the entire suite still green:
+
+       M27  acct ? … : (model ? 'This agent runs on ' + model.name : why)
+       ⇒    "This agent runs on Claude Opus 5, and its model is Claude Opus 5."
+
+     That is the card's own headline failure - answering the easier question and
+     not the one that was asked. Nothing caught it because no arm had a NULL
+     ACCOUNT AND A KNOWN MODEL AT ONCE: one test stubs `ok:false` against a
+     fixture with no transcript so both are null, the other supplies a live
+     account so `acct` is truthy.
+     ⭐ Third time on this branch that a gap was "no arm had both populated",
+     one field over each time. */
   parts.push(acct ? 'This agent runs on ' + acct : why);
   parts.push(model && model.name ? 'and its model is ' + model.name : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';
 }
 
+/**
+ * Which account an agent runs on, from its own startup file (#1304).
+ *
+ * 🔑 ONE DERIVATION, TWO CALLERS, and that is the whole point of it being here
+ * rather than inside the status route where it was born.
+ *
+ * 🛑 AND THAT IS NO LONGER THE WHOLE STORY, SAID HERE RATHER THAN LEFT TO
+ * CONTRADICT ITSELF (#1304). `/api/whoami` now prefers a LIVE read of the
+ * agent's process for the ACCOUNT, while the board still reads this function.
+ * For an agent migrated between accounts without its startup file being
+ * rewritten, the two will disagree, and the live one is right. That is a real
+ * gap rather than a tidy one: moving the board onto the live reader is a
+ * per-poll cost across the whole fleet and belongs in its own card. Until then,
+ * **the agent's own answer is the authoritative one and the board is the stale
+ * one**, which is the opposite of what a reader would assume. The board answers
+ * "which account is this agent on" for a person looking at the screen, and
+ * `/api/whoami` answers it for the AGENT ITSELF. Two copies of that lookup
+ * would disagree the first time either moved, and an agent contradicting the
+ * board about its own account is worse than neither of them knowing.
+ *
+ * 🛑 `null` MEANS ONE THING ONLY: we could not read this agent's launch file,
+ * so we do not know. It does NOT mean the default account. The first version
+ * let the SCREEN decide, by falling back to "your first account" whenever this
+ * was null and the pane was ours, and the page then said "Signed in as your
+ * first account" about an agent whose launch file Kosmos has never seen.
+ *
+ * ⚠️ A CONFIGURED DIRECTORY WE CANNOT IDENTIFY IS STILL REPORTED, with what we
+ * do know. Returning null there would say "the default account" about an agent
+ * explicitly pointed somewhere else, which is the one wrong answer available.
+ *
+ * `known` is passed in because the status route reads `accounts.list()` once
+ * per poll for the whole fleet; a per-agent call would stat the same handful of
+ * directories thirteen times a tick to answer the same question.
+ */
 function accountForAgent(name, known) {
   const job = create.readJob(name);
   if (!job) return null;
@@ -6910,4 +6946,10 @@ module.exports = {
      `setLiveReader` is the seam for the ROUTE's live arm, which `whoamiFor`
      alone cannot cover: the wiring is where the session name is chosen. */
   whoamiFor, setLiveReader,
+  /* Exported so the sentence can be pinned DIRECTLY. It is the only part of
+     this answer a person actually reads, and five mutations of it survived the
+     whole suite - including the model standing in for the account - because the
+     only assertions on it went through the route, where the fixtures could not
+     produce a null account and a known model at the same time (#1304). */
+  sentenceForWhoami,
 };

@@ -10757,7 +10757,7 @@ test('#1304: an agent asking what it runs on gets ONE answer shape, and an unkno
  * and a signed-in account would not run anywhere.
  */
 test('#1304: each field takes the best source that has it, and neither hard-nulls the other', () => {
-  const { whoamiFor } = require('./server.js');
+  const { whoamiFor, sentenceForWhoami } = require('./server.js');
   const create = require('./engine/create');
   /* 🔑 A REAL ROW FROM test-support/fleet. The repo's fixture-discipline test
      refuses hand-built cards, and it refused mine, correctly. */
@@ -10785,7 +10785,17 @@ test('#1304: each field takes the best source that has it, and neither hard-null
       ok: true, account: 'josh@book.io', organization: 'Org', model: null, configDir: '/d',
     });
     assert.equal(acctOnly.account.email, 'josh@book.io');
+    /* 🔑 THE ORGANISATION HAS ITS OWN FIELD AND NEVER FILLS THE LABEL. One field
+       carrying the directory nickname on one path and the org name on the other
+       let the sentence say "runs on Anthropic" when it meant the org. */
+    assert.equal(acctOnly.account.organization, 'Org', 'the organisation was dropped');
+    assert.equal(acctOnly.account.label, null, 'the organisation was written into the label field');
+    assert.doesNotMatch(sentenceForWhoami(acctOnly.account, null), /Org/,
+      'an organisation name reached the sentence as though it were an account');
     assert.equal(acctOnly.source.account, 'process', 'the live account was not preferred');
+    /* AND THE FIELDS THAT RIDE WITH IT. `dir` was asserted only on the OTHER
+       branch, so nulling it here survived the whole suite. */
+    assert.equal(acctOnly.account.dir, '/d', 'the live config directory was dropped');
     assert.equal(acctOnly.source.model, 'record',
       'a live reading with no model hard-nulled the model instead of asking the record');
 
@@ -10807,6 +10817,12 @@ test('#1304: each field takes the best source that has it, and neither hard-null
        somewhere else. */
     assert.equal(modelOnly.account.dir, '/d');
     assert.equal(modelOnly.account.email, null);
+    /* 🔑 THE PROVENANCE OF THIS BRANCH, which was the one account branch whose
+       `source` nothing asserted. Its dir, email and isDefault were all pinned
+       and the field the whole change exists for was not, so flipping it to
+       'record' survived two full-suite runs. */
+    assert.equal(modelOnly.source.account, 'process',
+      'a live-read directory was attributed to the record');
     /* 🔑 AND `isDefault` MUST FOLLOW THE DIRECTORY, not be hardcoded. `runningAs`
        sets `configDir` unconditionally - the env var when it finds one, the
        default `~/.claude` synthesised when it does not - so a flat `false` here
@@ -10842,12 +10858,48 @@ test('#1304: each field takes the best source that has it, and neither hard-null
     assert.equal(seam.bare, false, 'the bare-homedir rule agrees with accounts here, so this proves nothing');
     assert.equal(seam.shared, true,
       'accounts no longer treats AGENT_WORKFORCE_HOME as the home for this comparison');
-    /* AND THE ONE DERIVATION: server.js must ask `accounts`, not re-derive it.
-       Structural on purpose - the divergence only shows in a process whose HOME
-       differs, so no in-process behavioural arm can catch it. */
-    assert.match(require('node:fs').readFileSync('server.js', 'utf8'),
-      /const isDefaultDir = accounts\.isDefaultDir;/,
-      'whoami re-derives the default-directory rule instead of asking accounts');
+    /* 🔑 THE EXPORTED HELPER'S OWN EDGES. It was moved into `accounts` this
+       round and inherited `configFile`'s normalisation requirement without
+       inheriting a test: `path.resolve` is load-bearing per that function's own
+       comment ("a trailing slash or unnormalized spelling of the default dir
+       must not silently fall to the inside-the-dir branch"), and both dropping
+       it and changing the null return survived the suite. */
+    const acc = require('./engine/accounts');
+    const home = acc.HOME_FOR_TEST;
+    const nodePathMod = require('node:path');
+    assert.equal(acc.isDefaultDir(nodePathMod.join(home, '.claude')), true, 'the plain default dir');
+    assert.equal(acc.isDefaultDir(nodePathMod.join(home, '.claude') + '/'), true,
+      'a trailing slash defeated the comparison, so normalisation is not happening');
+    assert.equal(acc.isDefaultDir(nodePathMod.join(home, '.claude', 'x', '..')), true,
+      'an unnormalised spelling defeated the comparison');
+    assert.equal(acc.isDefaultDir(nodePathMod.join(home, '.claude-other')), false,
+      'a non-default dir was called the default');
+    assert.equal(acc.isDefaultDir(null), null,
+      'an absent dir must answer null, not a boolean: "we do not know" and "not the default" differ');
+    /* 🛑 THE ONE DERIVATION, CHECKED BY BEHAVIOUR RATHER THAN BY A REGEX. My
+       first version asserted the source text contained
+       `const isDefaultDir = accounts.isDefaultDir;` - and a reviewer defeated it
+       by COMMENTING THAT LINE OUT and hand-rolling the comparison beside it. The
+       asserted string was still present, so the guard never moved, and the whole
+       suite stayed green with the defect fully restored.
+
+       ⇒ A regex over source cannot tell live code from a comment. The guard's
+       own subject could be neutralised without the guard noticing, which is the
+       precise defect this branch keeps finding elsewhere, committed by me in the
+       fix for it.
+
+       ✅ Instead: replace `accounts.isDefaultDir` with a spy and require that
+       `whoamiFor` actually reaches it. A comment cannot satisfy a call count. */
+    const accountsEngine2 = require('./engine/accounts');
+    const realIsDefault = accountsEngine2.isDefaultDir;
+    let asked = 0;
+    try {
+      accountsEngine2.isDefaultDir = (d) => { asked += 1; return realIsDefault(d); };
+      const spied = whoamiFor(card, known, { ok: true, account: 'x@y.z', model: null, configDir: '/d' });
+      assert.equal(spied.account.email, 'x@y.z', 'the spy arm did not reach the live account branch');
+      assert.ok(asked > 0,
+        'whoami re-derives the default-directory rule instead of asking accounts');
+    } finally { accountsEngine2.isDefaultDir = realIsDefault; }
 
     /* THE OTHER ARM: an agent the live reader cannot see at all.
        🛑 AND THE RECORD MUST ACTUALLY ANSWER HERE. My first version passed
@@ -10937,6 +10989,62 @@ test('#1304: each field takes the best source that has it, and neither hard-null
     assert.equal(bothKnow.model.confidence, 'structured',
       'a transcript-sourced model was labelled as scraped');
 
+    /* 🛑 THE SENTENCE ITSELF, WHICH WAS ALMOST ENTIRELY UNPINNED. Five separate
+       mutations of `sentenceForWhoami` survived the full suite, and one of them
+       is the card's own headline defect: the MODEL standing in for the ACCOUNT.
+
+       The missing shape was a NULL ACCOUNT WITH A KNOWN MODEL. Every existing
+       arm had both null or the account populated, so nothing could see a
+       sentence that answered the easier question. */
+    /* The fixture job is removed FIRST so `accountForAgent` returns a genuine
+       null rather than an unidentifiable-directory object - the transcript
+       stays, so this is the null-account-with-known-model shape and not simply
+       an empty agent. Restored immediately after. */
+    fs.rmSync(fixtureJob, { force: true });
+    const noAcctKnownModel = whoamiFor(card, [], { ok: false, because: 'no pane' });
+    assert.equal(noAcctKnownModel.account, null, 'the fixture no longer produces a null account');
+    assert.ok(noAcctKnownModel.model && noAcctKnownModel.model.name,
+      'the transcript seeded above is no longer readable, so the arm below proves nothing');
+    assert.match(sentenceForWhoami(noAcctKnownModel.account, noAcctKnownModel.model), /^We cannot tell which account/,
+      'the model stood in for the account: the easier question answered instead of the one asked');
+    assert.doesNotMatch(sentenceForWhoami(noAcctKnownModel.account, noAcctKnownModel.model), /^This agent runs on/,
+      'a missing account was reported as a known one');
+    /* AND THE MODEL HALF IS STILL SAID, so this is not "suppress everything". */
+    assert.match(sentenceForWhoami(noAcctKnownModel.account, noAcctKnownModel.model), /and its model is Claude Opus 5/,
+      'the display name did not reach the sentence from the RECORD path');
+    /* 🔑 THE RECORD PATH'S DISPLAY NAME. The live path's was pinned and the
+       record path's - the PREFERRED source - was not, so returning the raw id
+       survived the whole suite. */
+    assert.equal(noAcctKnownModel.model.name, 'Claude Opus 5',
+      'the raw model id reached the agent instead of the display name');
+    assert.notEqual(noAcctKnownModel.model.name, noAcctKnownModel.model.id,
+      'name and id are the same string, so this arm cannot tell them apart');
+
+    /* THE KNOWN-ACCOUNT FORM, anchored. `/runs on/` matched BOTH forms, because
+       the unknown form reads "We cannot tell which account this agent runs on",
+       so the old assertion was structurally incapable of detecting the thing its
+       own message named. */
+    fs.writeFileSync(fixtureJob,
+      create.plistFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5',
+        '/Users/agent1/.claude-account-x'), 'utf8');
+    const knownAcct = whoamiFor(card, recorded, { ok: false, because: 'no pane' });
+    assert.match(sentenceForWhoami(knownAcct.account, knownAcct.model), /^This agent runs on recorded@book\.io/,
+      'a known account did not reach the sentence in the known-account form');
+    /* 🔑 AND THE MODEL-UNKNOWN HALF, which nothing pinned: making the model
+       clause always take the KNOWN form survived the whole suite and emitted
+       "and its model is null" to an agent. Every arm here had a readable
+       transcript by this point, so the unknown branch was never exercised. */
+    const noModel = sentenceForWhoami({ email: 'someone@book.io', label: null, dir: '/d', isDefault: false }, null);
+    assert.match(noModel, /and we cannot tell which model it is running\.$/,
+      'a null model was rendered rather than reported as unknown');
+    assert.doesNotMatch(noModel, /null/, 'a null leaked into the sentence a person reads back');
+
+    /* AND THE UNIDENTIFIABLE-DIRECTORY FORM, the third branch of `acct`, which
+       no arm reached: a job pointing at a config dir that is in no known list. */
+    const unknownDir = whoamiFor(card, [], { ok: false, because: 'no pane' });
+    assert.match(sentenceForWhoami(unknownDir.account, unknownDir.model), /^This agent runs on an account we cannot identify \(/,
+      'a configured but unrecognised directory stopped being reported');
+
   } finally {
     if (fixtureJob) { try { fs.rmSync(fixtureJob, { force: true }); } catch { /* nothing to undo */ } }
     /* ⚠️ AND THE SEEDED TRANSCRIPT, which I left behind. `seedTranscript` writes a
@@ -11005,6 +11113,55 @@ test('#1304: the ROUTE asks the live reader by tmux session, and says which read
     assert.equal(out.source.model, 'record');
     assert.match(out.because, /runs on/, 'a known account did not reach the sentence');
   } finally {
+    server.setLiveReader(null);
+    messagesEngine.setRunner(null);
+    fleet.restore();
+  }
+});
+
+test('#1304: a throwing live reader falls back to the record and fabricates nothing', async () => {
+  /**
+   * 🛑 EVERY GUARD ON THE ROUTE'S LIVE FETCH WAS UNPINNED, and one of the
+   * mutations that survived is this card's own headline defect: the `catch`
+   * returning `{ok: true, account: 'fallback@example.com'}` - a confident wrong
+   * account - with the whole suite green.
+   *
+   * The three that survived: deleting `if (!sess) return null`, replacing the
+   * try/catch with a bare call, and having the catch fabricate. This pins the
+   * one that matters most, plus the shape of the answer when the reader dies.
+   */
+  const messagesEngine = require('./engine/messages');
+  const server = require('./server.js');
+  const accountsEngine = require('./engine/accounts');
+  const board = fleet.install([fleet.agent('acctworker', { state: 'idle' })]);
+  const realList = accountsEngine.list;
+  let listAsked = 0;
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'acctworker-discord' }));
+    server.setLiveReader(() => { throw new Error('tmux is not answering'); });
+    /* 🔑 AND THE RECORD PATH MUST ACTUALLY BE WIRED. `const known = accounts.list()`
+       could be replaced with `[]` and the suite stayed green, because both route
+       tests stub the live reader in ways that never reach `accountForAgent` with
+       a populated list. A spy on the real call is what ties the wiring down. */
+    accountsEngine.list = (...a) => { listAsked += 1; return realList(...a); };
+
+    const r = await req('/api/whoami', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from_pane: '%7' }),
+    });
+    assert.equal(r.status, 200, 'a throwing reader took the route down instead of falling back');
+    const out = JSON.parse(r.body);
+    assert.equal(out.ok, true, 'a throwing reader produced a refusal: ' + r.body);
+    assert.equal(out.source.account, 'record',
+      'a reader that threw was still credited as the source');
+    assert.ok(listAsked > 0, 'the route never consulted the account list, so the record path is unwired');
+    /* NOTHING INVENTED: the fixture has no job, so the honest answer is null. */
+    assert.equal(out.account, null, 'an account was fabricated after the live reader threw');
+    assert.match(out.because, /^We cannot tell which account/,
+      'a thrown reader produced a confident sentence');
+  } finally {
+    accountsEngine.list = realList;
     server.setLiveReader(null);
     messagesEngine.setRunner(null);
     fleet.restore();
