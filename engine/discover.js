@@ -33,6 +33,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const status = require('./status');
+const codexsession = require('./codexsession');
 const store = require('./store');
 
 /* "Dismiss this forever" (Josh, 2026-08-24 17:06): the board's found-agents
@@ -140,6 +141,97 @@ function newestTranscript(dir) {
  * could not look. "We found none" and "we could not look" are different
  * sentences and this codebase exists because they were once the same one.
  */
+/**
+ * The identity of a Codex session, from its rollout.
+ *
+ * 🔑 TWO ROUTES, AND THE SECOND HAS NO CLAUDE-SIDE EQUIVALENT (#1159).
+ *
+ *   1. `<cwd>/AGENTS.md` on disk -- the exact analogue of `<cwd>/CLAUDE.md`.
+ *   2. THE `<INSTRUCTIONS>` BLOCK INSIDE THE ROLLOUT ITSELF.
+ *
+ * Codex embeds the project's AGENTS.md into the transcript, so an agent stays
+ * identifiable after its folder is deleted. The Claude path cannot do this: it
+ * needs the file to still exist. Measured on this Mac 2026-08-28, and it is not
+ * a small difference -- 24 of 41 Claude project records could not produce an
+ * identity because the directory or the file was gone.
+ *
+ * ⚠️ DISK FIRST, ROLLOUT SECOND, and that order matters. The file is what the
+ * agent reads TODAY; the rollout is what it read at the time. A renamed agent
+ * should come back under its new name, so a stale embedded copy must never win
+ * over a live file.
+ */
+function codexIdentity(meta, file) {
+  const cwd = meta && meta.cwd;
+  if (cwd) {
+    try {
+      const onDisk = fs.readFileSync(path.join(cwd, 'AGENTS.md'), 'utf8').slice(0, 4000);
+      const id = status.identityFromText(onDisk);
+      if (id && id.displayName) return { id, instructions: path.join(cwd, 'AGENTS.md'), from: 'disk' };
+    } catch { /* fall through to the rollout */ }
+  }
+  /* ⚠️ BOUNDED READ. A rollout grows without limit, and the instructions block is
+     written near the start, so this reads a head rather than a whole transcript. */
+  let head = '';
+  try {
+    const fd = fs.openSync(file, 'r');
+    try {
+      const buf = Buffer.alloc(256 * 1024);
+      const n = fs.readSync(fd, buf, 0, buf.length, 0);
+      head = buf.slice(0, n).toString('utf8');
+    } finally { try { fs.closeSync(fd); } catch { /* already gone */ } }
+  } catch { return null; }
+  const m = head.match(/<INSTRUCTIONS>([\s\S]{0,4000})/);
+  if (!m) return null;
+  const id = status.identityFromText(m[1].replace(/\\n/g, '\n'));
+  if (!id || !id.displayName) return null;
+  return { id, instructions: file, from: 'rollout' };
+}
+
+/**
+ * Codex agents already on this computer.
+ *
+ * 🛑 WITHOUT THIS, A CODEX USER INSTALLS KOSMOS AND SEES AN EMPTY SCREEN (#1159).
+ * Discovery walked only `~/.claude/projects`, so a whole population of people
+ * already running agents got silence -- and not even the count-not-a-list from
+ * #1078, because that only fires for folders reached through Claude's records.
+ *
+ * ⚠️ SAME RETURN SHAPE AS `found()` and the same rules: keyed on the launch
+ * folder, deduped by it, an identity-less session COUNTED rather than dropped.
+ */
+function foundCodex(roster) {
+  const byDir = new Map();
+  const unreadableDirs = new Set();
+  let unreadable = 0;
+  let files;
+  try { files = codexsession.rollouts(); } catch { return { agents: [], unreadable: 0 }; }
+
+  for (const file of files) {
+    const meta = codexsession.metaOf(file);
+    if (!meta) continue;
+    const cwd = meta.cwd;
+    /* No launch folder is not an agent we can offer: connecting records a folder,
+       so there would be nothing to record. */
+    if (!cwd || byDir.has(cwd)) continue;
+
+    const hit = codexIdentity(meta, file);
+    if (!hit) {
+      if (!unreadableDirs.has(cwd)) { unreadableDirs.add(cwd); unreadable += 1; }
+      continue;
+    }
+    byDir.set(cwd, {
+      dir: cwd,
+      name: hit.id.displayName,
+      role: hit.id.role,
+      instructions: hit.instructions,
+      /* 🔑 SO THE SCREEN CAN SAY WHICH PROVIDER, and so a Codex row is never
+         silently offered as if it were a Claude one. */
+      runner: 'codex',
+      already: alreadyIn(cwd, roster),
+    });
+  }
+  return { agents: [...byDir.values()], unreadable };
+}
+
 function found() {
   let roots;
   try { roots = status.configRoots(); } catch (err) {
@@ -238,9 +330,19 @@ function found() {
   if (!looked) {
     return { ok: false, agents: [], unreadable: 0, because: 'we could not read where Claude keeps its records' };
   }
+    /* 🛑 CODEX AGENTS ARE MERGED HERE RATHER THAN EXPORTED FOR SOMEBODY ELSE TO
+       CALL (#1159). An exported walk that nothing invokes is a merged-but-inert
+       fix, which this codebase has shipped repeatedly and which reads as done
+       from every angle except the user's screen.
+       ⚠️ THE CLAUDE SIDE WINS A COLLISION, deliberately: a folder reachable both
+       ways is one agent, and the Claude record is the one `connect` already
+       knows how to act on. */
+    const codex = foundCodex(roster);
+    for (const a of codex.agents) if (!byDir.has(a.dir)) byDir.set(a.dir, a);
+
   /* Stable and human: by the name a person would look for. */
   const agents = [...byDir.values()].sort((a, b) => a.name.localeCompare(b.name));
-  return { ok: true, agents, unreadable, because: null };
+    return { ok: true, agents, unreadable: unreadable + codex.unreadable, because: null };
 }
 
 /**
@@ -437,4 +539,6 @@ function disconnect(name) {
 }
 
 module.exports = { alreadyIn,
+  foundCodex,
+  codexIdentity,
   runningUnderName, found, connect, disconnect, dismissed, dismiss, DISMISS_FILE };
