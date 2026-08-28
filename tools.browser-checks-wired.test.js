@@ -68,6 +68,35 @@ function isLibrary(file) {
   return fs.readFileSync(path.join(DIR, file), 'utf8').includes('module.exports');
 }
 
+/**
+ * 🛑 A BOUNDARY, NOT A SUBSTRING, AND `String.includes` WAS WRONG (Ice Cream
+ * Kitty, cross-review of #1424).
+ *
+ * `render-talk` is a PREFIX of `render-talk-search`. Both are wired today via
+ * the stem loop, so nothing is broken right now - but delete the standalone
+ * `render-talk` token from that list and the check stops running while this
+ * test still reports it WIRED, because its stem occurs inside its neighbour.
+ *
+ * ⇒ A check that stops running reads as covered, which is the exact defect this
+ * file exists to prevent, reachable by deleting one word.
+ *
+ * ⭐ AND MY CONTROLS COULD NOT HAVE CAUGHT IT, which is the more useful half of
+ * her finding: `render-projects` present and `zzz-not-a-real-check` absent both
+ * pass under the bug, because the fault is in the matcher's PRECISION and a
+ * control tests its LIVENESS. **A control proves an instrument is not dead. It
+ * cannot prove it is not over-eager.**
+ *
+ * 📌 The stem match itself is deliberate and stays: the runner invokes sixteen
+ * checks through `run_one "$n" node "docs/browser-checks/$n.js"`, so there is no
+ * literal filename to match for those. Requiring the stem not to abut another
+ * name character keeps that and removes the collision. Regression-checked: 48
+ * wired by substring, 48 by boundary, nothing newly reported unwired.
+ */
+function wiredIn(code, stem) {
+  const safe = stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![A-Za-z0-9_-])${safe}(?![A-Za-z0-9_-])`).test(code);
+}
+
 function checkFiles() {
   return fs.readdirSync(DIR).filter((f) => f.endsWith('.js')).sort();
 }
@@ -113,8 +142,14 @@ test('#1387: the instrument is reading something', () => {
   assert.ok(code.length > 1000, `${RUNNER} read as ${code.length} chars after stripping comments; the runner read looks broken`);
   /* AND THE MATCHER CAN SAY BOTH THINGS. A discriminator that only ever says
      "wired" would pass this whole file silently. */
-  assert.ok(code.includes('render-projects'), 'the matcher cannot find a check it should find');
-  assert.ok(!code.includes('zzz-not-a-real-check'), 'the matcher finds a name that does not exist');
+  assert.ok(wiredIn(code, 'render-projects'), 'the matcher cannot find a check it should find');
+  assert.ok(!wiredIn(code, 'zzz-not-a-real-check'), 'the matcher finds a name that does not exist');
+  /* 🔑 AND THE PRECISION ARM, which the two above cannot supply: a stem that
+     occurs only INSIDE another name must not read as wired. Without this the
+     matcher can be reverted to `includes` and every other assertion still
+     passes. */
+  assert.ok(!wiredIn('run_one "render-talk-search" node x', 'render-talk'),
+    'the matcher counts a name as wired when only a LONGER name containing it is present');
 });
 
 test('#1387: every browser check is RUN by the runner, or is listed as unwired with a reason', () => {
@@ -123,7 +158,7 @@ test('#1387: every browser check is RUN by the runner, or is listed as unwired w
   for (const f of checkFiles()) {
     if (isLibrary(f)) continue;
     if (Object.prototype.hasOwnProperty.call(NOT_WIRED, f)) continue;
-    if (!code.includes(f.replace(/\.js$/, ''))) orphans.push(f);
+    if (!wiredIn(code, f.replace(/\.js$/, ''))) orphans.push(f);
   }
   assert.deepEqual(orphans, [],
     `these checks exist and are never run by ${RUNNER}, and nothing else would tell you:\n  ${orphans.join('\n  ')}\n`
@@ -135,7 +170,10 @@ test('#1387: every browser check is RUN by the runner, or is listed as unwired w
    unwired check hide behind a stale line. */
 test('#1387: nothing in NOT_WIRED is actually wired, and nothing in it has been deleted', () => {
   const code = runnerCode();
-  const stale = Object.keys(NOT_WIRED).filter((f) => code.includes(f.replace(/\.js$/, '')));
+  /* Boundary here too: a NOT_WIRED name that is a substring of a wired one
+     would otherwise read as "since wired" and fail spuriously - the same bug
+     in the opposite direction. */
+  const stale = Object.keys(NOT_WIRED).filter((f) => wiredIn(code, f.replace(/\.js$/, '')));
   assert.deepEqual(stale, [],
     `these are listed as unwired but the runner DOES run them; delete their lines:\n  ${stale.join('\n  ')}`);
   const missing = Object.keys(NOT_WIRED).filter((f) => !fs.existsSync(path.join(DIR, f)));
