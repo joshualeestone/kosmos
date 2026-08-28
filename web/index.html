@@ -24052,6 +24052,17 @@ const FILE_TYPES = {
   doc: ['DOC', '#2b579a'], docx: ['DOC', '#2b579a'],
   ppt: ['PPT', '#d24726'], pptx: ['PPT', '#d24726'], key: ['KEY', '#d24726'],
   xls: ['XLS', '#217346'], xlsx: ['XLS', '#217346'], csv: ['CSV', '#217346'], numbers: ['NUM', '#217346'],
+  /* 🛑 PDF WAS NEVER MISSING. Josh reported "PDFs are not displaying the PDF
+     icon" (2026-08-27) and `pdf` has been in this table since #536. The two
+     iconless rows in his screenshot are the McKinney and Honobia files, and the
+     thread directly beside them says what they are: both were written up and
+     STUCK WAITING to be turned into PDFs, because the converter on that machine
+     does HTML to docx and not to PDF. They were .html.
+     ⇒ The gap is HTML, which agents on this product produce constantly, plus a
+     few neighbours a person would plausibly have. Adding `pdf` would have been
+     a no-op that closed the card without fixing anything he saw. */
+  html: ['WEB', '#4a4f57'], htm: ['WEB', '#4a4f57'],
+  rtf: ['DOC', '#2b579a'], pages: ['DOC', '#2b579a'],
   md: ['MD', '#14161a'], markdown: ['MD', '#14161a'],
   txt: ['TXT', '#4a4f57'],
   png: ['IMG', '#6b4fa0'], jpg: ['IMG', '#6b4fa0'], jpeg: ['IMG', '#6b4fa0'], gif: ['IMG', '#6b4fa0'],
