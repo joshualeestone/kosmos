@@ -136,7 +136,20 @@ test('#1150: the room history that arrives when you open a room is not everybody
   assert.ok(from > -1, 'the seeding block moved; this test is no longer reading the real one');
   const to = SCRIPT.indexOf('ROOM_SPOKE_SEEDED.add(PJ_CURRENT);', from);
   assert.ok(to > from, 'the seeding block no longer ends where this test expects');
-  const BLOCK = SCRIPT.slice(from, to + 'ROOM_SPOKE_SEEDED.add(PJ_CURRENT);'.length);
+  /* 🛑 THE BLOCK NOW REFERENCES `ROOM_NOT_SPEECH` (#1397), AND THIS HARNESS
+     PASSED WITHOUT IT BY LUCK. None of the fixtures below carry a `kind`, so
+     `m.kind && ROOM_NOT_SPEECH.has(...)` short-circuits and the identifier is
+     never evaluated. The first person to add a `kind` to a fixture here would
+     have got a bare ReferenceError from inside a `new Function`, which reads as
+     a broken harness rather than as a missing declaration.
+
+     ⇒ Lifted from the page rather than declared here, for the same reason the
+     block itself is: a locally-declared set would keep passing with every entry
+     deleted from the real one. */
+  const notSpeech = SCRIPT.match(/const ROOM_NOT_SPEECH = new Set\(\[[^\]]*\]\);/);
+  assert.ok(notSpeech, 'ROOM_NOT_SPEECH is no longer a Set literal in the page; the sliced block cannot run');
+  const BLOCK = notSpeech[0] + '\n'
+    + SCRIPT.slice(from, to + 'ROOM_SPOKE_SEEDED.add(PJ_CURRENT);'.length);
   const seedRuns = [];
   // eslint-disable-next-line no-new-func
   /* 🔑 `Date` IS A PARAMETER SO THE CLOCK IS CONTROLLABLE. The block stamps with

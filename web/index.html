@@ -14532,6 +14532,36 @@ const ROOM_SPOKE_AT = new Map();
    room would be worse, not better: returning to a room would then re-seed it and
    stamp its whole backlog as speech, which is #1150 itself. */
 const ROOM_SPOKE_SEEDED = new Set();
+/* 🛑 NOT EVERY ROW WITH A `from` IS SPEECH (#1397). `engine/messages.js` emits
+   six kinds and several carry a real `from`, so the stamping loop below was
+   recording a REFUSED message as the agent having spoken - and a stamp
+   suppresses that agent's working indicator for a poll. An agent whose message
+   Kosmos BLOCKED was treated as having talked.
+
+   ⚠️ THE RUNTIME TEST BELOW USES THE DENY SET, NOT THE SPEECH SET, AND THE
+   DIRECTION IS THE WHOLE REASON. An unrecognised future kind must fall through
+   to "counts as speech":
+
+     deny-list default   unknown kind -> stamped -> agent hidden for ONE POLL
+     allow-list default  unknown kind -> unstamped -> name shown beside a reply
+                                         already on screen, which is #1150,
+                                         the UNBOUNDED one Josh complained about
+
+   ⇒ Both defaults are wrong for a new kind; only one of them is wrong in a way
+   that self-corrects on the next poll.
+
+   ✅ AND THE DRIFT IS MADE LOUD RATHER THAN LEFT TO THE DEFAULT: both sets are
+   exported shapes that `web.speech-kind-1397.test.js` reads, and it asserts
+   their union covers every `kind:` that `engine/messages.js` actually emits. A
+   seventh kind added over there turns this red over here, which is the only
+   thing that stops the two vocabularies drifting apart silently.
+
+   📌 `nudge` is in the deny set and is unreachable by this loop today: it is
+   logged with `to:` and no `from:`, so `who` is undefined and the loop already
+   skips it. Listed anyway, because the test above requires every emitted kind
+   to be classified, and "unreachable today" is a property of the other file. */
+const ROOM_SPEECH_KINDS = new Set(['message', 'post']);
+const ROOM_NOT_SPEECH = new Set(['refused', 'valve', 'note', 'nudge']);
 // Whether a status tick has ever ANSWERED. [] before the first answer means
 // "not heard yet", not "empty board", and the two must never be conflated
 // (the Recommended pill reads this).
@@ -26445,6 +26475,9 @@ function paintRoom(body) {
   for (const m of PJ_CURRENT ? allRows : []) {
     const who = m && m.from;
     if (!who || !m.at) continue;
+    /* #1397: a row Kosmos REFUSED is not the agent speaking. See
+       ROOM_NOT_SPEECH above for why this is a deny test and not an allow one. */
+    if (m.kind && ROOM_NOT_SPEECH.has(m.kind)) continue;
     const at = Date.parse(m.at);
     /* ⚠️ THIS GUARD'S WEAKENING SURVIVES THE SUITE, AND IT IS UNREACHABLE ONLY
        BECAUSE A DIFFERENT MODULE HOLDS THE LINE: `engine/messages.js` rejects
