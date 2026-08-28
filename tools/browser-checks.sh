@@ -646,7 +646,7 @@ fi
 # roots, own OS-chosen port, server.js in-process, runs bare. Proven standalone
 # 15/15, and proven RED with the fix disabled -- the arm that matters reports
 # Josh's own symptom, 46px of the newest messages under the fold.
-for n in live-connect render-agent-nav render-busy-line render-head-row render-room-scroll render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks; do
+for n in live-connect render-agent-nav render-busy-line render-head-row render-room-scroll render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks render-composer-reset; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
 # --- the rich board: four checks that could not be wired for want of a fixture
