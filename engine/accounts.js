@@ -73,6 +73,30 @@ function homeDir() { return process.env.AGENT_WORKFORCE_HOME || os.homedir(); }
  * exactly that, in subscription's scoped check). Keyed on the canonical
  * spelling of the default dir, same as every caller passes.
  */
+/**
+ * Is this config directory the DEFAULT one for this machine?
+ *
+ * 🔑 EXPORTED SO NOBODY COMPUTES IT AGAIN. `configFile` below has always encoded
+ * this comparison, but only as a step toward a path, so a caller that wanted the
+ * BOOLEAN had to re-derive it - and #1304 did exactly that, against bare
+ * `os.homedir()`, which disagrees with this module under `AGENT_WORKFORCE_HOME`.
+ * Two derivations of one fact is this codebase's most expensive habit; the fix
+ * for a second one is to make the first callable rather than to write a third.
+ */
+function isDefaultDir(dir) {
+  if (!dir) return null;
+  /* 🛑 `homeDir()`, NOT A FROZEN CONST, AND A REBASE NEARLY COST THIS SILENTLY.
+     Written against a `const HOME` that #1419 has since REMOVED in favour of the
+     lazy `homeDir()` - "so it cannot re-freeze what homeDir() unfroze". A purely
+     textual conflict resolution leaves `HOME` here, and THE CATCH BELOW WOULD
+     SWALLOW THE ReferenceError and return null for every directory: `isDefault`
+     silently unknown everywhere, no error, and no test that asserts a boolean
+     rather than a throw would notice.
+     ⇒ The catch is for an unreadable path, not for a coding mistake. Keeping one
+     derivation means using the accessor the rest of this file uses. */
+  try { return path.resolve(String(dir)) === path.join(homeDir(), '.claude'); } catch { return null; }
+}
+
 function configFile(dir) {
   /* Resolved first: a trailing slash or unnormalized spelling of the
      default dir must not silently fall to the inside-the-dir branch,
@@ -403,5 +427,5 @@ function nextWorkDir() {
   return null;
 }
 
-module.exports = { list, listLive, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+module.exports = { list, listLive, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); } };
