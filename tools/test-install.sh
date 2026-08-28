@@ -430,6 +430,17 @@ BOARD_PLIST="$SB/launch/com.kosmos.board.$BOARD_LABEL_SUFFIX.plist"
 # fails that probe.
 chk "the sandboxed transcript says the registration was skipped" "grep -q 'registering it with launchd was skipped on purpose' \"$SB/install.log\""
 chk "the sandboxed transcript does not promise a login start it never registered" "! grep -q 'Kosmos will start itself when you log in' \"$SB/install.log\""
+# 🔑 THE CLOSING ACTION, IN A REAL INSTALL'S OWN TRANSCRIPT (#1334). The node
+# test pins it in the SOURCE and pins its POSITION. This pins that it actually
+# PRINTS: the source test cannot tell whether the case gate around it ever opens,
+# and a closing line that never fires is the same to a person as no line at all.
+# The sandbox's bin dir is not on this shell's PATH, which is precisely the
+# condition the line exists for, so it must appear here.
+chk "the transcript ends on the thing the person still has to do" "grep -q 'One more thing: typing' \"$SB/install.log\""
+# ⚠️ AND NOT MERELY PRESENT: nothing that reads as success may follow it, which
+# is the whole point of the card. Checked on the transcript rather than the
+# source, so a printf added later at runtime is caught too.
+chk "no success line is printed after the closing action" "! awk '/One more thing: typing/{f=1} f && /Kosmos is running|Your dashboard/{found=1} END{exit !found}' \"$SB/install.log\""
 chk "the board gets a login job" "[ -f \"$BOARD_PLIST\" ]"
 chk "the login job starts THIS install's command" "grep -qF \"$SB/home/bin/kosmos\" \"$BOARD_PLIST\" && grep -q '<string>start</string>' \"$BOARD_PLIST\""
 chk "the login job runs at login" "grep -q '<key>RunAtLoad</key><true/>' \"$BOARD_PLIST\""
