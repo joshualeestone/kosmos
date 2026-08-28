@@ -2493,9 +2493,21 @@ test('the wording Claude Code actually uses for a spent limit reads as paused, n
      * ⚠️ ADDED BECAUSE THE MUTATION HARNESS CAUGHT IT UNCOVERED: deleting
      * `evidence` from the classifier changed the product and no test noticed.
      */
+    /**
+     * 🛑 THE COMMENT ABOVE AND THIS ASSERTION DISAGREED, AND THE ASSERTION WAS
+     * THE ONE THAT SHIPPED (#1248). It said "carries the vendor's own two
+     * remedies" and then pinned a string containing ONE of them, ending on the
+     * word "or". The vendor wrote a message and the field was reading a line.
+     * Measured at every pane width from 40 to 200: the second remedy was absent
+     * at all 41, so this is not a wrapping problem and #1234's `-J` does not
+     * touch it.
+     *
+     * Now pinned as the whole message, which is what the comment always said it
+     * was for.
+     */
     assert.equal(card.stateEvidence,
-      "You've reached your Fable 5 limit. Run /usage-credits to continue or",
-      'the matched line is not coming back, so the screen can only assert rather than show');
+      "You've reached your Fable 5 limit. Run /usage-credits to continue or switch models with /model.",
+      'the vendor message is not coming back whole, so the screen shows half a remedy');
 
     /* Trimmed of the tree glyph Claude Code prefixes its notices with, and
        nothing from the healthy pane. */
@@ -3393,6 +3405,52 @@ test('#1243: KNOWN GAP -- ordinary English "worked for" still reads idle', () =>
      only the WORDS in it do any work. Measured, not read off the comment. */
   assert.equal(classify(pane(), '✳ Cooked for 1m 33s\n').state, STATE.UNKNOWN,
     'the finished line now reaches idle directly, so the glyph may have been fixed');
+});
+
+/**
+ * #1248. The `evidence` field exists to carry the vendor's own words to the
+ * screen rather than our paraphrase of them, and it was carrying the first LINE
+ * of a message the vendor wrote in two.
+ */
+test('#1248: the limit evidence carries the whole message, and stops where the message does', () => {
+  const REAL = "You've reached your Fable 5 limit. Run /usage-credits to continue or\n"
+    + 'switch models with /model.\n';
+  assert.equal(classify(pane(), REAL).evidence,
+    "You've reached your Fable 5 limit. Run /usage-credits to continue or switch models with /model.",
+    'the second remedy never reaches the person the field exists for');
+
+  /* 🛑 CHROME MUST NEVER BE PASTED IN. A limit line that does NOT end in a
+     terminator, with the prompt footer directly under it, is the shape that
+     would put "⏵⏵ accept edits on…" on a person's screen. A continuation has to
+     open with a letter, digit or slash; every runner's chrome opens with a
+     glyph. */
+  const withFooter = "You've reached your Fable 5 limit and cannot continue\n"
+    + '⏵⏵ accept edits on (shift+tab to cycle)\n? for shortcuts\n';
+  assert.equal(classify(pane(), withFooter).evidence,
+    "You've reached your Fable 5 limit and cannot continue",
+    'the prompt footer was pasted into the evidence');
+  const withRule = "You've reached your Fable 5 limit and cannot continue\n────────────────\n";
+  assert.equal(classify(pane(), withRule).evidence,
+    "You've reached your Fable 5 limit and cannot continue",
+    'a box-drawing rule was pasted into the evidence');
+
+  /* A sentence that ends is not extended, so a one-line message is unchanged. */
+  assert.equal(classify(pane(), "You've reached your Fable 5 limit.\nUnrelated next line.\n").evidence,
+    "You've reached your Fable 5 limit.",
+    'a finished sentence swallowed the line after it');
+
+  /* Bounded at two extra lines, the same window the working-line builder uses,
+     so an unterminated line cannot run away down the pane. */
+  const runaway = "You've reached your Fable 5 limit and\ncannot continue with this model\n"
+    + 'until the window resets tomorrow\nand this fourth line must not arrive\n';
+  assert.doesNotMatch(classify(pane(), runaway).evidence, /fourth line/,
+    'the message reader ran past its two-line window');
+
+  /* And the 240-character cap this module applies everywhere still applies. */
+  const long = "You've reached your Fable 5 limit " + 'x'.repeat(300) + '\n';
+  const capped = classify(pane(), long).evidence;
+  assert.ok(capped.length <= 241, 'an uncapped paste of pane text reached a product surface');
+  assert.match(capped, /…$/, 'a cut is not visibly a cut');
 });
 
 test('#1180: KNOWN GAP -- "reached your ... limit" still matches one piece of prose', () => {
