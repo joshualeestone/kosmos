@@ -28,6 +28,36 @@ const discover = require('./discover');
 const create = require('./create');
 const status = require('./status');
 
+/**
+ * 🛑 REFUSE TO RUN IF THE SANDBOX DID NOT TAKE. This file writes launchd jobs and
+ * worker folders, and `create.js` resolves `AGENTS_DIR` AT MODULE LOAD:
+ *
+ *     const AGENTS_DIR = process.env.AGENT_WORKFORCE_LAUNCH || <real LaunchAgents>
+ *
+ * In a multi-file `node --test` run the files share a process, so whichever file
+ * requires `create.js` FIRST decides that constant. This file sets its
+ * environment before its own requires - and that is not enough, because an
+ * earlier file may already have loaded the module against the real paths.
+ *
+ * ⚠️ MEASURED, NOT HYPOTHETICAL: running the full suite put four real plists into
+ * the operator's `~/Library/LaunchAgents` -- com.kosmos.agent.scoutboth,
+ * .scoutclaude, .scoutcodex, .scoutsetup -- named for the fixtures below and
+ * pointing at temp directories that no longer exist. They were never loaded, so
+ * nothing ran, and that was luck rather than design.
+ *
+ * ⇒ SILENT POLLUTION BECOMES A LOUD FAILURE HERE. A test that cannot isolate
+ * itself must not run at all, and it must say why rather than skipping quietly.
+ */
+const resolvedJobPath = create.plistPath('sandboxprobe');
+if (!resolvedJobPath.startsWith(SANDBOX)) {
+  throw new Error(
+    'discover.adopt.test.js refuses to run: engine/create.js was loaded before this '
+    + `file's sandbox was set, so it would write to ${resolvedJobPath} on the real `
+    + 'machine. Run this file on its own, or set AGENT_WORKFORCE_LAUNCH before the '
+    + 'first require of engine/create.js in the process.',
+  );
+}
+
 test.beforeEach(() => {
   status.setPaneSource(() => '');
   create.setRunner(() => ({ ok: true, stdout: '' }));
