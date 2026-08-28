@@ -100,6 +100,28 @@ const BLOCK = [
   '- **Blocked:** on what, and who owns it.',
   '- **Decided:** a call you made while they were away, and why.',
   '',
+  '**One of those four is also a STATE on your card.** Telling a person you are',
+  'blocked and telling Kosmos you are blocked are two separate acts. The second is',
+  'what somebody watching the whole fleet sees, and they are not reading your',
+  'messages.',
+  '',
+  '- `kosmos report blocked --on <what> --owner <who>` when you have stopped and',
+  '  something that is NOT a person has to move first: another agent, a deploy, a',
+  '  review.',
+  '- `kosmos report needs_you "<your question>"` when you have stopped and cannot',
+  '  go on until A PERSON answers. **It is not in the four above and it is the one',
+  '  that matters most**, because it is the only state that says somebody has to',
+  '  come and do something.',
+  '',
+  '**Kosmos fills in started, working, idle and stopped for you as you go. Those',
+  'two are the only ones it cannot see for itself**, because nothing on your screen',
+  'separates a question you are waiting on from a sentence you happened to write.',
+  '',
+  '**Only when you have actually stopped.** A card reading needs_you while you are',
+  'still working is worse than one saying nothing: the board has one red state, and',
+  'a red that is always on gets walked past, including the time somebody really is',
+  'waiting.',
+  '',
   '### Answering where you were asked',
   '',
   '**When a message reaches you in a project room, your reply goes back to that',
@@ -218,8 +240,18 @@ function block() {
  *   1  the #122 block as born, 2026-08-19
  *   2  the three additions of 2026-08-22
  *   3  #518/#519's rhythms, 2026-08-24
+ *   4  #1253's two board states, 2026-08-27. Measured on this machine's own
+ *      record: `needs_you` was 22 of 21,500 self-reports and 14 of those were
+ *      test agents, while `blocked` was 255 of which 245 were the StopFailure
+ *      hook reporting a provider error. The two states that mean A PERSON MUST
+ *      ACT were produced almost entirely by machinery. The cause was not a
+ *      missing verb or a missing hook: this block already told every agent to
+ *      report "Blocked: on what, and who owns it", and told it twenty lines
+ *      later to deliver that with `kosmos msg`. Same word, same two fields, and
+ *      only the message destination was ever named. An agent following its
+ *      instructions perfectly told a person and told the board nothing.
  */
-const DOCTRINE_VERSION = 3;
+const DOCTRINE_VERSION = 4;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
