@@ -432,6 +432,14 @@ if boot_board "$sb2" "$P2"; then
   # so it stands alone if render-projects fails; puts the layout back after.
   run_one "render-consolidated-layouts" env AGENT_WORKFORCE_DATA="$sb2/data" node docs/browser-checks/render-consolidated-layouts.js \
     "http://127.0.0.1:$P2" "$sb2"
+  # #1310 item 2: the projects grid card matches the agents board width, and a
+  # long title truncates instead of widening the card.
+  # ⚠️ LAST IN THIS BLOCK ON PURPOSE. It POSTs a long-titled project to seed
+  # itself, and this board is shared with the two checks above; running it
+  # after them means its fixture cannot reach their assertions. Anything added
+  # here later should go ABOVE it, not below.
+  run_one "render-grid-card-width" env AGENT_WORKFORCE_DATA="$sb2/data" KOSMOS_URL="http://127.0.0.1:$P2" \
+    node docs/browser-checks/render-grid-card-width.js "$sb2/shots-gridwidth"
 else
   FAILED+=("render-projects (server did not boot)")
 fi

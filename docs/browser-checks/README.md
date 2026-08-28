@@ -89,6 +89,7 @@ one invented by somebody who did not write them.
 | `render-found-board.js` | The board's panel for agents on this Mac that Kosmos is not looking after |
 | `render-found-undo.js` | Add and Undo on the found-agents row, pressed for real in a browser |
 | `render-full-width.js` | The board, settings and create form at 1760px: one row lining up with another (#286, #287) |
+| `render-grid-card-width.js` | The projects grid card matches the agents board width, and a long title truncates rather than widening it (#1310) |
 | `render-list-row.js` | The not-running row in the list layout, measured cell by cell against a running one (#278) |
 | `render-found-count.js` | The found-agents screen: one label per row, a green Added, and a count that cannot disagree with its own rows (#1346). |
 | `render-long-title.js` | A long project title truncates instead of squeezing the search box (#1303 F). |

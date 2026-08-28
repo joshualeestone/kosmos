@@ -177,6 +177,14 @@
    */
   --k-measure: 68ch;
 
+  /* The minimum a CARD gets before the grid adds a column, shared by the
+     agents board and the projects grid. ONE spelling on purpose: Josh asked
+     for the projects grid to be "as wide as agents are" (#1310), and a
+     second literal is how that relationship silently stops being true.
+     ⚠️ The projects grid was 23rem, chosen for the pack's three-across at
+     the 1320 stage; he has since asked for narrower, so this supersedes it. */
+  --k-card-min: 15.5rem;
+
   --radius-card: 16px; --radius-control: 10px; --radius-pill: 100px;  /* pack radii */
   /* ⚠️ WHAT A FIELD IS FILLED WITH, DECLARED BY ITS CONTAINER. A field must
      differ from the surface it sits on, and only the container knows what that
@@ -1304,10 +1312,10 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    📌 It already asks for `auto-fill`, so it gains COLUMNS with no other
    change. A 400px card is not better than a 250px one, there are just fewer
    of them, which is the opposite of what the room was asked for. */
-.cards { display: grid; gap: 18px; grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr)); }
-/* the read-failure message spans the grid: squeezed into one 15.5rem track
-   it is the least readable thing on screen at exactly the moment it is the
-   only thing that matters (same rule the projects grid records) */
+.cards { display: grid; gap: 18px; grid-template-columns: repeat(auto-fill, minmax(var(--k-card-min), 1fr)); }
+/* the read-failure message spans the grid: squeezed into one --k-card-min
+   track it is the least readable thing on screen at exactly the moment it is
+   the only thing that matters (same rule the projects grid records) */
 .cards > .err, .cards > .pj-empty { grid-column: 1 / -1; }
 .acard { display: flex; flex-direction: column; background: var(--k-surface);
          color: var(--k-ink);
@@ -1859,9 +1867,12 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 }
 /* Grid mode for the projects list: the same rows laid as cards. */
 .pj-list.asgrid { display: grid; gap: 16px;
-                  /* 23rem min yields the pack's three-across at the 1320
-                     stage; 19rem was packing four narrower cards. */
-                  grid-template-columns: repeat(auto-fill, minmax(min(100%, 23rem), 1fr)); }
+                  /* Was 23rem, for the pack's three-across at the 1320 stage.
+                     Josh, #1310: "I want the width of those projects to be less
+                     wide. We could try making them as wide as agents are." So it
+                     reads the agents board's own minimum rather than a second
+                     copy of the number. */
+                  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--k-card-min)), 1fr)); }
 /* Flex column, not block: a stretched button vertically CENTERS its
    content in Chromium, so the short card in a row floated its name to
    the middle while its neighbors sat top-aligned (seen on the shot,
@@ -1881,7 +1892,24 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    in the list view, where #860 already handles it. */
 .pj-list.asgrid .pj-row { align-items: center; text-align: center; padding: 24px 22px 20px; }
 .pj-list.asgrid .pj-row .pjcard-h { display: contents; }
-.pj-list.asgrid .pj-row .pjname { order: 1; justify-content: center; }
+.pj-list.asgrid .pj-row .pjname { order: 1; justify-content: center; max-width: 100%; }
+/* Truncate in the GRID too (#1310). This view was deliberately left alone
+   because it "has room for the pack's own wrap/clamp behaviour" -- and
+   narrowing the card to the agents' width is exactly what takes that room
+   away, so the two halves of Josh's ask are ONE change, not two. Splitting
+   them leaves the screen worse than it is now, either way round.
+   ⚠️ `max-width: 100%` above is load-bearing: the row centres its children,
+   so .pjname is sized to its content and an ellipsis would have nothing to
+   clip against without it.
+   🔑 THIS NOW DEPENDS ON `.pj-unread { flex: none }`. .pjname is a flex row
+   holding the name AND the unread badge; once the name can be squeezed, the
+   badge is what a missing `flex: none` would squeeze instead, and a count
+   shrinking to a red sliver is not a thing anybody would think to look for.
+   It was already there and is not changed here; the browser check now
+   ASSERTS it, so removing it fails loudly rather than quietly (Mona Lisa
+   found this by reading, #1310). */
+.pj-list.asgrid .pj-row .pjname b { min-width: 0; overflow: hidden;
+                                    text-overflow: ellipsis; white-space: nowrap; }
 /* The same bubble recipe .astate draws on the agents grid, scoped here
    rather than sharing the class -- .astate carries a six-state agent
    vocabulary (working/attn/idle/paused/stopped/unknown) that does not
