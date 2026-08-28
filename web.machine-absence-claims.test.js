@@ -32,6 +32,34 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
+
+/**
+ * 🛑 THE PAGE IS NOT THE ONLY PLACE A SENTENCE CAN COME FROM, and the first
+ * version of this guard read only `web/index.html`. The sweep behind it covered
+ * 178 sources; the guard covered one. That gap is the shape where a defect lands
+ * in the half nobody guarded: `engine/machine.js` builds check sentences that
+ * `web/index.html:28077` renders with `checks.map((c) => frCheckRow(c))`, so a
+ * claim about the person's machine can be authored in the engine and never pass
+ * through the file this test used to read.
+ *
+ * ⭐ A SOURCE ASSERTION IS THE RIGHT INSTRUMENT HERE, NOT A LAZY ONE. This
+ * sentence renders only when Plus is off AND devices are registered; driving
+ * that from a test needs a board, a Plus account and a paired device. Where a
+ * path cannot be driven, insisting on a behaviour test leaves it unguarded and
+ * the suite green, which is the same false coverage by a more respectable route.
+ */
+const SOURCES = [
+  /* PLUS_PAGE steers the first entry so the whole guard can be aimed at an
+     older copy of the page. That is how it is proven able to fail: run it
+     against the file 0.5.89 actually shipped and it must go red. */
+  process.env.PLUS_PAGE || 'web/index.html',
+  'install/pkg-resources/welcome.html',
+  'install/pkg-scripts/installing.html',
+];
+for (const f of fs.readdirSync('engine')) {
+  if (f.endsWith('.js') && !f.endsWith('.test.js')) SOURCES.push(path.join('engine', f));
+}
 const PAGE = fs.readFileSync(process.env.PLUS_PAGE || 'web/index.html', 'utf8');
 
 /* Comments and CSS are not shown to anybody, and both discuss these sentences
@@ -42,7 +70,11 @@ function rendered(html) {
   return html
     .replace(/<style\b[\s\S]*?<\/style>/gi, (...m) => blank(m))
     .replace(/<!--[\s\S]*?-->/g, (...m) => blank(m))
-    .replace(/\/\*[\s\S]*?\*\//g, (...m) => blank(m));
+    .replace(/\/\*[\s\S]*?\*\//g, (...m) => blank(m))
+    /* ⚠️ `//` LINE COMMENTS TOO, now that .js files are in scope. The engine
+       discusses these rulings in prose at length, exactly as the page does, and
+       counting that prose would make the guard fire on its own documentation. */
+    .replace(/(^|[\n])[ \t]*\/\/[^\n]*/g, (m0, p1) => p1 + m0.slice(p1.length).replace(/[^\n]/g, ' '));
 }
 
 /* Each pattern is a claim about the PERSON'S MACHINE rather than about Kosmos.
@@ -61,12 +93,27 @@ const FORBIDDEN = [
 ];
 
 test('no sentence claims what is absent from the person\'s computer', () => {
-  const text = rendered(PAGE);
-  const found = FORBIDDEN
-    .filter((f) => f.re.test(text))
-    .map((f) => `${f.re} : ${f.why}`);
+  const found = [];
+  for (const src of SOURCES) {
+    let text;
+    try { text = rendered(fs.readFileSync(src, 'utf8')); } catch { continue; }
+    for (const f of FORBIDDEN) {
+      if (f.re.test(text)) found.push(`${src}: ${f.re} : ${f.why}`);
+    }
+  }
   assert.deepEqual(found, [],
     'these are claims about the machine, which Kosmos has no standing to make');
+});
+
+test('the guard actually reads every source it claims to', () => {
+  /* 🛑 A SCOPE LIST IS A CLAIM AND IT ROTS. A renamed or moved file would make
+     this guard silently narrower while staying green, which is the exact failure
+     it was widened to fix. Assert the files are there and readable. */
+  assert.ok(SOURCES.length > 20, `expected the engine to be enumerated, got ${SOURCES.length}`);
+  const missing = SOURCES.filter((f) => !fs.existsSync(f));
+  assert.deepEqual(missing, [], 'a source in scope has moved, so the guard is narrower than it reads');
+  assert.ok(SOURCES.includes('engine/machine.js'),
+    'engine/machine.js builds the check sentences the page renders, so it must be in scope');
 });
 
 test('CONTROL: the guard fires on the exact sentences that were shipped', () => {
