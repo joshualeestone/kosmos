@@ -82,3 +82,52 @@ believing the file was sandboxed.
 - **Not renaming `readJob`'s `claude` field** to something runner-neutral. It is right that it
   is confusing, and it is a product change with callers, so it does not belong in a test-only
   PR fixing a different thing.
+
+
+## Round 2: three claims of mine that were wrong, and a control that controlled nothing
+
+**1. The guard's remediation advice named the wrong cause.** It said *"Set
+`AGENT_WORKFORCE_CODEX_BIN` before the first require of `engine/runners.js`"* - wording I
+copied from the `plistPath` guard twenty lines above, where it is correct because `create.js`
+resolves `AGENTS_DIR` ONCE at module load. **`resolveBin` reads `process.env` at CALL time**,
+measured: requiring `./runners` first and setting the variable afterwards is still honoured.
+⇒ Anyone tripping my guard was sent hunting a require-ordering fault that cannot happen here.
+Now: *"Set it above this guard."*
+
+**2. "Exercise the real binary" overstated it.** Nothing in the adoption path RUNS the runner -
+`installJob` uses it for `unusablePath`, `fs.existsSync` and `plistFor`, and the exec seam is
+stubbed in `beforeEach`. The job **pointed at** the operator's Homebrew codex; it never invoked
+it. The load-bearing half (4 of 9 failing with the seam pointed at nothing) reproduced exactly.
+
+**3. 🛑 THE NAMED CONTROL DID NOT CONTROL MY NEW ASSERTION, AND ITS COMMENT SAID IT DID.**
+`#1159 CONTROL: a Claude agent is still adopted as Claude` says it stops *"a change that makes
+EVERYTHING a codex job"*. True of the LABEL assertion it was written for. **Not true of the
+BINARY assertion I added**, which had no negative arm at all: nothing in the file asserted that
+a Claude agent's job points at the CLAUDE binary.
+
+Measured - `installJob` mutated so every job takes the codex binary:
+
+```
+before  the control passed GREEN on a mutant pointing every job at codex
+        (caught elsewhere by accident: with runnerBin never claudeBin, the
+         missing-Claude refusal stops firing)
+after   2 failures, one of them "a Claude agent's job does not point at the
+        claude binary"                                     <- caught on purpose
+```
+
+⭐ **Incidental capture is not coverage.** The mutation was detected before this change, by a
+test aimed at something else, for an unrelated reason. That is luck with a green tick on it,
+and it would have evaporated the moment the unrelated test changed.
+
+**4. A suffix match, replaced by the exact path.** `/\/codex$/` is satisfied by ANY file named
+`codex` anywhere - including `/opt/homebrew/bin/codex`, the exact value this file used to depend
+on. It was machine-independent only by borrowing strength from a guard fifty lines away.
+`assert.equal(job.claude, path.join(SANDBOX, 'bin', 'codex'))` means something on its own.
+
+**5. Corrected a pre-existing false claim I was building on.** The file's header says a
+multi-file `node --test` run shares a process. On node v25.6.1 it does not: `--test-isolation=process`
+is the default, measured with a two-file env probe. The recorded pollution incident really
+happened; it cannot recur by that mechanism on this node. The guard stays - it costs nothing and
+older node still shares.
+
+**Full suite 2780 pass 0 fail exit 0.**

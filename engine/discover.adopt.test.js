@@ -49,7 +49,17 @@ const store = require('./store');
  *     const AGENTS_DIR = process.env.AGENT_WORKFORCE_LAUNCH || <real LaunchAgents>
  *
  * In a multi-file `node --test` run the files share a process, so whichever file
- * requires `create.js` FIRST decides that constant. This file sets its
+ * requires `create.js` FIRST decides that constant.
+ *
+ * ⚠️ THAT SENTENCE IS FALSE ON THIS MACHINE AND THE GUARD IS STILL WORTH KEEPING
+ * (#1359). node v25.6.1 runs `--test-isolation=process` by default, so each test
+ * FILE gets its own child and its own module registry. Measured with a two-file
+ * probe: an env var set in `a.test.js` reads `undefined` in `b.test.js`.
+ * ⇒ The pollution incident recorded below really happened, but per-file isolation
+ * means it cannot recur by THIS mechanism on this node. Kept because the guard
+ * costs nothing, older node and `--test-isolation=none` do share a process, and
+ * a guard that is currently unreachable is the cheapest kind to own. Left as a
+ * correction rather than a rewrite so the original reasoning stays legible. This file sets its
  * environment before its own requires - and that is not enough, because an
  * earlier file may already have loaded the module against the real paths.
  *
@@ -170,8 +180,13 @@ test('#1159: a discovered Codex agent can be ADOPTED, and gets a codex job', () 
   assert.ok(job, 'the adopted agent has no readable launchd job at all');
   /* `claude` is the field name for argument 4, the RUNNER binary slot, whichever
      runner it holds. Named before runners existed. */
-  assert.match(job.claude, /\/codex$/,
-    `the job does not point at the codex binary, it points at ${job.claude}`);
+  /* The EXACT sandbox path, not a `/codex$` suffix. A suffix match is satisfied
+     by ANY file called `codex` anywhere - including this Mac's real
+     /opt/homebrew/bin/codex, which is the precise value this file used to
+     depend on. Equality is self-contained: it means something even if the
+     module-load guard 50 lines up were deleted. */
+  assert.equal(job.claude, path.join(SANDBOX, 'bin', 'codex'),
+    `the job does not point at the sandboxed codex binary, it points at ${job.claude}`);
   assert.equal(job.runner, 'codex', 'the adopted agent was written as a Claude job');
 });
 
@@ -183,6 +198,16 @@ test('#1159 CONTROL: a Claude agent is still adopted as Claude', () => {
   assert.equal(r.ok, true, r.because);
   const p = plistOf('scoutclaude');
   assert.doesNotMatch(p, /<string>codex<\/string>/, 'a Claude agent was adopted as a Codex one');
+  /* 🛑 AND THE BINARY, WHICH THE LABEL CHECK ABOVE CANNOT SEE. This test's own
+     comment says it stops "a change that makes EVERYTHING a codex job" - true of
+     the label assertion it was written for, and NOT true of the binary assertion
+     added in #1359, which had no negative arm at all. Measured: mutating
+     `installJob` so every job takes the codex binary left this test GREEN. It
+     was caught elsewhere by accident, because the missing-Claude refusal stops
+     firing when `runnerBin` is never `claudeBin`. Incidental capture is not
+     coverage. */
+  assert.equal(create.readJob('scoutclaude').claude, path.join(SANDBOX, 'bin', 'claude'),
+    'a Claude agent’s job does not point at the claude binary');
 });
 
 test('#1159: CLAUDE.md wins when a folder has both', () => {
@@ -238,7 +263,7 @@ test('#1159: a Codex agent is adopted on a machine with NO Claude installed', ()
        the binary is the whole point of the test. */
     const job = create.readJob('scoutnoclaude');
     assert.ok(job, 'no readable job was written');
-    assert.match(job.claude, /\/codex$/,
+    assert.equal(job.claude, path.join(SANDBOX, 'bin', 'codex'),
       `on a machine with no Claude the job points at ${job.claude}`);
     assert.equal(job.runner, 'codex');
   } finally { process.env.AGENT_WORKFORCE_CLAUDE_BIN = prev; }
