@@ -796,6 +796,24 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    at 400 -- so one value padded from one width put focus 22px under the
    bar at 400. */
 html { scroll-padding-top: 132px; }
+  /* 🔑 RESERVE THE SCROLLBAR GUTTER SO THE LAYOUT DOES NOT MOVE (kosmos#1309).
+     Josh, on 0.5.97: "when I hit Connections or This Computer, it is a slightly
+     wider design and kicks the page over ... because the content scrolls off the
+     page". His diagnosis is right. Connections, Skills and This computer are the
+     three Settings panes long enough to overflow; measured with the browser,
+     `documentElement.scrollHeight > clientHeight` is true for exactly those three
+     and false for the other nine. The panes are not different widths by design:
+     THE WIDTH DIFFERENCE IS THE SCROLLBAR.
+     ⚠️ ONLY VISIBLE WHEN SCROLLBARS CLAIM LAYOUT WIDTH, which is a per-person
+     macOS setting (Always, or Automatic with a mouse attached). On a trackpad
+     Mac set to Automatic the scrollbar overlays and there is no shift, which is
+     why this reproduces for him and not on the agent machine.
+     ⚠️ SCOPED AWAY FROM THE CONSOLIDATED LAYOUT deliberately: that view is a
+     viewport-height grid whose panes scroll internally, so reserving a document
+     gutter there would hold open a strip of empty page nothing ever scrolls in.
+     ⭐ Fixing it here rather than by narrowing the two long panes: narrowing
+     treats the symptom and the next Settings row that overflows brings it back. */
+  html:not([data-layout="consolidated"]) { scrollbar-gutter: stable; }
 /* Re-measured 2026-08-17 with the inline update notice PRESENT (the worst
    case; the comment above says per width, and the notice changed the
    heights): desktop stays 128 tall so 132 still clears; between 441 and
@@ -1530,7 +1548,19 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    wider than a narrow window, and a table that widens the page pushes every
    other section sideways too. `#usage-table` is the scroll container; the table
    inside it is allowed to be wider than the screen. */
-#usage-table { overflow-x: auto; }
+/* 🔑 ROOM FOR THE SCROLLBAR, SO IT DOES NOT LAND ON THE SENTENCE (kosmos#1308).
+   Josh, on 0.5.97: "there's a horizontal scroll bar that is going right over the
+   top of the total line". The scrollbar is drawn at this container's bottom edge
+   and `#usage-worth` begins immediately after it, so with nothing between them
+   the bar strikes through the summary -- and the summary is the most important
+   sentence on the page, the one that says what the number actually means.
+   ⚠️ PADDING INSIDE THE SCROLL CONTAINER, not a margin on the paragraph: the bar
+   belongs to this box, so the room for it has to be in this box. A margin below
+   would move the sentence and leave the bar sitting on the last table row
+   instead, which is the same defect one element up.
+   📌 Only appears when the six columns are wider than the window, which is why
+   it shows on a narrow window and not a wide one. */
+#usage-table { overflow-x: auto; padding-bottom: 10px; }
 .usage-table { border-collapse: collapse; font-size: .875rem; min-width: 100%; }
 .usage-table th, .usage-table td { padding: 6px 12px 6px 0; text-align: left; white-space: nowrap; }
 .usage-table th { color: var(--k-ink-2); font-weight: 600; border-bottom: 1px solid var(--k-rule); }
