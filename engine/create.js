@@ -990,8 +990,21 @@ trust_level = "trusted"
   }
   const next = text.replace(block, '').replace(/\n{3,}/g, '\n\n');
   const tmp = `${cfg}.tmp-${process.pid}`;
+  /* 🛑 THE RENAME CARRIES THE TEMP FILE'S MODE, NOT THE TARGET'S, AND THIS
+     REALLY HAPPENED. Caught in cross-review after the first version of this
+     function had already run against the operator's own `~/.codex/config.toml`
+     and left it 644 where it had been 600. The file sits beside `auth.json` in
+     a directory whose whole point is credentials, and nothing about the
+     operation the person asked for ("remove this agent") implies widening who
+     can read their config.
+     ⚠️ The default when the mode cannot be read is 0600, NOT the process
+     umask: this file's neighbours are private, so the conservative guess is
+     the private one. */
+  let mode = 0o600;
+  try { mode = fs.statSync(cfg).mode & 0o777; } catch { mode = 0o600; }
   try {
     fs.writeFileSync(tmp, next);
+    fs.chmodSync(tmp, mode);
     fs.renameSync(tmp, cfg);
   } catch (e) {
     try { fs.unlinkSync(tmp); } catch { /* the rename never happened */ }

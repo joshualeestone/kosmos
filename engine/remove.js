@@ -700,14 +700,33 @@ function removeInner(name, { tmuxBin } = {}) {
   /* 🔑 READ BEFORE ANYTHING IS TAKEN APART (#1414). The codex trust entry
      lives in the home the agent RAN in, and the only record of which home
      that was is `CODEX_HOME` inside the plist. Every step below exists to
-     dismantle this agent, so the home has to be captured while the plist is
-     still there to be read. `null` for a Claude agent, which is the common
-     case and costs nothing. */
+     dismantle this agent, so this has to be read while the plist is still
+     there. Not a codex agent means no step, which is the common case.
+
+     🛑 AND THE HOME IS PASSED THROUGH EVEN WHEN IT IS NULL, WHICH IS THE
+     WHOLE CORRECTION. My first version fired only when `configDir` was set,
+     and I found the hole by removing an agent I had just created: THE CREATE
+     PATH DOES NOT RECORD CODEX_HOME IN THE PLIST. It calls
+     `trustCodexFolder(dir, configDir)` with configDir null, which falls back
+     to the default home. So a CREATED OpenAI agent, the common case, wrote a
+     trust entry that my step would have skipped.
+
+     ⚠️ I had written "no fallback, because falling back caused #1313". That
+     was the wrong lesson applied to the wrong direction. #1313 was a CHECK
+     reading a different home than the WRITE used. Here the requirement is the
+     opposite: the removal must fall back EXACTLY where the write fell back.
+     `forgetCodexFolder` applies the same `home || codexHomeDir()` as
+     `trustCodexFolder`, so passing the value straight through keeps the pair
+     symmetric by construction rather than by two copies agreeing. */
+  let codexJob = false;
   let codexHome = null;
   try {
     const launched = create.readJob(clean);
-    if (launched && launched.runner === 'codex' && launched.configDir) codexHome = launched.configDir;
-  } catch { codexHome = null; }
+    if (launched && launched.runner === 'codex') {
+      codexJob = true;
+      codexHome = launched.configDir || null;
+    }
+  } catch { codexJob = false; }
 
   /**
    * ⚠️ THE PARTIALS' LAST SENTENCE, and it has to be EARNED rather than
@@ -966,10 +985,9 @@ function removeInner(name, { tmuxBin } = {}) {
      read as a complete one. Two trusts, two steps, two sentences.
      ⚠️ Measured on the operator's own machine: entries were still present for
      directories that no longer existed.
-     📌 Only for an agent that actually ran on codex, and only into the home it
-     ran in. Falling back to the default home is the mistake that caused #1313,
-     so there is deliberately no fallback here: no recorded home, no step. */
-  if (codexHome) {
+     📌 Only for an agent that actually ran on codex. The home is whatever the
+     plist recorded, or null, and null means the same default the WRITE used. */
+  if (codexJob) {
     step('took back the codex folder trust', () => {
       if (DRY_RUN && !runner) return true;
       let got = null;

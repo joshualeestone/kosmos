@@ -3902,3 +3902,33 @@ test('#1414: no codex config at all is a quiet success, not a failure', () => {
   assert.equal(got.ok, true);
   assert.equal(got.removed, false);
 });
+
+test('#1414: the rewrite keeps the config\'s permissions, it does not widen them', () => {
+  /* 🛑 A REAL REGRESSION, CAUGHT IN CROSS-REVIEW AFTER IT HAD ALREADY RUN
+     against the operator's own ~/.codex/config.toml and left it 644 where it
+     had been 600. `renameSync` carries the TEMP file's mode, not the target's,
+     so a write-then-rename silently republishes the file at the umask default.
+     This file lives beside auth.json; "remove this agent" does not imply
+     "widen who can read my config". */
+  const dir = '/somewhere/workers/modeagent';
+  const home = codexCfgHome(`${TRUSTED(dir)}${TRUSTED('/somewhere/workers/keep')}`);
+  const cfg = nodePath.join(home, 'config.toml');
+  fs.chmodSync(cfg, 0o600);
+  assert.equal(fs.statSync(cfg).mode & 0o777, 0o600, 'the fixture must start private, or this proves nothing');
+
+  const got = create.forgetCodexFolder(dir, home);
+  assert.equal(got.removed, true, 'it has to actually rewrite the file, or the mode was never at risk');
+  assert.equal(fs.statSync(cfg).mode & 0o777, 0o600,
+    'the config must keep the permissions it had');
+});
+
+test('#1414 CONTROL: the mode assertion can fail', () => {
+  /* If forgetCodexFolder did nothing, the test above would pass for the wrong
+     reason. This proves the fixture's mode is observable and that a DIFFERENT
+     mode is distinguishable, so 0o600 above is a real reading. */
+  const home = codexCfgHome(`${TRUSTED('/somewhere/workers/other')}`);
+  const cfg = nodePath.join(home, 'config.toml');
+  fs.chmodSync(cfg, 0o644);
+  assert.equal(fs.statSync(cfg).mode & 0o777, 0o644, 'the harness can see a non-600 mode');
+  assert.notEqual(fs.statSync(cfg).mode & 0o777, 0o600);
+});
