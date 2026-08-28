@@ -29967,7 +29967,7 @@ function frForkActions() {
   if (path === 'adopt' && Number.isInteger(count) && count > 0) {
     frActions({ label: 'Take me to my agents', go: () => frFinish(() => showTab('agents')) });
   } else if (path === 'create') {
-    frActions({ label: 'Create my first agent', go: () => frFinish(openCreate) });
+    frActions({ label: 'Giddy Up', go: () => frFinish(openCreate) });
   } else {
     frActions({ label: 'Show me my agents', go: () => frFinish(() => showTab('agents')) },
       { label: 'Create an agent', go: () => frFinish(openCreate) });
