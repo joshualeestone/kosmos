@@ -894,8 +894,18 @@ function describe(project, roster, all) {
        * staleness verdict read off a pane we cannot tie to this name is
        * somebody else's.
        */
+      /* 🛑 ONE DERIVATION OF THE VERDICT, NOT TWO (#1228). This used to return the
+         RAW staleness while both agent-card routes in server.js wrapped theirs in
+         `toldOverride`, so for the same agent at the same moment the member row
+         could say `stale` while the detail panel said `told`.
+         ⚠️ It was invisible because #761 made this row's stale arm draw nothing and
+         #1213 gave its told arm a branch that also draws nothing: two states, one
+         blank. Latent, not cosmetic, and it becomes visible the moment either arm
+         is given something to draw.
+         📌 `all` is the store list `list()` already read for the ambiguity guard, so
+         this adds no disk read at all. */
       instructions: (card && card.isNamedOurs)
-        ? instructions.staleness(sessionName, undefined, card.session)
+        ? toldOverride(instructions.staleness(sessionName, undefined, card.session), sessionName, all)
         : { state: 'unknown', editable: false, version: null, startedAt: null, because: 'we cannot tell whether this is the same agent' },
       // ⚠️ "Never seen" is only said when we have never seen it. The flag is
       // written once at add time, and an agent added while the roster was
@@ -2165,14 +2175,19 @@ function syncAgent(sessionName, roster) {
  * verdict is `told`, not `stale`: it knows, and the restart button would be
  * theatre. A person's own edit, or a tell that could not be delivered, stays
  * exactly as it was. Pure over the verdict and the store; safe on any input. */
-function toldOverride(verdict, sessionName) {
+function toldOverride(verdict, sessionName, known) {
   try {
     if (!verdict || verdict.state !== instructions.STALENESS.STALE) return verdict;
     if (!verdict.wroteBy || verdict.wroteBy.who !== 'kosmos') return verdict;
     const editedAt = Date.parse(verdict.editedAt || '');
     if (!Number.isFinite(editedAt)) return verdict;
     const key = String(sessionName || '');
-    const told = readAll()
+    /* 📌 `known` IS THE STORE LIST A CALLER IS ALREADY HOLDING. `describe` is
+       handed one by `list()` for exactly this reason ("One read of the store
+       shared by every describe"), so applying the override there costs nothing.
+       The comment that deferred #1228 said it "needs a store read per member";
+       it does not, once the list already in hand is passed in. */
+    const told = (Array.isArray(known) ? known : readAll())
       .map((p) => (p.told || {})[key])
       .filter((t) => t && t.state === TOLD.TOLD && Number.isFinite(Date.parse(t.at || '')))
       .map((t) => Date.parse(t.at))

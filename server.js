@@ -4718,7 +4718,16 @@ const server = http.createServer((req, res) => {
     // about which names exist.
     if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
     try {
-      sendJson(res, 200, instructions.read(name, sessionOf(name)));
+      /* 🛑 THE VERDICT IS WRAPPED HERE TOO (#1228). `instructions.read` returns the
+         RAW staleness, and this route feeds `renderStale`, whose `told` branch was
+         therefore UNREACHABLE from its own data source: only `toldOverride`
+         produces `told`, and it was applied on the two /api/status routes and
+         nowhere else. A branch its own endpoint cannot trigger is not a feature
+         with no users, it is a state the screen claims to handle and does not. */
+      const readOut = instructions.read(name, sessionOf(name));
+      sendJson(res, 200, readOut && readOut.staleness
+        ? { ...readOut, staleness: projects.toldOverride(readOut.staleness, sessionOf(name) || name) }
+        : readOut);
     } catch {
       sendJson(res, 500, { error: 'those instructions could not be read' });
     }
