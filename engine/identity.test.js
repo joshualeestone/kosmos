@@ -53,6 +53,49 @@ test('the role still comes out, bold or not', () => {
     'Web Properties Worker');
 });
 
+/**
+ * #1168. The non-bold arm exists for a person hand-writing this file in plain
+ * prose, and **the most natural plain prose was the shape it got wrong.** Every
+ * `CLAUDE.md` in this org came from one template and is bold, with a comma and a
+ * role, so the row that failed is the row no file here uses: exactly the
+ * population the arm was added to serve.
+ */
+test('#1168: a name that ends the sentence keeps neither the stop nor the next sentence', () => {
+  const r = (t) => status.identityFromText(t);
+
+  /* Defect 1: the full stop welded to the name, which reaches the card through
+     discover.js and renders as the agent's name. */
+  assert.equal(who('You are Bob.'), 'Bob');
+  assert.equal(who('You are Mary Anne Smith.'), 'Mary Anne Smith');
+
+  /* 🛑 Defect 2, the expensive one: it read PAST the stop and invented a role out
+     of the following sentence. A fabricated role is worse than a missing one,
+     because nothing on the card says where it came from. */
+  assert.equal(who('You are Bob. He writes copy.'), 'Bob');
+  assert.equal(r('You are Bob. He writes copy.').role, null,
+    'a role was invented out of the sentence after the name');
+
+  /* 🔑 THE ROW THE OBVIOUS FIX BREAKS, and the reason the stop stays in the
+     character class: a name that really does end in a stop. Stripping every
+     trailing stop, or dropping `.` from the class, loses this. */
+  assert.equal(who('You are J.R.'), 'J.R.');
+
+  /* 🔑 CONTROLS: the shapes that worked before must still work, including the
+     three-word name, the comma-role, and the bold arm with a trailing stop. */
+  assert.equal(who('You are Nevaeh, a copywriter.'), 'Nevaeh');
+  assert.equal(r('You are Nevaeh, a copywriter.').role, 'copywriter');
+  assert.equal(who('You are Ada Lovelace Jones, a tester.'), 'Ada Lovelace Jones');
+  assert.equal(who('You are **side-quests**.'), 'side-quests');
+  assert.equal(r('You are **rep-own**, in my own words.').role, 'in my own words');
+
+  /* 📌 THE COST, PINNED RATHER THAN LEFT TO BE REDISCOVERED. A role written as
+     its own sentence is dropped too. Somebody may have meant one, and guessing
+     across a full stop is what produced defect 2, so this declines to guess in
+     both directions. Flip this row only with an observed file that needs it. */
+  assert.equal(r('You are Bob. A copywriter.').role, null,
+    'a role in a following sentence is now being read again');
+});
+
 test('a sentence that is not a name is NOT an agent', () => {
   /* 🛑 THE ROW THAT EARNS THIS FILE is the first one: it is not invented, it is
      `engine/defaults.js`, the working-rules block Kosmos writes INTO agent
