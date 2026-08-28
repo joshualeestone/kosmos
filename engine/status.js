@@ -3204,7 +3204,127 @@ function readIdentity(sessionName) {
  * every trailing stop, breaks `You are J.R.`, which is correct today. The trim
  * is done below where an initial can be told from a word.
  */
-const IDENTITY_RE = /You are (?:\*\*([^*]+)\*\*|([A-Z][\w.'-]*(?:(?<!\.) [A-Z][\w.'-]*){0,2}))(?:\s*\(([^)]+)\))?\s*,?\s*([^.\n]*)/;
+/**
+ * 🛑 A PERIOD ENDS A SENTENCE OR ABBREVIATES A WORD, AND #1168 TREATED BOTH THE
+ * SAME. Regression I shipped and then found by spot-checking my own merge:
+ *
+ *   You are Dr. Smith, a copywriter.   was "Dr. Smith"/copywriter, became "Dr"
+ *   You are J. R. Tolkien, a writer.   was "J. R. Tolkien"/writer, became "J."
+ *   You are Mr. Wolf.                                              became "Mr"
+ *
+ * The lookbehind stopped the name at ANY word ending in a stop, which is right
+ * for `Bob. He writes copy.` and wrong for every title and every spaced
+ * initial. A person hand-writing this file is exactly who writes `Dr.`, and the
+ * non-bold arm exists for that person.
+ *
+ * 🔑 THE DISCRIMINATOR IS WHAT PRECEDES THE STOP, not the stop itself: a single
+ * letter is an initial (`J.`), a known title is an abbreviation (`Dr.`), and
+ * anything else ends a sentence. `Bob. He` still stops at Bob.
+ *
+ * ⚠️ AND THE TAIL TRIM NEEDS THE SAME TEST, or `Mr. Wolf.` loses its Wolf.
+ */
+/**
+ * 🔑 ONLY THE TITLES THAT COME BEFORE A NAME. `Jr` and `Sr` are trailing
+ * abbreviations, and letting the name CROSS one reintroduces the fabricated
+ * role #1168 exists to kill: measured, with them in this list
+ * `You are Bob Jr. He writes copy.` gave name "Bob Jr. He" and role
+ * "writes copy". No real name continues `Jr. <Given>`, so they buy nothing
+ * here and cost the sentence boundary.
+ *
+ * 📌 THAT MEASUREMENT WAS AGAINST AN EARLIER FORM OF THIS FIX, whose lookbehind
+ * had no prefix anchor. With the anchor below, adding `Jr` back is inert FOR A
+ * NAME THAT CROSSES ONE, because the anchor already refuses it: `Bob` is not a
+ * title or an initial. ⚠️ It is NOT inert at FIRST position, where the anchor
+ * does not apply: `You are Jr. Smith, a clerk.` would go from `"Jr"`/null to
+ * `"Jr. Smith"`/`"clerk"`. The exclusion stays, and this note says which half
+ * of the claim reproduces so nobody re-adds them on a false promise.
+ *
+ * 🔑 AND A TITLE MAY ONLY BE CROSSED AS THE FIRST WORD, which is what makes
+ * `St` safe to keep. It is a prefix in `St. John Rivers` and a SURNAME in
+ * `Anna St. He writes copy.`, and only the position tells them apart: measured,
+ * without the anchor the second gave name "Anna St. He" and role "writes copy",
+ * the same fabricated role one word later.
+ */
+const NAME_JOIN_TITLES = 'Dr|Mr|Mrs|Ms|Prof|Rev|Hon|St';
+/**
+ * 🔑 A STOP MAY BE CROSSED ONLY WHILE THE NAME IS STILL ITS OWN PREFIX. Every
+ * token from `You are ` up to that stop must be a title or an initial, which is
+ * what separates the two shapes that both end a word in a stop:
+ *
+ *   You are J. R. Tolkien, a writer.   J. and R. are initials  ->  crosses
+ *   You are Dr. J. R. Tolkien          a title then initials    ->  crosses
+ *   You are Mary J. She writes copy.   `Mary` is neither        ->  STOPS at J.
+ *   You are Bob Jr. He writes copy.    `Bob` is neither         ->  STOPS at Jr
+ *   You are Anna St. He writes copy.   `St` is a SURNAME here   ->  STOPS at St
+ *
+ * ⚠️ The last three are the fabricated-role defect #1168 exists to kill, and a
+ * bare-initial version of it (`Mary J. She`) survived the first two attempts at
+ * this fix. Position is the only thing in the text that separates a prefix
+ * abbreviation from a trailing one.
+ *
+ * 📌 WHAT THIS ANCHOR ACTUALLY BUYS, measured rather than assumed, because an
+ * earlier version of this comment over-credited it. Removing the anchor from
+ * HEAD leaves `You are Anna St. He writes copy.` with role NULL: the COMMA RULE
+ * kills that one, not the anchor. The anchor's surviving role-protection is on
+ * the comma spelling, `You are Anna St. He, writes copy.`, which without it
+ * reads "Anna St. He" / "writes copy". The NAME is the anchor's work in both.
+ * ⇒ Two rules protect overlapping ground here, and whoever changes either one
+ * should know which half they are holding.
+ *
+ * ⚠️ AND IT CANNOT SEPARATE A TITLE FROM A PRONOUN AFTER IT: `You are Dr. He
+ * writes copy.` reads `Dr. He` as the name, which is worse than main's `Dr`.
+ * The comma rule refuses a role for that spelling.
+ * 🛑 IT DOES NOT REFUSE ONE FOR THE COMMA SPELLING, and an earlier version of
+ * this comment claimed it did: `You are Dr. He, writes copy.` yields
+ * "Dr. He" / "writes copy" where main gave "Dr" / null.
+ * ⭐ AND THAT IS PROBABLY RIGHT RATHER THAN WRONG, which is why it stays: `He`
+ * is a real surname, so `You are Dr. He, a cardiologist.` is the realistic
+ * reading of that shape and the new output is correct there. The objection was
+ * to the absolute claim, not the behaviour. Both spellings are pinned now.
+ */
+const NAME_PREFIX_RUN = "(?<=You are (?:(?:" + NAME_JOIN_TITLES + "|[A-Z])\\. )*(?:" + NAME_JOIN_TITLES + "|[A-Z])\\.)";
+/**
+ * {0,4}. ⚠️ THIS WAS {0,2} FOR THREE REVIEW ITERATIONS AND THE ARGUMENT FOR
+ * KEEPING IT WAS WRONG, in a way worth recording because it was a SCOPE call
+ * rather than a measurement.
+ *
+ * I held it at the pre-#1168 value on the grounds that name length is a
+ * separate decision. But a title consumes one of the slots, so at {0,2} a
+ * perfectly ordinary name truncates:
+ *
+ *   You are Dr. J. R. R. Tolkien, a writer.   {0,2} "Dr. J. R." / null
+ *                                             {0,4} whole, with its role
+ *
+ * ⚠️ AND IT DOES NOT FIX EVERYTHING, WHICH I CHECKED RATHER THAN ASSUMED. The
+ * review offered `You are Dr. John Q. Smith, a writer.` as a second row the
+ * bound would fix. It does not: the PREFIX RUN refuses the crossing after `Q.`
+ * because `John` is neither a title nor an initial, so it stays "Dr. John Q.".
+ * That shape is text-identical to `Mary J. She writes copy.`, which must stop,
+ * so it is undecidable here rather than unfixed. The role is null either way,
+ * and `main` gave "Dr", so both readings are wrong names and neither invents a
+ * job. Pinned in the test as a known limit.
+ *
+ * 🛑 AND `"Dr. John Q."` IS THE SHAPE THIS CARD IS ABOUT. `main` produced `"Dr"`,
+ * which is self-evidently broken; a truncation that still looks like a name is
+ * the invisible version of the same defect, and nothing on the screen says
+ * where it came from. Keeping the old bound traded a visible defect for a
+ * quiet one.
+ *
+ * 🔑 THE NEGATIVES HOLD, measured independently by two reviewers at {0,3},
+ * {0,4}, {0,5} and {0,10}: every prose row in this suite, including the
+ * working-rules text read out of `defaults.js`, still returns null.
+ *
+ * ⚠️ THE COST, and it is not a new class: the Title-Case prose canary captures
+ * one word further per step (`You are The Owner Of This Machine.`). That string
+ * was already captured as a name at {0,2}; widening makes an existing false
+ * positive longer rather than creating one. It is pinned in the test at this
+ * bound so the next change to it is deliberate.
+ */
+const IDENTITY_RE = new RegExp(
+  "You are (?:\\*\\*([^*]+)\\*\\*|([A-Z][\\w.'-]*"
+  + "(?:(?:(?<!\\.)|" + NAME_PREFIX_RUN + ") [A-Z][\\w.'-]*){0,4}"
+  + "))(?:\\s*\\(([^)]+)\\))?\\s*(,)?\\s*([^.\\n]*)",
+);
 
 /**
  * A trailing full stop that ENDED THE SENTENCE, as opposed to one that belongs
@@ -3224,8 +3344,41 @@ function identityFromText(text) {
      delimited by its own asterisks, and `**side-quests**.` already comes back
      clean. */
   const endedSentence = m[1] === undefined && NAME_ENDS_SENTENCE.test(name);
+  /**
+   * 🛑 IN THE PROSE ARM, A ROLE MUST FOLLOW A COMMA. Nothing else may become one.
+   *
+   * Three separate defects on this branch were all one rule missing:
+   *
+   *   You are Dr. J. R. R. Tolkien, a writer.  role "Tolkien"      a surname, as a job
+   *   You are Dr. He writes copy.              role "writes copy"  main gave none
+   *   You are Ms. Understood by all.           role "by all"       main gave none
+   *
+   * ⚠️ TWO NARROWER RULES WERE TRIED FIRST AND BOTH LEAKED. "the tail starts with
+   * a capital" also deleted every real capitalised role
+   * (`You are Nevaeh, Chief Engineer.`), and gating on the repetition bound
+   * actually being hit misses the cases above, where the name is one token and
+   * did not run out of room at all.
+   *
+   * 🔑 The comma is what a person puts between a name and a role, and it is the
+   * only mark in the text that says "what follows describes the one before it".
+   *
+   * ⚠️ THE COST, PINNED IN THE TEST RATHER THAN LEFT TO BE FOUND: a role written
+   * WITHOUT a comma is dropped, and `main` kept it. That is deliberate under this
+   * card's own standard, which is that **a fabricated role is worse than a
+   * missing one**, and it was measured on 84 real instruction files on this
+   * machine: identity detection is unchanged, 17 found before and after, while
+   * four files lose a fabricated role built out of a sentence.
+   *
+   * 📌 The bold arm is untouched, and the honest reason is narrower than "it is
+   * unambiguous": the asterisks settle where the NAME ends, not whether what
+   * follows is a role. `You are **Anna**\n\nYour job is to help everyone.` still
+   * yields a role of "Your job is to help everyone", exactly as it did on main.
+   * Left alone because it is not a regression and every generated template writes
+   * `You are **{{NAME}}**, <a role>.` with the comma.
+   */
+  const roleUnmarked = m[1] === undefined && m[4] === undefined;
   if (endedSentence) name = name.slice(0, -1);
-  let role = (endedSentence ? '' : m[4] || '')
+  let role = (endedSentence || roleUnmarked ? '' : m[5] || '')
     .replace(/\*\*/g, '')          // instruction files are markdown; strip emphasis
     .replace(/^(the|a|an)\s+/i, '')
     .replace(/^Josh Stone's\s+/i, '')
