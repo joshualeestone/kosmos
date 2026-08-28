@@ -3056,16 +3056,54 @@ const server = http.createServer((req, res) => {
         try { isDefault = path.resolve(dir) === path.resolve(openaiAccounts.defaultDir()); }
         catch { isDefault = false; }
 
+        /* 🛑 THE ENUMERATION FAILS CLOSED, AND THE FIRST VERSION DID NOT
+           (Renet Tilley, reviewing #1447). `safeRoster()` answers NULL when it
+           cannot read the fleet, `|| []` turned that into an empty list, and an
+           empty list means "no agents are on this account" -> PROCEED. So an
+           unreadable roster, or one agent whose launch file threw, silently
+           became permission to rename a directory out from under a running
+           agent.
+           ⭐ His sentence for it: AMBIGUITY WAS SILENTLY NONE. The refusal
+           below exists to make a rename safe, and a safety check that cannot
+           tell "nobody" from "I could not look" is not one.
+           📌 A NULL job is NOT incomplete: `readJob` answers null for an agent
+           Kosmos did not start, which is a real answer meaning "not a codex
+           agent". Only a THROW, or an unreadable roster, is ignorance. */
+        const roster = safeRoster();
+        let complete = roster !== null;
         const usedBy = [];
-        for (const a of (safeRoster() || [])) {
+        for (const a of (roster || [])) {
           let job = null;
-          try { job = create.readJob(a.sessionName); } catch { job = null; }
-          if (!job || job.runner !== 'codex') continue;
+          try { job = create.readJob(a.sessionName); }
+          catch { complete = false; continue; }
+          /* 🛑 A NULL JOB IS TWO DIFFERENT ANSWERS AND readJob CANNOT TELL YOU
+             WHICH. It catches its own read error and returns null, so "this
+             agent has no launch file" and "I could not read its launch file"
+             arrive identically. The first is a real answer; the second is
+             ignorance, and treating it as the first is the same fail-open one
+             layer down from the one this review caught.
+             ✅ `jobMissing` is the helper that separates them, and its own
+             docblock says why: "Only ENOENT is evidence of absence; any other
+             failure answers we could not check." */
+          if (!job) {
+            let absent = true;
+            try { absent = create.jobMissing(a.sessionName); } catch { absent = false; }
+            if (!absent) complete = false;
+            continue;
+          }
+          if (job.runner !== 'codex') continue;
           const home = job.configDir || null;
           let onIt = false;
           try { onIt = home ? path.resolve(home) === path.resolve(dir) : isDefault; }
-          catch { onIt = false; }
+          catch { complete = false; continue; }
           if (onIt) usedBy.push(a.sessionName);
+        }
+        if (!complete) {
+          sendJson(res, 400, {
+            error: 'we could not check which agents are running, so nothing was changed',
+            usedBy: [],
+          });
+          return;
         }
 
         const out = openaiAccounts.forgetAccount(dir, usedBy);
