@@ -285,7 +285,7 @@ function resolveBin(provider, opts) {
   const candidates = [
     managed,
     // Testing seam for the last rung only: the real legacy path is
-    // machine state a test cannot control (this Mac genuinely has a
+    // machine state a test cannot control (this computer genuinely has a
     // hand-installed codex there).
     (opts && opts.legacyBin) || '/opt/homebrew/bin/codex',
   ];
@@ -578,7 +578,7 @@ function install(provider, opts) {
   // its own per-platform artifact, so the guard naturally passes.)
   const arch = o.arch || process.arch;
   if (m.arch && arch !== m.arch) {
-    return refuse(`the pinned ${m.name} build is ${m.arch} and this Mac is ${arch}; no download was attempted`);
+    return refuse(`the pinned ${m.name} build is ${m.arch} and this computer is ${arch}; no download was attempted`);
   }
 
   if (m.kind === 'vendor-external') return installVendor(provider, m, o, existing);
@@ -726,7 +726,7 @@ function install(provider, opts) {
       job.phase = 'proving';
       // Installed is a CLAIM until the binary itself answers. --version is
       // local (no network, no account), so a pass means the Mach-O loads
-      // and runs on this Mac -- the same prove-it-runs step the bundle
+      // and runs on this computer -- the same prove-it-runs step the bundle
       // build applies to the app binary.
       try {
         await new Promise((resolve, reject) => {
@@ -981,7 +981,7 @@ function installVendor(provider, m, o, existing) {
            SHA256 and runs its installer, whenever the binary is absent. The
            reader's subject is the product, not the module -- and the old
            wording also handed them the worse of the two remedies. */
-        fail(`We could not find ${m.name} on this Mac. Connecting a Claude account will download and set it up for you; Kosmos can only link a copy that is already on this Mac.`);
+        fail(`We could not find ${m.name} on this computer. Connecting a Claude account will download and set it up for you; Kosmos can only link a copy that is already on this computer.`);
         return;
       }
       job.phase = 'proving';

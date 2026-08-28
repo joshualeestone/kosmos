@@ -1041,6 +1041,34 @@ test('labelTruthCheck: a registered Kosmos label pointing anywhere but its real 
    fix. The classifier below is deliberately crude and errs toward INCLUDING a
    line: a false positive costs someone thirty seconds, a false negative is
    exactly the failure this test exists to stop. */
+/* kosmos#1270 EXTENDS THE SAME COUNT TO THE OTHER TWO SURFACES THAT SPEAK.
+   The guard below was written for this file under #1004 and did its job here.
+   It could not see `web/index.html` (34 live sentences) or `engine/runners.js`
+   (3), which is how a page went on saying "this Mac" under a navigation label
+   reading "This computer" for weeks.
+   ⚠️ COMMENTS ARE LEFT ALONE ON PURPOSE, here and there. They quote Josh, cite
+   old rulings, and rewriting the words inside a quotation falsifies the record.
+   The count is over what a PERSON reads. */
+const OTHER_SPEAKING_FILES = ['web/index.html', 'engine/runners.js'];
+test('no live sentence in the other speaking files says "this Mac" either', () => {
+  const fs2 = require('node:fs'); const path2 = require('node:path');
+  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, ' ')
+                        .replace(/^\s*(?:\/\/|\*).*$/gm, ' ')
+                        .replace(/<!--[\s\S]*?-->/g, ' ');
+  const bad = [];
+  for (const f of OTHER_SPEAKING_FILES) {
+    /* ⚠️ `..` BECAUSE THIS SUITE LIVES IN engine/, NOT AT THE ROOT. My first
+       version joined against __dirname and read engine/web/index.html, which
+       does not exist, so readFileSync THREW and the test failed with no message
+       naming a file. A throw before the assertion looks exactly like a real
+       finding and tells you nothing, which cost a round trip to notice. */
+    const live = strip(fs2.readFileSync(path2.join(__dirname, '..', f), 'utf8'));
+    const n = (live.match(/this Mac/g) || []).length;
+    if (n) bad.push(`${f}: ${n}`);
+  }
+  assert.deepEqual(bad, [], 'these files still say "this Mac" to a person: ' + bad.join(', '));
+});
+
 test('no live sentence in this file still says "this Mac"', () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'machine.js'), 'utf8');
   /* 🔑 A FLOOR ON THE POPULATION, per Angel (2026-08-26 20:01): a check that

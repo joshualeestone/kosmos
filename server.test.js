@@ -9562,7 +9562,7 @@ test('somebody who already has agents is never told they have none', () => {
   });
   assert.doesNotMatch(found.els['fr-fleet'].innerHTML || '', /none on this computer/i,
     'somebody with agents was still told they have none');
-  assert.match(found.els['fr-title'].textContent, /found an agent on this Mac/i,
+  assert.match(found.els['fr-title'].textContent, /found an agent on this computer/i,
     'the title conflates being on the Mac with being in Kosmos');
   assert.match(found.els['fr-fleet'].innerHTML, /not in Kosmos yet/i,
     'the screen no longer says what has NOT happened, which is the whole distinction');

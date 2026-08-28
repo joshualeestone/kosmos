@@ -60,7 +60,7 @@ test('no pill is inert and no door holds a control for an unbuilt flow', () => {
   /* Mona Lisa's absent-CLI sentence is built from a per-service row now
      (#529, Vercel): the template and GitHub's row are pinned separately, so
      the sentence a person reads is still hers, for every built service. */
-  assert.match(fn, /<b>To connect ' \+ esc\(name\) \+ ', this Mac needs ' \+ esc\(t\.cli\) \+ ', and it is not here yet\.<\/b> '/, 'the absent-CLI sentence lost its shape');
+  assert.match(fn, /<b>To connect ' \+ esc\(name\) \+ ', this computer needs ' \+ esc\(t\.cli\) \+ ', and it is not here yet\.<\/b> '/, 'the absent-CLI sentence lost its shape');
   assert.match(fn, /'GitHub': \{ cli: 'the GitHub CLI', install: 'https:\/\/cli\.github\.com'/, 'GitHub lost its tool words');
   assert.match(fn, /'Vercel': \{ cli: 'the Vercel CLI', install: 'https:\/\/vercel\.com\/docs\/cli'/, 'Vercel lost its tool words');
   // #620: the no-install road is offered only when the device engine says it is switched on, and says who holds the key.

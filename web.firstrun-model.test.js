@@ -320,13 +320,13 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
      `engine/openaiaccounts.js:242`, which sends the key to api.openai.com to
      validate it. The short form was untrue and the true form needed eleven words
      of qualification, so the claim was removed instead. */
-  const settingsWarning = page.match(/Paste an OpenAI API key\. It stays on this Mac[^<]*/g) || [];
+  const settingsWarning = page.match(/Paste an OpenAI API key\. It stays on this computer[^<]*/g) || [];
   assert.equal(settingsWarning.length, 1,
     'Settings should carry exactly one key warning, and it is missing or duplicated');
 
   const firstRunFlow = page.match(/id="fr-openai-flow"[\s\S]*?<div class="frow">\s*<input/);
   assert.ok(firstRunFlow, 'could not find the first-run key step to check it makes no promise');
-  assert.ok(!/It stays on this Mac/.test(firstRunFlow[0]),
+  assert.ok(!/It stays on this computer/.test(firstRunFlow[0]),
     'first run makes a promise about the key again; Josh removed that line deliberately (#1207)');
   assert.match(els['fr-openai-msg'].textContent, /connected/, 'should still say it is connected');
   assert.match(els['fr-openai-msg'].textContent, /cd34/);
