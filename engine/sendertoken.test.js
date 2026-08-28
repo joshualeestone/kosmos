@@ -259,3 +259,54 @@ test('an empty token is refused with its own reason, not the generic one', () =>
   assert.equal(r.ok, false);
   assert.match(r.because, /no sender token was presented/);
 });
+
+/**
+ * 🛑 THE REFUSALS MUST BE INDISTINGUISHABLE, AND THAT IS A SECURITY PROPERTY.
+ *
+ * A caller must not be able to tell whether a token was ever real. "Never issued",
+ * "issued then revoked", "issued but the roster row is gone" and "no such token here"
+ * are four different internal states and one external answer.
+ *
+ * ⚠️ WHY THIS TEST EXISTS RATHER THAN A COMMENT. Until 2026-08-27 the property was held
+ * by FOUR separate string literals that happened to match. Nothing kept them in sync,
+ * and the suite would have stayed green while somebody made one of them more helpful.
+ * Recorded on #1112 as resting on "a returned string I control", singular. It was four.
+ * They are one constant now, and this is what keeps them one.
+ */
+test('every refusal that must hide whether a token was real says the SAME sentence', () => {
+  const board = fleet.install([fleet.agent('renet-windows', { state: 'idle' })]);
+  try {
+    const minted = sendertoken.mint('renet-windows');
+    assert.equal(minted.ok, true);
+
+    // a token that was never issued: matches no file
+    const never = sendertoken.resolve('b'.repeat(64), board.roster);
+    // a real token whose roster row is gone: issued, then the agent left the board
+    const orphaned = sendertoken.resolve(minted.token, []);
+
+    assert.equal(never.ok, false);
+    assert.equal(orphaned.ok, false);
+    assert.equal(
+      never.because, orphaned.because,
+      'a never-issued token and a revoked one gave different answers, which discloses that the second was once real',
+    );
+
+    // the name-only path owes the same answer
+    const byName = sendertoken.resolveName('c'.repeat(64));
+    assert.equal(byName.ok, false);
+    assert.equal(byName.because, never.because, 'resolveName drifted from resolve');
+  } finally {
+    fleet.restore();
+  }
+});
+
+test('CONTROL: the sentence is one constant, not four literals that happen to agree', () => {
+  /* Without this, the test above passes on a file with four copies, which is exactly
+     the state that produced the finding. It asserts the STRUCTURE, not the behaviour:
+     behaviour agreeing today is what made the fragility invisible. */
+  const src = fs.readFileSync(path.join(__dirname, 'sendertoken.js'), 'utf8');
+  const literal = "'we could not match that to one of your agents'";
+  const copies = src.split(literal).length - 1;
+  assert.equal(copies, 1, `the refusal sentence is written out ${copies} times; it must exist once, as NO_MATCH`);
+  assert.ok(src.includes('const NO_MATCH ='), 'NO_MATCH is gone; the refusals are loose again');
+});
