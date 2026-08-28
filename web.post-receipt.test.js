@@ -374,7 +374,23 @@ test('paintRoom indexes the silence against allRows and not against the filtered
    */
   const at = PAGE.indexOf('function paintRoom(');
   assert.notEqual(at, -1);
-  const body = PAGE.slice(at, at + 2000);
+  /* 🛑 BOUNDED BY CONTENT, NOT BY A CHARACTER COUNT. This read `slice(at, at + 2000)`,
+     and the call it looks for sits 3142 characters into the function, so it was
+     inside the window only by luck. Adding comments to `paintRoom` for #1150 pushed
+     the call past 2000 and this test went red on a change that did not touch the
+     behaviour it guards.
+
+     ⭐ It failed CLOSED, which is why this is a repair and not an incident: a window
+     that misses the call makes `assert.match` fail rather than pass. But the next
+     person would have bumped the number, and the number would have gone stale again.
+     Slicing to the next top-level function is stable under edits of any size.
+
+     ⚠️ The `doesNotMatch` arm needs the window to stay INSIDE paintRoom, or it would
+     start policing a sibling function - which is exactly what a bigger magic number
+     would have risked. The boundary below is that guarantee. */
+  const end = PAGE.indexOf('\nfunction ', at + 1);
+  assert.ok(end > at, 'paintRoom is no longer followed by a top-level function, so this window is unbounded');
+  const body = PAGE.slice(at, end);
   assert.match(body, /pjSilences\(allRows, p\)/, 'the silence is no longer computed from the whole room');
   assert.doesNotMatch(body, /pjSilences\(shown/, 'the silence is computed from the filtered rows');
 });
