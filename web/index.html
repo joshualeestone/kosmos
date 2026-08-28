@@ -764,6 +764,16 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn:disabled:hover { background: var(--bg); }
 .fmsg { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: var(--space-4); min-height: 1em; }
+/* 🔑 A REFUSAL AT THE FIELD IT IS ABOUT (kosmos#1303 G). Josh: "The error was
+   below the Save Changes button so when I scrolled down to hit the button, I
+   couldn't see the error." `.fmsg` is the after-the-button slot and stays that
+   way for success and for anything not about one field; `.ferr` is the slot
+   beside the field, which is where somebody who has to FIX something is
+   looking. `--danger` is defined in all three theme blocks (base, system dark,
+   explicit dark), checked, so this does not vanish in one of them. */
+.ferr { font: var(--text-callout) var(--font-ui); color: var(--danger); margin-top: var(--space-2); }
+.ferr:empty { display: none; }
+.tk-inp.bad, .tk-inp.bad:focus { border-color: var(--danger); }
 /* kosmos#976: a step that can wreck the flow, told apart from the hints around
    it. Same size as .dhint so it does not shout, but in full ink with a red
    marker, because the defect was that it looked like advice. */
@@ -8077,8 +8087,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            counts CODE POINTS and HTML maxlength counts UTF-16 units, so a
            raw 200 here would cut a pasted emoji description at half length
            while the engine accepts it. The engine's refusal sentence is the
-           cap. -->
-      <textarea class="tk-inp" id="pjs-desc" rows="2"></textarea>
+           cap.
+           ⚠️ #1303 G: SO THE FIX FOR "TELL ME THE LIMIT" IS A SENTENCE, NOT A
+           maxlength. Josh asked to "indicate next to the description that there
+           is a 200-character limit"; putting 200 in the attribute would be the
+           exact bug this note already forbids. The number here, the number in
+           PJ_DESC_MAX and the engine's are pinned together by a test. -->
+      <p class="fhint" id="pjs-desc-hint">Up to 200 characters.</p>
+      <textarea class="tk-inp" id="pjs-desc" rows="2" aria-describedby="pjs-desc-hint"></textarea>
+      <p class="ferr" id="pjs-desc-err" aria-live="polite"></p>
     </div>
 
     <div class="field">
@@ -8204,9 +8221,19 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          enough to start, and a required description is a wall. -->
     <div class="field">
       <span class="flabel">Description</span>
-      <textarea class="tk-inp" id="pj-add-desc" rows="2" maxlength="500"
+      <!-- 🛑 THE maxlength WAS 500 AND THE ENGINE REFUSES AT 200 (#1303 G).
+           So this box accepted 300 characters and the save then failed, which is
+           a form disagreeing with its own product. REMOVED rather than corrected
+           to 200, for the reason the settings field records: the engine counts
+           CODE POINTS and maxlength counts UTF-16 units, so any number here cuts
+           a pasted emoji description at half length. The cap is said in words
+           and enforced where it is defined. -->
+      <p class="fhint" id="pj-add-desc-hint">Up to 200 characters.</p>
+      <textarea class="tk-inp" id="pj-add-desc" rows="2"
                 aria-label="What this project is about"
+                aria-describedby="pj-add-desc-hint"
                 placeholder="Renewing the Henderson lease before October."></textarea>
+      <p class="ferr" id="pj-add-desc-err" aria-live="polite"></p>
     </div>
 
     <!-- The advanced route, one link away: for work that already lives
@@ -24135,12 +24162,55 @@ document.getElementById('pj-settings-back').addEventListener('click', () => {
   document.getElementById('pj-settings-link').focus();
 });
 
+/* 🔑 THE DESCRIPTION CAP, ONCE IN THIS FILE (#1303 G). The engine is the
+   authority (`engine/projects.js`, `Array.from(flat).length > 200`); this is the
+   copy that lets the page say WHY before a round trip, and a test pins the two
+   together along with the number in the hint text, so they cannot drift.
+   ⚠️ CODE POINTS, deliberately: `Array.from` iterates code points, which is what
+   the engine counts. `desc.length` counts UTF-16 units and would refuse a
+   101-emoji description the engine accepts. */
+const PJ_DESC_MAX = 200;
+function pjDescTooLong(text) { return Array.from(String(text || '')).length > PJ_DESC_MAX; }
+
+/* Mark a field wrong AT the field, and put the reason beside it.
+   ⚠️ IT FOCUSES. That is the half that answers Josh's actual complaint: he
+   scrolled DOWN to the button, so a message anywhere above it was off screen.
+   Focusing brings the field, its hint and its reason into view together, which
+   no amount of rewording the sentence would do. */
+function pjFieldBad(inputId, errId, reason) {
+  const input = document.getElementById(inputId);
+  const err = document.getElementById(errId);
+  if (err) err.textContent = reason;
+  if (input) {
+    input.classList.add('bad');
+    input.setAttribute('aria-invalid', 'true');
+    input.focus();
+    if (input.scrollIntoView) input.scrollIntoView({ block: 'center' });
+  }
+}
+function pjFieldOk(inputId, errId) {
+  const input = document.getElementById(inputId);
+  const err = document.getElementById(errId);
+  if (err) err.textContent = '';
+  if (input) { input.classList.remove('bad'); input.removeAttribute('aria-invalid'); }
+}
+
 document.getElementById('pjs-save').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
   const msg = document.getElementById('pjs-msg');
   msg.textContent = '';
+  pjFieldOk('pjs-desc', 'pjs-desc-err');
   const btn = document.getElementById('pjs-save');
+  /* #1303 G: checked BEFORE the round trip, so the reason appears at the field
+     rather than as a refusal below a button the person has already scrolled
+     past. The engine still refuses independently; this only means the common
+     case does not need the network to say something we already know. */
+  if (pjDescTooLong(document.getElementById('pjs-desc').value)) {
+    pjFieldBad('pjs-desc', 'pjs-desc-err',
+      'That description is longer than ' + PJ_DESC_MAX + ' characters. Shorten it and save again.');
+    return;
+  }
   btn.disabled = true;
   try {
     // Only what changed travels, and a save that would move nothing is the
@@ -24158,7 +24228,17 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
       body: JSON.stringify(body),
     });
     const got = await res.json().catch(() => ({}));
-    if (!res.ok) { msg.textContent = got.error || 'we could not save that'; return; }
+    if (!res.ok) {
+      /* The engine refused. When its reason is about the description, it belongs
+         at the description, not under the button: same rule as the pre-check
+         above, applied to the cases only the engine can know about. */
+      if (got.error && /description/i.test(got.error)) {
+        pjFieldBad('pjs-desc', 'pjs-desc-err', pjSentence(got.error) || String(got.error));
+        return;
+      }
+      msg.textContent = got.error || 'we could not save that';
+      return;
+    }
     // The archive sibling's retry shape (retry only when a NEWER read
     // retired ours -- loadProjects answers true on a recorded failure, so
     // `||` never retried and a truthy answer was read as a good read); and
@@ -27755,6 +27835,15 @@ document.getElementById('pj-advanced').addEventListener('click', () => {
 document.getElementById('pj-create').addEventListener('click', async () => {
   const msg = document.getElementById('pj-add-msg');
   const btn = document.getElementById('pj-create');
+  pjFieldOk('pj-add-desc', 'pj-add-desc-err');
+  /* #1303 G, the create half of Josh's "this probably applies to creating a
+     project too". This box used to carry maxlength="500" while the engine
+     refused at 200, so it accepted text it could not save. */
+  if (pjDescTooLong(document.getElementById('pj-add-desc').value)) {
+    pjFieldBad('pj-add-desc', 'pj-add-desc-err',
+      'That description is longer than ' + PJ_DESC_MAX + ' characters. Shorten it and try again.');
+    return;
+  }
   // ⚠️ The old requirement, kept EXACTLY where it still applies and nowhere
   // else. Somebody who opened the folder route and browsed without pressing
   // "Use this folder" would otherwise have a project made at the default path
@@ -27795,7 +27884,11 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     // Through pjSentence like every other engine `because` on this screen
     // (round 20): the engine's reasons are clauses, and this catch was the
     // one place still pasting a lowercase clause in as a whole sentence.
-    msg.textContent = pjSentence(err.message) || 'We could not add that project.';
+    if (err && err.message && /description/i.test(err.message)) {
+      pjFieldBad('pj-add-desc', 'pj-add-desc-err', pjSentence(err.message) || String(err.message));
+    } else {
+      msg.textContent = pjSentence(err.message) || 'We could not add that project.';
+    }
   } finally {
     btn.disabled = false;
   }
