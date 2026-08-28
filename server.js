@@ -26,6 +26,10 @@ const path = require('node:path');
 // renames one.
 const {
   snapshot, paneRoster, countAgents, STATE, modelDisplayName,
+  /* #1304: the tier vocabulary, imported rather than hand-written. A literal
+     'structured' beside a value read off a process command line is exactly the
+     two-copies-of-one-fact habit this file criticises elsewhere. */
+  CONFIDENCE,
   /* #1304: an agent asking what MODEL it is running gets the same derivation
      that fills its card, rather than a second reader of the same transcript. */
   readModel,
@@ -287,7 +291,17 @@ function resolveAgentSender(req, body, roster) {
  * Which account an agent runs on, from its own startup file (#1304).
  *
  * 🔑 ONE DERIVATION, TWO CALLERS, and that is the whole point of it being here
- * rather than inside the status route where it was born. The board answers
+ * rather than inside the status route where it was born.
+ *
+ * 🛑 AND THAT IS NO LONGER THE WHOLE STORY, SAID HERE RATHER THAN LEFT TO
+ * CONTRADICT ITSELF (#1304). `/api/whoami` now prefers a LIVE read of the
+ * agent's process for the ACCOUNT, while the board still reads this function.
+ * For an agent migrated between accounts without its startup file being
+ * rewritten, the two will disagree, and the live one is right. That is a real
+ * gap rather than a tidy one: moving the board onto the live reader is a
+ * per-poll cost across the whole fleet and belongs in its own card. Until then,
+ * **the agent's own answer is the authoritative one and the board is the stale
+ * one**, which is the opposite of what a reader would assume. The board answers
  * "which account is this agent on" for a person looking at the screen, and
  * `/api/whoami` answers it for the AGENT ITSELF. Two copies of that lookup
  * would disagree the first time either moved, and an agent contradicting the
@@ -339,37 +353,110 @@ function resolveAgentSender(req, body, roster) {
  * directly by a test without a process tree, a tmux server or a signed-in
  * account.
  */
+/**
+ * The live reader, behind a seam a test can reach (#1304).
+ *
+ * 🛑 WITHOUT THIS THE ROUTE'S LIVE ARM HAD NO CONTROL. `fleet.install` stubs
+ * `status.setPaneSource`/`setPaneCapture`; `runningas` has its own independent
+ * `deps` seam that the route never passed, so a route test shelled out to the
+ * developer's real `tmux list-panes -a` and a full-machine `ps`, and its
+ * assertions depended on which sessions happened to exist. A test that reads
+ * the machine it runs on is not a control.
+ *
+ * ⚠️ Same shape and same reason as `setPaneSource` two files over: replace
+ * where the DATA comes from, never what is done with it, so the seam cannot
+ * reach a real agent.
+ */
+let liveReaderFn = null;
+function setLiveReader(fn) { liveReaderFn = typeof fn === 'function' ? fn : null; }
+function liveReader() { return liveReaderFn || runningas.runningAs; }
+
 function whoamiFor(card, known, live) {
   const who = card && card.sessionName;
-  if (live && live.ok === true && (live.account || live.model)) {
+  const seen = live && live.ok === true ? live : null;
+
+  /* 🛑 PER FIELD, NEVER ALL-OR-NOTHING. The first version gated on
+     `live.ok && (live.account || live.model)` and returned early, so a live
+     reading that knew ONE fact hard-nulled the other. That is not a corner:
+     `bin/agent-supervisor.sh` adds `--model` only when a model was chosen, so
+     an agent without one gives `{ok:true, account:'…', model:null}` and the
+     route answered "we cannot tell which model" about an agent whose transcript
+     plainly says `claude-opus-5`. Each field now takes the best source that has
+     it, and each carries where it came from. */
+  const account = (() => {
+    /* Live first: the account is what the process is authenticated as, and a
+       startup file can be stale after a migration (Baron was moved off
+       josh@stuff.io while his file still said so). */
+    if (seen && seen.account) {
+      return { value: { email: seen.account, label: seen.organization || null, dir: seen.configDir || null, isDefault: null }, from: 'process' };
+    }
+    /* ⚠️ A CONFIGURED DIRECTORY WE CANNOT IDENTIFY IS STILL REPORTED, the same
+       rule `accountForAgent` states for the record path: returning null there
+       would say "the default account" about an agent pointed somewhere else. */
+    if (seen && seen.configDir) {
+      return { value: { email: null, label: null, dir: seen.configDir, isDefault: false }, from: 'process' };
+    }
+    const rec = accountForAgent(who, known);
     return {
-      account: live.account
-        ? { email: live.account, label: live.organization || null, dir: live.configDir || null, isDefault: null }
-        : null,
-      model: live.model ? { id: live.model, name: modelDisplayName(live.model), confidence: 'structured' } : null,
-      source: 'process',
+      value: rec ? { email: rec.email, label: rec.label, dir: rec.dir, isDefault: rec.isDefault } : null,
+      from: 'record',
     };
-  }
-  const account = accountForAgent(who, known);
-  const seen = (() => { try { return readModel(who); } catch { return null; } })();
+  })();
+
+  /* 🔑 AND THE MODEL GOES THE OTHER WAY, which is the opposite of what this
+     change first did. `runningas` reads `--model` off the process COMMAND LINE,
+     which is what the agent was STARTED with. `readModel` reads the tail of the
+     transcript, which follows a mid-session `/model` switch: its own docblock
+     cites Josh switching an agent from Fable to Opus and watching the board.
+     ⇒ For the model the record is the FRESHER witness and the live read is the
+     stale one, so the launch argument is the fallback rather than the winner.
+     ⚠️ The evidence that justified preferring live was about agent BRIEFS,
+     which nobody regenerates. It does not carry to the transcript. */
+  const model = (() => {
+    /* 📌 `sender.instance` IS DELIBERATELY NOT PASSED, and saying so because a
+       pre-existing bug removed inside a refactor is indistinguishable from an
+       accident. `readModel(name, exactSession)` uses the second argument as a
+       tmux SESSION NAME; `instance` is a per-launch hex label from
+       `sendertoken`, never a session name, so passing it built a `wanted` list
+       that could never match and every token-presenting caller fell through to
+       the workdir lookup anyway. Dropping it changes no behaviour and removes a
+       misleading argument. */
+    const rec = (() => { try { return readModel(who); } catch { return null; } })();
+    if (rec && rec.model) {
+      return { value: { id: rec.model, name: modelDisplayName(rec.model), confidence: rec.confidence }, from: 'record' };
+    }
+    if (seen && seen.model) {
+      /* ⚠️ NOT `structured`. That tier means "read from a file written for this
+         purpose"; this is a process command line, and mislabelling provenance
+         in a change about provenance would be the joke writing itself. */
+      return { value: { id: seen.model, name: modelDisplayName(seen.model), confidence: CONFIDENCE.SCRAPED }, from: 'process' };
+    }
+    return { value: null, from: 'record' };
+  })();
+
   return {
-    account: account
-      ? { email: account.email, label: account.label, dir: account.dir, isDefault: account.isDefault }
-      : null,
-    model: seen && seen.model
-      ? { id: seen.model, name: modelDisplayName(seen.model), confidence: seen.confidence }
-      : null,
-    source: 'record',
+    account: account.value,
+    model: model.value,
+    /* Per field, because they can now come from different places. */
+    source: { account: account.from, model: model.from },
   };
 }
 
-function sentenceForWhoami(account, model) {
+function sentenceForWhoami(account, model, source) {
   const acct = account && account.email ? account.email
     : account && account.label ? account.label
       : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
         : null;
   const parts = [];
-  parts.push(acct ? 'This agent runs on ' + acct : 'We cannot tell which account this agent runs on, because we have no startup file for it');
+  /* ⚠️ THE REASON MUST MATCH THE READER THAT FAILED. "we have no startup file"
+     is true of the record path and false of the live one, where a null account
+     means the directory the process is running with could not be identified.
+     A card about agents giving confident wrong answers must not ship a sentence
+     that is confidently wrong about HOW it failed. */
+  const why = source && source.account === 'process'
+    ? 'We cannot tell which account this agent runs on: we can see its process but not identify the account it is signed in to'
+    : 'We cannot tell which account this agent runs on, because we have no startup file for it';
+  parts.push(acct ? 'This agent runs on ' + acct : why);
   parts.push(model && model.name ? 'and its model is ' + model.name : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';
 }
@@ -3771,10 +3858,19 @@ const server = http.createServer((req, res) => {
            `angel-discord`, and a second place that knows that convention is a
            second place to get it wrong. A token-resolved paneless agent has no
            session at all, which is exactly when the live reader cannot answer. */
+        /* ⚠️ LATENCY BUDGET, STATED BECAUSE IT IS NOT FREE. `runningAs` makes
+           three synchronous `execFileSync` calls, each with its own 5s timeout,
+           on a single-threaded server, after `safeRoster()` has already
+           enumerated tmux. The CLI calls this route with `curl -m 15`, so a
+           degraded `tmux` or `ps` makes whoami TIME OUT rather than fall back:
+           the fallback covers "cannot see the agent", not "the reader was
+           slow". Acceptable for a verb a person invokes by hand; it would not
+           be acceptable on the five-second poll, which is one more reason the
+           board is not moved onto it here. */
         const live = (() => {
           const sess = sender.card.session;
           if (!sess) return null;
-          try { return runningas.runningAs(sess); } catch { return null; }
+          try { return liveReader()(sess); } catch { return null; }
         })();
         const seenLive = whoamiFor(sender.card, known, live);
         const account = seenLive.account;
@@ -3795,7 +3891,7 @@ const server = http.createServer((req, res) => {
           source: seenLive.source,
           /* One sentence a person can read out, so an agent asked in plain
              words does not have to compose one and get it subtly wrong. */
-          because: sentenceForWhoami(account, model),
+          because: sentenceForWhoami(account, model, seenLive.source),
         });
       })
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read that request' }));
@@ -6740,6 +6836,8 @@ module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   /* #1304: exported so the two-reader precedence can be driven directly. A test
      that needed a real process tree, a tmux server and a signed-in account would
-     not run anywhere, and the precedence is the part worth pinning. */
-  whoamiFor,
+     not run anywhere, and the precedence is the part worth pinning.
+     `setLiveReader` is the seam for the ROUTE's live arm, which `whoamiFor`
+     alone cannot cover: the wiring is where the session name is chosen. */
+  whoamiFor, setLiveReader,
 };
