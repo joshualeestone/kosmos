@@ -291,7 +291,7 @@ set "KOSMOS_HERE=%~dp0"
 REM Run from TEMP: rmdir cannot remove the directory it is sitting in.
 cd /d "%TEMP%"
 echo Stopping Kosmos...
-powershell -NoProfile -Command "\$here = \$env:KOSMOS_HERE.ToLower(); Get-Process node -EA SilentlyContinue | Where-Object { \$_.Path -and \$_.Path.ToLower().StartsWith(\$here) } | Stop-Process -Force" >nul 2>&1
+powershell -NoProfile -Command "`$here = `$env:KOSMOS_HERE.ToLower(); Get-Process node -EA SilentlyContinue | Where-Object { `$_.Path -and `$_.Path.ToLower().StartsWith(`$here) } | Stop-Process -Force" >nul 2>&1
 del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Kosmos.lnk" >nul 2>&1
 del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Kosmos.lnk" >nul 2>&1
 echo Removing "%KOSMOS_HERE%"...
