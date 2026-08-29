@@ -83,7 +83,11 @@ if (Test-Path -LiteralPath $mf) {
   try { $expectMods = (Get-Content -LiteralPath $mf -Raw | ConvertFrom-Json).engine_modules } catch { $expectMods = $null }
 }
 $engineCount = @(Get-ChildItem -LiteralPath (Join-Path $Source 'app\engine') -Filter *.js).Count
-if ($expectMods) {
+# ⚠️ `-ne $null`, NOT truthiness. An empty stage yields "engine_modules": 0,
+# which is FALSY, so the installer would take the else branch and report "no
+# expected count, so it was not verified" -- a build defect degrading into a
+# skipped check that reads exactly like the intentional old-bundle path.
+if ($null -ne $expectMods) {
   if ($engineCount -ne $expectMods) {
     Die "The download is incomplete or altered: $engineCount engine modules, and this build says there should be exactly $expectMods. Please download and extract it again."
   }
@@ -336,6 +340,12 @@ REM removed", which is false and unfixable by re-running. That is the exact
 REM outcome this redesign exists to avoid, so `call` would have reintroduced it.
 set "KOSMOS_HERE=%~dp0"
 copy /y "%~f0" "%TEMP%\kosmos-uninstall.cmd" >nul
+if errorlevel 1 (
+  echo Could not prepare the uninstaller in your temporary folder.
+  echo Nothing has been removed.
+  pause
+  exit /b 1
+)
 start "" "%TEMP%\kosmos-uninstall.cmd" "%KOSMOS_HERE:~0,-1%"
 exit /b
 
@@ -362,12 +372,33 @@ if not exist "%KOSMOS_DIR%\app\server.js" (
 
 cd /d "%TEMP%"
 echo Stopping Kosmos...
-REM ⚠️ THE PATH IS AN ARGUMENT, NOT INTERPOLATED INTO THE SCRIPT. Substituted
-REM into a single-quoted PowerShell string, an apostrophe in the profile path
-REM terminates it: C:\Users\O'Brien\... produces a parse error, 2>&1 swallows it,
-REM the board is never stopped, and the person gets a false "may still be
-REM running". O'Brien, D'Angelo and O'Neill are legal Windows usernames.
-powershell -NoProfile -Command "`$here = (`$args[0] + '\').ToLower(); Get-Process node -EA SilentlyContinue | Where-Object { `$_.Path -and `$_.Path.ToLower().StartsWith(`$here) } | Stop-Process -Force" "%KOSMOS_DIR%" >nul 2>&1
+REM 🛑 THE PATH COMES THROUGH THE ENVIRONMENT, NOT AS AN ARGUMENT AND NOT
+REM INTERPOLATED. All three of the obvious ways are wrong and I tried two:
+REM
+REM   interpolated into a single-quoted string -> an apostrophe in the profile
+REM     path terminates it. O'Brien, D'Angelo, O'Neill are legal usernames.
+REM   passed after -Command as an argument     -> MEASURED: `powershell
+REM     -Command "<script>" "<path>"` gives $args.Count = 0. The path is
+REM     APPENDED TO THE COMMAND TEXT instead, so $args[0] is $null.
+REM
+REM ⚠️ AND THE SECOND FAILURE WAS WORSE THAN INERT, IT WAS INVERTED. With
+REM $args[0] null, $here became the single character "\", and StartsWith("\")
+REM is TRUE for a UNC path like \\fileserver\tools\node\node.exe and FALSE for
+REM the real C:\Users\...\Kosmos\runtime\node.exe. Measured both arms. It
+REM stopped nothing here and would have killed somebody else's node over a
+REM network share the moment the argument passing was "fixed" alone.
+REM
+REM ⇒ cmd exports KOSMOS_DIR to the child, so the environment read below needs
+REM no quoting, no interpolation and no argument parsing anywhere in the chain.
+REM
+REM ⚠️ AND THE PROSE ABOVE HAD TO BE REWORDED, WHICH IS THE THIRD TIME A COMMENT
+REM IN THIS HERE-STRING BECAME CODE. It said "`$env: reads it", and inside an
+REM interpolating here-string that is a VARIABLE REFERENCE whose colon is not
+REM followed by a valid name character. Parse error, in a REM line, in a comment
+REM explaining a fix. A backtick did the same thing here earlier today.
+REM ⇒ Inside this string, prose is code. Write about $-things carefully or not
+REM at all.
+powershell -NoProfile -Command "`$here = (`$env:KOSMOS_DIR + '\').ToLower(); Get-Process node -EA SilentlyContinue | Where-Object { `$_.Path -and `$_.Path.ToLower().StartsWith(`$here) } | Stop-Process -Force" >nul 2>&1
 del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Kosmos.lnk" >nul 2>&1
 del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Kosmos.lnk" >nul 2>&1
 echo Removing "%KOSMOS_DIR%"...
@@ -380,11 +411,24 @@ if exist "%KOSMOS_DIR%" (
   echo Done.
   $dataLine
 )
-REM Remove this TEMP copy so it cannot be run again by accident.
-start "" /b cmd /c del "%~f0"
+REM ⚠️ PAUSE FIRST, THEN DELETE. `start /b cmd /c del "%~f0"` races the pause:
+REM cmd holds the batch open, so when pause returns it reads past the end of a
+REM deleted file and prints "The batch file cannot be found." as the LAST THING
+REM the person sees on a SUCCESSFUL uninstall. The (goto) idiom below is the
+REM standard self-delete: it releases the file first, so nothing is read after.
 pause
+(goto) 2>nul & del "%~f0"
 "@
-Set-Content -Path (Join-Path $Install 'Uninstall Kosmos.cmd') -Value $uninstall -Encoding OEM
+# ⚠️ WRAPPED, and it was the ONE post-copy statement that was not, directly
+# contradicting this file's own claim that everything after the copy is. An IO
+# failure here threw raw .NET AFTER a successful copy, so Start-Process and
+# "Installed." never ran and the person believed the whole install had failed.
+try {
+  Set-Content -Path (Join-Path $Install 'Uninstall Kosmos.cmd') -Value $uninstall -Encoding OEM
+} catch {
+  Write-Host "     could not write the uninstaller, continuing" -ForegroundColor Yellow
+  Write-Host "     Kosmos IS installed. To remove it later, delete $Install by hand." -ForegroundColor Yellow
+}
 Say "Uninstall Kosmos.cmd"
 
 # ── go ───────────────────────────────────────────────────────────────────────
