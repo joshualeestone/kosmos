@@ -194,8 +194,27 @@ test('#1373: the four fail-quiet fixes are pinned, because each one reverts gree
     'nothing tells the person the sign-in list could not be read, so the picker just silently is not there');
   /* 3. THE REFUSAL'S REMEDY POINTS AT THE LIST. If the stale list survives the failure,
      "pick one from the list and try again" re-offers the dead row every time. */
-  assert.match(PAGE, /ACCOUNTS = \[\];\s*try \{ await paintAccountPicker\(CURRENT\); \}/,
+  /* ⭐ LOOSENED ONTO THE PROPERTY AFTER IT CAUGHT ME (challenge-loop iteration 16). This
+     pinned `ACCOUNTS = []` immediately followed by the repaint, and went red when
+     iteration 16 inserted `ACCOUNTS_LOADED = false` between them. The guard was RIGHT to
+     fire, and the spelling was the wrong axis to pin: what matters is that the cache is
+     dropped and then refilled, not that the two lines are adjacent. */
+  assert.match(PAGE, /ACCOUNTS = \[\];[\s\S]{0,120}?await paintAccountPicker\(CURRENT\);/,
     'a failed switch keeps the stale account list, so the remedy the refusal names re-offers the row that just failed');
+  /* 🛑 AND BOTH EMPTYING SITES MUST MARK IT UNREAD, NOT JUST ONE. Iteration 15 fixed the
+     move path; iteration 16 found the failed-switch catch dropping the cache while leaving
+     `ACCOUNTS_LOADED` true, which resurrects the false zero-account sentence whenever the
+     repaint's own fetch also fails. Counted rather than matched, because a single-site
+     assertion is exactly what missed it the first time. */
+  const emptied = (PAGE.match(/(?<!let )\bACCOUNTS = \[\];/g) || []).length;
+  /* 📌 1200, MEASURED NOT GUESSED. The move site carries an ~800 character comment between
+     the two lines, so 700 paired only 1 of 2 and read as a real defect. Measured across
+     200/400/700/1000/1500: pairs at 1000 and above. The two sites are thousands of
+     characters apart, so a window this wide cannot cross-pair them. */
+  const paired = (PAGE.match(/(?<!let )\bACCOUNTS = \[\];[\s\S]{0,1200}?ACCOUNTS_LOADED = false;/g) || []).length;
+  assert.ok(emptied >= 2, 'the sweep found fewer than the two known emptying sites, so it is not reading what it thinks it is');
+  assert.equal(paired, emptied,
+    'a site empties the account cache without marking it unread, so a stale ACCOUNTS_LOADED lets the zero-account sentence fire on an intact server list');
   /* 4. AND THE BUTTON HAS TO COME BACK. Hard-coding `true` here means a person who does
      exactly what the message says picks the highlighted row, fires no `change`, and
      gets nothing. */
@@ -221,6 +240,23 @@ test('#1373: the zero-account claim requires a list we actually read, and the mo
     'a successful read no longer marks the list authoritative, so the zero-account arm can never fire');
   assert.match(PAGE, /ACCOUNTS = \[\];[\s\S]{0,700}?ACCOUNTS_LOADED = false;[\s\S]{0,200}?await paintAccountPicker\(CURRENT\);/,
     'the move empties the account cache without marking it unread and refilling it, so the switch picker silently vanishes for the life of the open panel');
+});
+
+/* 🛑 A PICK THE DIALOG CANNOT NAME IS STILL A PICK (challenge-loop iteration 16).
+   `switchAcctShown()` returns '' for an account whose only label is a filesystem path,
+   which was indistinguishable from NOT PICKED, so a real pick fell through to the hedged
+   arms and was told the switch might land elsewhere. ⚠️ That hedge is FALSE for a pick,
+   because a picked account the engine cannot use is refused rather than replaced. */
+test('#1373: a pick the dialog cannot NAME still gets an unhedged promise', () => {
+  assert.match(PAGE, /function switchAcctPicked\(\)[\s\S]{0,240}?SWITCH_ACCT_TOUCHED/,
+    'switchAcctPicked no longer consults the touched flag, so it would claim a pick nobody made');
+  assert.match(PAGE, /if \(switchAcctPicked\(\)\) return '[^']*shown above\.';/,
+    'the picked-but-unnameable arm is gone, so a pick the dialog cannot name falls through to the hedged arms and is told it might land elsewhere');
+  /* The arm must sit ABOVE the two hedged ones, or it can never be reached. */
+  /* 1600, measured: matches at 1200 and above, so the window has margin over the
+     explanatory comment that sits between the two arms. */
+  assert.match(PAGE, /if \(switchAcctPicked\(\)\)[\s\S]{0,1600}?if \(switchAcctChoosable\(\)\)/,
+    'the picked-but-unnameable arm no longer precedes the hedged arms, so it is unreachable');
 });
 
 /* 🛑 THE DIALOG'S HONESTY GATE WAS ENFORCED BY NOTHING. A reviewer measured it:

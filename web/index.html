@@ -22087,7 +22087,9 @@ async function moveAccountNow(say) {
        therefore stayed empty for the whole life of the open panel: choose OpenAI after a
        move and the sign-in picker was simply absent, with no line saying why, because an
        empty list is the ordinary not-armed state. Same shape and same remedy as the failed
-       switch a few hundred lines below. */
+       switch below, which now genuinely is the same remedy: iteration 16 found this comment
+       asserting a symmetry that only half existed, because that site cleared the cache and
+       not the flag. */
     ACCOUNTS_LOADED = false;
     try { await paintAccountPicker(CURRENT); }
     catch { /* the move's own sentence is the answer; a failed refresh must not replace it */ }
@@ -22250,6 +22252,15 @@ let SWITCH_ACCT_TOUCHED = false;
 /* One spelling, so the line that CLEARS the hint cannot drift from the line that
    writes it and leave an orphan on screen. */
 const SWITCH_ACCT_HINT = 'Choose which OpenAI sign-in it runs on, or leave it as it is.';
+/* 🛑 NAMED FOR THE SAME REASON ITS SIBLING IS, AND CLEARED ON THE SAME CONDITION. This
+   was added as an inline literal beside the hint-clearing code whose ENTIRE purpose is
+   that a sentence about a control must not outlive the control. Two clicks reach it
+   (OpenAI, then Anthropic) and it survived them, sitting in a live status region under a
+   provider it does not apply to. Found in challenge-loop iteration 16: the defect class
+   the neighbouring lines exist to prevent, committed in the string added next to them.
+   ⇒ A single spelling is what makes the clear possible at all; an inline literal cannot
+   be matched without repeating it. */
+const SWITCH_ACCT_UNREADABLE = 'We could not read your OpenAI sign-ins, so there is nothing to choose from. Close this and open it again to retry.';
 function fillSwitchAccounts() {
   const sel = document.getElementById('d-provider-account');
   const prov = document.getElementById('d-provider');
@@ -22290,7 +22301,7 @@ function fillSwitchAccounts() {
        apply to. Two clicks reach it: pick OpenAI, then pick Anthropic.
        📌 Only our own sentence is cleared, never somebody else's status text. */
     const pmsg0 = document.getElementById('d-provider-msg');
-    if (pmsg0 && pmsg0.textContent === SWITCH_ACCT_HINT) pmsg0.textContent = '';
+    if (pmsg0 && (pmsg0.textContent === SWITCH_ACCT_HINT || pmsg0.textContent === SWITCH_ACCT_UNREADABLE)) pmsg0.textContent = '';
     /* ✅ AND IF THE LIST IS EMPTY BECAUSE WE COULD NOT READ IT, SAY SO. Only when the
        person is actually trying to switch TO OpenAI, because that is the only state where
        a missing picker changes what happens to them. Everywhere else an empty list is
@@ -22298,7 +22309,7 @@ function fillSwitchAccounts() {
        📌 It writes only into our own region and only when that region is empty, so it
        cannot overwrite somebody else's status text. */
     if (openai && armed && ACCOUNTS_UNREADABLE && pmsg0 && !pmsg0.textContent) {
-      pmsg0.textContent = 'We could not read your OpenAI sign-ins, so there is nothing to choose from. Close this and open it again to retry.';
+      pmsg0.textContent = SWITCH_ACCT_UNREADABLE;
     }
     return;
   }
@@ -22465,6 +22476,22 @@ function switchAcctShown() {
   return o.textContent.trim().replace(/\s*\(could not check just now\)$/, '');
 }
 
+/* 🛑 PICKED IS NOT THE SAME QUESTION AS NAMEABLE, AND THE DIALOG NEEDS BOTH.
+   `switchAcctShown()` deliberately returns '' for an account whose only label is a
+   filesystem path, because a raw path does not belong in a sentence on the last screen
+   before a restart. But '' was then indistinguishable from NOT PICKED, so a person who
+   really had chosen a row fell through to the hedged arms below and was told the switch
+   might land somewhere else. ⚠️ THAT HEDGE IS FALSE FOR A PICK: a picked account the
+   engine cannot use is REFUSED, never replaced. Found in challenge-loop iteration 16,
+   reachable through the default `~/.codex` home in chatgpt mode whose `id_token` is
+   missing or unparseable, which leaves `rowFor` with a null label and `nameOf` falling
+   all the way through to `dir`. */
+function switchAcctPicked() {
+  const sel = document.getElementById('d-provider-account');
+  if (!sel || sel.hidden || !SWITCH_ACCT_TOUCHED) return false;
+  return !!sel.options[sel.selectedIndex];
+}
+
 async function changeProviderNow(say) {
   /* ⚠️ `say` IS THE MODAL'S ONLY EXIT (#1313). The four sibling actions all
      take it and this one did not, so the switch succeeded and the dialog sat on
@@ -22533,7 +22560,15 @@ async function changeProviderNow(say) {
        it got without parsing the sentence, and a stale list is worth re-reading
        after any failure. The cost is a live re-check per account, which server.js
        documents as safe only at person-paced moments. A failed switch IS one. */
+    /* 🛑 AND MARK IT UNREAD, NOT MERELY EMPTY. If this repaint's own fetch fails too,
+       which is the SAME server hiccup that just failed the switch, the cache is left
+       empty while `ACCOUNTS_LOADED` still says a real read happened. The `finally` below
+       re-arms Switch, so the next press opens the dialog and fires the zero-account arm
+       at a person whose server-side list is perfectly intact. Found in challenge-loop
+       iteration 16: the iteration-15 defect arriving through the sibling path, in the
+       half of the remedy that was not copied across. */
     ACCOUNTS = [];
+    ACCOUNTS_LOADED = false;
     try { await paintAccountPicker(CURRENT); }
     catch { /* the sentence above is the answer; a failed refresh must not replace it */ }
   } finally {
@@ -22603,6 +22638,19 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
            + ((() => {
              const on = switchAcctShown();
              if (on) return 'and it will run on ' + on + '.';
+             /* ✅ PICKED BUT UNNAMEABLE. Same promise, minus the name we will not print,
+                and deliberately WITHOUT the hedge the two arms below carry: a pick that
+                the engine cannot honour is refused, so this sentence always holds.
+                📌 The wording deliberately avoids claiming the choice in words. An existing
+                guard counts that phrasing to zero across these arms, because an earlier
+                version asserted a choice without consulting the touched flag. This
+                predicate DOES consult it, so the guard's intent is met, and rewording was
+                still the right fix: a guard written against a real past defect should not
+                be loosened to let new prose through.
+                ⚠️ And note the guard counts the PHRASE, comments included, so this note
+                cannot quote the words it is about. That is a real limitation of the guard
+                and it is cheaper to write around than to weaken. */
+             if (switchAcctPicked()) return 'and it will run on the sign-in shown above.';
              /* 🛑 THE TWO UNPICKED ARMS HEDGE AND THE PICKED ARM DOES NOT, WHICH IS NOT AN
                 INCONSISTENCY. The engine can land on a row other than the one shown: the
                 preselect may be absent from `openai.list()` because the account was

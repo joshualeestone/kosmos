@@ -91,15 +91,26 @@ keeps catching, and three of these came out of review rather than design:**
   the override is gone, and the unpicked-account fallback that iteration 11 turned out
   to need), pass, and **repeatable** (3 consecutive runs exit 0, which is the
   arm that caught the launchctl defect below).
-- `web.switch-account-1373.test.js`: **14 tests**, pass. Source-level by construction and
+- `web.switch-account-1373.test.js`: **16 tests**, pass. Source-level by construction and
   it says so in its own header: it can see that a guard is present and what it is keyed
   on, and it cannot see the rendered page.
-- Full runner: **2938 pass, 0 fail, exit 0** (re-measured 2026-08-29 10:52 CDT with the
+- Full runner: **2939 pass, 0 fail, exit 0** (re-measured 2026-08-29 11:12 CDT with the
   iteration-14 fixes applied). The figure moves as this branch adds tests, so it is dated
   rather than stated: 2907 pre-rebase, 2935 post-rebase, 2936 after iteration 13's pair
   test, 2937 after iteration 14, 2938 after iteration 15's fail-quiet guards.
-  ⚠️ A count in a plan goes stale the moment the branch adds a test, and it did so twice
-  in one morning. Iteration 14 caught it the second time.
+  🛑 THIS NUMBER HAS GONE STALE THREE ITERATIONS RUNNING (14, 15 and 16 each caught it),
+  and the reason is structural rather than careless: every iteration that adds a guard
+  moves it, so the plan is stale the moment the work it describes improves. ⇒ TREAT THE
+  FIGURE AS A DATED SNAPSHOT, NOT A FACT TO MAINTAIN, and re-measure rather than trust it:
+
+  ```
+  bash tools/run-tests.sh; grep -c '✔' <the output>
+  grep -cE '^\s*test\(' web.switch-account-1373.test.js
+  grep -cE '^test\(' engine/create.switch-account-1373.test.js
+  ```
+
+  ⭐ A plan that says how to measure cannot go stale; one that states a number always
+  will. The same reasoning turned "main is clean" into a check elsewhere in this fleet.
 - **Both guards perturbed inside the real runner and required to go RED**: ignoring the
   pick gives "the switch ignored the account the person picked"; failing open on a ghost
   account fails the refusal test. Baseline green.

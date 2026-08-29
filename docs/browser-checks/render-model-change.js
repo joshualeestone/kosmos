@@ -135,6 +135,24 @@ const oaiStub = require('node:http').createServer((q, r) => {
   chk(!!pick && pick.shown, '#1373: choosing OpenAI reveals which sign-in it will run on', JSON.stringify(pick));
   chk(!!pick && pick.opts.length === 2, '#1373: both sign-ins on this computer are offered', JSON.stringify(pick && pick.opts));
   chk(!!pick && !!pick.value, '#1373: one is preselected, so pressing Switch without opening it still works', JSON.stringify(pick && pick.value));
+  /* 🛑 AND ONE ASSERTION THAT ONLY A BROWSER CAN MAKE. Everything above reads
+     `hidden` and the option list, which is the SAME fact web.switch-account-1373.test.js
+     already pins by reading the source, so as a rendering gate it measured no rendering:
+     a CSS regression that left the control zero-width, collapsed or off-screen kept every
+     arm above green. Found in challenge-loop iteration 16.
+     ⚠️ Deliberately a FLOOR, not an exact width. The row is flex and wraps, so pinning a
+     number here would re-arm the trap this branch keeps finding: a check that fails on a
+     harmless reflow teaches people to widen it until it catches nothing.
+     📌 160 IS CENTRED ON MEASUREMENTS, NOT PICKED. Healthy render is 253px wide. A planted
+     `width: 0 !important` regression rendered at 118px, because `flex: 1` still hands the
+     control some of the row even with its width zeroed, so "collapsed" is not "zero" here
+     and a floor near zero would have caught nothing. First attempt used 120 and passed by
+     2px, which is luck rather than method: 160 sits ~93px under the healthy value and
+     ~42px over the broken one. */
+  const box = await page.locator('#d-provider-account').boundingBox();
+  chk(!!box && box.width > 160 && box.height > 10,
+    '#1373: the sign-in picker occupies real space on screen, not just an unhidden node',
+    JSON.stringify(box));
   /* The picker, on screen, RENDERED AND CLOSED. Nothing opens the dropdown and a
      native select popup would not appear in a Playwright screenshot anyway. Written only when SHOT_1373 names a
      path, so the release gate never pays for it and a PR can still get the picture
