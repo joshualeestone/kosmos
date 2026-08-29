@@ -183,6 +183,16 @@ const oaiStub = require('node:http').createServer((q, r) => {
   }
   const gone = await page.evaluate(() => document.getElementById('d-provider-account').hidden);
   chk(gone === true, "#1373: switching back to the agent's own provider hides the sign-in picker", String(gone));
+  /* 🛑 AND THE SAME ARGUMENT THE POSITIVE ARM GOT, APPLIED SYMMETRICALLY. The line above
+     reads the DOM property the code just set, so it cannot fail for a RENDERING reason:
+     a rule that left the control visible while `hidden` was true would keep it green.
+     `boundingBox()` returns null only when the element is genuinely not rendered, so this
+     is the half the property read cannot cover. Cheap, and it closes the arm rather than
+     leaving the negative case weaker than the positive one it exists to balance. */
+  const goneBox = await page.locator('#d-provider-account').boundingBox();
+  chk(goneBox === null,
+    '#1373: the hidden picker occupies no space on screen, not merely a set property',
+    JSON.stringify(goneBox));
   /* NOTE, and it belongs to the `selectOption('anthropic')` ABOVE rather
      than to whatever follows: that call is the negative arm, and it happens to
      leave the menu on the fixture agent's own provider, so the model-change flow

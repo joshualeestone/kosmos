@@ -29,6 +29,31 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
 const ENGINE = fs.readFileSync(nodePath.join(__dirname, 'engine', 'create.js'), 'utf8');
 
+/* 🛑 A POPULATION FLOOR, AT MODULE SCOPE, BEFORE ANY TEST RUNS.
+   `assert.doesNotMatch('', /anything/)` PASSES. Measured. So an absence assertion cannot
+   tell "I looked and it is not there" from "I looked at nothing", and it is the only kind
+   of assertion that can be true for no reason: a presence assertion on an empty read fails
+   loudly, which is why a file like this LOOKS well guarded while its two absence claims are
+   the two that can lie.
+   ⚠️ I FIRST PUT THIS INSIDE THE TESTS AND IT NEVER RAN. node:test aborts a test at its
+   first failing assertion, and every test holding an absence claim also holds presence
+   claims that fail earlier, so the floor was unreachable in exactly the scenario it was
+   written for. Verified by simulating a vacuous read: 14 tests failed and NOT ONE of them
+   was the floor. Module scope is what makes it fire first.
+   ⇒ CONTROL STRINGS, NOT A BYTE COUNT. A length check passes on the wrong file; a string
+   each file uniquely contains proves we are reading the one we think we are. */
+for (const [name, body, control] of [
+  ['web/index.html', PAGE, 'id="d-provider-account"'],
+  ['server.js', SERVER, 'accountDir'],
+  ['engine/create.js', ENGINE, 'pickedByPerson'],
+]) {
+  if (!body || body.indexOf(control) === -1) {
+    throw new Error('population floor: ' + name + ' read as ' + body.length
+      + ' chars and does not contain ' + JSON.stringify(control)
+      + '. Every absence assertion below would pass by examining nothing.');
+  }
+}
+
 test('#1373: the reader works at all', () => {
   /* The control. Every assertion below is an existence test on a big file, and
      an existence test whose reader is broken reports the same thing as a
@@ -88,6 +113,15 @@ test('#1373: a preselected option is NOT reported as a choice', () => {
      could only fail if the spelling changed; this fails if the MEANING changes. */
   assert.match(PAGE, /account:[\s\S]{0,80}?!acctSel\.hidden[\s\S]{0,60}?acctSel\.value/,
     'the account is no longer sent whenever the menu is showing, so the row on screen may not be the row used');
+  /* 🛑 A POPULATION FLOOR BEFORE AN ABSENCE CLAIM, because `assert.doesNotMatch('', /x/)`
+     PASSES. Measured in node. So an absence assertion cannot tell "I looked and it is not
+     there" from "I looked at nothing", and it is the ONLY kind of assertion that can be
+     true for no reason: a presence assertion on an empty read fails loudly, which is why
+     the file looks well guarded and the two absence claims are the two that can lie.
+     ⇒ A CONTROL STRING, NOT A BYTE COUNT. A length check passes on the wrong file; a
+     string only this file contains proves we are reading the one we think we are. */
+  assert.match(PAGE, /id="d-provider-account"/,
+    'the page was not read, or is not the page, so the absence claim below would pass by examining nothing');
   assert.doesNotMatch(PAGE, /account:[^\n]*SWITCH_ACCT_TOUCHED/,
     'the account field consults the pick flag, which re-merges the two fields and brings back the wrong-account bug');
   assert.match(PAGE, /picked:[\s\S]{0,80}?!acctSel\.hidden[\s\S]{0,60}?SWITCH_ACCT_TOUCHED/,
@@ -201,8 +235,8 @@ test('#1373: the four fail-quiet fixes are pinned, because each one reverts gree
      dropped and then refilled, not that the two lines are adjacent. */
   assert.match(PAGE, /accountsDropped\(\);[\s\S]{0,120}?await paintAccountPicker\(CURRENT\);/,
     'a failed switch keeps the stale account list, so the remedy the refusal names re-offers the row that just failed');
-  /* 🛑 AND BOTH EMPTYING SITES MUST MARK IT UNREAD, NOT JUST ONE. Iteration 15 fixed the
-     move path; an earlier pass found the failed-switch catch dropping the cache while leaving
+  /* 🛑 AND BOTH EMPTYING SITES MUST MARK IT UNREAD, NOT JUST ONE. One pass fixed the
+     move path; a later one found the failed-switch catch dropping the cache while leaving
      `ACCOUNTS_LOADED` true, which resurrects the false zero-account sentence whenever the
      repaint's own fetch also fails. Counted rather than matched, because a single-site
      assertion is exactly what missed it the first time. */
@@ -225,15 +259,16 @@ test('#1373: the four fail-quiet fixes are pinned, because each one reverts gree
   /* 4. AND THE BUTTON HAS TO COME BACK. Hard-coding `true` here means a person who does
      exactly what the message says picks the highlighted row, fires no `change`, and
      gets nothing. */
+  assert.match(PAGE, /id="d-provider-go"/,
+    'the page was not read, or is not the page, so the absence claim below would pass by examining nothing');
   assert.doesNotMatch(PAGE, /\} finally \{[\s\S]{0,400}?go\.disabled = true;/,
     'the finally block hard-disables Switch again, so after a refusal the named remedy cannot be carried out');
   assert.match(PAGE, /go\.disabled = !sel\.value \|\| !CURRENT \|\| sel\.value === providerOf\(CURRENT\)/,
     'the re-arm no longer derives from the same expression the change listeners use, so it can disagree with them');
 });
 
-/* 🛑 THE ZERO-ACCOUNT SENTENCE NEEDS AN AUTHORITATIVE LIST, NOT MERELY AN EMPTY ONE
-  . The arm added in an earlier pass read the page-side cache
-   directly, and `moveAccountNow` deliberately empties that cache on a successful move
+/* 🛑 THE ZERO-ACCOUNT SENTENCE NEEDS AN AUTHORITATIVE LIST, NOT MERELY AN EMPTY ONE.
+   The arm that first made this claim read the page-side cache directly, and `moveAccountNow` deliberately empties that cache on a successful move
    while the open panel never repaints. Reachable in one panel: move an account, then
    choose OpenAI. The cache is empty, the SERVER list is untouched, so the dialog said
    "the switch will stop and ask you to add one" and then the switch went ahead.
@@ -264,6 +299,23 @@ test('#1373: a pick the dialog cannot NAME still gets an unhedged promise', () =
      explanatory comment that sits between the two arms. */
   assert.match(PAGE, /if \(switchAcctPicked\(\)\)[\s\S]{0,1600}?if \(switchAcctChoosable\(\)\)/,
     'the picked-but-unnameable arm no longer precedes the hedged arms, so it is unreachable');
+});
+
+/* 🛑 A FAILED READ MUST NOT PRODUCE A CONFIDENT SENTENCE, ON EITHER SURFACE.
+   `ACCOUNTS_UNREADABLE` was introduced to separate "we read an empty list" from "we could
+   not read", and then wired to only some of the places that speak. Two were left: the
+   dialog's last arm still claimed a sign-in nothing had verified, and the failed-switch
+   path left the engine's "pick one from the list" remedy on screen after the list had
+   vanished, because the picker's own fault line is suppressed by its never-overwrite
+   guard and both write the SAME element. */
+test('#1373: an unreadable account list is never spoken as a fact', () => {
+  assert.match(PAGE, /if \(ACCOUNTS_UNREADABLE\) return '[^']*could not read the list/,
+    'the dialog\'s last arm claims this computer\'s OpenAI sign-in even when the list could not be read, which is a confident sentence about something nothing verified');
+  /* Ordering: the unreadable arm must precede the unqualified one, or it is unreachable. */
+  assert.match(PAGE, /if \(ACCOUNTS_UNREADABLE\) return[\s\S]{0,400}?return 'and it runs on this computer/,
+    'the unreadable arm no longer precedes the unqualified sentence, so it can never be reached');
+  assert.match(PAGE, /ACCOUNTS_UNREADABLE && msg && msg\.textContent[\s\S]{0,200}?SWITCH_ACCT_UNREADABLE/,
+    'after a failed switch whose repaint also failed, the refusal still points at a list that has vanished and nothing says why');
 });
 
 /* 🛑 THE DIALOG'S HONESTY GATE WAS ENFORCED BY NOTHING. A reviewer measured it:
