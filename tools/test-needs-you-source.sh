@@ -37,7 +37,7 @@ case "$out" in
   *"No working agent has EVER typed needs_you"*) ok "arm 1: hook-written reds are not counted as agent-typed" ;;
   *) bad "arm 1: a hook-only record did not read as zero agent-typed"; printf '%s\n' "$out" | tail -5 ;;
 esac
-has "$out" 1 "written by the permission hook" \
+has "$out" 1 "written automatically, not by an agent" \
   && ok "arm 1: the hook line is counted, not merely excluded" \
   || bad "arm 1: the hook count is wrong"
 
@@ -309,7 +309,7 @@ filler 50 > "$T/stated/pat.jsonl"
 printf '{"v":1,"state":"needs_you","by":"agent","because":"asking permission to use Bash: ls","at":"2026-08-28T00:00:00.000Z"}\n' > "$T/stated/quinn.jsonl"
 printf '{"v":1,"state":"needs_you","by":"agent","because":"asking permission to use AskUserQuestion","at":"2026-08-28T00:00:00.000Z"}\n' > "$T/stated/rex.jsonl"
 out="$(run "$T/stated")"
-has "$out" 0 "written by the permission hook" \
+has "$out" 0 "written automatically, not by an agent" \
   && ok "arm 12: by=agent beats a sentence that matches the hook prefix (0 hook, not 2)" \
   || bad "arm 12: the string match overrode by=agent: $(printf '%s\n' "$out" | grep 'permission hook')"
 has "$out" 2 "typed by a working agent" \
@@ -325,7 +325,7 @@ filler 50 > "$T/stated-auto/sam.jsonl"
 printf '{"v":1,"state":"needs_you","by":"auto","because":"a sentence a person would type","at":"2026-08-28T00:00:00.000Z"}\n' > "$T/stated-auto/tam.jsonl"
 printf '{"v":1,"state":"needs_you","by":"auto","because":"another such sentence","at":"2026-08-28T00:00:00.000Z"}\n' > "$T/stated-auto/uma.jsonl"
 out="$(run "$T/stated-auto")"
-has "$out" 2 "written by the permission hook" \
+has "$out" 2 "written automatically, not by an agent" \
   && ok "arm 12: by=auto beats a sentence that does NOT match the prefix (2 hook, not 0)" \
   || bad "arm 12: the string match overrode by=auto: $(printf '%s\n' "$out" | grep 'permission hook')"
 case "$out" in

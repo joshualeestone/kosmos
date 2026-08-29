@@ -30,23 +30,22 @@
  * Two things produce it in practice -- the pane reader, whose verdict is
  * composed in `status.classify` at read time and is never written anywhere
  * (`reconcileReport` is where that verdict is given precedence over a report,
- * which is a different step), and the PermissionRequest hook, which does write
- * a self-report on an agent's behalf. Neither is an agent deciding it needs a
- * person. A WORKING agent has typed it once, ever -- the word "working" is
- * load-bearing, since the record also holds fourteen typed by two walkthrough
- * fixtures -- and "almost" is there because of that one record: an absolute claim with a known counterexample
- * sitting in the split three files away would err in the direction that
- * flatters the argument, which is the one direction this changeset's own
- * standard forbids. They are also not
- * the same QUALITY of event, and that matters here more than anywhere: a
- * permission box is a real machine event and a genuine person-blocker, while
- * a scraped one is an inference about what a screen looked like. So a ping
- * wired to this kind would carry a mixture of the two, which is a weaker
- * claim than the other two kinds make and is worth saying before the relay
- * exists rather than after. (No number here on purpose: this is a pointer,
- * and a count would be a second copy that goes stale separately. The
- * measurement and the argument live at `status.js` rule 3, #1253; re-run them
- * with `node tools/needs-you-source.js`.)
+ * a different step), and the PermissionRequest hook, which does write a
+ * self-report on an agent's behalf. Neither is an agent deciding it needs a
+ * person. A working agent has typed it, but only just: "almost" is doing real
+ * work in that sentence, and the record also holds a run of them from
+ * walkthrough fixtures, which are not colleagues.
+ * ⇒ They are not the same QUALITY of event either, and that matters here more
+ * than anywhere: a permission box is a real machine event and a genuine
+ * person-blocker, while a scraped one is an inference about what a screen
+ * looked like. So a ping wired to this kind would carry a mixture of the two,
+ * which is a weaker claim than the other two kinds make and is worth saying
+ * before the relay exists rather than after.
+ * 📌 NO COUNTS HERE, AND THAT IS NOW TRUE RATHER THAN ASSERTED: an earlier
+ * version of this block claimed "no number here on purpose" while carrying
+ * three of them eleven lines above the claim. The measurement and the argument
+ * live at `status.js` rule 3, once, beside the instruction not to trust them;
+ * re-run them with `node tools/needs-you-source.js`.
  */
 const fs = require('node:fs');
 const path = require('node:path');

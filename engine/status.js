@@ -1203,8 +1203,20 @@ function capturePane(target, lines = 40) {
      also reads `idle`. The class is real; the quantifier was not.
        20 columns, without -J:  idle        <- benign. The agent waits, the board
        20 columns, with -J:     needs_you      says it is fine.
-     Before #1155 the same screen read `needs_you`, because the old rule tested
-     the whole tail and did not care where the rows fell.
+     🛑 AND THE SENTENCE THAT USED TO SIT HERE WAS FALSE IN BOTH HALVES,
+     TWO LINES BELOW THE CORRECTION ABOVE. It read "Before #1155 the same
+     screen read `needs_you`, because the old rule tested the whole tail and
+     did not care where the rows fell." Measured: at the 20 columns this
+     comment's own table uses, pre-#1155 reads NOT-RED as well, so it is not
+     "the same screen"; and the old rule was a regex over a tail CONTAINING
+     NEWLINES, so it did care where the rows fell -- a wrap inside the marker
+     phrase broke it too.
+     ✅ The true statement: the old rule tolerated a wrap ANYWHERE OUTSIDE the
+     marker phrase, and the new one additionally requires the marker to OPEN
+     the line and the line to CLOSE at the question. The band where they differ
+     is therefore the widths that are wide enough to keep the phrase intact and
+     narrow enough to break that stronger shape -- one width for this prompt,
+     ten for "Would you like to continue?".
      📌 LATENT, NOT LIVE, at the time of writing: all 18 panes on this Mac are 80
      columns and the observed prompts are 22-29 chars. It becomes live the moment
      a pane is split or a prompt is longer than its pane. */
@@ -3588,8 +3600,10 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      🛑 AND THE WORST CASE DOES NOT SURVIVE, WHICH AN EARLIER VERSION OF
  *      THIS PARAGRAPH CLAIMED IT DID. Granting every hook record to its agent
  *      keeps the tool's SHARE cutoff comfortably and BREAKS its DISTINCT-AGENT
- *      cutoff, because those records are spread across six agents; run that
- *      fixture and the tool prints the OPPOSITE verdict. The earlier sentence
+ *      cutoff, because those records are spread across MANY agents rather than
+ *      one; build that fixture (strip the hook prefix from the `needs_you`
+ *      rows of a copy of the record) and the tool prints the OPPOSITE verdict.
+ *      No count here: it was written as "six" and was seven within two hours. The earlier sentence
  *      bounded against one of two cutoffs -- the one that let it pass -- which
  *      is the flattering direction committed by the sentence written to guard
  *      against it. ⇒ What stands here is an ARGUMENT, not a bound: those seven

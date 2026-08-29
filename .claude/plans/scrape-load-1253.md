@@ -320,6 +320,36 @@ points at it and tells the reader not to trust its own numbers.
   now three assertions with a perturbation that turns all three red.
 - **The plan's arm count and the hook's line number** were both stale again.
 
+### Amended at iteration 9
+
+- 🛑 **My iteration-8 correction left the sentence TWO LINES BELOW IT
+  standing, and that sentence was false in both halves.** It read *"Before
+  #1155 the same screen read `needs_you`, because the old rule tested the whole
+  tail and did not care where the rows fell."* Measured: at the 20 columns that
+  comment's own table uses, pre-#1155 reads NOT-RED too, so it is not "the same
+  screen"; and the old rule was a regex over a tail CONTAINING NEWLINES, so it
+  did care where rows fell. The true statement is now there: the old rule
+  tolerated a wrap anywhere outside the marker phrase, the new one additionally
+  requires the marker to open the line and the line to close at the question,
+  and the divergence band is the widths between those two conditions.
+- 🛑 **`notify.js` claimed "no number here on purpose" while carrying three
+  derived counts eleven lines above the claim.** Self-refuting, and the counts
+  were second copies that drift. Gone; the claim is now true rather than
+  asserted.
+- 🛑 **The exit-code contract omitted the newest refusal for the second time.**
+  Iteration 4 added the drift refusal to it; iteration 8 added a control
+  violation and did not. It now enumerates four causes and says the list must
+  grow whenever a refusal does.
+- **"six agents" was stale within two hours** (it is seven). Both hardcoded
+  derived counts are out of the tool header, replaced by the recipe for
+  rebuilding the fixture.
+- **The hook row's label contradicted the two lines beneath it.** Since #1457 a
+  row can be classified by the record's own field rather than the string match,
+  so the row now reads "written automatically, not by an agent". And `by:
+  'auto'` means MACHINE-WRITTEN, not specifically the permission hook - they
+  coincide for `needs_you` today only because the hook is the sole `--auto`
+  writer of that state.
+
 ## What this deliberately does NOT do
 
 - **No behaviour change.** Comments, one read-only tool, one test, one line of

@@ -16,8 +16,11 @@
  * Read-only. It parses the append-only record and writes nothing.
  * Exit codes, because `tools/test-needs-you-source.sh` gates on them:
  *   0  a record was read and a verdict printed
- *   1  a NON-RESULT rather than a no: the record is missing, empty or
- *      unreadable, OR the hook marker has drifted so the split would be wrong
+ *   1  a NON-RESULT rather than a no. Four causes, and the list must grow
+ *      whenever a refusal does -- it has already been wrong twice by omitting
+ *      the newest one: the record is missing; the record is empty; the record
+ *      is unreadable; or the INSTRUMENT is broken, which is either a drifted
+ *      hook marker or a violated impossible-state control
  *   2  the arguments were wrong, so nothing was read at all
  * Refusals go to stderr; only a real reading goes to stdout.
  *
@@ -59,10 +62,11 @@
  * SAID IT DID, AND THAT SENTENCE WAS THE SAME ERROR ONE LAYER UP: A BOUND
  * COMPUTED AGAINST ONLY THE CUTOFF THAT LET IT PASS. Granting every
  * hook-classified record to its agent keeps the SHARE clause comfortably
- * (about a third of `SHARE_CUTOFF`) and BREAKS the `TYPERS_CUTOFF` clause,
- * because those records are spread across six agents rather than one. Measured
- * by building that exact fixture and running this tool on it: it prints the
- * OPPOSITE verdict. So the defence is not a bound, and calling it one was the
+ * and BREAKS the `TYPERS_CUTOFF` clause, because those records are spread
+ * across many agents rather than one. Build that fixture (strip the hook
+ * prefix from the `needs_you` rows of a copy of the record) and this tool
+ * prints the OPPOSITE verdict. No counts here: the first version of this
+ * sentence said "six agents" and was seven within two hours. So the defence is not a bound, and calling it one was the
  * flattering direction again, in the sentence written to guard against it.
  * ⭐ What there is instead is an ARGUMENT, labelled as one because it is not a
  * measurement: those records carry the hook's GENERATED SHAPE -- a tool name
@@ -249,6 +253,11 @@ function readRecord(dir) {
    the prefix is the inference we are stuck with for everything written before
    that shipped. `stated` is returned so the caller can report the split
    between the two, rather than presenting an inference as a reading. */
+/* ⚠️ `by: 'auto'` means MACHINE-WRITTEN, not specifically "the permission
+   hook": `server.js` sets it from the request's `auto` flag. For `needs_you`
+   the two coincide today, because `install/kosmos-report-hook.sh` is the only
+   `--auto` writer of that state and the Codex bridge writes only `idle`. Worth
+   saying, because the row label is what a reader will quote. */
 function provenance(row) {
   if (row.by === 'auto') return { hook: true, stated: true };
   if (row.by === 'agent') return { hook: false, stated: true };
@@ -387,7 +396,7 @@ function main() {
   console.log('');
 
   console.log(RED + ' BY PROVENANCE');
-  console.log('  ' + pad(s.hook.length) + '  written by the permission hook   (by string match, see header)'
+  console.log('  ' + pad(s.hook.length) + '  written automatically, not by an agent   (see the two lines below for how)'
     + (s.hookFixture.length ? '   [' + s.hookFixture.length + ' of them on fixture agents]' : ''));
   console.log('  ' + pad(s.typedFixture.length) + '  typed by a walkthrough FIXTURE  (agent name starts "' + FIXTURE_PREFIX + '", an'
     + ' unlinked convention -- see the [FIXTURE] tags below and judge them)');
