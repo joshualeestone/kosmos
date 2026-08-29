@@ -2544,6 +2544,12 @@ const server = http.createServer((req, res) => {
            engine states a default and names it, exactly as before. */
         const wrote = create.setProvider(name, body && body.provider, {
           accountDir: body && typeof body.account === 'string' ? body.account : null,
+          /* WHETHER A PERSON CHOSE, sent separately from WHICH. The account is
+             honoured whenever the page shows the menu; only this decides whether
+             the answer says "you picked" rather than "we picked and are telling
+             you". Defaults false, so a caller that says nothing gets the modest
+             sentence rather than the flattering one. */
+          pickedByPerson: !!(body && body.picked === true),
         });
         if (wrote.outcome === create.OUTCOME.REFUSED) {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
@@ -2585,11 +2591,8 @@ const server = http.createServer((req, res) => {
         const whichAcct = acct
           ? (acct.email ? ` (${acct.email})` : acct.keyTail ? ` (API key ending ${acct.keyTail})` : '')
           : '';
-        /* 📌 SAID ON A PARTIAL TOO. The plist has already been rewritten with the
-           chosen home by the time a restart fails, so the account IS what the
-           agent will come back on, and it is the one confirmation a person who
-           just picked most wants. Withholding it on the branch where something
-           went wrong is where it is least affordable. */
+        /* The OK-branch sentence. (The partial branch has its own, further down,
+           in the future tense; this const is not used there.) */
         const landedOn = acct
           ? (acct.chosen
             ? ` It runs on the OpenAI sign-in you picked${whichAcct}.`

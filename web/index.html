@@ -22270,7 +22270,19 @@ function fillSwitchAccounts() {
      options with no boolean attribute, so they are unaffected either way. */
   if (sel.innerHTML !== html) sel.innerHTML = html;
   else if (sel.options.length) { sel.selectedIndex = Math.max(0, [...sel.options].findIndex((o) => o.defaultSelected)); }
+  const appearing = sel.hidden;
   sel.hidden = false;
+  /* ⚠️ A CONTROL THAT APPEARS SILENTLY IS ANNOUNCED TO NOBODY WHO IS NOT LOOKING AT
+     IT. This one is revealed by choosing a provider, several controls away from where
+     focus sits, and #d-provider-msg beside it is already an aria-live polite region.
+     Not an AA failure on its own (the control is adjacent, focus is not moved), and
+     this worker's bar is AA, so it gets the one line.
+     📌 Only on the transition, so repainting an already-visible menu does not
+     re-announce and turn a helpful line into noise. */
+  if (appearing) {
+    const pmsg = document.getElementById('d-provider-msg');
+    if (pmsg && !pmsg.textContent) pmsg.textContent = 'Choose which OpenAI sign-in it runs on, or leave it as it is.';
+  }
 }
 
 document.getElementById('d-provider').addEventListener('change', (e) => {
@@ -22345,9 +22357,20 @@ async function changeProviderNow(say) {
          and the route says "your OpenAI sign-in" rather than "the one you
          picked". Reporting a preselect as a choice would be the invention the
          route refuses two lines from where it builds that sentence. */
+      /* 🛑 TWO SEPARATE FACTS, AND CONFLATING THEM WAS A WRONG-ACCOUNT BUG, NOT A
+         WORDING ONE. `account` is WHICH sign-in; `picked` is WHETHER a person
+         chose it. Sending the account only when the flag was set meant that a
+         person who deliberately clicked the highlighted row sent NOTHING, because
+         re-selecting the option a <select> already holds fires no `change` (and
+         with exactly one working account it can never fire at all). The engine
+         then fell back to ITS first account, which this page's own filter can make
+         a DIFFERENT sign-in from the one on screen.
+         ⇒ Now: what you SEE is what is sent, always, whenever the menu is showing.
+         The claim about who chose it travels separately and stays conservative. */
       body: JSON.stringify({
         provider: want,
-        account: (acctSel && !acctSel.hidden && SWITCH_ACCT_TOUCHED) ? acctSel.value : null,
+        account: (acctSel && !acctSel.hidden) ? acctSel.value : null,
+        picked: !!(acctSel && !acctSel.hidden && SWITCH_ACCT_TOUCHED),
       }),
     });
     const out = await res.json().catch(() => null);
@@ -22427,7 +22450,8 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
              the row the engine takes. The route's answer names the account AFTERWARDS,
              from what the engine actually chose, which is the only place it can be said
              truthfully. */
-          + (switchAcctShown() ? 'and it will run on ' + switchAcctShown() + '.' : 'and it picks its own sign-in unless you choose one above.')
+          /* Hoisted: it was called twice in one expression. */
+          + ((() => { const on = switchAcctShown(); return on ? 'and it will run on ' + on + '.' : 'and it picks its own sign-in unless you choose one above.'; })())
         : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
     go: 'Switch and restart',
     run: (say) => changeProviderNow(say),

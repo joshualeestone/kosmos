@@ -54,13 +54,29 @@ keeps catching, and three of these came out of review rather than design:**
 - **The page-to-route key is pinned on both sides.** Renaming `body.account` had left
   every test in the repo green while the feature silently reverted to the stated default.
   An HTTP-level test cannot close this today; the coupling is filed as kosmos#1465.
+- **WHICH account and WHETHER a person chose it were split into two fields**, and this
+  was a **wrong-account** bug rather than a wording one. Re-selecting the option a
+  `<select>` already holds fires no `change`, and with exactly one working account it can
+  never fire at all, so requiring the touched flag meant the row **on screen** was not
+  the row sent: the engine fell back to its own first account, which this page's filter
+  can make a different sign-in. `account` now travels whenever the menu is showing;
+  `picked` gates the sentence.
+- **Two user-facing sentences dropped their sign-in clause**: the `setAccount` refusal in
+  `engine/create.js`, and the parked-model message on the panel a person lands on right
+  after choosing. Both said "this computer's OpenAI sign-in", which implies there is one.
+- **The picker announces itself** through the existing `aria-live` region when it appears,
+  on the transition only. WCAG AA is this worker's stated bar.
 
 ## Finished when
 
 - A person switching an agent to OpenAI can choose which sign-in it lands on, and the
   agent actually starts in that home (`CODEX_HOME` in the launch job, not merely the
   return value).
-- Someone who does not touch the menu gets exactly the previous behaviour.
+- Someone who does not touch the menu gets **the same account** the engine would have
+  chosen before this card. ⚠️ **Not literally "exactly the previous behaviour" any more,
+  and the plan should not claim it**: the confirmation dialog's wording changed for that
+  person too, from a sentence asserting one sign-in to one saying it picks its own unless
+  you choose.
 - A named account that no longer exists is refused, not silently replaced.
 - The picker is **seen in a real browser**, per my standing rule that no frontend change
   merges without being seen on screen.
@@ -74,7 +90,7 @@ keeps catching, and three of these came out of review rather than design:**
 - `web.switch-account-1373.test.js`: **7 tests**, pass. Source-level by construction and
   it says so in its own header: it can see that a guard is present and what it is keyed
   on, and it cannot see the rendered page.
-- Full runner: **2893 tests, 2893 pass, 0 fail, exit 0**.
+- Full runner: **2901 tests, 2901 pass, 0 fail, exit 0**.
 - **Both guards perturbed inside the real runner and required to go RED**: ignoring the
   pick gives "the switch ignored the account the person picked"; failing open on a ghost
   account fails the refusal test. Baseline green.

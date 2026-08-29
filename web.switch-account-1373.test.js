@@ -71,8 +71,16 @@ test('#1373: a preselected option is NOT reported as a choice', () => {
      pick. Re-pinning the new exact spelling would just re-arm the trap. */
   assert.match(PAGE, /getElementById\('d-provider-account'\)[\s\S]{0,400}?addEventListener\('change'[\s\S]{0,160}?SWITCH_ACCT_TOUCHED = true;/,
     'nothing sets the touched flag from the picker\'s own change event, so a real pick would never be reported');
-  assert.match(PAGE, /account: \(acctSel && !acctSel\.hidden && SWITCH_ACCT_TOUCHED\)/,
-    'the switch sends the account without consulting the touched flag');
+  /* 🔑 TWO FIELDS, TWO PROMISES, AND THEY MUST NOT BE RE-MERGED. `account` is
+     WHICH sign-in and is sent whenever the menu is showing, so what a person sees
+     is what is used. `picked` is WHETHER they chose it and gates the sentence.
+     Conflating them was a WRONG-ACCOUNT bug: re-selecting the option a <select>
+     already holds fires no `change`, and with one account it can never fire, so
+     requiring the flag meant the visible row was not the row sent. */
+  assert.match(PAGE, /account: \(acctSel && !acctSel\.hidden\) \? acctSel\.value : null,/,
+    'the account is no longer sent whenever the menu is showing, so the row on screen may not be the row used');
+  assert.match(PAGE, /picked: !!\(acctSel && !acctSel\.hidden && SWITCH_ACCT_TOUCHED\)/,
+    'the pick claim no longer consults the touched flag, so a preselect can be reported as a choice');
 });
 
 /* 🛑 THE ONE CALL NOTHING COVERED. `paintAccountPicker` fills ACCOUNTS, which is
@@ -126,8 +134,38 @@ test('#1373: the picker is not offered where it can do nothing', () => {
 test('#1373: the page-to-route key is pinned on BOTH sides, so a rename cannot pass', () => {
   assert.match(SERVER, /accountDir:\s*body && typeof body\.account === 'string' \? body\.account : null/,
     'server.js no longer reads body.account into accountDir, so the page sends a key the route ignores');
-  assert.match(PAGE, /account: \(acctSel && !acctSel\.hidden && SWITCH_ACCT_TOUCHED\)/,
-    'the page no longer sends `account`, so the route can never receive a pick');
+  assert.match(SERVER, /pickedByPerson: !!\(body && body\.picked === true\)/,
+    'server.js no longer reads body.picked, so every switch would claim the person chose');
+  assert.match(PAGE, /account: \(acctSel && !acctSel\.hidden\) \? acctSel\.value : null,/,
+    'the page no longer sends `account`, so the route can never receive one');
+  assert.match(PAGE, /picked: !!\(acctSel && !acctSel\.hidden && SWITCH_ACCT_TOUCHED\)/,
+    'the page no longer sends `picked`, so the route can never learn a person chose');
+});
+
+/* 🛑 THE DIALOG'S HONESTY GATE WAS ENFORCED BY NOTHING. A reviewer measured it:
+   deleting `|| !SWITCH_ACCT_TOUCHED` from switchAcctShown left the FULL canonical
+   runner green at 2901/2901. The dialog is the last screen before a restart, so
+   without this a future edit can tell somebody who never opened the menu "and it
+   will run on <preselected row>", which is the invention the route's own comment
+   forbids. */
+test('#1373: the dialog only echoes a pick that a person actually made', () => {
+  assert.match(PAGE, /function switchAcctShown\(\)[\s\S]{0,300}?!SWITCH_ACCT_TOUCHED/,
+    'switchAcctShown no longer consults the touched flag, so the dialog can claim a pick nobody made');
+});
+
+/* 🛑 AND THE PARTIAL BRANCH HAD NO COVERAGE AT ALL. The ok-branch pair is pinned as
+   the two arms of one conditional; the partial pair, added by this diff, was not, so
+   an arm swap or an unconditional "you picked" shipped green. It is also the branch
+   where something already went wrong, which is where a confident-sounding sentence
+   costs most. */
+test('#1373: the partial-restart answer names the account, in its own tense, on both arms', () => {
+  assert.match(SERVER, /When it restarts it will run on the OpenAI sign-in you picked/,
+    'the partial branch no longer names a chosen account');
+  assert.match(SERVER, /When it restarts it will run on your OpenAI sign-in/,
+    'the partial branch no longer names a stated default');
+  assert.match(SERVER,
+    /acct\.chosen[\s\S]{0,200}?When it restarts it will run on the OpenAI sign-in you picked[\s\S]{0,200}?When it restarts it will run on your OpenAI sign-in/,
+    'the two partial sentences are no longer the arms of the chosen conditional');
 });
 
 test('#1373: the route says a different sentence for a pick than for a default', () => {

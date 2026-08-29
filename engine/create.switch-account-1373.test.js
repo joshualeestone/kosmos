@@ -127,7 +127,7 @@ test('#1373: the engine offers a real choice, and the choice reaches the launch 
      and "the default happened to be right" are the same pass. */
   const other = first.openaiAccount.dir === ALPHA ? BETA : ALPHA;
   const b = born('switch-1373-chosen');
-  const picked = create.setProvider(b, 'openai', { ...BINS, accountDir: other });
+  const picked = create.setProvider(b, 'openai', { ...BINS, accountDir: other, pickedByPerson: true });
   assert.equal(picked.outcome, create.OUTCOME.CREATED, picked.because);
   assert.equal(picked.openaiAccount.dir, other, 'the switch ignored the account the person picked');
   assert.equal(picked.openaiAccount.chosen, true);
@@ -135,6 +135,23 @@ test('#1373: the engine offers a real choice, and the choice reaches the launch 
     'the picked account was reported but never reached CODEX_HOME, so the agent starts on the wrong sign-in');
   assert.notEqual(codexHomeOf(b), codexHomeOf(a),
     'both agents landed on the same home, so the pick changed nothing');
+
+  /* 🛑 ARM 3, AND IT IS THE ONE A WRONG-ACCOUNT BUG LIVES IN. WHICH account and
+     WHETHER a person chose it are separate facts now. The page sends the visible
+     account whenever the menu is showing, because re-selecting the option a
+     <select> already holds fires no `change` (and with exactly one account it can
+     never fire at all), so requiring the flag meant the row ON SCREEN was not the
+     row that got used.
+     ⇒ A named account with no claim of a pick must STILL be honoured, and must
+     still be reported honestly as not chosen. Both halves, or the fix is half a
+     fix in either direction. */
+  const c = born('switch-1373-seen-not-picked');
+  const shown = create.setProvider(c, 'openai', { ...BINS, accountDir: other });
+  assert.equal(shown.outcome, create.OUTCOME.CREATED, shown.because);
+  assert.equal(codexHomeOf(c), other,
+    'the account on screen was not the account used, which is the wrong-account bug this split exists to prevent');
+  assert.equal(shown.openaiAccount.chosen, false,
+    'a named account was reported as a personal pick, which is the invention the route refuses');
 });
 
 /* 🛑 THE OVERRIDE ARM HAD NO TEST ON ANY LAYER, and it is the only place the two

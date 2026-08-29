@@ -900,8 +900,12 @@ function setProvider(name, provider, opts) {
       dir: acct.dir, email: acct.email, keyTail: acct.keyTail,
       authMode: acct.authMode, isDefault: acct.isDefault === true,
       choiceOf: accounts.length,
-      /* Whether the REQUEST NAMED an account, which the route renders as "you
-         picked this" rather than "we picked this and are telling you".
+      /* Whether a PERSON chose, which the route renders as "you picked this"
+         rather than "we picked this and are telling you".
+         🔑 THIS IS NO LONGER `wantDir !== null`, and the change is the point: the
+         page now sends the visible account WHENEVER the menu is showing, so a
+         named directory no longer implies anybody chose it. Conflating the two
+         meant a person clicking the highlighted row sent nothing at all.
          ⚠️ THE NAME CLAIMS MORE THAN THE ENGINE CAN KNOW, and that is worth stating
          rather than hiding behind a nicer word. All the engine sees is that a
          directory arrived; whether a PERSON chose it is decided by one browser-side
@@ -910,7 +914,7 @@ function setProvider(name, provider, opts) {
          ⇒ Acceptable as designed, because the only caller is our own page and the
          alternative (an engine that second-guesses its caller) is worse. Recorded so
          nobody later reads this flag as evidence about a human. */
-      chosen: wantDir !== null,
+      chosen: opts ? opts.pickedByPerson === true : false,
     };
     /* ⚠️ THE TRUST WRITE NEEDS THE SAME homeDir(). `trustCodexFolder(dir, home)`
        falls back to `codexHomeDir()`, which is the default home again, so
