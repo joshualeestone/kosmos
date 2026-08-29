@@ -201,9 +201,26 @@ function agentsDir() { return process.env.AGENT_WORKFORCE_LAUNCH || path.join(ho
    up one level rather than removing it. A multi-line declaration also
    hid it from a line-based sweep. */
 function supportDir() {
-  return process.env.AGENT_WORKFORCE_DATA
-  ? path.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce')
-  : path.join(homeDir(), 'Library', 'Application Support', 'AgentWorkforce');
+  /* 🛑 DELEGATES TO `store.dataRootFor` (#570) RATHER THAN SPELLING THE PATH
+     AGAIN. #570 made store.js's copy platform-aware and did not touch this
+     one, so for a few hours the product had TWO answers to "where does this
+     product keep its files" and only one of them knew what Windows is. The
+     comment directly above has said since it was written that there should be
+     one answer; this is what makes that true rather than aspirational.
+
+     ⚠️ WHY THIS IS NOT A NEW COUPLING: create.js already requires store.js
+     (line 170), so this adds no edge to the module graph.
+
+     ⚠️ `homeDir()` IS STILL PASSED, NOT `os.homedir()`. It is a function for
+     the #1432 reason -- as a const it froze at require time and resolved to
+     the operator's real machine with the test seam set -- and `dataRootFor`
+     taking home as a parameter is exactly what lets this caller keep its own
+     resolution instead of inheriting store's.
+
+     📌 AGENT_WORKFORCE_DATA is handled inside dataRootFor identically to the
+     branch this replaces (`path.join(DATA, APP)` with APP='AgentWorkforce'),
+     so the sandbox path is byte-identical and not merely equivalent. */
+  return store.dataRootFor(process.platform, homeDir(), process.env);
 }
 const OUTCOME = { CREATED: 'created', REFUSED: 'refused', PARTIAL: 'partial' };
 
@@ -2771,6 +2788,15 @@ module.exports = {
      unfroze (#1432) */
   get WORKERS_DIR() { return workersDir(); },
   get AGENTS_DIR() { return agentsDir(); },
+  /* 🛑 A FUNCTION, NOT A `get SUPPORT_DIR()` GETTER, AND THE NAME MATTERS.
+     `tools/check-frozen-roots.js:25` names `create.SUPPORT_DIR` as one of
+     #1432's original instances. A getter under that name reads correctly and
+     is silently defeated by `const { SUPPORT_DIR } = require(...)`, which
+     evaluates once at destructuring time. Exporting the function removes the
+     shape that can be frozen, because a caller has to invoke it.
+     ⚠️ Its two siblings above are getters and carry that hazard; they are
+     pre-existing and not widened here. */
+  supportDir,
   setModel,
   installJob,
   nameUsable,
