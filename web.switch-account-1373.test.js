@@ -77,6 +77,27 @@ test('#1373: the picker is not offered where it can do nothing', () => {
     'the hidden condition no longer consults the armed gate');
 });
 
+/* 🛑 THE PAGE-TO-ROUTE KEY IS THE ONE THING NEITHER SIDE'S TESTS PINNED. The page
+   test above pins that the page SENDS `account`; the engine test pins that
+   `setProvider` HONOURS `accountDir`. Nothing pinned the join, so renaming
+   `body.account` in server.js left every test in the repo green while the feature
+   silently reverted to the stated default: the exact silent-wrong-account failure
+   this card exists to end.
+   ⚠️ AND AN HTTP-LEVEL TEST CANNOT CLOSE IT TODAY, which is worth knowing rather
+   than rediscovering. The route calls `remove.restart()`, which runs
+   `launchctl bootstrap` and would register REAL launchd services on the developer's
+   machine (I did that by accident earlier on this branch and had to boot three
+   out). That call is guarded by AGENT_WORKFORCE_DRY_RUN, and DRY_RUN ALSO disables
+   the whole account block in setProvider, so the only setting that makes the route
+   safe to drive is the setting that makes the feature inert.
+   ⇒ Source-pinned here deliberately, with that coupling filed separately. */
+test('#1373: the page-to-route key is pinned on BOTH sides, so a rename cannot pass', () => {
+  assert.match(SERVER, /accountDir:\s*body && typeof body\.account === 'string' \? body\.account : null/,
+    'server.js no longer reads body.account into accountDir, so the page sends a key the route ignores');
+  assert.match(PAGE, /account: \(acctSel && !acctSel\.hidden && SWITCH_ACCT_TOUCHED\)/,
+    'the page no longer sends `account`, so the route can never receive a pick');
+});
+
 test('#1373: the route says a different sentence for a pick than for a default', () => {
   assert.match(SERVER, /acct\.chosen/, 'the route no longer distinguishes a pick from a stated default');
   assert.match(SERVER, /It runs on the OpenAI sign-in you picked/, 'the chosen-account sentence is gone');

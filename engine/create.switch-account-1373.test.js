@@ -137,6 +137,36 @@ test('#1373: the engine offers a real choice, and the choice reaches the launch 
     'both agents landed on the same home, so the pick changed nothing');
 });
 
+/* 🛑 THE OVERRIDE ARM HAD NO TEST ON ANY LAYER, and it is the only place the two
+   reasons a named account is missing are told apart. The file deletes
+   AGENT_WORKFORCE_CODEX_HOME at the top precisely so the rest of the suite sees a
+   real list, so this arm has to set it back for its own duration and put it back
+   after, or every other test in the file changes meaning. */
+test('#1373: with an override home in force, the refusal says THAT, not "it is gone"', () => {
+  const d = born('switch-1373-override');
+  process.env.AGENT_WORKFORCE_CODEX_HOME = ALPHA;
+  try {
+    /* BETA genuinely exists on this machine. It is excluded by the override, not
+       missing, and telling the person it is gone would be false. */
+    const out = create.setProvider(d, 'openai', { ...BINS, accountDir: BETA });
+    assert.equal(out.outcome, create.OUTCOME.REFUSED, out.because);
+    assert.match(out.because, /one particular OpenAI sign-in/,
+      'the override refusal fell through to the account-is-gone sentence, which is false here');
+    assert.doesNotMatch(out.because, /not on this computer any more/);
+    /* Both refusals must agree that nothing happened, or one of them is a
+       different promise about the same event. */
+    assert.match(out.because, /nothing was changed/);
+  } finally {
+    delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  }
+  /* THE CONTROL: with the override gone, the SAME call must now succeed, or the
+     assertions above would pass for a machine where BETA simply does not work. */
+  const e = born('switch-1373-override-control');
+  const ok = create.setProvider(e, 'openai', { ...BINS, accountDir: BETA });
+  assert.equal(ok.outcome, create.OUTCOME.CREATED, ok.because);
+  assert.equal(codexHomeOf(e), BETA);
+});
+
 test('#1373: an account that is not on this computer is REFUSED, not silently replaced', () => {
   const c = born('switch-1373-ghost');
   const ghost = nodePath.join(HOME, '.codex-removed-by-1372');

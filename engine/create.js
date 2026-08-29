@@ -883,7 +883,7 @@ function setProvider(name, provider, opts) {
         return {
           outcome: OUTCOME.REFUSED,
           because: named
-            ? 'this computer is set to use one particular OpenAI sign-in, so that account cannot be chosen here.'
+            ? 'this computer is set to use one particular OpenAI sign-in, so that account cannot be chosen here and nothing was changed.'
             : 'that OpenAI account is not on this computer any more, so nothing was changed. '
               + 'Pick one from the list and try again.',
         };
