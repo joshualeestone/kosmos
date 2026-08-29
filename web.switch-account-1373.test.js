@@ -78,13 +78,13 @@ test('#1373: a preselected option is NOT reported as a choice', () => {
      Conflating them was a WRONG-ACCOUNT bug: re-selecting the option a <select>
      already holds fires no `change`, and with one account it can never fire, so
      requiring the flag meant the visible row was not the row sent. */
-  /* \U0001f511 LOOSENED ONTO THE AXIS NOTHING DEPENDS ON (iteration 13). This file states
-     that rule 15 lines above and then broke it: re-pinning an exact spelling re-arms
-     the trap it had just warned about. What must hold is the PROPERTY, in two halves,
+  /* 🔑 LOOSENED ONTO THE AXIS NOTHING DEPENDS ON (challenge-loop iteration 13). The
+     rule is stated 15 lines above and was then broken here: re-pinning an exact
+     spelling re-arms the trap that comment had just warned about. What must hold is the PROPERTY, in two halves,
      and the second half was never asserted at all:
        sent when the menu is VISIBLE  -> the row on screen is the row used
        NOT gated on the pick flag     -> re-merging the fields IS the wrong-account bug
-     \u2b50 The doesNotMatch is strictly STRONGER than the literal it replaces: the literal
+     ⭐ The doesNotMatch is strictly STRONGER than the literal it replaces: the literal
      could only fail if the spelling changed; this fails if the MEANING changes. */
   assert.match(PAGE, /account:[\s\S]{0,80}?!acctSel\.hidden[\s\S]{0,60}?acctSel\.value/,
     'the account is no longer sent whenever the menu is showing, so the row on screen may not be the row used');
@@ -160,7 +160,7 @@ test('#1373: the picker is not offered where it can do nothing', () => {
    ⇒ Source-pinned here deliberately. The coupling is filed as kosmos#1465;
       when it is fixed, replace this with a real request through the route. */
 test('#1373: the page-to-route key is pinned on BOTH sides, so a rename cannot pass', () => {
-  /* \U0001f4cc KEY NAMES STAY TIGHT, EXPRESSIONS DO NOT. This test's job is that a RENAME
+  /* 📌 KEY NAMES STAY TIGHT, EXPRESSIONS DO NOT. This test's job is that a RENAME
      cannot pass, so `accountDir`, `body.account`, `pickedByPerson` and `body.picked`
      remain pinned verbatim. The ternary around them is incidental and was pinned only
      because it happened to be there (iteration 13). */
@@ -172,6 +172,37 @@ test('#1373: the page-to-route key is pinned on BOTH sides, so a rename cannot p
     'the page no longer sends `account`, so the route can never receive one');
   assert.match(PAGE, /picked:[\s\S]{0,80}?SWITCH_ACCT_TOUCHED/,
     'the page no longer sends `picked`, so the route can never learn a person chose');
+});
+
+/* 🛑 FOUR FIXES THAT SHIPPED WITH NOTHING GUARDING THEM (challenge-loop iteration 14).
+   Each was added deliberately, each is explained by a comment where it lives, and each
+   reverts GREEN. Swept with a working control: `SWITCH_ACCT_TOUCHED` is pinned in this
+   file, `ACCOUNTS_UNREADABLE` was pinned nowhere.
+   ⭐ They share one failure shape, which is why they are one test: EVERY ONE OF THEM
+   FAILS INTO A STATE THAT LOOKS FINE. A hidden picker, a disabled button and an empty
+   list are all indistinguishable from "nothing to offer you", so none of these can
+   announce its own absence. That is exactly the argument each comment makes for why the
+   fix is needed, and it applies just as well to the fix going missing again. */
+test('#1373: the four fail-quiet fixes are pinned, because each one reverts green', () => {
+  /* 1. A FAILED READ IS NOT AN EMPTY LIST. Collapsing this back to
+     `res.ok ? res.json() : null` makes a 500 arrive as "you have no accounts". */
+  assert.match(PAGE, /ACCOUNTS_UNREADABLE = !res\.ok/,
+    'the accounts fetch no longer records that it FAILED, so a server error is indistinguishable from having no accounts');
+  /* 2. AND THE FLAG HAS TO BE READ, NOT JUST WRITTEN. Setting it and never consulting
+     it is the same silence with extra steps. */
+  assert.match(PAGE, /ACCOUNTS_UNREADABLE[\s\S]{0,200}?pmsg0\.textContent =/,
+    'nothing tells the person the sign-in list could not be read, so the picker just silently is not there');
+  /* 3. THE REFUSAL'S REMEDY POINTS AT THE LIST. If the stale list survives the failure,
+     "pick one from the list and try again" re-offers the dead row every time. */
+  assert.match(PAGE, /ACCOUNTS = \[\];\s*try \{ await paintAccountPicker\(CURRENT\); \}/,
+    'a failed switch keeps the stale account list, so the remedy the refusal names re-offers the row that just failed');
+  /* 4. AND THE BUTTON HAS TO COME BACK. Hard-coding `true` here means a person who does
+     exactly what the message says picks the highlighted row, fires no `change`, and
+     gets nothing. */
+  assert.doesNotMatch(PAGE, /\} finally \{[\s\S]{0,400}?go\.disabled = true;/,
+    'the finally block hard-disables Switch again, so after a refusal the named remedy cannot be carried out');
+  assert.match(PAGE, /go\.disabled = !sel\.value \|\| !CURRENT \|\| sel\.value === providerOf\(CURRENT\)/,
+    'the re-arm no longer derives from the same expression the change listeners use, so it can disagree with them');
 });
 
 /* 🛑 THE DIALOG'S HONESTY GATE WAS ENFORCED BY NOTHING. A reviewer measured it:

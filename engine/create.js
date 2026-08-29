@@ -889,8 +889,8 @@ function setProvider(name, provider, opts) {
          accounts[0] would start the agent on an account the person did not
          choose, and say nothing: the silent-wrong-account failure this card
          exists to end. Refusing names a remedy the person can act on. */
-      /* 🛑 A REGRESSION THIS BRANCH INTRODUCED, AND THE FIX USES THE DISTINCTION
-         THE BRANCH ALREADY CARRIES. Since the page began sending the visible row
+      /* 🛑 A REGRESSION #1373 INTRODUCED, AND THE FIX USES THE DISTINCTION #1373
+         ALREADY CARRIES. Since the page began sending the visible row
          on EVERY switch, an override machine could REFUSE a switch that used to
          succeed: `list()` is collapsed to the override home here, the page builds
          its menu from the unfiltered rows and drops any whose LIVE check said

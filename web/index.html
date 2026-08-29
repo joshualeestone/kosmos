@@ -22582,13 +22582,25 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
            + ((() => {
              const on = switchAcctShown();
              if (on) return 'and it will run on ' + on + '.';
-             if (switchAcctChoosable()) return 'and it runs on the sign-in shown above. To use a different one, close this first.';
-             if (switchAcctSending()) return 'and it runs on the sign-in shown above.';
+             /* 🛑 THE TWO UNPICKED ARMS HEDGE AND THE PICKED ARM DOES NOT, WHICH IS NOT AN
+                INCONSISTENCY. The engine can land on a row other than the one shown: the
+                preselect may be absent from `openai.list()` because the account was
+                removed since this page painted, or because an override home collapsed the
+                list. Unpicked, that falls back to the engine's first account rather than
+                refusing, deliberately, because refusing a person who touched nothing was
+                the regression the fallback exists to undo.
+                ⇒ So the sentence promising the visible row has to admit it might not be
+                kept. ✅ The PICKED arm above needs no hedge and must not get one: a picked
+                account that is missing is REFUSED, not replaced, so that promise always
+                holds. Hedging it would teach people to distrust a sentence that is true. */
+             if (switchAcctChoosable()) return 'and it runs on the sign-in shown above, or if that one has gone, the one Kosmos names when it restarts. To use a different one, close this first.';
+             if (switchAcctSending()) return 'and it runs on the sign-in shown above, or if that one has gone, the one Kosmos names when it restarts.';
              /* 🛑 THE ZERO-ACCOUNT ARM SAYS WHAT WILL HAPPEN, IT DOES NOT PROMISE A
-                SIGN-IN THAT IS NOT THERE. Iteration 12 told me to "add the arm or narrow
-                the claim" and I only DOCUMENTED it in the comment above, which left the
-                false sentence on screen; iteration 13 found it again from scratch. A
-                comment naming a defect is not a fix.
+                SIGN-IN THAT IS NOT THERE. An earlier pass was told to "add the arm or
+                narrow the claim", DOCUMENTED it in the comment above, and left the false
+                sentence on screen; a later blind pass found it again from scratch
+                (challenge-loop iterations 12 and 13). A comment naming a defect is not
+                a fix, and this is the last screen before a restart.
                 ⚠️ The page CAN tell the two hidden-picker cases apart, which is the only
                 reason an honest sentence is possible here. With NO OpenAI account at all,
                 `openai.list()` is empty, `setProvider` REFUSES, and nothing changes, so

@@ -86,17 +86,20 @@ keeps catching, and three of these came out of review rather than design:**
 
 ## Proof before the write
 
-- `engine/create.switch-account-1373.test.js`: **4 tests** (two came after the first
+- `engine/create.switch-account-1373.test.js`: **5 tests** (three came after the first
   draft: the override-home refusal, with a control proving the same call succeeds once
   the override is gone, and the unpicked-account fallback that iteration 11 turned out
   to need), pass, and **repeatable** (3 consecutive runs exit 0, which is the
   arm that caught the launchctl defect below).
-- `web.switch-account-1373.test.js`: **13 tests**, pass. Source-level by construction and
+- `web.switch-account-1373.test.js`: **14 tests**, pass. Source-level by construction and
   it says so in its own header: it can see that a guard is present and what it is keyed
   on, and it cannot see the rendered page.
-- Full runner: **2935 tests, 2935 pass, 0 fail, exit 0** (re-measured 2026-08-29 09:33
-  CDT at 978ec0dd post-rebase, with the iteration-12 comment fixes applied; the 2907
-  figure was pre-rebase).
+- Full runner: **2937 pass, 0 fail, exit 0** (re-measured 2026-08-29 10:30 CDT with the
+  iteration-14 fixes applied). The figure moves as this branch adds tests, so it is dated
+  rather than stated: 2907 pre-rebase, 2935 post-rebase, 2936 after iteration 13's pair
+  test, 2937 after iteration 14's fail-quiet guards.
+  ⚠️ A count in a plan goes stale the moment the branch adds a test, and it did so twice
+  in one morning. Iteration 14 caught it the second time.
 - **Both guards perturbed inside the real runner and required to go RED**: ignoring the
   pick gives "the switch ignored the account the person picked"; failing open on a ghost
   account fails the refusal test. Baseline green.
