@@ -148,6 +148,22 @@ echo "==> the launcher will open http://127.0.0.1:$PORT_DEFAULT"
   printf ')\r\n'
 } > "$STAGE/Kosmos.cmd"
 
+# 🛑 THE FILENAME IS THE WARNING, BECAUSE THE README CANNOT REACH HER IN TIME.
+# The SmartScreen dialog appears when she double-clicks the launcher, BEFORE a
+# single line we ship has run. Nothing inside this package can speak at that
+# moment. The one thing she sees first is the FOLDER LISTING, so the warning has
+# to be in a filename, and the file has to sort above `Kosmos.cmd`.
+# ⇒ `! READ ME FIRST - Windows will warn you.txt`. Clumsy, and it is the only
+# surface that exists at the moment she acts.
+# ⚠️ THE `!` IS LOAD-BEARING AND I HAD IT WRONG. My first version was
+# `READ ME FIRST...` and I wrote in this very comment that it "sorts above
+# Kosmos.cmd". IT DOES NOT: Explorer sorts alphabetically and `K` comes before
+# `R`, so the launcher was listed FIRST and the warning second. I checked by
+# printing the sorted listing, which is the only reason I know. A `!` sorts
+# before letters.
+# ⚠️ AND THE DIALOG'S VISIBLE BUTTON IS "Don't run". The way past is behind
+# "More info", which does not look like a button. Somebody who has not been told
+# stops there, and we learn nothing about the installer because it never ran.
 # 🔑 A README A PERSON ACTUALLY READS, because the FIRST thing they see is a
 # security warning and the second is a board with no agents. Both are expected
 # and neither is obvious.
@@ -156,8 +172,19 @@ echo "==> the launcher will open http://127.0.0.1:$PORT_DEFAULT"
   printf '\r\n'
   printf 'Double-click Kosmos.cmd.\r\n'
   printf '\r\n'
-  printf 'Windows will say "Windows protected your PC". That is expected: this\r\n'
-  printf 'build is not signed yet. Choose More info, then Run anyway.\r\n'
+  printf 'FIRST: Windows will try to stop you, and that is expected.\r\n'
+  printf '\r\n'
+  printf 'A blue box says "Windows protected your PC". The only button you can\r\n'
+  printf 'see says "Don\047t run". DO NOT PRESS IT. Click the small "More info"\r\n'
+  printf 'text above it, and then "Run anyway".\r\n'
+  printf '\r\n'
+  printf 'That happens because this build is not signed yet. Signing is a\r\n'
+  printf 'certificate we have not bought, not a problem with the software.\r\n'
+  printf '\r\n'
+  printf 'You may also see "This file came from another computer and might be\r\n'
+  printf 'blocked". If you do: right-click Kosmos.cmd, choose Properties, tick\r\n'
+  printf 'Unblock at the bottom, then OK. Windows adds that to anything that\r\n'
+  printf 'arrives inside a downloaded zip.\r\n'
   printf '\r\n'
   printf 'A browser opens on the Kosmos board. Settings and projects work.\r\n'
   printf 'AGENTS DO NOT WORK IN THIS BUILD. An agent is currently a terminal\r\n'
@@ -168,7 +195,7 @@ echo "==> the launcher will open http://127.0.0.1:$PORT_DEFAULT"
   printf 'To stop it, close the black window.\r\n'
   printf '\r\n'
   printf 'If no browser opens, go to http://127.0.0.1:%s yourself.\r\n' "$PORT_DEFAULT"
-} > "$STAGE/README.txt"
+} > "$STAGE/! READ ME FIRST - Windows will warn you.txt"
 
 # ---- the manifest ----------------------------------------------------------
 cat > "$STAGE/manifest.json" <<JSON
@@ -184,8 +211,20 @@ cat > "$STAGE/manifest.json" <<JSON
 JSON
 
 # ---- the zip ---------------------------------------------------------------
-mkdir -p "$REPO/$OUT"
-ZIPOUT="$REPO/$OUT/kosmos-win-$ARCH.zip"
+# 🛑 AN ABSOLUTE OUTDIR WAS SILENTLY JOINED TO THE REPO ROOT. `"$REPO/$OUT"` with
+# `$OUT=/tmp/x` produced `/Users/.../agent-workforce//tmp/x`, created it, wrote a
+# 36 MB zip into it, and printed that path as if it were what you asked for.
+# ⇒ Nothing failed. The artifact simply was not where the caller said, and a
+# verification script looking in `/tmp/x` found nothing and reported the runtime
+# CORRUPTED. I hit exactly that while verifying this builder.
+# ⚠️ ABSOLUTE WINS, RELATIVE IS STILL REPO-RELATIVE, so `dist` keeps meaning what
+# it has always meant and nobody's existing invocation changes.
+case "$OUT" in
+  /*) OUTDIR="$OUT" ;;
+  *)  OUTDIR="$REPO/$OUT" ;;
+esac
+mkdir -p "$OUTDIR"
+ZIPOUT="$OUTDIR/kosmos-win-$ARCH.zip"
 rm -f "$ZIPOUT"
 ( cd "$STAGE" && zip -qr "$ZIPOUT" . )
 shasum -a 256 "$ZIPOUT" | awk '{print $1}' > "$ZIPOUT.sha256"
@@ -208,7 +247,7 @@ shasum -a 256 "$ZIPOUT" | awk '{print $1}' > "$ZIPOUT.sha256"
 # Measured, three arms: pipefail + grep -q FAILS; without pipefail OK; captured
 # first OK.
 LISTING="$(unzip -l "$ZIPOUT")"
-for want in "Kosmos.cmd" "open-board.cmd" "README.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html"; do
+for want in "Kosmos.cmd" "open-board.cmd" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html"; do
   case "$LISTING" in
     *" $want"*) ;;
     *) echo "the zip is missing $want" >&2; exit 1 ;;

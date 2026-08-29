@@ -137,6 +137,43 @@ test('the package tells the truth about itself', () => {
   assert.match(WIN, /Windows protected your PC/, 'the README does not warn about the unsigned warning');
 });
 
+test('🛑 the warning reaches her BEFORE the launcher does, which a README cannot', () => {
+  /* The SmartScreen dialog appears on the double-click, before a single line we
+     ship has run. Nothing INSIDE the package can speak at that moment. The one
+     surface that exists is the folder listing, so the warning has to be in a
+     FILENAME and that filename has to sort first.
+     ⚠️ MY FIRST VERSION WAS `READ ME FIRST...` AND I WROTE IN THE COMMENT THAT
+     IT SORTED ABOVE `Kosmos.cmd`. It does not: `K` comes before `R`. I found it
+     by printing the sorted listing rather than by re-reading my own sentence. */
+  assert.match(WIN, /! READ ME FIRST - Windows will warn you\.txt/,
+    'the warning is not in a filename, so it cannot reach her before the dialog does');
+  const names = ['! READ ME FIRST - Windows will warn you.txt', 'Kosmos.cmd', 'manifest.json', 'open-board.cmd'];
+  assert.equal([...names].sort()[0], names[0],
+    'the warning filename no longer sorts first, so the launcher is the first thing she sees');
+  /* The dialog's only visible button is the wrong one. */
+  assert.match(WIN, /Don\\047t run/, 'the README does not name the button she must NOT press');
+  assert.match(WIN, /More info/, 'the README does not name the way past');
+  /* Mark of the Web: a file arriving inside a downloaded zip can be blocked by
+     something that is a property of HOW IT ARRIVED, not of what it contains. */
+  assert.match(WIN, /came from another computer/, 'the README does not cover the blocked-file case');
+  assert.match(WIN, /Unblock/, 'the README does not say how to unblock it');
+});
+
+test('an ABSOLUTE outdir lands where the caller asked, not under the repo', () => {
+  /* 🛑 IT DID NOT. `"$REPO/$OUT"` with an absolute `$OUT` produced
+     `/Users/.../agent-workforce//tmp/x`, created it, wrote a 36 MB zip into it,
+     and PRINTED THAT PATH as if it were what you asked for.
+     ⇒ Nothing failed. The artifact simply was not where the caller said, and my
+     verification script looked in the requested directory, found nothing, and
+     reported the bundled runtime CORRUPTED. A wrong location surfaced as a
+     wrong CHECKSUM, which is as far from the cause as a symptom gets.
+     ⚠️ Absolute wins and relative stays repo-relative, so `dist` is unchanged. */
+  assert.match(WIN, /case "\$OUT" in/, 'the outdir is not classified, so an absolute path is joined to the repo root');
+  assert.match(WIN, /\/\*\)\s*OUTDIR="\$OUT"/, 'an absolute outdir is not taken as-is');
+  assert.match(WIN, /OUTDIR="\$REPO\/\$OUT"/, 'a relative outdir is no longer repo-relative, which changes every existing call');
+  assert.doesNotMatch(WIN, /mkdir -p "\$REPO\/\$OUT"/, 'the old join is still there');
+});
+
 test('CONTROL: these assertions are reading the file they think they are', () => {
   /* Every test above would pass on an empty string for at least one of its
      arms. This is the arm that proves the file was read at all. */
