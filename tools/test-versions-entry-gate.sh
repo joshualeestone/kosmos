@@ -16,12 +16,36 @@
 # IT is not the same as correcting it everywhere, and the second copy is the one
 # nobody re-reads. The window is 5 past / 20 future at step 1, 20 / 20 at step 7.
 set -u
+# 🛑 UNSET BEFORE SOURCING. Both bounds are env-overridable, and docs/releasing.md
+# now TELLS an operator to export them when a cut is running long. Step 3 of the
+# cut runs `yarn test` in a subshell that inherits that export, so without this
+# an operator who takes the documented escape hatch makes the cut die red at
+# step 3, after the freeze, on a failure with nothing to do with the tree.
+# ⇒ A suite that reads its expected values from the ambient environment is
+# measuring the shell it was launched from, not the code.
+unset KOSMOS_STEP1_PAST_BOUND KOSMOS_LATE_PAST_BOUND KOSMOS_FUTURE_BOUND
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/versions-entry.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 F="$T/versions.html"
 fails=0
 pass() { echo "PASS  $1"; }
+assert_defaults() {
+  [ "$KOSMOS_STEP1_PAST_BOUND" = 5 ] && [ "$KOSMOS_LATE_PAST_BOUND" = 20 ] && [ "$KOSMOS_FUTURE_BOUND" = 20 ]
+}
+# ⚠️ Called HERE, after pass/fail exist. Placed above them it produced
+# `command not found` for BOTH branches, incremented nothing, and printed
+# nothing: an arm that could not fail, added by the same commit that exists to
+# stop the suite reading its expectations from the ambient shell.
+#
+# 📌 WHAT THIS ARM ACTUALLY GUARDS, stated honestly because I first assumed
+# otherwise: it does NOT catch environment pollution. The `unset` above runs
+# first, so this always reads the post-unset values. What catches pollution is
+# measured -- removing that `unset` and exporting KOSMOS_STEP1_PAST_BOUND=30
+# turns the 12-minute arm and the bound-tighter arm red. This arm pins the
+# documented constants 5/20/20, so it fires if somebody changes them in the lib
+# without changing docs/releasing.md, which states those three numbers.
+if assert_defaults; then pass "the suite measures the code's defaults, not the ambient shell"; else fail "bounds came from the environment: step1=$KOSMOS_STEP1_PAST_BOUND late=$KOSMOS_LATE_PAST_BOUND future=$KOSMOS_FUTURE_BOUND"; fi
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
 has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 
@@ -174,7 +198,11 @@ out="$(KOSMOS_FUTURE_BOUND=abc bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kos
 if [ "$rc" -eq 1 ]; then pass "a non-integer FUTURE bound REFUSES (fail closed, on the axis the guard is for)"; else fail "FAIL-OPEN: future bound 'abc' let a +60min stamp through (rc=$rc): $out"; fi
 
 # --- a non-integer BOUND must refuse too, not just a non-integer offset ---
-entry "August 28, 2026, 1:00 AM CDT"
+# ⚠️ stamp_at, not a hard-coded date. The literal it replaced said "1:00 AM CDT"
+# and the control below called it a 90-minute-stale entry; its real staleness was
+# whatever the wall clock said, and for a forty-minute window each night it sat
+# INSIDE the +/-20 band and the control would have failed.
+entry "$(stamp_at 90)"
 out="$(kosmos_versions_entry_gate 0.6.06 "$F" "c." "h." abc 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "not a whole number"; then pass "a non-integer past bound REFUSES (fail closed)"; else fail "FAIL-OPEN: bound 'abc' passed (rc=$rc): $out"; fi
 out="$(kosmos_versions_entry_gate 0.6.06 "$F" "c." "h." "$KOSMOS_LATE_PAST_BOUND" 2>&1)"; rc=$?

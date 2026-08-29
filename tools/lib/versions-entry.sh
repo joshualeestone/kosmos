@@ -238,6 +238,14 @@ kosmos_versions_entry_gate() {
   # of this block is that the caller cannot be trusted to have produced an int.
   case "$off" in
     ''|*[!0-9-]*|-|*-*-*|?*-*) off=unparseable ;;
+    # 📌 UNREACHABLE, DELIBERATELY KEPT AND LABELLED. Anything with a character
+    # outside [0-9-], a bare `-`, two dashes, or a dash after position 0 is
+    # already caught above, so every value arriving here is a leading dash and
+    # digits. Confirmed by construction and over 14 candidate strings. Kept
+    # because this file argues that the caller cannot be trusted to have
+    # produced an int, and a future edit to the pattern above could open it --
+    # but labelled, because elsewhere this file calls an unreached branch dead
+    # code, and an unlabelled one here would contradict that.
     -*) case "${off#-}" in *[!0-9]*) off=unparseable ;; esac ;;
   esac
 

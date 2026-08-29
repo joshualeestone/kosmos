@@ -228,6 +228,19 @@ git -C "$REPO" log --oneline -8 | cat
 # window: step 1 is stricter on the past side, because it can see that an
 # already-stale entry is doomed once the cut adds its own fifteen minutes.
 . "$REPO/tools/lib/versions-entry.sh"
+# 🛑 ITS OWN STEP LABEL, AND THAT IS NOT COSMETIC. `record_completion` writes
+# `$_STEP` into ~/.claude/logs/cut-suite-runs.log, and that log is the ONLY
+# instrument that can count how a cut died. Left under step 1's banner, a
+# versions-entry refusal records as `step=_1._main,_clean,...`, which is
+# indistinguishable from "main is dirty" and from the divergence refusal.
+#
+# ⚠️ THE CASE FOR THIS WHOLE CHANGE WAS BUILT BY COUNTING THAT LOG: four lines
+# read `step=_7._the_versions_page_needs_its_entry_BEFORE_you_deploy_`, against
+# a fabricated-label control of zero. Moving the check earlier without moving
+# its label would have made the next four uncountable -- the change would have
+# destroyed the measurement that justified it, and nobody would notice, because
+# the failures would simply blend into a busier bucket.
+step "== 1b. the versions entry, before anything is built =="
 kosmos_versions_entry_gate "$V" "$SITE/versions.html" "Nothing has been built yet." \
   "Stamp it for when you expect to PUBLISH, about 15 minutes out -- a stamp written now, or already minutes old, is stale by step 7." \
   "$KOSMOS_STEP1_PAST_BOUND" || exit 1
