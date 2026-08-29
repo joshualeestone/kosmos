@@ -24,7 +24,20 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const { effective } = require('./test-support/cascade');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
+
+/* 🛑 THESE ASSERT THE RULE THAT WINS, NOT THE ONE THAT READS FIRST (#1476).
+   This file used to pin `.pjcard-h { display: flex; flex-direction: column; ... }`
+   verbatim. A LATER rule for the same selector sets `display: contents`, so that
+   pin was measurably inverted, both arms:
+
+     delete the LATER rule  -> the layout actually changes -> pin stayed GREEN
+     delete the EARLIER one -> no visual effect at all     -> pin went RED
+
+   ⭐ And the docblock above already SAID `.pjcard-h` is dissolved to
+   `display: contents`. The prose knew; the assertion did not. */
+const ROW = 'html[data-layout="consolidated"] body.consolidated .pj-row';
 
 test('the projects rail forces list-row layout regardless of the panel\'s stored asgrid/list sub-layout', () => {
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated #pj-list\.asgrid \{ display: flex; flex-direction: column; \}/,
@@ -32,10 +45,23 @@ test('the projects rail forces list-row layout regardless of the panel\'s stored
 });
 
 test('the name and the status pill stack, rather than compete for one line', () => {
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj-row \.pjcard-h \{ display: flex; flex-direction: column; align-items: flex-start; gap: 2px; \}/,
+  /* The stacking is produced by a GRID on the row, with the header dissolved so
+     the name and pill become grid items of the row itself. Asserting the
+     mechanism that governs, rather than a superseded flex rule that reads as if
+     it does. */
+  assert.equal(effective(PAGE, ROW, 'display'), 'grid',
+    'the row is no longer a grid, so nothing places the name and pill on separate lines');
+  assert.equal(effective(PAGE, ROW + ' .pjcard-h', 'display'), 'contents',
+    'the header is no longer dissolved, so the name and pill are its children again and '
+    + 'no rule on the row can place them independently');
+  assert.equal(effective(PAGE, ROW + ' .pjname', 'grid-row'), '1',
+    'the name left the first row');
+  assert.equal(effective(PAGE, ROW + ' .pjpill', 'grid-row'), '2',
     'the name/pill stacking is gone -- a verbose pill will squeeze even a short name again if they share a line');
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj-row \.pjname \{ order: 0; justify-content: flex-start; min-width: 0; width: 100%; \}/,
-    'the name no longer takes the row\'s full width, so it has nothing to truncate against');
+  assert.equal(effective(PAGE, ROW + ' .pjname', 'grid-column'), '1 / -1',
+    'the name no longer spans the row, so it has nothing to truncate against');
+  assert.equal(effective(PAGE, ROW + ' .pjname', 'min-width'), '0',
+    'without min-width:0 a grid item refuses to shrink below its content, and the name cannot ellipsize');
 });
 
 test('the existing ellipsis rule on the project name is untouched -- this fix gives it a box to work in, not a new rule', () => {
