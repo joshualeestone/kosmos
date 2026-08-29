@@ -271,7 +271,7 @@ test('#1373: the four fail-quiet fixes are pinned, because each one reverts gree
   assert.ok(bare >= 6 && bare % 2 === 0,
     'the flag-write population is below the three known transitions or is odd, which means a transition sets one flag and not the other, or the sweep is not reading what it thinks it is');
   /* 🛑 THE STRUCTURAL HALF, AND THE FIRST VERSION OF IT WAS DECORATION. It sliced the file
-     at the FIRST transition and kept only what came before, so it covered 69.4% of the page
+     at the FIRST transition and kept only what came before, so it covered roughly two thirds of the page
      and stopped at the declarations. Every function where the three historical one-flag-out-
      of-step defects actually lived (paintAccountPicker, moveAccountNow, fillSwitchAccounts,
      changeProviderNow) sat in the UNCOVERED tail. A planted fourth write site passed it.
@@ -358,8 +358,15 @@ test('#1373: an unreadable account list is never spoken as a fact', () => {
   assert.match(PAGE, /if \(ACCOUNTS_UNREADABLE\) return '[^']*could not read the list/,
     'the dialog\'s last arm claims this computer\'s OpenAI sign-in even when the list could not be read, which is a confident sentence about something nothing verified');
   /* Ordering: the unreadable arm must precede the unqualified one, or it is unreachable. */
-  assert.match(PAGE, /if \(ACCOUNTS_UNREADABLE\) return[\s\S]{0,400}?return 'and it runs on this computer/,
+  /* 📌 1200, measured. This went red when a THIRD arm was legitimately inserted between
+     the two anchors, which is the same fixed-window trap this file has now hit three
+     times: a window sized to today's arms punishes tomorrow's. Ordering is what matters,
+     not adjacency, so the window carries room for arms not yet written. */
+  assert.match(PAGE, /if \(ACCOUNTS_UNREADABLE\) return[\s\S]{0,1200}?return 'and it runs on this computer/,
     'the unreadable arm no longer precedes the unqualified sentence, so it can never be reached');
+  /* And the not-yet-read arm must also precede it, for the same reason. */
+  assert.match(PAGE, /if \(!ACCOUNTS_LOADED\) return[\s\S]{0,600}?return 'and it runs on this computer/,
+    'the not-yet-read arm is gone or no longer precedes the unqualified sentence, so a list nobody has read yet promises a sign-in that may not exist');
   assert.match(PAGE, /ACCOUNTS_UNREADABLE && msg && msg\.textContent[\s\S]{0,200}?SWITCH_ACCT_UNREADABLE/,
     'after a failed switch whose repaint also failed, the refusal still points at a list that has vanished and nothing says why');
 });
@@ -387,7 +394,7 @@ test('#1373: a fix does not reopen the dead end it closed', () => {
 
 /* 🛑 THE DIALOG'S HONESTY GATE WAS ENFORCED BY NOTHING. A reviewer measured it:
    deleting `|| !SWITCH_ACCT_TOUCHED` from switchAcctShown left the FULL canonical
-   runner green at 2901/2901. The dialog is the last screen before a restart, so
+   runner GREEN. The dialog is the last screen before a restart, so
    without this a future edit can tell somebody who never opened the menu "and it
    will run on <preselected row>", which is the invention the route's own comment
    forbids. */
@@ -443,7 +450,16 @@ test('#1373: the dialog has an arm for a menu showing exactly one row', () => {
 test('#1373: no arm of the dialog claims a pick unless a person picked', () => {
   const at = PAGE.indexOf("+ ((() => {");
   assert.notEqual(at, -1, 'the dialog copy expression moved, so this test measures nothing');
-  const block = PAGE.slice(at, at + 900);
+  /* 🛑 THE WINDOW MUST GROW WITH THE ARMS IT AUDITS. A fixed 900 covered 20.4% of a
+     4419-character expression, and EVERY arm sat outside it: the window was almost
+     entirely the two leading comment blocks. This guard once fired correctly on a comment
+     inside those 900 characters, which is exactly why nobody noticed it could no longer
+     see the code it names. Ending the slice at the expression's own closing delimiter
+     makes the population the whole thing, however many arms it grows. */
+  const stop = PAGE.indexOf('})())', at);
+  assert.ok(stop > at, 'the dialog expression has no closing delimiter, so this guard cannot bound what it is auditing');
+  const block = PAGE.slice(at, stop);
+  assert.ok(block.length > 2000, 'the audited block is far smaller than the expression it should cover, so this guard is reading a fragment');
   const picked = (block.match(/you picked/g) || []).length;
   assert.equal(picked, 0,
     'an arm of the dialog says "you picked"; only switchAcctShown may claim a pick, and it gates on the touched flag');

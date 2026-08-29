@@ -912,16 +912,13 @@ function setProvider(name, provider, opts) {
          actually landed on, and the only alternative is refusing here, which IS
          the regression the paragraph above exists to undo.
          🛑 SO DO NOT "FIX" THIS BY RESTORING THE REFUSAL. */
-      if (!found && !(opts && opts.pickedByPerson === true)) {
-        /* 📌 DELIBERATELY REDUNDANT, AND SPELLED OUT ON PURPOSE. `acct` already holds
-           `accounts[0]` from its initialiser, so this line changes nothing. It is written
-           anyway because SIX separate readers have stopped here to work out whether the
-           fallback happens, and an implicit fallback is exactly what made this path
-           invisible the first time. The assignment names the decision at the site that
-           makes it. If you are about to delete it as dead code: it is, and the branch it
-           lives in is the load-bearing part. */
-        acct = accounts[0];
-      } else if (!found) {
+      /* 📌 ONLY A PICKED-AND-MISSING ACCOUNT REFUSES. An UNPICKED one that is not in the
+         list falls through this block untouched, keeping the `accounts[0]` its initialiser
+         already holds, which is the fallback that stops a person who touched nothing being
+         refused. Written as one condition rather than a fallback branch plus a refusal
+         branch, because the previous shape repeatedly stopped readers who had to work out
+         whether an assignment that changed nothing was doing something. */
+      if (!found && (opts && opts.pickedByPerson === true)) {
         /* 🛑 TWO REASONS A NAMED ACCOUNT IS NOT IN THIS LIST, AND ONE SENTENCE
            CANNOT HONESTLY COVER BOTH. When AGENT_WORKFORCE_CODEX_HOME is set the
            branch above reduces `accounts` to that one home, while the page builds

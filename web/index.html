@@ -22392,6 +22392,7 @@ function fillSwitchAccounts() {
     if (pmsg0 && SWITCH_ACCT_SAID && pmsg0.textContent === SWITCH_ACCT_SAID) { pmsg0.textContent = ''; SWITCH_ACCT_SAID = ''; }
     else if (pmsg0 && pmsg0.textContent.endsWith(' ' + SWITCH_ACCT_UNREADABLE)) {
       pmsg0.textContent = pmsg0.textContent.slice(0, -(SWITCH_ACCT_UNREADABLE.length + 1));
+      SWITCH_ACCT_SAID = '';  /* same reset as the sibling branch; an asymmetry here is what goes wrong on the next edit */
     }
     /* ✅ AND IF THE LIST IS EMPTY BECAUSE WE COULD NOT READ IT, SAY SO. Only when the
        person is actually trying to switch TO OpenAI, because that is the only state where
@@ -22800,6 +22801,14 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
                 unqualified claim about a sign-in nothing had verified, on the last screen
                 before a restart. Same flag, same reason, the arm it was not applied to. */
              if (ACCOUNTS_UNREADABLE) return 'and it will run on this computer’s OpenAI sign-in, though we could not read the list just now to tell you which.';
+             /* 🛑 THE THIRD CACHE STATE, WHICH NOTHING HERE ENUMERATED. `accountsDropped()`
+                leaves the list empty with BOTH flags false: not read, and not a failed read.
+                It is reachable at first paint before the accounts fetch resolves, and for the
+                whole duration of the refetch after a move or a failed switch. Falling through
+                to the unqualified sentence below promised a sign-in on a machine that may
+                have none, which is the exact claim the not-empty arm above exists to prevent.
+                ⇒ THE DEFINITIVE SENTENCE IS NOW SPOKEN ONLY FROM A LIST WE ACTUALLY READ. */
+             if (!ACCOUNTS_LOADED) return 'and it will run on this computer’s OpenAI sign-in, if one is set up.';
              return 'and it runs on this computer’s OpenAI sign-in.';
            })())
         : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
