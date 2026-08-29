@@ -162,14 +162,44 @@ function configRoots() {
     return [path.join(process.env.AGENT_WORKFORCE_DATA, 'no-config-root-sandbox')];
   }
   const roots = [];
+  /* 🛑 A RELOCATED CLAUDE CONFIG DIR (#1523). `CLAUDE_CONFIG_DIR` is a real Claude
+     Code feature (37 occurrences in the installed 2.1.251 binary; control, `projects`
+     169), and until this line the scan below was the only source of roots. So a person
+     who pointed it anywhere outside `$HOME`, or at a directory not named `.claude*`,
+     got ZERO agents discovered and nothing saying why.
+
+     ⭐ THE CODEX ARM ALREADY DID THIS, which is why the shape here copies it rather
+     than inventing one: `codexupdate.defaultHome()` honours `AGENT_WORKFORCE_CODEX_HOME`
+     then `CODEX_HOME`, and the equivalent test override here is
+     `AGENT_WORKFORCE_CONFIG_ROOT`, handled above. This is one arm catching up with the
+     other, not a new mechanism.
+
+     ⚠️ IT WAS MASKED ON THE FLEET MACHINE AND THAT IS NOT THE SAME AS HARMLESS. The
+     extra config dirs there are named `~/.claude-account-b` and friends, so the
+     `.claude*` glob caught them BY ACCIDENT OF NAMING rather than by honouring the
+     variable. Measured before the fix, both arms: a conventional `~/.claude` was found
+     while a `CLAUDE_CONFIG_DIR` pointing at `agents-config/` was not.
+
+     📌 It is ADDED to the scan rather than replacing it, because a person can have
+     both: the variable names the dir Claude writes to now, and older ones can still sit
+     in `$HOME` holding agents that are just as real. `seen` keeps the union free of
+     duplicates when the variable points at a directory the scan would also find. */
+  const seen = new Set();
+  const relocated = process.env.CLAUDE_CONFIG_DIR;
+  if (relocated && fs.existsSync(path.join(relocated, 'projects'))) {
+    roots.push(relocated);
+    seen.add(path.resolve(relocated));
+  }
   let entries = [];
   try {
     entries = fs.readdirSync(homeDir());
   } catch { /* fall through to the default */ }
   for (const name of entries) {
     if (name !== '.claude' && !name.startsWith('.claude-')) continue;
-    const projects = path.join(homeDir(), name, 'projects');
-    if (fs.existsSync(projects)) roots.push(path.join(homeDir(), name));
+    const dir = path.join(homeDir(), name);
+    if (seen.has(path.resolve(dir))) continue;
+    const projects = path.join(dir, 'projects');
+    if (fs.existsSync(projects)) { roots.push(dir); seen.add(path.resolve(dir)); }
   }
   if (!roots.length) roots.push(path.join(homeDir(), '.claude'));
   // Primary root first, so the common case costs one lookup.
