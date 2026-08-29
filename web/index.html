@@ -22238,9 +22238,12 @@ function fillSwitchAccounts() {
   const armed = !!CURRENT && prov.value !== providerOf(CURRENT);
   const list = ACCOUNTS.filter((x) => x.provider === 'openai'
     && (!x.connection || x.connection.state !== 'none'));
-  /* Hidden when there is nothing to choose: switching back to Anthropic has no
-     OpenAI account to pick, and with no accounts at all the ENGINE refuses with
-     a sentence that names the remedy. An empty dropdown would say less. */
+  /* Hidden for THREE reasons, and the condition below names all of them because a
+     comment that names one is how a reader concludes the others are bugs:
+       not OpenAI    switching back to Anthropic has no OpenAI account to pick
+       not armed     the agent already runs on OpenAI, so nothing can be switched
+       empty list    no usable account; the ENGINE refuses with a remedy, and an
+                     empty dropdown would say less than that sentence does */
   if (!openai || !armed || !list.length) {
     sel.hidden = true;
     sel.innerHTML = '';
@@ -22369,7 +22372,16 @@ function switchAcctChoosable() {
   return !!(sel && !sel.hidden && sel.options.length > 1);
 }
 
-/* What the confirmation dialog echoes back, and only when a person actually picked. */
+/* What the confirmation dialog echoes back. THREE ways this stays silent, and only
+   the first is the honesty gate:
+     not picked      a preselect is not a choice, so we do not claim one
+     no option       nothing to name
+     the label is a PATH  suppressed on purpose, because a filesystem path reads
+                     wrong inside a sentence on the last screen before a restart
+   ⚠️ THE THIRD IS USER-VISIBLE AND WORTH KNOWING: a person who genuinely picks an
+   account that has no email and no key tail gets NO echo, even though they chose.
+   That is deliberate (a bad sentence is worse than a missing one) and it means
+   "only when a person picked" is necessary, not sufficient. */
 function switchAcctShown() {
   const sel = document.getElementById('d-provider-account');
   if (!sel || sel.hidden || !SWITCH_ACCT_TOUCHED) return '';
