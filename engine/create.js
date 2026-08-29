@@ -965,6 +965,14 @@ function setProvider(name, provider, opts) {
       choiceOf: accounts.length,
       /* Whether a PERSON chose, which the route renders as "you picked this"
          rather than "we picked this and are telling you".
+         🛑 THIS FIELD IS CLIENT-SUPPLIED AND THE SERVER CANNOT CORROBORATE IT. Any local
+         caller can POST `picked: true` for a row nobody touched and be told "the sign-in
+         you picked". That is downgraded to a WORDING problem, and here is the PRECONDITION
+         that downgrade rests on, named rather than assumed:
+           the ACCOUNT is still matched against `openai.list()` a few lines above, so a
+           false claim can only ever be attached to an account the engine itself produced.
+         ⇒ IF THAT MATCH IS EVER LOOSENED, THIS STOPS BEING COSMETIC and becomes a
+         wrong-account claim. Whoever changes the account resolution owns this line too.
          🔑 THIS IS NO LONGER `wantDir !== null`, and the change is the point: the
          page now sends the visible account WHENEVER the menu is showing, so a
          named directory no longer implies anybody chose it. Conflating the two
