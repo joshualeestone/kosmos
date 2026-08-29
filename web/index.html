@@ -31323,10 +31323,35 @@ function foundRowsHtml(agents) {
   + '</div>';
 }
 
+/**
+ * The found agents this screen may actually OFFER: the ones on this computer
+ * that Kosmos does not already hold.
+ *
+ * 🛑 WHY THIS IS ITS OWN FUNCTION AND NOT AN INLINE FILTER (#1493). The gate
+ * that decides whether to show the screen and the painter that draws the rows
+ * must read the SAME list, or the screen renders a heading counting one set and
+ * rows drawn from another. That is the two-derivations-of-one-fact defect this
+ * file already refuses everywhere else.
+ *
+ * ⚠️ `already !== true`, NOT `!already`. `found()` answers UNKNOWN as
+ * undefined when the roster could not be read, and an unknown is not a yes: a
+ * person is better off being offered an agent they already have than never being
+ * shown one they do not.
+ */
+function frFoundOffer() {
+  if (!FR_FOUND || FR_FOUND.ok !== true || !Array.isArray(FR_FOUND.agents)) return [];
+  return FR_FOUND.agents.filter((a) => !a || a.already !== true);
+}
+
 function frPaintFound() {
   const title = document.getElementById('fr-title');
   const box = document.getElementById('fr-fleet');
-  const n = FR_FOUND.agents.length;
+  /* #1493: the OFFER, not everything on the disk. On the adopt path most of
+     what `found()` returns is already in Kosmos, and a row with an "Add to
+     Kosmos" button on an agent Kosmos already holds is an action that means
+     nothing. */
+  const offer = frFoundOffer();
+  const n = offer.length;
   /* 🛑 "ON THIS MAC", NOT "ALREADY HERE", and the difference is the whole defect
      restated (Mona Lisa, overruling my first wording). HERE reads as IN KOSMOS.
      They are on the Mac. Kosmos can SEE them -- it reads every tmux pane
@@ -31358,7 +31383,7 @@ function frPaintFound() {
   box.innerHTML = '<p>They are not in Kosmos yet. Adding one leaves it exactly '
     + 'where it is, in its own folder with its own instructions.</p>'
     + search
-    + foundRowsHtml(FR_FOUND.agents)
+    + foundRowsHtml(offer)
     /* ⚠️ THE COUNT LINE IS IN THE DESIGN AND WAS NEVER BUILT. It is the only
        thing on the screen that says how many rows there are when the list runs
        past the fold, and the only thing that says how to get back once a search
@@ -31658,7 +31683,26 @@ function frPaintFleet() {
    * fleet. Every sibling branch guards its payload; this one took the engine's
    * word for it.
    */
-  if (path === 'adopt' && Number.isInteger(count) && count > 0) {
+  /* 🛑 LOOK ON THE DISK ON EVERY PATH (#1493). This search used to run ONLY
+     inside the `create` arm below, so it happened only for somebody Kosmos
+     believed had NO agents. Two whole populations never had their disk read:
+     anybody with at least one agent running (`adopt`), and anybody whose roster
+     could not be read at all (`unknown`).
+
+     ⭐ THE SECOND IS THE PERVERSE ONE. `unknown` means "we could not ask tmux",
+     and the disk is precisely the source that does NOT need tmux. The one state
+     where reading the disk is most valuable was the state that skipped it.
+
+     ⚠️ AND THE `adopt` SCREEN SAYS "there is nothing to import" WHILE IT IS
+     FALSE. The first outside user had folders on disk holding agents Kosmos did
+     not hold, and was told there was nothing to import.
+
+     📌 Fire-and-forget and generation-guarded, exactly as the create arm does
+     it: it repaints when the answer lands, and a search that lands after
+     somebody has moved on cannot repaint over them. */
+  if (FR_FOUND === null) frFindAgents();
+
+  if (path === 'adopt' && Number.isInteger(count) && count > 0 && !frFoundOffer().length) {
     // The spec's declension: real count, "one" at one, the pack's period.
     title.textContent = count === 1 ? 'You already have one agent here.' : 'You already have ' + count + ' agents here.';
     /**
@@ -31698,10 +31742,12 @@ function frPaintFleet() {
       title.textContent = 'Looking for agents already here\u2026';
       box.innerHTML = '<p>Reading what is on this computer. This takes a moment.</p>';
       frActions();
-      frFindAgents();
+      /* The search is already in flight: it is started once at the top of this
+         function for every path (#1493). Calling it again here fired a second
+         fetch that the generation guard then threw away. */
       return;
     }
-    if (FR_FOUND.ok && FR_FOUND.agents.length) { frPaintFound(); return; }
+    if (frFoundOffer().length) { frPaintFound(); return; }
     title.textContent = 'Create your first agent.';
     /**
      * ⚠️ IT DOES NOT PROMISE OVER THE TOP OF STEP 2. The first version said "It
@@ -31825,6 +31871,11 @@ function frPaintFleet() {
    * broken, and guessing the other way shows an empty list as though it were an
    * answer.
    */
+  /* #1493: the disk still answers when the roster does not. If we found agents
+     Kosmos does not hold, that is a better answer than "we could not see", and
+     it is the answer this module exists to give. */
+  if (frFoundOffer().length) { frPaintFound(); return; }
+
   title.textContent = 'We could not see what is on this computer';
   // The pack's ending C, verbatim.
   box.innerHTML = '<p>That is not the same as there being none, so we will not guess.</p>'

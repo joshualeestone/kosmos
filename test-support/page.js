@@ -152,6 +152,11 @@ function liftConst(script, name) {
  * ⭐ THE COST WAS NEVER THE FIX, IT WAS THE DIAGNOSIS. One list means the next
  * helper costs one edit, and a missing one fails in a place that names it.
  */
-const FOUND_PAINTER_FNS = ['esc', 'foundCountLine', 'foundOverflows', 'foundCountRefresh', 'foundRowsHtml'];
+/* #1493 added `frFoundOffer`, the one place that decides which found agents are
+   on OFFER, and both painters now read it. It is in THIS list rather than in the
+   two harnesses because that is the whole reason this list exists: when the
+   painter last gained a page-scope helper, each harness carried its own copy and
+   two of them broke with a ReferenceError that read as a product defect. */
+const FOUND_PAINTER_FNS = ['esc', 'foundCountLine', 'foundOverflows', 'foundCountRefresh', 'foundRowsHtml', 'frFoundOffer'];
 
 module.exports = { scriptOf, lift, liftAll, liftConst, FOUND_PAINTER_FNS };
