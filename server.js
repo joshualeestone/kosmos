@@ -2580,6 +2580,11 @@ const server = http.createServer((req, res) => {
         const whichAcct = acct
           ? (acct.email ? ` (${acct.email})` : acct.keyTail ? ` (API key ending ${acct.keyTail})` : '')
           : '';
+        /* 📌 SAID ON A PARTIAL TOO. The plist has already been rewritten with the
+           chosen home by the time a restart fails, so the account IS what the
+           agent will come back on, and it is the one confirmation a person who
+           just picked most wants. Withholding it on the branch where something
+           went wrong is where it is least affordable. */
         const landedOn = acct
           ? (acct.chosen
             ? ` It runs on the OpenAI sign-in you picked${whichAcct}.`
@@ -2594,7 +2599,18 @@ const server = http.createServer((req, res) => {
               + 'It is starting again now, and it will look idle until you say something to it.'
               + landedOn
             : `We saved the switch to ${label}, but could not start it again: ${back.because} `
-              + 'It is still running as before until it restarts.',
+              + 'It is still running as before until it restarts.'
+              /* ⚠️ FUTURE TENSE HERE, NOT `landedOn`'S PRESENT. The plist already
+                 carries the chosen home, so the account IS decided, but the agent has
+                 NOT moved to it yet: the sentence one line up says it is still running
+                 as before. Reusing "It runs on X" would contradict that in the same
+                 paragraph, and this is the branch where something already went wrong,
+                 which is where a confident-sounding sentence costs most. */
+              + (acct
+                ? (acct.chosen
+                  ? ` When it restarts it will run on the OpenAI sign-in you picked${whichAcct}.`
+                  : ` When it restarts it will run on your OpenAI sign-in${whichAcct}.`)
+                : ''),
           steps: back.steps || [],
         });
       })

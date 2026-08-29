@@ -67,6 +67,20 @@ test('#1373: a preselected option is NOT reported as a choice', () => {
     'the switch sends the account without consulting the touched flag');
 });
 
+/* 🛑 THE ONE CALL NOTHING COVERED. `paintAccountPicker` fills ACCOUNTS, which is
+   the picker's only source, so without this call the menu stays hidden until the
+   provider dropdown is touched a SECOND time. Hidden is a legitimate state, so the
+   bug would not announce itself.
+   ⚠️ And the browser check cannot catch it either: it waits 1500ms after `goto`
+   before choosing a provider, by which time ACCOUNTS is already populated, so the
+   check stays green with this line deleted. That is why it is pinned here. */
+test('#1373: the picker is refilled when the accounts actually arrive', () => {
+  const fn = PAGE.slice(PAGE.indexOf('async function paintAccountPicker'));
+  const body = fn.slice(0, fn.indexOf('\nlet ') > 0 ? fn.indexOf('\nlet ') : 4000);
+  assert.match(body, /fillSwitchAccounts\(\)/,
+    'paintAccountPicker no longer refills the switch picker, so it stays hidden until the provider menu is touched twice');
+});
+
 test('#1373: the picker is not offered where it can do nothing', () => {
   /* paintProviderPicker sets #d-provider to the agent's CURRENT provider, so on
      an agent already on OpenAI this menu would render live while Switch stays

@@ -22254,6 +22254,14 @@ function fillSwitchAccounts() {
      row. Not reachable today (every caller either hides the menu or resets
      #d-provider first), and re-applying the preselect makes it unreachable by
      construction rather than by call-graph luck. */
+  /* 📌 THE `else` PROBABLY NEVER RUNS, and the honest thing is to say so rather
+     than describe a path as load-bearing. The generated `html` writes a bare
+     `selected` attribute and browsers serialize `innerHTML` back as `selected=""`,
+     so this comparison is unlikely ever to be equal for THIS select. Kept anyway:
+     it costs one line, it is correct if the serialization ever matches, and the
+     invariant it protects (the flag and the visible selection cannot disagree) is
+     worth holding by construction. The four sibling uses of this pattern build
+     options with no boolean attribute, so they are unaffected either way. */
   if (sel.innerHTML !== html) sel.innerHTML = html;
   else if (sel.options.length) { sel.selectedIndex = Math.max(0, [...sel.options].findIndex((o) => o.defaultSelected)); }
   sel.hidden = false;
@@ -22270,7 +22278,25 @@ document.getElementById('d-provider').addEventListener('change', (e) => {
    fallback is what the whole design rests on. */
 const switchAcctSel = document.getElementById('d-provider-account');
 if (switchAcctSel) {
-  switchAcctSel.addEventListener('change', () => { SWITCH_ACCT_TOUCHED = true; });
+  switchAcctSel.addEventListener('change', () => {
+    SWITCH_ACCT_TOUCHED = true;
+    /* 🛑 AND RE-ARM SWITCH, OR THE REFUSAL'S REMEDY STILL CANNOT BE CARRIED OUT.
+       The `finally` block disables Switch after every attempt, and until now the
+       ONLY thing that re-enabled it was a change on #d-provider. So "Pick one
+       from the list and try again" left the button greyed out: the person did
+       exactly what they were told and nothing happened, and the way back was to
+       select Anthropic and then OpenAI again, which also throws away the pick
+       they just made.
+       ⚠️ I fixed this dead end one layer up in the previous round (refreshing the
+       stale list) and left the button dead, which made the remedy readable and
+       still impossible. Same condition as the provider listener, so a pick can
+       never arm a switch the provider menu would refuse. */
+    const go = document.getElementById('d-provider-go');
+    const prov = document.getElementById('d-provider');
+    if (go && prov) {
+      go.disabled = !prov.value || !CURRENT || prov.value === providerOf(CURRENT);
+    }
+  });
 }
 
 /* What the confirmation dialog echoes back, and only when a person actually picked. */
@@ -22278,7 +22304,12 @@ function switchAcctShown() {
   const sel = document.getElementById('d-provider-account');
   if (!sel || sel.hidden || !SWITCH_ACCT_TOUCHED) return '';
   const o = sel.options[sel.selectedIndex];
-  return o ? o.textContent.trim() : '';
+  if (!o) return '';
+  /* The option label carries a menu-only parenthetical for an account whose live
+     check came back unknown ("name (could not check just now)"). That reads fine
+     in a dropdown and badly inside a sentence: "it will run on name (could not
+     check just now)." The dialog wants the account, not the menu's aside. */
+  return o.textContent.trim().replace(/\s*\(could not check just now\)$/, '');
 }
 
 async function changeProviderNow(say) {

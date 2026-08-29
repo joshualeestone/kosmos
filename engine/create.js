@@ -823,7 +823,13 @@ function setProvider(name, provider, opts) {
     const named = typeof process.env.AGENT_WORKFORCE_CODEX_HOME === 'string'
       && process.env.AGENT_WORKFORCE_CODEX_HOME !== '';
     const accounts = named
-      ? [openai.defaultDir()]
+      /* ⚠️ RESOLVED, LIKE `wantDir` BELOW, OR THE TWO BRANCHES COMPARE DIFFERENT
+         NORMAL FORMS. `wantDir` is `path.resolve`d because `openai.list()` stores
+         resolved paths; this branch does not go through `list()`, so an override
+         set to a non-canonical path (a trailing slash, a `..` segment, a relative
+         path) would fail to match itself, and a person picking THE VERY ACCOUNT
+         THE OVERRIDE NAMES would be told it cannot be chosen. */
+      ? [path.resolve(openai.defaultDir())]
         .map((dir) => {
           const who = openai.identityOf(dir);
           return who ? { dir, email: who.email, keyTail: who.keyTail, authMode: who.authMode, isDefault: true } : null;

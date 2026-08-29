@@ -30,9 +30,30 @@ a choice.**
   for a stated default**.
 - The switch dialog gains `#d-provider-account`, hidden unless OpenAI is chosen,
   preselected on the account the engine would have taken anyway.
-- `render-model-change.js` now seals `AGENT_WORKFORCE_HOME`. It was the one root that
-  check did not seal and it is the one the accounts list reads, so a sandboxed check was
-  enumerating the operator's real `~/.codex-*` sign-ins.
+- `render-model-change.js` now seals `AGENT_WORKFORCE_HOME`, **and `CODEX_HOME` and
+  `AGENT_WORKFORCE_CODEX_HOME`**, which are two more roots `defaultHome()` reads and
+  which walk straight past a HOME-only seal. It was enumerating the operator's real
+  `~/.codex-*` sign-ins.
+- **It also boots a local OpenAI models stub**, with its own two-arm control. Without it
+  the check sends fixture API keys to the real `api.openai.com`, and the resulting 401
+  empties the account list and reds every positive assertion while the negative arm
+  still passes.
+
+## Added after the plan was written, during the challenge loop
+
+📌 **Recorded because a plan that does not match the diff is the drift this project
+keeps catching, and three of these came out of review rather than design:**
+
+- **The confirmation dialog echoes the pick back**, and only when a person actually
+  picked. It is the last screen before a restart and it still carried the stated-default
+  wording this card replaced.
+- **A refusal drops the cached account list and repaints, and a pick re-arms Switch.**
+  The engine's refusal says "pick one from the list and try again", and without both of
+  these that remedy could not be carried out: the list was the stale one that produced
+  the ghost, and the button stayed greyed out.
+- **The page-to-route key is pinned on both sides.** Renaming `body.account` had left
+  every test in the repo green while the feature silently reverted to the stated default.
+  An HTTP-level test cannot close this today; the coupling is filed as kosmos#1465.
 
 ## Finished when
 
@@ -46,8 +67,13 @@ a choice.**
 
 ## Proof before the write
 
-- `engine/create.switch-account-1373.test.js`: 2 tests, pass, and **repeatable** (3
-  consecutive runs exit 0, which is the arm that caught the launchctl defect below).
+- `engine/create.switch-account-1373.test.js`: **3 tests** (a third was added later for
+  the override-home refusal, with a control proving the same call succeeds once the
+  override is gone), pass, and **repeatable** (3 consecutive runs exit 0, which is the
+  arm that caught the launchctl defect below).
+- `web.switch-account-1373.test.js`: **7 tests**, pass. Source-level by construction and
+  it says so in its own header: it can see that a guard is present and what it is keyed
+  on, and it cannot see the rendered page.
 - Full runner: **2893 tests, 2893 pass, 0 fail, exit 0**.
 - **Both guards perturbed inside the real runner and required to go RED**: ignoring the
   pick gives "the switch ignored the account the person picked"; failing open on a ghost

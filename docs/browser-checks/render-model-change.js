@@ -142,9 +142,12 @@ const oaiStub = require('node:http').createServer((q, r) => {
   await page.waitForTimeout(400);
   const gone = await page.evaluate(() => document.getElementById('d-provider-account').hidden);
   chk(gone === true, '#1373: switching back to Anthropic offers no OpenAI sign-in to pick', String(gone));
-  /* Left on the agent's OWN provider, which is where this check found it. The
-     model-change flow below is a different section's business and must not
-     inherit a perturbed provider menu from this block. */
+  /* NOTE, and it belongs to the `selectOption('anthropic')` two lines up rather
+     than to whatever follows: that call is the negative arm, and it happens to
+     leave the menu on the fixture agent's own provider, so the model-change flow
+     below does not inherit a perturbed provider menu. ⚠️ If `mara` ever became an
+     OpenAI fixture those two purposes would want opposite values and this would
+     quietly stop being true. */
   await page.screenshot({ path: process.env.SHOT || path.join(os.tmpdir(), 'model-section.png') });
   const opt = await page.$eval('#d-model', (s) => { const o = [...s.options].find((x) => x.value); return o ? o.value : null; });
   chk(!!opt, 'the model menu offers a choice', opt);
