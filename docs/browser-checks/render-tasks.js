@@ -160,10 +160,32 @@ const MEMBER = 'taskmate';
        headed TASKS and now shows every OPEN task. */
     const cards = await p.locator('.tkcard').count();
     if (cards !== 2) die('the column shows ' + cards + ' cards; both open tasks belong in it now');
-    /* And with nothing finished there is nothing behind the door, so the door
-       must be GONE rather than showing a count that contradicts the column --
-       which was Josh's original report. */
-    if (!(await p.locator('#pj-alltasks').isHidden())) die('the door shows while every task is already in the column');
+    /* 🛑 #1382 INVERTED THIS, the same way #1009 inverted the block above it, and
+       for a reason that supersedes rather than contradicts the old assertion.
+       WHAT THIS LINE WAS ACTUALLY PROTECTING: Josh's original report was a door
+       showing a COUNT that contradicted the column above it. With nothing
+       finished there was nothing behind the door, so a door reading "(3)" over
+       an empty or complete column stated two different things at once. Hiding
+       the door removed the contradiction by removing one of the two numbers.
+       WHY IT IS NOT THE RIGHT GUARD ANY MORE: the door no longer opens a
+       reveal-in-place of THIS project's hidden rows. It opens a screen spanning
+       EVERY project, so it must not be unreachable from a project that happens
+       to have nothing hidden, which is the normal state of a new project. And
+       it carries NO count at all now, because a per-project number beside a
+       global destination could only ever disagree with its own destination.
+       ⇒ THE CONTRADICTION IS GONE BY CONSTRUCTION, not by hiding. Two numbers
+       cannot disagree if there is one. So this asserts the property Josh's
+       report was actually about, which is strictly stronger than the old line:
+       the door is REACHABLE, and it carries NO NUMBER to disagree with the
+       column. The old assertion could only ever be satisfied by the door being
+       absent; this one is satisfied only by the door being present and mute. */
+    if (await p.locator('#pj-alltasks').isHidden()) {
+      die('the all-tasks door is hidden, so a project with nothing finished cannot reach the every-project screen');
+    }
+    const doorText = (await shown(p.locator('#pj-alltasks'))).trim();
+    if (/\d/.test(doorText)) {
+      die('the door carries a number again ("' + doorText + '"), which can disagree with the column above it and with the all-projects screen it opens');
+    }
     /* ⚠️ `.nth(0)`, NOT A BARE `.tkcard-who` (#1009). The column used to hold
        ONE card, so a bare locator was unambiguous; now it holds both open
        tasks and the same locator is a strict-mode violation that throws
