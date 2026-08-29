@@ -123,7 +123,22 @@ function seed() {
     await pg.click('text=Regression Sweep'); await pg.waitForTimeout(700);
     const door = await pg.$('#pj-alltasks:not([hidden])');
     if (door) { await door.click(); await pg.waitForTimeout(300); }
-    await pg.click('.tkcard'); await pg.waitForTimeout(700);
+    /* 🛑 ROOTED, BECAUSE `.tkcard` IS NO LONGER A DOCUMENT-WIDE ANSWER. The door
+       above opens the all-tasks screen (#1382), which renders its own task cards
+       into #alltasks-list, so the page now holds TWO sets of `.tkcard`: this
+       project's column and the all-tasks list. An unrooted click resolved to two
+       elements, took the first in document order, and that one belongs to the
+       view the door just navigated AWAY from -- so it waited 30s on an element
+       that is present and hidden, and the check timed out rather than failing an
+       assertion. `element is not visible` is what it printed; nothing about it
+       said "your query matched another screen".
+       ⇒ The root is keyed on the SAME condition that creates the ambiguity, so
+       the check states which screen it believes it is on. If that belief is ever
+       wrong it fails loudly here, which `:visible` would not do -- that would
+       quietly click whatever happens to be showing, which is how a check ends up
+       testing a screen nobody meant to test. */
+    await pg.click(door ? '#alltasks-list .tkcard' : '.tkcard');
+    await pg.waitForTimeout(700);
     const tk = await pg.evaluate(() => ({
       parts: document.querySelectorAll('.tkpart').length,
       state: (document.getElementById('tk-state').getBoundingClientRect().height > 0 ? document.getElementById('tk-state').innerText : '').trim(),
