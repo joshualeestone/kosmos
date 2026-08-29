@@ -42,7 +42,50 @@ const firstrun = require(path.join(ROOT, 'engine', 'firstrun'));
 const srv = require(path.join(ROOT, 'server.js'));
 const fail = [];
 const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fail.push(label); };
+/* 🛑 THE FIXTURE KEYS MUST NOT REACH api.openai.com, AND WITHOUT THIS THEY DO.
+   GET /api/accounts runs openaiaccounts.listLive() -> checkLive() -> askModels(),
+   which posts the key to `AGENT_WORKFORCE_OPENAI_MODELS_URL || the real endpoint`.
+   engine/openaiaccounts.js:337 documents this seam and the incident it exists for:
+   "the page gate sent a fake key to api.openai.com on every cut and, since #962
+   made the badge honest, read 'did not accept this key' (0.5.59a)".
+   ⚠️ AND IT IS NOT ONLY HYGIENE, IT DECIDES THE VERDICT. OpenAI answers a bogus
+   key with 401 invalid_api_key -> state NONE -> fillSwitchAccounts filters NONE
+   out -> the list is empty -> the select stays hidden -> all three positive
+   assertions below go red. Worse, the negative arm ("it goes away again") would
+   still PASS, because a permanently hidden control satisfies it.
+   ⇒ And the failure flips with the network: offline, askModels returns
+   unreachable -> UNKNOWN -> kept -> the check passes. Same code, opposite verdict
+   by reachability, which is the exact flakiness class the HOME seal above removes.
+   📌 Same shape as tools/browser-checks.sh:519 does for render-accounts-openai,
+   done in-process here because this check boots its own server. The URL is read
+   per call, so setting it before the page loads is enough. */
+const ACCEPTED_KEYS = new Set([
+  'sk-proj-testtesttesttestALFA',
+  'sk-proj-testtesttesttestBETA',
+]);
+const oaiStub = require('node:http').createServer((q, r) => {
+  const auth = String(q.headers.authorization || '');
+  const good = q.url === '/v1/models' && ACCEPTED_KEYS.has(auth.replace(/^Bearer /, ''));
+  r.writeHead(good ? 200 : 401, { 'content-type': 'application/json' });
+  r.end(JSON.stringify(good
+    ? { data: [{ id: 'gpt-4o' }] }
+    : { error: { code: 'invalid_api_key', message: 'Incorrect API key provided' } }));
+});
+
 (async () => {
+  await new Promise((done) => oaiStub.listen(0, '127.0.0.1', done));
+  process.env.AGENT_WORKFORCE_OPENAI_MODELS_URL =
+    'http://127.0.0.1:' + oaiStub.address().port + '/v1/models';
+  /* The stub's own control: it must REFUSE a key it was not given, or a stub that
+     answers 200 to anything would hide exactly the bug it is here to prevent. */
+  const ctlBad = await fetch(process.env.AGENT_WORKFORCE_OPENAI_MODELS_URL,
+    { headers: { authorization: 'Bearer sk-proj-not-a-real-fixture-key' } });
+  const ctlGood = await fetch(process.env.AGENT_WORKFORCE_OPENAI_MODELS_URL,
+    { headers: { authorization: 'Bearer sk-proj-testtesttesttestALFA' } });
+  chk(ctlBad.status === 401 && ctlGood.status === 200,
+    'the OpenAI stub accepts the fixture keys and refuses others',
+    ctlBad.status + '/' + ctlGood.status);
+
   fleet.install([fleet.agent('mara', { state: 'idle', displayName: 'Mara' })]);
   /* #619: since #454 the Model menu is disabled for an agent with no launch
      file (nothing for setModel to rewrite, so the control is unavailable
@@ -118,5 +161,6 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     chk(await page.$eval('#chg-modal', (m) => m.hidden), 'Done closes it');
   }
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
-  await browser.close(); server.close(); process.exit(fail.length ? 1 : 0);
+  await browser.close();
+  await new Promise((done) => oaiStub.close(done)); server.close(); process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

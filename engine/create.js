@@ -860,8 +860,13 @@ function setProvider(name, provider, opts) {
        carried a codex account, and only the way to say which was missing.
        ⇒ With nothing named this behaves exactly as before (the first account,
        named out loud), so a caller that does not care is unaffected. */
+    /* Resolved before comparing, because `list()` stores `path.resolve(dir)`.
+       Without it an equivalent-but-unnormalised path (a trailing slash, a `..`
+       segment) is refused as a ghost account, which is a confusing refusal
+       rather than a wrong one. Fail-closed is unaffected: this normalises the
+       value, it does not widen what counts as a match. */
     const wantDir = opts && typeof opts.accountDir === 'string' && opts.accountDir !== ''
-      ? opts.accountDir
+      ? path.resolve(opts.accountDir)
       : null;
     let acct = accounts[0];
     if (wantDir) {

@@ -782,7 +782,7 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    select directly above it -- two adjacent controls doing the same job at two
    different widths, which reads as one of them being broken. The list is the
    rule; a new member joins it. */
-#create-model, #create-account, #create-reports, #d-reports, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
+#create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
 .btn { font: var(--text-body) var(--font-ui); padding: var(--space-4) var(--space-5);
        border-radius: var(--radius-control); border: 0.5px solid var(--border-strong);
        background: var(--bg); color: var(--label); cursor: pointer; }
@@ -22018,7 +22018,10 @@ async function paintAccountPicker(a) {
      landed. Hidden is a SAFE state (the engine states its default, exactly as
      before the card), which is precisely why the gap would not have announced
      itself. */
-  try { fillSwitchAccounts(); } catch { /* the switch picker is additive; never break the move picker for it */ }
+  /* Additive: never break the move picker for the switch picker. But not
+     SILENT, because hidden is also the legitimate not-armed state, so a throw
+     here would be indistinguishable from working correctly. */
+  try { fillSwitchAccounts(); } catch (err) { console.warn('the OpenAI sign-in picker did not render', err); }
 }
 
 document.getElementById('d-account').addEventListener('change', (e) => {
@@ -22200,25 +22203,45 @@ function paintProviderPicker(a) {
    fails is worse than an option that is not there" (this file's own rule).
    An UNKNOWN check is KEPT and labelled, because dropping it would be the
    false-negative half of the same asymmetry mistake. */
+/* 🔑 DID A PERSON ACTUALLY PICK, or is this just the option we preselected?
+   The two are different promises and the route says a different sentence for
+   each, so the page must not report the second as the first. Reset whenever the
+   menu is rebuilt, set only by the person's own change event. */
+let SWITCH_ACCT_TOUCHED = false;
 function fillSwitchAccounts() {
   const sel = document.getElementById('d-provider-account');
   const prov = document.getElementById('d-provider');
   if (!sel || !prov) return;
+  SWITCH_ACCT_TOUCHED = false;
   const openai = prov.value === 'openai';
+  /* ⚠️ ONLY WHEN THE SWITCH IS ACTUALLY ARMED. paintProviderPicker sets
+     #d-provider to the agent's CURRENT provider, so on an agent already running
+     on OpenAI this menu would render live and enabled while Switch stays
+     disabled and the engine would refuse anyway ("already runs on OpenAI").
+     That is the "an option that always fails is worse than an option that is not
+     there" rule this file keeps, and the sibling #d-account is disabled for the
+     same agent for the same reason. */
+  const armed = !!CURRENT && prov.value !== providerOf(CURRENT);
   const list = ACCOUNTS.filter((x) => x.provider === 'openai'
     && (!x.connection || x.connection.state !== 'none'));
   /* Hidden when there is nothing to choose: switching back to Anthropic has no
      OpenAI account to pick, and with no accounts at all the ENGINE refuses with
      a sentence that names the remedy. An empty dropdown would say less. */
-  if (!openai || !list.length) { sel.hidden = true; sel.innerHTML = ''; return; }
+  if (!openai || !armed || !list.length) { sel.hidden = true; sel.innerHTML = ''; return; }
   const nameOf = (x) => x.email || (x.keyTail ? 'API key ending ' + x.keyTail : '') || x.label || x.dir;
   const labelOf = (x) => (x.connection && x.connection.state === 'unknown'
     ? esc(nameOf(x)) + ' (could not check just now)'
     : esc(nameOf(x)));
-  /* 🔑 THE SELECTED OPTION IS THE ONE THE ENGINE WOULD HAVE PICKED ANYWAY, so
-     the control opens showing the stated default rather than changing what
-     happens to somebody who does not touch it. Pressing Switch without opening
-     this menu does exactly what it did before the card. */
+  /* 🔑 PRESSING SWITCH WITHOUT TOUCHING THIS MENU SENDS NO ACCOUNT AT ALL, so
+     the engine states its own default exactly as it did before this card. That
+     is what makes the guarantee true, NOT the preselect below.
+     🛑 The preselect alone would NOT be enough, and the difference is not
+     cosmetic: this page filters on live connection state and `openai.list()`
+     does not, so if the engine's own first account comes back `none` the page
+     would preselect a DIFFERENT row. Sending it would silently move a person
+     who touched nothing onto another sign-in and then tell them they picked it.
+     The preselect is here so the menu opens on a sensible row, and nothing more
+     depends on it. */
   const html = list.map((x, i) => '<option value="' + esc(x.dir) + '"'
     + ((x.isDefault || (i === 0 && !list.some((y) => y.isDefault))) ? ' selected' : '')
     + '>' + labelOf(x) + '</option>').join('');
@@ -22230,6 +22253,10 @@ document.getElementById('d-provider').addEventListener('change', (e) => {
   const go = document.getElementById('d-provider-go');
   if (go) go.disabled = !e.target.value || !CURRENT || e.target.value === providerOf(CURRENT);
   fillSwitchAccounts();
+});
+/* The ONLY thing that makes a pick a pick. */
+document.getElementById('d-provider-account').addEventListener('change', () => {
+  SWITCH_ACCT_TOUCHED = true;
 });
 
 async function changeProviderNow(say) {
@@ -22254,9 +22281,15 @@ async function changeProviderNow(say) {
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/provider', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      /* #1373: the chosen sign-in rides along. Empty or hidden means nobody
-         picked, and the engine states its default and names it, as before. */
-      body: JSON.stringify({ provider: want, account: acctSel && !acctSel.hidden ? acctSel.value : null }),
+      /* #1373: the chosen sign-in rides along ONLY if a person chose it. An
+         untouched menu sends null, the engine states its default and names it,
+         and the route says "your OpenAI sign-in" rather than "the one you
+         picked". Reporting a preselect as a choice would be the invention the
+         route refuses two lines from where it builds that sentence. */
+      body: JSON.stringify({
+        provider: want,
+        account: (acctSel && !acctSel.hidden && SWITCH_ACCT_TOUCHED) ? acctSel.value : null,
+      }),
     });
     const out = await res.json().catch(() => null);
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
