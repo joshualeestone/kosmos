@@ -521,6 +521,11 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-who { min-width: 0; flex: 1; }
 .acct-who b { font-weight: 650; display: block; }
 .acct-org { display: block; color: var(--label-2); font-size: .8125rem; }
+/* The disambiguator beside a name two accounts share. Quiet on purpose: it is
+   an answer to "why are there two of these", not a thing to read first. Same
+   token as .acct-org, which is defined on the light, dark and increased-contrast
+   grounds rather than left to a fallback. */
+.acct-qual { color: var(--label-2); font-size: .8125rem; margin-left: 6px; font-weight: 400; }
 /* The provider group (kosmos#1393): the bounding box Josh asked for, with its
    accounts inside it. A quiet ground so the rows keep their own surface and the
    box reads as a container rather than another card. */
@@ -12934,6 +12939,58 @@ let ACCT_EPOCH = 0;
    second source. Kosmos shipped a screen this week saying "3 agents" over three
    rows with "6 agents" underneath, because one number came from the data and the
    other from a document-wide DOM query (kosmos#1346). One list, one count. */
+/* 🔑 AN ACCOUNT IS A CONFIG DIRECTORY, NOT A LOGIN. `engine/accounts.js` opens
+   with that sentence and it is the whole reason this function exists: two
+   directories on one computer can honestly be signed in to the SAME email, and
+   `list()` returns both, because they really are two accounts in this product's
+   sense. Measured on this machine 2026-08-28: four rows, and `josh@book.io`
+   holds two of them (`~/.claude`, the default, and `~/.claude-account-d`).
+   🛑 THE ROW RENDERED ITS LOGIN AS ITS IDENTITY, so both read `josh@book.io`,
+   with the same badge and two `Disconnect` buttons carrying the same accessible
+   name. A person could not tell which row was which, or why there were two, and
+   `docs/browser-checks/named-controls.js` reported exactly that: two controls
+   answering to `Disconnect josh@book.io`.
+   ⚠️ AND IT GETS WORSE ON ITS OWN, not better: the more directories a machine
+   accumulates, the more rows collapse onto one name.
+   ✅ THE FIELD THAT SEPARATES THEM WAS ALREADY ON THE ROW AND WAS BEING THROWN
+   AWAY. `label` (the directory's own name) and `isDefault` are set by `list()`
+   for every row; the render only ever reached for them as a FALLBACK when there
+   was no email, so the one case that needs them is the one case they were
+   dropped in.
+   📌 QUALIFIES ONLY WHAT IS AMBIGUOUS. An email appearing once renders exactly
+   as before, because a qualifier beside a unique name is noise, and most people
+   have one account. What is rejected, and why:
+     dedupe to one row      hides a real thing. Two directories are two places
+                            an agent can run from, and merging them would make
+                            the screen lie about what is on the machine.
+     always show the label  clutters the common single-account case to fix a
+                            case it does not have.
+     number them (1, 2)     an invented handle that matches nothing the person
+                            can see anywhere else on their computer.
+   The qualifier is total for a duplicated row: `list()` skips a directory it has
+   already seen, so distinct rows always have distinct `dir`s, and `dir` is the
+   last fallback. No duplicated row can come out of here unnamed. */
+function accountQualifiers(list) {
+  const rows = Array.isArray(list) ? list : [];
+  /* The same key the row renders its name from, so the count answers the
+     question the SCREEN asks ("do two rows read alike"), not a question about
+     the data that happens to be nearby. */
+  const key = (a) => String((a && (a.email
+    || (a.provider === 'openai' && a.keyTail ? 'key ending ' + a.keyTail : ''))) || '');
+  const count = new Map();
+  for (const a of rows) {
+    const k = key(a);
+    if (k) count.set(k, (count.get(k) || 0) + 1);
+  }
+  const out = new Map();
+  for (const a of rows) {
+    const k = key(a);
+    if (!k || (count.get(k) || 0) < 2) { out.set(a, ''); continue; }
+    out.set(a, a.isDefault ? 'main' : String(a.label || a.dir || ''));
+  }
+  return out;
+}
+
 function accountGroupsHtml(list, rowHtml) {
   const order = [];
   const groups = new Map();
@@ -13008,6 +13065,9 @@ async function paintAccounts() {
      grouping is a wrapper, so every existing assertion on a row still holds.
      `render-accounts-openai.js` reads `#set-accounts .acct-box`, a DESCENDANT
      selector, which is why a wrapper is safe and a restructure would not be. */
+  /* Computed once from the WHOLE list, not per row: whether a name is ambiguous
+     is a property of the list, and a row cannot see it on its own. */
+  const acctQual = accountQualifiers(list);
   const acctRowHtml = (a) => {
     /* #540: an OpenAI account signed in with a key has no email; codex's
        own `login status` names it by the key's last characters, so the row
@@ -13016,6 +13076,12 @@ async function paintAccounts() {
     const who = esc(a.email || (isOpenai && a.keyTail ? 'API key ending ' + a.keyTail : '') || a.label || a.dir);
     const org = a.organization && a.organization !== a.email
       ? '<span class="acct-org">' + esc(a.organization) + '</span>' : '';
+    /* Empty for every row whose name is already unique, which is nearly all of
+       them. Present only where two rows would otherwise read alike. */
+    const qual = acctQual.get(a) || '';
+    const qualTag = qual
+      ? '<span class="acct-qual" title="' + esc('Two accounts on this computer are signed in as ' + (a.email || 'this login') + '. This is the ' + qual + ' one.') + '">' + esc(qual) + '</span>'
+      : '';
     /* #864 (Josh, 2026-08-26): "kill the line." The positive arm ("An agent
        moved here keeps its conversation history") was filler nobody outside
        the team could parse, per his own words at the time it was reviewed --
@@ -13092,7 +13158,7 @@ async function paintAccounts() {
       : '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
     return '<div class="acct-box"><div class="acct-box-top"><div class="acct-who"><b>' + who
       // No "your first account" tag (#394): the email is the answer, whole.
-      + '</b>' + org + '</div>'
+      + '</b>' + qualTag + org + '</div>'
       + connBadge + '</div>'
       + shared
       /* 🛑 LIVE FOR OPENAI (#1372), STILL DEAD FOR CLAUDE (#1184), AND THE
@@ -13107,7 +13173,7 @@ async function paintAccounts() {
         ? '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
           + 'aria-label="Remove ' + who + '">Remove</button>'
         : '<button class="acct-disconnect" type="button" disabled '
-          + 'aria-label="Disconnect ' + who + '" '
+          + 'aria-label="Disconnect ' + who + (qual ? ' (' + qual + ')' : '') + '" '
           + 'title="Not built yet: disconnecting an account here has no way to tell agents on it to stop first">Disconnect</button>')
       + '</div>';
   };
