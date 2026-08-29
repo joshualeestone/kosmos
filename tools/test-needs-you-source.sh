@@ -68,7 +68,8 @@ esac
 #     drift. Three working agents typing ONE red each, in a record big enough
 #     that the SHARE stays under the cutoff, must still read as adoption.
 #     Without this the verdict rests entirely on a share whose denominator is
-#     77% heartbeats and rises on its own every day.
+#     mostly heartbeats and rises on its own every day (the tool prints the
+#     proportion each run; no number is pinned here, because it would go stale).
 mkdir -p "$T/spread"
 filler 3000 > "$T/spread/dana.jsonl"
 for who in ea fi gi; do line needs_you "should I go ahead?" > "$T/spread/$who.jsonl"; done
@@ -198,6 +199,9 @@ esac
 #     with no counter while an unreadable LINE was counted -- so an EACCES on
 #     one agent's file removed that agent's reds from every number, silently,
 #     while "agent files" still counted it.
+if [ "$(id -u)" -eq 0 ]; then
+  bad "arm 7c: running as root, so chmod 000 is a no-op and this arm would pass vacuously"
+else
 mkdir -p "$T/noperm"
 { filler 10; line needs_you "May I ask you something?"; } > "$T/noperm/ida.jsonl"
 line working "visible" > "$T/noperm/jo.jsonl"
@@ -213,6 +217,7 @@ case "$out" in
   *"UNREADABLE files"*"ida.jsonl"*) bad "arm 7c: still reported unreadable after chmod -- the check is not reading permissions" ;;
   *) ok "arm 7c: and reads zero once the file is readable (the arm can go both ways)" ;;
 esac
+fi
 
 # --- 🔑 ARM 7d: A LINE THAT IS NOT A RECORD DOES NOT INFLATE THE DENOMINATOR.
 #     A JSON array parses fine and is not a report; an object with no `state`
@@ -252,6 +257,31 @@ console.log(m.hookPrefixIsLive("/nonexistent/kosmos-report-hook.sh"));
 ')"
 [ "$gone" = "null" ] && ok "arm 8: and an unreadable hook is UNVERIFIED (null), never reported as a mismatch" \
   || bad "arm 8: an unreadable hook was conflated with a reworded one"
+
+# --- 🔑 ARM 8b: THE TWO LINES status.js QUOTES BACK. Rule 3 cites the tool's
+#     "typed by a working agent" count and its "last typed" DATE by name, so
+#     both must be asserted here or the engine comment rests on output nothing
+#     checks. Driven on a fixture with a known date and two distinct typers.
+mkdir -p "$T/dated"
+filler 3000 > "$T/dated/lyn.jsonl"
+printf '{"v":1,"state":"needs_you","because":"q","at":"2026-01-02T03:04:05.000Z"}\n' > "$T/dated/mo.jsonl"
+printf '{"v":1,"state":"needs_you","because":"q","at":"2026-07-08T09:10:11.000Z"}\n' > "$T/dated/nia.jsonl"
+out="$(run "$T/dated")"
+has "$out" 2 "distinct working agents that have EVER typed it" \
+  && ok "arm 8b: the distinct-agent count is asserted, not just printed" \
+  || bad "arm 8b: distinct working agents miscounted"
+printf '%s\n' "$out" | grep -q "last typed by a working agent:    2026-07-08T09:10:11.000Z" \
+  && ok "arm 8b: and the last-typed date is the LATEST, not the first or the file order" \
+  || bad "arm 8b: last-typed date wrong -- status.js quotes this line"
+
+# --- 🔑 ARM 7e: --dir TWICE REFUSES. Same stance as an unrecognised argument:
+#     silently last-wins is how a caller reads a fixture and gets production.
+out="$(node tools/needs-you-source.js --dir "$T/rare" --dir "$T/used" 2>&1)"; rc=$?
+case "$out" in
+  *"--dir was given twice"*) ok "arm 7e: a repeated --dir is refused, not last-wins" ;;
+  *) bad "arm 7e: a repeated --dir silently took one of them"; printf '%s\n' "$out" | head -3 ;;
+esac
+[ "$rc" -eq 2 ] || bad "arm 7e: exited $rc, expected 2"
 
 # --- 🔑 ARM 9: A DRIFTED MARKER REFUSES, IT DOES NOT WARN AND CARRY ON. The
 #     first version printed "the verdict cannot be trusted" and then printed

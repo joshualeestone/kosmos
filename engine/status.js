@@ -3578,8 +3578,10 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      against it. ⇒ What stands here is an ARGUMENT, not a bound: those seven
  *      records carry the hook's GENERATED SHAPE, a tool name plus a verbatim
  *      command, which a person does not type by hand.
- *      ⇒ Every other rule here arbitrates between two witnesses. This one
- *      arbitrates between a witness and, in practice, a silence. So anything
+ *      ⇒ Most rules here arbitrate between two witnesses. This one arbitrates
+ *      between a witness and, in practice, a silence. ("Most", not "every":
+ *      rule 1 has a single witness by construction, and rule 6 arbitrates
+ *      against a clock.) So anything
  *      that narrows the classifier narrows the only path that produces the
  *      board's red state at all.
  *      🛑 AND AN EARLIER VERSION OF THIS PARAGRAPH BLAMED #1155 FOR THAT, WHICH
@@ -3601,33 +3603,34 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      2026-08-27 CDT -- so the only time a working agent ever used the verb
  *      was BEFORE anybody told it to, and nothing has been typed since.
  *      🛑 DO NOT READ THAT AS "THE INSTRUCTION DID NOT PERSUADE ANYBODY". IT
- *      IS NOT ON ANY AGENT HERE. Two separate reasons, and an earlier version
- *      of this paragraph merged them and named the FIX as part of the problem:
- *        #1255 and #1292 landed INSIDE `### Telling people what is happening`,
- *            a heading every existing agent already holds, so `missingFrom`
- *            never re-offered either (`defaults.js` version log, items 4-6).
- *        #1296 is the FIX: it moved the two verbs into `### You do not stop`,
- *            a NEW heading, which `missingFrom` DOES offer to existing agents.
- *            So that one is OFFERED AND NOT YET APPLIED here.
- *      ⚠️ AND THE THING THAT WOULD APPLY IT IS KOSMOS'S OWN CONSENTED DOCTRINE
- *      REFRESH -- `engine/doctrine.js`, surfaced as a banner and a dialog with
- *      an explicit not-now route (`/api/agent/<name>/doctrine/refresh|not-now`,
- *      plus a fleet pair at `/api/doctrine/fleet`). It is NOT
- *      `/agent-refresh`: an earlier version of this paragraph said one refresh
- *      away and meant that skill, whose own SKILL.md mentions `work/workers`
- *      zero times against 114 mentions of `~/.claude` (the control). Naming
- *      the wrong mechanism is worse than naming none, because somebody runs
- *      it. ⇒ The offer is outstanding and unaccepted on this machine, and it
- *      is a person's to accept, which is the design.
- *      Measured here 2026-08-28, and the control is the interesting half:
- *          0 of 17 worker files carry `kosmos report needs_you`
- *          2 of 17 carry the OLD heading at all, and BOTH of those carry
- *            `kosmos msg` and NEITHER carries `kosmos report`
- *            <- that is #1255's mechanism visible in the data, not inferred
- *          0 of 17 carry the NEW heading, so #1296 has not landed here yet
- *      ⇒ The flat count is evidence of NON-DELIVERY, not evidence about the
- *      copy, and this rule's conclusion is unaffected either way: the scrape
- *      is load-bearing today whatever the reason the other path is empty.
+ *      IS NOT ON ANY AGENT HERE, AND THE REASON IS SIMPLER AND LARGER THAN THE
+ *      ONE TWO EARLIER VERSIONS OF THIS PARAGRAPH GAVE. Measured 2026-08-28,
+ *      the 17 fleet worker instruction files:
+ *          0 of 17 carry `kosmos report needs_you`
+ *          0 of 17 carry the Kosmos doctrine BLOCK at all (`kosmos:doctrine:`)
+ *         17 of 17 match a common word    <- control, so the grep sees them
+ *      ⇒ These agents have never received ANY doctrine block. No wording
+ *      question arises for them, because no sync has ever written to them.
+ *      ⚠️ THE HEADING-PLACEMENT STORY IS REAL AND EXPLAINS ONLY TWO FILES.
+ *      `defaults.js`'s version log records that #1255 and #1292 both edited
+ *      verb lines inside `### Telling people what is happening`, which
+ *      `missingFrom` will not re-offer to a file that already has that
+ *      heading -- and exactly 2 of the 17 have it, as plain text, both
+ *      carrying `kosmos msg` and neither carrying `kosmos report`. That is
+ *      the mechanism visible in the data, for those two. For the other
+ *      fifteen `missingFrom` would have offered the old heading, verbs and
+ *      all, so their zero is NOT evidence about heading placement: it is the
+ *      same zero whether #1255, #1292 or #1296 exists. An earlier version of
+ *      this paragraph cited it as though it were, which is the
+ *      indistinguishable-outcomes defect this file argues against elsewhere.
+ *      📌 And #1292 did BOTH: it added `### You do not stop` (a new heading
+ *      `missingFrom` does offer) as well as editing inside the old one. #1296
+ *      then moved the two verbs into that new section. Saying only the second
+ *      half, as two earlier versions did, reads as though nothing from #1292
+ *      could reach anybody.
+ *      ⇒ The flat count is evidence of NON-DELIVERY, and this rule's
+ *      conclusion is unaffected either way: the scrape is load-bearing today
+ *      whatever the reason the other path is empty.
  *      📌 `defaults.js`'s version log quotes 22 of 21,500 for the same split.
  *      Same numerator, older denominator, no snapshot time. The record is
  *      append-only, so both were true when written; this paragraph carries a

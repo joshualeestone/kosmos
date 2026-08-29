@@ -24,7 +24,8 @@
  * 🔑 WHAT IT CAN AND CANNOT SEE. It reads the SELF-REPORT record, so it can
  * separate a hook-written `needs_you` from an agent-typed one and count both.
  * It CANNOT see the pane reader at all -- a scraped `needs_you` never touches
- * this record, it is composed in `status.reconcileReport` at read time. So the
+ * this record, it is composed in `status.classify` at read time (`reconcileReport` is
+ * where that verdict is given precedence over a report, a different step). So the
  * argument this tool supports is by ELIMINATION: if the record shows almost no
  * agent-typed `needs_you`, then the reds the board shows are coming from the
  * one source that leaves no trace here.
@@ -66,8 +67,10 @@
  * ⭐ What there is instead is an ARGUMENT, labelled as one because it is not a
  * measurement: those records carry the hook's GENERATED SHAPE -- a tool name
  * plus a verbatim command -- which a person does not type by hand, and
- * `hookPrefixIsLive` guards the marker itself against drift. Read them and
- * judge; the per-agent table below is printed so you can.
+ * `hookPrefixIsLive` guards the marker itself against drift. To judge that
+ * shape you have to read the `because` strings in the record itself: this tool
+ * never prints them, deliberately, so agent-authored text cannot land in its
+ * output or a CI log. The per-agent table tells you WHO, not WHAT.
  *
  * ⚠️ WHY A STRING MATCH AT ALL: the record does not store who wrote a line.
  * `report --auto` is a write-time discriminator (`selfreport.js`) and is not
@@ -80,12 +83,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const REPO = path.join(__dirname, '..');
-/* The data root is `engine/store.js`'s to own. Requiring it rather than
-   re-deriving `~/Library/Application Support/...` here means this tool cannot
-   drift from the app (an earlier version used `process.env.HOME` where store
-   uses `os.homedir()`), and `AGENT_WORKFORCE_DATA` is honoured for free.
+/* The record's location is `engine/selfreport.js`'s to own, root AND leaf: it
+   exports the very directory this tool reads. Requiring it rather than
+   re-deriving `~/Library/Application Support/.../selfreports` means this tool
+   cannot drift from the app (an earlier version used `process.env.HOME` where
+   `store.js` uses `os.homedir()`, and a later one re-joined the leaf by hand),
+   and `AGENT_WORKFORCE_DATA` is honoured for free.
    `tools/check-block-delivery.js` requires from `engine/` the same way. */
-const store = require(path.join(REPO, 'engine', 'store.js'));
+const selfreport = require(path.join(REPO, 'engine', 'selfreport.js'));
 
 /* `install/kosmos-report-hook.sh` writes exactly this prefix on a
    PermissionRequest. 🛑 A CONSTANT DOES NOT MAKE THIS SAFE ON ITS OWN -- the
@@ -96,6 +101,10 @@ const HOOK_PREFIX = 'asking permission to use ';
 /* Overridable ONLY so the drift refusal below can be exercised from both arms
    in `tools/test-needs-you-source.sh`. A refusal that cannot be tested is the
    same decoration as a control that cannot fail. */
+/* ⚠️ THE ENV VAR IS FOR TESTS ONLY. Repointing it at a file that happens to
+   contain the prefix would suppress a genuine mismatch refusal. Low risk on a
+   read-only dev tool, and it is what makes arm 9 drivable from both sides,
+   which is the trade taken deliberately. */
 const HOOK_SOURCE = process.env.KOSMOS_HOOK_SOURCE || path.join(REPO, 'install', 'kosmos-report-hook.sh');
 
 /* Walkthrough agents (#1253's own evidence: `walk-birch`, `walk-cedar`) are
@@ -127,8 +136,8 @@ const RED = 'needs_you';
 const IMPOSSIBLE = 'zzz_no_such_state';
 
 /* 🔑 THE VERDICT DOES NOT REST ON THE SHARE, AND THAT IS DELIBERATE. Most of
-   the record is `working` heartbeats -- the tool prints the exact proportion
-   every run, so no number is quoted here -- and a share-only threshold
+   the record is `working` heartbeats -- printed as a proportion on every run,
+   beside the count, so no number is quoted here -- and a share-only threshold
    therefore gets harder to trip every day for reasons that have nothing to do
    with whether agents use the verb: the same real adoption rate would need
    several times as many typed reports a month from now. DISTINCT NON-FIXTURE
@@ -157,11 +166,14 @@ function parseArgs(argv) {
       if (value === undefined || String(value).trim() === '') {
         return { error: '--dir was given with no value. Pass a directory, or omit --dir to read the live record.' };
       }
+      if (dir !== null) {
+        return { error: '--dir was given twice. Refusing rather than silently taking the last one.' };
+      }
       dir = value;
       i++;
     }
   }
-  return { dir: dir || path.join(store.ROOT, 'selfreports') };
+  return { dir: dir || selfreport.DIR };
 }
 
 /* Is the marker this tool classifies by still the marker the hook writes?
@@ -298,7 +310,9 @@ function main() {
      construction. It is informative (it names which state dominates) and this
      file's own standard is that a check whose two outcomes are
      indistinguishable is decoration, so it does not get to wear the word. */
-  console.log('  ' + pad(states[0][1]) + '  for scale, the most common state (' + states[0][0] + ')');
+  console.log('  ' + pad(states[0][1]) + '  for scale, the most common state (' + states[0][0] + '), '
+    + ((states[0][1] / total) * 100).toFixed(1) + '% of the record'
+    + '  <- why the verdict does not rest on a share alone');
   const live = hookPrefixIsLive(HOOK_SOURCE);
   if (live === true) {
     console.log('       ok  the hook still writes "' + HOOK_PREFIX.trim() + '" (checked in ' + path.relative(REPO, HOOK_SOURCE) + ')');

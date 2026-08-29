@@ -50,7 +50,7 @@ points at it and tells the reader not to trust its own numbers.
    - asserts its conclusion against its own numbers, and prints the OPPOSITE
      conclusion when agents have started reporting the state themselves
 
-2. `tools/test-needs-you-source.sh`, 17 named arms and 37 assertions.
+2. `tools/test-needs-you-source.sh`, 21 named arms and 42 assertions.
    **Arm 3 is the load-bearing one:** the tool must be able to print the
    uncomfortable answer. A measuring tool that can only ever return
    "load-bearing on the scrape" is decoration on that sentence, not evidence
@@ -190,6 +190,44 @@ points at it and tells the reader not to trust its own numbers.
 - **`defaults.js` quotes 22 of 21,500 for the same split**, an older
   denominator with no snapshot time. Both were true when written; `status.js`
   now says so and says which to prefer.
+
+### Amended at iteration 5
+
+- 🛑 **The BLOCKER is my own "fix the class, not the instance" rule failing.**
+  Iteration 3 corrected "the scraped verdict is composed in `reconcileReport`"
+  in `notify.js`. **The identical sentence in the tool header was left
+  standing.** It is composed in `classify`; `reconcileReport` decides
+  precedence. One fix, two sites, and I patched one.
+- 🛑 **My delivery evidence was over-determined and I cited it as though it
+  were not.** "0 of 17 carry the NEW heading" is the same zero whether #1296
+  exists or not, because **0 of 17 carry the Kosmos doctrine block at all**
+  (control: 17 of 17 match a common word). These agents have never received
+  any block. The heading-placement story is real and explains exactly the TWO
+  files that carry the old heading as plain text; for the other fifteen
+  `missingFrom` would have offered it, verbs included. The conclusion
+  (non-delivery) survives and is simpler; the evidence I gave for the specific
+  mechanism did not extend past two files.
+- **#1292 did both**: it added `### You do not stop` AND edited inside the old
+  heading. Saying only the second reads as though nothing from it could reach
+  anybody.
+- **"Every other rule arbitrates between two witnesses" was an absolute with
+  counterexamples in its own docblock** (rule 1 has one witness; rule 6
+  arbitrates against a clock). Now "most".
+- **"The tool prints the exact proportion every run" was false.** It printed
+  counts and one unrelated percentage. It now prints the heartbeat proportion
+  beside the count, so the claim is true rather than aspirational.
+- **"Read them and judge; the per-agent table is printed so you can"** - the
+  table shows WHO, not WHAT, and the argument is about the `because` strings,
+  which the tool deliberately never prints. Reworded to point at the record.
+- **The `store` require went dead** when the leaf moved to `selfreport.DIR`,
+  leaving a comment explaining a reason that no longer applied. Both removed.
+- **A repeated `--dir` now refuses** instead of last-winning, same stance as an
+  unrecognised argument.
+- **Arm 7c is guarded against root**, where `chmod 000` is a no-op and the arm
+  would have passed vacuously.
+- **Arms 8b and 7e** cover the two lines `status.js` quotes back by name (the
+  distinct-agent count and the last-typed date) and the duplicate-`--dir`
+  refusal. Both perturbed, both red on demand.
 
 ## What this deliberately does NOT do
 
