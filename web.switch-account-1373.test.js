@@ -78,9 +78,19 @@ test('#1373: a preselected option is NOT reported as a choice', () => {
      Conflating them was a WRONG-ACCOUNT bug: re-selecting the option a <select>
      already holds fires no `change`, and with one account it can never fire, so
      requiring the flag meant the visible row was not the row sent. */
-  assert.match(PAGE, /account: \(acctSel && !acctSel\.hidden\) \? acctSel\.value : null,/,
+  /* \U0001f511 LOOSENED ONTO THE AXIS NOTHING DEPENDS ON (iteration 13). This file states
+     that rule 15 lines above and then broke it: re-pinning an exact spelling re-arms
+     the trap it had just warned about. What must hold is the PROPERTY, in two halves,
+     and the second half was never asserted at all:
+       sent when the menu is VISIBLE  -> the row on screen is the row used
+       NOT gated on the pick flag     -> re-merging the fields IS the wrong-account bug
+     \u2b50 The doesNotMatch is strictly STRONGER than the literal it replaces: the literal
+     could only fail if the spelling changed; this fails if the MEANING changes. */
+  assert.match(PAGE, /account:[\s\S]{0,80}?!acctSel\.hidden[\s\S]{0,60}?acctSel\.value/,
     'the account is no longer sent whenever the menu is showing, so the row on screen may not be the row used');
-  assert.match(PAGE, /picked: !!\(acctSel && !acctSel\.hidden && SWITCH_ACCT_TOUCHED\)/,
+  assert.doesNotMatch(PAGE, /account:[^\n]*SWITCH_ACCT_TOUCHED/,
+    'the account field consults the pick flag, which re-merges the two fields and brings back the wrong-account bug');
+  assert.match(PAGE, /picked:[\s\S]{0,80}?!acctSel\.hidden[\s\S]{0,60}?SWITCH_ACCT_TOUCHED/,
     'the pick claim no longer consults the touched flag, so a preselect can be reported as a choice');
 });
 
@@ -128,9 +138,9 @@ test('#1373: the picker is not offered where it can do nothing', () => {
   /* paintProviderPicker sets #d-provider to the agent's CURRENT provider, so on
      an agent already on OpenAI this menu would render live while Switch stays
      disabled and the engine would refuse anyway. */
-  assert.match(PAGE, /const armed = !!CURRENT && prov\.value !== providerOf\(CURRENT\);/,
+  assert.match(PAGE, /const armed =[\s\S]{0,60}?CURRENT[\s\S]{0,60}?prov\.value !== providerOf\(CURRENT\)/,
     'the armed gate is gone, so the picker renders on an agent already on OpenAI');
-  assert.match(PAGE, /if \(!openai \|\| !armed \|\| !list\.length\)/,
+  assert.match(PAGE, /if \([\s\S]{0,30}?!openai[\s\S]{0,20}?!armed[\s\S]{0,30}?!list\.length[\s\S]{0,10}?\)/,
     'the hidden condition no longer consults the armed gate');
 });
 
@@ -150,13 +160,17 @@ test('#1373: the picker is not offered where it can do nothing', () => {
    ⇒ Source-pinned here deliberately. The coupling is filed as kosmos#1465;
       when it is fixed, replace this with a real request through the route. */
 test('#1373: the page-to-route key is pinned on BOTH sides, so a rename cannot pass', () => {
-  assert.match(SERVER, /accountDir:\s*body && typeof body\.account === 'string' \? body\.account : null/,
+  /* \U0001f4cc KEY NAMES STAY TIGHT, EXPRESSIONS DO NOT. This test's job is that a RENAME
+     cannot pass, so `accountDir`, `body.account`, `pickedByPerson` and `body.picked`
+     remain pinned verbatim. The ternary around them is incidental and was pinned only
+     because it happened to be there (iteration 13). */
+  assert.match(SERVER, /accountDir:[\s\S]{0,80}?body\.account/,
     'server.js no longer reads body.account into accountDir, so the page sends a key the route ignores');
-  assert.match(SERVER, /pickedByPerson: !!\(body && body\.picked === true\)/,
+  assert.match(SERVER, /pickedByPerson:[\s\S]{0,60}?body\.picked === true/,
     'server.js no longer reads body.picked, so every switch would claim the person chose');
-  assert.match(PAGE, /account: \(acctSel && !acctSel\.hidden\) \? acctSel\.value : null,/,
+  assert.match(PAGE, /account:[\s\S]{0,80}?acctSel\.value/,
     'the page no longer sends `account`, so the route can never receive one');
-  assert.match(PAGE, /picked: !!\(acctSel && !acctSel\.hidden && SWITCH_ACCT_TOUCHED\)/,
+  assert.match(PAGE, /picked:[\s\S]{0,80}?SWITCH_ACCT_TOUCHED/,
     'the page no longer sends `picked`, so the route can never learn a person chose');
 });
 

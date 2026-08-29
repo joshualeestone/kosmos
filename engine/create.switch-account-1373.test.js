@@ -222,6 +222,35 @@ test('#1373: an unpicked account the engine cannot use falls back instead of ref
     'the refusal was deleted along with the regression, so a real pick of a dead account now passes silently');
 });
 
+/* 🛑 THE PAIR THE COMMENT PROMISED AND NOTHING PINNED (iteration 13).
+   `engine/create.js` accepts a real divergence on purpose: the confirm dialog has
+   already said "it runs on the sign-in shown above", and the unpicked fallback can
+   then land on a DIFFERENT row (a ghost after removal, or an override home). That
+   trade is right, because refusing there was iteration 11's regression.
+   ⚠️ But the whole defence of it is one sentence in a comment: "NOT SILENT, because
+   the route names the account it actually landed on." Nothing tested that sentence,
+   so a later edit could stop naming it and every test would stay green, turning an
+   ACCEPTED divergence into a SILENT one. That is the difference between a documented
+   trade-off and a wrong-account bug.
+   ⭐ The load-bearing assertion is the last one: what the answer SAYS must equal what
+   the launch job actually GOT. Pinning the answer alone would pass on an engine that
+   names one account and starts another. */
+test('#1373: when the unpicked fallback lands elsewhere, the answer NAMES where it landed', () => {
+  const g = born('switch-1373-fallback-names-it');
+  const ghost = nodePath.join(HOME, '.codex-gone-and-unpicked');
+  assert.ok(!fs.existsSync(ghost), 'the ghost must genuinely not exist');
+  const out = create.setProvider(g, 'openai', { ...BINS, accountDir: ghost });
+  assert.equal(out.outcome, create.OUTCOME.CREATED,
+    'the unpicked fallback refused, which is iteration 11\'s regression: ' + out.because);
+  assert.equal(out.openaiAccount.chosen, false, 'a fallback must not be reported as a pick');
+  assert.notEqual(out.openaiAccount.dir, ghost,
+    'the answer claims the account that was asked for, which is not the one it could use');
+  assert.ok(out.openaiAccount.dir,
+    'the answer names NO account at all, so the person cannot tell which sign-in they got');
+  assert.equal(codexHomeOf(g), out.openaiAccount.dir,
+    'the answer names one account and the launch job got another, so the divergence is now SILENT');
+});
+
 test('#1373: an account that is not on this computer is REFUSED, not silently replaced', () => {
   const c = born('switch-1373-ghost');
   const ghost = nodePath.join(HOME, '.codex-removed-by-1372');

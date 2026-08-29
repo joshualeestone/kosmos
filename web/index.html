@@ -21912,6 +21912,13 @@ function paintReportsTo(a) {
   if (sel.innerHTML !== html) sel.innerHTML = html;
 }
 let ACCOUNTS = [];
+/* 🛑 A FAILED READ AND AN EMPTY LIST ARE DIFFERENT FACTS AND THE FETCH USED TO
+   COLLAPSE THEM. `res.ok ? res.json() : null` then `|| []` made a 500 arrive as "you
+   have no accounts", which hides the switch picker and silently reverts the switch to
+   the stated default with nothing on screen. Hidden is the SAFE state, which is exactly
+   why the failure could not announce itself. This flag keeps the two apart so the one
+   that is a fault can say so. Found in challenge-loop iteration 13. */
+let ACCOUNTS_UNREADABLE = false;
 let ACCT_PICKER_FETCH = null; // #881: the one in-flight GET /api/accounts, so a second caller shares it
 async function paintAccountPicker(a) {
   const sel = document.getElementById('d-account');
@@ -21941,12 +21948,12 @@ async function paintAccountPicker(a) {
     try {
       if (!ACCT_PICKER_FETCH) {
         ACCT_PICKER_FETCH = fetch('/api/accounts', { cache: 'no-store' })
-          .then((res) => (res.ok ? res.json() : null))
+          .then((res) => { ACCOUNTS_UNREADABLE = !res.ok; return res.ok ? res.json() : null; })
           .then((body) => (body || {}).accounts || [])
           .finally(() => { ACCT_PICKER_FETCH = null; });
       }
       ACCOUNTS = await ACCT_PICKER_FETCH;
-    } catch { /* the control stays empty and disabled, which is honest */ }
+    } catch { ACCOUNTS_UNREADABLE = true; /* the control stays empty and disabled, which is honest */ }
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     if (msg) msg.textContent = '';
   }
@@ -22263,6 +22270,15 @@ function fillSwitchAccounts() {
        📌 Only our own sentence is cleared, never somebody else's status text. */
     const pmsg0 = document.getElementById('d-provider-msg');
     if (pmsg0 && pmsg0.textContent === SWITCH_ACCT_HINT) pmsg0.textContent = '';
+    /* ✅ AND IF THE LIST IS EMPTY BECAUSE WE COULD NOT READ IT, SAY SO. Only when the
+       person is actually trying to switch TO OpenAI, because that is the only state where
+       a missing picker changes what happens to them. Everywhere else an empty list is
+       ordinary and a fault line would be noise.
+       📌 It writes only into our own region and only when that region is empty, so it
+       cannot overwrite somebody else's status text. */
+    if (openai && armed && ACCOUNTS_UNREADABLE && pmsg0 && !pmsg0.textContent) {
+      pmsg0.textContent = 'We could not read your OpenAI sign-ins, so there is nothing to choose from. Close this and open it again to retry.';
+    }
     return;
   }
   /* 📌 A SECOND COPY OF THE CREATE FORM'S NAMING RULE, and the differences are
@@ -22568,6 +22584,20 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
              if (on) return 'and it will run on ' + on + '.';
              if (switchAcctChoosable()) return 'and it runs on the sign-in shown above. To use a different one, close this first.';
              if (switchAcctSending()) return 'and it runs on the sign-in shown above.';
+             /* 🛑 THE ZERO-ACCOUNT ARM SAYS WHAT WILL HAPPEN, IT DOES NOT PROMISE A
+                SIGN-IN THAT IS NOT THERE. Iteration 12 told me to "add the arm or narrow
+                the claim" and I only DOCUMENTED it in the comment above, which left the
+                false sentence on screen; iteration 13 found it again from scratch. A
+                comment naming a defect is not a fix.
+                ⚠️ The page CAN tell the two hidden-picker cases apart, which is the only
+                reason an honest sentence is possible here. With NO OpenAI account at all,
+                `openai.list()` is empty, `setProvider` REFUSES, and nothing changes, so
+                this is a statement of fact rather than a hedge. With accounts present but
+                all of them dead (live check `none`), the filtered list is also empty but
+                the engine does NOT refuse, so that case keeps the sentence below. */
+             if (!ACCOUNTS.some((x) => x.provider === 'openai')) {
+               return 'and it needs an OpenAI sign-in on this computer. There is not one yet, so the switch will stop and ask you to add one.';
+             }
              return 'and it runs on this computer’s OpenAI sign-in.';
            })())
         : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
