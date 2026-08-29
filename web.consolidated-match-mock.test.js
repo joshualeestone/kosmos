@@ -29,6 +29,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
+const { effective } = require('./test-support/cascade');
+const ROW_FACES = 'html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces';
 
 test('the right column is ordered tasks, then files, then project members', () => {
   // Re-ordered a THIRD time (Josh, 2026-08-26 08:31, #980): "put files in
@@ -75,7 +77,14 @@ test('the right cards sit on the side tone; the discussion is a full-bleed colum
 
 test('each project row in the rail shows its agent count as a subtitle, without the face icons the narrow rail has no room for', () => {
   const block = PAGE.slice(PAGE.indexOf('.pj-row .pjfaces { display: block'), PAGE.indexOf('.pj-row .pjfaces { display: block') + 400);
-  assert.match(block, /\.pj-row \.pjfaces \{ display: block; margin-top: 2px; \}/, 'the agent-count subtitle is not shown in the projects rail');
+  /* 🛑 `margin-top: 2px` USED TO BE PINNED HERE AND IT IS DEAD (#1476). A later
+     rule for the same selector sets `margin-top: 0`, so changing the EFFECTIVE
+     margin to 99px left this assertion green. `display: block` is the half that
+     carries the behaviour this test names, and it survives because the later
+     rule does not set `display`. Asserting the effective value states which is
+     which instead of pinning both and guarding neither. */
+  assert.equal(effective(PAGE, ROW_FACES, 'display'), 'block',
+    'the agent-count subtitle is not shown in the projects rail');
   assert.match(block, /\.pj-row \.pjfaces > \[aria-hidden\] \{ display: none; \}/, 'the face icons are showing in the narrow rail, where there is no room for them');
   assert.match(block, /\.pj-row \.pjcount \{ margin-left: 0; \}/, 'the count text lost the margin reset that made sense once the face icons in front of it were hidden');
   // Not reversed accidentally: .pc-t (the description) and .pj-who stay hidden.
