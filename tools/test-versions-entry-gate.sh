@@ -66,8 +66,13 @@ has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 # this repo warns about, in test-only clothing. Kept because a fixture that
 # imported the real writer would drag its file I/O into a unit test; noted so the
 # next person changing the format knows there are three places, not one.
+# TZ=America/Chicago: this fixture simulates the WRITER, which stamps in Central
+# (insert-release-entry.js). Without it, on a non-Central machine the fixture
+# would produce that machine's wall-clock while the reader interprets Central, and
+# every arm below would measure a 5-6 hour skew that has nothing to do with the
+# gate. The reader ignores the trailing token, so the literal CDT here is harmless.
 stamp_at() {
-  node -e "
+  TZ=America/Chicago node -e "
     const off = Number(process.argv[1]);
     const t = new Date(Date.now() - off*60000);
     const months='January February March April May June July August September October November December'.split(' ');
@@ -199,7 +204,7 @@ if [ "$rc" -eq 1 ]; then pass "and the gate refuses the entry that has no timest
 # the offset, the past bound, the future bound. It was fixed where it was found
 # twice, and the third survived both fixes. These arms cover all of them, and the
 # future one is the arm that matters most: that axis is what the guard is FOR.
-fut="$(node -e "const d=new Date(Date.now()+60*60000);const m='January February March April May June July August September October November December'.split(' ');let h=d.getHours(),a=h>=12?'PM':'AM';h=h%12||12;process.stdout.write(m[d.getMonth()]+' '+d.getDate()+', '+d.getFullYear()+', '+h+':'+String(d.getMinutes()).padStart(2,'0')+' '+a+' CDT')")"
+fut="$(TZ=America/Chicago node -e "const d=new Date(Date.now()+60*60000);const m='January February March April May June July August September October November December'.split(' ');let h=d.getHours(),a=h>=12?'PM':'AM';h=h%12||12;process.stdout.write(m[d.getMonth()]+' '+d.getDate()+', '+d.getFullYear()+', '+h+':'+String(d.getMinutes()).padStart(2,'0')+' '+a+' CDT')")"
 entry "$fut"
 out="$(run)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "FUTURE"; then pass "CONTROL: a stamp 60 min ahead refuses with a valid future bound"; else fail "control: +60 should refuse (rc=$rc): $out"; fi
@@ -426,6 +431,25 @@ step2="$(grep -n 'step "== 2\. ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 step7="$(grep -n 'step "== 7\. ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 if [ -n "$step2" ] && [ "$first_call" -lt "$step2" ]; then pass "one call runs BEFORE step 2, which is the whole point of the change"; else fail "no call before step 2 (first=$first_call step2=$step2)"; fi
 if [ -n "$step7" ] && [ "$last_call" -gt "$step7" ]; then pass "and the late call sits inside step 7, where the deploy is"; else fail "the late call is not in step 7 (last=$last_call step7=$step7)"; fi
+
+# --- #1464: THE READER INTERPRETS THE STAMP IN CENTRAL, NOT THE MACHINE'S TZ ---
+# 🛑 The stamp is written in Central; the reader must read it in Central on ANY
+# machine. The arms above force the FIXTURE to Central too, so they pass even on
+# the pre-fix (machine-local) reader -- fixture and reader shared the machine's
+# tz and cancelled. THIS arm is the one that fails on the pre-fix reader: it
+# builds a WRITER-STYLE Central stamp the way insert-release-entry.js does, then
+# reads it under TZ=UTC. On a machine-local reader a fresh entry read ~300 min
+# stale (CDT) and step 1 refused every cut, for everybody; the fixed reader reads
+# ~0. toLocaleString with an explicit timeZone is Central on any machine, so this
+# is a real cross-timezone check and not a tautology.
+central_now="$(node -e "process.stdout.write(new Date().toLocaleString('en-US',{timeZone:'America/Chicago',month:'long',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).replace(' at ', ', '))")"
+off_utc="$(TZ=UTC bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kosmos_versions_entry_stamp_off "'"$central_now"'"')"
+if [ "$off_utc" -ge -2 ] 2>/dev/null && [ "$off_utc" -le 4 ] 2>/dev/null; then pass "a fresh Central stamp reads ~0 under TZ=UTC (#1464: reader is Central, not machine-local) (off=$off_utc)"; else fail "#1464 REGRESSION: a fresh Central stamp read $off_utc min under TZ=UTC -- the machine-tz skew is back"; fi
+# CONTROL: the same reader under TZ=UTC still measures a genuinely stale Central
+# stamp as stale, so the arm above is not just reading 0 for everything.
+central_stale="$(node -e "const d=new Date(Date.now()-90*60000);process.stdout.write(d.toLocaleString('en-US',{timeZone:'America/Chicago',month:'long',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).replace(' at ', ', '))")"
+off_stale="$(TZ=UTC bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kosmos_versions_entry_stamp_off "'"$central_stale"'"')"
+if [ "$off_stale" -ge 88 ] 2>/dev/null && [ "$off_stale" -le 92 ] 2>/dev/null; then pass "CONTROL: a 90-min-stale Central stamp reads ~90 under TZ=UTC, not 0 (off=$off_stale)"; else fail "control: 90-min-stale Central stamp read $off_stale under TZ=UTC (expected ~90)"; fi
 
 [ "$fails" -eq 0 ] || { echo "$fails failed"; exit 1; }
 echo "all versions-entry gate arms behaved"

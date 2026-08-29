@@ -197,16 +197,18 @@ kosmos_versions_entry_stamp() {
 # past-side bounds, and a function that pre-judged would force a second copy of
 # the comparison. One offset, one comparison, in the gate below.
 #
-# ⚠️ KNOWN AND NOT FIXED HERE: this parses the entry in the MACHINE's local
-# timezone and ignores the page's trailing timezone token entirely, while
-# tools/insert-release-entry.js writes America/Chicago and hard-codes the literal
-# `CDT`. On a non-Central machine, or in winter when that literal is simply
-# wrong, the gate measures a different quantity than the page claims. Pre-existing
-# in the step 7 inline version and carried here verbatim; it is a correctness bug
-# in its own right and is carded as #1464, not a quiet rewrite inside a
-# positioning change.
+# 🛑 #1464: the stamp is written in America/Chicago (see insert-release-entry.js),
+# so this reader INTERPRETS IT IN America/Chicago too, via TZ on the node call
+# below, regardless of the machine's own timezone. Before this it parsed in the
+# MACHINE's local timezone: on a non-Central release box a freshly written entry
+# read ~300 minutes (CDT) or ~360 (CST) in the PAST, and step 1 refused every cut,
+# for everybody. TZ=America/Chicago is DST-aware, so it reads a summer stamp as CDT
+# and a winter stamp as CST -- and it deliberately IGNORES the page's trailing
+# token, because that token is a literal CDT the writer hard-codes even in winter,
+# so the wall-clock time is the trustworthy part and the label is not. The label
+# itself is corrected in insert-release-entry.js for the human reading the page.
 kosmos_versions_entry_stamp_off() {
-  V_ENTRY="$1" node -e "
+  TZ=America/Chicago V_ENTRY="$1" node -e "
   const s = process.env.V_ENTRY || '';
   const m = s.match(/^(\w+) (\d+), (\d+), (\d+):(\d+) (AM|PM)/);
   if (!m) { console.log('unparseable'); process.exit(0); }

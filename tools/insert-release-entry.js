@@ -87,12 +87,18 @@ if (!entry.includes('TIMESTAMP')) {
 
 /* ⚠️ CENTRAL, because that is the clock every other entry on this page is
    stamped in and the one Josh reads. A release stamped in the machine's
-   timezone would be a different fact wearing the same format. */
+   timezone would be a different fact wearing the same format.
+   #1464: the label now comes from timeZoneName, so it is CDT in summer and CST
+   in winter. It used to be a hard-coded literal CDT that was simply wrong for
+   half the year. The gate reads the wall-clock time and not the label, so the
+   label is for the human reading the page -- but a page that lies about which
+   clock it used is what cost the afternoon this card is named for. */
 const when = new Date().toLocaleString('en-US', {
   timeZone: 'America/Chicago',
   month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  timeZoneName: 'short',
 }).replace(' at ', ', ');
-const stamped = entry.replace('TIMESTAMP', `${when} CDT`);
+const stamped = entry.replace('TIMESTAMP', when);
 
 /* Above the newest entry, and above its comment if it has one: the comment
    belongs to the entry below it, so inserting between them would orphan it. */
@@ -102,4 +108,4 @@ const commentAt = html.lastIndexOf('    <!--', anchor);
 const at = (commentAt > 0 && anchor - commentAt < 2000) ? commentAt : anchor;
 
 fs.writeFileSync(page, html.slice(0, at) + stamped + '\n' + html.slice(at));
-console.log(`   inserted ${id}, stamped ${when} CDT`);
+console.log(`   inserted ${id}, stamped ${when}`);
