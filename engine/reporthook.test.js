@@ -128,3 +128,70 @@ test('a script path carrying shell-special characters is refused, not embedded i
   assert.equal(got.wired, false);
   assert.match(got.because, /will not embed/);
 });
+
+// ---------------------------------------------------------------------------
+// #561/#1467: an entry of ours pointing at the WRONG COPY is not "already wired"
+// ---------------------------------------------------------------------------
+
+/* 🛑 MEASURED ON THE REAL MACHINE, 2026-08-29. Seven live entries pointed at a
+   hand-placed copy of the script in ~/.claude/hooks/user dated Aug 26, and
+   `ensureWired` answered {wired: true, changed: false} against them: SUCCESS,
+   having changed nothing, for a script it had never seen.
+
+   `entryIsOurs` matches the FILENAME, and every copy of the script carries the
+   filename. So the product's self-healing path could not heal the one thing it
+   exists to heal, and reported that it had. `setup.sh` re-runs this on every
+   update, which is why a stale hook survived all of them. */
+
+const STALE = path.join(SANDBOX, 'elsewhere', 'kosmos-report-hook.sh');
+const staleEntry = () => ({
+  matcher: '',
+  hooks: [{ type: 'command', command: 'bash "' + STALE + '"', timeout: 15 }],
+});
+
+test('#1467: an entry aimed at another copy of the script is REPOINTED, not skipped', () => {
+  const p = fresh();
+  const hooks = {};
+  for (const e of reporthook.HOOK_EVENTS) hooks[e] = [staleEntry()];
+  fs.writeFileSync(p, JSON.stringify({ hooks }));
+
+  const got = reporthook.ensureWired(p, SCRIPT);
+  assert.equal(got.wired, true);
+  assert.equal(got.changed, true, 'it reported success while changing nothing, which is the whole defect');
+
+  const data = readJson(p);
+  const all = JSON.stringify(data);
+  assert.equal(all.includes(STALE), false, 'a stale copy is still wired, so an update cannot fix a machine');
+  for (const e of reporthook.HOOK_EVENTS) {
+    assert.equal(oursIn(data, e), 1, `event ${e} should carry exactly one entry of ours`);
+    assert.equal(data.hooks[e][0].hooks[0].command.includes(SCRIPT), true, `event ${e} points at the wrong script`);
+  }
+});
+
+test('#1467: repointing is IDEMPOTENT, so a second update is a no-op', () => {
+  const p = fresh();
+  const hooks = {};
+  for (const e of reporthook.HOOK_EVENTS) hooks[e] = [staleEntry()];
+  fs.writeFileSync(p, JSON.stringify({ hooks }));
+
+  reporthook.ensureWired(p, SCRIPT);
+  const after1 = fs.readFileSync(p, 'utf8');
+  const got2 = reporthook.ensureWired(p, SCRIPT);
+  assert.equal(got2.changed, false, 'a settings file already correct must not be rewritten');
+  assert.equal(fs.readFileSync(p, 'utf8'), after1);
+});
+
+test('#1467 CONTROL: somebody else hook in the same event survives repointing', () => {
+  // Without this, "replace our entries" could quietly become "replace the list".
+  const p = fresh();
+  const theirs = { matcher: '', hooks: [{ type: 'command', command: 'bash /somebody/else/thing.sh' }] };
+  fs.writeFileSync(p, JSON.stringify({ hooks: { SessionStart: [theirs, staleEntry()] } }));
+
+  reporthook.ensureWired(p, SCRIPT);
+  const data = readJson(p);
+  const cmds = data.hooks.SessionStart.map((e) => e.hooks[0].command);
+  assert.equal(cmds.filter((c) => c.includes('/somebody/else/thing.sh')).length, 1,
+    'a hook that is not ours was destroyed by repointing');
+  assert.equal(cmds.some((c) => c.includes(SCRIPT)), true);
+  assert.equal(cmds.some((c) => c.includes(STALE)), false);
+});

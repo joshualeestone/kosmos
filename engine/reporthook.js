@@ -114,9 +114,37 @@ function ensureWired(settingsPath, scriptPath) {
   }
   if (!data.hooks || typeof data.hooks !== 'object' || Array.isArray(data.hooks)) data.hooks = {};
   let changed = false;
+  /* 🛑 AN ENTRY OF OURS POINTING AT THE WRONG FILE IS NOT "ALREADY WIRED".
+     `entryIsOurs` matches the FILENAME, which every copy of the script carries,
+     so a hand-placed copy at some other path reads as correctly wired forever.
+     Measured 2026-08-29 on this machine: seven entries pointed at a copy in
+     ~/.claude/hooks/user from Aug 26, and `ensureWired` answered
+     {wired: true, changed: false} against it -- SUCCESS, having changed
+     nothing, for a script it had never seen. Control: the same call on a
+     settings file with no hooks wrote all seven.
+
+     ⇒ The product's self-healing path could not heal the one thing it exists
+     to heal, and said it had. That is why #1467's stale hook survived every
+     update: `setup.sh` re-runs this on every update and this loop skipped it.
+
+     So: an entry that is OURS but names a different script is REPOINTED. It is
+     ours by the marker, so replacing it is not clobbering somebody's
+     configuration -- and leaving it is how a machine keeps running a hook
+     nobody has looked at since August. */
+  const wantCommand = entryFor(scriptPath).hooks[0].command;
   for (const event of HOOK_EVENTS) {
     const existing = Array.isArray(data.hooks[event]) ? data.hooks[event] : [];
-    if (existing.some(entryIsOurs)) continue;
+    const mine = existing.filter(entryIsOurs);
+    if (mine.length) {
+      /* Already ours and already correct: leave it completely alone, so a
+         second run is a no-op and a person's timeout or matcher edits survive. */
+      if (mine.some((e) => e.hooks.some((h) => h && h.command === wantCommand))) continue;
+      /* Ours, but aimed at another copy. Replace only OUR entries; anything
+         else in this event's list is somebody else's hook and is untouched. */
+      data.hooks[event] = existing.map((e) => (entryIsOurs(e) ? entryFor(scriptPath) : e));
+      changed = true;
+      continue;
+    }
     data.hooks[event] = existing.concat([entryFor(scriptPath)]);
     changed = true;
   }
