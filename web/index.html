@@ -12997,6 +12997,23 @@ function accountQualifiers(list) {
   /* The same key the row renders its name from, so the count answers the
      question the SCREEN asks ("do two rows read alike"), not a question about
      the data that happens to be nearby. */
+  /* 🛑 TWO DEFERRED FINDINGS DEPEND ON THIS RETURNING A NON-EMPTY KEY, and they
+     are recorded HERE rather than only in a closed review, because this is where
+     whoever changes it will look.
+     `.claude/plans/acctdup-named-pre-challenge.md` deferred findings 8 and 9 as
+     UNREACHABLE, and both dismissals rest on a property of THIS function:
+
+       8  the ambiguity count is blind to a name derived from a label or dir.
+          Moot only while every row yields a key from `email` or `keyTail`.
+       9  the default dir is not added to the used-set.
+          Moot only while there is exactly one default.
+
+     ⚠️ A DISMISSAL THAT SAYS "MOOT BECAUSE X" IS A DEPENDENCY ON X, NOT A
+     REASSURANCE (Splinter, 2026-08-29). A row that yields NEITHER an email nor a
+     keyTail gets `''`, is not counted, and finding 8 becomes live with nothing
+     failing. Re-measured 2026-08-29: 4 accounts, all with an email containing @,
+     dirs and labels unique, exactly one default. Both still moot.
+     ⇒ If you widen what a row can be, re-check those two rather than assuming. */
   const key = (a) => String((a && (a.email
     || (a.provider === 'openai' && a.keyTail ? 'key ending ' + a.keyTail : ''))) || '');
   const count = new Map();
