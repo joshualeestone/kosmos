@@ -16726,7 +16726,7 @@ function openDetail(sessionName, section) {
      on its own line, that reads as a fragment; a capital and a full stop make
      it the sentence it is. Nothing else about the words changes. */
   const reason = String(a.because || '').trim();
-  why.textContent = reason ? reason.charAt(0).toUpperCase() + reason.slice(1) + (/[.!?]$/.test(reason) ? '' : '.') : '';
+  why.textContent = asSentence(reason);
   why.hidden = !why.textContent;
   /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
      somebody's terminal, on its way to a product surface. `textContent` is the
@@ -18512,7 +18512,7 @@ function renderStale(s) {
   // <reason>", and rendering one straight after a full stop produced "running
   // on. its instruction file is not UTF-8 text".
   const why = String(s.because || '');
-  const sentence = why ? `${why.charAt(0).toUpperCase()}${why.slice(1)}${/[.!?]$/.test(why) ? '' : '.'}` : '';
+  const sentence = asSentence(why);
   /**
    * ⚠️ REWORDED 2026-08-11 after Josh read it on screen and could not parse it.
    * It said "We cannot tell whether this is what it is running on", which is
@@ -21220,7 +21220,7 @@ async function paintPlus() {
   const because = plusWords(stat.because || '');
   st.textContent = stat.state === 'up'
     ? ('Connected. Your address: ' + (stat.address || 'is on its way.'))
-    : (because ? because.charAt(0).toUpperCase() + because.slice(1) + '.' : '');
+    : asSentence(because);
   /* #1014: only a real address earns an instruction. While the tunnel is
      still coming up there is nothing to tell somebody to open, and telling
      them to open "is on its way." would be worse than saying nothing. */
@@ -27367,7 +27367,7 @@ function pjWhen(at) {
 function placedWords(d) {
   const note = (d && d.paneNote) || '';
   if (!note || d.paneState === 'idle') return '';
-  return note.charAt(0).toUpperCase() + note.slice(1) + '.';
+  return asSentence(note);
 }
 function pjVerdict(m, name) {
   const d = (m && m.delivery) || {};
@@ -27448,7 +27448,7 @@ function pjMsg(m, name) {
 function pjSentence(because) {
   const said = String(because || '').trim();
   if (!said) return '';
-  return said.charAt(0).toUpperCase() + said.slice(1) + (/[.!?]$/.test(said) ? '' : '.');
+  return asSentence(said);
 }
 
 /**

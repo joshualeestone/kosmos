@@ -83,8 +83,13 @@ test('heardSentence: the three delivery states get three sentences, and no assig
   assert.ok(at > -1, 'heardSentence moved; re-anchor');
   const pjSentenceAt = SCRIPT.indexOf('function pjSentence(because)');
   const pjSentenceFn = SCRIPT.slice(pjSentenceAt, SCRIPT.indexOf('\n}\n', pjSentenceAt) + 3);
+  // #1283: pjSentence delegates its casing to the shared dresser, so the
+  // prelude needs it or the lifted body calls an undefined function.
+  const asSentenceAt = SCRIPT.indexOf('function asSentence(s)');
+  assert.ok(asSentenceAt > -1, 'asSentence moved; re-anchor');
+  const asSentenceFn = SCRIPT.slice(asSentenceAt, SCRIPT.indexOf('\n}\n', asSentenceAt) + 3);
   // eslint-disable-next-line no-new-func
-  const heardSentence = new Function(pjSentenceFn + '\n' + fn + '\nreturn heardSentence;')();
+  const heardSentence = new Function(asSentenceFn + '\n' + pjSentenceFn + '\n' + fn + '\nreturn heardSentence;')();
   assert.equal(heardSentence(undefined), '', 'no heard object (close/reopen, or no assignee) says something');
   assert.equal(heardSentence({ who: 'April' }), '', 'a heard with no state says something');
   assert.equal(heardSentence({ who: 'April', state: 'placed', because: null }),
@@ -131,9 +136,14 @@ test('heardSentence speaks the display name, never the raw session name', () => 
   const heardFn = SCRIPT.slice(heardAt, SCRIPT.indexOf('\n}\n', heardAt) + 3);
   const pjSentenceAt = SCRIPT.indexOf('function pjSentence(because)');
   const pjSentenceFn = SCRIPT.slice(pjSentenceAt, SCRIPT.indexOf('\n}\n', pjSentenceAt) + 3);
+  // #1283: pjSentence delegates its casing to the shared dresser, so the
+  // prelude needs it or the lifted body calls an undefined function.
+  const asSentenceAt = SCRIPT.indexOf('function asSentence(s)');
+  assert.ok(asSentenceAt > -1, 'asSentence moved; re-anchor');
+  const asSentenceFn = SCRIPT.slice(asSentenceAt, SCRIPT.indexOf('\n}\n', asSentenceAt) + 3);
   // eslint-disable-next-line no-new-func
   const { heardSentence, spokenHeard } = new Function(
-    pjSentenceFn + '\n' + heardFn + '\n' + nameFn + '\n' + spokenFn
+    asSentenceFn + '\n' + pjSentenceFn + '\n' + heardFn + '\n' + nameFn + '\n' + spokenFn
     + '\nreturn { heardSentence, spokenHeard };')();
   // A real card and a real project record, not a hand-built stand-in
   // (fixture discipline, this file's own established pattern): the

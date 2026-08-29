@@ -40,6 +40,10 @@ function world(remote) {
     document: { getElementById: el },
     fetch: async () => ({ ok: true, json: async () => remote }),
     plusWords: (s) => s,
+      /* #1283: the panel's status line goes through the one shared dresser now.
+         Lifted REAL rather than stubbed: every assertion here is about the
+         sentence it produces, and a stub would assert my words, not the page's. */
+      asSentence: new Function(page.lift(SCRIPT, 'asSentence') + '\nreturn asSentence;')(),
     askKind: () => 'a phone', askEsc: (s) => String(s), askAgo: () => 'today',
     ASK: { confirm: null, pending: [], done: {} },
     paintAsk: () => {}, plusSecondDisarm: () => {}, pollAsk: () => {},

@@ -109,8 +109,13 @@ test('#743: a slower poll cannot revert a faster user click (or vice versa)', ()
   };
   const pending = [];
   const fetchImpl = () => new Promise((resolve) => { pending.push(resolve); });
+  /* #1283: paintPlus's status line goes through the shared dresser now, so
+     the prelude carries it. Lifted from the page rather than stubbed: this
+     test is about which call WINS, and a missing helper throws before it can
+     find out. */
+  const asSentenceSrc = pageFnSource('asSentence');
   const run = new Function('document', 'fetch', 'plusWords', 'paintDevices', 'plusSecondDisarm',
-    'let PLUS_EPOCH = 0;\n' + src + '\nreturn paintPlus;')(
+    'let PLUS_EPOCH = 0;\n' + asSentenceSrc + '\n' + src + '\nreturn paintPlus;')(
     { getElementById: (id) => els[id] }, fetchImpl, (t) => t, () => {}, () => {});
 
   const callA = run();  // dispatched first: on

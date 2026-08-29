@@ -2993,7 +2993,9 @@ test('the detail panel carries the explanation the card gave up', () => {
     assert.ok(from > -1 && write > from && write < end,
       'the why write fell outside the extracted slice');
     // eslint-disable-next-line no-new-func
-    new Function('document', 'a', script.slice(from, end))(
+    // #1283: the why line now goes through the one shared dresser, so the slice
+    // alone evaluates a body calling an undefined function.
+    new Function('document', 'a', pageFnSource('asSentence') + '\n' + script.slice(from, end))(
       { getElementById: () => el }, { because });
     return el;
   };

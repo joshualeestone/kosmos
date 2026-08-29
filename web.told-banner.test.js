@@ -64,6 +64,10 @@ function panel() {
     set textContent(v) { this._html = String(v); },
   };
   const fn = new Function('document', 'esc', 'CURRENT', `
+    /* #1283: renderStale's sentence now delegates to the one shared dresser,
+       so lifting it without asSentence evaluates a body calling an undefined
+       function. Same reason server.test.js and web.said-line lift it. */
+    ${page.lift(SCRIPT, 'asSentence')}
     ${page.lift(SCRIPT, 'setLive')}
     ${page.lift(SCRIPT, 'staleWords')}
     ${page.lift(SCRIPT, 'renderStale')}

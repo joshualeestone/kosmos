@@ -112,7 +112,9 @@ test('#671: the composer speaks the row\'s own cause at the decision point, and 
   const PAGE_SCRIPT = page.scriptOf(fs.readFileSync(nodePath.join(REPO, 'web', 'index.html'), 'utf8'));
   // eslint-disable-next-line no-new-func
   const dmOffLine = new Function(
-    page.lift(PAGE_SCRIPT, 'pjSentence') + '\n' + page.lift(PAGE_SCRIPT, 'dmOffLine') + '; return dmOffLine;',
+    // #1283: pjSentence delegates its casing to the one shared dresser, so the
+    // prelude carries it too or the lifted body calls an undefined function.
+    page.lift(PAGE_SCRIPT, 'asSentence') + '\n' + page.lift(PAGE_SCRIPT, 'pjSentence') + '\n' + page.lift(PAGE_SCRIPT, 'dmOffLine') + '; return dmOffLine;',
   )();
 
   const row = (boardWithStoppedAgent({ job: true }).agents || []).find((a) => a.sessionName === 'quiet');

@@ -73,20 +73,45 @@ test('conflictNote delegates rather than keeping its own copy', () => {
 });
 
 /**
- * ⚠️ WHAT THIS CARD DOES NOT FIX, asserted so the number cannot quietly grow.
+ * EIGHT DOWN TO FOUR (#1283). This started as "what this card does not fix",
+ * pinned at eight so a ninth could not arrive quietly. Five of those eight were
+ * straight stop-dressing copies and now call `asSentence`; the doubled-full-stop
+ * defect they carried is gone with them. Measured before: 5 of the engine's 363
+ * `because` strings already end in a stop, so an unconditional `+ '.'` rendered
+ * "..".
  *
- * The page has EIGHT inline copies of "dress an engine sentence" and they do
- * three different things: guard the full stop, append one unconditionally, or
- * add none. Measured: 5 of the engine's 363 `because` strings already end in a
- * stop, so an unconditional `+ '.'` can render "..". That is a real defect and
- * it is carded separately, because converting all eight touches surfaces this
- * change has no business moving.
+ * ⚠️ THE FOUR THAT REMAIN ARE NOT THE SAME THING AS EACH OTHER, which is why the
+ * number stops at four rather than zero. Converting them is a behaviour change,
+ * not a refactor, and each wants its own decision:
  *
- * This pins the count so the next person meets the finding instead of adding
- * a ninth. Lowering it is the fix; raising it should fail.
+ *   the definition of `asSentence` itself      counted by this regex, and is the
+ *                                              thing every other site delegates to
+ *   a capitalise-only site, no stop at all     adding one changes what renders
+ *   `+ '. '`, WITH A TRAILING SPACE            something downstream may concatenate
+ *                                              onto it; a behaviour until proven not
+ *   a `' ' + ...` leading-space form           same question at the other end
+ *
+ * The bound stays `<=` on purpose: lowering it is the fix and must keep passing,
+ * raising it must fail.
  */
 test('the other inline capitalizers are known, counted, and not growing', () => {
   const inline = PAGE.match(/charAt\(0\)\.toUpperCase\(\) \+ /g) || [];
-  assert.ok(inline.length <= 8,
+  assert.ok(inline.length <= 4,
     `inline sentence-dressing copies went up to ${inline.length}; use asSentence instead`);
+});
+
+/* The five converted sites, pinned by NAME rather than by count, because a count
+   cannot tell you WHICH one regressed. Each of these delegated an inline copy to
+   the shared dresser in #1283; a revert of any one of them fails here with its
+   own name rather than as an off-by-one in the number above. */
+test('#1283: the five converted sites go through the shared dresser', () => {
+  for (const [what, pattern] of [
+    ['the agent why-line', /why\.textContent = asSentence\(reason\);/],
+    ['the session sentence', /const sentence = asSentence\(why\);/],
+    ['pjSentence', /return asSentence\(said\);/],
+    ['the connection status line', /: asSentence\(because\);/],
+    ['placedWords', /return asSentence\(note\);/],
+  ]) {
+    assert.match(PAGE, pattern, `${what} kept or regrew its own copy of the sentence rule`);
+  }
 });
