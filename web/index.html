@@ -9547,7 +9547,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <p class="fhint">Each one asked here first. Remove one and it stops right away; it can ask again by signing in.</p>
         <p class="fhint" id="plus-devices-off" hidden>Plus is off, so no device can reach Kosmos on this computer right now. Your devices are kept for when you turn it back on.</p>
         <div id="plus-devlist"></div>
-        <p class="fhint" id="plus-devempty" hidden>None yet. The first time you sign in from a phone, it asks here.</p>
+        <!-- 🛑 NOT "from a phone" (Josh, 2026-08-29 14:04). Every device that reaches
+             this computer asks here, and this sentence named one kind. Somebody
+             signing in from a laptop read it as "the list is for phones" and
+             would not have looked for their own device on it. -->
+        <p class="fhint" id="plus-devempty" hidden>None yet. The first time you sign in from another device, it asks here.</p>
         <p class="fmsg" id="plus-devmsg" role="alert" aria-live="assertive"></p>
       </div>
       <!-- #733 recovery: the second step at sign-in can be reset only from
@@ -9558,7 +9562,20 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            The words are Ice Cream Kitty's and Mona Lisa may replace them. -->
       <div id="plus-second" hidden style="margin-top:16px;">
         <p class="setname">I lost my phone</p>
-        <p class="fhint">Signing in from a phone asks for a second code after the email code. If the phone that gives that code is gone, this computer can switch the second step off. Nobody else can, not even us. Sign in from your new phone afterwards and set it up again there.</p>
+        <!-- 🛑 "ALWAYS", NOT "from a phone" (Josh, 2026-08-29 14:04, verbatim):
+             "The phone verification will ALWAYS happen. It is NOT if you are
+             coming from a phone... It is true two-factor."
+             ⚠️ THIS IS THE ONE KIND OF COPY WHERE BEING WRONG IS ITS OWN HARM.
+             The sentence taught a person that a second step protects them only
+             in one situation. Somebody who believed it would reason about their
+             own account security from a false model, and would not think the
+             second step was theirs to lose.
+             📌 HIS RULING ALSO NAMES AN AUTHENTICATOR APP AND THIS COPY DOES NOT
+             MENTION ONE, deliberately: "authenticator" and "TOTP" appear ZERO
+             times in the page, the server and the engine, so there is nothing to
+             point at. Promising one would be the same defect pointing the other
+             way. That is a mechanism gap and it is not this change. -->
+        <p class="fhint">Signing in always asks for a second code after the email code, on every device. If the phone that gives that code is gone, this computer can switch the second step off. Nobody else can, not even us. Sign in from your new phone afterwards and set it up again there.</p>
         <div class="frow">
           <button class="btn" type="button" id="plus-second-reset">Reset the second step</button>
         </div>
