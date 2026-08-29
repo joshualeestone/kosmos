@@ -114,3 +114,19 @@ test('#1139: a malformed token is not presented, because presenting it would REF
       `${JSON.stringify(bad)} was presented as a token; the route would refuse the report rather than fall back to the pane`);
   }
 });
+
+test('#1456: the turn-complete report says the MACHINE wrote it, so it cannot erase a standing block', async () => {
+  const seen = await drive(JSON.stringify({
+    type: 'agent-turn-complete', 'last-assistant-message': 'the thing is done',
+  }));
+  assert.equal(seen.length, 1, 'the control: the bridge did report at all');
+  const body = JSON.parse(seen[0].body);
+  assert.equal(body.auto, true,
+    'agent-turn-complete is the Codex analogue of Claude\'s Stop hook: it fires '
+    + 'at the end of EVERY turn. Without this the route sends auto:false, #900\'s '
+    + 'guard is never entered, and a `blocked` the agent filed DURING the turn is '
+    + 'erased by its own turn ending. #900 was fixed on the Claude path and the '
+    + 'fix was a flag a caller has to remember; this is the caller that forgot.');
+  assert.equal(typeof body.auto, 'boolean',
+    'the route reads `body.auto === true`, so a truthy non-boolean is a false');
+});

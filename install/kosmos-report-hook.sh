@@ -15,6 +15,23 @@
 #                        (fires BEFORE the box renders; the Notification
 #                        hook is ~6 seconds late by design and is unused)
 #   Stop              -> idle --auto (never erases a standing blocked/needs_you, #900)
+#
+# EVERY line above passes --auto, and that is the point rather than a detail:
+# --auto means THE MACHINE WROTE THIS, not the agent (install/kosmos, above
+# cmd_report). This hook is the machine. It used to be passed on the Stop line
+# alone, because it was added for #900's rule rather than for what it means, so
+# five of these six reports were indistinguishable from an agent typing them,
+# and selfreport.record now PERSISTS that mark (#1453).
+#
+# It changes no behaviour for the other five: #900's guard is scoped to
+# `auto === true && state === 'idle'` and refuses nothing else. What it changes
+# is that the record can now say who wrote a line.
+#
+# 🛑 SO IF YOU EVER WIDEN THAT GUARD BEYOND `idle`, THESE FIVE BECOME
+# REFUSABLE. The guard's own comment explains why it must stay narrow: a rule
+# that refused every automatic write would strand the agent blocked forever.
+# report-hook-auto-1453.test.js asserts every `report` line here carries
+# --auto, so a seventh cannot quietly reopen the gap.
 #   StopFailure       -> blocked --on "provider api (<kind>)" --owner provider
 #   SessionEnd        -> stopped
 #
@@ -203,11 +220,11 @@ case "$EVENT" in
     fi ;;
   UserPromptSubmit)
     date +%s > "$MARK" 2>/dev/null || true
-    report working answering a prompt ;;
+    report working --auto answering a prompt ;;
   PreToolUse)
     if heartbeat_due; then
       TOOL=$(json_field '.tool_name' 'tool_name'); TOOL="${TOOL:-a tool}"
-      report working "running ${TOOL}"
+      report working --auto "running ${TOOL}"
     fi ;;
   PermissionRequest)
     # The sentence carries what is being asked about. The words stay on this
@@ -215,7 +232,7 @@ case "$EVENT" in
     TOOL=$(json_field '.tool_name' 'tool_name'); TOOL="${TOOL:-a tool}"
     CMD=$(json_field '.tool_input.command' 'command' | head -c 200)
     rm -f "$MARK" 2>/dev/null || true
-    report needs_you "asking permission to use ${TOOL}${CMD:+: $CMD}" ;;
+    report needs_you --auto "asking permission to use ${TOOL}${CMD:+: $CMD}" ;;
   Stop)
     rm -f "$MARK" 2>/dev/null || true
     # #900: --auto, so this end-of-turn idle cannot erase a `blocked` or
@@ -226,9 +243,9 @@ case "$EVENT" in
   StopFailure)
     KIND=$(json_field '.matcher // .error_type' 'matcher'); KIND="${KIND:-an api error}"
     rm -f "$MARK" 2>/dev/null || true
-    report blocked --on "provider api (${KIND})" --owner provider ;;
+    report blocked --auto --on "provider api (${KIND})" --owner provider ;;
   SessionEnd)
     rm -f "$MARK" 2>/dev/null || true
-    report stopped ;;
+    report stopped --auto ;;
 esac
 exit 0

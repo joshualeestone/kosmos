@@ -196,3 +196,68 @@ test('#900: an agent that never reported is not special-cased into a refusal', (
   assert.equal(selfreport.record('fresh-one', { state: 'idle', because: 'finished responding', auto: true }).recorded, true);
   assert.equal(selfreport.read('fresh-one').state, 'idle');
 });
+
+/* -------------------------------------------------------------------------
+ * #1453: the record says WHO WROTE THE LINE.
+ *
+ * The write-time discriminator #900 branches on used to be dropped before the
+ * write, so afterwards nothing could tell a hook-written state from an
+ * agent-typed one -- and the two produce an identical line, which the rule's
+ * own comment says is exactly why the mark is necessary.
+ * ------------------------------------------------------------------------- */
+
+test('a machine-written report is stored as such, and an agent-typed one is not', () => {
+  selfreport.record('bywho', { state: 'working', because: 'running a tool', auto: true });
+  assert.equal(selfreport.read('bywho').by, 'auto');
+
+  selfreport.record('bywho', { state: 'working', because: 'reading the brief' });
+  assert.equal(selfreport.read('bywho').by, 'agent',
+    'a report with no auto flag is the agent choosing to say it');
+});
+
+test('the stored mark is the same predicate the #900 rule branched on, not a second copy of it', () => {
+  /* Anything other than a strict `true` is not the machine, and the rule
+     above reads `entry.auto === true`. If these two ever disagree, the record
+     starts claiming a rule ran that did not. */
+  for (const notTheMachine of [1, 'true', 'auto', {}, [], 'yes']) {
+    selfreport.record('strictly', { state: 'working', auto: notTheMachine });
+    assert.equal(selfreport.read('strictly').by, 'agent',
+      JSON.stringify(notTheMachine) + ' is not `true`, so #900 would not have '
+      + 'refused it and the record must not say the machine wrote it');
+  }
+  selfreport.record('strictly', { state: 'working', auto: true });
+  assert.equal(selfreport.read('strictly').by, 'auto', 'the control: a real true still reads auto');
+});
+
+test('a line written before the field existed reads as unknown, never as agent-typed', () => {
+  /* A v1 line exactly as one written before #1453: every field the writer
+     emitted then, and no `by`. Treating its absence as "an agent typed it"
+     would manufacture the very count this field removes.
+
+     ⚠️ The module writes the line and we then STRIP the field, rather than
+     hand-rolling a path and a shape. A fixture I compose myself encodes my
+     belief about where the record lives; the first attempt at this test put
+     it in the wrong directory and read found:false, which is indistinguishable
+     from the legacy line being rejected. */
+  const fs2 = require('node:fs');
+  selfreport.record('oldline', { state: 'needs_you', because: 'asking permission to use Bash' });
+
+  const file = selfreport.fileFor('oldline');
+  const written = JSON.parse(fs2.readFileSync(file, 'utf8').trim());
+  assert.ok('by' in written, 'the control: today\'s writer DOES emit the field, so removing it means something');
+  delete written.by;
+  fs2.writeFileSync(file, JSON.stringify(written) + '\n');
+
+  const back = selfreport.read('oldline');
+  assert.equal(back.found, true, 'the legacy line must still read');
+  assert.equal(back.state, 'needs_you', 'and read the same as it always did');
+  assert.equal(back.because, 'asking permission to use Bash');
+  assert.equal(back.by, null,
+    'no by field means we do not know who wrote it, which is the honest '
+    + 'answer. Defaulting it to agent would be a manufactured one.');
+});
+
+test('an agent that never reported has no writer either', () => {
+  assert.equal(selfreport.read('nobody-at-all').by, undefined,
+    'found:false carries no reading at all, so a caller cannot read a writer off it');
+});

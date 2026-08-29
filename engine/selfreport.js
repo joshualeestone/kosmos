@@ -135,6 +135,30 @@ function record(sessionName, entry) {
        instance and leaves it null, which is the honest answer rather than a
        manufactured one. */
     instance: capped(entry.instance, CAPS.instance),
+    /* #1453: WHO WROTE THIS LINE. The comment on #900's rule above says the
+       necessary thing -- marking the writer is the only way to tell an
+       automatic report from a deliberate one, BECAUSE THE TWO PRODUCE AN
+       IDENTICAL LINE -- and until now the mark was used at write time and
+       dropped before the write. So anything auditing whether that rule worked
+       had to reconstruct by string-matching the hook's own sentence what this
+       function already knew and threw away.
+
+       It is the SAME predicate the rule above branches on, deliberately: this
+       field records what the rule SAW, never a re-derivation of it, so the two
+       cannot drift.
+
+       ⚠️ THREE VALUES, NOT A BOOLEAN, and that is the whole reason it is not
+       `auto: true`. A line written before this field existed carries no `by`
+       and reads as null -- unknown provenance, which is the honest answer
+       rather than a manufactured one, and the same posture `instance` takes
+       two fields up. An omitted boolean would collapse "the agent typed it"
+       into "we do not know", which is the ambiguity this exists to remove.
+
+       Append-only, so no migration and no rewrite of history. `v` stays 1:
+       read() picks fields by name and no reader asserts a key set, so a bump
+       would make every reader handle two shapes for a change none of them has
+       to handle. */
+    by: entry.auto === true ? 'auto' : 'agent',
     at,
   };
   try {
@@ -229,6 +253,11 @@ function read(sessionName) {
     /* Null for a pane-derived report, which is most of them: the pane arm has
        no notion of a run. Null means "not known", never "only one run". */
     instance: latest.instance || null,
+    /* #1453: 'auto' (a lifecycle hook wrote it), 'agent' (the agent chose to
+       say it), or null for a line written before the field existed. Null is
+       "not known", never "an agent typed it" -- a caller that treats absence
+       as agent-typed reintroduces exactly the miscount this field removes. */
+    by: latest.by || null,
     project,
     /* Whether the project came from the latest report itself (stated) or from
        an earlier one (inferred: no report attributed THIS reading to it). A tile lit by an inference must
