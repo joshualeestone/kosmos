@@ -139,22 +139,46 @@ which is the wiring that must actually be true.
 **Requires `data-root-platform`.** Merged into this branch rather than assumed,
 and the guard above enforces it rather than trusting it.
 
-## Verified
+## Superseded: this branch's builder is being deleted
 
-```
-build exit 0, 136 engine modules staged
-node runtime sha256 MATCHES nodejs.org SHASUMS256.txt
-node.exe                     PE32+ executable (console) x86-64, for MS Windows
-archive                      156 files, 35MB
-shipped engine/store.js      appDataHome 2, 'Application Support' 0
-                             CONTROL 'const ROOT' 1, so the grep reads the file
-shipped platformpaths.js     present
-```
+🛑 **THE "## Verified" BLOCK THAT USED TO SIT HERE DESCRIBED AN ARTIFACT THIS
+BRANCH NO LONGER PRODUCES, AND EVERY LINE OF IT WAS MEASURABLY WRONG** after I
+rebased onto `main`'s `dataRootFor`. A reviewer checked all five:
 
-## Not verified, and I am not claiming it
+| it claimed | actually |
+|---|---|
+| `appDataHome 2` in the shipped `store.js` | **0**. That identifier exists nowhere in the repo any more |
+| `'Application Support' 0` | **3**, and the build script explains why 3 is correct |
+| `platformpaths.js present` | **no such file**, I deleted it |
+| `136 engine modules` | **137** |
+| `archive 156 files` | **160** |
 
-**Nothing here has run on Windows.** The installer, the shortcuts, the Startup
-entry and the launcher are unexecuted. The next step is the existing
-`kosmos-windows-test` box, which already carries an SSM instance profile and can
-therefore be driven with PowerShell automatically. That box is Baron's and billed,
-so starting it gets announced.
+It also contradicted the section below it: one said verified on Windows, the
+other said nothing had run on Windows. **Both cannot be true, and a reader
+deciding whether to ship got the opposite answer depending on which they
+reached first.** It was a verification record carried across a redesign and
+never re-run.
+
+## What actually happened on Windows, and what did not
+
+**Exercised on `kosmos-windows-test` (Server 2022) via SSM, 2026-08-29:** the
+installer ran to exit 0, `GET /` returned 200, `GET /api/projects` returned 200,
+`GET /api/status` returned 500 (no tmux, correct), and the uninstaller file was
+written.
+
+**NOT exercised, and none of these should be read as covered:** creating a
+project, running the uninstaller, the Startup shortcut firing at login, a second
+install over an existing one, and a double-click. Everything came through SSM as
+LocalSystem, whose profile is `C:\Windows\system32\config\systemprofile`, so
+**it cannot answer what a real user's environment looks like, by construction.**
+
+## Where this work went
+
+**PigeonPete's builder on `main` is the survivor and mine is deleted.** His
+filters `*.test.js` (mine shipped 78 test files to users), stages `app/bin/`,
+generates CRLF launchers, and reads the port out of `server.js`. Mine did none
+of those.
+
+**What travels across is the PowerShell installer only** -- Start Menu, start at
+login, the uninstaller -- with the review's blockers fixed first, and without
+the LF line endings.
