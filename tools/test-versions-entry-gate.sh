@@ -1,5 +1,5 @@
 #!/bin/bash
-# The versions-page gate shown red and green on both of its axes (#1453).
+# The versions-page gate shown red and green on both of its axes (#1463).
 #
 # ⚠️ THE ARM THAT EARNS ITS KEEP IS "a publication stamp read at step 1".
 # Running this gate early was nearly abandoned on an asserted-but-unmeasured

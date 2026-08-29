@@ -218,7 +218,7 @@ git -C "$REPO" log --oneline -8 | cat
 # in this step keeps its precedence; this one only has to beat the BUILD.
 # 🛑 THE VERSIONS ENTRY IS A PRECONDITION AND IT USED TO BE ASKED ABOUT ONLY AT
 # STEP 7, AFTER THE SUITE, THE BROWSER GATE, THE INSTALL GATE AND THE BUILD
-# (#1453). Four cuts died there -- 0.5.80, 0.5.90, 0.5.91, 0.6.06 -- each
+# (#1463). Four cuts died there -- 0.5.80, 0.5.90, 0.5.91, 0.6.06 -- each
 # paying about fifteen minutes of machine time to learn something knowable in
 # three seconds from `$V` and `$SITE`, both of which exist by now.
 #

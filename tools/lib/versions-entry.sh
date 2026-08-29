@@ -1,4 +1,4 @@
-# The versions-page gate (#1453), factored out of step 7 so it can also run at
+# The versions-page gate (#1463), factored out of step 7 so it can also run at
 # step 1.
 #
 # 🛑 THE CHECK WAS NEVER WRONG. ITS POSITION WAS. Both halves need only `$V`
