@@ -15,12 +15,28 @@ homeDir(), process.env)`. **Two JavaScript callers, one resolver.**
 🛑 **NOT "no second spelling" ANYWHERE, WHICH IS WHAT THIS SAID AND IT WAS AN
 OVERCLAIM.** Still in the tree and NOT fixed here:
 
-- **`install/setup.sh:822, 824, 1176, 1364`** hand-build
+- **`install/setup.sh` carries its own spelling in several places**, and it is
+  shell so it *cannot* call `dataRootFor`. ⚠️ **Two of these are in the
+  UNINSTALLER, the code that DELETES**, so a third answer lives in the one place
+  where being wrong destroys something.
+
+  🛑 **CITED PRECISELY, BECAUSE MY FIRST VERSION OF THIS LIST WAS LOOSE AND A
+  REVIEWER CHECKED IT.** I claimed four lines all built
   `${AGENT_WORKFORCE_DATA:-$HOME/Library/Application Support}/AgentWorkforce`.
-  It is shell, so it *cannot* call `dataRootFor`. ⚠️ **And it is the
-  UNINSTALLER, which is the code that DELETES**, so a third answer lives in the
-  one place where being wrong destroys something. A Windows installer needs its
-  own answer and that is tracked with the packaging work.
+  Only two of them do:
+
+  | line | what it actually is |
+  |---|---|
+  | `822` | `"$HOME/Library/Application Support"` alone. No env var, no `/AgentWorkforce` |
+  | `824` | the env var and the fallback, but **no** `/AgentWorkforce` segment |
+  | `1176` | the full form, plus `/remote` |
+  | `1364` | the full form. **This is the one followed by `rm -rf "$_support/bin"`** |
+
+  Also present and omitted from my first list: `805`, `819`, `827` (comments and
+  guard scaffolding) and `1395`, a sentence printed to the user.
+
+  ⭐ **The conclusion was right and half the evidence for it was not.** A right
+  answer resting on a bad citation is one bad day from being a wrong one.
 - **`engine/commitments.js:52`** reads `AGENT_WORKFORCE_DATA` without the
   `AgentWorkforce` segment. Pre-existing, documented in its own comment, and
   noted only because the sentence above used to claim otherwise.
