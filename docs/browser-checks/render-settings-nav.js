@@ -131,11 +131,56 @@ function chk(ok, label, extra) {
       // one centred pair, equal gutters either side. This is the regime the
       // 60rem rule hands over to; without an assertion here only a
       // screenshot would show it going.
+      // #1481: record WHY, not just WHAT. This assertion has been failing
+      // intermittently at roughly 4 runs in 9, and every reading anybody holds
+      // comes from a PASSING run, so nobody has ever seen the state during a
+      // failure. The two observed modes are 327/327 and 319.5/334.5, which sum
+      // to the SAME 654: one gap, either even or 7.5px off centre. A 15px
+      // displacement is scrollbar-shaped, and a DOCUMENT scrollbar is already
+      // ruled out (clientWidth excludes it, so the total would drop to 639 and
+      // it does not). The remaining candidate is a scrolled ANCESTOR, whose
+      // scrollbar narrows the box the pair centres inside while leaving
+      // documentElement.clientWidth at 1400.
+      //
+      // These fields are DIAGNOSTIC ONLY. No assertion reads them, so this
+      // cannot change any verdict; it only means the next failure explains
+      // itself. Overflow is already recorded at 920px and 420px, and 1400px is
+      // the only width that fails, so it was the one width with no data.
       const pair = await page.evaluate(() => {
-        const nav = document.getElementById('s-nav').getBoundingClientRect();
-        const sec = document.querySelector('#panel-settings .dsec:not([hidden])').getBoundingClientRect();
+        const navEl = document.getElementById('s-nav');
+        const secEl = document.querySelector('#panel-settings .dsec:not([hidden])');
+        const nav = navEl.getBoundingClientRect();
+        const sec = secEl.getBoundingClientRect();
         const vw = document.documentElement.clientWidth;
-        return { navWidth: nav.width, secWidth: sec.width, leftGutter: nav.left, rightGutter: vw - sec.right };
+
+        // Every ancestor of the section that is actually scrolling, and the
+        // width its scrollbar is taking. `bar` is the number that matters: a
+        // non-zero bar on an ancestor narrows the box the pair centres inside.
+        const scrolledAncestors = [];
+        for (let el = secEl; el && el !== document.documentElement; el = el.parentElement) {
+          const bar = el.offsetWidth - el.clientWidth;
+          if (bar > 0 || el.scrollHeight > el.clientHeight + 1) {
+            scrolledAncestors.push({
+              id: el.id || null,
+              cls: (el.className || '').toString().slice(0, 40) || null,
+              bar,
+              scrollH: el.scrollHeight,
+              clientH: el.clientHeight,
+            });
+          }
+        }
+
+        return {
+          navWidth: nav.width,
+          secWidth: sec.width,
+          leftGutter: nav.left,
+          rightGutter: vw - sec.right,
+          // diagnostic only, asserted on by nothing
+          docBar: window.innerWidth - vw,
+          clientWidth: vw,
+          innerWidth: window.innerWidth,
+          scrolledAncestors,
+        };
       });
       chk(pair.navWidth > 0 && Math.abs(pair.secWidth - 544) <= 1, `[${theme}] at 1400px the section is the 34rem measure`, JSON.stringify(pair));
       chk(Math.abs(pair.leftGutter - pair.rightGutter) <= 4, `[${theme}] at 1400px the nav and section sit as one centred pair`, JSON.stringify(pair));
