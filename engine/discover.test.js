@@ -211,3 +211,48 @@ test('an agent Kosmos already looks after is marked as already in', () => {
   assert.equal(again.already, false, 'a record pointing at a different folder counted as this one');
   void create;
 });
+
+/* ── #1493: the three drops above #1078's, which were silent ────────────────
+   Josh's sister's first install showed an empty screen with ten session files
+   on disk. `found()` knew four different things about her folders and could
+   report exactly one of them, because #1078's counting begins AFTER the
+   CLAUDE.md read succeeds.
+
+   Measured on this fleet's own machine, where discovery works: 44 project
+   folders, 17 listed as agents, 17 dropped for no CLAUDE.md and never counted. */
+
+test('#1493: a folder whose working directory has no CLAUDE.md is COUNTED, not silently dropped', () => {
+  /* 🛑 THE ONE THAT HIT HER. It is what an ordinary folder somebody once ran
+     Claude in looks like, so a new install has mostly these. */
+  const before = discover.found();
+  seed('proj-noinstructions', 'ran-claude-here', null);
+  const after = discover.found();
+  assert.equal(after.skipped.noInstructions, before.skipped.noInstructions + 1,
+    'a folder with no instruction file vanished without entering any number');
+  assert.ok(!after.agents.some((a) => a.dir.endsWith('ran-claude-here')),
+    'it must be COUNTED without becoming an agent');
+  assert.equal(after.unreadable, before.unreadable,
+    'it was counted as unreadable, which means something different: unreadable is '
+    + 'an instruction file we could not read a name out of, not the absence of one');
+});
+
+test('#1493: a project folder with no transcript is COUNTED', () => {
+  const before = discover.found();
+  fs.mkdirSync(path.join(SB, 'claude', 'projects', 'proj-empty'), { recursive: true });
+  const after = discover.found();
+  assert.equal(after.skipped.noTranscript, before.skipped.noTranscript + 1,
+    'an empty project folder vanished without entering any number');
+});
+
+test('#1493 CONTROL: a readable agent moves none of the three counters', () => {
+  /* ⚠️ THE SAME CONTROL #1078 NEEDED, for the same reason: counters that only
+     ever go up agree with the tests above on a fixture that is broken end to
+     end, where nothing at all resolves. */
+  const before = discover.found();
+  seed('drops-control', 'drops-control', 'You are **DropsControl**, a tester.\n');
+  const after = discover.found();
+  assert.ok(after.agents.some((a) => a.name === 'DropsControl'), 'the readable agent was not found');
+  assert.equal(after.skipped.noTranscript, before.skipped.noTranscript);
+  assert.equal(after.skipped.noWorkingFolder, before.skipped.noWorkingFolder);
+  assert.equal(after.skipped.noInstructions, before.skipped.noInstructions);
+});

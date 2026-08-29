@@ -292,6 +292,24 @@ function found() {
      de-dupe twice, and counted twice. The comment said "cannot count it twice"
      while the code did. Caught by writing the test for the sentence. */
   const unreadableDirs = new Set();
+  /* 🛑 THE THREE SILENT DROPS (#1493). #1078 made the FOURTH honest by counting a
+     folder whose instruction file names nobody. Its counting begins AFTER the
+     CLAUDE.md read succeeds, so the three misses above it stayed invisible: no
+     transcript, a transcript naming no working folder, and a working folder with
+     no CLAUDE.md at all.
+
+     ⚠️ THE LAST IS NOT AN EDGE CASE. It is what an ordinary folder somebody once
+     ran Claude in looks like, and a new install has mostly those. Measured on
+     this fleet's own machine, where discovery WORKS: 44 project folders, 17
+     listed, and 17 dropped through that door without entering any number.
+
+     ⇒ The first outside user saw an empty screen with ten session files on disk.
+     `found()` knew four different things and could report one. Counted per
+     FOLDER, like `unreadable`, so two session families pointing at one directory
+     cannot count it twice. */
+  const noTranscriptDirs = new Set();
+  const noCwdDirs = new Set();
+  const noInstructionsDirs = new Set();
   /* One look at what is running, for every folder below (#362). An unreadable
      roster reads as undefined, and alreadyIn then treats "running" as unknown
      rather than as no. */
@@ -310,17 +328,19 @@ function found() {
       if (!st.isDirectory()) continue;
 
       const transcript = newestTranscript(folder);
-      if (!transcript) continue;
+      if (!transcript) { noTranscriptDirs.add(folder); continue; }
       let cwd = null;
       try { cwd = status.transcriptCwd(transcript); } catch { cwd = null; }
-      if (!cwd || byDir.has(cwd)) continue;
+      if (!cwd) { noCwdDirs.add(folder); continue; }
+      if (byDir.has(cwd)) continue;
 
       /* The instruction file is what makes a working directory an AGENT rather
          than a folder somebody once ran Claude in. Most of these are the
          second thing. */
       const file = path.join(cwd, 'CLAUDE.md');
       let text;
-      try { text = fs.readFileSync(file, 'utf8').slice(0, 4000); } catch { continue; }
+      try { text = fs.readFileSync(file, 'utf8').slice(0, 4000); }
+      catch { noInstructionsDirs.add(cwd); continue; }
 
       const id = status.identityFromText(text);
       /* ⚠️ A `CLAUDE.md` THAT DOES NOT INTRODUCE ANYBODY IS NOT AN AGENT. Every
@@ -383,7 +403,20 @@ function found() {
 
   /* Stable and human: by the name a person would look for. */
   const agents = [...byDir.values()].sort((a, b) => a.name.localeCompare(b.name));
-    return { ok: true, agents, unreadable: unreadable + codex.unreadable, because: null };
+    return {
+    ok: true,
+    agents,
+    unreadable: unreadable + codex.unreadable,
+    /* Named rather than summed: the three mean different things to a person and
+       the remedy differs by bucket. One "we skipped 17" would be the same shape
+       of unhelpful as the empty screen it replaces. */
+    skipped: {
+      noTranscript: noTranscriptDirs.size,
+      noWorkingFolder: noCwdDirs.size,
+      noInstructions: noInstructionsDirs.size,
+    },
+    because: null,
+  };
 }
 
 /**
