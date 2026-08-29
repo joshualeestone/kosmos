@@ -567,6 +567,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-unknown { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: var(--label-2); white-space: nowrap; }
 .acct-unknown .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-2); flex: 0 0 8px; }
+.acct-reauth,
 .acct-disconnect { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: .8125rem;
   color: var(--label-2); text-decoration: underline; cursor: pointer; min-height: 24px; }
 .acct-disconnect[disabled] { cursor: not-allowed; text-decoration: none; opacity: .7; }
@@ -6852,7 +6853,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <h2 class="rm-title" id="acct-add-t">Add a provider</h2>
     <p class="rm-small" id="acct-add-in">Pick which AI provider you want to connect. Anthropic Claude and OpenAI work today; the rest are listed so you can see what is coming.</p>
     <div class="field">
-      <label class="flabel tk-lab" for="acct-provider-pick">Provider</label>
+      <label class="flabel tk-lab" id="acct-provider-lab" for="acct-provider-pick">Provider</label>
       <!-- #770: "list all the others so people can see that they're
            coming" -- a placeholder roster, not Josh's own list, since he
            named the feature but not the names; flagged for his pass rather
@@ -6896,7 +6897,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            decoration on top. Colour alone would be WCAG 1.4.1, and would say
            nothing at all to the person reading this in a screen reader -- who
            is exactly as able to skip the step. -->
-      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-m" aria-hidden="true">&#9888;</span><b>First, sign in to the other Claude account in your browser.</b> Kosmos never sees your password, and the accounts above stay connected.</p>
+      <p class="dwarn" id="acct-claude-warn" style="margin:0 0 8px;"><span class="dwarn-m" aria-hidden="true">&#9888;</span><b>First, sign in to the other Claude account in your browser.</b> Kosmos never sees your password, and the accounts above stay connected.</p>
       <div class="frow"><button class="btn uprime" id="acct-add" type="button">Start the sign-in</button></div>
       <div id="acct-flow" hidden style="margin:10px 0 0;">
         <p class="dhint" id="acct-flow-say" role="status" aria-live="polite" style="margin:0;"></p>
@@ -13201,6 +13202,27 @@ async function paintAccounts() {
          the honest dead label rather than inheriting a capability it does not
          have. Two providers, two states, one row builder; the wrong move is to
          enable both because one of them works. */
+      /* 🛑 A WAY BACK INTO AN ACCOUNT YOU ALREADY HAVE (#1492). Josh's sister's
+         Claude login expired, Settings correctly said not connected, and the only
+         affordance on the screen was "Add a provider" -- which signs in to a NEW
+         directory and made a second record for one login. This button signs in to
+         THIS account's own directory, so an expired token is a sign-in and not a
+         duplicate.
+         ⭐ ON EVERY CLAUDE ROW, INCLUDING SIGNED-IN ONES, AND THAT IS THE POINT.
+         #874 measured that this badge cannot see a REJECTED token: `claude auth
+         status` answers loggedIn:true for a transparently invalid one, so the
+         strongest true statement the green mark makes is that a credential
+         exists. Josh's own case was a green row and a token being 401'd ten times
+         in a row. Showing the remedy only on "not signed in" would hide it from
+         exactly the state this card came from.
+         ⚠️ CLAUDE ROWS ONLY. connect.start() is the browser sign-in; an OpenAI
+         account is a pasted key and re-keying it is a different act with a
+         different form. A Claude-flow button on an OpenAI row would run the wrong
+         sign-in, which is the shape #1372 kept these two providers apart for. */
+      + (isOpenai ? ''
+        : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
+          + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
+          + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>')
       + (isOpenai
         ? '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
           + 'aria-label="Remove ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '">Remove</button>'
@@ -13218,6 +13240,16 @@ async function paintAccounts() {
      rather than replaced with "we could not". It arrives with the agents
      NAMED, and a refusal a person cannot act on is the dead end this whole
      card came from. */
+  /* #1492: sign in again as THIS account. Opens the one sign-in dialog in
+     reauth mode rather than duplicating its flow, code step and cancel button
+     into the row -- there is one connect flow on the engine, so there is one
+     place to watch it. */
+  for (const btn of box.querySelectorAll('[data-reauth]')) {
+    btn.addEventListener('click', () => {
+      const row = list.find((x) => String(x.dir) === btn.dataset.reauth);
+      openAcctReauth(btn.dataset.reauth, (row && row.email) || '');
+    });
+  }
   for (const btn of box.querySelectorAll('[data-forget]')) {
     btn.addEventListener('click', async () => {
       btn.disabled = true;
@@ -13370,7 +13402,10 @@ document.getElementById('acct-add').addEventListener('click', async () => {
     const res = await fetch('/api/connect/start', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ another: true }),
+      /* #1492: an existing account's own directory, or a new one. `accountDir`
+         and `another` are refused together by the route, so this must be one or
+         the other and never both. */
+      body: JSON.stringify(ACCT_REAUTH_DIR ? { accountDir: ACCT_REAUTH_DIR } : { another: true }),
     });
     const out = await res.json().catch(() => null);
     if (!res.ok) {
@@ -13493,6 +13528,53 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
    visits on purpose (choosing a provider is the first thing a person
    does every time), except a sign-in already in flight, which
    acctFlowPaint re-selects Claude for on its own. */
+/* 🛑 WHICH ACCOUNT THIS SIGN-IN IS FOR (#1492), null meaning "a new one".
+   The engine has ONE connect flow, so this is one variable rather than per-row
+   state: two rows showing their own spinner would be two renderings of a single
+   fact, and the second would be a lie.
+   ⚠️ THE DANGEROUS DIRECTION IS LEAVING IT SET. A stale dir would make the next
+   press of "+ Add a provider" quietly sign in to an existing account instead of
+   making a new one -- the mirror image of the defect this card is about, and
+   harder to notice because it silently succeeds. openAcctAdd() clears it on
+   every visit; the test pins that. */
+let ACCT_REAUTH_DIR = null;
+const ACCT_ADD_TITLE = 'Add a provider';
+const ACCT_ADD_INTRO = 'Pick which AI provider you want to connect. Anthropic Claude and OpenAI work today; the rest are listed so you can see what is coming.';
+/* The stock warning says to sign in to the OTHER Claude account first, which is
+   the correct instruction for a second account and the wrong one here: the
+   account you want IS this one. */
+function acctReauthChrome(on, email) {
+  const t = document.getElementById('acct-add-t');
+  const intro = document.getElementById('acct-add-in');
+  const lab = document.getElementById('acct-provider-lab');
+  const pick = document.getElementById('acct-provider-pick');
+  const warn = document.getElementById('acct-claude-warn');
+  const add = document.getElementById('acct-add');
+  if (on) {
+    t.textContent = 'Sign in again';
+    intro.textContent = 'This signs in again as ' + (email || 'this account') + ' and updates the account you already have. It does not make a second one.';
+    warn.innerHTML = '<span class="dwarn-m" aria-hidden="true">&#9888;</span><b>First, sign in as ' + (email || 'this account') + ' in your browser.</b> Kosmos never sees your password.';
+    add.textContent = 'Sign in again';
+  } else {
+    t.textContent = ACCT_ADD_TITLE;
+    intro.textContent = ACCT_ADD_INTRO;
+    warn.innerHTML = '<span class="dwarn-m" aria-hidden="true">&#9888;</span><b>First, sign in to the other Claude account in your browser.</b> Kosmos never sees your password, and the accounts above stay connected.';
+    add.textContent = 'Start the sign-in';
+  }
+  /* Hidden rather than disabled: the provider is not a choice here, it is
+     already decided by the account you pressed on. */
+  lab.hidden = !!on;
+  pick.hidden = !!on;
+}
+function openAcctReauth(dir, email) {
+  ACCT_REAUTH_DIR = dir;
+  acctReauthChrome(true, email);
+  document.getElementById('acct-add-note').textContent = '';
+  document.getElementById('acct-openai-msg').textContent = '';
+  document.getElementById('acct-add-modal').hidden = false;
+  acctPick('claude', { focus: false });
+  document.getElementById('acct-add').focus();
+}
 function openAcctAdd() {
   const modal = document.getElementById('acct-add-modal');
   const sel = document.getElementById('acct-provider-pick');
@@ -13502,6 +13584,8 @@ function openAcctAdd() {
     document.getElementById('acct-claude-flow').hidden = true;
     document.getElementById('acct-openai-flow').hidden = true;
   }
+  ACCT_REAUTH_DIR = null;
+  acctReauthChrome(false);
   document.getElementById('acct-add-note').textContent = '';
   document.getElementById('acct-openai-msg').textContent = '';
   modal.hidden = false;

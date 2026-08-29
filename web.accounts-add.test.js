@@ -43,15 +43,25 @@ test('the door into the add-a-provider dialog is in the section, and the dialog 
   assert.ok(!/<code>[^<]*claude[^<]*<\/code>/i.test(rendered), 'a shell command survives in the copy');
 });
 
-test('the flow asks for another account, never the default (#248, the hazard the old disable prevented)', () => {
-  /* The one request this button makes carries { another: true }: a plain
-     start would sign into the DEFAULT config and could log the person's
-     main account out, which is what kept this button disabled for a day. */
+test('the flow never sends a plain start (#248, the hazard the old disable prevented)', () => {
+  /* A plain start would sign into the DEFAULT config and could log the
+     person's main account out, which is what kept this button disabled for a
+     day. That is the invariant, and it is what this pins.
+     🛑 THIS USED TO SAY "the ONE request this button makes carries
+     { another: true }", and #1492 made that sentence false: the same button now
+     also aims at an EXISTING account's directory. The assertion stayed green
+     through the change, because the new shape is a ternary and the old arm is
+     still in the source -- a check asserting a superseded promise, passing.
+     ⚠️ The either-arm invariant is pinned by RUNNING the expression in
+     web.reauth-1492.test.js. This one stays a source pin on purpose: it is the
+     #248 hazard, and it should still fail loudly if a plain start reappears. */
   const at = PAGE.indexOf("getElementById('acct-add').addEventListener");
   assert.ok(at > -1, 'the button wiring moved; restate this pin');
-  const wiring = PAGE.slice(at, at + 700);
+  const wiring = PAGE.slice(at, at + 900);
   assert.match(wiring, /\/api\/connect\/start/, 'the button does not start the connect flow');
-  assert.match(wiring, /another:\s*true/, 'the start request does not ask for ANOTHER account');
+  assert.match(wiring, /another:\s*true/, 'the start request can no longer ask for ANOTHER account');
+  assert.match(wiring, /accountDir/, 'the start request can no longer aim at an EXISTING account (#1492)');
+  assert.doesNotMatch(wiring, /JSON\.stringify\(\{\}\)/, 'the button can send a plain start, which is the #248 hazard');
 });
 
 test('the code row appears only when the flow awaits a code, and a reason empties it', () => {
