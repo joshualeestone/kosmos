@@ -14,26 +14,37 @@
 #   PermissionRequest -> needs_you, with the command in the sentence
 #                        (fires BEFORE the box renders; the Notification
 #                        hook is ~6 seconds late by design and is unused)
-#   Stop              -> idle --auto (never erases a standing blocked/needs_you, #900)
+#   Stop              -> idle     (never erases a standing blocked/needs_you, #900)
+#   StopFailure       -> blocked --on "provider api (<kind>)" --owner provider
+#   SessionEnd        -> stopped
 #
-# EVERY line above passes --auto, and that is the point rather than a detail:
-# --auto means THE MACHINE WROTE THIS, not the agent (install/kosmos, above
-# cmd_report). This hook is the machine. It used to be passed on the Stop line
-# alone, because it was added for #900's rule rather than for what it means, so
-# five of these six reports were indistinguishable from an agent typing them,
-# and selfreport.record now PERSISTS that mark (#1453).
+# ⚠️ THE TABLE ABOVE IS THE WHOLE TABLE, AND IT USED TO BE SPLIT. StopFailure
+# and SessionEnd sat BELOW the prose block that followed, so a sentence reading
+# "every line above" was true of five rows and silently false of seven (#1466).
 #
-# It changes no behaviour for the other five: #900's guard is scoped to
+# EVERY ONE OF THE SEVEN passes --auto, and that is the point rather than a
+# detail: --auto means THE MACHINE WROTE THIS, not the agent (install/kosmos,
+# above cmd_report). This hook is the machine. It was once passed on the Stop
+# line alone, because it was added for #900's rule rather than for what it
+# means, and selfreport.record now PERSISTS that mark (#1453).
+#
+# It changes no behaviour for the other six: #900's guard is scoped to
 # `auto === true && state === 'idle'` and refuses nothing else. What it changes
 # is that the record can now say who wrote a line.
 #
-# 🛑 SO IF YOU EVER WIDEN THAT GUARD BEYOND `idle`, THESE FIVE BECOME
-# REFUSABLE. The guard's own comment explains why it must stay narrow: a rule
-# that refused every automatic write would strand the agent blocked forever.
-# report-hook-auto-1453.test.js asserts every `report` line here carries
-# --auto, so a seventh cannot quietly reopen the gap.
-#   StopFailure       -> blocked --on "provider api (<kind>)" --owner provider
-#   SessionEnd        -> stopped
+# 🛑 SO IF YOU EVER WIDEN THAT GUARD BEYOND `idle`, ALL SEVEN BECOME REFUSABLE.
+# The guard's own comment explains why it must stay narrow: a rule that refused
+# every automatic write would strand the agent blocked forever.
+#
+# 🛑 AND THE SEVENTH WAS MISSING FOR A DAY, WHICH IS WHY THE COUNT IS WRITTEN
+# OUT HERE. The `started` call is inside a COMMAND SUBSTITUTION, because it is
+# the synchronous delivery check rather than a fire-and-forget send:
+#     STARTED_OUT=$("$KOSMOS" report started --auto 2>&1)
+# `report-hook-auto-1453.test.js` matched call sites by the shell separator in
+# front of them and a substitution opens with `("`, which was in neither of its
+# two patterns -- so BOTH read 6 and AGREED, and the file treated that agreement
+# as proof it had found them all. Two patterns sharing one mechanism cannot
+# disagree about that mechanism's blind spot (#1466, Renet Tilley).
 #
 # 🔑 THE CLI IS THE ONE THIS SCRIPT SHIPPED WITH, resolved from the script's
 # own location, never searched for. The first hand-installed version of this
@@ -245,7 +256,7 @@ case "$EVENT" in
       if [ -n "$SRC" ] && [ "$SRC" != "startup" ]; then
         exit 0
       fi
-    STARTED_OUT=$("$KOSMOS" report started 2>&1); STARTED_RC=$?
+    STARTED_OUT=$("$KOSMOS" report started --auto 2>&1); STARTED_RC=$?
     if [ "$STARTED_RC" -ne 0 ]; then
       REASON=$(printf '%s' "$STARTED_OUT" | tr '\n\t\r' '   ' | tr -s ' ' | sed 's/^ *//; s/\\/\\\\/g; s/"/\\"/g' | head -c 300)
       say_loudly "Kosmos reporting is OFF for this session: the report could not be recorded. ${REASON:-The CLI did not say why.} The board is falling back to reading the screen."

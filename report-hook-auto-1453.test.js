@@ -5,11 +5,11 @@
  *
  * `--auto` means the machine wrote this on the agent's behalf, not the agent
  * choosing to say it (install/kosmos, above cmd_report). The hook IS the
- * machine, so all of its reports carry it -- and until #1453 exactly one did,
- * because the flag was added for #900's idle rule rather than for what it
- * means. Five of six machine-written reports were therefore indistinguishable
- * from an agent typing them, and `selfreport.record` now PERSISTS that mark,
- * so the gap stopped being a measurement nuisance and became a wrong field.
+ * machine, so all SEVEN of its reports carry it -- and until #1453 exactly one
+ * did, because the flag was added for #900's idle rule rather than for what it
+ * means. Machine-written reports were therefore indistinguishable from an agent
+ * typing them, and `selfreport.record` now PERSISTS that mark, so the gap
+ * stopped being a measurement nuisance and became a wrong field.
  *
  * ⚠️ A TRIPWIRE ON THE CLASS, NOT ON THE FIVE LINES THAT WERE WRONG. A seventh
  * report added later is the whole failure mode: it would be written against
@@ -37,9 +37,33 @@
  *                                      which is the case the floor exists to
  *                                      make impossible.
  *
- * ⭐ HER FIX CLOSES BOTH AND THE SHAPES NOBODY HAS THOUGHT OF: assert that a
- * LOOSE count equals the STRICT one. The floor proves the file was read; this
- * proves no call escaped the parser. Two guards, one axis apart.
+ * ⭐ HER FIX WAS A LOOSE COUNT COMPARED AGAINST THE STRICT ONE. The idea was
+ * right and the implementation was not, which #1466 found:
+ *
+ * 🛑 THE THIRD VERSION WAS BLIND TOO, AND ITS CONTROL COULD NOT SAY SO. Both
+ * patterns shared one separator class, and the SEVENTH call site is a COMMAND
+ * SUBSTITUTION -- `STARTED_OUT=$("$KOSMOS" report started --auto 2>&1)`, the
+ * synchronous delivery check -- whose preceding character is the closing quote
+ * of `"$KOSMOS"`. Neither `(` nor `"` was in the class, so BOTH read 6 against
+ * a hook with 7 calls, AGREED, and this file called that agreement proof it had
+ * found them all. The floor was 6, derived from what the pattern happened to
+ * find rather than from the real count, so it agreed as well.
+ *
+ * ⇒ Every machine-written `started` recorded as `by: 'agent'` for a day, on the
+ * one lifecycle event that fires in every single session (#1466, Renet Tilley).
+ *
+ * ⭐⭐ THE LESSON THAT OUTLIVES THIS FILE: two patterns built on ONE mechanism
+ * cannot disagree about that mechanism's blind spot. A control must differ in
+ * MECHANISM, not merely in permissiveness. Three attempts at a looser regex all
+ * failed the same way.
+ *
+ * ✅ SO THE INVARIANT IS NO LONGER A COUNT, IT IS A CLASSIFICATION. Every
+ * `report` followed by an argument is assigned a kind (call / probe / forwarder
+ * / variable-state / unclassified). A shape nobody anticipated lands in
+ * `unclassified` BY DEFAULT and fails printing its own text, rather than
+ * requiring a pattern to have predicted it. The separate vocabulary-vs-separator
+ * comparison is kept, and it is worth something now because those two genuinely
+ * key on different things.
  */
 
 const test = require('node:test');
@@ -55,22 +79,33 @@ const SRC = fs.readFileSync(HOOK, 'utf8');
 const CODE = SRC.split('\n').filter((l) => !/^[ \t]*#/.test(l)).join('\n');
 
 /* A `report <state>` invocation wherever a command can legally begin: at the
-   start of a line, or after a shell separator or block opener. */
-const CALL = /(?:^|[;&|{)]|\b(?:then|do|else|elif)\b)[ \t]*report[ \t]+([a-z_]+)((?:[ \t][^\n;]*)?)/gm;
+   start of a line, after a shell separator or block opener, or inside a COMMAND
+   SUBSTITUTION.
 
-/* THE SAME SEPARATORS, BUT ANY NON-SPACE WHERE THE STATE GOES.
-   `CALL` has to parse the state to check the flag after it, and a parser can
-   only see the shapes it knows. This one cannot parse anything, which is
-   exactly why it can count what the parser missed. Asserting the two agree is
-   what turns "I found six" into "six is all there are".
+   🛑 `(` AND `"` ARE IN THIS CLASS BECAUSE OF #1466. The seventh call is
+   `STARTED_OUT=$("$KOSMOS" report started --auto 2>&1)` -- the synchronous
+   delivery check -- and the character in front of `report` there is the closing
+   quote of `"$KOSMOS"`. Neither was in the class, so the call this whole file
+   exists to notice was invisible to it for a day. */
+const CALL = /(?:^|[;&|{)("]|\b(?:then|do|else|elif)\b)[ \t]*report[ \t]+([a-z_]+)((?:[ \t][^\n;]*)?)/gm;
 
-   ⚠️ Its cost, so it is decided rather than discovered: LOOSE would also match
-   prose containing a separator followed by `report <word>`, so a future comment
-   could produce a false red. Comment lines are stripped above, which removes
-   the common case, and both read 6 on the hook as it stands. The failure
-   message prints both counts, because "a call escaped the matcher" and "a
-   comment tripped the loose pattern" need to be told apart by whoever sees it. */
-const LOOSE = /(?:^|[;&|{)]|\b(?:then|do|else|elif)\b)[ \t]*report[ \t]+\S/gm;
+/* 🛑 THE OLD CONTROL HERE WAS A SECOND REGEX SHARING `CALL`'s SEPARATOR CLASS,
+   AND THAT MADE IT WORTHLESS. Two patterns built on one mechanism cannot
+   disagree about that mechanism's blind spot. Both read 6 while the hook had 7
+   call sites, both were blind to the same command substitution, and this file
+   treated their agreement as proof it had found them all (#1466, Renet Tilley).
+
+   ⭐ A control must differ in MECHANISM, not merely in permissiveness. Replacing
+   it with a looser regex just moved the arithmetic around: three attempts each
+   produced a count that disagreed with `CALL` for reasons that were not defects
+   (the wrapper's own definition, the two capability probes that pass NO state,
+   the forwarder's `"$@"`).
+
+   ✅ SO THE INVARIANT IS NOT A COUNT, IT IS A CLASSIFICATION. Every `report`
+   followed by an argument is assigned a kind. An occurrence nobody has taught
+   this file about is UNCLASSIFIED and fails, printing its own text -- which is
+   strictly more useful than "loose=9 strict=7", and cannot be satisfied by a
+   pattern that happens to miss the same thing twice. */
 
 function calls() {
   const out = [];
@@ -80,31 +115,88 @@ function calls() {
   return out;
 }
 
-test('no report call escapes the matcher: a loose count and a strict count agree', () => {
-  /* Ice Cream Kitty's fix, and it is a different question from the floor. The
-     floor asks "did I read the file". This asks "did I understand all of it".
-     A call the strict pattern cannot parse is invisible to BOTH the flag checks
-     and the floor, which is the failure that survived two versions of this
-     file. */
-  const strict = calls().length;
-  const loose = (CODE.match(LOOSE) || []).length;
-  assert.equal(loose, strict,
-    'loose=' + loose + ' strict=' + strict + '. If loose is HIGHER, a report call '
-    + 'exists that the strict matcher cannot see -- most likely the state is behind '
-    + 'a variable (`report "$STATE"`), so it is checked by nothing and counted by '
-    + 'nothing. If the extra match is prose rather than a call, the comment stripper '
-    + 'missed it; move the wording or narrow the pattern, but do not delete this '
-    + 'test to make it pass.');
+const STATES = ['started', 'working', 'idle', 'needs_you', 'blocked', 'stopped'];
+
+/* Quoted text is MASKED before scanning, because the hook's own prose about
+   "the report verb" and "the report could not be recorded" lives inside strings
+   on NON-comment lines, and a scan with no separator concept reads those as
+   calls. Masking rather than deleting keeps every real call's shape intact: the
+   state always precedes the quoted argument.
+
+   🛑 THE FORWARDER IS MASKED FIRST AND DELIBERATELY. `report "$@"` (the wrapper
+   passing its own arguments through) and `report "$STATE"` (a call whose state
+   nothing can check) COLLAPSE TO THE SAME `report ""` once strings are masked,
+   and only one of them is a defect. Masking `"$@"` to a sentinel first is what
+   keeps them distinguishable.
+
+   ⚠️ `\n` is excluded from the class. Without it the pattern matched from one
+   string's closing quote to the next string's opening quote, across lines,
+   collapsing unrelated code into one span and losing four real calls. */
+const MASKED = CODE
+  .replace(/"\$@"/g, '@FORWARDED@')
+  .replace(/"[^"\n\\]*"/g, '""');
+
+const OCCUR = /\breport[ \t]+(\S+)/g;
+
+function classify(tok) {
+  if (STATES.includes(tok)) return 'call';
+  /* The two capability probes ask the CLI whether it knows the verb and pass
+     NO state, so what follows is a redirection. */
+  if (/^[0-9]?[<>&|]/.test(tok)) return 'probe';
+  /* The wrapper forwarding its own arguments. `"$@"` and `"$STATE"` are the
+     same SHAPE and only one is a call site, so this is matched by name. */
+  if (tok === '@FORWARDED@') return 'forwarder';
+  /* 🛑 A state behind a variable. NOT benign: the strict matcher cannot parse
+     it, so its --auto is checked by nothing. Ice Cream Kitty found this shape;
+     it is reported rather than tolerated. */
+  if (tok === '""') return 'variable-state';
+  return 'unclassified';
+}
+
+function occurrences() {
+  return [...MASKED.matchAll(OCCUR)].map((m) => ({ tok: m[1], kind: classify(m[1]) }));
+}
+
+test('every `report` in the hook is a kind this guard recognises', () => {
+  /* The #1466 replacement for the loose-vs-strict count. A new call written in
+     a shape nobody anticipated lands here by DEFAULT, rather than needing a
+     pattern to have predicted it. */
+  const unknown = occurrences().filter((o) => o.kind === 'unclassified');
+  assert.deepEqual(unknown.map((o) => o.tok), [],
+    'a `report` occurrence in a shape this file does not recognise. If it is a '
+    + 'real call site, the checks below cannot see it and its --auto is verified '
+    + 'by nothing: teach classify() the shape rather than deleting this test.');
+
+  const variable = occurrences().filter((o) => o.kind === 'variable-state');
+  assert.deepEqual(variable.map((o) => o.tok), [],
+    'the state is behind a variable, so no static check can tell which state is '
+    + 'reported or whether --auto is present. Pass a literal state.');
 });
 
-test('the hook reports at least six states, so a zero from this file is not silence', () => {
+test('the classifier finds every call the strict matcher does, and no fewer', () => {
+  /* The two disagree only if one of them is broken, and they are built on
+     DIFFERENT mechanisms: `CALL` keys on shell separators, `classify` keys on
+     the state vocabulary. That is what makes the comparison worth anything --
+     the pair it replaced shared a separator class and could not disagree. */
+  const byVocab = occurrences().filter((o) => o.kind === 'call').length;
+  const bySeparator = calls().length;
+  assert.equal(byVocab, bySeparator,
+    'vocabulary found ' + byVocab + ' calls, separators found ' + bySeparator
+    + '. These key on different things, so a mismatch means one is blind: a call '
+    + 'in a shell position the separator class does not know (this was #1466: a '
+    + 'command substitution, `$("$KOSMOS" report started ...)`), or a state word '
+    + 'missing from STATES.');
+});
+
+test('the hook reports at least seven states, so a zero from this file is not silence', () => {
   const found = calls();
-  /* THE FLOOR. Six today; a minimum, so adding a seventh report is not a
-     failure here -- it is a failure below, which is where the useful message
-     lives. A guard that can return zero for a file it failed to read is not a
-     guard. */
-  assert.ok(found.length >= 6,
-    'found ' + found.length + ' report calls in ' + HOOK + ', expected at least 6. '
+  /* THE FLOOR. SEVEN today, raised from six by #1466: the old floor was
+     derived from what the pattern happened to find rather than from the real
+     call count, so it agreed with a blind matcher instead of contradicting it.
+     A minimum, so adding an eighth is not a failure here -- it is a failure
+     below, which is where the useful message lives. */
+  assert.ok(found.length >= 7,
+    'found ' + found.length + ' report calls in ' + HOOK + ', expected at least 7. '
     + 'Either the hook moved, or this pattern stopped matching it. Do not relax '
     + 'this to make it pass.');
 });

@@ -264,8 +264,16 @@ test('an agent that never reported has no writer either', () => {
 
 test('#900 refuses ONLY an automatic idle, so marking the hook\'s other reports auto is inert', () => {
   /* 🛑 THIS GUARDS THE RISK #1453 CREATED, NOT THE FIX.
-     install/kosmos-report-hook.sh now passes --auto on all six of its report
-     calls, so the record can say who wrote a line. That is safe only while
+     install/kosmos-report-hook.sh now passes --auto on all SEVEN of its report
+     calls, so the record can say who wrote a line.
+
+     ⚠️ It said SIX until #1466, and the missing one was `started` -- the
+     synchronous delivery check, written as a command substitution, which the
+     #1453 sweep did not reach. So this loop was exercising `started` with
+     `auto: true` while the hook was actually producing it WITHOUT the flag:
+     a test asserting a shape the code did not emit. The loop was right about
+     what SHOULD happen and wrong about what did, which is the quietest way for
+     a test to be green and uninformative. That is safe only while
      #900's rule stays scoped to `idle`. If anyone ever widens it to refuse
      other automatic writes, the hook's `blocked`, `needs_you`, `working`,
      `started` and `stopped` become refusable -- and a rule that refused every
@@ -279,7 +287,7 @@ test('#900 refuses ONLY an automatic idle, so marking the hook\'s other reports 
     const got = selfreport.record('inert', { state, because: 'the machine wrote this', auto: true });
     assert.equal(got.recorded, true,
       'an automatic `' + state + '` was refused over a standing needs_you. #900\'s '
-      + 'rule has been widened beyond idle, and the report hook marks all six of '
+      + 'rule has been widened beyond idle, and the report hook marks all seven of '
       + 'its calls --auto, so it can no longer report ' + state + '.');
     assert.equal(selfreport.read('inert').by, 'auto');
   }
