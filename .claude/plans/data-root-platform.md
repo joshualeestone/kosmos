@@ -10,7 +10,20 @@ and only one of them knew what Windows is.
 ## What this does
 
 `create.js`'s `supportDir()` now calls `store.dataRootFor(process.platform,
-homeDir(), process.env)`. One function, two callers, no second spelling.
+homeDir(), process.env)`. **Two JavaScript callers, one resolver.**
+
+🛑 **NOT "no second spelling" ANYWHERE, WHICH IS WHAT THIS SAID AND IT WAS AN
+OVERCLAIM.** Still in the tree and NOT fixed here:
+
+- **`install/setup.sh:822, 824, 1176, 1364`** hand-build
+  `${AGENT_WORKFORCE_DATA:-$HOME/Library/Application Support}/AgentWorkforce`.
+  It is shell, so it *cannot* call `dataRootFor`. ⚠️ **And it is the
+  UNINSTALLER, which is the code that DELETES**, so a third answer lives in the
+  one place where being wrong destroys something. A Windows installer needs its
+  own answer and that is tracked with the packaging work.
+- **`engine/commitments.js:52`** reads `AGENT_WORKFORCE_DATA` without the
+  `AgentWorkforce` segment. Pre-existing, documented in its own comment, and
+  noted only because the sentence above used to claim otherwise.
 
 **It does NOT add a competing implementation.** I had written one
 (`engine/platformpaths.js`) before #570 merged, and deleted it. Two agents solved
@@ -35,7 +48,18 @@ breaking Windows: a line-wrapped `path.join(`, column-aligned quotes, a hoisted
 `const LIB_DIR`, and `'Application' + ' Support'`. It also went **red on a doc
 sentence** mentioning the folder, which is a false accusation.
 
-`store.dataRootFor(` is what must actually be true, and no re-spelling fakes it.
+🛑 **AND THE REPLACEMENT WAS ALSO WRONG, IN BOTH DIRECTIONS.** I wrote "no
+re-spelling fakes it"; a reviewer measured **three fakes** in minutes -- a
+COMMENT naming `store.dataRootFor(`, a dead `if (false) return ...`, and a
+mention 150KB away in an unrelated function -- because the regex scanned the
+whole file rather than the function. **And it accused correct code**:
+`const { dataRootFor } = store` and `s.dataRootFor(...)` are real delegation and
+both went red.
+
+✅ **The guard is now scoped to `supportDir`'s BODY with comments stripped**, a
+loose positive arm (`\bdataRootFor\s*\(`, so aliasing is not accused) and a
+negative arm on that body only. Third version. **Every previous one was a
+whole-file text search, and that was the mistake each time.**
 
 ## Verified
 

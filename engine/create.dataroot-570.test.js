@@ -20,24 +20,63 @@ const REPO = path.join(__dirname, '..');
  * one answer "rather than a second convention introduced by whoever needed a
  * directory next". These pin that it is now true.
  *
- * ⚠️ THE GUARD BELOW ASSERTS THE POSITIVE WIRING, NOT THE ABSENCE OF A STRING.
- * An earlier version of this check searched for the literal and was defeated by
- * four plausible re-spellings that all resolve correctly on a Mac and break
- * Windows: a line-wrapped `path.join(`, column-aligned quotes, a hoisted
- * `const LIB_DIR`, and `'Application' + ' Support'`. It also went red on a
- * doc SENTENCE mentioning the folder, which is a false accusation.
- * `store.dataRootFor(` is what must actually be true and no re-spelling fakes it.
+ * ⚠️ THE GUARD BELOW IS SCOPED TO `supportDir`'s BODY, WITH COMMENTS STRIPPED,
+ * AND IT TOOK THREE TRIES TO GET THERE.
+ *
+ * 🛑 I PREVIOUSLY WROTE HERE THAT "no re-spelling fakes it". THAT WAS FALSE and
+ * a reviewer measured three fakes against it in minutes: a COMMENT naming
+ * `store.dataRootFor(`, a dead `if (false) return store.dataRootFor(...)`, and a
+ * mention inside an unrelated function 150KB away. All three left the literal in
+ * place and the suite green, because the regex scanned the whole 153KB file.
+ *
+ * ⚠️ AND IT ACCUSED CORRECT CODE. `const { dataRootFor } = store` and
+ * `const s = store; s.dataRootFor(...)` are both real delegation and both went
+ * RED. So it had false negatives AND false positives at once.
+ *
+ * ⇒ Scoping to the function body closes both: the positive arm tolerates
+ * aliasing, and the negative arm can only see the code that actually runs.
  */
 
-test('create and store give ONE answer for the data root', () => {
-  assert.equal(create.supportDir(), store.ROOT);
+/**
+ * ⚠️ NAMED FOR WHAT IT ACTUALLY CHECKS. It used to be called "create and store
+ * give ONE answer", which is FALSE: `store.ROOT` is frozen at require time
+ * (tracked debt in check-frozen-roots' KNOWN map) while `supportDir()` is lazy,
+ * so with the seam set after require they legitimately DIFFER -- which is the
+ * very scenario the laziness test below pins.
+ *
+ * 📌 It also never went red on any value perturbation, because both sides derive
+ * from the same function. It is a wiring assertion, not a value one, and the
+ * body-scoped guard above is what actually catches this card's defect.
+ */
+test('create reaches the same resolver store built ROOT from', () => {
+  assert.equal(create.supportDir(), store.ROOT,
+    'with env unchanged since require, the lazy and frozen forms must agree');
 });
 
-test('create.js routes through store.dataRootFor rather than building a path', () => {
+test('supportDir DELEGATES and does not build a path, checked on its body alone', () => {
   const src = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
-  assert.ok(src.length > 1000, 'create.js did not read; floor not met');
-  assert.match(src, /store\.dataRootFor\s*\(/,
-    'create.js must delegate to store.dataRootFor, or the two sites can diverge again');
+  // C2: the old floor of 1000 was 0.65% of a 153KB file, so almost any
+  // truncated read passed it. This is a real floor.
+  assert.ok(src.length > 100000, `create.js read short (${src.length} bytes); floor not met`);
+
+  const m = /\nfunction supportDir\(\)\s*\{([\s\S]*?)\n\}/.exec(src);
+  assert.ok(m, 'supportDir() not found in create.js; this guard is not looking at anything');
+
+  // Comments stripped: a comment NAMING dataRootFor must not satisfy the
+  // positive arm, and a comment mentioning the folder must not trip the
+  // negative one. Measured: both happened.
+  const code = m[1].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*/g, '');
+
+  // Positive arm, deliberately loose about HOW it is reached, so
+  // `const { dataRootFor } = store` and `s.dataRootFor(...)` are not accused.
+  assert.match(code, /\bdataRootFor\s*\(/,
+    'supportDir must reach dataRootFor, or the two sites can diverge again');
+
+  // Negative arm, on the body only. This is what catches a revert that leaves
+  // an explanatory comment naming the function behind, which is the likeliest
+  // real-world path.
+  assert.doesNotMatch(code, /Application Support|Library/,
+    'supportDir builds the path itself; it must delegate');
 });
 
 test('supportDir is exported as a FUNCTION, which destructuring cannot freeze', () => {
@@ -85,7 +124,19 @@ test('the sandbox path is byte-identical to what it replaced', () => {
   assert.equal(got, path.join('/tmp/sandbox-570', 'AgentWorkforce'));
 });
 
-test('on Windows both sites land in AppData, not in a Library folder', () => {
+/**
+ * ⚠️ ASKS `create` TOO, NOT ONLY `store`. Named "both sites" before and asserted
+ * only `store.dataRootFor`, so a full revert of create.js left it green. A test
+ * whose name claims coverage it does not have is worse than no test.
+ */
+test('on Windows the resolver create uses lands in AppData, not a Library folder', () => {
+  // create's own delegation, proven by the guard above, is what makes this
+  // statement about create rather than only about store.
+  assert.match(
+    fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8')
+      .match(/\nfunction supportDir\(\)\s*\{([\s\S]*?)\n\}/)[1]
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*/g, ''),
+    /\bdataRootFor\s*\(/, 'create must reach this resolver for the assertion below to be about create');
   // Asked of dataRootFor directly, because process.platform cannot be set.
   // This is the defect: on Windows the old create.js happily created a literal
   // "Library\\Application Support" folder. MEASURED on a real Windows Server

@@ -2789,12 +2789,21 @@ module.exports = {
   get WORKERS_DIR() { return workersDir(); },
   get AGENTS_DIR() { return agentsDir(); },
   /* 🛑 A FUNCTION, NOT A `get SUPPORT_DIR()` GETTER, AND THE NAME MATTERS.
-     `tools/check-frozen-roots.js:25` names `create.SUPPORT_DIR` as one of
-     #1432's original instances. A getter under that name reads correctly and
-     is silently defeated by `const { SUPPORT_DIR } = require(...)`, which
-     evaluates once at destructuring time. Exporting the function removes the
-     shape that can be frozen, because a caller has to invoke it.
-     ⚠️ Its two siblings above are getters and carry that hazard; they are
+     `create.SUPPORT_DIR` is named at `tools/check-frozen-roots.js:25` as one of
+     #1432's original instances. A getter under that name reads correctly and is
+     silently defeated by `const { SUPPORT_DIR } = require(...)`, which evaluates
+     once at destructuring time. Exporting the function removes the shape that
+     can be frozen, because a caller has to invoke it.
+
+     ⚠️ THAT CITATION IS HISTORY, NOT COVERAGE, AND I FIRST WROTE IT AS THOUGH IT
+     WERE COVERAGE. Line 25 is prose inside that tool's rationale block, and the
+     tool scans `const NAME =` DECLARATIONS -- it cannot see exports at all.
+     Measured: with `get SUPPORT_DIR()` added back, `check-frozen-roots.js engine`
+     returns rc 0 and reports nothing, while the control (`store.js:ROOT`) still
+     appears. ⇒ `create.dataroot-570.test.js` is the ONLY thing that catches a
+     getter coming back, and it does (measured RED).
+
+     ⚠️ Its two siblings above are getters and carry the same hazard; they are
      pre-existing and not widened here. */
   supportDir,
   setModel,
