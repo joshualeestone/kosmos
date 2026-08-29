@@ -646,7 +646,34 @@ fi
 # roots, own OS-chosen port, server.js in-process, runs bare. Proven standalone
 # 15/15, and proven RED with the fix disabled -- the arm that matters reports
 # Josh's own symptom, 46px of the newest messages under the fold.
-for n in live-connect render-agent-nav render-busy-line render-head-row render-room-scroll render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks render-composer-reset; do
+# #1440: three of the four checks that guard Josh's own 0.5.97 review items had
+# NEVER RUN ONCE. They read as coverage on a directory listing and provided none.
+# All three join the same way as the batch above: own mktemp roots, own OS-chosen
+# port, server.js in-process, runs bare.
+#
+# 🛑 EACH WAS PROVEN GREEN STANDALONE **AND PROVEN RED WITH ITS OWN FIX DISABLED**,
+# because the debt list's own warning is the real risk rather than caution: a check
+# that has never run is as likely to be wrong as the code it guards.
+#
+#   render-agent-lines  (#1303 A item 3)  9/9 green; RED at line-height 1.6 on
+#     .ltitle/.lstate, reporting Josh's symptom as uneven leading, 3.5px vs 5.3px.
+#     ⚠️ Worth knowing before anyone edits it: with the fix disabled its FIRST arm
+#     still PASSES, at exactly its own <= 3.5 threshold. The evenness arm is what
+#     caught the regression. One assertion there is a rounding from being unable to
+#     see what it guards, and only running the red arm reveals that.
+#   render-long-title   (#1303 F)         8/8 green; RED SEPARATELY ON BOTH of the
+#     two rules its fix comment says are needed, with DISJOINT failure sets:
+#     dropping `flex-shrink: 0` gives 137px -> 119px, dropping the .dname
+#     nowrap/ellipsis takes the header 20px -> 40px. Both numbers are the ones that
+#     fix's own comment recorded when it was written.
+#   render-project-rows (#1303 E)        12/12 green; RED with `display: contents`
+#     off .pjcard-h, the rule its comment calls the whole trick: the status leaves
+#     the agents line (183 vs 201) and the row grows to 66px.
+#
+# 📌 render-found-count, the fourth on #1440, is NOT here and stays in NOT_WIRED.
+# Its own header says an in-process srv.start(0) cannot reach ?fr-step=6; it needs
+# a boot_board sandbox block, which is a different piece of work.
+for n in live-connect render-agent-nav render-busy-line render-head-row render-room-scroll render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks render-composer-reset render-agent-lines render-long-title render-project-rows; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
 # --- the rich board: four checks that could not be wired for want of a fixture
