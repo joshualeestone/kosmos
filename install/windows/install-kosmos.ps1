@@ -123,6 +123,12 @@ if (-not (Test-Path -LiteralPath $NodeExe)) {
   # a person nothing about what to do.
   try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
 
+  # ⚠️ GUARDED LIKE LOCALAPPDATA ABOVE. An unset TEMP throws the same
+  # "Cannot bind argument to parameter 'Path' because it is null" that the
+  # LOCALAPPDATA check exists to prevent. Nothing destructive has run yet, so
+  # this is message quality rather than safety, which is why it is a sentence
+  # and not a refusal to continue.
+  if (-not $env:TEMP) { Die "Windows did not tell us where to put temporary files (TEMP is not set), so the runtime cannot be downloaded. The full Kosmos download needs no temporary space." }
   $tmp = Join-Path $env:TEMP ("kosmos-node-" + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $tmp -Force | Out-Null
   $zip = Join-Path $tmp 'node.zip'
@@ -327,7 +333,16 @@ $loginOk = New-KosmosShortcut -RelPath 'Microsoft\Windows\Start Menu\Programs\St
 # launcher starts the board with `start ""`, so the window title is the empty
 # string. The board survived, rmdir hit a locked node.exe, and the script
 # printed "Done." unconditionally on the next line.
-$dataLine = if ($DataDir) { "echo Your projects are still in `"$DataDir`"." } else { "echo Your projects have not been touched." }
+# 🛑 THE PATH GOES IN A FILE, NOT INTO THE .cmd TEXT, and the plan claimed this
+# was already true when it was not. Interpolating it meant a `%` in the profile
+# path was stripped by cmd as an unmatched variable, and OEM encoding degrades a
+# CJK or Cyrillic path to `?`. Both are legal Windows profile paths.
+# ⇒ The uninstaller reads this file with `set /p` BEFORE the delete, so the path
+# never passes through cmd's parser at all and no encoding of the .cmd can
+# damage it. Written UTF8 because it is data, not a batch script.
+if ($DataDir) {
+  try { Set-Content -LiteralPath (Join-Path $Install 'datadir.txt') -Value $DataDir -Encoding UTF8 } catch { }
+}
 $uninstall = @"
 @echo off
 REM Remove Kosmos. Leaves your DATA alone on purpose: that is your projects,
@@ -378,6 +393,11 @@ if not exist "%KOSMOS_DIR%\app\server.js" (
 )
 
 cd /d "%TEMP%"
+REM Read the data folder BEFORE the delete, because the file lives inside the
+REM directory about to be removed. set /p takes the first line verbatim, so a
+REM percent sign or a non-Latin character in the path survives untouched.
+set "KOSMOS_DATA="
+if exist "%KOSMOS_DIR%\datadir.txt" set /p KOSMOS_DATA=<"%KOSMOS_DIR%\datadir.txt"
 echo Stopping Kosmos...
 REM 🛑 THE PATH COMES THROUGH THE ENVIRONMENT, NOT AS AN ARGUMENT AND NOT
 REM INTERPOLATED. All three of the obvious ways are wrong and I tried two:
@@ -416,7 +436,11 @@ if exist "%KOSMOS_DIR%" (
   echo Close the small black window and run this again.
 ) else (
   echo Done.
-  $dataLine
+  if defined KOSMOS_DATA (
+    echo Your projects are still in "%KOSMOS_DATA%".
+  ) else (
+    echo Your projects have not been touched.
+  )
 )
 REM ⚠️ PAUSE FIRST, THEN DELETE. `start /b cmd /c del "%~f0"` races the pause:
 REM cmd holds the batch open, so when pause returns it reads past the end of a

@@ -26,7 +26,7 @@ never left holding only the half that broke.
 | 3 | **the uninstaller could not stop the board and said Done anyway**: `taskkill /FI "WINDOWTITLE eq Kosmos*"` matched nothing, because the launcher uses `start ""` and the title is empty | stops by **path**, runs from `%TEMP%` (rmdir cannot remove its own cwd), and gates the message on the directory actually being gone |
 | 4 | `$env:APPDATA` read at the call site, so a null threw **outside** the catch and reintroduced the regression the catch was added for | read inside the function |
 | 5 | `Resolve-Path` without `-LiteralPath`, so a `Kosmos [1]` folder silently skipped the self-install guard; and the guard tested equality, not containment | `-LiteralPath`, and it refuses when the source is **under** the install dir |
-| 6 | the uninstaller **interpolated the path**: `-Encoding ASCII` turned `Müller` into `M?ller`, and a `%` in a username was stripped by cmd | derives it from `%~dp0`. Neither problem can occur |
+| 6 | the uninstaller **interpolated the path**: `-Encoding ASCII` turned `Müller` into `M?ller`, and a `%` in a username was stripped by cmd | the REMOVAL path derives from `%~dp0`. ⚠️ **The DATA path was still interpolated and this row claimed otherwise** -- a reviewer caught the overclaim. It now goes in a file the `.cmd` reads with `set /p` before the delete, so the path never enters cmd's parser and no encoding of the `.cmd` can damage it |
 
 Also: `LOCALAPPDATA` unset now dies with a sentence rather than "Cannot bind
 argument to parameter 'Path'"; TLS 1.2 and proxy credentials are set for the thin
@@ -43,7 +43,7 @@ contact."*
 The builder now converts on the way in (`awk`, stripping any existing CR first so
 it is idempotent), so **a file edited on a Mac cannot reach Windows with Unix line
 endings.** Measured on the shipped artifact: 5 of 5 text files 100% CRLF,
-including the 334-line `.ps1`. Control: `server.js` has 0 CRLF lines.
+including the installer. Control: `server.js` has 0 CRLF lines.
 
 ## The check that did not exist
 
@@ -51,7 +51,7 @@ including the 334-line `.ps1`. Control: `server.js` has 0 CRLF lines.
 PowerShell, so the one file that runs on a stranger's machine and deletes things
 had no check at all.
 
-`tools/check-powershell-syntax.sh` now **parses and then renders**, and the second
+`tools/test-powershell-syntax.sh` now **parses and then renders**, and the second
 phase is the one that matters:
 
 ```
@@ -76,7 +76,7 @@ loudly rather than silently when `pwsh` is absent.
 build            exit 0, 59 engine modules, 0 test files, 85 files
 Pete's refusals  intact, and the two new installer files added to the required list
 CRLF             5/5 shipped text files, 100%.  CONTROL: server.js 0
-shipped .ps1     parses (1413 tokens) and renders clean
+shipped .ps1     parses (token count varies; the checker prints it) and renders clean
 full suite       green
 ```
 
