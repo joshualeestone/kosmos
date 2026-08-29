@@ -23,16 +23,55 @@ const path = require('node:path');
 // be undefined at its BASE line. Same pattern discover.js uses for create.
 
 const APP = 'AgentWorkforce';
+/* `engine/commitments.js` honours the same variable, so this is two modules
+   agreeing rather than a new convention. */
+/**
+ * The per-user application-data directory for ONE platform, as a pure function
+ * of the things that decide it (#570).
+ *
+ * 🛑 THIS WAS A HARDCODED MAC PATH AND IT DOES NOT FAIL ON WINDOWS, WHICH IS
+ * WHY IT NEEDED FINDING RATHER THAN WAITING FOR IT TO BREAK.
+ * `path.join(homedir(), 'Library', 'Application Support', APP)` on Windows
+ * happily creates `C:\\Users\\x\\Library\\Application Support\\AgentWorkforce`.
+ * Nothing throws. The person's agents, profiles and avatars simply live somewhere
+ * Windows does not consider application data: not roaming, not where an
+ * uninstaller looks, not anywhere they would think to look themselves.
+ *
+ * ⚠️ AND IT IS EXPENSIVE TO FIX LATER, which is the argument for doing it before
+ * a single Windows install exists rather than after. Once somebody's store is at
+ * the wrong path, changing this is a data migration on a machine we cannot see.
+ *
+ * 🔑 A PURE FUNCTION OF (platform, homedir, env) SO A TEST CAN ASK ABOUT WINDOWS
+ * FROM A MAC. `process.platform` cannot be set, so a module that reads it
+ * directly is a module whose Windows behaviour is unassertable from here, and
+ * unassertable is how this defect survived in the first place.
+ *
+ * 📌 LINUX IS KNOWINGLY UNHANDLED and falls through to the mac path, exactly as
+ * it did before this change. That is wrong (XDG says
+ * `$XDG_DATA_HOME` or `~/.local/share`) and it is not a regression, and this
+ * card is Windows. Stated rather than left for somebody to discover in a switch
+ * with no default comment.
+ */
+function dataRootFor(platform, home, env) {
+  const e = env || {};
+  if (e.AGENT_WORKFORCE_DATA) return path.join(e.AGENT_WORKFORCE_DATA, APP);
+  if (platform === 'win32') {
+    /* ROAMING, not Local: this is a person's own configuration and it should
+       follow them to another machine on a domain. `APPDATA` is set on every
+       supported Windows, and the fallback is its documented location rather
+       than a guess. */
+    return path.join(e.APPDATA || path.join(home, 'AppData', 'Roaming'), APP);
+  }
+  return path.join(home, 'Library', 'Application Support', APP);
+}
+
 // ⚠️ Honours `AGENT_WORKFORCE_DATA` so tests can sandbox it, which they could
 // not before: `status.test.js` set that variable, commented that it stopped
 // `readProfile` and `avatarPath` reaching the operator's real store, and was
-// wrong — this module read no environment at all, so those calls went to the
+// wrong -- this module read no environment at all, so those calls went to the
 // live store and the gates that depend on them could not be pinned against
-// seeded data. `engine/commitments.js` already honours the same variable, so
-// this makes two modules agree rather than introducing a new convention.
-const ROOT = process.env.AGENT_WORKFORCE_DATA
-  ? path.join(process.env.AGENT_WORKFORCE_DATA, APP)
-  : path.join(os.homedir(), 'Library', 'Application Support', APP);
+// seeded data.
+const ROOT = dataRootFor(process.platform, os.homedir(), process.env);
 const AVATARS = path.join(ROOT, 'avatars');
 const PROFILES = path.join(ROOT, 'profiles');
 
@@ -239,4 +278,4 @@ function agentId(name) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { ROOT, AVATARS, PROFILES, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, saveAvatar, removeAvatar, readProfile, writeProfile, agentId };
+module.exports = { ROOT, dataRootFor, AVATARS, PROFILES, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, saveAvatar, removeAvatar, readProfile, writeProfile, agentId };
