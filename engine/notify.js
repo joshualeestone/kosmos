@@ -27,16 +27,19 @@
  * it is named here so the payload's `kind` is a closed list from the start.
  *
  * ⚠️ AND NO PRODUCER OF THIS TRANSITION IS THE AGENT'S OWN JUDGEMENT. Two
- * things write it today -- the pane reader, and the PermissionRequest hook
- * writing on an agent's behalf -- and a working agent has typed
- * `kosmos report needs_you` exactly once, ever. The two are NOT the same
- * quality of event and the distinction matters here more than anywhere: a
+ * things produce it today -- the pane reader, whose verdict is composed in
+ * `status.reconcileReport` at read time and is never written anywhere, and
+ * the PermissionRequest hook, which does write a self-report on an agent's
+ * behalf. Neither is an agent deciding it needs a person. They are also not
+ * the same QUALITY of event, and that matters here more than anywhere: a
  * permission box is a real machine event and a genuine person-blocker, while
  * a scraped one is an inference about what a screen looked like. So a ping
- * wired to this kind would carry a MIXTURE, and the weaker half is the
- * majority. Worth saying before the relay exists rather than after. The
- * measurement and the argument live at `status.js` rule 3 (#1253); re-run
- * them with `node tools/needs-you-source.js`.
+ * wired to this kind would carry a mixture of the two, which is a weaker
+ * claim than the other two kinds make and is worth saying before the relay
+ * exists rather than after. (No number here on purpose: this is a pointer,
+ * and a count would be a second copy that goes stale separately. The
+ * measurement and the argument live at `status.js` rule 3, #1253; re-run them
+ * with `node tools/needs-you-source.js`.)
  */
 const fs = require('node:fs');
 const path = require('node:path');

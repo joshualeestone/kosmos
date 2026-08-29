@@ -77,6 +77,14 @@ case "$out" in
   *"working agents ARE reporting this state themselves"*) ok "arm 3b: adoption spread thin across agents still trips the verdict" ;;
   *) bad "arm 3b: three distinct agents using the verb read as no adoption"; printf '%s\n' "$out" | tail -8 ;;
 esac
+# 🔑 AND PIN THE MARGIN. This arm only isolates TYPERS_CUTOFF while the SHARE
+# stays UNDER its cutoff (3/3003 = 0.0999% against 0.1%). Shrink the filler for
+# speed and the share crosses 0.1%, the arm passes through the share branch
+# instead, and it silently stops testing the thing it exists for.
+obs="$(printf '%s\n' "$out" | sed -n 's/.*observed: \([0-9.]*\)%.*/\1/p')"
+awk -v o="$obs" 'BEGIN{exit !(o+0 < 0.1 && o+0 > 0)}' \
+  && ok "arm 3b: and the share ($obs%) is still under the cutoff, so it is the typers clause doing the work" \
+  || bad "arm 3b: share is $obs% -- at or over the cutoff, so this arm no longer isolates TYPERS_CUTOFF"
 
 # --- 🔑 ARM 3c: A FIXTURE RUN MUST NOT FLIP THE VERDICT. 14 of the 15
 #     agent-typed records on this machine belong to walk-* fixtures; one more
@@ -153,7 +161,7 @@ mkdir -p "$T/junk"
 { filler 5; echo '{not json'; } > "$T/junk/erin.jsonl"
 out="$(run "$T/junk")"
 # (this line is "phrase then count", the reverse of the others, so it needs its own shape)
-printf '%s\n' "$out" | grep -qE "^[[:space:]]*unparseable[[:space:]]+1$" \
+printf '%s\n' "$out" | grep -qE "^[[:space:]]*unparseable lines[[:space:]]+1$" \
   && ok "arm 6: a corrupt line is surfaced rather than skipped into the totals" \
   || bad "arm 6: unparseable count wrong"
 
@@ -167,6 +175,58 @@ case "$out" in
   *) bad "arm 7: an empty --dir fell back somewhere"; printf '%s\n' "$out" | head -4 ;;
 esac
 [ "$rc" -ne 0 ] && ok "arm 7: and exits non-zero" || bad "arm 7: an empty --dir exited 0"
+
+# --- 🔑 ARM 7b: AN UNRECOGNISED ARGUMENT IS REJECTED. Arm 7 covers an empty
+#     --dir; ignoring an unknown flag is the same failure through a second
+#     door. Measured before the fix: `--dirr <fixture>` and a bare positional
+#     path BOTH read the live record while the caller believed otherwise.
+for badarg in "--dirr" "--verbose"; do
+  out="$(node tools/needs-you-source.js "$badarg" "$T/rare" 2>&1)"; rc=$?
+  case "$out" in
+    *"unrecognised argument"*) ok "arm 7b: $badarg is rejected, not ignored" ;;
+    *) bad "arm 7b: $badarg was ignored and something was read anyway"; printf '%s\n' "$out" | head -3 ;;
+  esac
+  [ "$rc" -eq 2 ] || bad "arm 7b: $badarg exited $rc, expected 2"
+done
+out="$(node tools/needs-you-source.js "$T/rare" 2>&1)"
+case "$out" in
+  *"unrecognised argument"*) ok "arm 7b: a bare positional path is rejected too" ;;
+  *) bad "arm 7b: a bare positional was ignored and the LIVE record was read"; printf '%s\n' "$out" | head -3 ;;
+esac
+
+# --- 🔑 ARM 7c: AN UNREADABLE FILE IS COUNTED AND NAMED. It used to be skipped
+#     with no counter while an unreadable LINE was counted -- so an EACCES on
+#     one agent's file removed that agent's reds from every number, silently,
+#     while "agent files" still counted it.
+mkdir -p "$T/noperm"
+{ filler 10; line needs_you "May I ask you something?"; } > "$T/noperm/ida.jsonl"
+line working "visible" > "$T/noperm/jo.jsonl"
+chmod 000 "$T/noperm/ida.jsonl"
+out="$(run "$T/noperm")"
+case "$out" in
+  *"UNREADABLE files"*"ida.jsonl"*) ok "arm 7c: an unreadable file is counted and named" ;;
+  *) bad "arm 7c: an unreadable file vanished silently"; printf '%s\n' "$out" | head -6 ;;
+esac
+chmod 644 "$T/noperm/ida.jsonl"
+out="$(run "$T/noperm")"
+case "$out" in
+  *"UNREADABLE files"*"ida.jsonl"*) bad "arm 7c: still reported unreadable after chmod -- the check is not reading permissions" ;;
+  *) ok "arm 7c: and reads zero once the file is readable (the arm can go both ways)" ;;
+esac
+
+# --- 🔑 ARM 7d: A LINE THAT IS NOT A RECORD DOES NOT INFLATE THE DENOMINATOR.
+#     A JSON array parses fine and is not a report; an object with no `state`
+#     is not one either. Both used to land in the totals as `state: ''`, which
+#     pads the share denominator in the direction that flatters the verdict.
+mkdir -p "$T/notrecords"
+{ filler 5; echo '[1,2,3]'; echo '{"v":1,"because":"no state here"}'; echo '{"v":1,"state":"   "}'; } > "$T/notrecords/ken.jsonl"
+out="$(run "$T/notrecords")"
+printf '%s\n' "$out" | grep -qE "^[[:space:]]*records[[:space:]]+5$" \
+  && ok "arm 7d: non-records are excluded from the total, not counted as a blank state" \
+  || bad "arm 7d: the denominator was inflated by lines that are not reports"
+printf '%s\n' "$out" | grep -qE "^[[:space:]]*unparseable lines[[:space:]]+3$" \
+  && ok "arm 7d: and all three are surfaced as unparseable" \
+  || bad "arm 7d: non-records were dropped silently rather than counted"
 
 # --- 🔑 ARM 8, THE DRIFT LINK: the provenance split is a string match against
 #     a sentence in ANOTHER FILE, and nothing but this check connects them. If

@@ -92,6 +92,41 @@ points at it and tells the reader not to trust its own numbers.
 5. `package.json`: wire the new shell test into `test:shell`, which
    `tools.every-test-runs.test.js` requires.
 
+### Amended at iteration 2, and one of these was a false claim I was shipping
+
+- 🛑 **The paragraph blamed #1155 for making a prose question invisible. That is
+  false.** Measured against the PRE-#1155 marker set, lifted verbatim from
+  `git show ca46bacf^:engine/status.js`: `"May I merge the PR?"` classified
+  `unknown` BEFORE #1155 too, with two positive controls returning true and a
+  negative control returning false. And #1155's own measured effect was removing
+  four FALSE reds, which does not narrow the legitimate red path at all. The
+  markers are a **closed vocabulary that never covered arbitrary prose**, before
+  or after. The attribution is gone and the mechanism is stated instead.
+- **The fixture prefix is no longer called "sound".** `walk-` is an UNLINKED
+  convention: nothing in the repo reserves it, so a real agent could take it,
+  and the misclassification would shrink `typedReal` -- the flattering
+  direction, which the header itself says a caveat must not be wrong in. The
+  hook marker got a run-time drift check and three arms; the fixture marker got
+  neither and was the one called sound.
+- **"can only make agent-typed look SMALLER" was unqualified and self-
+  contradictory**, since the same file describes a reworded hook moving records
+  the other way. Scoped.
+- **An unrecognised argument now errors.** `--dirr <fixture>` and a bare
+  positional path both read the LIVE record while the caller believed otherwise.
+  Arm 7's failure through a second door.
+- **An unreadable FILE is counted and named**, where an unreadable LINE always
+  was. An EACCES removed one agent's reds from every number, silently.
+- **A JSON array or a state-less object no longer counts as a record**; both
+  padded the share denominator in the flattering direction.
+- **One record total, with its clock time.** Three different totals appeared
+  across the changeset because the record is append-only and I measured three
+  times.
+- `notify.js` said the pane reader **writes**; it writes nothing. It also
+  claimed the weaker half is **the majority**, which the tool cannot support --
+  by its own header it cannot see the pane reader at all -- and which pointed in
+  the direction that flatters the thesis. Both gone, along with a count that was
+  a second copy of a number the plan says lives in exactly one place.
+
 ## What this deliberately does NOT do
 
 - **No behaviour change.** Comments, one read-only tool, one test, one line of

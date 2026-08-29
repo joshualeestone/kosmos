@@ -14,6 +14,11 @@
  *   node tools/needs-you-source.js [--dir <selfreports dir>]
  *
  * Read-only. It parses the append-only record and writes nothing.
+ * Exit codes, because `tools/test-needs-you-source.sh` gates on them:
+ *   0  a record was read and a verdict printed
+ *   1  the record is missing, empty, or unreadable -- a NON-RESULT, not a no
+ *   2  the arguments were wrong, so nothing was read at all
+ * Refusals go to stderr; only a real reading goes to stdout.
  *
  * 🔑 WHAT IT CAN AND CANNOT SEE. It reads the SELF-REPORT record, so it can
  * separate a hook-written `needs_you` from an agent-typed one and count both.
@@ -26,22 +31,31 @@
  * ⚠️ THE PROVENANCE SPLIT HAS THREE DERIVATIONS AND THEY ARE NOT EQUALLY
  * STRONG. Say which is which, because the next person cannot tell by looking:
  *
- *   fixture records   by AGENT NAME. The record is one file per agent and the
- *                     walkthrough agents are named `walk-*`. Identity. Sound.
+ *   fixture records   by AGENT NAME, on an UNLINKED CONVENTION: the record is
+ *                     one file per agent and the walkthrough agents happen to
+ *                     be named `walk-*`. Nothing in this repo reserves that
+ *                     prefix, so a real agent could take it. Weaker than it
+ *                     looks, and weak in the flattering direction (see below).
  *   hook records      by a STRING MATCH on the hook's own sentence
- *                     (`install/kosmos-report-hook.sh`). NOT sound in
- *                     principle -- see below.
- *   agent-typed       the remainder.
+ *                     (`install/kosmos-report-hook.sh`), re-checked against
+ *                     that file at run time by `hookPrefixIsLive`.
+ *   agent-typed       the remainder, so every classification error above
+ *                     lands here.
  *
- * 🛑 AND THE STRING MATCH'S ERROR RUNS IN THE DIRECTION THAT FLATTERS THIS
- * TOOL'S OWN CONCLUSION, WHICH IS THE ONE DIRECTION A CAVEAT MUST NOT BE WRONG
- * IN. An earlier version of this header called it "the safe direction" and had
- * it exactly backwards. The conclusion here IS "agent-typed is near zero", and
- * a misclassification can only make agent-typed look SMALLER, so every error
- * makes the sentence look better supported than it is.
+ * 🛑 AND BOTH MARKERS ERR IN THE DIRECTION THAT FLATTERS THIS TOOL'S OWN
+ * CONCLUSION, WHICH IS THE ONE DIRECTION A CAVEAT MUST NOT BE WRONG IN. An
+ * earlier version of this header called it "the safe direction" and had it
+ * exactly backwards. The conclusion here IS "agent-typed is near zero", so
+ * anything that moves a record OUT of agent-typed makes the sentence look
+ * better supported than it is -- and that is what an over-broad hook match and
+ * an over-broad fixture prefix both do.
+ * ⚠️ Scoped, because the opposite error exists too and an unqualified "can
+ * only" would be false: a REWORDED hook moves records the other way, into
+ * agent-typed, which is why `hookPrefixIsLive` exists and refuses to be
+ * silent. A `because` that is absent or truncated also lands in agent-typed.
  * ✅ Bounded rather than argued: granting EVERY hook-classified record to the
- * agents leaves 8 of 26,269 outside the fixtures, 0.03%, a third of the cutoff
- * below. The conclusion survives its own worst case; the label was still wrong.
+ * agents leaves 8 outside the fixtures, still a third of the cutoff below. The
+ * conclusion survives its own worst case; the label was still wrong.
  *
  * ⚠️ WHY A STRING MATCH AT ALL: the record does not store who wrote a line.
  * `report --auto` is a write-time discriminator (`selfreport.js`) and is not
@@ -95,6 +109,14 @@ const TYPERS_CUTOFF = 2;      // distinct non-fixture agents that have ever type
 function parseArgs(argv) {
   let dir = null;
   for (let i = 0; i < argv.length; i++) {
+    /* 🛑 AN UNRECOGNISED ARGUMENT IS AN ERROR, NEVER IGNORED. Ignoring it is
+       the empty-`--dir` failure through a second door: `--dirr /tmp/fixture`
+       and a bare positional path both used to read the LIVE record while the
+       caller believed they were reading a fixture, which silently breaks the
+       shell test's promise that nothing there touches production data. */
+    if (argv[i] !== '--dir') {
+      return { error: 'unrecognised argument: ' + argv[i] + '. The only option is --dir <path>. Nothing was read.' };
+    }
     if (argv[i] === '--dir') {
       /* 🛑 PRESENT-BUT-EMPTY IS AN ERROR, NEVER A FALLBACK. `--dir "$UNSET"`
          used to fall through to the LIVE record while the caller believed it
@@ -135,14 +157,22 @@ function readRecord(dir) {
   }
   const rows = [];
   let unparseable = 0;
+  /* ⚠️ AN UNREADABLE FILE USED TO BE SKIPPED WITH NO COUNTER while an
+     unreadable LINE was counted and surfaced. An EACCES on one agent's file
+     would then remove that agent's records -- its reds included -- from every
+     number below, with no signal, while "agent files" still counted it. */
+  const unreadableFiles = [];
   for (const f of files) {
     let text;
-    try { text = fs.readFileSync(path.join(dir, f), 'utf8'); } catch { continue; }
+    try { text = fs.readFileSync(path.join(dir, f), 'utf8'); } catch { unreadableFiles.push(f); continue; }
     for (const line of text.split('\n')) {
       if (!line.trim()) continue;
       let o;
       try { o = JSON.parse(line); } catch { unparseable++; continue; }
-      if (!o || typeof o !== 'object') { unparseable++; continue; }
+      /* An array parses fine and is not a record; an object with no `state` is
+         not one either. Both used to land in the totals as `state: ''`, which
+         inflates the share DENOMINATOR -- again the flattering direction. */
+      if (!o || typeof o !== 'object' || Array.isArray(o) || typeof o.state !== 'string' || !o.state.trim()) { unparseable++; continue; }
       rows.push({
         agent: f.replace(/\.jsonl$/, ''),
         state: String(o.state || ''),
@@ -151,7 +181,7 @@ function readRecord(dir) {
       });
     }
   }
-  return { ok: true, why: null, dir, files, rows, unparseable };
+  return { ok: true, why: null, dir, files, rows, unparseable, unreadableFiles };
 }
 
 const hookWritten = (row) => row.because.startsWith(HOOK_PREFIX);
@@ -165,6 +195,7 @@ function summarise(rows) {
   const hook = reds.filter(hookWritten);
   const typed = reds.filter((r) => !hookWritten(r));
   const typedFixture = typed.filter((r) => isFixture(r.agent));
+  const hookFixture = hook.filter((r) => isFixture(r.agent));
   const typedReal = typed.filter((r) => !isFixture(r.agent));
 
   const perAgent = new Map();
@@ -176,7 +207,7 @@ function summarise(rows) {
   const typersReal = new Set(typedReal.map((r) => r.agent));
   const lastTypedReal = typedReal.map((r) => r.at).filter(Boolean).sort().pop() || null;
   const lastTypedAny = typed.map((r) => r.at).filter(Boolean).sort().pop() || null;
-  return { byState, reds, hook, typed, typedFixture, typedReal, typersReal, perAgent, lastTypedReal, lastTypedAny };
+  return { byState, reds, hook, hookFixture, typed, typedFixture, typedReal, typersReal, perAgent, lastTypedReal, lastTypedAny };
 }
 
 function pad(n) { return String(n).padStart(7); }
@@ -184,15 +215,15 @@ function pad(n) { return String(n).padStart(7); }
 function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.error) {
-    console.log(args.error);
+    console.error(args.error);
     process.exitCode = 2;
     return;
   }
   const dir = args.dir;
   const data = readRecord(dir);
   if (!data.ok) {
-    console.log(data.why + ' ' + dir);
-    console.log('That is not an answer -- it is a missing instrument. Nothing below can be concluded.');
+    console.error(data.why + ' ' + dir);
+    console.error('That is not an answer -- it is a missing instrument. Nothing below can be concluded.');
     process.exitCode = 1;
     return;
   }
@@ -202,7 +233,9 @@ function main() {
   console.log('SELF-REPORT RECORD   ' + dir);
   console.log('  agent files' + pad(data.files.length));
   console.log('  records' + pad(total));
-  console.log('  unparseable' + pad(data.unparseable));
+  console.log('  unparseable lines' + pad(data.unparseable));
+  console.log('  UNREADABLE files' + pad(data.unreadableFiles.length)
+    + (data.unreadableFiles.length ? '   <- their records are in NO number below: ' + data.unreadableFiles.join(', ') : ''));
   console.log('');
 
   /* 🛑 ZERO RECORDS IS A NON-RESULT, AND IT USED TO PRINT THIS TOOL'S
@@ -213,15 +246,17 @@ function main() {
      is: "no reds found" and "no record found" are the same number and opposite
      facts, and only the first is evidence. */
   if (total === 0) {
-    console.log('The record exists and is EMPTY: 0 parseable reports.');
-    console.log('That is not an answer -- an empty record has no reds for the same reason it has');
-    console.log('no anything. Nothing below can be concluded. Check --dir, or AGENT_WORKFORCE_DATA.');
+    console.error('The record exists and is EMPTY: 0 parseable reports.');
+    console.error('That is not an answer -- an empty record has no reds for the same reason it has');
+    console.error('no anything. Nothing below can be concluded. Check --dir, or AGENT_WORKFORCE_DATA.');
     process.exitCode = 1;
     return;
   }
 
   console.log('BY STATE');
-  const states = [...s.byState.entries()].sort((a, b) => b[1] - a[1]);
+  /* Ties broken by name so the control line is deterministic: on a small
+     fixture two states can share a count and Map order would decide it. */
+  const states = [...s.byState.entries()].sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]));
   for (const [k, v] of states) console.log('  ' + pad(v) + '  ' + k + (k === RED ? '   <- the board\'s one red state' : ''));
   console.log('');
 
@@ -241,8 +276,10 @@ function main() {
   console.log('');
 
   console.log(RED + ' BY PROVENANCE');
-  console.log('  ' + pad(s.hook.length) + '  written by the permission hook   (by string match, see header)');
-  console.log('  ' + pad(s.typedFixture.length) + '  typed by a walkthrough FIXTURE  (agent name starts "' + FIXTURE_PREFIX + '")');
+  console.log('  ' + pad(s.hook.length) + '  written by the permission hook   (by string match, see header)'
+    + (s.hookFixture.length ? '   [' + s.hookFixture.length + ' of them on fixture agents]' : ''));
+  console.log('  ' + pad(s.typedFixture.length) + '  typed by a walkthrough FIXTURE  (agent name starts "' + FIXTURE_PREFIX + '", an'
+    + ' unlinked convention -- see the [FIXTURE] tags below and judge them)');
   console.log('  ' + pad(s.typedReal.length) + '  typed by a working agent        <- the number rule 3 quotes');
   console.log('  ' + pad(s.typersReal.size) + '  distinct working agents that have EVER typed it');
   console.log('  last typed by a working agent:    ' + (s.lastTypedReal || 'never'));

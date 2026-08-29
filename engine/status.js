@@ -3548,42 +3548,53 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      failure that ships, four times now on this fleet.
  *      🛑 AND RULE 3 IS NOT A TIEBREAK FOR A RARE CASE. THE PANE READER IS
  *      WHERE `needs_you` COMES FROM, AND SAYING SO IS #1253's OPTION 3.
- *      Measured over the whole record on 2026-08-28, 22 of 26,301 self-reports
- *      are `needs_you`, and the split has THREE derivations of unequal
- *      strength -- said explicitly, because the next person cannot tell which
- *      is which by looking, and #1453 is on file saying the record itself
- *      cannot answer it:
+ *      Measured over the whole record at 2026-08-28 18:58 CDT -- one snapshot
+ *      with its clock time, because the record is append-only and any total
+ *      quoted without one is three different numbers by morning -- 22 of
+ *      26,392 self-reports are `needs_you`. The split has THREE derivations of
+ *      unequal strength, said explicitly because the next person cannot tell
+ *      which is which by looking, and #1453 is on file saying the record
+ *      itself cannot answer it:
  *          14  walkthrough FIXTURES   by AGENT NAME (`walk-birch`,
- *                                     `walk-cedar`). Identity. Sound.
+ *                                     `walk-cedar`). An UNLINKED convention:
+ *                                     nothing reserves that prefix, so a real
+ *                                     agent could take it.
  *           7  the permission hook    by a STRING MATCH on the hook's own
- *                                     sentence. Not sound in principle; the
- *                                     tool below re-checks it against
+ *                                     sentence, re-checked against
  *                                     `install/kosmos-report-hook.sh` at run
- *                                     time rather than trusting it.
- *           1  typed by a working agent, ever      <- the remainder
- *      ⚠️ THAT STRING MATCH ERRS IN THE DIRECTION THAT FLATTERS THIS
- *      PARAGRAPH, which is the one direction a caveat must not be wrong in: a
- *      misclassification can only make agent-typed look smaller. Bounded
- *      rather than argued -- granting every hook record to the agents leaves
- *      8 outside the fixtures, still a third of the tool's cutoff.
+ *                                     time rather than trusted.
+ *           1  typed by a working agent, ever      <- the remainder, so every
+ *                                     classification error above lands here.
+ *      ⚠️ BOTH MARKERS ERR IN THE DIRECTION THAT FLATTERS THIS PARAGRAPH,
+ *      which is the one direction a caveat must not be wrong in: anything
+ *      over-broad moves a record OUT of agent-typed. Bounded rather than
+ *      argued -- granting every hook record to the agents leaves 8 outside the
+ *      fixtures, still a third of the tool's cutoff.
  *      ⇒ Every other rule here arbitrates between two witnesses. This one
  *      arbitrates between a witness and, in practice, a silence. So anything
  *      that narrows the classifier narrows the only path that produces the
- *      board's red state at all. #1155's tightening was right on its own terms
- *      and it also narrowed that path: a question typed as prose ("May I merge
- *      the PR?") classifies `unknown`, measured on #1253. Both facts are true
- *      and the second is the cost of the first, not an argument against it.
+ *      board's red state at all.
+ *      🛑 AND AN EARLIER VERSION OF THIS PARAGRAPH BLAMED #1155 FOR THAT, WHICH
+ *      IS FALSE AND WAS CAUGHT BY MEASURING BOTH ARMS. It said #1155's
+ *      tightening is why a prose question is invisible. Against the PRE-#1155
+ *      marker set (`git show ca46bacf^:engine/status.js`), "May I merge the
+ *      PR?" already classified `unknown`, with positive controls returning
+ *      true. It classifies `unknown` today too. ⇒ The markers are a CLOSED
+ *      VOCABULARY that never covered arbitrary prose, before or after; #1155
+ *      removed four FALSE reds, and removing false positives does not narrow
+ *      the legitimate red path at all. The narrowing this rule cares about is
+ *      structural to the marker approach, not a regression anybody shipped.
  *      📌 DO NOT TRUST THE NUMBERS IN THIS PARAGRAPH. RE-RUN THEM:
  *          node tools/needs-you-source.js
  *      It prints this exact split (the `1` above is its line labelled "typed
  *      by a working agent"), both controls, its own cutoffs, and the date of
  *      the newest agent-typed record. That date is 2026-08-24, and #1255
  *      shipped the instruction telling agents to report the state on
- *      2026-08-27 CDT. So the only time a working agent ever used the verb was
- *      BEFORE anybody told it to, and nothing has been typed since. And it
- *      says plainly if working
- *      agents have started reporting it -- in which case this paragraph is
- *      stale and rule 3 wants re-arguing rather than repeating.
+ *      2026-08-27 CDT -- so the only time a working agent ever used the verb
+ *      was BEFORE anybody told it to, and nothing has been typed since. The
+ *      tool also says plainly if working agents have started reporting it, in
+ *      which case this paragraph is stale and rule 3 wants re-arguing rather
+ *      than repeating.
  *   3b. NOR IS A DEAD TOKEN (#886). A scraped `auth_failed` stands over any
  *      report: no hook fires once the request itself is refused, so the
  *      reporter cannot know, and an idle report never decays (rule 6), which
