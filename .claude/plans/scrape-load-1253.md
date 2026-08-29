@@ -99,8 +99,13 @@ points at it and tells the reader not to trust its own numbers.
 4. Pointers carrying no numbers of their own, so they cannot drift:
    - `engine/selfreport.js`: a closed list of six words, one of which has
      almost no writer.
-   - `engine/notify.js`: a phone ping wired to this `kind` would today be a
-     ping about what a SCREEN looked like.
+   - `engine/notify.js`: what the phone seam actually carries.
+     🛑 **THIS BULLET ORIGINALLY READ "a phone ping wired to this `kind` would
+     today be a ping about what a SCREEN looked like", AND BOTH HALVES ARE
+     FALSE.** The seam is already wired, and the pane reader cannot reach it at
+     all. Retracted at iteration 18 and marked HERE, at the origin, because the
+     retraction sat 510 lines below and this is the section a reader consults
+     to learn what shipped. See kosmos#1494 for what it does carry.
 
 5. `package.json`: wire the new shell test into `test:shell`, which
    `tools.every-test-runs.test.js` requires.
@@ -633,6 +638,35 @@ completeness, carries no information about the case that is actually missing.
   (the same standard this file applies to two other lines); EISDIR described as
   "most likely permissions"; and two exit-code assertions that printed nothing
   on success.
+
+### Amended at iteration 19, another new class, and a WRONG ANSWER this time
+
+- 🛑 **THE TOOL PRINTED ITS STRONGEST CONCLUSION FROM A RECORD IT COULD NOT
+  FULLY READ, at exit 0.** With SOME files unreadable, `total` is non-zero so
+  the all-unreadable gate does not fire, and the tool concluded "no working
+  agent has EVER typed this" from a record whose red-bearing file it could not
+  open. Reproduced with a control that flips the answer: the same fixture
+  readable reports "1 typed by a working agent".
+  ⚠️ **The direction is the flattering one** - an unreadable file can only
+  REMOVE typed reports, so a partial read biases toward exactly the answer this
+  tool wants to give.
+  ⭐ **Fixed asymmetrically, because the two verdicts are not symmetric.** A
+  PRESENCE verdict survives an incomplete read; what was found was found. An
+  ABSENCE verdict does not. So only the absence branch refuses, and the tool
+  stays useful when one file happens to be unreadable. Arm 5g pins all three:
+  refusal on partial+absence, the readable control that finds the hidden
+  report, and presence still printing on a partial read.
+- 🛑 **The branch's own headline retraction was still standing, unmarked, at its
+  ORIGIN.** The "what is built" section still said a ping here "would today be
+  a ping about what a SCREEN looked like" - both halves false since iteration
+  18 - while the retraction sat 510 lines below. That is the precedent this
+  plan set for itself at iteration 16 and did not apply to its most important
+  correction.
+- **"the only path that produces it" was an absolute with a counterexample the
+  tool prints four lines above** (the hook's own count). Corrected at both
+  sites; a fresh reported `needs_you` renders red and does not decay.
+- **`notify.js` said "the rarest source there is"** when the seam covers two of
+  three sources and the hook is the larger of the two.
 
 ## What this deliberately does NOT do
 

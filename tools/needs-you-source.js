@@ -503,6 +503,22 @@ function main() {
      start typing the verb, this prints so and the sentence in status.js needs
      revisiting rather than repeating. */
   const share = s.typedReal.length / total;
+  /* 🛑 AN ABSENCE VERDICT FROM AN INCOMPLETE READ IS NOT AN ABSENCE, AND THIS
+     BLOCK USED TO PRINT ONE AT EXIT 0. With some files unreadable and others
+     not, `total` is non-zero so the all-unreadable gate does not fire, and the
+     tool went on to conclude "no working agent has EVER typed this" from a
+     record whose red-bearing file it could not open. Reproduced: the same
+     fixture readable says "1 typed by a working agent".
+     ⚠️ AND THE DIRECTION IS THE FLATTERING ONE, which is the whole subject of
+     this header: an unreadable file can only REMOVE typed reds, so a partial
+     read makes the conclusion look better supported than the record allows.
+     ⭐ NOT A BLANKET REFUSAL, BECAUSE THE TWO VERDICTS ARE NOT SYMMETRIC. A
+     PRESENCE verdict ("agents ARE reporting") survives an incomplete read --
+     what was found was still found. An ABSENCE verdict does not. So only the
+     absence branch refuses, and the tool stays useful when one file happens to
+     be unreadable. */
+  const absenceUnsafe = data.unreadableFiles.length > 0;
+
   console.log('WHAT THAT SUPPORTS');
   console.log('  cutoffs, printed so the boundary is not mine to explain:');
   console.log('    working-agent-typed share of all records   under ' + (SHARE_CUTOFF * 100).toFixed(1) + '%');
@@ -512,13 +528,22 @@ function main() {
   console.log('    (the fixture prefix is "' + FIXTURE_PREFIX + '" and nothing else -- if a name above'
     + ' looks synthetic, the verdict is counting a test as a colleague)');
   console.log('');
+  if (absenceUnsafe && (s.typedReal.length === 0 || (share < SHARE_CUTOFF && s.typersReal.size <= TYPERS_CUTOFF))) {
+    console.log('  NO VERDICT. ' + data.unreadableFiles.length + ' file(s) could not be read, and both');
+    console.log('  conclusions below this line are claims about SCARCITY. A record read with holes');
+    console.log('  in it cannot support one: an unreadable file can only remove typed reports, so a');
+    console.log('  partial read biases toward exactly the answer this tool would otherwise give.');
+    console.log('  Unreadable: ' + [...new Set(data.unreadableFiles)].sort().join(', '));
+    process.exitCode = 1;
+    return;
+  }
   if (s.typedReal.length === 0) {
     console.log('  No working agent has EVER typed ' + RED + ' in this record.');
     console.log('  => the state exists in the vocabulary and has no self-reported source at all.');
   } else if (share < SHARE_CUTOFF && s.typersReal.size <= TYPERS_CUTOFF) {
     console.log('  => ' + RED + ' has, in practice, almost no self-reported source. The board\'s red');
     console.log('     state is load-bearing on the PANE READER today, and narrowing the classifier');
-    console.log('     narrows the only path that produces it (status.js rule 3, #1253).');
+    console.log('     narrows the path that produces nearly all of it (status.js rule 3, #1253).');
   } else {
     console.log('  => working agents ARE reporting this state themselves. The claim in status.js');
     console.log('     rule 3 that the red is load-bearing on the pane reader no longer matches the');

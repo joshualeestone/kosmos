@@ -3624,8 +3624,13 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      ⇒ Most rules here arbitrate between two witnesses. This one arbitrates
  *      between a witness and, in practice, a silence. ("Most", not "every":
  *      rule 1 has a single witness by construction.) So anything
- *      that narrows the classifier narrows the only path that produces the
- *      board's red state at all.
+ *      that narrows the classifier narrows the path that produces nearly all of
+ *      the board's red state. ⚠️ NOT "the only path", which an earlier version
+ *      said: the hook writes reds too, a fresh reported `needs_you` renders red
+ *      and does not decay (rule 6), and the tool prints the hook's count four
+ *      lines above the sentence that used to deny it. An absolute with a
+ *      counterexample in its own output is the tool-flattering-itself defect
+ *      one layer up.
  *      🛑 AND AN EARLIER VERSION OF THIS PARAGRAPH BLAMED #1155 FOR THAT, WHICH
  *      IS FALSE AND WAS CAUGHT BY MEASURING BOTH ARMS. It said #1155's
  *      tightening is why a prose question is invisible. Against the PRE-#1155

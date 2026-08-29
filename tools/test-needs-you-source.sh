@@ -197,6 +197,45 @@ case "$out" in
   *) ok "arm 5c: and does not use the absent sentence" ;;
 esac
 
+# --- 🔑 ARM 5g: AN ABSENCE VERDICT NEEDS A COMPLETE READ; A PRESENCE VERDICT
+#     DOES NOT. With SOME files unreadable, `total` is non-zero so the
+#     all-unreadable gate does not fire, and the tool used to conclude "no
+#     working agent has EVER typed this" from a record whose red-bearing file
+#     it could not open - at exit 0. The direction is the flattering one: an
+#     unreadable file can only REMOVE typed reports.
+#     Three arms, because the two verdicts are deliberately NOT symmetric.
+if [ "$(id -u)" -eq 0 ]; then
+  bad "arm 5g: running as root, chmod 000 is a no-op and this arm would pass vacuously"
+else
+mkdir -p "$T/partial"
+{ filler 10; line needs_you "May I merge?"; } > "$T/partial/ida.jsonl"
+line working "readable" > "$T/partial/jo.jsonl"
+chmod 000 "$T/partial/ida.jsonl"
+out="$(run "$T/partial")"; rc=$?
+case "$out" in
+  *"NO VERDICT"*) ok "arm 5g: an ABSENCE verdict is refused when part of the record is unreadable" ;;
+  *) bad "arm 5g: concluded scarcity from a partial read: $(printf '%s\n' "$out" | grep -c 'EVER typed') absence line(s)" ;;
+esac
+[ "$rc" -eq 1 ] && ok "arm 5g: and exits 1" || bad "arm 5g: exited $rc on a partial read"
+# CONTROL 1: the same record readable must give the OPPOSITE answer, or the arm proves nothing
+chmod 644 "$T/partial/ida.jsonl"
+out="$(run "$T/partial")"
+has "$out" 1 "typed by a working agent" \
+  && ok "arm 5g: and readable, the same record finds the report the unreadable run missed" \
+  || bad "arm 5g: the control did not find the hidden report, so the arm shows nothing"
+# CONTROL 2: a PRESENCE verdict must still print on a partial read - the asymmetry is the point
+i=0; while [ "$i" -lt 12 ]; do line needs_you "should I?" >> "$T/partial/jo.jsonl"; i=$((i+1)); done
+for a in ka la ma; do line needs_you "should I?" > "$T/partial/$a.jsonl"; done
+chmod 000 "$T/partial/ida.jsonl"
+out="$(run "$T/partial")"; rc=$?
+case "$out" in
+  *"ARE reporting this state themselves"*) ok "arm 5g: a PRESENCE verdict still prints on a partial read, because what was found was found" ;;
+  *) bad "arm 5g: refused a presence verdict, so the refusal is blanket rather than about scarcity" ;;
+esac
+[ "$rc" -eq 0 ] && ok "arm 5g: and exits 0 for it" || bad "arm 5g: presence verdict exited $rc"
+chmod 644 "$T/partial/ida.jsonl"
+fi
+
 # --- 🔑 ARM 5f: A MIXED RECORD MUST GET THE SHARPER DIAGNOSIS. Arm 5d's
 #     fixture holds ONLY unreadable files, so it structurally cannot see this:
 #     one unreadable file plus one file of unrecognised states made `total` 0,

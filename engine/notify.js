@@ -41,8 +41,11 @@
  * an agent types it.
  * ⇒ SO THE HONEST STATEMENT IS SHARPER AND RUNS THE OTHER WAY. Measured on
  * #1253: the board's reds are load-bearing on the SCRAPE (`status.js` rule 3),
- * and the scrape cannot reach this seam. **The phone therefore pings on the
- * rarest source there is and stays silent on the dominant one.** That is a
+ * and the scrape cannot reach this seam. **The phone therefore pings only on
+ * the written path -- the hook, and the rare occasion an agent types it -- and
+ * stays silent on the source the board's reds actually run on.** (Not "the
+ * rarest source there is", which an earlier version said: the seam covers two
+ * of the three sources, and the hook is the larger of those two.) That is a
  * false-calm gap in the seam this file exists to define, and false calm is the
  * failure this board keeps paying for. Carded rather than fixed here, because
  * closing it is a product decision about what a phone should be told, not a
