@@ -153,6 +153,18 @@ out="$(run)"; rc=$?
 if [ "$rc" -eq 1 ]; then pass "and the gate refuses the entry that has no timestamp"; else fail "FAIL-OPEN: no-timestamp entry passed (rc=$rc): $out"; fi
 
 
+# --- EVERY bound must refuse when it is not an integer, on BOTH axes ---
+# 🛑 This class was found three times in this file, on three different values:
+# the offset, the past bound, the future bound. It was fixed where it was found
+# twice, and the third survived both fixes. These arms cover all of them, and the
+# future one is the arm that matters most: that axis is what the guard is FOR.
+fut="$(node -e "const d=new Date(Date.now()+60*60000);const m='January February March April May June July August September October November December'.split(' ');let h=d.getHours(),a=h>=12?'PM':'AM';h=h%12||12;process.stdout.write(m[d.getMonth()]+' '+d.getDate()+', '+d.getFullYear()+', '+h+':'+String(d.getMinutes()).padStart(2,'0')+' '+a+' CDT')")"
+entry "$fut"
+out="$(run)"; rc=$?
+if [ "$rc" -eq 1 ] && has "$out" "FUTURE"; then pass "CONTROL: a stamp 60 min ahead refuses with a valid future bound"; else fail "control: +60 should refuse (rc=$rc): $out"; fi
+out="$(KOSMOS_FUTURE_BOUND=abc bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kosmos_versions_entry_gate 0.6.06 "'"$F"'" "c." "h." 20' 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "a non-integer FUTURE bound REFUSES (fail closed, on the axis the guard is for)"; else fail "FAIL-OPEN: future bound 'abc' let a +60min stamp through (rc=$rc): $out"; fi
+
 # --- a non-integer BOUND must refuse too, not just a non-integer offset ---
 entry "August 28, 2026, 1:00 AM CDT"
 out="$(kosmos_versions_entry_gate 0.6.06 "$F" "c." "h." abc 2>&1)"; rc=$?

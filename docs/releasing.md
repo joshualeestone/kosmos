@@ -142,12 +142,20 @@ a different problem.
    different advice: step 1 says "stamp for publication", step 7 says "paste the
    clock line", because at step 7 there is no cut left to age it.
 
-   🛑 **AND THERE IS A CEILING THIS CHANGE INTRODUCES. IF A CUT TAKES MORE THAN
-   ABOUT FORTY MINUTES TO REACH STEP 7, NO STAMP CAN PASS BOTH GATES.** With `A`
-   the minutes you stamp ahead and `D` the cut's duration, step 1 needs
-   `A <= 20` (nothing may be stamped further ahead than the future bound) and
-   step 7 needs `A >= D - 20` (it must not have gone stale by the time we
-   deploy). Those two are satisfiable only while `D <= 40`.
+   🛑 **AND THERE IS A CEILING THIS CHANGE INTRODUCES.** With `A` the minutes you
+   stamp ahead and `D` the cut's duration, step 1 needs `A <= 20` (nothing may be
+   stamped further ahead than the future bound) and step 7 needs `A >= D - 20`
+   (it must not have gone stale by the time we deploy).
+
+   | you stamp | the cut can take up to |
+   |---|---|
+   | `A = 15`, the recommendation above | **`D = 35`** |
+   | `A = 20`, the most step 1 allows   | `D = 40`, the absolute ceiling |
+
+   ⚠️ **So the wall an operator actually meets is 35 minutes, not 40.** Forty is
+   reachable only by stamping the full twenty ahead, which is not what the
+   headline tells you to do. If a cut is running long, stamping further ahead
+   buys time up to `A = 20` and no further; past `D = 40` nothing passes both.
 
    ⚠️ **This is a real loss and it is worth knowing before you meet it.** Before
    #1453 only step 7 read the stamp, so `A` could simply track `D` and an
@@ -156,6 +164,16 @@ a different problem.
    fix is to shorten the cut, or to widen `KOSMOS_LATE_PAST_BOUND` deliberately,
    never to keep guessing at the stamp. Nothing in the code pins `D <= 40`; it
    is a property of the machine on the night.
+
+   ⚠️ **AND IF STEP 1 SAYS "IN THE PAST" ON AN ENTRY YOU JUST WROTE, SUSPECT THE
+   MACHINE CLOCK.** The past side is now 5 minutes where it used to be 20, so a
+   Mac running six minutes fast refuses an entry stamped this second. The
+   refusal says "stamp for publication", which is the right advice for a stale
+   entry and the wrong advice for a skewed clock -- run `date` and compare it
+   against a phone before re-stamping. Related and disclosed in
+   `tools/lib/versions-entry.sh`: the gate parses the stamp in the MACHINE's
+   local timezone while the page hard-codes `CDT`, so a non-Central machine, or
+   any machine in winter, is measuring something slightly different again.
 
    📌 **Where fifteen comes from.** Measured on the 0.6.06 attempt of 2026-08-28:
    launch 21:56:18, step 7 at 22:12:04, so **15m 46s**, and a slow browser gate

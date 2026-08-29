@@ -29,8 +29,10 @@
 #
 # 🛑 THE PAST SIDE IS **NOT** THE SAME AT BOTH, AND AN EARLIER VERSION OF THIS
 # HEADER SAID IT WAS. Step 1 accepts 5 minutes, step 7 accepts 20. The reasoning
-# is at the gate function below; it is repeated nowhere else on purpose. If you
-# are reading this header for the window, read the gate.
+# is at the gate function below, which is where the numbers live. The REASONING
+# is also stated in release.sh beside the step 1 call and at length in
+# docs/releasing.md, because each has a different reader; the NUMBERS are only
+# here. If you are reading this header for the window, read the gate.
 #
 # ⚠️ That earlier sentence ("the window is symmetric and stays symmetric") was
 # true when written and false one change later, and it sat directly above code
@@ -38,7 +40,37 @@
 # header that contradicts its own file is the failure this note now guards: a
 # reader who stops at the top leaves with a false model of the gate.
 
+# 📌 The anchors in the header are grep patterns, not line numbers, on purpose: a
+# line number in a comment goes stale with the next edit and nothing notices.
+# This tree has a live example -- tools/browser-checks.sh says "release.sh:243
+# invokes this" and the invocation is at 357.
 kosmos_versions_entry_id() { echo "v$(echo "$1" | tr . -)"; }
+
+# 🛑 ONE VALIDATOR FOR EVERY BOUND, BECAUSE FIXING THIS PER-ARGUMENT FAILED TWICE.
+# The same fail-open has now been found three times in this file, on three
+# different values: the offset, then the past bound, then the future bound. Each
+# time it was fixed where it was found, and each time the next one was left. The
+# mechanism is identical every time -- `[ x -gt y ]` with a non-integer does not
+# evaluate false, it EXITS 2, so the `if` reads false, the next one errors too,
+# and control reaches "its timestamp agrees with the clock" and returns 0.
+#
+# ⚠️ AND THE FUTURE BOUND WAS THE WORST PLACE TO LEAVE IT: that axis is the one
+# the guard exists for. On 2026-08-21 the four newest entries claimed release
+# times that had not happened yet; a non-integer KOSMOS_FUTURE_BOUND made a stamp
+# 60 minutes in the future PASS, printing "its timestamp agrees with the clock"
+# with nothing but a stray `[: integer expression expected` on stderr to notice.
+#
+# ⇒ So this is a validator rather than three more `case` blocks: any bound this
+# gate compares against goes through here, and adding a fourth bound without
+# validating it is now the unusual thing to write rather than the default.
+kosmos_versions_entry_int_or_die() {
+  case "$2" in
+    ''|*[!0-9]*)
+      echo "   refusing: $1 is not a whole number of minutes: '$2'"
+      return 1 ;;
+  esac
+  return 0
+}
 
 # Prints the entry's rel-d string, or nothing when there is no entry.
 # ⚠️ ONE awk PROCESS, NOT `sed | sed | head -1`. release.sh runs with
@@ -117,11 +149,6 @@ kosmos_versions_entry_stamp_off() {
 # 🔑 SO STEP 1 IS STRICTER ON THE PAST SIDE THAN STEP 7, AND THAT ASYMMETRY IS THE
 # POINT rather than an inconsistency. Step 1 can see that an already-stale entry
 # is DOOMED; step 7 only has to judge the entry in front of it. The arithmetic:
-# 📌 Anchors above are grep patterns, not line numbers, on purpose: a line number
-# in a comment goes stale with the next edit and nothing notices. This tree has a
-# live example -- tools/browser-checks.sh says "release.sh:243 invokes this", and
-# the invocation is nowhere near 243 on main or here.
-#
 # an entry `P` minutes old at step 1 arrives at step 7 reading `P + D`, so it
 # survives only while `P + D <= 20`. With D measured at 15m46s on the 0.6.06
 # attempt, P must be about 4 or less. STEP1_PAST_BOUND is 5, which is that number
@@ -206,19 +233,10 @@ kosmos_versions_entry_gate() {
     -*) case "${off#-}" in *[!0-9]*) off=unparseable ;; esac ;;
   esac
 
-  # 🛑 AND THE BOUND ITSELF, FOR THE SAME REASON AND WITH THE SAME OUTCOME IF
-  # SKIPPED. `$off` was validated and `$past_bound` was not, so a non-integer
-  # bound made `[ 90 -gt abc ]` exit 2, both comparisons read false, and the gate
-  # returned 0 on a 90-minute-stale entry. That is the same fail-open, one
-  # argument over. It is unreachable from today's two call sites -- and now that
-  # the runbook invites an operator to set KOSMOS_LATE_PAST_BOUND, the value can
-  # come from a human, which is exactly when "the caller cannot be trusted to
-  # have produced an int" stops being theoretical.
-  case "$past_bound" in
-    ''|*[!0-9]*)
-      echo "   refusing: the past-side bound is not a whole number of minutes: '$past_bound'"
-      return 1 ;;
-  esac
+  # EVERY bound this gate will compare against, validated before any comparison
+  # runs. Both are env-overridable, so both can carry whatever a human typed.
+  kosmos_versions_entry_int_or_die "the past-side bound" "$past_bound" || return 1
+  kosmos_versions_entry_int_or_die "the future-side bound" "$KOSMOS_FUTURE_BOUND" || return 1
   if [ "$off" = "unparseable" ]; then
     echo "   the entry for $v is stamped: $stamp"
     echo "   that is not a date this gate can read. It wants the shape: $now"

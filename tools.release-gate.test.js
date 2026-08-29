@@ -250,7 +250,12 @@ test('the 0.5 line keeps its own spelling and is not refused retroactively', () 
  * the guard. Without one every arm would stop at "no site checkout" and pass
  * for the wrong reason, which is the failure this file already survived once.
  */
-/* The one shape the versions gate accepts: the id it greps for, and a rel-d it
+/* ⚠️ THIS IS ONE OF THREE INDEPENDENT PRODUCERS OF THE rel-d FORMAT, against a
+   single parser. The others are `stamp_at` in tools/test-versions-entry-gate.sh
+   and the real writer, tools/insert-release-entry.js. Change the page's stamp
+   format and both fixtures keep passing while the real page fails.
+
+   The one shape the versions gate accepts: the id it greps for, and a rel-d it
    can parse, stamped now. Kept beside the sandbox rather than inline so an arm
    that wants a STALE entry can pass an offset and get a refusal on purpose. */
 function versions_entry(version, minutesStale = 0) {
