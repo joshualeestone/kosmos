@@ -165,6 +165,37 @@ const oaiStub = require('node:http').createServer((q, r) => {
     await page.screenshot({ path: process.env.SHOT_1373 });
     console.log('NOTE  wrote #1373 screenshot to ' + process.env.SHOT_1373);
   }
+  /* 🛑 THE CONFIRM SENTENCE ITSELF, RENDERED. Everything above this pins the CONTROL; the
+     six-arm sentence the dialog builds from it was pinned only by source regexes, which is
+     exactly the argument that justified giving the route its own executed test: a regex
+     inspects the expression and never its use. This is the last screen before a restart, so
+     it is the worst place to have no arm that runs.
+     ⇒ TWO ARMS, because the pair is what proves the claim is gated rather than decorative:
+     UNPICKED must hedge, and a REAL pick must name the account. Both open the dialog and
+     close it with "Keep it as it is", so nothing is switched and the checks below are
+     undisturbed. */
+  await page.click('#d-provider-go'); await page.waitForTimeout(300);
+  const untouched = await page.$eval('#chg-small', (e) => e.textContent);
+  chk(/sign-in shown above/.test(untouched) && /if that one has gone/.test(untouched),
+    '#1373: with the menu showing and untouched, the dialog hedges instead of promising a row',
+    untouched.slice(-90));
+  chk(!/you picked/.test(untouched),
+    '#1373: an untouched menu must not claim the person chose', untouched.slice(-90));
+  await page.click('#chg-keep'); await page.waitForTimeout(200);
+
+  /* Now a REAL pick: selecting an option fires `change`, which is what sets the flag. */
+  const second = await page.$eval('#d-provider-account', (s2) => s2.options[1].value);
+  await page.selectOption('#d-provider-account', second);
+  await page.click('#d-provider-go'); await page.waitForTimeout(300);
+  const picked = await page.$eval('#chg-small', (e) => e.textContent);
+  chk(/it will run on /.test(picked) && /BETA|ALFA/.test(picked),
+    '#1373: a real pick is named back in the sentence, not hedged',
+    picked.slice(-90));
+  chk(!/if that one has gone/.test(picked),
+    '#1373: a real pick must not be hedged, because a picked account the engine cannot use is REFUSED rather than replaced',
+    picked.slice(-90));
+  await page.click('#chg-keep'); await page.waitForTimeout(200);
+
   /* 🔑 THE ARM THAT MAKES THE THREE ABOVE MEAN ANYTHING. A control that is
      always visible would pass every one of them, and this shows the picker can
      go away.

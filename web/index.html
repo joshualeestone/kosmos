@@ -22172,9 +22172,16 @@ async function moveAccountNow(say) {
        return leaves 'Checking…' in the element, so the emptiness test below is false. That
        is safety by accident: one edit clearing the message before that return turns this
        into a sentence about the wrong agent. Every other await on this path carries this
-       guard, and so does this one now. */
-    if (!CURRENT || CURRENT.sessionName !== forAgent) return;
-    if (msg && saidAfterMove && !msg.textContent) msg.textContent = saidAfterMove;
+       guard, and so does this one now.
+       ⚠️ SCOPED TO THE WRITE, NOT USED AS AN EARLY RETURN, and that distinction is the
+       whole of it. As a `return` this guard also skipped the `await tick()` below, which
+       had always run unconditionally after a successful move: an agent switch mid-move
+       would silently lose the board refresh. A guard added for one reason had quietly
+       changed something else, which is the shape this branch keeps finding in other
+       people's code. The refresh is wanted either way; only the panel WRITE is
+       agent-specific. */
+    if (CURRENT && CURRENT.sessionName === forAgent
+      && msg && saidAfterMove && !msg.textContent) msg.textContent = saidAfterMove;
     await tick();
   } catch (err) {
     msg.textContent = String((err && err.message) || 'that did not work');

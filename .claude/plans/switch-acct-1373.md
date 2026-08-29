@@ -103,7 +103,7 @@ keeps catching, and three of these came out of review rather than design:**
   never sets `AGENT_WORKFORCE_HOME`, and an arm of its own reasons from that; since
   `homeDir()` falls back to `os.homedir()`, a route test added there would enumerate the
   operator's REAL `~/.codex-*` sign-ins. This file seals all three roots instead.
-- Full runner: **3026 pass, 0 fail, exit 0** (re-measured 2026-08-29 15:40 CDT, rebased onto main). The figure moves as this branch adds tests, so it is dated
+- Full runner: **3037 pass, 0 fail, exit 0** (re-measured 2026-08-29 16:28 CDT, rebased onto main). The figure moves as this branch adds tests, so it is dated
   rather than stated: 2907 pre-rebase, 2935 post-rebase, 2936 after iteration 13's pair
   test, 2937 after iteration 14, 2938 after iteration 15's fail-quiet guards.
   🛑 THIS NUMBER HAS GONE STALE THREE ITERATIONS RUNNING (14, 15 and 16 each caught it),
