@@ -325,7 +325,7 @@ for badarg in "--dirr" "--verbose"; do
     *"unrecognised argument"*) ok "arm 7b: $badarg is rejected, not ignored" ;;
     *) bad "arm 7b: $badarg was ignored and something was read anyway"; printf '%s\n' "$out" | head -3 ;;
   esac
-  [ "$rc" -eq 2 ] || bad "arm 7b: $badarg exited $rc, expected 2"
+  [ "$rc" -eq 2 ] && ok "arm 7b: $badarg exits 2" || bad "arm 7b: $badarg exited $rc, expected 2"
 done
 out="$(node tools/needs-you-source.js "$T/rare" 2>&1)"
 case "$out" in
@@ -427,7 +427,7 @@ case "$out" in
   *"--dir was given twice"*) ok "arm 7e: a repeated --dir is refused, not last-wins" ;;
   *) bad "arm 7e: a repeated --dir silently took one of them"; printf '%s\n' "$out" | head -3 ;;
 esac
-[ "$rc" -eq 2 ] || bad "arm 7e: exited $rc, expected 2"
+[ "$rc" -eq 2 ] && ok "arm 7e: and exits 2" || bad "arm 7e: exited $rc, expected 2"
 
 # --- 🔑 ARM 12: THE RECORD'S OWN WORD BEATS THE STRING MATCH (#1457).
 #     🛑 THE FIXTURE MUST BE ASYMMETRIC. My first version put one record wrong

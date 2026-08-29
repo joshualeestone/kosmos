@@ -122,7 +122,19 @@ const HOOK_PREFIX = 'asking permission to use ';
 /* Overridable ONLY so the drift refusal below can be exercised from both arms
    in `tools/test-needs-you-source.sh`. A refusal that cannot be tested is the
    same decoration as a control that cannot fail. */
-/* ⚠️ THE ENV VAR IS FOR TESTS ONLY. Repointing it at a file that happens to
+/* ⚠️ AND THIS CHECKS THE REPO'S COPY, NOT THE SCRIPT THAT ACTUALLY RUNS.
+   The wired hook is whatever `~/.claude/settings.json` points at -- on this
+   machine the MAIN checkout's copy, a different file from this worktree's.
+   They agree whenever the branch is rebased, and they would silently diverge
+   if main moved without a rebase, or if the wiring were repointed elsewhere.
+   ⇒ So a `true` here means "the sentence I classify by is still in the repo",
+   NOT "still in the script that writes the records". For the historical corpus
+   this tool reads that is the right reference, because those records were
+   written by the hook as it stood; for future records it is one step removed.
+   Stated rather than fixed: resolving `settings.json` would couple a repo tool
+   to machine config, and the limit is narrow and now visible.
+
+   ⚠️ THE ENV VAR IS FOR TESTS ONLY. Repointing it at a file that happens to
    contain the prefix would suppress a genuine mismatch refusal. Low risk on a
    read-only dev tool, and it is what makes arm 9 drivable from both sides,
    which is the trade taken deliberately. */
@@ -371,8 +383,9 @@ function main() {
     console.error('Every readable file yielded nothing, and ' + data.unreadableFiles.length
       + ' file(s) could not be read at all:');
     console.error('  ' + [...new Set(data.unreadableFiles)].sort().join(', '));
-    console.error('That is not an empty record and not a missing one. The directory is right and');
-    console.error('something else is wrong with it, most likely permissions. Nothing is printed.');
+    console.error('That is not an empty record and not a missing one: the directory is right and');
+    console.error('those files could not be opened. Permissions is the usual cause; a directory');
+    console.error('named like a record file would do it too. Nothing is printed.');
     process.exitCode = 1;
     return;
   }
@@ -401,8 +414,7 @@ function main() {
      WHY nothing parsed, so they are printed here. */
   if (total === 0) {
     console.error('The record exists and is EMPTY: 0 parseable reports'
-      + ' (' + data.unparseable + ' line(s) that were not JSON or not a report, '
-      + data.unknownState.length + ' with an unrecognised state).');
+      + ' (' + data.unparseable + ' line(s) that were not JSON or not a report).');
     console.error('That is not an answer -- an empty record has no reds for the same reason it has');
     console.error('no anything. Nothing below can be concluded. Check --dir, or AGENT_WORKFORCE_DATA.');
     process.exitCode = 1;

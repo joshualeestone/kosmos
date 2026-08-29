@@ -25,28 +25,29 @@
  *   'replied'  an agent answered in the person's own thread with it
  * 'needs_you' is the next one and needs the state transition, not a write;
  * it is named here so the payload's `kind` is a closed list from the start.
+ * ⚠️ THAT SENTENCE IS NOW HISTORICAL: the transition shipped, and this kind
+ * fires from `/api/report`. See below for what it actually carries.
  *
- * ⚠️ AND ALMOST NO PRODUCER OF THIS TRANSITION IS THE AGENT'S OWN JUDGEMENT.
- * Two things produce it in practice -- the pane reader, whose verdict is
- * composed in `status.classify` at read time and is never written anywhere
- * (`reconcileReport` is where that verdict is given precedence over a report,
- * a different step), and the PermissionRequest hook, which does write a
- * self-report on an agent's behalf. Neither is an agent deciding it needs a
- * person. A working agent has typed it, but only just: "almost" is doing real
- * work in that sentence, and the record also holds a run of them from
- * walkthrough fixtures, which are not colleagues.
- * ⇒ They are not the same QUALITY of event either, and that matters here more
- * than anywhere: a permission box is a real machine event and a genuine
- * person-blocker, while a scraped one is an inference about what a screen
- * looked like. So a ping wired to this kind would carry a mixture of the two,
- * which is a weaker claim than the other two kinds make and is worth saying
- * before the relay exists rather than after.
- * 📌 NO COUNTS HERE, AND THAT IS NOW TRUE RATHER THAN ASSERTED: an earlier
- * version of this block claimed "no number here on purpose" while carrying
- * three of them eleven lines above the claim. The measurement and the argument
- * live at `status.js` rule 3, which is the copy to PREFER because it carries a
- * snapshot clock time. It is NOT the only copy, and rule 3 names the others;
- * re-run them with `node tools/needs-you-source.js`.
+ * 🛑 AND THE LINE ABOVE IS STALE: THE TRANSITION SHIPPED. `server.js` fires
+ * this kind from `/api/report` once a `needs_you` report is recorded, pinned by
+ * `server.test.js`'s "a reported needs_you reaches the phone seam in the same
+ * word, with zero translation". So it is not waiting on anything.
+ * ⚠️ WHAT IT CARRIES IS NOT WHAT AN EARLIER VERSION OF THIS BLOCK SAID. That
+ * version claimed a ping here "would carry a mixture" of the pane reader and
+ * the hook. Both halves were wrong: it is already wired, and the PANE READER
+ * REACHES THIS SEAM NOT AT ALL -- its verdict is composed in `status.classify`
+ * at read time and never written, and `status.js` does not require this module
+ * (checked: 0 requires, against 1 for `selfreport`). Only self-reports arrive
+ * here, which is the hook writing on an agent's behalf plus the rare occasion
+ * an agent types it.
+ * ⇒ SO THE HONEST STATEMENT IS SHARPER AND RUNS THE OTHER WAY. Measured on
+ * #1253: the board's reds are load-bearing on the SCRAPE (`status.js` rule 3),
+ * and the scrape cannot reach this seam. **The phone therefore pings on the
+ * rarest source there is and stays silent on the dominant one.** That is a
+ * false-calm gap in the seam this file exists to define, and false calm is the
+ * failure this board keeps paying for. Carded rather than fixed here, because
+ * closing it is a product decision about what a phone should be told, not a
+ * comment.
  */
 const fs = require('node:fs');
 const path = require('node:path');

@@ -605,6 +605,35 @@ completeness, carries no information about the case that is actually missing.
   drops unknown states before the tally is built, so the line is unfailable
   with or without the gate. Right conclusion, wrong reason.
 
+### Amended at iteration 18, which found a NEW class and settled the orbiting question
+
+- 🛑 **`notify.js` made a claim about the phone seam that this repo's own code
+  and a shipped test contradict, and it erred in the reassuring direction.** It
+  said a ping on this kind "would carry a mixture" of the pane reader and the
+  hook. Both halves were wrong: the seam is ALREADY WIRED (`/api/report`, pinned
+  by a shipped test), and the pane reader reaches it **not at all** - its verdict
+  is composed at read time and never written, and the status module does not
+  require notify (0 requires, against 1 for selfreport as a control).
+  ⇒ **The true statement is sharper and runs the other way: the seam pings on
+  the rarest source of `needs_you` and is silent on the dominant one.** That is
+  false calm on the notification surface, in the seam built so a red reaches a
+  person. Filed as kosmos#1494 rather than fixed here, because closing it is a
+  product decision about what a phone should be told.
+  📌 The stale sibling at the top of that file ("needs the state transition, not
+  a write") is pre-existing and now historical; corrected in place rather than
+  cited while known to be wrong.
+- **This is the answer to the orbiting question.** The reviewer was asked
+  explicitly whether anything here is NOT the one-site/two-site shape, and told
+  that "only the shape plus cosmetics" was an acceptable and useful answer. It
+  found a genuinely new class: a wrong claim about a MECHANISM, checkable
+  against code and a test, rather than a stale sibling. So the loop was still
+  earning at iteration 18 - and that verdict came from a blind reviewer rather
+  than from my own patience, which is the half I could not trust.
+- **Nits:** a term in the empty-record refusal that could only ever print 0
+  (the same standard this file applies to two other lines); EISDIR described as
+  "most likely permissions"; and two exit-code assertions that printed nothing
+  on success.
+
 ## What this deliberately does NOT do
 
 - **No behaviour change.** Comments, one read-only tool, one test, one line of
