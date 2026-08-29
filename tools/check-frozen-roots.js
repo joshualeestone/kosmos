@@ -44,9 +44,13 @@ const SOURCES = ['os.homedir()', 'os.tmpdir()'];
    from #1432 because it has 20+ consumers across server.js and four engine
    modules, so converting it is its own change with its own review, not a
    rider on a seven-module sweep. Tracked separately. */
-const KNOWN = new Map([
-  ['engine/store.js:ROOT', 'over 20 external consumers; own card, own review'],
-]);
+/* ✅ `engine/store.js:ROOT` WAS THE ONE ENTRY AND IT IS GONE (#1443, fixed).
+   Removed rather than kept with a "fixed" note: an allowlist that carries
+   resolved entries stops being a debt list and becomes decoration, and the
+   design here is that it shrinks to nothing.
+   ⚠️ AND REMOVING IT IS WHAT MAKES THE FIX ENFORCED. While the entry stood,
+   re-freezing that root would have been SKIPPED BY NAME. Now it fails here. */
+const KNOWN = new Map([]);
 
 /* A declaration that is an arrow function is LAZY and fine: `const T = () => …`
    resolves per call. This is the distinction the whole check turns on. */
