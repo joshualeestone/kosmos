@@ -53,6 +53,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const connect = require('./engine/connect');
+const accounts = require('./engine/accounts');
 
 let base;
 test.before(async () => {
@@ -329,6 +330,95 @@ test('start on an already-connected machine answers connected and runs nothing',
     fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
     connect.resetForTests();
   }
+});
+
+test('#1492: start with accountDir signs in to an EXISTING account instead of making a second one', async () => {
+  /* Josh's sister, first outside install: her Claude login expired, Settings
+     correctly said not connected, and the ONLY affordance was "add a provider".
+     That route is `another:true` below, which picks a FREE spot and makes a NEW
+     record -- so an expired token became a duplicate account and she could not
+     move her agent onto either.
+
+     ⭐ The engine could always do this: `connect.start()` has taken a configDir
+     since it was written and `another:true` already uses it. What was missing
+     was a way to ASK for a directory that already exists. */
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  const work1 = path.join(process.env.HOME, '.claude-work1');
+  const work2 = path.join(process.env.HOME, '.claude-work2');
+  try {
+    // Make one extra account the ordinary way, so there is something to go back to.
+    await post('/api/connect/start', { another: true });
+    await post('/api/connect/cancel');
+    assert.ok(fs.existsSync(work1), 'the fixture never made the first work account');
+    /* 🛑 AND GIVE IT AN IDENTITY, because that is her actual state. `list()`
+       reports an account only when `identityOf()` finds an `oauthAccount`, so a
+       PREPARED-but-never-signed-in directory is not an account yet. Hers was: it
+       existed, Settings named it, and only the TOKEN had expired. A fixture
+       without this tests a directory nobody could have been looking at. */
+    fs.writeFileSync(path.join(work1, '.claude.json'),
+      JSON.stringify({ oauthAccount: { emailAddress: 'expired@example.com' } }), 'utf8');
+    assert.ok(accounts.list().some((a) => a.dir === work1),
+      'the fixture account is not one the engine reports, so this would test the wrong refusal');
+
+    const got = await post('/api/connect/start', { accountDir: work1 });
+    assert.equal(got.status, 200, got.body);
+    assert.equal(json(got).configDir, work1,
+      'signing in again did not target the account that was asked for');
+
+    /* 🛑 THE ASSERTION THE CARD IS ABOUT. Re-authenticating must not leave a
+       second record behind, which is the whole defect. */
+    assert.ok(!fs.existsSync(work2),
+      'signing in again to an existing account created ANOTHER account, which is the duplicate this card exists to stop');
+  } finally {
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+    fs.rmSync(work1, { recursive: true, force: true });
+    fs.rmSync(work2, { recursive: true, force: true });
+    await post('/api/connect/cancel');
+    connect.resetForTests();
+  }
+});
+
+test('#1492: a non-canonical path still names the account it points at', async () => {
+  /* Same reason as #1486: `accounts.list()` stores a resolved dir, so comparing
+     an unresolved request would miss an account that is genuinely here and send
+     the person straight back to the duplicate-making route. Built by
+     CONCATENATION because path.join would normalise it away. */
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  const work1 = path.join(process.env.HOME, '.claude-work1');
+  try {
+    await post('/api/connect/start', { another: true });
+    await post('/api/connect/cancel');
+    fs.writeFileSync(path.join(work1, '.claude.json'),
+      JSON.stringify({ oauthAccount: { emailAddress: 'expired@example.com' } }), 'utf8');
+    const wobbly = work1 + '/../' + path.basename(work1) + '/';
+    assert.notEqual(wobbly, work1, 'the fixture normalised itself');
+    const got = await post('/api/connect/start', { accountDir: wobbly });
+    assert.equal(got.status, 200, got.body);
+    assert.equal(json(got).configDir, work1);
+  } finally {
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+    fs.rmSync(work1, { recursive: true, force: true });
+    await post('/api/connect/cancel');
+    connect.resetForTests();
+  }
+});
+
+test('#1492 CONTROL: an unknown folder is REFUSED, never quietly made into an account', async () => {
+  /* Without this the mode above would be a back door that creates accounts from
+     any string, which is the very defect it exists to remove, arriving under a
+     helpful name. */
+  const stranger = path.join(process.env.HOME, '.claude-not-an-account');
+  const got = await post('/api/connect/start', { accountDir: stranger });
+  assert.equal(got.status, 400, got.body);
+  assert.match(json(got).error, /do not know that account/);
+  assert.ok(!fs.existsSync(stranger), 'an unknown folder was created by asking to sign in to it');
+});
+
+test('#1492 CONTROL: asking for both a new account and an existing one is refused', async () => {
+  const work1 = path.join(process.env.HOME, '.claude-work1');
+  const got = await post('/api/connect/start', { another: true, accountDir: work1 });
+  assert.equal(got.status, 400, got.body);
+  assert.match(json(got).error, /not both/);
 });
 
 test('#248: start with another:true points the flow at a fresh prepared work account', async () => {

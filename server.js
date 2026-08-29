@@ -3717,6 +3717,39 @@ const server = http.createServer((req, res) => {
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return null; }
         if (typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return null; }
         if ('another' in body && typeof body.another !== 'boolean') { sendJson(res, 400, { error: 'another must be true or false' }); return null; }
+        if ('accountDir' in body && typeof body.accountDir !== 'string') { sendJson(res, 400, { error: 'accountDir must be the folder of an account on this computer' }); return null; }
+        /* 🛑 SIGNING IN AGAIN TO AN ACCOUNT THAT ALREADY EXISTS (#1492). Without
+           this the only two shapes were "the default account" and `another:true`,
+           which picks a FREE spot and makes a NEW record. So a person whose login
+           had merely EXPIRED had no route back except the one that duplicates
+           them, which is exactly what happened to the first outside user: her
+           token lapsed, Settings correctly said not connected, the only
+           affordance was "add a provider", and she ended with two records for one
+           login and no way to move her agent onto either.
+
+           ⚠️ The ENGINE could always do this: `connect.start()` has taken a
+           `configDir` since it was written, and `another:true` already uses it.
+           What was missing was a way to ASK for an existing directory. */
+        if (body && typeof body.accountDir === 'string' && body.accountDir !== '') {
+          if (body.another === true) {
+            sendJson(res, 400, { error: 'ask for a new account or an existing one, not both' });
+            return null;
+          }
+          /* Resolved before comparing, for the reason #1486 records: `list()`
+             stores a resolved dir, so a trailing slash or a `..` would miss an
+             account that is genuinely here and send the person back to the
+             duplicate-making route. */
+          const want = path.resolve(body.accountDir);
+          const known = accounts.list().find((a) => a.dir === want);
+          /* 🛑 REFUSED RATHER THAN CREATED. An unknown folder must not become a
+             new account by the back door: that is the very defect this route mode
+             exists to remove, and it would arrive here wearing a helpful name. */
+          if (!known) {
+            sendJson(res, 400, { error: 'we do not know that account on this computer' });
+            return null;
+          }
+          return connect.start({ configDir: known.dir });
+        }
         /* { another: true } asks for a SECOND account (#248/#324): pick the
            first free work spot, prepare it (idempotent; the shared-memory
            symlink is wired before the sign-in so the account is right from
