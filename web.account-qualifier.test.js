@@ -97,14 +97,14 @@ test('control: the extracted function discriminates in both directions', () => {
    OpenAI arm while the visible span made the screen LOOK disambiguated. Angel
    caught it in review, on the exact case the key-tail test above constructs.
    ⇒ A guard covering one of two branches is how the other branch stays broken. */
-test('the Disconnect control carries the qualifier, because that is the name the check reads', () => {
-  assert.match(PAGE, /aria-label="Disconnect ' \+ who \+ \(qual \? ' \(' \+ qual \+ '\)' : ''\)/,
-    'the Disconnect button is back to naming itself by login alone, so two of them answer to one name again');
+test('the Disconnect control carries the qualifier, escaped, because that is the name the check reads', () => {
+  assert.match(PAGE, /aria-label="Disconnect ' \+ who \+ \(qual \? ' \(' \+ esc\(qual\) \+ '\)' : ''\)/,
+    'the Disconnect button either dropped the qualifier (two of them answer to one name again) or stopped escaping it (a directory name with a quote breaks out of the attribute)');
 });
 
-test('the Remove control carries it too, or the OpenAI arm keeps the whole defect', () => {
-  assert.match(PAGE, /aria-label="Remove ' \+ who \+ \(qual \? ' \(' \+ qual \+ '\)' : ''\)/,
-    'the Remove button names itself by login alone, so two OpenAI rows sharing a key tail give two controls called "Remove API key ending ...", which is the bug this branch exists to fix');
+test('the Remove control carries it too, escaped, or the OpenAI arm keeps the whole defect', () => {
+  assert.match(PAGE, /aria-label="Remove ' \+ who \+ \(qual \? ' \(' \+ esc\(qual\) \+ '\)' : ''\)/,
+    'the Remove button either names itself by login alone (two OpenAI rows sharing a key tail give two controls called "Remove API key ending ...") or interpolates the qualifier unescaped into the attribute');
 });
 
 /* Angel's review, kept as an arm rather than a comment. The map was keyed on the
@@ -118,4 +118,17 @@ test('a CLONED row still resolves, so an unrelated map() cannot empty the qualif
     'a cloned row lost its qualifier, so the lookup is keyed on identity again and any map() upstream silently restores the bug');
   assert.equal(q.get(SECOND_ROW.dir), 'account-d',
     'a cloned row lost its qualifier');
+});
+
+/* `main` is the reserved qualifier for the default row. A non-default directory
+   literally named `.claude-main` yields the label `main`, so before the guard
+   both the default and that row answered to `... (main)` and the two controls
+   were back on one name. The non-default row must fall back to its unique `dir`. */
+test('a non-default row labelled "main" does not collide with the default row', () => {
+  const clashMain = { email: 'josh@book.io', dir: '/Users/x/.claude-main', label: 'main', isDefault: false };
+  const q = qualifiers([DEFAULT_ROW, clashMain]);
+  assert.equal(q.get(DEFAULT_ROW.dir), 'main', 'the default row lost its reserved qualifier');
+  assert.notEqual(q.get(clashMain.dir), '', 'the clashing row came out unnamed, so its control shares a name again');
+  assert.notEqual(q.get(clashMain.dir), q.get(DEFAULT_ROW.dir),
+    'a non-default row named "main" collided with the default, reintroducing the one-name-two-controls bug');
 });
