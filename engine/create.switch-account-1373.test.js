@@ -165,7 +165,7 @@ test('#1373: with an override home in force, the refusal says THAT, not "it is g
   try {
     /* BETA genuinely exists on this machine. It is excluded by the override, not
        missing, and telling the person it is gone would be false. */
-    const out = create.setProvider(d, 'openai', { ...BINS, accountDir: BETA });
+    const out = create.setProvider(d, 'openai', { ...BINS, accountDir: BETA, pickedByPerson: true });
     assert.equal(out.outcome, create.OUTCOME.REFUSED, out.because);
     assert.match(out.because, /one particular OpenAI sign-in/,
       'the override refusal fell through to the account-is-gone sentence, which is false here');
@@ -179,7 +179,7 @@ test('#1373: with an override home in force, the refusal says THAT, not "it is g
        VERY ACCOUNT THE OVERRIDE NAMES is refused. Nothing else covers that line. */
     process.env.AGENT_WORKFORCE_CODEX_HOME = nodePath.join(ALPHA, '..', nodePath.basename(ALPHA)) + '/';
     const f = born('switch-1373-override-messy');
-    const messy = create.setProvider(f, 'openai', { ...BINS, accountDir: ALPHA });
+    const messy = create.setProvider(f, 'openai', { ...BINS, accountDir: ALPHA, pickedByPerson: true });
     assert.equal(messy.outcome, create.OUTCOME.CREATED,
       'a non-canonical override refused the very account it names: ' + messy.because);
     assert.equal(codexHomeOf(f), ALPHA);
@@ -194,11 +194,39 @@ test('#1373: with an override home in force, the refusal says THAT, not "it is g
   assert.equal(codexHomeOf(e), BETA);
 });
 
+/* 🛑 THE REGRESSION GUARD. This branch made the page send the visible row on
+   EVERY switch, and that could REFUSE a switch that used to succeed: on an
+   override machine the engine's list is one home, the page's menu is built from
+   the unfiltered rows minus any whose live check said `none`, so the preselect
+   can be an account the engine will not accept, and a person WHO TOUCHED NOTHING
+   got a refusal.
+   ⇒ Nobody chose, so there is nothing to refuse. An unpicked account is the page
+   reporting what it was showing, not a request. It falls back to the engine's own
+   list, which is exactly the pre-branch behaviour for that person.
+   ⚠️ Both halves, or the fix is half a fix: unpicked must SUCCEED, and picked must
+   still REFUSE, or the refusal has been quietly deleted. */
+test('#1373: an unpicked account the engine cannot use falls back instead of refusing', () => {
+  const g = born('switch-1373-unpicked-ghost');
+  const ghost = nodePath.join(HOME, '.codex-not-here-at-all');
+  assert.ok(!fs.existsSync(ghost), 'the ghost must genuinely not exist');
+  const out = create.setProvider(g, 'openai', { ...BINS, accountDir: ghost });
+  assert.equal(out.outcome, create.OUTCOME.CREATED,
+    'a person who touched nothing was refused, which is the regression this guards: ' + out.because);
+  assert.equal(out.openaiAccount.chosen, false, 'a fallback must not be reported as a pick');
+  assert.ok(codexHomeOf(g), 'the fallback wrote no codex home at all');
+  /* THE OTHER HALF: the same directory, PICKED, must still be refused. Without
+     this the test above is satisfied by an engine that never refuses anything. */
+  const h = born('switch-1373-picked-ghost');
+  const still = create.setProvider(h, 'openai', { ...BINS, accountDir: ghost, pickedByPerson: true });
+  assert.equal(still.outcome, create.OUTCOME.REFUSED,
+    'the refusal was deleted along with the regression, so a real pick of a dead account now passes silently');
+});
+
 test('#1373: an account that is not on this computer is REFUSED, not silently replaced', () => {
   const c = born('switch-1373-ghost');
   const ghost = nodePath.join(HOME, '.codex-removed-by-1372');
   assert.ok(!fs.existsSync(ghost), 'the ghost account must genuinely not exist');
-  const out = create.setProvider(c, 'openai', { ...BINS, accountDir: ghost });
+  const out = create.setProvider(c, 'openai', { ...BINS, accountDir: ghost, pickedByPerson: true });
   assert.equal(out.outcome, create.OUTCOME.REFUSED,
     'a stale account directory fell back to the first account, which starts the agent on one nobody chose');
   assert.match(out.because, /not on this computer/);

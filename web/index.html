@@ -22316,7 +22316,10 @@ function fillSwitchAccounts() {
      re-announce and turn a helpful line into noise. */
   if (appearing) {
     const pmsg = document.getElementById('d-provider-msg');
-    if (pmsg && !pmsg.textContent) pmsg.textContent = SWITCH_ACCT_HINT;
+    /* ⚠️ NOT ON A ONE-ROW MENU. "Choose which sign-in" is impossible there: a
+       one-option select can never fire `change`. Same reachable state that needed
+       its own dialog arm, and the hint did not get the matching one. */
+    if (pmsg && !pmsg.textContent && sel.options.length > 1) pmsg.textContent = SWITCH_ACCT_HINT;
   }
 }
 

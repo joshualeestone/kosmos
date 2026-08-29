@@ -27,6 +27,7 @@ const nodePath = require('node:path');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
+const ENGINE = fs.readFileSync(nodePath.join(__dirname, 'engine', 'create.js'), 'utf8');
 
 test('#1373: the reader works at all', () => {
   /* The control. Every assertion below is an existence test on a big file, and
@@ -165,6 +166,14 @@ test('#1373: the page-to-route key is pinned on BOTH sides, so a rename cannot p
    without this a future edit can tell somebody who never opened the menu "and it
    will run on <preselected row>", which is the invention the route's own comment
    forbids. */
+/* The conjunction was proven unguarded by mutation: dropping `wantDir !== null &&`
+   left both suites green, so a later edit could let {provider, picked:true} with no
+   account be told "the sign-in you picked" about a stated default. */
+test('#1373: a pick claim needs BOTH a named account and a person', () => {
+  assert.match(ENGINE, /chosen: wantDir !== null && !!\(opts && opts\.pickedByPerson === true\)/,
+    'chosen no longer requires both, so a caller can claim a pick without naming an account');
+});
+
 test('#1373: the dialog only echoes a pick that a person actually made', () => {
   assert.match(PAGE, /function switchAcctShown\(\)[\s\S]{0,300}?!SWITCH_ACCT_TOUCHED/,
     'switchAcctShown no longer consults the touched flag, so the dialog can claim a pick nobody made');

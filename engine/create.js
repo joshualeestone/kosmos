@@ -889,7 +889,22 @@ function setProvider(name, provider, opts) {
          accounts[0] would start the agent on an account the person did not
          choose, and say nothing: the silent-wrong-account failure this card
          exists to end. Refusing names a remedy the person can act on. */
-      if (!found) {
+      /* 🛑 A REGRESSION THIS BRANCH INTRODUCED, AND THE FIX USES THE DISTINCTION
+         THE BRANCH ALREADY CARRIES. Since the page began sending the visible row
+         on EVERY switch, an override machine could REFUSE a switch that used to
+         succeed: `list()` is collapsed to the override home here, the page builds
+         its menu from the unfiltered rows and drops any whose LIVE check said
+         `none`, so an override home with a revoked-but-parseable auth.json is
+         absent from the menu, the preselect is some other account, and a person
+         WHO TOUCHED NOTHING got a refusal.
+         ⇒ NOBODY CHOSE, SO THERE IS NOTHING TO REFUSE. An unpicked account is the
+         page telling us what it happened to be showing, not a request. Falling
+         back to the engine's own list restores exactly the pre-branch behaviour
+         for that person, and the refusal below now fires only on a REAL pick,
+         where "that account cannot be chosen here" is true and worth saying. */
+      if (!found && !(opts && opts.pickedByPerson === true)) {
+        acct = accounts[0];
+      } else if (!found) {
         /* 🛑 TWO REASONS A NAMED ACCOUNT IS NOT IN THIS LIST, AND ONE SENTENCE
            CANNOT HONESTLY COVER BOTH. When AGENT_WORKFORCE_CODEX_HOME is set the
            branch above reduces `accounts` to that one home, while the page builds
@@ -910,13 +925,17 @@ function setProvider(name, provider, opts) {
                ABSENT from the menu, and that sentence told the person to pick a row
                that is not on screen. Naming the setting instead is true in every
                case, and it is the thing they would actually have to change. */
-            ? 'this computer is set to use one particular OpenAI sign-in, so that account cannot be chosen here and nothing was changed. '
-              + 'Whoever set AGENT_WORKFORCE_CODEX_HOME on this computer chose that sign-in.'
+            ? 'this computer is set to use one particular OpenAI sign-in, so the one you picked cannot be used and nothing was changed. '
+              + 'Whoever set this computer up chose that sign-in for it.'
             : 'that OpenAI account is not on this computer any more, so nothing was changed. '
               + 'Pick one from the list and try again.',
         };
       }
-      acct = found;
+      /* ⚠️ ONLY WHEN THERE IS ONE. The fallback branch above already set `acct`,
+         and an unconditional assignment here overwrote it with `undefined`,
+         which threw two lines later. Caught by the regression test written in
+         the same sitting as the fallback. */
+      if (found) acct = found;
     }
     openaiAccount = {
       dir: acct.dir, email: acct.email, keyTail: acct.keyTail,

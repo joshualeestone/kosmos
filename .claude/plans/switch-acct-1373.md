@@ -90,10 +90,10 @@ keeps catching, and three of these came out of review rather than design:**
   the override-home refusal, with a control proving the same call succeeds once the
   override is gone), pass, and **repeatable** (3 consecutive runs exit 0, which is the
   arm that caught the launchctl defect below).
-- `web.switch-account-1373.test.js`: **10 tests**, pass. Source-level by construction and
+- `web.switch-account-1373.test.js`: **13 tests**, pass. Source-level by construction and
   it says so in its own header: it can see that a guard is present and what it is keyed
   on, and it cannot see the rendered page.
-- Full runner: **2903 tests, 2903 pass, 0 fail, exit 0**.
+- Full runner: **2907 tests, 2907 pass, 0 fail, exit 0**.
 - **Both guards perturbed inside the real runner and required to go RED**: ignoring the
   pick gives "the switch ignored the account the person picked"; failing open on a ghost
   account fails the refusal test. Baseline green.
