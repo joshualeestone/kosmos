@@ -71,6 +71,8 @@ kosmos_versions_entry_id() { echo "v$(echo "$1" | tr . -)"; }
 # ⇒ So this is a validator rather than three more `case` blocks: any bound this
 # gate compares against goes through here, and adding a fourth bound without
 # validating it is now the unusual thing to write rather than the default.
+# $3 is the cost sentence, so a bad-bound refusal says what is and is not spent
+# like every other refusal in this file. It was the only one that did not.
 kosmos_versions_entry_int_or_die() {
   # 🛑 AN ARITHMETIC PROBE, NOT A CHARACTER-CLASS TEST, AND THAT DISTINCTION IS
   # THE FOURTH INSTANCE OF THIS BUG. The previous version tested
@@ -97,6 +99,7 @@ kosmos_versions_entry_int_or_die() {
   # runner shipped (kosmos#1462), and it costs one line to remove.
   if [ -z "$2" ] || ! [ "$2" -ge 0 ] 2>/dev/null; then
     echo "   refusing: $1 is not a usable whole number of minutes: '$2'"
+    echo "   ${3:-}"
     return 1
   fi
   return 0
@@ -281,8 +284,29 @@ kosmos_versions_entry_gate() {
 
   # EVERY bound this gate will compare against, validated before any comparison
   # runs. Both are env-overridable, so both can carry whatever a human typed.
-  kosmos_versions_entry_int_or_die "the past-side bound" "$past_bound" || return 1
-  kosmos_versions_entry_int_or_die "the future-side bound" "$KOSMOS_FUTURE_BOUND" || return 1
+  kosmos_versions_entry_int_or_die "the past-side bound" "$past_bound" "$cost" || return 1
+  kosmos_versions_entry_int_or_die "the future-side bound" "$KOSMOS_FUTURE_BOUND" "$cost" || return 1
+
+  # 🛑 NORMALISE, THEN NEVER BUILD A NUMBER OUT OF STRING PIECES AGAIN. This is
+  # the FIFTH instance of the same fail-open, and the first four were all fixed
+  # by validating an INPUT while the code went on comparing a DERIVED value.
+  # `" 20"` and `"+20"` are usable numbers and pass the validator correctly; the
+  # thing that broke was `"-$KOSMOS_FUTURE_BOUND"`, giving `"- 20"` and `"-+20"`,
+  # which are not. Measured: a stamp 60 minutes in the future PASSED under both,
+  # printing "its timestamp agrees with the clock", with 40 shell arms and 21
+  # node arms green.
+  #
+  # ⚠️ AND MY OWN SUITE FED `" 20"` TO THE PAST BOUND AS A DELIBERATE "usable
+  # bound" CONTROL. The accepting shape was exercised on the axis where it is
+  # harmless and never on the axis where it is fatal. A control can be correct,
+  # deliberate, and aimed one argument away from the defect.
+  #
+  # ✅ `$(( ))` AFTER the validator, never before: `$(( abc ))` is 0 in bash, so
+  # normalising first would turn a refusal into a zero bound and invent a sixth
+  # instance. Then compare arithmetically -- `off < -future` is `off + future < 0`
+  # -- so there is no negative to spell and nothing derived to leave unchecked.
+  past_bound=$((past_bound))
+  local future_bound=$((KOSMOS_FUTURE_BOUND))
   if [ "$off" = "unparseable" ]; then
     echo "   the entry for $v is stamped: $stamp"
     echo "   that is not a date this gate can read. It wants the shape: $now"
@@ -296,7 +320,7 @@ kosmos_versions_entry_gate() {
     echo "   $stamp_fix $cost"
     return 1
   fi
-  if [ "$off" -lt "-$KOSMOS_FUTURE_BOUND" ]; then
+  if [ $((off + future_bound)) -lt 0 ]; then
     echo "   the entry for $v is stamped: $stamp"
     echo "   the clock says:              $now"
     echo "   that is ${off#-} minutes in the FUTURE, which no cut can reach. A stamp"

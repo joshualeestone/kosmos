@@ -211,8 +211,8 @@ if [ "$rc" -eq 1 ]; then pass "a non-integer FUTURE bound REFUSES (fail closed, 
 # whatever the wall clock said, and for a forty-minute window each night it sat
 # INSIDE the +/-20 band and the control would have failed.
 entry "$(stamp_at 90)"
-out="$(kosmos_versions_entry_gate 0.6.06 "$F" "c." "h." abc 2>&1)"; rc=$?
 huge=99999999999999999999
+out="$(kosmos_versions_entry_gate 0.6.06 "$F" "c." "h." abc 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "refusing: the past-side bound"; then pass "a non-integer past bound REFUSES (fail closed)"; else fail "FAIL-OPEN: bound 'abc' passed (rc=$rc): $out"; fi
 
 # 🛑 AN ALL-DIGIT BOUND THAT IS NOT A USABLE NUMBER. This is the fourth instance
@@ -247,6 +247,29 @@ got="$(KOSMOS_LATE_PAST_BOUND=99 bash -c '
   kosmos_versions_entry_gate 0.6.06 "$2" "c." "h." >/dev/null 2>&1; echo $?
 ' _ "$(stamp_at 30)" "$F")"
 if [ "$got" = 0 ]; then pass "a four-argument call takes the bound from the CONSTANT, not a literal"; else fail "the default bound is a literal: a 30-min entry refused under KOSMOS_LATE_PAST_BOUND=99 (rc=$got)"; fi
+
+
+# --- SHAPES THAT ARE VALID NUMBERS BUT BROKE THE DERIVED COMPARISON ---
+# 🛑 The fifth instance of the fail-open. `" 20"` and `"+20"` are usable numbers
+# and pass the validator CORRECTLY; what broke was the string `"-$BOUND"`,
+# giving `"- 20"`, which is not. A stamp 60 minutes in the future PASSED.
+# ⚠️ And the suite already fed `" 20"` to the PAST bound as a deliberate control,
+# so the accepting shape was exercised on the axis where it is harmless and never
+# on the axis where it is fatal.
+fut60="$(stamp_at -60)"
+for shape in "20" " 20" "+20" "020"; do
+  entry "$fut60"
+  out="$(KOSMOS_FUTURE_BOUND="$shape" bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kosmos_versions_entry_gate 0.6.06 "'"$F"'" "c." "h." 20' 2>&1)"; rc=$?
+  if [ "$rc" -eq 1 ]; then pass "a +60min stamp is refused with FUTURE_BOUND='$shape'"; else fail "FAIL-OPEN: '$shape' let a +60min stamp through (rc=$rc): $out"; fi
+done
+# CONTROL, the other direction: a legitimate publication stamp must still pass
+# under every one of those shapes, or the fix above is just refusing everything.
+pub15="$(stamp_at -15)"
+for shape in "20" " 20" "+20"; do
+  entry "$pub15"
+  out="$(KOSMOS_FUTURE_BOUND="$shape" bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kosmos_versions_entry_gate 0.6.06 "'"$F"'" "c." "h." 20' 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ]; then pass "CONTROL: a +15min publication stamp still passes with FUTURE_BOUND='$shape'"; else fail "over-refusal: '$shape' rejected a correct publication stamp (rc=$rc): $out"; fi
+done
 
 # --- the two call sites give DIFFERENT stamp advice, and early must not say "now" ---
 # 🛑 THE ARM THAT PINS THE ACTUAL BUG: telling the operator at step 1 to stamp NOW
@@ -283,8 +306,13 @@ if [ "$n" -eq 2 ]; then pass "release.sh calls the gate exactly twice"; else fai
 first_call="$(grep -n '^kosmos_versions_entry_gate ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 last_call="$(grep -n '^kosmos_versions_entry_gate ' "$HERE/release.sh" | tail -1 | cut -d: -f1)"
 step2="$(grep -n 'step "== 2\. ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
+# ⚠️ ANCHOR THE LATE CALL ON STEP 7, NOT MERELY ON "after step 2". Pinned only
+# as after-step-2, the late call could be moved to step 3 with every arm in both
+# suites still green, re-opening the unguarded deploy window it exists to close.
+# "After something early" is not a position.
+step7="$(grep -n 'step "== 7\. ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 if [ -n "$step2" ] && [ "$first_call" -lt "$step2" ]; then pass "one call runs BEFORE step 2, which is the whole point of the change"; else fail "no call before step 2 (first=$first_call step2=$step2)"; fi
-if [ -n "$step2" ] && [ "$last_call" -gt "$step2" ]; then pass "and the late call is still there, after step 2"; else fail "late call missing (last=$last_call step2=$step2)"; fi
+if [ -n "$step7" ] && [ "$last_call" -gt "$step7" ]; then pass "and the late call sits inside step 7, where the deploy is"; else fail "the late call is not in step 7 (last=$last_call step7=$step7)"; fi
 
 [ "$fails" -eq 0 ] || { echo "$fails failed"; exit 1; }
 echo "all versions-entry gate arms behaved"
