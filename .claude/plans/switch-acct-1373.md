@@ -94,7 +94,7 @@ keeps catching, and three of these came out of review rather than design:**
 - `web.switch-account-1373.test.js`: **16 tests**, pass. Source-level by construction and
   it says so in its own header: it can see that a guard is present and what it is keyed
   on, and it cannot see the rendered page.
-- Full runner: **2939 pass, 0 fail, exit 0** (re-measured 2026-08-29 11:12 CDT with the
+- Full runner: **2962 pass, 0 fail, exit 0** (re-measured 2026-08-29 11:27 CDT after rebasing onto main, with the
   iteration-14 fixes applied). The figure moves as this branch adds tests, so it is dated
   rather than stated: 2907 pre-rebase, 2935 post-rebase, 2936 after iteration 13's pair
   test, 2937 after iteration 14, 2938 after iteration 15's fail-quiet guards.

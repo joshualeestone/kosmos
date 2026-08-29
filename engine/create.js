@@ -871,12 +871,15 @@ function setProvider(name, provider, opts) {
        segment) is refused as a ghost account, which is a confusing refusal
        rather than a wrong one. Fail-closed is unaffected: this normalises the
        value, it does not widen what counts as a match.
-       ⚠️ THE CREATION PATH DOES NOT DO THIS AND HAS THE SAME DEFECT.
-       `createAgentInner` compares `a.dir === String(wantAccountDir)` unresolved,
-       fed by the same page and the same /api/accounts rows. NOT fixed here on
-       purpose: creation is not this card's subject and widening a switch card into
-       the create path is how a reviewed diff stops being reviewable. Recorded so
-       the asymmetry is a known one rather than an accident. */
+       📌 THE CREATION PATH ONCE HAD THE SAME DEFECT AND NO LONGER DOES (#1486,
+       landed on main while this branch was in review). It was recorded here rather
+       than fixed here, because creation is not this card's subject and widening a
+       switch card into the create path is how a reviewed diff stops being
+       reviewable. Carding it is what got it fixed by somebody whose lane it was.
+       ⚠️ Its fix guards BOTH create sites. The first attempt guarded only one, and
+       reverting the other left the suite green, which is why the landed version
+       carries an arm per site and both assert an unknown account is still REFUSED:
+       resolving must normalise the value, never widen what counts as a match. */
     const wantDir = opts && typeof opts.accountDir === 'string' && opts.accountDir !== ''
       ? path.resolve(opts.accountDir)
       : null;
