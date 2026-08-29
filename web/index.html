@@ -21975,7 +21975,13 @@ async function paintAccountPicker(a) {
   const go = document.getElementById('d-account-go');
   const msg = document.getElementById('d-account-msg');
   if (!sel || !go) return;
-  if (!ACCOUNTS.length) {
+  /* 🛑 `ACCOUNTS_UNREADABLE` HAS TO BE A RE-FETCH TRIGGER, NOT JUST A FLAG. A failed read
+     deliberately does not shrink the list, so the cache can be NON-EMPTY and known-stale at
+     the same time. Gating the re-read on emptiness alone meant that state never refreshed:
+     the fault line says "Close this and open it again to retry" and reopening did not
+     retry, and a machine that genuinely has zero OpenAI accounts kept blaming a read
+     failure for an absence it had actually read successfully. */
+  if (!ACCOUNTS.length || ACCOUNTS_UNREADABLE) {
     /* The same capture-and-recheck as moveAccountNow: an agent switch
        while this fetch is in flight must not let the OLD agent's
        continuation paint its sentence onto the NEW agent's panel,
@@ -22125,6 +22131,12 @@ async function moveAccountNow(say) {
     msg.textContent = out.because || 'Moved.';
     if (say) say(out.because || 'Moved.', true);
     sel.value = '';
+    /* 🛑 HOLD THE ENGINE'S SENTENCE ACROSS THE REPAINT. `paintAccountPicker` writes the SAME
+       `#d-account-msg`: it sets 'Checking…' and then clears it when the fetch lands, so
+       refreshing the list here silently deleted the outcome written four lines above. The
+       catch below already states the rule ("the move's own sentence is the answer; a failed
+       refresh must not replace it") and the SUCCESS path was the one breaking it. */
+    const saidAfterMove = msg ? msg.textContent : '';
     accountsDropped();   // the move can change nothing about the list, but a stale one outlives a connect
     /* 🛑 AND REFILL IT, BECAUSE `tick()` DOES NOT. `openDetail` is gated on `!CURRENT`, so
        with this panel open the poll repaints the cards and never the panel, and nothing
@@ -22137,6 +22149,7 @@ async function moveAccountNow(say) {
        not the flag. Both halves are present now; do not remove one and leave this line. */
     try { await paintAccountPicker(CURRENT); }
     catch { /* the move's own sentence is the answer; a failed refresh must not replace it */ }
+    if (msg && saidAfterMove && !msg.textContent) msg.textContent = saidAfterMove;
     await tick();
   } catch (err) {
     msg.textContent = String((err && err.message) || 'that did not work');
@@ -22345,7 +22358,17 @@ function fillSwitchAccounts() {
        apply to. Two clicks reach it: pick OpenAI, then pick Anthropic.
        📌 Only our own sentence is cleared, never somebody else's status text. */
     const pmsg0 = document.getElementById('d-provider-msg');
+    /* ⚠️ AND THE APPENDED FORM TOO. The failed-switch path appends our sentence to the
+       engine's refusal, so the region then holds neither constant and an equality check
+       could not clear it: our line outlived its control under a provider it does not apply
+       to, which is the orphan-hint class this whole block exists to prevent and is exactly
+       what naming the string was supposed to make fixable.
+       ⇒ Strip OUR half and leave the engine's, which is the more specific sentence and not
+       ours to delete. */
     if (pmsg0 && (pmsg0.textContent === SWITCH_ACCT_HINT || pmsg0.textContent === SWITCH_ACCT_UNREADABLE)) pmsg0.textContent = '';
+    else if (pmsg0 && pmsg0.textContent.endsWith(' ' + SWITCH_ACCT_UNREADABLE)) {
+      pmsg0.textContent = pmsg0.textContent.slice(0, -(SWITCH_ACCT_UNREADABLE.length + 1));
+    }
     /* ✅ AND IF THE LIST IS EMPTY BECAUSE WE COULD NOT READ IT, SAY SO. Only when the
        person is actually trying to switch TO OpenAI, because that is the only state where
        a missing picker changes what happens to them. Everywhere else an empty list is
@@ -22446,9 +22469,8 @@ if (switchAcctSel) {
        exactly what they were told and nothing happened, and the way back was to
        select Anthropic and then OpenAI again, which also throws away the pick
        they just made.
-       ⚠️ I fixed this dead end one layer up in the previous round (refreshing the
-       stale list) and left the button dead, which made the remedy readable and
-       still impossible. Same condition as the provider listener, so a pick can
+       ⚠️ REFRESHING THE STALE LIST ONE LAYER UP IS NOT ENOUGH ON ITS OWN. Doing that
+       while leaving the button dead makes the remedy readable and still impossible. Same condition as the provider listener, so a pick can
        never arm a switch the provider menu would refuse. */
     const go = document.getElementById('d-provider-go');
     const prov = document.getElementById('d-provider');
@@ -22681,8 +22703,8 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
                             inherited and is not a regression; the ENUMERATION
                             is new, which is why the arm is named here rather
                             than the claim quietly widened.
-           ⚠️ TWO EARLIER VERSIONS OF THIS COMMENT AND ITS COPY WERE BOTH WRONG, in
-           opposite directions. One claimed the untouched arm "makes no sign-in claim
+           ⚠️ TWO PLAUSIBLE WORDINGS ARE BOTH WRONG HERE, in opposite directions, and both
+           have been shipped before. One claimed the untouched arm "makes no sign-in claim
            at all", which the string below it contradicted. One said "it picks its own
            sign-in", which reads as OPENAI choosing the account and is false in every
            reachable state: when the menu shows, the page sends the visible row; when

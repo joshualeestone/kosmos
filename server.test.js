@@ -3119,7 +3119,12 @@ test('the runs-on box says model and account in one line, and the Signed-in-as s
   const od = script.slice(script.indexOf('function openDetail('), script.indexOf('function openDetail(') + 4200);
   assert.ok(/getElementById\('d-account-msg'\)[\s\S]{0,60}?\.textContent = ''/.test(od),
     'openDetail no longer clears the account message on a switch');
-  const pap = script.slice(script.indexOf('async function paintAccountPicker('), script.indexOf('async function paintAccountPicker(') + 2400);
+  /* 📌 4200, MEASURED. 2400 was sized to this function's body at the time and went red the
+     moment #1373 documented why an unreadable cache must also trigger a re-fetch: the
+     recheck moved to offset 2889. A window sized to today's shortest body is a check that
+     punishes the next person for explaining themselves, so this one carries headroom and
+     says where the number came from. */
+  const pap = script.slice(script.indexOf('async function paintAccountPicker('), script.indexOf('async function paintAccountPicker(') + 4200);
   assert.ok(/!CURRENT \|\| CURRENT\.sessionName !== forAgent/.test(pap),
     'the accounts-fetch continuation lost its capture-and-recheck');
 });

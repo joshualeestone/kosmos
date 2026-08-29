@@ -338,6 +338,27 @@ test('#1373: an unreadable account list is never spoken as a fact', () => {
     'after a failed switch whose repaint also failed, the refusal still points at a list that has vanished and nothing says why');
 });
 
+/* 🛑 THREE WAYS A FIX CAN CREATE THE DEAD END IT WAS CLOSING. Each of these came from a
+   correction made one round earlier, which is why they are pinned together: the pattern is
+   that the fix is the least-reviewed code in the tree.
+     the re-fetch gate   a failed read deliberately does NOT shrink the list, so the cache
+                         can be non-empty and known-stale at once. Gating the re-read on
+                         emptiness alone meant that state never refreshed, and the fault
+                         line said "open it again to retry" while reopening did not retry.
+     the move's sentence a repaint added to refresh the list writes the SAME element as the
+                         move's outcome, so refreshing deleted the answer.
+     the appended form   appending our sentence to the engine's refusal produces a string
+                         equal to NEITHER constant, so an equality-based clear could not
+                         remove it and our line outlived its control. */
+test('#1373: a fix does not reopen the dead end it closed', () => {
+  assert.match(PAGE, /if \(!ACCOUNTS\.length \|\| ACCOUNTS_UNREADABLE\) \{/,
+    'the account re-fetch is gated on emptiness alone, so a non-empty but known-stale cache never re-reads and the retry the message promises does nothing');
+  assert.match(PAGE, /const saidAfterMove = msg \? msg\.textContent : '';[\s\S]{0,1200}?msg\.textContent = saidAfterMove;/,
+    'the move repaints the account list without holding its own outcome sentence, so refreshing silently deletes the answer it just wrote');
+  assert.match(PAGE, /endsWith\(' ' \+ SWITCH_ACCT_UNREADABLE\)/,
+    'the appended fault sentence cannot be cleared, so it outlives the control it describes under a provider it does not apply to');
+});
+
 /* 🛑 THE DIALOG'S HONESTY GATE WAS ENFORCED BY NOTHING. A reviewer measured it:
    deleting `|| !SWITCH_ACCT_TOUCHED` from switchAcctShown left the FULL canonical
    runner green at 2901/2901. The dialog is the last screen before a restart, so

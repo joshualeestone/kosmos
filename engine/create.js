@@ -892,7 +892,7 @@ function setProvider(name, provider, opts) {
          accounts[0] would start the agent on an account the person did not
          choose, and say nothing: the silent-wrong-account failure this card
          exists to end. Refusing names a remedy the person can act on. */
-      /* 🛑 A REGRESSION #1373 INTRODUCED, AND THE FIX USES THE DISTINCTION #1373
+      /* 🛑 A REGRESSION THE #1373 CHANGE CAN CAUSE, AND THE FIX USES A DISTINCTION #1373
          ALREADY CARRIES. Since the page began sending the visible row
          on EVERY switch, an override machine could REFUSE a switch that used to
          succeed: `list()` is collapsed to the override home here, the page builds
@@ -944,8 +944,8 @@ function setProvider(name, provider, opts) {
       }
       /* ⚠️ ONLY WHEN THERE IS ONE. The fallback branch above already set `acct`,
          and an unconditional assignment here overwrote it with `undefined`,
-         which threw two lines later. Caught by the regression test written in
-         the same sitting as the fallback. */
+         which threw two lines later. The regression test beside the fallback is what
+         catches it. */
       if (found) acct = found;
     }
     openaiAccount = {
