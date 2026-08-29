@@ -374,12 +374,12 @@ free_port() {
 }
 pick_ports() {
   local picked=() p n
-  while [ "${#picked[@]}" -lt 12 ]; do
+  while [ "${#picked[@]}" -lt 13 ]; do
     p="$(free_port)"
     for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
     [ -n "$p" ] && picked+=("$p")
   done
-  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"
 }
 pick_ports
 log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 (chosen by the OS, #633)"
@@ -727,6 +727,34 @@ if boot_board_rich "$sbc" "$P12"; then
     node docs/browser-checks/click-first-run.js "$sbc/data/AgentWorkforce/first-run.json"
 else
   FAILED+=("click-first-run (board did not boot)")
+fi
+
+# #1440, the fourth of the four checks guarding Josh's 0.5.97 review items, and
+# the one that could not join the stem loop. Its own header says why and it is
+# right: an in-process `srv.start(0)` renders "Create your first agent" at
+# `?fr-step=6`, so a check built that way times out on a screen that is fine.
+# It takes a BOARD, so it gets one here.
+#
+# 🔑 IT SHARES NOTHING AND MUTATES NOTHING, which is why a plain board is enough.
+# Every API it needs is stubbed with `page.route` (`/api/found-agents`,
+# `/api/first-run`, `/api/connect-agent`), and its single click lands on an
+# intercepted route, so the request never reaches the server. It cannot disturb a
+# sibling and a sibling cannot disturb it.
+#
+# 🛑 PROVEN GREEN 16/16 AND PROVEN RED ON THE #1346 FIX ITSELF: scoping removed
+# from `document.querySelectorAll('#firstrun .fr-foundrow')`, the trailing line
+# reads "60 agents" under a screen showing 30. That is Josh's own picture, N above
+# and 2N below, reproduced by the check on demand.
+#
+# ⭐ Its twelfth assertion is the one that makes the rest mean anything, and it is
+# worth not breaking: it asserts the DOCUMENT holds more rows than the SCREEN (60
+# vs 30). Without that arm a scoped count and an unscoped count agree, and the
+# whole check passes on the broken page.
+sbfc="$(new_sandbox)"
+if boot_board "$sbfc" "$P13"; then
+  run_one "render-found-count" env HEADED=0 node docs/browser-checks/render-found-count.js "http://127.0.0.1:$P13"
+else
+  FAILED+=("render-found-count (board did not boot)")
 fi
 
 sb3="$(new_sandbox)"
