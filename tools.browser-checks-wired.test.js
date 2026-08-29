@@ -196,7 +196,6 @@ function checkFiles() {
  */
 const NOT_WIRED = {
   'render-conn-url.js': 'never wired.',
-  'render-found-count.js': '#1346, merged 2026-08-28. Never wired.',
   'render-openai-key-step.js': 'never wired.',
   'render-openai-step.js': 'never wired.',
   'render-sleep-button.js': 'never wired.',
