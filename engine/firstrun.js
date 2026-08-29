@@ -114,9 +114,46 @@ function fleet(opts) {
  * What first run should show, decided in one place so the screen cannot
  * disagree with the engine about which path somebody is on.
  */
-function state() {
+async function state() {
   const flag = seen();
-  const sub = subscription.check();
+  /* 🛑 checkLive, NOT check (#874). `check()` reads `oauthAccount.organizationType`
+     out of a local file and returns CONNECTED whenever it names a paid plan. A
+     LOGGED-OUT person still has that field, so the first screen of the product
+     showed Josh's sister a green "Connected" tick while she was signed out. She
+     trusted it, found Settings disagreeing, and used "add a provider" as the only
+     route she had, which made a duplicate account.
+
+     ⚠️ NOT A MISSING CAPABILITY. `subscription.checkLive()` has existed all along
+     and `engine/accounts.js` already calls it, which is exactly why Settings got
+     the right answer and this screen did not. Two paths, two answers, and the
+     louder one was the unverified one.
+
+     📌 COST, weighed rather than waved past. This adds one `claude auth status`
+     to a route that already shells out to `tmux list-panes` through `fleet()`
+     below, and Settings pays the same price on every open. `server.js:1702`'s
+     five-second status tick keeps `checkCached()` and is untouched: that one IS
+     a poll, and the cost note at `server.js:3211` is about `/api/found-agents`,
+     not about this.
+
+     ⭐ And it is what makes "Check again" mean anything. Before this, that button
+     re-read the same file and returned the same wrong answer, confidently. */
+  const live = await subscription.checkLive();
+  /* ⚠️ THE PLAN NAME STILL COMES FROM THE FILE, AND ONLY WHEN THE LIVE CHECK
+     SAID YES. `checkLive()` returns `plan: null` on purpose: `claude auth
+     status` says "max" where `check()` says "claude_max", and that module
+     declined to assert the two vocabularies map 1:1. But this screen renders
+     `(sub.plan || 'A Claude subscription') + ' is connected'`, so taking the
+     live answer alone would quietly downgrade "Claude Max is connected" to the
+     generic sentence for every paying customer.
+
+     ⇒ The two fields answer different questions and are sourced accordingly.
+     WHETHER you are signed in is a claim about the world and must be verified.
+     WHICH plan the local file names is a description, and it is only ever shown
+     on the arm the live check already confirmed. A logged-out person never
+     reaches it. */
+  const sub = live.state === subscription.STATE.CONNECTED
+    ? { ...live, plan: subscription.check().plan }
+    : live;
   const here = fleet();
 
   /**
