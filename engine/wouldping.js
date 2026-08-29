@@ -88,7 +88,27 @@ function announce() {
     at: new Date().toISOString(),
     kind: 'boot',
     sinceBoot: bootAt,
-    note: 'this line means the reader RAN. No transition lines after it means it ran and saw none.',
+    /* 🛑 WHICH PROCESS, BECAUSE "SOMETHING RAN" IS NOT THE CLAIM A READER NEEDS.
+       I shipped this line saying a boot proved the board had run. It does not:
+       ANY process that reaches `snapshot()` against the real store announces,
+       including a one-off `node -e` diagnostic. Six boots appeared in five
+       minutes on this machine and most were my own throwaway checks.
+       ⇒ Recorded rather than FILTERED. Filtering would restore the ambiguity for
+       everything that is not the board, which is the defect this whole line
+       exists to remove. Naming the process keeps every signal and adds the one
+       the reader was missing.
+       ⚠️ THE BASENAME ONLY, NEVER THE ARGUMENTS. A full command line can carry a
+       path, a token or a key, and this file is written to disk and read by
+       people. `server.js` is the whole of what a reader needs. */
+    script: (() => {
+      try {
+        const a1 = process.argv && process.argv[1];
+        return a1 ? path.basename(a1) : '(no script, e.g. node -e)';
+      } catch { return '(unknown)'; }
+    })(),
+    pid: typeof process.pid === 'number' ? process.pid : null,
+    note: 'this line means the reader RAN. No transition lines after it means it ran and saw none. '
+      + '`script` says WHICH process ran: a boot from anything but server.js is not the board.',
   }) + '\n', { mode: 0o600 });
 }
 
