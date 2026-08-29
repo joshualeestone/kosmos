@@ -386,13 +386,53 @@ test('the remaining #980 rulings each keep their pin', () => {
     'the WebKit half of the composer scrollbar hide is gone -- this is the half that matters in the Mac app');
 });
 
+/* THE SCROLL PATH IS ASSERTED PER SUB-VIEW, DERIVED FROM THE PAGE, rather than
+   as one literal selector list. The old pin named four ids in one exact order
+   with one exact line break, so #1382 adding a legitimate fifth sub-view turned
+   it red on correct code -- while the test's own name promises EVERY sub-view
+   scrolls. It was pinning WHICH views exist, an incidental property, instead of
+   the property it is named for.
+   => Loosened on the axis nothing consumes (which ids, in what order, on which
+   line), tightened on the axis the name promises (each one HAS the path). A
+   sixth sub-view now passes when it was wired and fails NAMING ITSELF when it
+   was not, so this guard gets stronger as the app grows instead of needing an
+   edit every time.
+   #pj-one-view is the SINGLE-PROJECT WRAPPER, not a sub-view. It holds the
+   others and deliberately carries min-height: 0 with NO overflow, so the scroll
+   belongs to the pane inside it. Excluded by name and on purpose, not by
+   accident. */
+const SCROLL_WRAPPER = 'pj-one-view';
+const SUB_VIEW_IDS = [...new Set(
+  [...PAGE.matchAll(/id="(pj-[a-z]+-view)"/g)].map(m => m[1])
+)].filter(id => id !== SCROLL_WRAPPER);
+
+/* Comments are stripped before the rule scan. A CSS comment can contain a brace
+   and an id, so an unstripped scan could credit a sub-view with a scroll path it
+   only has in prose -- and that error runs in the reassuring direction, hiding a
+   real miss rather than inventing one. */
+const SCROLL_GRANTED = new Set(
+  [...PAGE.replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .matchAll(/([^{}]*)\{ min-height: 0; overflow-y: auto;/g)]
+    .flatMap(m => [...m[1].matchAll(/#(pj-[a-z]+-view)/g)].map(x => x[1]))
+);
+
 test('every projects sub-view scrolls inside the no-page-scroll grid', () => {
   // The page used to grow and scroll; with the body's scroll now reserved for
   // the too-short-window case only (overflow-y: auto + a 200px floor), a view
   // without its own overflow is clipped with no scrollbar and no wheel
   // target -- Project settings' bottom controls unreachable.
-  assert.match(PAGE, new RegExp(cons + ' #pj-settings-view, ' + cons + ' #pj-task-view,\\n\\s*' + cons + ' #pj-docs-view, ' + cons + ' #pj-add-view \\{ min-height: 0; overflow-y: auto; \\}'),
-    'a projects sub-view lost its scroll path under the viewport-height grid');
+
+  /* POPULATION FLOOR. If the id sweep above reads the page wrong it returns an
+     empty list, every sub-view is trivially accounted for, and a missing scroll
+     path passes unseen. A guard that can return zero for a page it failed to
+     read is not a guard. Deliberately below today's six, so removing a view is
+     not a false red, and far above the nothing a broken read returns. */
+  assert.ok(SUB_VIEW_IDS.length >= 5,
+    'the sub-view sweep found ' + SUB_VIEW_IDS.length + ' views, so it is not reading the page and a lost scroll path would pass unseen');
+
+  const missing = SUB_VIEW_IDS.filter(id => !SCROLL_GRANTED.has(id));
+  assert.deepEqual(missing, [],
+    'these projects sub-views lost their scroll path under the viewport-height grid: ' + missing.join(', '));
   assert.match(PAGE, new RegExp(cons + ' #pj-list-view \\{ min-height: 0; overflow-y: auto;'),
     'the projects list view lost its scroll');
 });

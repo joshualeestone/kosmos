@@ -53,7 +53,29 @@ test('a task with no progress object yet is open, not invisible', () => {
     'a task whose progress has not been computed disappears from the column instead of showing as open');
 });
 
-test('the door counts everything, so it can never disagree with an empty column', () => {
-  assert.match(PAGE, /door\.textContent = 'View all tasks \(' \+ all\.length \+ '\)/,
-    'the door no longer counts every task, so its number can disagree with what the column shows');
+/* SUPERSEDED BY #1382, AND THIS FILE'S GOAL IS NOW MET BY CONSTRUCTION RATHER
+   THAN BY ARITHMETIC. The assertion here used to pin `all.length` on the door,
+   so that a door counting only OPEN work could not read (3) above a column
+   showing nothing. The door now opens a screen spanning EVERY project, so a
+   per-project number beside it could only ever disagree with its own
+   destination (#1346), and it carries no count at all.
+   => Two numbers cannot disagree if there is one. The claim this file made is a
+   strict consequence of the stronger one, so the stronger one is what is
+   asserted, and it is asserted HERE as well as in web.tasks-cap-1193.test.js
+   because somebody reading #1009 must find out why its arithmetic went away
+   rather than concluding the guard was dropped. The cross-project REASONING
+   lives in that file with the rest of #1382's controls. */
+test('the door carries no count, so it cannot disagree with the column at all', () => {
+  assert.match(PAGE, /door\.textContent = 'View all tasks/, 'the door lost its label');
+  assert.doesNotMatch(PAGE, /door\.textContent = 'View all tasks \(/,
+    'a count is back on the door: it can disagree with this column again, and with the all-projects screen it opens');
+});
+
+/* CONTROL for the doesNotMatch above. A negative assertion whose pattern can
+   never match is green forever and asserts nothing, so the pattern is run
+   against the exact string it is meant to forbid, and must match it. */
+test('control: the forbidden counted-door pattern can actually match', () => {
+  const COUNTED_DOOR = "door.textContent = 'View all tasks (' + all.length + ') ';";
+  assert.match(COUNTED_DOOR, /door\.textContent = 'View all tasks \(/,
+    'the guard above cannot recognise a counted door, so its doesNotMatch proves nothing');
 });
