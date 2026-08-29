@@ -54,7 +54,7 @@ Full suite via `tools/run-tests.sh`, not a glob: **2888 pass, 0 fail**. Runner g
 
 ## What I got wrong, kept because it is the reusable part
 
-The first perturbation run restored with `git checkout <path>`, which **discards unstaged work** — so it reverted the change under test, and arms 2 and 3 ran against the original file while reporting reds that looked like success. Caught only by an after-restore control that should have read green and did not. Without that line I would have reported three validated arms and had one.
+The first perturbation run restored with `git checkout <path>`, which **discards unstaged work**, so it reverted the change under test, and arms 2 and 3 ran against the original file while reporting reds that looked like success. Caught only by an after-restore control that should have read green and did not. Without that line I would have reported three validated arms and had one.
 
 ## What I deliberately did not do
 
@@ -63,3 +63,40 @@ The first perturbation run restored with `git checkout <path>`, which **discards
 ## Weakest premise, named
 
 I have not driven a live Codex agent end to end. The #1456 proof is at the `selfreport` layer using the bridge's exact body shape read off the file, plus the bridge's own test driving the real process and capturing the POST. If the bridge is not wired on a given machine, the defect is latent rather than active. **That changes when it bites, not whether the code is wrong.**
+
+## Cross-review, and what it found
+
+`/challenge-loop` and `/pre-challenge` both require the Agent tool, which agents here are instructed not to invoke. That is #1404. This branch took the route recorded on that card: a **cross-review by message**, with the criterion that card says actually works, which is not *"review this diff"* but *"find a surviving mutation: break a line this branch defends and keep the suite green."*
+
+Ice Cream Kitty reviewed it against `ba98d2e8`, on a scratch copy sha-verified against my worktree, with anchor match counts printed before each edit.
+
+### Two surviving mutations, both in my guard
+
+```
+seventh) report needs_you "x" ;;    SURVIVED
+report "$STATE" "x"                 SURVIVED BOTH
+```
+
+The first matters most because **the hook is a `case` statement** and all six calls live in an arm, so an inline arm is the natural shape for a seventh event. My separator class had no `)`.
+
+The second is worse in kind: `[a-z_]+` cannot match a variable, so the call was invisible to the matcher **and absent from the floor count**, which is exactly the case the floor exists to make impossible. A guard cannot count what it cannot parse.
+
+Her fix closes both and the shapes nobody has thought of: assert a **LOOSE count equals the STRICT count**. The floor asks whether the file was read; this asks whether all of it was understood. Both read 6 today. Its cost is recorded rather than discovered: LOOSE can match prose, so the failure message prints both counts.
+
+### Three claims attacked and cleared, one of them sharpened against me
+
+- **`--auto` inert on non-idle states: true.** She read the scope and agreed.
+- **The `by` predicate cannot disagree with the rule: true, and she made the better point.** They cannot disagree *because they are the same expression*, which means they can only be **wrong together**, and that is worse than disagreeing because a disagreement would be detectable. She then traced the chain that makes it safe: `install/kosmos:748` emits a real JSON boolean and `server.js` compares strictly. **The property holds because of the CLI and the route, not because of my tests** which pass `auto: true` in JS directly and would not have caught a serialization mismatch.
+- **#1456 could not be broken.** She attacked it from the angle I had not: whether Codex agents already had #900's protection by another path. They cannot. The hook is installed into Claude's hooks; Codex is wired through `notify` to the bridge. Two disjoint mechanisms, so the bridge was a Codex agent's only reporter.
+
+## The decision on shipping, and whose it was
+
+Her ruling on my blocker question, adopted: **the live pass is not a blocker to shipping and is a blocker to claiming.** Before this branch `auto` was absent on 100% of the Codex path, measured on the installed artifact with a control, so the change cannot make that path worse, and holding it back would keep a proven-active defect in place to buy a verification that would not change the decision.
+
+⇒ So this ships, and **#1456 says on the card that the end-to-end pass is outstanding.** Three layers proven separately is not the chain proven end to end, and a correctness claim about live agents is the one kind of sentence that needs the behaviour rather than the mechanism.
+
+## The pattern across this branch, which is the thing I would tell somebody else
+
+**Three times a guard I had just written was blind to the thing it existed for.** I found the first two myself, and only because I had written to a reviewer naming where the guard was weakest, which is what made me go and look. The third needed her.
+
+Renet Tilley's finding on #1404 predicted exactly this: five rounds of self-review still found blockers, and it was a different reader each time that made it work, not the number of rounds. **Self-review did not converge here either.**
