@@ -107,37 +107,38 @@ failed cut is not clean: it may have written into the site checkout before it
 died, and the next attempt trips on the leftovers with a message that describes
 a different problem.
 
-1. **The versions entry's stamp.** **BOTH step 1 and step 7 refuse** an entry
-   whose `rel-d` is more than 20 minutes from the clock, on the same symmetric
-   window (#1453). The entry is written once, by hand, so every failed attempt
-   ages it; attempt four died on a 40-minute gap after three earlier attempts had
-   burned the window. Before re-cutting, set the entry's `rel-d` to about ten
-   minutes AHEAD of launch (a cut takes ten to twelve minutes to reach step 7),
-   in the site's `versions.html`.
+1. **The versions entry's stamp.** **Set `rel-d` to about FIFTEEN minutes AHEAD
+   of launch**, in the site's `versions.html`. That is the whole instruction; the
+   detail below is why.
 
-   **One number, because two were in this file: stamp it about FIFTEEN minutes
-   ahead of launch.** The older "ten to twelve minutes to reach step 7" figure is
-   kept below as history, but the measured time on the 0.6.06 attempt of
-   2026-08-28 was **15m 46s** (21:56:18 launch, 22:12:04 at step 7), and a slow
-   browser gate stretches it further. Fifteen is the number the step 1 refusal
-   prints, so the runbook and the tool now say the same thing.
+   **Two gates read it, and they do not use the same window (#1453).**
 
-   ⚠️ **AND STEP 1 IS STRICTER ON THE PAST SIDE THAN STEP 7 (#1453).** It accepts
-   an entry at most **five** minutes old, where step 7 accepts twenty. That is not
-   an inconsistency: an entry already fifteen minutes old passes a symmetric
-   window at step 1 and then dies at step 7 once the cut has added its own
-   fifteen, which is exactly the re-cut failure described above. Step 1 can see
-   that a stale entry is doomed, so it says so in three seconds instead of
-   fifteen minutes. The FUTURE side is twenty at both and is deliberately not
-   widened.
+   | gate | accepts in the PAST | accepts in the FUTURE |
+   |---|---|---|
+   | step 1, before anything is built | **5 minutes** | 20 minutes |
+   | step 7, at the moment of deploy   | 20 minutes     | 20 minutes |
 
-   ⚠️ **Stamp it for when you expect to PUBLISH, never for now.** The window is
-   symmetric, so a forward stamp passes step 1 (`off = -10` is inside 20) and
-   still passes step 7 once the cut has caught up with it. A stamp written *now*
-   passes step 1 and then arrives at step 7 reading the full length of the cut,
-   which is what a re-cut most often dies on. This is also why the step 1
-   refusal's own advice says "stamp for publication" where step 7's says "paste
-   the clock line": at step 7 there is no cut left to age it.
+   The entry is written once, by hand, so every failed attempt ages it; attempt
+   four died on a 40-minute gap after three earlier attempts had burned the
+   window. **Step 1 is stricter on the past side on purpose:** an entry already
+   fifteen minutes old would pass a 20-minute window at step 1 and then read
+   `+15 + D` at step 7 and die after the suite, the browser gate, the install
+   gate and the build. Step 1 can see that it is doomed, so it says so in three
+   seconds. The future side is 20 at both and is deliberately not widened, since
+   a forward stamp is what the guard was built to catch.
+
+   ⚠️ **Stamp for when you expect to PUBLISH, never for now.** A now-stamp passes
+   step 1 and then arrives at step 7 having aged by the length of the cut, which
+   is what a re-cut most often dies on. This is also why the two refusals give
+   different advice: step 1 says "stamp for publication", step 7 says "paste the
+   clock line", because at step 7 there is no cut left to age it.
+
+   📌 **Where fifteen comes from.** Measured on the 0.6.06 attempt of 2026-08-28:
+   launch 21:56:18, step 7 at 22:12:04, so **15m 46s**, and a slow browser gate
+   stretches it. An earlier version of this runbook said ten to twelve minutes;
+   that figure is superseded, not merely supplemented, and it has been removed
+   rather than left standing above its own correction.
+
 2. **A versioned tarball from the dead attempt.** If the attempt got past 4b it
    copied `dist/kosmos-<V>-arm64.tar.gz` into the site checkout. The next build
    produces different bytes (builds are not byte-reproducible: codesign

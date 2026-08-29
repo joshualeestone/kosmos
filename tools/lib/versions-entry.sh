@@ -19,14 +19,24 @@
 # stale-assertion shape: somebody widens one and the other keeps refusing, and
 # a guard that disagrees with itself is worse than either answer alone.
 #
-# ⭐ THE WINDOW IS SYMMETRIC AND STAYS SYMMETRIC. A stamp written for
-# publication sits about fifteen minutes ahead at step 1, giving off = -15,
-# and 15 <= 20 passes, so the early call does NOT refuse correctly-stamped
-# entries -- measured, not assumed. Widening the future side was proposed and
-# REJECTED: the guard's own comment in release.sh says the four newest entries
-# of 2026-08-21 "claimed release times that had not happened yet", so forward
-# stamps are precisely part of what it catches. A wider future window would
-# make a guess satisfiable again, which is the hole the guard exists to close.
+# ⭐ THE FUTURE SIDE IS 20 AT BOTH CALL SITES AND STAYS THERE. A stamp written
+# for publication sits about fifteen minutes ahead at step 1, giving off = -15,
+# which passes -- measured, not assumed. Widening the future side was proposed
+# and REJECTED: release.sh's own comment records that the four newest entries of
+# 2026-08-21 "claimed release times that had not happened yet", so forward stamps
+# are precisely what the guard catches, and a wider future window would make a
+# guess satisfiable again.
+#
+# 🛑 THE PAST SIDE IS **NOT** THE SAME AT BOTH, AND AN EARLIER VERSION OF THIS
+# HEADER SAID IT WAS. Step 1 accepts 5 minutes, step 7 accepts 20. The reasoning
+# is at the gate function below; it is repeated nowhere else on purpose. If you
+# are reading this header for the window, read the gate.
+#
+# ⚠️ That earlier sentence ("the window is symmetric and stays symmetric") was
+# true when written and false one change later, and it sat directly above code
+# doing the opposite. It is called out rather than quietly deleted because a
+# header that contradicts its own file is the failure this note now guards: a
+# reader who stops at the top leaves with a false model of the gate.
 
 kosmos_versions_entry_id() { echo "v$(echo "$1" | tr . -)"; }
 
@@ -45,6 +55,14 @@ kosmos_versions_entry_stamp() {
     inentry && match($0, /rel-d">[^<]*</) {
       print substr($0, RSTART + 7, RLENGTH - 8); exit
     }
+    # 🛑 STOP AT THE END OF **THIS** ARTICLE. Without this, `inentry` never clears
+    # and an article carrying NO rel-d silently takes the next entry`s stamp --
+    # measured against the sed version it replaced, which returned empty on the
+    # same fixture while this returned the following release`s timestamp. Empty
+    # refuses; a neighbour`s stamp can PASS, and entries are newest-first, so on
+    # a same-session re-cut the previous release`s stamp is plausibly inside the
+    # window. That turns a missing timestamp into a green gate.
+    inentry && /<\/article>/ { exit }
   ' "$file" 2>/dev/null
 }
 
@@ -69,7 +87,9 @@ kosmos_versions_entry_stamp_off() {
   const months = 'January February March April May June July August September October November December'.split(' ');
   let h = Number(m[4]) % 12; if (m[6] === 'PM') h += 12;
   const t = new Date(Number(m[3]), months.indexOf(m[1]), Number(m[2]), h, Number(m[5]));
-  console.log(String(Math.round((Date.now() - t.getTime()) / 60000)));
+  const off = Math.round((Date.now() - t.getTime()) / 60000);
+  // A parseable-looking date can still yield NaN (month 13, year 999999).
+  console.log(Number.isFinite(off) ? String(off) : 'unparseable');
 "
 }
 
@@ -112,13 +132,22 @@ KOSMOS_LATE_PAST_BOUND=20
 KOSMOS_FUTURE_BOUND=20
 
 kosmos_versions_entry_gate() {
-  local v="$1" file="$2" cost="${3:-}" stamp_fix="${4:-}" past_bound="${5:-20}"
+  local v="$1" file="$2" cost="${3:-}" stamp_fix="${4:-}"
+  # ⚠️ DEFAULT FROM THE CONSTANT, NOT A LITERAL. A bare `${5:-20}` is a fourth
+  # copy of the late bound, which is the exact stale-assertion shape this file`s
+  # header warns about: raise KOSMOS_LATE_PAST_BOUND and the literal keeps
+  # enforcing the old value, silently.
+  local past_bound="${5:-$KOSMOS_LATE_PAST_BOUND}"
   local id stamp off now
 
-  # ⚠️ REFUSE A VERSION THAT IS NOT THE SHAPE WE BUILD THE ID FROM. `$id` is
-  # interpolated into the awk matcher below, and a metacharacter would silently
-  # change what is matched rather than fail. Inline in step 7 that was one
-  # trusted call site; as a library function it is anybody's.
+  # ⚠️ REFUSE A VERSION THAT IS NOT THE SHAPE WE BUILD THE ID FROM.
+  # 📌 CORRECTED: an earlier version of this comment said the hazard was `$id`
+  # being read as a PATTERN. It is not -- the presence check is `grep -qF` and
+  # the reader uses awk `index()`, both literal. The real hazard is `awk -v
+  # id=...`, which processes BACKSLASH ESCAPES in the assigned value, so a
+  # version carrying a backslash would change what awk searches for. The guard
+  # was right and its stated reason was wrong, which matters in a file this
+  # comment-led: a wrong rationale is what gets copied forward.
   case "$v" in
     ''|*[!0-9.]*) echo "   refusing to check a version that is not digits and dots: '$v'"; return 1 ;;
   esac
@@ -147,6 +176,20 @@ kosmos_versions_entry_gate() {
   off="$(kosmos_versions_entry_stamp_off "$stamp")"
   now="$(date '+%B %-d, %Y, %-I:%M %p %Z')"
 
+  # 🛑 ANYTHING THAT IS NOT AN INTEGER IS UNPARSEABLE, AND THIS TEST MUST COME
+  # BEFORE THE COMPARISONS. `[ NaN -gt 5 ]` does not evaluate false, it ERRORS
+  # (status 2), so the `if` reads false, the next `if` errors too, and control
+  # falls through to "its timestamp agrees with the clock" and returns 0.
+  # ⚠️ THAT IS A FAIL-**OPEN**, AND IT IS A DIRECTION CHANGE I INTRODUCED: the
+  # code this replaced tested `[ "$STAMP_OK" != "ok" ]`, which is TRUE for ""
+  # and for "NaN", so it failed CLOSED. Measured: an entry stamped
+  # `August 28, 999999, 1:00 AM CDT` passed the gate, against a control of a
+  # genuinely stale entry that correctly refused at 1090 minutes. An absent or
+  # broken `node` produces empty output and lands here too.
+  case "$off" in
+    ''|*[!0-9-]*|-|*-*-*) off=unparseable ;;
+    -*) case "${off#-}" in *[!0-9]*) off=unparseable ;; esac ;;
+  esac
   if [ "$off" = "unparseable" ]; then
     echo "   the entry for $v is stamped: $stamp"
     echo "   that is not a date this gate can read. It wants the shape: $now"
