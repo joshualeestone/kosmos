@@ -246,12 +246,36 @@ shasum -a 256 "$ZIPOUT" | awk '{print $1}' > "$ZIPOUT.sha256"
 # way would have shipped an empty zip.
 # Measured, three arms: pipefail + grep -q FAILS; without pipefail OK; captured
 # first OK.
+# 🛑 A REFUSED BUILD MUST NOT LEAVE THE THING IT REFUSED. Every check below runs
+# AFTER the zip is written, because they inspect the zip. Without this, a build
+# that correctly refused still left a 36 MB artifact on disk with the exact
+# defect it refused for, and the next person to reach for `dist/` finds it.
+# ⚠️ The exit code is the signal a script reads; the FILE is the signal a human
+# reads, and they were saying opposite things.
+refuse() { echo "$1" >&2; rm -f "$ZIPOUT" "$ZIPOUT.sha256"; exit 1; }
+
 LISTING="$(unzip -l "$ZIPOUT")"
 for want in "Kosmos.cmd" "open-board.cmd" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html"; do
   case "$LISTING" in
     *" $want"*) ;;
-    *) echo "the zip is missing $want" >&2; exit 1 ;;
+    *) refuse "the zip is missing $want" ;;
   esac
 done
+# 🛑 NO TEST FILES, AND THE ENGINE COUNT MUST MATCH THE REPO (Renet's finding).
+# His parallel builder's engine glob had no filter: it staged 137 .js of which
+# only 59 were real modules, so 78 TEST FILES SHIPPED TO USERS.
+# ⭐ AND THE PART WORTH COPYING IS WHY HIS OWN GUARD DID NOT CATCH IT: he had a
+# floor of "at least 50 engine files", AND THE FLOOR WAS SATISFIED BY THE TEST
+# FILES. A count that the defect itself inflates cannot detect the defect.
+# ⇒ So this asserts TWO things that cannot both be satisfied by the same
+# mistake: ZERO test files, and a count that EQUALS the repo rather than clears
+# a floor. Equality is what makes shipping too many as loud as shipping too few.
+_tests="$(printf '%s\n' "$LISTING" | grep -c '\.test\.js' || true)"
+[ "$_tests" = "0" ] || refuse "the zip ships $_tests test file(s); the engine glob lost its filter"
+_zipmods="$(printf '%s\n' "$LISTING" | grep -c ' app/engine/[^ ]*\.js$' || true)"
+_repomods="$(ls "$REPO"/engine/*.js | grep -vc '\.test\.js')"
+[ "$_zipmods" = "$_repomods" ] || refuse "the zip carries $_zipmods engine modules and the repo has $_repomods"
+echo "==> $_repomods engine modules, 0 test files"
+
 echo "==> $ZIPOUT"
 echo "==> $(unzip -l "$ZIPOUT" | tail -1)"
