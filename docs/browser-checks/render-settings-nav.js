@@ -170,11 +170,26 @@ function chk(ok, label, extra) {
           }
         }
 
+        /* 🛑 GUTTERS ARE MEASURED INSIDE .dbody, WHICH IS WHAT THE PAIR IS
+           CENTRED IN. They used to be nav.left and (clientWidth - sec.right),
+           i.e. measured against the VIEWPORT, and that made this assertion fail
+           whenever `scrollbar-gutter: stable` reserved its 15px: .dbody became
+           1337 inside a 1400 clientWidth and the gutters read 319.5 / 334.5,
+           7.5px off centre, while the pair was perfectly centred in its own
+           container the whole time.
+           ⇒ Measured inside .dbody they are 303/303 without the reservation and
+           295.5/295.5 with it: equal either way, and still unequal if the pair
+           is genuinely off centre, which is the thing this line claims to test.
+           The viewport-relative numbers are kept below as diagnostics. */
+        const dbody = secEl.closest('.dbody').getBoundingClientRect();
         return {
           navWidth: nav.width,
           secWidth: sec.width,
-          leftGutter: nav.left,
-          rightGutter: vw - sec.right,
+          leftGutter: nav.left - dbody.left,
+          rightGutter: dbody.right - sec.right,
+          // diagnostics: the old viewport-relative pair, which is what moves
+          viewportLeftGutter: nav.left,
+          viewportRightGutter: vw - sec.right,
           // diagnostic only, asserted on by nothing
           docBar: window.innerWidth - vw,
           clientWidth: vw,

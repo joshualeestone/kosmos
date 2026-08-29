@@ -87,7 +87,23 @@ const say = (ok, label, extra) => {
       await pg.waitForTimeout(120);
       offsets.push(await pg.evaluate(() => {
         const t = document.querySelector('.tabs').getBoundingClientRect();
-        return Math.round((t.left + t.right) / 2 - document.documentElement.clientWidth / 2);
+        /* 🛑 MEASURE AGAINST THE BOX THE TABS ARE ACTUALLY IN, NOT THE VIEWPORT.
+           This used to compare against documentElement.clientWidth / 2 and it
+           failed intermittently for a reason that had nothing to do with the
+           tabs: `scrollbar-gutter: stable` (index.html, the
+           html:not([data-layout="consolidated"]) rule) RESERVES 15px whenever
+           the browser's scrollbars take layout width. When it does, body is
+           1385 inside a 1400 clientWidth, everything centred in body sits ~7.5px
+           left of the viewport centre, and this assertion read -8.
+           ⇒ That is the gutter doing its job: it exists so the page does not
+           jump when a scrollbar appears. The page was right and the measurement
+           was against the wrong box.
+           Whether the reservation materialises depends on the browser's
+           scrollbar mode, which is an ENVIRONMENT variable, not a code one.
+           That is why no sha, no branch and no headed/headless axis ever
+           correlated with the failures, and why they clustered in time. */
+        const box = document.body.getBoundingClientRect();
+        return Math.round((t.left + t.right) / 2 - (box.left + box.right) / 2);
       }));
     }
     say(Math.abs(offsets[0]) <= 1, theme + ': the tabs sit on the page centre', String(offsets[0]));
