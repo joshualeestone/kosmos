@@ -68,6 +68,7 @@
 const os = require('node:os');
 const fs = require('node:fs');
 const nodePath = require('node:path');
+const { mkTemp } = require('./test-support/tmpdir.js');
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 const WORKERS = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-workers-'));
@@ -122,7 +123,7 @@ function seedTranscript(name, model) {
 // adds would install a REAL launchd job in the operator's `~/Library/
 // LaunchAgents`, and it would then start an agent on their next login. The
 // sandbox has to be in place before the hazard arrives, not after.
-process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-launch-'));
+process.env.AGENT_WORKFORCE_LAUNCH = mkTemp('aw-srv-launch-');
 // ⚠️ AND THE PROJECTS ROOT (round 37), for the same reason as LAUNCH above:
 // this server now requires `engine/projects`, whose root defaults to
 // `~/Kosmos/Projects` and whose create path calls `makeFolder` -- a real
@@ -154,7 +155,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
    operator's live fleet. The fake answers reads from fixtures (none set here:
    an empty board) and echoes everything else, so write-side receipts hold. */
 process.env.AGENT_WORKFORCE_TMUX_BIN = require('node:path').join(__dirname, 'test-support', 'fake-tmux.sh');
-process.env.AGENT_WORKFORCE_SKILLS_DIR = require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'aw-gskills-'));
+process.env.AGENT_WORKFORCE_SKILLS_DIR = require('./test-support/tmpdir.js').mkTemp('aw-gskills-');
 // ⚠️ Belt AND braces for the CHAT engine too (round 26): this branch made
 // `require('./server')` pull in engine/chat, which arms itself from this
 // variable at load. Without it, the only thing between a stray thread-route
@@ -8607,8 +8608,8 @@ test('a stopped agent with a readable model still gets the model its job will st
 
 test('the documents list reads, and opening one is a POST behind the cross-site guard', async () => {
   const projects = require('./engine/projects');
-  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-docs-'));
-  const away = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-docs-away-'));
+  const dir = mkTemp('aw-docs-');
+  const away = mkTemp('aw-docs-away-');
   fs.writeFileSync(nodePath.join(dir, 'brief.md'), 'x');
   fs.writeFileSync(nodePath.join(away, 'secret.txt'), 'x');
   fs.symlinkSync(nodePath.join(away, 'secret.txt'), nodePath.join(dir, 'escape.txt'));
@@ -8680,7 +8681,7 @@ test('the documents list reads, and opening one is a POST behind the cross-site 
 });
 
 test('a project with no folder any more still answers the documents list, with a reason', async () => {
-  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-docs-gone-'));
+  const dir = mkTemp('aw-docs-gone-');
   const made = await req('/api/projects', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -10343,7 +10344,7 @@ test('the sign-up succeeds end to end through the routes, with the fake binary (
      the success path, driven through the same env seams the engine's own
      suite uses. */
   const os = require('node:os');
-  const sb = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'plusflow-')));
+  const sb = fs.realpathSync(mkTemp('plusflow-'));
   const fakeBin = nodePath.join(sb, 'fake-tunnel');
   fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
     "if (process.argv[2] === 'setup') process.exit(0);",

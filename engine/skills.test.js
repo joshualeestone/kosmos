@@ -4,9 +4,10 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { mkTemp } = require('../test-support/tmpdir.js');
 const skills = require('./skills');
 
-function sandbox() { return fs.mkdtempSync(path.join(os.tmpdir(), 'skills-')); }
+function sandbox() { return mkTemp('skills-'); }
 
 test('list reads the runtime convention: SKILL.md folders, frontmatter for the screens, folder name as the honest fallback', () => {
   const dir = sandbox();
@@ -68,7 +69,7 @@ test('the refusals: no name, empty body, oversized body', () => {
 
 test('remove takes the folder, refuses a name that is not there, and says so', () => {
   const os = require('node:os');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-sk-rm-'));
+  const dir = mkTemp('aw-sk-rm-');
   skills.add(dir, { name: 'Meeting minutes', body: 'Decisions and owners.' });
   assert.ok(fs.existsSync(path.join(dir, 'meeting-minutes', 'SKILL.md')));
   const gone = skills.remove(dir, 'meeting-minutes');
