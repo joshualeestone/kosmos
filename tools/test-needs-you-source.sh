@@ -107,14 +107,26 @@ has "$out" 30 "typed by a walkthrough FIXTURE" \
 # --- ARM 4: the impossible-state control must be able to move.
 mkdir -p "$T/planted"
 { filler 10; line zzz_no_such_state "planted"; } > "$T/planted/dave.jsonl"
-out="$(run "$T/planted")"
-has "$out" 1 "a state no writer can produce" \
-  && ok "arm 4: the impossible-state control reads non-zero when one is planted" \
-  || bad "arm 4: the control cannot detect a planted impossible state, so its 0 on live data means nothing"
-out="$(run "$T/rare")"
+out="$(run "$T/planted")"; rc=$?
+case "$out" in
+  *"CONTROL VIOLATED"*"1 record(s)"*) ok "arm 4: a planted impossible state is detected and NAMED" ;;
+  *) bad "arm 4: the control cannot detect a planted impossible state, so its 0 on live data means nothing" ;;
+esac
+# 🛑 AND THE CONSEQUENCE, WHICH IS WHAT THIS ARM USED TO LACK. It asserted the
+# NUMBER MOVED and never that anything happened as a result -- so the tool
+# printed "<- must be 0" beside a non-zero and went on to print its strongest
+# conclusion, exiting 0, entirely invisibly to this suite.
+[ "$rc" -eq 1 ] && ok "arm 4: and it REFUSES (exit 1), because a violated control is a broken instrument" \
+  || bad "arm 4: exited $rc -- the control is violated and the tool answered anyway"
+so="$(node tools/needs-you-source.js --dir "$T/planted" 2>/dev/null | wc -l | tr -d ' ')"
+[ "$so" = "0" ] && ok "arm 4: and prints nothing at all to stdout" \
+  || bad "arm 4: printed $so stdout lines despite a violated control"
+out="$(run "$T/rare")"; rc=$?
 has "$out" 0 "a state no writer can produce" \
   && ok "arm 4: and reads zero on a clean record" \
   || bad "arm 4: the control is non-zero on a clean fixture"
+[ "$rc" -eq 0 ] && ok "arm 4: and a clean record still answers, so the refusal is not blanket" \
+  || bad "arm 4: refused on a clean record, exit $rc"
 
 # --- ARM 5: a MISSING record is refused, not reported as an answer.
 out="$(run "$T/does-not-exist")"; rc=$?

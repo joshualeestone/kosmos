@@ -1189,10 +1189,18 @@ function capturePane(target, lines = 40) {
      the module that CLASSIFIES a pane and the module that SHOWS it to a person
      read different text off the same screen.
      ⚠️ MEASURED, AND IT IS A REGRESSION #1155 INTRODUCED THAT NOBODY TESTED FOR:
-     an option-less prompt -- "Do you want to proceed?", the real observed shape
-     at `status.test.js:347` -- classifies `idle` on any pane narrower than the
-     question, because that rule needs the marker to OPEN the line and the line
-     to CLOSE at the question, and a wrap breaks both.
+     on a WRAPPED pane an option-less prompt -- "Do you want to proceed?", the
+     real observed shape at `status.test.js:347` -- can classify `idle`, because
+     that rule needs the marker to OPEN the line and the line to CLOSE at the
+     question, and a wrap breaks both.
+     🛑 THIS USED TO READ "on any pane narrower than the question" AND THAT
+     QUANTIFIER IS FALSE. Measured 2026-08-28 across every width from 6 to 79,
+     both marker sets loaded side by side, control at 80 columns where they
+     agree: "Do you want to proceed?" diverges at ONE width, 22; "Would you
+     like to continue?" diverges at 17-26. BELOW the divergence the marker
+     string itself is split, so neither version matches and no red is lost --
+     including at the 20 columns this comment's own table uses, where pre-#1155
+     also reads `idle`. The class is real; the quantifier was not.
        20 columns, without -J:  idle        <- benign. The agent waits, the board
        20 columns, with -J:     needs_you      says it is fine.
      Before #1155 the same screen read `needs_you`, because the old rule tested
@@ -3604,13 +3612,23 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      🛑 BUT DO NOT READ THAT AS "#1155 NARROWED NOTHING LEGITIMATE" -- AN
  *      EARLIER VERSION OF THIS PARAGRAPH SAID EXACTLY THAT AND THIS FILE
  *      CONTRADICTS IT AT LINE ~1191, IN ITS OWN MEASURED WORDS. #1155 also
- *      introduced a real regression nobody tested for: an option-less prompt
- *      ("Do you want to proceed?", the observed shape) classifies `idle` on
- *      any pane narrower than the question, because the new rule needs the
- *      marker to OPEN the line and the line to CLOSE at the question, and a
- *      wrap breaks both. Before #1155 the same screen read `needs_you`. That
- *      IS a legitimate red lost to #1155; it was latent rather than live, and
- *      adding `-J` to the capture neutralised it.
+ *      introduced a real regression nobody tested for: on a WRAPPED pane an
+ *      option-less prompt can classify `idle` where before #1155 it read
+ *      `needs_you`, because the new rule needs the marker to OPEN the line and
+ *      the line to CLOSE at the question, and a wrap breaks both. That IS a
+ *      legitimate red lost to #1155; latent rather than live, and adding `-J`
+ *      to the capture neutralised it.
+ *      ⚠️ THE BAND IS NARROWER THAN "ANY PANE NARROWER THAN THE QUESTION",
+ *      WHICH IS WHAT AN EARLIER VERSION OF THIS PARAGRAPH SAID AND WHAT THE
+ *      COMMENT AT ~1187 STILL SAID UNTIL THIS CHANGE. Measured here across
+ *      every width from 6 to 79, both marker sets loaded side by side, with a
+ *      control at 80 columns where the two agree:
+ *          "Do you want to proceed?"      diverges at ONE width, 22
+ *          "Would you like to continue?"  diverges at widths 17-26
+ *      Below the divergence the MARKER ITSELF is split, so neither version
+ *      matches and nothing was lost. ⇒ The class is real and the quantifier
+ *      was not, and the error ran in the direction that flattered this
+ *      paragraph's own tidy "wrong in both directions once" symmetry.
  *      ⇒ So: the prose case is structural to the marker approach and predates
  *      #1155; the wrap case was #1155's and is fixed. Two corrections in
  *      opposite directions, and I shipped each of them wrong once.

@@ -54,7 +54,7 @@ points at it and tells the reader not to trust its own numbers.
    - asserts its conclusion against its own numbers, and prints the OPPOSITE
      conclusion when agents have started reporting the state themselves
 
-2. `tools/test-needs-you-source.sh`, 21 named arms and 47 passing assertions.
+2. `tools/test-needs-you-source.sh`, 22 named arms and 57 passing assertions.
    **Arm 3 is the load-bearing one:** the tool must be able to print the
    uncomfortable answer. A measuring tool that can only ever return
    "load-bearing on the scrape" is decoration on that sentence, not evidence
@@ -287,11 +287,38 @@ points at it and tells the reader not to trust its own numbers.
   typed, and five assertions go red on demand.
 - **"It prints this exact split" was already stale** - the hook row moved from
   7 to 8 during the session. It now claims the shape, not the numbers.
-- **A duplicated `exitCode`/`return`** left by the iteration-6 gate restructure
-  is gone, and `readRecord`'s failure branch returns the same shape as its
-  success branch.
+- **A duplicated `exitCode`/`return` and a mismatched failure-return shape.**
+  🛑 I claimed both were fixed at iteration 7 AND NEITHER EDIT LANDED - the
+  substitutions silently matched nothing and I committed the claim without
+  checking. Iteration 8 found them still there. Both are genuinely fixed now,
+  each verified by re-counting the site afterwards rather than by assuming.
 - **Rebased onto `origin/main`** so the branch is measured against the world it
   will merge into. Suite green there at 2,901 tests.
+
+### Amended at iteration 8
+
+- 🛑 **"any pane narrower than the question" is false, and I imported it rather
+  than measuring it.** Measured across every width from 6 to 79, both marker
+  sets side by side, control at 80 columns where they agree:
+  `"Do you want to proceed?"` diverges at **one** width, 22;
+  `"Would you like to continue?"` diverges at 17-26. Below the divergence the
+  MARKER ITSELF is split, so neither version matches and no red is lost -
+  including at the 20 columns the sibling comment's own table uses. The class
+  is real, the quantifier was not, and the error flattered this plan's tidy
+  "wrong in both directions once" symmetry.
+  **The pre-existing comment at `status.js:~1187` carried the same quantifier
+  and is corrected too**, rather than cited while known to be wrong.
+- 🛑 **Two iteration-7 fixes never landed and I said they had.** The dead
+  `exitCode`/`return` pair and the mismatched failure-return shape were both
+  claimed fixed in the plan; both substitutions silently matched nothing.
+  Fixed now, and each verified by re-counting the site afterwards.
+- **A violated control now REFUSES.** The impossible-state line printed
+  `<- must be 0` beside a non-zero and went on to print the tool's strongest
+  conclusion, exiting 0. By this file's own standard that is a broken
+  instrument and gets the drift treatment. **Arm 4 asserted the number MOVED
+  and never a consequence**, which is exactly why the gap was invisible: it is
+  now three assertions with a perturbation that turns all three red.
+- **The plan's arm count and the hook's line number** were both stale again.
 
 ## What this deliberately does NOT do
 
@@ -305,7 +332,7 @@ points at it and tells the reader not to trust its own numbers.
 ## Weakest premise, named
 
 The provenance split is a STRING MATCH on the hook's own sentence
-(`install/kosmos-report-hook.sh:218`), because the record does not store who
+(`install/kosmos-report-hook.sh:235`, on current main), because the record does not store who
 wrote a line: `report --auto` is a write-time discriminator
 (`selfreport.js`, the `entry.auto === true` branch) and was not persisted.
 Filed as #1453 - **and fixed by #1457 while this branch was in the challenge

@@ -211,7 +211,7 @@ function readRecord(dir) {
     const why = (err && err.code === 'ENOENT')
       ? 'there is no self-report record at'
       : 'the self-report record could not be read (' + ((err && err.code) || 'unknown error') + ') at';
-    return { ok: false, why, dir, files: [], rows: [], unparseable: 0 };
+    return { ok: false, why, dir, files: [], rows: [], unparseable: 0, unreadableFiles: [] };
   }
   const rows = [];
   let unparseable = 0;
@@ -316,6 +316,22 @@ function main() {
     return;
   }
 
+  /* 🛑 A VIOLATED CONTROL IS A BROKEN INSTRUMENT, AND THIS ONE USED TO PRINT
+     "<- must be 0" BESIDE A NON-ZERO AND CARRY ON TO THE VERDICT. By this
+     file's own standard (see the drift refusal below, and the exit-code
+     contract at the top) that is the same case as a drifted marker: the split
+     cannot be trusted, so nothing is printed. Test arm 4 asserted the number
+     MOVES and never asserted a consequence, which is why the gap was
+     invisible to the suite. */
+  const impossible = s.byState.get(IMPOSSIBLE) || 0;
+  if (impossible > 0) {
+    console.error('🛑 CONTROL VIOLATED: ' + impossible + ' record(s) carry the state "' + IMPOSSIBLE + '",');
+    console.error('   which `selfreport.js` cannot write and its reader skips. This tool is counting');
+    console.error('   something other than what it says it is, so nothing is printed.');
+    process.exitCode = 1;
+    return;
+  }
+
   if (live === false) {
     /* 🛑 REFUSE, DO NOT WARN AND CONTINUE. An earlier version printed "the
        verdict cannot be trusted" and then printed the verdict anyway, exiting
@@ -326,8 +342,6 @@ function main() {
     console.error('🛑 MISMATCH: ' + HOOK_SOURCE + ' no longer contains "' + HOOK_PREFIX.trim() + '".');
     console.error('   Every hook-written record would be counted as agent-typed, so the split and the');
     console.error('   verdict would both be wrong. Nothing is printed. Update HOOK_PREFIX to match the hook.');
-    process.exitCode = 1;
-    return;
     process.exitCode = 1;
     return;
   }
