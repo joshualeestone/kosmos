@@ -139,7 +139,7 @@ const oaiStub = require('node:http').createServer((q, r) => {
      `hidden` and the option list, which is the SAME fact web.switch-account-1373.test.js
      already pins by reading the source, so as a rendering gate it measured no rendering:
      a CSS regression that left the control zero-width, collapsed or off-screen kept every
-     arm above green. Found by a later blind review pass.
+     arm above green.
      ⚠️ Deliberately a FLOOR, not an exact width. The row is flex and wraps, so pinning a
      number here would re-arm the trap this branch keeps finding: a check that fails on a
      harmless reflow teaches people to widen it until it catches nothing.

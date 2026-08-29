@@ -240,7 +240,13 @@ test('#1373: the four fail-quiet fixes are pinned, because each one reverts gree
      `ACCOUNTS_LOADED` true, which resurrects the false zero-account sentence whenever the
      repaint's own fetch also fails. Counted rather than matched, because a single-site
      assertion is exactly what missed it the first time. */
-  const emptied = (PAGE.match(/(?<!let )\bACCOUNTS = \[\];/g) || []).length;
+  /* 📌 THE POPULATION FLOOR HAS TO FOLLOW THE SHAPE IT MEASURES. This once counted literal
+     `ACCOUNTS = []` sites and required two, which was right when two call sites each did
+     their own emptying. After they were collapsed into named transitions there is one
+     literal assignment, inside `accountsDropped`, and the thing worth counting is the CALL
+     SITES that use the transitions. A floor left pointing at the old shape reports a defect
+     that is really its own staleness. */
+  const emptied = (PAGE.match(/accountsDropped\(\);/g) || []).length;
   /* 🛑 THE INVARIANT, NOT THE SITES. This used to count per-site pairings, and three
      review passes each found a DIFFERENT site out of step: one emptied and left LOADED
      true, one filled and left UNREADABLE true, one failed and left LOADED true. Counting
@@ -248,12 +254,26 @@ test('#1373: the four fail-quiet fixes are pinned, because each one reverts gree
      ⇒ Now assert the property that makes all three impossible: the three state variables
      are written ONLY inside the three named transitions, so no site can update one
      without the others. 9 = three transitions, three variables each. */
-  const bare = (PAGE.match(/^\s*(?:ACCOUNTS|ACCOUNTS_LOADED|ACCOUNTS_UNREADABLE) = /gm) || []).length;
-  assert.ok(emptied >= 2, 'the sweep found fewer than the two known emptying sites, so it is not reading what it thinks it is');
-  assert.equal(bare, 9,
-    'something writes the account cache or its flags outside accountsRead/accountsUnreadable/accountsDropped, which is how a site keeps ending up with one flag out of step');
+  /* The invariant is about the FLAGS, which is what kept going out of step. `ACCOUNTS`
+     itself is written by only two of the three transitions on purpose: a failed read
+     invalidates the list's authority and must NOT shrink the list, which `paintAccounts`
+     states as a rule at its own call site. */
+  const bare = (PAGE.match(/^\s*(?:ACCOUNTS_LOADED|ACCOUNTS_UNREADABLE) = /gm) || []).length;
+  assert.ok(emptied >= 2, 'fewer than the two known drop sites call accountsDropped(), so either a site went back to emptying the cache by hand or this sweep is not reading what it thinks it is');
+  /* 6 = two flags x three transitions, MEASURED not assumed. The declarations start with
+     `let` so the anchored regex excludes them; an earlier version of this line said 8 by
+     arithmetic I had not checked against the file. */
+  assert.equal(bare, 6,
+    'something writes the account flags outside accountsRead/accountsUnreadable/accountsDropped, which is how a site keeps ending up with one flag out of step');
+  /* And a failed read must not shrink the list, which is paintAccounts' stated rule. */
+  assert.doesNotMatch(PAGE, /function accountsUnreadable\(\)[\s\S]{0,900}?ACCOUNTS = \[\];/,
+    'accountsUnreadable empties the account list again, which is exactly what "a failed read must not shrink the list" forbids at its own call site');
+  /* 📌 1600, MEASURED. `accountsUnreadable` carries a long comment explaining why it does
+     NOT touch the list, so it needs >= 900 where its siblings need 260. A window sized to
+     today's shortest body goes red the next time somebody explains themselves, which is a
+     check that punishes the comment rather than the code. */
   for (const fn of ['accountsRead', 'accountsUnreadable', 'accountsDropped']) {
-    assert.match(PAGE, new RegExp('function ' + fn + '\\([\\s\\S]{0,260}?ACCOUNTS_LOADED[\\s\\S]{0,140}?ACCOUNTS_UNREADABLE'),
+    assert.match(PAGE, new RegExp('function ' + fn + '\\([\\s\\S]{0,1600}?ACCOUNTS_LOADED[\\s\\S]{0,200}?ACCOUNTS_UNREADABLE'),
       fn + ' no longer sets both flags, so it can leave the cache in a state no site intended');
   }
   /* 4. AND THE BUTTON HAS TO COME BACK. Hard-coding `true` here means a person who does

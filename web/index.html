@@ -21920,14 +21920,14 @@ let ACCOUNTS = [];
    have no accounts", which hides the switch picker and silently reverts the switch to
    the stated default with nothing on screen. Hidden is the SAFE state, which is exactly
    why the failure could not announce itself. This flag keeps the two apart so the one
-   that is a fault can say so. Found by a later blind review pass. */
+   that is a fault can say so. */
 let ACCOUNTS_UNREADABLE = false;
 /* 🛑 AND "EMPTY" IS STILL NOT ONE FACT, EVEN WITH THE FLAG ABOVE. A page-side cache can
    be empty because we READ an empty list, or because another flow DELIBERATELY EMPTIED IT
    and nothing has refilled it yet. Only the first licenses a definitive sentence about
    what this computer has. `moveAccountNow` clears the cache on a successful move and the
    open panel does not repaint, so the second state is reachable and lasts as long as the
-   panel stays open. Found by a later blind review pass, after an earlier pass's zero-account
+   panel stays open. This was reachable once the zero-account
    arm shipped reading the cache directly and would have told a person the switch was going
    to stop while the server list was untouched and the switch went ahead. */
 let ACCOUNTS_LOADED = false;
@@ -21951,7 +21951,16 @@ function accountsRead(list) {
   ACCOUNTS_UNREADABLE = false;
 }
 function accountsUnreadable() {
-  ACCOUNTS = [];
+  /* 🛑 DELIBERATELY DOES NOT TOUCH `ACCOUNTS`, AND THAT IS NOT AN OVERSIGHT. A failed read
+     invalidates the list's AUTHORITY, not the list. `paintAccounts` states the rule two
+     lines above its own call site: "Never 'one account': a failed read must not shrink the
+     list." An earlier version of this function emptied the cache and was called from
+     exactly there, which did the thing that comment forbids.
+     ⇒ Both callers are correct under this shape: the picker's first-open fetch only runs
+     when the list is ALREADY empty, so keeping it changes nothing there, while the
+     Accounts page keeps the rows it last read and merely stops claiming they are current.
+     `ACCOUNTS_LOADED = false` is what stops a stale list licensing a claim, which is the
+     job the emptying was wrongly doing. */
   ACCOUNTS_LOADED = false;
   ACCOUNTS_UNREADABLE = true;
 }
@@ -22123,9 +22132,9 @@ async function moveAccountNow(say) {
        therefore stayed empty for the whole life of the open panel: choose OpenAI after a
        move and the sign-in picker was simply absent, with no line saying why, because an
        empty list is the ordinary not-armed state. Same shape and same remedy as the failed
-       switch below, which now genuinely is the same remedy: an earlier pass found this comment
-       asserting a symmetry that only half existed, because that site cleared the cache and
-       not the flag. */
+       switch below, which now genuinely is the same remedy. ⚠️ This comment once asserted
+       that symmetry while only half of it existed, because that site cleared the cache and
+       not the flag. Both halves are present now; do not remove one and leave this line. */
     try { await paintAccountPicker(CURRENT); }
     catch { /* the move's own sentence is the answer; a failed refresh must not replace it */ }
     await tick();
@@ -22291,8 +22300,8 @@ const SWITCH_ACCT_HINT = 'Choose which OpenAI sign-in it runs on, or leave it as
    was added as an inline literal beside the hint-clearing code whose ENTIRE purpose is
    that a sentence about a control must not outlive the control. Two clicks reach it
    (OpenAI, then Anthropic) and it survived them, sitting in a live status region under a
-   provider it does not apply to. Found by a later blind review pass: the defect class
-   the neighbouring lines exist to prevent, committed in the string added next to them.
+   provider it does not apply to. ⚠️ This is the defect class the neighbouring lines exist
+   to prevent, and it was committed in the string added next to them.
    ⇒ A single spelling is what makes the clear possible at all; an inline literal cannot
    be matched without repeating it. */
 const SWITCH_ACCT_UNREADABLE = 'We could not read your OpenAI sign-ins, so there is nothing to choose from. Close this and open it again to retry.';
@@ -22517,8 +22526,7 @@ function switchAcctShown() {
    before a restart. But '' was then indistinguishable from NOT PICKED, so a person who
    really had chosen a row fell through to the hedged arms below and was told the switch
    might land somewhere else. ⚠️ THAT HEDGE IS FALSE FOR A PICK: a picked account the
-   engine cannot use is REFUSED, never replaced. Found in an earlier blind review pass,
-   reachable through the default `~/.codex` home in chatgpt mode whose `id_token` is
+   engine cannot use is REFUSED, never replaced. Reachable through the default `~/.codex` home in chatgpt mode whose `id_token` is
    missing or unparseable, which leaves `rowFor` with a null label and `nameOf` falling
    all the way through to `dir`. */
 function switchAcctPicked() {
@@ -22599,9 +22607,9 @@ async function changeProviderNow(say) {
        which is the SAME server hiccup that just failed the switch, the cache is left
        empty while `ACCOUNTS_LOADED` still says a real read happened. The `finally` below
        re-arms Switch, so the next press opens the dialog and fires the zero-account arm
-       at a person whose server-side list is perfectly intact. Found in challenge-loop
-       Found by a later blind review pass: the same defect arriving through the sibling path, in the
-       half of the remedy that was not copied across. */
+       at a person whose server-side list is perfectly intact. ⚠️ This is the same defect
+       arriving through the sibling path, in the half of the remedy that was not copied
+       across when the first half was fixed. */
     accountsDropped();
     try { await paintAccountPicker(CURRENT); }
     catch { /* the sentence above is the answer; a failed refresh must not replace it */ }
@@ -22710,11 +22718,10 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
              if (switchAcctChoosable()) return 'and it runs on the sign-in shown above, or if that one has gone, the one Kosmos names when it restarts. To use a different one, close this first.';
              if (switchAcctSending()) return 'and it runs on the sign-in shown above, or if that one has gone, the one Kosmos names when it restarts.';
              /* 🛑 THE ZERO-ACCOUNT ARM SAYS WHAT WILL HAPPEN, IT DOES NOT PROMISE A
-                SIGN-IN THAT IS NOT THERE. An earlier pass was told to "add the arm or
-                narrow the claim", DOCUMENTED it in the comment above, and left the false
-                sentence on screen; a later blind pass found it again from scratch
-                (two earlier blind review passes). A comment naming a defect is not
-                a fix, and this is the last screen before a restart.
+                SIGN-IN THAT IS NOT THERE. ⚠️ An earlier attempt DOCUMENTED this arm in the
+                comment above and left the false sentence on screen, which is why the
+                wording rather than the comment is what changed here. A comment naming a
+                defect is not a fix, and this is the last screen before a restart.
                 ⚠️ The page CAN tell the two hidden-picker cases apart, which is the only
                 reason an honest sentence is possible here. With NO OpenAI account at all,
                 `openai.list()` is empty, `setProvider` REFUSES, and nothing changes, so
