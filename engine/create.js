@@ -1908,13 +1908,24 @@ function createAgentInner(opts) {
   if (provider === 'openai' && wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
     /* An OpenAI account (#540): a directory with codex's own sign-in in it.
        Memory-sharing has no ruling for codex yet, so no memoryShared gate
-       here; the row's absence is the only refusal. */
-    const acct = require('./openaiaccounts').list().find((a) => a.dir === String(wantAccountDir));
+       here; the row's absence is the only refusal.
+
+       🛑 RESOLVED BEFORE COMPARING (#1486). `list()` stores `path.resolve(dir)`,
+       so comparing an UNRESOLVED request meant a trailing slash, a `..`, or a
+       symlinked home MISSED an account that is genuinely present, and the person
+       was told we do not know their account. Measured on this machine:
+       `/Users/x/.codex/` against a stored `/Users/x/.codex` matched FALSE
+       unresolved and TRUE resolved. The switch path was given this treatment by
+       #1373; this is the same defect one function over. */
+    const acct = require('./openaiaccounts').list()
+      .find((a) => a.dir === path.resolve(String(wantAccountDir)));
     if (!acct) return { outcome: OUTCOME.REFUSED, because: 'we do not know that OpenAI account on this computer', steps };
     configDir = acct.isDefault ? null : acct.dir;
   } else if (wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
     const accountsMod = require('./accounts');
-    const acct = accountsMod.list().find((a) => a.dir === String(wantAccountDir));
+    /* Resolved for the same reason as the OpenAI arm above (#1486):
+       `accounts.list()` stores a resolved dir too. */
+    const acct = accountsMod.list().find((a) => a.dir === path.resolve(String(wantAccountDir)));
     if (!acct) return { outcome: OUTCOME.REFUSED, because: REFUSE_ACCOUNT, steps };
     if (!acct.memoryShared) {
       return {
