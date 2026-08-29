@@ -42,7 +42,10 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
  *
  *     "Your agents live on this computer"
  *     "Your agents run on your own subscription, on this computer"
- *     "OpenAI picks its own model"
+ *     "OpenAI picks its own model, and this agent runs on this computer"
+ *     (that sentence has since been shortened on the page by #1373; the quote is
+ *      kept as-is because this block records what the matcher HIT, not what the
+ *      page currently says, and editing the evidence made it illustrate nothing)
  *
  * Those are locality promises, and locality is the product's whole selling
  * point. A guard that made us hedge them would cost more than the bug it caught.

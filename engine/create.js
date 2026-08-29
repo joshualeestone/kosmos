@@ -926,7 +926,12 @@ function setProvider(name, provider, opts) {
          ⇒ Acceptable as designed, because the only caller is our own page and the
          alternative (an engine that second-guesses its caller) is worse. Recorded so
          nobody later reads this flag as evidence about a human. */
-      chosen: opts ? opts.pickedByPerson === true : false,
+      /* ⚠️ CONJOINED WITH wantDir ON PURPOSE. `pickedByPerson` alone would let a
+         caller send {provider, picked:true} with NO account and be told "the OpenAI
+         sign-in you picked" about a stated default. Unreachable from our own page
+         (both fields are gated on the menu being visible), and closing it by
+         construction costs nothing. */
+      chosen: wantDir !== null && !!(opts && opts.pickedByPerson === true),
     };
     /* ⚠️ THE TRUST WRITE NEEDS THE SAME homeDir(). `trustCodexFolder(dir, home)`
        falls back to `codexHomeDir()`, which is the default home again, so

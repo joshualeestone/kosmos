@@ -187,5 +187,10 @@ const oaiStub = require('node:http').createServer((q, r) => {
   }
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
   await browser.close();
-  await new Promise((done) => oaiStub.close(done)); server.close(); process.exit(fail.length ? 1 : 0);
+  /* ⚠️ NOT AWAITED. `close()` waits for keep-alive sockets, and undici (global
+     fetch) holds one to the stub for a few seconds after the last live check, so
+     awaiting it can hang this check with no output. `process.exit` on the next
+     statement tears the stub down regardless, which is why `server.close()` beside
+     it is not awaited either. */
+  oaiStub.close(); server.close(); process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
