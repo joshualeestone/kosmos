@@ -41,6 +41,31 @@ a small subset. This stages the subset directly.
 - **No native window.** That is Swift and arm64-only, tracked separately as #1118.
   A browser satisfies "comes online".
 
+## FULL is the default, and I had it backwards for an hour for a bad reason
+
+I made THIN (2MB, installer fetches the runtime) the default because 35MB
+exceeded the **25MB attachment limit on the chat tool I was using to send Josh a
+test build**. That is a constraint of my messaging tool, not of the person
+installing, and it had no business deciding what the product ships.
+
+⭐ **Weigh the failure modes against the actual user**, who is somebody's sister
+on a default Windows machine with one attempt:
+
+| | THIN | FULL |
+|---|---|---|
+| what it costs her | nothing up front | a 35MB download |
+| when | before she commits | before she commits |
+| how it fails | **dies at a corporate proxy MID-INSTALL**, after she has committed, with a network error she cannot act on | it does not |
+
+⇒ **A bigger download is a cost. An install that dies at a firewall is a
+failure.** Those are not the same kind of thing and should not be traded off as
+though they were. FULL is the default; THIN is kept for a constrained channel
+and must be asked for by name.
+
+📌 The default also gets the plain filename now. Otherwise the unqualified
+artifact is the one needing a network at install time, and whoever publishes it
+cannot tell from looking.
+
 ## Verified ON WINDOWS, not inferred
 
 Installed on `kosmos-windows-test` (Windows Server 2022) via SSM, 2026-08-29:

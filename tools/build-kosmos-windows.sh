@@ -30,15 +30,30 @@ OUT="${1:-dist}"
 NODE_VERSION="${KOSMOS_NODE_VERSION:-24.19.0}"
 NARCH="${KOSMOS_WIN_ARCH:-x64}"
 
-# THIN (default) ships ~2MB and the installer fetches the runtime, verifying it
-# against the checksum recorded at BUILD time. FULL ships ~35MB with node.exe
-# inside and installs with no network.
+# FULL (default) ships ~35MB with node.exe inside and installs with NO NETWORK.
+# THIN ships ~2MB and has the installer fetch the runtime, re-hashing what lands.
 #
-# ⭐ THIN IS THE DEFAULT BECAUSE THE RUNTIME IS 94% OF THE BUNDLE AND IS THE ONE
-# PART WE DO NOT AUTHOR. It is also what the Mac installer already does, so this
-# is the existing shape rather than a new one. FULL exists for an offline
-# install and for the case where nodejs.org is unreachable.
-MODE="${KOSMOS_WIN_MODE:-thin}"
+# 🛑 FULL IS THE DEFAULT, AND I HAD THIS BACKWARDS FOR AN HOUR FOR A BAD REASON.
+# I made THIN the default because 35MB exceeded the 25MB attachment limit on the
+# chat tool I was using to send Josh a test build. **That is a constraint of MY
+# MESSAGING TOOL, not of the person installing**, and it has no business
+# deciding what the product ships.
+#
+# ⭐ THE USER DECIDES THIS, AND THE USER IS SOMEBODY'S SISTER ON A DEFAULT
+# WINDOWS MACHINE WITH ONE ATTEMPT. Weigh the two failure modes against her:
+#   THIN fails at a corporate proxy or a firewall, MID-INSTALL, after she has
+#        already committed -- and the failure is a network error she cannot act
+#        on.
+#   FULL costs her a 35MB download, which is unremarkable for an application
+#        and happens BEFORE she commits to anything.
+# ⇒ **A bigger download is a cost. An install that dies at a firewall is a
+# failure.** They are not the same kind of thing and should not be traded off as
+# if they were.
+#
+# THIN is kept for a constrained channel (an attachment limit, a bandwidth cap)
+# and for the case where a build machine cannot reach nodejs.org. It is the
+# exception, and it must be asked for by name.
+MODE="${KOSMOS_WIN_MODE:-full}"
 case "$MODE" in thin|full) ;; *) echo "KOSMOS_WIN_MODE must be thin or full, got '$MODE'" >&2; exit 1 ;; esac
 
 STAGE="$(mktemp -d)"
@@ -170,8 +185,11 @@ cp "$REPO/install/windows/README.txt" "$STAGE/Kosmos/README.txt"
 
 step "packing"
 mkdir -p "$REPO/$OUT"
-if [ "$MODE" = "full" ]; then
-  ARCHIVE="$REPO/$OUT/kosmos-windows-$NARCH-full.zip"
+# The DEFAULT gets the plain name; the exception is labelled. Otherwise the
+# unqualified filename is the one that needs a network at install time, and
+# whoever publishes it will not know that from looking.
+if [ "$MODE" = "thin" ]; then
+  ARCHIVE="$REPO/$OUT/kosmos-windows-$NARCH-thin.zip"
 else
   ARCHIVE="$REPO/$OUT/kosmos-windows-$NARCH.zip"
 fi
