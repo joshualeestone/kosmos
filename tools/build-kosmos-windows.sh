@@ -232,6 +232,26 @@ echo "==> the installer"
 [ -f "$REPO/install/windows/install-kosmos.ps1" ] || { echo "install/windows/install-kosmos.ps1 is missing from the repo" >&2; exit 1; }
 awk '{ sub(/\r$/, ""); printf "%s\r\n", $0 }' "$REPO/install/windows/install-kosmos.ps1" > "$STAGE/install-kosmos.ps1"
 
+# 🛑 EXISTENCE IS NOT CONTENT, AND THE FAILURE IS SILENT ALL THE WAY TO THE USER.
+# The check above only asked whether the source file exists. A zero-byte or
+# truncated source stages a zero-byte file; the zip guard checks NAMES only; and
+# `Install Kosmos.cmd` then runs `powershell -File` on an empty script, which
+# EXITS 0. So `if errorlevel 1` is false, the person sees a clean `pause`, and
+# believes Kosmos installed. Nothing anywhere says otherwise.
+# ⇒ Assert content, the way the version bake already asserts on index.html.
+_ps_lines="$(grep -c '' "$STAGE/install-kosmos.ps1" || true)"
+[ "${_ps_lines:-0}" -ge 100 ] || { echo "the staged installer is $_ps_lines lines; it did not copy" >&2; exit 1; }
+# A SENTINEL, not just a size: a file can be long and still be the wrong file.
+grep -q 'Kosmos for Windows (unsigned preview)' "$STAGE/install-kosmos.ps1" \
+  || { echo "the staged installer does not look like the installer" >&2; exit 1; }
+# And the CRLF conversion actually happened. `tools.build-windows-570.test.js`
+# scans the printf blocks and structurally cannot see this awk line, so swapping
+# it for `cp` left every test green while the shipped file went LF.
+_ps_cr="$(grep -c $'\r$' "$STAGE/install-kosmos.ps1" || true)"
+[ "${_ps_cr:-0}" -eq "${_ps_lines:-0}" ] \
+  || { echo "the staged installer is $_ps_cr/$_ps_lines CRLF; the conversion did not run" >&2; exit 1; }
+echo "    installer staged: $_ps_lines lines, all CRLF"
+
 # ---- the manifest ----------------------------------------------------------
 cat > "$STAGE/manifest.json" <<JSON
 {

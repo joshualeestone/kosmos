@@ -112,7 +112,7 @@ if (-not (Test-Path -LiteralPath $NodeExe)) {
   if (-not (Test-Path -LiteralPath $manifest)) {
     Die "This download has neither a runtime nor a runtime.json saying where to get one. Please download it again."
   }
-  $r = Get-Content $manifest -Raw | ConvertFrom-Json
+  $r = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
 
   Step "fetching the Node runtime, v$($r.version)-win-$($r.arch)"
   Say "about 36 MB, from nodejs.org"
@@ -136,7 +136,7 @@ if (-not (Test-Path -LiteralPath $NodeExe)) {
     Invoke-WebRequest -Uri $r.url -OutFile $zip -UseBasicParsing `
       -Proxy ([Net.WebRequest]::DefaultWebProxy) -ProxyUseDefaultCredentials
   } catch {
-    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     $m = $_.Exception.Message
     if ($m -match '407|proxy')      { Die "A network proxy refused the download. Ask whoever manages this computer to allow nodejs.org, or use the full Kosmos download, which needs no internet during install. ($m)" }
     elseif ($m -match 'SSL|TLS')    { Die "This computer could not make a secure connection to nodejs.org, which usually means it needs Windows updates. The full Kosmos download needs no internet during install and avoids this. ($m)" }
@@ -158,14 +158,14 @@ if (-not (Test-Path -LiteralPath $NodeExe)) {
     Expand-Archive -Path $zip -DestinationPath $tmp -Force
     $inner = Join-Path $tmp "node-v$($r.version)-win-$($r.arch)"
     New-Item -ItemType Directory -Path (Join-Path $Source 'runtime') -Force | Out-Null
-    Copy-Item (Join-Path $inner 'node.exe') (Join-Path $Source 'runtime\node.exe') -Force
-    if (Test-Path (Join-Path $inner 'LICENSE')) {
-      Copy-Item (Join-Path $inner 'LICENSE') (Join-Path $Source 'runtime\LICENSE') -Force
+    Copy-Item -LiteralPath (Join-Path $inner 'node.exe') -Destination (Join-Path $Source 'runtime\node.exe') -Force
+    if (Test-Path -LiteralPath (Join-Path $inner 'LICENSE')) {
+      Copy-Item -LiteralPath (Join-Path $inner 'LICENSE') -Destination (Join-Path $Source 'runtime\LICENSE') -Force
     }
     Say "runtime ready"
   } finally {
     # A failed run otherwise leaves 36 MB in %TEMP% that nobody knows about.
-    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
   }
 }
 
@@ -177,7 +177,14 @@ if (Test-Path -LiteralPath $Install) {
   # or a folder somebody made -- was recursively deleted with no confirmation.
   # This file is meticulous about not killing unrelated node.exe processes and
   # was careless about an unrelated directory tree.
-  if (-not (Test-Path (Join-Path $Install 'app\server.js'))) {
+  # 🛑 -LiteralPath ON THE SENTINEL ESPECIALLY. This is the single line that
+  # AUTHORISES the recursive delete below, and it was the last gate still on
+  # wildcard semantics after I wrote "-LiteralPath ON EVERY ONE" three sections
+  # up. A bracketed username makes it read False on a genuine install, so the
+  # installer refuses to upgrade and tells the person to "move or rename it" --
+  # the same wrong-advice failure the bracket comment above was written about,
+  # one gate over.
+  if (-not (Test-Path -LiteralPath (Join-Path $Install 'app\server.js'))) {
     Die "There is already a folder at $Install and it does not look like a Kosmos install (no app\server.js). Refusing to delete it. Move or rename it, then run this again."
   }
   # 🛑 AND REFUSE A REPARSE POINT. Windows PowerShell 5.1's Remove-Item -Recurse
@@ -284,7 +291,7 @@ function New-KosmosShortcut {
     if (-not $env:APPDATA) { Write-Host "     no APPDATA, skipping the $Label shortcut" -ForegroundColor Yellow; return $false }
     $LinkPath = Join-Path $env:APPDATA $RelPath
     $parent = Split-Path -Parent $LinkPath
-    if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+    if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
     $shell = New-Object -ComObject WScript.Shell
     $sc = $shell.CreateShortcut($LinkPath)
     $sc.TargetPath = $Target; $sc.WorkingDirectory = $WorkDir; $sc.Description = $Desc
@@ -424,7 +431,7 @@ pause
 # failure here threw raw .NET AFTER a successful copy, so Start-Process and
 # "Installed." never ran and the person believed the whole install had failed.
 try {
-  Set-Content -Path (Join-Path $Install 'Uninstall Kosmos.cmd') -Value $uninstall -Encoding OEM
+  Set-Content -LiteralPath (Join-Path $Install 'Uninstall Kosmos.cmd') -Value $uninstall -Encoding OEM
 } catch {
   Write-Host "     could not write the uninstaller, continuing" -ForegroundColor Yellow
   Write-Host "     Kosmos IS installed. To remove it later, delete $Install by hand." -ForegroundColor Yellow
