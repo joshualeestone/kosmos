@@ -180,6 +180,22 @@ function chk(ok, label, extra) {
           clientWidth: vw,
           innerWidth: window.innerWidth,
           scrolledAncestors,
+          // The one stylesheet rule that reserves exactly this much width is
+          //   html:not([data-layout="consolidated"]) { scrollbar-gutter: stable; }
+          // so whether it applies is worth recording: if `layout` differs
+          // between a passing and a failing run, the 15px reservation is
+          // toggling and that is the intermittency.
+          layout: document.documentElement.dataset.layout || null,
+          gutterRuleApplies:
+            document.documentElement.dataset.layout !== 'consolidated',
+          htmlBar:
+            document.documentElement.offsetWidth -
+            document.documentElement.clientWidth,
+          bodyWidth: document.body.getBoundingClientRect().width,
+          dbodyWidth: (() => {
+            const b = secEl.closest('.dbody');
+            return b ? b.getBoundingClientRect().width : null;
+          })(),
         };
       });
       chk(pair.navWidth > 0 && Math.abs(pair.secWidth - 544) <= 1, `[${theme}] at 1400px the section is the 34rem measure`, JSON.stringify(pair));
