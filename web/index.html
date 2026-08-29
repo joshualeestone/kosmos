@@ -24409,7 +24409,16 @@ async function openAllTasksView() {
   count.textContent = rows.length + (rows.length === 1 ? ' task' : ' tasks')
     + (live < rows.length ? ' \u00b7 ' + live + ' still open' : '');
   count.hidden = false;
-  list.innerHTML = rows.map((t) => '<button class="tkcard' + (t.isClosed ? ' tkdone' : '')
+  /* 🛑 `closed`, NOT a class of this screen's own. The project column has marked
+     a finished card `tkcard closed` since #206, and `.tkcard.closed .tkcard-t`
+     is what strikes the title through and dims it. This screen shipped with
+     `tkdone`, which NOTHING styles and NOTHING reads, so a finished task here
+     looked exactly like an open one while looking correct everywhere else.
+     Caught by render-tasks, which clicks the door and asks for `.tkcard.closed`:
+     the check was right and this screen was wrong. Measured before renaming --
+     `tkdone` appeared exactly once in the whole tree, here, so nothing consumed
+     it, against a control of four live references to the `closed` form. */
+  list.innerHTML = rows.map((t) => '<button class="tkcard' + (t.isClosed ? ' closed' : '')
     + '" type="button" data-project="' + esc(t.projectId) + '" data-task="' + Number(t.number) + '">'
     + '<b>' + esc(t.sentence || '') + '</b>'
     + '<small>' + esc(t.projectName || '')

@@ -237,9 +237,13 @@ const MEMBER = 'taskmate';
        the column's filter excluded nothing -- which looks identical to a
        reveal that is on, and is why nobody caught it.
        Now that the payload carries `progress` (kosmos#1009, engine/projects.js)
-       the column holds the open task alone and the door reads the full count,
-       which is what the block below the project-switch has always asserted.
-       This one now agrees with it instead of contradicting it. */
+       the column holds the open task alone and the done task is reachable only
+       through the door, which is what the block below the project-switch has
+       always asserted. This one now agrees with it instead of contradicting it.
+       📌 #1382 REMOVED THE DOOR'S COUNT, so this block no longer reads a number
+       off it. What it needs is that finishing a task does not STRAND that task:
+       the column drops it, so the door must still be there to reach it. The
+       count was one way to show that and it was never the claim. */
     await p.click('#tk-done');
     /* A page is not dismissed by succeeding (#206's own ruling): it stays,
        repainted; the button flips to Reopen. Back is the navigation. */
@@ -249,8 +253,19 @@ const MEMBER = 'taskmate';
     await p.waitForSelector('#pj-alltasks', { state: 'visible', timeout: 10000 });
     if ((await p.locator('.tkcard').count()) !== 1) die('the column should hold the one OPEN task once the other is done');
     if ((await p.locator('.tkcard.closed').count()) !== 0) die('a done task is still sitting in the column');
+    /* 🛑 THIS PINNED `View all tasks (2)` UNTIL #1382, and it is the same
+       supersession as the block above rather than a second defect. The count is
+       gone because the door now opens a screen spanning EVERY project, so a
+       per-project number beside it could only ever disagree with its own
+       destination (#1346).
+       WHAT THIS STEP ACTUALLY CARES ABOUT: the task just marked done LEAVES the
+       column, so if the door went with it that task would be unreachable from
+       this screen. The number was evidence of reachability, never the thing
+       itself. So this asserts reachability directly, and that the door stays
+       mute, which the old form could not have caught either way. */
     const doorDone = (await shown(p.locator('#pj-alltasks'))).trim();
-    if (!/View all tasks \(2\)/.test(doorDone)) die('the door does not offer both tasks: ' + doorDone);
+    if (!doorDone) die('the door is gone after finishing a task, so the done task is unreachable from this screen');
+    if (/\d/.test(doorDone)) die('the door carries a number again ("' + doorDone + '"), which can disagree with the column and with the all-projects screen it opens');
     // And with the reveal OFF, the done card is behind the door. The reveal
     // survives same-project Back-and-return by design, so the reset needs a
     // real project SWITCH: bounce through Elsewhere and come back.
@@ -265,10 +280,25 @@ const MEMBER = 'taskmate';
        tasks were hidden too. */
     if ((await p.locator('.tkcard').count()) !== 1) die('the fresh column should hold exactly the one open task');
     if ((await p.locator('.tkcard.closed').count()) !== 0) die('a done task sits in the fresh column instead of behind the door');
+    /* Third and last of the counted-door pins that #1382 supersedes. This one
+       was the most redundant of the three even before the count went away: the
+       two lines BELOW click the door and assert the done card is actually
+       behind it, which proves reachability directly rather than inferring it
+       from a number. So the number is replaced with the mute check and the
+       real claim is left where it already was. */
     const doorAfter = (await shown(p.locator('#pj-alltasks'))).trim();
-    if (!/View all tasks \(2\)/.test(doorAfter)) die('door after done: ' + doorAfter);
+    if (!doorAfter) die('the door is gone after switching back, so the done task cannot be reached from this project');
+    if (/\d/.test(doorAfter)) die('the door carries a number again ("' + doorAfter + '"), which can disagree with the column and with the all-projects screen it opens');
+    /* WAIT FOR THE DESTINATION. Until #1382 this door was a reveal IN PLACE, so
+       the rows it exposed were already in the DOM and an immediate query was
+       correct. It now NAVIGATES to a screen that fetches its own rows, so the
+       same immediate query races the load and reports the done task missing
+       when it is merely not there yet. The behaviour changed underneath a check
+       that was right about the old one. */
     await p.click('#pj-alltasks');
-    const doneCard = p.locator('.tkcard.closed').first();
+    await p.waitForSelector('#pj-alltasks-view', { state: 'visible', timeout: 10000 });
+    await p.waitForSelector('#pj-alltasks-view .tkcard', { timeout: 10000 });
+    const doneCard = p.locator('#pj-alltasks-view .tkcard.closed').first();
     if (!(await doneCard.count())) die('the done task is not behind the door');
     await doneCard.click();
     await p.waitForSelector('#pj-task-view', { state: 'visible' });
