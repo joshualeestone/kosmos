@@ -30,14 +30,16 @@ stamp_at() {
 }
 entry() { printf '<article id="v0-6-06"><span class="rel-d">%s</span></article>\n' "$1" > "$F"; }
 
-run() { kosmos_versions_entry_gate 0.6.06 "$F" "cost sentence." "stamp hint." 2>&1; }
+# default runs use the LATE bounds (+/-20); the step 1 arms pass the tighter one.
+run()       { kosmos_versions_entry_gate 0.6.06 "$F" "cost sentence." "stamp hint." "$KOSMOS_LATE_PAST_BOUND" 2>&1; }
+run_early() { kosmos_versions_entry_gate 0.6.06 "$F" "cost sentence." "stamp hint." "$KOSMOS_STEP1_PAST_BOUND" 2>&1; }
 
 # --- presence axis ---
 printf '<article id="v0-6-05"><span class="rel-d">%s</span></article>\n' "$(stamp_at 0)" > "$F"
 out="$(run)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "has no entry"; then pass "refuses when the entry is absent"; else fail "refuses when absent (rc=$rc): $out"; fi
 # and the control that makes that refusal mean something: the same file, the version it DOES carry
-out="$(kosmos_versions_entry_gate 0.6.05 "$F" "cost." "hint." 2>&1)"; rc=$?
+out="$(kosmos_versions_entry_gate 0.6.05 "$F" "cost." "hint." 20 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "and accepts the version that file does carry (control)"; else fail "control: 0.6.05 should pass (rc=$rc): $out"; fi
 
 # --- stamp axis ---
@@ -59,26 +61,47 @@ off="$(kosmos_versions_entry_stamp_off "$st")"
 # granularity, so a fixture built 40 seconds past the minute reads 26. An exact
 # assertion here fails once an hour for a reason that has nothing to do with
 # the gate.
-if [ "$rc" -eq 1 ] && has "$out" "off by 2" && [ "$off" -ge 24 ] 2>/dev/null; then pass "refuses a stale stamp, and says by how much ($off min)"; else fail "refuses stale (rc=$rc, off=$off): $out"; fi
+if [ "$rc" -eq 1 ] && has "$out" "minutes in the past" && [ "$off" -ge 24 ] 2>/dev/null; then pass "refuses a stale stamp, and says by how much ($off min)"; else fail "refuses stale (rc=$rc, off=$off): $out"; fi
 
 st="$(stamp_at -25)"; entry "$st"
 out="$(run)"; rc=$?
 off="$(kosmos_versions_entry_stamp_off "$st")"
 # the SIGN is the thing under test here, and it is what separates this arm from
 # the unparseable one below: an empty fixture also refuses, for a different reason.
-if [ "$rc" -eq 1 ] && has "$out" "off by -2" && [ "$off" -le -24 ] 2>/dev/null; then pass "refuses a stamp in the future (a guess cannot satisfy the clock) ($off min)"; else fail "refuses future (rc=$rc, off=$off): $out"; fi
+if [ "$rc" -eq 1 ] && has "$out" "minutes in the FUTURE" && [ "$off" -le -24 ] 2>/dev/null; then pass "refuses a stamp in the future (a guess cannot satisfy the clock) ($off min)"; else fail "refuses future (rc=$rc, off=$off): $out"; fi
 
 entry "sometime tuesday"
 out="$(run)"; rc=$?
 if [ "$rc" -eq 1 ]; then pass "refuses an unparseable stamp"; else fail "refuses unparseable (rc=$rc): $out"; fi
 
+
+# --- THE ASYMMETRY: step 1 is stricter on the PAST side, and that is the point ---
+# 🛑 A stamp 12 minutes old passes a symmetric +/-20 at step 1 and then dies at
+# step 7, because the cut adds its own ~15 minutes on the way there. Step 1 can
+# see that it is doomed; refusing it early is the entire value of the move.
+st="$(stamp_at 12)"; entry "$st"
+out="$(run)"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "12 minutes old passes the LATE gate, as it must"; else fail "late gate refused 12 min old (rc=$rc): $out"; fi
+out="$(run_early)"; rc=$?
+if [ "$rc" -eq 1 ] && has "$out" "minutes in the past"; then pass "and the EARLY gate refuses it, because the cut will age it past 20"; else fail "early gate accepted a doomed 12-min-old stamp (rc=$rc): $out"; fi
+
+# and the early gate must NOT refuse a correctly forward-stamped entry
+st="$(stamp_at -15)"; entry "$st"
+out="$(run_early)"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "the EARLY gate still accepts a publication stamp 15 min ahead"; else fail "early gate refused a correct publication stamp (rc=$rc): $out"; fi
+
+# the future side is NOT widened at either call site
+st="$(stamp_at -25)"; entry "$st"
+out="$(run_early)"; rc=$?
+if [ "$rc" -eq 1 ] && has "$out" "FUTURE"; then pass "the EARLY gate still refuses a 25-min forward guess (future side not widened)"; else fail "early gate accepted a forward guess (rc=$rc): $out"; fi
+
 # --- an unreadable file is not an absent entry ---
-out="$(kosmos_versions_entry_gate 0.6.06 "$T/nope.html" "cost." "hint." 2>&1)"; rc=$?
+out="$(kosmos_versions_entry_gate 0.6.06 "$T/nope.html" "cost." "hint." 20 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "cannot read"; then pass "an unreadable file says so, instead of 'write the entry'"; else fail "unreadable file (rc=$rc): $out"; fi
 
 # --- a version that is not digits and dots never reaches the sed address ---
 entry "$(stamp_at 0)"
-out="$(kosmos_versions_entry_gate '0.6.*' "$F" "cost." "hint." 2>&1)"; rc=$?
+out="$(kosmos_versions_entry_gate '0.6.*' "$F" "cost." "hint." 20 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "not digits and dots"; then pass "refuses a version carrying a regex metacharacter"; else fail "metacharacter version (rc=$rc): $out"; fi
 
 # --- the two call sites give DIFFERENT stamp advice, and early must not say "now" ---

@@ -114,6 +114,23 @@ a different problem.
    burned the window. Before re-cutting, set the entry's `rel-d` to about ten
    minutes AHEAD of launch (a cut takes ten to twelve minutes to reach step 7),
    in the site's `versions.html`.
+
+   **One number, because two were in this file: stamp it about FIFTEEN minutes
+   ahead of launch.** The older "ten to twelve minutes to reach step 7" figure is
+   kept below as history, but the measured time on the 0.6.06 attempt of
+   2026-08-28 was **15m 46s** (21:56:18 launch, 22:12:04 at step 7), and a slow
+   browser gate stretches it further. Fifteen is the number the step 1 refusal
+   prints, so the runbook and the tool now say the same thing.
+
+   ⚠️ **AND STEP 1 IS STRICTER ON THE PAST SIDE THAN STEP 7 (#1453).** It accepts
+   an entry at most **five** minutes old, where step 7 accepts twenty. That is not
+   an inconsistency: an entry already fifteen minutes old passes a symmetric
+   window at step 1 and then dies at step 7 once the cut has added its own
+   fifteen, which is exactly the re-cut failure described above. Step 1 can see
+   that a stale entry is doomed, so it says so in three seconds instead of
+   fifteen minutes. The FUTURE side is twenty at both and is deliberately not
+   widened.
+
    ⚠️ **Stamp it for when you expect to PUBLISH, never for now.** The window is
    symmetric, so a forward stamp passes step 1 (`off = -10` is inside 20) and
    still passes step 7 once the cut has caught up with it. A stamp written *now*

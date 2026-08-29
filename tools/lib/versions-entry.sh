@@ -31,15 +31,36 @@
 kosmos_versions_entry_id() { echo "v$(echo "$1" | tr . -)"; }
 
 # Prints the entry's rel-d string, or nothing when there is no entry.
+# ⚠️ ONE awk PROCESS, NOT `sed | sed | head -1`. release.sh runs with
+# `set -o pipefail`, and a `head -1` that exits early can SIGPIPE the upstream
+# sed. Today both call sites sit inside an `|| exit 1` list, which suppresses
+# errexit for the whole function body, so it would have been harmless -- and a
+# third call site written without the `||` would have aborted the cut with no
+# message at all. Removing the pipe removes the trap instead of documenting it.
 kosmos_versions_entry_stamp() {
   local v="$1" file="$2" id
   id="$(kosmos_versions_entry_id "$v")"
-  sed -n "/id=\"$id\"/,/<\/article>/p" "$file" 2>/dev/null \
-    | sed -n 's/.*rel-d">\([^<]*\)<.*/\1/p' | head -1
+  awk -v id="$id" '
+    index($0, "id=\"" id "\"") { inentry = 1 }
+    inentry && match($0, /rel-d">[^<]*</) {
+      print substr($0, RSTART + 7, RLENGTH - 8); exit
+    }
+  ' "$file" 2>/dev/null
 }
 
-# Prints `ok`, `unparseable`, or the signed minute offset (positive = the entry
-# is in the past). The expression is the one that has always run at step 7.
+# Prints `unparseable`, or the SIGNED minute offset (positive = the entry is in
+# the past). It deliberately applies NO window: the two call sites need different
+# past-side bounds, and a function that pre-judged would force a second copy of
+# the comparison. One offset, one comparison, in the gate below.
+#
+# ⚠️ KNOWN AND NOT FIXED HERE: this parses the entry in the MACHINE's local
+# timezone and ignores the page's trailing timezone token entirely, while
+# tools/insert-release-entry.js writes America/Chicago and hard-codes the literal
+# `CDT`. On a non-Central machine, or in winter when that literal is simply
+# wrong, the gate measures a different quantity than the page claims. Pre-existing
+# in the step 7 inline version and carried here verbatim; it is a correctness bug
+# in its own right and wants its own card, not a quiet rewrite inside a
+# positioning change.
 kosmos_versions_entry_stamp_off() {
   V_ENTRY="$1" node -e "
   const s = process.env.V_ENTRY || '';
@@ -48,8 +69,7 @@ kosmos_versions_entry_stamp_off() {
   const months = 'January February March April May June July August September October November December'.split(' ');
   let h = Number(m[4]) % 12; if (m[6] === 'PM') h += 12;
   const t = new Date(Number(m[3]), months.indexOf(m[1]), Number(m[2]), h, Number(m[5]));
-  const off = Math.round((Date.now() - t.getTime()) / 60000);
-  console.log(Math.abs(off) <= 20 ? 'ok' : String(off));
+  console.log(String(Math.round((Date.now() - t.getTime()) / 60000)));
 "
 }
 
@@ -58,19 +78,45 @@ kosmos_versions_entry_stamp_off() {
 #   $2 versions.html
 #   $3 the cost sentence -- what is and is not already spent at this call site
 #   $4 the stamp remediation -- DIFFERENT at the two call sites, deliberately
+#   $5 the accepted PAST-side bound in minutes -- SMALLER at step 1, deliberately
 #
 # 🛑 $4 EXISTS BECAUSE ONE REMEDIATION SENTENCE CANNOT SERVE BOTH GATES, AND THE
 # OBVIOUS ONE IS WRONG EARLY. "Paste the clock line above" means "stamp it now".
 # Stamp now at step 1 and the entry arrives at step 7 reading `off = +D`, where D
 # is how long the cut takes to get there -- so the advice guarantees a SECOND
-# failure whenever D > 20, and no stamp satisfies both gates once D > 40. Step 1
-# must therefore say "stamp it for when you expect to PUBLISH", which is what the
-# header above and docs/releasing.md both already say.
+# failure whenever D > 20, and no stamp satisfies both gates once D > 40.
+#
+# 🛑 $5 EXISTS BECAUSE A SYMMETRIC WINDOW AT STEP 1 CLOSES ONLY HALF THE BUG, AND
+# THE HALF IT LEAVES OPEN IS THE ONE THAT ACTUALLY KEEPS HAPPENING. An entry
+# already 15 minutes old reads `off = +15` at step 1, passes a +/-20 window, then
+# reads `off = +15+D` at step 7 and dies AFTER the suite, the browser gate, the
+# install gate and the build. That is precisely the re-cut failure
+# docs/releasing.md describes: "the entry is written once, by hand, so every
+# failed attempt ages it."
+#
+# 🔑 SO STEP 1 IS STRICTER ON THE PAST SIDE THAN STEP 7, AND THAT ASYMMETRY IS THE
+# POINT rather than an inconsistency. Step 1 can see that an already-stale entry
+# is DOOMED; step 7 only has to judge the entry in front of it. The arithmetic:
+# an entry `P` minutes old at step 1 arrives at step 7 reading `P + D`, so it
+# survives only while `P + D <= 20`. With D measured at 15m46s on the 0.6.06
+# attempt, P must be about 4 or less. STEP1_PAST_BOUND is 5, which is that number
+# with the rounding in the operator's favour.
+#
+# ⚠️ THE FUTURE SIDE STAYS AT 20 AT BOTH CALL SITES AND IS NOT WIDENED. A forward
+# stamp is what the guard was built to catch: on 2026-08-21 the four newest
+# entries "claimed release times that had not happened yet", and a wider future
+# window makes a guess satisfiable again. Tightening the past is not the same
+# move as loosening the future, and only one of them reopens a known hole.
+KOSMOS_STEP1_PAST_BOUND=5
+KOSMOS_LATE_PAST_BOUND=20
+KOSMOS_FUTURE_BOUND=20
+
 kosmos_versions_entry_gate() {
-  local v="$1" file="$2" cost="${3:-}" stamp_fix="${4:-}" id stamp off now
+  local v="$1" file="$2" cost="${3:-}" stamp_fix="${4:-}" past_bound="${5:-20}"
+  local id stamp off now
 
   # ⚠️ REFUSE A VERSION THAT IS NOT THE SHAPE WE BUILD THE ID FROM. `$id` is
-  # interpolated into a sed ADDRESS below, where a metacharacter would silently
+  # interpolated into the awk matcher below, and a metacharacter would silently
   # change what is matched rather than fail. Inline in step 7 that was one
   # trusted call site; as a library function it is anybody's.
   case "$v" in
@@ -99,18 +145,26 @@ kosmos_versions_entry_gate() {
 
   stamp="$(kosmos_versions_entry_stamp "$v" "$file")"
   off="$(kosmos_versions_entry_stamp_off "$stamp")"
+  now="$(date '+%B %-d, %Y, %-I:%M %p %Z')"
+
   if [ "$off" = "unparseable" ]; then
-    now="$(date '+%B %-d, %Y, %-I:%M %p %Z')"
     echo "   the entry for $v is stamped: $stamp"
     echo "   that is not a date this gate can read. It wants the shape: $now"
     echo "   $stamp_fix $cost"
     return 1
   fi
-  if [ "$off" != "ok" ]; then
-    now="$(date '+%B %-d, %Y, %-I:%M %p %Z')"
+  if [ "$off" -gt "$past_bound" ]; then
     echo "   the entry for $v is stamped: $stamp"
     echo "   the clock says:              $now"
-    echo "   that is off by $off minutes (positive means the entry is in the past)."
+    echo "   that is $off minutes in the past, and this gate allows $past_bound."
+    echo "   $stamp_fix $cost"
+    return 1
+  fi
+  if [ "$off" -lt "-$KOSMOS_FUTURE_BOUND" ]; then
+    echo "   the entry for $v is stamped: $stamp"
+    echo "   the clock says:              $now"
+    echo "   that is ${off#-} minutes in the FUTURE, which no cut can reach. A stamp"
+    echo "   this far ahead is a guess, and a guess is what this gate exists to refuse."
     echo "   $stamp_fix $cost"
     return 1
   fi

@@ -16,6 +16,27 @@
  * replacing it, so a re-run cannot quietly rewrite history.
  *
  * The entry file carries `TIMESTAMP` where the time goes.
+ *
+ * 🛑 IT STAMPS **NOW**, AND THAT IS ONLY CORRECT IMMEDIATELY BEFORE THE DEPLOY.
+ * Every document around it -- docs/releasing.md, and the step 1 refusal added by
+ * #1453 -- tells the operator to stamp for PUBLICATION, about fifteen minutes
+ * ahead, because an entry written at launch has aged by the length of the cut
+ * by the time step 7 reads it. So running this BEFORE launching a cut produces
+ * exactly the stamp the gates are built to reject.
+ *
+ * ⚠️ THIS TOOL IS CURRENTLY WIRED INTO NOTHING. Measured 2026-08-28: a sweep of
+ * the whole tree finds it referenced by no other file (control: `verify-served`
+ * appears in five, including release.sh and package.json). It has no test and no
+ * mention in the runbook. So today the stamp is written by hand and this tool is
+ * an unused alternative, not the mechanism.
+ *
+ * ⭐ WIRING IT IN IS THE REAL CURE FOR THE STAMP-DRIFT CLASS and is worth its own
+ * card: a machine reading the clock AT the moment of publication has an offset of
+ * zero by construction, so the +/-20 window stops being something an operator has
+ * to predict. That is also the guard's own stated intent -- release.sh says the
+ * check is "against `date` at the moment of release". It is deliberately NOT done
+ * inside #1453, which only moves an existing check: this one changes what the
+ * release script writes to a published page.
  */
 
 const fs = require('node:fs');
