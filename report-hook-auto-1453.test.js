@@ -22,6 +22,24 @@
  * three MISSED against a control that matched. Shell style makes every one of
  * those natural, so the guard was blind in exactly the direction that reopens
  * the gap, and it would have reported clean while doing it.
+ *
+ * 🛑 AND THE REWRITE WAS STILL WRONG TWICE, FOUND BY ICE CREAM KITTY IN CROSS
+ * REVIEW, BOTH WITH A CONTROL PROVING THE INSTRUMENT COULD SAY NO:
+ *
+ *   seventh) report needs_you "x" ;;   SURVIVED -- the separator class had no
+ *                                      `)`, and THE HOOK IS A CASE STATEMENT:
+ *                                      every one of its six calls lives in an
+ *                                      arm, so an inline arm is the natural
+ *                                      shape for the seventh.
+ *   report "$STATE" "x"                SURVIVED BOTH -- `[a-z_]+` cannot match
+ *                                      a variable, so the call was invisible to
+ *                                      the matcher AND missing from the floor,
+ *                                      which is the case the floor exists to
+ *                                      make impossible.
+ *
+ * ⭐ HER FIX CLOSES BOTH AND THE SHAPES NOBODY HAS THOUGHT OF: assert that a
+ * LOOSE count equals the STRICT one. The floor proves the file was read; this
+ * proves no call escaped the parser. Two guards, one axis apart.
  */
 
 const test = require('node:test');
@@ -38,7 +56,21 @@ const CODE = SRC.split('\n').filter((l) => !/^[ \t]*#/.test(l)).join('\n');
 
 /* A `report <state>` invocation wherever a command can legally begin: at the
    start of a line, or after a shell separator or block opener. */
-const CALL = /(?:^|[;&|{]|\b(?:then|do|else|elif)\b)[ \t]*report[ \t]+([a-z_]+)((?:[ \t][^\n;]*)?)/gm;
+const CALL = /(?:^|[;&|{)]|\b(?:then|do|else|elif)\b)[ \t]*report[ \t]+([a-z_]+)((?:[ \t][^\n;]*)?)/gm;
+
+/* THE SAME SEPARATORS, BUT ANY NON-SPACE WHERE THE STATE GOES.
+   `CALL` has to parse the state to check the flag after it, and a parser can
+   only see the shapes it knows. This one cannot parse anything, which is
+   exactly why it can count what the parser missed. Asserting the two agree is
+   what turns "I found six" into "six is all there are".
+
+   ⚠️ Its cost, so it is decided rather than discovered: LOOSE would also match
+   prose containing a separator followed by `report <word>`, so a future comment
+   could produce a false red. Comment lines are stripped above, which removes
+   the common case, and both read 6 on the hook as it stands. The failure
+   message prints both counts, because "a call escaped the matcher" and "a
+   comment tripped the loose pattern" need to be told apart by whoever sees it. */
+const LOOSE = /(?:^|[;&|{)]|\b(?:then|do|else|elif)\b)[ \t]*report[ \t]+\S/gm;
 
 function calls() {
   const out = [];
@@ -47,6 +79,23 @@ function calls() {
   }
   return out;
 }
+
+test('no report call escapes the matcher: a loose count and a strict count agree', () => {
+  /* Ice Cream Kitty's fix, and it is a different question from the floor. The
+     floor asks "did I read the file". This asks "did I understand all of it".
+     A call the strict pattern cannot parse is invisible to BOTH the flag checks
+     and the floor, which is the failure that survived two versions of this
+     file. */
+  const strict = calls().length;
+  const loose = (CODE.match(LOOSE) || []).length;
+  assert.equal(loose, strict,
+    'loose=' + loose + ' strict=' + strict + '. If loose is HIGHER, a report call '
+    + 'exists that the strict matcher cannot see -- most likely the state is behind '
+    + 'a variable (`report "$STATE"`), so it is checked by nothing and counted by '
+    + 'nothing. If the extra match is prose rather than a call, the comment stripper '
+    + 'missed it; move the wording or narrow the pattern, but do not delete this '
+    + 'test to make it pass.');
+});
 
 test('the hook reports at least six states, so a zero from this file is not silence', () => {
   const found = calls();
