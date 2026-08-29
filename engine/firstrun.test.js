@@ -15,6 +15,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json'
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const firstrun = require('./firstrun');
+const subscription = require('./subscription');
 const status = require('./status');
 const fleet = require('../test-support/fleet');
 
@@ -26,27 +27,38 @@ const fleet = require('../test-support/fleet');
 // accident. `fixture-discipline.test.js` enforces it.
 const pane = (name) => fleet.line({ session: name, claim: name, title: '✳ Claude Code' });
 
+/* 🛑 THE LIVE CHECK IS STUBBED FOR EVERY CASE (#874). `(await firstrun.state())` now
+   verifies the subscription with Anthropic instead of reading a cached file,
+   which is the whole point of that change -- and a test suite that spawned
+   `claude auth status` would depend on whoever runs it being signed in, and
+   would be slow and flaky for the wrong reasons. `setRunner` is subscription's
+   own seam for exactly this; `okRunner` mirrors what the real one returns. */
+test.beforeEach(() => {
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+});
+
 test.afterEach(() => {
+  subscription.setRunner(null);
   status.setPaneSource(null);
   try { fs.rmSync(firstrun.FLAG, { force: true }); } catch { /* fine */ }
 });
 
-test('a machine that already has agents is offered the adopt path, not "create your first"', () => {
+test('a machine that already has agents is offered the adopt path, not "create your first"', async () => {
   status.setPaneSource(() => [pane('alpha'), pane('beta')].join('\n'));
-  const s = firstrun.state();
+  const s = (await firstrun.state());
   assert.equal(s.path, 'adopt', 'somebody with a running fleet was told to create their first agent');
   assert.equal(s.fleetCount, 2);
   assert.equal(s.done, false);
 });
 
-test('an empty machine is offered create', () => {
+test('an empty machine is offered create', async () => {
   status.setPaneSource(() => '');
-  const s = firstrun.state();
+  const s = (await firstrun.state());
   assert.equal(s.path, 'create');
   assert.equal(s.fleetCount, 0);
 });
 
-test('a tmux we cannot ask is NOT an empty machine', () => {
+test('a tmux we cannot ask is NOT an empty machine', async () => {
   /**
    * ⚠️ The confusion this whole codebase is built against, at the one moment it
    * decides which product somebody sees. An unreachable tmux routed to "create
@@ -54,20 +66,20 @@ test('a tmux we cannot ask is NOT an empty machine', () => {
    * they have none — and the screen would look completely normal.
    */
   status.setPaneSource(() => { throw new Error('tmux is not answering'); });
-  const s = firstrun.state();
+  const s = (await firstrun.state());
   assert.equal(s.path, 'unknown', 'an unreachable tmux was read as an empty machine');
   assert.equal(s.fleetKnown, false, 'the screen has no way to say why it is not offering the fork');
   assert.equal(s.fleetCount, null, 'it invented a count it could not measure');
 });
 
-test('completing first run is remembered, and is what stops it showing again', () => {
+test('completing first run is remembered, and is what stops it showing again', async () => {
   status.setPaneSource(() => '');
-  assert.equal(firstrun.state().done, false);
+  assert.equal((await firstrun.state()).done, false);
   assert.equal(firstrun.complete(), true, 'completing first run did not stick');
-  assert.equal(firstrun.state().done, true);
+  assert.equal((await firstrun.state()).done, true);
 });
 
-test('a flag we cannot read counts as DONE, deliberately', () => {
+test('a flag we cannot read counts as DONE, deliberately', async () => {
   /**
    * ⚠️ Asymmetric on purpose, and the opposite of how this module treats the
    * fleet. Not knowing whether somebody has been here before is a coin flip;
@@ -91,18 +103,18 @@ test('a flag we cannot read counts as DONE, deliberately', () => {
   }
 });
 
-test('the subscription answer is carried through, not re-derived by the screen', () => {
+test('the subscription answer is carried through, not re-derived by the screen', async () => {
   // One place decides, so the screen cannot disagree with the engine about
   // whether somebody is connected -- the defect the instruction editor shipped.
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG,
     JSON.stringify({ hasAvailableSubscription: false, oauthAccount: { organizationType: 'claude_max' } }), 'utf8');
   status.setPaneSource(() => '');
-  const s = firstrun.state();
+  const s = (await firstrun.state());
   assert.equal(s.subscription.state, 'connected');
   assert.equal(s.subscription.plan, 'Claude Max');
 });
 
-test('the agents it found are named the way the board names them', () => {
+test('the agents it found are named the way the board names them', async () => {
   /**
    * ⚠️ This came back as `[null, null, null, null]` on first run of the route:
    * `paneRoster` cards carry `sessionName`, not a display name. The screen
@@ -119,7 +131,7 @@ test('the agents it found are named the way the board names them', () => {
     'You are **Marcie**, a bookkeeper.\n', 'utf8');
   status.setPaneSource(() => [pane('namedagent'), pane('unnamedagent')].join('\n'));
 
-  const s = firstrun.state();
+  const s = (await firstrun.state());
   assert.equal(s.fleetCount, 2);
   // ⚠️ Names are NOT on the wire (the fleet screen shows the count only,
   // Josh's ruling for the 600-agent case) -- a field nothing reads must not
@@ -134,4 +146,45 @@ test('the agents it found are named the way the board names them', () => {
   assert.ok(here.names.includes('Marcie'),
     'an agent with a real name is not derivable, so no caller can show it');
   assert.ok(here.names.includes('unnamedagent'));
+});
+
+/* ── #874: the lying checkmark ──────────────────────────────────────────────
+   Josh's sister, 2026-08-29, first outside install: the first-run screen showed
+   a green "Connected" tick while she was signed OUT. She trusted it, found
+   Settings disagreeing, and used "add a provider" as the only route she had,
+   which made a duplicate account.
+
+   🛑 THE FILE IS NOT EVIDENCE. `subscription.check()` returns CONNECTED whenever
+   `oauthAccount.organizationType` names a paid plan, and a logged-out person
+   still has that field. These two cases differ ONLY in what the live check says,
+   and the file says "paid subscription" in both -- which is what makes them the
+   right pair. */
+
+test('#874: a paid plan in the file does NOT mean connected, when the live check says signed out', () => {
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG,
+    JSON.stringify({ hasAvailableSubscription: false, oauthAccount: { organizationType: 'claude_max' } }), 'utf8');
+  status.setPaneSource(() => '');
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
+  return firstrun.state().then((s) => {
+    assert.notEqual(s.subscription.state, 'connected',
+      'the screen would paint a green "Connected" tick at somebody who is signed OUT, which is what '
+      + 'cost the first outside user a duplicate account');
+    assert.equal(s.subscription.state, 'none');
+  });
+});
+
+test('#874 CONTROL: the same file DOES read connected when the live check confirms it', () => {
+  /* Without this the assertion above passes on a `state()` that can only ever
+     say `none`, and the fix would look like it works while having broken the
+     one answer the screen exists to give. */
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG,
+    JSON.stringify({ hasAvailableSubscription: false, oauthAccount: { organizationType: 'claude_max' } }), 'utf8');
+  status.setPaneSource(() => '');
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  return firstrun.state().then((s) => {
+    assert.equal(s.subscription.state, 'connected');
+    assert.equal(s.subscription.plan, 'Claude Max',
+      'the plan name was dropped: checkLive returns plan null on purpose, so the screen would '
+      + 'downgrade "Claude Max is connected" to the generic sentence for every paying customer');
+  });
 });

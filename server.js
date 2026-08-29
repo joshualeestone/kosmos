@@ -3353,13 +3353,18 @@ const server = http.createServer((req, res) => {
   }
 
   if (pathname === '/api/first-run' && (req.method === 'GET' || req.method === 'HEAD')) {
-    let state;
-    try { state = firstrun.state(); }
-    catch (err) {
+    /* 🛑 PROMISE-SHAPED SINCE #874, because firstrun.state() now VERIFIES the
+       subscription live rather than reading a cached file that says CONNECTED
+       for a logged-out person. Same shape as github.state()/vercel.state()
+       below, which have always been async here. The rejection arm keeps the
+       original sentence verbatim: a state question must never 500 with a stack
+       trace at somebody setting the product up. */
+    firstrun.state().then(
+      (state) => sendJson(res, 200, state),
+      (err) => {
       sendJson(res, 500, { error: 'we could not work out whether this machine has been set up yet', detail: String(err && err.message || err) });
-      return;
-    }
-    sendJson(res, 200, state);
+      },
+    );
     return;
   }
 
