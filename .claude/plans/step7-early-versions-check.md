@@ -61,9 +61,13 @@ past is not the same move as loosening the future, and only one of them reopens 
 
 ## Proof before the write
 
-Eight arms pass. Three mutations (window widened to 200, presence forced true, the step 1
-call unwired) each turn the expected arm red, and the restore is green. The third was
-re-run by a method whose precondition is measured before the result is read.
+Twenty-six arms in tools/test-versions-entry-gate.sh and twenty in
+tools.release-gate.test.js. Every guard added here was shown to go red under a deliberate
+mutation, each applied by a method whose precondition is measured before the result is
+read: window widened to 200, presence forced true, the step 1 call unwired, the awk
+article bound removed, the shell integer guard removed (with node stubbed to exit 127,
+because the node-side guard masks it otherwise), and the step 1 call moved above the
+divergence guard.
 
 Full suite: 2880 pass, 0 fail. The new test is confirmed to have run inside that suite
 (grep 1, with a pre-existing test as control at 1), so the green is not a filter matching

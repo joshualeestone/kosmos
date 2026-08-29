@@ -134,7 +134,7 @@ KOSMOS_FUTURE_BOUND=20
 kosmos_versions_entry_gate() {
   local v="$1" file="$2" cost="${3:-}" stamp_fix="${4:-}"
   # ⚠️ DEFAULT FROM THE CONSTANT, NOT A LITERAL. A bare `${5:-20}` is a fourth
-  # copy of the late bound, which is the exact stale-assertion shape this file`s
+  # copy of the late bound, which is the exact stale-assertion shape this file's
   # header warns about: raise KOSMOS_LATE_PAST_BOUND and the literal keeps
   # enforcing the old value, silently.
   local past_bound="${5:-$KOSMOS_LATE_PAST_BOUND}"
@@ -186,8 +186,13 @@ kosmos_versions_entry_gate() {
   # `August 28, 999999, 1:00 AM CDT` passed the gate, against a control of a
   # genuinely stale entry that correctly refused at 1090 minutes. An absent or
   # broken `node` produces empty output and lands here too.
+  # `?*-*` catches an interior dash (`1-5`), which matched none of the other
+  # patterns and was then treated as a number: `[ "1-5" -gt 5 ]` exits 2, the
+  # same fall-through as NaN. Unreachable from today's node snippet, which emits
+  # only `unparseable` or a rounded finite number -- kept because the whole point
+  # of this block is that the caller cannot be trusted to have produced an int.
   case "$off" in
-    ''|*[!0-9-]*|-|*-*-*) off=unparseable ;;
+    ''|*[!0-9-]*|-|*-*-*|?*-*) off=unparseable ;;
     -*) case "${off#-}" in *[!0-9]*) off=unparseable ;; esac ;;
   esac
   if [ "$off" = "unparseable" ]; then
