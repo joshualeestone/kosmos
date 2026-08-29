@@ -244,6 +244,48 @@ test('#1493: a project folder with no transcript is COUNTED', () => {
     'an empty project folder vanished without entering any number');
 });
 
+test('#1493: a DELETED folder and an ordinary folder are counted separately', () => {
+  /* 🛑 THE SAME BUCKET HELD TWO SITUATIONS AND ONLY ONE IS ACTIONABLE.
+       FOLDER GONE     a deleted agent. Nothing to recover. Correct to drop.
+       FOLDER PRESENT  possibly a real agent we are failing to see.
+     ⇒ When somebody sends us their projects directory because their agents did
+     not appear, this is what says in ONE LOOK which it is. */
+  const before = discover.found();
+
+  // PRESENT: the working directory exists and simply has no CLAUDE.md.
+  seed('proj-split-present', 'split-present', null);
+  const afterPresent = discover.found();
+  assert.equal(afterPresent.skipped.noInstructionsFolderPresent,
+    before.skipped.noInstructionsFolderPresent + 1, 'an existing folder with no CLAUDE.md was not counted as present');
+  assert.equal(afterPresent.skipped.noInstructionsFolderGone,
+    before.skipped.noInstructionsFolderGone, 'an existing folder was counted as gone');
+
+  // GONE: a transcript that names a working directory which no longer exists.
+  const cwd = seed('proj-split-gone', 'split-gone', null);
+  fs.rmSync(cwd, { recursive: true, force: true });
+  const afterGone = discover.found();
+  assert.equal(afterGone.skipped.noInstructionsFolderGone,
+    afterPresent.skipped.noInstructionsFolderGone + 1, 'a deleted folder was not counted as gone');
+  assert.equal(afterGone.skipped.noInstructionsFolderPresent,
+    afterPresent.skipped.noInstructionsFolderPresent, 'a deleted folder was counted as present');
+});
+
+test('#1493: the two subsets SUM to the total they came from', () => {
+  /* 🔑 THE INVARIANT IS WHY THESE ARE TWO COUNTS RATHER THAN ONE PLUS A
+     SUBTRACTION. Neither is derived from the other, so the sum is a real check
+     rather than an identity that cannot fail. A folder that fell out of the
+     split without leaving the total, or into both halves, breaks it. */
+  seed('proj-sum-a', 'sum-a', null);
+  const gone = seed('proj-sum-b', 'sum-b', null);
+  fs.rmSync(gone, { recursive: true, force: true });
+  seed('proj-sum-c', 'sum-c', 'You are **SumC**, a tester.\n');
+  const s = discover.found().skipped;
+  assert.equal(s.noInstructionsFolderGone + s.noInstructionsFolderPresent, s.noInstructions,
+    'the subsets do not sum to the bucket they split');
+  assert.ok(s.noInstructionsFolderGone > 0 && s.noInstructionsFolderPresent > 0,
+    'one half is empty, so the sum above holds for a reason that has nothing to do with the split');
+});
+
 test('#1493 CONTROL: a readable agent moves none of the three counters', () => {
   /* ⚠️ THE SAME CONTROL #1078 NEEDED, for the same reason: counters that only
      ever go up agree with the tests above on a fixture that is broken end to

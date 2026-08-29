@@ -334,6 +334,28 @@ function found() {
   const noTranscriptDirs = new Set();
   const noCwdDirs = new Set();
   const noInstructionsDirs = new Set();
+  /* 🛑 THE SAME BUCKET HOLDS TWO DIFFERENT SITUATIONS AND ONLY ONE IS ACTIONABLE
+     (#1493). Measured on this machine: of 17 folders that fail the CLAUDE.md
+     read, 4 have a working directory that STILL EXISTS and 13 point at one that
+     is GONE.
+
+       FOLDER GONE     a deleted agent. Nothing to recover. Correct to drop.
+       FOLDER PRESENT  possibly a REAL AGENT WE ARE FAILING TO SEE. Actionable.
+
+     ⇒ When somebody sends us their projects directory because their agents did
+     not appear, this split says in ONE LOOK whether it is our bug or their
+     deleted folders. Without it the file arrives and we still cannot tell.
+
+     ⚠️ AND IT CORRECTS A SENTENCE I WROTE IN THIS FILE. The comment below says a
+     no-CLAUDE.md folder "is what an ordinary folder somebody once ran Claude in
+     looks like". On this machine that is 4 of 17. I asserted the character of a
+     population I had only counted.
+
+     📌 DIAGNOSTIC ONLY. `noInstructions` keeps its meaning and its value, and
+     nothing about what the screen says changes: what a person should be told is
+     the product question this card is parked on. These two are for us. */
+  const noInstructionsGoneDirs = new Set();
+  const noInstructionsPresentDirs = new Set();
   /* One look at what is running, for every folder below (#362). An unreadable
      roster reads as undefined, and alreadyIn then treats "running" as unknown
      rather than as no. */
@@ -364,7 +386,16 @@ function found() {
       const file = path.join(cwd, 'CLAUDE.md');
       let text;
       try { text = fs.readFileSync(file, 'utf8').slice(0, 4000); }
-      catch { noInstructionsDirs.add(cwd); continue; }
+      catch {
+        noInstructionsDirs.add(cwd);
+        /* ⚠️ THE EXISTENCE CHECK IS ITS OWN try, because it must never be the
+           reason a folder stops being counted at all. A drop that vanished while
+           we were describing drops would be this card's own defect. */
+        let there = false;
+        try { there = fs.statSync(cwd).isDirectory(); } catch { there = false; }
+        (there ? noInstructionsPresentDirs : noInstructionsGoneDirs).add(cwd);
+        continue;
+      }
 
       const id = status.identityFromText(text);
       /* ⚠️ A `CLAUDE.md` THAT DOES NOT INTRODUCE ANYBODY IS NOT AN AGENT. Every
@@ -438,6 +469,11 @@ function found() {
       noTranscript: noTranscriptDirs.size,
       noWorkingFolder: noCwdDirs.size,
       noInstructions: noInstructionsDirs.size,
+      /* Subsets of `noInstructions`, and they sum to it. Two counts rather than
+         one plus a subtraction, so neither is derived from the other and a test
+         can assert the sum. */
+      noInstructionsFolderGone: noInstructionsGoneDirs.size,
+      noInstructionsFolderPresent: noInstructionsPresentDirs.size,
     },
     because: null,
   };
