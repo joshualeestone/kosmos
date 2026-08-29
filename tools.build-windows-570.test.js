@@ -100,7 +100,17 @@ test('every launcher line is CRLF, because cmd.exe does not forgive LF', () => {
   /* A .cmd with Unix endings gets a trailing carriage return on every token and
      the command simply does not resolve. Written on a Mac, so this is the single
      most likely thing to be wrong on first contact. */
-  const printfs = [...WIN.matchAll(/printf '([^']*)'/g)].map((m) => m[1])
+  /* 🛑 ONLY THE printfs THAT WRITE INTO A SHIPPED FILE, and my first version did
+     not narrow at all. It matched EVERY `printf '...\n'` in the script,
+     including `printf '%s\n' "$LISTING"` in the zip-contents guard, which is
+     shell plumbing that never reaches a user. It went red on a correct builder
+     and the fix was to the TEST, not the product: the artifact's bytes were
+     verified CRLF independently.
+     ⇒ The shipped files are written by `{ ... } > "$STAGE/<name>"` blocks, so
+     that is the population. */
+  const blocks = [...WIN.matchAll(/\{\n([\s\S]*?)\n\} > "\$STAGE\/[^"]+"/g)].map((m) => m[1]);
+  assert.ok(blocks.length >= 2, 'the shipped-file blocks moved; this scan reads nothing');
+  const printfs = blocks.flatMap((b) => [...b.matchAll(/printf '([^']*)'/g)].map((m) => m[1]))
     .filter((x) => x.includes('\\n'));
   assert.ok(printfs.length >= 15, 'the launcher scan found almost nothing; it is broken');
   const lf = printfs.filter((x) => !x.includes('\\r\\n'));
@@ -172,6 +182,36 @@ test('an ABSOLUTE outdir lands where the caller asked, not under the repo', () =
   assert.match(WIN, /\/\*\)\s*OUTDIR="\$OUT"/, 'an absolute outdir is not taken as-is');
   assert.match(WIN, /OUTDIR="\$REPO\/\$OUT"/, 'a relative outdir is no longer repo-relative, which changes every existing call');
   assert.doesNotMatch(WIN, /mkdir -p "\$REPO\/\$OUT"/, 'the old join is still there');
+});
+
+test('🛑 no test files ship, and the engine count EQUALS the repo rather than clearing a floor', () => {
+  /* Renet's parallel builder staged 137 .js of which only 59 were real modules,
+     so 78 TEST FILES SHIPPED TO USERS.
+     ⭐ AND THE PART WORTH COPYING IS WHY HIS OWN GUARD MISSED IT: he had a floor
+     of "at least 50 engine files", AND THE FLOOR WAS SATISFIED BY THE TEST
+     FILES. A count that the defect itself inflates cannot detect the defect.
+     ⇒ So two assertions that cannot both be satisfied by one mistake: ZERO test
+     files, and EQUALITY with the repo rather than a floor. Equality is what
+     makes shipping too many as loud as shipping too few.
+     ✅ Verified by planting his exact defect: dropping the filter made the build
+     exit 1 with "the zip ships 78 test file(s)". 78, his number. */
+  assert.match(WIN, /_tests" = "0"/, 'nothing asserts that no test files ship');
+  assert.match(WIN, /_zipmods" = "\$_repomods"/,
+    'the engine count is not compared to the repo, so shipping too many is invisible');
+  assert.doesNotMatch(WIN, /-ge 50|-gt 4[0-9]/,
+    'a floor crept back in, and a floor is what let 78 test files through');
+});
+
+test('a REFUSED build does not leave the artifact it refused', () => {
+  /* Every content check runs after the zip is written, because they inspect the
+     zip. Without this, a build that correctly refused still left a 36 MB file on
+     disk carrying the exact defect it refused for.
+     ⚠️ The exit code is what a script reads; the FILE is what a person reads,
+     and they were saying opposite things. */
+  assert.match(WIN, /refuse\(\) \{[^}]*rm -f "\$ZIPOUT"/,
+    'a refusal no longer removes the artifact');
+  assert.doesNotMatch(WIN, /echo "the zip is missing \$want" >&2; exit 1/,
+    'a content check still exits without removing the zip');
 });
 
 test('CONTROL: these assertions are reading the file they think they are', () => {
