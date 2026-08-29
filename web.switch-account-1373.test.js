@@ -205,6 +205,24 @@ test('#1373: the four fail-quiet fixes are pinned, because each one reverts gree
     'the re-arm no longer derives from the same expression the change listeners use, so it can disagree with them');
 });
 
+/* 🛑 THE ZERO-ACCOUNT SENTENCE NEEDS AN AUTHORITATIVE LIST, NOT MERELY AN EMPTY ONE
+   (challenge-loop iteration 15). The arm added in iteration 14 read the page-side cache
+   directly, and `moveAccountNow` deliberately empties that cache on a successful move
+   while the open panel never repaints. Reachable in one panel: move an account, then
+   choose OpenAI. The cache is empty, the SERVER list is untouched, so the dialog said
+   "the switch will stop and ask you to add one" and then the switch went ahead.
+   ⭐ Being told a thing will stop, and having it not stop, is worse than the silence the
+   arm was written to replace. `ACCOUNTS_LOADED` is what separates "we read an empty list"
+   from "somebody emptied the cache and nothing has refilled it". */
+test('#1373: the zero-account claim requires a list we actually read, and the move refills it', () => {
+  assert.match(PAGE, /ACCOUNTS_LOADED && !ACCOUNTS\.some\(\(x\) => x\.provider === 'openai'\)/,
+    'the zero-account sentence fires off a bare empty cache, so an emptied-but-unrefilled list claims this computer has no OpenAI sign-in');
+  assert.match(PAGE, /ACCOUNTS = await ACCT_PICKER_FETCH;\s*if \(!ACCOUNTS_UNREADABLE\) ACCOUNTS_LOADED = true;/,
+    'a successful read no longer marks the list authoritative, so the zero-account arm can never fire');
+  assert.match(PAGE, /ACCOUNTS = \[\];[\s\S]{0,700}?ACCOUNTS_LOADED = false;[\s\S]{0,200}?await paintAccountPicker\(CURRENT\);/,
+    'the move empties the account cache without marking it unread and refilling it, so the switch picker silently vanishes for the life of the open panel');
+});
+
 /* 🛑 THE DIALOG'S HONESTY GATE WAS ENFORCED BY NOTHING. A reviewer measured it:
    deleting `|| !SWITCH_ACCT_TOUCHED` from switchAcctShown left the FULL canonical
    runner green at 2901/2901. The dialog is the last screen before a restart, so

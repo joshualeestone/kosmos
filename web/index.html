@@ -13187,6 +13187,7 @@ async function paintAccounts() {
     return;
   }
   ACCOUNTS = list;
+  ACCOUNTS_LOADED = true;
   if (msg) msg.textContent = '';
   /* 🔑 GROUPED BY PROVIDER (kosmos#1393). Josh, twice on 2026-08-28: the Claude
      Max 20x line "is still not in that bounding box that it's supposed to be in,
@@ -21919,6 +21920,15 @@ let ACCOUNTS = [];
    why the failure could not announce itself. This flag keeps the two apart so the one
    that is a fault can say so. Found in challenge-loop iteration 13. */
 let ACCOUNTS_UNREADABLE = false;
+/* 🛑 AND "EMPTY" IS STILL NOT ONE FACT, EVEN WITH THE FLAG ABOVE. A page-side cache can
+   be empty because we READ an empty list, or because another flow DELIBERATELY EMPTIED IT
+   and nothing has refilled it yet. Only the first licenses a definitive sentence about
+   what this computer has. `moveAccountNow` clears the cache on a successful move and the
+   open panel does not repaint, so the second state is reachable and lasts as long as the
+   panel stays open. Found in challenge-loop iteration 15, after iteration 14's zero-account
+   arm shipped reading the cache directly and would have told a person the switch was going
+   to stop while the server list was untouched and the switch went ahead. */
+let ACCOUNTS_LOADED = false;
 let ACCT_PICKER_FETCH = null; // #881: the one in-flight GET /api/accounts, so a second caller shares it
 async function paintAccountPicker(a) {
   const sel = document.getElementById('d-account');
@@ -21953,6 +21963,7 @@ async function paintAccountPicker(a) {
           .finally(() => { ACCT_PICKER_FETCH = null; });
       }
       ACCOUNTS = await ACCT_PICKER_FETCH;
+      if (!ACCOUNTS_UNREADABLE) ACCOUNTS_LOADED = true;
     } catch { ACCOUNTS_UNREADABLE = true; /* the control stays empty and disabled, which is honest */ }
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     if (msg) msg.textContent = '';
@@ -22070,6 +22081,16 @@ async function moveAccountNow(say) {
     if (say) say(out.because || 'Moved.', true);
     sel.value = '';
     ACCOUNTS = [];   // the move can change nothing about the list, but a stale one outlives a connect
+    /* 🛑 AND REFILL IT, BECAUSE `tick()` DOES NOT. `openDetail` is gated on `!CURRENT`, so
+       with this panel open the poll repaints the cards and never the panel, and nothing
+       else on this path calls `fillSwitchAccounts` or `paintAccountPicker`. The cache
+       therefore stayed empty for the whole life of the open panel: choose OpenAI after a
+       move and the sign-in picker was simply absent, with no line saying why, because an
+       empty list is the ordinary not-armed state. Same shape and same remedy as the failed
+       switch a few hundred lines below. */
+    ACCOUNTS_LOADED = false;
+    try { await paintAccountPicker(CURRENT); }
+    catch { /* the move's own sentence is the answer; a failed refresh must not replace it */ }
     await tick();
   } catch (err) {
     msg.textContent = String((err && err.message) || 'that did not work');
@@ -22607,7 +22628,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
                 this is a statement of fact rather than a hedge. With accounts present but
                 all of them dead (live check `none`), the filtered list is also empty but
                 the engine does NOT refuse, so that case keeps the sentence below. */
-             if (!ACCOUNTS.some((x) => x.provider === 'openai')) {
+             if (ACCOUNTS_LOADED && !ACCOUNTS.some((x) => x.provider === 'openai')) {
                return 'and it needs an OpenAI sign-in on this computer. There is not one yet, so the switch will stop and ask you to add one.';
              }
              return 'and it runs on this computer’s OpenAI sign-in.';
