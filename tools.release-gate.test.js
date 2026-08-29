@@ -255,15 +255,21 @@ test('the 0.5 line keeps its own spelling and is not refused retroactively', () 
    and the real writer, tools/insert-release-entry.js. Change the page's stamp
    format and both fixtures keep passing while the real page fails.
 
+   #1464: all three now build the stamp in America/Chicago with an explicit
+   timeZone, and the reader interprets in America/Chicago, so a fixture is Central
+   on any test runner rather than the runner's local time. Before that, this
+   fixture used the runner's timezone and cancelled the reader's identical bug, so
+   the tests passed on a Central box while the real cut failed on a non-Central one.
+
    The one shape the versions gate accepts: the id it greps for, and a rel-d it
    can parse, stamped now. Kept beside the sandbox rather than inline so an arm
    that wants a STALE entry can pass an offset and get a refusal on purpose. */
 function versions_entry(version, minutesStale = 0) {
-  const t = new Date(Date.now() - minutesStale * 60000);
-  const months = 'January February March April May June July August September October November December'.split(' ');
-  let h = t.getHours(); const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
-  const mm = String(t.getMinutes()).padStart(2, '0');
-  const when = `${months[t.getMonth()]} ${t.getDate()}, ${t.getFullYear()}, ${h}:${mm} ${ap} CDT`;
+  const when = new Date(Date.now() - minutesStale * 60000).toLocaleString('en-US', {
+    timeZone: 'America/Chicago',
+    month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+    timeZoneName: 'short',
+  }).replace(' at ', ', ');
   return `<article id="v${version.replace(/\./g, '-')}"><span class="rel-d">${when}</span></article>\n`;
 }
 
