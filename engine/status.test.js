@@ -3563,7 +3563,7 @@ test('#1234: the capture asks for logical lines, not screen rows', () => {
     'capturePane dropped -J, so pane width is a hidden input to every rule again');
 });
 
-test('#1234: an option-less prompt is seen on a WRAPPED pane, which is what -J undoes', () => {
+test('#1234: an option-less prompt is MISSED on a wrapped pane, which is what -J undoes', () => {
   const q = 'Do you want to proceed?';
   const wrapped = 'Worked for 2m 10s\n' + q.slice(0, 20) + '\n' + q.slice(20) + '\n';
   const joined = 'Worked for 2m 10s\n' + q + '\n';

@@ -146,7 +146,8 @@ const FIXTURE_PREFIX = 'walk-';
    ✅ Mitigated rather than solved: the verdict below NAMES the working agents
    it counted, so a reader can see at a glance whether a flip came from a
    colleague or from something synthetic. Enumerating fixtures by name would be
-   guessing at which of those six are tests. */
+   guessing at which of them are tests, and the candidate list changes by the
+   hour. */
 
 const RED = 'needs_you';
 /* A state name no writer can produce: `selfreport.js` STATES is a closed list,
@@ -465,9 +466,11 @@ function main() {
 
 if (require.main === module) main();
 
-/* Only what the shell test actually drives, CHECKED rather than assumed: arms
-   8 and 9 read `hookPrefixIsLive` and `HOOK_SOURCE`, and nothing else in the
-   repo requires this module at all. An earlier version of this line said
+/* Only what the shell test actually drives, CHECKED rather than assumed: arm 8
+   is the only place that REQUIRES this module, and it reads exactly these two
+   names. Arms 9, 9b and 11 exercise the same paths through the
+   `KOSMOS_HOOK_SOURCE` env var and import nothing. Nothing else in the repo
+   requires the module at all. An earlier version of this line said
    "only what the shell test drives" while exporting four further names that no
    file imported -- the very defect the sentence describes, one line below
    itself. The constants stay readable in the source. */

@@ -3576,8 +3576,11 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      which is which by looking. ⚠️ #1453 was that the record did not say WHO
  *      wrote a line; #1457 fixed it, and `selfreport.record` now persists
  *      `by: 'auto'|'agent'`. THE FIX IS NOT RETROACTIVE and this is a claim
- *      about the HISTORICAL record: every line already on disk carries no
- *      `by`, so the split below still rests on the weaker marker. The tool
+ *      about the HISTORICAL record. At the snapshot below no line on disk
+ *      carried `by`; the field is being written now, and the narrower claim
+ *      that matters here is still true -- NO `needs_you` row carries it, so
+ *      the split still rests on the weaker marker. The tool prints that count
+ *      so it can be watched changing. The tool
  *      prefers `by` where it exists and prints how many of each, so that
  *      number can be watched falling:
  *          14  walkthrough FIXTURES   by AGENT NAME (`walk-birch`,
@@ -3606,9 +3609,11 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      No count here: it was written as "six" and was seven within two hours. The earlier sentence
  *      bounded against one of two cutoffs -- the one that let it pass -- which
  *      is the flattering direction committed by the sentence written to guard
- *      against it. ⇒ What stands here is an ARGUMENT, not a bound: those seven
+ *      against it. ⇒ What stands here is an ARGUMENT, not a bound: those
  *      records carry the hook's GENERATED SHAPE, a tool name plus a verbatim
- *      command, which a person does not type by hand.
+ *      command, which a person does not type by hand. (No count: the sentence
+ *      four lines above pledges not to carry one, and an earlier version of
+ *      THIS line carried one anyway, four lines below the pledge.)
  *      ⇒ Most rules here arbitrate between two witnesses. This one arbitrates
  *      between a witness and, in practice, a silence. ("Most", not "every":
  *      rule 1 has a single witness by construction.) So anything
@@ -3685,8 +3690,18 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      `<any>` rather than a glob on purpose: a `*` followed by a slash would
  *      close this comment block, which is how the first version of this line
  *      broke the file and was caught by `node --check` one command later.)
- *      ⇒ These agents have never received the DOCTRINE block, so no wording
- *      question arises for them. ⚠️ Not "no sync has ever written to them",
+ *      ⚠️ THAT MARKER ZERO MEASURES THE CONSENTED-REFRESH SPAN, NOT RECEIPT,
+ *      and an earlier version of this paragraph read it as "these agents have
+ *      never received the DOCTRINE block". Two of the seventeen DID receive
+ *      one: they carry nine of `defaults.sections()`'s headings verbatim, as
+ *      PLAIN TEXT, because the creation path (`defaults.appendTo`) writes the
+ *      same text with no marker at all. Measured, with two other agents at
+ *      0 of 12 as the control.
+ *      ⇒ Which makes the evidence STRONGER rather than weaker: those two
+ *      received a doctrine block and STILL do not carry the verbs, because
+ *      they were created before the verbs existed and the later edits landed
+ *      inside a heading they already held. A zero on the marker could not have
+ *      told you that; the heading counts can. ⚠️ Not "no sync has ever written to them",
  *      which an earlier version said and which is false: 17 of 17 carry
  *      `kosmos:connections:` and 3 of 17 carry `kosmos:projects:`. Other
  *      managed blocks reach these files; the doctrine span is the one that

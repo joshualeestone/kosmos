@@ -439,8 +439,38 @@ completeness, carries no information about the case that is actually missing.
   FILE and never echoes the value. Arm 4b covers the class, and all four of its
   assertions go red under perturbation.
 - **This plan's weakest-premise section carried a stale present-tense count**
-  contradicted by its own iteration-9 entry 110 lines above. No figure there
+  contradicted by its own iteration-9 entry, well above. No figure there
   now.
+
+### Amended at iteration 13
+
+- 🛑 **SIXTH RECURRENCE, and this one sits four lines from its own pledge.**
+  `status.js` says "No count here: it was written as six and was seven within
+  two hours" and then, four lines later, "those SEVEN records carry the hook's
+  generated shape". The identical passage in the tool had already had its count
+  removed. Both are countless now.
+- 🛑 **This plan's iteration-12 entry claimed a fix that was not present.** It
+  recorded "no figure there now" while the weakest-premise section still pinned
+  two, one of which contradicted a "no figure pinned" parenthetical two lines
+  above it. Removed for real, and verified by grepping for them afterwards
+  rather than by asserting it.
+- 🛑 **A count outlived the list it counted.** "Guessing at which of those six
+  are tests" kept a number whose antecedent I deleted at iteration 11, and it
+  was stale anyway.
+- ⭐ **AND MY DELIVERY EVIDENCE MEASURED THE WRONG THING, IN A WAY THAT MAKES
+  THE CASE STRONGER.** `0 of 17 carry kosmos:doctrine:` measures the CONSENTED
+  REFRESH SPAN, not receipt: the creation path writes the same text with no
+  marker. Two of the seventeen carry nine of `defaults.sections()`'s headings
+  verbatim as plain text (control: two other agents at 0 of 12). So those two
+  DID receive a doctrine block and still lack the verbs, because they were
+  created before the verbs existed and the later edits landed inside a heading
+  they already held. A marker zero could never have shown that.
+- **The `by` field is now being written** (660 of 28,131 lines, none of them
+  `needs_you`). "Every line on disk carries no `by`" was true at the snapshot
+  and is not now; scoped, with the narrower claim that actually matters.
+- **The test title read as the opposite of its assertions** (`is seen on a
+  WRAPPED pane` where the test asserts it is MISSED there and seen on the
+  joined form).
 
 ## What this deliberately does NOT do
 
@@ -481,11 +511,12 @@ hook-classified records are spread across many agents rather than one, so the
 worst case breaks the distinct-agent clause. (No figure pinned: it was written
 as "seven records across six agents" and was eight across seven within two
 hours. The tool prints both live.) Measured by building that exact fixture and running the
-tool: it prints `observed: 0.0307% and 6 agent(s)` and then the OPPOSITE
-verdict. Found by challenge-loop iteration 3, reproduced by me.
+tool: it prints the OPPOSITE verdict. (No figures pinned here, and an earlier
+version of this section pinned two of them - one of which contradicted a "no
+figure pinned" parenthetical two lines above it.) Found by challenge-loop iteration 3, reproduced by me.
 
 ✅ **What stands instead is an ARGUMENT, labelled as one because it is not a
-measurement:** those seven records each carry the hook's generated shape, a
+measurement:** those records each carry the hook's generated shape, a
 tool name plus a verbatim command, which a person does not type by hand; and
 `hookPrefixIsLive` guards the marker against drift and now REFUSES rather than
 warning. Read the per-agent table and judge.
