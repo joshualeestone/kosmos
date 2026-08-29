@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
@@ -59,40 +60,6 @@ test('create reaches the same resolver store built ROOT from', () => {
 });
 
 /**
- * ⚠️ ONE HELPER, because two copies of this regex meant a formatting change
- * produced `TypeError: Cannot read properties of null` under a heading about
- * the data root -- a confusing message from an unrelated cause, which is the
- * exact failure the `cwd` comment further down warns about.
- */
-function supportDirBody() {
-  const src = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
-  assert.ok(src.length > 100000, `create.js read short (${src.length} bytes); floor not met`);
-  const m = /\nfunction supportDir\([^)]*\)\s*\{([\s\S]*?)\n\}/.exec(src);
-  assert.ok(m, 'supportDir() not found in create.js by the source heuristic; if it was reformatted or made an arrow, this check needs updating and is NOT reporting a real defect');
-  return m[1].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*/g, '');
-}
-
-/**
- * 🛑 THIS IS A TEXT HEURISTIC, NOT A PROOF OF DELEGATION, AND I HAVE NOW
- * CLAIMED OTHERWISE THREE TIMES. Measured defeats of THIS version, each
- * leaving macOS byte-identical and Windows broken with every other test green:
- * a nested block whose `}` sits at column 0 truncates the capture; a doc
- * comment containing the text `function supportDir() {` above the real one; a
- * `macDataRoot()` helper plus a dead call; and a hoisted
- * `const APPSUP = ['Library','Application Support']`.
- *
- * ⇒ Scoping to the body NARROWED the class. It did not close it. The test
- * below this one is what actually observes the call.
- */
-test('source heuristic: supportDir mentions the resolver and no literal path', () => {
-  const code = supportDirBody();
-  assert.match(code, /\bdataRootFor\s*\(/,
-    'supportDir must reach dataRootFor, or the two sites can diverge again');
-  assert.doesNotMatch(code, /Application Support|Library/,
-    'supportDir builds the path itself; it must delegate');
-});
-
-/**
  * ✅ THE ONE THAT ACTUALLY PROVES DELEGATION, BY OBSERVING THE CALL.
  *
  * Stub `store.dataRootFor`, call `create.supportDir()`, and check the sentinel
@@ -105,10 +72,16 @@ test('source heuristic: supportDir mentions the resolver and no literal path', (
  * expression, `supportDir ()`, brace-on-next-line, in-body destructure), three
  * of which the text heuristic wrongly rejects.
  *
- * ⚠️ SHARED LIMITATION, NOT A REGRESSION: neither this nor the heuristic
- * catches a module-top-level `const { dataRootFor } = store`, because that
- * captures the reference before this stub replaces it. Named rather than left
- * for somebody to find.
+ * ⚠️ A DISCLAIMER I WROTE HERE WAS FALSE AND IS DELETED. It said neither guard
+ * catches a module-top-level `const { dataRootFor } = store`. Measured by a
+ * reviewer: planting exactly that goes RED, on this test, because the stub's
+ * SENTINEL RETURN VALUE fails even when the stub call itself is not observed.
+ * ⇒ The guard was STRONGER than my comment claimed. An over-broad disclaimer is
+ * a wrong claim wearing humility, and it invites somebody to build coverage for
+ * a gap that does not exist.
+ * 📌 What IS true, as a deliberate trade rather than a blind spot: that shape is
+ * genuine delegation and this test rejects it, because rejecting it preserves
+ * the seam.
  */
 test('BEHAVIOUR: supportDir actually calls store.dataRootFor, observed', () => {
   const real = store.dataRootFor;
@@ -172,38 +145,68 @@ test('the sandbox path is byte-identical to what it replaced', () => {
 });
 
 /**
- * ⚠️ ASKS `create` TOO, NOT ONLY `store`. Named "both sites" before and asserted
- * only `store.dataRootFor`, so a full revert of create.js left it green. A test
- * whose name claims coverage it does not have is worse than no test.
+ * ✅ THE PLATFORM x ENVIRONMENT MATRIX, AND IT REPLACES THREE WEAKER GUARDS.
+ *
+ * 🛑 ITS PREDECESSOR ASSERTED TWO SUBSTRINGS (no "Library", yes "AppData") AND
+ * WAS DEFEATED FOUR WAYS, each leaving all nine tests green. Measured by a
+ * reviewer, and the first is the shape somebody writes while fixing a Windows
+ * bug locally:
+ *     if (platform === 'win32') return path.join(homeDir(),'AppData','Roaming',APP)
+ *     dataRootFor(platform, homeDir(), platform === 'win32' ? {} : process.env)
+ *     dataRootFor(platform, platform === 'win32' ? 'C:\Users\Default' : homeDir(), ...)
+ *     ...the same with 'Local' instead of 'Roaming'
+ *
+ * With the first planted, ON WINDOWS the sandbox seam is DEAD (tests would write
+ * to a real store) and a redirected APPDATA is ignored. That is the
+ * two-spellings defect this branch exists to remove, reintroduced one branch
+ * over.
+ *
+ * ⭐ AND THE CLASS, WHICH IS THE PART I KEEP GETTING WRONG. My previous commit
+ * was titled "both guards were blind to a platform-conditional" and it FIXED
+ * THE INSTANCE, NOT THE CLASS. A substring check cannot see a value that is
+ * wrong in a way which still contains the right substring.
+ *
+ * ⚠️ THE ENVIRONMENT MUST VARY, AND THAT IS NOT OBVIOUS. The reviewer's first
+ * attempt asserted equality under the AMBIENT env only and TWO OF THE FOUR
+ * ATTACKS STAYED GREEN, because on a Mac with APPDATA and AGENT_WORKFORCE_DATA
+ * both unset, a hardcoded `AppData\Roaming` spelling EQUALS the resolver by
+ * coincidence. A matrix with one axis is not a matrix.
  */
-test('on Windows the resolver create uses lands in AppData, not a Library folder', () => {
-  // create's own delegation, proven by the guard above, is what makes this
-  // statement about create rather than only about store.
-  assert.match(supportDirBody(), /\bdataRootFor\s*\(/,
-    'create must reach this resolver for the assertion below to be about create');
-  // Asked of dataRootFor directly, because process.platform cannot be set.
-  // This is the defect: on Windows the old create.js happily created a literal
-  // "Library\\Application Support" folder. MEASURED on a real Windows Server
-  // 2022 box on 2026-08-29: that folder existed from an install on 08-25,
-  // holding bin/agent-supervisor.sh.
-  const got = store.dataRootFor('win32', 'C:\\Users\\someone', {});
-  assert.ok(!got.includes('Library'), `must not contain Library, got ${got}`);
-  assert.ok(got.includes('AppData'), `must be under AppData, got ${got}`);
+test('supportDir EQUALS the resolver across every platform and environment', () => {
+  const ENVS = [
+    {},
+    { APPDATA: 'D:\\Redirected\\AppData\\Roaming' },
+    { AGENT_WORKFORCE_DATA: '/tmp/seam-matrix' },
+    { APPDATA: 'D:\\R', AGENT_WORKFORCE_DATA: '/tmp/seam-matrix' },
+  ];
+  const PLATFORMS = ['darwin', 'win32', 'linux', 'freebsd'];
+  const KEYS = ['APPDATA', 'AGENT_WORKFORCE_DATA', 'LOCALAPPDATA'];
+  let checked = 0;
+
+  for (const overlay of ENVS) {
+    const saved = {};
+    for (const k of KEYS) { saved[k] = process.env[k]; delete process.env[k]; }
+    Object.assign(process.env, overlay);
+    try {
+      for (const plat of PLATFORMS) {
+        assert.equal(
+          create.supportDir(plat),
+          store.dataRootFor(plat, os.homedir(), process.env),
+          `supportDir disagrees with the resolver for ${plat} under ${JSON.stringify(overlay)}`
+        );
+        checked += 1;
+      }
+    } finally {
+      for (const k of KEYS) {
+        if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+      }
+    }
+  }
+  // A floor: an empty matrix would pass by checking nothing at all.
+  assert.equal(checked, ENVS.length * PLATFORMS.length,
+    'the matrix did not run every combination, so a green here proves less than it looks');
 });
 
-/**
- * ✅ THE ONE THAT CLOSES THE PLATFORM BLIND SPOT, and neither other guard could.
- *
- * A stub can only observe the HOST platform, so hardcoding 'darwin' inside
- * `supportDir` left every other test green while Windows got a Library path.
- * Measured before this test existed. Now `supportDir` takes the platform, so
- * create's Windows answer can be asked for from a Mac.
- */
-test('create.supportDir asked for win32 lands in AppData, not a Library folder', () => {
-  const got = create.supportDir('win32');
-  assert.ok(!got.includes('Library'), `create's win32 answer must not contain Library, got ${got}`);
-  assert.ok(got.includes('AppData'), `create's win32 answer must be under AppData, got ${got}`);
-});
 
 test('darwin is unchanged, which is the property that must never move', () => {
   const home = '/Users/someone';
