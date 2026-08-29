@@ -146,9 +146,9 @@ const oaiStub = require('node:http').createServer((q, r) => {
      📌 160 IS CENTRED ON MEASUREMENTS, NOT PICKED. Healthy render is 253px wide. A planted
      `width: 0 !important` regression rendered at 118px, because `flex: 1` still hands the
      control some of the row even with its width zeroed, so "collapsed" is not "zero" here
-     and a floor near zero would have caught nothing. First attempt used 120 and passed by
-     2px, which is luck rather than method: 160 sits ~93px under the healthy value and
-     ~42px over the broken one. */
+     and a floor near zero would have caught nothing. ⚠️ A FLOOR OF 120 PASSES BY 2px, which
+     is luck rather than method: 160 sits ~93px under the healthy value and ~42px over the
+     broken one. */
   const box = await page.locator('#d-provider-account').boundingBox();
   chk(!!box && box.width > 160 && box.height > 10,
     '#1373: the sign-in picker occupies real space on screen, not just an unhidden node',

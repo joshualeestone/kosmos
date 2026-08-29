@@ -21933,8 +21933,8 @@ let ACCOUNTS_UNREADABLE = false;
 let ACCOUNTS_LOADED = false;
 /* 🛑 THREE NAMED TRANSITIONS, AND NOTHING ELSE MAY WRITE THESE THREE VARIABLES.
    The account cache is really ONE fact in three states, and it was being kept as three
-   independent assignments across five call sites. Three consecutive review passes each
-   found a DIFFERENT site updating one and not the others:
+   independent assignments across five call sites, and THREE DIFFERENT SITES were each
+   found updating one and not the others:
      a site emptied the list and left LOADED true      -> a false "add a sign-in first"
      a filling site set LOADED and left UNREADABLE true -> a fault claim over a good read
      a failing site set UNREADABLE and left LOADED true -> the same false sentence again
@@ -21954,8 +21954,8 @@ function accountsUnreadable() {
   /* 🛑 DELIBERATELY DOES NOT TOUCH `ACCOUNTS`, AND THAT IS NOT AN OVERSIGHT. A failed read
      invalidates the list's AUTHORITY, not the list. `paintAccounts` states the rule two
      lines above its own call site: "Never 'one account': a failed read must not shrink the
-     list." An earlier version of this function emptied the cache and was called from
-     exactly there, which did the thing that comment forbids.
+     list." Emptying the cache here would do exactly what that comment forbids, and this
+     function is called from precisely that branch.
      ⇒ Both callers are correct under this shape: the picker's first-open fetch only runs
      when the list is ALREADY empty, so keeping it changes nothing there, while the
      Accounts page keeps the rows it last read and merely stops claiming they are current.
@@ -22095,7 +22095,20 @@ async function paintAccountPicker(a) {
   /* Additive: never break the move picker for the switch picker. But not
      SILENT, because hidden is also the legitimate not-armed state, so a throw
      here would be indistinguishable from working correctly. */
-  try { fillSwitchAccounts(); } catch (err) { console.warn('the OpenAI sign-in picker did not render', err); }
+  /* 🛑 SAY IT WHERE THE PERSON IS, NOT IN DEVTOOLS. This was a `console.warn`, added so a
+     throw here would not be silent, and it was the ONLY console call in this file. The
+     intent was right and the delivery was not: nobody has devtools open, so "not silent"
+     was true of a place with no audience. A throw here means the picker did not render, and
+     the honest thing is to say so beside the control that is missing. */
+  try {
+    fillSwitchAccounts();
+  } catch {
+    const pmsgX = document.getElementById('d-provider-msg');
+    if (pmsgX && !pmsgX.textContent) {
+      pmsgX.textContent = 'We could not show the OpenAI sign-in list just now.';
+      SWITCH_ACCT_SAID = pmsgX.textContent;
+    }
+  }
 }
 
 document.getElementById('d-account').addEventListener('change', (e) => {
@@ -22144,9 +22157,10 @@ async function moveAccountNow(say) {
        therefore stayed empty for the whole life of the open panel: choose OpenAI after a
        move and the sign-in picker was simply absent, with no line saying why, because an
        empty list is the ordinary not-armed state. Same shape and same remedy as the failed
-       switch below, which now genuinely is the same remedy. ⚠️ This comment once asserted
-       that symmetry while only half of it existed, because that site cleared the cache and
-       not the flag. Both halves are present now; do not remove one and leave this line. */
+       switch below, which genuinely is the same remedy. ⚠️ THE SYMMETRY IS LOAD-BEARING AND
+       EASY TO HALF-BREAK: that site must clear the cache AND the flag. Both halves are
+       present; do not remove one and leave this line asserting a symmetry that then only
+       half exists. */
     try { await paintAccountPicker(CURRENT); }
     catch { /* the move's own sentence is the answer; a failed refresh must not replace it */ }
     if (msg && saidAfterMove && !msg.textContent) msg.textContent = saidAfterMove;
@@ -22318,6 +22332,15 @@ const SWITCH_ACCT_HINT = 'Choose which OpenAI sign-in it runs on, or leave it as
    ⇒ A single spelling is what makes the clear possible at all; an inline literal cannot
    be matched without repeating it. */
 const SWITCH_ACCT_UNREADABLE = 'We could not read your OpenAI sign-ins, so there is nothing to choose from. Close this and open it again to retry.';
+const SWITCH_ACCT_STALE = 'This list may be out of date: we could not re-read your OpenAI sign-ins just now.';
+/* 🛑 WE CLEAR WHAT WE WROTE, NOT WHAT WE CAN NAME. The clear below used to compare the
+   region against each of our constants by equality, which failed twice for the same
+   reason: an APPENDED form matched neither, and a sentence naming an account cannot be a
+   constant at all. Both times our line outlived the control it described, under a
+   provider it does not apply to, which is the orphan-hint class this block exists to
+   prevent. Remembering the exact string we last wrote handles a generated sentence and
+   any future one, and it still cannot touch somebody else's status text. */
+let SWITCH_ACCT_SAID = '';
 function fillSwitchAccounts() {
   const sel = document.getElementById('d-provider-account');
   const prov = document.getElementById('d-provider');
@@ -22365,7 +22388,7 @@ function fillSwitchAccounts() {
        what naming the string was supposed to make fixable.
        ⇒ Strip OUR half and leave the engine's, which is the more specific sentence and not
        ours to delete. */
-    if (pmsg0 && (pmsg0.textContent === SWITCH_ACCT_HINT || pmsg0.textContent === SWITCH_ACCT_UNREADABLE)) pmsg0.textContent = '';
+    if (pmsg0 && SWITCH_ACCT_SAID && pmsg0.textContent === SWITCH_ACCT_SAID) { pmsg0.textContent = ''; SWITCH_ACCT_SAID = ''; }
     else if (pmsg0 && pmsg0.textContent.endsWith(' ' + SWITCH_ACCT_UNREADABLE)) {
       pmsg0.textContent = pmsg0.textContent.slice(0, -(SWITCH_ACCT_UNREADABLE.length + 1));
     }
@@ -22377,6 +22400,7 @@ function fillSwitchAccounts() {
        cannot overwrite somebody else's status text. */
     if (openai && armed && ACCOUNTS_UNREADABLE && pmsg0 && !pmsg0.textContent) {
       pmsg0.textContent = SWITCH_ACCT_UNREADABLE;
+      SWITCH_ACCT_SAID = SWITCH_ACCT_UNREADABLE;
     }
     return;
   }
@@ -22442,10 +22466,26 @@ function fillSwitchAccounts() {
      re-announce and turn a helpful line into noise. */
   if (appearing) {
     const pmsg = document.getElementById('d-provider-msg');
-    /* ⚠️ NOT ON A ONE-ROW MENU. "Choose which sign-in" is impossible there: a
-       one-option select can never fire `change`. Same reachable state that needed
-       its own dialog arm, and the hint did not get the matching one. */
-    if (pmsg && !pmsg.textContent && sel.options.length > 1) pmsg.textContent = SWITCH_ACCT_HINT;
+    /* THREE CASES, AND NONE OF THEM MAY BE SILENT. This region is the only announcement a
+       screen-reader user gets that a control appeared.
+       ⚠️ THE STALE CASE IS THE ONE THIS PATH USED TO MISS ENTIRELY. Because a failed read
+       keeps the cached list rather than shrinking it, the picker can render rows the page
+       has ALREADY marked non-authoritative, and the fault line was written only on the
+       hidden branch. So the one surface presenting a list we know we could not re-read
+       said nothing about it.
+       ⚠️ AND THE ONE-ROW CASE WAS SILENT FOR A DIFFERENT REASON: "Choose which sign-in" is
+       impossible with one option, since a one-option select can never fire `change`, so the
+       hint was suppressed and nothing replaced it. The control still appears, still sends
+       its row, and the dialog still promises it, so a screen-reader user got a promise
+       about a control they were never told about. It gets a sentence that is true of one
+       row instead. */
+    if (pmsg && !pmsg.textContent) {
+      const one = sel.options.length === 1 ? (sel.options[0].textContent || '').trim() : '';
+      const line = ACCOUNTS_UNREADABLE ? SWITCH_ACCT_STALE
+        : (sel.options.length > 1 ? SWITCH_ACCT_HINT
+          : (one ? 'It will run on ' + one + '.' : ''));
+      if (line) { pmsg.textContent = line; SWITCH_ACCT_SAID = line; }
+    }
   }
 }
 
@@ -22740,9 +22780,9 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
              if (switchAcctChoosable()) return 'and it runs on the sign-in shown above, or if that one has gone, the one Kosmos names when it restarts. To use a different one, close this first.';
              if (switchAcctSending()) return 'and it runs on the sign-in shown above, or if that one has gone, the one Kosmos names when it restarts.';
              /* 🛑 THE ZERO-ACCOUNT ARM SAYS WHAT WILL HAPPEN, IT DOES NOT PROMISE A
-                SIGN-IN THAT IS NOT THERE. ⚠️ An earlier attempt DOCUMENTED this arm in the
-                comment above and left the false sentence on screen, which is why the
-                wording rather than the comment is what changed here. A comment naming a
+                SIGN-IN THAT IS NOT THERE. ⚠️ DOCUMENTING THIS ARM IN THE COMMENT ABOVE IS NOT
+                A FIX AND WAS TRIED: it leaves the false sentence on screen, which is why the
+                WORDING is what changed here. A comment naming a
                 defect is not a fix, and this is the last screen before a restart.
                 ⚠️ The page CAN tell the two hidden-picker cases apart, which is the only
                 reason an honest sentence is possible here. With NO OpenAI account at all,

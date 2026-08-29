@@ -829,12 +829,11 @@ function setProvider(name, provider, opts) {
     const named = typeof process.env.AGENT_WORKFORCE_CODEX_HOME === 'string'
       && process.env.AGENT_WORKFORCE_CODEX_HOME !== '';
     const accounts = named
-      /* ⚠️ RESOLVED, LIKE `wantDir` BELOW, OR THE TWO BRANCHES COMPARE DIFFERENT
-         NORMAL FORMS. `wantDir` is `path.resolve`d because `openai.list()` stores
-         resolved paths; this branch does not go through `list()`, so an override
-         set to a non-canonical path (a trailing slash, a `..` segment, a relative
-         path) would fail to match itself, and a person picking THE VERY ACCOUNT
-         THE OVERRIDE NAMES would be told it cannot be chosen. */
+      /* ⚠️ RESOLVED, LIKE `wantDir` BELOW, OR THE TWO BRANCHES COMPARE DIFFERENT NORMAL
+         FORMS. The full reasoning is on `wantDir`; what is specific HERE is that this
+         branch does not go through `list()` at all, so nothing else would normalise it,
+         and a person picking THE VERY ACCOUNT THE OVERRIDE NAMES would be told it cannot
+         be chosen. */
       ? [path.resolve(openai.defaultDir())]
         .map((dir) => {
           const who = openai.identityOf(dir);
@@ -876,9 +875,9 @@ function setProvider(name, provider, opts) {
        than fixed here, because creation is not this card's subject and widening a
        switch card into the create path is how a reviewed diff stops being
        reviewable. Carding it is what got it fixed by somebody whose lane it was.
-       ⚠️ Its fix guards BOTH create sites. The first attempt guarded only one, and
-       reverting the other left the suite green, which is why the landed version
-       carries an arm per site and both assert an unknown account is still REFUSED:
+       ⚠️ Its fix guards BOTH create sites, and it needs to: guarding only one leaves the
+       suite GREEN when the other is reverted. Hence an arm per site, both asserting an
+       unknown account is still REFUSED:
        resolving must normalise the value, never widen what counts as a match. */
     const wantDir = opts && typeof opts.accountDir === 'string' && opts.accountDir !== ''
       ? path.resolve(opts.accountDir)
