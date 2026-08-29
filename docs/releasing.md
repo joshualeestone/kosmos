@@ -165,15 +165,31 @@ a different problem.
    never to keep guessing at the stamp. Nothing in the code pins `D <= 40`; it
    is a property of the machine on the night.
 
-   ⚠️ **AND IF STEP 1 SAYS "IN THE PAST" ON AN ENTRY YOU JUST WROTE, SUSPECT THE
-   MACHINE CLOCK.** The past side is now 5 minutes where it used to be 20, so a
-   Mac running six minutes fast refuses an entry stamped this second. The
-   refusal says "stamp for publication", which is the right advice for a stale
-   entry and the wrong advice for a skewed clock -- run `date` and compare it
-   against a phone before re-stamping. Related and disclosed in
-   `tools/lib/versions-entry.sh`: the gate parses the stamp in the MACHINE's
-   local timezone while the page hard-codes `CDT`, so a non-Central machine, or
-   any machine in winter, is measuring something slightly different again.
+   ⚠️ **AND IF STEP 1 SAYS "IN THE PAST" ON AN ENTRY YOU JUST WROTE, ASK WHICH
+   CLOCK YOU READ.** The gate compares the stamp against **this machine's** clock,
+   so a machine that is uniformly wrong cancels out entirely: an entry stamped
+   from that Mac's own `date` reads `off = 0` however far off the machine is. The
+   refusal only appears when the stamp came from a **different** clock, a phone, a
+   wall, another machine. So the fix is usually to re-stamp from `date` on the
+   cutting machine, not to correct the machine.
+
+   ⚠️ It bites harder than it used to because the past side is now 5 minutes
+   rather than 20, so a four-minute difference between two clocks that never
+   mattered before can refuse you. Related and separately carded as **#1464**: the
+   gate parses the stamp in the machine's local timezone while the page hard-codes
+   `CDT`, so a non-Central machine, or any machine after the November switch, is
+   measuring something different again.
+
+   ⚠️ **The tighter bound also refuses some entries step 7 would have accepted.**
+   The 5 is derived from a cut taking about fifteen minutes; on a fast cut
+   (`D = 8`) an entry ten minutes old would have reached step 7 reading 18 and
+   passed, and step 1 refuses it at 10. That is deliberate and it costs one
+   re-stamp and three seconds, but it is a real false refusal and you should
+   recognise it rather than hunt for a cause.
+
+   ⚠️ **Both bounds are overridable if you genuinely need to**, not only the late
+   one: `KOSMOS_STEP1_PAST_BOUND` and `KOSMOS_LATE_PAST_BOUND`. The step 1 bound is
+   the one that will have stopped you.
 
    📌 **Where fifteen comes from.** Measured on the 0.6.06 attempt of 2026-08-28:
    launch 21:56:18, step 7 at 22:12:04, so **15m 46s**, and a slow browser gate

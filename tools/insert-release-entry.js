@@ -25,18 +25,24 @@
  * exactly the stamp the gates are built to reject.
  *
  * ⚠️ THIS TOOL IS CURRENTLY INVOKED BY NOTHING. Measured 2026-08-28: a sweep of
- * the whole tree finds no caller. The only files naming it are this one and two
- * comments added alongside #1463 (tools/lib/versions-entry.sh and
- * tools/test-versions-entry-gate.sh), both prose, neither a call. Control:
- * `verify-served`, which IS wired, appears in 16 files including release.sh and
- * package.json. It has no test and no mention in the runbook, so today the stamp
- * is written by hand and this tool is an unused alternative, not the mechanism.
+ * the whole tree finds no caller -- every file that names it does so in prose.
+ * Control: `verify-served`, which IS wired, appears in 16 files including
+ * release.sh and package.json. It has no test and no mention in the runbook, so
+ * today the stamp is written by hand and this tool is an unused alternative,
+ * not the mechanism.
  *
- * 📌 An earlier version of this comment said the control was "five". That figure
- * came from a sweep I had piped through `head -5`, so it reported the limit I
- * passed rather than the count -- the same truncation trap this repo keeps
- * hitting, in evidence written to warn about a different one. The substantive
- * claim was unaffected and re-measured: still zero callers.
+ * 📌 I have now published a wrong count for this TWICE, in this same paragraph.
+ * First "the control appears in five files", which came from a sweep I had piped
+ * through `head -5`, so it reported the limit I passed rather than the count.
+ * Then, correcting it, "the only files naming it are this one and two comments"
+ * -- there are four, the fourth being tools.release-gate.test.js, added by the
+ * same branch that added the other two.
+ *
+ * ⇒ The enumeration is gone rather than corrected a third time. A count of
+ * incidental prose mentions was never the claim worth making, it changes every
+ * time anyone writes a sentence about this file, and I kept getting it wrong
+ * BECAUSE it was decoration rather than the measurement. The claim that matters
+ * is zero callers, it has a working control, and it is stable.
  *
  * ⭐ WIRING IT IN IS THE REAL CURE FOR THE STAMP-DRIFT CLASS and is worth its own
  * card: a machine reading the clock AT the moment of publication has an offset of
