@@ -52,17 +52,45 @@ const APP = 'AgentWorkforce';
  * card is Windows. Stated rather than left for somebody to discover in a switch
  * with no default comment.
  */
+/**
+ * The joiner for the platform being ASKED ABOUT, not the one we are running on.
+ *
+ * 🛑 THE PARAMETERISATION WAS NOT ENOUGH, AND THIS IS THE HALF THAT WAS MISSING
+ * (#1510, Renet Tilley). `dataRootFor` takes a platform precisely so a Mac can ask
+ * it about Windows. It then joined with the AMBIENT `path`, which off Windows IS
+ * `path.posix`, so the win32 branch answered with forward slashes:
+ *
+ *   dataRootFor('win32', 'C:\\Users\\jo', {})
+ *     ->  C:\Users\jo/AppData/Roaming/AgentWorkforce    <- what a Mac produced
+ *         C:\Users\jo\AppData\Roaming\AgentWorkforce   <- what Windows produces
+ *
+ * ⚠️ THE RUNTIME WAS NEVER WRONG. On Windows the ambient `path` is `path.win32`,
+ * so a real Windows machine always got the right answer. What was wrong was the
+ * EVIDENCE: a function built to make Windows assertable from here returned a value
+ * Windows never produces, and fifteen substring assertions could not tell.
+ *
+ * ⭐ A SUBSTRING MATCHER CANNOT DISTINGUISH THE RIGHT ANSWER FROM A NEARBY WRONG
+ * ONE, WHICH IS PRECISELY THE DISTINCTION A GUARD EXISTS TO MAKE. The test now
+ * pins whole strings.
+ *
+ * 📌 This is identical to the ambient `path` on the platform it names, so nothing
+ * about a running install changes. It only makes the other platform's answer
+ * truthful when asked from here.
+ */
+function joinerFor(platform) { return platform === 'win32' ? path.win32 : path.posix; }
+
 function dataRootFor(platform, home, env) {
   const e = env || {};
-  if (e.AGENT_WORKFORCE_DATA) return path.join(e.AGENT_WORKFORCE_DATA, APP);
+  const p = joinerFor(platform);
+  if (e.AGENT_WORKFORCE_DATA) return p.join(e.AGENT_WORKFORCE_DATA, APP);
   if (platform === 'win32') {
     /* ROAMING, not Local: this is a person's own configuration and it should
        follow them to another machine on a domain. `APPDATA` is set on every
        supported Windows, and the fallback is its documented location rather
        than a guess. */
-    return path.join(e.APPDATA || path.join(home, 'AppData', 'Roaming'), APP);
+    return p.join(e.APPDATA || p.join(home, 'AppData', 'Roaming'), APP);
   }
-  return path.join(home, 'Library', 'Application Support', APP);
+  return p.join(home, 'Library', 'Application Support', APP);
 }
 
 // ⚠️ Honours `AGENT_WORKFORCE_DATA` so tests can sandbox it, which they could
