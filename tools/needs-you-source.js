@@ -53,9 +53,20 @@
  * only" would be false: a REWORDED hook moves records the other way, into
  * agent-typed, which is why `hookPrefixIsLive` exists and refuses to be
  * silent. A `because` that is absent or truncated also lands in agent-typed.
- * ✅ Bounded rather than argued: granting EVERY hook-classified record to the
- * agents leaves 8 outside the fixtures, still a third of the cutoff below. The
- * conclusion survives its own worst case; the label was still wrong.
+ * 🛑 AND THE WORST CASE DOES NOT SURVIVE. AN EARLIER VERSION OF THIS HEADER
+ * SAID IT DID, AND THAT SENTENCE WAS THE SAME ERROR ONE LAYER UP: A BOUND
+ * COMPUTED AGAINST ONLY THE CUTOFF THAT LET IT PASS. Granting every
+ * hook-classified record to its agent keeps the SHARE clause comfortably
+ * (about a third of `SHARE_CUTOFF`) and BREAKS the `TYPERS_CUTOFF` clause,
+ * because those records are spread across six agents rather than one. Measured
+ * by building that exact fixture and running this tool on it: it prints the
+ * OPPOSITE verdict. So the defence is not a bound, and calling it one was the
+ * flattering direction again, in the sentence written to guard against it.
+ * ⭐ What there is instead is an ARGUMENT, labelled as one because it is not a
+ * measurement: those records carry the hook's GENERATED SHAPE -- a tool name
+ * plus a verbatim command -- which a person does not type by hand, and
+ * `hookPrefixIsLive` guards the marker itself against drift. Read them and
+ * judge; the per-agent table below is printed so you can.
  *
  * ⚠️ WHY A STRING MATCH AT ALL: the record does not store who wrote a line.
  * `report --auto` is a write-time discriminator (`selfreport.js`) and is not
@@ -81,14 +92,19 @@ const store = require(path.join(REPO, 'engine', 'store.js'));
    make this read 0, reclassify every hook record as agent-typed, and print the
    same verdict with an inverted split. `hookPrefixIsLive` below is the link. */
 const HOOK_PREFIX = 'asking permission to use ';
-const HOOK_SOURCE = path.join(REPO, 'install', 'kosmos-report-hook.sh');
+/* Overridable ONLY so the drift refusal below can be exercised from both arms
+   in `tools/test-needs-you-source.sh`. A refusal that cannot be tested is the
+   same decoration as a control that cannot fail. */
+const HOOK_SOURCE = process.env.KOSMOS_HOOK_SOURCE || path.join(REPO, 'install', 'kosmos-report-hook.sh');
 
 /* Walkthrough agents (#1253's own evidence: `walk-birch`, `walk-cedar`) are
    FIXTURES, not colleagues. They are named here rather than eyeballed off the
    per-agent table, because the verdict must not be flippable by a fixture run:
-   14 of the 15 agent-typed records on this machine are theirs, and one more
+   nearly every agent-typed record on this machine is theirs, and one more
    walkthrough at the same volume would otherwise print "agents ARE reporting
-   this state themselves" on the strength of test traffic. */
+   this state themselves" on the strength of test traffic. No count here on
+   purpose: the numbers live in `status.js` rule 3, once, beside the
+   instruction not to trust them. */
 const FIXTURE_PREFIX = 'walk-';
 
 const RED = 'needs_you';
@@ -117,7 +133,7 @@ function parseArgs(argv) {
     if (argv[i] !== '--dir') {
       return { error: 'unrecognised argument: ' + argv[i] + '. The only option is --dir <path>. Nothing was read.' };
     }
-    if (argv[i] === '--dir') {
+    {
       /* 🛑 PRESENT-BUT-EMPTY IS AN ERROR, NEVER A FALLBACK. `--dir "$UNSET"`
          used to fall through to the LIVE record while the caller believed it
          was reading a fixture, which silently breaks the shell test's promise
@@ -267,9 +283,17 @@ function main() {
   if (live === true) {
     console.log('       ok  the hook still writes "' + HOOK_PREFIX.trim() + '" (checked in ' + path.relative(REPO, HOOK_SOURCE) + ')');
   } else if (live === false) {
-    console.log('  🛑 MISMATCH: ' + path.relative(REPO, HOOK_SOURCE) + ' no longer contains "' + HOOK_PREFIX.trim() + '".');
-    console.log('     Every hook-written record is now being counted as agent-typed. The split below');
-    console.log('     is WRONG and the verdict cannot be trusted. Update HOOK_PREFIX to match the hook.');
+    /* 🛑 REFUSE, DO NOT WARN AND CONTINUE. An earlier version printed "the
+       verdict cannot be trusted" and then printed the verdict anyway, exiting
+       0 -- which is the editorialising-past-your-own-data defect this file
+       names below, committed by the very line written to prevent it. A drifted
+       marker is a BROKEN INSTRUMENT, not a finding, and it gets the same
+       treatment as an empty record. */
+    console.error('🛑 MISMATCH: ' + HOOK_SOURCE + ' no longer contains "' + HOOK_PREFIX.trim() + '".');
+    console.error('   Every hook-written record would be counted as agent-typed, so the split and the');
+    console.error('   verdict would both be wrong. Nothing is printed. Update HOOK_PREFIX to match the hook.');
+    process.exitCode = 1;
+    return;
   } else {
     console.log('  ?  could not read ' + path.relative(REPO, HOOK_SOURCE) + ', so the marker is UNVERIFIED (not mismatched)');
   }

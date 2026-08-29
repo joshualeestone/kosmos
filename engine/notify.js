@@ -26,11 +26,17 @@
  * 'needs_you' is the next one and needs the state transition, not a write;
  * it is named here so the payload's `kind` is a closed list from the start.
  *
- * ⚠️ AND NO PRODUCER OF THIS TRANSITION IS THE AGENT'S OWN JUDGEMENT. Two
- * things produce it today -- the pane reader, whose verdict is composed in
- * `status.reconcileReport` at read time and is never written anywhere, and
- * the PermissionRequest hook, which does write a self-report on an agent's
- * behalf. Neither is an agent deciding it needs a person. They are also not
+ * ⚠️ AND ALMOST NO PRODUCER OF THIS TRANSITION IS THE AGENT'S OWN JUDGEMENT.
+ * Two things produce it in practice -- the pane reader, whose verdict is
+ * composed in `status.classify` at read time and is never written anywhere
+ * (`reconcileReport` is where that verdict is given precedence over a report,
+ * which is a different step), and the PermissionRequest hook, which does write
+ * a self-report on an agent's behalf. Neither is an agent deciding it needs a
+ * person. An agent HAS typed it once, ever, and the word "almost" is there
+ * because of that one record: an absolute claim with a known counterexample
+ * sitting in the split three files away would err in the direction that
+ * flatters the argument, which is the one direction this changeset's own
+ * standard forbids. They are also not
  * the same QUALITY of event, and that matters here more than anywhere: a
  * permission box is a real machine event and a genuine person-blocker, while
  * a scraped one is an inference about what a screen looked like. So a ping

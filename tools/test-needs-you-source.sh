@@ -253,6 +253,36 @@ console.log(m.hookPrefixIsLive("/nonexistent/kosmos-report-hook.sh"));
 [ "$gone" = "null" ] && ok "arm 8: and an unreadable hook is UNVERIFIED (null), never reported as a mismatch" \
   || bad "arm 8: an unreadable hook was conflated with a reworded one"
 
+# --- 🔑 ARM 9: A DRIFTED MARKER REFUSES, IT DOES NOT WARN AND CARRY ON. The
+#     first version printed "the verdict cannot be trusted" and then printed
+#     the verdict anyway, exiting 0 -- the editorialising-past-your-own-data
+#     defect committed by the line written to prevent it. HOOK_SOURCE is
+#     overridable for exactly this arm; without an injection point the refusal
+#     could not be tested at all, which is how it shipped broken.
+out="$(KOSMOS_HOOK_SOURCE="$T/reworded-hook.sh" node tools/needs-you-source.js --dir "$T/rare" 2>&1)"; rc=$?
+case "$out" in
+  *"MISMATCH"*) ok "arm 9: a drifted marker is reported" ;;
+  *) bad "arm 9: no mismatch reported on a reworded hook"; printf '%s\n' "$out" | head -3 ;;
+esac
+[ "$rc" -eq 1 ] && ok "arm 9: and it REFUSES (exit 1), rather than warning and continuing" \
+  || bad "arm 9: exited $rc -- a broken instrument was allowed to print a verdict"
+case "$out" in
+  *"load-bearing on the PANE READER"*|*"ARE reporting this state themselves"*|*"BY PROVENANCE"*)
+    bad "arm 9: it printed the split or the verdict anyway" ;;
+  *) ok "arm 9: and prints neither the split nor the verdict" ;;
+esac
+# the other arm: the real hook must NOT trigger the refusal
+out="$(run "$T/rare")"; rc=$?
+[ "$rc" -eq 0 ] && ok "arm 9: and the real hook does not trigger it (exit 0)" \
+  || bad "arm 9: the refusal fires against the real hook, exit $rc"
+
+# --- 🔑 ARM 10: THE SUCCESS PATH EXITS 0. Codes 1 and 2 are asserted above;
+#     0 was not, and this script runs without `set -e` while run() discards
+#     status -- so a regression making the good path exit non-zero would leave
+#     every other assertion green.
+node tools/needs-you-source.js --dir "$T/rare" >/dev/null 2>&1
+[ $? -eq 0 ] && ok "arm 10: a successful read exits 0" || bad "arm 10: the success path did not exit 0"
+
 echo
 if [ "$FAILS" -eq 0 ]; then echo "all arms pass"; else echo "$FAILS arm(s) failed"; fi
 exit "$FAILS"

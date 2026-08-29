@@ -13,7 +13,10 @@ sources produce it: the `PermissionRequest` hook, an agent running
 Measured over the whole self-report record on this machine (2026-08-28):
 
 ```
-records                26,227
+2026-08-28 18:58 CDT, one snapshot with its clock time, because the record is
+append-only and any total quoted without one is a different number by morning:
+
+records                26,392
   needs_you                22
     7  written by the PermissionRequest hook on an agent's behalf
    14  belonging to two walkthrough FIXTURE agents
@@ -47,7 +50,7 @@ points at it and tells the reader not to trust its own numbers.
    - asserts its conclusion against its own numbers, and prints the OPPOSITE
      conclusion when agents have started reporting the state themselves
 
-2. `tools/test-needs-you-source.sh`, twenty-four arms.
+2. `tools/test-needs-you-source.sh`, 17 named arms and 37 assertions.
    **Arm 3 is the load-bearing one:** the tool must be able to print the
    uncomfortable answer. A measuring tool that can only ever return
    "load-bearing on the scrape" is decoration on that sentence, not evidence
@@ -127,6 +130,31 @@ points at it and tells the reader not to trust its own numbers.
   the direction that flatters the thesis. Both gone, along with a count that was
   a second copy of a number the plan says lives in exactly one place.
 
+### Amended at iteration 3
+
+- 🛑 **The "survives its own worst case" bound was false in all three copies.**
+  See the corrected weakest-premise section below.
+- **A drifted hook marker now REFUSES and exits 1.** It used to print "the
+  verdict cannot be trusted" and then print the verdict anyway, exiting 0 --
+  the editorialising-past-your-own-data defect, committed by the line written
+  to prevent it. `HOOK_SOURCE` is overridable so arm 9 can drive that path from
+  both sides; without an injection point the refusal could not be tested, which
+  is how it shipped broken.
+- **An arm now asserts exit 0 on success.** Codes 1 and 2 were covered; 0 was
+  not, and the script runs without `set -e`, so a regression on the good path
+  would have left every other assertion green.
+- **`notify.js` no longer states an absolute** with a known counterexample: an
+  agent has typed the verb once, ever. It also said the scraped verdict is
+  composed in `reconcileReport`; it is composed in `classify`, and
+  `reconcileReport` is where it is given precedence.
+- **`status.js` now says the instruction was MERGED AND NOT DELIVERED.**
+  Measured: 0 of 17 worker instruction files carry `kosmos report needs_you`,
+  control 17 of 17 mention `kosmos`. `defaults.js`'s own version log says the
+  same thing, and two engine files disagreeing about one number is how a reader
+  ends up trusting neither.
+- **The tool header no longer carries derived counts**, which were a second
+  copy of numbers the plan says live in exactly one place.
+
 ## What this deliberately does NOT do
 
 - **No behaviour change.** Comments, one read-only tool, one test, one line of
@@ -152,11 +180,20 @@ the one direction a caveat must not be wrong in. Splinter's question about
 #1453 against this number is what surfaced it; an independent reviewer read
 the same sentence and endorsed it.
 
-✅ Bounded rather than argued, so the conclusion does not rest on my being
-right about direction: granting EVERY hook-classified record to the agents
-leaves 8 of 26,269 outside the fixtures, 0.03%, still a third of the tool's
-cutoff. And the 7 are not plausibly hand-typed - each carries the hook's
-generated shape, a tool name plus a verbatim command.
+🛑 **AND THE BOUND I ADDED TO DEFEND THAT CAVEAT WAS ITSELF THE FLATTERING
+DIRECTION.** I wrote that the conclusion "survives its own worst case" because
+granting every hook record to the agents stays under the share cutoff. **The
+verdict has TWO cutoffs and I checked the one that let it pass.** Those seven
+records are spread across six agents, so the worst case breaks the
+distinct-agent clause. Measured by building that exact fixture and running the
+tool: it prints `observed: 0.0307% and 6 agent(s)` and then the OPPOSITE
+verdict. Found by challenge-loop iteration 3, reproduced by me.
+
+✅ **What stands instead is an ARGUMENT, labelled as one because it is not a
+measurement:** those seven records each carry the hook's generated shape, a
+tool name plus a verbatim command, which a person does not type by hand; and
+`hookPrefixIsLive` guards the marker against drift and now REFUSES rather than
+warning. Read the per-agent table and judge.
 
 ## What would change my mind
 

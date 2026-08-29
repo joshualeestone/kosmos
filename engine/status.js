@@ -3567,9 +3567,17 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *                                     classification error above lands here.
  *      ⚠️ BOTH MARKERS ERR IN THE DIRECTION THAT FLATTERS THIS PARAGRAPH,
  *      which is the one direction a caveat must not be wrong in: anything
- *      over-broad moves a record OUT of agent-typed. Bounded rather than
- *      argued -- granting every hook record to the agents leaves 8 outside the
- *      fixtures, still a third of the tool's cutoff.
+ *      over-broad moves a record OUT of agent-typed.
+ *      🛑 AND THE WORST CASE DOES NOT SURVIVE, WHICH AN EARLIER VERSION OF
+ *      THIS PARAGRAPH CLAIMED IT DID. Granting every hook record to its agent
+ *      keeps the tool's SHARE cutoff comfortably and BREAKS its DISTINCT-AGENT
+ *      cutoff, because those records are spread across six agents; run that
+ *      fixture and the tool prints the OPPOSITE verdict. The earlier sentence
+ *      bounded against one of two cutoffs -- the one that let it pass -- which
+ *      is the flattering direction committed by the sentence written to guard
+ *      against it. ⇒ What stands here is an ARGUMENT, not a bound: those seven
+ *      records carry the hook's GENERATED SHAPE, a tool name plus a verbatim
+ *      command, which a person does not type by hand.
  *      ⇒ Every other rule here arbitrates between two witnesses. This one
  *      arbitrates between a witness and, in practice, a silence. So anything
  *      that narrows the classifier narrows the only path that produces the
@@ -3591,7 +3599,19 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      the newest agent-typed record. That date is 2026-08-24, and #1255
  *      shipped the instruction telling agents to report the state on
  *      2026-08-27 CDT -- so the only time a working agent ever used the verb
- *      was BEFORE anybody told it to, and nothing has been typed since. The
+ *      was BEFORE anybody told it to, and nothing has been typed since.
+ *      🛑 DO NOT READ THAT AS "THE INSTRUCTION DID NOT PERSUADE ANYBODY". IT
+ *      WAS NEVER DELIVERED. `defaults.js`'s own version log records that #1255
+ *      and #1296 both landed inside a heading every existing agent already
+ *      held, so `missingFrom` never re-offered either; measured here
+ *      2026-08-28, 0 of 17 worker instruction files carry
+ *      `kosmos report needs_you` while 17 of 17 mention `kosmos` (the
+ *      control). ⇒ The flat count is evidence of NON-DELIVERY, not evidence
+ *      about the copy, and this rule's conclusion is unaffected either way:
+ *      the scrape is load-bearing today whatever the reason the other path is
+ *      empty. Said out loud because the sibling comment in `defaults.js` says
+ *      exactly this, and two engine files disagreeing about one number is how
+ *      a reader ends up trusting neither. The
  *      tool also says plainly if working agents have started reporting it, in
  *      which case this paragraph is stale and rule 3 wants re-arguing rather
  *      than repeating.
