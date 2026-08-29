@@ -104,6 +104,34 @@ test('🛑 the log says "I RAN" before it says anything else', () => {
   assert.match(rows[0].note, /RAN/, 'the boot line does not say what it means');
 });
 
+test('🛑 the boot line says WHICH process, because "something ran" is not the claim', () => {
+  /* I shipped this line claiming a boot proved the BOARD had run. It does not:
+     any process reaching snapshot() against the real store announces, including
+     a one-off `node -e`. Six boots appeared in five minutes on this machine and
+     most were my own throwaway checks.
+     ⇒ Recorded rather than FILTERED. Filtering restores the ambiguity for
+     everything that is not the board, which is the defect this line exists to
+     remove. */
+  wouldping.saw('w', 'idle', {});
+  const boot = wouldping.read().find((r) => r.kind === 'boot');
+  assert.ok('script' in boot, 'a reader cannot tell a board boot from a diagnostic');
+  assert.equal(typeof boot.script, 'string');
+  assert.equal(typeof boot.pid, 'number');
+  assert.match(boot.note, /which process/i, 'the note does not tell a reader what `script` is for');
+});
+
+test('🛑 the boot line carries the BASENAME, never the arguments', () => {
+  /* A full command line can carry a path, a token or a key, and this file is
+     written to disk and read by people. `server.js` is the whole of what a
+     reader needs. */
+  wouldping.saw('w2', 'idle', {});
+  const boot = wouldping.read().find((r) => r.kind === 'boot');
+  assert.doesNotMatch(boot.script, /[/\\]/, 'the boot line carries a PATH: ' + boot.script);
+  const src = fs.readFileSync(require.resolve('./wouldping'), 'utf8');
+  assert.doesNotMatch(src, /argv\.join|argv\.slice\(1\)\.join|process\.argv\)/,
+    'it now records more of the command line than the script name');
+});
+
 test('the boot line is written ONCE per process, not per call', () => {
   for (let i = 0; i < 30; i += 1) wouldping.saw('z' + i, 'idle', {});
   assert.equal(wouldping.read().filter((r) => r.kind === 'boot').length, 1,
