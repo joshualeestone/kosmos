@@ -362,6 +362,15 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true } = {}) {
        harness. Found by running these while 0.6.02 was in flight. */
     env: {
       ...process.env,
+      /* ⚠️ STRIP THE BOUND OVERRIDES. docs/releasing.md tells an operator to
+         export these when a cut runs long, and step 3 of the cut runs `yarn
+         test` in a subshell that inherits them -- so without this, taking the
+         documented escape hatch makes the cut die red at step 3, after the
+         freeze, on a failure unrelated to the tree. Measured: exporting
+         KOSMOS_STEP1_PAST_BOUND=30 turned the 12-minute arm red. */
+      KOSMOS_STEP1_PAST_BOUND: undefined,
+      KOSMOS_LATE_PAST_BOUND: undefined,
+      KOSMOS_FUTURE_BOUND: undefined,
       HOME: home,
       KOSMOS_SITE: site,
       KOSMOS_HARNESS_IGNORE_CUT: '1',
