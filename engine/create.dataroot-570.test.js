@@ -67,7 +67,7 @@ test('create reaches the same resolver store built ROOT from', () => {
 function supportDirBody() {
   const src = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
   assert.ok(src.length > 100000, `create.js read short (${src.length} bytes); floor not met`);
-  const m = /\nfunction supportDir\(\)\s*\{([\s\S]*?)\n\}/.exec(src);
+  const m = /\nfunction supportDir\([^)]*\)\s*\{([\s\S]*?)\n\}/.exec(src);
   assert.ok(m, 'supportDir() not found in create.js by the source heuristic; if it was reformatted or made an arrow, this check needs updating and is NOT reporting a real defect');
   return m[1].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*/g, '');
 }
@@ -189,6 +189,20 @@ test('on Windows the resolver create uses lands in AppData, not a Library folder
   const got = store.dataRootFor('win32', 'C:\\Users\\someone', {});
   assert.ok(!got.includes('Library'), `must not contain Library, got ${got}`);
   assert.ok(got.includes('AppData'), `must be under AppData, got ${got}`);
+});
+
+/**
+ * ✅ THE ONE THAT CLOSES THE PLATFORM BLIND SPOT, and neither other guard could.
+ *
+ * A stub can only observe the HOST platform, so hardcoding 'darwin' inside
+ * `supportDir` left every other test green while Windows got a Library path.
+ * Measured before this test existed. Now `supportDir` takes the platform, so
+ * create's Windows answer can be asked for from a Mac.
+ */
+test('create.supportDir asked for win32 lands in AppData, not a Library folder', () => {
+  const got = create.supportDir('win32');
+  assert.ok(!got.includes('Library'), `create's win32 answer must not contain Library, got ${got}`);
+  assert.ok(got.includes('AppData'), `create's win32 answer must be under AppData, got ${got}`);
 });
 
 test('darwin is unchanged, which is the property that must never move', () => {

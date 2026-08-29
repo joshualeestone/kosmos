@@ -200,7 +200,7 @@ function agentsDir() { return process.env.AGENT_WORKFORCE_LAUNCH || path.join(ho
    resolver at REQUIRE time, so unfreezing the resolver moved the freeze
    up one level rather than removing it. A multi-line declaration also
    hid it from a line-based sweep. */
-function supportDir() {
+function supportDir(platform = process.platform) {
   /* 🛑 DELEGATES TO `store.dataRootFor` (#570) RATHER THAN SPELLING THE PATH
      AGAIN. #570 made store.js's copy platform-aware and did not touch this
      one, so for a few hours the product had TWO answers to "where does this
@@ -219,8 +219,20 @@ function supportDir() {
 
      📌 AGENT_WORKFORCE_DATA is handled inside dataRootFor identically to the
      branch this replaces (`path.join(DATA, APP)` with APP='AgentWorkforce'),
-     so the sandbox path is byte-identical and not merely equivalent. */
-  return store.dataRootFor(process.platform, homeDir(), process.env);
+     so the sandbox path is byte-identical and not merely equivalent.
+
+     🔑 THE PLATFORM IS A PARAMETER, defaulting to this one, FOR THE SAME
+     REASON #570 GAVE FOR `dataRootFor` ITSELF: `process.platform` cannot be
+     set, so a function that reads it directly is a function whose Windows
+     behaviour is unassertable from a Mac -- and #570's own docblock says
+     "unassertable is how this defect survived in the first place".
+     ⚠️ MEASURED BEFORE ADDING IT: with the platform read inline, hardcoding
+     'darwin' here left the ENTIRE test file green (8 pass, 0 fail) while
+     Windows got `.../Library/Application Support/AgentWorkforce`, which is
+     verbatim the defect this change exists to remove. Both guards were blind
+     to it, the behavioural one included, because a stub can only ever observe
+     the host platform. */
+  return store.dataRootFor(platform, homeDir(), process.env);
 }
 const OUTCOME = { CREATED: 'created', REFUSED: 'refused', PARTIAL: 'partial' };
 
