@@ -78,15 +78,43 @@ fi
 
 # --- layout C: THE ONE THAT BROKE THE FLEET ----------------------------------
 # The hook copied somewhere with neither relationship, which is what
-# ~/.claude/hooks/user/ is. This currently returns EMPTY, and empty means every
-# report is a silent no-op returning success.
+# ~/.claude/hooks/user/ is. It USED to return EMPTY, and empty means every report
+# is a silent no-op returning success -- 18 agents, 2026-08-28.
+#
+# 🛑 THIS ARM WAS DELIBERATELY INVERTED, and the previous version of this test
+# told whoever did it to say why. Saying why: the $HERE rungs are both relative,
+# and a hook is a file other people COPY, so resolving only from its own home was
+# the wrong assumption for this kind of file. Two location-independent fallbacks
+# were added after the $HERE rungs, so a real layout still wins.
+#
+# HOME and PATH are pinned in every arm below. Without that these assertions
+# would read the developer's own machine and pass or fail for reasons that have
+# nothing to do with the code.
 mkdir -p "$T/C/hooks/user"
-got="$(resolve "$T/C/hooks/user")"
-if [ -z "$got" ]; then
-  ok "deployed-elsewhere returns EMPTY (documents #1467: a copy is not a deploy)"
-else
-  bad "deployed-elsewhere returned '$got'. If this is a deliberate new rung, UPDATE THIS TEST and say why: it is the arm that broke 18 agents"
-fi
+
+# C1: a deployed copy finds the installer's link target.
+mkdir -p "$T/fakehome/.local/bin"
+printf '#!/bin/sh\n' > "$T/fakehome/.local/bin/kosmos"; chmod +x "$T/fakehome/.local/bin/kosmos"
+got="$(HOME="$T/fakehome" PATH=/usr/bin:/bin resolve "$T/C/hooks/user")"
+[ "$got" = "$T/fakehome/.local/bin/kosmos" ] \
+  && ok "deployed-elsewhere now RESOLVES via ~/.local/bin (the #1467 fix)" \
+  || bad "deployed-elsewhere returned '$got', expected $T/fakehome/.local/bin/kosmos"
+
+# C2: with the link target absent, PATH is the next rung.
+mkdir -p "$T/fakepath"
+printf '#!/bin/sh\n' > "$T/fakepath/kosmos"; chmod +x "$T/fakepath/kosmos"
+got="$(HOME="$T/emptyhome" PATH="$T/fakepath:/usr/bin:/bin" resolve "$T/C/hooks/user")"
+[ "$got" = "kosmos" ] \
+  && ok "deployed-elsewhere falls back to PATH when the link target is absent" \
+  || bad "PATH fallback returned '$got', expected the bare word kosmos"
+
+# C3: CONTROL, and the important one. With NOTHING available it must still be
+# EMPTY rather than a guess -- a wrong path fails further from here, where the
+# reader cannot connect it to this decision.
+got="$(HOME="$T/emptyhome" PATH="$T/nothing" resolve "$T/C/hooks/user")"
+[ -z "$got" ] \
+  && ok "CONTROL: with no CLI anywhere it still refuses rather than inventing a path" \
+  || bad "CONTROL FAILED: returned '$got' when nothing should have been findable"
 
 # --- layout D: the env override, rung 1 --------------------------------------
 got="$(KOSMOS_REPORT_CLI=/tmp/some-cli resolve "$T/C/hooks/user")"
@@ -100,7 +128,13 @@ got="$(KOSMOS_REPORT_CLI=/tmp/some-cli resolve "$T/C/hooks/user")"
 # exists, not that the guard does anything.
 mkdir -p "$T/E/app/bin" "$T/E/bin"
 printf '#!/bin/bash\n' > "$T/E/bin/kosmos"; chmod +x "$T/E/bin/kosmos"
-got="$(resolve "$T/E/app/bin")"
+# 🛑 HOME and PATH are pinned HERE TOO, and that is not incidental. This control
+# read EMPTY as "rung 2 refused". Once #1467 added location-independent
+# fallbacks, EMPTY stopped being that signature: rung 2 still refused, and the
+# fallback then resolved, so the control failed while the code was correct.
+# It was asserting an INCIDENTAL property (nothing else could resolve) to test a
+# SPECIFIC one (this guard refuses). Pinning restores the meaning.
+got="$(HOME="$T/emptyhome" PATH="$T/nothing" resolve "$T/E/app/bin")"
 [ -z "$got" ] \
   && ok "CONTROL: without server.js the installed rung refuses, so its guard is real" \
   || bad "CONTROL FAILED: resolved '$got' with no server.js; rung 2's guard is not doing anything"

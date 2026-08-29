@@ -84,6 +84,18 @@ resolve_kosmos() {
   fi
   # Source layout: the CLI is this script's sibling.
   if [ -x "$HERE/kosmos" ]; then printf '%s' "$HERE/kosmos"; return; fi
+  # 🛑 DEPLOYED ELSEWHERE (#1467). Both rungs above are RELATIVE to $HERE, so a
+  # copy of this hook placed anywhere else -- which is how a fix was deployed on
+  # 2026-08-28 -- resolved to EMPTY and every report returned success while doing
+  # nothing, for all 18 agents, silently. A hook is a file other people copy;
+  # resolving only from its own home is the wrong assumption for one.
+  #
+  # These fallbacks are location-INDEPENDENT and deliberately ordered last, so a
+  # real installed or source layout still wins and this changes nothing for them.
+  if [ -x "$HOME/.local/bin/kosmos" ]; then printf '%s' "$HOME/.local/bin/kosmos"; return; fi
+  if command -v kosmos >/dev/null 2>&1; then printf 'kosmos'; return; fi
+  # ⚠️ Still empty rather than a guess. The caller refuses on an empty resolve,
+  # which is the honest outcome; inventing a path would fail further from here.
   printf ''
 }
 KOSMOS="$(resolve_kosmos)"
