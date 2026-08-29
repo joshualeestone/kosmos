@@ -137,21 +137,34 @@ if [ "$rc" -eq 1 ]; then pass "an offset that cannot be computed at all REFUSES 
 # 🛑 An article with no rel-d must not borrow the NEXT article's stamp. Entries are
 # newest-first, so on a same-session re-cut the neighbour's stamp is plausibly
 # inside the window and would green-light an entry carrying no timestamp at all.
-cat > "$F" <<'HTML'
-<article class="rel" id="v0-6-06">
-  <h2>0.6.06</h2>
-</article>
-<article class="rel" id="v0-6-05">
-  <span class="rel-d">PLACEHOLDER</span>
-</article>
-HTML
-sed -i '' "s/PLACEHOLDER/$(stamp_at 0)/" "$F"
+# ⚠️ ONE printf, not a heredoc plus a sed substitution: if that substitution ever
+# no-opped, the literal PLACEHOLDER survived and the control below still passed,
+# because it only asserted non-empty.
+printf '<article class="rel" id="v0-6-06">\n  <h2>0.6.06</h2>\n</article>\n<article class="rel" id="v0-6-05">\n  <span class="rel-d">%s</span>\n</article>\n' "$(stamp_at 0)" > "$F"
 got="$(kosmos_versions_entry_stamp 0.6.06 "$F")"
 if [ -z "$got" ]; then pass "an entry with no rel-d reads empty, not the neighbour's stamp"; else fail "FAIL-OPEN: borrowed a neighbour's stamp: '$got'"; fi
 got="$(kosmos_versions_entry_stamp 0.6.05 "$F")"
-if [ -n "$got" ]; then pass "CONTROL: the neighbour's own stamp is still readable"; else fail "control empty, the reader is dead and the arm above proves nothing"; fi
+# ⚠️ the control asserts the stamp PARSES, not merely that it is non-empty, so it
+# cannot pass on a literal placeholder that the fixture failed to substitute.
+gotoff="$(kosmos_versions_entry_stamp_off "$got")"
+case "$gotoff" in ''|*[!0-9-]*) parses=no ;; *) parses=yes ;; esac
+if [ "$parses" = yes ]; then pass "CONTROL: the neighbour's own stamp is readable AND parses ($got)"; else fail "control did not parse ('$got' -> '$gotoff'); the reader or the fixture is broken"; fi
 out="$(run)"; rc=$?
 if [ "$rc" -eq 1 ]; then pass "and the gate refuses the entry that has no timestamp"; else fail "FAIL-OPEN: no-timestamp entry passed (rc=$rc): $out"; fi
+
+
+# --- a non-integer BOUND must refuse too, not just a non-integer offset ---
+entry "August 28, 2026, 1:00 AM CDT"
+out="$(kosmos_versions_entry_gate 0.6.06 "$F" "c." "h." abc 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && has "$out" "not a whole number"; then pass "a non-integer past bound REFUSES (fail closed)"; else fail "FAIL-OPEN: bound 'abc' passed (rc=$rc): $out"; fi
+out="$(kosmos_versions_entry_gate 0.6.06 "$F" "c." "h." "$KOSMOS_LATE_PAST_BOUND" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "CONTROL: the same entry with a valid bound still refuses for staleness"; else fail "control: a 90-min-stale entry should refuse (rc=$rc): $out"; fi
+
+# --- the bounds are overridable, because the runbook says they are ---
+got="$(KOSMOS_LATE_PAST_BOUND=99 bash -c '. "'"$HERE"'/lib/versions-entry.sh"; echo "$KOSMOS_LATE_PAST_BOUND"')"
+if [ "$got" = 99 ]; then pass "an exported bound survives sourcing (the runbook offers it as a knob)"; else fail "sourcing clobbered an exported bound: got '$got'"; fi
+got="$(bash -c '. "'"$HERE"'/lib/versions-entry.sh"; echo "$KOSMOS_LATE_PAST_BOUND"')"
+if [ "$got" = "$KOSMOS_LATE_PAST_BOUND" ]; then pass "CONTROL: with nothing exported it takes its default ($got)"; else fail "default bound wrong: '$got'"; fi
 
 # --- the two call sites give DIFFERENT stamp advice, and early must not say "now" ---
 # 🛑 THE ARM THAT PINS THE ACTUAL BUG: telling the operator at step 1 to stamp NOW
@@ -171,6 +184,12 @@ late="$(sed -n 2p "$joined")"
 if [ -n "$early" ] && [ -n "$late" ]; then pass "both call sites extracted non-empty"; else fail "extraction empty: early='$early' late='$late'"; fi
 if has "$early" "PUBLISH"; then pass "the step 1 call tells the operator to stamp for publication"; else fail "step 1 stamp advice: $early"; fi
 if has "$late" "Paste the clock line"; then pass "the step 7 call tells the operator to stamp now"; else fail "step 7 stamp advice: $late"; fi
+# ⚠️ AND ASSERT WHICH BOUND EACH CALL SITE PASSES. Comparing only the prose let a
+# swap of the two bounds through untouched -- measured, both suites stayed green.
+if has "$early" "KOSMOS_STEP1_PAST_BOUND"; then pass "the step 1 call passes the TIGHT past bound"; else fail "step 1 does not pass KOSMOS_STEP1_PAST_BOUND: $early"; fi
+if has "$late" "KOSMOS_LATE_PAST_BOUND"; then pass "the step 7 call passes the LATE past bound"; else fail "step 7 does not pass KOSMOS_LATE_PAST_BOUND: $late"; fi
+if [ "$KOSMOS_STEP1_PAST_BOUND" -lt "$KOSMOS_LATE_PAST_BOUND" ]; then pass "and the early bound is genuinely tighter ($KOSMOS_STEP1_PAST_BOUND < $KOSMOS_LATE_PAST_BOUND)"; else fail "the early bound is not tighter: $KOSMOS_STEP1_PAST_BOUND vs $KOSMOS_LATE_PAST_BOUND"; fi
+
 if [ "$early" = "$late" ]; then fail "both call sites give the same stamp advice; step 1 must not say 'now'"; else pass "the two call sites do not share one remediation sentence"; fi
 
 # --- the gate is actually wired at BOTH call sites, in the right ORDER ---

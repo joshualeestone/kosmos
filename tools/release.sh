@@ -576,6 +576,13 @@ let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
 });"
 
 step "== 7. the versions page needs its entry BEFORE you deploy =="
+# ⚠️ SOURCED AGAIN HERE, AND IT IS NOT REDUNDANT. Step 1 sourced this, but `$REPO`
+# has since been reassigned to the frozen worktree, so the step 1 path is not the
+# one this line resolves. Sourcing is idempotent; without it this call depends on
+# a definition from 300 lines earlier surviving, and if it ever did not the
+# failure is `command not found`, exit 127, which `|| exit 1` turns into a refusal
+# that names nothing.
+. "$REPO/tools/lib/versions-entry.sh"
 # ⚠️ Step 1 already ran this gate, and this is NOT a leftover. The site
 # checkout can change under a cut that takes fifteen minutes, and a stamp that
 # agreed with the clock at step 1 can be twenty minutes stale by the time we
