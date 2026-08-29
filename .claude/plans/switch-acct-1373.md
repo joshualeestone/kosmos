@@ -91,10 +91,19 @@ keeps catching, and three of these came out of review rather than design:**
   the override is gone, and the unpicked-account fallback that iteration 11 turned out
   to need), pass, and **repeatable** (3 consecutive runs exit 0, which is the
   arm that caught the launchctl defect below).
-- `web.switch-account-1373.test.js`: **18 tests**, pass. Source-level by construction and
+- `web.switch-account-1373.test.js`: **20 tests**, pass. Source-level by construction and
   it says so in its own header: it can see that a guard is present and what it is keyed
   on, and it cannot see the rendered page.
-- Full runner: **2978 pass, 0 fail, exit 0** (re-measured 2026-08-29 14:15 CDT, rebased onto main). The figure moves as this branch adds tests, so it is dated
+- `server.switch-account-1373.test.js`: **4 tests**, pass. NEW, and it closes the one seam
+  that had no executed arm: the route was pinned only by regexes matching `server.js`
+  against itself. ⭐ **Proven by the mutation a review used to expose the gap:** deleting
+  `+ landedOn` from the OK-branch sentence leaves every source-level assertion GREEN and
+  makes this file go RED.
+  ⚠️ **It is in its own file, not in `server.test.js`, deliberately.** That suite states it
+  never sets `AGENT_WORKFORCE_HOME`, and an arm of its own reasons from that; since
+  `homeDir()` falls back to `os.homedir()`, a route test added there would enumerate the
+  operator's REAL `~/.codex-*` sign-ins. This file seals all three roots instead.
+- Full runner: **3003 pass, 0 fail, exit 0** (re-measured 2026-08-29 15:05 CDT, rebased onto main). The figure moves as this branch adds tests, so it is dated
   rather than stated: 2907 pre-rebase, 2935 post-rebase, 2936 after iteration 13's pair
   test, 2937 after iteration 14, 2938 after iteration 15's fail-quiet guards.
   🛑 THIS NUMBER HAS GONE STALE THREE ITERATIONS RUNNING (14, 15 and 16 each caught it),
