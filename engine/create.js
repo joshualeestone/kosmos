@@ -680,7 +680,7 @@ function setAccount(name, dir) {
     // Accounts here are Claude accounts (CLAUDE_CONFIG_DIR), which mean
     // nothing to codex; writing one anyway would claim an account change
     // that changes nothing (#245 v1).
-    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on OpenAI, on this computer's OpenAI sign-in, so there is no Claude account to change` };
+    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on OpenAI, so there is no Claude account to change` };
   }
   try {
     fs.writeFileSync(plistPath(clean),
@@ -900,9 +900,16 @@ function setProvider(name, provider, opts) {
       dir: acct.dir, email: acct.email, keyTail: acct.keyTail,
       authMode: acct.authMode, isDefault: acct.isDefault === true,
       choiceOf: accounts.length,
-      /* Whether a person PICKED this or we stated a default. The route says a
-         different sentence for each, because "you chose this" and "we chose
-         this and are telling you" are different promises. */
+      /* Whether the REQUEST NAMED an account, which the route renders as "you
+         picked this" rather than "we picked this and are telling you".
+         ⚠️ THE NAME CLAIMS MORE THAN THE ENGINE CAN KNOW, and that is worth stating
+         rather than hiding behind a nicer word. All the engine sees is that a
+         directory arrived; whether a PERSON chose it is decided by one browser-side
+         boolean (SWITCH_ACCT_TOUCHED), and any other caller of POST /provider gets
+         the "you picked" sentence for free by sending the field.
+         ⇒ Acceptable as designed, because the only caller is our own page and the
+         alternative (an engine that second-guesses its caller) is worse. Recorded so
+         nobody later reads this flag as evidence about a human. */
       chosen: wantDir !== null,
     };
     /* ⚠️ THE TRUST WRITE NEEDS THE SAME homeDir(). `trustCodexFolder(dir, home)`
@@ -1819,7 +1826,7 @@ function createAgentInner(opts) {
   if (provider === 'openai') {
     /* v1 boundaries, refused in words rather than silently ignored: the
        model is codex's own default (its catalogue is not ours to mirror
-       yet), and the account is this computer's OpenAI sign-in (Claude
+       yet), and the account is whichever OpenAI sign-in the agent was given (Claude
        account selection is CLAUDE_CONFIG_DIR, which means nothing to
        codex). Both lift when phase 2 gives them real mechanisms. */
     if (opts && opts.model !== undefined) {

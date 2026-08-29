@@ -53,8 +53,16 @@ test('#1373: a preselected option is NOT reported as a choice', () => {
      and a send that consults it. */
   assert.match(PAGE, /let SWITCH_ACCT_TOUCHED = false;/,
     'the touched flag is gone, so a preselect can be reported as a pick again');
-  assert.match(PAGE, /SWITCH_ACCT_TOUCHED = false;[\s\S]{0,400}?const openai = prov\.value === 'openai';/,
-    'the flag is not reset when the menu is rebuilt, so a pick on one agent carries to the next');
+  /* 🛑 THIS ARM WAS DECORATION AND A REVIEWER PROVED IT BY MUTATION, WHICH I THEN
+     REPRODUCED: deleting the reset from inside fillSwitchAccounts left it GREEN,
+     because the pattern matched the `let SWITCH_ACCT_TOUCHED = false;` DECLARATION
+     about 178 characters above `const openai`. It asserted that the two strings
+     exist near each other, which they do whether or not the reset survives.
+     ⇒ Anchored on the function's OWN first line instead, so the match can only be
+     satisfied by a reset that is genuinely inside the body. This is the arm that
+     stops a pick made on one agent leaking to the next one you open. */
+  assert.match(PAGE, /if \(!sel \|\| !prov\) return;\s*SWITCH_ACCT_TOUCHED = false;/,
+    'the flag is not reset inside fillSwitchAccounts, so a pick on one agent carries to the next');
   /* 🔑 PINNED ON THE PROPERTY, NOT THE SPELLING. This caught a real change of mine
      (the listener moved behind a null-checked variable) and the PROPERTY was intact,
      so the assertion was wrong rather than the code. Loosened on the axis nothing
@@ -75,8 +83,17 @@ test('#1373: a preselected option is NOT reported as a choice', () => {
    before choosing a provider, by which time ACCOUNTS is already populated, so the
    check stays green with this line deleted. That is why it is pinned here. */
 test('#1373: the picker is refilled when the accounts actually arrive', () => {
-  const fn = PAGE.slice(PAGE.indexOf('async function paintAccountPicker'));
-  const body = fn.slice(0, fn.indexOf('\nlet ') > 0 ? fn.indexOf('\nlet ') : 4000);
+  /* ⚠️ THE WINDOW HAS TO BE THE FUNCTION, NOT "ROUGHLY AFTER IT". The first version
+     sliced to the next `\nlet `, which lands about 185 lines PAST the end of
+     paintAccountPicker and spanned four more functions. It went red today only
+     because exactly one `fillSwitchAccounts()` happened to sit in that span; a call
+     added in any of those four would have let the pinned one be deleted silently.
+     `\n}` is this file's function terminator at column 0. */
+  const at = PAGE.indexOf('async function paintAccountPicker');
+  assert.notEqual(at, -1, 'paintAccountPicker is gone, so this test is measuring nothing');
+  const end = PAGE.indexOf('\n}', at);
+  assert.notEqual(end, -1, 'could not find the end of paintAccountPicker');
+  const body = PAGE.slice(at, end);
   assert.match(body, /fillSwitchAccounts\(\)/,
     'paintAccountPicker no longer refills the switch picker, so it stays hidden until the provider menu is touched twice');
 });

@@ -22190,7 +22190,13 @@ function paintProviderPicker(a) {
     const dmr = document.getElementById('d-model-row');
     if (dmr) dmr.hidden = true;
     const dmm = document.getElementById('d-model-msg');
-    if (dmm && !dmm.textContent) dmm.textContent = 'OpenAI picks its own model, and this agent runs on this computer’s OpenAI sign-in. Switch it back to Anthropic to choose these again.';
+    /* ⚠️ THE SIGN-IN CLAUSE IS GONE, NOT REWORDED (#1373). It said "this agent runs
+         on this computer's OpenAI sign-in", which was true while there was only one,
+         and this is the panel a person lands on immediately after choosing between
+         several. Saying it now contradicts what they just did. It is also not this
+         message's job: the message exists to explain why the MODEL menu is parked,
+         and it does that without naming an account it would have to look up. */
+    if (dmm && !dmm.textContent) dmm.textContent = 'OpenAI picks its own model. Switch it back to Anthropic to choose these again.';
   }
 }
 
@@ -22375,7 +22381,16 @@ async function changeProviderNow(say) {
   } finally {
     if (CURRENT && CURRENT.sessionName === forAgent) {
       sel.disabled = false;
-      go.disabled = true;
+      /* 🛑 THE SAME DEAD END, A THIRD LAYER DOWN. Hard-coding `true` here undid both
+         earlier fixes in the common case: re-selecting the option a <select> already
+         has selected fires NO `change`, so after a refusal drops the ghost row a
+         person who does exactly what the message says ("pick one from the list and
+         try again") and picks the highlighted row gets nothing. Same if only one row
+         remains, which is the likeliest state after a removal.
+         ⇒ Derived from the same expression the two change listeners use, so it is
+         still disabled on the success path (`sel.value` was cleared) and armed when
+         a real switch is genuinely available. */
+      go.disabled = !sel.value || !CURRENT || sel.value === providerOf(CURRENT);
     }
   }
 }
@@ -22404,7 +22419,15 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
            default and this keeps the sentence it always had, because naming a row
            nobody chose is the same invention the route refuses. */
         ? 'Its Claude model and account choices do not cross: OpenAI picks its own model, '
-          + (switchAcctShown() ? 'and it will run on ' + switchAcctShown() + '.' : 'on this computer’s OpenAI sign-in.')
+          /* ⚠️ THE UNTOUCHED ARM MAKES NO SIGN-IN CLAIM AT ALL, and that is deliberate
+             rather than lazy. It used to say "on this computer's OpenAI sign-in", which
+             implies there is ONE, and this dialog now opens on a screen offering several.
+             Naming the preselected row instead would be worse: the page filters on live
+             connection state and openai.list() does not, so the preselect is not reliably
+             the row the engine takes. The route's answer names the account AFTERWARDS,
+             from what the engine actually chose, which is the only place it can be said
+             truthfully. */
+          + (switchAcctShown() ? 'and it will run on ' + switchAcctShown() + '.' : 'and it picks its own sign-in unless you choose one above.')
         : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
     go: 'Switch and restart',
     run: (say) => changeProviderNow(say),

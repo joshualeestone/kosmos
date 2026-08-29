@@ -2565,8 +2565,13 @@ const server = http.createServer((req, res) => {
         /* WHICH OpenAI sign-in it landed on (#1211). Josh switched an agent,
            read "API key ending WWUA" elsewhere on the screen, and could not
            tell whether that was the account his agent was now using: the
-           switch carries no account, so it always lands on this computer's
-           default OpenAI sign-in, and until now nothing said which that was.
+           switch USED to carry no account, so it always landed on this
+           computer's default OpenAI sign-in, and nothing said which that was.
+           🛑 #1373 CHANGED BOTH HALVES and this comment described only the old
+           one, twelve lines above the code that refutes it: a person can choose
+           now, and the sentence below says whether they did. Corrected rather
+           than deleted, because the REASON the sentence exists is still Josh's
+           original complaint.
            ⚠️ Said only when the engine actually looked. `openaiAccount` is
            null on a switch back to Claude and under dry-run, and naming an
            account nobody read would be the invention this route already

@@ -92,7 +92,21 @@ wrong fix here.** `setProvider` guards the whole account block with
 every assertion would have passed against a world where the feature never ran. The tidy
 fix would have produced a green test measuring nothing.
 
-## Still open at the time of the PR
+## The browser check: run, and it passes
 
-⌛ The browser check has not been run: the browser is held by another agent for two
-in-sequence PR runs. **This does not merge until it has been.**
+**Closed.** `render-model-change.js`, standalone, `HEADED=0` stated explicitly so the
+mode is on the record: the picker appears with both sign-ins offered, one is
+preselected, and the negative arm confirms it disappears again for Anthropic. The
+stub's own control fires first (401 for a key it was not given, 200 for one it was).
+Zero failures, exit 0.
+
+**Screenshot hooks** (`SHOT_1373`, `SHOT_1373_BEFORE`) were added for it, env-gated so
+the release gate never pays for them, and the before/after pair is with Josh.
+
+🛑 **One layout consequence, accepted deliberately:** the new control pushes **Switch
+and Restart** onto a second line. A reviewer predicted it and no assertion in this
+branch could have seen it. The panel is about 518px; two selects at the shared
+`min-width: 220px` consume it. The alternative makes both menus narrower than the Model
+select directly beneath them, which is the exact defect that shared rule exists to
+prevent. **What I am giving up is that the button moves at the moment OpenAI is chosen.
+Josh has both screenshots and can overrule me.**

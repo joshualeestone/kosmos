@@ -156,6 +156,16 @@ test('#1373: with an override home in force, the refusal says THAT, not "it is g
     /* Both refusals must agree that nothing happened, or one of them is a
        different promise about the same event. */
     assert.match(out.because, /nothing was changed/);
+    /* 🔑 AND THE SAME OVERRIDE WRITTEN NON-CANONICALLY MUST STILL MATCH ITSELF.
+       Without `path.resolve` on this branch, an override with a trailing slash or a
+       `..` segment fails to equal its own resolved form, and a person picking THE
+       VERY ACCOUNT THE OVERRIDE NAMES is refused. Nothing else covers that line. */
+    process.env.AGENT_WORKFORCE_CODEX_HOME = nodePath.join(ALPHA, '..', nodePath.basename(ALPHA)) + '/';
+    const f = born('switch-1373-override-messy');
+    const messy = create.setProvider(f, 'openai', { ...BINS, accountDir: ALPHA });
+    assert.equal(messy.outcome, create.OUTCOME.CREATED,
+      'a non-canonical override refused the very account it names: ' + messy.because);
+    assert.equal(codexHomeOf(f), ALPHA);
   } finally {
     delete process.env.AGENT_WORKFORCE_CODEX_HOME;
   }
