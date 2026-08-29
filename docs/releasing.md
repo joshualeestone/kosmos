@@ -133,6 +133,21 @@ a different problem.
    different advice: step 1 says "stamp for publication", step 7 says "paste the
    clock line", because at step 7 there is no cut left to age it.
 
+   🛑 **AND THERE IS A CEILING THIS CHANGE INTRODUCES. IF A CUT TAKES MORE THAN
+   ABOUT FORTY MINUTES TO REACH STEP 7, NO STAMP CAN PASS BOTH GATES.** With `A`
+   the minutes you stamp ahead and `D` the cut's duration, step 1 needs
+   `A <= 20` (nothing may be stamped further ahead than the future bound) and
+   step 7 needs `A >= D - 20` (it must not have gone stale by the time we
+   deploy). Those two are satisfiable only while `D <= 40`.
+
+   ⚠️ **This is a real loss and it is worth knowing before you meet it.** Before
+   #1453 only step 7 read the stamp, so `A` could simply track `D` and an
+   arbitrarily slow cut still worked. **So if a cut is crawling and you are
+   re-stamping repeatedly to chase it, stop: re-stamping cannot succeed.** The
+   fix is to shorten the cut, or to widen `KOSMOS_LATE_PAST_BOUND` deliberately,
+   never to keep guessing at the stamp. Nothing in the code pins `D <= 40`; it
+   is a property of the machine on the night.
+
    📌 **Where fifteen comes from.** Measured on the 0.6.06 attempt of 2026-08-28:
    launch 21:56:18, step 7 at 22:12:04, so **15m 46s**, and a slow browser gate
    stretches it. An earlier version of this runbook said ten to twelve minutes;

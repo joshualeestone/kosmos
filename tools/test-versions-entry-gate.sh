@@ -18,6 +18,14 @@ fail() { echo "FAIL  $1"; fails=$((fails+1)); }
 has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 
 # $1 = minutes from now, positive = the past
+#
+# ⚠️ THIS IS A THIRD PRODUCER OF THE rel-d FORMAT, AGAINST ONE PARSER. The others
+# are `versions_entry()` in tools.release-gate.test.js and the real writer,
+# tools/insert-release-entry.js. If the page's stamp format ever changes, both
+# fixtures keep passing while the real page fails -- the two-derivations habit
+# this repo warns about, in test-only clothing. Kept because a fixture that
+# imported the real writer would drag its file I/O into a unit test; noted so the
+# next person changing the format knows there are three places, not one.
 stamp_at() {
   node -e "
     const off = Number(process.argv[1]);

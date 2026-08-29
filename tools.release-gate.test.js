@@ -380,6 +380,33 @@ test('a cut refuses when local main has commits origin does not (the stranded bu
   fs.rmSync(site, { recursive: true, force: true });
 });
 
+/* 🛑 THE ARM THAT PINS THE ORDER, AND ITS ABSENCE WAS SELF-INFLICTED.
+   The step-1 gate runs LAST in step 1, after the divergence guard. Put it first
+   and a cut from a diverged tree refuses with "no versions entry" instead of
+   naming the stranded commits -- which is how the ordering was discovered, by
+   three arms going red.
+
+   Those three arms can no longer catch it. Giving run_git a default valid entry
+   (needed so the other arms reach step 2) means the gate returns 0 wherever it
+   sits, so the pre-emption became invisible: with the call moved above the
+   divergence guard, both suites still pass. The fixture fix destroyed the
+   coverage for the very finding that produced it.
+
+   This arm restores it by combining the two conditions that actually conflict:
+   a diverged tree AND no entry. Only one of the two guards can speak first, so
+   which message comes back IS the ordering. */
+test('a diverged tree refuses for DIVERGENCE, not for the missing entry (pins the order)', () => {
+  const { dir, home, site } = git_sandbox('0.6.02', { diverge: 'local-ahead' });
+  const r = run_git(dir, '0.6.03', home, site, { entry: false });
+  assert.equal(r.status, 1, 'it did not refuse at all');
+  assert.match(r.said, /only here:.*v09999/,
+    'it did not name the stranded commits, so the versions gate spoke first');
+  assert.ok(!/has no entry/.test(r.said),
+    `the versions gate pre-empted the divergence guard:\n${r.said.slice(0, 400)}`);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
 test('a cut is NOT refused merely for being behind origin', () => {
   /* 🔑 THE ARM THAT STOPS THIS GUARD OVER-REFUSING. Behind is an ancestor, and
      cutting an older tree deliberately must stay possible. Without this the
