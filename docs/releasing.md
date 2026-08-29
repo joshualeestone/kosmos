@@ -14,7 +14,16 @@ improvement it gained would have died with the session that wrote it.
    you remember merging. **The versions entry is also checked HERE, not only at
    step 7 (#1453)** -- presence and stamp both, so a missing or stale entry stops
    the cut in about three seconds instead of after the suite, the browser gate,
-   the install gate and the build. Write the entry before you launch.
+   the install gate and the build.
+
+   🛑 **THIS MAKES THE ENTRY A HARD PRE-LAUNCH PRECONDITION, AND THAT IS A REAL
+   CHANGE TO HOW A CUT IS RUN.** It used to be possible to launch and write the
+   entry while the suite ran, because nothing read it until step 7. It is not any
+   more: the cut refuses in the first three seconds. **The copy is ruled by
+   somebody else, so if you do not have it yet, you cannot start.** That is
+   deliberate -- waiting three seconds for ruled copy is better than spending
+   fifteen minutes to be told the same thing -- but it is a loss of a working
+   habit and you will meet it on every cut, not only on a slow one.
 2. **Bump `package.json`.** One place. `engine/update.js` compares this against
    the served `latest.json`, numerically rather than lexically.
 3. **The whole suite**, on the tree that ships.

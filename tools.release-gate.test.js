@@ -482,6 +482,26 @@ test('a stale versions entry also refuses at step 1, naming the drift', () => {
   fs.rmSync(site, { recursive: true, force: true });
 });
 
+/* 🛑 THE ARM THAT PINS THE ASYMMETRIC BOUND, WHICH IS THIS CHANGE'S CENTRAL CLAIM
+   AND WAS ENTIRELY UNGUARDED. Swapping the step 1 call from
+   KOSMOS_STEP1_PAST_BOUND to KOSMOS_LATE_PAST_BOUND passed both suites in full:
+   the shell test compared the two call sites only on their remediation prose,
+   and every stale fixture used 45 minutes, which refuses under either bound.
+
+   12 minutes is the number that separates them: inside the late bound of 20,
+   outside the early bound of 5. So this arm is red the moment step 1 stops being
+   stricter, and it is the only thing in the tree that is. */
+test('an entry 12 minutes old is refused at step 1, which the LATE bound would allow', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const r = run_git(dir, '0.6.03', home, site, { staleBy: 12 });
+  assert.equal(r.status, 1, 'step 1 accepted a stamp the cut will age past the late bound');
+  assert.match(r.said, /minutes in the past/);
+  assert.ok(!/== 2\. the version, in one place ==/.test(r.said),
+    `it got past step 1, so step 1 is not using the tighter bound:\n${r.said.slice(0, 400)}`);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
 test('a clean tree in step with origin gets past the guard', () => {
   const { dir, home, site } = git_sandbox('0.6.02');
   const r = run_git(dir, '0.6.03', home, site);

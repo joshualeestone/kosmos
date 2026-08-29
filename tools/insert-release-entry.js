@@ -24,11 +24,19 @@
  * by the time step 7 reads it. So running this BEFORE launching a cut produces
  * exactly the stamp the gates are built to reject.
  *
- * ⚠️ THIS TOOL IS CURRENTLY WIRED INTO NOTHING. Measured 2026-08-28: a sweep of
- * the whole tree finds it referenced by no other file (control: `verify-served`
- * appears in five, including release.sh and package.json). It has no test and no
- * mention in the runbook. So today the stamp is written by hand and this tool is
- * an unused alternative, not the mechanism.
+ * ⚠️ THIS TOOL IS CURRENTLY INVOKED BY NOTHING. Measured 2026-08-28: a sweep of
+ * the whole tree finds no caller. The only files naming it are this one and two
+ * comments added alongside #1453 (tools/lib/versions-entry.sh and
+ * tools/test-versions-entry-gate.sh), both prose, neither a call. Control:
+ * `verify-served`, which IS wired, appears in 16 files including release.sh and
+ * package.json. It has no test and no mention in the runbook, so today the stamp
+ * is written by hand and this tool is an unused alternative, not the mechanism.
+ *
+ * 📌 An earlier version of this comment said the control was "five". That figure
+ * came from a sweep I had piped through `head -5`, so it reported the limit I
+ * passed rather than the count -- the same truncation trap this repo keeps
+ * hitting, in evidence written to warn about a different one. The substantive
+ * claim was unaffected and re-measured: still zero callers.
  *
  * ⭐ WIRING IT IN IS THE REAL CURE FOR THE STAMP-DRIFT CLASS and is worth its own
  * card: a machine reading the clock AT the moment of publication has an offset of

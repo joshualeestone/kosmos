@@ -2,7 +2,7 @@
 # step 1.
 #
 # 🛑 THE CHECK WAS NEVER WRONG. ITS POSITION WAS. Both halves need only `$V`
-# (argv, release.sh line 18) and `$SITE` (line 131), and both of those exist
+# (release.sh, `^V="`, taken from argv) and `$SITE` (`^SITE=`), and both exist
 # before the script does any work at all -- yet the gate ran at step 7, after
 # the suite, the browser gate, the install gate and the build. Four cuts died
 # there (0.5.80, 0.5.90, 0.5.91, 0.6.06), each paying about fifteen minutes of
@@ -117,6 +117,11 @@ kosmos_versions_entry_stamp_off() {
 # 🔑 SO STEP 1 IS STRICTER ON THE PAST SIDE THAN STEP 7, AND THAT ASYMMETRY IS THE
 # POINT rather than an inconsistency. Step 1 can see that an already-stale entry
 # is DOOMED; step 7 only has to judge the entry in front of it. The arithmetic:
+# 📌 Anchors above are grep patterns, not line numbers, on purpose: a line number
+# in a comment goes stale with the next edit and nothing notices. This tree has a
+# live example -- tools/browser-checks.sh says "release.sh:243 invokes this", and
+# the invocation is nowhere near 243 on main or here.
+#
 # an entry `P` minutes old at step 1 arrives at step 7 reading `P + D`, so it
 # survives only while `P + D <= 20`. With D measured at 15m46s on the 0.6.06
 # attempt, P must be about 4 or less. STEP1_PAST_BOUND is 5, which is that number
@@ -127,9 +132,14 @@ kosmos_versions_entry_stamp_off() {
 # entries "claimed release times that had not happened yet", and a wider future
 # window makes a guess satisfiable again. Tightening the past is not the same
 # move as loosening the future, and only one of them reopens a known hole.
-KOSMOS_STEP1_PAST_BOUND=5
-KOSMOS_LATE_PAST_BOUND=20
-KOSMOS_FUTURE_BOUND=20
+# ⚠️ `:-` SO AN EXPORTED VALUE SURVIVES BEING SOURCED. docs/releasing.md tells an
+# operator stuck against the D > 40 ceiling that one option is to widen
+# KOSMOS_LATE_PAST_BOUND, which reads as a knob -- and a bare assignment silently
+# clobbered it, so the refusal came back unchanged with nothing on screen to
+# explain why. Measured: KOSMOS_LATE_PAST_BOUND=99 . versions-entry.sh -> 20.
+KOSMOS_STEP1_PAST_BOUND="${KOSMOS_STEP1_PAST_BOUND:-5}"
+KOSMOS_LATE_PAST_BOUND="${KOSMOS_LATE_PAST_BOUND:-20}"
+KOSMOS_FUTURE_BOUND="${KOSMOS_FUTURE_BOUND:-20}"
 
 kosmos_versions_entry_gate() {
   local v="$1" file="$2" cost="${3:-}" stamp_fix="${4:-}"
@@ -194,6 +204,20 @@ kosmos_versions_entry_gate() {
   case "$off" in
     ''|*[!0-9-]*|-|*-*-*|?*-*) off=unparseable ;;
     -*) case "${off#-}" in *[!0-9]*) off=unparseable ;; esac ;;
+  esac
+
+  # 🛑 AND THE BOUND ITSELF, FOR THE SAME REASON AND WITH THE SAME OUTCOME IF
+  # SKIPPED. `$off` was validated and `$past_bound` was not, so a non-integer
+  # bound made `[ 90 -gt abc ]` exit 2, both comparisons read false, and the gate
+  # returned 0 on a 90-minute-stale entry. That is the same fail-open, one
+  # argument over. It is unreachable from today's two call sites -- and now that
+  # the runbook invites an operator to set KOSMOS_LATE_PAST_BOUND, the value can
+  # come from a human, which is exactly when "the caller cannot be trusted to
+  # have produced an int" stops being theoretical.
+  case "$past_bound" in
+    ''|*[!0-9]*)
+      echo "   refusing: the past-side bound is not a whole number of minutes: '$past_bound'"
+      return 1 ;;
   esac
   if [ "$off" = "unparseable" ]; then
     echo "   the entry for $v is stamped: $stamp"
