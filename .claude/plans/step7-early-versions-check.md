@@ -1,4 +1,4 @@
-# Ask for the versions entry at step 1, not after the build (#1453)
+# Ask for the versions entry at step 1, not after the build (#1463)
 
 Branch `step7-early-versions-check`.
 
@@ -37,6 +37,25 @@ was symmetric throughout. Step 1 accepts 5 minutes, step 7 accepts 20, because a
 already fifteen minutes old passes a symmetric window at step 1 and then dies at step 7
 once the cut has added its own fifteen. Step 1 can see that it is doomed. Tightening the
 past is not the same move as loosening the future, and only one of them reopens a hole.
+
+## The card number was wrong in fourteen places and nothing could have caught it
+
+Every reference in this branch said **#1453** until 20:15. That is somebody else's card, "the
+self-report record does not store who wrote a line", closed and merged as PR #1457 while I
+was citing it. The real card is **#1463**, filed after the fact.
+
+The string came from the patch I parked before the 18:10 shutdown and I never checked it. It
+then went into the lib, release.sh, docs/releasing.md, this plan, six commit messages and the
+body of #1455.
+
+⚠️ **No review could have found it.** Six blind reviewers read this diff and all of them saw
+fourteen mutually agreeing citations. **Agreement between copies of one mistake is not
+corroboration** -- they had one source, not fourteen. I found it because an unrelated
+`gh pr checks` run printed the branch name `report-writer-1453`.
+
+⭐ The general form: a card number looks checked because it is specific, and it is the one
+fact in a comment that nothing in the repo validates. `gh issue view` is the check, and it
+costs one command.
 
 ## What I got wrong in flight
 

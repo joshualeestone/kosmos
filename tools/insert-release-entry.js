@@ -19,14 +19,14 @@
  *
  * 🛑 IT STAMPS **NOW**, AND THAT IS ONLY CORRECT IMMEDIATELY BEFORE THE DEPLOY.
  * Every document around it -- docs/releasing.md, and the step 1 refusal added by
- * #1453 -- tells the operator to stamp for PUBLICATION, about fifteen minutes
+ * #1463 -- tells the operator to stamp for PUBLICATION, about fifteen minutes
  * ahead, because an entry written at launch has aged by the length of the cut
  * by the time step 7 reads it. So running this BEFORE launching a cut produces
  * exactly the stamp the gates are built to reject.
  *
  * ⚠️ THIS TOOL IS CURRENTLY INVOKED BY NOTHING. Measured 2026-08-28: a sweep of
  * the whole tree finds no caller. The only files naming it are this one and two
- * comments added alongside #1453 (tools/lib/versions-entry.sh and
+ * comments added alongside #1463 (tools/lib/versions-entry.sh and
  * tools/test-versions-entry-gate.sh), both prose, neither a call. Control:
  * `verify-served`, which IS wired, appears in 16 files including release.sh and
  * package.json. It has no test and no mention in the runbook, so today the stamp
@@ -43,7 +43,7 @@
  * zero by construction, so the +/-20 window stops being something an operator has
  * to predict. That is also the guard's own stated intent -- release.sh says the
  * check is "against `date` at the moment of release". It is deliberately NOT done
- * inside #1453, which only moves an existing check: this one changes what the
+ * inside #1463, which only moves an existing check: this one changes what the
  * release script writes to a published page.
  */
 

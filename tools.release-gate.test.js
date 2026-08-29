@@ -287,7 +287,7 @@ function git_sandbox(version, { diverge = 'none' } = {}) {
   /* The site check runs before the guard, so the arms need one to get past it.
      ⚠️ IT LIVES OUTSIDE THE REPO, which is both what the real thing is (a
      separate chaoskosmos-site checkout) and what keeps these arms honest: with
-     the site inside `dir`, writing the #1453 versions fixture into it makes the
+     the site inside `dir`, writing the #1463 versions fixture into it makes the
      repo dirty and every arm dies on "main is dirty" -- a refusal from step 1
      that has nothing to do with the guard under test. */
   const site = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-site-'));
@@ -332,7 +332,7 @@ function git_sandbox(version, { diverge = 'none' } = {}) {
 }
 
 function run_git(dir, version, home, site, { staleBy = 0, entry = true } = {}) {
-  /* ⚠️ SINCE #1453 THE VERSIONS ENTRY IS A STEP 1 PRECONDITION, so an arm that
+  /* ⚠️ SINCE #1463 THE VERSIONS ENTRY IS A STEP 1 PRECONDITION, so an arm that
      means to reach step 2 needs one or it stops here instead, refusing with the
      versions page rather than with the guard under test. It is written HERE
      rather than in the sandbox because the entry has to name the version being
@@ -426,10 +426,10 @@ test('a cut is NOT refused merely for being behind origin', () => {
   fs.rmSync(site, { recursive: true, force: true });
 });
 
-/* 🛑 THE ARMS THAT TEST THE MOVE RATHER THAN THE CHECK (#1453).
+/* 🛑 THE ARMS THAT TEST THE MOVE RATHER THAN THE CHECK (#1463).
    Everything above asserts the cut gets PAST the gate. The unit test asserts the
    gate refuses. Neither proves the refusal now happens EARLY, which is the entire
-   claim of #1453 -- and a refusal arriving from step 7 would satisfy both.
+   claim of #1463 -- and a refusal arriving from step 7 would satisfy both.
    The negative assertion is therefore the load-bearing one: it never reached step 2.
    Their positive control is the arm directly above, same sandbox, entry present,
    which does reach step 2. So the pair is a contrast, not a single reading. */

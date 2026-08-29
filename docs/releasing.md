@@ -12,7 +12,7 @@ improvement it gained would have died with the session that wrote it.
 
 1. **Clean main, and read the log.** The release ships what is merged, not what
    you remember merging. **The versions entry is also checked HERE, not only at
-   step 7 (#1453)** -- presence and stamp both, so a missing or stale entry stops
+   step 7 (#1463)** -- presence and stamp both, so a missing or stale entry stops
    the cut in about three seconds instead of after the suite, the browser gate,
    the install gate and the build.
 
@@ -120,7 +120,7 @@ a different problem.
    of launch**, in the site's `versions.html`. That is the whole instruction; the
    detail below is why.
 
-   **Two gates read it, and they do not use the same window (#1453).**
+   **Two gates read it, and they do not use the same window (#1463).**
 
    | gate | accepts in the PAST | accepts in the FUTURE |
    |---|---|---|
@@ -158,7 +158,7 @@ a different problem.
    buys time up to `A = 20` and no further; past `D = 40` nothing passes both.
 
    ⚠️ **This is a real loss and it is worth knowing before you meet it.** Before
-   #1453 only step 7 read the stamp, so `A` could simply track `D` and an
+   #1463 only step 7 read the stamp, so `A` could simply track `D` and an
    arbitrarily slow cut still worked. **So if a cut is crawling and you are
    re-stamping repeatedly to chase it, stop: re-stamping cannot succeed.** The
    fix is to shorten the cut, or to widen `KOSMOS_LATE_PAST_BOUND` deliberately,
