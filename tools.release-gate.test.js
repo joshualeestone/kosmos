@@ -377,6 +377,7 @@ test('a cut refuses when local main has commits origin does not (the stranded bu
   assert.match(r.said, /only here:.*v09999/, 'the refusal does not show which commits are stranded');
   assert.equal(r.touched, false, 'it edited the version before refusing');
   fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
 });
 
 test('a cut is NOT refused merely for being behind origin', () => {
@@ -420,6 +421,12 @@ test('a missing versions page is reported as unreadable, not as a missing entry'
   assert.equal(r.status, 1);
   assert.match(r.said, /cannot read/);
   assert.ok(!/has no entry/.test(r.said), 'it told the operator to edit a file that is not there');
+  /* ⚠️ THE SAME NEGATIVE ASSERTION ITS SIBLINGS CARRY, and it is not decoration:
+     "cannot read" is emitted identically by BOTH call sites, so without this the
+     arm passes even if the step 1 call were deleted and only step 7 refused. It
+     would be testing the check while claiming to test the position. */
+  assert.ok(!/== 2\. the version, in one place ==/.test(r.said),
+    `the unreadable refusal came from step 7, not step 1:\n${r.said.slice(0, 400)}`);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(site, { recursive: true, force: true });
 });
@@ -431,12 +438,17 @@ test('a stale versions entry also refuses at step 1, naming the drift', () => {
   /* ⚠️ a RANGE, not a literal 45. The stamp has minute granularity and the sandbox
      takes about a second to build, so pinning an exact minute makes this flake on a
      boundary for a reason that has nothing to do with the gate. */
-  const drift = r.said.match(/off by (\d+) minutes/);
+  const drift = r.said.match(/is (\d+) minutes in the past/);
   assert.ok(drift, `it did not name the drift:\n${r.said.slice(0, 400)}`);
   assert.ok(Number(drift[1]) >= 40, `drift read ${drift[1]}, expected the 45-minute fixture`);
   /* ⚠️ and it must tell the operator to stamp for PUBLICATION here, not "now".
      Advising a now-stamp at step 1 guarantees a second failure at step 7. */
-  assert.match(r.said, /stamp written now is stale by step 7/, 'step 1 gave step 7\'s advice');
+  /* match the STABLE half of the sentence: the word PUBLISH is the distinction
+     under test (step 7 says "paste the clock line"), while the rest of the hint
+     is prose that will be reworded. Pinning the whole sentence makes this a copy
+     test rather than a behaviour test. */
+  assert.match(r.said, /expect to PUBLISH/, 'step 1 gave step 7\'s advice');
+  assert.ok(!/Paste the clock line/.test(r.said), 'step 1 used the late remediation');
   assert.ok(!/== 2\. the version, in one place ==/.test(r.said),
     `the stale refusal came from step 7, not step 1:\n${r.said.slice(0, 400)}`);
   fs.rmSync(dir, { recursive: true, force: true });
