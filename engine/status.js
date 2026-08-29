@@ -38,6 +38,44 @@ const { readWorkerFile } = require('./workerfile');
 function homeDir() { return os.homedir(); }
 
 /**
+ * "This process has declared itself a fixture and is about to read the
+ * operator's real machine."
+ *
+ * 🛑 EXTRACTED FROM `configRoots` SO A SECOND READER CAN HONOUR IT (#1500). The
+ * refusal was written for the CLAUDE walk and it works. #1159 then added a CODEX
+ * walk that reaches `~/.codex` through `codexupdate.defaultHome()` and never
+ * touches `configRoots`, so it went straight around the guard.
+ *
+ * ⇒ Measured: a fully sandboxed `discover.found()` returned a REAL agent out of
+ * another agent's scratchpad on this machine, plus this Mac's real `unreadable`
+ * count rather than the fixture's.
+ *
+ * ⭐ THE ORIGINAL COMMENT ALREADY SAID WHY THIS HAD TO BE SHARED: it refuses
+ * "for every harness anyone writes next, including the one that does not exist
+ * yet and will forget". The harness that forgot is in this same repo, and it
+ * forgot because the guard was reachable from exactly one function.
+ *
+ * ⚠️ DIRECTION IS UNCHANGED: it can only ever stop a FIXTURE, never a user.
+ * Production sets `AGENT_WORKFORCE_DATA` to Application Support, which is not
+ * under a temp root, so this cannot fire for somebody running Kosmos.
+ */
+function sandboxIsInconsistent() {
+const TMP_ROOTS = [];
+for (const d of [os.tmpdir(), '/tmp']) {
+  const r = path.resolve(d);
+  TMP_ROOTS.push(r);
+  try { const rp = fs.realpathSync(d); if (rp !== r) TMP_ROOTS.push(rp); } catch { /* absent is fine */ }
+}
+const under = (d) => {
+  if (!d) return false;
+  const cands = [path.resolve(d)];
+  try { cands.push(path.join(fs.realpathSync(path.dirname(d)), path.basename(d))); } catch { /* parent may not exist yet */ }
+  return cands.some((c) => TMP_ROOTS.some((t) => c === t || c.startsWith(t + path.sep)));
+};
+  return under(process.env.AGENT_WORKFORCE_DATA) && !under(homeDir());
+}
+
+/**
  * Claude Code config roots.
  *
  * There is usually one (`~/.claude`), but an agent launched with
@@ -111,19 +149,7 @@ function configRoots() {
      caught it one command after I wrote it; nothing else would have, because a
      guard that has quietly stopped firing looks exactly like a guard with
      nothing to catch. */
-  const TMP_ROOTS = [];
-  for (const d of [os.tmpdir(), '/tmp']) {
-    const r = path.resolve(d);
-    TMP_ROOTS.push(r);
-    try { const rp = fs.realpathSync(d); if (rp !== r) TMP_ROOTS.push(rp); } catch { /* absent is fine */ }
-  }
-  const under = (d) => {
-    if (!d) return false;
-    const cands = [path.resolve(d)];
-    try { cands.push(path.join(fs.realpathSync(path.dirname(d)), path.basename(d))); } catch { /* parent may not exist yet */ }
-    return cands.some((c) => TMP_ROOTS.some((t) => c === t || c.startsWith(t + path.sep)));
-  };
-  if (under(process.env.AGENT_WORKFORCE_DATA) && !under(homeDir())) {
+  if (sandboxIsInconsistent()) {
     /* ⚠️ IT RETURNS AN EMPTY SANDBOX RATHER THAN THROWING, AND THE DIFFERENCE
        IS MEASURED, NOT PREFERRED. Throwing here failed 161 of 2374 tests, so
        it could not land; and 161 reds all saying the same thing would have
@@ -4175,6 +4201,9 @@ function sessionStartedAtFromTmux(sessionName, now = Date.now()) {
 }
 
 module.exports = {
+  /* #1500: exported so discover.foundCodex can honour the same refusal.
+     The Codex walk reaches ~/.codex without ever calling configRoots. */
+  sandboxIsInconsistent,
   NO_READING,
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   identityFromText, configRoots, transcriptCwd,

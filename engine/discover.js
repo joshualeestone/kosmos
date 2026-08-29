@@ -202,6 +202,30 @@ function foundCodex(roster) {
   const byDir = new Map();
   const unreadableDirs = new Set();
   let unreadable = 0;
+  /* 🛑 THE SANDBOX REFUSAL, WHICH THIS WALK USED TO GO AROUND (#1500).
+     `configRoots` refuses to read the operator's real machine when a process
+     has declared itself a fixture, and that refusal exists BY ITS OWN COMMENT
+     "for every harness anyone writes next, including the one that does not exist
+     yet and will forget". This walk was that harness: it reaches `~/.codex`
+     through `codexupdate.defaultHome()` and never calls `configRoots`, so
+     `AGENT_WORKFORCE_CONFIG_ROOT` sandboxed the Claude half and left this half
+     reading the real Mac.
+
+     ⇒ Measured: a fully sandboxed `found()` returned a REAL agent out of another
+     agent's scratchpad, and this machine's `unreadable` count rather than the
+     fixture's.
+
+     ⚠️ SAME SHAPE AS THE EMPTY ANSWER `configRoots` GIVES, and for the reason
+     that comment records: a fixture gets the answer a fixture should get,
+     nothing, rather than a throw that would turn one exposure into a wall of
+     identical reds nobody reads.
+
+     📌 SCOPE, SO NOBODY READS IT AS MORE: this covers `found()`, which is where
+     the defect was reported. A caller reaching `codexsession` DIRECTLY is still
+     unsandboxed; today `discover.js` is the only such caller outside the module
+     itself, checked rather than assumed. */
+  if (status.sandboxIsInconsistent()) return { agents: [], unreadable: 0 };
+
   let files;
   try { files = codexsession.rollouts(); } catch { return { agents: [], unreadable: 0 }; }
 
