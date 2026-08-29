@@ -913,6 +913,13 @@ function setProvider(name, provider, opts) {
          the regression the paragraph above exists to undo.
          🛑 SO DO NOT "FIX" THIS BY RESTORING THE REFUSAL. */
       if (!found && !(opts && opts.pickedByPerson === true)) {
+        /* 📌 DELIBERATELY REDUNDANT, AND SPELLED OUT ON PURPOSE. `acct` already holds
+           `accounts[0]` from its initialiser, so this line changes nothing. It is written
+           anyway because SIX separate readers have stopped here to work out whether the
+           fallback happens, and an implicit fallback is exactly what made this path
+           invisible the first time. The assignment names the decision at the site that
+           makes it. If you are about to delete it as dead code: it is, and the branch it
+           lives in is the load-bearing part. */
         acct = accounts[0];
       } else if (!found) {
         /* 🛑 TWO REASONS A NAMED ACCOUNT IS NOT IN THIS LIST, AND ONE SENTENCE

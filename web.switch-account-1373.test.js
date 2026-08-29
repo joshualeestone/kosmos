@@ -270,11 +270,27 @@ test('#1373: the four fail-quiet fixes are pinned, because each one reverts gree
      asserts; the count only needs to prove the sweep found the population. */
   assert.ok(bare >= 6 && bare % 2 === 0,
     'the flag-write population is below the three known transitions or is odd, which means a transition sets one flag and not the other, or the sweep is not reading what it thinks it is');
-  /* The structural half: every flag write is inside one of the three named transitions.
-     Anything else is a site updating one flag without the others, which is the defect. */
-  const outside = PAGE.split(/function accounts(?:Read|Unreadable|Dropped)\(/).slice(0, 1).join('');
+  /* 🛑 THE STRUCTURAL HALF, AND THE FIRST VERSION OF IT WAS DECORATION. It sliced the file
+     at the FIRST transition and kept only what came before, so it covered 69.4% of the page
+     and stopped at the declarations. Every function where the three historical one-flag-out-
+     of-step defects actually lived (paintAccountPicker, moveAccountNow, fillSwitchAccounts,
+     changeProviderNow) sat in the UNCOVERED tail. A planted fourth write site passed it.
+     ⇒ Excise the three transition BODIES and assert against everything that remains, so the
+     population is the whole file rather than its prefix. Verified by planting the write this
+     is supposed to catch. */
+  let outside = PAGE;
+  for (const fn of ['accountsRead', 'accountsUnreadable', 'accountsDropped']) {
+    const at = outside.indexOf('function ' + fn + '(');
+    assert.ok(at !== -1, fn + ' is gone, so this check is measuring a file that no longer has the shape it asserts');
+    const end = outside.indexOf('\n}', at);
+    assert.ok(end !== -1, fn + ' body has no closing brace at column 0, so the excision cannot be trusted');
+    outside = outside.slice(0, at) + outside.slice(end + 2);
+  }
+  /* A floor on what survived, so an over-greedy excision cannot pass by deleting the file. */
+  assert.ok(outside.length > PAGE.length * 0.5,
+    'the excision removed more than half the page, so this assertion is examining almost nothing');
   assert.doesNotMatch(outside, /^\s*ACCOUNTS_(LOADED|UNREADABLE) = /m,
-    'a flag is written before the transitions are even defined, so something outside them owns this state');
+    'a flag is written outside accountsRead/accountsUnreadable/accountsDropped, so a site can update one flag without the others, which is the defect these transitions exist to make unrepresentable');
   /* And a failed read must not shrink the list, which is paintAccounts' stated rule. */
   assert.doesNotMatch(PAGE, /function accountsUnreadable\(\)[\s\S]{0,900}?ACCOUNTS = \[\];/,
     'accountsUnreadable empties the account list again, which is exactly what "a failed read must not shrink the list" forbids at its own call site');

@@ -22263,7 +22263,8 @@ function paintProviderPicker(a) {
   const go = document.getElementById('d-provider-go');
   const msg = document.getElementById('d-provider-msg');
   if (!sel || !go) return;
-  if (msg) msg.textContent = '';
+  /* Clear the tracker with the region, or it holds a string the DOM no longer contains. */
+  if (msg) { msg.textContent = ''; SWITCH_ACCT_SAID = ''; }
   const current = providerOf(a);
   /* kosmos#990: the row states what the agent IS on. The two real providers
      are both selectable -- the current one has to be, or it could not be
