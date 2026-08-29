@@ -2540,7 +2540,11 @@ const server = http.createServer((req, res) => {
       .then((raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
-        const wrote = create.setProvider(name, body && body.provider);
+        /* #1373: the account the person picked rides through. Absent, the
+           engine states a default and names it, exactly as before. */
+        const wrote = create.setProvider(name, body && body.provider, {
+          accountDir: body && typeof body.account === 'string' ? body.account : null,
+        });
         if (wrote.outcome === create.OUTCOME.REFUSED) {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
           return;
@@ -2568,10 +2572,18 @@ const server = http.createServer((req, res) => {
            account nobody read would be the invention this route already
            refuses elsewhere. */
         const acct = wrote.openaiAccount;
+        /* #1373: "you picked this" and "we picked this and are telling you"
+           are different promises, so they get different sentences. Saying
+           "the one you picked" when nobody picked would be the invention this
+           route refuses elsewhere; saying nothing when they DID pick loses the
+           confirmation that their choice was honoured. */
+        const whichAcct = acct
+          ? (acct.email ? ` (${acct.email})` : acct.keyTail ? ` (API key ending ${acct.keyTail})` : '')
+          : '';
         const landedOn = acct
-          ? ' It runs on your OpenAI sign-in'
-            + (acct.email ? ` (${acct.email})` : acct.keyTail ? ` (API key ending ${acct.keyTail})` : '')
-            + '.'
+          ? (acct.chosen
+            ? ` It runs on the OpenAI sign-in you picked${whichAcct}.`
+            : ` It runs on your OpenAI sign-in${whichAcct}.`)
           : '';
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',

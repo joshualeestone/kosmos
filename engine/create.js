@@ -838,21 +838,57 @@ function setProvider(name, provider, opts) {
           + 'Add an OpenAI account first, then switch it.',
       };
     }
-    /* ⚠️ A STATED DEFAULT, NOT A CHOICE, AND THE DIFFERENCE IS THAT IT IS SAID
-       OUT LOUD (#1373). With several accounts this takes the first and the
-       route's answer NAMES it, so a person can see which one they got. It is
-       not a picker and must not be described as one; creation offers a choice
-       and the switch does not, which is #1373's whole subject.
-       🛑 Refusing instead was the alternative and it could not be written
-       honestly: there is NO WAY TO REMOVE AN OPENAI ACCOUNT (#1372), so the
-       refusal's remedy would have been a Terminal command. A dead-end message
-       is the class we spent today closing, and shipping one on purpose is worse
-       than a default that announces itself. */
-    const acct = accounts[0];
+    /* 📌 THIS COMMENT DESCRIBED A STATED DEFAULT AND #1373 REPLACED IT WITH A
+       CHOICE. Kept in corrected form rather than deleted, because the reasoning
+       under it is still load-bearing and someone will ask why the shape is what
+       it is.
+       ⇒ WHAT IS STILL TRUE: with nothing named, this takes the first account and
+       the route NAMES it, so a person always sees which one they got. That path
+       is unchanged and is what a caller passing no account still gets.
+       ⇒ WHAT CHANGED: a caller can now name one, so the switch offers the choice
+       creation always did. That asymmetry was the card.
+       ⭐ AND THE OLD REASONING RESOLVED ITSELF. The alternative in #1373 was to
+       REFUSE a multi-account switch, and that sentence could not be written
+       honestly while there was no way to remove an OpenAI account: its only
+       remedy would have been a Terminal command. #1372 shipped removal, so the
+       dead end is gone either way, and the picker is the better half of the two
+       because removing an account to influence a picker is a workaround, not a
+       choice. */
+    /* #1373: THE SWITCH CAN NOW BE TOLD WHICH ACCOUNT, so it stops being a
+       stated default and becomes the choice creation always offered. The
+       asymmetry was the whole card: `plistFor(..., configDir, runner)` already
+       carried a codex account, and only the way to say which was missing.
+       ⇒ With nothing named this behaves exactly as before (the first account,
+       named out loud), so a caller that does not care is unaffected. */
+    const wantDir = opts && typeof opts.accountDir === 'string' && opts.accountDir !== ''
+      ? opts.accountDir
+      : null;
+    let acct = accounts[0];
+    if (wantDir) {
+      const found = accounts.find((a) => a.dir === wantDir);
+      /* 🛑 FAILS CLOSED, and #1372 is exactly what makes this reachable. Now
+         that an OpenAI account can be REMOVED, a page that has not repainted
+         can hand us the directory of an account that is gone. Falling back to
+         accounts[0] would start the agent on an account the person did not
+         choose, and say nothing: the silent-wrong-account failure this card
+         exists to end. Refusing names a remedy the person can act on. */
+      if (!found) {
+        return {
+          outcome: OUTCOME.REFUSED,
+          because: 'that OpenAI account is not on this computer any more, so nothing was changed. '
+            + 'Pick one from the list and try again.',
+        };
+      }
+      acct = found;
+    }
     openaiAccount = {
       dir: acct.dir, email: acct.email, keyTail: acct.keyTail,
       authMode: acct.authMode, isDefault: acct.isDefault === true,
       choiceOf: accounts.length,
+      /* Whether a person PICKED this or we stated a default. The route says a
+         different sentence for each, because "you chose this" and "we chose
+         this and are telling you" are different promises. */
+      chosen: wantDir !== null,
     };
     /* ⚠️ THE TRUST WRITE NEEDS THE SAME homeDir(). `trustCodexFolder(dir, home)`
        falls back to `codexHomeDir()`, which is the default home again, so

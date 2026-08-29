@@ -14,6 +14,24 @@ process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-m
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-model-config-'));
+/* 🛑 HOME WAS THE ONE ROOT THIS CHECK DID NOT SEAL, AND IT IS THE ONE THE
+   ACCOUNTS LIST READS. `engine/openaiaccounts.js` resolves
+   `homeDir() = AGENT_WORKFORCE_HOME || os.homedir()`, so with it unset a
+   "sandboxed" check enumerates the OPERATOR'S REAL `~/.codex-*` sign-ins.
+   ⇒ Its account rendering then depends on machine state outside the sandbox,
+   which changes as agents are added or moved between config dirs. That does not
+   look like a sealing bug, it looks like FLAKINESS, and it is not flaky.
+   ⚠️ Sealing it is also the only way #1373 can be checked at all: the card is
+   about choosing between accounts, and there was nowhere to put a second one. */
+process.env.AGENT_WORKFORCE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-model-home-'));
+/* Two real OpenAI sign-ins, so "which one" has two answers. A one-account
+   fixture would pass a picker check while proving nothing about picking. */
+for (const [label, tail] of [['alpha', 'ALFA'], ['beta', 'BETA']]) {
+  const d = path.join(process.env.AGENT_WORKFORCE_HOME, '.codex-' + label);
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, 'auth.json'),
+    JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtesttesttest' + tail }), 'utf8');
+}
 // The model change rewrites the launch job and restarts it; under dry run
 // the runner is inert, so the check never touches launchctl (#619).
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
@@ -53,6 +71,31 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     models: document.querySelectorAll('#d-model option').length,
   }));
   chk(shape.provider && shape.account && shape.model && shape.chained, 'provider, account, model, chained like the create form', JSON.stringify(shape));
+
+  /* #1373: WHICH OpenAI sign-in the agent lands on. Creation has offered this
+     since #540; the switch stated a default and named it, and that asymmetry
+     was the card. Computed state only (hidden, option count), so headless is
+     sound. */
+  await page.selectOption('#d-provider', 'openai');
+  await page.waitForTimeout(500);
+  const pick = await page.evaluate(() => {
+    const s = document.getElementById('d-provider-account');
+    if (!s) return null;
+    return { shown: !s.hidden, opts: [...s.options].map((o) => o.textContent.trim()), value: s.value };
+  });
+  chk(!!pick && pick.shown, '#1373: choosing OpenAI reveals which sign-in it will run on', JSON.stringify(pick));
+  chk(!!pick && pick.opts.length === 2, '#1373: both sign-ins on this computer are offered', JSON.stringify(pick && pick.opts));
+  chk(!!pick && !!pick.value, '#1373: one is preselected, so pressing Switch without opening it still works', JSON.stringify(pick && pick.value));
+  /* 🔑 THE ARM THAT MAKES THE THREE ABOVE MEAN ANYTHING. A control that is
+     always visible would pass every one of them. Switching BACK to Anthropic
+     has no OpenAI sign-in to choose, so it must go away again. */
+  await page.selectOption('#d-provider', 'anthropic');
+  await page.waitForTimeout(400);
+  const gone = await page.evaluate(() => document.getElementById('d-provider-account').hidden);
+  chk(gone === true, '#1373: switching back to Anthropic offers no OpenAI sign-in to pick', String(gone));
+  /* Left on the agent's OWN provider, which is where this check found it. The
+     model-change flow below is a different section's business and must not
+     inherit a perturbed provider menu from this block. */
   await page.screenshot({ path: process.env.SHOT || path.join(os.tmpdir(), 'model-section.png') });
   const opt = await page.$eval('#d-model', (s) => { const o = [...s.options].find((x) => x.value); return o ? o.value : null; });
   chk(!!opt, 'the model menu offers a choice', opt);
