@@ -399,6 +399,34 @@ test('#1373: a fix does not reopen the dead end it closed', () => {
     'the appended fault sentence cannot be cleared, so it outlives the control it describes under a provider it does not apply to');
 });
 
+/* 🛑 AN IN-FLIGHT DISABLE MUST NOT BE ABLE TO OUTLIVE ITS REQUEST. The picker is disabled
+   while a switch runs and re-enabled in a `finally` that is GUARDED on the agent not having
+   changed. Its two siblings survive a failed guard because paintProviderPicker re-derives
+   their disabled state on every panel open; this one had no such path, so a switch whose
+   guard failed left it visible, populated and permanently uninteractive.
+   ⭐ It fails into a state that LOOKS FINE, which is why it needs a test rather than a
+   reader: the visible row is still sent so the account stays right, and the only thing lost
+   is the choice this card exists to add. */
+test('#1373: the sign-in picker cannot stay disabled after its request ends', () => {
+  assert.match(PAGE, /sel\.hidden = false;[\s\S]{0,900}?sel\.disabled = false;/,
+    'the shown path no longer re-derives the picker\'s disabled state, so an in-flight disable can outlive its request and leave the control permanently dead');
+  /* Both halves of the in-flight pair must still exist, or the above is guarding nothing. */
+  assert.match(PAGE, /if \(acctSel\) acctSel\.disabled = true;/,
+    'the in-flight disable is gone, so the row on screen can stop being the row sent');
+  assert.match(PAGE, /if \(acctSel\) acctSel\.disabled = false;/,
+    'the in-flight re-enable is gone');
+});
+
+/* 🛑 THE ONE-ROW ANNOUNCEMENT IS A SPOKEN SENTENCE AND NEEDS THE SPOKEN NORMALISATIONS.
+   Its only audience is a screen reader. Reusing the raw option label read that user exactly
+   what the sighted dialog refuses: a raw filesystem path, or the menu-only aside. */
+test('#1373: the one-row announcement carries the same normalisations as the dialog', () => {
+  assert.match(PAGE, /rawOne\.startsWith\('\/'\) \? '' :/,
+    'the one-row announcement no longer refuses a raw path, so a screen reader is read a filesystem path in a sentence');
+  assert.match(PAGE, /rawOne\.replace\(\/\\s\*\\\(could not check just now\\\)\$\/, ''\)/,
+    'the one-row announcement no longer strips the menu-only aside, so it is read aloud inside a sentence');
+});
+
 /* 🛑 THE DIALOG'S HONESTY GATE WAS ENFORCED BY NOTHING. A reviewer measured it:
    deleting `|| !SWITCH_ACCT_TOUCHED` from switchAcctShown left the FULL canonical
    runner GREEN. The dialog is the last screen before a restart, so

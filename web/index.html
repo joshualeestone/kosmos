@@ -22467,6 +22467,15 @@ function fillSwitchAccounts() {
   else if (sel.options.length) { sel.selectedIndex = Math.max(0, [...sel.options].findIndex((o) => o.defaultSelected)); }
   const appearing = sel.hidden;
   sel.hidden = false;
+  /* 🛑 RE-DERIVE THE DISABLED STATE HERE, OR AN IN-FLIGHT DISABLE OUTLIVES ITS REQUEST.
+     `changeProviderNow` disables this select while a switch is in flight and re-enables it
+     in a `finally` GUARDED on the agent not having changed. Its two siblings survive that
+     because `paintProviderPicker` re-derives their disabled state on every panel open;
+     nothing re-derived this one, so a switch whose guard failed left the picker visible,
+     populated and permanently uninteractive, with nothing said. It failed into a state that
+     looks fine: the visible row is still sent, so only the CHOICE this card exists to add
+     was lost. Painting it is what makes the in-flight disable self-healing. */
+  sel.disabled = false;
   /* ⚠️ A CONTROL THAT APPEARS SILENTLY IS ANNOUNCED TO NOBODY WHO IS NOT LOOKING AT
      IT. This one is revealed by choosing a provider, several controls away from where
      focus sits, and #d-provider-msg beside it is already an aria-live polite region.
@@ -22490,7 +22499,13 @@ function fillSwitchAccounts() {
        about a control they were never told about. It gets a sentence that is true of one
        row instead. */
     if (pmsg && !pmsg.textContent) {
-      const one = sel.options.length === 1 ? (sel.options[0].textContent || '').trim() : '';
+      /* ⚠️ SAME NORMALISATIONS THE SPOKEN SENTENCE GETS, because this line IS a spoken
+         sentence and its only audience is a screen reader. `switchAcctShown` refuses a
+         label that is a raw filesystem path and strips the menu-only "(could not check
+         just now)" aside; both are reachable here, so reusing the raw label read the
+         screen-reader user exactly the sentence the sighted dialog is written to avoid. */
+      const rawOne = sel.options.length === 1 ? (sel.options[0].textContent || '').trim() : '';
+      const one = rawOne.startsWith('/') ? '' : rawOne.replace(/\s*\(could not check just now\)$/, '');
       const line = ACCOUNTS_UNREADABLE ? SWITCH_ACCT_STALE
         : (sel.options.length > 1 ? SWITCH_ACCT_HINT
           : (one ? 'It will run on ' + one + '.' : ''));
@@ -22700,6 +22715,10 @@ async function changeProviderNow(say) {
        ⇒ APPENDED, NOT REPLACED. Both facts matter and they are different: why the switch
        failed, and why the remedy it names is currently unavailable. Replacing would throw
        away the engine's own sentence, which is the more specific of the two. */
+    /* Its own recheck, for the same reason the sibling in `moveAccountNow` carries one:
+       today this is saved only by the truthiness test below, which is the accidental
+       safety that comment rejects. */
+    if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     if (ACCOUNTS_UNREADABLE && msg && msg.textContent && msg.textContent.indexOf(SWITCH_ACCT_UNREADABLE) === -1) {
       msg.textContent = msg.textContent + ' ' + SWITCH_ACCT_UNREADABLE;
     }
