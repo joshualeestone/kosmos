@@ -236,6 +236,14 @@ function setDryRun(on) {
 }
 
 function run(file, args) {
+  /* 🔑 `runner` IS CHECKED FIRST, AND THAT IS THE SEAM TO REACH FOR IN A TEST (kosmos#1465).
+     Reaching for `AGENT_WORKFORCE_DRY_RUN` instead gives you a GREEN test that measured
+     nothing: it makes this function inert AND disables the account block below, so the
+     feature never runs. `setRunner(fake)` intercepts every external call while DRY_RUN
+     stays false, so the machine is safe and the feature is live at the same time.
+     ⇒ `server.switch-account-1373.test.js` and `engine/remove.test.js` both drive real
+     behaviour through this seam. ⚠️ `engine/remove` keeps its OWN runner: intercepting
+     this one alone leaves the restart path shelling out for real. */
   if (runner) return runner(file, args);
   if (DRY_RUN) return { ok: true, stdout: '', dryRun: true };
   // ⚠️ `stdio` pipes stderr rather than inheriting it. Without this, the
