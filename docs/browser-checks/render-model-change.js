@@ -145,8 +145,15 @@ const oaiStub = require('node:http').createServer((q, r) => {
     console.log('NOTE  wrote #1373 screenshot to ' + process.env.SHOT_1373);
   }
   /* 🔑 THE ARM THAT MAKES THE THREE ABOVE MEAN ANYTHING. A control that is
-     always visible would pass every one of them. Switching BACK to Anthropic
-     has no OpenAI sign-in to choose, so it must go away again. */
+     always visible would pass every one of them, and this shows the picker can
+     go away.
+     ⚠️ BUT BE PRECISE ABOUT WHICH CLAUSE IT EXERCISES, because the old label read
+     wider than the test is. `mara` is a CLAUDE fixture, so selecting anthropic
+     makes `armed` false, and the picker would hide on THAT ALONE whether or not
+     the `!openai` clause existed. ⇒ This arm proves NOT-ALWAYS-VISIBLE. It does
+     NOT prove the OpenAI clause, which is pinned at source level in
+     web.switch-account-1373.test.js instead. A second fixture already on OpenAI
+     is what would make this arm say what its name says. */
   await page.selectOption('#d-provider', 'anthropic');
   await page.waitForTimeout(400);
   /* The BEFORE state, for judging the layout change rather than guessing at it: the
@@ -157,7 +164,7 @@ const oaiStub = require('node:http').createServer((q, r) => {
     console.log('NOTE  wrote #1373 BEFORE screenshot to ' + process.env.SHOT_1373_BEFORE);
   }
   const gone = await page.evaluate(() => document.getElementById('d-provider-account').hidden);
-  chk(gone === true, '#1373: switching back to Anthropic offers no OpenAI sign-in to pick', String(gone));
+  chk(gone === true, "#1373: switching back to the agent's own provider hides the sign-in picker", String(gone));
   /* NOTE, and it belongs to the `selectOption('anthropic')` ABOVE rather
      than to whatever follows: that call is the negative arm, and it happens to
      leave the menu on the fixture agent's own provider, so the model-change flow

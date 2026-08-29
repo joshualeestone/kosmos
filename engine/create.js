@@ -901,7 +901,15 @@ function setProvider(name, provider, opts) {
          page telling us what it happened to be showing, not a request. Falling
          back to the engine's own list restores exactly the pre-branch behaviour
          for that person, and the refusal below now fires only on a REAL pick,
-         where "that account cannot be chosen here" is true and worth saying. */
+         where "that account cannot be chosen here" is true and worth saying.
+         📌 AND THE CONFIRM DIALOG HAS ALREADY PROMISED THE SHOWN ROW ("it runs
+         on the sign-in shown above"), so with the menu showing and the picked row
+         absent from this list, the fallback can land on a DIFFERENT row than the
+         sentence the person confirmed. That gap is real and is accepted on
+         purpose: it is NOT silent, because the route names the account it
+         actually landed on, and the only alternative is refusing here, which IS
+         the regression the paragraph above exists to undo.
+         🛑 SO DO NOT "FIX" THIS BY RESTORING THE REFUSAL. */
       if (!found && !(opts && opts.pickedByPerson === true)) {
         acct = accounts[0];
       } else if (!found) {
@@ -1879,7 +1887,10 @@ function createAgentInner(opts) {
        yet). The ACCOUNT is not a boundary and is not refused here: createAgentInner
        honours opts.account, and this clause used to claim otherwise (Claude
        account selection is CLAUDE_CONFIG_DIR, which means nothing to
-       codex). Both lift when phase 2 gives them real mechanisms. */
+       codex). ⚠️ SO "BOTH" NO LONGER HAS TWO REFERENTS: the same edit that
+       removed the account from this list left the model as the only boundary,
+       and the clause below refuses `opts.model` ALONE. It lifts when phase 2
+       gives codex's catalogue a real mechanism. */
     if (opts && opts.model !== undefined) {
       return { outcome: OUTCOME.REFUSED, because: 'an OpenAI agent picks its own model for now, so leave the model unchosen', steps };
     }

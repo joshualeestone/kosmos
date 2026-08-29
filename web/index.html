@@ -22242,8 +22242,17 @@ function fillSwitchAccounts() {
      comment that names one is how a reader concludes the others are bugs:
        not OpenAI    switching back to Anthropic has no OpenAI account to pick
        not armed     the agent already runs on OpenAI, so nothing can be switched
-       empty list    no usable account; the ENGINE refuses with a remedy, and an
-                     empty dropdown would say less than that sentence does */
+       empty list    no usable account HERE, and the two sub-cases END
+                     DIFFERENTLY, so do not read this line as a guarantee.
+                     With NO OpenAI account at all the engine refuses with a
+                     remedy, and an empty dropdown would say less than that
+                     sentence does. But this filter ALSO drops dead
+                     connections (state 'none') and `openai.list()` carries no
+                     such filter, so on a machine whose every OpenAI account is
+                     dead the engine sees a NON-empty list, does not refuse,
+                     and states a default onto a dead account. That behaviour
+                     is pre-existing and not this card's; it is named here
+                     because the sentence this replaces read as a gate. */
   if (!openai || !armed || !list.length) {
     sel.hidden = true;
     sel.innerHTML = '';
@@ -22287,7 +22296,9 @@ function fillSwitchAccounts() {
     + ((x.isDefault || (i === 0 && !list.some((y) => y.isDefault))) ? ' selected' : '')
     + '>' + labelOf(x) + '</option>').join('');
   /* ⚠️ THE FLAG AND THE VISIBLE SELECTION MUST NOT BE ABLE TO DISAGREE. The guard
-     below deliberately preserves the DOM when the option set is unchanged, while
+     below WOULD preserve the DOM if the option set ever compared equal, and 📌 FOR
+     THIS SELECT IT ALMOST CERTAINLY NEVER DOES, so do not read that as a live
+     mechanism: the note below this block has the serialization reason. Meanwhile
      the flag above is cleared unconditionally, so a future caller that rebuilt an
      identical still-visible menu would downgrade a real pick to "no pick": the
      person's account stays on screen, the request sends null, and the engine takes
@@ -22531,8 +22542,20 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
                             chooses while the code is sending that row. Reachable
                             whenever this page's live filter reduces a multi-account
                             machine to one visible row.
-             no menu        say this computer's sign-in. THE ONLY state where the
+             no menu        say this computer's sign-in. The state where the
                             engine really does state its own default.
+                            ⚠️ WITH ONE EXCEPTION, AND IT IS THE ARM THIS
+                            ENUMERATION USED TO MISS: on a machine with ZERO
+                            OpenAI accounts, paintProviderPicker enables both
+                            real providers unconditionally, so OpenAI is still
+                            offered, Switch arms, this dialog opens,
+                            `!list.length` hides the picker, all three helpers
+                            read false, and this sentence promises a sign-in
+                            that does not exist. setProvider then REFUSES
+                            rather than stating any default. The copy is
+                            inherited and is not a regression; the ENUMERATION
+                            is new, which is why the arm is named here rather
+                            than the claim quietly widened.
            ⚠️ TWO EARLIER VERSIONS OF THIS COMMENT AND ITS COPY WERE BOTH WRONG, in
            opposite directions. One claimed the untouched arm "makes no sign-in claim
            at all", which the string below it contradicted. One said "it picks its own

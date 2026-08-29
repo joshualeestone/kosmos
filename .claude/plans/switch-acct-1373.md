@@ -86,14 +86,17 @@ keeps catching, and three of these came out of review rather than design:**
 
 ## Proof before the write
 
-- `engine/create.switch-account-1373.test.js`: **3 tests** (a third was added later for
-  the override-home refusal, with a control proving the same call succeeds once the
-  override is gone), pass, and **repeatable** (3 consecutive runs exit 0, which is the
+- `engine/create.switch-account-1373.test.js`: **4 tests** (two came after the first
+  draft: the override-home refusal, with a control proving the same call succeeds once
+  the override is gone, and the unpicked-account fallback that iteration 11 turned out
+  to need), pass, and **repeatable** (3 consecutive runs exit 0, which is the
   arm that caught the launchctl defect below).
 - `web.switch-account-1373.test.js`: **13 tests**, pass. Source-level by construction and
   it says so in its own header: it can see that a guard is present and what it is keyed
   on, and it cannot see the rendered page.
-- Full runner: **2907 tests, 2907 pass, 0 fail, exit 0**.
+- Full runner: **2935 tests, 2935 pass, 0 fail, exit 0** (re-measured 2026-08-29 09:33
+  CDT at 978ec0dd post-rebase, with the iteration-12 comment fixes applied; the 2907
+  figure was pre-rebase).
 - **Both guards perturbed inside the real runner and required to go RED**: ignoring the
   pick gives "the switch ignored the account the person picked"; failing open on a ghost
   account fails the refusal test. Baseline green.
