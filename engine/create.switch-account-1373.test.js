@@ -67,9 +67,33 @@ const codexHomeOf = (name) => {
   const m = text.match(/<key>CODEX_HOME<\/key><string>([\s\S]*?)<\/string>/);
   return m ? m[1] : null;
 };
+const store = require('./store');
+/**
+ * An agent seeded DIRECTLY: its launch job and its profile, which is all
+ * `setProvider` reads.
+ *
+ * 🛑 NOT `createAgent`, AND NOT BECAUSE IT IS SLOWER. `createAgent`'s
+ * name-collision check calls the REAL `/bin/launchctl` (engine/create.js:2041),
+ * so a first run of this file LOADED THREE LIVE launchd services on the
+ * developer's machine and every later run then failed with "already set to
+ * start on this computer". I measured all three loaded and booted them out.
+ * ⚠️ AND `AGENT_WORKFORCE_DRY_RUN=1` IS NOT THE FIX HERE, though it is what the
+ * browser checks use: `setProvider` guards the whole account block with
+ * `runner === 'codex' && !DRY_RUN`, so under dry run no account is chosen at
+ * all and every assertion in this file would pass against a world where the
+ * feature never ran.
+ * ⇒ Seeding the two things setProvider actually reads keeps launchctl out of it
+ * AND keeps the code under test live. Same seam docs/browser-checks uses.
+ */
 function born(name) {
-  const out = create.createAgent({ ...BINS, name, role: 'pm', model: 'opus' });
-  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+  fs.mkdirSync(create.workerDir(name), { recursive: true });
+  fs.writeFileSync(create.plistPath(name),
+    create.plistFor(name, CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), 'utf8');
+  store.writeProfile(name, { provider: 'anthropic' });
+  /* The fixture's own control: if the seed is not readable as a job, every
+     REFUSED below would be right for the wrong reason. */
+  assert.equal(store.readProfile(name).provider, 'anthropic');
   return name;
 }
 
@@ -115,6 +139,6 @@ test('#1373: an account that is not on this computer is REFUSED, not silently re
   /* NOTHING WAS WRITTEN. A refusal that already rewrote the job is not one. */
   assert.equal(fs.existsSync(create.plistPath(c)) ? codexHomeOf(c) : null, null,
     'the refusal still wrote a codex home');
-  assert.equal(require('./store').readProfile(c).provider, 'anthropic',
+  assert.equal(store.readProfile(c).provider, 'anthropic',
     'the refusal still moved the agent off Claude');
 });
