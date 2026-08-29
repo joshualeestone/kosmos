@@ -20,6 +20,52 @@ const fs = require('node:fs');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
 
+/* #1430: the assertions below no longer end at their rule's closing brace, so an
+   appended declaration is not a red that looks like a product bug. That is how
+   main went down at step 3 under #1310.
+
+   Kept pinned here on purpose: one `display: none` and one `display: contents`.
+   The absence-shaped promise here is `\.pjmid \.thread { min-height: 0;
+   max-height: none; ... border: 0; border-radius: 0; background: none; }` -- the
+   most absence-laden rule in this change. A later `border:` or `background:` in
+   that same rule would override unseen.
+   🛑 AND THE KEEPS CARRY THE ORIGINAL DEFECT BY CONSTRUCTION, which the block
+   above did not say: a kept pin STILL GOES RED on a legitimate append. That is
+   #1310 itself, retained deliberately. Measured across the keeps in this change:
+   appending `margin: 0;` to a kept rule reds it.
+   ⚠️ The justification is a SNAPSHOT OF TODAY'S STYLESHEET -- each kept
+   selector's rules currently carry a single declaration, checked, with controls.
+   It is not a property of the rule, and round 10 disproved one of these keeps by
+   finding the page already extended its selector. **If a kept rule ever gains a
+   declaration, loosen it rather than treating the pin as settled.**
+
+   ⚠️ THREE THINGS IT DOES NOT COVER, and all three are real. An open tail cannot
+   see a SAME-RULE OVERRIDE. It tolerates an APPEND but NOT a declaration INSERTED
+   between the promised ones -- #1310 happened to append; had it grouped the
+   property differently this would not have prevented it. And a SAME-SELECTOR,
+   LATER-RULE override is invisible to any text pin, loosened or not: if the sheet
+   declares the selector twice the later rule wins, and an assertion on the earlier
+   one is GREEN when the behaviour breaks and RED on a no-op. Three instances were
+   found in this tree and all three are now FIXED with cascade-resolving checks --
+   two by #1476 itself, and a third here that #1476's guard could not see because
+   both declarations carried the same VALUE.
+
+   ⚠️ AND LOOSENING HAS A COST FOR THAT GUARD, DISCLOSED RATHER THAN LEFT TO BE
+   FOUND: web.cascade-shadowed-pins-1476.test.js matches on a rule WITH its closing
+   brace, so dropping the brace takes these files out of its reach. Measured: on
+   main it sees 3 such assertions in the files this branch touches, on this branch
+   it sees 0. Nothing fails today. The guard wants a brace-optional matcher, and
+   that is #1469's territory rather than something to patch quietly here.
+
+   🔑 So the four-arm proof behind this change establishes that each assertion
+   tracks the rule TEXT. It does NOT establish that the rule GOVERNS.
+
+   🛑 NOT MECHANICALLY ENFORCED (#1469). A guard was built and removed rather than
+   shipped: it was blind to the very spelling that caused #1310, and a green
+   nobody can trust stops the next person looking.
+
+   Full argument, counts and the four-arm proof: .claude/plans/css-brace-anchor-1430.md */
+
 test('a project auto-opens on the first consolidated load, once, and only when nothing else already claimed it', () => {
   assert.match(SCRIPT, /let PJ_AUTO_OPENED_ONCE = false;/, 'the one-shot flag is gone');
   const at = SCRIPT.indexOf('if (!PJ_AUTO_OPENED_ONCE');
@@ -37,7 +83,7 @@ test('a project auto-opens on the first consolidated load, once, and only when n
 });
 
 test('the agents and projects rail titles sit at the same height', () => {
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated #pj-list-view \{ grid-column: 1; padding-top: 0; \}/,
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated #pj-list-view \{ grid-column: 1; padding-top: 0;/,
     'the projects rail lost the padding-top override that keeps it flush with the agents rail');
 });
 
@@ -94,6 +140,6 @@ test('the conversation box fills the available height instead of leaving a gap a
   // thread is the COLUMN now, not a bordered card floating inside it.
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{[^}]*height: 100%; min-height: 0;/s,
     'the conversation column lost its full-height grid chain');
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pjmid \.thread \{ min-height: 0; max-height: none; flex: 1 1 auto; border: 0; border-radius: 0; background: none; \}/,
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pjmid \.thread \{ min-height: 0; max-height: none; flex: 1 1 auto; border: 0; border-radius: 0; background: none;/,
     'the conversation no longer fills its column as a flat, borderless region (re-boxed, capped, or not flex-grow)');
 });

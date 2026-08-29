@@ -15,6 +15,51 @@ const fs = require('node:fs');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const cons = 'html\\[data-layout="consolidated"\\] body\\.consolidated';
 
+/* #1430: the assertions below no longer end at their rule's closing brace, so an
+   appended declaration is not a red that looks like a product bug. That is how
+   main went down at step 3 under #1310.
+
+   Kept pinned here on purpose: four single complete declarations, all
+   `display: none`. The absence-shaped promise is `\.cinput { ...
+   scrollbar-width: none; -ms-overflow-style: none; }`: a later
+   `scrollbar-width: auto` in that rule is exactly the disclosed failure.
+   🛑 AND THE KEEPS CARRY THE ORIGINAL DEFECT BY CONSTRUCTION, which the block
+   above did not say: a kept pin STILL GOES RED on a legitimate append. That is
+   #1310 itself, retained deliberately. Measured across the keeps in this change:
+   appending `margin: 0;` to a kept rule reds it.
+   ⚠️ The justification is a SNAPSHOT OF TODAY'S STYLESHEET -- each kept
+   selector's rules currently carry a single declaration, checked, with controls.
+   It is not a property of the rule, and round 10 disproved one of these keeps by
+   finding the page already extended its selector. **If a kept rule ever gains a
+   declaration, loosen it rather than treating the pin as settled.**
+
+   ⚠️ THREE THINGS IT DOES NOT COVER, and all three are real. An open tail cannot
+   see a SAME-RULE OVERRIDE. It tolerates an APPEND but NOT a declaration INSERTED
+   between the promised ones -- #1310 happened to append; had it grouped the
+   property differently this would not have prevented it. And a SAME-SELECTOR,
+   LATER-RULE override is invisible to any text pin, loosened or not: if the sheet
+   declares the selector twice the later rule wins, and an assertion on the earlier
+   one is GREEN when the behaviour breaks and RED on a no-op. Three instances were
+   found in this tree and all three are now FIXED with cascade-resolving checks --
+   two by #1476 itself, and a third here that #1476's guard could not see because
+   both declarations carried the same VALUE.
+
+   ⚠️ AND LOOSENING HAS A COST FOR THAT GUARD, DISCLOSED RATHER THAN LEFT TO BE
+   FOUND: web.cascade-shadowed-pins-1476.test.js matches on a rule WITH its closing
+   brace, so dropping the brace takes these files out of its reach. Measured: on
+   main it sees 3 such assertions in the files this branch touches, on this branch
+   it sees 0. Nothing fails today. The guard wants a brace-optional matcher, and
+   that is #1469's territory rather than something to patch quietly here.
+
+   🔑 So the four-arm proof behind this change establishes that each assertion
+   tracks the rule TEXT. It does NOT establish that the rule GOVERNS.
+
+   🛑 NOT MECHANICALLY ENFORCED (#1469). A guard was built and removed rather than
+   shipped: it was blind to the very spelling that caused #1310, and a green
+   nobody can trust stops the next person looking.
+
+   Full argument, counts and the four-arm proof: .claude/plans/css-brace-anchor-1430.md */
+
 /* 🛑 THE ONE GUARD THAT IS NOT A TEXT MATCH, and the reason it exists is a
    BLOCKER this suite passed straight through. A paragraph appended AFTER a
    comment's closing delimiter left six lines of raw prose inside a declaration
@@ -289,7 +334,7 @@ test('the state chatter is hidden from the EYE only, and a needs-you row keeps i
      render -- which the old `display: none` pin would have happily allowed. */
   assert.doesNotMatch(PAGE, /lsaid/,
     'the quoted last-words line is being rendered again somewhere -- Josh cut it under #855 (grid) and #986 (list); it should not exist in the markup at all');
-  assert.match(PAGE, new RegExp(cons + ' \\.lrow:has\\(\\.lstate \\.ansgo\\) > \\.lav \\{ grid-row: 1 \\/ span 3; \\}'),
+  assert.match(PAGE, new RegExp(cons + ' \\.lrow:has\\(\\.lstate \\.ansgo\\) > \\.lav \\{ grid-row: 1 \\/ span 3;'),
     'the avatar no longer spans the Answer row, so the kept .lstate misaligns');
   /* Every state glyph stays aria-hidden, or the clip above starts announcing
      decorative markup alongside the word. */
@@ -367,9 +412,9 @@ test('the remaining #980 rulings each keep their pin', () => {
   // One pin per ruling is this file's contract; these four had none.
   assert.match(PAGE, new RegExp(cons + '\\.fold-a #alist \\.pj-empty \\{ display: none; \\}'),
     'the folded 48px strip shows the letter-wrapped empty-state card again');
-  assert.match(PAGE, new RegExp(cons + ' \\.pj-member \\.lav\\.pj-face \\{ width: 28px; height: 28px; flex: 0 0 28px; aspect-ratio: 1; \\}'),
+  assert.match(PAGE, new RegExp(cons + ' \\.pj-member \\.lav\\.pj-face \\{ width: 28px; height: 28px; flex: 0 0 28px; aspect-ratio: 1;'),
     'the member avatar lost its shrink-proof 1:1 pin; a long name can squish it out of round again');
-  assert.match(PAGE, new RegExp(cons + ' \\.pjmidhead \\.pjhead \\.pj-desc \\{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; \\}'),
+  assert.match(PAGE, new RegExp(cons + ' \\.pjmidhead \\.pjhead \\.pj-desc \\{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;'),
     'the header description no longer truncates to one line');
   assert.match(PAGE, /desc\.title = p\.description \|\| ''/,
     'the truncated description lost its full-text hover (the title the truncation comment promises)');
@@ -380,7 +425,7 @@ test('the remaining #980 rulings each keep their pin', () => {
      the track, which is the bug Josh reported three weeks later on a different
      screen. Asserting the property sits with its cause is what stops the fix
      being scoped to one layout again. */
-  assert.match(PAGE, /\.cinput \{[^}]*scrollbar-width: none; -ms-overflow-style: none; \}/,
+  assert.match(PAGE, /\.cinput \{[^}]*scrollbar-width: none; -ms-overflow-style: none;/,
     'the composer scrollbar hide is no longer on the base .cinput rule, so composers outside the consolidated view show their track again');
   assert.match(PAGE, /\.cinput::-webkit-scrollbar \{ display: none; \}/,
     'the WebKit half of the composer scrollbar hide is gone -- this is the half that matters in the Mac app');
@@ -455,20 +500,20 @@ test('the right-column cards stretch into their tracks, or they overlap each oth
      so the grid never exceeds the viewport and no page scrollbar ever appears.
      Headless at 1280 wide, 14 rows per card: `start` overlapped by 8px at 720
      and 22px at 600; `stretch` overlapped at none of 900/720/600. */
-  assert.match(PAGE, new RegExp(cons + ' \\.pj3 > \\.pjsplit > \\.pjcard, ' + cons + ' \\.pj3 > aside\\.pjcol:not\\(\\.pjsplit\\) \\{ min-height: 0; align-self: stretch; \\}'),
+  assert.match(PAGE, new RegExp(cons + ' \\.pj3 > \\.pjsplit > \\.pjcard, ' + cons + ' \\.pj3 > aside\\.pjcol:not\\(\\.pjsplit\\) \\{ min-height: 0; align-self: stretch;'),
     'the right-column cards no longer stretch into their tracks: below ~770px they overflow and cover each other, and the page-scroll safety valve cannot fire because the tracks shrink rather than grow');
 });
 
 test('the two auto-row cards carry viewport caps a tall list cannot game', () => {
   // Measured in review: with 30 rows in Tasks and Files, %-caps against
   // content-sized tracks let both grow ~460px and push Members off-screen.
-  assert.match(PAGE, new RegExp(cons + ' \\.pj3 > aside\\.pjcol:not\\(\\.pjsplit\\), ' + cons + ' \\.pj3 > \\.pjsplit > \\.pjcard-files \\{ max-height: 38vh; \\}'),
+  assert.match(PAGE, new RegExp(cons + ' \\.pj3 > aside\\.pjcol:not\\(\\.pjsplit\\), ' + cons + ' \\.pj3 > \\.pjsplit > \\.pjcard-files \\{ max-height: 38vh;'),
     'Tasks/Files lost their viewport caps; tall content can push Members off the bottom again');
   /* ⚠️ `calc(100% - 12px)`, and the 12px is the card's own bottom margin.
      `max-height` resolves against the grid AREA, so a plain 100% makes the
      margin box 12px taller than its track and a full Members list spills out
      to the body scroll -- a page scrollbar in the exact state this branch
      removes, and one that does not need a short window to appear. */
-  assert.match(PAGE, new RegExp(cons + ' \\.pj3 > \\.pjsplit > \\.pjcard-members \\{ max-height: calc\\(100% - 12px\\); \\}'),
+  assert.match(PAGE, new RegExp(cons + ' \\.pj3 > \\.pjsplit > \\.pjcard-members \\{ max-height: calc\\(100% - 12px\\);'),
     'Members lost its track-bounded cap');
 });

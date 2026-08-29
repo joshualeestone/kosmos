@@ -39,6 +39,25 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
    `display: contents`. The prose knew; the assertion did not. */
 const ROW = 'html[data-layout="consolidated"] body.consolidated .pj-row';
 
+/* #1430: the remaining brace-anchored assertions in this file no longer end at
+   their rule's closing brace, so an appended declaration is not a red that looks
+   like a product bug. That is how main went down at step 3 under #1310.
+
+   ⚠️ TWO RESIDUALS remain for the text pins below. An open tail cannot see a
+   SAME-RULE OVERRIDE, and it tolerates an APPEND but NOT a declaration INSERTED
+   between the promised ones. #1310 happened to append; had it grouped the
+   property differently this would not have prevented it.
+
+   ✅ The THIRD residual, a same-selector later-rule override, was live in this
+   file and is now FIXED above by #1476: those assertions resolve the cascade
+   instead of pinning text, so no brace anchor applies to them at all.
+
+   🛑 NOT MECHANICALLY ENFORCED (#1469). A guard was built and removed rather than
+   shipped: it was blind to the very spelling that caused #1310, and a green
+   nobody can trust stops the next person looking.
+
+   Full argument and the four-arm proof: .claude/plans/css-brace-anchor-1430.md */
+
 test('the projects rail forces list-row layout regardless of the panel\'s stored asgrid/list sub-layout', () => {
   /* 🛑 THE EFFECTIVE VALUE, NOT THE TEXT (#1476). This selector is declared TWICE
      in this scope with IDENTICAL declarations, so the text pin sat on the FIRST
@@ -56,6 +75,21 @@ test('the projects rail forces list-row layout regardless of the panel\'s stored
     'the rail no longer neutralizes the tile-grid sub-layout, so a person who left the projects panel on asgrid gets tile rows in the narrow rail again');
   assert.equal(effective(PAGE, RAIL, 'flex-direction'), 'column',
     'the rail stacks its rows horizontally, so the projects panel reads as a grid in a column that cannot hold one');
+
+  /* ✅ AND SEPARATELY, THE DUPLICATE ITSELF IS PINNED (#1459). The two assertions
+     above guard the BEHAVIOUR and are correct whichever copy wins. This one guards
+     that the DUPLICATE STILL EXISTS, which is a different question: without it,
+     #1459 could be closed by deleting a copy and nothing here would notice.
+     📌 WHEN #1459 LANDS and a copy is removed, the effective() checks above stay
+     green (behaviour unchanged, correctly) and THIS one reds. Change the 2 to a 1.
+     That is the intended edit rather than a surprise; coupling it to the defect is
+     deliberate, because an uncoupled version cannot fail.
+     ⚠️ Limit, stated: an APPENDED declaration to one copy leaves the count at 2 and
+     is invisible here. Control for the count itself: `#pj-composerhint
+     { display: none; }` counts 1, so a 2 means something. */
+  const DUP_RULE = /html\[data-layout="consolidated"\] body\.consolidated #pj-list\.asgrid \{ display: flex; flex-direction: column;/g;
+  assert.equal((PAGE.match(DUP_RULE) || []).length, 2,
+    'the duplicated #pj-list.asgrid rule (#1459) changed count: if a copy was removed, that is the fix landing and this 2 becomes a 1; if a copy had a declaration CHANGED or INSERTED, one of the two rails just diverged');
 });
 
 test('the name and the status pill stack, rather than compete for one line', () => {
@@ -79,6 +113,6 @@ test('the name and the status pill stack, rather than compete for one line', () 
 });
 
 test('the existing ellipsis rule on the project name is untouched -- this fix gives it a box to work in, not a new rule', () => {
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pjcard-h b \{ font-size: \.875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; \}/,
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pjcard-h b \{ font-size: \.875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;/,
     'the pre-existing (and always correct) truncation rule on the name is gone');
 });

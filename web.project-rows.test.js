@@ -12,6 +12,54 @@ const fs = require('node:fs');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
 
+/* #1430: the assertions below no longer end at their rule's closing brace, so an
+   appended declaration is not a red that looks like a product bug. That is how
+   main went down at step 3 under #1310.
+
+   Kept pinned here on purpose: two `display: contents` and one `display: none`,
+   single complete declarations with nothing a feature would append.
+   The absence-shaped promise here is `\.pjfaces { ... min-width: 0;
+   overflow: hidden; }`. The other live case in this file is the base `\.pc-t`
+   rule, asserted for `overflow-wrap: anywhere`: appending `overflow-wrap: normal;`
+   to it leaves the loosened form GREEN where the old pinned form went RED, so the
+   wrap behaviour can be reversed unseen.
+   🛑 AND THE KEEPS CARRY THE ORIGINAL DEFECT BY CONSTRUCTION, which the block
+   above did not say: a kept pin STILL GOES RED on a legitimate append. That is
+   #1310 itself, retained deliberately. Measured across the keeps in this change:
+   appending `margin: 0;` to a kept rule reds it.
+   ⚠️ The justification is a SNAPSHOT OF TODAY'S STYLESHEET -- each kept
+   selector's rules currently carry a single declaration, checked, with controls.
+   It is not a property of the rule, and round 10 disproved one of these keeps by
+   finding the page already extended its selector. **If a kept rule ever gains a
+   declaration, loosen it rather than treating the pin as settled.**
+
+   ⚠️ THREE THINGS IT DOES NOT COVER, and all three are real. An open tail cannot
+   see a SAME-RULE OVERRIDE. It tolerates an APPEND but NOT a declaration INSERTED
+   between the promised ones -- #1310 happened to append; had it grouped the
+   property differently this would not have prevented it. And a SAME-SELECTOR,
+   LATER-RULE override is invisible to any text pin, loosened or not: if the sheet
+   declares the selector twice the later rule wins, and an assertion on the earlier
+   one is GREEN when the behaviour breaks and RED on a no-op. Three instances were
+   found in this tree and all three are now FIXED with cascade-resolving checks --
+   two by #1476 itself, and a third here that #1476's guard could not see because
+   both declarations carried the same VALUE.
+
+   ⚠️ AND LOOSENING HAS A COST FOR THAT GUARD, DISCLOSED RATHER THAN LEFT TO BE
+   FOUND: web.cascade-shadowed-pins-1476.test.js matches on a rule WITH its closing
+   brace, so dropping the brace takes these files out of its reach. Measured: on
+   main it sees 3 such assertions in the files this branch touches, on this branch
+   it sees 0. Nothing fails today. The guard wants a brace-optional matcher, and
+   that is #1469's territory rather than something to patch quietly here.
+
+   🔑 So the four-arm proof behind this change establishes that each assertion
+   tracks the rule TEXT. It does NOT establish that the rule GOVERNS.
+
+   🛑 NOT MECHANICALLY ENFORCED (#1469). A guard was built and removed rather than
+   shipped: it was blind to the very spelling that caused #1310, and a green
+   nobody can trust stops the next person looking.
+
+   Full argument, counts and the four-arm proof: .claude/plans/css-brace-anchor-1430.md */
+
 test('the painter emits the head (name with its bubble, status), then the description, then the agents; no folder chip anywhere', () => {
   const at = SCRIPT.indexOf('function projectCard(');
   const fn = SCRIPT.slice(at, SCRIPT.indexOf('\n}\n', at) + 3);
@@ -35,9 +83,11 @@ test('the list view lays the row across four columns with the status at the far 
   for (const [sel, col] of [['.pjname', 1], ['.pc-t', 2], ['.pjfaces', 3], ['.pjpill', 4]]) {
     assert.match(PAGE, new RegExp('\\.pj-list:not\\(\\.asgrid\\) \\.pj-row \\' + sel + ' \\{ grid-column: ' + col + '; grid-row: 1;'), sel + ' is not pinned to column ' + col);
   }
-  assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \.pjpill \{ grid-column: 4; grid-row: 1; justify-self: end; \}/);
+  assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \.pjpill \{ grid-column: 4; grid-row: 1; justify-self: end;/,
+    'the status pill left column 4 or stopped being pushed to the far right');
   // Narrow screens stack the row rather than crushing four columns.
-  assert.match(PAGE, /@media \(max-width: 52rem\) \{\n  \.pj-list:not\(\.asgrid\) \.pj-row \{ grid-template-columns: minmax\(0, 1fr\) auto; \}/);
+  assert.match(PAGE, /@media \(max-width: 52rem\) \{\n  \.pj-list:not\(\.asgrid\) \.pj-row \{ grid-template-columns: minmax\(0, 1fr\) auto;/,
+    'the narrow-screen row no longer collapses to two columns, so four get crushed instead of stacking');
 });
 
 // #860: "Project title (which could probably be truncated at some particular
@@ -46,15 +96,15 @@ test('the list view lays the row across four columns with the status at the far 
 // the grid tile keeps its own wrap/clamp behaviour and its own pinned checks
 // (the 200-char drive fixture named at .pc-t's base rule).
 test('the list row truncates a long title or description instead of wrapping it, and the agents column cannot bleed into the status pill', () => {
-  assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \.pjname b \{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/,
+  assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \.pjname b \{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap;/,
     'the title is not truncated in the list row');
   assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \.pc-t \{[^}]*overflow: hidden; text-overflow: ellipsis; white-space: nowrap;/,
     'the description is not truncated in the list row');
   // The grid tile's own description rule keeps overflow-wrap: anywhere
   // (the pasted-URL fixture), untouched by the list-row override above.
-  assert.match(PAGE, /^\.pc-t \{ display: block;[^}]*overflow-wrap: anywhere; \}/m,
+  assert.match(PAGE, /^\.pc-t \{ display: block;[^}]*overflow-wrap: anywhere;/m,
     'the grid tile description lost its own wrap rule');
-  assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \.pjfaces \{[^}]*min-width: 0; overflow: hidden; \}/,
+  assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \.pjfaces \{[^}]*min-width: 0; overflow: hidden;/,
     'the agents column has no shrink/clip guard -- a grid item’s default min-width:auto is exactly what let it bleed into the status pill');
 });
 
@@ -86,6 +136,6 @@ test('the grid tile stacks and centers title, then a status bubble, then the age
     'the agent icons and their count are not stacked (icon row, then caption)');
   // The grid tile's own description rule (the pack's wrap-not-truncate
   // behaviour, and its pinned fixture) is untouched by hiding it here.
-  assert.match(PAGE, /^\.pc-t \{ display: block;[^}]*overflow-wrap: anywhere; \}/m,
+  assert.match(PAGE, /^\.pc-t \{ display: block;[^}]*overflow-wrap: anywhere;/m,
     'the base .pc-t rule (used by the list view and the detail page) was disturbed');
 });

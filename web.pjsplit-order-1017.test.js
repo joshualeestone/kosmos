@@ -22,6 +22,40 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 
+/* #1430: the assertions below no longer end at their rule's closing brace, so an
+   appended declaration is not a red that looks like a product bug. That is how
+   main went down at step 3 under #1310.
+
+   These promise a grid ROW and COLUMN rather than an absence, so a later
+   `grid-row` in the same rule would override unseen.
+
+   ⚠️ THREE THINGS IT DOES NOT COVER, and all three are real. An open tail cannot
+   see a SAME-RULE OVERRIDE. It tolerates an APPEND but NOT a declaration INSERTED
+   between the promised ones -- #1310 happened to append; had it grouped the
+   property differently this would not have prevented it. And a SAME-SELECTOR,
+   LATER-RULE override is invisible to any text pin, loosened or not: if the sheet
+   declares the selector twice the later rule wins, and an assertion on the earlier
+   one is GREEN when the behaviour breaks and RED on a no-op. Three instances were
+   found in this tree and all three are now FIXED with cascade-resolving checks --
+   two by #1476 itself, and a third here that #1476's guard could not see because
+   both declarations carried the same VALUE.
+
+   ⚠️ AND LOOSENING HAS A COST FOR THAT GUARD, DISCLOSED RATHER THAN LEFT TO BE
+   FOUND: web.cascade-shadowed-pins-1476.test.js matches on a rule WITH its closing
+   brace, so dropping the brace takes these files out of its reach. Measured: on
+   main it sees 3 such assertions in the files this branch touches, on this branch
+   it sees 0. Nothing fails today. The guard wants a brace-optional matcher, and
+   that is #1469's territory rather than something to patch quietly here.
+
+   🔑 So the four-arm proof behind this change establishes that each assertion
+   tracks the rule TEXT. It does NOT establish that the rule GOVERNS.
+
+   🛑 NOT MECHANICALLY ENFORCED (#1469). A guard was built and removed rather than
+   shipped: it was blind to the very spelling that caused #1310, and a green
+   nobody can trust stops the next person looking.
+
+   Full argument, counts and the four-arm proof: .claude/plans/css-brace-anchor-1430.md */
+
 /* Bounded at the aside's own close, and matched on the CARD DIVS rather than
    on the class names anywhere in the slice -- an earlier version of this check
    read the order out of a COMMENT that happens to mention both names, and
@@ -73,8 +107,8 @@ test('nothing selects the split cards by position', () => {
 /* The grid rows must still put Files above Members, or the markup fix would
    have "aligned" the two orders by moving the VISUAL one to the wrong place. */
 test('the consolidated rows still paint Files above Members', () => {
-  assert.match(PAGE, /\.pjsplit > \.pjcard-files \{ grid-column: 2; grid-row: 2; \}/,
+  assert.match(PAGE, /\.pjsplit > \.pjcard-files \{ grid-column: 2; grid-row: 2;/,
     'the files card left row 2, so Josh\'s Files-above-Members order is gone');
-  assert.match(PAGE, /\.pjsplit > \.pjcard-members \{ grid-column: 2; grid-row: 3; \}/,
+  assert.match(PAGE, /\.pjsplit > \.pjcard-members \{ grid-column: 2; grid-row: 3;/,
     'the members card left row 3');
 });
