@@ -267,6 +267,32 @@ points at it and tells the reader not to trust its own numbers.
   closed. Perturbed: adding the word to `STATES` makes the tool throw.
 - **Four exports nothing imported** are gone.
 
+### Amended at iteration 7, and the world moved under the branch
+
+- 🛑 **#1453 shipped mid-loop.** PR #1457 merged 2026-08-29T00:53Z. Two sites
+  of this diff asserted "the record does not store who wrote a line" as present
+  fact. True when written; false the moment this rebases. Now scoped to the
+  historical record, which is what the question is actually about: 0 of 27,047
+  lines on disk carry the new field.
+- **The tool prefers the record's own word and prints the split.** Not a
+  wording fix: `by` where it exists, the hook's sentence where it does not, and
+  a printed count of each so the weaker marker's share is visible and can be
+  watched falling.
+- 🛑 **My first version of arm 12 was decoration and passed under
+  perturbation.** The fixture put one record wrong in each direction, so both
+  counts read 1 whether `by` was honoured or ignored - only which record sat in
+  which bucket changed, and I asserted the counts. **A guard that cannot fail,
+  inside the arm written to prevent exactly that.** The fixture is asymmetric
+  now: honouring `by` gives 0 hook / 2 typed, ignoring it gives 2 hook / 0
+  typed, and five assertions go red on demand.
+- **"It prints this exact split" was already stale** - the hook row moved from
+  7 to 8 during the session. It now claims the shape, not the numbers.
+- **A duplicated `exitCode`/`return`** left by the iteration-6 gate restructure
+  is gone, and `readRecord`'s failure branch returns the same shape as its
+  success branch.
+- **Rebased onto `origin/main`** so the branch is measured against the world it
+  will merge into. Suite green there at 2,901 tests.
+
 ## What this deliberately does NOT do
 
 - **No behaviour change.** Comments, one read-only tool, one test, one line of
@@ -281,7 +307,13 @@ points at it and tells the reader not to trust its own numbers.
 The provenance split is a STRING MATCH on the hook's own sentence
 (`install/kosmos-report-hook.sh:218`), because the record does not store who
 wrote a line: `report --auto` is a write-time discriminator
-(`selfreport.js`, the `entry.auto === true` branch) and is not persisted. Filed as its own card, #1453.
+(`selfreport.js`, the `entry.auto === true` branch) and was not persisted.
+Filed as #1453 - **and fixed by #1457 while this branch was in the challenge
+loop.** `selfreport.record` now persists `by: 'auto'|'agent'`. The fix is not
+retroactive and this is a question about the historical record, so the string
+match became a FALLBACK rather than the only marker: the tool prefers `by`
+where it exists and prints how many of each, so a reader can see how much of
+the answer still rests on the weaker one.
 
 🛑 **AND I HAD THAT CAVEAT'S DIRECTION BACKWARDS.** I first wrote that the
 error "biases the count in the SAFE direction, since it can only make
