@@ -54,7 +54,7 @@ points at it and tells the reader not to trust its own numbers.
    - asserts its conclusion against its own numbers, and prints the OPPOSITE
      conclusion when agents have started reporting the state themselves
 
-2. `tools/test-needs-you-source.sh`, 22 named arms and 57 passing assertions.
+2. `tools/test-needs-you-source.sh`, 22 named arms and 58 passing assertions.
    **Arm 3 is the load-bearing one:** the tool must be able to print the
    uncomfortable answer. A measuring tool that can only ever return
    "load-bearing on the scrape" is decoration on that sentence, not evidence
@@ -387,6 +387,37 @@ written to catch that has two patterns which SHARE a separator class, so they
 cannot disagree about a command-substitution call: CALL reads 6, LOOSE reads 6,
 and there are 7 call sites. Their agreement, which the file treats as proof of
 completeness, carries no information about the case that is actually missing.
+
+### Amended at iteration 11
+
+- 🛑 **`selfreport.js` said the measurement lives in ONE copy "deliberately,
+  because the number goes stale and three copies go stale separately". There
+  are four copies and three of them are stale.** `defaults.js`'s version log
+  and `defaults.test.js` twice, all quoting `22 of 21,500`. `status.js`
+  acknowledged one of the three. **Fourth recurrence of one-fix-two-sites on
+  this branch**, this time inside the sentence written to describe the defect.
+  All three are now named where a reader will meet them.
+- 🛑 **`"Only what the shell test drives"` was false for four of six exports.**
+  The test reads `hookPrefixIsLive` and `HOOK_SOURCE`; nothing in the repo
+  requires the module otherwise. Same defect, one line below the sentence
+  describing it. Trimmed to two.
+- ✅ **A newly created agent DOES carry the verb.** `pete1456pre`, created
+  20:49, has `kosmos report needs_you`. That is the other half of the delivery
+  story and it landed after my snapshot: **#1296's fix reaches an agent created
+  after it**, so the 0-of-17 is about PRE-EXISTING agents holding an unaccepted
+  offer, not a fix that does not work. The paragraph now carries the snapshot
+  time, the new fact, and the loop to re-derive it.
+- **The synthetic-agent list in the tool was stale within hours** (it now also
+  holds `pete1456pre`). Replaced by "read the per-agent table", which cannot go
+  stale.
+- **Arm 12's two failure diagnostics still grepped the old row label**, so a
+  failure would have printed an empty tail where the evidence goes.
+- **Arm 8b sat exactly ON the `TYPERS_CUTOFF` boundary and asserted only the
+  count and the date.** It now pins the verdict too; making the cutoff
+  exclusive turns it red.
+- 📌 **`node --check` caught me closing a block comment with a glob.**
+  `~/work/workers/[star]/CLAUDE.md` inside `/* … */` ends the comment at the
+  `[star]/`. One command later, not in review.
 
 ## What this deliberately does NOT do
 

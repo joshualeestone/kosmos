@@ -285,6 +285,14 @@ has "$out" 2 "distinct working agents that have EVER typed it" \
 printf '%s\n' "$out" | grep -q "last typed by a working agent:    2026-07-08T09:10:11.000Z" \
   && ok "arm 8b: and the last-typed date is the LATEST, not the first or the file order" \
   || bad "arm 8b: last-typed date wrong -- status.js quotes this line"
+# 🔑 AND PIN THE VERDICT, because this fixture sits exactly ON the
+# TYPERS_CUTOFF boundary (2 typers, share under the cutoff). The boundary was
+# being exercised and not asserted, so a change to either cutoff could move the
+# verdict here and no arm would say so.
+case "$out" in
+  *"load-bearing on the PANE READER"*) ok "arm 8b: and exactly AT the typers cutoff the verdict still holds (boundary is inclusive)" ;;
+  *) bad "arm 8b: the verdict flipped at exactly TYPERS_CUTOFF typers -- the boundary moved" ;;
+esac
 
 # --- 🔑 ARM 7e: --dir TWICE REFUSES. Same stance as an unrecognised argument:
 #     silently last-wins is how a caller reads a fixture and gets production.
@@ -311,7 +319,7 @@ printf '{"v":1,"state":"needs_you","by":"agent","because":"asking permission to 
 out="$(run "$T/stated")"
 has "$out" 0 "written automatically, not by an agent" \
   && ok "arm 12: by=agent beats a sentence that matches the hook prefix (0 hook, not 2)" \
-  || bad "arm 12: the string match overrode by=agent: $(printf '%s\n' "$out" | grep 'permission hook')"
+  || bad "arm 12: the string match overrode by=agent: $(printf '%s\n' "$out" | grep 'written automatically')"
 has "$out" 2 "typed by a working agent" \
   && ok "arm 12: and both land in typed, which is the opposite bucket from the fallback" \
   || bad "arm 12: by=agent records did not count as typed: $(printf '%s\n' "$out" | grep 'typed by a working')"
@@ -327,7 +335,7 @@ printf '{"v":1,"state":"needs_you","by":"auto","because":"another such sentence"
 out="$(run "$T/stated-auto")"
 has "$out" 2 "written automatically, not by an agent" \
   && ok "arm 12: by=auto beats a sentence that does NOT match the prefix (2 hook, not 0)" \
-  || bad "arm 12: the string match overrode by=auto: $(printf '%s\n' "$out" | grep 'permission hook')"
+  || bad "arm 12: the string match overrode by=auto: $(printf '%s\n' "$out" | grep 'written automatically')"
 case "$out" in
   *"No working agent has EVER typed needs_you"*) ok "arm 12: and none of them counts as agent-typed" ;;
   *) bad "arm 12: a by=auto record was counted as agent-typed" ;;

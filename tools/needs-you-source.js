@@ -134,9 +134,10 @@ const HOOK_SOURCE = process.env.KOSMOS_HOOK_SOURCE || path.join(REPO, 'install',
 const FIXTURE_PREFIX = 'walk-';
 /* ⚠️ AND THIS PREFIX IS NARROWER THAN THE CLASS IT NAMES, WHICH IS A REAL
    LIMIT AND NOT A HYPOTHETICAL. The live record already holds synthetic agents
-   that do NOT match it (`angeltest1315`, `angelcreate1329`, `quiet-quill`,
-   `quiet-reed`, `scoutlive`, `msgcodex`). None has typed `needs_you`, so the
-   verdict is unaffected today -- but a future fixture named outside `walk-`
+   that do NOT match it -- several at the time of writing, deliberately not
+   enumerated because any such list was stale within hours. Read the per-agent
+   table instead: a name there that is not a colleague is one of them. None had
+   typed `needs_you`, so the verdict was unaffected -- but a future fixture named outside `walk-`
    lands in `typedReal` and flips the verdict toward "agents ARE reporting",
    which is the exact failure this constant exists to prevent, in the direction
    that tells a reader correct documentation is stale.
@@ -373,7 +374,6 @@ function main() {
     + (data.unreadableFiles.length ? '   <- their records are in NO number below: ' + data.unreadableFiles.join(', ') : ''));
   console.log('');
 
-
   console.log('BY STATE');
   /* Ties broken by name so the control line is deterministic: on a small
      fixture two states can share a count and Map order would decide it. */
@@ -450,7 +450,10 @@ function main() {
 
 if (require.main === module) main();
 
-/* Only what the shell test drives. `summarise`, `readRecord`, `hookWritten`
-   and `isFixture` were exported and imported by nothing: a name nothing
-   consumes is a maintenance promise nobody asked for. */
-module.exports = { HOOK_PREFIX, HOOK_SOURCE, FIXTURE_PREFIX, SHARE_CUTOFF, TYPERS_CUTOFF, hookPrefixIsLive };
+/* Only what the shell test actually drives, CHECKED rather than assumed: arms
+   8 and 9 read `hookPrefixIsLive` and `HOOK_SOURCE`, and nothing else in the
+   repo requires this module at all. An earlier version of this line said
+   "only what the shell test drives" while exporting four further names that no
+   file imported -- the very defect the sentence describes, one line below
+   itself. The constants stay readable in the source. */
+module.exports = { HOOK_SOURCE, hookPrefixIsLive };

@@ -41,9 +41,12 @@ const store = require('./store');
    every one in the record was written by the permission hook or by a
    walkthrough fixture, and the board's red state is load-bearing on the PANE
    READER rather than on this file (#1253, option 3). The measurement and the
-   argument live at `status.js` rule 3 -- ONE copy, deliberately, because the
-   number goes stale and three copies go stale separately. Re-run it with
-   `node tools/needs-you-source.js`. */
+   argument live at `status.js` rule 3, which is the copy to PREFER -- it
+   carries a snapshot clock time and the command to re-run it. ⚠️ Not the only
+   copy, and an earlier version of this comment claimed it was: `defaults.js`'s
+   version log and `defaults.test.js` both quote an older denominator for the
+   same split, and rule 3 names all three so a reader is not left choosing.
+   Re-run it with `node tools/needs-you-source.js`. */
 const STATES = Object.freeze(['started', 'working', 'idle', 'needs_you', 'blocked', 'stopped']);
 
 /* #900: the two words that mean A PERSON IS THE BLOCKER. They are the states

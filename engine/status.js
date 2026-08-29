@@ -3662,11 +3662,24 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      was BEFORE anybody told it to, and nothing has been typed since.
  *      🛑 DO NOT READ THAT AS "THE INSTRUCTION DID NOT PERSUADE ANYBODY". IT
  *      IS NOT ON ANY AGENT HERE, AND THE REASON IS SIMPLER AND LARGER THAN THE
- *      ONE TWO EARLIER VERSIONS OF THIS PARAGRAPH GAVE. Measured 2026-08-28,
- *      the 17 fleet worker instruction files:
+ *      ONE TWO EARLIER VERSIONS OF THIS PARAGRAPH GAVE. Measured 2026-08-28
+ *      18:58 CDT, over the 17 fleet worker instruction files existing then:
  *          0 of 17 carry `kosmos report needs_you`
  *          0 of 17 carry the Kosmos doctrine BLOCK at all (`kosmos:doctrine:`)
  *         17 of 17 match a common word    <- control, so the grep sees them
+ *      ✅ AND AT 20:49 THE SAME EVENING A NEWLY CREATED AGENT CARRIED THE VERB.
+ *      That is the other half of the story and it arrived after the snapshot:
+ *      #1296's fix DOES reach an agent created after it, so the zero above is
+ *      about PRE-EXISTING agents holding an unaccepted offer, not about a fix
+ *      that does not work. ⚠️ It also means a reader re-deriving later gets a
+ *      different numerator, which is why the snapshot is timestamped. Re-derive
+ *      rather than trusting either figure:
+ *          for f in ~/work/workers/<any>/CLAUDE.md ; do
+ *            grep -l 'kosmos report needs_you' "$f" ; done
+ *      with the same loop on plain `kosmos` as the control. (Written with
+ *      `<any>` rather than a glob on purpose: a `*` followed by a slash would
+ *      close this comment block, which is how the first version of this line
+ *      broke the file and was caught by `node --check` one command later.)
  *      ⇒ These agents have never received the DOCTRINE block, so no wording
  *      question arises for them. ⚠️ Not "no sync has ever written to them",
  *      which an earlier version said and which is false: 17 of 17 carry
@@ -3695,10 +3708,13 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      ⇒ The flat count is evidence of NON-DELIVERY, and this rule's
  *      conclusion is unaffected either way: the scrape is load-bearing today
  *      whatever the reason the other path is empty.
- *      📌 `defaults.js`'s version log quotes 22 of 21,500 for the same split.
- *      Same numerator, older denominator, no snapshot time. The record is
- *      append-only, so both were true when written; this paragraph carries a
- *      clock time and that is the one to prefer. The
+ *      📌 THREE OTHER SHIPPED COPIES OF THIS SPLIT EXIST, all quoting the
+ *      older `22 of 21,500`: `defaults.js`'s version log, and
+ *      `defaults.test.js` twice. Same numerator, older denominator, no
+ *      snapshot time. The record is append-only, so all were true when
+ *      written; this paragraph carries a clock time and is the one to prefer.
+ *      ⚠️ An earlier version of this note named ONE of the three, which is the
+ *      one-fix-two-sites failure occurring inside the sentence about it. The
  *      tool also says plainly if working agents have started reporting it, in
  *      which case this paragraph is stale and rule 3 wants re-arguing rather
  *      than repeating.
