@@ -22245,7 +22245,17 @@ function fillSwitchAccounts() {
   const html = list.map((x, i) => '<option value="' + esc(x.dir) + '"'
     + ((x.isDefault || (i === 0 && !list.some((y) => y.isDefault))) ? ' selected' : '')
     + '>' + labelOf(x) + '</option>').join('');
+  /* ⚠️ THE FLAG AND THE VISIBLE SELECTION MUST NOT BE ABLE TO DISAGREE. The guard
+     below deliberately preserves the DOM when the option set is unchanged, while
+     the flag above is cleared unconditionally, so a future caller that rebuilt an
+     identical still-visible menu would downgrade a real pick to "no pick": the
+     person's account stays on screen, the request sends null, and the engine takes
+     its own first account, which this file's own comment says can be a different
+     row. Not reachable today (every caller either hides the menu or resets
+     #d-provider first), and re-applying the preselect makes it unreachable by
+     construction rather than by call-graph luck. */
   if (sel.innerHTML !== html) sel.innerHTML = html;
+  else if (sel.options.length) { sel.selectedIndex = [...sel.options].findIndex((o) => o.defaultSelected); }
   sel.hidden = false;
 }
 
@@ -22299,6 +22309,12 @@ async function changeProviderNow(say) {
     msg.textContent = out.because || 'Switched.';
     tell(out.because || 'Switched.', true);
     sel.value = '';
+    /* ⚠️ A PROGRAMMATIC `value =` FIRES NO `change` EVENT, so nothing rebuilt the
+       sign-in picker and it sat visible and populated under a now-blank provider
+       menu, with the touched flag still set. Harmless today (Switch is disabled
+       and `want` is empty on a re-press) and still wrong: this feature's own rule
+       is that the picker is hidden unless OpenAI is the chosen provider. */
+    fillSwitchAccounts();
   } catch (err) {
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     msg.textContent = String((err && err.message) || 'That did not work.');

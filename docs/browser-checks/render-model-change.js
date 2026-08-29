@@ -24,6 +24,12 @@ process.env.AGENT_WORKFORCE_CONFIG_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 
    ⚠️ Sealing it is also the only way #1373 can be checked at all: the card is
    about choosing between accounts, and there was nowhere to put a second one. */
 process.env.AGENT_WORKFORCE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-model-home-'));
+/* 🛑 TWO ROOTS WERE UNSEALED AND THE COMMENT ABOVE ONLY NAMED ONE. `defaultHome()`
+   reads `AGENT_WORKFORCE_CODEX_HOME || CODEX_HOME || AGENT_WORKFORCE_HOME/.codex`,
+   so either of those walks past the HOME seal, adds a third account, and reds the
+   two-sign-ins assertion below on an otherwise-correct build. */
+delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+delete process.env.CODEX_HOME;
 /* Two real OpenAI sign-ins, so "which one" has two answers. A one-account
    fixture would pass a picker check while proving nothing about picking. */
 for (const [label, tail] of [['alpha', 'ALFA'], ['beta', 'BETA']]) {

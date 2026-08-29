@@ -42,6 +42,15 @@ process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
    hold exactly one account and there would be no choice to test. Setting it
    would leave every assertion below passing against a one-account world. */
 delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+/* 🛑 AND `CODEX_HOME`, WHICH IS A SECOND ROOT AND WAS THE HOLE. `defaultHome()`
+   reads `AGENT_WORKFORCE_CODEX_HOME || CODEX_HOME || AGENT_WORKFORCE_HOME/.codex`,
+   so an ambient CODEX_HOME walks straight through a sandbox that seals the other
+   two. Measured: with one pointed at a signed-in home, `choiceOf` reads 3 rather
+   than 2 and this file goes red on a correct build.
+   ⇒ It fails LOUD rather than green, so it is machine-dependent flakiness rather
+   than a false pass, and that is exactly the class the seal above exists for.
+   Sealing one root of two is the half-seal defect, one directory over. */
+delete process.env.CODEX_HOME;
 
 const CLAUDE_BIN = nodePath.join(BIN, 'claude');
 const CODEX_BIN = nodePath.join(BIN, 'codex');
@@ -137,8 +146,13 @@ test('#1373: an account that is not on this computer is REFUSED, not silently re
     'a stale account directory fell back to the first account, which starts the agent on one nobody chose');
   assert.match(out.because, /not on this computer/);
   /* NOTHING WAS WRITTEN. A refusal that already rewrote the job is not one. */
-  assert.equal(fs.existsSync(create.plistPath(c)) ? codexHomeOf(c) : null, null,
-    'the refusal still wrote a codex home');
+  /* 🔑 A MISSING CODEX_HOME IS NOT EVIDENCE ON ITS OWN: a Claude plist carries no
+     CODEX_HOME key either, so the old form could not tell "the refusal wrote
+     nothing" from "the refusal wrote a Claude job". Assert what the plist DOES
+     say, and the arm means something. */
+  assert.equal(codexHomeOf(c), null, 'the refusal still wrote a codex home');
+  assert.match(fs.readFileSync(create.plistPath(c), 'utf8'), new RegExp(CLAUDE_BIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+    'the refusal rewrote the job onto a different runner');
   assert.equal(store.readProfile(c).provider, 'anthropic',
     'the refusal still moved the agent off Claude');
 });

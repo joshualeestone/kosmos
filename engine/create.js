@@ -854,12 +854,6 @@ function setProvider(name, provider, opts) {
        dead end is gone either way, and the picker is the better half of the two
        because removing an account to influence a picker is a workaround, not a
        choice. */
-    /* #1373: THE SWITCH CAN NOW BE TOLD WHICH ACCOUNT, so it stops being a
-       stated default and becomes the choice creation always offered. The
-       asymmetry was the whole card: `plistFor(..., configDir, runner)` already
-       carried a codex account, and only the way to say which was missing.
-       ⇒ With nothing named this behaves exactly as before (the first account,
-       named out loud), so a caller that does not care is unaffected. */
     /* Resolved before comparing, because `list()` stores `path.resolve(dir)`.
        Without it an equivalent-but-unnormalised path (a trailing slash, a `..`
        segment) is refused as a ghost account, which is a confusing refusal
@@ -878,10 +872,20 @@ function setProvider(name, provider, opts) {
          choose, and say nothing: the silent-wrong-account failure this card
          exists to end. Refusing names a remedy the person can act on. */
       if (!found) {
+        /* 🛑 TWO REASONS A NAMED ACCOUNT IS NOT IN THIS LIST, AND ONE SENTENCE
+           CANNOT HONESTLY COVER BOTH. When AGENT_WORKFORCE_CODEX_HOME is set the
+           branch above reduces `accounts` to that one home, while the page builds
+           its picker from the unfiltered list and offers every account. Saying
+           "not on this computer any more" there is FALSE: the account exists and
+           was excluded by an override. Worse, its remedy ("pick one from the
+           list") cannot work, and a refusal whose named remedy fails is the dead
+           end this whole card came from. */
         return {
           outcome: OUTCOME.REFUSED,
-          because: 'that OpenAI account is not on this computer any more, so nothing was changed. '
-            + 'Pick one from the list and try again.',
+          because: named
+            ? 'this computer is set to use one particular OpenAI sign-in, so that account cannot be chosen here.'
+            : 'that OpenAI account is not on this computer any more, so nothing was changed. '
+              + 'Pick one from the list and try again.',
         };
       }
       acct = found;
