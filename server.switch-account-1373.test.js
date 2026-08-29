@@ -198,6 +198,23 @@ test('#1373 route: an UNPICKED account still travels, and the sentence does NOT 
     'the visible row was not the row used, which is the wrong-account bug this card exists to fix');
 });
 
+/* 🛑 THE CASE THE CONJUNCTION EXISTS TO CLOSE, AND IT HAD NO EXECUTED ARM. `chosen` is
+   `wantDir !== null && pickedByPerson === true`, so it refuses to call a STATED DEFAULT a
+   choice. Every arm above passes an account, which means they all exercise the left half
+   and none of them the conjunction itself. It was pinned only by a source regex, and the
+   reason this file exists is that a regex inspects an expression and never its use. */
+test('#1373 route: a pick claimed with NO account is not reported as a choice', async () => {
+  const name = born('route-1373-picked-no-account');
+  const r = await switchTo(name, { provider: 'openai', picked: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.doesNotMatch(r.body.because, /you picked/,
+    'a caller claimed a pick without naming an account and the route repeated the claim, so a stated default is reported as the person\'s choice: ' + r.body.because);
+  /* Presence beside the absence: the switch still HAPPENED and still named a sign-in, so
+     this is not passing because nothing occurred. */
+  assert.match(r.body.because, /OpenAI sign-in/,
+    'the switch did not report a sign-in at all, so the absence assertion above proves nothing');
+});
+
 test('#1373 route: an account that is not on this computer is REFUSED, not silently replaced', async () => {
   const name = born('route-1373-ghost');
   const ghost = nodePath.join(HOME, '.codex-not-here-at-all');
@@ -205,6 +222,11 @@ test('#1373 route: an account that is not on this computer is REFUSED, not silen
   const r = await switchTo(name, { provider: 'openai', account: ghost, picked: true });
   assert.notEqual(r.body.outcome, 'changed',
     'a picked account that is not on this computer was accepted: ' + JSON.stringify(r.body));
+  /* `outcome !== 'changed'` alone would pass on a 500 or an unrelated refusal. The HTTP
+     status and the sentence are the two things only an over-the-wire test can see. */
+  assert.equal(r.status, 400, 'the refusal did not come back as a 400: ' + r.status);
+  assert.match(String(r.body.because || r.body.error || ''), /not on this computer/,
+    'the refusal does not say WHY, so a person cannot act on it: ' + JSON.stringify(r.body));
   /* The control that makes the refusal mean something: the job must be UNCHANGED,
      not merely missing a codex home. A Claude plist has no CODEX_HOME either. */
   const plist = fs.readFileSync(create.plistPath(name), 'utf8');

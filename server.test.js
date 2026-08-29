@@ -3125,6 +3125,13 @@ test('the runs-on box says model and account in one line, and the Signed-in-as s
      punishes the next person for explaining themselves, so this one carries headroom and
      says where the number came from. */
   const pap = script.slice(script.indexOf('async function paintAccountPicker('), script.indexOf('async function paintAccountPicker(') + 4200);
+  /* 📌 BOUND THE WINDOW, not just widen it. `moveAccountNow` carries the IDENTICAL guard,
+     so a slice with headroom could one day satisfy this assertion from the neighbour and
+     report a guard that is no longer where it is named. Measured today: the neighbour
+     starts well past the window and the match sits early in it, so this is insurance
+     against movement rather than a live defect. */
+  assert.ok(!/async function moveAccountNow\(/.test(pap),
+    'the slice now reaches into moveAccountNow, so the assertion below could pass on its guard rather than paintAccountPicker\'s');
   assert.ok(/!CURRENT \|\| CURRENT\.sessionName !== forAgent/.test(pap),
     'the accounts-fetch continuation lost its capture-and-recheck');
 });
