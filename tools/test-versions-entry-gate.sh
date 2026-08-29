@@ -302,6 +302,31 @@ entry "$stale90"
 out="$(run_early_bound 99999999999999999999)"; rc=$?
 if [ "$rc" -eq 1 ]; then pass "a 20-digit bound is still refused (it WRAPS rather than erroring)"; else fail "FAIL-OPEN: 20-digit bound passed (rc=$rc): $out"; fi
 
+
+# --- THE SEVENTH INSTANCE: a leading zero in the OFFSET, not in a bound ---
+# 🛑 The discriminating case is NEGATIVE. A positive `090` is caught first by the
+# past comparison, which uses `test` and reads base 10; only a negative offset
+# survives that and reaches `$((off + future_bound))`, where `-090` raises
+# "value too great for base", aborts the command list, and lets a stamp NINETY
+# MINUTES IN THE FUTURE through. Measured both ways: mutant rc=0 reached, fixed
+# rc=1 refused, and the control `-90` refuses under both.
+stub_dir="$T/nodestub"; mkdir -p "$stub_dir"
+node_says() {
+  printf '#!/bin/sh\necho "%s"\n' "$1" > "$stub_dir/node"; chmod +x "$stub_dir/node"
+  entry "$(stamp_at 0)"
+  PATH="$stub_dir:$PATH" kosmos_versions_entry_gate 0.6.06 "$F" "c." "h." "$KOSMOS_LATE_PAST_BOUND" 2>&1
+}
+out="$(node_says -090)"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "an offset of -090 REFUSES (90 min in the future, leading zero)"; else fail "FAIL-OPEN: -090 passed, a 90-min-future stamp got through (rc=$rc): $out"; fi
+out="$(node_says -90)"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "CONTROL: -90 refuses too, so the arm above is not about the sign alone"; else fail "control: -90 should refuse (rc=$rc): $out"; fi
+out="$(node_says 08)"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "CONTROL: an offset of 08 means EIGHT and passes a bound of 20"; else fail "08 was not read as 8 (rc=$rc): $out"; fi
+
+# --- the magnitude boundary itself, which only a 20-digit value exercised ---
+if kosmos_versions_entry_norm_or_die "b" 999999999 "" >/dev/null 2>&1; then pass "9 digits is accepted (the boundary, from below)"; else fail "9 digits should be accepted"; fi
+if kosmos_versions_entry_norm_or_die "b" 1000000000 "" >/dev/null 2>&1; then fail "10 digits should be refused (the boundary, from above)"; else pass "10 digits is refused (the boundary, from above)"; fi
+
 # --- the two call sites give DIFFERENT stamp advice, and early must not say "now" ---
 # 🛑 THE ARM THAT PINS THE ACTUAL BUG: telling the operator at step 1 to stamp NOW
 # guarantees a second failure at step 7, because the entry ages by the length of the

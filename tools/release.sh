@@ -589,13 +589,27 @@ let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
 });"
 
 step "== 7. the versions page needs its entry BEFORE you deploy =="
-# ⚠️ SOURCED AGAIN HERE, AND IT IS NOT REDUNDANT. Step 1 sourced this, but `$REPO`
-# has since been reassigned to the frozen worktree, so the step 1 path is not the
-# one this line resolves. Sourcing is idempotent; without it this call depends on
-# a definition from 300 lines earlier surviving, and if it ever did not the
-# failure is `command not found`, exit 127, which `|| exit 1` turns into a refusal
-# that names nothing.
-. "$REPO/tools/lib/versions-entry.sh"
+# 🛑 DELIBERATELY NOT RE-SOURCED HERE, AND AN EARLIER VERSION OF THIS BRANCH DID.
+# The functions defined at step 1 persist for the life of the script; I confirmed
+# it. What the re-source added was harm:
+#
+#   `$REPO` is reassigned to `$BUILD` above, so a `.` here reads the lib out of
+#   the FROZEN WORKTREE, not the tree this script is running from.
+#
+# ⚠️ (a) This script deliberately permits cutting a tree that is BEHIND origin.
+# For any frozen sha predating this commit the lib does not exist there, and a
+# failed `source` under `set -euo pipefail` aborts with a bare "No such file or
+# directory" -- AFTER the suite, the browser gate, the install gate and the
+# build. That is precisely the expensive late failure this whole change exists
+# to remove, reintroduced by the fix for it.
+# ⚠️ (b) When the shared checkout HAS moved mid-cut, which is the one case the
+# freeze exists for, step 1 and step 7 would then run two DIFFERENT definitions
+# of this gate and its three bounds. That is the "two copies of a window" shape
+# the lib argues against, arrived at by sourcing rather than by copying.
+#
+# 📌 The comment that used to sit here said the reassignment was the REASON to
+# re-source. It is the reason not to. I noticed the right fact and drew the
+# opposite conclusion from it.
 # ⚠️ Step 1 already ran this gate, and this is NOT a leftover. The site
 # checkout can change under a cut that takes fifteen minutes, and a stamp that
 # agreed with the clock at step 1 can be twenty minutes stale by the time we
