@@ -263,11 +263,13 @@ test('#1373: the four fail-quiet fixes are pinned, because each one reverts gree
   /* 6 = two flags x three transitions, MEASURED not assumed. The declarations start with
      `let` so the anchored regex excludes them; an earlier version of this line said 8 by
      arithmetic I had not checked against the file. */
-  /* ⚠️ A FLOOR AND A CEILING, NOT AN EXACT COUNT. An exact 6 goes red on a legitimate
-     FOURTH transition exactly as loudly as on the defect it targets, which punishes correct
-     growth and trains people to bump the number without reading. What actually matters is
-     that every flag write lives inside a transition, which the structural check below
-     asserts; the count only needs to prove the sweep found the population. */
+  /* ⚠️ A FLOOR, NOT AN EXACT COUNT, so the count itself does not punish correct growth.
+     📌 BUT BE HONEST ABOUT THE STRUCTURAL CHECK BELOW: it names the three transitions
+     explicitly, so a legitimate FOURTH one DOES go red there, for exactly the reason this
+     comment gives against exact counts. That is accepted rather than hidden: the failure
+     message names the three functions, so the next person is told precisely what to add,
+     and a check that silently ignored an unknown fourth transition would be worse than one
+     that stops to ask about it. */
   assert.ok(bare >= 6 && bare % 2 === 0,
     'the flag-write population is below the three known transitions or is odd, which means a transition sets one flag and not the other, or the sweep is not reading what it thinks it is');
   /* 🛑 THE STRUCTURAL HALF, AND THE FIRST VERSION OF IT WAS DECORATION. It sliced the file
@@ -386,7 +388,12 @@ test('#1373: an unreadable account list is never spoken as a fact', () => {
 test('#1373: a fix does not reopen the dead end it closed', () => {
   assert.match(PAGE, /if \(!ACCOUNTS\.length \|\| ACCOUNTS_UNREADABLE\) \{/,
     'the account re-fetch is gated on emptiness alone, so a non-empty but known-stale cache never re-reads and the retry the message promises does nothing');
-  assert.match(PAGE, /const saidAfterMove = msg \? msg\.textContent : '';[\s\S]{0,1200}?msg\.textContent = saidAfterMove;/,
+  /* 🛑 3000, AND THE SIZE IS THE POINT. This is the FOURTH fixed window in this file to go
+     red on a legitimate insertion: documenting the code between two anchors is not a defect,
+     and a window sized to today's gap makes every future explanation look like one.
+     ⇒ These assertions are about ORDER, not ADJACENCY. Size them for arms and comments not
+     yet written, and let the floor-and-structure checks catch what order alone cannot. */
+  assert.match(PAGE, /const saidAfterMove = msg \? msg\.textContent : '';[\s\S]{0,3000}?msg\.textContent = saidAfterMove;/,
     'the move repaints the account list without holding its own outcome sentence, so refreshing silently deletes the answer it just wrote');
   assert.match(PAGE, /endsWith\(' ' \+ SWITCH_ACCT_UNREADABLE\)/,
     'the appended fault sentence cannot be cleared, so it outlives the control it describes under a provider it does not apply to');
@@ -402,7 +409,10 @@ test('#1373: a fix does not reopen the dead end it closed', () => {
    left both suites green, so a later edit could let {provider, picked:true} with no
    account be told "the sign-in you picked" about a stated default. */
 test('#1373: a pick claim needs BOTH a named account and a person', () => {
-  assert.match(ENGINE, /chosen: wantDir !== null && !!\(opts && opts\.pickedByPerson === true\)/,
+  /* Pinned on the PROPERTY, per this file's own rule: BOTH conjuncts must be present, in
+     that order, so a caller cannot claim a pick without naming an account. Reformatting or
+     extracting a local does not break it; dropping either half does. */
+  assert.match(ENGINE, /chosen:[\s\S]{0,140}?wantDir !== null[\s\S]{0,140}?pickedByPerson === true/,
     'chosen no longer requires both, so a caller can claim a pick without naming an account');
 });
 

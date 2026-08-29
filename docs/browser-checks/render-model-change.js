@@ -32,11 +32,17 @@ delete process.env.AGENT_WORKFORCE_CODEX_HOME;
 delete process.env.CODEX_HOME;
 /* Two real OpenAI sign-ins, so "which one" has two answers. A one-account
    fixture would pass a picker check while proving nothing about picking. */
-for (const [label, tail] of [['alpha', 'ALFA'], ['beta', 'BETA']]) {
+/* 📌 ONE SOURCE FOR THE FIXTURE ACCOUNTS. The stub's accept-list used to restate these
+   key literals, so renaming a label or a tail here left the stub silently rejecting the
+   very keys this file writes. It fails loud (every positive arm reds) rather than quietly,
+   but a set derived from the same source cannot drift at all. */
+const FIXTURES = [['alpha', 'ALFA'], ['beta', 'BETA']];
+const KEY_FOR = (tail) => 'sk-proj-testtesttesttest' + tail;
+for (const [label, tail] of FIXTURES) {
   const d = path.join(process.env.AGENT_WORKFORCE_HOME, '.codex-' + label);
   fs.mkdirSync(d, { recursive: true });
   fs.writeFileSync(path.join(d, 'auth.json'),
-    JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtesttesttest' + tail }), 'utf8');
+    JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: KEY_FOR(tail) }), 'utf8');
 }
 // The model change rewrites the launch job and restarts it; under dry run
 // the runner is inert, so the check never touches launchctl (#619).
@@ -65,10 +71,7 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
    📌 Same shape as tools/browser-checks.sh:519 does for render-accounts-openai,
    done in-process here because this check boots its own server. The URL is read
    per call, so setting it before the page loads is enough. */
-const ACCEPTED_KEYS = new Set([
-  'sk-proj-testtesttesttestALFA',
-  'sk-proj-testtesttesttestBETA',
-]);
+const ACCEPTED_KEYS = new Set(FIXTURES.map(([, tail]) => KEY_FOR(tail)));
 const oaiStub = require('node:http').createServer((q, r) => {
   const auth = String(q.headers.authorization || '');
   const good = q.url === '/v1/models' && ACCEPTED_KEYS.has(auth.replace(/^Bearer /, ''));
@@ -87,7 +90,7 @@ const oaiStub = require('node:http').createServer((q, r) => {
   const ctlBad = await fetch(process.env.AGENT_WORKFORCE_OPENAI_MODELS_URL,
     { headers: { authorization: 'Bearer sk-proj-not-a-real-fixture-key' } });
   const ctlGood = await fetch(process.env.AGENT_WORKFORCE_OPENAI_MODELS_URL,
-    { headers: { authorization: 'Bearer sk-proj-testtesttesttestALFA' } });
+    { headers: { authorization: 'Bearer ' + KEY_FOR(FIXTURES[0][1]) } });
   chk(ctlBad.status === 401 && ctlGood.status === 200,
     'the OpenAI stub accepts the fixture keys and refuses others',
     ctlBad.status + '/' + ctlGood.status);

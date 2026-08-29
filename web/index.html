@@ -22163,6 +22163,14 @@ async function moveAccountNow(say) {
        half exists. */
     try { await paintAccountPicker(CURRENT); }
     catch { /* the move's own sentence is the answer; a failed refresh must not replace it */ }
+    /* 🛑 ITS OWN RECHECK, NOT SOMEBODY ELSE'S INTERNALS. The await above is a second
+       suspension point, and this line writes into a panel that may now belong to a
+       DIFFERENT agent. It is unreachable today only because `paintAccountPicker`'s early
+       return leaves 'Checking…' in the element, so the emptiness test below is false. That
+       is safety by accident: one edit clearing the message before that return turns this
+       into a sentence about the wrong agent. Every other await on this path carries this
+       guard, and so does this one now. */
+    if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     if (msg && saidAfterMove && !msg.textContent) msg.textContent = saidAfterMove;
     await tick();
   } catch (err) {
@@ -22616,6 +22624,13 @@ async function changeProviderNow(say) {
   const forAgent = CURRENT.sessionName;
   go.disabled = true;
   sel.disabled = true;
+  /* The picker is part of this row's in-flight state too, and was the one control of three
+     left live: a person could change the visible sign-in mid-request, so the row on screen
+     stopped being the row sent. Not silent (the route names where it landed) and the change
+     listener already refuses to re-arm the button while `sel.disabled`, so the window was
+     one confusing second. Disabled here and re-enabled in the same guarded `finally` as its
+     two siblings, so the in-flight state is one fact rather than three. */
+  if (acctSel) acctSel.disabled = true;
   msg.textContent = 'Switching…';
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/provider', {
@@ -22691,6 +22706,7 @@ async function changeProviderNow(say) {
   } finally {
     if (CURRENT && CURRENT.sessionName === forAgent) {
       sel.disabled = false;
+      if (acctSel) acctSel.disabled = false;
       /* 🛑 THE SAME DEAD END, A THIRD LAYER DOWN. Hard-coding `true` here undid both
          earlier fixes in the common case: re-selecting the option a <select> already
          has selected fires NO `change`, so after a refusal drops the ghost row a
