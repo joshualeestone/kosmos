@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Parse-check every shipped .ps1 on THIS machine, with no Windows box.
 #
+# 🔑 NAMED test-*.sh ON PURPOSE, AND NOT FOR TIDINESS. `tools.every-test-runs.test.js`
+# scans `tools/test-*.sh` and asserts each one is actually wired into the suite.
+# As `check-powershell-syntax.sh` it sat outside that scope, so NOTHING asserted
+# that the only check on the file which runs on a stranger's machine and deletes
+# things stayed wired -- one edit to package.json would have removed it silently.
+# The convention already existed; following it is the whole guard.
+#
 # 🛑 WHY THIS EXISTS. `test:shell` `bash -n`s roughly forty shipped scripts and
 # knew nothing about PowerShell, so the Windows installer -- the one file that
 # runs on a stranger's machine and deletes things -- was the only shipped script
