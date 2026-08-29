@@ -291,9 +291,33 @@ shasum -a 256 "$ZIPOUT" | awk '{print $1}' > "$ZIPOUT.sha256"
 refuse() { echo "$1" >&2; rm -f "$ZIPOUT" "$ZIPOUT.sha256"; exit 1; }
 
 LISTING="$(unzip -l "$ZIPOUT")"
+# 🛑 NAMES ONLY AND MATCHED WHOLE, NOT A SUBSTRING OF THE FORMATTED LISTING.
+# The previous form was `case "$LISTING" in *" $want"*)`, and ADDING
+# "Install Kosmos.cmd" TO THE BUNDLE SILENTLY DISARMED THE CHECK FOR
+# "Kosmos.cmd", because the longer name CONTAINS " Kosmos.cmd". Measured: a zip
+# built with every required entry EXCEPT Kosmos.cmd passed all nine checks.
+# ⇒ The guard on the primary launcher, the one file the whole product depends
+# on, could no longer fail -- and the failure arrived as a side effect of adding
+# an unrelated file, which is why nobody would have looked.
+# `unzip -Z1` prints one bare path per line, and `grep -Fxq` demands the whole
+# line, so no name can be a substring of another.
+# ⚠️ AND NO PIPE, for the pipefail reason recorded directly above: my first
+# attempt at this fix used `printf ... | grep -Fxq`, which is the same shape
+# that once reported a good build as broken. Newline-anchored `case` needs no
+# pipe at all.
+# 📌 THE ENTRIES CARRY NO PREFIX AT ALL, and I got this wrong TWICE before
+# measuring it. First I matched `Kosmos/$want`, then `./$want`; the real names
+# are bare (`Kosmos.cmd`, `app/server.js`). Both wrong versions REFUSED A
+# PERFECTLY GOOD BUILD, which is the safe direction and is still two wasted
+# rounds. `unzip -Z1` was one command away the whole time.
+NAMES="$(unzip -Z1 "$ZIPOUT")"
 for want in "Kosmos.cmd" "open-board.cmd" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html" "Install Kosmos.cmd" "install-kosmos.ps1"; do
-  case "$LISTING" in
-    *" $want"*) ;;
+  case "
+$NAMES
+" in
+    *"
+$want
+"*) ;;
     *) refuse "the zip is missing $want" ;;
   esac
 done

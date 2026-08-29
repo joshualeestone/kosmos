@@ -325,25 +325,49 @@ setlocal
 if not "%~1"=="" goto :remove
 
 REM -- first run -------------------------------------------------------------
-REM rmdir CANNOT remove the directory holding the running batch file, and both
-REM outcomes are bad: the delete fails on the open handle and this script then
-REM reports "some files could not be removed", which is false and unfixable; or
-REM it succeeds and cmd can no longer read the remaining lines, so there is no
-REM Done, no data-dir line and NO PAUSE -- the window just vanishes and the
-REM person cannot tell whether it worked.
-REM => Copy to TEMP and re-run from there with the target as an argument.
+REM rmdir cannot remove the directory holding the running batch file, so this
+REM copies itself to TEMP and re-runs from there with the target as an argument.
+REM
+REM 🛑 `start`, NOT `call`. `call` runs the child in the SAME cmd process, which
+REM keeps THIS file -- inside the directory being deleted -- open. A
+REM delete-pending file still occupies its directory entry, so the root removal
+REM fails, `if exist` is true, and the script prints "some files could not be
+REM removed", which is false and unfixable by re-running. That is the exact
+REM outcome this redesign exists to avoid, so `call` would have reintroduced it.
 set "KOSMOS_HERE=%~dp0"
 copy /y "%~f0" "%TEMP%\kosmos-uninstall.cmd" >nul
-call "%TEMP%\kosmos-uninstall.cmd" "%KOSMOS_HERE:~0,-1%"
+start "" "%TEMP%\kosmos-uninstall.cmd" "%KOSMOS_HERE:~0,-1%"
 exit /b
 
 :remove
-REM %~1 has no trailing backslash: rmdir /s /q "C:\...\Kosmos\" puts a quote
-REM straight after one, which is the classic cmd quoting hazard.
 set "KOSMOS_DIR=%~1"
+
+REM 🛑 PROVE THE TARGET IS OURS BEFORE DELETING IT. Without this, the copy left
+REM in TEMP is a loaded gun: run it with no argument and it falls into the
+REM first-run branch above, sets KOSMOS_HERE to the TEMP folder, and hands
+REM ITSELF "%TEMP%" to delete. It would rmdir /s /q the user's ENTIRE TEMP TREE.
+REM
+REM The installer already refuses to delete an install directory without this
+REM same app\server.js sentinel. The uninstaller had neither that nor the
+REM reparse check, which is the more dangerous omission of the two, because the
+REM uninstaller is the half that a person runs on purpose.
+if not exist "%KOSMOS_DIR%\app\server.js" (
+  echo.
+  echo That does not look like a Kosmos install:
+  echo   "%KOSMOS_DIR%"
+  echo Nothing has been deleted.
+  pause
+  exit /b 1
+)
+
 cd /d "%TEMP%"
 echo Stopping Kosmos...
-powershell -NoProfile -Command "`$here = '%KOSMOS_DIR%\'.ToLower(); Get-Process node -EA SilentlyContinue | Where-Object { `$_.Path -and `$_.Path.ToLower().StartsWith(`$here) } | Stop-Process -Force" >nul 2>&1
+REM ⚠️ THE PATH IS AN ARGUMENT, NOT INTERPOLATED INTO THE SCRIPT. Substituted
+REM into a single-quoted PowerShell string, an apostrophe in the profile path
+REM terminates it: C:\Users\O'Brien\... produces a parse error, 2>&1 swallows it,
+REM the board is never stopped, and the person gets a false "may still be
+REM running". O'Brien, D'Angelo and O'Neill are legal Windows usernames.
+powershell -NoProfile -Command "`$here = (`$args[0] + '\').ToLower(); Get-Process node -EA SilentlyContinue | Where-Object { `$_.Path -and `$_.Path.ToLower().StartsWith(`$here) } | Stop-Process -Force" "%KOSMOS_DIR%" >nul 2>&1
 del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Kosmos.lnk" >nul 2>&1
 del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Kosmos.lnk" >nul 2>&1
 echo Removing "%KOSMOS_DIR%"...
@@ -356,6 +380,8 @@ if exist "%KOSMOS_DIR%" (
   echo Done.
   $dataLine
 )
+REM Remove this TEMP copy so it cannot be run again by accident.
+start "" /b cmd /c del "%~f0"
 pause
 "@
 Set-Content -Path (Join-Path $Install 'Uninstall Kosmos.cmd') -Value $uninstall -Encoding OEM
