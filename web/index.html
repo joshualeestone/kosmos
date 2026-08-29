@@ -22371,6 +22371,19 @@ function switchAcctChoosable() {
   const sel = document.getElementById('d-provider-account');
   return !!(sel && !sel.hidden && sel.options.length > 1);
 }
+/* 🛑 A DIFFERENT QUESTION FROM `switchAcctChoosable`, AND CONFLATING THEM PUT A
+   FALSE SENTENCE ON THE LAST SCREEN BEFORE A RESTART. "Is a specific row being
+   sent" is not "is there more than one to choose between". With the menu SHOWING
+   and exactly one usable row, changeProviderNow sends that row's directory while
+   the choosable test is false, so the dialog fell through to "this computer's
+   OpenAI sign-in", which is untrue of that state.
+   ⇒ Reachable whenever this page's live-connection filter reduces a multi-account
+   machine to one visible row, which is the page-versus-engine divergence this file
+   documents elsewhere. */
+function switchAcctSending() {
+  const sel = document.getElementById('d-provider-account');
+  return !!(sel && !sel.hidden && sel.options.length > 0);
+}
 
 /* What the confirmation dialog echoes back. THREE ways this stays silent, and only
    the first is the honesty gate:
@@ -22508,29 +22521,29 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
            right is the expensive kind.
              picked         name the account back. Confirming without being told what
                             you chose is confirming something else.
-             menu showing   say it runs on THE ROW SHOWN, because that is exactly what
-                            gets sent: the visible row is the row used.
-             menu hidden    say this computer's sign-in, because that is the one case
-                            where the engine really does state its own default.
+             showing, MANY  name THE ROW SHOWN and the way to change it.
+             showing, ONE   name THE ROW SHOWN, with no remedy, because there is
+                            nothing to change it to. ⚠️ THIS ARM WAS MISSING and
+                            fell through to the next one, which says the computer
+                            chooses while the code is sending that row. Reachable
+                            whenever this page's live filter reduces a multi-account
+                            machine to one visible row.
+             no menu        say this computer's sign-in. THE ONLY state where the
+                            engine really does state its own default.
            ⚠️ TWO EARLIER VERSIONS OF THIS COMMENT AND ITS COPY WERE BOTH WRONG, in
            opposite directions. One claimed the untouched arm "makes no sign-in claim
            at all", which the string below it contradicted. One said "it picks its own
            sign-in", which reads as OPENAI choosing the account and is false in every
            reachable state: when the menu shows, the page sends the visible row; when
            it is hidden, the COMPUTER's default applies, not the provider's. */
-        ? 'Its Claude model and account choices do not cross: OpenAI picks its own model, '
-          /* ⚠️ THE UNTOUCHED ARM MAKES NO SIGN-IN CLAIM AT ALL, and that is deliberate
-             rather than lazy. It used to say "on this computer's OpenAI sign-in", which
-             implies there is ONE, and this dialog now opens on a screen offering several.
-             Naming the preselected row instead would be worse: the page filters on live
-             connection state and openai.list() does not, so the preselect is not reliably
-             the row the engine takes. The route's answer names the account AFTERWARDS,
-             from what the engine actually chose, which is the only place it can be said
-             truthfully. */
-          /* Hoisted: it was called twice in one expression. */
-          + ((() => { const on = switchAcctShown(); return on ? 'and it will run on ' + on + '.' : switchAcctChoosable()
-              ? 'and it runs on the sign-in shown above. To use a different one, close this first.'
-              : 'and it runs on this computer’s OpenAI sign-in.'; })())
+         ? 'Its Claude model and account choices do not cross: OpenAI picks its own model, '
+           + ((() => {
+             const on = switchAcctShown();
+             if (on) return 'and it will run on ' + on + '.';
+             if (switchAcctChoosable()) return 'and it runs on the sign-in shown above. To use a different one, close this first.';
+             if (switchAcctSending()) return 'and it runs on the sign-in shown above.';
+             return 'and it runs on this computer’s OpenAI sign-in.';
+           })())
         : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
     go: 'Switch and restart',
     run: (say) => changeProviderNow(say),

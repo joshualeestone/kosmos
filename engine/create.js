@@ -901,7 +901,17 @@ function setProvider(name, provider, opts) {
         return {
           outcome: OUTCOME.REFUSED,
           because: named
-            ? 'this computer is set to use one particular OpenAI sign-in, so that account cannot be chosen here and nothing was changed. Pick the one already selected.'
+            /* 🛑 THE REMEDY NAMES THE HOME, NOT A MENU ROW, AND THAT MATTERS.
+               "Pick the one already selected" assumed the override home is what the
+               picker preselects. It need not be there at all: the page drops rows
+               whose LIVE check returned `none`, while this branch keeps the row
+               because it reads `identityOf` off disk. So an override pointing at a
+               home whose key has been revoked but whose auth.json still parses is
+               ABSENT from the menu, and that sentence told the person to pick a row
+               that is not on screen. Naming the setting instead is true in every
+               case, and it is the thing they would actually have to change. */
+            ? 'this computer is set to use one particular OpenAI sign-in, so that account cannot be chosen here and nothing was changed. '
+              + 'Whoever set AGENT_WORKFORCE_CODEX_HOME on this computer chose that sign-in.'
             : 'that OpenAI account is not on this computer any more, so nothing was changed. '
               + 'Pick one from the list and try again.',
         };

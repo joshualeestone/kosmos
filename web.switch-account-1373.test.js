@@ -185,6 +185,38 @@ test('#1373: the partial-restart answer names the account, in its own tense, on 
     'the two partial sentences are no longer the arms of the chosen conditional');
 });
 
+/* 🛑 THE DIALOG'S FOUR ARMS WERE GUARDED BY NOTHING, and a reviewer measured it:
+   replacing the untouched arm with "the OpenAI sign-in you picked" left the full
+   runner green at 2904. The sibling honesty gate inside switchAcctShown IS pinned;
+   it was the arms built around it that were not.
+   ⚠️ THE ONE-ROW ARM IS THE ONE THAT WAS ACTUALLY WRONG and is easiest to lose
+   again: with the menu showing and exactly one usable row, the page SENDS that
+   row, so a sentence saying the computer chooses is false. It existed for one
+   round before anyone noticed. */
+test('#1373: the dialog has an arm for a menu showing exactly one row', () => {
+  assert.match(PAGE, /function switchAcctSending\(\)[\s\S]{0,240}?options\.length > 0/,
+    'switchAcctSending is gone, so a one-row menu falls through to the arm that says the computer chooses');
+  /* Anchored on the ARMS, not on any occurrence: the two function DEFINITIONS are
+     separated by a long comment, so a proximity match between those was measuring
+     the comment's length rather than the arm order. */
+  assert.match(PAGE, /if \(switchAcctChoosable\(\)\) return[\s\S]{0,220}?if \(switchAcctSending\(\)\) return/,
+    'the arms are no longer ordered many-then-one, so the one-row case cannot be reached');
+  /* The two must ask DIFFERENT questions, or the arm is decoration. */
+  assert.match(PAGE, /function switchAcctChoosable\(\)[\s\S]{0,240}?options\.length > 1/,
+    'choosable no longer requires more than one option, so it and sending are the same test');
+});
+
+test('#1373: no arm of the dialog claims a pick unless a person picked', () => {
+  const at = PAGE.indexOf("+ ((() => {");
+  assert.notEqual(at, -1, 'the dialog copy expression moved, so this test measures nothing');
+  const block = PAGE.slice(at, at + 900);
+  const picked = (block.match(/you picked/g) || []).length;
+  assert.equal(picked, 0,
+    'an arm of the dialog says "you picked"; only switchAcctShown may claim a pick, and it gates on the touched flag');
+  assert.match(block, /switchAcctShown\(\)/,
+    'the dialog no longer consults switchAcctShown, so it cannot echo a real pick at all');
+});
+
 test('#1373: the route says a different sentence for a pick than for a default', () => {
   assert.match(SERVER, /acct\.chosen/, 'the route no longer distinguishes a pick from a stated default');
   assert.match(SERVER, /It runs on the OpenAI sign-in you picked/, 'the chosen-account sentence is gone');
