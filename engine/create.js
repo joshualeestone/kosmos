@@ -221,11 +221,19 @@ function supportDir(platform = process.platform) {
      branch this replaces (`path.join(DATA, APP)` with APP='AgentWorkforce'),
      so the sandbox path is byte-identical and not merely equivalent.
 
-     🔑 THE PLATFORM IS A PARAMETER, defaulting to this one, FOR THE SAME
-     REASON #570 GAVE FOR `dataRootFor` ITSELF: `process.platform` cannot be
-     set, so a function that reads it directly is a function whose Windows
-     behaviour is unassertable from a Mac -- and #570's own docblock says
-     "unassertable is how this defect survived in the first place".
+     🔑 THE PLATFORM IS A PARAMETER, defaulting to this one, so a caller can ask
+     what this function would answer on another platform.
+
+     🛑 AND THE REASON I ORIGINALLY GAVE FOR IT WAS FALSE. I wrote that
+     `process.platform` "cannot be set". Measured:
+     `Object.defineProperty(process,'platform',{value:'win32'})` works, so it
+     can be faked in a child process. Believing otherwise is what made a
+     parameter look like the ONLY option, and the parameter then RELOCATED the
+     unassertable read from the body into the DEFAULT EXPRESSION -- which every
+     production caller uses and no test exercised.
+     ⇒ The parameter is still worth having (it makes a direct question cheap),
+     but `create.dataroot-570.test.js` pins the NO-ARGUMENT form under a faked
+     platform, because that is the form that ships.
      ⚠️ MEASURED BEFORE ADDING IT: with the platform read inline, hardcoding
      'darwin' here left the ENTIRE test file green (8 pass, 0 fail) while
      Windows got `.../Library/Application Support/AgentWorkforce`, which is
@@ -2800,6 +2808,14 @@ module.exports = {
      unfroze (#1432) */
   get WORKERS_DIR() { return workersDir(); },
   get AGENTS_DIR() { return agentsDir(); },
+  /* ⚠️ EXPORTED SO A GUARD DOES NOT HAVE TO RE-DERIVE IT. The data-root test
+     compared supportDir() against a value built from `os.homedir()` while
+     supportDir uses THIS function -- two definitions of one fact, inside the
+     guard, in a file whose whole subject is two definitions of one fact.
+     Measured: adding an AGENT_WORKFORCE_HOME seam here (the #1432 pattern
+     already applied to workersDir, agentsDir and supportDir) turned two tests
+     red on CORRECT code. */
+  homeDir,
   /* 🛑 A FUNCTION, NOT A `get SUPPORT_DIR()` GETTER, AND THE NAME MATTERS.
      `create.SUPPORT_DIR` is named at `tools/check-frozen-roots.js:25` as one of
      #1432's original instances. A getter under that name reads correctly and is

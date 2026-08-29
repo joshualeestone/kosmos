@@ -26,33 +26,45 @@ const REPO = path.join(__dirname, '..');
  * one answer "rather than a second convention introduced by whoever needed a
  * directory next". These pin that it is now true.
  *
- * ⚠️ THE GUARD BELOW IS SCOPED TO `supportDir`'s BODY, WITH COMMENTS STRIPPED,
- * AND IT TOOK THREE TRIES TO GET THERE.
- *
- * 🛑 I PREVIOUSLY WROTE HERE THAT "no re-spelling fakes it". THAT WAS FALSE and
- * a reviewer measured three fakes against it in minutes: a COMMENT naming
- * `store.dataRootFor(`, a dead `if (false) return store.dataRootFor(...)`, and a
- * mention inside an unrelated function 150KB away. All three left the literal in
- * place and the suite green, because the regex scanned the whole 153KB file.
- *
- * ⚠️ AND IT ACCUSED CORRECT CODE. `const { dataRootFor } = store` and
- * `const s = store; s.dataRootFor(...)` are both real delegation and both went
- * RED. So it had false negatives AND false positives at once.
- *
- * ⇒ Scoping to the function body closes both: the positive arm tolerates
- * aliasing, and the negative arm can only see the code that actually runs.
+ * 🛑 A DOCBLOCK DESCRIBING A GUARD THAT NO LONGER EXISTS WAS DELETED FROM HERE.
+ * The body-scoped text heuristic went in `c63ead6d`, superseded by the
+ * behavioural and matrix guards. Fourteen lines of its documentation stayed
+ * behind, IN THE PRESENT TENSE, telling a reader that a re-spelling guard
+ * protects them. Coverage was never affected; the belief about coverage was.
  */
 
 /**
- * ⚠️ NAMED FOR WHAT IT ACTUALLY CHECKS. It used to be called "create and store
- * give ONE answer", which is FALSE: `store.ROOT` is frozen at require time
- * (tracked debt in check-frozen-roots' KNOWN map) while `supportDir()` is lazy,
- * so with the seam set after require they legitimately DIFFER -- which is the
- * very scenario the laziness test below pins.
+ * ⚠️ A JUSTIFICATION I WROTE HERE WAS FALSE IN BOTH HALVES AND IS CORRECTED.
+ * I said `store.ROOT` is "frozen at require time (tracked debt in
+ * check-frozen-roots' KNOWN map)". Measured: it is a LAZY GETTER
+ * (`store.js:305`) and tracks a seam set after require, and
+ * `check-frozen-roots.js:53` is `new Map([])` whose own comment says the
+ * `engine/store.js:ROOT` entry "IS GONE (#1443, fixed)".
+ * 🛑 THE HARM IS NOT PEDANTIC: that sentence told a future reader that `create`
+ * and `store` are PERMITTED to disagree, so a real divergence would have read
+ * as expected behaviour. They should agree, and this pins that they do.
  *
  * 📌 It also never went red on any value perturbation, because both sides derive
  * from the same function. It is a wiring assertion, not a value one, and the
  * body-scoped guard above is what actually catches this card's defect.
+ */
+/**
+ * 📌 A REVIEWER CALLED THIS A FALSE POSITIVE AND I DISAGREE, WITH A MEASUREMENT.
+ *
+ * Round 7's W5 said that adding an `AGENT_WORKFORCE_HOME` seam to create's
+ * `homeDir()` turns tests red "on correct code". I took the first half of that
+ * finding -- the matrix was re-deriving home with `os.homedir()` instead of
+ * create's own resolver, which IS two definitions of one fact inside the guard,
+ * and it is fixed.
+ *
+ * 🛑 BUT THIS TEST'S RED IS EARNED. Measured with the seam set:
+ *     create.supportDir() = /tmp/fakehome/Library/Application Support/AgentWorkforce
+ *     store.ROOT          = /Users/agent1/Library/Application Support/AgentWorkforce
+ * A create-ONLY home seam makes the two sites give DIFFERENT ANSWERS, which is
+ * the two-answers condition this whole card exists to remove. A guard that
+ * stayed green through that would be the defect, not the seam.
+ *
+ * ⇒ If somebody wants that seam, it belongs on BOTH resolvers or on neither.
  */
 test('create reaches the same resolver store built ROOT from', () => {
   assert.equal(create.supportDir(), store.ROOT,
@@ -191,7 +203,9 @@ test('supportDir EQUALS the resolver across every platform and environment', () 
       for (const plat of PLATFORMS) {
         assert.equal(
           create.supportDir(plat),
-          store.dataRootFor(plat, os.homedir(), process.env),
+          // create's OWN home resolver, not os.homedir(): see the W5 note on
+          // create.homeDir. Re-deriving it here would false-accuse correct code.
+          store.dataRootFor(plat, create.homeDir(), process.env),
           `supportDir disagrees with the resolver for ${plat} under ${JSON.stringify(overlay)}`
         );
         checked += 1;
@@ -207,6 +221,58 @@ test('supportDir EQUALS the resolver across every platform and environment', () 
     'the matrix did not run every combination, so a green here proves less than it looks');
 });
 
+
+/**
+ * ✅ THE ONE THAT EXERCISES WHAT ACTUALLY SHIPS, AND NOTHING ELSE DID.
+ *
+ * 🛑 EVERY PRODUCTION CALL SITE IS `supportDir()` WITH NO ARGUMENT
+ * (create.js 1003, 1180, 1712, 1715, plus the export). The matrix below only
+ * ever calls it WITH one, so the DEFAULT EXPRESSION was the single part of this
+ * function that ships and the single part nothing tested.
+ *
+ * Measured: planting `function supportDir(platform = 'darwin')` left the test
+ * file at 7 pass and the FULL SUITE at 3019 pass, while a Windows user got
+ * `.../Library/Application Support/AgentWorkforce`. That is verbatim the defect
+ * this branch removes.
+ *
+ * ⭐ AND THE SHAPE OF MY ERROR, WHICH IS THE FOURTH TIME TODAY: parameterising
+ * did not REMOVE the unassertable read, it RELOCATED it from the body into the
+ * default expression, one step ahead of the guard.
+ *
+ * 🛑 THE ROOT CAUSE WAS A FALSE BELIEF I WROTE DOWN. My comment in create.js
+ * said `process.platform` cannot be set. Measured false:
+ * `Object.defineProperty(process,'platform',{value:'win32'})` works. Believing
+ * it could not be faked is what made a parameter look like the only option.
+ *
+ * ⚠️ THE ENVIRONMENT IS HOSTILE ON PURPOSE, and LOCALAPPDATA especially. The
+ * matrix DELETES that key and never SETS it, which does not merely fail to
+ * cover it -- it guarantees blindness, because it is stripped from the ambient
+ * env too. A `LOCALAPPDATA`-conditional was invisible, and Roaming-vs-Local is
+ * an OPEN QUESTION on this very card, so that is the likeliest future edit.
+ */
+test('supportDir() with NO ARGUMENT is right on a faked Windows, under a hostile env', () => {
+  const env = {
+    ...process.env,
+    APPDATA: 'D:\\S\\Roaming',
+    LOCALAPPDATA: 'D:\\S\\Local',
+    USERPROFILE: 'D:\\S\\User',
+    HOMEDRIVE: 'D:',
+    HOMEPATH: '\\S',
+    XDG_DATA_HOME: '/S/xdg',
+  };
+  delete env.AGENT_WORKFORCE_DATA;
+  const out = execFileSync(process.execPath, ['-e', `
+    Object.defineProperty(process,'platform',{value:'win32',configurable:true});
+    const c = require('./engine/create'), s = require('./engine/store');
+    const got  = c.supportDir();                                        // NO ARGUMENT
+    // create's OWN home resolver on both sides. I fixed exactly this
+    // two-definitions bug in the matrix above and then reproduced it here, four
+    // lines later, in the same sitting.
+    const want = s.dataRootFor(process.platform, c.homeDir(), process.env);
+    process.stdout.write(got === want ? 'GREEN' : ('RED got=' + got + ' want=' + want));
+  `], { cwd: REPO, env, encoding: 'utf8' });
+  assert.equal(out, 'GREEN', out);
+});
 
 test('darwin is unchanged, which is the property that must never move', () => {
   const home = '/Users/someone';
