@@ -80,6 +80,7 @@ entry() { printf '<article id="v0-6-06"><span class="rel-d">%s</span></article>\
 
 # default runs use the LATE bounds (+/-20); the step 1 arms pass the tighter one.
 run()       { kosmos_versions_entry_gate 0.6.06 "$F" "cost sentence." "stamp hint." "$KOSMOS_LATE_PAST_BOUND" 2>&1; }
+run_early_bound() { kosmos_versions_entry_gate 0.6.06 "$F" "cost sentence." "stamp hint." "$1" 2>&1; }
 run_early() { kosmos_versions_entry_gate 0.6.06 "$F" "cost sentence." "stamp hint." "$KOSMOS_STEP1_PAST_BOUND" 2>&1; }
 
 # --- presence axis ---
@@ -270,6 +271,36 @@ for shape in "20" " 20" "+20"; do
   out="$(KOSMOS_FUTURE_BOUND="$shape" bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kosmos_versions_entry_gate 0.6.06 "'"$F"'" "c." "h." 20' 2>&1)"; rc=$?
   if [ "$rc" -eq 0 ]; then pass "CONTROL: a +15min publication stamp still passes with FUTURE_BOUND='$shape'"; else fail "over-refusal: '$shape' rejected a correct publication stamp (rc=$rc): $out"; fi
 done
+
+
+# --- LEADING ZEROS, ON BOTH BOUNDS, IN BOTH DIRECTIONS ---
+# 🛑 THE SIXTH INSTANCE, AND MY OWN SUITE COULD NOT SEE IT. `020` was exercised
+# only on the FUTURE bound in the REFUSING direction, where 16 and 20 return the
+# identical verdict, so the two outcomes were indistinguishable. `08` was never
+# tried at all, and `$((08))` does not evaluate wrongly, it ABORTS the command
+# list, so the gate returned 0 on a ninety-minute-stale entry.
+# ⚠️ That is this file's own warning, one argument over: a control can be
+# correct, deliberate, and aimed where the two answers look the same.
+stale90="$(stamp_at 90)"
+for shape in 08 09 020 010; do
+  entry "$stale90"
+  out="$(run_early_bound "$shape")"; rc=$?
+  if [ "$rc" -eq 1 ]; then pass "a 90-min-stale entry is REFUSED with past bound '$shape'"; else fail "FAIL-OPEN: past bound '$shape' passed a 90-min-stale entry (rc=$rc): $out"; fi
+  out="$(KOSMOS_FUTURE_BOUND="$shape" bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kosmos_versions_entry_gate 0.6.06 "'"$F"'" "c." "h." 20' 2>&1)"; rc=$?
+  if [ "$rc" -eq 1 ]; then pass "and REFUSED with future bound '$shape'"; else fail "FAIL-OPEN: future bound '$shape' passed (rc=$rc): $out"; fi
+done
+
+# 020 must mean TWENTY, not sixteen. The refusing direction cannot tell them
+# apart, so this is asserted where they differ: an 18-minute-ahead publication
+# stamp passes under 20 and would be refused under 16.
+entry "$(stamp_at -18)"
+out="$(KOSMOS_FUTURE_BOUND=020 bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kosmos_versions_entry_gate 0.6.06 "'"$F"'" "c." "h." 20' 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "020 means TWENTY: an 18-min-ahead stamp still passes"; else fail "020 was read as octal 16: an 18-min-ahead stamp was refused (rc=$rc): $out"; fi
+
+# and the magnitude bound, because fixing the octal case re-opened the 20-digit one
+entry "$stale90"
+out="$(run_early_bound 99999999999999999999)"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "a 20-digit bound is still refused (it WRAPS rather than erroring)"; else fail "FAIL-OPEN: 20-digit bound passed (rc=$rc): $out"; fi
 
 # --- the two call sites give DIFFERENT stamp advice, and early must not say "now" ---
 # 🛑 THE ARM THAT PINS THE ACTUAL BUG: telling the operator at step 1 to stamp NOW
