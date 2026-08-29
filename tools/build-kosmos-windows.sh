@@ -197,6 +197,41 @@ echo "==> the launcher will open http://127.0.0.1:$PORT_DEFAULT"
   printf 'If no browser opens, go to http://127.0.0.1:%s yourself.\r\n' "$PORT_DEFAULT"
 } > "$STAGE/! READ ME FIRST - Windows will warn you.txt"
 
+# ---- the installer --------------------------------------------------------
+# 🔑 OPTIONAL BY DESIGN. `Kosmos.cmd` alone is a complete product: extract,
+# double-click, the board comes up. The installer adds Start Menu, start at
+# login and a clean uninstall, and if it fails or somebody ignores it, the
+# extracted folder still works. **A person is never left with only the half
+# that broke.**
+#
+# 🛑 CRLF, LIKE EVERY OTHER SHIPPED TEXT FILE HERE, AND THE .ps1 TOO. My
+# parallel builder shipped these as LF because they were static files copied
+# straight across. This converts on the way in, so a file edited on a Mac
+# cannot reach Windows with Unix line endings.
+# ⚠️ The conversion strips an existing CR first, so running it twice is a no-op
+# rather than a file with doubled carriage returns.
+echo "==> the installer"
+{
+  printf '@echo off\r\n'
+  printf 'REM Installs Kosmos: Start Menu, start at login, and an uninstaller.\r\n'
+  printf 'REM You do NOT have to run this. Kosmos.cmd works on its own.\r\n'
+  printf 'REM\r\n'
+  printf 'REM -ExecutionPolicy Bypass is scoped to THIS process. It does not change\r\n'
+  printf 'REM the machine policy, which is why it is preferred over telling somebody\r\n'
+  printf 'REM to run Set-ExecutionPolicy -- that outlives the install and weakens the\r\n'
+  printf 'REM machine permanently.\r\n'
+  printf 'powershell -NoProfile -ExecutionPolicy Bypass -File "%%~dp0install-kosmos.ps1"\r\n'
+  printf 'if errorlevel 1 (\r\n'
+  printf '  echo.\r\n'
+  printf '  echo Install did not complete. The message above says why.\r\n'
+  printf '  echo Kosmos.cmd in this folder still works without installing.\r\n'
+  printf ')\r\n'
+  printf 'pause\r\n'
+} > "$STAGE/Install Kosmos.cmd"
+
+[ -f "$REPO/install/windows/install-kosmos.ps1" ] || { echo "install/windows/install-kosmos.ps1 is missing from the repo" >&2; exit 1; }
+awk '{ sub(/\r$/, ""); printf "%s\r\n", $0 }' "$REPO/install/windows/install-kosmos.ps1" > "$STAGE/install-kosmos.ps1"
+
 # ---- the manifest ----------------------------------------------------------
 cat > "$STAGE/manifest.json" <<JSON
 {
@@ -255,7 +290,7 @@ shasum -a 256 "$ZIPOUT" | awk '{print $1}' > "$ZIPOUT.sha256"
 refuse() { echo "$1" >&2; rm -f "$ZIPOUT" "$ZIPOUT.sha256"; exit 1; }
 
 LISTING="$(unzip -l "$ZIPOUT")"
-for want in "Kosmos.cmd" "open-board.cmd" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html"; do
+for want in "Kosmos.cmd" "open-board.cmd" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html" "Install Kosmos.cmd" "install-kosmos.ps1"; do
   case "$LISTING" in
     *" $want"*) ;;
     *) refuse "the zip is missing $want" ;;
