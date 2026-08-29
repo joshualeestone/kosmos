@@ -210,10 +210,20 @@ kosmos_versions_entry_stamp() {
 kosmos_versions_entry_stamp_off() {
   TZ=America/Chicago V_ENTRY="$1" node -e "
   const s = process.env.V_ENTRY || '';
-  const m = s.match(/^(\w+) (\d+), (\d+), (\d+):(\d+) (AM|PM)/);
+  // \\s before AM/PM, not a literal space: toLocaleString emits a narrow no-break
+  // space (U+202F) there on some ICU builds and a plain space on others, and \\s
+  // matches both, so the parse does not depend on which build stamped the page --
+  // the same machine-independence goal as the timezone force above (#1464).
+  const m = s.match(/^(\w+) (\d+), (\d+), (\d+):(\d+)\s(AM|PM)/);
   if (!m) { console.log('unparseable'); process.exit(0); }
   const months = 'January February March April May June July August September October November December'.split(' ');
   let h = Number(m[4]) % 12; if (m[6] === 'PM') h += 12;
+  // #1464 residual, documented and NOT fixed: on the November fall-back night the
+  // 1:00-1:59 Central hour happens twice, and this bare wall-clock reconstruct
+  // resolves to the FIRST (CDT) instant. A cut stamped in the second (CST) hour
+  // then reads ~60 min too stale and step 1 refuses it -- fail CLOSED, so the
+  // operator just re-stamps. It is not fixable here without trusting the trailing
+  // label, which the line above deliberately ignores for the stronger reason.
   const t = new Date(Number(m[3]), months.indexOf(m[1]), Number(m[2]), h, Number(m[5]));
   const off = Math.round((Date.now() - t.getTime()) / 60000);
   // A parseable-looking date can still yield NaN (month 13, year 999999).

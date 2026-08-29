@@ -451,5 +451,14 @@ central_stale="$(node -e "const d=new Date(Date.now()-90*60000);process.stdout.w
 off_stale="$(TZ=UTC bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kosmos_versions_entry_stamp_off "'"$central_stale"'"')"
 if [ "$off_stale" -ge 88 ] 2>/dev/null && [ "$off_stale" -le 92 ] 2>/dev/null; then pass "CONTROL: a 90-min-stale Central stamp reads ~90 under TZ=UTC, not 0 (off=$off_stale)"; else fail "control: 90-min-stale Central stamp read $off_stale under TZ=UTC (expected ~90)"; fi
 
+# #1464 (separator): toLocaleString emits a narrow no-break space (U+202F) before
+# AM/PM on some ICU builds and a plain space on others; the reader regex uses \s,
+# which matches both, so the parse does not depend on the stamping machine's ICU
+# build. Build a stamp with the U+202F separator explicitly and assert it parses.
+nbsp_stamp="$(node -e "const w=new Date().toLocaleString('en-US',{timeZone:'America/Chicago',month:'long',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}).replace(' at ', ', ');process.stdout.write(w.replace(/ (AM|PM)/, '\\u202f\$1')+' CDT')")"
+nbsp_off="$(kosmos_versions_entry_stamp_off "$nbsp_stamp")"
+case "$nbsp_off" in ''|*[!0-9-]*) nbsp_parsed=no ;; *) nbsp_parsed=yes ;; esac
+if [ "$nbsp_parsed" = yes ]; then pass "a stamp with a narrow no-break space (U+202F) before AM/PM still parses (#1464 separator: the regex uses \\s) (off=$nbsp_off)"; else fail "#1464 SEPARATOR REGRESSION: a U+202F-separated stamp read '$nbsp_off' (regex not tolerant of the ICU narrow space)"; fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failed"; exit 1; }
 echo "all versions-entry gate arms behaved"
