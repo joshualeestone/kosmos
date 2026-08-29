@@ -5,11 +5,12 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { mkTemp } = require('../test-support/tmpdir.js');
 
 /* Every test gets its own data root BEFORE the module is required, because the
    file path is resolved at load time (same shape as engmode.test.js). */
 function fresh() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-auto-'));
+  const dir = mkTemp('kosmos-auto-');
   process.env.AGENT_WORKFORCE_DATA = dir;
   delete require.cache[require.resolve('./autoupdate')];
   return { dir, mod: require('./autoupdate') };

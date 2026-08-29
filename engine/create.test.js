@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
+const { mkTemp } = require('../test-support/tmpdir.js');
 
 // ⚠️ SANDBOX BEFORE REQUIRING, because the module resolves its roots at load.
 // This one matters more than usual: the thing under test MAKES DIRECTORIES,
@@ -3303,7 +3304,7 @@ test('#245: openai refuses a model choice, an account choice, a missing runner, 
 test('#246: the switch rewrites only the launch, both directions, and drops what cannot cross', () => {
   recorder();
   create.setDryRun(false);
-  const codexHome = fs.mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'codex-home-sw-'));
+  const codexHome = mkTemp('codex-home-sw-');
   process.env.AGENT_WORKFORCE_CODEX_HOME = codexHome;
   /* 🛑 SIGNED IN, AND THIS LINE IS THE BUG THIS TEST USED TO ASSERT (#1211).
      Without it the home is empty, and the switch used to SUCCEED into it: a
