@@ -187,9 +187,17 @@ a different problem.
    re-stamp and three seconds, but it is a real false refusal and you should
    recognise it rather than hunt for a cause.
 
-   ⚠️ **Both bounds are overridable if you genuinely need to**, not only the late
-   one: `KOSMOS_STEP1_PAST_BOUND` and `KOSMOS_LATE_PAST_BOUND`. The step 1 bound is
-   the one that will have stopped you.
+   ⚠️ **All THREE bounds are overridable if you genuinely need to**, not just the
+   late one: `KOSMOS_STEP1_PAST_BOUND`, `KOSMOS_LATE_PAST_BOUND` and
+   `KOSMOS_FUTURE_BOUND`. The step 1 bound is the one that will have stopped you.
+   The future bound was undocumented here while being equally overridable, which
+   is the worst combination: reachable and unmentioned.
+
+   📌 **How binding is the ceiling in practice? Measured from the cut log:** 87
+   cuts have reached step 7 or beyond, with durations from 12.5 to 19.2 minutes
+   and **none over 20**. So the `D <= 35` wall is real and has never been hit.
+   It is documented because it is a property this change introduced, not because
+   it is a live problem.
 
    📌 **Where fifteen comes from.** Measured on the 0.6.06 attempt of 2026-08-28:
    launch 21:56:18, step 7 at 22:12:04, so **15m 46s**, and a slow browser gate
