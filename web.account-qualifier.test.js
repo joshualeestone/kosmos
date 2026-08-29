@@ -132,3 +132,29 @@ test('a non-default row labelled "main" does not collide with the default row', 
   assert.notEqual(q.get(clashMain.dir), q.get(DEFAULT_ROW.dir),
     'a non-default row named "main" collided with the default, reintroducing the one-name-two-controls bug');
 });
+
+/* `list()` gives sibling directories distinct basenames, so two non-default rows
+   in one group cannot share a label today. But this function is pure and
+   exported, so it must guarantee distinctness itself rather than lean on a
+   caller's invariant: two rows with the same label must still come out named
+   differently, falling back to their unique `dir`. */
+test('two non-default rows sharing a label do not collide either', () => {
+  const a = { email: 'josh@book.io', dir: '/Users/x/.claude-dup', label: 'dup', isDefault: false };
+  const b = { email: 'josh@book.io', dir: '/Users/y/.claude-dup', label: 'dup', isDefault: false };
+  const q = qualifiers([a, b]);
+  assert.notEqual(q.get(a.dir), '', 'a duplicated row came out unnamed');
+  assert.notEqual(q.get(b.dir), '', 'a duplicated row came out unnamed');
+  assert.notEqual(q.get(a.dir), q.get(b.dir),
+    'two rows with the same label produced the same qualifier, so their controls share a name again');
+});
+
+/* The buttons are pinned to esc(qual) above, but the visible span and its
+   tooltip are the other two surfaces the qualifier reaches, and a directory name
+   is not Kosmos-sanitized. Pin esc() on all four, so a future edit dropping it
+   from either surface reds a test rather than rendering raw. */
+test('the visible qualifier and its tooltip are escaped too, not only the buttons', () => {
+  assert.match(PAGE, /'">' \+ esc\(qual\) \+ '<\/span>'/,
+    'the visible qualifier span dropped esc(), so a directory name with markup would render raw');
+  assert.match(PAGE, /class="acct-qual" title="' \+ esc\(/,
+    'the qualifier tooltip is no longer wrapped in esc(), so the login renders raw in the title attribute');
+});
