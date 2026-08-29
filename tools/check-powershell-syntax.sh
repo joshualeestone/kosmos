@@ -94,6 +94,22 @@ if [ "$checked" -eq 0 ]; then
   exit 1
 fi
 
+# ✅ A CONTROL FOR THE RENDER PHASE, WHICH HAD NONE. The plan claimed "both
+# phases carry a control that runs every time"; measured by a reviewer, that was
+# FALSE -- gutting ps-render.ps1 to `exit 0` left the checker reporting PASS.
+# The phase I called "the one that matters" was the unguarded one.
+rbroken="$(mktemp -t kosmos-ps-rcontrol-XXXXXX)"; mv "$rbroken" "$rbroken.ps1"; rbroken="$rbroken.ps1"
+printf '$x = @"\nplanted `rmdir and a \\$var\n"@\n' > "$rbroken"
+rctl="$(pwsh -NoProfile -File "$REPO/tools/lib/ps-render.ps1" "$rbroken" 2>&1)" || true
+rm -f "$rbroken"
+if printf '%s' "$rctl" | grep -q 'SUSPECT'; then
+  echo "PASS  CONTROL: the render phase detects a planted backtick and backslash-dollar."
+else
+  echo "FAIL  CONTROL: the render phase did NOT flag a planted defect, so every render PASS above is worthless."
+  printf '%s\n' "$rctl" | sed 's/^/        /'
+  fail=1
+fi
+
 # ✅ THE CONTROL. A checker that has only ever returned PASS has never been
 # shown capable of returning FAIL. Feed it something known-broken and require
 # the other answer, every run, so a green here means the instrument works.

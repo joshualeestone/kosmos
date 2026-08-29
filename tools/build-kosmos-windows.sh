@@ -241,7 +241,8 @@ cat > "$STAGE/manifest.json" <<JSON
   "version": "$_ver",
   "signed": false,
   "node": { "version": "v$NODE_VERSION", "download_sha256": "$NODE_SHA" },
-  "agents_supported": false
+  "agents_supported": false,
+  "engine_modules": $(ls "$STAGE/app/engine"/*.js | wc -l | tr -d ' ')
 }
 JSON
 

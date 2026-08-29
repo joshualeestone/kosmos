@@ -58,20 +58,41 @@ if ($srcFull.StartsWith($dstFull + '\', [System.StringComparison]::OrdinalIgnore
 # likeliest real failure and it produces a board that installs and then dies at
 # the first request.
 Step "checking the download"
+# ⚠️ -LiteralPath ON EVERY ONE. `Test-Path` and `Get-ChildItem` take -Path
+# positionally, which is WILDCARD semantics, and `[1]` is a character class. A
+# folder called "Kosmos [1]" -- exactly what a second download produces --
+# reported False for files that exist, and the installer told the person to
+# download it again, which is what caused it. Measured with a control: the same
+# folder renamed "Kosmos ok" resolved fine.
 foreach ($p in @('app\server.js', 'app\engine', 'app\web', 'Kosmos.cmd')) {
-  if (-not (Test-Path (Join-Path $Source $p))) {
+  if (-not (Test-Path -LiteralPath (Join-Path $Source $p))) {
     Die "The download is incomplete: $p is missing. Please download and extract it again."
   }
 }
-# ⚠️ COUNTS REAL MODULES, NOT *.test.js. An earlier version counted both, so a
-# staging failure that dropped every real module while keeping the tests would
-# have passed this floor. A floor made of the wrong population is not a floor.
-$engineCount = @(Get-ChildItem (Join-Path $Source 'app\engine') -Filter *.js |
-                 Where-Object { $_.Name -notlike '*.test.js' }).Count
-if ($engineCount -lt 40) {
-  Die "The download is incomplete: only $engineCount engine modules, expected 40 or more. Please download and extract it again."
+# 🛑 EQUALITY AGAINST THE MANIFEST, NOT A FLOOR, AND THIS FILE HAD THE FLOOR THE
+# BUILDER'S OWN TEST FORBIDS. `tools.build-windows-570.test.js` asserts the
+# builder contains no `-ge 50`, with the reason in its message: "a floor is what
+# let 78 test files through". I wrote that lesson and then shipped `-lt 40`
+# against an actual 59, so a partial extraction could drop NINETEEN modules and
+# pass.
+# ⇒ The builder now records the real count in manifest.json, which was already
+# shipped and read ZERO times. Comparing to it makes too many as loud as too few.
+$expectMods = $null
+$mf = Join-Path $Source 'manifest.json'
+if (Test-Path -LiteralPath $mf) {
+  try { $expectMods = (Get-Content -LiteralPath $mf -Raw | ConvertFrom-Json).engine_modules } catch { $expectMods = $null }
 }
-Say "$engineCount engine modules, and the web files, are present"
+$engineCount = @(Get-ChildItem -LiteralPath (Join-Path $Source 'app\engine') -Filter *.js).Count
+if ($expectMods) {
+  if ($engineCount -ne $expectMods) {
+    Die "The download is incomplete or altered: $engineCount engine modules, and this build says there should be exactly $expectMods. Please download and extract it again."
+  }
+  Say "$engineCount engine modules, matching the manifest exactly"
+} else {
+  # An older bundle with no count in its manifest. Say so rather than silently
+  # accepting anything: a skipped check must not look like a passed one.
+  Say "$engineCount engine modules (this bundle's manifest carries no expected count, so it was not verified)"
+}
 
 # ── the runtime ──────────────────────────────────────────────────────────────
 # A full bundle carries node.exe and skips this entirely. A thin bundle carries
@@ -82,9 +103,9 @@ Say "$engineCount engine modules, and the web files, are present"
 # could tamper with it. Re-hashing what actually landed is the check that means
 # something; the manifest only says which bytes to expect.
 $NodeExe = Join-Path $Source 'runtime\node.exe'
-if (-not (Test-Path $NodeExe)) {
+if (-not (Test-Path -LiteralPath $NodeExe)) {
   $manifest = Join-Path $Source 'runtime\runtime.json'
-  if (-not (Test-Path $manifest)) {
+  if (-not (Test-Path -LiteralPath $manifest)) {
     Die "This download has neither a runtime nor a runtime.json saying where to get one. Please download it again."
   }
   $r = Get-Content $manifest -Raw | ConvertFrom-Json
@@ -146,7 +167,7 @@ if (-not (Test-Path $NodeExe)) {
 
 # ── replacing an existing install ────────────────────────────────────────────
 Step "installing to $Install"
-if (Test-Path $Install) {
+if (Test-Path -LiteralPath $Install) {
   # 🛑 PROVE IT IS OURS BEFORE DELETING IT. The only previous test was "a folder
   # named Kosmos exists", so anything already at that name -- another vendor's,
   # or a folder somebody made -- was recursively deleted with no confirmation.
@@ -158,7 +179,7 @@ if (Test-Path $Install) {
   # 🛑 AND REFUSE A REPARSE POINT. Windows PowerShell 5.1's Remove-Item -Recurse
   # descends into junctions and symlinks and deletes what they point AT. People
   # do redirect AppData subfolders.
-  $item = Get-Item $Install -Force
+  $item = Get-Item -LiteralPath $Install -Force
   if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
     Die "$Install is a junction or symbolic link, not a real folder. Removing it could delete files somewhere else, so this installer will not touch it. Remove the link yourself and run this again."
   }
@@ -185,7 +206,7 @@ if (Test-Path $Install) {
     }
   }
   Start-Sleep -Milliseconds 500
-  try { Remove-Item $Install -Recurse -Force }
+  try { Remove-Item -LiteralPath $Install -Recurse -Force }
   catch { Die "Could not remove the previous install at $Install. Close any window showing that folder, and anything running from it, then try again. ($($_.Exception.Message))" }
 }
 
@@ -195,11 +216,16 @@ if (Test-Path $Install) {
 # exception and a machine with no working install and no readable message.
 try {
   New-Item -ItemType Directory -Path $Install -Force | Out-Null
-  Copy-Item (Join-Path $Source 'app')        $Install -Recurse -Force
-  Copy-Item (Join-Path $Source 'runtime')    $Install -Recurse -Force
-  Copy-Item (Join-Path $Source 'Kosmos.cmd') $Install -Force
-  foreach ($extra in @('open-board.cmd', 'README.txt')) {
-    if (Test-Path (Join-Path $Source $extra)) { Copy-Item (Join-Path $Source $extra) $Install -Force }
+  Copy-Item -LiteralPath (Join-Path $Source 'app')        -Destination $Install -Recurse -Force
+  Copy-Item -LiteralPath (Join-Path $Source 'runtime')    -Destination $Install -Recurse -Force
+  Copy-Item -LiteralPath (Join-Path $Source 'Kosmos.cmd') -Destination $Install -Force
+  # ⚠️ THE NAMES ARE THE BUILDER'S, NOT INVENTED. An earlier version copied
+  # 'README.txt', which this bundle has never contained: the file is called
+  # '! READ ME FIRST - Windows will warn you.txt', so the installed folder had
+  # NO readme and the warning file stayed behind in Downloads.
+  foreach ($extra in @('open-board.cmd', 'manifest.json', '! READ ME FIRST - Windows will warn you.txt')) {
+    $ex = Join-Path $Source $extra
+    if (Test-Path -LiteralPath $ex) { Copy-Item -LiteralPath $ex -Destination $Install -Force }
   }
 } catch {
   Die "Could not copy Kosmos into $Install. Close anything using that folder and run this again. If it keeps failing, say so rather than working around it. ($($_.Exception.Message))"
@@ -215,7 +241,16 @@ Say "copied"
 # ⇒ One resolver, one answer. This cannot drift, because it is not a copy.
 $DataDir = $null
 try {
-  $DataDir = & (Join-Path $Install 'runtime\node.exe') -e "process.stdout.write(require('./engine/store').ROOT)" 2>$null
+  # 🛑 AN ABSOLUTE PATH AS argv[1], NOT A RELATIVE require. `-e` has no filename,
+  # so `require('./engine/store')` resolves against the CURRENT DIRECTORY, which
+  # Explorer sets to the extracted folder -- where the modules are at
+  # app\engine\store.js, not engine\store.js. Measured, three arms: cwd at the
+  # extracted folder MODULE_NOT_FOUND, cwd at app/ works, absolute path works.
+  # ⇒ The first version of this NEVER RAN. $DataDir was always null and the
+  # uninstaller always printed the generic line, so the fix this file is proudest
+  # of was inert from the moment it was written.
+  $storeJs = Join-Path $Install 'app\engine\store.js'
+  $DataDir = & (Join-Path $Install 'runtime\node.exe') -e "process.stdout.write(require(process.argv[1]).ROOT)" $storeJs 2>$null
   if ($LASTEXITCODE -ne 0) { $DataDir = $null }
 } catch { $DataDir = $null }
 if ([string]::IsNullOrWhiteSpace($DataDir)) {
@@ -287,20 +322,28 @@ $uninstall = @"
 REM Remove Kosmos. Leaves your DATA alone on purpose: that is your projects,
 REM not the program.
 setlocal
-REM %~dp0 ALWAYS ENDS IN A BACKSLASH, and the two uses below want opposite things.
-REM   KOSMOS_HERE keeps it: the PowerShell containment test needs the separator,
-REM     or "...\Kosmos\" also matches "...\KosmosSomethingElse\".
-REM   KOSMOS_DIR drops it: rmdir /s /q "C:\...\Kosmos\" puts a quote directly
-REM     after a backslash, which is the classic cmd quoting hazard. cmd built-ins
-REM     are believed to cope, and believing is not a reason to ship it when the
-REM     trim is one substring away. Raised by PigeonPete, who could not test it
-REM     from a Mac either.
+if not "%~1"=="" goto :remove
+
+REM -- first run -------------------------------------------------------------
+REM rmdir CANNOT remove the directory holding the running batch file, and both
+REM outcomes are bad: the delete fails on the open handle and this script then
+REM reports "some files could not be removed", which is false and unfixable; or
+REM it succeeds and cmd can no longer read the remaining lines, so there is no
+REM Done, no data-dir line and NO PAUSE -- the window just vanishes and the
+REM person cannot tell whether it worked.
+REM => Copy to TEMP and re-run from there with the target as an argument.
 set "KOSMOS_HERE=%~dp0"
-set "KOSMOS_DIR=%KOSMOS_HERE:~0,-1%"
-REM Run from TEMP: rmdir cannot remove the directory it is sitting in.
+copy /y "%~f0" "%TEMP%\kosmos-uninstall.cmd" >nul
+call "%TEMP%\kosmos-uninstall.cmd" "%KOSMOS_HERE:~0,-1%"
+exit /b
+
+:remove
+REM %~1 has no trailing backslash: rmdir /s /q "C:\...\Kosmos\" puts a quote
+REM straight after one, which is the classic cmd quoting hazard.
+set "KOSMOS_DIR=%~1"
 cd /d "%TEMP%"
 echo Stopping Kosmos...
-powershell -NoProfile -Command "`$here = `$env:KOSMOS_HERE.ToLower(); Get-Process node -EA SilentlyContinue | Where-Object { `$_.Path -and `$_.Path.ToLower().StartsWith(`$here) } | Stop-Process -Force" >nul 2>&1
+powershell -NoProfile -Command "`$here = '%KOSMOS_DIR%\'.ToLower(); Get-Process node -EA SilentlyContinue | Where-Object { `$_.Path -and `$_.Path.ToLower().StartsWith(`$here) } | Stop-Process -Force" >nul 2>&1
 del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Kosmos.lnk" >nul 2>&1
 del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Kosmos.lnk" >nul 2>&1
 echo Removing "%KOSMOS_DIR%"...
@@ -308,7 +351,7 @@ rmdir /s /q "%KOSMOS_DIR%"
 if exist "%KOSMOS_DIR%" (
   echo.
   echo Some files could not be removed. Kosmos may still be running.
-  echo Close it, then run this again.
+  echo Close the small black window and run this again.
 ) else (
   echo Done.
   $dataLine

@@ -1,54 +1,90 @@
-# Render every double-quoted here-string in a .ps1 and report what came out.
+# Report what every interpolating string in a .ps1 will RENDER as, WITHOUT
+# running any of it.
 #
-# 🛑 WHY RENDERING AND NOT PARSING. A `\$foo` inside an interpolating
-# here-string PARSES CLEAN and then renders as a bare backslash, because
-# PowerShell escapes with a BACKTICK and the `$foo` interpolates to nothing.
-# Measured:
-#   input   powershell -Command "\$here = \$env:FOO; Write-Output \$here"
-#   parses  OK, 12 tokens
-#   renders powershell -Command "\ = \; Write-Output \"      <- variables EATEN
-# ⇒ The generated file is silently wrong and no parser can tell you.
+# 🛑 WHY TOKENISING AND NOT `ExpandString`. The first version of this file used
+# `$ExecutionContext.InvokeCommand.ExpandString($body)`, which EVALUATES `$( )`
+# SUBEXPRESSIONS. That made a linter that EXECUTES ARBITRARY CODE OUT OF THE
+# FILES IT LINTS, wired into `test:shell`, running on every developer machine
+# and in CI, over any .ps1 anybody adds under install/.
+# Proven with an on-disk side effect: a here-string containing
+# `$(Set-Content -Path /tmp/proof.txt ...)` created the file when THE CHECKER
+# ran, and the checker reported PASS.
+# ⇒ The tokeniser processes ESCAPES without executing anything. Measured: a
+# backtick-r still shows as a carriage return, and a `$( )` beside it stays
+# literal text and creates no file.
 #
-# ⚠️ This reports; it does not judge. The caller decides what must be present,
-# because only the caller knows what the generated file is for.
+# 🔑 AND IT COVERS MORE, NOT LESS. The regex it replaces required a newline
+# straight after `@"`, so `@"` with a trailing space -- valid PowerShell, and
+# the exact EC2 bug -- reported "HERESTRINGS 0". Ordinary double-quoted strings
+# were invisible too. The tokeniser sees every expandable string there is.
 param([Parameter(Mandatory=$true)][string]$Path)
 
-$src = Get-Content -LiteralPath $Path -Raw
-# Double-quoted here-strings only. Single-quoted (@'...'@) do not interpolate,
-# so a backslash in one is just a backslash and there is nothing to check.
-$rx = [regex]'(?s)@"\r?\n(.*?)\r?\n"@'
-$m = $rx.Matches($src)
-Write-Output "HERESTRINGS $($m.Count)"
+$errors = $null
+$tokens = $null
+[System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errors) | Out-Null
+
+$strings = @($tokens | Where-Object { $_.GetType().Name -match 'StringExpandableToken' })
+Write-Output "EXPANDABLE-STRINGS $($strings.Count)"
+
 $i = 0
-foreach ($h in $m) {
+foreach ($t in $strings) {
   $i++
-  $body = $h.Groups[1].Value
-  # A lone backslash-dollar is never correct in PowerShell. Report it with the
-  # line so a person can look, rather than trying to auto-fix it.
-  $bad = [regex]::Matches($body, '\\\$')
-  Write-Output "  [$i] lines=$(($body -split "`n").Count) backslash-dollar=$($bad.Count)"
-  if ($bad.Count -gt 0) {
-    Write-Output "      SUSPECT: PowerShell escapes with a backtick, not a backslash."
-    Write-Output "      A \`$name here renders as a bare \ and the variable is lost."
+  # .Value has escapes processed and variables/subexpressions left alone.
+  $val = $t.Value
+  $lines = $val -split "`n"
+
+  # 🛑 A CONTROL CHARACTER MID-LINE is what an accidental backtick escape leaves
+  # behind. A backtick is PowerShell's escape character, so a markdown-style
+  # `word` inside an interpolating string EATS ITS OWN FIRST LETTER when that
+  # letter is one of the escape letters. Measured: `rmdir` became <CR>mdir.
+  #
+  # ⚠️ TAB IS DELIBERATELY NOT IN THIS CLASS. An earlier version included it and
+  # would have failed any generated file that legitimately contains a tab.
+  # A tab is ordinary content; a bell or a form feed in generated text is not.
+  $hits = 0
+  foreach ($line in $lines) {
+    $trimmed = $line -replace "`r$", ""
+    if ($trimmed -match "[`r`a`b`f`v`0]") {
+      $hits++
+      Write-Output ("      STRAY CONTROL CHAR (line " + ($t.Extent.StartLineNumber) + "): " + ($trimmed -replace "[`r`a`b`f`v`0]", "<CTRL>"))
+    }
   }
 
-  # 🛑 THE OTHER HALF, AND IT BIT THE AUTHOR OF THE FIRST HALF. A BACKTICK is
-  # PowerShell's escape character, so markdown-style `word` inside an
-  # interpolating here-string EATS THE FIRST LETTER when it is one of the
-  # escape letters. Measured: `rmdir` rendered as a carriage return followed by
-  # "mdir". The check above looks for backslash-dollar and is blind to this.
-  # ⇒ Render it and look for a control character where no line ended.
-  $rendered = $ExecutionContext.InvokeCommand.ExpandString($body)
-  $n = 0
-  foreach ($line in ($rendered -split "`n")) {
-    # A CR at the very end is a legitimate CRLF. One in the middle is not.
-    $trimmed = $line -replace "`r$", ""
-    if ($trimmed -match "[`r`t`a`b`f`v`0]") { $n++ ; Write-Output ("      STRAY CONTROL CHAR in: " + ($trimmed -replace "[`r`a`b`f`v`0]", "<CTRL>")) }
+  # ⚠️ REPORTED, AND IT HAS A REAL FALSE POSITIVE. `C:\Program Files\$sub\bin`
+  # is idiomatic and correct in a script that generates Windows paths, which is
+  # exactly what this file is. So this is not "never correct", which is what an
+  # earlier version of this comment claimed and a reviewer disproved.
+  # It is reported because a backslash-dollar is ALSO what a
+  # backtick-should-have-been-used bug looks like, and that bug is silent.
+  # ⇒ If it is a genuine Windows path, restructure so the backslash is inside a
+  # single-quoted segment, or split the string. Do not weaken the check.
+  # ✅ ASK THE AST WHICH VARIABLES THIS STRING WILL ACTUALLY EXPAND, rather than
+  # matching text. Splinter's mechanism, and it is strictly better than the regex
+  # it replaces because it answers the real question with no execution:
+  #     `$here   backtick ESCAPES it -> no variable node, stays literal
+  #     \$here   backslash is NOT an escape -> $here IS a variable and WILL expand
+  # ⇒ A backslash immediately before a variable that expands is the signature of
+  # an author who believed backslash escapes. It is a CANDIDATE, not a verdict:
+  # `C:\Program Files\$sub\bin` has the same shape and is entirely correct, so
+  # this reports what will expand and leaves the judgement to a person.
+  $expanded = @()
+  if ($t.NestedTokens) {
+    foreach ($n in $t.NestedTokens) {
+      if ($n.GetType().Name -match 'Variable') { $expanded += ('$' + $n.Name) }
+    }
   }
-  if ($n -gt 0) {
-    Write-Output "      SUSPECT: $n line(s) carry a control character mid-line."
-    Write-Output "      A backtick is PowerShell's ESCAPE character, so a markdown-style"
-    Write-Output "      backtick-quoted word in a here-string eats its own first letter."
+  $bs = ([regex]::Matches($val, '\\\$')).Count
+
+  $expl = if ($expanded.Count -gt 0) { " expands=" + ($expanded -join ",") } else { "" }
+  Write-Output ("  [$i] line=$($t.Extent.StartLineNumber) lines=$($lines.Count) ctrl=$hits backslash-dollar=$bs$expl")
+  if ($hits -gt 0) {
+    Write-Output "      SUSPECT: a backtick is PowerShell's ESCAPE character, so a"
+    Write-Output "      markdown-style backtick-quoted word here eats its own first letter."
+  }
+  if ($bs -gt 0) {
+    Write-Output "      SUSPECT: backslash-dollar. PowerShell escapes with a BACKTICK,"
+    Write-Output "      so a \`$name renders as a bare \ with the variable lost."
+    Write-Output "      (If this is a literal Windows path, restructure rather than ignore.)"
   }
 }
 exit 0
