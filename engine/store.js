@@ -71,9 +71,24 @@ function dataRootFor(platform, home, env) {
 // wrong -- this module read no environment at all, so those calls went to the
 // live store and the gates that depend on them could not be pinned against
 // seeded data.
-const ROOT = dataRootFor(process.platform, os.homedir(), process.env);
-const AVATARS = path.join(ROOT, 'avatars');
-const PROFILES = path.join(ROOT, 'profiles');
+/**
+ * The three paths, RESOLVED PER CALL rather than at require time (#1443).
+ *
+ * 🛑 THEY WERE CONSTANTS AND THAT MADE THE SANDBOX SEAM A LIE. Measured, both
+ * arms: with `AGENT_WORKFORCE_DATA` set AFTER this module was required,
+ * `store.ROOT` still answered the operator's real Application Support
+ * directory. Every fixture that sets the variable at the top of its file was
+ * fine; every one that sets it inside a `before`, a helper, or after any other
+ * module had already pulled `store` in, was writing to the real machine while
+ * believing it was sandboxed.
+ *
+ * ⚠️ AND THE DERIVED TWO ARE THE HALF THAT IS EASY TO MISS. Making `ROOT` lazy
+ * and leaving `AVATARS`/`PROFILES` as `path.join(ROOT, ...)` at module level
+ * would re-freeze it one line down, and the fix would LOOK done.
+ */
+function root() { return dataRootFor(process.platform, os.homedir(), process.env); }
+function avatarsDir() { return path.join(root(), 'avatars'); }
+function profilesDir() { return path.join(root(), 'profiles'); }
 
 function ensure(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -101,8 +116,8 @@ const ALLOWED_IMAGES = {
 function avatarPath(name) {
   const key = safeKey(name);
   try {
-    for (const f of fs.readdirSync(AVATARS)) {
-      if (f.startsWith(key + '.')) return path.join(AVATARS, f);
+    for (const f of fs.readdirSync(avatarsDir())) {
+      if (f.startsWith(key + '.')) return path.join(avatarsDir(), f);
     }
   } catch { /* no avatars yet */ }
   return null;
@@ -177,13 +192,13 @@ function saveAvatar(name, contentType, buffer) {
   }
 
   const key = safeKey(name);
-  ensure(AVATARS);
+  ensure(avatarsDir());
   // Replace rather than accumulate: one avatar per agent, and an old .png
   // left beside a new .jpg would win or lose by directory order.
   const existing = avatarPath(name);
   if (existing) fs.unlinkSync(existing);
 
-  const dest = path.join(AVATARS, key + ext);
+  const dest = path.join(avatarsDir(), key + ext);
   fs.writeFileSync(dest, buffer);
   return dest;
 }
@@ -202,7 +217,7 @@ function removeAvatar(name) {
  * Manager" mean something the product can act on later.
  */
 function profilePath(name) {
-  return path.join(PROFILES, safeKey(name) + '.json');
+  return path.join(profilesDir(), safeKey(name) + '.json');
 }
 
 function readProfile(name) {
@@ -214,7 +229,7 @@ function readProfile(name) {
 }
 
 function writeProfile(name, patch) {
-  ensure(PROFILES);
+  ensure(profilesDir());
   const had = readProfile(name);
   const next = { ...had, ...patch, updatedAt: new Date().toISOString() };
   /**
@@ -278,4 +293,15 @@ function agentId(name) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { ROOT, dataRootFor, AVATARS, PROFILES, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, saveAvatar, removeAvatar, readProfile, writeProfile, agentId };
+module.exports = { dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, saveAvatar, removeAvatar, readProfile, writeProfile, agentId };
+
+/* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
+   `store.ROOT` still reads like a constant at every call site and now answers
+   the CURRENT environment instead of the one that happened to be set when some
+   other module first required this one.
+   ⚠️ ENUMERABLE, so `{...store}` and `Object.keys` behave as they did. A
+   non-enumerable getter would be a silent behaviour change in whatever spreads
+   this object. */
+for (const [name, fn] of [['ROOT', root], ['AVATARS', avatarsDir], ['PROFILES', profilesDir]]) {
+  Object.defineProperty(module.exports, name, { get: fn, enumerable: true, configurable: true });
+}
