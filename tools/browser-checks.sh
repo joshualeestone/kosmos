@@ -63,25 +63,23 @@ cd "$REPO"
 # stopped a second run from starting. This asks about the thing that breaks.
 # The escape hatch is the one the cut guard already uses, deliberately: an
 # operator who has decided to override does not want to learn a second name.
-# 🛑 DISARMED 2026-08-27 10:22, BY ME, AFTER IT KILLED A RELEASE.
-# It refused Baron's 0.5.80 at step 3b with
-#   "another browser-checks run is already live on this Mac (1 live; first:
-#    77154 bash tools/browser-checks.sh)"
-# reporting ONE OTHER run after excluding itself, while nothing else was
-# running. So either self-exclusion failed or the filter matched something
-# that is not a page layer. I could not demonstrate which, and a guard that
-# has already cost a cut does not stay armed while its author is still
-# guessing.
-# ⭐ THE REASONING IT WAS BUILT ON IS UNCHANGED AND STILL RIGHT: what cost
-# cut three was two concurrent Playwright runs, not a cut, and nothing on
-# this Mac detects that. kosmos_refuse_if_browser_run_live and its eight
-# tests stay in tools/lib/cut-guard.sh so the next attempt starts from
-# tested code rather than from scratch. What is removed is only the ARMING.
-# ⚠️ Whoever re-arms it: reproduce the false positive FIRST. The one thing
-# I did prove is that `$$` does not change inside a subshell in bash, and
-# release.sh:243 invokes this from inside `( ... )`. That is the first place
-# to look and it is not confirmed.
+# ✅ RE-ARMED 2026-08-29 (#1391), AFTER REPRODUCING THE FALSE POSITIVE THE
+# DISARM NOTE ASKED FOR. It had refused Baron's 0.5.80 at step 3b reporting
+# "1 live" while nothing else ran. The named cause ("$$ does not change in a
+# subshell") was true and NOT the cause. The real cause, reproduced
+# deterministically: macOS `pgrep -f` never lists its own ANCESTOR, so the
+# caller was invisible to its own pid exclusion; and this script forks bash
+# subshells that inherit its command line with fresh pids, which pgrep DOES
+# list and a single-pid exclusion could not drop -- so the gate matched its own
+# page-layer subtree and refused itself. The fix (tools/lib/cut-guard.sh)
+# excludes the caller's whole SUBTREE, not one pid; the guard's tests cover both
+# a descendant (stays green) and an out-of-subtree run (refuses). The escape
+# hatch is the one the cut guard already uses, deliberately: an operator who has
+# decided to override does not want to learn a second name.
 . "$REPO/tools/lib/cut-guard.sh"
+if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
+  kosmos_refuse_if_browser_run_live "this page layer" || exit 1
+fi
 
 # --- freeze against a concurrent merge (#758) --------------------------------
 # Every check below reads CODE straight from $REPO (boot_board only sandboxes

@@ -42,6 +42,24 @@ sed -i '' "s/\$\$SELF/$$/" "$T/probe-self"; chmod +x "$T/probe-self"
 out="$(KOSMOS_BC_PROBE="$T/probe-self" KOSMOS_BC_SELF_PID=$$ kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "does not refuse itself"; else fail "does not refuse itself (rc=$rc, out=$out)"; fi
 
+# #1391: THE CALLER'S OWN SUBTREE MUST NOT COUNT. The disarm happened because a
+# `bash tools/browser-checks.sh` that is the caller's own DESCENDANT (an argv-
+# inheriting subshell) survived a single-pid exclusion and the gate refused
+# itself. These two use a REAL pid (a cheap `sleep`, never a browser process, so
+# they are safe by default on a shared Mac) fed through the seam's command line,
+# and drive `self` to the ancestor vs. an unrelated sibling.
+sleep 30 & kid=$!
+printf '#!/bin/sh\nprintf "%%s bash tools/browser-checks.sh\\n" "%s"\n' "$kid" > "$T/probe-kid"; chmod +x "$T/probe-kid"
+out="$(KOSMOS_BC_PROBE="$T/probe-kid" KOSMOS_BC_SELF_PID=$$ kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
+kill "$kid" 2>/dev/null; wait "$kid" 2>/dev/null
+if [ "$rc" -eq 0 ]; then pass "excludes a candidate that is the caller's own DESCENDANT (#1391)"; else fail "#1391 descendant not excluded (rc=$rc): $out"; fi
+
+sleep 30 & kid=$!; sleep 30 & unrel=$!
+printf '#!/bin/sh\nprintf "%%s bash tools/browser-checks.sh\\n" "%s"\n' "$kid" > "$T/probe-kid2"; chmod +x "$T/probe-kid2"
+out="$(KOSMOS_BC_PROBE="$T/probe-kid2" KOSMOS_BC_SELF_PID=$unrel kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
+kill "$kid" "$unrel" 2>/dev/null; wait "$kid" "$unrel" 2>/dev/null
+if [ "$rc" -eq 1 ]; then pass "a candidate OUTSIDE the caller's subtree still refuses (#1391 mirror)"; else fail "#1391 mirror: out-of-subtree not refused (rc=$rc): $out"; fi
+
 # ⚠️ THE REAL pgrep PATH, NOT ONLY THE SEAM. Every check above drives the probe
 # seam, so all of them would still pass if the real pgrep expression matched
 # nothing at all. A decoy process with the true command line proves the shipped
@@ -54,8 +72,8 @@ printf '#!/bin/bash\nsleep 30\n' > "$T/tools/browser-checks.sh"; chmod +x "$T/to
 # control would pass for a reason nobody checked. So count before and after:
 # the decoy must add exactly one, whatever else is running.
 live_count() {
-  local o
-  o="$(KOSMOS_BC_SELF_PID=$$ kosmos_refuse_if_browser_run_live "count" 2>&1)"
+  local o self="${1:-$$}"
+  o="$(KOSMOS_BC_SELF_PID="$self" kosmos_refuse_if_browser_run_live "count" 2>&1)"
   case "$o" in *" live; first: "*) echo "$o" | sed -n 's/.*Mac (\([0-9]*\) live;.*/\1/p';; *) echo 0;; esac
 }
 # 🛑 OPT-IN, AND THE REASON IS NOT TIDINESS. This decoy is a literal
@@ -79,18 +97,29 @@ if [ "${KOSMOS_BC_REALPATH:-0}" != 1 ]; then
   if [ "$fails" -eq 0 ]; then echo "all clear (real-path control SKIPPED)"; else echo "$fails FAILURES"; fi
   exit $([ "$fails" -eq 0 ] && echo 0 || echo 1)
 fi
-before="$(live_count)"
+# ⚠️ MEASURED AS A DELTA so a colleague's real page layer on this shared Mac
+# cancels out. The decoy is a real `bash tools/browser-checks.sh`; counted from
+# an UNRELATED caller it adds exactly one, and from its OWN ancestor (#1391) it
+# adds zero -- so theirs - mine == 1 proves BOTH that the shipped pgrep sees it
+# AND that the subtree exclusion drops it for its own run.
 ( cd "$T" && bash tools/browser-checks.sh ) & decoy=$!
+sleep 30 & unrel=$!
 sleep 1
-after="$(live_count)"
-out="$(KOSMOS_BC_SELF_PID=$$ kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
+mine="$(live_count $$)"        # the decoy is OUR descendant -> excluded
+theirs="$(live_count $unrel)"  # the decoy is unrelated to $unrel -> counted
+out="$(KOSMOS_BC_SELF_PID=$unrel kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
 # Kill by PID. Never `pkill -f browser-checks.sh` -- that matches every agent's
 # real run on this shared Mac, across account dirs.
-kill "$decoy" 2>/dev/null; wait "$decoy" 2>/dev/null
-if [ "$rc" -eq 1 ] && [ "$after" -eq $((before + 1)) ]; then
-  pass "the SHIPPED pgrep expression sees a real browser-checks process (live went $before -> $after)"
+kill "$decoy" "$unrel" 2>/dev/null; wait "$decoy" "$unrel" 2>/dev/null
+if [ "$theirs" -eq $((mine + 1)) ]; then
+  pass "the SHIPPED pgrep sees a real page layer AND the subtree exclusion drops it for its own run (mine=$mine theirs=$theirs)"
 else
-  fail "real pgrep path: expected $((before + 1)) live, saw $after (rc=$rc)"
+  fail "real pgrep/#1391 delta: expected theirs=mine+1, got mine=$mine theirs=$theirs"
+fi
+if [ "$rc" -eq 1 ] && has "$out" "browser-checks.sh"; then
+  pass "and an out-of-subtree real page layer refuses and is named"
+else
+  fail "out-of-subtree real run not refused (rc=$rc): $out"
 fi
 
 echo
