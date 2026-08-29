@@ -193,11 +193,21 @@ a different problem.
    The future bound was undocumented here while being equally overridable, which
    is the worst combination: reachable and unmentioned.
 
-   📌 **How binding is the ceiling in practice? Measured from the cut log:** 87
-   cuts have reached step 7 or beyond, with durations from 12.5 to 19.2 minutes
-   and **none over 20**. So the `D <= 35` wall is real and has never been hit.
-   It is documented because it is a property this change introduced, not because
-   it is a live problem.
+   📌 **How binding is the ceiling in practice? NO RECORDED CUT HAS EVER TAKEN
+   MORE THAN TWENTY MINUTES to reach step 7.** So the `D <= 35` wall is real and
+   has never been hit. It is documented because it is a property this change
+   introduced, not because it is a live problem.
+
+   ⚠️ **A COUNT USED TO SIT HERE AND IT IS DELIBERATELY GONE.** It read "87 cuts
+   ... 12.5 to 19.2 minutes". Three separate passes over
+   `~/.claude/logs/cut-suite-runs.log` produced **87, 82 and 73** for the same
+   question, because the log has to be paired started-to-completed, some
+   completions carry early step labels, and a few rows are sub-minute aborts.
+   **I published the 87 and it did not reproduce even for me.**
+
+   ⇒ The maximum is robust and every pass agreed on it; the population was
+   decoration and I kept getting it wrong BECAUSE it was decoration. Re-derive a
+   count yourself if you need one, and state your pairing rule when you do.
 
    📌 **Where fifteen comes from.** Measured on the 0.6.06 attempt of 2026-08-28:
    launch 21:56:18, step 7 at 22:12:04, so **15m 46s**, and a slow browser gate
