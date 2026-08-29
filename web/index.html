@@ -21974,6 +21974,11 @@ async function paintAccountPicker(a) {
   const sel = document.getElementById('d-account');
   const go = document.getElementById('d-account-go');
   const msg = document.getElementById('d-account-msg');
+  /* ⚠️ THIS EARLY RETURN ALSO SKIPS THE SWITCH PICKER'S REFILL AT THE TAIL, which couples a
+     #1373 control to the MOVE picker's elements existing. Unintended and left alone rather
+     than restructured: the switch picker's PRIMARY refill is the #d-provider change
+     listener, which is unaffected, so the feature degrades rather than dies. Named so the
+     coupling is known rather than rediscovered. */
   if (!sel || !go) return;
   /* 🛑 `ACCOUNTS_UNREADABLE` HAS TO BE A RE-FETCH TRIGGER, NOT JUST A FLAG. A failed read
      deliberately does not shrink the list, so the cache can be NON-EMPTY and known-stale at
@@ -22149,6 +22154,12 @@ async function moveAccountNow(say) {
        refreshing the list here silently deleted the outcome written four lines above. The
        catch below already states the rule ("the move's own sentence is the answer; a failed
        refresh must not replace it") and the SUCCESS path was the one breaking it. */
+    /* 📌 THIS REPAINT ALSO CLEARS `SWITCH_ACCT_TOUCHED`, via fillSwitchAccounts, so a person
+       who staged an OpenAI sign-in pick and then performed a Move in the same panel loses
+       the pick CLAIM. Deliberately left: the visible row still travels, so there is no
+       wrong-account risk, and the flag degrades toward claiming LESS than is true, which is
+       the conservative direction. Recorded here because the coupling is invisible from
+       either end. */
     const saidAfterMove = msg ? msg.textContent : '';
     accountsDropped();   // the move can change nothing about the list, but a stale one outlives a connect
     /* 🛑 AND REFILL IT, BECAUSE `tick()` DOES NOT. `openDetail` is gated on `!CURRENT`, so
@@ -22498,7 +22509,13 @@ function fillSwitchAccounts() {
        its row, and the dialog still promises it, so a screen-reader user got a promise
        about a control they were never told about. It gets a sentence that is true of one
        row instead. */
-    if (pmsg && !pmsg.textContent) {
+    /* ⚠️ OURS MAY BE REPLACED, SOMEBODY ELSE'S MAY NOT. Gating purely on the region being
+       EMPTY meant that when it already held one of our own earlier sentences (a refusal,
+       say) the picker could appear with no announcement at all, which is the one signal a
+       screen-reader user gets that a new control exists. Reachable on the failed-switch,
+       drop-cache, refetch-succeeds path. Replacing a sentence we wrote is safe; replacing
+       one we did not is the thing the never-overwrite rule exists to prevent. */
+    if (pmsg && (!pmsg.textContent || pmsg.textContent === SWITCH_ACCT_SAID)) {
       /* ⚠️ SAME NORMALISATIONS THE SPOKEN SENTENCE GETS, because this line IS a spoken
          sentence and its only audience is a screen reader. `switchAcctShown` refuses a
          label that is a raw filesystem path and strips the menu-only "(could not check
@@ -22719,6 +22736,10 @@ async function changeProviderNow(say) {
        today this is saved only by the truthiness test below, which is the accidental
        safety that comment rejects. */
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
+    /* The route's own sentence has replaced whatever we last wrote, so the tracker no
+       longer describes the region. A tracker that outlives what it tracks is the drift it
+       was introduced to prevent. */
+    SWITCH_ACCT_SAID = '';
     if (ACCOUNTS_UNREADABLE && msg && msg.textContent && msg.textContent.indexOf(SWITCH_ACCT_UNREADABLE) === -1) {
       msg.textContent = msg.textContent + ' ' + SWITCH_ACCT_UNREADABLE;
     }

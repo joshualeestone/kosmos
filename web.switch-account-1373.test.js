@@ -122,7 +122,12 @@ test('#1373: a preselected option is NOT reported as a choice', () => {
      string only this file contains proves we are reading the one we think we are. */
   assert.match(PAGE, /id="d-provider-account"/,
     'the page was not read, or is not the page, so the absence claim below would pass by examining nothing');
-  assert.doesNotMatch(PAGE, /account:[^\n]*SWITCH_ACCT_TOUCHED/,
+  /* Bounded for the same reason: an absence claim over 26k lines can be reddened by any
+     future line that happens to pair, with a message pointing at this card. */
+  const sendAt = PAGE.indexOf('async function changeProviderNow(');
+  const sendBlock = PAGE.slice(sendAt, PAGE.indexOf('\n}', sendAt));
+  assert.match(sendBlock, /account:/, 'the send block no longer builds an account field, so the absence claim below is about nothing');
+  assert.doesNotMatch(sendBlock, /account:[^\n]*SWITCH_ACCT_TOUCHED/,
     'the account field consults the pick flag, which re-merges the two fields and brings back the wrong-account bug');
   assert.match(PAGE, /picked:[\s\S]{0,80}?!acctSel\.hidden[\s\S]{0,60}?SWITCH_ACCT_TOUCHED/,
     'the pick claim no longer consults the touched flag, so a preselect can be reported as a choice');
@@ -309,8 +314,19 @@ test('#1373: the four fail-quiet fixes are pinned, because each one reverts gree
      gets nothing. */
   assert.match(PAGE, /id="d-provider-go"/,
     'the page was not read, or is not the page, so the absence claim below would pass by examining nothing');
-  assert.doesNotMatch(PAGE, /\} finally \{[\s\S]{0,400}?go\.disabled = true;/,
-    'the finally block hard-disables Switch again, so after a refusal the named remedy cannot be carried out');
+  /* 🛑 BOUND TO THE FUNCTION THIS IS ABOUT, NOT THE WHOLE PAGE. Measured: the page holds 31
+     `} finally {` blocks and 17 `go.disabled = true` sites, and an UNRELATED pairing already
+     matches at a window of 2000. A page-wide absence claim with a 400 window is therefore
+     safe only by ~1600 characters of luck, and it fails by reddening somebody else's
+     unrelated `finally` with a message about #1373's refusal remedy: a stranger sent to the
+     wrong file by a confident sentence. The siblings in this file already anchor-and-slice;
+     these two did not. */
+  const cpnAt = PAGE.indexOf('async function changeProviderNow(');
+  assert.ok(cpnAt > 0, 'changeProviderNow is gone, so the two absence claims below are about nothing');
+  const cpn = PAGE.slice(cpnAt, PAGE.indexOf('\n}', cpnAt));
+  assert.ok(cpn.length > 1500, 'the changeProviderNow slice is far shorter than the function, so it is reading a fragment');
+  assert.doesNotMatch(cpn, /\} finally \{[\s\S]{0,400}?go\.disabled = true;/,
+    'changeProviderNow hard-disables Switch again in its finally, so after a refusal the named remedy cannot be carried out');
   assert.match(PAGE, /go\.disabled = !sel\.value \|\| !CURRENT \|\| sel\.value === providerOf\(CURRENT\)/,
     'the re-arm no longer derives from the same expression the change listeners use, so it can disagree with them');
 });
