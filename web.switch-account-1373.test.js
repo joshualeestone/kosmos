@@ -186,7 +186,7 @@ test('#1373: the page-to-route key is pinned on BOTH sides, so a rename cannot p
 test('#1373: the four fail-quiet fixes are pinned, because each one reverts green', () => {
   /* 1. A FAILED READ IS NOT AN EMPTY LIST. Collapsing this back to
      `res.ok ? res.json() : null` makes a 500 arrive as "you have no accounts". */
-  assert.match(PAGE, /ACCOUNTS_UNREADABLE = !res\.ok/,
+  assert.match(PAGE, /if \(got && got\.ok\) accountsRead\(got\.accounts\); else accountsUnreadable\(\);/,
     'the accounts fetch no longer records that it FAILED, so a server error is indistinguishable from having no accounts');
   /* 2. AND THE FLAG HAS TO BE READ, NOT JUST WRITTEN. Setting it and never consulting
      it is the same silence with extra steps. */
@@ -199,7 +199,7 @@ test('#1373: the four fail-quiet fixes are pinned, because each one reverts gree
      iteration 16 inserted `ACCOUNTS_LOADED = false` between them. The guard was RIGHT to
      fire, and the spelling was the wrong axis to pin: what matters is that the cache is
      dropped and then refilled, not that the two lines are adjacent. */
-  assert.match(PAGE, /ACCOUNTS = \[\];[\s\S]{0,120}?await paintAccountPicker\(CURRENT\);/,
+  assert.match(PAGE, /accountsDropped\(\);[\s\S]{0,120}?await paintAccountPicker\(CURRENT\);/,
     'a failed switch keeps the stale account list, so the remedy the refusal names re-offers the row that just failed');
   /* 🛑 AND BOTH EMPTYING SITES MUST MARK IT UNREAD, NOT JUST ONE. Iteration 15 fixed the
      move path; iteration 16 found the failed-switch catch dropping the cache while leaving
@@ -207,14 +207,21 @@ test('#1373: the four fail-quiet fixes are pinned, because each one reverts gree
      repaint's own fetch also fails. Counted rather than matched, because a single-site
      assertion is exactly what missed it the first time. */
   const emptied = (PAGE.match(/(?<!let )\bACCOUNTS = \[\];/g) || []).length;
-  /* 📌 1200, MEASURED NOT GUESSED. The move site carries an ~800 character comment between
-     the two lines, so 700 paired only 1 of 2 and read as a real defect. Measured across
-     200/400/700/1000/1500: pairs at 1000 and above. The two sites are thousands of
-     characters apart, so a window this wide cannot cross-pair them. */
-  const paired = (PAGE.match(/(?<!let )\bACCOUNTS = \[\];[\s\S]{0,1200}?ACCOUNTS_LOADED = false;/g) || []).length;
+  /* 🛑 THE INVARIANT, NOT THE SITES. This used to count per-site pairings, and three
+     review passes each found a DIFFERENT site out of step: one emptied and left LOADED
+     true, one filled and left UNREADABLE true, one failed and left LOADED true. Counting
+     pairs could only ever catch the shape it was told to look for.
+     ⇒ Now assert the property that makes all three impossible: the three state variables
+     are written ONLY inside the three named transitions, so no site can update one
+     without the others. 9 = three transitions, three variables each. */
+  const bare = (PAGE.match(/^\s*(?:ACCOUNTS|ACCOUNTS_LOADED|ACCOUNTS_UNREADABLE) = /gm) || []).length;
   assert.ok(emptied >= 2, 'the sweep found fewer than the two known emptying sites, so it is not reading what it thinks it is');
-  assert.equal(paired, emptied,
-    'a site empties the account cache without marking it unread, so a stale ACCOUNTS_LOADED lets the zero-account sentence fire on an intact server list');
+  assert.equal(bare, 9,
+    'something writes the account cache or its flags outside accountsRead/accountsUnreadable/accountsDropped, which is how a site keeps ending up with one flag out of step');
+  for (const fn of ['accountsRead', 'accountsUnreadable', 'accountsDropped']) {
+    assert.match(PAGE, new RegExp('function ' + fn + '\\([\\s\\S]{0,260}?ACCOUNTS_LOADED[\\s\\S]{0,140}?ACCOUNTS_UNREADABLE'),
+      fn + ' no longer sets both flags, so it can leave the cache in a state no site intended');
+  }
   /* 4. AND THE BUTTON HAS TO COME BACK. Hard-coding `true` here means a person who does
      exactly what the message says picks the highlighted row, fires no `change`, and
      gets nothing. */
@@ -236,9 +243,9 @@ test('#1373: the four fail-quiet fixes are pinned, because each one reverts gree
 test('#1373: the zero-account claim requires a list we actually read, and the move refills it', () => {
   assert.match(PAGE, /ACCOUNTS_LOADED && !ACCOUNTS\.some\(\(x\) => x\.provider === 'openai'\)/,
     'the zero-account sentence fires off a bare empty cache, so an emptied-but-unrefilled list claims this computer has no OpenAI sign-in');
-  assert.match(PAGE, /ACCOUNTS = await ACCT_PICKER_FETCH;\s*if \(!ACCOUNTS_UNREADABLE\) ACCOUNTS_LOADED = true;/,
+  assert.match(PAGE, /function accountsRead\(list\)[\s\S]{0,220}?ACCOUNTS_LOADED = true;[\s\S]{0,120}?ACCOUNTS_UNREADABLE = false;/,
     'a successful read no longer marks the list authoritative, so the zero-account arm can never fire');
-  assert.match(PAGE, /ACCOUNTS = \[\];[\s\S]{0,700}?ACCOUNTS_LOADED = false;[\s\S]{0,200}?await paintAccountPicker\(CURRENT\);/,
+  assert.match(PAGE, /accountsDropped\(\);[\s\S]{0,900}?await paintAccountPicker\(CURRENT\);/,
     'the move empties the account cache without marking it unread and refilling it, so the switch picker silently vanishes for the life of the open panel');
 });
 

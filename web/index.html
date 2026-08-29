@@ -13184,10 +13184,12 @@ async function paintAccounts() {
     if (msg) msg.textContent = '';
     // ⚠️ Never "one account": a failed read must not shrink the list.
     box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">We could not read the accounts on this computer.</p>';
+    /* This branch used to leave the flags untouched, so a failure here could not be told
+       apart from never having asked, and a stale LOADED from an earlier read outlived it. */
+    accountsUnreadable();
     return;
   }
-  ACCOUNTS = list;
-  ACCOUNTS_LOADED = true;
+  accountsRead(list);
   if (msg) msg.textContent = '';
   /* 🔑 GROUPED BY PROVIDER (kosmos#1393). Josh, twice on 2026-08-28: the Claude
      Max 20x line "is still not in that bounding box that it's supposed to be in,
@@ -21929,6 +21931,35 @@ let ACCOUNTS_UNREADABLE = false;
    arm shipped reading the cache directly and would have told a person the switch was going
    to stop while the server list was untouched and the switch went ahead. */
 let ACCOUNTS_LOADED = false;
+/* 🛑 THREE NAMED TRANSITIONS, AND NOTHING ELSE MAY WRITE THESE THREE VARIABLES.
+   The account cache is really ONE fact in three states, and it was being kept as three
+   independent assignments across five call sites. Three consecutive review passes each
+   found a DIFFERENT site updating one and not the others:
+     a site emptied the list and left LOADED true      -> a false "add a sign-in first"
+     a filling site set LOADED and left UNREADABLE true -> a fault claim over a good read
+     a failing site set UNREADABLE and left LOADED true -> the same false sentence again
+   ⭐ Each was fixed individually and the next pass found the next one, which is the signal
+   that the shape was wrong rather than that three people were careless. A site cannot now
+   update one without the others, because there is no longer a way to write just one.
+   ⇒ The three states are DISTINCT and the middle one is the one that kept being lost:
+     read        we asked and got an answer. Only this licenses a claim about what exists.
+     unreadable  we asked and failed. An empty list here is OUR fault, not the person's.
+     dropped     we threw it away on purpose and have not re-asked yet. Claim nothing. */
+function accountsRead(list) {
+  ACCOUNTS = Array.isArray(list) ? list : [];
+  ACCOUNTS_LOADED = true;
+  ACCOUNTS_UNREADABLE = false;
+}
+function accountsUnreadable() {
+  ACCOUNTS = [];
+  ACCOUNTS_LOADED = false;
+  ACCOUNTS_UNREADABLE = true;
+}
+function accountsDropped() {
+  ACCOUNTS = [];
+  ACCOUNTS_LOADED = false;
+  ACCOUNTS_UNREADABLE = false;
+}
 let ACCT_PICKER_FETCH = null; // #881: the one in-flight GET /api/accounts, so a second caller shares it
 async function paintAccountPicker(a) {
   const sel = document.getElementById('d-account');
@@ -21957,14 +21988,19 @@ async function paintAccountPicker(a) {
     if (msg) msg.textContent = 'Checking…';
     try {
       if (!ACCT_PICKER_FETCH) {
+        /* Resolves to a VERDICT, not a list, so the caller applies one transition. The
+           previous shape set a flag inside `.then` and the list after the await, which is
+           two writes a concurrent caller could interleave. */
         ACCT_PICKER_FETCH = fetch('/api/accounts', { cache: 'no-store' })
-          .then((res) => { ACCOUNTS_UNREADABLE = !res.ok; return res.ok ? res.json() : null; })
-          .then((body) => (body || {}).accounts || [])
+          .then((res) => (res.ok
+            ? res.json().then((body) => ({ ok: true, accounts: (body || {}).accounts || [] }))
+            : { ok: false, accounts: [] }))
+          .catch(() => ({ ok: false, accounts: [] }))
           .finally(() => { ACCT_PICKER_FETCH = null; });
       }
-      ACCOUNTS = await ACCT_PICKER_FETCH;
-      if (!ACCOUNTS_UNREADABLE) ACCOUNTS_LOADED = true;
-    } catch { ACCOUNTS_UNREADABLE = true; /* the control stays empty and disabled, which is honest */ }
+      const got = await ACCT_PICKER_FETCH;
+      if (got && got.ok) accountsRead(got.accounts); else accountsUnreadable();
+    } catch { accountsUnreadable(); /* the control stays empty and disabled, which is honest */ }
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     if (msg) msg.textContent = '';
   }
@@ -22080,7 +22116,7 @@ async function moveAccountNow(say) {
     msg.textContent = out.because || 'Moved.';
     if (say) say(out.because || 'Moved.', true);
     sel.value = '';
-    ACCOUNTS = [];   // the move can change nothing about the list, but a stale one outlives a connect
+    accountsDropped();   // the move can change nothing about the list, but a stale one outlives a connect
     /* 🛑 AND REFILL IT, BECAUSE `tick()` DOES NOT. `openDetail` is gated on `!CURRENT`, so
        with this panel open the poll repaints the cards and never the panel, and nothing
        else on this path calls `fillSwitchAccounts` or `paintAccountPicker`. The cache
@@ -22090,7 +22126,6 @@ async function moveAccountNow(say) {
        switch below, which now genuinely is the same remedy: iteration 16 found this comment
        asserting a symmetry that only half existed, because that site cleared the cache and
        not the flag. */
-    ACCOUNTS_LOADED = false;
     try { await paintAccountPicker(CURRENT); }
     catch { /* the move's own sentence is the answer; a failed refresh must not replace it */ }
     await tick();
@@ -22567,8 +22602,7 @@ async function changeProviderNow(say) {
        at a person whose server-side list is perfectly intact. Found in challenge-loop
        iteration 16: the iteration-15 defect arriving through the sibling path, in the
        half of the remedy that was not copied across. */
-    ACCOUNTS = [];
-    ACCOUNTS_LOADED = false;
+    accountsDropped();
     try { await paintAccountPicker(CURRENT); }
     catch { /* the sentence above is the answer; a failed refresh must not replace it */ }
   } finally {
