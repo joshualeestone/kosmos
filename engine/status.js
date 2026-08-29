@@ -19,6 +19,7 @@ const os = require('node:os');
 const path = require('node:path');
 const store = require('./store');
 const selfreport = require('./selfreport');
+const wouldping = require('./wouldping');
 /* The two halves the pane used to supply on its own: the token store says
    WHICH agent, the liveness record says it is STILL RUNNING. Neither module
    requires this one, so there is no cycle. */
@@ -3911,6 +3912,22 @@ function snapshot() {
     const status = reconcileReport(
       isNamedOurs(pane) ? selfreport.read(pane.name) : { found: false },
       scrapedStatus, Date.now());
+    /* 🔑 WHAT A PING WOULD HAVE BEEN, AND NOBODY IS PINGED (#1494). The phone
+       seam's automatic trigger cannot fire for a Kosmos agent: it hangs off
+       `PermissionRequest` and every supervisor launch path passes
+       `--dangerously-skip-permissions`. So the board's red state reaches nobody's
+       phone, and whether it SHOULD is a product decision that cannot be made
+       without knowing how often it would happen.
+       ⇒ This writes that number and sends nothing. No endpoint, no receiver, no
+       switch, and it cannot wake anybody.
+       ⚠️ `reported` is passed so an already-covered event is not counted: a
+       REPORTED needs_you does reach the seam today, and logging it here would
+       inflate the very number this exists to measure. */
+    wouldping.saw(pane.name, status.state, {
+      reported: status.reported === true,
+      confidence: status.confidence,
+      because: status.because,
+    });
     // ⚠️ Identity, model and context are all filed under the NAME, and only a
     // pane whose SESSION NAME says it is ours has been tied to that name.
     //
