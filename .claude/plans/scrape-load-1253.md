@@ -54,7 +54,7 @@ points at it and tells the reader not to trust its own numbers.
    - asserts its conclusion against its own numbers, and prints the OPPOSITE
      conclusion when agents have started reporting the state themselves
 
-2. `tools/test-needs-you-source.sh`, 22 named arms and 58 passing assertions.
+2. `tools/test-needs-you-source.sh`, 23 named arms and 62 passing assertions.
    **Arm 3 is the load-bearing one:** the tool must be able to print the
    uncomfortable answer. A measuring tool that can only ever return
    "load-bearing on the scrape" is decoration on that sentence, not evidence
@@ -419,6 +419,29 @@ completeness, carries no information about the case that is actually missing.
   `~/work/workers/[star]/CLAUDE.md` inside `/* … */` ends the comment at the
   `[star]/`. One command later, not in review.
 
+### Amended at iteration 12
+
+- 🛑 **FIFTH RECURRENCE, AND THIS PLAN CLAIMED THE OPPOSITE.** Iteration 11
+  corrected `selfreport.js`'s "the measurement lives at rule 3, ONE copy", and
+  this plan recorded "all three are now named where a reader will meet them".
+  The identical sentence was still standing in **two** other places -
+  `engine/notify.js` and the tool header - so a reader meeting the claim there
+  was told the opposite. Both corrected.
+- 🛑 **A citation added at iteration 10 to make a reference resolve now
+  misdirects.** It says the version log "does not name" #1255 and #1292.
+  `defaults.js` names #1255 in its version-6 entry; only #1292 is absent.
+- ✅ **The impossible-state control covered one string, not the class.** Any
+  other unrecognised state was counted into `records` - the share DENOMINATOR,
+  so it inflated it in the flattering direction - and was PRINTED VERBATIM in
+  BY STATE, a second channel for agent-authored text the header's own caveat
+  did not name. Every state is now checked against `selfreport.STATES`,
+  matching what `selfreport.js`'s reader already does; the refusal names the
+  FILE and never echoes the value. Arm 4b covers the class, and all four of its
+  assertions go red under perturbation.
+- **This plan's weakest-premise section carried a stale present-tense count**
+  contradicted by its own iteration-9 entry 110 lines above. No figure there
+  now.
+
 ## What this deliberately does NOT do
 
 - **No behaviour change.** Comments, one read-only tool, one test, one line of
@@ -453,9 +476,11 @@ the same sentence and endorsed it.
 🛑 **AND THE BOUND I ADDED TO DEFEND THAT CAVEAT WAS ITSELF THE FLATTERING
 DIRECTION.** I wrote that the conclusion "survives its own worst case" because
 granting every hook record to the agents stays under the share cutoff. **The
-verdict has TWO cutoffs and I checked the one that let it pass.** Those seven
-records are spread across six agents, so the worst case breaks the
-distinct-agent clause. Measured by building that exact fixture and running the
+verdict has TWO cutoffs and I checked the one that let it pass.** The
+hook-classified records are spread across many agents rather than one, so the
+worst case breaks the distinct-agent clause. (No figure pinned: it was written
+as "seven records across six agents" and was eight across seven within two
+hours. The tool prints both live.) Measured by building that exact fixture and running the
 tool: it prints `observed: 0.0307% and 6 agent(s)` and then the OPPOSITE
 verdict. Found by challenge-loop iteration 3, reproduced by me.
 

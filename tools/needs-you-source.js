@@ -129,8 +129,10 @@ const HOOK_SOURCE = process.env.KOSMOS_HOOK_SOURCE || path.join(REPO, 'install',
    nearly every agent-typed record on this machine is theirs, and one more
    walkthrough at the same volume would otherwise print "agents ARE reporting
    this state themselves" on the strength of test traffic. No count here on
-   purpose: the numbers live in `status.js` rule 3, once, beside the
-   instruction not to trust them. */
+   purpose: the numbers live in `status.js` rule 3, which is the copy to PREFER
+   because it carries a snapshot clock time. ⚠️ Not the only copy -- rule 3
+   names the others, and an earlier version of this sentence said "once", which
+   was the very defect it describes, occurring in a third place. */
 const FIXTURE_PREFIX = 'walk-';
 /* ⚠️ AND THIS PREFIX IS NARROWER THAN THE CLASS IT NAMES, WHICH IS A REAL
    LIMIT AND NOT A HYPOTHETICAL. The live record already holds synthetic agents
@@ -219,10 +221,11 @@ function readRecord(dir) {
     const why = (err && err.code === 'ENOENT')
       ? 'there is no self-report record at'
       : 'the self-report record could not be read (' + ((err && err.code) || 'unknown error') + ') at';
-    return { ok: false, why, dir, files: [], rows: [], unparseable: 0, unreadableFiles: [] };
+    return { ok: false, why, dir, files: [], rows: [], unparseable: 0, unreadableFiles: [], unknownState: [] };
   }
   const rows = [];
   let unparseable = 0;
+  const unknownState = [];
   /* ⚠️ AN UNREADABLE FILE USED TO BE SKIPPED WITH NO COUNTER while an
      unreadable LINE was counted and surfaced. An EACCES on one agent's file
      would then remove that agent's records -- its reds included -- from every
@@ -239,6 +242,14 @@ function readRecord(dir) {
          not one either. Both used to land in the totals as `state: ''`, which
          inflates the share DENOMINATOR -- again the flattering direction. */
       if (!o || typeof o !== 'object' || Array.isArray(o) || typeof o.state !== 'string' || !o.state.trim()) { unparseable++; continue; }
+      /* 🛑 AND A STATE THAT IS NOT ONE OF `selfreport.STATES` IS NOT A REPORT
+         EITHER. It used to be counted: it inflated `total`, which is the share
+         DENOMINATOR (the flattering direction again), and it was PRINTED
+         VERBATIM in BY STATE, a second channel for agent-authored text that
+         the header's caveat did not name. `selfreport.js`'s own reader skips
+         unknown states; this one now agrees with it. Counted rather than
+         silently dropped, and the value is never echoed. */
+      if (!selfreport.STATES.includes(o.state)) { unknownState.push(f); continue; }
       rows.push({
         agent: f.replace(/\.jsonl$/, ''),
         state: String(o.state || ''),
@@ -250,7 +261,7 @@ function readRecord(dir) {
       });
     }
   }
-  return { ok: true, why: null, dir, files, rows, unparseable, unreadableFiles };
+  return { ok: true, why: null, dir, files, rows, unparseable, unreadableFiles, unknownState };
 }
 
 /* Provenance, strongest evidence first. `by` is the record's own word (#1457);
@@ -343,11 +354,15 @@ function main() {
      cannot be trusted, so nothing is printed. Test arm 4 asserted the number
      MOVES and never asserted a consequence, which is why the gap was
      invisible to the suite. */
-  const impossible = s.byState.get(IMPOSSIBLE) || 0;
-  if (impossible > 0) {
-    console.error('🛑 CONTROL VIOLATED: ' + impossible + ' record(s) carry the state "' + IMPOSSIBLE + '",');
-    console.error('   which `selfreport.js` cannot write and its reader skips. This tool is counting');
-    console.error('   something other than what it says it is, so nothing is printed.');
+  if (data.unknownState.length) {
+    /* The value is NOT echoed: a state string is agent-authored text, and this
+       tool's posture is that such text does not reach its output. The FILE is
+       named instead, which is what a person needs in order to go and look. */
+    const where = [...new Set(data.unknownState)].sort().join(', ');
+    console.error('🛑 CONTROL VIOLATED: ' + data.unknownState.length + ' record(s) carry a state that is');
+    console.error('   not one of `selfreport.STATES` -- which its writer cannot produce and its reader');
+    console.error('   skips. This tool would be counting something other than what it says it is, so');
+    console.error('   nothing is printed. Look in: ' + where);
     process.exitCode = 1;
     return;
   }

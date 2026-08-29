@@ -3668,6 +3668,11 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *          0 of 17 carry the Kosmos doctrine BLOCK at all (`kosmos:doctrine:`)
  *         17 of 17 match a common word    <- control, so the grep sees them
  *      ✅ AND AT 20:49 THE SAME EVENING A NEWLY CREATED AGENT CARRIED THE VERB.
+ *      (That agent, `pete1456pre`, was REMOVED at 20:57. Its instruction file
+ *      survives, because a Kosmos removal is reversible by design and deletes
+ *      nothing -- `bootout` plus `disable`, per `engine/remove.js`. So the
+ *      READING stands and the loop below will keep counting that file: a
+ *      worker directory is not proof of a live agent.)
  *      That is the other half of the story and it arrived after the snapshot:
  *      #1296's fix DOES reach an agent created after it, so the zero above is
  *      about PRE-EXISTING agents holding an unaccepted offer, not about a fix
@@ -3688,7 +3693,8 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      does not, and it is the one carrying these verbs.
  *      ⚠️ THE HEADING-PLACEMENT STORY IS REAL AND EXPLAINS ONLY TWO FILES.
  *      `defaults.js`'s version log records its versions 4 and 5 (the cards, #1253
- *      and #1272; the PRs are #1255 and #1292, which the log does not name) as
+ *      and #1272; the PRs are #1255 and #1292 -- the log names #1255 later on,
+ *      in its own version-6 entry, and never names #1292) as
  *      both editing
  *      verb lines inside `### Telling people what is happening`, which
  *      `missingFrom` will not re-offer to a file that already has that

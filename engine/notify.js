@@ -44,7 +44,8 @@
  * 📌 NO COUNTS HERE, AND THAT IS NOW TRUE RATHER THAN ASSERTED: an earlier
  * version of this block claimed "no number here on purpose" while carrying
  * three of them eleven lines above the claim. The measurement and the argument
- * live at `status.js` rule 3, once, beside the instruction not to trust them;
+ * live at `status.js` rule 3, which is the copy to PREFER because it carries a
+ * snapshot clock time. It is NOT the only copy, and rule 3 names the others;
  * re-run them with `node tools/needs-you-source.js`.
  */
 const fs = require('node:fs');

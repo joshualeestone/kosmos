@@ -128,6 +128,29 @@ has "$out" 0 "a state no writer can produce" \
 [ "$rc" -eq 0 ] && ok "arm 4: and a clean record still answers, so the refusal is not blanket" \
   || bad "arm 4: refused on a clean record, exit $rc"
 
+# --- 🔑 ARM 4b: THE CONTROL COVERS THE CLASS, NOT ONE STRING. It used to
+#     detect exactly `zzz_no_such_state`; ANY other unrecognised state was
+#     counted into `records` -- which is the share DENOMINATOR, so it inflated
+#     it in the flattering direction -- and was PRINTED VERBATIM in BY STATE,
+#     a second channel for agent-authored text the header did not name.
+mkdir -p "$T/junkstate"
+{ filler 5; printf '{"v":1,"state":"leaked: rm -rf HOME/secrets","because":"y","at":"2026-08-28T00:00:00.000Z"}\n'; } > "$T/junkstate/oz.jsonl"
+out="$(run "$T/junkstate")"; rc=$?
+case "$out" in
+  *"CONTROL VIOLATED"*) ok "arm 4b: an arbitrary unrecognised state trips the control, not just the one string" ;;
+  *) bad "arm 4b: only the hardcoded string is detected; the class is open"; printf '%s\n' "$out" | head -6 ;;
+esac
+[ "$rc" -eq 1 ] && ok "arm 4b: and it refuses" || bad "arm 4b: exited $rc with an unrecognised state present"
+# 🔑 AND THE VALUE MUST NOT BE ECHOED: a state string is agent-authored text.
+case "$out" in
+  *"rm -rf"*) bad "arm 4b: the unrecognised state VALUE was echoed into the output" ;;
+  *) ok "arm 4b: and the offending value is never echoed, only the file naming it" ;;
+esac
+case "$out" in
+  *"oz.jsonl"*) ok "arm 4b: while the FILE is named, which is what a person needs" ;;
+  *) bad "arm 4b: refused without saying where to look" ;;
+esac
+
 # --- ARM 5: a MISSING record is refused, not reported as an answer.
 out="$(run "$T/does-not-exist")"; rc=$?
 case "$out" in
