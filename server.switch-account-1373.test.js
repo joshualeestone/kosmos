@@ -136,7 +136,16 @@ test.before(async () => {
   await start(0);
   base = 'http://127.0.0.1:' + server.address().port;
 });
-test.after(() => { try { server.close(); } catch { /* the port is going away anyway */ } });
+test.after(() => {
+  try { server.close(); } catch { /* the port is going away anyway */ }
+  /* 📌 RESTORED RATHER THAN LEFT SET. `node --test <files>` gives each file its own process
+     today, so nothing else can see these. `server.test.js` nevertheless calls
+     `setRunner(null)` explicitly rather than assuming that isolation, and a file that only
+     works under a process-per-file runner is one runner change away from leaking a fake
+     into somebody else's suite. */
+  create.setRunner(null);
+  require('./engine/remove').setRunner(null);
+});
 
 async function switchTo(name, body) {
   const res = await fetch(base + '/api/agent/' + encodeURIComponent(name) + '/provider', {

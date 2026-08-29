@@ -22105,15 +22105,7 @@ async function paintAccountPicker(a) {
      intent was right and the delivery was not: nobody has devtools open, so "not silent"
      was true of a place with no audience. A throw here means the picker did not render, and
      the honest thing is to say so beside the control that is missing. */
-  try {
-    fillSwitchAccounts();
-  } catch {
-    const pmsgX = document.getElementById('d-provider-msg');
-    if (pmsgX && !pmsgX.textContent) {
-      pmsgX.textContent = 'We could not show the OpenAI sign-in list just now.';
-      SWITCH_ACCT_SAID = pmsgX.textContent;
-    }
-  }
+  fillSwitchAccountsSafely();
 }
 
 document.getElementById('d-account').addEventListener('change', (e) => {
@@ -22343,6 +22335,25 @@ let SWITCH_ACCT_TOUCHED = false;
 /* One spelling, so the line that CLEARS the hint cannot drift from the line that
    writes it and leave an orphan on screen. */
 const SWITCH_ACCT_HINT = 'Choose which OpenAI sign-in it runs on, or leave it as it is.';
+/* 🛑 ONE GUARDED CALL, USED AT BOTH SITES, BECAUSE THE UNGUARDED ONE WAS THE IMPORTANT ONE.
+   A throw in `fillSwitchAccounts` leaves the picker absent, and absent is also the
+   legitimate not-armed state, so it cannot announce itself. That argument was applied to
+   the SECONDARY call (the refill after accounts arrive late) and not to the PRIMARY one:
+   the `#d-provider` change listener, which runs on every switch and is what makes the
+   control appear at all. The feature's own test calls that call site the entire feature.
+   ⇒ Guarding the rare path and leaving the common one bare is the wrong way round, and two
+   spellings of the same recovery is how they drift. */
+function fillSwitchAccountsSafely() {
+  try {
+    fillSwitchAccounts();
+  } catch {
+    const pmsgX = document.getElementById('d-provider-msg');
+    if (pmsgX && !pmsgX.textContent) {
+      pmsgX.textContent = SWITCH_ACCT_BROKEN;
+      SWITCH_ACCT_SAID = SWITCH_ACCT_BROKEN;
+    }
+  }
+}
 /* 🛑 NAMED FOR THE SAME REASON ITS SIBLING IS, AND CLEARED ON THE SAME CONDITION. This
    was added as an inline literal beside the hint-clearing code whose ENTIRE purpose is
    that a sentence about a control must not outlive the control. Two clicks reach it
@@ -22353,6 +22364,7 @@ const SWITCH_ACCT_HINT = 'Choose which OpenAI sign-in it runs on, or leave it as
    be matched without repeating it. */
 const SWITCH_ACCT_UNREADABLE = 'We could not read your OpenAI sign-ins, so there is nothing to choose from. Close this and open it again to retry.';
 const SWITCH_ACCT_STALE = 'This list may be out of date: we could not re-read your OpenAI sign-ins just now.';
+const SWITCH_ACCT_BROKEN = 'We could not show the OpenAI sign-in list just now.';
 /* 🛑 WE CLEAR WHAT WE WROTE, NOT WHAT WE CAN NAME. The clear below used to compare the
    region against each of our constants by equality, which failed twice for the same
    reason: an APPENDED form matched neither, and a sentence naming an account cannot be a
@@ -22452,8 +22464,9 @@ function fillSwitchAccounts() {
      📌 What travels separately is the CLAIM: `picked` stays false unless somebody
      actually chose, so the route says "your OpenAI sign-in" rather than "the one
      you picked". Which account, and who chose it, are two facts. */
+  const hasDefault = list.some((y) => y.isDefault);
   const html = list.map((x, i) => '<option value="' + esc(x.dir) + '"'
-    + ((x.isDefault || (i === 0 && !list.some((y) => y.isDefault))) ? ' selected' : '')
+    + ((x.isDefault || (i === 0 && !hasDefault)) ? ' selected' : '')
     + '>' + labelOf(x) + '</option>').join('');
   /* ⚠️ THE FLAG AND THE VISIBLE SELECTION MUST NOT BE ABLE TO DISAGREE. The guard
      below WOULD preserve the DOM if the option set ever compared equal, and 📌 FOR
@@ -22534,7 +22547,7 @@ function fillSwitchAccounts() {
 document.getElementById('d-provider').addEventListener('change', (e) => {
   const go = document.getElementById('d-provider-go');
   if (go) go.disabled = !e.target.value || !CURRENT || e.target.value === providerOf(CURRENT);
-  fillSwitchAccounts();
+  fillSwitchAccountsSafely();
 });
 /* The ONLY thing that makes a pick a pick.
    ⚠️ Null-checked like its sibling in fillSwitchAccounts: if this id ever moves the
@@ -22697,7 +22710,7 @@ async function changeProviderNow(say) {
        menu, with the touched flag still set. Harmless today (Switch is disabled
        and `want` is empty on a re-press) and still wrong: this feature's own rule
        is that the picker is hidden unless OpenAI is the chosen provider. */
-    fillSwitchAccounts();
+    fillSwitchAccountsSafely();
   } catch (err) {
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     msg.textContent = String((err && err.message) || 'That did not work.');

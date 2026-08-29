@@ -153,7 +153,11 @@ test('#1373: choosing a provider refills the picker, which is what makes it appe
   assert.notEqual(at, -1, 'the provider change listener is gone, so this test measures nothing');
   const end = PAGE.indexOf('\n});', at);
   assert.notEqual(end, -1, 'could not find the end of the provider change listener');
-  assert.match(PAGE.slice(at, end), /fillSwitchAccounts\(\)/,
+  /* 📌 EITHER SPELLING. What must hold is that this site REFILLS the picker, not which of
+     the two entry points does it. `fillSwitchAccountsSafely()` is the same call wrapped in
+     the recovery both sites now share, so pinning the bare name would have gone red on a
+     change that made the guarantee stronger. */
+  assert.match(PAGE.slice(at, end), /fillSwitchAccounts(Safely)?\(\)/,
     'choosing a provider no longer refills the picker, so the control never appears and the feature is inert');
 });
 
@@ -169,7 +173,7 @@ test('#1373: the picker is refilled when the accounts actually arrive', () => {
   const end = PAGE.indexOf('\n}', at);
   assert.notEqual(end, -1, 'could not find the end of paintAccountPicker');
   const body = PAGE.slice(at, end);
-  assert.match(body, /fillSwitchAccounts\(\)/,
+  assert.match(body, /fillSwitchAccounts(Safely)?\(\)/,
     'paintAccountPicker no longer refills the switch picker, so it stays hidden until the provider menu is touched twice');
 });
 

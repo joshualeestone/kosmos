@@ -2969,10 +2969,17 @@ const server = http.createServer((req, res) => {
        per-account check is safe to pay for -- its callers are deliberate,
        person-paced moments, never the 5-second status tick (which still
        calls the plain, fast list() elsewhere in this file, untouched).
-       Two callers today: a Settings > Accounts open, and the first-run
-       wizard's model step entering (frPaintOpenai), which can re-fire on a
-       back/forward pass through the wizard -- still a person walking a
-       screen, not a timer, and the client holds a supersession token so a
+       Callers today, and this list is the JUSTIFICATION for paying listLive()'s
+       per-account check, so it has to stay complete: a Settings > Accounts open;
+       the first-run wizard's model step entering (frPaintOpenai); the agent
+       panel's account picker opening; and, added by #1373, a SUCCESSFUL account
+       move and a FAILED provider switch, both of which drop the page-side cache
+       and repaint so the remedy the refusal names points at a fresh list.
+       ⚠️ Every one of those is a person pressing something. That is the property
+       the cost is justified against, not the count, so a new caller is fine and a
+       new TIMER would not be. The wizard step can re-fire on a back/forward pass
+       -- still a person walking a screen, not a timer, and the client holds a
+       supersession token so a
        slow answer landing late cannot overwrite a newer state.
        ⚠️ HEAD SKIPS THE LIVE CHECK. Nothing in web/index.html sends one
        today, but a HEAD is conventionally cheap/side-effect-light, and
