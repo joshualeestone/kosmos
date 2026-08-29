@@ -174,6 +174,13 @@ kosmos_versions_entry_stamp() {
     # exactly that writing this line.)
     inentry && /<\/article>/ { exit }
   ' "$file" 2>/dev/null
+  # 📌 `2>/dev/null` makes "this article has no rel-d" and "awk itself failed"
+  # produce the same empty result. It fails CLOSED -- empty becomes unparseable
+  # becomes a refusal -- so the direction is safe, but an operator with a broken
+  # awk is told "that is not a date this gate can read". Same objection this file
+  # raises about silencing the diagnostic on an unreadable file, and kept only
+  # because the alternative is noise on every article that legitimately has no
+  # stamp yet. Named so it is a known trade rather than an oversight.
 }
 
 # Prints `unparseable`, or the SIGNED minute offset (positive = the entry is in
@@ -343,6 +350,23 @@ kosmos_versions_entry_gate() {
   # normalising first would turn a refusal into a zero bound and invent a sixth
   # instance. Then compare arithmetically -- `off < -future` is `off + future < 0`
   # -- so there is no negative to spell and nothing derived to leave unchecked.
+  # 🛑 AND `off` GOES THROUGH THE SAME NORMALISER, BECAUSE IT IS THE SEVENTH
+  # INSTANCE OTHERWISE. Both bounds are routed through it precisely so validation
+  # and use cannot disagree; `off` was the one derived value still validated as a
+  # CHARACTER SET and then used in `$(( ))` below. With node stubbed to print
+  # `08`, bash raises "value too great for base", which aborts the enclosing
+  # command list, `|| exit 1` never runs, and the cut proceeds. Identical
+  # mechanism to instance 6, one value over.
+  # ⚠️ Not reachable from today's node snippet, which emits String(Math.round()).
+  # Guarded anyway, for the reason this file already gives about the unreachable
+  # `-*)` arm: the whole point of the block is not trusting the caller.
+  if [ "$off" != "unparseable" ]; then
+    local _sign="" _mag="$off"
+    case "$off" in -*) _sign="-"; _mag="${off#-}" ;; esac
+    _mag="$(kosmos_versions_entry_norm_or_die "the offset" "$_mag" "$cost")" || return 1
+    off="${_sign}${_mag}"
+  fi
+
   if [ "$off" = "unparseable" ]; then
     echo "   the entry for $v is stamped: $stamp"
     echo "   that is not a date this gate can read. It wants the shape: $now"

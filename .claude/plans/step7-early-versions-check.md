@@ -80,8 +80,10 @@ costs one command.
 
 ## Proof before the write
 
-Twenty-six arms in tools/test-versions-entry-gate.sh and twenty in
-tools.release-gate.test.js. Every guard added here has been shown to go red under a deliberate
+The two suites carry substantially more arms than when this plan was first
+written, and I am deliberately not restating a number here: I have had to correct
+an arm count twice already, and a count in a plan file goes stale on the next
+commit while nothing checks it. Run the suites; they print what they ran. Every guard added here has been shown to go red under a deliberate
 mutation, each applied by a method whose precondition is measured before the result is
 read. That claim was FALSE when first written -- it was a universal asserted over a list,
 and a reviewer found a guard not on the list whose default branch no arm reached, so
