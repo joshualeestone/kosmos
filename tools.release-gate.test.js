@@ -530,3 +530,50 @@ test('a clean tree in step with origin gets past the guard', () => {
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(site, { recursive: true, force: true });
 });
+
+// ---------------------------------------------------------------------------
+// #1449: a failed cut must always be able to say WHICH STEP it died in
+// ---------------------------------------------------------------------------
+
+/* 🛑 MEASURED IN THE REAL LOG BEFORE THIS WAS WRITTEN. Of 42 failed cuts,
+   17 record no step at all -- and every one of those 17 is from BEFORE
+   2026-08-27T05:29Z. `ac65aea3` fixed it and 25 consecutive failures since
+   carry a step.
+
+   ⇒ So this guards a fix that already landed, which is the only kind of
+   regression guard worth having: the 17 are unattributable forever, and a
+   silent return would make the next 17 the same.
+
+   ⭐ Why the log's own history is not enough: a streak of 25 is equally
+   consistent with "that failure mode stopped occurring". THREE separate things
+   in the script make the field unconditional, and a regression need only
+   remove one of them. Each is asserted below, so each can fail on its own. */
+
+test('#1449: the cut completion line can never omit its step', () => {
+  const s = fs.readFileSync(REAL, 'utf8');
+
+  /* CONTROL FIRST. Without this the three assertions below would all pass on a
+     file that had been renamed or emptied, and report the cut instrumented. */
+  assert.match(s, /cut_record_done\(\)/,
+    'no cut_record_done in release.sh, so this test is asserting against a file it did not find');
+
+  const line = (s.match(/printf '[^']*completed[^']*'[^\n]*/) || [])[0];
+  assert.ok(line, 'the completion line is gone, so nothing records a cut ending at all');
+
+  // 1. The FORMAT carries the field. Without it there is no step= to parse.
+  assert.match(line, /step=%s/,
+    'the completion line no longer prints a step= field, so every future failure joins the '
+    + '17 that cannot say where they died');
+
+  // 2. The INTERPOLATION defaults. An unset _STEP must render a word, not an
+  //    empty string, or the field is present and says nothing.
+  assert.match(line, /\$\{_STEP:-[^}]+\}/,
+    'the step interpolation lost its default, so an unset _STEP renders step= with nothing '
+    + 'after it -- present in the format and absent in meaning');
+
+  // 3. The VARIABLE starts with a value, so a death BEFORE the first step still
+  //    names one. This is the `before_step_1` class the card asked for.
+  assert.match(s, /^_STEP=["']?\S/m,
+    'the _STEP initialiser is gone, so a cut that dies before step 1 falls back to the '
+    + 'default rather than saying it never started');
+});
