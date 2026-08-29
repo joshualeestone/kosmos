@@ -2939,6 +2939,66 @@ test('an OpenAI agent made on a non-default OpenAI account carries CODEX_HOME, a
   assert.match(no.because, /do not know that OpenAI account/);
 });
 
+test('#1486: a non-canonical account path still names the account it points at, on CREATE', () => {
+  /* `openaiaccounts.list()` stores `path.resolve(dir)`, and createAgentInner used
+     to compare the request UNRESOLVED. So a trailing slash, a `..`, or a symlinked
+     home missed an account that is genuinely present, and the person was told we do
+     not know their account. Measured on a real machine before the fix:
+     `/Users/x/.codex/` against a stored `/Users/x/.codex` matched FALSE.
+
+     The switch path was given this treatment by #1373; this is the same defect one
+     function over, which #1486 was filed to stop being only a comment.
+
+     🛑 The path is built by CONCATENATION, not `nodePath.join`, because join
+     NORMALISES and would quietly hand the test a canonical path -- a fixture that
+     cannot exercise the defect it names. */
+  recorder();
+  create.setDryRun(false);
+  const home = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-noncanon');
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(nodePath.join(home, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtesttesttestNONCANON' }), 'utf8');
+
+  const wobbly = home + '/../' + nodePath.basename(home) + '/';
+  assert.notEqual(wobbly, home, 'the fixture normalised itself, so it cannot exercise the defect');
+  assert.equal(nodePath.resolve(wobbly), home, 'the fixture does not name the same directory');
+
+  const made = create.createAgent({ ...BINS, name: 'oncanon', role: 'pm', provider: 'openai', codexBin: CODEX_BIN, account: wobbly });
+  assert.equal(made.outcome, create.OUTCOME.CREATED,
+    'a non-canonical path to a real account was refused on create: ' + made.because);
+  assert.equal(create.readJob('oncanon').configDir, home,
+    'the agent was created but carries the unresolved path, so CODEX_HOME points at a name codex will not read back');
+
+  /* CONTROL, and it is the one that matters: resolving must not make EVERY path
+     match. A directory nobody signed in to is still refused, in words. */
+  const nope = create.createAgent({ ...BINS, name: 'oncanonno', role: 'pm', provider: 'openai', codexBin: CODEX_BIN, account: nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-absent') + '/../.codex-absent/' });
+  assert.equal(nope.outcome, create.OUTCOME.REFUSED,
+    'resolving made an unknown account match, which is worse than the defect it fixed');
+  assert.match(nope.because, /do not know that OpenAI account/);
+});
+
+test('#1486: the ANTHROPIC arm resolves too, because perturbing it alone left the suite green', () => {
+  /* 🛑 THIS ARM EXISTS BECAUSE THE FIRST VERSION OF THIS TEST DID NOT COVER IT.
+     Reverting the OpenAI resolve turned the test above red; reverting the
+     Anthropic one left the whole suite GREEN. Two sites were changed and one was
+     guarded, which is the shape that ships half a fix and reports it whole. */
+  const { home } = seedAccounts();
+  recorder();
+  create.setDryRun(false);
+  const acct = nodePath.join(home, '.claude-work');
+  const wobbly = acct + '/../' + nodePath.basename(acct) + '/';
+  assert.notEqual(wobbly, acct, 'the fixture normalised itself');
+  assert.equal(nodePath.resolve(wobbly), acct, 'the fixture does not name the same directory');
+
+  const made = create.createAgent({ ...BINS, name: 'anoncanon', role: 'pm', account: wobbly });
+  assert.equal(made.outcome, create.OUTCOME.CREATED,
+    'a non-canonical path to a real Claude account was refused on create: ' + made.because);
+
+  /* CONTROL: resolving must not make an unknown account match. */
+  const nope = create.createAgent({ ...BINS, name: 'anoncanonno', role: 'pm', account: nodePath.join(home, '.claude-absent') + '/../.claude-absent/' });
+  assert.equal(nope.outcome, create.OUTCOME.REFUSED,
+    'resolving made an unknown Claude account match, which is worse than the defect it fixed');
+});
+
 test('an agent can be moved to another account, and the model comes with it', () => {
   const { home } = seedAccounts();
   const name = 'mover';
