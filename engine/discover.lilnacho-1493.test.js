@@ -32,6 +32,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-lilnacho-1493-'));
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SB, 'claude');
@@ -131,4 +132,149 @@ test('#1493: her actual line, bold markers and all, is what makes her an agent',
   const capital = status.identityFromText('# Lilnacho\n\nYou are Lilnacho, a project manager.\n');
   assert.equal(capital && capital.displayName, 'Lilnacho',
     'a capitalised name must still work, or the arm above is measuring something other than case');
+});
+
+/**
+ * 🛑 HER TWO CONFIG ROOTS, WHICH THE FIXTURE ABOVE CANNOT EXERCISE (Splinter).
+ *
+ * Her dump shows the SAME two project folders under BOTH roots:
+ *
+ *   ~/.claude/projects/-Users-caseywinner-work-workers-lilnacho/       1 jsonl
+ *   ~/.claude/projects/-Users-caseywinner/                             9 jsonl
+ *   ~/.claude-work1/projects/-Users-caseywinner-work-workers-lilnacho/ 1 jsonl
+ *   ~/.claude-work1/projects/-Users-caseywinner/                       9 jsonl
+ *
+ * `configRoots()` accepts both (`.claude` and `.claude-*`), so the ship gate's real
+ * question is DEDUP: **does the same agent, reachable through two roots, appear
+ * ONCE or TWICE?** The criterion is "the probe says N, the build shows N", and N=1.
+ * ⚠️ A build showing TWO lilnachos fails that gate exactly as hard as one showing
+ * zero, and the single-root fixture above passes either way.
+ *
+ * 📌 NOT REDUNDANT, CHECKED RATHER THAN ASSUMED. No discovery test sets more than
+ * one config root: `discover.test.js` pins `AGENT_WORKFORCE_CONFIG_ROOT` seven
+ * times and always to one directory, and the sibling "two project folders pointing
+ * at one directory are one agent" covers dedup WITHIN a root. The across-roots walk
+ * is a different loop and nothing was exercising it.
+ *
+ * This one sandboxes `HOME` rather than setting `AGENT_WORKFORCE_CONFIG_ROOT`,
+ * because that override returns a SINGLE root and would bypass the very scan under
+ * test. Same reason as the #1523 arms.
+ */
+test('#1493: the same agent under TWO config roots is ONE agent, not two', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1493-tworoots-'));
+  const cwd = path.join(home, 'work', 'workers', 'lilnacho');
+  fs.mkdirSync(cwd, { recursive: true });
+  fs.writeFileSync(path.join(cwd, 'CLAUDE.md'), HER_CLAUDE_MD);
+  const homeCwd = path.join(home, 'homedir');
+  fs.mkdirSync(homeCwd, { recursive: true });
+
+  for (const root of ['.claude', '.claude-work1']) {
+    const named = path.join(home, root, 'projects', '-Users-caseywinner-work-workers-lilnacho');
+    fs.mkdirSync(named, { recursive: true });
+    fs.writeFileSync(path.join(named, 'a.jsonl'), `{"type":"user"}\n{"cwd":${JSON.stringify(cwd)}}\n`);
+    const bare = path.join(home, root, 'projects', '-Users-caseywinner');
+    fs.mkdirSync(bare, { recursive: true });
+    for (let i = 0; i < 9; i += 1) {
+      fs.writeFileSync(path.join(bare, `s${i}.jsonl`), `{"type":"user"}\n{"cwd":${JSON.stringify(homeCwd)}}\n`);
+    }
+  }
+
+  const out = execFileSync(process.execPath, ['-e', `
+    const d = require(${JSON.stringify(path.join(__dirname, 'discover.js'))});
+    const s = require(${JSON.stringify(path.join(__dirname, 'status.js'))});
+    const r = d.found();
+    console.log(JSON.stringify({
+      roots: s.configRoots().length,
+      names: (r.agents || []).map((a) => a.displayName || a.name),
+      skipped: r.skipped,
+    }));`], {
+    encoding: 'utf8',
+    env: { ...process.env, HOME: home, AGENT_WORKFORCE_DATA: path.join(home, 'data'),
+           AGENT_WORKFORCE_CONFIG_ROOT: '', CLAUDE_CONFIG_DIR: '' },
+  });
+  const got = JSON.parse(out.trim().split('\n').pop());
+
+  /* CONTROL FIRST: if only one root was walked, a count of one proves nothing at
+     all, because there was never a second copy to deduplicate. */
+  assert.equal(got.roots, 2,
+    `only ${got.roots} config root(s) were walked, so the dedup below is vacuous`);
+  assert.deepEqual(got.names, ['lilnacho'],
+    `the same agent under two roots resolved to ${JSON.stringify(got.names)}`);
+
+  /* And the drops dedup on the same axis: ONE bare home folder, not one per root. */
+  assert.equal(got.skipped.noInstructions, 1,
+    `the same instruction-less folder was counted once per root: ${JSON.stringify(got.skipped)}`);
+
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+/**
+ * 🛑 THE SHAPE THAT ACTUALLY PRODUCES HER SYMPTOM, PINNED AS A GAP (Splinter's
+ * reframe). CONSTRUCTED, NOT SAMPLED, and that distinction is the whole reason it
+ * exists: nobody here can see her disk, but the shape can be built and measured.
+ *
+ * If a person sets their agents up by running Claude IN THEIR HOME rather than in
+ * per-agent folders, then **every agent shares ONE cwd and none of them has a
+ * `CLAUDE.md`**. Measured on that shape:
+ *
+ *   agents found : []
+ *   skipped      : noInstructions 1, noInstructionsFolderPresent 1
+ *
+ * ⇒ **"We found no agents on this computer", which is exactly what she reported**,
+ * while three agents live in those transcripts and not one is reachable. Discovery
+ * reads the identity FILE, and there is no file.
+ *
+ * ✅ AND HER DISK WAS THEN CONFIRMED TO HAVE THIS SHAPE (Splinter, 2026-08-29 18:26),
+ * so this is a diagnosis and not only a reproduction. **The order it happened in is
+ * the part worth keeping: the shape was CONSTRUCTED here and measured to produce the
+ * symptom BEFORE anybody could look at her machine.** Nothing on this fleet could
+ * have sampled it, because every machine here has the CLAUDE.md that makes the case
+ * vanish.
+ *
+ * 📌 Written first as "a sufficient explanation, not a diagnosis", which was the
+ * honest claim at the time. Updating it rather than leaving the hedge, because a
+ * justification that outlives its premise is a live instruction (#1510).
+ *
+ * ⚠️ AND IT IS NOT A CLAIM THAT THE NAMES ARE RECOVERABLE. Whether a predicate can
+ * pull an identity out of conversation text without inventing one is a separate and
+ * harder question, and `You are Dr. J. R. R. Tolkien` is exactly the trap waiting
+ * there. This test asserts today's behaviour, nothing about tomorrow's.
+ *
+ * 📌 THIS TEST EXISTS TO BE DELETED. Whoever teaches discovery to read a transcript
+ * for an identity should change these assertions rather than work around them, and
+ * will find this paragraph when they do.
+ */
+test('#1493 GAP: one shared cwd with no CLAUDE.md yields ZERO agents, whatever the transcripts say', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1493-onecwd-'));
+  const cwd = path.join(home, 'caseywinner');
+  fs.mkdirSync(cwd, { recursive: true });
+  const proj = path.join(home, '.claude', 'projects', '-Users-caseywinner');
+  fs.mkdirSync(proj, { recursive: true });
+  const who = ['lilnacho', 'josh', 'sarah'];
+  for (let i = 0; i < 9; i += 1) {
+    fs.writeFileSync(path.join(proj, `s${i}.jsonl`),
+      `{"type":"user","message":{"content":"You are ${who[i % 3]}, a project manager."}}\n`
+      + `{"cwd":${JSON.stringify(cwd)}}\n`);
+  }
+
+  const out = execFileSync(process.execPath, ['-e', `
+    const d = require(${JSON.stringify(path.join(__dirname, 'discover.js'))});
+    const r = d.found();
+    console.log(JSON.stringify({ names: (r.agents || []).map((a) => a.displayName || a.name), skipped: r.skipped }));`], {
+    encoding: 'utf8',
+    env: { ...process.env, HOME: home, AGENT_WORKFORCE_DATA: path.join(home, 'data'),
+           AGENT_WORKFORCE_CONFIG_ROOT: '', CLAUDE_CONFIG_DIR: '' },
+  });
+  const got = JSON.parse(out.trim().split('\n').pop());
+
+  /* CONTROL: the fixture must actually have been read, or "zero agents" is just a
+     walk that found no folders and this pins nothing. */
+  assert.equal(got.skipped.noInstructions, 1,
+    `the folder was not even reached: ${JSON.stringify(got.skipped)}`);
+  assert.equal(got.skipped.noInstructionsFolderPresent, 1,
+    `the cwd exists on disk, so it must count as PRESENT: ${JSON.stringify(got.skipped)}`);
+  assert.deepEqual(got.names, [],
+    'discovery now reads an identity out of a transcript, which is a FIX: delete this test and say so on #1493');
+
+  fs.rmSync(home, { recursive: true, force: true });
 });
