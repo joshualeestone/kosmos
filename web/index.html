@@ -22253,20 +22253,33 @@ function fillSwitchAccounts() {
     if (pmsg0 && pmsg0.textContent === SWITCH_ACCT_HINT) pmsg0.textContent = '';
     return;
   }
+  /* 📌 A SECOND COPY OF THE CREATE FORM'S NAMING RULE, and the differences are
+     deliberate but were undocumented, which is how two surfaces drift into naming
+     one account two ways. Against `fillCreateAccounts`:
+       - the provider check is dropped, because this list is already OpenAI-only
+       - an `i === 0` fallback is added when no row is isDefault, because this menu
+         must always open on something and the create form may legitimately open on
+         a placeholder
+     Not extracted to a shared helper here: that touches the create form, which is
+     not this card's subject, and a shared helper with two callers and two behaviours
+     is worse than two honest copies. Worth doing when somebody owns both. */
   const nameOf = (x) => x.email || (x.keyTail ? 'API key ending ' + x.keyTail : '') || x.label || x.dir;
   const labelOf = (x) => (x.connection && x.connection.state === 'unknown'
     ? esc(nameOf(x)) + ' (could not check just now)'
     : esc(nameOf(x)));
-  /* 🔑 PRESSING SWITCH WITHOUT TOUCHING THIS MENU SENDS NO ACCOUNT AT ALL, so
-     the engine states its own default exactly as it did before this card. That
-     is what makes the guarantee true, NOT the preselect below.
-     🛑 The preselect alone would NOT be enough, and the difference is not
-     cosmetic: this page filters on live connection state and `openai.list()`
-     does not, so if the engine's own first account comes back `none` the page
-     would preselect a DIFFERENT row. Sending it would silently move a person
-     who touched nothing onto another sign-in and then tell them they picked it.
-     The preselect is here so the menu opens on a sensible row, and nothing more
-     depends on it. */
+  /* 🔑 THE VISIBLE ROW IS ALWAYS THE ROW SENT, and the preselect is therefore
+     load-bearing rather than cosmetic. This is the opposite of what an earlier
+     revision of this comment said, and the change was deliberate: gating the send
+     on the touched flag meant the row ON SCREEN was not the row used, because
+     re-selecting an option a <select> already holds fires no `change`.
+     ⚠️ SO THE PRESELECT IS A PROMISE NOW. This page filters on live connection
+     state and `openai.list()` does not, so the row preselected here can differ
+     from the engine's own first account. That divergence is why sending it is
+     RIGHT: a person who touches nothing gets the sign-in they were shown, not a
+     different one the page had already judged unusable.
+     📌 What travels separately is the CLAIM: `picked` stays false unless somebody
+     actually chose, so the route says "your OpenAI sign-in" rather than "the one
+     you picked". Which account, and who chose it, are two facts. */
   const html = list.map((x, i) => '<option value="' + esc(x.dir) + '"'
     + ((x.isDefault || (i === 0 && !list.some((y) => y.isDefault))) ? ' selected' : '')
     + '>' + labelOf(x) + '</option>').join('');
@@ -22330,10 +22343,30 @@ if (switchAcctSel) {
        never arm a switch the provider menu would refuse. */
     const go = document.getElementById('d-provider-go');
     const prov = document.getElementById('d-provider');
+    /* ⚠️ `|| prov.disabled` HOLDS THE IN-FLIGHT INVARIANT BY CONSTRUCTION.
+       changeProviderNow disables both controls for the duration of the request and
+       only its `finally` re-enables them. Without this clause, a pick made while a
+       switch is in flight would re-arm the button from here, so "Switch is disabled
+       while a switch is running" would be enforced in one place and quietly
+       overridable from another. Unreachable today because the confirm modal is up,
+       which is a reason to make it structural rather than to leave it. */
     if (go && prov) {
-      go.disabled = !prov.value || !CURRENT || prov.value === providerOf(CURRENT);
+      go.disabled = prov.disabled || !prov.value || !CURRENT || prov.value === providerOf(CURRENT);
     }
   });
+}
+
+/* 🛑 IS THERE ACTUALLY A CHOICE TO MAKE? The dialog used to say "close this to
+   choose one" unconditionally, and there are three states where that instruction
+   cannot be followed: no OpenAI accounts at all (the picker is hidden, but OpenAI
+   is still selectable as a provider), exactly one usable account (a one-option
+   select can never fire `change`, so a pick is unreachable no matter what the
+   person does), and the picker not showing for any other reason.
+   ⇒ Naming an exit that leads nowhere is the dead end this whole card exists to
+   close, on the last screen before a restart. */
+function switchAcctChoosable() {
+  const sel = document.getElementById('d-provider-account');
+  return !!(sel && !sel.hidden && sel.options.length > 1);
 }
 
 /* What the confirmation dialog echoes back, and only when a person actually picked. */
@@ -22477,7 +22510,9 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
              from what the engine actually chose, which is the only place it can be said
              truthfully. */
           /* Hoisted: it was called twice in one expression. */
-          + ((() => { const on = switchAcctShown(); return on ? 'and it will run on ' + on + '.' : 'and it picks its own sign-in. To choose one yourself, close this first.'; })())
+          + ((() => { const on = switchAcctShown(); return on ? 'and it will run on ' + on + '.' : switchAcctChoosable()
+              ? 'and it picks its own sign-in. To choose a different one, close this first.'
+              : 'and it picks its own sign-in.'; })())
         : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
     go: 'Switch and restart',
     run: (say) => changeProviderNow(say),

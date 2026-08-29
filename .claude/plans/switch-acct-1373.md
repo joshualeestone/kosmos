@@ -72,11 +72,14 @@ keeps catching, and three of these came out of review rather than design:**
 - A person switching an agent to OpenAI can choose which sign-in it lands on, and the
   agent actually starts in that home (`CODEX_HOME` in the launch job, not merely the
   return value).
-- Someone who does not touch the menu gets **the same account** the engine would have
-  chosen before this card. ⚠️ **Not literally "exactly the previous behaviour" any more,
-  and the plan should not claim it**: the confirmation dialog's wording changed for that
-  person too, from a sentence asserting one sign-in to one saying it picks its own unless
-  you choose.
+- Someone who does not touch the menu gets **the account the menu is showing them**.
+  🛑 **This bullet twice claimed something stronger and both versions were wrong.** It
+  first said "exactly the previous behaviour", then "the same account the engine would
+  have chosen". Neither holds: the page filters on live connection state and
+  `openai.list()` does not, so the visible row can differ from the engine's own first
+  account, **and sending the visible one is the point** rather than a regression. What a
+  person who touches nothing gets is what they were shown, and the route calls it
+  "your OpenAI sign-in" rather than a pick.
 - A named account that no longer exists is refused, not silently replaced.
 - The picker is **seen in a real browser**, per my standing rule that no frontend change
   merges without being seen on screen.

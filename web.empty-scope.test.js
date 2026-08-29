@@ -42,7 +42,7 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
  *
  *     "Your agents live on this computer"
  *     "Your agents run on your own subscription, on this computer"
- *     "OpenAI picks its own model, and this agent runs on this computer"
+ *     "OpenAI picks its own model"
  *
  * Those are locality promises, and locality is the product's whole selling
  * point. A guard that made us hedge them would cost more than the bug it caught.

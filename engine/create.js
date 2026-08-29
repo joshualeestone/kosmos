@@ -782,11 +782,17 @@ function setProvider(name, provider, opts) {
    * always did. On one where it is not, the switch succeeds, says so, and
    * leaves a dead agent. Nothing on screen distinguishes the two.
    *
-   * ⚠️ THE SWITCH CARRIES NO ACCOUNT, so the home is always the DEFAULT one.
-   * That is the existing v1 boundary (a Claude account means nothing to codex)
-   * and is not changed here; what changes is that the default home is now
-   * checked before an agent is handed to it, and named in the answer so a
-   * person knows which sign-in their agent landed on.
+   * 🛑 THIS PARAGRAPH SAID "THE SWITCH CARRIES NO ACCOUNT" AND #1373 MADE THAT
+   * FALSE, about a hundred lines below in this same function. It is the block a
+   * reader hits first, and its siblings in server.js and the page were corrected
+   * while this one was missed.
+   * ⇒ WHAT #1211 ESTABLISHED AND STILL HOLDS: the home is checked before an agent
+   * is handed to it, and named in the answer, so a person knows which sign-in
+   * their agent landed on.
+   * ⇒ WHAT #1373 CHANGED: the caller can now name the account (`opts.accountDir`),
+   * and can separately say whether a PERSON chose it (`opts.pickedByPerson`).
+   * With neither, the behaviour is exactly what this paragraph originally
+   * described.
    *
    * 📌 The check is `identityOf`, the same read `list()` and the create path's
    * account lookup already use, rather than a second opinion about what
@@ -864,7 +870,13 @@ function setProvider(name, provider, opts) {
        Without it an equivalent-but-unnormalised path (a trailing slash, a `..`
        segment) is refused as a ghost account, which is a confusing refusal
        rather than a wrong one. Fail-closed is unaffected: this normalises the
-       value, it does not widen what counts as a match. */
+       value, it does not widen what counts as a match.
+       ⚠️ THE CREATION PATH DOES NOT DO THIS AND HAS THE SAME DEFECT.
+       `createAgentInner` compares `a.dir === String(wantAccountDir)` unresolved,
+       fed by the same page and the same /api/accounts rows. NOT fixed here on
+       purpose: creation is not this card's subject and widening a switch card into
+       the create path is how a reviewed diff stops being reviewable. Recorded so
+       the asymmetry is a known one rather than an accident. */
     const wantDir = opts && typeof opts.accountDir === 'string' && opts.accountDir !== ''
       ? path.resolve(opts.accountDir)
       : null;
@@ -889,7 +901,7 @@ function setProvider(name, provider, opts) {
         return {
           outcome: OUTCOME.REFUSED,
           because: named
-            ? 'this computer is set to use one particular OpenAI sign-in, so that account cannot be chosen here and nothing was changed.'
+            ? 'this computer is set to use one particular OpenAI sign-in, so that account cannot be chosen here and nothing was changed. Pick the one already selected.'
             : 'that OpenAI account is not on this computer any more, so nothing was changed. '
               + 'Pick one from the list and try again.',
         };
@@ -1830,7 +1842,8 @@ function createAgentInner(opts) {
   if (provider === 'openai') {
     /* v1 boundaries, refused in words rather than silently ignored: the
        model is codex's own default (its catalogue is not ours to mirror
-       yet), and the account is whichever OpenAI sign-in the agent was given (Claude
+       yet). The ACCOUNT is not a boundary and is not refused here: createAgentInner
+       honours opts.account, and this clause used to claim otherwise (Claude
        account selection is CLAUDE_CONFIG_DIR, which means nothing to
        codex). Both lift when phase 2 gives them real mechanisms. */
     if (opts && opts.model !== undefined) {
