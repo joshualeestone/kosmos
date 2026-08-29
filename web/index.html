@@ -12982,11 +12982,20 @@ function accountQualifiers(list) {
     const k = key(a);
     if (k) count.set(k, (count.get(k) || 0) + 1);
   }
+  /* 🔑 KEYED ON `dir`, NOT ON THE ROW OBJECT. Object identity is correct today,
+     because accountGroupsHtml pushes the same references it was handed, but it
+     fails SILENTLY if anyone ever maps, clones or spreads rows on the way in:
+     every lookup would miss, every qualifier would become '', and the screen
+     would be back to the original bug with nothing thrown and no test red,
+     caused by an edit in an unrelated function. `dir` is unique per row by
+     construction (`list()` skips a directory it has already seen) and is
+     already the last fallback below, so keying on it costs nothing and cannot
+     be broken from a distance. */
   const out = new Map();
   for (const a of rows) {
     const k = key(a);
-    if (!k || (count.get(k) || 0) < 2) { out.set(a, ''); continue; }
-    out.set(a, a.isDefault ? 'main' : String(a.label || a.dir || ''));
+    if (!k || (count.get(k) || 0) < 2) { out.set(String(a.dir || ''), ''); continue; }
+    out.set(String(a.dir || ''), a.isDefault ? 'main' : String(a.label || a.dir || ''));
   }
   return out;
 }
@@ -13078,9 +13087,9 @@ async function paintAccounts() {
       ? '<span class="acct-org">' + esc(a.organization) + '</span>' : '';
     /* Empty for every row whose name is already unique, which is nearly all of
        them. Present only where two rows would otherwise read alike. */
-    const qual = acctQual.get(a) || '';
+    const qual = acctQual.get(String(a.dir || '')) || '';
     const qualTag = qual
-      ? '<span class="acct-qual" title="' + esc('Two accounts on this computer are signed in as ' + (a.email || 'this login') + '. This is the ' + qual + ' one.') + '">' + esc(qual) + '</span>'
+      ? '<span class="acct-qual" title="' + esc('Two accounts on this computer are signed in as ' + (a.email || 'this login') + '. This one is ' + qual + '.') + '">' + esc(qual) + '</span>'
       : '';
     /* #864 (Josh, 2026-08-26): "kill the line." The positive arm ("An agent
        moved here keeps its conversation history") was filler nobody outside
@@ -13171,7 +13180,7 @@ async function paintAccounts() {
          enable both because one of them works. */
       + (isOpenai
         ? '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
-          + 'aria-label="Remove ' + who + '">Remove</button>'
+          + 'aria-label="Remove ' + who + (qual ? ' (' + qual + ')' : '') + '">Remove</button>'
         : '<button class="acct-disconnect" type="button" disabled '
           + 'aria-label="Disconnect ' + who + (qual ? ' (' + qual + ')' : '') + '" '
           + 'title="Not built yet: disconnecting an account here has no way to tell agents on it to stop first">Disconnect</button>')
