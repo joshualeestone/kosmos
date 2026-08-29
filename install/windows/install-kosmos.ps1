@@ -287,16 +287,25 @@ $uninstall = @"
 REM Remove Kosmos. Leaves your DATA alone on purpose: that is your projects,
 REM not the program.
 setlocal
+REM %~dp0 ALWAYS ENDS IN A BACKSLASH, and the two uses below want opposite things.
+REM   KOSMOS_HERE keeps it: the PowerShell containment test needs the separator,
+REM     or "...\Kosmos\" also matches "...\KosmosSomethingElse\".
+REM   KOSMOS_DIR drops it: rmdir /s /q "C:\...\Kosmos\" puts a quote directly
+REM     after a backslash, which is the classic cmd quoting hazard. cmd built-ins
+REM     are believed to cope, and believing is not a reason to ship it when the
+REM     trim is one substring away. Raised by PigeonPete, who could not test it
+REM     from a Mac either.
 set "KOSMOS_HERE=%~dp0"
+set "KOSMOS_DIR=%KOSMOS_HERE:~0,-1%"
 REM Run from TEMP: rmdir cannot remove the directory it is sitting in.
 cd /d "%TEMP%"
 echo Stopping Kosmos...
 powershell -NoProfile -Command "`$here = `$env:KOSMOS_HERE.ToLower(); Get-Process node -EA SilentlyContinue | Where-Object { `$_.Path -and `$_.Path.ToLower().StartsWith(`$here) } | Stop-Process -Force" >nul 2>&1
 del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Kosmos.lnk" >nul 2>&1
 del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Kosmos.lnk" >nul 2>&1
-echo Removing "%KOSMOS_HERE%"...
-rmdir /s /q "%KOSMOS_HERE%"
-if exist "%KOSMOS_HERE%" (
+echo Removing "%KOSMOS_DIR%"...
+rmdir /s /q "%KOSMOS_DIR%"
+if exist "%KOSMOS_DIR%" (
   echo.
   echo Some files could not be removed. Kosmos may still be running.
   echo Close it, then run this again.

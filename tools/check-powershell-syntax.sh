@@ -77,7 +77,7 @@ while IFS= read -r f; do
   rout="$(pwsh -NoProfile -File "$REPO/tools/lib/ps-render.ps1" "$f" 2>&1)" || true
   susp="$(printf '%s' "$rout" | grep -c 'SUSPECT' || true)"
   if [ "${susp:-0}" -gt 0 ]; then
-    printf 'FAIL  %s  backslash-dollar inside an interpolating here-string\n' "$rel"
+    printf 'FAIL  %s  a here-string renders wrong (see below)\n' "$rel"
     printf '%s\n' "$rout" | sed 's/^/        /'
     fail=1
   else
