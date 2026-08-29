@@ -37,7 +37,7 @@ test('a scraped needs_you TRANSITION is logged', () => {
   assert.equal(wouldping.saw('a', 'idle', {}), false, 'idle should not log');
   assert.equal(wouldping.saw('a', 'needs_you', { reported: false, confidence: 'scraped' }), true,
     'moving into a scraped needs_you was not logged, so the number this exists for stays unmeasurable');
-  const rows = wouldping.read();
+  const rows = wouldping.read().filter((r) => r.wouldHavePinged);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].agent, 'a');
   assert.equal(rows[0].from, 'idle');
@@ -57,7 +57,7 @@ test('a REPORTED needs_you is not counted, because it already reaches the seam',
   /* Counting it would inflate the very number this exists to measure with events
      that are already covered. */
   assert.equal(wouldping.saw('b', 'needs_you', { reported: true }), false);
-  assert.equal(wouldping.read().length, 0);
+  assert.equal(wouldping.read().filter((r) => r.wouldHavePinged).length, 0);
 });
 
 test('staying in needs_you logs once, not once per read', () => {
@@ -66,14 +66,14 @@ test('staying in needs_you logs once, not once per read', () => {
   wouldping.saw('c', 'idle', {});
   assert.equal(wouldping.saw('c', 'needs_you', { reported: false }), true);
   for (let i = 0; i < 20; i += 1) wouldping.saw('c', 'needs_you', { reported: false });
-  assert.equal(wouldping.read().length, 1, 'a held state logged more than once');
+  assert.equal(wouldping.read().filter((r) => r.wouldHavePinged).length, 1, 'a held state logged more than once');
 });
 
 test('leaving and returning logs again, because that is a second event', () => {
   wouldping.saw('d', 'needs_you', { reported: false });
   wouldping.saw('d', 'working', {});
   wouldping.saw('d', 'needs_you', { reported: false });
-  assert.equal(wouldping.read().length, 2);
+  assert.equal(wouldping.read().filter((r) => r.wouldHavePinged).length, 2);
 });
 
 test('every line carries the boot it belongs to, so nobody sums across restarts', () => {
@@ -81,12 +81,59 @@ test('every line carries the boot it belongs to, so nobody sums across restarts'
      the first read after one can log a continuation as a transition. Honest for
      a RATE, wrong for a TOTAL, and the field is how a reader knows. */
   wouldping.saw('e', 'needs_you', { reported: false });
-  const first = wouldping.read()[0].sinceBoot;
+  const first = wouldping.read().filter((r) => r.wouldHavePinged)[0].sinceBoot;
   wouldping.reset();
   wouldping.saw('e', 'needs_you', { reported: false });
-  const rows = wouldping.read();
+  const rows = wouldping.read().filter((r) => r.wouldHavePinged);
   assert.equal(rows.length, 2, 'a restart did not re-arm the agent');
   assert.notEqual(rows[1].sinceBoot, first, 'both lines claim the same boot, so they look summable and are not');
+});
+
+test('🛑 the log says "I RAN" before it says anything else', () => {
+  /* Without this, an empty result has two meanings and no way to tell them
+     apart: the code is not deployed, or it ran and saw nothing. Both look like
+     no directory.
+     ⚠️ AND THE FIRST ONE ALREADY HAPPENED. #1518 merged, the board restarted,
+     and the served checkout did not carry the file. Anybody reading the absent
+     directory as "the scrape never fires" would have been reading a check that
+     never ran. */
+  wouldping.saw('z', 'idle', {});
+  const rows = wouldping.read();
+  assert.equal(rows.length, 1, 'a first call that logged no transition left no trace that it ran');
+  assert.equal(rows[0].kind, 'boot');
+  assert.match(rows[0].note, /RAN/, 'the boot line does not say what it means');
+});
+
+test('the boot line is written ONCE per process, not per call', () => {
+  for (let i = 0; i < 30; i += 1) wouldping.saw('z' + i, 'idle', {});
+  assert.equal(wouldping.read().filter((r) => r.kind === 'boot').length, 1,
+    'it announces on every call, which makes the log a heartbeat nobody asked for');
+});
+
+test('the boot line comes even when the card has no name', () => {
+  /* ⚠️ ANNOUNCED BEFORE THE KEY CHECK, deliberately. A board whose every card
+     lacks a name still RAN, and that is exactly the case somebody would
+     otherwise read as "not deployed". */
+  wouldping.saw(null, 'needs_you', { reported: false });
+  assert.equal(wouldping.read().filter((r) => r.kind === 'boot').length, 1,
+    'a nameless card skipped the announcement, so a board full of them reads as never deployed');
+});
+
+test('the three states a reader must tell apart are all distinguishable', () => {
+  /* This is the whole point, stated as the reader would ask it. */
+  const dir = wouldping.dirFor();
+  fs.rmSync(dir, { recursive: true, force: true });
+  wouldping.reset();
+  assert.equal(fs.existsSync(dir), false, 'STATE 1, the code is not there: no directory');
+
+  wouldping.saw('a', 'working', {});
+  assert.equal(wouldping.read().filter((r) => r.kind === 'boot').length, 1);
+  assert.equal(wouldping.read().filter((r) => r.wouldHavePinged).length, 0,
+    'STATE 2, it ran and saw nothing: a boot line and no transitions');
+
+  wouldping.saw('a', 'needs_you', { reported: false });
+  assert.equal(wouldping.read().filter((r) => r.wouldHavePinged).length, 1,
+    'STATE 3, it ran and saw something: a transition');
 });
 
 test('CONTROL: it never throws, whatever it is handed', () => {

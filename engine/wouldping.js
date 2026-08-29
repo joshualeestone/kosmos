@@ -54,6 +54,44 @@ const last = new Map();
 const bootId = () => new Date().toISOString() + '-' + crypto.randomBytes(4).toString('hex');
 let bootAt = bootId();
 
+/* Whether this process has announced itself in the log yet. */
+let announced = false;
+
+/**
+ * 🛑 THE LOG SAYS "I RAN" BEFORE IT SAYS ANYTHING ELSE, AND THAT IS THE WHOLE
+ * POINT OF THIS FUNCTION.
+ *
+ * Without it, an empty result has two meanings and no way to tell them apart:
+ *
+ *     the code is not deployed          -> no directory
+ *     the code ran and saw nothing      -> no directory
+ *
+ * Both look identical, and the first one HAS ALREADY HAPPENED: #1518 merged,
+ * the board restarted, and the served checkout did not carry the file. Anybody
+ * reading the absent directory as "the scrape never fires" would have been
+ * reading a check that never ran.
+ *
+ * ⇒ A boot line on the FIRST call, whatever the outcome, makes the three states
+ * distinguishable WITHOUT ANY CONTEXT:
+ *
+ *     directory absent                  the code is not there
+ *     boot line, no transitions         it ran and saw nothing
+ *     transitions                       it ran and saw things
+ *
+ * ⚠️ It is not a heartbeat. One line per process, ever.
+ */
+function announce() {
+  if (announced) return;
+  announced = true;
+  fs.mkdirSync(dirFor(), { recursive: true });
+  fs.appendFileSync(fileFor(), JSON.stringify({
+    at: new Date().toISOString(),
+    kind: 'boot',
+    sinceBoot: bootAt,
+    note: 'this line means the reader RAN. No transition lines after it means it ran and saw none.',
+  }) + '\n', { mode: 0o600 });
+}
+
 /**
  * Record that an agent is in `state` right now.
  *
@@ -64,6 +102,10 @@ function saw(key, state, opts) {
   const o = opts || {};
   let logged = false;
   try {
+    /* ⚠️ BEFORE THE KEY CHECK, DELIBERATELY. A board whose every card lacks a
+       name still RAN, and that is exactly the case somebody would otherwise read
+       as "not deployed". */
+    announce();
     if (!key) return false;
     const was = last.get(key);
     last.set(key, state);
@@ -91,7 +133,8 @@ function saw(key, state, opts) {
   return logged;
 }
 
-/** Every line, newest last. For a person asking "how often would this fire?". */
+/** Every line, newest last. Boot lines included: they are how a reader knows
+ *  the difference between "saw nothing" and "never ran". */
 function read() {
   let raw;
   try { raw = fs.readFileSync(fileFor(), 'utf8'); } catch { return []; }
@@ -99,6 +142,6 @@ function read() {
 }
 
 /** Test seam: forget what we have seen, as a fresh board would. */
-function reset() { last.clear(); bootAt = bootId(); }
+function reset() { last.clear(); bootAt = bootId(); announced = false; }
 
 module.exports = { saw, read, reset, fileFor, dirFor };
