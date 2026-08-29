@@ -9,10 +9,23 @@
  *   -Users-<user>-work-workers-lilnacho   1 transcript,  CLAUDE.md naming her
  *   -Users-<user>                         9 transcripts, NO CLAUDE.md at all
  *
- * ⇒ **A correct build shows ONE. Not two, and not zero.** Those are the two ways
- * this can be wrong and they fail in opposite directions: two means a bare home
- * directory somebody once ran Claude in is being offered as an agent, and zero is
- * the bug she actually reported.
+ * ⇒ **`found()` returns ONE AGENT and ONE DROP.** Not two agents, and not zero.
+ * Those are the two ways the ENGINE can be wrong and they fail in opposite
+ * directions: two means a bare home directory somebody once ran Claude in is being
+ * reported as an agent, and zero is the bug she reported.
+ *
+ * 🛑 THE SHIP CRITERION IS NO LONGER "THE BUILD SHOWS ONE", AND THIS FILE MUST NOT
+ * BE READ AS IF IT WERE (Splinter, 2026-08-29 18:47). Once the adoption surface
+ * exists, a correct build shows TWO THINGS: lilnacho as an agent, AND the
+ * unidentified folder OFFERED for adoption. **Anyone gating a cut on "shows 1" is
+ * testing against a stale target.**
+ *
+ * ⭐ THE ASSERTIONS BELOW ARE UNAFFECTED AND THAT IS THE POINT OF SAYING THIS. They
+ * are claims about `found()`, which correctly returns one agent and one
+ * `noInstructionsFolderPresent`. The moved criterion is about what the BOARD DOES
+ * WITH THAT DROP, which is a different layer and is not asserted here. **The
+ * numbers stayed right and the sentence around them went stale**, which is the
+ * shape that makes a comment a live instruction rather than a description (#1510).
  *
  * 🛑 THE SECOND FOLDER IS THE WHOLE TEST, WHICH IS WHY IT CARRIES NINE
  * TRANSCRIPTS AND NOT ONE. A single-transcript folder with no CLAUDE.md is
@@ -235,10 +248,16 @@ test('#1493: the same agent under TWO config roots is ONE agent, not two', () =>
  * honest claim at the time. Updating it rather than leaving the hedge, because a
  * justification that outlives its premise is a live instruction (#1510).
  *
- * ⚠️ AND IT IS NOT A CLAIM THAT THE NAMES ARE RECOVERABLE. Whether a predicate can
- * pull an identity out of conversation text without inventing one is a separate and
- * harder question, and `You are Dr. J. R. R. Tolkien` is exactly the trap waiting
- * there. This test asserts today's behaviour, nothing about tomorrow's.
+ * ✅ AND THE RECOVERABILITY QUESTION IS NOW SETTLED: EXTRACTION IS DEAD, measured on
+ * her actual disk (Splinter, 2026-08-29). No name is cleanly pullable from those
+ * transcripts. **That does not weaken this test, it simplifies the feature it
+ * guards**: the design is the small one, never guess a name, ask for it. So the
+ * folder is offered with an EMPTY editable field and nothing is asserted about who
+ * lives there.
+ *
+ * 📌 Written first as "not a claim that the names are recoverable", which was the
+ * honest hedge while it was open. Updating rather than leaving it, for the same
+ * reason as the paragraph above.
  *
  * 📌 THIS TEST EXISTS TO BE DELETED. Whoever teaches discovery to read a transcript
  * for an identity should change these assertions rather than work around them, and
