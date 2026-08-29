@@ -261,3 +261,32 @@ test('an agent that never reported has no writer either', () => {
   assert.equal(selfreport.read('nobody-at-all').by, undefined,
     'found:false carries no reading at all, so a caller cannot read a writer off it');
 });
+
+test('#900 refuses ONLY an automatic idle, so marking the hook\'s other reports auto is inert', () => {
+  /* 🛑 THIS GUARDS THE RISK #1453 CREATED, NOT THE FIX.
+     install/kosmos-report-hook.sh now passes --auto on all six of its report
+     calls, so the record can say who wrote a line. That is safe only while
+     #900's rule stays scoped to `idle`. If anyone ever widens it to refuse
+     other automatic writes, the hook's `blocked`, `needs_you`, `working`,
+     `started` and `stopped` become refusable -- and a rule that refused every
+     automatic write would strand the agent blocked forever, which is the
+     failure #900 exists to prevent, arriving from the other direction.
+
+     The control below is what makes the five passes mean anything: without it,
+     five recorded:true is equally consistent with the guard being dead. */
+  for (const state of ['started', 'working', 'needs_you', 'blocked', 'stopped']) {
+    selfreport.record('inert', { state: 'needs_you', because: 'standing waiting state' });
+    const got = selfreport.record('inert', { state, because: 'the machine wrote this', auto: true });
+    assert.equal(got.recorded, true,
+      'an automatic `' + state + '` was refused over a standing needs_you. #900\'s '
+      + 'rule has been widened beyond idle, and the report hook marks all six of '
+      + 'its calls --auto, so it can no longer report ' + state + '.');
+    assert.equal(selfreport.read('inert').by, 'auto');
+  }
+
+  selfreport.record('inert-control', { state: 'needs_you', because: 'standing waiting state' });
+  const refused = selfreport.record('inert-control', { state: 'idle', because: 'finished responding', auto: true });
+  assert.equal(refused.recorded, false, 'THE CONTROL: the guard must still refuse an automatic idle');
+  assert.equal(refused.skipped, 'waiting');
+  assert.equal(selfreport.read('inert-control').state, 'needs_you');
+});
