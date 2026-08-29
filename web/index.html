@@ -12994,8 +12994,18 @@ function accountQualifiers(list) {
   const out = new Map();
   for (const a of rows) {
     const k = key(a);
-    if (!k || (count.get(k) || 0) < 2) { out.set(String(a.dir || ''), ''); continue; }
-    out.set(String(a.dir || ''), a.isDefault ? 'main' : String(a.label || a.dir || ''));
+    const dir = String(a.dir || '');
+    if (!k || (count.get(k) || 0) < 2) { out.set(dir, ''); continue; }
+    /* `main` is reserved for the default row. A non-default directory literally
+       named `.claude-main` yields the label `main`, which would answer to the
+       same accessible name as the default and put the two controls back on one
+       name, the exact bug this exists to fix. `dir` is unique per row by
+       construction and is already the last fallback, so it is the collision-proof
+       name for that case. */
+    let qual;
+    if (a.isDefault) { qual = 'main'; }
+    else { qual = String(a.label || dir || ''); if (!qual || qual === 'main') qual = dir; }
+    out.set(dir, qual);
   }
   return out;
 }
@@ -13180,9 +13190,9 @@ async function paintAccounts() {
          enable both because one of them works. */
       + (isOpenai
         ? '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
-          + 'aria-label="Remove ' + who + (qual ? ' (' + qual + ')' : '') + '">Remove</button>'
+          + 'aria-label="Remove ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '">Remove</button>'
         : '<button class="acct-disconnect" type="button" disabled '
-          + 'aria-label="Disconnect ' + who + (qual ? ' (' + qual + ')' : '') + '" '
+          + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
           + 'title="Not built yet: disconnecting an account here has no way to tell agents on it to stop first">Disconnect</button>')
       + '</div>';
   };
