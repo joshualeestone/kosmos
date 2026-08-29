@@ -782,6 +782,11 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    select directly above it -- two adjacent controls doing the same job at two
    different widths, which reads as one of them being broken. The list is the
    rule; a new member joins it. */
+/* ⚠️ `#d-provider-account`'s membership is HORIZONTAL, unlike the others. The
+   comment above justifies membership by matching the field ABOVE; this one
+   sits beside `#d-provider` in the same .frow, and that sibling is NOT in this
+   rule and sizes intrinsically. It is here so an account name does not render
+   as a stub next to it, and the known cost is that the row wraps. */
 #create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
 .btn { font: var(--text-body) var(--font-ui); padding: var(--space-4) var(--space-5);
        border-radius: var(--radius-control); border: 0.5px solid var(--border-strong);
@@ -22214,6 +22219,9 @@ function paintProviderPicker(a) {
    each, so the page must not report the second as the first. Reset whenever the
    menu is rebuilt, set only by the person's own change event. */
 let SWITCH_ACCT_TOUCHED = false;
+/* One spelling, so the line that CLEARS the hint cannot drift from the line that
+   writes it and leave an orphan on screen. */
+const SWITCH_ACCT_HINT = 'Choose which OpenAI sign-in it runs on, or leave it as it is.';
 function fillSwitchAccounts() {
   const sel = document.getElementById('d-provider-account');
   const prov = document.getElementById('d-provider');
@@ -22233,7 +22241,18 @@ function fillSwitchAccounts() {
   /* Hidden when there is nothing to choose: switching back to Anthropic has no
      OpenAI account to pick, and with no accounts at all the ENGINE refuses with
      a sentence that names the remedy. An empty dropdown would say less. */
-  if (!openai || !armed || !list.length) { sel.hidden = true; sel.innerHTML = ''; return; }
+  if (!openai || !armed || !list.length) {
+    sel.hidden = true;
+    sel.innerHTML = '';
+    /* ⚠️ AND TAKE THE HINT WITH IT. The line written when the picker appears names
+       a control, so leaving it up after the control is gone is an instruction
+       pointing at nothing, in a live status region, under a provider it does not
+       apply to. Two clicks reach it: pick OpenAI, then pick Anthropic.
+       📌 Only our own sentence is cleared, never somebody else's status text. */
+    const pmsg0 = document.getElementById('d-provider-msg');
+    if (pmsg0 && pmsg0.textContent === SWITCH_ACCT_HINT) pmsg0.textContent = '';
+    return;
+  }
   const nameOf = (x) => x.email || (x.keyTail ? 'API key ending ' + x.keyTail : '') || x.label || x.dir;
   const labelOf = (x) => (x.connection && x.connection.state === 'unknown'
     ? esc(nameOf(x)) + ' (could not check just now)'
@@ -22281,7 +22300,7 @@ function fillSwitchAccounts() {
      re-announce and turn a helpful line into noise. */
   if (appearing) {
     const pmsg = document.getElementById('d-provider-msg');
-    if (pmsg && !pmsg.textContent) pmsg.textContent = 'Choose which OpenAI sign-in it runs on, or leave it as it is.';
+    if (pmsg && !pmsg.textContent) pmsg.textContent = SWITCH_ACCT_HINT;
   }
 }
 
@@ -22323,6 +22342,13 @@ function switchAcctShown() {
   if (!sel || sel.hidden || !SWITCH_ACCT_TOUCHED) return '';
   const o = sel.options[sel.selectedIndex];
   if (!o) return '';
+  /* ⚠️ NEVER A RAW PATH IN A SENTENCE. The option label falls back through
+     email, key tail, label and finally `dir`, and the first three read fine in
+     prose while a filesystem path does not: "and it will run on
+     /Users/x/.codex-work1." is a different register from the rest of this
+     dialog. The dropdown can show it (the create form does); the last screen
+     before a restart should not. */
+  if (o.textContent.trim().startsWith('/')) return '';
   /* The option label carries a menu-only parenthetical for an account whose live
      check came back unknown ("name (could not check just now)"). That reads fine
      in a dropdown and badly inside a sentence: "it will run on name (could not
@@ -22352,11 +22378,6 @@ async function changeProviderNow(say) {
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/provider', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      /* #1373: the chosen sign-in rides along ONLY if a person chose it. An
-         untouched menu sends null, the engine states its default and names it,
-         and the route says "your OpenAI sign-in" rather than "the one you
-         picked". Reporting a preselect as a choice would be the invention the
-         route refuses two lines from where it builds that sentence. */
       /* 🛑 TWO SEPARATE FACTS, AND CONFLATING THEM WAS A WRONG-ACCOUNT BUG, NOT A
          WORDING ONE. `account` is WHICH sign-in; `picked` is WHETHER a person
          chose it. Sending the account only when the flag was set meant that a
@@ -22397,7 +22418,12 @@ async function changeProviderNow(say) {
        page is still holding, which is the stale copy that produced the ghost in
        the first place. Re-offering the same dead row makes the named remedy fail
        every time until somebody reloads. Drop the cache and repaint, so the list
-       the sentence points at is a fresh one. */
+       the sentence points at is a fresh one.
+       📌 THIS RUNS ON EVERY FAILED SWITCH, not only the ghost-account one, and
+       that is deliberate rather than sloppy: the page cannot tell which refusal
+       it got without parsing the sentence, and a stale list is worth re-reading
+       after any failure. The cost is a live re-check per account, which server.js
+       documents as safe only at person-paced moments. A failed switch IS one. */
     ACCOUNTS = [];
     try { await paintAccountPicker(CURRENT); }
     catch { /* the sentence above is the answer; a failed refresh must not replace it */ }
@@ -22451,7 +22477,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
              from what the engine actually chose, which is the only place it can be said
              truthfully. */
           /* Hoisted: it was called twice in one expression. */
-          + ((() => { const on = switchAcctShown(); return on ? 'and it will run on ' + on + '.' : 'and it picks its own sign-in unless you choose one above.'; })())
+          + ((() => { const on = switchAcctShown(); return on ? 'and it will run on ' + on + '.' : 'and it picks its own sign-in. To choose one yourself, close this first.'; })())
         : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
     go: 'Switch and restart',
     run: (say) => changeProviderNow(say),

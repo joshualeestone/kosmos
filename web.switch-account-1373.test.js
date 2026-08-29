@@ -90,6 +90,23 @@ test('#1373: a preselected option is NOT reported as a choice', () => {
    ⚠️ And the browser check cannot catch it either: it waits 1500ms after `goto`
    before choosing a provider, by which time ACCOUNTS is already populated, so the
    check stays green with this line deleted. That is why it is pinned here. */
+/* 🛑 THE PRIMARY TRIGGER WAS UNGUARDED, AND A REVIEWER MEASURED IT: deleting the
+   `fillSwitchAccounts()` call from the #d-provider change listener left all nine
+   tests green. That call is what makes the control appear when a person chooses
+   OpenAI, which is the ENTIRE feature. Only the browser check covered it, and
+   `tools/run-tests.sh` does not run browser checks.
+   ⚠️ The SECONDARY refill (inside paintAccountPicker) was pinned and the primary
+   one was not, which is the worse way round: the secondary only matters when the
+   accounts arrive late, the primary matters every single time. */
+test('#1373: choosing a provider refills the picker, which is what makes it appear', () => {
+  const at = PAGE.indexOf("getElementById('d-provider').addEventListener('change'");
+  assert.notEqual(at, -1, 'the provider change listener is gone, so this test measures nothing');
+  const end = PAGE.indexOf('\n});', at);
+  assert.notEqual(end, -1, 'could not find the end of the provider change listener');
+  assert.match(PAGE.slice(at, end), /fillSwitchAccounts\(\)/,
+    'choosing a provider no longer refills the picker, so the control never appears and the feature is inert');
+});
+
 test('#1373: the picker is refilled when the accounts actually arrive', () => {
   /* ⚠️ THE WINDOW HAS TO BE THE FUNCTION, NOT "ROUGHLY AFTER IT". The first version
      sliced to the next `\nlet `, which lands about 185 lines PAST the end of
