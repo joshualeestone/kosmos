@@ -134,6 +134,12 @@ const RED = 'needs_you';
    and an unknown word is skipped on read. Its count MUST be 0, and a non-zero
    means this tool is counting something other than what it says it is. */
 const IMPOSSIBLE = 'zzz_no_such_state';
+/* Self-guarding, because the justification above is "STATES is a closed list"
+   and the module is already required: assert it rather than assume it. If the
+   word were ever added to STATES the control would silently stop being one. */
+if (selfreport.STATES.includes(IMPOSSIBLE)) {
+  throw new Error('needs-you-source: IMPOSSIBLE (' + IMPOSSIBLE + ') is a real state, so the control is not a control');
+}
 
 /* 🔑 THE VERDICT DOES NOT REST ON THE SHARE, AND THAT IS DELIBERATE. Most of
    the record is `working` heartbeats -- printed as a proportion on every run,
@@ -273,6 +279,37 @@ function main() {
   const s = summarise(data.rows);
   const total = data.rows.length;
 
+  /* 🛑 EVERY GATE RUNS BEFORE ANY stdout. An earlier version printed the header
+     block first and then refused, so a caller redirecting stdout got a
+     TRUNCATED READING on a refusal, while this file's header promised "only a
+     real reading goes to stdout". The promise was false for two of the four
+     refusal paths and no arm caught it, because the shell test merges the
+     streams. Gates first, printing second: the promise is now structural. */
+  const live = hookPrefixIsLive(HOOK_SOURCE);
+  if (total === 0) {
+    console.error('The record exists and is EMPTY: 0 parseable reports.');
+    console.error('That is not an answer -- an empty record has no reds for the same reason it has');
+    console.error('no anything. Nothing below can be concluded. Check --dir, or AGENT_WORKFORCE_DATA.');
+    process.exitCode = 1;
+    return;
+  }
+
+  if (live === false) {
+    /* 🛑 REFUSE, DO NOT WARN AND CONTINUE. An earlier version printed "the
+       verdict cannot be trusted" and then printed the verdict anyway, exiting
+       0 -- which is the editorialising-past-your-own-data defect this file
+       names below, committed by the very line written to prevent it. A drifted
+       marker is a BROKEN INSTRUMENT, not a finding, and it gets the same
+       treatment as an empty record. */
+    console.error('🛑 MISMATCH: ' + HOOK_SOURCE + ' no longer contains "' + HOOK_PREFIX.trim() + '".');
+    console.error('   Every hook-written record would be counted as agent-typed, so the split and the');
+    console.error('   verdict would both be wrong. Nothing is printed. Update HOOK_PREFIX to match the hook.');
+    process.exitCode = 1;
+    return;
+    process.exitCode = 1;
+    return;
+  }
+
   console.log('SELF-REPORT RECORD   ' + dir);
   console.log('  agent files' + pad(data.files.length));
   console.log('  records' + pad(total));
@@ -288,13 +325,6 @@ function main() {
      factually the opposite. Refused for the same reason a missing directory
      is: "no reds found" and "no record found" are the same number and opposite
      facts, and only the first is evidence. */
-  if (total === 0) {
-    console.error('The record exists and is EMPTY: 0 parseable reports.');
-    console.error('That is not an answer -- an empty record has no reds for the same reason it has');
-    console.error('no anything. Nothing below can be concluded. Check --dir, or AGENT_WORKFORCE_DATA.');
-    process.exitCode = 1;
-    return;
-  }
 
   console.log('BY STATE');
   /* Ties broken by name so the control line is deterministic: on a small
@@ -313,21 +343,8 @@ function main() {
   console.log('  ' + pad(states[0][1]) + '  for scale, the most common state (' + states[0][0] + '), '
     + ((states[0][1] / total) * 100).toFixed(1) + '% of the record'
     + '  <- why the verdict does not rest on a share alone');
-  const live = hookPrefixIsLive(HOOK_SOURCE);
   if (live === true) {
     console.log('       ok  the hook still writes "' + HOOK_PREFIX.trim() + '" (checked in ' + path.relative(REPO, HOOK_SOURCE) + ')');
-  } else if (live === false) {
-    /* 🛑 REFUSE, DO NOT WARN AND CONTINUE. An earlier version printed "the
-       verdict cannot be trusted" and then printed the verdict anyway, exiting
-       0 -- which is the editorialising-past-your-own-data defect this file
-       names below, committed by the very line written to prevent it. A drifted
-       marker is a BROKEN INSTRUMENT, not a finding, and it gets the same
-       treatment as an empty record. */
-    console.error('🛑 MISMATCH: ' + HOOK_SOURCE + ' no longer contains "' + HOOK_PREFIX.trim() + '".');
-    console.error('   Every hook-written record would be counted as agent-typed, so the split and the');
-    console.error('   verdict would both be wrong. Nothing is printed. Update HOOK_PREFIX to match the hook.');
-    process.exitCode = 1;
-    return;
   } else {
     console.log('  ?  could not read ' + path.relative(REPO, HOOK_SOURCE) + ', so the marker is UNVERIFIED (not mismatched)');
   }
@@ -383,4 +400,7 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { HOOK_PREFIX, HOOK_SOURCE, FIXTURE_PREFIX, SHARE_CUTOFF, TYPERS_CUTOFF, hookWritten, isFixture, hookPrefixIsLive, summarise, readRecord };
+/* Only what the shell test drives. `summarise`, `readRecord`, `hookWritten`
+   and `isFixture` were exported and imported by nothing: a name nothing
+   consumes is a maintenance promise nobody asked for. */
+module.exports = { HOOK_PREFIX, HOOK_SOURCE, FIXTURE_PREFIX, SHARE_CUTOFF, TYPERS_CUTOFF, hookPrefixIsLive };

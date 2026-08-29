@@ -3565,9 +3565,13 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *                                     time rather than trusted.
  *           1  typed by a working agent, ever      <- the remainder, so every
  *                                     classification error above lands here.
- *      ⚠️ BOTH MARKERS ERR IN THE DIRECTION THAT FLATTERS THIS PARAGRAPH,
- *      which is the one direction a caveat must not be wrong in: anything
- *      over-broad moves a record OUT of agent-typed.
+ *      ⚠️ AN OVER-BROAD MARKER ERRS IN THE DIRECTION THAT FLATTERS THIS
+ *      PARAGRAPH, which is the one direction a caveat must not be wrong in:
+ *      it moves a record OUT of agent-typed. Scoped, because the opposite
+ *      error exists and an unqualified "both markers always" would be false:
+ *      a REWORDED hook moves records INTO agent-typed, which is what
+ *      `hookPrefixIsLive` refuses to be silent about, and an absent or
+ *      truncated `because` lands there too.
  *      🛑 AND THE WORST CASE DOES NOT SURVIVE, WHICH AN EARLIER VERSION OF
  *      THIS PARAGRAPH CLAIMED IT DID. Granting every hook record to its agent
  *      keeps the tool's SHARE cutoff comfortably and BREAKS its DISTINCT-AGENT
@@ -3580,8 +3584,7 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      command, which a person does not type by hand.
  *      ⇒ Most rules here arbitrate between two witnesses. This one arbitrates
  *      between a witness and, in practice, a silence. ("Most", not "every":
- *      rule 1 has a single witness by construction, and rule 6 arbitrates
- *      against a clock.) So anything
+ *      rule 1 has a single witness by construction.) So anything
  *      that narrows the classifier narrows the only path that produces the
  *      board's red state at all.
  *      🛑 AND AN EARLIER VERSION OF THIS PARAGRAPH BLAMED #1155 FOR THAT, WHICH
@@ -3590,15 +3593,31 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      marker set (`git show ca46bacf^:engine/status.js`), "May I merge the
  *      PR?" already classified `unknown`, with positive controls returning
  *      true. It classifies `unknown` today too. ⇒ The markers are a CLOSED
- *      VOCABULARY that never covered arbitrary prose, before or after; #1155
- *      removed four FALSE reds, and removing false positives does not narrow
- *      the legitimate red path at all. The narrowing this rule cares about is
- *      structural to the marker approach, not a regression anybody shipped.
+ *      VOCABULARY that never covered arbitrary prose, before or after, so the
+ *      prose case was never #1155's doing. #1155's measured effect on that
+ *      case is nil; its measured effect overall was removing four FALSE reds.
+ *      🛑 BUT DO NOT READ THAT AS "#1155 NARROWED NOTHING LEGITIMATE" -- AN
+ *      EARLIER VERSION OF THIS PARAGRAPH SAID EXACTLY THAT AND THIS FILE
+ *      CONTRADICTS IT AT LINE ~1191, IN ITS OWN MEASURED WORDS. #1155 also
+ *      introduced a real regression nobody tested for: an option-less prompt
+ *      ("Do you want to proceed?", the observed shape) classifies `idle` on
+ *      any pane narrower than the question, because the new rule needs the
+ *      marker to OPEN the line and the line to CLOSE at the question, and a
+ *      wrap breaks both. Before #1155 the same screen read `needs_you`. That
+ *      IS a legitimate red lost to #1155; it was latent rather than live, and
+ *      adding `-J` to the capture neutralised it.
+ *      ⇒ So: the prose case is structural to the marker approach and predates
+ *      #1155; the wrap case was #1155's and is fixed. Two corrections in
+ *      opposite directions, and I shipped each of them wrong once.
  *      📌 DO NOT TRUST THE NUMBERS IN THIS PARAGRAPH. RE-RUN THEM:
  *          node tools/needs-you-source.js
  *      It prints this exact split (the `1` above is its line labelled "typed
- *      by a working agent"), both controls, its own cutoffs, and the date of
- *      the newest agent-typed record. That date is 2026-08-24, and #1255
+ *      by a working agent"), its impossible-state control, its own cutoffs, a
+ *      scale line that is deliberately NOT called a control because it cannot
+ *      fail, and the date of
+ *      the newest record typed by a WORKING agent (the tool prints a second,
+ *      later date that includes the fixtures; this is not that one). That date
+ *      is 2026-08-24, and #1255
  *      shipped the instruction telling agents to report the state on
  *      2026-08-27 CDT -- so the only time a working agent ever used the verb
  *      was BEFORE anybody told it to, and nothing has been typed since.
@@ -3609,8 +3628,12 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *          0 of 17 carry `kosmos report needs_you`
  *          0 of 17 carry the Kosmos doctrine BLOCK at all (`kosmos:doctrine:`)
  *         17 of 17 match a common word    <- control, so the grep sees them
- *      ⇒ These agents have never received ANY doctrine block. No wording
- *      question arises for them, because no sync has ever written to them.
+ *      ⇒ These agents have never received the DOCTRINE block, so no wording
+ *      question arises for them. ⚠️ Not "no sync has ever written to them",
+ *      which an earlier version said and which is false: 17 of 17 carry
+ *      `kosmos:connections:` and 3 of 17 carry `kosmos:projects:`. Other
+ *      managed blocks reach these files; the doctrine span is the one that
+ *      does not, and it is the one carrying these verbs.
  *      ⚠️ THE HEADING-PLACEMENT STORY IS REAL AND EXPLAINS ONLY TWO FILES.
  *      `defaults.js`'s version log records that #1255 and #1292 both edited
  *      verb lines inside `### Telling people what is happening`, which

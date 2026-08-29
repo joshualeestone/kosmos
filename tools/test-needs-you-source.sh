@@ -283,6 +283,30 @@ case "$out" in
 esac
 [ "$rc" -eq 2 ] || bad "arm 7e: exited $rc, expected 2"
 
+# --- 🔑 ARM 11, AND IT IS THE ARM WHOSE ABSENCE LET A FALSE PROMISE SHIP.
+#     The tool header promises "only a real reading goes to stdout". Two of the
+#     four refusal paths printed a PARTIAL reading to stdout before exiting,
+#     and no arm noticed BECAUSE run() merges 2>&1 -- so every refusal arm
+#     would have passed identically either way. These assert the SPLIT.
+printf 'a hook that says something else\n' > "$T/reworded-hook.sh"
+so="$(node tools/needs-you-source.js --dir "$T/empty" 2>/dev/null | wc -l | tr -d ' ')"
+[ "$so" = "0" ] && ok "arm 11: an empty record prints NOTHING to stdout" \
+  || bad "arm 11: an empty record printed $so stdout lines before refusing"
+so="$(KOSMOS_HOOK_SOURCE="$T/reworded-hook.sh" node tools/needs-you-source.js --dir "$T/rare" 2>/dev/null | wc -l | tr -d ' ')"
+[ "$so" = "0" ] && ok "arm 11: a drifted marker prints NOTHING to stdout" \
+  || bad "arm 11: a drifted marker printed $so stdout lines before refusing"
+so="$(node tools/needs-you-source.js --dir "$T/does-not-exist" 2>/dev/null | wc -l | tr -d ' ')"
+[ "$so" = "0" ] && ok "arm 11: a missing record prints NOTHING to stdout" \
+  || bad "arm 11: a missing record printed $so stdout lines"
+so="$(node tools/needs-you-source.js --dirr x 2>/dev/null | wc -l | tr -d ' ')"
+[ "$so" = "0" ] && ok "arm 11: a bad argument prints NOTHING to stdout" \
+  || bad "arm 11: a bad argument printed $so stdout lines"
+# the other arm: a REAL reading must actually use stdout, or the four above
+# would pass on a tool that prints nothing at all.
+so="$(node tools/needs-you-source.js --dir "$T/rare" 2>/dev/null | wc -l | tr -d ' ')"
+[ "$so" -gt 10 ] && ok "arm 11: and a real reading DOES go to stdout ($so lines), so the four zeros mean something" \
+  || bad "arm 11: a real reading produced $so stdout lines -- the zeros above prove nothing"
+
 # --- 🔑 ARM 9: A DRIFTED MARKER REFUSES, IT DOES NOT WARN AND CARRY ON. The
 #     first version printed "the verdict cannot be trusted" and then printed
 #     the verdict anyway, exiting 0 -- the editorialising-past-your-own-data

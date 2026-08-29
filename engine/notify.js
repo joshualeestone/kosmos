@@ -32,8 +32,9 @@
  * (`reconcileReport` is where that verdict is given precedence over a report,
  * which is a different step), and the PermissionRequest hook, which does write
  * a self-report on an agent's behalf. Neither is an agent deciding it needs a
- * person. An agent HAS typed it once, ever, and the word "almost" is there
- * because of that one record: an absolute claim with a known counterexample
+ * person. A WORKING agent has typed it once, ever -- the word "working" is
+ * load-bearing, since the record also holds fourteen typed by two walkthrough
+ * fixtures -- and "almost" is there because of that one record: an absolute claim with a known counterexample
  * sitting in the split three files away would err in the direction that
  * flatters the argument, which is the one direction this changeset's own
  * standard forbids. They are also not
