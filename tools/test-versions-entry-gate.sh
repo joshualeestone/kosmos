@@ -30,6 +30,15 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 F="$T/versions.html"
 fails=0
 pass() { echo "PASS  $1"; }
+# 🛑 fail() IS DEFINED HERE, BESIDE pass(), AND THAT PLACEMENT IS THE FIX FOR A
+# LIVE DEFECT. It used to sit below the assert_defaults call, so that arm's else
+# branch died with `fail: command not found`, `fails` was never incremented, and
+# the suite printed "all arms behaved" and exited 0 with the arm unable to report
+# anything. ⚠️ The comment above that call claimed the problem was already fixed:
+# I had moved the call below pass() and not below fail(), then wrote that both
+# were now in scope. Verified by planting `= 5` -> `= 6` and watching it stay
+# green. A note saying a defect is fixed is not a check that it is.
+fail() { echo "FAIL  $1"; fails=$((fails+1)); }
 assert_defaults() {
   [ "$KOSMOS_STEP1_PAST_BOUND" = 5 ] && [ "$KOSMOS_LATE_PAST_BOUND" = 20 ] && [ "$KOSMOS_FUTURE_BOUND" = 20 ]
 }
@@ -46,7 +55,6 @@ assert_defaults() {
 # documented constants 5/20/20, so it fires if somebody changes them in the lib
 # without changing docs/releasing.md, which states those three numbers.
 if assert_defaults; then pass "the suite measures the code's defaults, not the ambient shell"; else fail "bounds came from the environment: step1=$KOSMOS_STEP1_PAST_BOUND late=$KOSMOS_LATE_PAST_BOUND future=$KOSMOS_FUTURE_BOUND"; fi
-fail() { echo "FAIL  $1"; fails=$((fails+1)); }
 has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 
 # $1 = minutes from now, positive = the past
@@ -204,7 +212,20 @@ if [ "$rc" -eq 1 ]; then pass "a non-integer FUTURE bound REFUSES (fail closed, 
 # INSIDE the +/-20 band and the control would have failed.
 entry "$(stamp_at 90)"
 out="$(kosmos_versions_entry_gate 0.6.06 "$F" "c." "h." abc 2>&1)"; rc=$?
-if [ "$rc" -eq 1 ] && has "$out" "not a whole number"; then pass "a non-integer past bound REFUSES (fail closed)"; else fail "FAIL-OPEN: bound 'abc' passed (rc=$rc): $out"; fi
+huge=99999999999999999999
+if [ "$rc" -eq 1 ] && has "$out" "refusing: the past-side bound"; then pass "a non-integer past bound REFUSES (fail closed)"; else fail "FAIL-OPEN: bound 'abc' passed (rc=$rc): $out"; fi
+
+# 🛑 AN ALL-DIGIT BOUND THAT IS NOT A USABLE NUMBER. This is the fourth instance
+# of the fail-open class and it lived INSIDE the validator written to end the
+# class: a character-set test asks whether the string LOOKS like a number, and
+# this one does. Measured before the fix: rc=0, "its timestamp agrees with the
+# clock", on a ten-hour-stale entry.
+out="$(kosmos_versions_entry_gate 0.6.06 "$F" "c." "h." "$huge" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "an all-digit but unusable past bound REFUSES"; else fail "FAIL-OPEN: 20-digit past bound passed (rc=$rc): $out"; fi
+out="$(KOSMOS_FUTURE_BOUND=$huge bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kosmos_versions_entry_gate 0.6.06 "'"$F"'" "c." "h." 20' 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "an all-digit but unusable FUTURE bound REFUSES"; else fail "FAIL-OPEN: 20-digit future bound passed (rc=$rc): $out"; fi
+out="$(kosmos_versions_entry_gate 0.6.06 "$F" "c." "h." " 20" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "CONTROL: a USABLE bound still refuses the stale entry, so the arms above are not refusing everything"; else fail "control: ' 20' should still refuse a stale entry (rc=$rc): $out"; fi
 out="$(kosmos_versions_entry_gate 0.6.06 "$F" "c." "h." "$KOSMOS_LATE_PAST_BOUND" 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ]; then pass "CONTROL: the same entry with a valid bound still refuses for staleness"; else fail "control: a 90-min-stale entry should refuse (rc=$rc): $out"; fi
 

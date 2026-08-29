@@ -228,7 +228,7 @@ git -C "$REPO" log --oneline -8 | cat
 # window: step 1 is stricter on the past side, because it can see that an
 # already-stale entry is doomed once the cut adds its own fifteen minutes.
 . "$REPO/tools/lib/versions-entry.sh"
-# 🛑 ITS OWN STEP LABEL, AND THAT IS NOT COSMETIC. `record_completion` writes
+# 🛑 ITS OWN STEP LABEL, AND THAT IS NOT COSMETIC. `cut_record_done` writes
 # `$_STEP` into ~/.claude/logs/cut-suite-runs.log, and that log is the ONLY
 # instrument that can count how a cut died. Left under step 1's banner, a
 # versions-entry refusal records as `step=_1._main,_clean,...`, which is

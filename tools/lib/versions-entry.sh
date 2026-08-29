@@ -42,8 +42,16 @@
 
 # 📌 The anchors in the header are grep patterns, not line numbers, on purpose: a
 # line number in a comment goes stale with the next edit and nothing notices.
-# This tree has a live example -- tools/browser-checks.sh says "release.sh:243
-# invokes this" and the invocation is at 357.
+# This tree has a live example: tools/browser-checks.sh carries a comment saying
+# "release.sh:243 invokes this from inside ( ... )", and the invocation is
+# nowhere near 243 on any branch.
+#
+# 📌 I first wrote "and the invocation is at 357". It was 370 here and 336 on
+# main, so my illustration of a stale line number was itself a stale line
+# number, inside the paragraph arguing against them. The figure is gone rather
+# than corrected: any number I write here needs maintaining, which is the whole
+# point being made. Run `grep -n browser-checks tools/release.sh` if you want
+# today`s value.
 kosmos_versions_entry_id() { echo "v$(echo "$1" | tr . -)"; }
 
 # 🛑 ONE VALIDATOR FOR EVERY BOUND, BECAUSE FIXING THIS PER-ARGUMENT FAILED TWICE.
@@ -64,11 +72,33 @@ kosmos_versions_entry_id() { echo "v$(echo "$1" | tr . -)"; }
 # gate compares against goes through here, and adding a fourth bound without
 # validating it is now the unusual thing to write rather than the default.
 kosmos_versions_entry_int_or_die() {
-  case "$2" in
-    ''|*[!0-9]*)
-      echo "   refusing: $1 is not a whole number of minutes: '$2'"
-      return 1 ;;
-  esac
+  # 🛑 AN ARITHMETIC PROBE, NOT A CHARACTER-CLASS TEST, AND THAT DISTINCTION IS
+  # THE FOURTH INSTANCE OF THIS BUG. The previous version tested
+  # `case "$2" in ''|*[!0-9]*)`, which asks whether the string LOOKS like a
+  # number. `99999999999999999999` looks like one and is not usable as one: it
+  # passed the validator, and then `[ "$off" -gt "$bound" ]` exited 2 exactly as
+  # `abc` did, both comparisons read false, and the gate returned 0 on a
+  # ten-hour-stale entry, printing "its timestamp agrees with the clock".
+  #
+  # ⚠️ SO THE VALIDATOR I WROTE TO END THIS CLASS CONTAINED THE CLASS. Three
+  # instances were the offset, the past bound and the future bound; this is the
+  # fourth, one layer up, in the thing that was supposed to make a fourth
+  # impossible. Generalising the FIX is not the same as generalising the TEST:
+  # I asked every bound the same question and the question was the wrong one.
+  #
+  # ✅ The probe asks the shell to USE the value the way the gate will, which is
+  # the only question that matters. Refuses '', abc, 1-5, -5 and the 20-digit
+  # value; accepts 20, 0 and 020.
+  # ⚠️ EMPTY IS CHECKED SEPARATELY BECAUSE THE PROBE IS SHELL-DEPENDENT ON IT.
+  # Measured: `[ "" -ge 0 ]` REFUSES under bash and ACCEPTS under zsh. release.sh
+  # is bash, so the probe alone would be correct there and wrong if this lib were
+  # ever sourced from a zsh context. A guard whose verdict depends on which shell
+  # is running is the same defect class as a check that depends on which node the
+  # runner shipped (kosmos#1462), and it costs one line to remove.
+  if [ -z "$2" ] || ! [ "$2" -ge 0 ] 2>/dev/null; then
+    echo "   refusing: $1 is not a usable whole number of minutes: '$2'"
+    return 1
+  fi
   return 0
 }
 
