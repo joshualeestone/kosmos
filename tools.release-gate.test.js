@@ -509,7 +509,7 @@ test('a stale versions entry also refuses at step 1, naming the drift', () => {
    and every stale fixture used 45 minutes, which refuses under either bound.
 
    12 minutes is the number that separates them: inside the late bound of 20,
-   outside the early bound of 5. So this arm is red the moment step 1 stops being
+   outside the early bound of 4. So this arm is red the moment step 1 stops being
    stricter, and it is the only thing in the tree that is. */
 test('an entry 12 minutes old is refused at step 1, which the LATE bound would allow', () => {
   const { dir, home, site } = git_sandbox('0.6.02');

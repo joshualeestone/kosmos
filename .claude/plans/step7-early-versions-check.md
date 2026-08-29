@@ -33,7 +33,7 @@ times that had not happened yet, so forward stamps are exactly what it catches, 
 future window makes a guess satisfiable again.
 
 The PAST side is NOT the same at both, and an earlier version of this plan said the window
-was symmetric throughout. Step 1 accepts 5 minutes, step 7 accepts 20, because an entry
+was symmetric throughout. Step 1 accepts 4 minutes, step 7 accepts 20, because an entry
 already fifteen minutes old passes a symmetric window at step 1 and then dies at step 7
 once the cut has added its own fifteen. Step 1 can see that it is doomed. Tightening the
 past is not the same move as loosening the future, and only one of them reopens a hole.

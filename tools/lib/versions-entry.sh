@@ -28,7 +28,7 @@
 # guess satisfiable again.
 #
 # 🛑 THE PAST SIDE IS **NOT** THE SAME AT BOTH, AND AN EARLIER VERSION OF THIS
-# HEADER SAID IT WAS. Step 1 accepts 5 minutes, step 7 accepts 20. The reasoning
+# HEADER SAID IT WAS. Step 1 accepts 4 minutes, step 7 accepts 20. The reasoning
 # is at the gate function below, which is where the numbers live. The REASONING
 # is also stated in release.sh beside the step 1 call and at length in
 # docs/releasing.md, because each has a different reader; the NUMBERS are only

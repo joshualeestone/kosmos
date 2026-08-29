@@ -14,7 +14,7 @@
 # its own copy and this sibling copy survived, unamended, sitting directly above
 # four arms that prove the asymmetry. ⇒ Correcting a stale claim WHERE YOU FOUND
 # IT is not the same as correcting it everywhere, and the second copy is the one
-# nobody re-reads. The window is 5 past / 20 future at step 1, 20 / 20 at step 7.
+# nobody re-reads. The window is 4 past / 20 future at step 1, 20 / 20 at step 7.
 set -u
 # 🛑 UNSET BEFORE SOURCING. Both bounds are env-overridable, and docs/releasing.md
 # now TELLS an operator to export them when a cut is running long. Step 3 of the
@@ -52,7 +52,7 @@ assert_defaults() {
 # first, so this always reads the post-unset values. What catches pollution is
 # measured -- removing that `unset` and exporting KOSMOS_STEP1_PAST_BOUND=30
 # turns the 12-minute arm and the bound-tighter arm red. This arm pins the
-# documented constants 5/20/20, so it fires if somebody changes them in the lib
+# documented constants 4/20/20, so it fires if somebody changes them in the lib
 # without changing docs/releasing.md, which states those three numbers.
 if assert_defaults; then pass "the suite measures the code's defaults, not the ambient shell"; else fail "bounds came from the environment: step1=$KOSMOS_STEP1_PAST_BOUND late=$KOSMOS_LATE_PAST_BOUND future=$KOSMOS_FUTURE_BOUND"; fi
 has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
@@ -204,7 +204,7 @@ entry "$fut"
 out="$(run)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "FUTURE"; then pass "CONTROL: a stamp 60 min ahead refuses with a valid future bound"; else fail "control: +60 should refuse (rc=$rc): $out"; fi
 out="$(KOSMOS_FUTURE_BOUND=abc bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kosmos_versions_entry_gate 0.6.06 "'"$F"'" "c." "h." 20' 2>&1)"; rc=$?
-if [ "$rc" -eq 1 ]; then pass "a non-integer FUTURE bound REFUSES (fail closed, on the axis the guard is for)"; else fail "FAIL-OPEN: future bound 'abc' let a +60min stamp through (rc=$rc): $out"; fi
+if [ "$rc" -eq 1 ] && has "$out" "future-side bound"; then pass "a non-integer FUTURE bound REFUSES (fail closed), and the message names the future-side bound rather than stamp staleness"; else fail "FAIL-OPEN or wrong reason: future bound 'abc' (rc=$rc): $out"; fi
 
 # --- a non-integer BOUND must refuse too, not just a non-integer offset ---
 # ⚠️ stamp_at, not a hard-coded date. The literal it replaced said "1:00 AM CDT"
@@ -223,8 +223,14 @@ if [ "$rc" -eq 1 ] && has "$out" "refusing: the past-side bound"; then pass "a n
 # clock", on a ten-hour-stale entry.
 out="$(kosmos_versions_entry_gate 0.6.06 "$F" "c." "h." "$huge" 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ]; then pass "an all-digit but unusable past bound REFUSES"; else fail "FAIL-OPEN: 20-digit past bound passed (rc=$rc): $out"; fi
+# ⚠️ 5c: a +60 fixture, NOT the 90-min-stale one above, so the ONLY thing that
+# can refuse is the future path -- then assert the message names the future-side
+# bound, or "refused for a bad bound" is indistinguishable from "refused because
+# the stamp is stale". Restore the stale fixture afterwards for the controls below.
+entry "$(stamp_at -60)"
 out="$(KOSMOS_FUTURE_BOUND=$huge bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kosmos_versions_entry_gate 0.6.06 "'"$F"'" "c." "h." 20' 2>&1)"; rc=$?
-if [ "$rc" -eq 1 ]; then pass "an all-digit but unusable FUTURE bound REFUSES"; else fail "FAIL-OPEN: 20-digit future bound passed (rc=$rc): $out"; fi
+if [ "$rc" -eq 1 ] && has "$out" "future-side bound"; then pass "an all-digit but unusable FUTURE bound REFUSES, naming the future-side bound"; else fail "FAIL-OPEN or wrong reason: 20-digit future bound (rc=$rc): $out"; fi
+entry "$(stamp_at 90)"
 out="$(kosmos_versions_entry_gate 0.6.06 "$F" "c." "h." " 20" 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ]; then pass "CONTROL: a USABLE bound still refuses the stale entry, so the arms above are not refusing everything"; else fail "control: ' 20' should still refuse a stale entry (rc=$rc): $out"; fi
 out="$(kosmos_versions_entry_gate 0.6.06 "$F" "c." "h." "$KOSMOS_LATE_PAST_BOUND" 2>&1)"; rc=$?
@@ -235,6 +241,27 @@ got="$(KOSMOS_LATE_PAST_BOUND=99 bash -c '. "'"$HERE"'/lib/versions-entry.sh"; e
 if [ "$got" = 99 ]; then pass "an exported bound survives sourcing (the runbook offers it as a knob)"; else fail "sourcing clobbered an exported bound: got '$got'"; fi
 got="$(bash -c '. "'"$HERE"'/lib/versions-entry.sh"; echo "$KOSMOS_LATE_PAST_BOUND"')"
 if [ "$got" = "$KOSMOS_LATE_PAST_BOUND" ]; then pass "CONTROL: with nothing exported it takes its default ($got)"; else fail "default bound wrong: '$got'"; fi
+
+
+# --- 5b: the OTHER TWO bounds are READ end-to-end, not just LATE ---
+# 🛑 docs/releasing.md tells an operator all THREE bounds are overridable knobs.
+# LATE is proven read by the four-arg arm below; these prove the same for FUTURE
+# and STEP1, so a mutation hardcoding either default -- the exact "fourth copy of
+# the bound" shape this file's header warns about -- cannot leave every arm green.
+# Each is behavioural: the exported value must FLIP a verdict, with a control that
+# shows the default gives the other verdict.
+# FUTURE: exporting 90 must let a +60 stamp PASS (the "+60 refuses with a valid
+# future bound" arm above is its control, at the default of 20).
+entry "$(stamp_at -60)"
+out="$(KOSMOS_FUTURE_BOUND=90 bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kosmos_versions_entry_gate 0.6.06 "'"$F"'" "c." "h." 20' 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "KOSMOS_FUTURE_BOUND is read end-to-end: exporting 90 lets a +60 stamp pass (a hardcoded 20 keeps this red)"; else fail "FUTURE bound not read end-to-end (rc=$rc): $out"; fi
+# STEP1: exporting 10 must let a 7-min-old entry pass at the early bound. The
+# default of 4 refuses it -- asserted first as the control.
+entry "$(stamp_at 7)"
+out="$(run_early)"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "CONTROL: a 7-min-old entry is refused under the default step 1 bound of 4"; else fail "control: a 7-min-old entry should refuse under bound 4 (rc=$rc): $out"; fi
+out="$(KOSMOS_STEP1_PAST_BOUND=10 bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kosmos_versions_entry_gate 0.6.06 "'"$F"'" "c." "h." "$KOSMOS_STEP1_PAST_BOUND"' 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "KOSMOS_STEP1_PAST_BOUND is read end-to-end: exporting 10 lets a 7-min-old entry pass (a hardcoded 4 keeps this red)"; else fail "STEP1 bound not read end-to-end (rc=$rc): $out"; fi
 
 
 # --- the FOUR-ARGUMENT call, i.e. the default branch of ${5:-...} ---
