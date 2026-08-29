@@ -73,8 +73,11 @@
  * plus a verbatim command -- which a person does not type by hand, and
  * `hookPrefixIsLive` guards the marker itself against drift. To judge that
  * shape you have to read the `because` strings in the record itself: this tool
- * never prints them, deliberately, so agent-authored text cannot land in its
- * output or a CI log. The per-agent table tells you WHO, not WHAT.
+ * never prints those, deliberately, so an agent's question or command line
+ * cannot land in its output or a CI log. ⚠️ Not "no agent-authored text at
+ * all" -- session NAMES are printed, in the per-agent table and the typers
+ * list, and an agent chooses its own name. The per-agent table tells you WHO,
+ * not WHAT, and WHO is the part that is printed.
  *
  * ⚠️ WHY A STRING MATCH AT ALL, AND WHY IT IS NOW A FALLBACK. kosmos#1453 was
  * that the record did not store WHO wrote a line: `report --auto` was a
@@ -317,6 +320,13 @@ function main() {
      refusal paths and no arm caught it, because the shell test merges the
      streams. Gates first, printing second: the promise is now structural. */
   const live = hookPrefixIsLive(HOOK_SOURCE);
+  /* 🛑 ZERO RECORDS IS A NON-RESULT, AND IT USED TO PRINT THIS TOOL'S
+     STRONGEST CONCLUSION. An empty-but-existing directory (a fresh machine, a
+     wrong --dir, AGENT_WORKFORCE_DATA pointed at a seeded test root) has no
+     reds, which is arithmetically the same as "agents never use the verb" and
+     factually the opposite. Refused for the same reason a missing directory
+     is: "no reds found" and "no record found" are the same number and opposite
+     facts, and only the first is evidence. */
   if (total === 0) {
     console.error('The record exists and is EMPTY: 0 parseable reports.');
     console.error('That is not an answer -- an empty record has no reds for the same reason it has');
@@ -363,13 +373,6 @@ function main() {
     + (data.unreadableFiles.length ? '   <- their records are in NO number below: ' + data.unreadableFiles.join(', ') : ''));
   console.log('');
 
-  /* 🛑 ZERO RECORDS IS A NON-RESULT, AND IT USED TO PRINT THIS TOOL'S
-     STRONGEST CONCLUSION. An empty-but-existing directory (a fresh machine, a
-     wrong --dir, AGENT_WORKFORCE_DATA pointed at a seeded test root) has no
-     reds, which is arithmetically the same as "agents never use the verb" and
-     factually the opposite. Refused for the same reason a missing directory
-     is: "no reds found" and "no record found" are the same number and opposite
-     facts, and only the first is evidence. */
 
   console.log('BY STATE');
   /* Ties broken by name so the control line is deterministic: on a small

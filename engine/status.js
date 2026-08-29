@@ -3674,7 +3674,9 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      managed blocks reach these files; the doctrine span is the one that
  *      does not, and it is the one carrying these verbs.
  *      ⚠️ THE HEADING-PLACEMENT STORY IS REAL AND EXPLAINS ONLY TWO FILES.
- *      `defaults.js`'s version log records that #1255 and #1292 both edited
+ *      `defaults.js`'s version log records its versions 4 and 5 (the cards, #1253
+ *      and #1272; the PRs are #1255 and #1292, which the log does not name) as
+ *      both editing
  *      verb lines inside `### Telling people what is happening`, which
  *      `missingFrom` will not re-offer to a file that already has that
  *      heading -- and exactly 2 of the 17 have it, as plain text, both

@@ -239,11 +239,15 @@ points at it and tells the reader not to trust its own numbers.
   Iteration 2 corrected "#1155 made prose questions invisible". My replacement
   said #1155 "removed four FALSE reds, and removing false positives does not
   narrow the legitimate red path at all". **This same file measures the
-  opposite at line ~1191:** an option-less prompt classifies `idle` on any pane
-  narrower than the question, where before #1155 it read `needs_you`. That IS a
-  legitimate red lost to #1155 - latent rather than live, and neutralised by
-  adding `-J`. Both corrections now stand, in opposite directions, and I
-  shipped each of them wrong once.
+  opposite at line ~1191:** on a wrapped pane an option-less prompt can
+  classify `idle`, where before #1155 it read `needs_you`. That IS a legitimate
+  red lost to #1155 - latent rather than live, and neutralised by adding `-J`.
+  Both corrections now stand, in opposite directions, and I shipped each of
+  them wrong once.
+  ⚠️ **SUPERSEDED IN PART AT ITERATION 8.** This entry originally said "on any
+  pane narrower than the question", quoting the neighbouring comment rather
+  than measuring it. That quantifier is false: the band is one width for this
+  prompt. See the iteration-8 entry.
 - 🛑 **"no sync has ever written to them" is false.** 17 of 17 worker files
   carry `kosmos:connections:` and 3 of 17 carry `kosmos:projects:`. The true
   claim is the narrower one: no DOCTRINE sync, the span that carries these
@@ -349,6 +353,40 @@ points at it and tells the reader not to trust its own numbers.
   'auto'` means MACHINE-WRITTEN, not specifically the permission hook - they
   coincide for `needs_you` today only because the hook is the sole `--auto`
   writer of that state.
+
+### Amended at iteration 10
+
+- 🛑 **THE SAME TWO SENTENCES LIVED IN THREE PLACES AND MY SWEEP FOUND TWO.**
+  Iteration 8 corrected them in `status.js` and recorded that the pre-existing
+  copy "is corrected too". A third copy sat in `engine/status.test.js:3529` and
+  `:3532` - and the second one is false about the very fixture built six lines
+  below it, which wraps at 20 columns, where pre-#1155 also reads NOT-RED.
+  **Third recurrence of one-fix-two-sites on this branch** (iterations 5, 6,
+  and now the sibling TEST file, which I had not thought to sweep at all).
+- **"this tool never prints agent-authored text" was broader than true.**
+  `because` strings are genuinely never printed, but session NAMES are, and an
+  agent chooses its own name. Scoped.
+- **An orphaned comment** explaining the empty-record refusal was left sitting
+  above `BY STATE` by the gates-before-stdout restructure, reading as though a
+  refusal happened there. Moved beside its gate.
+- **A citation that does not resolve for a reader who greps:** `defaults.js`'s
+  version log names CARDS (#1253, #1272), not the PRs (#1255, #1292) the
+  paragraph cited it for. Both are now named.
+
+### Found on origin/main, NOT fixed here, filed instead
+
+Iteration 10 also surfaced a live defect in freshly-merged #1457 work. It is
+not in this branch's own surface and folding a hook behaviour change into a
+comments-and-one-tool PR would land it under a proof file for a different
+change, so it is carded rather than fixed here. **kosmos#1466.**
+
+The short version: #1457's `--auto` sweep missed the SessionStart call (it sits
+inside a command substitution), so every machine-written `started` records as
+`by: 'agent'` - the exact miscount #1453 exists to remove. And the guard
+written to catch that has two patterns which SHARE a separator class, so they
+cannot disagree about a command-substitution call: CALL reads 6, LOOSE reads 6,
+and there are 7 call sites. Their agreement, which the file treats as proof of
+completeness, carries no information about the case that is actually missing.
 
 ## What this deliberately does NOT do
 

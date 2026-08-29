@@ -3525,11 +3525,26 @@ test('#1180: KNOWN GAP -- "reached your ... limit" still matches one piece of pr
  * `capturePane` now passes `-J`, which `engine/chat.js` and `engine/connect.js`
  * already asked for. Two measured consequences, in opposite directions:
  *
- * 1. **A regression #1155 introduced and nobody tested for.** An option-less
- *    prompt classified `idle` on any pane narrower than the question, because
- *    that rule needs the marker to OPEN the line and the line to CLOSE at the
- *    question. `idle` is BENIGN: the agent waits and the board says it is fine.
- *    Before #1155 the same screen read `needs_you`.
+ * 1. **A regression #1155 introduced and nobody tested for.** On a WRAPPED
+ *    pane an option-less prompt could classify `idle`, because that rule needs
+ *    the marker to OPEN the line and the line to CLOSE at the question, and a
+ *    wrap breaks both. `idle` is BENIGN: the agent waits and the board says it
+ *    is fine.
+ *    🛑 THIS PARAGRAPH USED TO SAY "on any pane narrower than the question"
+ *    AND "Before #1155 the same screen read `needs_you`". BOTH ARE FALSE, and
+ *    the second is false about the very fixture built below. Measured
+ *    2026-08-28 across every width from 6 to 79, both marker sets side by
+ *    side, control at 80 columns where they agree:
+ *        "Do you want to proceed?"      diverges at ONE width, 22
+ *        "Would you like to continue?"  diverges at widths 17-26
+ *    BELOW the divergence the marker phrase ITSELF is split, so neither
+ *    version matches and no red is lost -- including at the 20 columns the
+ *    test below uses, where pre-#1155 also reads NOT-RED. And the old rule was
+ *    a regex over a tail CONTAINING NEWLINES, so it did care where the rows
+ *    fell; it merely tolerated a wrap anywhere outside the marker phrase.
+ *    ⇒ The class is real and the quantifier was not. The same two sentences
+ *    were corrected in `status.js` at the same time; they lived in three
+ *    places and the first sweep found two.
  * 2. **Prose split across two rows joined into a false dead token** (#1241),
  *    because `authFailed` glued every row unconditionally. Its own comment said
  *    gluing "cannot manufacture an envelope out of prose that does not already
@@ -3548,7 +3563,7 @@ test('#1234: the capture asks for logical lines, not screen rows', () => {
     'capturePane dropped -J, so pane width is a hidden input to every rule again');
 });
 
-test('#1234: an option-less prompt is seen on a pane narrower than the question', () => {
+test('#1234: an option-less prompt is seen on a WRAPPED pane, which is what -J undoes', () => {
   const q = 'Do you want to proceed?';
   const wrapped = 'Worked for 2m 10s\n' + q.slice(0, 20) + '\n' + q.slice(20) + '\n';
   const joined = 'Worked for 2m 10s\n' + q + '\n';
