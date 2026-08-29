@@ -195,13 +195,10 @@ function checkFiles() {
  * ✅ Deleting a line from here is the only correct direction of travel.
  */
 const NOT_WIRED = {
-  'render-agent-lines.js': '#1303 A item 3, merged 2026-08-28. Never wired.',
   'render-conn-url.js': 'never wired.',
   'render-found-count.js': '#1346, merged 2026-08-28. Never wired.',
-  'render-long-title.js': '#1303 F, merged 2026-08-28. Never wired.',
   'render-openai-key-step.js': 'never wired.',
   'render-openai-step.js': 'never wired.',
-  'render-project-rows.js': '#1303 E, merged 2026-08-28. Never wired.',
   'render-sleep-button.js': 'never wired.',
   'render-special-purpose.js': 'never wired.',
 };
