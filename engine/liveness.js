@@ -32,13 +32,31 @@ const store = require('./store');
 const DIR = path.join(store.ROOT, 'liveness');
 const FILE_MODE = 0o600;
 
-/* Three heartbeats of grace at the supervisor's ten-second loop.
+/* Three heartbeats of grace at the BEATER'S OWN CADENCE.
    ⚠️ NOT A GUESS AT "how long is an agent allowed to be quiet" -- that is the
    STATE question and it is not asked here. This is only "how long after a
    process dies should we still believe its last heartbeat", so it is bounded
    by the beat interval rather than by anything about the agent's work. A
-   single missed beat is a slow disk; three is gone. */
-const STALE_AFTER_MS = 35 * 1000;
+   single missed beat is a slow disk; three is gone.
+
+   🛑 THIS WAS 35s, AND ITS PREMISE WAS WRONG. I wrote "three heartbeats at the
+   supervisor's ten-second loop", and `bin/agent-supervisor.sh` never beat --
+   it has zero liveness references, in the repo and in the installed copy.
+   ⭐ AND IT COULD NOT HAVE BEEN THE BEATER EVEN IF IT DID: the supervisor runs
+   per tmux session, and `status.panelessKeys` skips every key that HAS a pane.
+   A supervisor beat would only ever have covered agents that were already
+   listed. The number was derived from a loop that was both absent and wrong.
+
+   ✅ THE REAL BEATER IS THE REPORT ROUTE, so the window is bound to the
+   REPORTER's cadence: `install/kosmos-report-hook.sh` throttles its working
+   heartbeat to one report per 60s, and three of those is 180s.
+
+   ⚠️ WHAT THIS HONESTLY DOES NOT COVER, so nobody reads it as more: an agent
+   that reports `idle` and then genuinely says nothing sends no beat, and goes
+   stale. That is correct for a process that has died and wrong for one that is
+   sitting quietly, and NOTHING HERE CAN TELL THOSE APART. A real beat loop in
+   the runner is what closes it, and a Windows runner has to have one anyway. */
+const STALE_AFTER_MS = 180 * 1000;
 
 function fileFor(sessionName) {
   return path.join(DIR, store.safeKey(sessionName) + '.json');

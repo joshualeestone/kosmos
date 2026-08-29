@@ -49,12 +49,20 @@ test('alive is true inside the window and false outside it', () => {
   assert.equal(liveness.alive('agent-two'), false, 'a ten-minute-old beat still reads as alive');
 });
 
-test('a caller may set its own window, and the default is three beats of the supervisor loop', () => {
+test('a caller may set its own window, and the default is three of the REPORTER\'s beats', () => {
   liveness.seen('agent-three', new Date(Date.now() - 20 * 1000).toISOString());
-  assert.equal(liveness.alive('agent-three'), true, '20s should be inside the 35s default');
+  assert.equal(liveness.alive('agent-three'), true, '20s should be inside the default window');
   assert.equal(liveness.alive('agent-three', 5 * 1000), false, 'a caller-supplied 5s window was ignored');
-  assert.equal(liveness.STALE_AFTER_MS, 35 * 1000,
-    'the default moved; it is three beats of agent-supervisor.sh\'s 10s loop, so a single slow disk is not death');
+  /* 🛑 THIS ASSERTED 35s AND NAMED THE WRONG BEATER, verbatim: "three beats of
+     agent-supervisor.sh's 10s loop". The supervisor never beat -- zero liveness
+     references in the repo copy and in the installed one -- and could not have
+     been the beater anyway, because it runs per tmux session and
+     status.panelessKeys skips every key that HAS a pane. The number was derived
+     from a loop that was both absent and wrong for the job (#1502).
+     ✅ The real beater is /api/report, and install/kosmos-report-hook.sh
+     throttles its working heartbeat to one report per 60s. Three of those. */
+  assert.equal(liveness.STALE_AFTER_MS, 180 * 1000,
+    'the default moved; it is three of the report hook\'s 60s heartbeats, so a single slow beat is not death');
 });
 
 test('a refusal is returned, never thrown -- the caller is a route', () => {
