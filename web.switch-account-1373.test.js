@@ -78,7 +78,7 @@ test('#1373: a preselected option is NOT reported as a choice', () => {
      Conflating them was a WRONG-ACCOUNT bug: re-selecting the option a <select>
      already holds fires no `change`, and with one account it can never fire, so
      requiring the flag meant the visible row was not the row sent. */
-  /* 🔑 LOOSENED ONTO THE AXIS NOTHING DEPENDS ON (challenge-loop iteration 13). The
+  /* 🔑 LOOSENED ONTO THE AXIS NOTHING DEPENDS ON. The
      rule is stated 15 lines above and was then broken here: re-pinning an exact
      spelling re-arms the trap that comment had just warned about. What must hold is the PROPERTY, in two halves,
      and the second half was never asserted at all:
@@ -163,7 +163,7 @@ test('#1373: the page-to-route key is pinned on BOTH sides, so a rename cannot p
   /* 📌 KEY NAMES STAY TIGHT, EXPRESSIONS DO NOT. This test's job is that a RENAME
      cannot pass, so `accountDir`, `body.account`, `pickedByPerson` and `body.picked`
      remain pinned verbatim. The ternary around them is incidental and was pinned only
-     because it happened to be there (iteration 13). */
+     because it happened to be there. */
   assert.match(SERVER, /accountDir:[\s\S]{0,80}?body\.account/,
     'server.js no longer reads body.account into accountDir, so the page sends a key the route ignores');
   assert.match(SERVER, /pickedByPerson:[\s\S]{0,60}?body\.picked === true/,
@@ -174,7 +174,7 @@ test('#1373: the page-to-route key is pinned on BOTH sides, so a rename cannot p
     'the page no longer sends `picked`, so the route can never learn a person chose');
 });
 
-/* 🛑 FOUR FIXES THAT SHIPPED WITH NOTHING GUARDING THEM (challenge-loop iteration 14).
+/* 🛑 FOUR FIXES THAT SHIPPED WITH NOTHING GUARDING THEM.
    Each was added deliberately, each is explained by a comment where it lives, and each
    reverts GREEN. Swept with a working control: `SWITCH_ACCT_TOUCHED` is pinned in this
    file, `ACCOUNTS_UNREADABLE` was pinned nowhere.
@@ -194,15 +194,15 @@ test('#1373: the four fail-quiet fixes are pinned, because each one reverts gree
     'nothing tells the person the sign-in list could not be read, so the picker just silently is not there');
   /* 3. THE REFUSAL'S REMEDY POINTS AT THE LIST. If the stale list survives the failure,
      "pick one from the list and try again" re-offers the dead row every time. */
-  /* ⭐ LOOSENED ONTO THE PROPERTY AFTER IT CAUGHT ME (challenge-loop iteration 16). This
+  /* ⭐ LOOSENED ONTO THE PROPERTY AFTER IT CAUGHT ME. This
      pinned `ACCOUNTS = []` immediately followed by the repaint, and went red when
-     iteration 16 inserted `ACCOUNTS_LOADED = false` between them. The guard was RIGHT to
+     an earlier pass inserted `ACCOUNTS_LOADED = false` between them. The guard was RIGHT to
      fire, and the spelling was the wrong axis to pin: what matters is that the cache is
      dropped and then refilled, not that the two lines are adjacent. */
   assert.match(PAGE, /accountsDropped\(\);[\s\S]{0,120}?await paintAccountPicker\(CURRENT\);/,
     'a failed switch keeps the stale account list, so the remedy the refusal names re-offers the row that just failed');
   /* 🛑 AND BOTH EMPTYING SITES MUST MARK IT UNREAD, NOT JUST ONE. Iteration 15 fixed the
-     move path; iteration 16 found the failed-switch catch dropping the cache while leaving
+     move path; an earlier pass found the failed-switch catch dropping the cache while leaving
      `ACCOUNTS_LOADED` true, which resurrects the false zero-account sentence whenever the
      repaint's own fetch also fails. Counted rather than matched, because a single-site
      assertion is exactly what missed it the first time. */
@@ -232,7 +232,7 @@ test('#1373: the four fail-quiet fixes are pinned, because each one reverts gree
 });
 
 /* 🛑 THE ZERO-ACCOUNT SENTENCE NEEDS AN AUTHORITATIVE LIST, NOT MERELY AN EMPTY ONE
-   (challenge-loop iteration 15). The arm added in iteration 14 read the page-side cache
+  . The arm added in an earlier pass read the page-side cache
    directly, and `moveAccountNow` deliberately empties that cache on a successful move
    while the open panel never repaints. Reachable in one panel: move an account, then
    choose OpenAI. The cache is empty, the SERVER list is untouched, so the dialog said
@@ -249,7 +249,7 @@ test('#1373: the zero-account claim requires a list we actually read, and the mo
     'the move empties the account cache without marking it unread and refilling it, so the switch picker silently vanishes for the life of the open panel');
 });
 
-/* 🛑 A PICK THE DIALOG CANNOT NAME IS STILL A PICK (challenge-loop iteration 16).
+/* 🛑 A PICK THE DIALOG CANNOT NAME IS STILL A PICK.
    `switchAcctShown()` returns '' for an account whose only label is a filesystem path,
    which was indistinguishable from NOT PICKED, so a real pick fell through to the hedged
    arms and was told the switch might land elsewhere. ⚠️ That hedge is FALSE for a pick,
