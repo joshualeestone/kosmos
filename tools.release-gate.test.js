@@ -348,7 +348,13 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true } = {}) {
        the site checkout always has a versions.html, carrying every PRIOR release.
        Deleting the file instead tests a different branch ("cannot read") and would
        leave the ordinary case -- the one every failed cut actually hit -- untested. */
-    fs.writeFileSync(path.join(site, 'versions.html'), versions_entry('0.6.02', staleBy));
+    /* ⚠️ Derived from the version under test rather than hard-coded. It used to
+       be a literal '0.6.02', which differs from the cut version only because
+       every arm happens to cut 0.6.03. An arm added later that cut 0.6.02 would
+       silently turn this "no entry" fixture into a VALID entry, and the arm
+       would pass for the wrong reason. */
+    const other = version === '0.6.02' ? '0.6.01' : '0.6.02';
+    fs.writeFileSync(path.join(site, 'versions.html'), versions_entry(other, staleBy));
   }
   const before = fs.readFileSync(path.join(dir, 'package.json'), 'utf8');
   const r = spawnSync('bash', [path.join(dir, 'tools', 'release.sh'), version], {

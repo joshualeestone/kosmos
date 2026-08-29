@@ -124,7 +124,7 @@ a different problem.
 
    | gate | accepts in the PAST | accepts in the FUTURE |
    |---|---|---|
-   | step 1, before anything is built | **5 minutes** | 20 minutes |
+   | step 1, before anything is built | **4 minutes** | 20 minutes |
    | step 7, at the moment of deploy   | 20 minutes     | 20 minutes |
 
    The entry is written once, by hand, so every failed attempt ages it; attempt
@@ -173,7 +173,7 @@ a different problem.
    wall, another machine. So the fix is usually to re-stamp from `date` on the
    cutting machine, not to correct the machine.
 
-   ⚠️ It bites harder than it used to because the past side is now 5 minutes
+   ⚠️ It bites harder than it used to because the past side is now 4 minutes
    rather than 20, so a four-minute difference between two clocks that never
    mattered before can refuse you. Related and separately carded as **#1464**: the
    gate parses the stamp in the machine's local timezone while the page hard-codes
@@ -181,7 +181,7 @@ a different problem.
    measuring something different again.
 
    ⚠️ **The tighter bound also refuses some entries step 7 would have accepted.**
-   The 5 is derived from a cut taking about fifteen minutes; on a fast cut
+   The 4 is derived from a cut taking about fifteen minutes: an entry any older reaches step 7 over the 20-minute line; on a fast cut
    (`D = 8`) an entry ten minutes old would have reached step 7 reading 18 and
    passed, and step 1 refuses it at 10. That is deliberate and it costs one
    re-stamp and three seconds, but it is a real false refusal and you should

@@ -111,6 +111,15 @@ kosmos_versions_entry_norm_or_die() {
   v="${v#+}"
   case "$v" in
     ''|*[!0-9]*)
+      # 🛑 STDERR, AND NOT stdout, AND THIS IS NOT AN INCONSISTENCY.
+      # THIS FUNCTION'S STDOUT IS ITS RETURN CHANNEL: the caller does
+      # `past_bound="$(kosmos_versions_entry_norm_or_die ...)"`. A refusal
+      # printed to stdout is CAPTURED AS THE VALUE. Measured, after a reviewer
+      # reasonably suggested making it consistent with the gate's other
+      # refusals and I tried it: the caller came back with
+      # `captured=[   refusing: b is not a usable...]` and the shell suite went
+      # red. The other refusals print to stdout because they are only messages;
+      # this one returns something.
       echo "   refusing: $1 is not a usable whole number of minutes: '$raw'" >&2
       echo "   ${3:-}" >&2
       return 1 ;;
@@ -236,8 +245,14 @@ kosmos_versions_entry_stamp_off() {
 # is DOOMED; step 7 only has to judge the entry in front of it. The arithmetic:
 # an entry `P` minutes old at step 1 arrives at step 7 reading `P + D`, so it
 # survives only while `P + D <= 20`. With D measured at 15m46s on the 0.6.06
-# attempt, P must be about 4 or less. STEP1_PAST_BOUND is 5, which is that number
-# with the rounding in the operator's favour.
+# attempt, P must be 4 or less.
+#
+# 📌 IT WAS 5, "rounded in the operator's favour", AND THAT ROUNDING BROKE THE
+# GUARANTEE THE PARAGRAPH ABOVE MAKES. At exactly P=5 with D=15.8 the entry
+# passes step 1 and then reads 20.8 at step 7 and dies -- the precise failure
+# this asymmetry exists to prevent, surviving in a one-minute band. "Step 1 can
+# see that it is doomed" is only true at 4. Rounding in the operator's favour is
+# the wrong direction for a bound whose whole job is to refuse early.
 #
 # ⚠️ THE FUTURE SIDE STAYS AT 20 AT BOTH CALL SITES AND IS NOT WIDENED. A forward
 # stamp is what the guard was built to catch: on 2026-08-21 the four newest
@@ -248,8 +263,10 @@ kosmos_versions_entry_stamp_off() {
 # operator stuck against the D > 40 ceiling that one option is to widen
 # KOSMOS_LATE_PAST_BOUND, which reads as a knob -- and a bare assignment silently
 # clobbered it, so the refusal came back unchanged with nothing on screen to
-# explain why. Measured: KOSMOS_LATE_PAST_BOUND=99 . versions-entry.sh -> 20.
-KOSMOS_STEP1_PAST_BOUND="${KOSMOS_STEP1_PAST_BOUND:-5}"
+# explain why. BEFORE THE FIX: KOSMOS_LATE_PAST_BOUND=99 sourced as 20. Today it
+# is 99, asserted in the shell suite. (Written in the present tense at first,
+# directly above the line that fixed it, which reads as the current behaviour.)
+KOSMOS_STEP1_PAST_BOUND="${KOSMOS_STEP1_PAST_BOUND:-4}"
 KOSMOS_LATE_PAST_BOUND="${KOSMOS_LATE_PAST_BOUND:-20}"
 KOSMOS_FUTURE_BOUND="${KOSMOS_FUTURE_BOUND:-20}"
 
@@ -383,7 +400,8 @@ kosmos_versions_entry_gate() {
   if [ $((off + future_bound)) -lt 0 ]; then
     echo "   the entry for $v is stamped: $stamp"
     echo "   the clock says:              $now"
-    echo "   that is ${off#-} minutes in the FUTURE, which no cut can reach. A stamp"
+    echo "   that is ${off#-} minutes in the FUTURE, and this gate allows $future_bound."
+    echo "   No cut can reach it. A stamp"
     echo "   this far ahead is a guess, and a guess is what this gate exists to refuse."
     echo "   $stamp_fix $cost"
     return 1

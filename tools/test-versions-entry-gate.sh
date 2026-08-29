@@ -40,7 +40,7 @@ pass() { echo "PASS  $1"; }
 # green. A note saying a defect is fixed is not a check that it is.
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
 assert_defaults() {
-  [ "$KOSMOS_STEP1_PAST_BOUND" = 5 ] && [ "$KOSMOS_LATE_PAST_BOUND" = 20 ] && [ "$KOSMOS_FUTURE_BOUND" = 20 ]
+  [ "$KOSMOS_STEP1_PAST_BOUND" = 4 ] && [ "$KOSMOS_LATE_PAST_BOUND" = 20 ] && [ "$KOSMOS_FUTURE_BOUND" = 20 ]
 }
 # ⚠️ Called HERE, after pass/fail exist. Placed above them it produced
 # `command not found` for BOTH branches, incremented nothing, and printed
@@ -326,6 +326,36 @@ if [ "$rc" -eq 0 ]; then pass "CONTROL: an offset of 08 means EIGHT and passes a
 # --- the magnitude boundary itself, which only a 20-digit value exercised ---
 if kosmos_versions_entry_norm_or_die "b" 999999999 "" >/dev/null 2>&1; then pass "9 digits is accepted (the boundary, from below)"; else fail "9 digits should be accepted"; fi
 if kosmos_versions_entry_norm_or_die "b" 1000000000 "" >/dev/null 2>&1; then fail "10 digits should be refused (the boundary, from above)"; else pass "10 digits is refused (the boundary, from above)"; fi
+
+
+# --- THE 1b STEP LABEL, which had a long rationale and no arm ---
+# 🛑 That label is the only thing giving a step 1 versions refusal its own bucket in
+# cut-suite-runs.log, and the comment above it argues the measurement that justified this
+# whole change depends on it. Deleting the line left BOTH suites fully green: a removed
+# label looks exactly like one that was never there, and the failures just blend into
+# step 1's bucket. Every other rationale on this branch is pinned by an arm; this was the
+# one that was not.
+n="$(grep -c 'step "== 1b' "$HERE/release.sh")"
+if [ "$n" -eq 1 ]; then pass "the 1b step label exists, so step 1 refusals stay countable"; else fail "the 1b label is missing or duplicated (found $n); step 1 versions refusals would blend into step 1's bucket"; fi
+lbl="$(grep -n 'step "== 1b' "$HERE/release.sh" | head -1 | cut -d: -f1)"
+div="$(grep -n 'local main has commits' "$HERE/release.sh" | head -1 | cut -d: -f1)"
+call="$(grep -n '^kosmos_versions_entry_gate ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
+if [ -n "$lbl" ] && [ -n "$div" ] && [ -n "$call" ] && [ "$lbl" -gt "$div" ] && [ "$lbl" -lt "$call" ]; then
+  pass "and it sits after the divergence guard and before the gate call ($div < $lbl < $call)"
+else fail "the 1b label is misplaced (divergence=$div label=$lbl call=$call)"; fi
+
+
+# --- THE BOUND IS 4 AND NOT 5, AND THIS ARM IS WHY ---
+# 🛑 At D=15.8 an entry 5 minutes old passes a bound of 5 and then reads 20.8 at
+# step 7 and dies. The guarantee the design claims -- "step 1 can see that it is
+# doomed" -- holds at 4 and not at 5. It was 5, "rounded in the operator's
+# favour", and that rounding broke the guarantee in a one-minute band.
+entry "$(stamp_at 5)"
+out="$(run_early_bound "$KOSMOS_STEP1_PAST_BOUND")"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "a 5-minute-old entry is refused early (it would die at step 7)"; else fail "a 5-min-old entry passed step 1 and will die at step 7 (rc=$rc): $out"; fi
+entry "$(stamp_at 3)"
+out="$(run_early_bound "$KOSMOS_STEP1_PAST_BOUND")"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "CONTROL: a 3-minute-old entry still passes, so the bound is not refusing everything"; else fail "over-refusal: 3 min old was rejected (rc=$rc): $out"; fi
 
 # --- the two call sites give DIFFERENT stamp advice, and early must not say "now" ---
 # 🛑 THE ARM THAT PINS THE ACTUAL BUG: telling the operator at step 1 to stamp NOW
