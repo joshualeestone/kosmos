@@ -25,10 +25,9 @@
  *   'replied'  an agent answered in the person's own thread with it
  * 'needs_you' is the next one and needs the state transition, not a write;
  * it is named here so the payload's `kind` is a closed list from the start.
- * ⚠️ THAT SENTENCE IS NOW HISTORICAL: the transition shipped, and this kind
- * fires from `/api/report`. See below for what it actually carries.
+ * ⚠️ THAT SENTENCE IS HISTORICAL. See immediately below.
  *
- * 🛑 AND THE LINE ABOVE IS STALE: THE TRANSITION SHIPPED. `server.js` fires
+ * 🛑 THE TRANSITION SHIPPED, SO THE LINE ABOVE IS STALE. `server.js` fires
  * this kind from `/api/report` once a `needs_you` report is recorded, pinned by
  * `server.test.js`'s "a reported needs_you reaches the phone seam in the same
  * word, with zero translation". So it is not waiting on anything.
