@@ -92,8 +92,28 @@ resolve_kosmos() {
   #
   # These fallbacks are location-INDEPENDENT and deliberately ordered last, so a
   # real installed or source layout still wins and this changes nothing for them.
-  if [ -x "$HOME/.local/bin/kosmos" ]; then printf '%s' "$HOME/.local/bin/kosmos"; return; fi
-  if command -v kosmos >/dev/null 2>&1; then printf 'kosmos'; return; fi
+  # 🛑 THESE TWO RUNGS PROBE FOR THE VERB, THE $HERE RUNGS DO NOT, AND THAT
+  # ASYMMETRY IS THE POINT. A $HERE rung found the CLI by its RELATIONSHIP to
+  # this file, so it is the right binary by construction. These two are GUESSES
+  # at a conventional location, and on this very machine the guess is wrong:
+  # ~/.local/bin/kosmos is a bundle from before the verb existed. Returning it
+  # SHADOWS a working `kosmos` on PATH and turns reporting off for a session
+  # that could have had it. Card #561 asked for exactly this: resolve a binary
+  # VERIFIED to speak `report`, never one that merely exists.
+  #
+  # The probe is the same test the SessionStart guard below uses, for the same
+  # reason: a CLI from before the verb answers its generic list, and grepping
+  # the word survives exit codes being equal. THEY ARE. Both exit 2, measured.
+  #
+  # ⚠️ Cost is bounded to the case where we are guessing: a real installed or
+  # source layout returns above and never reaches these lines, so no properly
+  # deployed machine pays a subprocess on its hot path.
+  speaks_report() { [ -x "$1" ] || command -v "$1" >/dev/null 2>&1 || return 1
+                    "$1" report 2>&1 | grep -q needs_you; }
+  if [ -x "$HOME/.local/bin/kosmos" ] && speaks_report "$HOME/.local/bin/kosmos"; then
+    printf '%s' "$HOME/.local/bin/kosmos"; return
+  fi
+  if command -v kosmos >/dev/null 2>&1 && speaks_report kosmos; then printf 'kosmos'; return; fi
   # ⚠️ Still empty rather than a guess. The caller refuses on an empty resolve,
   # which is the honest outcome; inventing a path would fail further from here.
   printf ''

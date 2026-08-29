@@ -92,29 +92,62 @@ fi
 # nothing to do with the code.
 mkdir -p "$T/C/hooks/user"
 
-# C1: a deployed copy finds the installer's link target.
-mkdir -p "$T/fakehome/.local/bin"
-printf '#!/bin/sh\n' > "$T/fakehome/.local/bin/kosmos"; chmod +x "$T/fakehome/.local/bin/kosmos"
+# The fallback rungs PROBE for the verb (#561), so a fixture CLI must actually
+# answer `report` with a usage line containing needs_you. A stub that merely
+# exists is what the real ~/.local/bin/kosmos on this machine is, and it is
+# exactly what must NOT be chosen.
+mk_cli() {  # mk_cli <path> <capable|stale>
+  mkdir -p "$(dirname "$1")"
+  if [ "$2" = capable ]; then
+    printf '#!/bin/sh\necho "usage: kosmos report started|working|idle|needs_you|blocked|stopped"\n' > "$1"
+  else
+    printf '#!/bin/sh\necho "usage: kosmos start|stop|status|version"\nexit 2\n' > "$1"
+  fi
+  chmod +x "$1"
+}
+
+# C1: a CAPABLE CLI at the installer's link target is chosen.
+mk_cli "$T/fakehome/.local/bin/kosmos" capable
 got="$(HOME="$T/fakehome" PATH=/usr/bin:/bin resolve "$T/C/hooks/user")"
 [ "$got" = "$T/fakehome/.local/bin/kosmos" ] \
-  && ok "deployed-elsewhere now RESOLVES via ~/.local/bin (the #1467 fix)" \
+  && ok "deployed-elsewhere resolves a CAPABLE ~/.local/bin CLI (#1467)" \
   || bad "deployed-elsewhere returned '$got', expected $T/fakehome/.local/bin/kosmos"
 
-# C2: with the link target absent, PATH is the next rung.
-mkdir -p "$T/fakepath"
-printf '#!/bin/sh\n' > "$T/fakepath/kosmos"; chmod +x "$T/fakepath/kosmos"
-got="$(HOME="$T/emptyhome" PATH="$T/fakepath:/usr/bin:/bin" resolve "$T/C/hooks/user")"
+# C1b: 🛑 THE REGRESSION THIS ARM EXISTS FOR. A STALE bundle at that same path
+# must be SKIPPED so a capable CLI on PATH still wins. Before #561's probe the
+# stale one was returned and shadowed the working one, turning reporting off for
+# a session that could have had it. This is the real state of this machine.
+mk_cli "$T/stalehome/.local/bin/kosmos" stale
+mk_cli "$T/goodpath/kosmos" capable
+got="$(HOME="$T/stalehome" PATH="$T/goodpath:/usr/bin:/bin" resolve "$T/C/hooks/user")"
 [ "$got" = "kosmos" ] \
-  && ok "deployed-elsewhere falls back to PATH when the link target is absent" \
+  && ok "a STALE ~/.local/bin CLI is skipped so a capable PATH CLI wins (#561)" \
+  || bad "stale link target was not skipped: returned '$got', expected the bare word kosmos"
+
+# C2: capable CLI on PATH only.
+got="$(HOME="$T/emptyhome" PATH="$T/goodpath:/usr/bin:/bin" resolve "$T/C/hooks/user")"
+[ "$got" = "kosmos" ] \
+  && ok "deployed-elsewhere falls back to a capable PATH CLI" \
   || bad "PATH fallback returned '$got', expected the bare word kosmos"
 
-# C3: CONTROL, and the important one. With NOTHING available it must still be
-# EMPTY rather than a guess -- a wrong path fails further from here, where the
-# reader cannot connect it to this decision.
-got="$(HOME="$T/emptyhome" PATH="$T/nothing" resolve "$T/C/hooks/user")"
+# C3: CONTROL. Nothing available at all must still be EMPTY, not a guess.
+# 🛑 /usr/bin:/bin STAYS ON PATH IN EVERY ARM, and that is not cosmetic. An
+# earlier version set PATH to the fixture dir alone, which meant `bash` itself
+# was not findable, so `resolve` returned empty because it could not RUN, and
+# this control passed for a reason that had nothing to do with the resolver.
+# The absence being tested is "no kosmos", not "no shell".
+got="$(HOME="$T/emptyhome" PATH="$T/nothing:/usr/bin:/bin" resolve "$T/C/hooks/user")"
 [ -z "$got" ] \
-  && ok "CONTROL: with no CLI anywhere it still refuses rather than inventing a path" \
+  && ok "CONTROL: with no CLI anywhere it refuses rather than inventing a path" \
   || bad "CONTROL FAILED: returned '$got' when nothing should have been findable"
+
+# C4: CONTROL, and the one that proves the probe is not just always-false.
+# Every candidate present but STALE must yield EMPTY, never a resolve.
+mk_cli "$T/stalepath/kosmos" stale
+got="$(HOME="$T/stalehome" PATH="$T/stalepath:/usr/bin:/bin" resolve "$T/C/hooks/user")"
+[ -z "$got" ] \
+  && ok "CONTROL: candidates that exist but cannot report are all refused" \
+  || bad "CONTROL FAILED: returned a CLI that cannot report: '$got'"
 
 # --- layout D: the env override, rung 1 --------------------------------------
 got="$(KOSMOS_REPORT_CLI=/tmp/some-cli resolve "$T/C/hooks/user")"
@@ -134,7 +167,7 @@ printf '#!/bin/bash\n' > "$T/E/bin/kosmos"; chmod +x "$T/E/bin/kosmos"
 # fallback then resolved, so the control failed while the code was correct.
 # It was asserting an INCIDENTAL property (nothing else could resolve) to test a
 # SPECIFIC one (this guard refuses). Pinning restores the meaning.
-got="$(HOME="$T/emptyhome" PATH="$T/nothing" resolve "$T/E/app/bin")"
+got="$(HOME="$T/emptyhome" PATH="$T/nothing:/usr/bin:/bin" resolve "$T/E/app/bin")"
 [ -z "$got" ] \
   && ok "CONTROL: without server.js the installed rung refuses, so its guard is real" \
   || bad "CONTROL FAILED: resolved '$got' with no server.js; rung 2's guard is not doing anything"
