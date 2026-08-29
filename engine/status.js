@@ -3608,8 +3608,17 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *            never re-offered either (`defaults.js` version log, items 4-6).
  *        #1296 is the FIX: it moved the two verbs into `### You do not stop`,
  *            a NEW heading, which `missingFrom` DOES offer to existing agents.
- *            So that one is OFFERED AND NOT YET APPLIED on this machine, which
- *            is one refresh away rather than hopeless.
+ *            So that one is OFFERED AND NOT YET APPLIED here.
+ *      ⚠️ AND THE THING THAT WOULD APPLY IT IS KOSMOS'S OWN CONSENTED DOCTRINE
+ *      REFRESH -- `engine/doctrine.js`, surfaced as a banner and a dialog with
+ *      an explicit not-now route (`/api/agent/<name>/doctrine/refresh|not-now`,
+ *      plus a fleet pair at `/api/doctrine/fleet`). It is NOT
+ *      `/agent-refresh`: an earlier version of this paragraph said one refresh
+ *      away and meant that skill, whose own SKILL.md mentions `work/workers`
+ *      zero times against 114 mentions of `~/.claude` (the control). Naming
+ *      the wrong mechanism is worse than naming none, because somebody runs
+ *      it. ⇒ The offer is outstanding and unaccepted on this machine, and it
+ *      is a person's to accept, which is the design.
  *      Measured here 2026-08-28, and the control is the interesting half:
  *          0 of 17 worker files carry `kosmos report needs_you`
  *          2 of 17 carry the OLD heading at all, and BOTH of those carry
