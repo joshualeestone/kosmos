@@ -47,8 +47,9 @@
  * ⭐ WIRING IT IN IS THE REAL CURE FOR THE STAMP-DRIFT CLASS and is worth its own
  * card: a machine reading the clock AT the moment of publication has an offset of
  * zero by construction, so the +/-20 window stops being something an operator has
- * to predict. That is also the guard's own stated intent -- release.sh says the
- * check is "against `date` at the moment of release". It is deliberately NOT done
+ * to predict. That is also the guard's own stated intent: the check is made
+ * against `date` at the moment of release, which is the one thing an estimate
+ * cannot agree with by accident. It is deliberately NOT done
  * inside #1463, which only moves an existing check: this one changes what the
  * release script writes to a published page.
  */

@@ -22,7 +22,7 @@
 # ⭐ THE FUTURE SIDE IS 20 AT BOTH CALL SITES AND STAYS THERE. A stamp written
 # for publication sits about fifteen minutes ahead at step 1, giving off = -15,
 # which passes -- measured, not assumed. Widening the future side was proposed
-# and REJECTED: release.sh's own comment records that the four newest entries of
+# and REJECTED: this guard exists because the four newest entries of
 # 2026-08-21 "claimed release times that had not happened yet", so forward stamps
 # are precisely what the guard catches, and a wider future window would make a
 # guess satisfiable again.
@@ -73,36 +73,73 @@ kosmos_versions_entry_id() { echo "v$(echo "$1" | tr . -)"; }
 # validating it is now the unusual thing to write rather than the default.
 # $3 is the cost sentence, so a bad-bound refusal says what is and is not spent
 # like every other refusal in this file. It was the only one that did not.
-kosmos_versions_entry_int_or_die() {
-  # 🛑 AN ARITHMETIC PROBE, NOT A CHARACTER-CLASS TEST, AND THAT DISTINCTION IS
-  # THE FOURTH INSTANCE OF THIS BUG. The previous version tested
-  # `case "$2" in ''|*[!0-9]*)`, which asks whether the string LOOKS like a
-  # number. `99999999999999999999` looks like one and is not usable as one: it
-  # passed the validator, and then `[ "$off" -gt "$bound" ]` exited 2 exactly as
-  # `abc` did, both comparisons read false, and the gate returned 0 on a
-  # ten-hour-stale entry, printing "its timestamp agrees with the clock".
+kosmos_versions_entry_norm_or_die() {
+  # 🛑 IT RETURNS THE CANONICAL VALUE. THAT IS THE POINT, NOT A CONVENIENCE.
+  # This is the SIXTH instance of one class, and my FIFTH FIX CAUSED IT. The
+  # shape is identical every time: the value is VALIDATED in one form and USED
+  # in another.
+  #   1-3  the offset, the past bound, the future bound: each guarded in turn,
+  #        none of the others
+  #   4    the validator tested the CHARACTER SET; the comparison used the VALUE
+  #        (`99999999999999999999` looks like a number and is not usable as one)
+  #   5    the bound was validated; the comparison used `"-$bound"`
+  #   6    the bound was validated in BASE 10 by `test`, and used in `$(( ))`,
+  #        which is base EIGHT for a leading zero
   #
-  # ⚠️ SO THE VALIDATOR I WROTE TO END THIS CLASS CONTAINED THE CLASS. Three
-  # instances were the offset, the past bound and the future bound; this is the
-  # fourth, one layer up, in the thing that was supposed to make a fourth
-  # impossible. Generalising the FIX is not the same as generalising the TEST:
-  # I asked every bound the same question and the question was the wrong one.
+  # ⚠️ INSTANCE 6 IS THE WORST OF THE SIX, MEASURED: `$((08))` does not evaluate
+  # to something wrong, it RAISES "value too great for base", which ABORTS THE
+  # ENCLOSING COMMAND LIST. So `kosmos_versions_entry_gate ... || exit 1` never
+  # reaches its `|| exit 1`, the gate returns 0, and a NINETY-MINUTE-STALE ENTRY
+  # PASSES on one line of stderr. `020` is quieter and still wrong: it silently
+  # means 16, enforcing a window nobody chose. Both are reachable by a documented
+  # action, because docs/releasing.md tells the operator all three bounds are
+  # overridable and names them.
   #
-  # ✅ The probe asks the shell to USE the value the way the gate will, which is
-  # the only question that matters. Refuses '', abc, 1-5, -5 and the 20-digit
-  # value; accepts 20, 0 and 020.
-  # ⚠️ EMPTY IS CHECKED SEPARATELY BECAUSE THE PROBE IS SHELL-DEPENDENT ON IT.
-  # Measured: `[ "" -ge 0 ]` REFUSES under bash and ACCEPTS under zsh. release.sh
-  # is bash, so the probe alone would be correct there and wrong if this lib were
-  # ever sourced from a zsh context. A guard whose verdict depends on which shell
-  # is running is the same defect class as a check that depends on which node the
-  # runner shipped (kosmos#1462), and it costs one line to remove.
-  if [ -z "$2" ] || ! [ "$2" -ge 0 ] 2>/dev/null; then
-    echo "   refusing: $1 is not a usable whole number of minutes: '$2'"
-    echo "   ${3:-}"
+  # ✅ SO VALIDATION AND CONVERSION ARE ONE OPERATION NOW. This echoes the value
+  # the caller must use, in base 10 explicitly, and the caller uses THAT instead
+  # of re-deriving it. There is no second form for the two to disagree about,
+  # which is the only fix that closes the class rather than adding a seventh
+  # check to it.
+  #
+  # ⚠️ Whitespace and a leading `+` are stripped rather than refused: both are
+  # legitimate spellings an operator may type, and the previous probe accepted
+  # them, so refusing them here would be a silent behaviour change on top of a
+  # bug fix.
+  local raw="$2" v
+  v="${raw#"${raw%%[![:space:]]*}"}"
+  v="${v%"${v##*[![:space:]]}"}"
+  v="${v#+}"
+  case "$v" in
+    ''|*[!0-9]*)
+      echo "   refusing: $1 is not a usable whole number of minutes: '$raw'" >&2
+      echo "   ${3:-}" >&2
+      return 1 ;;
+  esac
+
+  # 🛑 AND A MAGNITUDE BOUND, BECAUSE FIXING INSTANCE 6 RE-CREATED INSTANCE 4.
+  # The probe I replaced (`[ "$2" -ge 0 ]`) refused `99999999999999999999`; a
+  # digits-only check accepts it, and `$((10#99999999999999999999))` does NOT
+  # error -- it WRAPS, silently, to 7766279631452241919, which `test` is
+  # perfectly happy to compare against. The gate would then allow a window of
+  # 7.7 quintillion minutes, which is every stale entry that will ever exist.
+  # Measured: the 20-digit bound reached the next step with rc=0 on a
+  # ninety-minute-stale entry, in the same probe run that confirmed 08 fixed.
+  #
+  # ⚠️ So the FIX FOR ONE INSTANCE OF THIS CLASS RE-OPENED AN EARLIER ONE, in the
+  # same edit, and only a probe that still carried the old cases caught it. Keep
+  # every old case in the probe when you change how a value is validated.
+  #
+  # A window is minutes. Nine digits is nearly two thousand years; anything
+  # longer is not a window, it is a typo or an overflow.
+  local bare="${v#"${v%%[!0]*}"}"; bare="${bare:-0}"
+  if [ "${#bare}" -gt 9 ]; then
+    echo "   refusing: $1 is not a plausible number of minutes: '$raw'" >&2
+    echo "   ${3:-}" >&2
     return 1
   fi
-  return 0
+  # `10#` is exactly what defeats the octal reading: $((08)) errors, $((10#08))
+  # is 8, and $((10#020)) is 20 rather than 16.
+  printf '%s\n' "$((10#$v))"
 }
 
 # Prints the entry's rel-d string, or nothing when there is no entry.
@@ -284,8 +321,9 @@ kosmos_versions_entry_gate() {
 
   # EVERY bound this gate will compare against, validated before any comparison
   # runs. Both are env-overridable, so both can carry whatever a human typed.
-  kosmos_versions_entry_int_or_die "the past-side bound" "$past_bound" "$cost" || return 1
-  kosmos_versions_entry_int_or_die "the future-side bound" "$KOSMOS_FUTURE_BOUND" "$cost" || return 1
+  past_bound="$(kosmos_versions_entry_norm_or_die "the past-side bound" "$past_bound" "$cost")" || return 1
+  local future_bound
+  future_bound="$(kosmos_versions_entry_norm_or_die "the future-side bound" "$KOSMOS_FUTURE_BOUND" "$cost")" || return 1
 
   # 🛑 NORMALISE, THEN NEVER BUILD A NUMBER OUT OF STRING PIECES AGAIN. This is
   # the FIFTH instance of the same fail-open, and the first four were all fixed
@@ -305,8 +343,6 @@ kosmos_versions_entry_gate() {
   # normalising first would turn a refusal into a zero bound and invent a sixth
   # instance. Then compare arithmetically -- `off < -future` is `off + future < 0`
   # -- so there is no negative to spell and nothing derived to leave unchecked.
-  past_bound=$((past_bound))
-  local future_bound=$((KOSMOS_FUTURE_BOUND))
   if [ "$off" = "unparseable" ]; then
     echo "   the entry for $v is stamped: $stamp"
     echo "   that is not a date this gate can read. It wants the shape: $now"

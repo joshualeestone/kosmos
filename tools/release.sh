@@ -601,6 +601,19 @@ step "== 7. the versions page needs its entry BEFORE you deploy =="
 # agreed with the clock at step 1 can be twenty minutes stale by the time we
 # deploy. Step 1 asks whether the cut can finish; this asks whether the page is
 # right at the moment it ships.
+#
+# 📌 WHY THE STAMP MUST BE THE CLOCK, WHICH USED TO BE WRITTEN OUT HERE AND NOW
+# LIVES IN THE LIB. On the night of 2026-08-21 every entry from 0.2.38 to 0.2.57
+# was written by adding a plausible gap to the entry above it instead of reading
+# a clock, so the error COMPOUNDED: 16 minutes wrong at 0.2.38, 137 minutes at
+# 0.2.57, and the four newest claimed release times that had not happened yet.
+# A guess cannot satisfy a comparison against `date` at the moment of release,
+# which is the one thing an estimate cannot agree with by accident.
+#
+# ⚠️ Moving the CHECK into tools/lib/versions-entry.sh moved its RATIONALE too,
+# and a reader of release.sh was left with a bare call. This paragraph is the
+# pointer back. The windows, the asymmetry and the six fail-open instances are
+# documented in the lib.
 kosmos_versions_entry_gate "$V" "$SITE/versions.html" "The build is done; only the deploy is unspent." \
   "Paste the clock line above into the entry's rel-d and re-run." \
   "$KOSMOS_LATE_PAST_BOUND" || exit 1
