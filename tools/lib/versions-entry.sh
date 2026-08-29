@@ -325,7 +325,11 @@ kosmos_versions_entry_gate() {
 
   stamp="$(kosmos_versions_entry_stamp "$v" "$file")"
   off="$(kosmos_versions_entry_stamp_off "$stamp")"
-  now="$(date '+%B %-d, %Y, %-I:%M %p %Z')"
+  # Central, matching the reader above (#1464). The refusal prints this as "the
+  # clock says" and "the shape it wants", and the operator copies it to re-stamp.
+  # On a non-Central box a machine-local clock line would be one the reader then
+  # rejects as hours off -- the exact recovery trap the timezone fix closes.
+  now="$(TZ=America/Chicago date '+%B %-d, %Y, %-I:%M %p %Z')"
 
   # 🛑 ANYTHING THAT IS NOT AN INTEGER IS UNPARSEABLE, AND THIS TEST MUST COME
   # BEFORE THE COMPARISONS. `[ NaN -gt 5 ]` does not evaluate false, it ERRORS

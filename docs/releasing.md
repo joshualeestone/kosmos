@@ -165,20 +165,22 @@ a different problem.
    never to keep guessing at the stamp. Nothing in the code pins `D <= 40`; it
    is a property of the machine on the night.
 
-   ⚠️ **AND IF STEP 1 SAYS "IN THE PAST" ON AN ENTRY YOU JUST WROTE, ASK WHICH
-   CLOCK YOU READ.** The gate compares the stamp against **this machine's** clock,
-   so a machine that is uniformly wrong cancels out entirely: an entry stamped
-   from that Mac's own `date` reads `off = 0` however far off the machine is. The
-   refusal only appears when the stamp came from a **different** clock, a phone, a
-   wall, another machine. So the fix is usually to re-stamp from `date` on the
-   cutting machine, not to correct the machine.
+   ⚠️ **AND IF STEP 1 SAYS "IN THE PAST" ON AN ENTRY YOU JUST WROTE, CHECK THAT
+   YOU STAMPED IN CENTRAL.** The gate reads the stamp as an America/Chicago
+   wall-clock time on any machine (#1464), so the entry must carry a Central time.
+   The refusal prints the Central clock it compares against ("the clock says:
+   ..."); copy THAT line, do not run `date` on a non-Central machine, whose local
+   time the gate would read as hours off. On a Central cutting machine the
+   machine's own `date` is already Central, so it works there without thinking
+   about it; the trap is a non-Central box.
 
    ⚠️ It bites harder than it used to because the past side is now 4 minutes
    rather than 20, so a four-minute difference between two clocks that never
-   mattered before can refuse you. Related and separately carded as **#1464**: the
-   gate parses the stamp in the machine's local timezone while the page hard-codes
-   `CDT`, so a non-Central machine, or any machine after the November switch, is
-   measuring something different again.
+   mattered before can refuse you. The timezone half of this -- the gate reading
+   machine-local time while the page is written in Central -- WAS carded as
+   **#1464 and is now fixed**: the reader forces America/Chicago (DST-aware) and
+   the writer emits the correct CDT or CST label, so a non-Central machine and the
+   November switch both read correctly.
 
    ⚠️ **The tighter bound also refuses some entries step 7 would have accepted.**
    The 4 is derived from a cut taking about fifteen minutes: an entry any older reaches step 7 over the 20-minute line; on a fast cut
