@@ -90,7 +90,8 @@ test('#1373: the picker is not offered where it can do nothing', () => {
    out). That call is guarded by AGENT_WORKFORCE_DRY_RUN, and DRY_RUN ALSO disables
    the whole account block in setProvider, so the only setting that makes the route
    safe to drive is the setting that makes the feature inert.
-   ⇒ Source-pinned here deliberately, with that coupling filed separately. */
+   ⇒ Source-pinned here deliberately. The coupling is filed as kosmos#1465;
+      when it is fixed, replace this with a real request through the route. */
 test('#1373: the page-to-route key is pinned on BOTH sides, so a rename cannot pass', () => {
   assert.match(SERVER, /accountDir:\s*body && typeof body\.account === 'string' \? body\.account : null/,
     'server.js no longer reads body.account into accountDir, so the page sends a key the route ignores');
