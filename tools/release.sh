@@ -224,7 +224,9 @@ git -C "$REPO" log --oneline -8 | cat
 #
 # 🔑 THE STEP 7 CALL IS KEPT AND THE TWO ARE NOT REDUNDANT: this one asks "can
 # this cut finish?", that one asks "is the page right at the moment we deploy?"
-# The rationale, the shared window and why it stays symmetric are in the lib.
+# The rationale and the two windows are in the lib. They are NOT the same
+# window: step 1 is stricter on the past side, because it can see that an
+# already-stale entry is doomed once the cut adds its own fifteen minutes.
 . "$REPO/tools/lib/versions-entry.sh"
 kosmos_versions_entry_gate "$V" "$SITE/versions.html" "Nothing has been built yet." \
   "Stamp it for when you expect to PUBLISH, about 15 minutes out -- a stamp written now, or already minutes old, is stale by step 7." \

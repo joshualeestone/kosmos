@@ -27,10 +27,16 @@ can finish, step 7 asks whether the page is right at the moment we deploy, which
 to hold because the site checkout can change under a fifteen-minute cut. One function and
 two call sites, so the window cannot drift between copies.
 
-The window stays symmetric at `|off| <= 20`. Widening the future side was proposed and
-rejected: the guard's own comment records that the four newest entries of 2026-08-21
-claimed release times that had not happened yet, so forward stamps are exactly what it
-catches, and a wider future window makes a guess satisfiable again.
+The FUTURE side stays at 20 at both call sites. Widening it was proposed and rejected:
+the guard's own comment records that the four newest entries of 2026-08-21 claimed release
+times that had not happened yet, so forward stamps are exactly what it catches, and a wider
+future window makes a guess satisfiable again.
+
+The PAST side is NOT the same at both, and an earlier version of this plan said the window
+was symmetric throughout. Step 1 accepts 5 minutes, step 7 accepts 20, because an entry
+already fifteen minutes old passes a symmetric window at step 1 and then dies at step 7
+once the cut has added its own fifteen. Step 1 can see that it is doomed. Tightening the
+past is not the same move as loosening the future, and only one of them reopens a hole.
 
 ## What I got wrong in flight
 

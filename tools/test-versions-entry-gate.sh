@@ -39,7 +39,7 @@ printf '<article id="v0-6-05"><span class="rel-d">%s</span></article>\n' "$(stam
 out="$(run)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "has no entry"; then pass "refuses when the entry is absent"; else fail "refuses when absent (rc=$rc): $out"; fi
 # and the control that makes that refusal mean something: the same file, the version it DOES carry
-out="$(kosmos_versions_entry_gate 0.6.05 "$F" "cost." "hint." 20 2>&1)"; rc=$?
+out="$(kosmos_versions_entry_gate 0.6.05 "$F" "cost." "hint." "$KOSMOS_LATE_PAST_BOUND" 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "and accepts the version that file does carry (control)"; else fail "control: 0.6.05 should pass (rc=$rc): $out"; fi
 
 # --- stamp axis ---
@@ -96,20 +96,71 @@ out="$(run_early)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "FUTURE"; then pass "the EARLY gate still refuses a 25-min forward guess (future side not widened)"; else fail "early gate accepted a forward guess (rc=$rc): $out"; fi
 
 # --- an unreadable file is not an absent entry ---
-out="$(kosmos_versions_entry_gate 0.6.06 "$T/nope.html" "cost." "hint." 20 2>&1)"; rc=$?
+out="$(kosmos_versions_entry_gate 0.6.06 "$T/nope.html" "cost." "hint." "$KOSMOS_LATE_PAST_BOUND" 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "cannot read"; then pass "an unreadable file says so, instead of 'write the entry'"; else fail "unreadable file (rc=$rc): $out"; fi
 
 # --- a version that is not digits and dots never reaches the sed address ---
 entry "$(stamp_at 0)"
-out="$(kosmos_versions_entry_gate '0.6.*' "$F" "cost." "hint." 20 2>&1)"; rc=$?
+out="$(kosmos_versions_entry_gate '0.6.*' "$F" "cost." "hint." "$KOSMOS_LATE_PAST_BOUND" 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "not digits and dots"; then pass "refuses a version carrying a regex metacharacter"; else fail "metacharacter version (rc=$rc): $out"; fi
+
+
+# --- FAIL-OPEN ARMS. Both of these were live regressions, not hypotheticals. ---
+# 🛑 A guard that errors must refuse, not pass. `[ NaN -gt 5 ]` ERRORS rather than
+# evaluating false, so before this arm existed the gate fell through both
+# comparisons into "its timestamp agrees with the clock" and returned 0.
+entry "August 28, 999999, 1:00 AM CDT"
+out="$(run)"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "a stamp whose offset is not a number REFUSES (fail closed)"; else fail "FAIL-OPEN: NaN offset passed the gate (rc=$rc): $out"; fi
+
+# 🛑 THE SECOND DEFENCE, TESTED SEPARATELY BECAUSE THE FIRST ONE MASKS IT.
+# There are two guards against a non-numeric offset: node prints `unparseable`
+# when the value is not finite, and the shell refuses anything that is not an
+# integer. A mutation test removing the SHELL guard stayed green, because the
+# node guard still caught the NaN -- so the shell guard was protecting a case
+# nothing exercised. This arm exercises it: with `node` unavailable the offset
+# is EMPTY, which no node-side check can catch, and empty must still refuse.
+entry "$(stamp_at 0)"
+stub="$T/stub"; mkdir -p "$stub"
+printf '#!/bin/sh\nexit 127\n' > "$stub/node"; chmod +x "$stub/node"
+out="$(PATH="$stub:$PATH" run)"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "an offset that cannot be computed at all REFUSES (node absent)"; else fail "FAIL-OPEN: unusable node passed the gate (rc=$rc): $out"; fi
+
+# 🛑 An article with no rel-d must not borrow the NEXT article's stamp. Entries are
+# newest-first, so on a same-session re-cut the neighbour's stamp is plausibly
+# inside the window and would green-light an entry carrying no timestamp at all.
+cat > "$F" <<'HTML'
+<article class="rel" id="v0-6-06">
+  <h2>0.6.06</h2>
+</article>
+<article class="rel" id="v0-6-05">
+  <span class="rel-d">PLACEHOLDER</span>
+</article>
+HTML
+sed -i '' "s/PLACEHOLDER/$(stamp_at 0)/" "$F"
+got="$(kosmos_versions_entry_stamp 0.6.06 "$F")"
+if [ -z "$got" ]; then pass "an entry with no rel-d reads empty, not the neighbour's stamp"; else fail "FAIL-OPEN: borrowed a neighbour's stamp: '$got'"; fi
+got="$(kosmos_versions_entry_stamp 0.6.05 "$F")"
+if [ -n "$got" ]; then pass "CONTROL: the neighbour's own stamp is still readable"; else fail "control empty, the reader is dead and the arm above proves nothing"; fi
+out="$(run)"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "and the gate refuses the entry that has no timestamp"; else fail "FAIL-OPEN: no-timestamp entry passed (rc=$rc): $out"; fi
 
 # --- the two call sites give DIFFERENT stamp advice, and early must not say "now" ---
 # 🛑 THE ARM THAT PINS THE ACTUAL BUG: telling the operator at step 1 to stamp NOW
 # guarantees a second failure at step 7, because the entry ages by the length of the
 # cut in between. Early must say PUBLISH.
-early="$(sed -n '/^kosmos_versions_entry_gate/,+1p' "$HERE/release.sh" | head -2)"
-late="$(sed -n '/^kosmos_versions_entry_gate/,+1p' "$HERE/release.sh" | tail -2)"
+# ⚠️ Take each call site as a WHOLE continued command rather than assuming a
+# fixed line count: awk joins lines while the previous one ends in a backslash,
+# so re-wrapping either call cannot silently make this read the wrong lines.
+# Each joined call is printed on ONE line, so line N is call N.
+joined="$T/calls.txt"
+awk '/^kosmos_versions_entry_gate /{c=$0; while (c ~ /\\$/) {sub(/\\$/,"",c); if ((getline nx) <= 0) break; c=c nx} print c}' \
+  "$HERE/release.sh" > "$joined"
+ncalls="$(wc -l < "$joined" | tr -d ' ')"
+if [ "$ncalls" -eq 2 ]; then pass "found exactly two whole call sites to compare"; else fail "expected 2 call sites, parsed $ncalls -- the extraction, not the code, may be stale"; fi
+early="$(sed -n 1p "$joined")"
+late="$(sed -n 2p "$joined")"
+if [ -n "$early" ] && [ -n "$late" ]; then pass "both call sites extracted non-empty"; else fail "extraction empty: early='$early' late='$late'"; fi
 if has "$early" "PUBLISH"; then pass "the step 1 call tells the operator to stamp for publication"; else fail "step 1 stamp advice: $early"; fi
 if has "$late" "Paste the clock line"; then pass "the step 7 call tells the operator to stamp now"; else fail "step 7 stamp advice: $late"; fi
 if [ "$early" = "$late" ]; then fail "both call sites give the same stamp advice; step 1 must not say 'now'"; else pass "the two call sites do not share one remediation sentence"; fi
