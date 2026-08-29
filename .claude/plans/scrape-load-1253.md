@@ -23,8 +23,10 @@ records                26,392
     1  ever typed by a working agent (PigeonPete, 2026-08-24)
 ```
 
-`#1255` shipped the instruction telling agents to report the state. 4,700
-reports later the count has not moved by one.
+`#1255` shipped the instruction telling agents to report the state. Thousands of
+reports since, and the count has not moved by one. (No figure pinned here: the
+record is append-only and the delta grows every minute. `status.js` rule 3
+carries the one snapshot, with its clock time.)
 
 Two people concluded independently on the card that option 3 should be adopted
 regardless of what else happens (me on the measurement, PigeonPete twice on
@@ -44,13 +46,15 @@ points at it and tells the reader not to trust its own numbers.
 1. `tools/needs-you-source.js` (read-only, changes nothing)
    - parses the append-only self-report record
    - splits `needs_you` by provenance: hook-written vs agent-typed
-   - prints both controls (a state no writer can produce, which must read 0;
-     the most common state, which must read non-zero), the cutoff it uses,
-     and a per-agent table so the reader judges which agents are real
+   - prints its impossible-state control (a state no writer can produce, which
+     must read 0, and which the tool asserts against `selfreport.STATES` so it
+     cannot quietly stop being impossible), a scale line deliberately NOT
+     called a control because it cannot fail, the cutoffs it uses, and a
+     per-agent table so the reader judges which agents are real
    - asserts its conclusion against its own numbers, and prints the OPPOSITE
      conclusion when agents have started reporting the state themselves
 
-2. `tools/test-needs-you-source.sh`, 21 named arms and 42 assertions.
+2. `tools/test-needs-you-source.sh`, 21 named arms and 47 passing assertions.
    **Arm 3 is the load-bearing one:** the tool must be able to print the
    uncomfortable answer. A measuring tool that can only ever return
    "load-bearing on the scrape" is decoration on that sentence, not evidence
@@ -229,6 +233,40 @@ points at it and tells the reader not to trust its own numbers.
   distinct-agent count and the last-typed date) and the duplicate-`--dir`
   refusal. Both perturbed, both red on demand.
 
+### Amended at iteration 6
+
+- 🛑 **I retracted a false claim about #1155 and shipped its mirror image.**
+  Iteration 2 corrected "#1155 made prose questions invisible". My replacement
+  said #1155 "removed four FALSE reds, and removing false positives does not
+  narrow the legitimate red path at all". **This same file measures the
+  opposite at line ~1191:** an option-less prompt classifies `idle` on any pane
+  narrower than the question, where before #1155 it read `needs_you`. That IS a
+  legitimate red lost to #1155 - latent rather than live, and neutralised by
+  adding `-J`. Both corrections now stand, in opposite directions, and I
+  shipped each of them wrong once.
+- 🛑 **"no sync has ever written to them" is false.** 17 of 17 worker files
+  carry `kosmos:connections:` and 3 of 17 carry `kosmos:projects:`. The true
+  claim is the narrower one: no DOCTRINE sync, the span that carries these
+  verbs, at 0 of 17.
+- 🛑 **The header promised "only a real reading goes to stdout", and two of the
+  four refusal paths printed a partial reading there before exiting.** Fixed
+  structurally rather than by rewording: every gate now runs before any
+  `console.log`. **No arm caught it because `run()` merges the streams** - arm
+  11 now asserts the split on all four refusals, with a fifth assertion that a
+  real reading DOES use stdout, so the four zeros mean something.
+- **"both controls" survived in `status.js` and here** after iteration 4
+  demoted the scale line in the tool only. One fix, two sites, for the second
+  time in this branch.
+- **The unqualified "BOTH MARKERS ERR"** shipped in `status.js` beside its own
+  scoped twin in the tool. Scoped.
+- **`notify.js` said "an agent HAS typed it once, ever"** - fifteen agents
+  typed it and ONE working agent did. The word doing the work was missing, in
+  the flattering direction.
+- **The impossible-state control now asserts itself against
+  `selfreport.STATES`** rather than resting on a comment saying the list is
+  closed. Perturbed: adding the word to `STATES` makes the tool throw.
+- **Four exports nothing imported** are gone.
+
 ## What this deliberately does NOT do
 
 - **No behaviour change.** Comments, one read-only tool, one test, one line of
@@ -243,7 +281,7 @@ points at it and tells the reader not to trust its own numbers.
 The provenance split is a STRING MATCH on the hook's own sentence
 (`install/kosmos-report-hook.sh:218`), because the record does not store who
 wrote a line: `report --auto` is a write-time discriminator
-(`selfreport.js:109`) and is not persisted. Filed as its own card, #1453.
+(`selfreport.js`, the `entry.auto === true` branch) and is not persisted. Filed as its own card, #1453.
 
 🛑 **AND I HAD THAT CAVEAT'S DIRECTION BACKWARDS.** I first wrote that the
 error "biases the count in the SAFE direction, since it can only make
