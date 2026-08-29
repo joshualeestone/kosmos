@@ -22255,7 +22255,7 @@ function fillSwitchAccounts() {
      #d-provider first), and re-applying the preselect makes it unreachable by
      construction rather than by call-graph luck. */
   if (sel.innerHTML !== html) sel.innerHTML = html;
-  else if (sel.options.length) { sel.selectedIndex = [...sel.options].findIndex((o) => o.defaultSelected); }
+  else if (sel.options.length) { sel.selectedIndex = Math.max(0, [...sel.options].findIndex((o) => o.defaultSelected)); }
   sel.hidden = false;
 }
 
@@ -22264,10 +22264,22 @@ document.getElementById('d-provider').addEventListener('change', (e) => {
   if (go) go.disabled = !e.target.value || !CURRENT || e.target.value === providerOf(CURRENT);
   fillSwitchAccounts();
 });
-/* The ONLY thing that makes a pick a pick. */
-document.getElementById('d-provider-account').addEventListener('change', () => {
-  SWITCH_ACCT_TOUCHED = true;
-});
+/* The ONLY thing that makes a pick a pick.
+   ⚠️ Null-checked like its sibling in fillSwitchAccounts: if this id ever moves the
+   page must degrade to the previous behaviour rather than die at load, because that
+   fallback is what the whole design rests on. */
+const switchAcctSel = document.getElementById('d-provider-account');
+if (switchAcctSel) {
+  switchAcctSel.addEventListener('change', () => { SWITCH_ACCT_TOUCHED = true; });
+}
+
+/* What the confirmation dialog echoes back, and only when a person actually picked. */
+function switchAcctShown() {
+  const sel = document.getElementById('d-provider-account');
+  if (!sel || sel.hidden || !SWITCH_ACCT_TOUCHED) return '';
+  const o = sel.options[sel.selectedIndex];
+  return o ? o.textContent.trim() : '';
+}
 
 async function changeProviderNow(say) {
   /* ⚠️ `say` IS THE MODAL'S ONLY EXIT (#1313). The four sibling actions all
@@ -22319,6 +22331,16 @@ async function changeProviderNow(say) {
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     msg.textContent = String((err && err.message) || 'That did not work.');
     tell(String((err && err.message) || 'That did not work.'), false);
+    /* 🛑 THE REFUSAL'S OWN REMEDY HAS TO WORK, OR IT IS THE DEAD END THIS CARD
+       EXISTS TO CLOSE. The engine refuses an account that is gone and says "Pick
+       one from the list and try again" -- and the list it means is the one this
+       page is still holding, which is the stale copy that produced the ghost in
+       the first place. Re-offering the same dead row makes the named remedy fail
+       every time until somebody reloads. Drop the cache and repaint, so the list
+       the sentence points at is a fresh one. */
+    ACCOUNTS = [];
+    try { await paintAccountPicker(CURRENT); }
+    catch { /* the sentence above is the answer; a failed refresh must not replace it */ }
   } finally {
     if (CURRENT && CURRENT.sessionName === forAgent) {
       sel.disabled = false;
@@ -22341,7 +22363,17 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
     small: agentShown() + ' keeps its name, its face, its instructions, its files, and everything it has done; its past stays readable. '
       + 'It restarts, so this conversation ends, as it does on any restart. '
       + (toOpenai
-        ? 'Its Claude model and account choices do not cross: OpenAI picks its own model, on this computer’s OpenAI sign-in.'
+        /* 🛑 THIS SENTENCE WAS WRITTEN FOR THE STATED DEFAULT AND #1373 REPLACED IT.
+           "this computer's OpenAI sign-in" was true while there was only ever one
+           answer. A person can choose now, and this is the LAST SCREEN BEFORE A
+           RESTART, so it is the one place the choice most needs echoing back: a
+           dialog that asks you to confirm without naming what you picked is asking
+           you to confirm something else.
+           ⚠️ Only when they actually picked. Untouched, the engine states its own
+           default and this keeps the sentence it always had, because naming a row
+           nobody chose is the same invention the route refuses. */
+        ? 'Its Claude model and account choices do not cross: OpenAI picks its own model, '
+          + (switchAcctShown() ? 'and it will run on ' + switchAcctShown() + '.' : 'on this computer’s OpenAI sign-in.')
         : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
     go: 'Switch and restart',
     run: (say) => changeProviderNow(say),

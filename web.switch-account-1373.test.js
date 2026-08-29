@@ -55,8 +55,14 @@ test('#1373: a preselected option is NOT reported as a choice', () => {
     'the touched flag is gone, so a preselect can be reported as a pick again');
   assert.match(PAGE, /SWITCH_ACCT_TOUCHED = false;[\s\S]{0,400}?const openai = prov\.value === 'openai';/,
     'the flag is not reset when the menu is rebuilt, so a pick on one agent carries to the next');
-  assert.match(PAGE, /getElementById\('d-provider-account'\)\.addEventListener\('change'[\s\S]{0,200}?SWITCH_ACCT_TOUCHED = true;/,
-    'nothing sets the touched flag, so a real pick would never be reported');
+  /* 🔑 PINNED ON THE PROPERTY, NOT THE SPELLING. This caught a real change of mine
+     (the listener moved behind a null-checked variable) and the PROPERTY was intact,
+     so the assertion was wrong rather than the code. Loosened on the axis nothing
+     depends on (inline call or via a local) and kept tight on the one that matters:
+     the flag is set by a CHANGE event on THAT element, which is what makes a pick a
+     pick. Re-pinning the new exact spelling would just re-arm the trap. */
+  assert.match(PAGE, /getElementById\('d-provider-account'\)[\s\S]{0,400}?addEventListener\('change'[\s\S]{0,160}?SWITCH_ACCT_TOUCHED = true;/,
+    'nothing sets the touched flag from the picker\'s own change event, so a real pick would never be reported');
   assert.match(PAGE, /account: \(acctSel && !acctSel\.hidden && SWITCH_ACCT_TOUCHED\)/,
     'the switch sends the account without consulting the touched flag');
 });
