@@ -460,5 +460,15 @@ nbsp_off="$(kosmos_versions_entry_stamp_off "$nbsp_stamp")"
 case "$nbsp_off" in ''|*[!0-9-]*) nbsp_parsed=no ;; *) nbsp_parsed=yes ;; esac
 if [ "$nbsp_parsed" = yes ]; then pass "a stamp with a narrow no-break space (U+202F) before AM/PM still parses (#1464 separator: the regex uses \\s) (off=$nbsp_off)"; else fail "#1464 SEPARATOR REGRESSION: a U+202F-separated stamp read '$nbsp_off' (regex not tolerant of the ICU narrow space)"; fi
 
+# #1464 (recovery): the refusal PRINTS the clock it compares against ("the clock
+# says: ..."), and the operator copies THAT line to re-stamp. It must be the
+# CENTRAL clock on ANY machine -- on a non-Central box a machine-local clock line
+# is one the reader then rejects, so the on-screen recovery would send the
+# operator in a circle. Under TZ=UTC, trigger a refusal, pull the printed clock,
+# and read it back through the reader: it must be ~now (Central), not a machine skew.
+clk="$(TZ=UTC bash -c '. "'"$HERE"'/lib/versions-entry.sh"; TT=$(mktemp -d); printf "<article id=\"v0-6-06\"><span class=\"rel-d\">January 1, 2020, 1:00 AM CDT</span></article>\n" > "$TT/v.html"; kosmos_versions_entry_gate 0.6.06 "$TT/v.html" "c." "h." 20 2>&1 | sed -n "s/.*the clock says: *//p" | head -1')"
+clk_off="$(kosmos_versions_entry_stamp_off "$clk")"
+if [ "$clk_off" -ge -2 ] 2>/dev/null && [ "$clk_off" -le 2 ] 2>/dev/null; then pass "the refusal prints the CENTRAL clock even under TZ=UTC, so copy-and-re-stamp recovery works on any machine (#1464) (off=$clk_off)"; else fail "#1464 RECOVERY REGRESSION: the printed clock read $clk_off min under TZ=UTC -- a non-Central operator would paste a rejected line"; fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failed"; exit 1; }
 echo "all versions-entry gate arms behaved"
