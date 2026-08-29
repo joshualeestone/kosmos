@@ -4260,6 +4260,28 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { recorded: false, because: kept.because });
           return;
         }
+        /* 🛑 THE BEAT, AND WITHOUT IT NOTHING ELSE ON THIS ROUTE REACHES A
+           PANELESS AGENT (#1502). `liveness.seen` had ZERO production callers
+           from the day I wrote it: `panelessKeys` and the name arm of
+           `resolveAgentSender` both gate on `liveness.alive(key) === true`,
+           which cannot be true with no record, so a Windows agent could hold a
+           valid token, report `blocked` correctly, and never appear on any
+           board. Measured: the liveness directory had never been created on a
+           machine that has run Kosmos for a week.
+
+           🔑 A REPORT IS PROOF OF LIFE BY DEFINITION, so this is not a second
+           signal to keep in step with the first -- it is the same fact, written
+           where the roster can read it.
+
+           ⚠️ AND IT IS DELIBERATELY NOT `selfreport.record`'s job. That module
+           refuses anything without a valid state; a beat carries none, and
+           routing liveness through it would make a timer assert `working` and
+           overwrite a standing `blocked`. That is #900 and #1058, twice fixed.
+           The two stay apart; only the CALL is shared.
+
+           ⚠️ THROW-SAFE. Liveness is an improvement to a row, never a reason to
+           refuse a report that has already been recorded. */
+        try { liveness.seen(who); } catch { /* the report stands; the row may be thinner */ }
         /* The phone seam, AFTER the record, and with ZERO translation: the
            report's word IS notify's word. This is the state transition
            notify.js:26 has been waiting for -- `needs_you` stops being a
