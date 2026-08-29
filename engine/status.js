@@ -1850,10 +1850,15 @@ function closedEnvelope(text) {
  * the PR", "Would you like to see the diff before I push it? I can paste it
  * here", "mode 700 so only the owner has permission to read it" and a sentence
  * QUOTING a prompt all classified `needs_you`. FIVE false REDs in total -- the
- * four prose sentences below plus the quoted prompt, which is the fifth and is
- * easy to miss because it is a different category. An earlier version of this
- * line said four, counting only the prose rows, while rule 3 said five. Five
- * plausible sentences.
+ * four prose sentences plus the quoted prompt, which is the fifth and is easy
+ * to miss because it is a different category.
+ * ⚠️ THREE of those four prose sentences are named ABOVE this line; the fourth
+ * ("The card says: Allow this to run in the installed layout?") lives only in
+ * `status.test.js`, so this docblock has never listed all four. An earlier
+ * version here said "Four false REDs from four plausible sentences" and
+ * counted the four items IT named -- three prose plus the quoted prompt --
+ * which is a DIFFERENT four from the one rule 3 means. Both readings were
+ * defensible and they disagreed, which is why the file contradicted itself.
  *
  * ⚠️ AND A FALSE RED IS NOT COSMETIC HERE: `reconcileReport` rule 3 makes a
  * scraped `needs_you` stand OVER a fresh self-report, deliberately, so that a

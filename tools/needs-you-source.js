@@ -16,11 +16,16 @@
  * Read-only. It parses the append-only record and writes nothing.
  * Exit codes, because `tools/test-needs-you-source.sh` gates on them:
  *   0  a record was read and a verdict printed
- *   1  a NON-RESULT rather than a no. Four causes, and the list must grow
- *      whenever a refusal does -- it has already been wrong twice by omitting
- *      the newest one: the record is missing; the record is empty; the record
- *      is unreadable; or the INSTRUMENT is broken, which is either a drifted
- *      hook marker or a violated impossible-state control
+ *   1  a NON-RESULT rather than a no. SIX causes, and the list must grow
+ *      whenever a refusal does -- it has already been wrong three times by
+ *      omitting the newest one, most recently by folding a distinct diagnosis
+ *      under "unreadable" in the same sentence that warns about this:
+ *        the record directory is missing
+ *        the directory is there and EVERY FILE in it is unreadable
+ *        the record is genuinely empty (and the refusal says why)
+ *        the record is unreadable for another reason (EACCES, ENOTDIR)
+ *        a state outside `selfreport.STATES` is present
+ *        the hook marker has drifted, so the split would be wrong
  *   2  the arguments were wrong, so nothing was read at all
  * Refusals go to stderr; only a real reading goes to stdout.
  *
@@ -366,21 +371,6 @@ function main() {
     return;
   }
 
-  if (total === 0) {
-    console.error('The record exists and is EMPTY: 0 parseable reports.');
-    console.error('That is not an answer -- an empty record has no reds for the same reason it has');
-    console.error('no anything. Nothing below can be concluded. Check --dir, or AGENT_WORKFORCE_DATA.');
-    process.exitCode = 1;
-    return;
-  }
-
-  /* 🛑 A VIOLATED CONTROL IS A BROKEN INSTRUMENT, AND THIS ONE USED TO PRINT
-     "<- must be 0" BESIDE A NON-ZERO AND CARRY ON TO THE VERDICT. By this
-     file's own standard (see the drift refusal below, and the exit-code
-     contract at the top) that is the same case as a drifted marker: the split
-     cannot be trusted, so nothing is printed. Test arm 4 asserted the number
-     MOVES and never asserted a consequence, which is why the gap was
-     invisible to the suite. */
   if (data.unknownState.length) {
     /* The value is NOT echoed: a state string is agent-authored text, and this
        tool's posture is that such text does not reach its output. The FILE is
@@ -394,6 +384,32 @@ function main() {
     return;
   }
 
+  /* 🛑 EMPTY IS THE LEAST SPECIFIC DIAGNOSIS AND MUST THEREFORE BE LAST. It
+     used to sit ABOVE the unknown-state gate, so a record whose every line
+     carried an unrecognised state reported "EMPTY" -- the reader sent to check
+     `--dir` when the directory was right and the RECORDS were wrong. That is
+     the same shadowing this file fixed one gate over for `unreadableFiles`,
+     applied there and not to its sibling twenty-five lines away.
+     ⚠️ AND AN EMPTY REPORT MUST NOT BE BARE. The gates-before-stdout
+     restructure removed the reader's only view of the two counters that say
+     WHY nothing parsed, so they are printed here. */
+  if (total === 0) {
+    console.error('The record exists and is EMPTY: 0 parseable reports'
+      + ' (' + data.unparseable + ' line(s) that were not JSON or not a report, '
+      + data.unknownState.length + ' with an unrecognised state).');
+    console.error('That is not an answer -- an empty record has no reds for the same reason it has');
+    console.error('no anything. Nothing below can be concluded. Check --dir, or AGENT_WORKFORCE_DATA.');
+    process.exitCode = 1;
+    return;
+  }
+
+  /* 🛑 A VIOLATED CONTROL IS A BROKEN INSTRUMENT, AND THIS ONE USED TO PRINT
+     "<- must be 0" BESIDE A NON-ZERO AND CARRY ON TO THE VERDICT. By this
+     file's own standard (see the drift refusal below, and the exit-code
+     contract at the top) that is the same case as a drifted marker: the split
+     cannot be trusted, so nothing is printed. Test arm 4 asserted the number
+     MOVES and never asserted a consequence, which is why the gap was
+     invisible to the suite. */
   if (live === false) {
     /* 🛑 REFUSE, DO NOT WARN AND CONTINUE. An earlier version printed "the
        verdict cannot be trusted" and then printed the verdict anyway, exiting
@@ -411,7 +427,7 @@ function main() {
   console.log('SELF-REPORT RECORD   ' + dir);
   console.log('  agent files' + pad(data.files.length));
   console.log('  records' + pad(total));
-  console.log('  unparseable lines' + pad(data.unparseable));
+  console.log('  not a report' + pad(data.unparseable) + '   <- unparseable, or JSON that is not a record');
   console.log('  UNREADABLE files' + pad(data.unreadableFiles.length)
     + (data.unreadableFiles.length ? '   <- their records are in NO number below: ' + data.unreadableFiles.join(', ') : ''));
   console.log('');
@@ -442,7 +458,7 @@ function main() {
   console.log('');
 
   console.log(RED + ' BY PROVENANCE');
-  console.log('  ' + pad(s.hook.length) + '  written automatically, not by an agent   (see the two lines below for how)'
+  console.log('  ' + pad(s.hook.length) + '  written automatically, not by an agent   (see the two `classified by` lines below for how)'
     + (s.hookFixture.length ? '   [' + s.hookFixture.length + ' of them on fixture agents]' : ''));
   console.log('  ' + pad(s.typedFixture.length) + '  typed by a walkthrough FIXTURE  (agent name starts "' + FIXTURE_PREFIX + '", an'
     + ' unlinked convention -- see the [FIXTURE] tags below and judge them)');

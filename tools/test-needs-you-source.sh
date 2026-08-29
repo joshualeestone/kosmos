@@ -197,6 +197,35 @@ case "$out" in
   *) ok "arm 5c: and does not use the absent sentence" ;;
 esac
 
+# --- 🔑 ARM 5e: A RECORD OF ONLY BAD LINES IS NOT AN EMPTY RECORD EITHER.
+#     Every prior arm's fixture includes `filler` valid rows, so the gate order
+#     was never exercised: `unknownState` rows are filtered out of `rows`, so
+#     `total === 0` fired FIRST and reported EMPTY for a record whose problem
+#     was its contents. Same shadowing as arm 5d, one sibling over, and the
+#     control is the same file plus one valid row.
+mkdir -p "$T/onlyjunk"
+printf '{"v":1,"state":"leaked: junk","because":"x","at":"2026-08-28T00:00:00.000Z"}\n' > "$T/onlyjunk/vic.jsonl"
+out="$(run "$T/onlyjunk")"
+case "$out" in
+  *"CONTROL VIOLATED"*) ok "arm 5e: a record of ONLY unrecognised states says so, not EMPTY" ;;
+  *) bad "arm 5e: misdiagnosed as: $(printf '%s\n' "$out" | head -1)" ;;
+esac
+# CONTROL: adding one valid row must give the SAME diagnosis, or the arm proves nothing
+printf '{"v":1,"state":"working","because":"x","at":"2026-08-28T00:00:00.000Z"}\n' >> "$T/onlyjunk/vic.jsonl"
+out="$(run "$T/onlyjunk")"
+case "$out" in
+  *"CONTROL VIOLATED"*) ok "arm 5e: and so does the same record plus a valid row, so the gate is about CONTENT not emptiness" ;;
+  *) bad "arm 5e: the diagnosis changed when a valid row was added" ;;
+esac
+# and a record of only UNPARSEABLE lines is genuinely empty, but must SAY why
+mkdir -p "$T/onlybad"
+printf '{not json\n' > "$T/onlybad/wes.jsonl"
+out="$(run "$T/onlybad")"
+case "$out" in
+  *"EMPTY"*"not JSON or not a report"*) ok "arm 5e: an all-unparseable record reports EMPTY *with the counters that explain it*" ;;
+  *) bad "arm 5e: EMPTY was reported bare, with no reason: $(printf '%s\n' "$out" | head -1)" ;;
+esac
+
 # --- 🔑 ARM 5d: ALL FILES UNREADABLE IS NOT AN EMPTY RECORD. If every file is
 #     unreadable, readdir succeeds and rows is empty, so the EMPTY refusal used
 #     to fire - sending the reader to check --dir when the directory is right
@@ -235,12 +264,12 @@ case "$out" in
   *) bad "arm 5d: the new gate swallowed the empty-record diagnosis" ;;
 esac
 
-# --- ARM 6: unparseable lines are counted, never silently dropped.
+# --- ARM 6: lines that are not a report are counted, never silently dropped.
 mkdir -p "$T/junk"
 { filler 5; echo '{not json'; } > "$T/junk/erin.jsonl"
 out="$(run "$T/junk")"
 # (this line is "phrase then count", the reverse of the others, so it needs its own shape)
-printf '%s\n' "$out" | grep -qE "^[[:space:]]*unparseable lines[[:space:]]+1$" \
+printf '%s\n' "$out" | grep -qE "^[[:space:]]*not a report[[:space:]]+1" \
   && ok "arm 6: a corrupt line is surfaced rather than skipped into the totals" \
   || bad "arm 6: unparseable count wrong"
 
@@ -307,7 +336,7 @@ out="$(run "$T/notrecords")"
 printf '%s\n' "$out" | grep -qE "^[[:space:]]*records[[:space:]]+5$" \
   && ok "arm 7d: non-records are excluded from the total, not counted as a blank state" \
   || bad "arm 7d: the denominator was inflated by lines that are not reports"
-printf '%s\n' "$out" | grep -qE "^[[:space:]]*unparseable lines[[:space:]]+3$" \
+printf '%s\n' "$out" | grep -qE "^[[:space:]]*not a report[[:space:]]+3" \
   && ok "arm 7d: and all three are surfaced as unparseable" \
   || bad "arm 7d: non-records were dropped silently rather than counted"
 
@@ -348,7 +377,7 @@ out="$(run "$T/dated")"
 has "$out" 2 "distinct working agents that have EVER typed it" \
   && ok "arm 8b: the distinct-agent count is asserted, not just printed" \
   || bad "arm 8b: distinct working agents miscounted"
-printf '%s\n' "$out" | grep -q "last typed by a working agent:    2026-07-08T09:10:11.000Z" \
+printf '%s\n' "$out" | grep -qE "last typed by a working agent:[[:space:]]+2026-07-08T09:10:11\.000Z" \
   && ok "arm 8b: and the last-typed date is the LATEST, not the first or the file order" \
   || bad "arm 8b: last-typed date wrong -- status.js quotes this line"
 # 🔑 AND PIN THE VERDICT, because this fixture sits exactly ON the

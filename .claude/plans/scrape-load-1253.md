@@ -107,6 +107,11 @@ points at it and tells the reader not to trust its own numbers.
 
 ### Amended at iteration 2, and one of these was a false claim I was shipping
 
+- ⚠️ **SUPERSEDED IN PART, TWICE.** The correction recorded here was itself
+  wrong in two ways found later: the count is FIVE, not four (iteration 14),
+  and #1155 DID cost one legitimate red on a wrapped pane (iteration 6). Marked
+  at the origin, because a reader meets this entry 130 lines before either
+  retraction.
 - 🛑 **The paragraph blamed #1155 for making a prose question invisible. That is
   false.** Measured against the PRE-#1155 marker set, lifted verbatim from
   `git show ca46bacf^:engine/status.js`: `"May I merge the PR?"` classified
@@ -210,9 +215,15 @@ points at it and tells the reader not to trust its own numbers.
   precedence. One fix, two sites, and I patched one.
 - 🛑 **My delivery evidence was over-determined and I cited it as though it
   were not.** "0 of 17 carry the NEW heading" is the same zero whether #1296
-  exists or not, because **0 of 17 carry the Kosmos doctrine block at all**
-  (control: 17 of 17 match a common word). These agents have never received
-  any block. The heading-placement story is real and explains exactly the TWO
+  exists or not, because **0 of 17 carry the Kosmos doctrine block at all** (⚠️ **and that zero measures
+the CONSENTED-REFRESH SPAN, not receipt** - see the iteration-13 entry below;
+two of the seventeen did receive a block, as plain text at creation, which the
+marker cannot see)
+  (control: 17 of 17 match a common word). ⚠️ **AND THAT SENTENCE ORIGINALLY
+  CONTINUED "These agents have never received any block", WHICH IS FALSE** -
+  corrected in `status.js` at iteration 13 and left standing HERE until my own
+  enumerator found it at iteration 16. Two of the seventeen did receive one, as
+  plain text at creation. The heading-placement story is real and explains exactly the TWO
   files that carry the old heading as plain text; for the other fifteen
   `missingFrom` would have offered it, verbs included. The conclusion
   (non-delivery) survives and is simpler; the evidence I gave for the specific
@@ -244,7 +255,10 @@ points at it and tells the reader not to trust its own numbers.
 - 🛑 **I retracted a false claim about #1155 and shipped its mirror image.**
   Iteration 2 corrected "#1155 made prose questions invisible". My replacement
   said #1155 "removed four FALSE reds, and removing false positives does not
-  narrow the legitimate red path at all". ⚠️ **SUPERSEDED TWICE:** the second
+  narrow the legitimate red path at all". ⚠️ **SUPERSEDED TWICE, and marked
+  here at the ORIGIN of the claim rather than only where it is quoted** - the
+  first version of this marker sat inside the iteration-6 entry and described
+  that entry as being "below", which it was not: the second
   half at iteration 6, the count at iteration 14 (it is five). Marked, because
   the structurally identical iteration-6 entry below carries a supersession
   note and this one did not, in a log whose only value is that it can be
@@ -506,6 +520,47 @@ completeness, carries no information about the case that is actually missing.
   it.
 - **A duplicated sentence** about the tool printing a count, said twice in four
   lines.
+
+### Amended at iteration 15 (recorded late; it carried a BEHAVIOURAL change)
+
+- **A new refusal gate:** when every file in the record is unreadable, `readdir`
+  succeeds and `rows` is empty, so the EMPTY refusal fired and sent the reader
+  to check `--dir` when the directory was right and the permissions were wrong.
+  Arm 5d covers it, with a genuinely-empty control so the new gate cannot
+  swallow the older diagnosis.
+- 📌 This section exists because iteration 15's edits were folded into earlier
+  sections and its behavioural change appeared in no log entry at all. A reader
+  reconstructing what shipped when could not see it.
+
+### Amended at iteration 16
+
+- 🛑 **NINTH RECURRENCE, one sibling over from the eighth.** Iteration 15 gave
+  `unreadableFiles` a gate ABOVE the empty-record refusal, with the comment
+  "checked FIRST, because it is the more specific diagnosis". Its sibling
+  `unknownState` was left BELOW it, twenty-five lines away in the same
+  function - so a record whose every line carried an unrecognised state
+  reported EMPTY. Reproduced with a control that returns the other answer (the
+  same file plus one valid row correctly says CONTROL VIOLATED). Gate reordered
+  most-specific-first, and arm 5e covers it with that control built in.
+- **An EMPTY report is no longer bare.** The gates-before-stdout restructure had
+  removed the reader's only view of the two counters that say WHY nothing
+  parsed; the refusal prints them now.
+- **`status.js` was wrong about its own list** in the sentence correcting a
+  miscount: it says "the four prose sentences below" while naming THREE, above.
+  The fourth lives only in `status.test.js`. And the earlier version did not
+  "count only the prose rows" - it counted the four items it named, which is a
+  DIFFERENT four from rule 3's. Both readings were defensible and disagreed.
+- **The retraction is now marked at the ORIGIN of the claim**, not only where it
+  is quoted. The first marker sat inside the iteration-6 entry and described
+  that entry as "below", which it was not.
+- **A printed pointer misdirected:** "see the two lines below for how" pointed
+  at the fixture and working-agent rows. It names the `classified by` lines now.
+- **The exit-code contract listed four causes and there are six**, in the very
+  sentence warning that the list must grow whenever a refusal does.
+- **My own enumerator found the eighth recurrence before a reviewer did**, and
+  then caught a stale label in the arm titles after I renamed a printed one.
+  Enumerate every site of a claim BEFORE fixing one; that habit was absent, not
+  blind, which is why the class recurred nine times.
 
 ## What this deliberately does NOT do
 
