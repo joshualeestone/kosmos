@@ -74,18 +74,35 @@ test('the device list is not described as being for phones', () => {
     + 'reads it as not being about them');
 });
 
-test('the copy does not promise an authenticator app, because there is not one', () => {
-  /* 🛑 THE RULING NAMES ONE AND THE PRODUCT DOES NOT HAVE ONE. Writing it into
-     the copy would be this same defect pointing the other way: a true sentence
-     about the intended design and a false one about the shipped software.
-     ⚠️ THIS TEST GOES RED WHEN SOMEBODY BUILDS IT, and that is correct: the copy
-     should then mention it, and this assertion should be deleted in the same
-     change rather than worked around. */
-  const built = /authenticator|TOTP/i.test(RENDERED) || /authenticator|TOTP/i.test(SERVER);
-  assert.equal(built, false,
-    'an authenticator option now exists, so the second-step copy should say so and this '
-    + 'assertion should be deleted rather than kept passing');
-});
+/* 🛑🛑 A TEST WAS HERE AND IT ASSERTED SOMETHING FALSE. RETRACTED, NOT MOVED.
+   It read "the copy does not promise an authenticator app, BECAUSE THERE IS NOT
+   ONE", on the strength of my sweep finding zero hits for `authenticator` and
+   `TOTP` in this repo's page, server and engine.
+
+   ⚠️ THE ZERO WAS REAL AND THE CONCLUSION DID NOT FOLLOW. The feature exists; it
+   lives in the RELAY repo. Measured directly in
+   `kosmos-relay/coordinator/src/second.rs` (912 lines): `totp` 20,
+   `authenticator` 11, `otpauth` 3, `twilio` 16. Repo-wide: `totp` 140,
+   `authenticator` 32. Controls both arms: an impossible string 0, `fn ` 754.
+
+   ⭐ I SEARCHED ONE REPO AND CONCLUDED ABOUT THE PRODUCT. Nothing about the
+   result looked wrong: a clean zero, from a working tool, on exactly the strings
+   I meant. The instrument simply did not cover the population the claim was
+   about, and a zero from a search that never looked in the right place is
+   indistinguishable from a zero that means absence.
+
+   ⭐⭐ AND `Google Authenticator` LITERALLY IS 0 IN THAT FILE, so a narrower
+   search would have "confirmed" me. TOTP with an `otpauth://` URI IS what Google
+   Authenticator implements; the PHRASE is absent and the FEATURE is not.
+
+   ⇒ NOTHING REPLACES IT. A test in this repo cannot see the relay repo, and a
+   cross-repo assertion would be a worse instrument than none. Whether the copy
+   should NAME the authenticator is a wording decision for whoever owns this
+   voice, and it is not a thing to pin from here.
+
+   📌 Found by Splinter within the hour, before the claim reached Josh. It would
+   have asked him to re-decide something already built and already ruled on
+   twice today. */
 
 test('CONTROL: this file reads the copy it thinks it reads', () => {
   /* Without this, every assertion above passes on an element that has quietly

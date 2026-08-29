@@ -9570,11 +9570,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              in one situation. Somebody who believed it would reason about their
              own account security from a false model, and would not think the
              second step was theirs to lose.
-             📌 HIS RULING ALSO NAMES AN AUTHENTICATOR APP AND THIS COPY DOES NOT
-             MENTION ONE, deliberately: "authenticator" and "TOTP" appear ZERO
-             times in the page, the server and the engine, so there is nothing to
-             point at. Promising one would be the same defect pointing the other
-             way. That is a mechanism gap and it is not this change. -->
+             📌 HIS RULING ALSO NAMES AN AUTHENTICATOR APP AND THIS COPY DOES
+             NOT MENTION ONE. An earlier version of this comment said that was
+             because there ISN'T one, on the strength of zero hits in this repo.
+             THAT WAS WRONG: the feature lives in the RELAY repo
+             (kosmos-relay/coordinator/src/second.rs, totp 20, authenticator 11,
+             otpauth 3). I searched one repo and concluded about the product.
+             ⇒ So whether to NAME it here is a wording decision for whoever owns
+             this voice, not a gap. The sentence as written is true either way:
+             the second step always happens, whichever thing supplies the code. -->
         <p class="fhint">Signing in always asks for a second code after the email code, on every device. If the phone that gives that code is gone, this computer can switch the second step off. Nobody else can, not even us. Sign in from your new phone afterwards and set it up again there.</p>
         <div class="frow">
           <button class="btn" type="button" id="plus-second-reset">Reset the second step</button>
