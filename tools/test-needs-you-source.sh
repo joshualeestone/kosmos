@@ -122,9 +122,14 @@ so="$(node tools/needs-you-source.js --dir "$T/planted" 2>/dev/null | wc -l | tr
 [ "$so" = "0" ] && ok "arm 4: and prints nothing at all to stdout" \
   || bad "arm 4: printed $so stdout lines despite a violated control"
 out="$(run "$T/rare")"; rc=$?
-has "$out" 0 "a state no writer can produce" \
-  && ok "arm 4: and reads zero on a clean record" \
-  || bad "arm 4: the control is non-zero on a clean fixture"
+# 🛑 THE ASSERTION THAT USED TO SIT HERE COULD NOT FAIL. It checked the printed
+# line read 0 on a clean record - but since the iteration-12 gate refuses
+# BEFORE any output whenever an unrecognised state exists, every record that
+# reaches stdout has zero by construction. It passed for a reason other than
+# the one it named, which is the defect this file exists to catch. The real
+# protection is the gate, and arms 4 and 4b above test that it fails on demand.
+# What is left here is the assertion that a CLEAN record still answers, which
+# can fail: a too-broad gate would refuse everything.
 [ "$rc" -eq 0 ] && ok "arm 4: and a clean record still answers, so the refusal is not blanket" \
   || bad "arm 4: refused on a clean record, exit $rc"
 

@@ -297,7 +297,10 @@ points at it and tells the reader not to trust its own numbers.
   checking. Iteration 8 found them still there. Both are genuinely fixed now,
   each verified by re-counting the site afterwards rather than by assuming.
 - **Rebased onto `origin/main`** so the branch is measured against the world it
-  will merge into. Suite green there at 2,901 tests.
+  will merge into. ⚠️ That entry said "2,901 tests", which was the count at
+  the iteration-7 base and is now stale: the branch was REBASED AGAIN on
+  2026-08-29 morning onto a main carrying 15 further commits and +17 tests.
+  Verified at the current base: 2,918 tests, 268 of 268 files, 414 shell PASS.
 
 ### Amended at iteration 8
 
@@ -471,6 +474,27 @@ completeness, carries no information about the case that is actually missing.
 - **The test title read as the opposite of its assertions** (`is seen on a
   WRAPPED pane` where the test asserts it is MISSED there and seen on the
   joined form).
+
+### Amended at iteration 14, the first pass with NO blockers
+
+- ⭐ **My own iteration-12 fix made a control unfailable, and I had demoted its
+  sibling four lines away for exactly that.** Refusing before any output means
+  the printed `a state no writer can produce ... must be 0` line can only ever
+  read 0: the gate fires first, so there is no third input. Measured both arms.
+  The line is no longer called a control and says why it is always 0; the GATE
+  is the real protection and arms 4 and 4b fail on demand.
+- **An arm asserted something that could not fail.** "Reads zero on a clean
+  record" is true by construction for any record that reaches stdout. Removed,
+  with the reason recorded in place; what remains is the assertion that a clean
+  record still ANSWERS, which a too-broad gate would break.
+- **The plan's suite figure was stale after this morning's rebase** (2,901 at
+  the old base; 2,918 at the current one).
+- **"Four FALSE reds" understates #1155 by one.** Its own docblock says four
+  prose sentences plus a fifth case, an agent quoting a prompt: 2 of 7 before,
+  7 of 7 after. For once the error ran against my own argument rather than for
+  it.
+- **A duplicated sentence** about the tool printing a count, said twice in four
+  lines.
 
 ## What this deliberately does NOT do
 

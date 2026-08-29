@@ -3579,8 +3579,7 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      about the HISTORICAL record. At the snapshot below no line on disk
  *      carried `by`; the field is being written now, and the narrower claim
  *      that matters here is still true -- NO `needs_you` row carries it, so
- *      the split still rests on the weaker marker. The tool prints that count
- *      so it can be watched changing. The tool
+ *      the split still rests on the weaker marker. The tool
  *      prefers `by` where it exists and prints how many of each, so that
  *      number can be watched falling:
  *          14  walkthrough FIXTURES   by AGENT NAME (`walk-birch`,
@@ -3627,7 +3626,10 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      true. It classifies `unknown` today too. ⇒ The markers are a CLOSED
  *      VOCABULARY that never covered arbitrary prose, before or after, so the
  *      prose case was never #1155's doing. #1155's measured effect on that
- *      case is nil; its measured effect overall was removing four FALSE reds.
+ *      case is nil; its measured effect overall was removing FIVE false reds
+ *      (four pieces of ordinary prose plus an agent quoting a prompt: 2 of 7
+ *      before, 7 of 7 after, per its own docblock). An earlier version here
+ *      said four, counting only the prose rows.
  *      🛑 BUT DO NOT READ THAT AS "#1155 NARROWED NOTHING LEGITIMATE" -- AN
  *      EARLIER VERSION OF THIS PARAGRAPH SAID EXACTLY THAT AND THIS FILE
  *      CONTRADICTS IT AT LINE ~1191, IN ITS OWN MEASURED WORDS. #1155 also

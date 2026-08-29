@@ -150,9 +150,18 @@ const FIXTURE_PREFIX = 'walk-';
    hour. */
 
 const RED = 'needs_you';
-/* A state name no writer can produce: `selfreport.js` STATES is a closed list,
-   and an unknown word is skipped on read. Its count MUST be 0, and a non-zero
-   means this tool is counting something other than what it says it is. */
+/* A state name no writer can produce: `selfreport.js` STATES is a closed list.
+   ⚠️ THE PRINTED LINE FOR THIS IS NO LONGER A CONTROL AND MUST NOT BE CALLED
+   ONE. Its comment used to say "a non-zero means this tool is counting
+   something other than what it says it is" -- true when written, and made
+   UNREACHABLE by the iteration-12 gate, which refuses before any output the
+   moment ANY unrecognised state appears. So the line can only ever print 0.
+   That is the exact standard applied to the scale line a few lines below, and
+   the demotion was applied there and not here: one sibling demoted, the other
+   made unfailable later and left wearing the word.
+   ✅ What still does real work is the GATE (tested by arms 4 and 4b, both of
+   which fail on demand) and the module-load assertion below, which stops this
+   word quietly becoming a real state. */
 const IMPOSSIBLE = 'zzz_no_such_state';
 /* Self-guarding, because the justification above is "STATES is a closed list"
    and the module is already required: assert it rather than assume it. If the
@@ -397,8 +406,9 @@ function main() {
   for (const [k, v] of states) console.log('  ' + pad(v) + '  ' + k + (k === RED ? '   <- the board\'s one red state' : ''));
   console.log('');
 
-  console.log('CONTROLS, so a zero below means something');
-  console.log('  ' + pad(s.byState.get(IMPOSSIBLE) || 0) + '  a state no writer can produce (' + IMPOSSIBLE + ')  <- must be 0');
+  console.log('CHECKS');
+  console.log('  ' + pad(s.byState.get(IMPOSSIBLE) || 0) + '  unrecognised states that reached the tally'
+    + '  <- always 0 by construction: the gate above refuses first');
   /* ⚠️ NOT LABELLED A CONTROL, BECAUSE IT CANNOT FAIL. `total === 0` is
      already refused above, so the maximum of a non-empty tally is positive by
      construction. It is informative (it names which state dominates) and this
