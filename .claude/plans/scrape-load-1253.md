@@ -324,7 +324,10 @@ marker cannot see)
   will merge into. ⚠️ That entry said "2,901 tests", which was the count at
   the iteration-7 base and is now stale: the branch was REBASED AGAIN on
   2026-08-29 morning onto a main carrying 15 further commits and +17 tests.
-  Verified at the current base: 2918 tests, 268 of 268 files, 419 shell PASS.
+  **No suite figures pinned here either**, on the same reasoning as the arm
+  counts above: I corrected this line at iterations 7, 14 and 17, each time
+  because main moved or an arm was added. `bash tools/run-tests.sh` prints all
+  three, and the branch is rebased onto current main before every measurement.
 
 ### Amended at iteration 8
 
@@ -405,9 +408,11 @@ marker cannot see)
 Iteration 10 also surfaced a live defect in freshly-merged #1457 work. It is
 not in this branch's own surface and folding a hook behaviour change into a
 comments-and-one-tool PR would land it under a proof file for a different
-change, so it is carded rather than fixed here. **kosmos#1466.**
+change, so it is carded rather than fixed here. **kosmos#1466 - ✅ FIXED AND
+CLOSED on 2026-08-29 by PR #1483**, which is why the description below is
+written in the past tense. It was live when filed.
 
-The short version: #1457's `--auto` sweep missed the SessionStart call (it sits
+The short version, as it stood when filed: #1457's `--auto` sweep missed the SessionStart call (it sits
 inside a command substitution), so every machine-written `started` records as
 `by: 'agent'` - the exact miscount #1453 exists to remove. And the guard
 written to catch that has two patterns which SHARE a separator class, so they
@@ -513,7 +518,9 @@ completeness, carries no information about the case that is actually missing.
   with the reason recorded in place; what remains is the assertion that a clean
   record still ANSWERS, which a too-broad gate would break.
 - **The plan's suite figure was stale after this morning's rebase** (2,901 at
-  the old base; 2,918 at the current one).
+  the old base). ⚠️ The replacement I wrote here, 2,918, went stale too within
+  hours - it is the third time this figure has been wrong, which is why no
+  suite count is pinned anywhere in this plan now.
 - **"Four FALSE reds" understates #1155 by one.** Its own docblock says four
   prose sentences plus a fifth case, an agent quoting a prompt: 2 of 7 before,
   7 of 7 after. For once the error ran against my own argument rather than for
@@ -562,6 +569,42 @@ completeness, carries no information about the case that is actually missing.
   Enumerate every site of a claim BEFORE fixing one; that habit was absent, not
   blind, which is why the class recurred nine times.
 
+### Amended at iteration 17, and the loop was diagnosed as ORBITING
+
+- 🛑 **THE SHAPE, NOT THE COUNT, IS THE TELL.** Tabulated every iteration's
+  dominant finding: 1-4, 6 and 7 were distinct defects. **From 8 onward it is
+  ONE shape eleven times** - a fix applied to one site while its sibling
+  stands. A loop finding a fresh instance of one shape forever is not
+  converging, it is orbiting, and only the person inside it can see that.
+  ⇒ So iteration 17's findings were closed by ENUMERATION rather than by
+  waiting for a reviewer to point at instance twelve: every multi-site number
+  in the branch was swept and compared. **The numeric sweep came back clean** -
+  `0 of 17`, `17 of 17`, `3 of 17`, `7 of 7`, `2 of 7`, `0 of 12` and
+  `22 of 21,500` all agree everywhere they appear.
+- 🛑 **A REAL BUG, and it is the shape landing on its own remedy.** Iteration
+  16's all-unreadable gate shadowed the unknown-state gate: one unreadable file
+  plus one file of unrecognised states announced "every file is UNREADABLE",
+  which was false, and blamed permissions for a file whose problem was its
+  CONTENT. Arm 5d's fixture holds only unreadable files, so it structurally
+  could not see it. Arm 5f covers the mixed case with a control that restores
+  the other diagnosis.
+- **NO SUITE FIGURE IS PINNED ANYWHERE NOW.** It was wrong three times: 2,901
+  at the iteration-7 base, 2,918 at this morning's, 2,939 after the next
+  rebase. Same reasoning as the arm counts.
+- **The `#1466` section is past tense** - it was FIXED and CLOSED on main by PR
+  #1483 while this branch was in the loop, which is the second card of mine to
+  be fixed by somebody else mid-loop.
+- **The hook's line number is no longer pinned in the plan.** Iteration 8
+  recorded that exact figure going stale once; #1483 moved it again.
+- **A rebase over 33 commits silently DROPPED my `test:shell` entry** when I
+  resolved the conflict with a regex that matched nothing on my side. The
+  repo's own `tools.every-test-runs.test.js` caught it. I verified after
+  committing rather than before; that gate is the only reason it was
+  recoverable.
+- **"the gate above refuses first" named the wrong mechanism** - `readRecord`
+  drops unknown states before the tally is built, so the line is unfailable
+  with or without the gate. Right conclusion, wrong reason.
+
 ## What this deliberately does NOT do
 
 - **No behaviour change.** Comments, one read-only tool, one test, one line of
@@ -574,7 +617,7 @@ completeness, carries no information about the case that is actually missing.
 ## Weakest premise, named
 
 The provenance split is a STRING MATCH on the hook's own sentence
-(`install/kosmos-report-hook.sh:235`, on current main), because the record does not store who
+(`install/kosmos-report-hook.sh`, the `--auto` PermissionRequest line - no line number pinned, because iteration 8 already recorded this exact figure going stale once and #1483 has since moved it again), because the record does not store who
 wrote a line: `report --auto` is a write-time discriminator
 (`selfreport.js`, the `entry.auto === true` branch) and was not persisted.
 Filed as #1453 - **and fixed by #1457 while this branch was in the challenge

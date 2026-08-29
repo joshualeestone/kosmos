@@ -87,8 +87,8 @@ awk -v o="$obs" 'BEGIN{exit !(o+0 < 0.1 && o+0 > 0)}' \
   && ok "arm 3b: and the share ($obs%) is still under the cutoff, so it is the typers clause doing the work" \
   || bad "arm 3b: share is $obs% -- at or over the cutoff, so this arm no longer isolates TYPERS_CUTOFF"
 
-# --- 🔑 ARM 3c: A FIXTURE RUN MUST NOT FLIP THE VERDICT. 14 of the 15
-#     agent-typed records on this machine belong to walk-* fixtures; one more
+# --- 🔑 ARM 3c: A FIXTURE RUN MUST NOT FLIP THE VERDICT. Nearly every
+#     agent-typed record on this machine belongs to a walk-* fixture; one more
 #     walkthrough at that volume would otherwise print "agents ARE reporting"
 #     on the strength of test traffic, telling a reader that correct shipped
 #     documentation is stale.
@@ -197,6 +197,37 @@ case "$out" in
   *) ok "arm 5c: and does not use the absent sentence" ;;
 esac
 
+# --- 🔑 ARM 5f: A MIXED RECORD MUST GET THE SHARPER DIAGNOSIS. Arm 5d's
+#     fixture holds ONLY unreadable files, so it structurally cannot see this:
+#     one unreadable file plus one file of unrecognised states made `total` 0,
+#     so the all-unreadable gate fired and announced "every file is
+#     UNREADABLE" - false, and it blamed permissions for a file whose problem
+#     was its CONTENT. Same order-shadowing as arms 5d and 5e, one gate up.
+if [ "$(id -u)" -eq 0 ]; then
+  bad "arm 5f: running as root, chmod 000 is a no-op and this arm would pass vacuously"
+else
+mkdir -p "$T/mixed"
+line working "fine" > "$T/mixed/aa.jsonl"; chmod 000 "$T/mixed/aa.jsonl"
+printf '{"v":1,"state":"leaked: junk","because":"x","at":"2026-08-28T00:00:00.000Z"}\n' > "$T/mixed/bb.jsonl"
+out="$(run "$T/mixed")"
+case "$out" in
+  *"CONTROL VIOLATED"*) ok "arm 5f: unreadable + unrecognised-state gets the CONTENT diagnosis, the sharper one" ;;
+  *) bad "arm 5f: got the wrong diagnosis: $(printf '%s\n' "$out" | head -1)" ;;
+esac
+case "$out" in
+  *"could not be read at all"*) bad "arm 5f: it claimed an unreadable-file diagnosis for a mixed record" ;;
+  *) ok "arm 5f: and does not claim the files were unreadable" ;;
+esac
+# CONTROL: with the content problem removed, the unreadable diagnosis must return
+rm -f "$T/mixed/bb.jsonl"
+out="$(run "$T/mixed")"
+case "$out" in
+  *"could not be read at all"*) ok "arm 5f: and with only the unreadable file left, that diagnosis returns" ;;
+  *) bad "arm 5f: the unreadable diagnosis is now unreachable: $(printf '%s\n' "$out" | head -1)" ;;
+esac
+chmod 644 "$T/mixed/aa.jsonl"
+fi
+
 # --- 🔑 ARM 5e: A RECORD OF ONLY BAD LINES IS NOT AN EMPTY RECORD EITHER.
 #     Every prior arm's fixture includes `filler` valid rows, so the gate order
 #     was never exercised: `unknownState` rows are filtered out of `rows`, so
@@ -240,7 +271,7 @@ line working "only record" > "$T/allunread/pat.jsonl"
 chmod 000 "$T/allunread/pat.jsonl"
 out="$(run "$T/allunread")"; rc=$?
 case "$out" in
-  *"Every file in the record is UNREADABLE"*) ok "arm 5d: all-unreadable says so, rather than reporting an empty record" ;;
+  *"could not be read at all"*) ok "arm 5d: all-unreadable says so, rather than reporting an empty record" ;;
   *) bad "arm 5d: all-unreadable was misreported: $(printf '%s\n' "$out" | head -1)" ;;
 esac
 [ "$rc" -eq 1 ] && ok "arm 5d: and refuses" || bad "arm 5d: exited $rc"

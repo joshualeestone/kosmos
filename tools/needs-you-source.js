@@ -361,9 +361,15 @@ function main() {
      PERMISSIONS are wrong. That is the exact conflation this file's own
      `readRecord` comment forbids, arriving one level up from where it was
      fixed. Checked FIRST, because it is the more specific diagnosis. */
-  if (data.unreadableFiles.length && total === 0) {
-    console.error('Every file in the record is UNREADABLE: ' + data.unreadableFiles.length
-      + ' file(s), none parseable.');
+  /* 🛑 AND THIS GATE MUST YIELD TO THE MORE SPECIFIC ONE BELOW IT, which is
+     the same order-shadowing it was added to fix, one gate further up. With
+     one unreadable file AND one file of unrecognised states, `total` is 0 and
+     this fired -- announcing "every file is UNREADABLE", which was false, and
+     blaming permissions for a file whose problem was its CONTENT. The
+     unknown-state gate is the sharper diagnosis, so it wins. */
+  if (data.unreadableFiles.length && total === 0 && !data.unknownState.length) {
+    console.error('Every readable file yielded nothing, and ' + data.unreadableFiles.length
+      + ' file(s) could not be read at all:');
     console.error('  ' + [...new Set(data.unreadableFiles)].sort().join(', '));
     console.error('That is not an empty record and not a missing one. The directory is right and');
     console.error('something else is wrong with it, most likely permissions. Nothing is printed.');
@@ -441,7 +447,8 @@ function main() {
 
   console.log('CHECKS');
   console.log('  ' + pad(s.byState.get(IMPOSSIBLE) || 0) + '  unrecognised states that reached the tally'
-    + '  <- always 0 by construction: the gate above refuses first');
+    + '  <- always 0 by construction: `readRecord` drops any state outside'
+    + ' `selfreport.STATES` before the tally is built');
   /* ⚠️ NOT LABELLED A CONTROL, BECAUSE IT CANNOT FAIL. `total === 0` is
      already refused above, so the maximum of a non-empty tally is positive by
      construction. It is informative (it names which state dominates) and this
