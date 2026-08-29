@@ -39,7 +39,7 @@ changes no subdir CLAUDE.md.
 
 ### BLOCKERs
 
-None. The reviewer's explicit ruling on the one candidate:
+**[BLOCKER] none found.** The reviewer's explicit ruling on the one candidate:
 
 > **The live pass is NOT a blocker to SHIPPING, and IS a blocker to CLAIMING.**
 > Before this branch, `auto` was absent on 100% of the Codex path, which you
@@ -51,11 +51,11 @@ Adopted. #1456 carries the outstanding end-to-end pass on the card.
 
 ### WARNINGs
 
-- **report-hook-auto-1453.test.js**: `seventh) report needs_you "x" ;;` SURVIVED.
+- **[WARNING] report-hook-auto-1453.test.js**: `seventh) report needs_you "x" ;;` SURVIVED.
   The separator class had no `)`, and **the hook is a `case` statement**: all six
   calls live in an arm, so an inline arm is the natural shape for a seventh
   event. Control same run: a plain call was caught. **FIXED** by adding `)`.
-- **report-hook-auto-1453.test.js**: `report "$STATE" "x"` SURVIVED BOTH guards.
+- **[WARNING] report-hook-auto-1453.test.js**: `report "$STATE" "x"` SURVIVED BOTH guards.
   `[a-z_]+` cannot match a variable, so the call was invisible to the matcher
   **and absent from the floor count**, which is the case the floor exists to make
   impossible. **A guard cannot count what it cannot parse. FIXED** by her tested
@@ -67,13 +67,13 @@ verified by sha.
 
 ### CONVENTIONs
 
-- One em dash reached the plan file and seven reached the PR body. Both swept
+- **[CONVENTION]** One em dash reached the plan file and seven reached the PR body. Both swept
   across five spellings with a planted-em-dash control proving the grep works.
   **FIXED**, zero remaining in the branch diff.
 
 ### NITs
 
-- The LOOSE pattern can match prose containing a separator followed by
+- **[NIT]** The LOOSE pattern can match prose containing a separator followed by
   `report <word>`. Comment lines are stripped, both counts read 6 today, and the
   failure message prints both counts so a false alarm is distinguishable from a
   real escape. Recorded in the file rather than left to be discovered.
@@ -110,13 +110,13 @@ on five arms, each red, restore green and sha-verified after each.
 
 ### Strengths
 
-- The card's own premise was checked before it was implemented, and it was
+- **[STRENGTH]** The card's own premise was checked before it was implemented, and it was
   wrong in the direction that would have shipped an authoritative-looking field
   that was incorrect five times out of six.
-- The defect found on the way (#1456) was verified on the **installed artifact**
+- **[STRENGTH]** The defect found on the way (#1456) was verified on the **installed artifact**
   rather than the repo, with a control, and its population established (five
   Codex agents) rather than assumed.
-- Every guard added here was perturbed arm by arm, and the one that mattered
+- **[STRENGTH]** Every guard added here was perturbed arm by arm, and the one that mattered
   most was still wrong twice before a second reader found the rest.
 
 ### What I would tell the next person
