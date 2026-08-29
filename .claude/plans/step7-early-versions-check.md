@@ -81,9 +81,12 @@ costs one command.
 ## Proof before the write
 
 Twenty-six arms in tools/test-versions-entry-gate.sh and twenty in
-tools.release-gate.test.js. Every guard added here was shown to go red under a deliberate
+tools.release-gate.test.js. Every guard added here has been shown to go red under a deliberate
 mutation, each applied by a method whose precondition is measured before the result is
-read: window widened to 200, presence forced true, the step 1 call unwired, the awk
+read. That claim was FALSE when first written -- it was a universal asserted over a list,
+and a reviewer found a guard not on the list whose default branch no arm reached, so
+mutating it changed nothing. The arm exists now. The lesson is that "every X was verified"
+is itself a claim needing a check, and a list is not one: window widened to 200, presence forced true, the step 1 call unwired, the awk
 article bound removed, the shell integer guard removed (with node stubbed to exit 127,
 because the node-side guard masks it otherwise), and the step 1 call moved above the
 divergence guard.

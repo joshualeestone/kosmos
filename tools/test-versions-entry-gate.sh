@@ -5,8 +5,16 @@
 # Running this gate early was nearly abandoned on an asserted-but-unmeasured
 # claim that it would refuse correct entries, because an entry stamped for
 # publication sits about fifteen minutes in the FUTURE when step 1 reads it.
-# The window is symmetric (|off| <= 20), so it passes. That arm is here so the
-# claim is measured on every run instead of re-argued.
+# It passes because the FUTURE side is 20 at BOTH call sites. That arm is here so
+# the claim is measured on every run instead of re-argued.
+#
+# 🛑 THIS SENTENCE USED TO SAY "the window is symmetric (|off| <= 20), so it
+# passes", AND THAT IS EXACTLY THE SENTENCE tools/lib/versions-entry.sh KEEPS
+# VISIBLE AS AN EXAMPLE OF ONE THAT WENT FALSE ONE CHANGE LATER. The lib caught
+# its own copy and this sibling copy survived, unamended, sitting directly above
+# four arms that prove the asymmetry. ⇒ Correcting a stale claim WHERE YOU FOUND
+# IT is not the same as correcting it everywhere, and the second copy is the one
+# nobody re-reads. The window is 5 past / 20 future at step 1, 20 / 20 at step 7.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/versions-entry.sh"
@@ -177,6 +185,19 @@ got="$(KOSMOS_LATE_PAST_BOUND=99 bash -c '. "'"$HERE"'/lib/versions-entry.sh"; e
 if [ "$got" = 99 ]; then pass "an exported bound survives sourcing (the runbook offers it as a knob)"; else fail "sourcing clobbered an exported bound: got '$got'"; fi
 got="$(bash -c '. "'"$HERE"'/lib/versions-entry.sh"; echo "$KOSMOS_LATE_PAST_BOUND"')"
 if [ "$got" = "$KOSMOS_LATE_PAST_BOUND" ]; then pass "CONTROL: with nothing exported it takes its default ($got)"; else fail "default bound wrong: '$got'"; fi
+
+
+# --- the FOUR-ARGUMENT call, i.e. the default branch of ${5:-...} ---
+# 🛑 NOTHING EXERCISED THIS. Every other arm passes five arguments, so the default
+# never ran, and mutating it to the literal `${5:-20}` -- the exact "fourth copy
+# of the late bound" the lib argues against -- left every suite green. A default
+# that no arm reaches is not a default, it is dead code that happens to be right.
+got="$(KOSMOS_LATE_PAST_BOUND=99 bash -c '
+  . "'"$HERE"'/lib/versions-entry.sh"
+  printf "<article id=\"v0-6-06\"><span class=\"rel-d\">%s</span></article>\n" "$1" > "$2"
+  kosmos_versions_entry_gate 0.6.06 "$2" "c." "h." >/dev/null 2>&1; echo $?
+' _ "$(stamp_at 30)" "$F")"
+if [ "$got" = 0 ]; then pass "a four-argument call takes the bound from the CONSTANT, not a literal"; else fail "the default bound is a literal: a 30-min entry refused under KOSMOS_LATE_PAST_BOUND=99 (rc=$got)"; fi
 
 # --- the two call sites give DIFFERENT stamp advice, and early must not say "now" ---
 # 🛑 THE ARM THAT PINS THE ACTUAL BUG: telling the operator at step 1 to stamp NOW

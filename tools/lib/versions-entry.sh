@@ -94,6 +94,14 @@ kosmos_versions_entry_stamp() {
     # refuses; a neighbour`s stamp can PASS, and entries are newest-first, so on
     # a same-session re-cut the previous release`s stamp is plausibly inside the
     # window. That turns a missing timestamp into a green gate.
+    # ⚠️ Per RECORD, so an article whose closing tag shares a physical line with
+    # the NEXT article`s rel-d would still borrow it. Unreachable against the
+    # real page and against all three fixture producers, which all emit the
+    # multi-line shape -- recorded because that means a page reformat is the one
+    # thing that would reopen this, and no fixture would notice.
+    # (Backtick, not apostrophe: this comment is INSIDE the single-quoted awk
+    # program, and an apostrophe here ends the quote and breaks the file. I did
+    # exactly that writing this line.)
     inentry && /<\/article>/ { exit }
   ' "$file" 2>/dev/null
 }
@@ -109,7 +117,7 @@ kosmos_versions_entry_stamp() {
 # `CDT`. On a non-Central machine, or in winter when that literal is simply
 # wrong, the gate measures a different quantity than the page claims. Pre-existing
 # in the step 7 inline version and carried here verbatim; it is a correctness bug
-# in its own right and wants its own card, not a quiet rewrite inside a
+# in its own right and is carded as #1464, not a quiet rewrite inside a
 # positioning change.
 kosmos_versions_entry_stamp_off() {
   V_ENTRY="$1" node -e "
