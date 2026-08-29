@@ -283,6 +283,53 @@ case "$out" in
 esac
 [ "$rc" -eq 2 ] || bad "arm 7e: exited $rc, expected 2"
 
+# --- 🔑 ARM 12: THE RECORD'S OWN WORD BEATS THE STRING MATCH (#1457).
+#     🛑 THE FIXTURE MUST BE ASYMMETRIC. My first version put one record wrong
+#     in each direction, so the two COUNTS were 1 and 1 whether the `by` field
+#     was honoured or ignored -- only which record sat in which bucket changed,
+#     and I was asserting the counts. It passed under perturbation: a guard
+#     that cannot fail, in the arm written to prevent exactly that. Both
+#     records now point the SAME way, so honouring `by` gives 0 hook / 2 typed
+#     and ignoring it gives 2 hook / 0 typed.
+mkdir -p "$T/stated"
+filler 50 > "$T/stated/pat.jsonl"
+# BOTH say agent, and BOTH have a sentence that matches the hook prefix exactly.
+printf '{"v":1,"state":"needs_you","by":"agent","because":"asking permission to use Bash: ls","at":"2026-08-28T00:00:00.000Z"}\n' > "$T/stated/quinn.jsonl"
+printf '{"v":1,"state":"needs_you","by":"agent","because":"asking permission to use AskUserQuestion","at":"2026-08-28T00:00:00.000Z"}\n' > "$T/stated/rex.jsonl"
+out="$(run "$T/stated")"
+has "$out" 0 "written by the permission hook" \
+  && ok "arm 12: by=agent beats a sentence that matches the hook prefix (0 hook, not 2)" \
+  || bad "arm 12: the string match overrode by=agent: $(printf '%s\n' "$out" | grep 'permission hook')"
+has "$out" 2 "typed by a working agent" \
+  && ok "arm 12: and both land in typed, which is the opposite bucket from the fallback" \
+  || bad "arm 12: by=agent records did not count as typed: $(printf '%s\n' "$out" | grep 'typed by a working')"
+printf '%s\n' "$out" | grep -qE "^[[:space:]]*2[[:space:]]+of the 2 classified by the record" \
+  && ok "arm 12: and it reports that both rested on the record's own word" \
+  || bad "arm 12: the stated/inferred split is wrong"
+
+# --- and the mirror, so `by` cannot simply be hardcoded to one answer
+mkdir -p "$T/stated-auto"
+filler 50 > "$T/stated-auto/sam.jsonl"
+printf '{"v":1,"state":"needs_you","by":"auto","because":"a sentence a person would type","at":"2026-08-28T00:00:00.000Z"}\n' > "$T/stated-auto/tam.jsonl"
+printf '{"v":1,"state":"needs_you","by":"auto","because":"another such sentence","at":"2026-08-28T00:00:00.000Z"}\n' > "$T/stated-auto/uma.jsonl"
+out="$(run "$T/stated-auto")"
+has "$out" 2 "written by the permission hook" \
+  && ok "arm 12: by=auto beats a sentence that does NOT match the prefix (2 hook, not 0)" \
+  || bad "arm 12: the string match overrode by=auto: $(printf '%s\n' "$out" | grep 'permission hook')"
+case "$out" in
+  *"No working agent has EVER typed needs_you"*) ok "arm 12: and none of them counts as agent-typed" ;;
+  *) bad "arm 12: a by=auto record was counted as agent-typed" ;;
+esac
+
+# --- the fallback must still work where `by` is absent
+out="$(run "$T/hookonly")"
+printf '%s\n' "$out" | grep -qE "^[[:space:]]*0[[:space:]]+of the 1 classified by the record" \
+  && ok "arm 12: a pre-#1457 record reports ZERO stated, so the split is honest about its evidence" \
+  || bad "arm 12: claimed the record's own word on lines that predate the field"
+printf '%s\n' "$out" | grep -qE "^[[:space:]]*1[[:space:]]+classified by the weaker string-match fallback" \
+  && ok "arm 12: and counts it under the weaker marker instead" \
+  || bad "arm 12: the fallback count is wrong"
+
 # --- 🔑 ARM 11, AND IT IS THE ARM WHOSE ABSENCE LET A FALSE PROMISE SHIP.
 #     The tool header promises "only a real reading goes to stdout". Two of the
 #     four refusal paths printed a PARTIAL reading to stdout before exiting,

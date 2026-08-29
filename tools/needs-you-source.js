@@ -72,12 +72,21 @@
  * never prints them, deliberately, so agent-authored text cannot land in its
  * output or a CI log. The per-agent table tells you WHO, not WHAT.
  *
- * ⚠️ WHY A STRING MATCH AT ALL: the record does not store who wrote a line.
- * `report --auto` is a write-time discriminator (`selfreport.js`) and is not
- * persisted, so the hook's own sentence is the only mechanical marker left.
- * That is kosmos#1453. This tool CHECKS that marker against the hook's source
- * at run time (see `hookPrefixIsLive`) rather than trusting it, because
- * otherwise a reworded hook would silently reclassify every record.
+ * ⚠️ WHY A STRING MATCH AT ALL, AND WHY IT IS NOW A FALLBACK. kosmos#1453 was
+ * that the record did not store WHO wrote a line: `report --auto` was a
+ * write-time discriminator only. #1457 fixed it -- `selfreport.record` now
+ * persists `by: 'auto' | 'agent'` -- so a record written from that point on
+ * says so itself, and this tool PREFERS that field.
+ * 🛑 THE STRING MATCH CANNOT BE RETIRED, BECAUSE THE FIX IS NOT RETROACTIVE.
+ * Every line already on disk predates it and carries no `by` at all, and the
+ * whole point of this tool is a question about the historical record. So: use
+ * `by` where it exists, fall back to the hook's own sentence where it does
+ * not, and PRINT HOW MANY OF EACH, so a reader can see how much of the answer
+ * still rests on the weaker marker. That number should fall over time; if it
+ * does not, nothing new is being written.
+ * The fallback is still checked against the hook's source at run time (see
+ * `hookPrefixIsLive`) rather than trusted, because otherwise a reworded hook
+ * would silently reclassify every historical record.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -226,6 +235,9 @@ function readRecord(dir) {
         agent: f.replace(/\.jsonl$/, ''),
         state: String(o.state || ''),
         because: String(o.because || ''),
+        /* #1457. Absent on every line written before it, which is why
+           `provenance` falls back rather than requiring it. */
+        by: (o.by === 'auto' || o.by === 'agent') ? o.by : null,
         at: String(o.at || ''),
       });
     }
@@ -233,7 +245,16 @@ function readRecord(dir) {
   return { ok: true, why: null, dir, files, rows, unparseable, unreadableFiles };
 }
 
-const hookWritten = (row) => row.because.startsWith(HOOK_PREFIX);
+/* Provenance, strongest evidence first. `by` is the record's own word (#1457);
+   the prefix is the inference we are stuck with for everything written before
+   that shipped. `stated` is returned so the caller can report the split
+   between the two, rather than presenting an inference as a reading. */
+function provenance(row) {
+  if (row.by === 'auto') return { hook: true, stated: true };
+  if (row.by === 'agent') return { hook: false, stated: true };
+  return { hook: row.because.startsWith(HOOK_PREFIX), stated: false };
+}
+const hookWritten = (row) => provenance(row).hook;
 const isFixture = (agent) => agent.startsWith(FIXTURE_PREFIX);
 
 function summarise(rows) {
@@ -254,9 +275,10 @@ function summarise(rows) {
     perAgent.set(r.agent, e);
   }
   const typersReal = new Set(typedReal.map((r) => r.agent));
+  const statedReds = reds.filter((r) => provenance(r).stated).length;
   const lastTypedReal = typedReal.map((r) => r.at).filter(Boolean).sort().pop() || null;
   const lastTypedAny = typed.map((r) => r.at).filter(Boolean).sort().pop() || null;
-  return { byState, reds, hook, hookFixture, typed, typedFixture, typedReal, typersReal, perAgent, lastTypedReal, lastTypedAny };
+  return { byState, reds, hook, hookFixture, typed, typedFixture, typedReal, typersReal, perAgent, lastTypedReal, lastTypedAny, statedReds };
 }
 
 function pad(n) { return String(n).padStart(7); }
@@ -357,6 +379,8 @@ function main() {
     + ' unlinked convention -- see the [FIXTURE] tags below and judge them)');
   console.log('  ' + pad(s.typedReal.length) + '  typed by a working agent        <- the number rule 3 quotes');
   console.log('  ' + pad(s.typersReal.size) + '  distinct working agents that have EVER typed it');
+  console.log('  ' + pad(s.statedReds) + '  of the ' + s.reds.length + ' classified by the record\'s OWN `by` field (#1457)');
+  console.log('  ' + pad(s.reds.length - s.statedReds) + '  classified by the weaker string-match fallback, because they predate it');
   console.log('  last typed by a working agent:    ' + (s.lastTypedReal || 'never'));
   console.log('  last typed by anyone (incl fixtures): ' + (s.lastTypedAny || 'never'));
   console.log('');

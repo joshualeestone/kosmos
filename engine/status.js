@@ -3553,8 +3553,13 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      quoted without one is three different numbers by morning -- 22 of
  *      26,392 self-reports are `needs_you`. The split has THREE derivations of
  *      unequal strength, said explicitly because the next person cannot tell
- *      which is which by looking, and #1453 is on file saying the record
- *      itself cannot answer it:
+ *      which is which by looking. ⚠️ #1453 was that the record did not say WHO
+ *      wrote a line; #1457 fixed it, and `selfreport.record` now persists
+ *      `by: 'auto'|'agent'`. THE FIX IS NOT RETROACTIVE and this is a claim
+ *      about the HISTORICAL record: every line already on disk carries no
+ *      `by`, so the split below still rests on the weaker marker. The tool
+ *      prefers `by` where it exists and prints how many of each, so that
+ *      number can be watched falling:
  *          14  walkthrough FIXTURES   by AGENT NAME (`walk-birch`,
  *                                     `walk-cedar`). An UNLINKED convention:
  *                                     nothing reserves that prefix, so a real
@@ -3611,8 +3616,10 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      opposite directions, and I shipped each of them wrong once.
  *      📌 DO NOT TRUST THE NUMBERS IN THIS PARAGRAPH. RE-RUN THEM:
  *          node tools/needs-you-source.js
- *      It prints this exact split (the `1` above is its line labelled "typed
- *      by a working agent"), its impossible-state control, its own cutoffs, a
+ *      It prints this split -- not these exact numbers, because the record is
+ *      append-only and the hook keeps adding to it, so the hook row in
+ *      particular moves; the `1` above is its line labelled "typed by a
+ *      working agent" -- plus its impossible-state control, its own cutoffs, a
  *      scale line that is deliberately NOT called a control because it cannot
  *      fail, and the date of
  *      the newest record typed by a WORKING agent (the tool prints a second,
