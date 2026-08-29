@@ -46,15 +46,21 @@ points at it and tells the reader not to trust its own numbers.
 1. `tools/needs-you-source.js` (read-only, changes nothing)
    - parses the append-only self-report record
    - splits `needs_you` by provenance: hook-written vs agent-typed
-   - prints its impossible-state control (a state no writer can produce, which
-     must read 0, and which the tool asserts against `selfreport.STATES` so it
-     cannot quietly stop being impossible), a scale line deliberately NOT
-     called a control because it cannot fail, the cutoffs it uses, and a
-     per-agent table so the reader judges which agents are real
+   - prints the cutoffs it uses and a per-agent table so the reader judges
+     which agents are real. ⚠️ It prints NO controls: both candidate lines are
+     unfailable by construction, since the gates refuse before any output. The
+     real protection is those gates, and arms 4, 4b, 5b, 5c, 5d and 9 are what
+     prove each one fails on demand. The module-load assertion against
+     `selfreport.STATES` still does work and stays.
    - asserts its conclusion against its own numbers, and prints the OPPOSITE
      conclusion when agents have started reporting the state themselves
 
-2. `tools/test-needs-you-source.sh`, 23 named arms and 62 passing assertions.
+2. `tools/test-needs-you-source.sh`. **No arm or assertion count is pinned
+   here**, and that is deliberate: I corrected these two numbers three separate
+   times, each time because a later iteration added or removed an arm and I
+   updated the code without updating the headline. A count that goes stale
+   every time the thing it counts improves is the same defect this branch
+   spends its whole argument on. Run the file; it prints both.
    **Arm 3 is the load-bearing one:** the tool must be able to print the
    uncomfortable answer. A measuring tool that can only ever return
    "load-bearing on the scrape" is decoration on that sentence, not evidence
@@ -238,7 +244,11 @@ points at it and tells the reader not to trust its own numbers.
 - 🛑 **I retracted a false claim about #1155 and shipped its mirror image.**
   Iteration 2 corrected "#1155 made prose questions invisible". My replacement
   said #1155 "removed four FALSE reds, and removing false positives does not
-  narrow the legitimate red path at all". **This same file measures the
+  narrow the legitimate red path at all". ⚠️ **SUPERSEDED TWICE:** the second
+  half at iteration 6, the count at iteration 14 (it is five). Marked, because
+  the structurally identical iteration-6 entry below carries a supersession
+  note and this one did not, in a log whose only value is that it can be
+  trusted. **This same file measures the
   opposite at line ~1191:** on a wrapped pane an option-less prompt can
   classify `idle`, where before #1155 it read `needs_you`. That IS a legitimate
   red lost to #1155 - latent rather than live, and neutralised by adding `-J`.
@@ -300,7 +310,7 @@ points at it and tells the reader not to trust its own numbers.
   will merge into. ⚠️ That entry said "2,901 tests", which was the count at
   the iteration-7 base and is now stale: the branch was REBASED AGAIN on
   2026-08-29 morning onto a main carrying 15 further commits and +17 tests.
-  Verified at the current base: 2,918 tests, 268 of 268 files, 414 shell PASS.
+  Verified at the current base: 2918 tests, 268 of 268 files, 419 shell PASS.
 
 ### Amended at iteration 8
 
@@ -468,8 +478,9 @@ completeness, carries no information about the case that is actually missing.
   DID receive a doctrine block and still lack the verbs, because they were
   created before the verbs existed and the later edits landed inside a heading
   they already held. A marker zero could never have shown that.
-- **The `by` field is now being written** (660 of 28,131 lines, none of them
-  `needs_you`). "Every line on disk carries no `by`" was true at the snapshot
+- **The `by` field is now being written** (a growing share of the record, none
+  of them `needs_you`; no total pinned, because the first one I wrote here was
+  stale within the hour). "Every line on disk carries no `by`" was true at the snapshot
   and is not now; scoped, with the narrower claim that actually matters.
 - **The test title read as the opposite of its assertions** (`is seen on a
   WRAPPED pane` where the test asserts it is MISSED there and seen on the

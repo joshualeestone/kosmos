@@ -197,6 +197,44 @@ case "$out" in
   *) ok "arm 5c: and does not use the absent sentence" ;;
 esac
 
+# --- 🔑 ARM 5d: ALL FILES UNREADABLE IS NOT AN EMPTY RECORD. If every file is
+#     unreadable, readdir succeeds and rows is empty, so the EMPTY refusal used
+#     to fire - sending the reader to check --dir when the directory is right
+#     and the permissions are wrong. Same absent-vs-unreadable conflation as
+#     arm 5c, one level up from where it was fixed. Three arms, because the
+#     new gate must not swallow the other two diagnoses.
+if [ "$(id -u)" -eq 0 ]; then
+  bad "arm 5d: running as root, chmod 000 is a no-op and this arm would pass vacuously"
+else
+mkdir -p "$T/allunread"
+line working "only record" > "$T/allunread/pat.jsonl"
+chmod 000 "$T/allunread/pat.jsonl"
+out="$(run "$T/allunread")"; rc=$?
+case "$out" in
+  *"Every file in the record is UNREADABLE"*) ok "arm 5d: all-unreadable says so, rather than reporting an empty record" ;;
+  *) bad "arm 5d: all-unreadable was misreported: $(printf '%s\n' "$out" | head -1)" ;;
+esac
+[ "$rc" -eq 1 ] && ok "arm 5d: and refuses" || bad "arm 5d: exited $rc"
+case "$out" in
+  *"is EMPTY"*) bad "arm 5d: it used the EMPTY sentence for an unreadable directory" ;;
+  *) ok "arm 5d: and does not use the EMPTY sentence" ;;
+esac
+case "$out" in
+  *"pat.jsonl"*) ok "arm 5d: while naming the file, which is what a person needs" ;;
+  *) bad "arm 5d: refused without saying which file" ;;
+esac
+chmod 644 "$T/allunread/pat.jsonl"
+out="$(run "$T/allunread")"; rc=$?
+[ "$rc" -eq 0 ] && ok "arm 5d: and a readable record still answers, so the gate is not blanket" \
+  || bad "arm 5d: refused a readable record, exit $rc"
+fi
+# and a GENUINELY empty directory must still get the EMPTY diagnosis, not the new one
+out="$(run "$T/empty")"
+case "$out" in
+  *"is EMPTY"*) ok "arm 5d: a genuinely empty record still gets the EMPTY sentence" ;;
+  *) bad "arm 5d: the new gate swallowed the empty-record diagnosis" ;;
+esac
+
 # --- ARM 6: unparseable lines are counted, never silently dropped.
 mkdir -p "$T/junk"
 { filler 5; echo '{not json'; } > "$T/junk/erin.jsonl"

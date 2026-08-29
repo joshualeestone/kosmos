@@ -349,6 +349,23 @@ function main() {
      factually the opposite. Refused for the same reason a missing directory
      is: "no reds found" and "no record found" are the same number and opposite
      facts, and only the first is evidence. */
+  /* 🛑 UNREADABLE FILES ARE NOT AN EMPTY RECORD, AND THIS GATE USED TO SAY
+     THEY WERE. If every file in the directory is unreadable, `readdir`
+     succeeds, `rows` is empty, and the empty-record refusal fired -- telling
+     the reader to check `--dir` when the directory is right and the
+     PERMISSIONS are wrong. That is the exact conflation this file's own
+     `readRecord` comment forbids, arriving one level up from where it was
+     fixed. Checked FIRST, because it is the more specific diagnosis. */
+  if (data.unreadableFiles.length && total === 0) {
+    console.error('Every file in the record is UNREADABLE: ' + data.unreadableFiles.length
+      + ' file(s), none parseable.');
+    console.error('  ' + [...new Set(data.unreadableFiles)].sort().join(', '));
+    console.error('That is not an empty record and not a missing one. The directory is right and');
+    console.error('something else is wrong with it, most likely permissions. Nothing is printed.');
+    process.exitCode = 1;
+    return;
+  }
+
   if (total === 0) {
     console.error('The record exists and is EMPTY: 0 parseable reports.');
     console.error('That is not an answer -- an empty record has no reds for the same reason it has');

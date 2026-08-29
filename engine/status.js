@@ -1849,7 +1849,10 @@ function closedEnvelope(text) {
  * Measured on the shipped classifier: "I asked Splinter for permission to merge
  * the PR", "Would you like to see the diff before I push it? I can paste it
  * here", "mode 700 so only the owner has permission to read it" and a sentence
- * QUOTING a prompt all classified `needs_you`. Four false REDs from four
+ * QUOTING a prompt all classified `needs_you`. FIVE false REDs in total -- the
+ * four prose sentences below plus the quoted prompt, which is the fifth and is
+ * easy to miss because it is a different category. An earlier version of this
+ * line said four, counting only the prose rows, while rule 3 said five. Five
  * plausible sentences.
  *
  * ⚠️ AND A FALSE RED IS NOT COSMETIC HERE: `reconcileReport` rule 3 makes a
@@ -3628,8 +3631,12 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      prose case was never #1155's doing. #1155's measured effect on that
  *      case is nil; its measured effect overall was removing FIVE false reds
  *      (four pieces of ordinary prose plus an agent quoting a prompt: 2 of 7
- *      before, 7 of 7 after, per its own docblock). An earlier version here
- *      said four, counting only the prose rows.
+ *      before, 7 of 7 after, per the #1155 docblock in `status.test.js`). An
+ *      earlier version here said four, counting only the prose rows -- and the
+ *      #1155 docblock IN THIS FILE, at ~1852, still said four until this
+ *      change, so a reader grepping `status.js` found it contradicting itself.
+ *      Corrected there too, on the precedent this branch set at ~1196: fix the
+ *      sibling rather than cite it while knowing it is wrong.
  *      🛑 BUT DO NOT READ THAT AS "#1155 NARROWED NOTHING LEGITIMATE" -- AN
  *      EARLIER VERSION OF THIS PARAGRAPH SAID EXACTLY THAT AND THIS FILE
  *      CONTRADICTS IT AT LINE ~1191, IN ITS OWN MEASURED WORDS. #1155 also
@@ -3658,9 +3665,7 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      It prints this split -- not these exact numbers, because the record is
  *      append-only and the hook keeps adding to it, so the hook row in
  *      particular moves; the `1` above is its line labelled "typed by a
- *      working agent" -- plus its impossible-state control, its own cutoffs, a
- *      scale line that is deliberately NOT called a control because it cannot
- *      fail, and the date of
+ *      working agent" -- plus its own cutoffs and the date of
  *      the newest record typed by a WORKING agent (the tool prints a second,
  *      later date that includes the fixtures; this is not that one). That date
  *      is 2026-08-24, and #1255
@@ -3675,7 +3680,9 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *          0 of 17 carry the Kosmos doctrine BLOCK at all (`kosmos:doctrine:`)
  *         17 of 17 match a common word    <- control, so the grep sees them
  *      ✅ AND AT 20:49 THE SAME EVENING A NEWLY CREATED AGENT CARRIED THE VERB.
- *      (That agent, `pete1456pre`, was REMOVED at 20:57. Its instruction file
+ *      (That agent, `pete1456pre`, was REMOVED at 20:55:49, per
+ *      `removed.json`, which is the only machine record of it; a colleague
+ *      reported 20:57 from memory and I repeated it. Its instruction file
  *      survives, because a Kosmos removal is reversible by design and deletes
  *      nothing -- `bootout` plus `disable`, per `engine/remove.js`. So the
  *      READING stands and the loop below will keep counting that file: a
